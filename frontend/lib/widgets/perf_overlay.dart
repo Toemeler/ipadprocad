@@ -81,9 +81,23 @@ class _PerfOverlayState extends State<PerfOverlay> {
   }
 
   /// Scene cost that is NOT visible in a frame time but explains it.
+  ///
+  /// THROTTLED, because this walks every feature and sums every mesh's index
+  /// count. At the overlay's 5 Hz repaint on a 34 000-triangle scene that is
+  /// the instrument billing the app for being watched — precisely the failure
+  /// mode perf.dart's header warns about. The counts change only when the
+  /// model does, so recomputing them five times a second bought nothing.
+  /// Once per second, cached in between.
+  static const _sceneRecount = Duration(seconds: 1);
+  DateTime _lastScene = DateTime.fromMillisecondsSinceEpoch(0);
+  String _sceneCache = '';
+
   String _sceneLine() {
     final p = widget.app.currentPart;
     if (p == null) return '';
+    final now = DateTime.now();
+    if (now.difference(_lastScene) < _sceneRecount) return _sceneCache;
+    _lastScene = now;
     var tris = 0, solids = 0, feats = 0;
     for (final f in p.features) {
       feats++;
@@ -95,7 +109,7 @@ class _PerfOverlayState extends State<PerfOverlay> {
     Perf.gauge('features', feats);
     Perf.gauge('solids', solids);
     Perf.gauge('triangles', tris);
-    return 'f$feats s$solids ${_k(tris)}tri';
+    return _sceneCache = 'f$feats s$solids ${_k(tris)}tri';
   }
 
   String _sketchLine() {

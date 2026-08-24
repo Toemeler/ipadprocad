@@ -15,6 +15,7 @@
 //              only affects near/far, not projected size
 //   vertical world extent on screen = 2·halfH          // ⇒ ortho scale
 import Flutter
+import Foundation
 import UIKit
 import simd
 
@@ -58,16 +59,35 @@ final class RealityPartView: NSObject, FlutterPlatformView {
     func view() -> UIView { container }
 
     private func handle(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) {
+        // Answerable without a renderer, and deliberately BEFORE the guard: on
+        // iOS 14 there is no PartRenderer, and a drain that returned nothing
+        // there would look identical to a drain that found no work.
+        if call.method == "perfDrain" {
+            result(RvPerf.drain())
+            return
+        }
         guard #available(iOS 15.0, *), let r = renderer as? PartRenderer else {
             result(nil)
             return
         }
         let args = call.arguments as? [String: Any] ?? [:]
+        // Timed HERE rather than in Dart. `3d.push` on the Dart side measures
+        // how long the channel call takes to return, which on an asynchronous
+        // channel is not how long the scene took to apply — a Dart reading can
+        // be a fraction of a millisecond while RealityKit spends thirty on the
+        // same payload.
         switch call.method {
-        case "setScene":    r.setScene(args);    result(nil)
-        case "setOverlays": r.setOverlays(args); result(nil)
-        case "setCamera":   r.setCamera(args);   result(nil)
-        default:            result(FlutterMethodNotImplemented)
+        case "setScene":
+            RvPerf.time("rv.native.setScene") { r.setScene(args) }
+            result(nil)
+        case "setOverlays":
+            RvPerf.time("rv.native.setOverlays") { r.setOverlays(args) }
+            result(nil)
+        case "setCamera":
+            RvPerf.time("rv.native.setCamera") { r.setCamera(args) }
+            result(nil)
+        default:
+            result(FlutterMethodNotImplemented)
         }
     }
 
@@ -229,6 +249,21 @@ final class PartRenderer: NSObject {
         root.addChild(cameraEntity)
         root.addChild(sketchRoot)
         arView.scene.anchors.append(root)
+
+        // S8 — pay RealityKit's first-use cost here rather than on the first
+        // scene. See RealityWarmup in PartScene.swift for why ~417 of the
+        // 419.47 ms §7.2.2 attributes to the origin planes is not the planes.
+        //
+        // `async`, not inline: inline would simply move the stall into
+        // platform-view creation, where the user is equally waiting and the
+        // viewport has not even painted its background yet. One runloop turn
+        // later the surface is up, and the first setScene is still at least a
+        // Flutter frame away (viewport3d.dart pushes from the build that
+        // follows onCreated's post-frame setState).
+        //
+        // No capture of self: the warm-up owns nothing and must not keep this
+        // renderer alive if the view is torn down before it runs.
+        DispatchQueue.main.async { RealityWarmup.run() }
     }
 
     // MARK: - Camera
@@ -437,19 +472,32 @@ final class PartRenderer: NSObject {
     func setScene(_ a: [String: Any]) {
         sceneRadius = 15 // origin planes span ±10 mm (diagonal ≈ 14.1)
         edgeBuildHalfH = cam.halfH
-        rebuildSolids(a["solids"] as? [[String: Any]] ?? [])
-        rebuildPlanes(a["planes"] as? [[String: Any]] ?? [])
-        rebuildAxes(a["axes"] as? [[String: Any]] ?? [])
-        rebuildCenterPoint(a["cp"] as? [String: Any])
-        rebuildSketches(a["sketches"] as? [[String: Any]] ?? [])
-        applySketchAccents(hover: a["hoverSketch"] as? String,
-                           selected: Set(a["selSketch"] as? [String] ?? []))
-        rebuildEdgeAccents(from: a["edgeAccent"])
-        rebuildPreview(a["preview"] as? [String: Any])
+        // Phase by phase, for the same reason the 2D painter is: knowing a
+        // scene rebuild cost 40 ms is not actionable, knowing that 36 of them
+        // were mesh upload in rebuildSolids is.
+        RvPerf.time("rv.native.solids") {
+            rebuildSolids(a["solids"] as? [[String: Any]] ?? [])
+        }
+        RvPerf.time("rv.native.planes") {
+            rebuildPlanes(a["planes"] as? [[String: Any]] ?? [])
+            rebuildAxes(a["axes"] as? [[String: Any]] ?? [])
+            rebuildCenterPoint(a["cp"] as? [String: Any])
+        }
+        RvPerf.time("rv.native.sketches") {
+            rebuildSketches(a["sketches"] as? [[String: Any]] ?? [])
+            applySketchAccents(hover: a["hoverSketch"] as? String,
+                               selected: Set(a["selSketch"] as? [String] ?? []))
+        }
+        RvPerf.time("rv.native.accents") {
+            rebuildEdgeAccents(from: a["edgeAccent"])
+            rebuildPreview(a["preview"] as? [String: Any])
+        }
         cpState = nil
         builtHighlight = nil
-        rebuildHighlight(from: a["highlight"] as? [String: Any])
-        placeCamera()
+        RvPerf.time("rv.native.highlight") {
+            rebuildHighlight(from: a["highlight"] as? [String: Any])
+        }
+        RvPerf.time("rv.native.placeCamera") { placeCamera() }
     }
 
     // Light-touch: hover tints + visibility + face highlight, no mesh upload.

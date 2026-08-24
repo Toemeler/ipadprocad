@@ -342,31 +342,14 @@ class _Viewport2DState extends State<Viewport2D> with WidgetsBindingObserver {
   bool _bodyStarted = false; // deferred begin: true once the drag actually ran
 
   /// Applies object snapping to a world point and publishes the marker.
-  Offset _snapped(Offset w, {Offset? exclude, double px = _snapPx}) {
-    final app = widget.app;
-    final s = app.current;
-    if (s == null) return w;
-    // Hidden layers must not attract the cursor either. Snap carries no entity
-    // indices, so filtering the list here is safe (grips below are NOT filtered
-    // — those carry indices and must stay aligned with the geometry list).
-    final visible = [
-      for (final g in app.displayGeometry(s))
-        if (app.geoVisible(g)) g
-    ];
-    final sn = computeSnap(visible, w, px / app.zoom,
-        ref: app.toolPoints.isNotEmpty ? app.toolPoints.last : null,
-        exclude: exclude,
-        // Let the cursor snap to the points already placed by the active tool —
-        // above all the start point, so a spline/polyline can close on itself.
-        // M45: text bounding-box corners/midpoints are also snap targets, so
-        // dimensions and new geometry can measure to a text box.
-        extraPoints: [
-          ...app.toolPoints,
-          ...app.textSnapPoints(s, measure: measureSketchText),
-        ]);
-    app.setSnap(sn);
-    return sn?.pos ?? w;
-  }
+  ///
+  /// On the drag path this runs per pointer-move event, i.e. at the touch
+  /// sampling rate (up to 120 Hz on ProMotion), and it walks the whole visible
+  /// geometry list twice — once to filter, once inside [computeSnap]. That
+  /// makes it a per-frame cost that does not appear in `2d.paint` at all,
+  /// which is exactly the kind of blind spot M75 was about.
+  Offset _snapped(Offset w, {Offset? exclude, double px = _snapPx}) =>
+      snapViewportForBenchmark(widget.app, w, exclude: exclude, px: px);
 
   // ---- M44 helpers ----
   void _ensureImages() {
@@ -2003,9 +1986,27 @@ class _ViewportPainter extends CustomPainter {
       this.imgCache = const {},
       this.selImage});
 
+  /// Per-phase timing for [_paint]. ONE instance for the whole app, on
+  /// purpose: a painter is rebuilt on every frame, so a per-instance field
+  /// would allocate a Stopwatch and a name cache 120 times a second, and the
+  /// measuring apparatus would become part of what is being measured.
+  ///
+  /// Safe as shared state because `_paint` is not re-entrant and Flutter runs
+  /// it on the UI thread only. [PerfPhases.mark] ignores a call outside a
+  /// begin/end pair, so even a stray path cannot corrupt another frame.
+  static final PerfPhases _ph = PerfPhases('2d.paint');
+
   @override
-  void paint(Canvas canvas, Size size) =>
-      Perf.span('2d.paint', () => _paint(canvas, size));
+  void paint(Canvas canvas, Size size) => Perf.span('2d.paint', () {
+        _ph.begin();
+        try {
+          _paint(canvas, size);
+        } finally {
+          // `2d.paint.z` catches everything after the last mark. If it ever
+          // grows, a phase was added to _paint without a mark to close it.
+          _ph.end();
+        }
+      });
 
   void _paint(Canvas canvas, Size size) {
     // M80 — when a sketch is open inside a part, the LIVE RealityKit scene is
@@ -2032,6 +2033,7 @@ class _ViewportPainter extends CustomPainter {
         size.width / 2 + (x - app.pan.dx) * app.zoom,
         size.height / 2 - (y - app.pan.dy) * app.zoom);
 
+    _ph.mark('bg');
     // ---- M168 Slice Graphics: hatch the section faces ----------------------
     // The cut is made AT this sketch plane, so the exposed faces are exactly
     // coplanar with the sketch — which is why the hatch belongs here, in 2D,
@@ -2080,6 +2082,7 @@ class _ViewportPainter extends CustomPainter {
       }
     }
 
+    _ph.mark('slice');
     // ---- edit-mode reference overlay (grey axes + grey CP, pure display) ----
     if (app.inEditMode) {
       final grey = Paint()
@@ -2091,6 +2094,7 @@ class _ViewportPainter extends CustomPainter {
       canvas.drawCircle(o, 3.2, Paint()..color = T.rawGrey);
     }
 
+    _ph.mark('editRef');
     // ---- real entities from the QCAD document ----
     if (s != null) {
       final p = Paint()
@@ -2123,6 +2127,14 @@ class _ViewportPainter extends CustomPainter {
         ..color = T.refDim
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.2;
+      // S4 — the FIRST of this paint's displayGeometry calls, and the only one
+      // that solves. During a grip drag this is a live 25-iteration constraint
+      // solve; the tool preview and the constraints phase further down ask the
+      // same question about the same cursor position and are answered from the
+      // memo in displayGeometry. Do not "optimise" this into a field or hoist
+      // it out of the phase: the memo is keyed on the drag position, so the
+      // sharing already happens, and this call is what pins the geometry every
+      // entity, grip and halo in this phase is drawn from.
       final gs = app.displayGeometry(s);
       final hasAnalysis = app.analysis != null;
       // Inventor colours each entity by ITS OWN carrier (confirmed Inventor
@@ -2134,6 +2146,7 @@ class _ViewportPainter extends CustomPainter {
       bool segFull(int i, int seg) =>
           hasAnalysis && app.analysis!.carrierFixed(i, seg);
 
+      _ph.mark('ent.dofColour');
       // ---- pre-select / pick halo, painted UNDER the geometry so the DOF
       // colour above it stays readable. Inventor highlights whatever the next
       // click would grab, and keeps a tool's picks lit until it finishes.
@@ -2200,6 +2213,7 @@ class _ViewportPainter extends CustomPainter {
         }
       }
 
+      _ph.mark('ent.halo');
       // ---- Project tool: the 3D model edges you can pick (M76) ----------
       // Drawn only while the tool is active, so the sketch stays clean
       // otherwise. Inventor shows projectable edges the same way: faint until
@@ -2242,6 +2256,7 @@ class _ViewportPainter extends CustomPainter {
         }
       }
 
+      _ph.mark('ent.projectEdges');
       // M44: inserted images are an underlay — painted BELOW all geometry.
       for (final img in s.images) {
         final u = imgCache[img.file];
@@ -2304,6 +2319,7 @@ class _ViewportPainter extends CustomPainter {
         }
       }
 
+      _ph.mark('ent.images');
       for (var i = 0; i < gs.length; i++) {
         final reference = app.inEditMode && !app.geoEditable(gs[i]);
         final paint = app.selection.contains(i)
@@ -2499,6 +2515,7 @@ class _ViewportPainter extends CustomPainter {
       }
     }
 
+    _ph.mark('entities');
     // ---- gear tool ghost: the whole gear (or planetary set) at the cursor,
     // exactly what a tap would commit ----
     if (app.tool == Tool.gear &&
@@ -2553,6 +2570,7 @@ class _ViewportPainter extends CustomPainter {
       canvas.drawCircle(map(c.dx, c.dy), 3, Paint()..color = T.accent);
     }
 
+    _ph.mark('gearGhost');
     // ---- M87: raw freehand ink, while the pointer is still down ----
     // Thin and dimmer than committed geometry: this is ink, not yet a spline.
     // Once the pointer lifts, `freehand.drawing` goes false and the ordinary
@@ -2575,6 +2593,7 @@ class _ViewportPainter extends CustomPainter {
       canvas.drawPath(path, ink);
     }
 
+    _ph.mark('freehand');
     // ---- in-progress tool preview (blue, like the accent) ----
     if (app.tool != Tool.none &&
         (app.toolPoints.isNotEmpty || app.hoverWorld != null)) {
@@ -2633,6 +2652,7 @@ class _ViewportPainter extends CustomPainter {
       }
     }
 
+    _ph.mark('toolPreview');
     // ---- constraint glyphs + dimensions (M7) ----
     // Guarded: a painter exception aborts the whole frame, which would look
     // exactly like "the app draws nothing".
@@ -2726,6 +2746,12 @@ class _ViewportPainter extends CustomPainter {
       // like Inventor hides them when the sketch is not being edited.
       if (!app.inEditMode) app.dimLabelRects.clear();
       if (s != null && app.inEditMode) {
+        // S4 — the SAME list the entities above were drawn from, not a second
+        // solve. It used to be one: displayGeometry warm-starts from the frame
+        // it last returned, so this call ran 25 more iterations on that result
+        // and every glyph below was placed against geometry one refinement
+        // ahead of the entity drawn under it. Measured at 60 painted frames /
+        // 120 solves (PERFORMANCE_PROFILE.md §5.2); now 60 / 60.
         final gs2 = app.displayGeometry(s);
         if (app.showConstraints) {
           final seen = <String, int>{};
@@ -2782,6 +2808,7 @@ class _ViewportPainter extends CustomPainter {
       }
     }
 
+    _ph.mark('constraints');
     // ---- modify-tool ghost preview (dashed look via lighter blue) ----
     if (app.hoverWorld != null && s != null) {
       final ghost = app.modifyGhost(s, app.hoverWorld!);
@@ -2796,6 +2823,7 @@ class _ViewportPainter extends CustomPainter {
       }
     }
 
+    _ph.mark('modifyGhost');
     // ---- pattern preview (M35): the pending copies, light blue ----
     if (app.pattern != null && s != null) {
       final ghost = app.patternPreview();
@@ -2811,6 +2839,7 @@ class _ViewportPainter extends CustomPainter {
       }
     }
 
+    _ph.mark('pattern');
     // ---- snap marker + alignment guides (Inventor green) ----
     final sn = app.snap;
     if (sn != null && (app.tool != Tool.none || app.dragGrip != null)) {
@@ -2865,6 +2894,7 @@ class _ViewportPainter extends CustomPainter {
       }
     }
 
+    _ph.mark('snap');
     // ---- box select rectangle (window = solid blue, crossing = dashed
     // green — exactly Inventor's two modes) ----
     if (app.boxStart != null && app.boxEnd != null) {
@@ -2890,6 +2920,7 @@ class _ViewportPainter extends CustomPainter {
       }
     }
 
+    _ph.mark('boxSelect');
     // ---- cursor constraint hints (Inventor shows the symbol on the cursor
     // for every constraint it is about to apply automatically) ----
     if (s != null && app.hoverWorld != null) {
@@ -2919,6 +2950,7 @@ class _ViewportPainter extends CustomPainter {
     // overlay, in the number the user cannot act on. One status line is
     // enough, and it is the one phrased as an instruction.
 
+    _ph.mark('cursorHints');
     // ---- transient notice (over-constrained warnings) ----
     if (app.message != null) {
       final tp = TextPainter(
@@ -2946,6 +2978,7 @@ class _ViewportPainter extends CustomPainter {
       tp.paint(canvas, box.topLeft + const Offset(12, 6));
     }
 
+    _ph.mark('notice');
     // ---- projected center point (YELLOW, on top, interactive) ----
     if (app.inEditMode) {
       final o = map(0, 0);
@@ -3461,6 +3494,66 @@ class _PalmAwareScale extends ScaleGestureRecognizer {
     if (event.kind == PointerDeviceKind.touch && rejectTouch()) return false;
     return super.isPointerAllowed(event);
   }
+}
+
+/// Paints the 2D viewport into [canvas] without a widget tree.
+///
+/// The perf suite needs the real painter, not an approximation of it: the
+/// device session showed `2d.paint.ent.dofColour` alone at 85% of all painting,
+/// and a reimplementation would measure the reimplementation. This is the same
+/// [CustomPainter] the app uses, driven directly, so every `2d.paint.*` phase
+/// records exactly as it does on screen.
+///
+/// Deliberately the ONLY seam into the private painter. Callers hand in a
+/// `PictureRecorder`-backed canvas; nothing here touches the widget layer, so
+/// it runs from a unit test and from a device button alike.
+void paintViewportForBenchmark(Canvas canvas, Size size, AppState app) {
+  _ViewportPainter(app: app, projCpSelected: false).paint(canvas, size);
+}
+
+/// Snaps [w] against [app]'s visible geometry and publishes the marker — the
+/// whole pointer-move snap path, with no widget state involved.
+///
+/// This IS the implementation: `_snapped` delegates here rather than the other
+/// way round, and there is no second copy for benchmarking. That direction is
+/// the point. The body used to live inside `_Viewport2DState`, which made
+/// snapping unreachable from anything but a live gesture: the M211 suite's
+/// `ui.snapHover` scenario drove `setHover` and therefore recorded
+/// `2d.pickEntity` and nothing else, so `2d.snap` never appeared in a single
+/// report and the phase read as free. Writing a benchmark-only copy would have
+/// produced a number for the copy; moving the body out produces a number for
+/// the app.
+///
+/// It runs per pointer-move event — up to 120 Hz on ProMotion — and walks the
+/// visible geometry list twice, once to filter and once inside [computeSnap],
+/// so it is a per-frame cost that never shows up anywhere in `2d.paint`.
+Offset snapViewportForBenchmark(AppState app, Offset w,
+        {Offset? exclude, double px = _Viewport2DState._snapPx}) =>
+    Perf.span('2d.snap', () => _snapAt(app, w, exclude: exclude, px: px));
+
+Offset _snapAt(AppState app, Offset w, {Offset? exclude, required double px}) {
+  final s = app.current;
+  if (s == null) return w;
+  // Hidden layers must not attract the cursor either. Snap carries no entity
+  // indices, so filtering the list here is safe (grips are NOT filtered —
+  // those carry indices and must stay aligned with the geometry list).
+  final visible = [
+    for (final g in app.displayGeometry(s))
+      if (app.geoVisible(g)) g
+  ];
+  final sn = computeSnap(visible, w, px / app.zoom,
+      ref: app.toolPoints.isNotEmpty ? app.toolPoints.last : null,
+      exclude: exclude,
+      // Let the cursor snap to the points already placed by the active tool —
+      // above all the start point, so a spline/polyline can close on itself.
+      // M45: text bounding-box corners/midpoints are also snap targets, so
+      // dimensions and new geometry can measure to a text box.
+      extraPoints: [
+        ...app.toolPoints,
+        ...app.textSnapPoints(s, measure: measureSketchText),
+      ]);
+  app.setSnap(sn);
+  return sn?.pos ?? w;
 }
 
 /// M222 — parallel hatch lines at [deg] across the whole canvas, [step] px

@@ -2703,6 +2703,23 @@ class SweepFeature extends PartFeature {
   double taperDeg, twistDeg;
   String exprTaper, exprTwist;
 
+  /// S11 — the KERNEL ARGUMENTS [solid] was last swept from. Runtime only,
+  /// never serialised.
+  ///
+  /// [PartFeature.builtSig] is the chain-aware key, and only
+  /// [recomputeAllFeatures] maintains it: a feature built through the
+  /// single-feature entry point [recomputeFeature] leaves it null, so the next
+  /// fold always rebuilds. On a sweep that costs whatever the sweep costs, and in
+  /// the field capture that was 103 seconds — the third of three identical
+  /// runs.
+  ///
+  /// This key is narrower on purpose. It is the resolved argument list handed
+  /// to the kernel, so it says exactly the thing the guard needs: identical
+  /// arguments, identical output. It deliberately does NOT include the boolean
+  /// base, because [_recomputeSweep] does not take one — the fold happens
+  /// outside this function and is unaffected by reusing the swept solid.
+  String? sweptFrom;
+
   SweepFeature({
     required super.name,
     required super.bodyName,
@@ -2728,6 +2745,15 @@ class SweepFeature extends PartFeature {
   String get kind => 'sweep';
   @override
   String get typeLabel => 'Sweep';
+
+  /// Clears [sweptFrom] with the solid it described. Without this a disposed
+  /// solid would still look "already swept" and the guard would return true
+  /// with nothing built.
+  @override
+  void disposeSolid() {
+    sweptFrom = null;
+    super.disposeSolid();
+  }
 
   @override
   String ownSig() => 'sw|$sketchName|$orientation,$taperDeg,$twistDeg|'
@@ -4741,36 +4767,52 @@ List<FaceSurface> faceSurfaces(OcctMeshData m) {
   }
   final n = m.faceCount;
   if (n <= 0) return const [];
-  final lo = List<Vec3>.filled(n, const Vec3(1e30, 1e30, 1e30));
-  final hi = List<Vec3>.filled(n, const Vec3(-1e30, -1e30, -1e30));
-  final cx = List<Vec3>.filled(n, Vec3.zero);
-  final ar = List<double>.filled(n, 0);
-  for (var t = 0; t + 2 < m.indices.length; t += 3) {
-    final f = m.triFaces[t ~/ 3];
+  // Flat accumulators rather than lists of Vec3. This loop runs once per
+  // triangle of every mesh on every rebuild, and the Vec3 form allocated
+  // roughly sixteen short-lived objects per triangle — about 23 000 of them
+  // for the 1436-triangle body of §8.1. The arithmetic below is the same
+  // arithmetic in the same order, so the values are bit-identical to the
+  // version this replaces; only the allocations are gone.
+  final lo = Float64List(n * 3)..fillRange(0, n * 3, 1e30);
+  final hi = Float64List(n * 3)..fillRange(0, n * 3, -1e30);
+  final cen = Float64List(n * 3);
+  final ar = Float64List(n);
+  final pos = m.positions, idx = m.indices, tri = m.triFaces;
+  for (var t = 0; t + 2 < idx.length; t += 3) {
+    final f = tri[t ~/ 3];
     if (f < 0 || f >= n) continue;
-    final i0 = m.indices[t] * 3,
-        i1 = m.indices[t + 1] * 3,
-        i2 = m.indices[t + 2] * 3;
-    final a = Vec3(m.positions[i0], m.positions[i0 + 1], m.positions[i0 + 2]);
-    final b = Vec3(m.positions[i1], m.positions[i1 + 1], m.positions[i1 + 2]);
-    final c = Vec3(m.positions[i2], m.positions[i2 + 1], m.positions[i2 + 2]);
-    final w = (b - a).cross(c - a).length * 0.5;
+    final i0 = idx[t] * 3, i1 = idx[t + 1] * 3, i2 = idx[t + 2] * 3;
+    final ax = pos[i0], ay = pos[i0 + 1], az = pos[i0 + 2];
+    final bx = pos[i1], by = pos[i1 + 1], bz = pos[i1 + 2];
+    final cx = pos[i2], cy = pos[i2 + 1], cz = pos[i2 + 2];
+    // (b - a) cross (c - a), half its length: the triangle's area.
+    final ux = bx - ax, uy = by - ay, uz = bz - az;
+    final vx = cx - ax, vy = cy - ay, vz = cz - az;
+    final nx = uy * vz - uz * vy;
+    final ny = uz * vx - ux * vz;
+    final nz = ux * vy - uy * vx;
+    final w = math.sqrt(nx * nx + ny * ny + nz * nz) * 0.5;
     // Area-weighted, like planarFaceRecs: a face tessellated into one big
     // triangle and twenty slivers still reports its true centre.
-    cx[f] = cx[f] + (a + b + c) * (w / 3);
+    final w3 = w / 3;
+    final o = f * 3;
+    cen[o] = cen[o] + (ax + bx + cx) * w3;
+    cen[o + 1] = cen[o + 1] + (ay + by + cy) * w3;
+    cen[o + 2] = cen[o + 2] + (az + bz + cz) * w3;
     ar[f] += w;
-    for (final q in [a, b, c]) {
-      lo[f] = Vec3(math.min(lo[f].x, q.x), math.min(lo[f].y, q.y),
-          math.min(lo[f].z, q.z));
-      hi[f] = Vec3(math.max(hi[f].x, q.x), math.max(hi[f].y, q.y),
-          math.max(hi[f].z, q.z));
-    }
+    lo[o] = math.min(math.min(math.min(lo[o], ax), bx), cx);
+    lo[o + 1] = math.min(math.min(math.min(lo[o + 1], ay), by), cy);
+    lo[o + 2] = math.min(math.min(math.min(lo[o + 2], az), bz), cz);
+    hi[o] = math.max(math.max(math.max(hi[o], ax), bx), cx);
+    hi[o + 1] = math.max(math.max(math.max(hi[o + 1], ay), by), cy);
+    hi[o + 2] = math.max(math.max(math.max(hi[o + 2], az), bz), cz);
   }
   final out = <FaceSurface>[];
   for (var f = 0; f < n; f++) {
     if (ar[f] <= 0) continue;
     final r = 15 * f;
     if (r + 15 > m.faceInfos.length) break;
+    final o = f * 3;
     out.add(FaceSurface(
       f,
       m.faceInfos[r].round(),
@@ -4778,9 +4820,9 @@ List<FaceSurface> faceSurfaces(OcctMeshData m) {
       Vec3(m.faceInfos[r + 4], m.faceInfos[r + 5], m.faceInfos[r + 6])
           .normalized(),
       m.faceInfos[r + 10],
-      lo[f],
-      hi[f],
-      cx[f] * (1 / ar[f]),
+      Vec3(lo[o], lo[o + 1], lo[o + 2]),
+      Vec3(hi[o], hi[o + 1], hi[o + 2]),
+      Vec3(cen[o], cen[o + 1], cen[o + 2]) * (1 / ar[f]),
       ar[f],
     ));
   }
@@ -4793,18 +4835,170 @@ List<FaceSurface> faceSurfaces(OcctMeshData m) {
 /// 99% of the time and admits the rest beats one that is silently wrong.
 const double kFaceMatchTol = 0.05;
 
+/// Cell width of the direction index [newSurfacesOf] builds over its base
+/// list, and the number of cells the key's range needs at that width.
+///
+/// [FaceSurface.sameSurfaceAs] can only answer true when the two faces have
+/// the same `type`, and for a plane (0) or a cylinder (1) only when their axes
+/// are parallel to within `|d·o.d| >= 1 - 1e-6`. Both are NECESSARY conditions,
+/// so an index built on them and followed by the original predicate returns
+/// the identical boolean — it only skips pairs that could never have matched.
+///
+/// The key is `|d.x| + 2|d.y| + 4|d.z|`. Absolute values, because the match
+/// deliberately ignores which way a normal points; componentwise `|.|` is
+/// continuous, where flipping a normal into a canonical hemisphere is not and
+/// would drop two nearly-parallel faces into distant cells.
+///
+/// Why probing one cell either side cannot miss a match: for unit u, v with
+/// `|u·v| >= 1 - 1e-6`, and s = sign(u·v),
+///
+///     |u - s.v|^2 = |u|^2 + |v|^2 - 2|u·v| <= 2 - 2(1 - 1e-6) = 2e-6
+///     |u - s.v|   <= 1.4143e-3
+///
+/// hence `||u_i| - |v_i|| <= 1.4143e-3` for each component, hence by
+/// Cauchy-Schwarz
+///
+///     |key(u) - key(v)| <= sqrt(1 + 4 + 16) * 1.4143e-3 = 6.4808e-3
+///
+/// A cell at least that wide therefore holds any matching pair in the same
+/// cell or in one of its neighbours. 7e-3 leaves 8 % of margin over the bound.
+const double _kDirCell = 7e-3;
+
+/// ceil(sqrt(21) / [_kDirCell]) — sqrt(21) = 4.5826 is the key's maximum.
+const int _kDirCells = 655;
+
+/// Below this many base faces the index costs more to build than the scan it
+/// replaces, so [newSurfacesOf] keeps the straight loop. The answer is the
+/// same either way; only the arithmetic that produces it differs.
+const int _kDirIndexMin = 64;
+
+double _dirKey(Vec3 d) => d.x.abs() + 2 * d.y.abs() + 4 * d.z.abs();
+
+/// Whether [d] is a unit vector, which the bound above assumes.
+///
+/// `Vec3.normalized()` hands back its input unchanged when the length is below
+/// 1e-12, so a face with a degenerate normal reaches here un-normalised. Such
+/// a face can never match anything (the dot product against any unit vector is
+/// far below the threshold), but rather than rely on that it is kept out of
+/// the index and scanned every time. NaN fails these comparisons too, which is
+/// the wanted answer for the same reason.
+bool _isUnitDir(Vec3 d) {
+  final q = d.dot(d);
+  return q > 1 - 1e-9 && q < 1 + 1e-9;
+}
+
+/// The cell a face belongs in, or -1 for one the index cannot place: a cone,
+/// sphere, torus or spline (type >= 2), which matches by bounding box and so
+/// has no direction condition at all, or a degenerate normal.
+int _dirCellOf(FaceSurface f) {
+  if (f.type != 0 && f.type != 1) return -1;
+  if (!_isUnitDir(f.d)) return -1;
+  var q = (_dirKey(f.d) / _kDirCell).floor();
+  if (q < 0) q = 0;
+  if (q >= _kDirCells) q = _kDirCells - 1;
+  return (f.type == 0 ? 0 : _kDirCells) + q;
+}
+
+/// A base face list arranged so that [anyMatch] only has to test the faces
+/// that could possibly match — a counting sort into [_kDirCells] cells per
+/// matchable type, plus a tail of faces the index cannot place.
+///
+/// Purely an accelerator: [anyMatch] returns exactly what
+/// `base.any((b) => b.sameSurfaceAs(f, tol))` returns, for every input. The
+/// predicate has no side effects, so short-circuiting on a different element
+/// of the list cannot change the answer.
+class _DirIndex {
+  _DirIndex._(this._base, this._cellStart, this._order, this._loose);
+
+  final List<FaceSurface> _base;
+  final Int32List _cellStart; // 2 * _kDirCells + 1 entries: cell c is
+  final Int32List _order; //     _order[_cellStart[c] .. _cellStart[c+1])
+  final List<FaceSurface> _loose;
+
+  factory _DirIndex.of(List<FaceSurface> base) {
+    final n = base.length;
+    final start = Int32List(2 * _kDirCells + 1);
+    final cell = Int32List(n);
+    final loose = <FaceSurface>[];
+    var placed = 0;
+    for (var i = 0; i < n; i++) {
+      final c = _dirCellOf(base[i]);
+      cell[i] = c;
+      if (c < 0) {
+        loose.add(base[i]);
+        continue;
+      }
+      start[c + 1]++;
+      placed++;
+    }
+    for (var c = 0; c < 2 * _kDirCells; c++) {
+      start[c + 1] += start[c];
+    }
+    final order = Int32List(placed);
+    final cursor = Int32List.fromList(start);
+    for (var i = 0; i < n; i++) {
+      final c = cell[i];
+      if (c >= 0) order[cursor[c]++] = i;
+    }
+    return _DirIndex._(base, start, order, loose);
+  }
+
+  bool anyMatch(FaceSurface f, double tol) {
+    // The tail first: it holds every base face the cells cannot speak for.
+    for (final b in _loose) {
+      if (b.sameSurfaceAs(f, tol)) return true;
+    }
+    final c = _dirCellOf(f);
+    if (c < 0) {
+      // A query the index cannot place. Its own type could only match faces
+      // already in the tail, and a degenerate normal matches nothing at all —
+      // but scanning everything is what makes the answer provably the same,
+      // and this path is reached only by degenerate or non-analytic faces.
+      for (final b in _base) {
+        if (b.sameSurfaceAs(f, tol)) return true;
+      }
+      return false;
+    }
+    // The three cells are adjacent in `_order`, so one walk covers them. The
+    // clamp keeps the probe inside this type's own block of cells.
+    final tb = f.type == 0 ? 0 : _kDirCells;
+    final q = c - tb;
+    final from = tb + (q > 0 ? q - 1 : 0);
+    final to = tb + (q < _kDirCells - 1 ? q + 1 : _kDirCells - 1);
+    for (var k = _cellStart[from]; k < _cellStart[to + 1]; k++) {
+      if (_base[_order[k]].sameSurfaceAs(f, tol)) return true;
+    }
+    return false;
+  }
+}
+
 /// The faces of [result] that [base] did not already have — what a
 /// body-modifying feature (a fillet, a pattern) actually ADDED.
 ///
 /// Without this a fillet would claim every face of the body it modified,
 /// which is worse than claiming none: clicking the front face of a block
 /// would select the fillet at the far corner.
+///
+/// Measured quadratic — k = 1.96, R^2 = 1.0000, face count x13.9 giving time
+/// x144 (§8.1) — because the plain form asks every base face about every
+/// result face. [_DirIndex] cuts the pairs actually tested by about 22x on the
+/// profile's fixture without changing a single answer; see its doc comment for
+/// why the filter cannot drop a match. It does NOT change the exponent, which
+/// stays at 2: any scalar key on the unit sphere has stationary points, and
+/// cell occupancy near one grows as sqrt(n).
 List<FaceSurface> newSurfacesOf(
     List<FaceSurface> result, List<FaceSurface> base) {
   if (base.isEmpty) return result;
+  if (base.length < _kDirIndexMin) {
+    return [
+      for (final f in result)
+        if (!base.any((b) => b.sameSurfaceAs(f, kFaceMatchTol))) f
+    ];
+  }
+  final index = _DirIndex.of(base);
   return [
     for (final f in result)
-      if (!base.any((b) => b.sameSurfaceAs(f, kFaceMatchTol))) f
+      if (!index.anyMatch(f, kFaceMatchTol)) f
   ];
 }
 
@@ -5907,7 +6101,10 @@ abstract class PartKernel {
   /// point), placing the profile with [mat34].
   KernelSolid? sweep(List<List<List<Offset>>> groups, List<double> mat34,
           List<double> pathPts,
-          {int orientation = 0, double taperDeg = 0, double twistDeg = 0}) =>
+          {int orientation = 0,
+          double taperDeg = 0,
+          double twistDeg = 0,
+          int pathMode = SweepPathMode.auto}) =>
       null;
 
   /// Lofts through [sections] (one closed loop each) placed by [mats].
@@ -6331,7 +6528,10 @@ class OcctPartKernel implements PartKernel {
   @override
   KernelSolid? sweep(List<List<List<Offset>>> groups, List<double> mat34,
       List<double> pathPts,
-      {int orientation = 0, double taperDeg = 0, double twistDeg = 0}) {
+      {int orientation = 0,
+      double taperDeg = 0,
+      double twistDeg = 0,
+      int pathMode = SweepPathMode.auto}) {
     final ffi = _ffi;
     if (ffi == null) {
       _err = 'no 3D kernel linked (occt_* symbols missing)';
@@ -6342,7 +6542,10 @@ class OcctPartKernel implements PartKernel {
       for (final g in groups) {
         final loops = [for (final loop in g) encodeLoopSegs(arcFitLoop(loop))];
         final part = ffi.sweepProfile(loops, mat34, pathPts,
-            orientation: orientation, taperDeg: taperDeg, twistDeg: twistDeg);
+            orientation: orientation,
+            taperDeg: taperDeg,
+            twistDeg: twistDeg,
+            pathMode: pathMode);
         if (part == null) {
           _err = ffi.lastError();
           acc?.dispose();
@@ -6834,8 +7037,16 @@ class OcctPartKernel implements PartKernel {
 /// case) builds the feature on its own sketch plane.
 bool recomputeFeature(PartModel part, PartFeature f, PartKernel kernel,
     {KernelSolid? base, OccurrenceAt? at}) {
+  // Two spans, one nested inside the other. The aggregate answers "what does a
+  // feature rebuild cost"; the per-KIND one answers "which kind", and that is
+  // the question an optimisation actually needs — an extrude and a loft on the
+  // same part differ by more than an order of magnitude, and a single average
+  // over both is a number that describes neither (M75, again).
   final ok = Perf.span(
-      'kernel.feature', () => _recomputeFeature(part, f, kernel, base, at));
+      'kernel.feature',
+      () => Perf.span('kernel.feature.${f.kind}',
+          () => _recomputeFeature(part, f, kernel, base, at)));
+  Perf.count('kernel.feature.${ok ? 'ok' : 'fail'}');
   // M164 — every feature rebuild, named, with its outcome. A part that comes
   // back different after a reopen is a SEQUENCE of these going wrong, and
   // until now the log showed only the ones that happened to toast.
@@ -6873,6 +7084,23 @@ bool _recomputeFeature(PartModel part, PartFeature f, PartKernel kernel,
   // 'cannot break' guarantees live elsewhere — visibility never reaches the
   // fold, a failure poisons its own body instead of spawning a phantom, and
   // a failed pass is not settled/projection-synced or treated as good.
+  // S11 — the SWEEP decides for itself whether its solid must be thrown away.
+  //
+  // This unconditional dispose is why the field's sweep ran three times. Every
+  // path into a rebuild lands here and destroys the result before the feature
+  // that owns it is ever asked whether the inputs changed, so a guard further
+  // down could never fire — it would always be looking at a null solid. Only
+  // recomputeAllFeatures escapes it, and only because its own builtSig check
+  // sits BEFORE the call.
+  //
+  // Scoped to sweep deliberately. Every other kind keeps the exact behaviour
+  // it had, and [_recomputeSweep] disposes on every path that does not reuse,
+  // so the M182 contract above ("a failing recompute leaves the feature SICK")
+  // holds unchanged for it too.
+  if (f is SweepFeature) {
+    f.computeError = null;
+    return _recomputeSweep(part, f, kernel);
+  }
   f.disposeSolid();
   f.computeError = null;
   if (f is BodyModifyFeature) return _recomputeBodyModify(f, kernel, base);
@@ -6885,7 +7113,6 @@ bool _recomputeFeature(PartModel part, PartFeature f, PartKernel kernel,
   if (f is SplitFeature) return _recomputeSplit(part, f, kernel, base);
   if (f is ExtrudeFeature) return _recomputeExtrude(part, f, kernel, base, at);
   if (f is RevolveFeature) return _recomputeRevolve(part, f, kernel, base, at);
-  if (f is SweepFeature) return _recomputeSweep(part, f, kernel);
   if (f is LoftFeature) return _recomputeLoft(part, f, kernel);
   if (f is CoilFeature) return _recomputeCoil(part, f, kernel);
   f.computeError = 'unknown feature kind "${f.kind}"';
@@ -7162,11 +7389,58 @@ bool _recomputeRevolve(PartModel part, RevolveFeature f, PartKernel kernel,
 /// if it no longer fits, every curve in the sketch is scored so a path
 /// survives having geometry inserted before it.
 (List<double>?, String?) resolvePath(PartModel part, CurveSel sel) {
+  final (pts, _, err) = resolvePathWithMode(part, sel);
+  return (pts, err);
+}
+
+/// S14 — which OCCT path mode the resolved curve calls for.
+///
+/// `sketchCurve` is a four-way switch and every branch knows exactly what it
+/// produced, so the classification the shim used to infer from a 5.625° joint
+/// threshold is free here — and better in both directions. An arc is smooth
+/// WHATEVER its joint angle, so a coarse arc no longer depends on staying
+/// under a threshold; a polyline vertex is a design feature HOWEVER shallow,
+/// so a hand-drawn 5° bend stops being rounded off.
+///
+/// The flattened-spline row stays on the heuristic deliberately.
+/// `splineCurveFor` routes `Geo.gearTag` to `gearCurve`, and an involute gear
+/// outline flattened into a polyline has a genuine sharp corner at every
+/// tooth. Declaring it smooth would round off the teeth of a part whose whole
+/// purpose is its teeth, so it goes as `auto` and the shim's threshold
+/// arbitrates.
+int sweepPathModeOf(Geo g) {
+  if (g.type == Geo.polyline) {
+    // A drawn polyline: every vertex is one somebody placed.
+    if (g.spline == Geo.straight) return SweepPathMode.polyline;
+    // Flattened to a tolerance, and possibly over a real cusp.
+    return SweepPathMode.auto;
+  }
+  if (g.type == Geo.arc || g.type == Geo.circle) {
+    // sampleEntity splits the sweep into 64 EQUAL steps whatever its angle,
+    // so every joint here is an artefact of that and nothing else.
+    return SweepPathMode.smooth;
+  }
+  // A line is two points, which is one straight edge in every mode; anything
+  // else is not a shape this switch has been reasoned about, so it keeps the
+  // behaviour it had.
+  return g.type == Geo.line ? SweepPathMode.polyline : SweepPathMode.auto;
+}
+
+/// As [resolvePath], and also says what KIND of curve the points came from.
+///
+/// Kept separate rather than widening [resolvePath]'s tuple: its two other
+/// callers are the pattern-along-path features, which do not sweep anything
+/// and have no use for a mode.
+(List<double>?, int, String?) resolvePathWithMode(
+    PartModel part, CurveSel sel) {
   final cs = part.sketchByName(sel.sketchName);
-  if (cs == null) return (null, 'the path sketch no longer exists');
+  if (cs == null) {
+    return (null, SweepPathMode.auto, 'the path sketch no longer exists');
+  }
   final frame = sketchFrameOf(cs);
   final geo = cs.model.geometry;
   List<Offset>? best;
+  var bestMode = SweepPathMode.auto;
   var bestScore = double.infinity;
   for (var i = 0; i < geo.length; i++) {
     final pts = sketchCurve(geo[i]);
@@ -7177,12 +7451,19 @@ bool _recomputeRevolve(PartModel part, RevolveFeature f, PartKernel kernel,
     if (sc < bestScore) {
       bestScore = sc;
       best = pts;
+      // Read from the entity that WON, not from the hinted index: the path is
+      // re-matched by fingerprint, so the two can differ after an edit.
+      bestMode = sweepPathModeOf(geo[i]);
       sel.geoIndex = i;
     }
   }
-  if (best == null) return (null, 'the path curve could not be found');
+  if (best == null) {
+    return (null, SweepPathMode.auto, 'the path curve could not be found');
+  }
   final tol = 0.25 * (sel.length.abs() + 1.0);
-  if (bestScore > tol) return (null, 'the path curve has changed too much');
+  if (bestScore > tol) {
+    return (null, SweepPathMode.auto, 'the path curve has changed too much');
+  }
   sel.x0 = best.first.dx;
   sel.y0 = best.first.dy;
   sel.x1 = best.last.dx;
@@ -7192,35 +7473,113 @@ bool _recomputeRevolve(PartModel part, RevolveFeature f, PartKernel kernel,
     final w = frame.toWorld(p);
     out..add(w.x)..add(w.y)..add(w.z);
   }
-  return (out, null);
+  return (out, bestMode, null);
+}
+
+/// S11 — the exact argument list [_recomputeSweep] hands the kernel.
+///
+/// Every value the swept solid depends on and nothing else. Written as digits
+/// rather than hashed: a hash collision here would silently reuse the WRONG
+/// solid, and a sweep is exactly the operation whose result nobody would look
+/// at closely enough to notice. Full precision (a double's `toString()`
+/// round-trips exactly in Dart), so two profiles differing in the last bit are
+/// two different keys.
+///
+/// The cost is bounded by the profile size — the field's 1218-segment loop
+/// produces a key of some tens of kilobytes, built in milliseconds, against a
+/// sweep that took 102 seconds.
+String _sweepArgSig(List<List<List<Offset>>> groups, List<double> mat34,
+    List<double> pathPts, SweepFeature f, int pathMode) {
+  final b = StringBuffer()
+    ..write(f.orientation)
+    ..write(',')
+    ..write(f.taperDeg)
+    ..write(',')
+    ..write(f.twistDeg)
+    ..write(',')
+    // S14 — the PATH MODE is an argument to the sweep, so it belongs in the
+    // key. Two sketch entities can resolve to the same points and want
+    // opposite treatment at every joint (an arc that was traced over, a
+    // polyline drawn through an arc's samples), and without this the second
+    // one would be served the first one's solid.
+    ..write(pathMode)
+    ..write('|');
+  for (final m in mat34) {
+    b..write(m)..write(' ');
+  }
+  b.write('|');
+  for (final p in pathPts) {
+    b..write(p)..write(' ');
+  }
+  for (final g in groups) {
+    b.write('|G');
+    for (final loop in g) {
+      b.write(';');
+      for (final q in loop) {
+        b..write(q.dx)..write(',')..write(q.dy)..write(' ');
+      }
+    }
+  }
+  return b.toString();
 }
 
 bool _recomputeSweep(PartModel part, SweepFeature f, PartKernel kernel) {
   final (groups, frame, err) =
       resolveProfiles(part, f.sketchName, f.profiles);
   if (groups == null || frame == null) {
+    f.disposeSolid();
     f.computeError = err ?? 'profile resolution failed';
     return false;
   }
   final sel = f.path;
   if (sel == null) {
+    f.disposeSolid();
     f.computeError = 'no path selected';
     return false;
   }
-  final (pts, perr) = resolvePath(part, sel);
+  final (pts, pathMode, perr) = resolvePathWithMode(part, sel);
   if (pts == null) {
+    f.disposeSolid();
     f.computeError = perr ?? 'path resolution failed';
     return false;
   }
-  final solid = kernel.sweep(groups, frame.mat34(0), pts,
+  final mat34 = frame.mat34(0);
+  // S11 — THE REBUILD GUARD.
+  //
+  // A user swept a 1218-segment profile and the same sweep ran three times,
+  // identically: the preview, the commit, and recomputeAllFeatures folding the
+  // part afterwards. All three logged tris=91646 and together they were 310.75
+  // seconds, 53 % of the session. This removes the third.
+  //
+  // The claim it rests on is narrow and checkable: the swept solid is a pure
+  // function of these arguments. resolveProfiles and resolvePath have just
+  // re-read the sketches, so a changed profile, a moved path, a different
+  // plane, orientation, taper or twist all produce a different key and rebuild
+  // as before. The boolean base is absent from the key because it is absent
+  // from the computation — the fold that consumes this solid runs outside.
+  //
+  // Resolution still happens on every call. It is the cheap half (reading two
+  // sketches) and it is what makes the key trustworthy; skipping it would mean
+  // guarding on the feature's parameters while the geometry moved underneath.
+  final sig = _sweepArgSig(groups, mat34, pts, f, pathMode);
+  if (f.solid != null && f.sweptFrom == sig) {
+    Perf.count('kernel.sweep.reuse');
+    return true;
+  }
+  // Not reusable: the old solid goes now, exactly as the shared entry point
+  // would have done, and before the new one is built so the two never coexist.
+  f.disposeSolid();
+  final solid = kernel.sweep(groups, mat34, pts,
       orientation: f.orientation,
       taperDeg: f.taperDeg,
-      twistDeg: f.twistDeg);
+      twistDeg: f.twistDeg,
+      pathMode: pathMode);
   if (solid == null) {
     f.computeError = kernel.lastError;
     return false;
   }
   f.solid = solid;
+  f.sweptFrom = sig;
   return true;
 }
 
@@ -8517,6 +8876,20 @@ String featureInputSig(PartModel part, PartFeature f) {
 /// whose feature moves the very face it is anchored to — terminates with a
 /// complaint instead of hanging the app.
 bool recomputeAllFeatures(PartModel part, PartKernel kernel,
+        {bool force = false}) =>
+    Perf.span('part.rebuildAll', () {
+      Perf.gauge('part.features', part.features.length);
+      return _recomputeAllFeatures(part, kernel, force: force);
+    });
+
+/// The whole-part rebuild, wrapped above so its cost is one number.
+///
+/// This is what the user waits for after editing a parameter, and it was
+/// unmeasured as a WHOLE: `kernel.feature` gave the per-feature cost, but a
+/// part rebuilds every feature and may run the loop again when a face-anchored
+/// sketch moves. `part.rebuildAll` is the wall the user hits; the `passes`
+/// counter says whether a second pass is what made it long.
+bool _recomputeAllFeatures(PartModel part, PartKernel kernel,
     {bool force = false}) {
   var ok = _recomputeAllFeaturesOnce(part, kernel, force: force);
   if (!ok) {
@@ -8557,6 +8930,11 @@ const int _kMaxFaceSettlePasses = 3;
 
 bool _recomputeAllFeaturesOnce(PartModel part, PartKernel kernel,
     {bool force = false}) {
+  // Counted HERE, not in the caller: the caller runs this once and then again
+  // for every pass a moved face-anchored sketch forces. Counting the caller
+  // would report 1 for a rebuild that actually ran three times, which is the
+  // opposite of what the counter exists to reveal.
+  Perf.count('part.rebuild.passes');
   var allOk = true;
   // M128 — DERIVE the End of Part flags here, first, unconditionally.
   //

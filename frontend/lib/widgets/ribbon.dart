@@ -13,6 +13,7 @@ import 'package:native_menu/native_menu.dart' show NativeMenu, NativeMenuItem;
 import '../app_state.dart';
 import '../l10n/l.dart';
 import '../log.dart';
+import '../perf.dart';
 import '../menus.dart';
 import '../part_model.dart' show FaceEditKind, PatternKind, WorkPlaneKind;
 import '../work_features.dart'
@@ -626,6 +627,12 @@ class _RibbonState extends State<Ribbon> {
   @override
   Widget build(BuildContext context) {
     final app = widget.app;
+    // Counted, not timed. Building the ribbon is Dart widget work of a few
+    // hundred microseconds; the interesting number is HOW OFTEN it happens.
+    // The bar rebuilds off AppState, so a count that tracks the frame count
+    // means the whole menu is being rebuilt during a drag — which no duration
+    // would reveal, because each individual build looks cheap.
+    Perf.count('menu.ribbon.builds');
     // M146 — the bar is a FLOATING glass card, not a bordered strip: padded
     // in from the edges with the model browser's own inset and corner radius,
     // with the viewport running behind and around it. The two blue borders are
@@ -664,7 +671,10 @@ class _RibbonState extends State<Ribbon> {
   }
 
   // Home: single "Sketch" panel with the big Create New Sketch button.
-  Widget _homeRibbon(AppState app) {
+  Widget _homeRibbon(AppState app) =>
+      Perf.span('menu.ribbon.home', () => _homeRibbonInner(app));
+
+  Widget _homeRibbonInner(AppState app) {
     final t = L.of(context);
     return IntrinsicHeight(
       child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -687,7 +697,10 @@ class _RibbonState extends State<Ribbon> {
   // approved HTML dummy). Only Extrude is wired; the rest are the same
   // inert placeholders the dummy ships, so the layout is final while the
   // behaviour grows feature by feature.
-  Widget _partRibbon(AppState app) {
+  Widget _partRibbon(AppState app) =>
+      Perf.span('menu.ribbon.part', () => _partRibbonInner(app));
+
+  Widget _partRibbonInner(AppState app) {
     final t = L.of(context);
     // Like [col], but each row can also LIGHT UP — a part command that is
     // currently open says so, the way the Extrude button does.
@@ -936,6 +949,9 @@ class _RibbonState extends State<Ribbon> {
     );
   }
 
+  Widget _sketchRibbon(AppState app) =>
+      Perf.span('menu.ribbon.sketch', () => _sketchRibbonInner(app));
+
   // ---- M240: the ASSEMBLY ribbon (Inventor's Assemble tab).
   //
   // Component / Position / Relationships / Pattern / Work Features, in
@@ -1136,7 +1152,7 @@ class _RibbonState extends State<Ribbon> {
     }
   }
 
-  Widget _sketchRibbon(AppState app) {
+  Widget _sketchRibbonInner(AppState app) {
     final t = L.of(context);
     return IntrinsicHeight(
       child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [

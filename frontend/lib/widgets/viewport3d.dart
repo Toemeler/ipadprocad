@@ -121,6 +121,7 @@ class _Viewport3DState extends State<Viewport3D>
     // The controller itself is owned (and disposed) by the RealityView widget's
     // own State; just drop our reference so late pushes are no-ops.
     _reality = null;
+    RealityPush.nativeDrain = null;
     HardwareKeyboard.instance.removeHandler(_onKey);
     super.dispose();
   }
@@ -492,6 +493,12 @@ class _Viewport3DState extends State<Viewport3D>
                           placeholder: ColoredBox(color: T.viewport),
                           onCreated: (c) {
                             _reality = c;
+                            // Let the bug bundle reach the NATIVE timing table
+                            // without reaching into this State. Cleared in
+                            // dispose, so a drain after the view goes away is
+                            // an empty map rather than a push into a dead
+                            // channel.
+                            RealityPush.nativeDrain = c.drainNativePerf;
                             // A FRESH platform view starts empty. Without
                             // clearing these, the signature would still match
                             // the old view's contents, setScene would never
@@ -873,6 +880,11 @@ class _Viewport3DState extends State<Viewport3D>
     // down — let alone keep going. Rotating the basis about the SCREEN axes
     // instead is Inventor's Free Orbit and Blender's trackball: no preferred
     // up, no degenerate case, 360 degrees in every direction.
+    // Counted, not timed: the orbit itself is a basis rotation and cannot be
+    // slow. What matters is HOW MANY arrive — one orbit event per frame is a
+    // camera move, ten per frame is an input-coalescing problem, and only the
+    // count can tell those apart.
+    Perf.count('3d.orbit.events');
     p.camera.orbitScreen(-d.dx * 0.01, -d.dy * 0.01);
   }
 
@@ -1186,7 +1198,17 @@ class _Viewport3DState extends State<Viewport3D>
   }
 
   /// Points/edges win over planes, exactly like the mock's raycast order.
+  /// 3D pick against origin geometry, work planes and solid faces.
+  ///
+  /// Runs on the tap path and — via [_hitOrigin] callers on hover — can run
+  /// per pointer-move. It projects candidate geometry through the camera in
+  /// Dart, so its cost grows with the scene, not with the screen.
   String? _hitOrigin(Cam3 cam, Offset px, PartModel p,
+          {bool planesOnly = false}) =>
+      Perf.span('3d.hitTest',
+          () => _hitOriginInner(cam, px, p, planesOnly: planesOnly));
+
+  String? _hitOriginInner(Cam3 cam, Offset px, PartModel p,
       {bool planesOnly = false}) {
     const pickPx = 8.0;
     if (!planesOnly) {

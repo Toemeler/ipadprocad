@@ -12,6 +12,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
 import 'native_touches.dart';
+import 'perf_hook.dart';
 
 /// One row of the tree.
 class GlassRow {
@@ -179,6 +180,15 @@ class GlassBrowser extends StatefulWidget {
   /// put something beside it. Optional: a surface that does not care about
   /// hover simply does not pass it.
   final void Function(String id, double y)? onHover;
+
+  /// M244 — where the rows sit inside the panel: the top and bottom of the
+  /// list and the trailing edge of the retracted glyph column, all in the
+  /// panel's own coordinates. Sent whenever the rows change.
+  ///
+  /// The card's insets, its row height and its image box are UIKit's, so a
+  /// caller drawing chrome BESIDE the rows would otherwise have to keep a
+  /// second copy of three numbers it cannot see.
+  final void Function(double top, double bottom, double x)? onMetrics;
   final void Function(String id) onEye;
   final void Function(String id, bool expanded) onExpand;
   final void Function(String id, String item) onMenu;
@@ -198,6 +208,7 @@ class GlassBrowser extends StatefulWidget {
     required this.rows,
     required this.onTap,
     this.onHover,
+    this.onMetrics,
     required this.onEye,
     required this.onExpand,
     required this.onMenu,
@@ -230,6 +241,12 @@ class _GlassBrowserState extends State<GlassBrowser> {
           widget.onHover?.call(
               a['id'] as String? ?? '', (a['y'] as num?)?.toDouble() ?? 0);
           break;
+        case 'metrics':
+          widget.onMetrics?.call(
+              (a['top'] as num?)?.toDouble() ?? 0,
+              (a['bottom'] as num?)?.toDouble() ?? 0,
+              (a['x'] as num?)?.toDouble() ?? 0);
+          break;
         case 'eye':
           widget.onEye(a['id'] as String? ?? '');
           break;
@@ -258,10 +275,28 @@ class _GlassBrowserState extends State<GlassBrowser> {
   void _push({bool force = false}) {
     final ch = _ch;
     if (ch == null) return;
+    // MEASURED, not changed. The gate below is what stops a snapshot reload
+    // per frame — but building the thing it compares is NOT free and happens
+    // whether or not the gate then fires: one `toMap()` per row, then
+    // `toString()` over the whole list. That cost scales with the model and is
+    // paid on every rebuild of the surrounding app.
+    //
+    // `browser.sig` is the duration of computing the signature.
+    // `browser.rows.hit` / `.miss` is whether it changed anything: a high hit
+    // rate means the app is rebuilding this widget constantly and paying for a
+    // comparison that almost never differs. That ratio is the number that says
+    // whether the gate belongs earlier (at the model) instead of here.
+    final sw = Stopwatch()..start();
     final payload = [for (final r in widget.rows) r.toMap()];
     final sig = payload.toString();
-    if (!force && sig == _lastPushed) return;
+    sw.stop();
+    nmRecord('browser.sig', sw.elapsedMicroseconds / 1000.0);
+    nmCount('browser.sig.rows', widget.rows.length);
+    final unchanged = sig == _lastPushed;
+    nmCount('browser.rows.${unchanged ? 'hit' : 'miss'}', 1);
+    if (!force && unchanged) return;
     _lastPushed = sig;
+    nmCount('browser.setRows.calls', 1);
     ch.invokeMethod('setRows', payload).catchError((_) {});
   }
 

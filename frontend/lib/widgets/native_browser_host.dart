@@ -108,6 +108,37 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
 
   static const Duration _kTipDelay = Duration(milliseconds: 400);
 
+  /// M244 — the retract chevron's target, and whether the pointer is on it.
+  static const double _kChev = 26;
+  bool _handleHot = false;
+
+  /// M244 — where the panel says its rows are: the top and bottom of the list
+  /// and the trailing edge of the retracted glyph column, all in the panel's
+  /// own coordinates. The defaults are the empty-panel case (12 pt of card
+  /// inset + 6 of list inset, no rows), so the handle is never wildly placed
+  /// in the frame before the first `metrics` arrives.
+  double _rowsTop = 18;
+  double _rowsBottom = 18;
+  double _glyphX = 38;
+
+  /// The chevron's left edge. Retracted it stands just past the glyphs;
+  /// expanded, the wide card's rows run the full width, so the strip beside
+  /// the card is still the only place it can go.
+  double get _handleLeft => _collapsed
+      ? _glyphX + 6
+      : _kWide + (_kHandle - _kChev) / 2;
+
+  /// The chevron's CENTRE: the middle of the rows, kept inside the panel.
+  ///
+  /// A list longer than the panel is clamped to the panel's own middle — at
+  /// that point every row is "visible" and the arithmetic answer would be off
+  /// the bottom of the screen.
+  double _handleMid(double height) {
+    if (height <= _kChev) return height / 2;
+    final mid = (_rowsTop + _rowsBottom.clamp(_rowsTop, height)) / 2;
+    return mid.clamp(_kChev / 2, height - _kChev / 2);
+  }
+
   AppState get app => widget.app;
 
   @override
@@ -198,10 +229,16 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
         // The strip is part of the widget's width so the handle sits BESIDE
         // the card, never over it.
         width: (_collapsed ? _kNarrow : _kWide) + _kHandle,
+        // LayoutBuilder for the panel's HEIGHT: the retract handle is placed
+        // against the rows and clamped to what is on screen (M244), and the
+        // panel is sized `double.infinity` by its parent, so this is the only
+        // place that number exists.
+        child: LayoutBuilder(builder: (context, bc) {
+        final height = bc.maxHeight;
         // Clip.none: the hover tooltip is parked BESIDE the card, outside this
         // widget's own width. It is behind an IgnorePointer, so nothing it
         // covers becomes unreachable.
-        child: Stack(clipBehavior: Clip.none, children: [
+        return Stack(clipBehavior: Clip.none, children: [
         // M120 — the card ends WHERE THE STRIP BEGINS. Sizing it by width let
         // it run under the handle, and a Flutter GestureDetector on top of a
         // platform view swallows the touch: tapping a folder's disclosure
@@ -219,6 +256,7 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
           rows: _rows,
           onTap: _onTap,
           onHover: _onHover,
+          onMetrics: _onMetrics,
           onEye: _onEye,
           onExpand: (id, on) => setState(() {
             Log.i('browser', 'expand $id on=$on');
@@ -233,23 +271,35 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
           onEopEnd: _onEopEnd,
         ),
         ),
-        // The handle: a chevron in the strip beside the card. Tap toggles; a
-        // horizontal swipe on it does the same, in the direction you swipe —
-        // the panel should obey the gesture you would try first. It fades in
-        // when the pointer comes near, and on touch-only devices (no hover
-        // events at all) it stays visible so it is never unreachable.
+        // The handle: a chevron BESIDE THE ROWS. Tap toggles; a horizontal
+        // swipe on it does the same, in the direction you swipe — the panel
+        // should obey the gesture you would try first. It fades in when the
+        // pointer comes near, and on touch-only devices (no hover events at
+        // all) it stays visible so it is never unreachable.
+        //
+        // M244 — it used to be centred in a full-height strip, which on a
+        // retracted card is a chevron floating in the middle of the screen
+        // with the icons it belongs to bunched at the top, an arm's length
+        // away. It now sits at the middle of the ROWS' height and, retracted,
+        // just past the glyph column — both measured by the panel itself
+        // (onMetrics) rather than guessed at from here.
         Positioned(
-          right: 0,
-          top: 0,
-          bottom: 0,
-          width: _kHandle,
+          left: _handleLeft,
+          top: _handleMid(height) - _kChev / 2,
+          width: _kChev,
+          height: _kChev,
           child: AnimatedOpacity(
             duration: const Duration(milliseconds: 150),
             opacity: (!_hasHover || _near) ? 1 : 0,
+            child: MouseRegion(
+            cursor: SystemMouseCursors.click,
+            onEnter: (_) => setState(() => _handleHot = true),
+            onExit: (_) => setState(() => _handleHot = false),
             child: GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: () => setState(() {
               _collapsed = !_collapsed;
+              _handleHot = false; // the chevron moves out from under the pointer
               _publishWidth();
             }),
             onHorizontalDragEnd: (d) {
@@ -260,14 +310,24 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
                 _publishWidth();
               });
             },
-            child: Center(
-              child: AnimatedRotation(
-                duration: const Duration(milliseconds: 220),
-                turns: _collapsed ? 0.5 : 0,
-                child: Icon(Icons.chevron_left,
-                    size: 18, color: T.dim),
+            child: DecoratedBox(
+              // The hover answer: a chip under the glyph, the same shape the
+              // retracted rows use, so the handle reads as one of the panel's
+              // own controls rather than a stray arrow.
+              decoration: BoxDecoration(
+                color: _handleHot ? T.accent.withValues(alpha: 0.18) : null,
+                borderRadius: BorderRadius.circular(_kChev / 2),
+              ),
+              child: Center(
+                child: AnimatedRotation(
+                  duration: const Duration(milliseconds: 220),
+                  turns: _collapsed ? 0.5 : 0,
+                  child: Icon(Icons.chevron_left,
+                      size: 18, color: _handleHot ? T.text : T.dim),
+                ),
               ),
             ),
+          ),
           ),
           ),
         ),
@@ -277,7 +337,9 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
         // says "Extrusion1" has nowhere to go inside it.
         if (_tip != null && _collapsed)
           Positioned(
-            left: _kNarrow + _kHandle + 2,
+            // Just past the chevron, which retracted stands beside the glyphs
+            // — the tooltip must not land on top of it.
+            left: _handleLeft + _kChev + 4,
             top: _hoverY - 13,
             // A width and an Align, rather than a bare child: a Positioned
             // with no width is laid out against the STACK, which is 80 pt
@@ -292,7 +354,8 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
               ),
             ),
           ),
-        ]),
+        ]);
+        }),
       ),
       );
       },
@@ -332,6 +395,18 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
       final name = _nameOf(row);
       if (name.isEmpty) return;
       setState(() => _tip = name);
+    });
+  }
+
+  /// M244 — the panel reporting where its rows ended up. Guarded, because it
+  /// arrives from a push that a build caused: setting state unconditionally
+  /// would schedule a rebuild for every rebuild.
+  void _onMetrics(double top, double bottom, double x) {
+    if (_rowsTop == top && _rowsBottom == bottom && _glyphX == x) return;
+    setState(() {
+      _rowsTop = top;
+      _rowsBottom = bottom;
+      _glyphX = x;
     });
   }
 

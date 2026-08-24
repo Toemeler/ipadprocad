@@ -17,6 +17,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
+import 'package:native_menu/native_menu.dart';
 
 import 'app_state.dart';
 import 'gesture_trace.dart';
@@ -26,6 +27,11 @@ import 'ffi/occt_engine.dart';
 import 'log.dart';
 import 'part_model.dart';
 import 'perf.dart';
+import 'perf_scenarios.dart';
+import 'perf_scenarios_profile.dart';
+import 'perf_scenarios_soak.dart';
+import 'perf_scenarios_stress.dart';
+import 'perf_scenarios_ui.dart';
 import 'reality_scene.dart';
 
 /// Anchors the widget subtree the screenshot is taken from. Attached to a
@@ -234,6 +240,191 @@ Future<File?> captureBugReport(AppState app, String description) async {
     // Added here rather than in buildBundle because it needs the scene layer,
     // which the pure builder deliberately does not import.
     files['mesh.txt'] = captureMeshReports(part);
+
+    // The scenario suite: the app measuring ITSELF, on this device, with
+    // fixed inputs. A hand-driven session says what happened; this says what
+    // each operation costs and how that cost scales — and unlike the session,
+    // it is identical on every device, so two bundles from two iPads are
+    // directly comparable. Runs inside the bundle capture so one tap produces
+    // both the observation and the benchmark.
+    //
+    // Guarded: it is measurement, and a measurement failing must never cost
+    // the user their bug report.
+    // M214 — the machine's own state, BEFORE the suite runs.
+    //
+    // This is the number that decides whether an M4 measurement says anything
+    // about an M2. A fanless iPad throttles under a sustained benchmark, and
+    // the suite below IS a sustained benchmark: without a thermal reading at
+    // both ends, a slow second half is indistinguishable from slow code. The
+    // same applies to memory — the suite allocates real solids, and how much
+    // headroom there was when it started changes what the numbers mean.
+    try {
+      Perf.setNative('preSuite', await NativeMenu.perfProbe());
+    } catch (e) {
+      Log.w('perf', 'native probe (pre) failed: $e');
+    }
+
+    try {
+      files['perf_suite.json'] = const JsonEncoder.withIndent('  ')
+          .convert(runPerfSuite());
+    } catch (e) {
+      files['perf_suite.json'] = 'scenario suite failed: $e';
+    }
+    // The UI half — paint phases, the drag path, snap. Separate call because
+    // it needs a Flutter binding; separate try because a Canvas failing must
+    // not cost the headless numbers that already succeeded.
+    try {
+      files['perf_suite_ui.json'] = const JsonEncoder.withIndent('  ')
+          .convert(runUiPerfSuite());
+    } catch (e) {
+      files['perf_suite_ui.json'] = 'ui scenario suite failed: $e';
+    }
+
+    // The STRESS tier — opt-in, by typing `stress` in the description.
+    //
+    // Not in the ordinary capture because its ladders climb until they blow a
+    // time budget, which at the top rungs means minutes. A diagnostic that
+    // makes the app look broken while diagnosing it is worse than no
+    // diagnostic — and this one deliberately drives the exact operation that
+    // already killed the app once, so it must never fire by accident.
+    if (description.toLowerCase().contains('stress')) {
+      Log.i('bug', 'stress tier requested — this will take a while');
+      try {
+        files['perf_suite_stress.json'] = const JsonEncoder.withIndent('  ')
+            .convert(runStressSuite());
+      } catch (e) {
+        files['perf_suite_stress.json'] = 'stress suite failed: $e';
+      }
+    }
+
+    // The PROFILE-COMPLEXITY tier (S11) — opt-in, by typing `profile`.
+    //
+    // Separate from `stress` and not implied by it. The stress ladders climb
+    // entity and edge counts; these climb PROFILE complexity — segment count,
+    // path resolution, loop count, self-intersections — which is the axis no
+    // tier has ever covered and the one a real drawing grows along. It is
+    // opt-in for the stress tier's reason and then some: a single rung of
+    // profile.sweep.segments reproduces the field's 1200-segment sweep, and
+    // that sweep cost 102 seconds.
+    if (description.toLowerCase().contains('profile')) {
+      Log.i('bug', 'profile tier requested — the top rungs cost minutes');
+      try {
+        files['perf_suite_profile.json'] = const JsonEncoder.withIndent('  ')
+            .convert(runProfileSuite());
+      } catch (e) {
+        files['perf_suite_profile.json'] = 'profile suite failed: $e';
+      }
+    }
+
+    // The MEMORY family — opt-in, by typing `memory`. Short: it re-derives
+    // what a DOF analysis allocates now that S3 has made it sparse, and it
+    // leaves a known number of triangles in the heap for the native probe
+    // either side of it to be read against. Separate from the soak because
+    // the footprint question does not need half an hour; the leak question
+    // does.
+    if (description.toLowerCase().contains('memory')) {
+      try {
+        files['perf_suite_memory.json'] = const JsonEncoder.withIndent('  ')
+            .convert(runMemorySuite());
+      } catch (e) {
+        files['perf_suite_memory.json'] = 'memory suite failed: $e';
+      }
+    }
+
+    // CATALOGUE SCENARIO 18 — the soak. Opt-in, by typing `soak`, and it
+    // takes THIRTY MINUTES.
+    //
+    // It is the only instrument in the suite that can detect a leak, because
+    // a leak is a slope and every other tier takes one point. It samples the
+    // machine on a fixed cadence while repeating a fixed cycle of work, and
+    // reports the slope of the footprint, of RSS, of the jank rate and of the
+    // event loop's lateness, each beside the smallest slope that run could
+    // have resolved.
+    //
+    // `requestFrame` is what makes the jank half of that real: the app is
+    // idle behind this dialog and an idle Flutter app schedules no frames at
+    // all, so without a nudge per cycle the frame counters would sit still
+    // for half an hour and a jank trend fitted through them would be
+    // fabricated. The probe is the same one the pre/post pair uses.
+    if (description.toLowerCase().contains('soak')) {
+      Log.i('bug', 'soak requested — this takes half an hour');
+      try {
+        files['perf_suite_soak.json'] = const JsonEncoder.withIndent('  ')
+            .convert(await runSoakSuite(
+          probe: NativeMenu.perfProbe,
+          requestFrame: WidgetsBinding.instance.scheduleFrame,
+        ));
+      } catch (e) {
+        files['perf_suite_soak.json'] = 'soak suite failed: $e';
+      }
+    }
+
+    // ...and again afterwards. A thermal state that rose from nominal to
+    // serious across the run invalidates every comparison made with the
+    // numbers from its second half, and that is only visible with both ends
+    // recorded. A footprint that grew and never came back is the other thing
+    // this pair catches.
+    try {
+      Perf.setNative('postSuite', await NativeMenu.perfProbe());
+    } catch (e) {
+      Log.w('perf', 'native probe (post) failed: $e');
+    }
+
+    // M215 — the time spent PAST the platform-view boundary.
+    //
+    // `rv.setScene` on the Dart side measures how long the channel call takes
+    // to return; on an asynchronous channel that is not how long RealityKit
+    // took to apply the payload. This is the native table, phase by phase, and
+    // it is the last thing in the report that used to be unmeasurable by
+    // construction. Recorded as ordinary spans so it ranks alongside
+    // everything else rather than sitting in a corner of its own.
+    try {
+      final rv = await RealityPush.drainNative();
+      rv.forEach((name, v) {
+        if (v is Map) {
+          final n = (v['n'] as num?)?.toInt() ?? 0;
+          final total = (v['totalMs'] as num?)?.toDouble() ?? 0.0;
+          final worst = (v['worstMs'] as num?)?.toDouble() ?? 0.0;
+          // Recorded as n samples of the average: PerfStat keeps a count and a
+          // total, and feeding one fat sample would make the call count wrong
+          // in every report that reads it.
+          if (n > 0) {
+            for (var i = 0; i < n; i++) {
+              Perf.record(name, total / n);
+            }
+            // ...but n copies of the average erase the WORST, and on this path
+            // the worst is the interesting number: one 300 ms mesh upload
+            // among fifty cheap camera pushes is a visible stall, and an
+            // average of 6 ms hides it completely. The native side already
+            // tracked it, so publishing it separately costs nothing — as a
+            // gauge rather than a sample, because a sample would corrupt the
+            // total the loop above just got right.
+            Perf.gauge('$name.worstUs', (worst * 1000).round());
+          }
+        }
+      });
+    } catch (e) {
+      Log.w('perf', 'reality native drain failed: $e');
+    }
+
+    // The perf data a MACHINE can read. `perfText` above is the rolling text
+    // log, which is what a person reads; this is one structured snapshot of
+    // the same counters at the moment of capture, which is what gets diffed
+    // against perf/baseline.json. A slowdown report is only actionable if the
+    // numbers can be compared to a known-good run without re-typing them.
+    Perf.report();
+    files['perf_snapshot.json'] =
+        const JsonEncoder.withIndent('  ').convert(Perf.jsonSnapshot());
+    // The PREVIOUS perf session too. A "it got slow after a while" report is
+    // about a trend, and the trend is exactly what rotation threw out of the
+    // current file.
+    if (Perf.path.isNotEmpty) {
+      final prevPerf = _readIfExists(Perf.path
+          .replaceFirst('performance_logs.txt', 'performance_logs_prev.txt'));
+      if (prevPerf != null && prevPerf.isNotEmpty) {
+        files['performance_logs_prev.txt'] = prevPerf;
+      }
+    }
 
     final dir = Directory('${_docsRoot(app)}/bugreports');
     final out = writeBundle(dir, bundleStem(when), files,

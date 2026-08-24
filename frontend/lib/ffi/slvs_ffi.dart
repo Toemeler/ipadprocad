@@ -8,6 +8,8 @@
 import 'dart:ffi';
 import 'package:ffi/ffi.dart';
 
+import 'perf_hook.dart';
+
 // Constraint type codes — must match the SH_* defines in slvs_shim.h.
 class Sh {
   static const coincident = 1;
@@ -178,13 +180,20 @@ class SlvsFfi {
     final failed = calloc<Int32>(failCap);
 
     try {
-      final r = _solve(
-          nPts, px, py, fx,
-          nLines, la, lb,
-          nCirc, cc, cr,
-          nArcs, ac, as_, ae, ar,
-          nCons, ct, ca, cb, ce1, ce2, cval,
-          dof, failed, failCap);
+      // The native solve only — the marshalling above and the read-back below
+      // are Dart and belong to whoever called us. This is the number that says
+      // whether libslvs itself is the cost.
+      ffiCount('ffi.slvs.solve.points', nPts);
+      ffiCount('ffi.slvs.solve.constraints', nCons);
+      final r = ffiSpan(
+          'ffi.slvs.solve',
+          () => _solve(
+              nPts, px, py, fx,
+              nLines, la, lb,
+              nCirc, cc, cr,
+              nArcs, ac, as_, ae, ar,
+              nCons, ct, ca, cb, ce1, ce2, cval,
+              dof, failed, failCap));
       // Read back whenever the shim produced coordinates — that includes
       // INCONSISTENT, which is libslvs's collapsed code for REDUNDANT_OKAY (a
       // converged solve). solver.dart verifies the residuals before trusting it.

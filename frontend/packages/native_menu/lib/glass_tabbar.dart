@@ -11,6 +11,8 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
+import 'perf_hook.dart';
+
 import 'native_touches.dart';
 
 /// One entry of the bar.
@@ -94,10 +96,21 @@ class _GlassTabBarState extends State<GlassTabBar> {
   void _push({bool force = false}) {
     final ch = _ch;
     if (ch == null) return;
-    final payload = [for (final t in widget.tabs) t.toMap()];
+    // Same shape, same measurement as glass_browser._push: the gate below
+    // stops the push, but BUILDING the signature it compares is paid on every
+    // rebuild of the surrounding app whether the gate fires or not. The hit
+    // rate says whether that comparison is earning its keep or whether the
+    // gate belongs further up, at the model.
+    final sw = Stopwatch()..start();
+    final payload = [for (final e in widget.tabs) e.toMap()];
     final sig = payload.toString();
-    if (!force && sig == _lastPushed) return;
+    sw.stop();
+    nmRecord('tabbar.sig', sw.elapsedMicroseconds / 1000.0);
+    final unchanged = sig == _lastPushed;
+    nmCount('tabbar.rows.${unchanged ? 'hit' : 'miss'}', 1);
+    if (!force && unchanged) return;
     _lastPushed = sig;
+    nmCount('tabbar.setTabs.calls', 1);
     ch.invokeMethod('setTabs', payload).catchError((_) {});
   }
 

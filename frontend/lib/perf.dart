@@ -16,7 +16,9 @@
 // per call, no string formatting until a flush, and flushes are periodic
 // rather than per event.
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/scheduler.dart';
 
@@ -30,31 +32,105 @@ class PerfStat {
   double lastMs = 0;
 
   /// Samples kept for the percentile. Bounded: this runs for hours.
+  ///
+  /// A RING, not a growing list. The previous version did `removeAt(0)` on
+  /// every sample past the 128th, i.e. an O(n) memmove inside the measuring
+  /// code itself — on the 2D paint path that is per frame per phase. A probe
+  /// that shows up in its own numbers is worthless (the rule at the top of
+  /// this file), so the window now writes in place and never shifts.
   static const _keep = 128;
-  final List<double> _samples = [];
+  final Float64List _samples = Float64List(_keep);
+  int _n = 0; // how many slots are live (saturates at _keep)
+  int _w = 0; // next write position
 
   void add(double ms) {
     count++;
     totalMs += ms;
     lastMs = ms;
     if (ms > worstMs) worstMs = ms;
-    _samples.add(ms);
-    if (_samples.length > _keep) _samples.removeAt(0);
+    _samples[_w] = ms;
+    _w = (_w + 1) % _keep;
+    if (_n < _keep) _n++;
   }
 
   double get avgMs => count == 0 ? 0 : totalMs / count;
 
   /// 95th percentile of the retained window. The average hides hitches; the
   /// worst is one unlucky frame. p95 is what actually characterises feel.
-  double get p95Ms {
-    if (_samples.isEmpty) return 0;
-    final s = List<double>.of(_samples)..sort();
-    return s[((s.length - 1) * 0.95).round()];
+  double get p95Ms => _pct(0.95);
+
+  /// Median of the retained window. Together with p95 it says whether a
+  /// subsystem is uniformly slow (p50 ~ p95) or usually fine with a tail
+  /// (p50 << p95) — those two need opposite fixes, so both are reported.
+  double get p50Ms => _pct(0.50);
+
+  double _pct(double q) {
+    if (_n == 0) return 0;
+    final s = Float64List(_n);
+    for (var i = 0; i < _n; i++) {
+      s[i] = _samples[i];
+    }
+    s.sort();
+    return s[((_n - 1) * q).round()];
   }
 
-  void resetInterval() {
-    // count/total/worst are cumulative for the session; only the sample
-    // window rolls, so p95 tracks recent behaviour rather than app start.
+  Map<String, dynamic> toJson() => {
+        'n': count,
+        'lastMs': lastMs,
+        'avgMs': avgMs,
+        'p50Ms': p50Ms,
+        'p95Ms': p95Ms,
+        'worstMs': worstMs,
+        'totalMs': totalMs,
+      };
+}
+
+/// Sequential phase timing for a single hot function, without a closure per
+/// phase.
+///
+/// [Perf.span] needs a `T Function()`, and a closure that captures locals
+/// allocates. That is irrelevant for a kernel call that costs milliseconds,
+/// and it is NOT irrelevant inside the 2D painter, which runs up to 120 times
+/// a second and would pay for one allocation per phase per frame.
+///
+/// Usage — one long-lived instance (a `static final` on the painter), then:
+///
+///     _phases..begin()..mark('slice')..mark('entities')..mark('snap');
+///
+/// Each [mark] records the time since the previous mark under
+/// `<prefix>.<phase>`. No allocation, one map lookup per phase, and the
+/// phases sum to the whole function, so a share-of-total is meaningful.
+class PerfPhases {
+  PerfPhases(this.prefix);
+
+  final String prefix;
+  final Stopwatch _sw = Stopwatch();
+  int _lastUs = 0;
+
+  /// Cache of `prefix.phase` strings so a mark costs no string concatenation.
+  final Map<String, String> _names = {};
+
+  void begin() {
+    _sw
+      ..reset()
+      ..start();
+    _lastUs = 0;
+  }
+
+  void mark(String phase) {
+    if (!_sw.isRunning) return;
+    final now = _sw.elapsedMicroseconds;
+    final dt = now - _lastUs;
+    _lastUs = now;
+    Perf.record(_names[phase] ??= '$prefix.$phase', dt / 1000.0);
+  }
+
+  /// Closes the run. Anything after the last [mark] lands under `<prefix>.z`,
+  /// which is deliberately ugly: if it ever shows up big, a phase is missing.
+  void end() {
+    if (!_sw.isRunning) return;
+    mark('z');
+    _sw.stop();
   }
 }
 
@@ -79,6 +155,35 @@ class Perf {
 
   /// Snapshot values, set by whoever owns them (scene size, entity counts).
   static final Map<String, int> gauges = {};
+
+  /// The OS-level facts Dart cannot obtain: thermal state, physical footprint,
+  /// memory headroom, per-thread CPU. Filled by [setNative]; empty elsewhere.
+  ///
+  /// Kept in its OWN map rather than folded into [gauges] because these are not
+  /// all integers and, more importantly, because they are not properties of the
+  /// app at all — they are properties of the machine it happens to be running
+  /// on. A reader has to be able to tell "the code got slower" from "the iPad
+  /// got hot", and mixing the two tables is how that distinction gets lost.
+  static final Map<String, Object?> native = {};
+
+  /// Records an OS probe. [phase] namespaces it, so a suite can capture the
+  /// state BEFORE and AFTER a long run: a thermal state that rose from nominal
+  /// to serious across the suite invalidates every comparison made with the
+  /// numbers after the rise, and that is only visible with both ends recorded.
+  static void setNative(String phase, Map<String, Object?> probe) {
+    if (_broken || probe.isEmpty) return;
+    for (final e in probe.entries) {
+      native['$phase.${e.key}'] = e.value;
+    }
+    // Thermal state as a gauge too, so it rides along in the per-scenario
+    // deltas where the actual timings live.
+    final t = probe['thermalOrdinal'];
+    if (t is int) gauge('native.thermal.$phase', t);
+    final f = probe['footprintMB'];
+    if (f is int) gauge('native.footprintMB.$phase', f);
+    final a = probe['availableMB'];
+    if (a is int) gauge('native.availableMB.$phase', a);
+  }
 
   /// Wall clock since the session started, so each subsystem's total can be
   /// expressed as a SHARE of elapsed time. That share is the number that
@@ -110,13 +215,52 @@ class Perf {
       }
       docs ??= Directory.systemTemp.path;
       _open(docs);
-      SchedulerBinding.instance.addTimingsCallback(_onTimings);
+      // Every Log.step in the app becomes a timed span (see Log.stepSink).
+      // That covers the whole launch sequence without a probe per phase.
+      Log.stepSink = record;
       _ticker = Timer.periodic(_flushEvery, (_) => report());
     } catch (e) {
       _broken = true;
       Log.i('perf', 'performance log init FAILED: $e');
     }
   }
+
+  /// Registers the engine frame-timing callback. MUST be called after
+  /// `WidgetsFlutterBinding.ensureInitialized()`, and is deliberately NOT part
+  /// of [init].
+  ///
+  /// M210 — this is why the perf log never worked on the device, from M79
+  /// until now. `init()` runs as the second statement of `main()`, before any
+  /// binding exists, because the file has to be open before anything can be
+  /// measured. It also used to call `SchedulerBinding.instance` right there —
+  /// and that getter is a null check on a binding that does not exist yet, so
+  /// it threw:
+  ///
+  ///   perf: performance log init FAILED: Null check operator used on a null value
+  ///
+  /// The catch then set `_broken = true`, which makes every span, record,
+  /// count and gauge in the app a silent no-op, and stops [retarget] from ever
+  /// moving the file into Documents. The result was an instrument that
+  /// reported its own failure in one line of the OTHER log file and then
+  /// pretended to work for months.
+  ///
+  /// Split in two so the parts fail independently: losing frame timings must
+  /// not cost the subsystem spans, and neither may take the file down with it.
+  static void attachToBinding() {
+    if (_broken) return;
+    if (_timingsAttached) return;
+    try {
+      SchedulerBinding.instance.addTimingsCallback(_onTimings);
+      _timingsAttached = true;
+      Log.i('perf', 'frame timings attached');
+    } catch (e) {
+      // Explicitly NOT _broken: spans, counters and gauges are all still
+      // valid without frame timings. Only frame.* is lost.
+      Log.i('perf', 'frame timings NOT attached (spans still record): $e');
+    }
+  }
+
+  static bool _timingsAttached = false;
 
   /// Moves the file next to the main log once the real Documents path is
   /// known, carrying the history across — same dance as Log.retarget.
@@ -183,7 +327,21 @@ class Perf {
     }
   }
 
+  /// Wall clock from the top of `main()`. Only used for [markLaunchStart].
+  static final Stopwatch _launch = Stopwatch();
+  static bool _firstFrameSeen = false;
+
+  /// Starts the launch clock. Call as the first statement of `main()`.
+  static void markLaunchStart() => _launch.start();
+
   static void _onTimings(List<FrameTiming> timings) {
+    if (!_firstFrameSeen && _launch.isRunning && timings.isNotEmpty) {
+      _firstFrameSeen = true;
+      _launch.stop();
+      final ms = _launch.elapsedMicroseconds / 1000.0;
+      record('launch.toFirstFrame', ms);
+      Log.i('perf', 'time to first frame: ${ms.toStringAsFixed(1)} ms');
+    }
     for (final t in timings) {
       final b = t.buildDuration.inMicroseconds / 1000.0;
       final r = t.rasterDuration.inMicroseconds / 1000.0;
@@ -228,9 +386,55 @@ class Perf {
   }
 
   /// Counts an event (cache hit, rebuild, ...) without a duration.
-  static void count(String name) {
+  ///
+  /// Counters live in their OWN table. They used to be recorded as a 0 ms
+  /// sample in [_stats], which quietly corrupted two things: the counter's own
+  /// row showed avg/p95 = 0 ms as if the work were free, and — worse — a name
+  /// used for both a duration and a count had its average dragged toward zero
+  /// by every count. A count is not a fast measurement; it is not a
+  /// measurement at all.
+  static void count(String name, [int by = 1]) {
     if (_broken) return;
-    (_stats[name] ??= PerfStat()).add(0);
+    counters[name] = (counters[name] ?? 0) + by;
+  }
+
+  /// Event counters, by name. See [count].
+  static final Map<String, int> counters = {};
+
+  /// Short free-text findings, by name — the channel a REASON travels on.
+  ///
+  /// M221. A counter can say a kernel call returned null; it cannot say why,
+  /// and the shim maintains `lastError` for exactly that. Until now the reason
+  /// went to the event log, and the device run of 11 Aug proved that path
+  /// cannot work: `log.txt` is captured when the bug button is pressed, at
+  /// 10:47:45, while the suite runs at 10:48:10 — the diagnostic is written
+  /// TWENTY-FIVE SECONDS after the snapshot meant to carry it, so it could
+  /// never appear in a bundle. Three runs reported `kernel.sweepTwist.fail`
+  /// with no reason attached for that reason alone.
+  ///
+  /// Notes travel in the suite's own JSON, which is assembled after the suite
+  /// by construction, so the ordering that lost the log entry cannot lose
+  /// these. Kept short: this is a diagnostic channel, not a log.
+  static final Map<String, String> notes = {};
+
+  /// Records [text] under [name], keeping the FIRST occurrence.
+  ///
+  /// First rather than last, deliberately: when an operation fails repeatedly
+  /// the interesting failure is the one that started it, and a later, more
+  /// generic error would otherwise overwrite the specific one.
+  static void note(String name, String text) {
+    if (_broken) return;
+    if (text.isEmpty) return;
+    notes.putIfAbsent(name, () => text.length > 400
+        ? '${text.substring(0, 400)}…'
+        : text);
+  }
+
+  /// Records a hit/miss pair under one name, so the report can print a rate.
+  /// A cache whose hit rate you cannot see is a cache you cannot tune.
+  static void cache(String name, bool hit) {
+    if (_broken) return;
+    count('$name.${hit ? 'hit' : 'miss'}');
   }
 
   // ---- system resources -------------------------------------------------
@@ -278,6 +482,14 @@ class Perf {
     if (_stats.isEmpty && totalFrames == 0) return;
     final b = StringBuffer()
       ..writeln('--- ${DateTime.now().toIso8601String()} ---');
+    // Self-diagnosis. Spans recording but zero frames means the timings
+    // callback never attached — the M210 failure. Without this line that state
+    // looks identical to "the app is idle", which is exactly how it survived
+    // from M79 until someone went looking for a file that was not there.
+    if (totalFrames == 0 && _stats.isNotEmpty) {
+      b.writeln('  WARNING  no frame timings — Perf.attachToBinding() did not '
+          'run or failed. Spans below are valid; frame.* is missing.');
+    }
     if (totalFrames > 0) {
       final fps = frameTotal.avgMs <= 0.01 ? 0.0 : 1000 / frameTotal.avgMs;
       b
@@ -314,8 +526,76 @@ class Perf {
       final g = gauges.keys.toList()..sort();
       b.writeln('  GAUGES  ${[for (final k in g) '$k=${gauges[k]}'].join('  ')}');
     }
+    if (counters.isNotEmpty) {
+      final c = counters.keys.toList()..sort();
+      b.writeln(
+          '  COUNTERS  ${[for (final k in c) '$k=${counters[k]}'].join('  ')}');
+      // Hit rates, derived from the .hit/.miss pairs written by [cache].
+      final rates = <String>[];
+      for (final k in c) {
+        if (!k.endsWith('.hit')) continue;
+        final base = k.substring(0, k.length - 4);
+        final hit = counters[k] ?? 0;
+        final miss = counters['$base.miss'] ?? 0;
+        if (hit + miss == 0) continue;
+        rates.add('$base=${(100 * hit / (hit + miss)).toStringAsFixed(0)}%');
+      }
+      if (rates.isNotEmpty) b.writeln('  CACHE HIT  ${rates.join('  ')}');
+    }
     _pending.write(b.toString());
     flush();
+  }
+
+  /// One machine-readable snapshot: the same numbers [report] prints, as JSON.
+  ///
+  /// This is what a baseline is diffed against. The text report is for reading
+  /// on the iPad; this is for `perf/baseline.json` and for the CI regression
+  /// gate, which cannot parse a column layout that shifts when a name grows.
+  static Map<String, dynamic> jsonSnapshot() {
+    _sampleMemory();
+    return {
+      'at': DateTime.now().toIso8601String(),
+      'build': Log.build,
+      'wallMs': _session.elapsedMilliseconds,
+      'frames': {
+        'n': totalFrames,
+        'jank33': jankFrames,
+        'fps': frameTotal.avgMs <= 0.01 ? 0.0 : 1000 / frameTotal.avgMs,
+        'total': frameTotal.toJson(),
+        'build': frameBuild.toJson(),
+        'raster': frameRaster.toJson(),
+      },
+      'memory': {
+        'rssBytes': rssBytes,
+        'rssPeakBytes': rssPeakBytes,
+        ..._resources(),
+      },
+      // M214 — what the OS says, as opposed to what Dart can see. Empty on a
+      // host without the plugin. See [setNative].
+      if (native.isNotEmpty) 'native': Map<String, Object?>.of(native),
+      'spans': {for (final e in _stats.entries) e.key: e.value.toJson()},
+      'counters': Map<String, int>.of(counters),
+      'gauges': Map<String, int>.of(gauges),
+      if (notes.isNotEmpty) 'notes': Map<String, String>.of(notes),
+    };
+  }
+
+  /// Writes [jsonSnapshot] next to the text log as `performance_snapshot.json`
+  /// and returns the path (empty when perf logging never came up). The bug
+  /// bundle carries this file; so does the CI scenario runner.
+  static String writeJsonSnapshot() {
+    if (!ready) return '';
+    try {
+      final dir = File(_file!.path).parent;
+      final f = File('${dir.path}/performance_snapshot.json');
+      f.writeAsStringSync(
+          const JsonEncoder.withIndent('  ').convert(jsonSnapshot()),
+          flush: true);
+      return f.path;
+    } catch (e) {
+      Log.i('perf', 'perf snapshot write FAILED: $e');
+      return '';
+    }
   }
 
   static String _mb(int bytes) =>
@@ -339,11 +619,89 @@ class Perf {
     report();
   }
 
+  // ---- scenario isolation ------------------------------------------------
+  //
+  // A session-cumulative report answers "where did two minutes go". It cannot
+  // answer "what does ONE fillet cost", because every number is mixed with
+  // everything else that happened. The scenario runner needs the second
+  // question, so it brackets each scenario and takes the DELTA.
+  //
+  // Deltas, not resets: resetting would throw away the session totals that the
+  // normal report is built from, and would make the runner's own numbers
+  // depend on running first.
+
+  static Map<String, dynamic> _mark() => {
+        'spans': {
+          for (final e in _stats.entries)
+            e.key: [e.value.count, e.value.totalMs, e.value.worstMs]
+        },
+        'counters': Map<String, int>.of(counters),
+      };
+
+  /// Runs [body] and returns everything that changed while it ran: per-span
+  /// call count and total/worst milliseconds, plus counter increments, plus
+  /// the gauges as they stood at the end.
+  ///
+  /// The `worstMs` is reported as the worst seen DURING the scenario only when
+  /// the span's session worst grew; otherwise it is reported as null, because
+  /// a session worst set by some earlier scenario says nothing about this one.
+  static Map<String, dynamic> scenario(String name, void Function() body) {
+    final before = _mark();
+    final sw = Stopwatch()..start();
+    Object? error;
+    try {
+      body();
+    } catch (e) {
+      error = e;
+    }
+    sw.stop();
+    final bs = before['spans'] as Map<String, List<Object>>;
+    final bc = before['counters'] as Map<String, int>;
+    final spans = <String, dynamic>{};
+    for (final e in _stats.entries) {
+      final b = bs[e.key];
+      final n = e.value.count - (b == null ? 0 : b[0] as int);
+      if (n <= 0) continue;
+      final tot = e.value.totalMs - (b == null ? 0.0 : b[1] as double);
+      final grew = b == null || e.value.worstMs > (b[2] as double);
+      spans[e.key] = {
+        'n': n,
+        'totalMs': tot,
+        'avgMs': n == 0 ? 0.0 : tot / n,
+        if (grew) 'worstMs': e.value.worstMs,
+      };
+    }
+    final ctr = <String, int>{};
+    for (final e in counters.entries) {
+      final d = e.value - (bc[e.key] ?? 0);
+      if (d != 0) ctr[e.key] = d;
+    }
+    return {
+      'scenario': name,
+      'wallMs': sw.elapsedMicroseconds / 1000.0,
+      if (error != null) 'error': error.toString(),
+      'spans': spans,
+      'counters': ctr,
+      'gauges': Map<String, int>.of(gauges),
+      if (notes.isNotEmpty) 'notes': Map<String, String>.of(notes),
+      'rssMB': (() {
+        try {
+          return ProcessInfo.currentRss ~/ (1024 * 1024);
+        } catch (_) {
+          return 0;
+        }
+      })(),
+    };
+  }
+
   /// Test hook.
   static void resetForTest() {
     _stats.clear();
     _pool.clear();
     gauges.clear();
+    counters.clear();
+    notes.clear();
+    native.clear();
     totalFrames = 0;
     jankFrames = 0;
   }

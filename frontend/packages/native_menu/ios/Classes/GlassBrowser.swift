@@ -186,6 +186,13 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
     /// One indent step, used by the cell's `indentationWidth`.
     static let indentStep: CGFloat = 11
 
+    /// M244 — the trailing edge of the RETRACTED glyph column, in the view's
+    /// own coordinates: the card's inset, the cell's leading margin and the
+    /// reserved image box, which is all a 56 pt card holds. Flutter draws the
+    /// retract chevron and has no way to know any of those three, so the
+    /// number is sent rather than guessed at on the other side.
+    static var glyphTrailing: CGFloat { inset.left + 4 + 20 }
+
     /// M148 — EXPLICIT row height.
     ///
     /// The content configuration has asked for 3 pt margins around an 11.5 pt
@@ -472,6 +479,26 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
         snap.appendSections([0])
         snap.appendItems(list.map(\.id))
         dataSource.applySnapshotUsingReloadData(snap)
+        pushMetrics()
+    }
+
+    /// M244 — where the rows actually are, so the retract handle can stand
+    /// beside them instead of in the middle of an empty panel.
+    ///
+    /// Arithmetic over this file's own metrics rather than a question for the
+    /// layout: the rows are a uniform height, the two insets are constants,
+    /// and asking `layoutAttributesForItem` would tie the answer to whether a
+    /// layout pass had run yet — which, straight after a snapshot, it has not.
+    /// Scrolling is deliberately not tracked: a handle that slid up and down
+    /// with the list would be harder to find than one that stays put.
+    private func pushMetrics() {
+        let top = GlassBrowserView.inset.top + 6 // + the collection's own inset
+        let bottom = top + CGFloat(rows.count) * GlassBrowserView.rowHeight
+        channel.invokeMethod("metrics", arguments: [
+            "top": Double(top),
+            "bottom": Double(bottom),
+            "x": Double(GlassBrowserView.glyphTrailing),
+        ])
     }
 
     // -- interaction ---------------------------------------------------------
