@@ -1378,3 +1378,105 @@ Falsifiable by: nothing I can write. See 11.2 — the fixture is not
                 identical points under different modes. Registered as ARGUED
                 rather than pinned, and labelled as such wherever it is quoted.
 ```
+
+---
+
+## 12. Item 4 — holed profiles: costed, measured, and NOT built
+
+The integrator asked for a costed proposal rather than an implementation, with
+one specific question settled and enough measurement to make the estimate real.
+Both are below. **I stopped at the prototype.**
+
+### 12.1 The question first: can `MakePipeShell` take a multi-wire section on 7.9.3? NO.
+
+Settled by source, not by experiment. Every profile handed to
+`BRepFill_PipeShell::Add` reaches `BRepFill_Section`'s constructor, which is
+exhaustive:
+
+```cpp
+  if (aProfile.ShapeType() == TopAbs_WIRE)         wire = TopoDS::Wire(aProfile);
+  else if (aProfile.ShapeType() == TopAbs_VERTEX)  { ...degenerate wire... }
+  else
+    throw Standard_Failure("BRepFill_Section: bad shape type of section");
+```
+
+A face with inner boundaries **throws**. One section is one wire, on the
+version we pin. So "sweep the annulus as a single section" is not available
+and the design has to be the other one.
+
+### 12.2 The other design, prototyped and measured
+
+Sweep each wire to its **lateral shell** as the shim already does, then instead
+of subtracting one solid from the other, **assemble**: take both lateral shells,
+build the two end caps as planar faces whose outer boundary is the outer
+sweep's end section and whose inner boundary is the hole's (`FirstShape()` and
+`LastShape()` hand those wires back), sew the four pieces, make a solid.
+
+24-segment ring, r = 6 with an r = 3 hole, 16 spans:
+
+| spine | **A** — the boolean (today) | **B** — shell assembly | volume, A / B | faces |
+| --- | ---: | ---: | --- | ---: |
+| polyline | 85.4 ms | **17.1 ms** | 5 031.442237 / 5 031.442237 | 770 / 770 |
+| smooth | **21 208.5 ms** | **3.7 ms** | 5 031.420889 / 5 031.420889 | 50 / 50 |
+
+**Same volume to ten significant figures, same face count, both valid, and
+5 730× faster on the spine that matters.** The two sweeps themselves cost
+30.1 ms on the smooth spine, so a holed smooth sweep would total about
+**34 ms** where the boolean route costs 21.2 s — and where v23's polyline route
+costs 258 ms.
+
+*(A 1200-segment run was started to make the estimate real at the size the
+owner's goal names; §12.5 records what it said.)*
+
+### 12.3 What I would build, and what it would break
+
+**Build:** in `finish_pipe`, replace the per-hole `BRepAlgoAPI_Cut` with the
+assembly above, keeping the boolean as a fallback when the assembly does not
+produce exactly one closed shell. Roughly 40–60 lines. Then lift the
+`nloops > 1` restriction in `occt_sweep_profile_ex`, because the reason for it
+is the boolean and the boolean would be gone.
+
+**What it would break, and these are not hypothetical:**
+
+1. **Face count and topology change for every holed sweep**, exactly as v24
+   does for unholed ones. Same fingerprint-reattachment risk, same owner's
+   call. It would want to be gated with v24, not shipped past it.
+2. **The assembly assumes each hole is strictly inside the outer boundary and
+   that the two sweeps' end sections are coplanar.** The boolean did not: it is
+   a general subtraction and copes with a hole that pokes out, by removing
+   material outside as well. **Nothing in `placed_profile_wires` checks
+   containment today**, so this trades a general operation for a special one
+   and needs a guard the code does not currently have. That is the main risk
+   and the main reason this is a proposal rather than a commit.
+3. **Taper.** `finish_pipe` applies the taper law to the holes too, so both end
+   sections are scaled — I believe the caps still match, and I did not test it.
+   Unverified.
+4. **Multiple holes** need k inner wires per cap. Mechanical, untested.
+
+### 12.4 What it would cost to verify
+
+The differential already exists and already passes: smoke `[37f]` asserts a
+tube equals its outer sweep minus its hole sweep, at all three orientations, in
+one run. Route B satisfies it exactly (that is the 5 031.442237 above). What
+would have to be ADDED:
+
+* containment: a hole that pokes outside the outer boundary — assembly must
+  refuse or fall back, and the result must match the boolean's;
+* two and three holes;
+* a tapered holed sweep, both spines;
+* a hole whose end section is not coplanar with the outer's, if that is even
+  constructible — I could not think of a way, which is itself worth checking
+  before relying on it.
+
+Call it a day's work with the fixtures the smoke test already has, and the risk
+is concentrated in the containment guard rather than in the assembly.
+
+### 12.5 Recommendation
+
+**The measurement says it is small and the win is large**, so on the
+integrator's own terms this is a "very likely tell you to build it". Two
+caveats I would want acknowledged before starting: the containment guard is
+new behaviour that nothing currently checks, and the face-count change couples
+this to the v24 decision rather than standing beside it.
+
+**Not built. Handed over.**
