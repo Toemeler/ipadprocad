@@ -13,9 +13,10 @@
 //     which reads as "dragging grabs the wrong part".
 //   * PLACE. The first component is grounded (Inventor), the next is set down
 //     clear of it, and a grounded one refuses to move.
-//   * THE RIBBON. Five panels, Inventor's order, and exactly one enabled
-//     command — that last one is the whole claim of this milestone, so it is
-//     asserted rather than described.
+//   * THE RIBBON. Five panels, Inventor's order, and which commands are
+//     ENABLED — the claim of the milestone, so it is asserted rather than
+//     described. M240 shipped with one (Place); M242 built Constrain, so it
+//     is two now and the rest are still drawn-and-disabled.
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -555,7 +556,11 @@ void main() {
       expect(find.text('Fillet'), findsNothing);
     });
 
-    testWidgets('every command is drawn, and only Place is enabled',
+    // M242 (SPEC CHANGE) — Constrain is built now, so the name and the list
+    // below both move by exactly one entry. Everything else on the tab is
+    // still drawn-and-disabled, which is what the rest of this test still
+    // pins.
+    testWidgets('every command is drawn; Place and Constrain are enabled',
         (t) async {
       L.set(kEn);
       resetFlyoutCacheForTest();
@@ -597,12 +602,13 @@ void main() {
       }
 
       expect(tappable('Place'), greaterThan(0), reason: 'Place is the one');
+      expect(tappable('Constrain'), greaterThan(0),
+          reason: 'M242 — Place Constraint opens from here');
       for (final off in const [
         'Create',
         'Free Move',
         'Free Rotate',
         'Joint',
-        'Constrain',
         'Show',
         'Show Sick',
         'Hide All',

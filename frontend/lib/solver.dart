@@ -1284,8 +1284,49 @@ _SpMat _jacobian(List<Geo> gs, List<int> off, List<double> x,
   return (_rankAndPivots(j).$1, r.length, total);
 }
 
+/// Row-reduces [m] in place and returns (rank, pivot columns).
+///
+/// M242 — PUBLIC. The assembly solver needs exactly this: the rank of a
+/// Jacobian is what turns "the numbers converged" into "and here is how many
+/// degrees of freedom are left", which is the whole under- / fully-constrained
+/// reporting on both sides of the app. One Gaussian elimination, not two.
+(int, List<int>) rankAndPivots(List<List<double>> m, int rows, int cols) {
+  var row = 0;
+  final pivots = <int>[];
+  for (var col = 0; col < cols && row < rows; col++) {
+    var best = row;
+    for (var i = row + 1; i < rows; i++) {
+      if (m[i][col].abs() > m[best][col].abs()) best = i;
+    }
+    if (m[best][col].abs() < 1e-7) continue;
+    final t = m[row];
+    m[row] = m[best];
+    m[best] = t;
+    final piv = m[row][col];
+    for (var j = col; j < cols; j++) {
+      m[row][j] /= piv;
+    }
+    for (var i = 0; i < rows; i++) {
+      if (i == row) continue;
+      final f = m[i][col];
+      if (f == 0) continue;
+      for (var j = col; j < cols; j++) {
+        m[i][j] -= f * m[row][j];
+      }
+    }
+    pivots.add(col);
+    row++;
+  }
+  return (row, pivots);
+}
+
 /// Solves A x = b in place (A is n x n, symmetric positive semi-definite).
-List<double>? _solveDense(List<List<double>> a, List<double> b, int n) {
+///
+/// M242 — PUBLIC, for the assembly solver's normal equations. Same reason as
+/// [rankAndPivots]: the two solvers do different geometry over the same linear
+/// algebra, and a second partial-pivot elimination would be a second place for
+/// a pivot tolerance to drift.
+List<double>? solveDense(List<List<double>> a, List<double> b, int n) {
   for (var i = 0; i < n; i++) {
     var best = i;
     for (var k = i + 1; k < n; k++) {
@@ -2594,7 +2635,7 @@ bool _lm(List<Geo> gs, List<Constraint> cs, Set<(int, int)> frozen,
         for (var a = 0; a < n; a++) {
           jtj[a][a] += lambda * (1 + jtj[a][a].abs());
         }
-        final dx = _solveDense(jtj, jtr, n);
+        final dx = solveDense(jtj, jtr, n);
         if (dx == null) break;
         final saved = List<double>.from(x);
         for (var k = 0; k < n; k++) {
@@ -2656,7 +2697,7 @@ bool _lm(List<Geo> gs, List<Constraint> cs, Set<(int, int)> frozen,
       for (var a = 0; a < n; a++) {
         jtj[a][a] += lambda * (1 + jtj[a][a].abs());
       }
-      final dx = _solveDense(jtj, jtr, n);
+      final dx = solveDense(jtj, jtr, n);
       if (dx == null) break;
 
       final saved = List<double>.from(x);
