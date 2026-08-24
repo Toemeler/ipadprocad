@@ -23,6 +23,7 @@
 #include <BRepPrimAPI_MakeSphere.hxx>
 #include <BRepPrimAPI_MakeCone.hxx>
 #include <BRepPrimAPI_MakeTorus.hxx>
+#include <BRepAlgoAPI_Common.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepFilletAPI_MakeFillet.hxx>
@@ -35,6 +36,7 @@
 #include <TopoDS.hxx>
 #include <TopoDS_Face.hxx>
 #include <TopLoc_Location.hxx>
+#include <algorithm>
 #include <BRepBndLib.hxx>
 #include <BRepBuilderAPI_GTransform.hxx>
 #include <BRepCheck_Analyzer.hxx>
@@ -729,6 +731,81 @@ int main()
                 Overshoot(out) < g_meshDiag * 0.02,
                 std::to_string(Overshoot(out)) + " mm of " +
                     std::to_string(g_meshDiag));
+        }
+    }
+
+    // ---- 13. a curved shell with REAL holes in it ------------------------
+    //
+    // The case the user was actually looking at, and the one that made the
+    // all-or-nothing fallback indefensible: a shell that fits no primitive
+    // anywhere, drilled with holes that are exactly what they look like. The
+    // fitted pass shatters on the shell and is right about the holes, so the
+    // decision has to be made per PATCH: the holes keep their cylinders, the
+    // shell goes to triangles, and neither is thrown away because of the other.
+    //
+    // What separates a real hole from a strip of the shell is not the residual
+    // — on a squashed sphere a strip fits a cylinder to a fiftieth of tolerance
+    // — but where the patch came from. A hole arrives as a whole smooth patch
+    // bounded by its own rim; a strip is one of the pieces a smooth region was
+    // broken into.
+    {
+        std::printf("== a curved shell with four real holes ==\n");
+        gp_GTrsf g;
+        g.SetValue(1, 1, 1.0);
+        g.SetValue(2, 2, 1.7);
+        g.SetValue(3, 3, 0.55);
+        TopoDS_Shape src =
+            BRepAlgoAPI_Cut(
+                BRepBuilderAPI_GTransform(BRepPrimAPI_MakeSphere(30.).Shape(), g,
+                                          Standard_True)
+                    .Shape(),
+                BRepBuilderAPI_GTransform(BRepPrimAPI_MakeSphere(27.).Shape(), g,
+                                          Standard_True)
+                    .Shape())
+                .Shape();
+        src = BRepAlgoAPI_Common(
+                  src, BRepPrimAPI_MakeBox(gp_Pnt(-60, -60, 0),
+                                           gp_Pnt(60, 60, 60))
+                           .Shape())
+                  .Shape();
+        const double rad[4] = {2., 3., 4., 5.};
+        const double hx[4] = {-14, 14, -14, 14}, hy[4] = {-22, -22, 22, 22};
+        for (int i = 0; i < 4; ++i)
+            src = BRepAlgoAPI_Cut(
+                      src, BRepPrimAPI_MakeCylinder(
+                               gp_Ax2(gp_Pnt(hx[i], hy[i], -50), gp_Dir(0, 0, 1)),
+                               rad[i], 200.)
+                               .Shape())
+                      .Shape();
+
+        meshrecon::Report r;
+        TopoDS_Shape out = Run(src, 0.4, r);
+        report(r);
+        chk("built something", !out.IsNull());
+        chk("the four holes are cylinders", r.cylinders == 4,
+            std::to_string(r.cylinders) + " cylinders");
+        chk("and nothing was invented on the shell", r.spheres == 0,
+            std::to_string(r.spheres) + " spheres");
+        chk("the shell itself went to triangles", r.faceted_patches > 10,
+            std::to_string(r.faceted_patches) + " faceted patches");
+        if (!out.IsNull()) {
+            std::vector<double> radii;
+            for (TopExp_Explorer ex(out, TopAbs_FACE); ex.More(); ex.Next()) {
+                BRepAdaptor_Surface sa(TopoDS::Face(ex.Current()));
+                if (sa.GetType() == GeomAbs_Cylinder)
+                    radii.push_back(sa.Cylinder().Radius());
+            }
+            std::sort(radii.begin(), radii.end());
+            bool exact = radii.size() == 4;
+            for (size_t i = 0; i < radii.size() && exact; ++i)
+                exact = std::fabs(radii[i] - rad[i]) < 1e-4;
+            std::string got;
+            for (double x : radii)
+                got += std::to_string(x) + " ";
+            chk("with their true radii, to four decimals", exact, got);
+            chk("nothing reaches outside the mesh",
+                Overshoot(out) < g_meshDiag * 0.02,
+                std::to_string(Overshoot(out)) + " mm");
         }
     }
 

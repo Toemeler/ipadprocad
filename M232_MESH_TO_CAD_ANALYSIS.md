@@ -19,7 +19,7 @@ kernel that was already here.
 | `PartKernel.meshToBrep` | the seam the app talks to, so `AppState` never touches the FFI directly and the test fakes can decline it in one line |
 | `AppState.importMeshIntoPart` | Open accepts `.stl`, `.obj`, `.3mf`; the body lands in the feature tree and is filletable, booleanable and STEP-exportable like any other |
 | 22 ARB keys, German + English | every sentence the feature can say. `mesh_io.dart` throws a `MeshFailure` code, never prose — a reader has no business holding UI text (M234) |
-| `backend/occt/tests/mesh_recon_test.cpp` | 86 assertions: build a solid with OCCT, tessellate it, throw the B-Rep away, reconstruct from triangles alone, compare topology and volume. Run by CI |
+| `backend/occt/tests/mesh_recon_test.cpp` | 92 assertions: build a solid with OCCT, tessellate it, throw the B-Rep away, reconstruct from triangles alone, compare topology and volume. Run by CI |
 | `frontend/test/m232_mesh_import_test.dart` | 28 tests over the readers, the limits, the Open decision and the import wiring |
 
 ### What it actually does
@@ -184,6 +184,70 @@ and its faces are at least bounded now.
 full of 100 k-triangle organic models — still gets the fitted result, which on
 such a model is not a good answer. Recovering real surfaces there is Stage D
 below, and it is not built.
+
+### The decision is per PATCH, not per model
+
+Then the next report came back: *"radiuses are not recognized. Circles are not
+recognized."* And that was right, because the fallback above is all-or-nothing
+and a real model is not. The file is a curved shell **with holes drilled
+through it**. The shell fits nothing; the holes are exactly what they look
+like. Throwing away the whole fitted result because the shell shattered threw
+away four perfectly recognised cylinders with it.
+
+So a patch now keeps its surface only if the surface is EVIDENCE, and it is
+asked of each patch on its own, on four counts. Three of them are cheap and
+obvious in hindsight:
+
+- **Residual.** A tessellation puts its vertices ON the surface they came from,
+  so a real hole fits its cylinder with a residual of nothing at all, at any
+  mesh density. A surface that merely passes nearby squeaks inside tolerance
+  and no further. Measured on a curved shell with four drilled holes at a
+  tolerance of 0.20 mm: the four real cylinders at 0.000, and the twenty
+  "spheres" the fitter invented on the shell at 0.05 to 0.16. Nothing in
+  between.
+- **Coverage.** Twenty degrees of a cylinder is an arc a thousand radii pass
+  through within tolerance. A radius is only knowable from a patch that goes
+  far enough round it — an absolute geometric fact, so an absolute threshold.
+- **Agreement, against what the tessellation can deliver.** A twelve-sided
+  cylinder has facet normals fifteen degrees off the surface at the corners;
+  demanding better would reject every low-poly download there is. The bar is
+  the patch's own facet step, not a fixed angle. (And *not* its median step —
+  half the internal edges of a quad-meshed surface are the quad diagonals, at
+  exactly zero, so a median reads zero on every cylinder. The same trap as the
+  crease detector, found twice.)
+
+The fourth is the one that took longest and is the most useful: **where the
+patch came from.** On a squashed sphere a strip fits a cylinder to better than
+a fiftieth of tolerance — the residual cannot separate that from a real hole.
+But a feature of the DESIGN arrives as a whole smooth patch bounded by its own
+sharp rim, and never needed splitting; a strip is one of many pieces a smooth
+region was broken into. `Patch::origin` already recorded it.
+
+The result, on that shell with four holes of radius 2, 3, 4 and 5:
+
+| | before | after |
+|---|---|---|
+| cylinders recognised | 0 | **4**, at 2.0000 3.0000 4.0000 5.0000 |
+| spheres invented on the shell | 20 | **0** |
+| the shell itself | fitted, shattered | 45 faceted patches |
+
+**Sharing the seam, and the thing that kept undoing it.** A fitted face and the
+triangles beside it have to meet along the *same* edge or the shell will not
+sew — the fitted side had a smooth approximation of the chain, the triangles
+had the chords between the same vertices, and on a coarse mesh that gap is
+wider than any sewing tolerance. Both sides now take the very same
+`TopoDS_Edge` objects from one pool. What made that hard to land is that
+`ShapeFix_Face::Perform` **heals a face by making a new one**, and the new one
+has new edges: 719 of 3379 edges belonged to a single face after Perform, and
+29 of 3030 without it. `ShapeFix_Edge::FixAddPCurve` adds the pcurve to the
+edge that is already there.
+
+**What is still open.** A hybrid shell — fitted faces beside triangles — comes
+out with about 1% of its seams unmatched and so is not a solid. Where that
+happens the fitted result is kept anyway (recognition is what was asked for)
+unless nothing at all was recognised, in which case the faceted build takes it
+and closes. Closing the hybrid is the next thing, and it is a bounded problem
+with a measured target: 29 edges of 3030.
 
 ---
 
