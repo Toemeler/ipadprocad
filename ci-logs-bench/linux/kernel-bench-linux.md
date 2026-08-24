@@ -5,9 +5,9 @@ ABSOLUTE milliseconds may NOT be quoted as iPad milliseconds (PERFORMANCE_PROFIL
 
 | | |
 | --- | --- |
-| generated | 2026-08-23T09:51:00Z |
+| generated | 2026-08-24T13:59:20Z |
 | host | Linux / x86_64 |
-| kernel | Prototype OCCT shim v21 (OCCT 7.9.3) (shim v23) |
+| kernel | Prototype OCCT shim v24 (OCCT 7.9.3) (shim v24) |
 | allocation counting | ld --wrap + operator new |
 | reps / budget | 7 / 20000 ms |
 
@@ -17,9 +17,9 @@ The harness is believable only where it reproduces the SHAPE of the device findi
 
 | op | device k | device CI (as printed) | bench k | bench CI | R² | gating | verdict | vs tool-convention CI |
 | --- | ---: | --- | ---: | --- | ---: | :-: | --- | --- |
-| `edgeInfo1` | 0.990 | [0.970, 1.010] | 1.056 | [0.983, 1.129] | 0.9975 | yes | **AGREES** | same convention |
-| `allEdges` | 2.012 | [1.910, 2.113] | 2.074 | [2.024, 2.123] | 0.9997 | yes | **AGREES** | [1.996, 2.027] → AGREES |
-| `buildOnly` | 1.063 | [0.959, 1.167] | 0.973 | [0.928, 1.018] | 0.9989 | no | **AGREES** | same convention |
+| `edgeInfo1` | 0.990 | [0.970, 1.010] | 1.047 | [1.008, 1.085] | 0.9993 | yes | **AGREES** | same convention |
+| `allEdges` | 2.012 | [1.910, 2.113] | 2.047 | [2.004, 2.089] | 0.9998 | yes | **AGREES** | [1.996, 2.027] → AGREES |
+| `buildOnly` | 1.063 | [0.959, 1.167] | 1.007 | [0.991, 1.024] | 0.9999 | no | **AGREES** | same convention |
 
 **Harness verdict: VALIDATED**
 
@@ -27,87 +27,131 @@ The harness is believable only where it reproduces the SHAPE of the device findi
 
 | op | axis | N | k | R² | 95 % CI |
 | --- | --- | ---: | ---: | ---: | --- |
-| `build` | edges | 4 | 1.058 | 0.9997 | [1.035, 1.081] |
-| `edgeInfo1` | edges | 4 | 1.056 | 0.9975 | [0.983, 1.129] |
-| `allEdges` | edges | 4 | 2.074 | 0.9997 | [2.024, 2.123] |
-| `allEdgesBulk` | edges | 4 | 1.038 | 0.9998 | [1.015, 1.060] |
-| `buildOnly` | edges | 4 | 0.973 | 0.9989 | [0.928, 1.018] |
-| `counts` | edges | 4 | 1.056 | 0.9993 | [1.016, 1.096] |
-| `bbox` | edges | 4 | 1.024 | 0.9999 | [1.010, 1.038] |
-| `mesh` | edges | 4 | 0.966 | 0.9997 | [0.942, 0.990] |
-| `fuse` | edges | 4 | 1.286 | 0.9975 | [1.196, 1.376] |
-| `cut` | edges | 4 | 1.283 | 0.9960 | [1.170, 1.395] |
-| `rayHits` | edges | 4 | 0.282 | 0.9600 | [0.202, 0.362] |
-| `filletEx1` | edges | 4 | 0.211 | 0.0971 | [-0.680, 1.102] |
-| `fillet.edges` | edgesBlended | 3 | 0.622 | 0.9916 | [0.509, 0.734] |
-| `fillet.scenario` | edgesBlended | 3 | 0.541 | 0.9814 | [0.395, 0.687] |
-| `fillet.radius` | radius | 4 | 1.460 | 0.5987 | [-0.197, 3.117] |
+| `build` | edges | 4 | 1.077 | 0.9991 | [1.031, 1.122] |
+| `edgeInfo1` | edges | 4 | 1.047 | 0.9993 | [1.008, 1.085] |
+| `allEdges` | edges | 4 | 2.047 | 0.9998 | [2.004, 2.089] |
+| `allEdgesBulk` | edges | 4 | 1.062 | 0.9981 | [0.998, 1.126] |
+| `buildOnly` | edges | 4 | 1.007 | 0.9999 | [0.991, 1.024] |
+| `counts` | edges | 4 | 0.994 | 0.9999 | [0.978, 1.011] |
+| `bbox` | edges | 4 | 0.996 | 1.0000 | [0.990, 1.002] |
+| `mesh` | edges | 4 | 0.980 | 0.9997 | [0.958, 1.001] |
+| `fuse` | edges | 4 | 1.340 | 0.9970 | [1.239, 1.441] |
+| `cut` | edges | 4 | 1.356 | 0.9972 | [1.256, 1.456] |
+| `rayHits` | edges | 4 | 0.288 | 0.9649 | [0.212, 0.364] |
+| `filletEx1` | edges | 4 | 0.212 | 0.0988 | [-0.675, 1.099] |
+| `fillet.edges` | edgesBlended | 3 | 0.631 | 0.9905 | [0.509, 0.752] |
+| `fillet.scenario` | edgesBlended | 3 | 0.566 | 0.9849 | [0.428, 0.703] |
+| `fillet.radius` | radius | 4 | 1.401 | 0.5980 | [-0.191, 2.993] |
+| `sweep.segments` | segments | 3 | 1.187 | 0.9956 | [1.033, 1.342] |
+| `sweep.legacy` | segments | 3 | 1.914 | 0.9794 | [1.370, 2.457] |
+| `sweep.coil` | segments | 3 | 1.390 | 0.9726 | [0.932, 1.847] |
+| `sweep.ph.build` | segments | 3 | 1.960 | 0.9794 | [1.403, 2.517] |
+| `sweep.ph.unify` | segments | 3 | 1.095 | 0.9993 | [1.039, 1.151] |
+| `sweep.ph.total` | segments | 3 | 1.909 | 0.9796 | [1.370, 2.449] |
+| `sweep.spans` | spans | 5 | 0.281 | 0.0441 | [-1.199, 1.761] |
 
 ## Measurements
 
 | op | axis | x | edges | n | ×inner | mean ms | sd | p95 | CV | alloc/call | bytes/call | live Δ | RSS peak MB |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `build` | edges | 180 | 180 | 7 | 1 | 4.01470 | 0.01089 | 4.03304 | 0.3 % | 33890 | 4998343 | +0 | 10.6 |
-| `edgeInfo1` | edges | 180 | 180 | 7 | 32 | 0.09118 | 0.00997 | 0.11375 | 10.9 % | 821 | 150504 | +0 | 10.7 |
-| `allEdges` | edges | 180 | 180 | 7 | 1 | 15.73704 | 0.06506 | 15.87669 | 0.4 % | 148205 | 27145770 | +0 | 10.7 |
-| `allEdgesBulk` | edges | 180 | 180 | 7 | 4 | 0.74952 | 0.00334 | 0.75632 | 0.4 % | 6207 | 572862 | +0 | 10.7 |
-| `buildOnly` | edges | 180 | 180 | 7 | 1 | 12.22809 | 0.28661 | 12.38983 | 2.3 % | 84141 | 210181599 | -13031 | 14.7 |
-| `counts` | edges | 180 | 180 | 7 | 32 | 0.08318 | 0.00065 | 0.08445 | 0.8 % | 375 | 55384 | +0 | 14.7 |
-| `bbox` | edges | 180 | 180 | 7 | 64 | 0.05737 | 0.00059 | 0.05856 | 1.0 % | 63 | 71064 | +0 | 14.7 |
-| `mesh` | edges | 180 | 180 | 7 | 1 | 4.66482 | 0.07137 | 4.79547 | 1.5 % | 34051 | 7904383 | +0 | 14.7 |
-| `fuse` | edges | 180 | 180 | 7 | 1 | 51.79637 | 0.25803 | 52.29297 | 0.5 % | 270368 | 61751808 | +0 | 19.6 |
-| `cut` | edges | 180 | 180 | 7 | 1 | 49.31739 | 2.43401 | 53.35820 | 4.9 % | 242870 | 55314373 | +0 | 19.6 |
-| `rayHits` | edges | 180 | 180 | 7 | 8 | 0.25984 | 0.00273 | 0.26306 | 1.0 % | 1976 | 287523 | +0 | 19.6 |
-| `filletEx1` | edges | 180 | 180 | 7 | 1 | 29.79354 | 1.06892 | 32.21162 | 3.6 % | 211444 | 24605771 | +0 | 21.9 |
-| `build` | edges | 360 | 360 | 7 | 1 | 8.29248 | 0.09320 | 8.46916 | 1.1 % | 67568 | 9756046 | +0 | 21.9 |
-| `edgeInfo1` | edges | 360 | 360 | 7 | 16 | 0.17296 | 0.00074 | 0.17421 | 0.4 % | 1601 | 255880 | +0 | 21.9 |
-| `allEdges` | edges | 360 | 360 | 7 | 1 | 62.76441 | 0.63343 | 64.00440 | 1.0 % | 577205 | 92202266 | +0 | 21.9 |
-| `allEdgesBulk` | edges | 360 | 360 | 7 | 2 | 1.58648 | 0.00752 | 1.59922 | 0.5 % | 12390 | 1116230 | +0 | 21.9 |
-| `buildOnly` | edges | 360 | 360 | 7 | 1 | 22.46385 | 0.21009 | 22.71698 | 0.9 % | 167656 | 415799529 | -26007 | 25.2 |
-| `counts` | edges | 360 | 360 | 7 | 16 | 0.16731 | 0.00118 | 0.16915 | 0.7 % | 737 | 86264 | +0 | 25.2 |
-| `bbox` | edges | 360 | 360 | 7 | 32 | 0.11426 | 0.00040 | 0.11487 | 0.4 % | 123 | 138744 | +0 | 25.2 |
-| `mesh` | edges | 360 | 360 | 7 | 1 | 8.82031 | 0.04823 | 8.89620 | 0.5 % | 67916 | 14729405 | +0 | 25.2 |
-| `fuse` | edges | 360 | 360 | 7 | 1 | 115.33056 | 1.65143 | 118.94655 | 1.4 % | 614315 | 125226911 | +0 | 25.7 |
-| `cut` | edges | 360 | 360 | 7 | 1 | 105.60418 | 0.74409 | 106.74377 | 0.7 % | 560412 | 112711045 | +0 | 25.7 |
-| `rayHits` | edges | 360 | 360 | 7 | 8 | 0.29554 | 0.00192 | 0.29905 | 0.7 % | 2096 | 362151 | +0 | 25.7 |
-| `filletEx1` | edges | 360 | 360 | 7 | 1 | 9.69701 | 0.05965 | 9.79169 | 0.6 % | 68952 | 11054270 | +0 | 26.6 |
-| `build` | edges | 720 | 720 | 7 | 1 | 16.91834 | 0.02929 | 16.96870 | 0.2 % | 134894 | 19067589 | +0 | 26.6 |
-| `edgeInfo1` | edges | 720 | 720 | 7 | 8 | 0.36584 | 0.00677 | 0.38083 | 1.8 % | 3161 | 465928 | +0 | 26.6 |
-| `allEdges` | edges | 720 | 720 | 7 | 1 | 263.79255 | 0.80584 | 265.28634 | 0.3 % | 2277605 | 335619658 | +0 | 26.6 |
-| `allEdgesBulk` | edges | 720 | 720 | 7 | 1 | 3.22565 | 0.02074 | 3.26496 | 0.6 % | 24751 | 2170817 | +0 | 26.6 |
-| `buildOnly` | edges | 720 | 720 | 7 | 1 | 45.58281 | 0.99920 | 47.83405 | 2.2 % | 334430 | 827093959 | -51931 | 31.3 |
-| `counts` | edges | 720 | 720 | 7 | 8 | 0.34271 | 0.00875 | 0.36233 | 2.6 % | 1457 | 114792 | +0 | 31.3 |
-| `bbox` | edges | 720 | 720 | 7 | 16 | 0.23536 | 0.00210 | 0.23960 | 0.9 % | 243 | 274104 | +0 | 31.3 |
-| `mesh` | edges | 720 | 720 | 7 | 1 | 17.40894 | 0.16132 | 17.75509 | 0.9 % | 135617 | 28307747 | +0 | 31.3 |
-| `fuse` | edges | 720 | 720 | 7 | 1 | 277.58155 | 2.61907 | 282.31126 | 0.9 % | 1539855 | 259832867 | +0 | 33.7 |
-| `cut` | edges | 720 | 720 | 7 | 1 | 257.46236 | 3.42546 | 263.87055 | 1.3 % | 1432988 | 235166123 | +0 | 33.7 |
-| `rayHits` | edges | 720 | 720 | 7 | 8 | 0.34881 | 0.00377 | 0.35640 | 1.1 % | 2336 | 508704 | +0 | 33.7 |
-| `filletEx1` | edges | 720 | 720 | 7 | 1 | 19.10382 | 0.11229 | 19.32203 | 0.6 % | 134712 | 21022162 | +0 | 33.7 |
-| `build` | edges | 1440 | 1440 | 7 | 1 | 36.46209 | 0.17856 | 36.83208 | 0.5 % | 269554 | 37904937 | +0 | 33.7 |
-| `edgeInfo1` | edges | 1440 | 1440 | 7 | 4 | 0.81521 | 0.00806 | 0.82796 | 1.0 % | 6285 | 950744 | +0 | 33.7 |
-| `allEdges` | edges | 1440 | 1440 | 7 | 1 | 1175.06652 | 24.27905 | 1230.05373 | 2.1 % | 9053767 | 1369341514 | +0 | 33.7 |
-| `allEdgesBulk` | edges | 1440 | 1440 | 7 | 1 | 6.50352 | 0.02354 | 6.54449 | 0.4 % | 49476 | 4347737 | +0 | 33.7 |
-| `buildOnly` | edges | 1440 | 1440 | 7 | 1 | 91.39861 | 1.69710 | 94.22324 | 1.9 % | 668604 | 1650880096 | -103927 | 44.9 |
-| `counts` | edges | 1440 | 1440 | 7 | 4 | 0.75136 | 0.00336 | 0.75838 | 0.4 % | 2899 | 204713 | +0 | 44.9 |
-| `bbox` | edges | 1440 | 1440 | 7 | 8 | 0.48013 | 0.01119 | 0.50514 | 2.3 % | 483 | 544824 | +0 | 44.9 |
-| `mesh` | edges | 1440 | 1440 | 7 | 1 | 34.65189 | 0.24725 | 35.11294 | 0.7 % | 271017 | 55057706 | +0 | 44.9 |
-| `fuse` | edges | 1440 | 1440 | 7 | 1 | 754.79666 | 6.21866 | 763.86518 | 0.8 % | 4342836 | 570672251 | +0 | 48.9 |
-| `cut` | edges | 1440 | 1440 | 7 | 1 | 709.43828 | 5.05565 | 718.81681 | 0.7 % | 4130167 | 521196945 | +0 | 48.9 |
-| `rayHits` | edges | 1440 | 1440 | 7 | 8 | 0.47160 | 0.00314 | 0.47519 | 0.7 % | 2816 | 805082 | +0 | 48.9 |
-| `filletEx1` | edges | 1440 | 1440 | 7 | 1 | 38.67503 | 0.11133 | 38.91092 | 0.3 % | 266270 | 41697392 | +0 | 48.9 |
-| `filletCandidateSearch` | edges | 72 | 72 | 7 | 1 | 2.77945 | 0.02786 | 2.83694 | 1.0 % | 25307 | 3987329 | +0 | 48.9 |
-| `volume` | edges | 72 | 72 | 7 | 4 | 0.77638 | 0.00067 | 0.77767 | 0.1 % | 4013 | 305320 | +0 | 48.9 |
-| `valid` | edges | 72 | 72 | 7 | 1 | 4.54550 | 0.01623 | 4.57789 | 0.4 % | 29913 | 4794419 | +0 | 48.9 |
-| `fillet.edges` | edgesBlended | 1 | 72 | 7 | 1 | 13.00687 | 0.04671 | 13.09205 | 0.4 % | 92923 | 10990365 | +0 | 48.9 |
-| `fillet.edges` | edgesBlended | 4 | 72 | 7 | 1 | 27.34761 | 0.13406 | 27.50530 | 0.5 % | 202410 | 21703152 | +0 | 50.4 |
-| `fillet.edges` | edgesBlended | 12 | 72 | 7 | 1 | 61.53017 | 0.21570 | 61.79548 | 0.4 % | 486842 | 47291730 | +0 | 50.4 |
-| `fillet.scenario` | edgesBlended | 1 | 72 | 7 | 1 | 16.55025 | 1.85197 | 20.74838 | 11.2 % | 118230 | 15000713 | +0 | 50.4 |
-| `fillet.scenario` | edgesBlended | 4 | 72 | 7 | 1 | 30.01604 | 0.05369 | 30.11586 | 0.2 % | 227717 | 25709761 | +0 | 50.4 |
-| `fillet.scenario` | edgesBlended | 12 | 72 | 7 | 1 | 64.21740 | 0.34386 | 64.86708 | 0.5 % | 512149 | 51304214 | +0 | 50.4 |
-| `fillet.radius` | radius | 0.5 | 72 | 7 | 1 | 27.40943 | 0.08856 | 27.58909 | 0.3 % | 203528 | 21781312 | +0 | 50.4 |
-| `fillet.radius` | radius | 1 | 72 | 7 | 1 | 27.32476 | 0.12711 | 27.52100 | 0.5 % | 202410 | 21701687 | +0 | 50.4 |
-| `fillet.radius` | radius | 2 | 72 | 7 | 1 | 27.25835 | 0.09291 | 27.41478 | 0.3 % | 202365 | 21687958 | +0 | 50.4 |
-| `fillet.radius` | radius | 4 | 72 | 7 | 1 | 800.22766 | 1.38751 | 802.03655 | 0.2 % | 3554579 | 512437192 | +0 | 51.5 |
+| `build` | edges | 180 | 180 | 7 | 1 | 5.01569 | 0.03575 | 5.07735 | 0.7 % | 33890 | 4998016 | +0 | 10.8 |
+| `edgeInfo1` | edges | 180 | 180 | 7 | 32 | 0.11226 | 0.00099 | 0.11335 | 0.9 % | 821 | 150488 | +0 | 10.9 |
+| `allEdges` | edges | 180 | 180 | 7 | 1 | 20.33276 | 0.06340 | 20.45964 | 0.3 % | 148205 | 27139994 | +0 | 10.9 |
+| `allEdgesBulk` | edges | 180 | 180 | 7 | 4 | 0.88739 | 0.00361 | 0.89415 | 0.4 % | 6207 | 572862 | +0 | 10.9 |
+| `buildOnly` | edges | 180 | 180 | 7 | 1 | 14.36027 | 0.27557 | 14.82822 | 1.9 % | 84141 | 210177562 | -12994 | 14.7 |
+| `counts` | edges | 180 | 180 | 7 | 32 | 0.11970 | 0.00019 | 0.12011 | 0.2 % | 375 | 55384 | +0 | 14.7 |
+| `bbox` | edges | 180 | 180 | 7 | 32 | 0.08881 | 0.00079 | 0.08965 | 0.9 % | 63 | 71064 | +0 | 14.7 |
+| `mesh` | edges | 180 | 180 | 7 | 1 | 5.90104 | 0.06271 | 5.98775 | 1.1 % | 34051 | 7904518 | +0 | 14.7 |
+| `fuse` | edges | 180 | 180 | 7 | 1 | 63.36513 | 0.37947 | 63.94417 | 0.6 % | 270379 | 61755562 | +0 | 19.7 |
+| `cut` | edges | 180 | 180 | 7 | 1 | 57.30307 | 0.18185 | 57.50976 | 0.3 % | 242949 | 55328607 | +0 | 19.7 |
+| `rayHits` | edges | 180 | 180 | 7 | 8 | 0.32049 | 0.00213 | 0.32457 | 0.7 % | 1976 | 287747 | +0 | 19.7 |
+| `filletEx1` | edges | 180 | 180 | 7 | 1 | 37.67227 | 0.25375 | 38.00820 | 0.7 % | 211444 | 24607134 | +0 | 22.0 |
+| `build` | edges | 360 | 360 | 7 | 1 | 11.31875 | 0.03789 | 11.38651 | 0.3 % | 67568 | 9755705 | +0 | 22.0 |
+| `edgeInfo1` | edges | 360 | 360 | 7 | 16 | 0.24559 | 0.00067 | 0.24670 | 0.3 % | 1601 | 255800 | +0 | 22.0 |
+| `allEdges` | edges | 360 | 360 | 7 | 1 | 89.34153 | 0.54984 | 90.57211 | 0.6 % | 577205 | 92173386 | +0 | 22.0 |
+| `allEdgesBulk` | edges | 360 | 360 | 7 | 1 | 2.03401 | 0.00787 | 2.04559 | 0.4 % | 12390 | 1116192 | +0 | 22.0 |
+| `buildOnly` | edges | 360 | 360 | 7 | 1 | 28.16248 | 0.21969 | 28.56184 | 0.8 % | 167656 | 415805435 | -25993 | 24.7 |
+| `counts` | edges | 360 | 360 | 7 | 16 | 0.23958 | 0.00072 | 0.24112 | 0.3 % | 737 | 86152 | +0 | 24.7 |
+| `bbox` | edges | 360 | 360 | 7 | 16 | 0.17783 | 0.00208 | 0.17976 | 1.2 % | 123 | 138744 | +0 | 24.7 |
+| `mesh` | edges | 360 | 360 | 7 | 1 | 11.53960 | 0.13596 | 11.68848 | 1.2 % | 67916 | 14724911 | +0 | 24.7 |
+| `fuse` | edges | 360 | 360 | 7 | 1 | 143.94780 | 0.54111 | 144.87444 | 0.4 % | 614257 | 125222797 | +0 | 30.9 |
+| `cut` | edges | 360 | 360 | 7 | 1 | 131.50125 | 0.51879 | 132.19082 | 0.4 % | 560370 | 112655699 | +0 | 30.9 |
+| `rayHits` | edges | 360 | 360 | 7 | 8 | 0.36227 | 0.00199 | 0.36584 | 0.5 % | 2096 | 361407 | +0 | 30.9 |
+| `filletEx1` | edges | 360 | 360 | 7 | 1 | 12.34142 | 0.02500 | 12.37350 | 0.2 % | 68952 | 10996130 | +0 | 31.8 |
+| `build` | edges | 720 | 720 | 7 | 1 | 22.96468 | 0.07858 | 23.11909 | 0.3 % | 134894 | 19067728 | +0 | 31.8 |
+| `edgeInfo1` | edges | 720 | 720 | 7 | 8 | 0.48448 | 0.00101 | 0.48627 | 0.2 % | 3161 | 466072 | +0 | 31.8 |
+| `allEdges` | edges | 720 | 720 | 7 | 1 | 350.45302 | 1.05961 | 352.83331 | 0.3 % | 2277605 | 335723482 | +0 | 31.8 |
+| `allEdgesBulk` | edges | 720 | 720 | 7 | 1 | 4.06263 | 0.00850 | 4.07456 | 0.2 % | 24751 | 2170973 | +0 | 31.8 |
+| `buildOnly` | edges | 720 | 720 | 7 | 1 | 57.65608 | 0.30883 | 58.23949 | 0.5 % | 334430 | 827088315 | -51947 | 34.6 |
+| `counts` | edges | 720 | 720 | 7 | 8 | 0.46723 | 0.00063 | 0.46832 | 0.1 % | 1457 | 115096 | +0 | 34.6 |
+| `bbox` | edges | 720 | 720 | 7 | 8 | 0.35148 | 0.00329 | 0.35540 | 0.9 % | 243 | 274104 | +0 | 34.6 |
+| `mesh` | edges | 720 | 720 | 7 | 1 | 23.42292 | 0.26424 | 23.96700 | 1.1 % | 135617 | 28280351 | +0 | 34.6 |
+| `fuse` | edges | 720 | 720 | 7 | 1 | 361.67989 | 1.13165 | 364.08509 | 0.3 % | 1539769 | 260184830 | +0 | 34.7 |
+| `cut` | edges | 720 | 720 | 7 | 1 | 335.21598 | 0.91160 | 336.62468 | 0.3 % | 1432912 | 235269989 | +0 | 34.7 |
+| `rayHits` | edges | 720 | 720 | 7 | 8 | 0.43711 | 0.00395 | 0.44561 | 0.9 % | 2336 | 509070 | +0 | 34.7 |
+| `filletEx1` | edges | 720 | 720 | 7 | 1 | 24.26655 | 0.06320 | 24.38328 | 0.3 % | 134712 | 21026944 | +0 | 34.7 |
+| `build` | edges | 1440 | 1440 | 7 | 1 | 47.66823 | 0.08139 | 47.74638 | 0.2 % | 269554 | 37904971 | +0 | 34.7 |
+| `edgeInfo1` | edges | 1440 | 1440 | 7 | 2 | 1.00474 | 0.00427 | 1.01094 | 0.4 % | 6285 | 950711 | +0 | 34.7 |
+| `allEdges` | edges | 1440 | 1440 | 7 | 1 | 1458.64157 | 14.21566 | 1490.86118 | 1.0 % | 9053767 | 1369318506 | +0 | 34.7 |
+| `allEdgesBulk` | edges | 1440 | 1440 | 7 | 1 | 8.19741 | 0.02270 | 8.22661 | 0.3 % | 49476 | 4347845 | +0 | 34.7 |
+| `buildOnly` | edges | 1440 | 1440 | 7 | 1 | 115.94265 | 1.12575 | 117.91630 | 1.0 % | 668604 | 1650871646 | -103867 | 45.1 |
+| `counts` | edges | 1440 | 1440 | 7 | 4 | 0.95344 | 0.00546 | 0.96077 | 0.6 % | 2899 | 204777 | +0 | 45.1 |
+| `bbox` | edges | 1440 | 1440 | 7 | 4 | 0.70660 | 0.00360 | 0.71026 | 0.5 % | 483 | 544824 | +0 | 45.1 |
+| `mesh` | edges | 1440 | 1440 | 7 | 1 | 44.81615 | 0.44677 | 45.60491 | 1.0 % | 271017 | 55022047 | +0 | 45.1 |
+| `fuse` | edges | 1440 | 1440 | 7 | 1 | 1030.22890 | 5.36130 | 1039.38456 | 0.5 % | 4342893 | 570841582 | +0 | 50.3 |
+| `cut` | edges | 1440 | 1440 | 7 | 1 | 962.05997 | 4.10666 | 968.07446 | 0.4 % | 4130160 | 520746559 | +0 | 50.3 |
+| `rayHits` | edges | 1440 | 1440 | 7 | 4 | 0.58513 | 0.00344 | 0.58852 | 0.6 % | 2816 | 804968 | +0 | 50.3 |
+| `filletEx1` | edges | 1440 | 1440 | 7 | 1 | 49.06841 | 0.18693 | 49.30594 | 0.4 % | 266270 | 41701397 | +0 | 50.3 |
+| `filletCandidateSearch` | edges | 72 | 72 | 7 | 1 | 3.93383 | 0.00683 | 3.94560 | 0.2 % | 25307 | 4013944 | +0 | 50.3 |
+| `volume` | edges | 72 | 72 | 7 | 4 | 0.91627 | 0.00433 | 0.92583 | 0.5 % | 4013 | 302664 | +0 | 50.3 |
+| `valid` | edges | 72 | 72 | 7 | 1 | 5.50464 | 0.01391 | 5.52800 | 0.3 % | 29913 | 4795384 | +0 | 50.3 |
+| `fillet.edges` | edgesBlended | 1 | 72 | 7 | 1 | 16.32244 | 0.12264 | 16.52805 | 0.8 % | 92923 | 10991695 | +0 | 50.3 |
+| `fillet.edges` | edgesBlended | 4 | 72 | 7 | 1 | 34.42637 | 0.07979 | 34.53852 | 0.2 % | 202410 | 21702791 | +0 | 52.0 |
+| `fillet.edges` | edgesBlended | 12 | 72 | 7 | 1 | 79.06106 | 0.14691 | 79.23086 | 0.2 % | 486842 | 47302014 | +0 | 52.0 |
+| `fillet.scenario` | edgesBlended | 1 | 72 | 7 | 1 | 20.19102 | 0.10320 | 20.40428 | 0.5 % | 118230 | 15021179 | +0 | 52.0 |
+| `fillet.scenario` | edgesBlended | 4 | 72 | 7 | 1 | 38.26397 | 0.10367 | 38.43983 | 0.3 % | 227717 | 25738051 | +0 | 52.0 |
+| `fillet.scenario` | edgesBlended | 12 | 72 | 7 | 1 | 83.30282 | 0.67917 | 84.67086 | 0.8 % | 512149 | 51316031 | +0 | 52.0 |
+| `fillet.radius` | radius | 0.5 | 72 | 7 | 1 | 34.50613 | 0.11355 | 34.71799 | 0.3 % | 203528 | 21785209 | +0 | 52.0 |
+| `fillet.radius` | radius | 1 | 72 | 7 | 1 | 34.37647 | 0.10997 | 34.55072 | 0.3 % | 202410 | 21703909 | +0 | 52.0 |
+| `fillet.radius` | radius | 2 | 72 | 7 | 1 | 34.23095 | 0.07784 | 34.38254 | 0.2 % | 202365 | 21695455 | +0 | 52.0 |
+| `fillet.radius` | radius | 4 | 72 | 7 | 1 | 879.76995 | 0.77242 | 881.10121 | 0.1 % | 3554579 | 512358211 | +0 | 53.0 |
+| `sweep.segments` | segments | 32 | 96 | 7 | 1 | 45.03852 | 0.08091 | 45.15579 | 0.2 % | 115749 | 19930749 | +0 | 53.0 |
+| `sweep.segments` | segments | 64 | 192 | 7 | 1 | 112.76774 | 0.37770 | 113.23863 | 0.3 % | 249465 | 61445496 | +0 | 53.0 |
+| `sweep.segments` | segments | 128 | 384 | 7 | 1 | 233.59584 | 0.36542 | 234.25717 | 0.2 % | 526502 | 130748969 | +0 | 81.7 |
+| `sweep.legacy` | segments | 32 | 1054 | 7 | 1 | 277.17721 | 1.00300 | 278.46725 | 0.4 % | 1236869 | 235607480 | +0 | 81.7 |
+| `sweep.legacy` | segments | 64 | 2112 | 7 | 1 | 748.50627 | 5.36818 | 757.22512 | 0.7 % | 2634211 | 495740515 | +0 | 81.7 |
+| `sweep.legacy` | segments | 128 | 4224 | 6 | 1 | 3934.85658 | 13.91022 | 3948.27601 | 0.4 % | 6057816 | 1150764216 | +0 | 81.7 |
+| `sweep.coil` | segments | 32 | 96 | 7 | 1 | 20.35864 | 0.53491 | 21.51566 | 2.6 % | 100513 | 14758122 | +0 | 81.7 |
+| `sweep.coil` | segments | 64 | 192 | 7 | 1 | 70.58558 | 0.17180 | 70.77804 | 0.2 % | 226265 | 55174536 | +0 | 81.7 |
+| `sweep.coil` | segments | 128 | 384 | 7 | 1 | 139.77170 | 0.74849 | 141.19924 | 0.5 % | 449824 | 104228965 | +0 | 81.7 |
+| `sweep.spans` | spans | 1 | 384 | 7 | 1 | 43.40429 | 0.04264 | 43.46523 | 0.1 % | 287322 | 33585733 | +0 | 81.7 |
+| `sweep.spans` | spans | 2 | 640 | 7 | 1 | 923.26571 | 2.47571 | 927.70226 | 0.3 % | 1042469 | 191372635 | +0 | 83.8 |
+| `sweep.spans` | spans | 4 | 1152 | 7 | 1 | 1946.28678 | 2.83874 | 1949.57702 | 0.1 % | 2008842 | 381695865 | +0 | 83.8 |
+| `sweep.spans` | spans | 8 | 384 | 7 | 1 | 223.14018 | 0.30903 | 223.59446 | 0.1 % | 546395 | 129695663 | +0 | 83.8 |
+| `sweep.spans` | spans | 16 | 384 | 7 | 1 | 233.78828 | 0.32021 | 234.29818 | 0.1 % | 526502 | 130756667 | +0 | 83.8 |
+| `sweep.ph.wire` | segments | 128 | 0 | 6 | 1 | 0.14476 | 0.02032 | 0.18621 | 14.0 % | n/a | n/a | n/a | 83.8 |
+| `sweep.ph.spine` | segments | 128 | 0 | 6 | 1 | 0.01945 | 0.00508 | 0.02673 | 26.1 % | n/a | n/a | n/a | 83.8 |
+| `sweep.ph.build` | segments | 128 | 0 | 6 | 1 | 3819.63892 | 7.25905 | 3829.26625 | 0.2 % | n/a | n/a | n/a | 83.8 |
+| `sweep.ph.solid` | segments | 128 | 0 | 6 | 1 | 39.48762 | 3.10374 | 45.57004 | 7.9 % | n/a | n/a | n/a | 83.8 |
+| `sweep.ph.unify` | segments | 128 | 0 | 6 | 1 | 88.73253 | 3.43145 | 94.54997 | 3.9 % | n/a | n/a | n/a | 83.8 |
+| `sweep.ph.total` | segments | 128 | 0 | 6 | 1 | 3948.02328 | 11.48000 | 3964.44335 | 0.3 % | n/a | n/a | n/a | 83.8 |
+| `sweep.ph.wire` | segments | 32 | 0 | 7 | 1 | 0.04478 | 0.00678 | 0.05428 | 15.1 % | n/a | n/a | n/a | 83.8 |
+| `sweep.ph.spine` | segments | 32 | 0 | 7 | 1 | 0.01737 | 0.00242 | 0.02135 | 13.9 % | n/a | n/a | n/a | 83.8 |
+| `sweep.ph.build` | segments | 32 | 0 | 7 | 1 | 252.21193 | 1.57255 | 253.99944 | 0.6 % | n/a | n/a | n/a | 83.8 |
+| `sweep.ph.solid` | segments | 32 | 0 | 7 | 1 | 8.08222 | 0.09240 | 8.16983 | 1.1 % | n/a | n/a | n/a | 83.8 |
+| `sweep.ph.unify` | segments | 32 | 0 | 7 | 1 | 19.44657 | 0.05735 | 19.54358 | 0.3 % | n/a | n/a | n/a | 83.8 |
+| `sweep.ph.total` | segments | 32 | 0 | 7 | 1 | 279.80286 | 1.61076 | 281.60116 | 0.6 % | n/a | n/a | n/a | 83.8 |
+| `sweep.ph.wire` | segments | 64 | 0 | 7 | 1 | 0.08790 | 0.01229 | 0.11271 | 14.0 % | n/a | n/a | n/a | 83.8 |
+| `sweep.ph.spine` | segments | 64 | 0 | 7 | 1 | 0.01629 | 0.00158 | 0.01981 | 9.7 % | n/a | n/a | n/a | 83.8 |
+| `sweep.ph.build` | segments | 64 | 0 | 7 | 1 | 697.74520 | 8.06319 | 710.62073 | 1.2 % | n/a | n/a | n/a | 83.8 |
+| `sweep.ph.solid` | segments | 64 | 0 | 7 | 1 | 17.18702 | 0.15590 | 17.42597 | 0.9 % | n/a | n/a | n/a | 83.8 |
+| `sweep.ph.unify` | segments | 64 | 0 | 7 | 1 | 40.13424 | 0.55512 | 40.94482 | 1.4 % | n/a | n/a | n/a | 83.8 |
+| `sweep.ph.total` | segments | 64 | 0 | 7 | 1 | 755.17065 | 8.14215 | 767.61080 | 1.1 % | n/a | n/a | n/a | 83.8 |
+| `sweep.var.v23poly` | segments | 128 | 0 | 6 | 1 | 3948.77962 | 15.62311 | 3968.46025 | 0.4 % | n/a | n/a | n/a | 83.8 |
+| `sweep.var.noUnify` | segments | 128 | 0 | 6 | 1 | 3819.54787 | 11.80840 | 3831.55933 | 0.3 % | n/a | n/a | n/a | 83.8 |
+| `sweep.var.transformed` | segments | 128 | 0 | 7 | 1 | 311.97655 | 2.63973 | 316.77793 | 0.8 % | n/a | n/a | n/a | 83.8 |
+| `sweep.var.deadband` | segments | 128 | 0 | 7 | 1 | 652.70487 | 4.18346 | 660.53039 | 0.6 % | n/a | n/a | n/a | 89.9 |
+| `sweep.var.smoothSpine` | segments | 128 | 0 | 7 | 1 | 223.87072 | 0.43771 | 224.77094 | 0.2 % | n/a | n/a | n/a | 94.6 |
 
 ### Notes
 
@@ -172,3 +216,40 @@ The harness is believable only where it reproduces the SHAPE of the device findi
 - `fillet.radius` (x=1): §6.3: 10 ms at r=1.0 against 658 ms at r=4.0 on the device — a 65x discontinuity, and it may be OCCT's own behaviour
 - `fillet.radius` (x=2): §6.3: 10 ms at r=1.0 against 658 ms at r=4.0 on the device — a 65x discontinuity, and it may be OCCT's own behaviour
 - `fillet.radius` (x=4): §6.3: 10 ms at r=1.0 against 658 ms at r=4.0 on the device — a 65x discontinuity, and it may be OCCT's own behaviour
+- `sweep.segments` (x=32): occt_sweep_profile against profile segment count — 32 segments x 16 spans, 34 faces, volume 6742.2918
+- `sweep.segments` (x=64): occt_sweep_profile against profile segment count — 64 segments x 16 spans, 66 faces, volume 6774.9148
+- `sweep.segments` (x=128): occt_sweep_profile against profile segment count — 128 segments x 16 spans, 130 faces, volume 6783.0853
+- `sweep.legacy` (x=32): occt_sweep_profile_ex with OCCT_SWEEP_PATH_POLY — the v23 polyline spine, every joint mitered — 32 segments x 16 spans, 512 faces, volume 6742.3215
+- `sweep.legacy` (x=64): occt_sweep_profile_ex with OCCT_SWEEP_PATH_POLY — the v23 polyline spine, every joint mitered — 64 segments x 16 spans, 1026 faces, volume 6774.9447
+- `sweep.legacy` (x=128): occt_sweep_profile_ex with OCCT_SWEEP_PATH_POLY — the v23 polyline spine, every joint mitered — 128 segments x 16 spans, 2050 faces, volume 6783.1153
+- `sweep.coil` (x=32): occt_coil_profile — same section, same quarter turn of radius 18 rising 60, but the spine is one analytic helix edge instead of a polyline sample of it — 32 segments, 34 faces, volume 7453.4671
+- `sweep.coil` (x=64): occt_coil_profile — same section, same quarter turn of radius 18 rising 60, but the spine is one analytic helix edge instead of a polyline sample of it — 64 segments, 66 faces, volume 7489.5313
+- `sweep.coil` (x=128): occt_coil_profile — same section, same quarter turn of radius 18 rising 60, but the spine is one analytic helix edge instead of a polyline sample of it — 128 segments, 130 faces, volume 7498.5636
+- `sweep.spans` (x=1): occt_sweep_profile against path span count — 128 segments x 1 spans, 130 faces, volume 6783.1153
+- `sweep.spans` (x=2): occt_sweep_profile against path span count — 128 segments x 2 spans, 258 faces, volume 6783.1153
+- `sweep.spans` (x=4): occt_sweep_profile against path span count — 128 segments x 4 spans, 514 faces, volume 6783.1153
+- `sweep.spans` (x=8): occt_sweep_profile against path span count — 128 segments x 8 spans, 130 faces, volume 6782.5695
+- `sweep.spans` (x=16): occt_sweep_profile against path span count — 128 segments x 16 spans, 130 faces, volume 6783.0853
+- `sweep.ph.wire` (x=128): the v23 pipeline, phase by phase — 128 seg x 16 spans, 2050 faces, spine edges 16, volume 6783.115299, valid
+- `sweep.ph.spine` (x=128): the v23 pipeline, phase by phase — 128 seg x 16 spans, 2050 faces, spine edges 16, volume 6783.115299, valid
+- `sweep.ph.build` (x=128): the v23 pipeline, phase by phase — 128 seg x 16 spans, 2050 faces, spine edges 16, volume 6783.115299, valid
+- `sweep.ph.solid` (x=128): the v23 pipeline, phase by phase — 128 seg x 16 spans, 2050 faces, spine edges 16, volume 6783.115299, valid
+- `sweep.ph.unify` (x=128): the v23 pipeline, phase by phase — 128 seg x 16 spans, 2050 faces, spine edges 16, volume 6783.115299, valid
+- `sweep.ph.total` (x=128): the v23 pipeline, phase by phase — 128 seg x 16 spans, 2050 faces, spine edges 16, volume 6783.115299, valid
+- `sweep.ph.wire` (x=32): the v23 pipeline, phase by phase — 32 seg x 16 spans, 512 faces, spine edges 16, volume 6742.321529, valid
+- `sweep.ph.spine` (x=32): the v23 pipeline, phase by phase — 32 seg x 16 spans, 512 faces, spine edges 16, volume 6742.321529, valid
+- `sweep.ph.build` (x=32): the v23 pipeline, phase by phase — 32 seg x 16 spans, 512 faces, spine edges 16, volume 6742.321529, valid
+- `sweep.ph.solid` (x=32): the v23 pipeline, phase by phase — 32 seg x 16 spans, 512 faces, spine edges 16, volume 6742.321529, valid
+- `sweep.ph.unify` (x=32): the v23 pipeline, phase by phase — 32 seg x 16 spans, 512 faces, spine edges 16, volume 6742.321529, valid
+- `sweep.ph.total` (x=32): the v23 pipeline, phase by phase — 32 seg x 16 spans, 512 faces, spine edges 16, volume 6742.321529, valid
+- `sweep.ph.wire` (x=64): the v23 pipeline, phase by phase — 64 seg x 16 spans, 1026 faces, spine edges 16, volume 6774.944740, valid
+- `sweep.ph.spine` (x=64): the v23 pipeline, phase by phase — 64 seg x 16 spans, 1026 faces, spine edges 16, volume 6774.944740, valid
+- `sweep.ph.build` (x=64): the v23 pipeline, phase by phase — 64 seg x 16 spans, 1026 faces, spine edges 16, volume 6774.944740, valid
+- `sweep.ph.solid` (x=64): the v23 pipeline, phase by phase — 64 seg x 16 spans, 1026 faces, spine edges 16, volume 6774.944740, valid
+- `sweep.ph.unify` (x=64): the v23 pipeline, phase by phase — 64 seg x 16 spans, 1026 faces, spine edges 16, volume 6774.944740, valid
+- `sweep.ph.total` (x=64): the v23 pipeline, phase by phase — 64 seg x 16 spans, 1026 faces, spine edges 16, volume 6774.944740, valid
+- `sweep.var.v23poly` (x=128): RightCorner, polyline spine, UnifySameDomain — the v23 pipeline, which is what OCCT_SWEEP_PATH_POLY still selects — 2050 faces, spine edges 16, volume 6783.115299 (+0.0000 % vs the v23 pipeline), valid
+- `sweep.var.noUnify` (x=128): the v23 pipeline WITHOUT the closing UnifySameDomain — 2050 faces, spine edges 16, volume 6783.115299 (+0.0000 % vs the v23 pipeline), valid
+- `sweep.var.transformed` (x=128): BRepBuilderAPI_Transformed — no corner trimming at all — 2050 faces, spine edges 16, volume 6783.115299 (+0.0000 % vs the v23 pipeline), valid
+- `sweep.var.deadband` (x=128): RightCorner with OCCT's own angmin deadband raised to 5 deg, so shallow joints are not treated as corners — 2050 faces, spine edges 16, volume 8982.628131 (+32.4263 % vs the v23 pipeline), INVALID
+- `sweep.var.smoothSpine` (x=128): a C2 B-spline interpolated through the same path points — one spine edge, so no joints to treat — 130 faces, spine edges 1, volume 6783.085827 (-0.0004 % vs the v23 pipeline), valid
