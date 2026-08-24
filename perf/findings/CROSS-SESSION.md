@@ -2874,3 +2874,177 @@ and a comment; no production code moved. The diagnosis is from source and from
 S12's exact failure signature, and it predicts specifically that this file goes
 from 1 failure to 0 with no other file moving. If CI shows otherwise, that
 prediction is refuted and the guard itself needs looking at.
+
+---
+
+## 2026-08-23 — INTEGRATOR — Lane C's independent verdict on S6: confirmed, on a machine S6 never touched
+
+**Needs:** nobody. This closes the S6 adjudication that my ruling above left open.
+
+**Measured by:** `kernel-bench.yml` runs 18 (`64a3ea9`, the S6 merge) and 19
+(`4858fc4`), both green, both on the published runner. The linux job is the one
+that gates, and it is a different machine and a different ISA from the one S6
+measured on.
+
+S6 named its own refutation criterion in §8.5 and did not hedge it:
+
+> A Lane C run on the published Linux or arm64 runner fitting `allEdgesBulk`
+> above **k = 1.10**.
+
+| op | k | 95 % CI | R² | N |
+| --- | ---: | --- | ---: | ---: |
+| **`allEdgesBulk`** | **1.037** | **[1.015, 1.058]** | 0.9998 | 4 |
+| `allEdges` — the untouched control | 2.074 | [2.026, 2.121] | 0.9997 | 4 |
+| `edgeInfo1` | 1.065 | [1.002, 1.127] | 0.9982 | 4 |
+
+**The upper bound is 1.058. The criterion is 1.10. Not refuted.** The interval
+is also *tighter* than the 1.0757 [1.0015, 1.1499] S6 fitted on its own
+hardware, and sits inside it.
+
+**The control is what makes this worth believing.** `allEdges`, the per-edge
+enumeration S6 deliberately did not touch, fits 2.074 in the *same run, on the
+same fixture, on the same machine*. One path linear and the other quadratic,
+side by side, is a much stronger statement than a single fast number: it rules
+out the machine, the fixture and the harness all at once. S6 predicted exactly
+this in its §7.3 and it holds.
+
+Magnitude at the top rung, 1440 edges: `allEdges` 1151.86 ms against
+`allEdgesBulk` **6.39 ms**, a factor of **180**.
+
+**S6's second refutation criterion is also not met** — "an allocation counter
+still carrying a term proportional to n". Allocations per edge:
+
+```
+allEdgesBulk :  180 edges -> 34.5     1440 edges -> 34.4     FLAT
+allEdges     :  180 edges ->  823     1440 edges -> 6287     linear per edge
+```
+
+Flat across an eightfold size range, against S6's claimed 33.7. The quadratic
+is gone from the allocator as well as from the clock.
+
+**One thing that softens S6's own §7.5 worry.** It reported `edgeInfo1`
+DISAGREEING with the device on its machine ([1.0339, 1.1114] against the
+device's 0.990 [0.970, 1.010]) and flagged it honestly rather than burying it.
+On the published runner the same op fits 1.065 [1.002, 1.127] and the harness
+says **AGREES**. So the disagreement is not a stable property of v22. That
+supports the decision recorded above not to re-record `CALIBRATION.txt` — there
+was nothing there to silence, and re-recording would have destroyed the
+evidence that says so.
+
+**What this does NOT settle.** Lane C is a desktop. Every exponent above was
+confirmed on the wrong machine, and §13.3 of the profile is binding: relative
+costs and exponents may be read from Lane C, absolute milliseconds may not.
+The device capture is still the adjudicator, and it can disagree. What Lane C
+has done is remove the possibility that S6's result was an artefact of S6's own
+container.
+
+---
+
+## 2026-08-23 — INTEGRATOR — main is merged in, and the shim version collided AGAIN
+
+**Needs:** anyone who touches `backend/occt/shim/**` or reads
+`occt_shim_version()`. Read the second half.
+
+**Merged:** `origin/main` into `claude/perf-opt2` at `d72c107`. Thirty commits
+of feature work this branch did not have — M232 (mesh import: STL/OBJ/3MF
+become real CAD bodies), M235–M237 (ribbon label widths, the Chalk/Ember
+palettes), M240/M241 (the assembly document and its RealityKit renderer).
+
+### The duplicate localisation lineage, retired against a proof
+
+S12's work existed twice: the original commits here, and S13's cherry-picked
+replay on main. Git cannot see that they are the same, so a plain merge raised
+**31 conflicts**, most of them the same German string arriving from both
+directions.
+
+Rather than hand-resolve 31 files I checked whether the two were actually the
+same. `app_de.arb`, `app_en.arb` and `gen/app_l10n_de.dart` are **byte-identical**
+between this branch and `main@0e210f4`. S13 had further proved — and I
+reproduced independently on all four conflict-surface files, matching line
+counts *and* content hashes — that the two sides differ across the localisation
+**exactly by the perf lineage and by nothing else**:
+
+```
+ribbon.dart     residual 19  == perf divergence 19
+app_state.dart          217  ==                217
+main.dart                21  ==                 21
+viewport.dart           143  ==                143
+```
+
+That invariant is what licenses the resolution: where the sides differ, this
+branch's side IS main's side plus the perf work, so keeping this tree loses no
+localisation. Retired with `git merge -s ours` scoped to `0e210f4` — the commit
+where the localisation landed on main, deliberately **not** main's tip, so
+everything after it still merged normally. **31 conflicts became 5.** S13's
+report was carried across explicitly, since `-s ours` would have dropped it.
+
+This is a duplicate being retired against a proof, not a conflict being waved
+away. If anyone finds a German string that regressed, that invariant is where
+to start, and it is falsifiable.
+
+### THE SHIM VERSION COLLIDED AGAIN, exactly as the file predicted
+
+Both lineages independently shipped a **"v21"**:
+
+| lineage | what it called v21 |
+| --- | --- |
+| this branch | `occt_shape_edges_info` (S2) |
+| main | `occt_brep_from_mesh` (M232) |
+
+Neither knew about the other, so `occt_shim_version() == 21` named two
+different ABIs in two different binaries. `occt_capi.cpp` already carries a
+note about the earlier **v17** collision and states the rule:
+
+> a version that means different things in two binaries is worse than a gap in
+> the sequence
+
+Resolved that way. The merged surface is strictly larger than either side, so
+it takes the next free number: **`occt_shim_version()` is now 23.** A v23
+binary has all three — `occt_shape_edges_info`, the local convexity sign, and
+`occt_brep_from_mesh`.
+
+**Consequence anyone gating on the version must know:** `brepFromMesh`'s floor
+moved from `shimVersion < 21` to `< 23` (`occt_engine.dart`). 21 was true on
+main's lineage and false on this one; **23 is the first version in which
+`occt_brep_from_mesh` is unambiguously present.** Do not "correct" it back.
+
+**This is the second time this has happened in one project.** Five sessions in
+parallel produced the v17 collision, twelve produced this one. The rule that
+prevented it being worse is that the number is only ever taken by the session
+that owns `backend/occt/shim/**`. That rule held within each lineage and had
+nothing to say across two lineages, which is the gap.
+
+### The other four conflicts
+
+- **`part_render.dart`** — M240 added a `depthBias` parameter to
+  `buildSceneSolid` while this branch had split it into a `Perf.span` wrapper
+  plus `_buildSceneSolidInner`. Combined: the wrapper threads `depthBias`
+  through, so assembly depth-space composition and the render span both work.
+- **`ribbon.dart`** — M240's `_assemblyRibbon` kept alongside the sketch-ribbon
+  span; main's `_sketchRibbon` body became `_sketchRibbonInner`, which is what
+  the wrapper calls.
+- **`occt_engine.dart`** — both FFI bindings kept, three sites.
+- **`NativeMenuPlugin.swift`** — M214's `perfProbe` and M237's `setAppearance`,
+  both kept.
+
+**`_assemblyRibbon` was deliberately NOT given a span of its own.** Inventing
+instrumentation during a merge is how a measurement apparatus stops being
+comparable across captures. If the assembly ribbon should be measured, that is
+a session's decision, not a side effect of conflict resolution.
+
+### What the merge does to the round-two measurement, checked rather than assumed
+
+Main's thirty commits add **no new spans, counters or gauges**. The only three
+`Perf.` sites they introduce are inside the new *assembly* viewport, and they
+deliberately reuse the part viewport's existing names — `3d.push`,
+`3d.payload`, `sceneTris`, `kernel.remesh` — because they do the same job.
+
+So those four names now have two possible writers. **The suite scenarios never
+open an assembly**, so an automated capture cannot mix them; only a manual
+session in which someone opens an assembly document would. The round-two
+comparison against `perf/baseline.json` is therefore unaffected, and the
+assembly is simply not measured this round — which is the owner's explicit
+decision, recorded here so nobody later reads its absence as an oversight.
+
+CI run 458: `Analyze Dart`, `Host tests`, `build-core-ios`, `M3 headless` and
+the IPA job all green on the merged tree. Tagged `build-458`.
