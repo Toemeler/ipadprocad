@@ -449,13 +449,12 @@ int main()
             TopoDS_Shape out = Run(src, 0.4, r);
             report(r);
             chk("survives the cone face", !out.IsNull());
-            /* At THIS tessellation the fitted pass cannot hold the shell
-             * together and the faceted fallback takes over, so the report is
-             * the fallback's — which is the point: a watertight solid, not a
-             * shattered open shell. The crash this case exists for happens in
-             * the fitted pass either way, long before any fallback. Case 10
-             * below is where the cone itself has to be recognised. */
             chk("still a closed solid", r.closed == 1);
+            chk("and recognised, coarse as it is",
+                r.planes == 1 && r.cylinders == 1 && r.cones == 1,
+                std::to_string(r.planes) + "pl " +
+                    std::to_string(r.cylinders) + "cy " +
+                    std::to_string(r.cones) + "co");
         }
     }
     // ---- 10. the same post, tessellated finely: crease splitting ---------
@@ -806,6 +805,44 @@ int main()
             chk("nothing reaches outside the mesh",
                 Overshoot(out) < g_meshDiag * 0.02,
                 std::to_string(Overshoot(out)) + " mm");
+        }
+    }
+
+    // ---- 14. the same post at every taper, which greedy growing could not --
+    //
+    // A cylinder into a cone, swept from a 6-degree taper to a 63-degree one.
+    // Region growing was right at the ends and hopeless in the middle — 24 and
+    // 26 patches at 9 and 15 degrees, open shells both — because the first
+    // seed off a tessellated barrel is a PLANE that fits three columns to well
+    // inside tolerance, and once it has committed there is no way back.
+    //
+    // RANSAC does not commit. It proposes candidates from random seeds and
+    // scores each against the whole patch, so the plane's three columns lose
+    // to the cylinder's barrel on evidence. Every angle in the sweep now comes
+    // back as exactly what it is.
+    {
+        std::printf("== a tapered post at every taper ==\n");
+        for (double coneH : {40., 25., 15., 10., 6., 2.}) {
+            TopoDS_Shape src =
+                BRepAlgoAPI_Fuse(
+                    BRepPrimAPI_MakeCylinder(4., 10.).Shape(),
+                    BRepPrimAPI_MakeCone(
+                        gp_Ax2(gp_Pnt(0, 0, 10), gp_Dir(0, 0, 1)), 4., 0., coneH)
+                        .Shape())
+                    .Shape();
+            meshrecon::Report r;
+            TopoDS_Shape out = Run(src, 0.02, r);
+            const double halfAngle = std::atan(4.0 / coneH) * 180.0 / M_PI;
+            std::printf("   %5.1f deg taper: ", halfAngle);
+            report(r);
+            chk("disc + barrel + cone, whatever the taper",
+                r.planes == 1 && r.cylinders == 1 && r.cones == 1,
+                std::to_string(halfAngle) + " deg: " +
+                    std::to_string(r.planes) + "pl " +
+                    std::to_string(r.cylinders) + "cy " +
+                    std::to_string(r.cones) + "co");
+            chk("closed solid", r.closed == 1,
+                std::to_string(halfAngle) + " deg");
         }
     }
 

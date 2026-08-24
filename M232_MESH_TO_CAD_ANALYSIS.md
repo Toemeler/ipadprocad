@@ -19,7 +19,7 @@ kernel that was already here.
 | `PartKernel.meshToBrep` | the seam the app talks to, so `AppState` never touches the FFI directly and the test fakes can decline it in one line |
 | `AppState.importMeshIntoPart` | Open accepts `.stl`, `.obj`, `.3mf`; the body lands in the feature tree and is filletable, booleanable and STEP-exportable like any other |
 | 22 ARB keys, German + English | every sentence the feature can say. `mesh_io.dart` throws a `MeshFailure` code, never prose — a reader has no business holding UI text (M234) |
-| `backend/occt/tests/mesh_recon_test.cpp` | 92 assertions: build a solid with OCCT, tessellate it, throw the B-Rep away, reconstruct from triangles alone, compare topology and volume. Run by CI |
+| `backend/occt/tests/mesh_recon_test.cpp` | 105 assertions: build a solid with OCCT, tessellate it, throw the B-Rep away, reconstruct from triangles alone, compare topology and volume. Run by CI |
 | `frontend/test/m232_mesh_import_test.dart` | 28 tests over the readers, the limits, the Open decision and the import wiring |
 
 ### What it actually does
@@ -248,6 +248,55 @@ happens the fitted result is kept anyway (recognition is what was asked for)
 unless nothing at all was recognised, in which case the faceted build takes it
 and closes. Closing the hybrid is the next thing, and it is a bounded problem
 with a measured target: 29 edges of 3030.
+
+### RANSAC, and why greedy growing could never have got there
+
+The last recognition failure left was the one that mattered most, because it
+hits ORDINARY prismatic parts rather than organic ones. A cylinder running into
+a cone — a tapered post, a nozzle, a chamfered boss — was recovered perfectly at
+some tapers and came apart at others:
+
+| taper | patches, region growing |
+|---|---|
+| 5.7° | 7 |
+| 9.1° | **24** |
+| 14.9° | **26** |
+| 21.8° | 3 |
+| 26.6° and above | 3 |
+
+Nothing about 9° is harder than 22°. The failure is not geometric, it is
+procedural: **greedy region growing commits to whatever its first seed
+suggested.** The first seed off a tessellated barrel is a PLANE that fits three
+columns to well inside tolerance — and once the running fit is a plane, it
+stops accepting at the fourth column, and the barrel becomes a fan of planar
+strips. Every threshold tried moved which tapers failed, not whether they did.
+
+The classical answer is not a better threshold, it is not committing:
+**Efficient RANSAC** (Schnabel, Wahl & Klein, 2007), which is what CGAL's
+`Shape_detection` implements and what the commercial converters use. Candidates
+are proposed from random seeds and each is then scored against the WHOLE patch
+— how many triangles does this surface actually explain? The plane explains
+three columns. The cylinder explains the barrel. The cylinder wins on evidence
+instead of on being asked first.
+
+Implemented directly against the existing fitter (`SplitByRansac`): grow a
+small neighbourhood from a random seed, fit it, flood-fill its inliers across
+the patch — connected, so a cylinder cannot claim the identical hole on the far
+side of the part — keep the best of 48 proposals, take its triangles, repeat.
+Deterministic, because the generator is seeded from the patch: a converter
+whose output depends on the weather cannot be tested.
+
+| taper | before | after |
+|---|---|---|
+| 5.7° | 7 patches | **3**, closed, rms 0.0000 |
+| 9.1° | 24 patches, open | **3**, closed, rms 0.0000 |
+| 14.9° | 26 patches, open | **3**, closed, rms 0.0000 |
+| 21.8° | 3 | 3 |
+| 63.4° | 3 | 3 |
+
+Every taper from 6° to 63°: disc, barrel, cone. It costs nothing on models that
+already fitted — it only runs on a patch that fitted nothing — and 2.24 M
+triangles still convert in 4.1 s.
 
 ---
 

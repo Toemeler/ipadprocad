@@ -1105,6 +1105,16 @@ const double kMinCreaseAngle = 2.0 * M_PI / 180.0;
 /* A patch with more creases than this is not a pair of surfaces, it is noise. */
 const int kMaxCreaseDepth = 4;
 
+/* RANSAC budget. Bounded on purpose: this runs only on patches that fitted
+ * nothing, and being thorough on a pathological patch at the cost of being
+ * slow on every model is not a trade worth making. */
+const int kRansacTrials = 48;        /* candidates proposed per round */
+const int kRansacRounds = 32;        /* surfaces extracted per patch */
+const int kRansacSeedTriangles = 40; /* neighbourhood a candidate is fitted to */
+const int kRansacMinPatch = 24;      /* below this, growing is fine */
+const int kRansacMinSupport = 10;    /* triangles a winner must explain */
+const double kRansacNormalGate = 0.90;
+
 /* A residual this far below tolerance is not "within tolerance", it is the
  * surface the mesh was made from. */
 const double kExactFitFraction = 0.02;
@@ -1732,6 +1742,165 @@ void SplitByFit(const Mesh &m, const std::vector<int> &tris, double tol,
     }
 }
 
+/* RANSAC over one patch: propose many primitives, keep the one the mesh
+ * supports best, take its triangles, repeat.
+ *
+ * This is the segmentation step the classical literature settled on (Schnabel,
+ * Wahl & Klein 2007) and it is what the commercial converters use, because
+ * greedy region growing has a failure mode it cannot escape: it commits to
+ * whatever the first seed suggested. On a coarse prismatic model — a
+ * downloaded one, in other words — the first seed off a twelve-sided cylinder
+ * is a PLANE that fits three columns to well inside tolerance, and the barrel
+ * comes back as a fan of planar strips.
+ *
+ * Proposing instead of committing removes that. A candidate is grown from a
+ * random seed, fitted, and then scored against the WHOLE patch: how many
+ * triangles does this surface actually explain? The plane explains three
+ * columns; the cylinder explains the barrel. The cylinder wins on evidence
+ * rather than on being asked first.
+ *
+ * Deterministic on purpose — the generator is seeded from the patch — because
+ * a converter whose output depends on the weather cannot be tested. */
+void SplitByRansac(const Mesh &m, const std::vector<int> &tris, double tol,
+                   double scale, int minTris, int origin,
+                   std::vector<Patch> &out, std::vector<int> &leftover)
+{
+    leftover.clear();
+    const int n = static_cast<int>(tris.size());
+    if (n < kRansacMinPatch) {
+        leftover = tris;
+        return;
+    }
+    std::unordered_map<int, int> local;
+    for (int i = 0; i < n; ++i)
+        local.emplace(tris[i], i);
+    std::vector<char> taken(n, 0);
+    int remaining = n;
+
+    unsigned rng = 0x9E3779B9u ^ (unsigned)n ^ ((unsigned)tris[0] * 2654435761u);
+    auto next = [&rng]() {
+        rng ^= rng << 13;
+        rng ^= rng >> 17;
+        rng ^= rng << 5;
+        return rng;
+    };
+
+    PatchData pd;
+    std::vector<int> seedRegion, stack, inliers, best;
+    Fit bestFit;
+    for (int round = 0; round < kRansacRounds && remaining >= minTris; ++round) {
+        best.clear();
+        bestFit = Fit();
+        for (int trial = 0; trial < kRansacTrials; ++trial) {
+            int start = -1;
+            for (int a = 0; a < 8 && start < 0; ++a) {
+                const int c = (int)(next() % (unsigned)n);
+                if (!taken[c])
+                    start = c;
+            }
+            if (start < 0)
+                continue;
+            seedRegion.clear();
+            stack.assign(1, start);
+            std::unordered_map<int, char> inSeed;
+            inSeed.emplace(tris[start], 1);
+            while (!stack.empty() &&
+                   (int)seedRegion.size() < kRansacSeedTriangles) {
+                const int i = stack.back();
+                stack.pop_back();
+                seedRegion.push_back(tris[i]);
+                for (int k = 0; k < 3; ++k) {
+                    const int o = m.adj[tris[i] * 3 + k];
+                    if (o < 0)
+                        continue;
+                    auto it = local.find(o);
+                    if (it == local.end() || taken[it->second])
+                        continue;
+                    if (inSeed.find(o) != inSeed.end())
+                        continue;
+                    inSeed.emplace(o, 1);
+                    stack.push_back(it->second);
+                }
+            }
+            if ((int)seedRegion.size() < 4)
+                continue;
+            PatchPoints(m, seedRegion, pd, 600);
+            const Fit f = FitPatch(pd, tol, scale);
+            if (f.kind == kNone || f.rms > tol * kTrustRmsFraction)
+                continue;
+
+            /* Score it against the whole patch, CONNECTED to the seed: a
+             * cylinder must not claim the identical hole on the far side of
+             * the part. */
+            inliers.clear();
+            std::unordered_map<int, char> mark;
+            stack.assign(1, start);
+            mark.emplace(tris[start], 1);
+            while (!stack.empty()) {
+                const int i = stack.back();
+                stack.pop_back();
+                const int t = tris[i];
+                bool ok = true;
+                for (int k = 0; k < 3 && ok; ++k) {
+                    const V3 &p = m.pos[m.tri[t * 3 + k]];
+                    if (std::fabs(SurfDist(f.kind, f.q, p)) > tol)
+                        ok = false;
+                }
+                if (ok) {
+                    const V3 sn = SurfNormal(f.kind, f.q, m.pos[m.tri[t * 3]],
+                                             std::max(scale * 1e-5, 1e-9));
+                    if (Norm(sn) > 0.5 &&
+                        std::fabs(Dot(sn, m.tnorm[t])) < kRansacNormalGate)
+                        ok = false;
+                }
+                if (!ok)
+                    continue;
+                inliers.push_back(i);
+                for (int k = 0; k < 3; ++k) {
+                    const int o = m.adj[t * 3 + k];
+                    if (o < 0)
+                        continue;
+                    auto it = local.find(o);
+                    if (it == local.end() || taken[it->second])
+                        continue;
+                    if (mark.find(o) != mark.end())
+                        continue;
+                    mark.emplace(o, 1);
+                    stack.push_back(it->second);
+                }
+            }
+            if ((int)inliers.size() > (int)best.size()) {
+                best = inliers;
+                bestFit = f;
+            }
+        }
+        if ((int)best.size() < std::max(minTris, kRansacMinSupport))
+            break;
+
+        /* Refit on everything it claimed, and keep it only if it still holds. */
+        std::vector<int> claimed;
+        claimed.reserve(best.size());
+        for (int i : best)
+            claimed.push_back(tris[i]);
+        PatchPoints(m, claimed, pd, 4000);
+        Patch pa;
+        pa.tris = claimed;
+        pa.origin = origin;
+        pa.fit = FitPatch(pd, tol, scale);
+        if (pa.fit.kind == kNone || pa.fit.rms > tol * kTrustRmsFraction ||
+            !Identifiable(pa, m, tol))
+            break;
+        out.push_back(pa);
+        for (int i : best) {
+            taken[i] = 1;
+            remaining--;
+        }
+    }
+    for (int i = 0; i < n; ++i)
+        if (!taken[i])
+            leftover.push_back(tris[i]);
+}
+
 /* Splits a patch that fits nothing: crease first, running fit second.
  *
  * Cutting at a crease is both cheaper and more reliable than growing across
@@ -1759,7 +1928,22 @@ void SplitPatch(const Mesh &m, const std::vector<int> &tris, double tol,
             return;
         }
     }
+    /* Propose-and-score before grow-and-hope. RANSAC takes the surfaces the
+     * mesh actually supports; SplitByFit then works on what is left, which is
+     * the tangent-blend case it was written for and is good at. */
     const size_t before = out.size();
+    std::vector<int> rest;
+    SplitByRansac(m, tris, tol, scale, minTris, origin, out, rest);
+    if (rest.empty())
+        return;
+    if (rest.size() < tris.size()) {
+        /* Something was recognised; the remainder is a smaller problem and
+         * gets the same treatment, but without recursing on RANSAC again. */
+        SplitByFit(m, rest, tol, scale, minTris, origin, out);
+        if (out.size() == before)
+            out.push_back(pa);
+        return;
+    }
     SplitByFit(m, tris, tol, scale, minTris, origin, out);
     if (out.size() == before)
         out.push_back(pa);
