@@ -179,6 +179,15 @@ class GlassBrowser extends StatefulWidget {
   /// put something beside it. Optional: a surface that does not care about
   /// hover simply does not pass it.
   final void Function(String id, double y)? onHover;
+
+  /// M244 — where the rows sit inside the panel: the top and bottom of the
+  /// list and the trailing edge of the retracted glyph column, all in the
+  /// panel's own coordinates. Sent whenever the rows change.
+  ///
+  /// The card's insets, its row height and its image box are UIKit's, so a
+  /// caller drawing chrome BESIDE the rows would otherwise have to keep a
+  /// second copy of three numbers it cannot see.
+  final void Function(double top, double bottom, double x)? onMetrics;
   final void Function(String id) onEye;
   final void Function(String id, bool expanded) onExpand;
   final void Function(String id, String item) onMenu;
@@ -198,6 +207,7 @@ class GlassBrowser extends StatefulWidget {
     required this.rows,
     required this.onTap,
     this.onHover,
+    this.onMetrics,
     required this.onEye,
     required this.onExpand,
     required this.onMenu,
@@ -229,6 +239,12 @@ class _GlassBrowserState extends State<GlassBrowser> {
         case 'hover':
           widget.onHover?.call(
               a['id'] as String? ?? '', (a['y'] as num?)?.toDouble() ?? 0);
+          break;
+        case 'metrics':
+          widget.onMetrics?.call(
+              (a['top'] as num?)?.toDouble() ?? 0,
+              (a['bottom'] as num?)?.toDouble() ?? 0,
+              (a['x'] as num?)?.toDouble() ?? 0);
           break;
         case 'eye':
           widget.onEye(a['id'] as String? ?? '');
