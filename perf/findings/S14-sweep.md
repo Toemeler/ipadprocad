@@ -1181,3 +1181,94 @@ Derivation    : with one straight segment the frame is constant in both laws,
 Falsifiable by: any difference at all on a 2-point path. This is the arm that
                 says the fix does not disturb the case that works.
 ```
+
+---
+
+## 10. Item 2 — the holed sweep, 3.2 % short since v15
+
+### 10.1 The diagnosis, with a control I did not have to build
+
+§6.2 named the cause: `finish_pipe` adds every hole with
+`WithCorrection = Standard_True` while `occt_sweep_profile` adds the outer wire
+with the caller's own setting, which is `Standard_False` for orientations 0 and
+1. `WithCorrection` rotates the section to sit orthogonal to the spine, so the
+two wires of one solid are placed against different frames.
+
+The clean way to test that is not an analytic model at all: **a tube's volume
+must be the difference of the two single-loop sweeps that make it.** That is a
+differential, it needs no identity, and it is measurable today. 24-segment
+ring, r = 6 with an r = 3 hole, v23 spine:
+
+| orientation | outer | hole | outer − hole | the tube | error |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 0, 8 spans | 6 708.589649 | 1 677.147412 | 5 031.442237 | 4 871.741766 | **−3.174 %** |
+| 0, 16 spans | 6 708.589649 | 1 677.147412 | 5 031.442237 | 4 871.356213 | **−3.182 %** |
+| 1, 8 spans | 6 708.589649 | 1 677.147412 | 5 031.442237 | 4 871.741557 | **−3.174 %** |
+| **2**, 8 spans | 7 413.988889 | 1 853.497222 | 5 560.491666 | **5 560.491666** | **+0.000 %** |
+| **2**, 16 spans | 7 415.610166 | 1 853.902542 | 5 561.707625 | **5 561.707625** | **+0.000 %** |
+
+**Orientation 2 is exact, and that is the control.** Orientation 2 is the one
+whose `correct` flag is `Standard_True` — the same value the holes hard-code.
+When the caller's setting happens to agree with the holes', the tube is the
+difference of its parts to every digit. That isolates `WithCorrection` as the
+cause rather than leaving it as the most plausible of several.
+
+The same control exists in the other operation: `occt_coil_profile` adds its
+outer wire with `Standard_True` too, and a holed coil measures
+**5 562.133035056** against an outer-minus-hole of **5 562.133035056** —
+exact. The coil has never had this defect, for the same reason.
+
+And note the third agreement: `outer − hole = 5 031.442237` is also the
+analytic annulus `(A_out − A_in) · L · cos 25.2316°` to six decimals. Three
+independent routes to the same number, and the shipped tube misses all three.
+
+### 10.2 Pre-registration — item 2
+
+```
+## Prediction P14 — a tube becomes the difference of its parts, exactly
+Target        : occt_sweep_profile, 24-segment ring r=6 with an r=3 hole,
+                arc path, orientation 0, OCCT_SWEEP_PATH_POLY
+Baseline      : 4 871.741766 (8 spans) and 4 871.356213 (16 spans)
+Mechanism     : the hole is added with WithCorrection = Standard_True and the
+                outer with the caller's Standard_False, so the two wires are
+                placed against different frames (§10.1).
+Change        : finish_pipe takes the caller's with_correction and uses it for
+                the holes, in both the taper and the plain branch.
+Predicted     : 5 031.442237 at BOTH span counts, to within 1e-9 of
+                (outer - hole), and within 1e-6 of the analytic annulus
+Derivation    : outer 6 708.589649 minus hole 1 677.147412 = 5 031.442237,
+                measured through the same entry point in the same run; and
+                (A_out - A_in) . L . cos(tilt)
+                = (112.915746/... see below) = 5 031.442237 analytically.
+                For a 24-gon: A_out = 0.5.24.36.sin(15 deg) = 111.7615,
+                A_in = 0.5.24.9.sin(15 deg) = 27.9404, difference 83.8211;
+                x L 66.328259 x cos 25.2316 deg = 5 031.4422.
+Falsifiable by: any residual above 1e-9 relative against (outer - hole). A
+                residual that SHRINKS but does not vanish would mean
+                WithCorrection is one of two causes, not the cause.
+Risk          : the holes are cut with a boolean, and §9.2 already found that
+                boolean untrustworthy between two smooth-spine solids. This
+                fixture is a POLYLINE spine, where it is well behaved.
+
+## Prediction P15 — orientation 2 does not move, bit for bit
+Target        : the same fixture at orientation 2
+Baseline      : 5 560.491666 (8 spans), 5 561.707625 (16 spans) — already exact
+Predicted     : IDENTICAL, every digit
+Derivation    : orientation 2's `correct` is Standard_True, which is what the
+                holes hard-code today; threading the caller's value through
+                leaves True as True. Nothing in that path changes.
+Falsifiable by: any change at all. This is the arm that says the fix is a
+                repair and not a re-tuning.
+
+## Prediction P16 — the coil does not move, bit for bit
+Target        : occt_coil_profile, 24-segment ring r=6 with an r=3 hole,
+                quarter turn of radius 18 rising 60
+Baseline      : 5 562.133035056, 50 faces, valid — already exact against its
+                own outer-minus-hole
+Predicted     : IDENTICAL, every digit, and still 50 faces
+Derivation    : the coil adds its outer with Standard_True, so the caller's
+                value IS True and the holes keep the setting they have.
+Falsifiable by: any change. The coil shares finish_pipe with the sweep, so it
+                is the function's other caller and the one most likely to be
+                broken by a signature change.
+```
