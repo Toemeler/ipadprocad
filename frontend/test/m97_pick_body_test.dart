@@ -14,6 +14,7 @@ ExtrudeFeature _feat(PartModel p, String name, String body) {
 
 void main() {
   group('M98 3D highlight', _highlightTests);
+  group('M242 browser body selection', _selectionTests);
 
   test('hover is ignored unless a pick is actually armed', () {
     final app = AppState();
@@ -75,5 +76,40 @@ void _highlightTests() {
     app.cancelPickBody();
     expect(sceneSignature(app, p), base,
         reason: 'and cost nothing once the pick is over');
+  });
+}
+
+// ---------------------------------------------------------------------------
+// M242 — clicking a Solid Bodies row selects the body; clicking it again
+// clears it. The row highlight and the 3D tint both read AppState.selectedBody,
+// so this is the one state that has to hold.
+void _selectionTests() {
+  test('a second click on the selected body clears it', () {
+    final app = AppState();
+    app.toggleBodySelected('Solid1');
+    expect(app.selectedBody, 'Solid1');
+    app.toggleBodySelected('Solid1');
+    expect(app.selectedBody, isNull, reason: 'click again -> dehighlight');
+    app.toggleBodySelected('Solid1');
+    app.toggleBodySelected('Solid2');
+    expect(app.selectedBody, 'Solid2', reason: 'one body at a time');
+  });
+
+  test('the selection moves the scene signature', () {
+    final app = AppState();
+    final p = PartModel('P');
+    final base = sceneSignature(app, p);
+    expect(base, contains('selb:;'), reason: 'nothing selected -> empty field');
+    app.toggleBodySelected('Solid1');
+    expect(sceneSignature(app, p), isNot(base),
+        reason: 'a tint must force a rebuild or nothing lights up in 3D');
+    app.toggleBodySelected('Solid1');
+    expect(sceneSignature(app, p), base);
+  });
+
+  test('Esc clears the selection once nothing else is running', () {
+    final app = AppState()..toggleBodySelected('Solid1');
+    app.escape3D();
+    expect(app.selectedBody, isNull);
   });
 }

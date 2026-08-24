@@ -1377,11 +1377,18 @@ class _ModelBrowserState extends State<ModelBrowser> {
     // exactly as before.
     final picking = app.pickingBody;
     final hot = picking && app.hoverBody == bodyName;
+    // Outside a pick the row is Inventor's ordinary selection: tap to select
+    // (row highlighted here, body tinted in 3D — both read app.selectedBody),
+    // tap the selected one again to clear it.
+    final sel = !picking && app.selectedBody == bodyName;
     final row = _row(
       indent: 30,
       icon: partCubeIcon,
       label: bodyName,
-      onTap: picking ? () => app.pickBody(bodyName) : null,
+      active: sel,
+      onTap: picking
+          ? () => app.pickBody(bodyName)
+          : () => app.toggleBodySelected(bodyName),
       trailing: _EyeButton(
           visible: on, onTap: () => app.toggleBodyVisible(part, bodyName)),
     );

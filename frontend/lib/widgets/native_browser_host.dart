@@ -259,8 +259,16 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
       }
       return;
     }
-    if (id.startsWith(kIdBody) && app.pickingBody) {
-      app.pickBody(id.substring(kIdBody.length));
+    // A body row is a PICK while the extrude dialog is waiting for one, and
+    // an ordinary selection otherwise: tapping it highlights the row and the
+    // body in 3D, tapping it again clears both (as a component row does).
+    if (id.startsWith(kIdBody)) {
+      final name = id.substring(kIdBody.length);
+      if (app.pickingBody) {
+        app.pickBody(name);
+      } else {
+        app.toggleBodySelected(name);
+      }
       return;
     }
     if (id.startsWith(kIdLayer)) {

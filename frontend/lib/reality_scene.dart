@@ -17,6 +17,7 @@ import 'log.dart';
 import 'part_model.dart';
 import 'reality_payload.dart';
 import 'text_geometry.dart' show textContours, textLayerOf;
+import 'theme.dart';
 export 'reality_payload.dart';
 
 /// The committed solids the viewport draws: visible, non-consumed features,
@@ -724,6 +725,11 @@ Map<String, dynamic> buildScenePayload(AppState app, PartModel p,
             // tinting as well produced two overlapping highlights on the same
             // solid, which is what looked "really off".
             material: kMatSteel,
+            // A body SELECTED in the browser is tinted, the way a selected
+            // assembly component is: the whole body answers, because that is
+            // what the row names. The renderer carries the tint on the
+            // material, so this travels even when the mesh does not.
+            tint: _selectedBodyTint(app, p, id),
             // M99 — a hovered body must carry its geometry even when the mesh
             // has not changed: the renderer applies the material while it
             // builds the mesh, so a material-only payload was silently
@@ -815,6 +821,23 @@ bool _bodyIsHovered(AppState app, PartModel p, String featureId) {
   return false;
 }
 
+/// M242 — the tint for the solid published under [featureId]: the selection
+/// colour when the feature builds the selected body, [kNoTint] otherwise.
+///
+/// Feature-keyed like [_bodyIsHovered], and for the same reason: a body is the
+/// name several features build into, so the WHOLE body lights up rather than
+/// the one feature the row happens to sit over.
+int _selectedBodyTint(AppState app, PartModel p, String featureId) {
+  final sel = app.selectedBody;
+  if (sel == null) return kNoTint;
+  for (final f in p.features) {
+    if (f.name == featureId) {
+      return f.bodyName == sel ? T.faceHighlight.toARGB32() : kNoTint;
+    }
+  }
+  return kNoTint;
+}
+
 String sceneSignature(AppState app, PartModel p) {
   final sess = app.extrudeSession;
   final sb = StringBuffer();
@@ -884,6 +907,11 @@ String sceneSignature(AppState app, PartModel p) {
     // while picking, so ordinary hovering costs nothing.
     ..write(';hb:')
     ..write(app.pickingBody ? (app.hoverBody ?? '') : '')
+    // The selected body is TINTED, so it changes the picture: without it in
+    // the signature no rebuild is pushed and the browser row would light up
+    // on its own — the M98 lesson, one state later.
+    ..write(';selb:')
+    ..write(app.selectedBody ?? '')
     ..write(';edit:')
     ..write(app.inEditMode ? (app.activeChild?.name ?? '?') : '')
     ..write(';sk:');

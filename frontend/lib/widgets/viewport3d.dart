@@ -2433,12 +2433,25 @@ class _ScenePainter extends CustomPainter {
             app.hoverEdge3d!.$2 >= 0)
           app.hoverEdge3d!.$2,
       };
+      // The body selected in the model browser, drawn the way RealityKit
+      // draws it (a tinted body) so the two viewports say the same thing.
+      final selName = app.selectedBody;
+      final selected = selName == null
+          ? const <KernelSolid>[]
+          : [
+              for (final f in part.features)
+                if (f.bodyName == selName &&
+                    f.solid != null &&
+                    solids.any((s) => identical(s, f.solid)))
+                  f.solid!
+            ];
       paintPartSolids(canvas, cam, solids,
           previewSolid: sess?.preview,
           highlightSolid: hoverFace?.$1,
           highlightFace: hoverFace?.$2 ?? -1,
           accentSolid: accentSolid,
-          accentEdges: accent);
+          accentEdges: accent,
+          selectedSolids: selected);
     }
 
     // ---- work planes (M151) ----

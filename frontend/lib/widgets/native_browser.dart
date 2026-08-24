@@ -235,7 +235,9 @@ List<GlassRow> _buildRows(
             hasEye: true,
             eyeOn: on,
             dim: !on,
-            selected: app.pickingBody && app.hoverBody == name,
+            selected: app.pickingBody
+                ? app.hoverBody == name
+                : app.selectedBody == name,
             menu: _bodyMenu(app, on),
           ));
         }
