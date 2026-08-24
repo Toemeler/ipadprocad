@@ -73,7 +73,7 @@ void main() {
         _occ('Bracket:1', Vec3.zero, bodies: 2),
         _occ('Bracket:2', const Vec3(40, 0, 0), bodies: 2),
       ]);
-      final ids = [for (final (id, _, _) in assemblyPieces(a)) id];
+      final ids = [for (final (id, _, _, _, _) in assemblyPieces(a)) id];
       expect(ids, [
         'Bracket:1/Extrusion1',
         'Bracket:1/Extrusion2',
@@ -88,7 +88,7 @@ void main() {
       final gone = AssemblyOccurrence(id: 'Ghost:1', source: 'Ghost');
       final hidden = _occ('Bracket:2', const Vec3(40, 0, 0))..visible = false;
       final a = _asm([_occ('Bracket:1', Vec3.zero), hidden, gone]);
-      expect([for (final (id, _, _) in assemblyPieces(a)) id],
+      expect([for (final (id, _, _, _, _) in assemblyPieces(a)) id],
           ['Bracket:1/Extrusion1']);
       // ...and the occurrence itself is still there to be listed and removed.
       expect(a.occurrences, hasLength(3));
@@ -339,7 +339,7 @@ void main() {
         _occ('Bracket:2', const Vec3(40, 0, 0)),
       ]);
       final pieces = [
-        for (final (id, o, s) in assemblyPieces(a)) (id, s, o.offset)
+        for (final (id, _, r, t, s) in assemblyPieces(a)) (id, s, r, t)
       ];
       final scene = buildPlacedThumbScenePayload(pieces);
       final solids = (scene['solids'] as List).cast<Map>();

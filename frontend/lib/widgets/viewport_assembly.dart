@@ -51,6 +51,8 @@ import 'package:native_menu/native_menu.dart' show GlassBrowser;
 import 'package:reality_view/reality_view.dart';
 
 import '../app_state.dart';
+import '../asm_constraints.dart';
+import '../asm_pick.dart';
 import '../assembly.dart';
 import '../l10n/l.dart';
 import '../log.dart';
@@ -94,6 +96,16 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
   Offset _dragFrom = Offset.zero;
   bool _dragMoved = false;
 
+  /// M242 — the view-axis depth of the DRAG PLANE, frozen when the finger
+  /// lands.
+  ///
+  /// The drag is screen-parallel, so the grip has to travel in one plane for
+  /// the whole gesture. Reading the component's depth every frame instead
+  /// would let the solver's own answer move the plane the finger is being
+  /// measured against — a linkage that swings toward the camera would then
+  /// pull its own target after it, and the drag would run away.
+  double _dragDepth = 0;
+
   /// Pointers currently down. A component drag is a ONE-pointer gesture: the
   /// moment a second finger lands the gesture is a pinch or a two-finger
   /// orbit, and the component has to be let go — otherwise it travels with the
@@ -102,6 +114,14 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
 
   /// The occurrence under the pointer, for the hover cursor and the hover tint.
   AssemblyOccurrence? _hover;
+
+  /// M242 — the geometry under the pointer while Place Constraint is
+  /// collecting, ready to draw. What the next tap would select.
+  AsmMark? _hoverGeom;
+
+  /// The reference [_hoverGeom] was built from, so a repeated hover on the
+  /// same geometry does not rebuild the viewport sixty times a second.
+  AsmRef? _hoverRef;
 
   // ---- RealityKit (iOS) ----
   RealityViewController? _reality;
@@ -132,11 +152,11 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
     if (sig != _lastSceneSig) {
       _lastSceneSig = sig;
       final pushed = <String>[];
-      for (final (id, o, sol) in assemblyPieces(a)) {
+      for (final (id, _, _, t, sol) in assemblyPieces(a)) {
         logMeshConvention(id, sol.mesh);
-        pushed.add('$id @ ${o.offset.x.toStringAsFixed(2)},'
-            '${o.offset.y.toStringAsFixed(2)},'
-            '${o.offset.z.toStringAsFixed(2)}: '
+        pushed.add('$id @ ${t.x.toStringAsFixed(2)},'
+            '${t.y.toStringAsFixed(2)},'
+            '${t.z.toStringAsFixed(2)}: '
             'tris=${sol.mesh.indices.length ~/ 3} '
             'verts=${sol.mesh.positions.length ~/ 3} '
             'rev=${identityHashCode(sol.mesh)}');
@@ -159,18 +179,21 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
   // zooming into one shows faceting the part viewport would have smoothed
   // away — "just like part mode" has to include this or it is not.
   //
-  // Every occurrence holds its OWN PartModel (see assembly.dart), so two
-  // placements of one part refine independently. Wasteful and correct; sharing
-  // one model between occurrences is the fix, and it only pays off once
-  // occurrences can differ from each other.
+  // M245 — every occurrence of one part now SHARES that part's model, so a
+  // part placed six times is refined once. The set below is deduplicated for
+  // exactly that reason: six occurrences would otherwise ask the kernel to
+  // re-tessellate the same solid six times per zoom.
   Timer? _refineTimer;
 
   Iterable<KernelSolid> _refinableSolids() sync* {
     final a = asm;
     if (a == null) return;
+    final seen = <KernelSolid>{};
     for (final o in a.occurrences) {
       if (!o.visible) continue;
-      yield* o.solids;
+      for (final (_, _, _, s) in o.localSolids) {
+        if (seen.add(s)) yield s;
+      }
     }
   }
 
@@ -302,7 +325,8 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
                         ),
                       )
                     : CustomPaint(
-                        painter: _AssemblyPainter(a, _hover),
+                        painter: _AssemblyPainter(
+                            a, _hover, app.constraintMarkers, _hoverGeom),
                         size: Size.infinite,
                       ),
               ),
@@ -314,7 +338,8 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
                 Positioned.fill(
                   child: IgnorePointer(
                     child: CustomPaint(
-                      painter: _MissingPartPainter(a),
+                      painter: _MissingPartPainter(
+                          a, app.constraintMarkers, _hoverGeom),
                       size: Size.infinite,
                     ),
                   ),
@@ -345,6 +370,28 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
                   e.buttons != kPrimaryMouseButton) {
                 return;
               }
+              // M242 — while Place Constraint is collecting, a tap is a
+              // SELECTION, never a grab: dragging a component out from under
+              // the dialog that is about to constrain it is not something a
+              // user can have meant. "Pick Part First" is the one exception,
+              // and it is Inventor's: with it ticked the tap names the whole
+              // component, which is how you disambiguate two parts stacked on
+              // one another before pointing at a face.
+              if (app.constraintPicking) {
+                final s = app.constraintSession!;
+                if (s.pickPartFirst) {
+                  final occ = pickOccurrence(a, cam, e.localPosition);
+                  if (occ != null) app.selectOccurrence(occ);
+                  return;
+                }
+                final pick = pickAsmRef(a, cam, e.localPosition);
+                if (pick != null) {
+                  app.pickConstraintRef(pick);
+                } else {
+                  app.toast(L.of(context).hintAsmPickGeometry);
+                }
+                return;
+              }
               // Grab a component. The pick happens on DOWN, not on the first
               // move, so the selection highlight appears the moment you touch
               // it — that is the feedback that says "this is what will move".
@@ -360,6 +407,14 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
                   _drag = hit;
                   _dragFrom = e.localPosition;
                   _dragMoved = false;
+                  // M242 — the GRIP. Where the finger landed, on the plane
+                  // through the component's origin, is what the solver pulls
+                  // on: grabbing a crank at its far end and grabbing it at
+                  // its pivot are different gestures, and a drag that always
+                  // pulled on the origin could never turn a linkage.
+                  _dragDepth = cam.depth(hit.offset);
+                  app.beginOccurrenceDrag(
+                      hit, _onDragPlane(cam, e.localPosition));
                 }
               } else {
                 app.selectOccurrence(null);
@@ -373,14 +428,13 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
                   return;
                 }
                 _dragMoved = true;
-                // Screen-parallel translation: the world points the two pixels
-                // unproject to on the camera plane differ by exactly the
-                // motion the user asked for. Ortho, so this is exact at every
-                // depth — there is no "how far away is it" to get wrong.
-                app.moveOccurrence(
-                    d,
-                    cam.unprojectOnCamPlane(e.localPosition) -
-                        cam.unprojectOnCamPlane(_dragFrom));
+                // Screen-parallel translation: the world point the pixel
+                // unprojects to on the camera plane IS where the grip should
+                // go. Ortho, so this is exact at every depth — there is no
+                // "how far away is it" to get wrong — and the component's own
+                // depth is added back so the grip does not jump to the camera
+                // plane the moment the drag starts.
+                app.dragOccurrenceTo(_onDragPlane(cam, e.localPosition));
                 _dragFrom = e.localPosition;
                 return; // the drag owns this pointer
               }
@@ -443,10 +497,43 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
                   ? SystemMouseCursors.grab
                   : MouseCursor.defer,
               onHover: (e) {
+                // While Place Constraint collects, hovering pre-highlights the
+                // GEOMETRY under the pointer rather than the component: what
+                // the next tap would select is the thing worth showing.
+                if (app.constraintPicking) {
+                  final p = pickAsmRef(a, cam, e.localPosition);
+                  final g = p == null ? null : app.markFor(a, p.ref);
+                  // Compare the REFERENCE, not the mark: markFor builds a
+                  // fresh one every call, so identical() on it is never true
+                  // and the viewport would rebuild on every mouse move.
+                  if (p?.ref.label != _hoverRef?.label ||
+                      p?.ref.occurrence != _hoverRef?.occurrence ||
+                      (p != null &&
+                          _hoverRef != null &&
+                          (p.ref.anchor - _hoverRef!.anchor).length > 1e-9) ||
+                      (p == null) != (_hoverRef == null)) {
+                    setState(() {
+                      _hoverRef = p?.ref;
+                      _hoverGeom = g;
+                    });
+                  }
+                  if (_hover != null) setState(() => _hover = null);
+                  return;
+                }
+                if (_hoverGeom != null) {
+                  setState(() {
+                    _hoverGeom = null;
+                    _hoverRef = null;
+                  });
+                }
                 final h = pickOccurrence(a, cam, e.localPosition);
                 if (!identical(h, _hover)) setState(() => _hover = h);
               },
-              onExit: (_) => setState(() => _hover = null),
+              onExit: (_) => setState(() {
+                _hover = null;
+                _hoverGeom = null;
+                _hoverRef = null;
+              }),
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onScaleStart: (d) {
@@ -541,6 +628,15 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
     _dragMoved = false;
   }
 
+  /// The world point pixel [px] names on the frozen drag plane.
+  ///
+  /// [Cam3.unprojectOnCamPlane] answers on the plane through the ORIGIN, which
+  /// is depth zero; pushing it back along the view axis by [_dragDepth] puts
+  /// it on the plane the component was grabbed in. Orthographic, so this is
+  /// exact rather than an approximation of a perspective ray.
+  Vec3 _onDragPlane(Cam3 cam, Offset px) =>
+      cam.unprojectOnCamPlane(px) - cam.dir * _dragDepth;
+
   void _orbit(AssemblyModel a, Offset d) =>
       a.camera.orbitScreen(-d.dx * 0.01, -d.dy * 0.01);
 
@@ -570,8 +666,9 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
 /// A screen-space barycentric test over the component's own triangles, the
 /// same method [Viewport3D] picks a body with — and for the same reason: it
 /// asks "did you touch this shape", which is independent of what kind of
-/// surface is there. The camera is SHIFTED per component instead of the mesh
-/// being offset, so the test costs no allocation.
+/// surface is there. The camera is PLACED per component instead of the mesh
+/// being transformed, so the test costs no allocation however the component
+/// has been turned.
 ///
 /// Top-level and pure so a host test can drive it with a real camera and a
 /// real mesh: "the drag grabs the component you pointed at" is the whole
@@ -581,8 +678,11 @@ AssemblyOccurrence? pickOccurrence(AssemblyModel a, Cam3 cam, Offset px) {
   var bestDepth = double.negativeInfinity;
   for (final o in a.occurrences) {
     if (!o.visible) continue;
-    final sc = shiftedCam(cam, o.offset);
-    for (final s in o.solids) {
+    for (final (_, pr, pt, s) in o.worldSolids) {
+      // M246 — the camera is placed per PIECE. A subassembly's parts each sit
+      // somewhere inside it, so one camera for the whole component would
+      // hit-test them all at the subassembly's origin.
+      final sc = placedCam(cam, pr, pt);
       final m = s.mesh;
       for (var t = 0; t + 2 < m.indices.length; t += 3) {
         final i0 = m.indices[t] * 3,
@@ -601,8 +701,11 @@ AssemblyOccurrence? pickOccurrence(AssemblyModel a, Cam3 cam, Offset px) {
             Vec3(m.positions[i2], m.positions[i2 + 1], m.positions[i2 + 2]);
         final n = (w1 - w0).cross(w2 - w0);
         // Camera-facing only, same convention as the part viewport's body
-        // pick: a back face is never the thing you pointed at.
-        if (n.length < 1e-12 || n.normalized().dot(cam.dir) >= 0) continue;
+        // pick: a back face is never the thing you pointed at. Against the
+        // PLACED camera's direction, because the normal is in the piece's own
+        // space and a turned component would otherwise be tested against the
+        // world's idea of "toward the viewer".
+        if (n.length < 1e-12 || n.normalized().dot(sc.dir) >= 0) continue;
         final pa = sc.project(w0), pb = sc.project(w1), pc = sc.project(w2);
         final d = (pb.dx - pa.dx) * (pc.dy - pa.dy) -
             (pc.dx - pa.dx) * (pb.dy - pa.dy);
@@ -615,12 +718,13 @@ AssemblyOccurrence? pickOccurrence(AssemblyModel a, Cam3 cam, Offset px) {
             d;
         if (u < -1e-6 || v < -1e-6 || u + v > 1 + 1e-6) continue;
         // NEARER the camera is a LARGER depth (Cam3.depth), and the depth of
-        // the placed point is the unshifted one plus the placement — the
-        // shifted camera moves the PROJECTION, not the view axis.
-        final depth = (cam.depth(w0) * (1 - u - v) +
-                cam.depth(w1) * u +
-                cam.depth(w2) * v) +
-            cam.depth(o.offset);
+        // the placed point is the piece-local one plus the piece's own
+        // placement — the placed camera moves the PROJECTION, not the view
+        // axis.
+        final depth = (sc.depth(w0) * (1 - u - v) +
+                sc.depth(w1) * u +
+                sc.depth(w2) * v) +
+            cam.depth(pt);
         if (depth > bestDepth) {
           bestDepth = depth;
           best = o;
@@ -666,14 +770,68 @@ void paintMissingComponents(Canvas canvas, Cam3 cam, AssemblyModel asm) {
 /// The iOS overlay: RealityKit draws the scene, this draws what is pure HUD.
 class _MissingPartPainter extends CustomPainter {
   final AssemblyModel asm;
-  _MissingPartPainter(this.asm);
+
+  /// M242 — the picked and hovered constraint geometry. HUD, so it is drawn
+  /// here on iOS (where RealityKit owns the scene) and by [_AssemblyPainter]
+  /// off it — the same split paintMissingComponents already lives on.
+  final List<AsmMark> marks;
+  final AsmMark? hoverGeom;
+  _MissingPartPainter(this.asm, this.marks, this.hoverGeom);
 
   @override
-  void paint(Canvas canvas, Size size) =>
-      paintMissingComponents(canvas, Cam3(asm.camera, size), asm);
+  void paint(Canvas canvas, Size size) {
+    final cam = Cam3(asm.camera, size);
+    paintMissingComponents(canvas, cam, asm);
+    paintConstraintMarks(canvas, cam, marks, hoverGeom);
+  }
 
   @override
   bool shouldRepaint(covariant _MissingPartPainter old) => true;
+}
+
+/// M242 — what Place Constraint has collected, and what the next tap would
+/// take.
+///
+/// Drawn in SCREEN space over everything, deliberately un-occluded: a
+/// selection you cannot see because the part you are constraining it to is in
+/// front of it is a selection you cannot verify. Inventor does the same — its
+/// selection highlight reads through the model.
+///
+/// Every mark is ANCHORED on the point that was tapped (see AsmRef.anchor),
+/// so it lands on the surface rather than at whatever reference point the
+/// kernel gave the underlying plane or axis.
+void paintConstraintMarks(
+    Canvas canvas, Cam3 cam, List<AsmMark> marks, AsmMark? hover) {
+  if (marks.isEmpty && hover == null) return;
+  void draw(AsmMark m, Color color, double width) {
+    final (pts, closed) = refMarker(m);
+    if (pts.length == 1) {
+      canvas.drawCircle(cam.project(pts.first), 4.5, Paint()..color = color);
+      return;
+    }
+    final path = Path();
+    final first = cam.project(pts.first);
+    path.moveTo(first.dx, first.dy);
+    for (final p in pts.skip(1)) {
+      final s = cam.project(p);
+      path.lineTo(s.dx, s.dy);
+    }
+    if (closed) {
+      path.close();
+      canvas.drawPath(path, Paint()..color = color.withValues(alpha: 0.18));
+    }
+    canvas.drawPath(
+        path,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = width
+          ..color = color);
+  }
+
+  if (hover != null) draw(hover, kEdgeAccent, 1.6);
+  for (final m in marks) {
+    draw(m, T.accent, 2.2);
+  }
 }
 
 /// The OFF-IOS renderer, and the one the host tests exercise.
@@ -690,7 +848,11 @@ class _AssemblyPainter extends CustomPainter {
 
   /// The component under the pointer, washed the way RealityKit tints it.
   final AssemblyOccurrence? hover;
-  _AssemblyPainter(this.asm, this.hover);
+
+  /// M242 — Place Constraint's collected and hovered geometry.
+  final List<AsmMark> marks;
+  final AsmMark? hoverGeom;
+  _AssemblyPainter(this.asm, this.hover, this.marks, this.hoverGeom);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -711,7 +873,10 @@ class _AssemblyPainter extends CustomPainter {
     final occ = paintAssemblySolids(
       canvas,
       cam,
-      [for (final o in visible) (o.offset, o.solids.toList())],
+      [
+        for (final o in visible)
+          PlacedComponent([for (final (_, r, t, s) in o.worldSolids) (r, t, s)])
+      ],
       selected: indexOf(asm.selected),
       hovered: indexOf(hover),
       accentColor: kEdgeAccent,
@@ -765,6 +930,7 @@ class _AssemblyPainter extends CustomPainter {
     }
 
     paintMissingComponents(canvas, cam, asm);
+    paintConstraintMarks(canvas, cam, marks, hoverGeom);
   }
 
   @override

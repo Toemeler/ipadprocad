@@ -12,7 +12,11 @@ import 'package:native_menu/native_menu.dart' show NativeMenu;
 import 'package:path_provider/path_provider.dart';
 import 'package:reality_view/reality_view.dart' show RealityThumbnailer;
 
+import 'asm_constraints.dart';
+import 'asm_pick.dart';
+import 'asm_solver.dart';
 import 'assembly.dart';
+import 'quat.dart';
 import 'reality_assembly.dart';
 import 'constraints.dart';
 import 'diag.dart';
@@ -433,6 +437,47 @@ class SketchModel {
   /// which is a restore TARGET, never popped — hence length > 1.
   bool get canUndo => _undoStack.length > 1;
   bool get canRedo => _redoStack.isNotEmpty;
+
+  /// M221, DIAGNOSTIC ONLY — how many states the journal holds.
+  ///
+  /// The comment above says the journal is unbounded on purpose. That is a
+  /// deliberate design choice and this getter does not challenge it; it makes
+  /// the consequence *visible*. The duration of a checkpoint has been measured
+  /// since M211 (`app.checkpoint`, ~0.14 ms) but the memory it retains never
+  /// has, so "undo until the start" has always been a promise with no number
+  /// attached to it.
+  int get journalDepth => _undoStack.length + _redoStack.length;
+
+  /// M221, DIAGNOSTIC ONLY — an ESTIMATE of the bytes the journal retains.
+  ///
+  /// Deliberately an estimate, and named so. Dart exposes no per-object
+  /// retained size, so this counts what is actually variable: 8 bytes per
+  /// double of geometry, 2 bytes per UTF-16 code unit of the serialised
+  /// strings, and a flat 64 bytes of object overhead per snapshot and per
+  /// Geo. It will be wrong in absolute terms; it is correct in SHAPE, which
+  /// is what a growth question needs — the interesting result is bytes per
+  /// checkpoint and whether that stays constant as a session runs.
+  int get journalBytes {
+    var b = 0;
+    for (final s in [..._undoStack, ..._redoStack]) {
+      b += 64;
+      for (final g in s.geometry) {
+        b += 64 + g.data.length * 8;
+      }
+      b += (s.cons.length + s.uparams.length + s.texts.length +
+              s.images.length) * 2;
+      for (final l in s.layers) {
+        b += l.length * 2;
+      }
+      for (final h in s.hidden) {
+        b += h.length * 2;
+      }
+      for (final l in s.locked) {
+        b += l.length * 2;
+      }
+    }
+    return b;
+  }
   int get undoDepth => _undoStack.length;
 
   UndoSnap _takeSnap() => UndoSnap(
@@ -864,6 +909,88 @@ class HoleSession {
   String exprCbDepth = '6 mm';
   String exprCsDia = '12 mm';
   String exprCsAngle = '90 deg';
+}
+
+/// M242 — the live state of Place Constraint.
+///
+/// Inventor's dialog is modeless and collects its inputs by POINTING: the
+/// numbered selection buttons arm the viewport, a tap fills the armed slot
+/// and the arming advances. Everything the dialog shows is here, and nothing
+/// here is a widget — the panel reads it, the viewport writes to it through
+/// [AppState.pickConstraintRef], and the browser's Edit command opens one
+/// pre-filled.
+class ConstraintSession {
+  ConstraintSession({this.editing});
+
+  /// The constraint being edited, or null when a new one is being placed.
+  /// Editing keeps the same name and the same row in the browser, which is
+  /// what makes Edit different from delete-and-place-again.
+  final AsmConstraint? editing;
+
+  AsmTab tab = AsmTab.assembly;
+  AsmKind kind = AsmKind.mate;
+  AsmSolution solution = AsmSolution.mate;
+
+  /// The selections, in the dialog's own numbering: 1, 2 and (for Symmetry
+  /// and an explicit reference vector) 3.
+  AsmRef? a, b, c;
+
+  /// Offset in mm, angle in degrees, ratio, or mm per turn — [valueKindOf]
+  /// says which.
+  double value = 0;
+
+  /// Empty means "name it the way Inventor would" — see [nextConstraintName].
+  String name = '';
+
+  /// Which selection button is lit: 0, 1 or 2. Advances on every pick, and
+  /// stops advancing once every slot is full so a stray tap in the viewport
+  /// cannot silently rewrite selection 1.
+  int armed = 0;
+
+  /// Inventor's three dialog checkboxes.
+  bool showPreview = true;
+  bool predict = false;
+  bool pickPartFirst = false;
+
+  /// The `>>` expander, which reveals Name and Default to Undirected.
+  bool expanded = false;
+
+  /// Inventor's "Default to Undirected": the next Angle constraint opens on
+  /// the undirected solution instead of the directed one. Kept on the session
+  /// AND mirrored onto [AppState.defaultUndirectedAngle], because it is a
+  /// preference that outlives the dialog.
+  bool defaultUndirected = false;
+
+  /// Why the current pair cannot be constrained this way, as an l10n key from
+  /// [rejectionFor]. Null when they can.
+  String? rejection;
+
+  /// How many selections this kind and solution take.
+  int get needed => selectionCountFor(kind, solution);
+
+  bool get complete => a != null && b != null && (needed < 3 || c != null);
+
+  AsmRef? slot(int i) => switch (i) { 0 => a, 1 => b, _ => c };
+
+  void setSlot(int i, AsmRef? r) {
+    switch (i) {
+      case 0:
+        a = r;
+      case 1:
+        b = r;
+      default:
+        c = r;
+    }
+  }
+
+  /// The first empty slot, or -1 when they are all full. This is what makes
+  /// the arming advance the way Inventor's does.
+  int get firstEmpty {
+    for (var i = 0; i < needed; i++) {
+      if (slot(i) == null) return i;
+    }
+    return -1;
+  }
 }
 
 /// M228 — the live state of the Split panel.
@@ -2073,6 +2200,8 @@ class AppState extends ChangeNotifier {
     finishEdit(save: false);
     flushCurrentDocument();
     curTab = null;
+    selectedBody = null;
+    browserHoverBody = null;
     _reanalyze();
     notifyListeners();
   }
@@ -2286,7 +2415,20 @@ class AppState extends ChangeNotifier {
   /// True when [name] is listed from outside the app folder.
   bool isExternal(String name) => _findDoc(name)?.source == DocSource.external;
 
+  /// Timed with a Stopwatch across the await, not with Perf.span: this is
+  /// async, and span measures a synchronous body — wrapping the future
+  /// would time how long it took to CREATE it, i.e. report that opening a
+  /// document is free. Same reason as savePart/saveSketch.
   Future<void> openSketch(String name) async {
+    final sw = Stopwatch()..start();
+    try {
+      await _openSketchInner(name);
+    } finally {
+      Perf.record('io.openSketch', sw.elapsedMicroseconds / 1000.0);
+    }
+  }
+
+  Future<void> _openSketchInner(String name) async {
     if (!sketches.containsKey(name)) {
       final s = SketchModel(name);
       _ensureStaged(name);
@@ -2437,7 +2579,6 @@ class AppState extends ChangeNotifier {
             'loaded "$name": layers=${s.layers} '
                 'hidden=${s.hiddenLayers} locked=${s.lockedLayers} '
                 'eos=${s.eosAfter}');
-        analysis = analyzeSketch(s.geometry, s.constraints);
       }
       sketches[name] = s;
       // Undo baseline: the freshly created/loaded state is entry ZERO of the
@@ -2446,6 +2587,10 @@ class AppState extends ChangeNotifier {
       s.resetHistory();
     }
     if (!openTabs.contains(name)) openTabs.add(name);
+    if (curTab != name) {
+      selectedBody = null; // a selection belongs to ONE part
+      browserHoverBody = null;
+    }
     curTab = name;
     _reanalyze();
     notifyListeners();
@@ -2457,7 +2602,8 @@ class AppState extends ChangeNotifier {
   /// would lock the wrong points. Recompute whenever the current sketch changes.
   void _reanalyze() {
     final s = current;
-    analysis = s == null ? null : analyzeSketch(s.geometry, s.constraints);
+    analysis =
+        s == null ? null : _analysisCache.of(s.geometry, s.constraints);
   }
 
   // ==== UNDO / REDO (M39): restore side ==================================
@@ -2515,7 +2661,10 @@ class AppState extends ChangeNotifier {
   void revertToLastCheckpoint() =>
       _applyHistory((s) => s.pinnedSnap, 'revert');
 
-  void _applyHistory(UndoSnap? Function(SketchModel) step, String what) {
+  void _applyHistory(UndoSnap? Function(SketchModel) step, String what) =>
+      Perf.span('history.$what', () => _applyHistoryInner(step, what));
+
+  void _applyHistoryInner(UndoSnap? Function(SketchModel) step, String what) {
     final s = current;
     if (s == null) return;
     if (dragGrip != null) return; // never rip the state out from under a drag
@@ -2629,6 +2778,7 @@ class AppState extends ChangeNotifier {
     if (assemblies.containsKey(name)) {
       await saveAssembly(name);
       assemblies.remove(name)?.dispose();
+      _evictUnplacedSources();
     } else if (parts.containsKey(name)) {
       if (curTab == name) {
         cancel3DCommands(); // M230
@@ -2637,7 +2787,18 @@ class AppState extends ChangeNotifier {
         finishEdit(save: false);
       }
       await savePart(name);
-      parts.remove(name)?.dispose();
+      final model = parts.remove(name);
+      // M245 — an assembly still placing this part is still drawing this
+      // model. Hand it to the shared map instead of disposing it: the
+      // occurrences already point at it, so the transfer is invisible to
+      // them, and disposing would blank every component of it.
+      if (model != null) {
+        if (_placedSources().contains(name)) {
+          _componentModels[name] = model;
+        } else {
+          model.dispose();
+        }
+      }
     } else {
       await saveSketch(name);
     }
@@ -3110,6 +3271,33 @@ class AppState extends ChangeNotifier {
   /// hundred frames, because no single step of that is a break. Against the
   /// start of the gesture it is one.
   List<Geo>? _dragStartGeo;
+
+  // ---- the display-geometry memo (S4) ----
+  //
+  // ONE SOLVE PER DRAG POSITION. See [displayGeometry] for why this exists.
+  // Four guards and the answer they protect; each guard closes one way the
+  // answer could change underneath the cache:
+  //
+  //   _dgSketch  identity — a tab switch puts a different sketch in play
+  //   _dgGrip    identity — beginGripDrag allocates a NEW Grip, so a second
+  //                         drag never inherits the first one's frame
+  //   _dgPos     value    — the cursor moving is the whole point (Offset has
+  //                         value equality, so this compares coordinates)
+  //   _dgSource  identity — SketchModel.geometry is ASSIGNED wholesale by the
+  //                         rebuild path and by undo, never patched in place,
+  //                         so identity catches both
+  //
+  // What would slip past all four: an in-place mutation of the same list, at
+  // the same cursor position, during the same drag. No such path exists while
+  // a grip drag is live — drag frames work on copies, and the only writer is
+  // the commit in endGripDrag, which runs AFTER its own displayGeometry call
+  // and then nulls dragGrip. Pinned by s4_display_geometry_once_test.dart
+  // rather than left as an argument.
+  SketchModel? _dgSketch;
+  Grip? _dgGrip;
+  Offset? _dgPos;
+  List<Geo>? _dgSource;
+  List<Geo>? _dgResult;
   Offset? boxStart, boxEnd; // world coords while box-selecting
   bool boxCrossing = false;
   Rect? lastBoxRect; // remembered for Stretch (Inventor semantics)
@@ -3120,6 +3308,12 @@ class AppState extends ChangeNotifier {
   bool showDof =
       false; // Inventor: Degrees of Freedom glyphs — OFF by default (M32)
   SketchAnalysis? analysis; // DOF + which points may still move
+  /// Memo for [analysis]. The DOF analysis runs on every rebuild, every solve
+  /// and every tab switch (PERFORMANCE_PROFILE 5.5.3) on a quantity that only
+  /// changes when the geometry or the constraints do; this reuses the answer
+  /// when they have not. It cannot hit during a drag — see
+  /// [SketchAnalysisCache].
+  final _analysisCache = SketchAnalysisCache();
   String? message; // transient notice (over-constrained warnings)
 
   void toggleShowDof() {
@@ -3225,14 +3419,39 @@ class AppState extends ChangeNotifier {
     return true;
   }
 
+  /// Timed with a Stopwatch across the await, not with Perf.span: this is
+  /// async, and span measures a synchronous body — wrapping the future
+  /// would time how long it took to CREATE it, i.e. report that opening a
+  /// document is free. Same reason as savePart/saveSketch.
   Future<void> openPart(String name) async {
-    if (!parts.containsKey(name)) parts[name] = await _loadPartModel(name);
+    final sw = Stopwatch()..start();
+    try {
+      await _openPartInner(name);
+    } finally {
+      Perf.record('io.openPart', sw.elapsedMicroseconds / 1000.0);
+    }
+  }
+
+  Future<void> _openPartInner(String name) async {
+    if (!parts.containsKey(name)) {
+      // M245 — an open assembly may already hold this part's model. PROMOTE
+      // it rather than reading the file again: the editor and every component
+      // of it then share one object, which is what makes an edit here appear
+      // in the assembly with nothing to propagate.
+      final shared = _componentModels.remove(name);
+      parts[name] = shared ?? await _loadPartModel(name);
+    }
+    linkOccurrences();
     // M237 — the still inside this document may predate the transparent
     // format, in which case its gallery card is a charcoal rectangle on a
     // cream shelf. The model is loaded and the kernel is warm right here, so
     // this is the cheapest honest moment to redraw it. Once per document.
     unawaited(_repairPreview(name));
     if (!openTabs.contains(name)) openTabs.add(name);
+    if (curTab != name) {
+      selectedBody = null; // a selection belongs to ONE part
+      browserHoverBody = null;
+    }
     curTab = name;
     activeChild = null;
     editingLayer = null;
@@ -3360,6 +3579,19 @@ class AppState extends ChangeNotifier {
   }
 
   Future<bool> savePart(String name) async {
+    final sw = Stopwatch()..start();
+    try {
+      return await _savePartInner(name);
+    } finally {
+      // A Stopwatch rather than Perf.span: this is async, and span measures a
+      // synchronous body — wrapping a Future would time how long it took to
+      // CREATE the future, which is nearly zero and would read as "saving is
+      // free". Same reason as saveSketch below.
+      Perf.record('io.savePart', sw.elapsedMicroseconds / 1000.0);
+    }
+  }
+
+  Future<bool> _savePartInner(String name) async {
     final p = parts[name];
     if (p == null || _docsDir == null) return false;
     _ensureStaged(name);
@@ -3576,6 +3808,11 @@ class AppState extends ChangeNotifier {
       _reanalyze();
     }
     parts.remove(name)?.dispose();
+    // M245 — every component of it loses its geometry and keeps its row, so
+    // the assembly says the part is gone rather than quietly drawing a copy
+    // that no longer exists anywhere.
+    _componentModels.remove(name)?.dispose();
+    linkOccurrences();
     _deleteDocFile(name);
     await refreshSaved();
     notifyListeners();
@@ -3600,6 +3837,13 @@ class AppState extends ChangeNotifier {
       }
     }
     if (!_renameDocFile(from, target)) return false;
+    // M245 — every assembly that places this part follows it. Done AFTER the
+    // file has moved, so a failed rename leaves every reference pointing at
+    // the document that is still there.
+    final moved = _componentModels.remove(from);
+    if (moved != null) _componentModels[target] = moved;
+    await _renameSourceInAssemblies(from, target);
+    linkOccurrences();
     if (wasOpen) {
       await openPart(target);
       openTabs.remove(target);
@@ -3656,13 +3900,23 @@ class AppState extends ChangeNotifier {
     return 'Assembly$n';
   }
 
-  /// The parts that can be PLACED into an assembly: every part document in the
-  /// gallery, most recently modified first, so the one you were just working
+  /// What can be PLACED into the open assembly: every part in the gallery
+  /// and, M246, every OTHER assembly that would not make this one contain
+  /// itself. Most recently modified first, so the one you were just working
   /// on is at the top of the list.
+  ///
+  /// The name is historical — it offered only parts until subassemblies
+  /// existed — and is kept because the ribbon, the tests and the toast keys
+  /// all say it.
   List<String> placeableParts() {
+    final into = currentAssembly;
     final out = [
       for (final e in library.entries)
-        if (e.value.isPart) e.key
+        if (e.value.isPart ||
+            (e.value.isAssembly &&
+                into != null &&
+                !_wouldNestCycle(into, e.key)))
+          e.key
     ];
     final when = <String, DateTime>{
       for (final s in saved) s.name: s.modified,
@@ -3697,7 +3951,15 @@ class AppState extends ChangeNotifier {
     if (!assemblies.containsKey(name)) {
       assemblies[name] = await _loadAssemblyModel(name);
     }
+    // M245 — the geometry comes from the ONE model per part document, loaded
+    // now if nothing holds it yet. Awaited: a component with no geometry
+    // draws as a missing part, and one frame of that is a flicker.
+    await _loadPlacedSources();
     if (!openTabs.contains(name)) openTabs.add(name);
+    if (curTab != name) {
+      selectedBody = null; // a selection belongs to ONE part
+      browserHoverBody = null;
+    }
     curTab = name;
     activeChild = null;
     editingLayer = null;
@@ -3728,24 +3990,293 @@ class AppState extends ChangeNotifier {
     // Dropping the row instead would silently rewrite the user's assembly the
     // first time a file went walkabout.
     for (final o in List<AssemblyOccurrence>.of(a.occurrences)) {
-      o.part = await _loadOccurrencePart(o.source);
-      if (o.part == null) {
+      // The MODEL is not loaded here — see linkOccurrences. The assembly is
+      // not in `assemblies` yet at this point, so there is nothing for the
+      // link to walk; openAssembly does it once the model is in place.
+      if (_findDoc(o.source)?.isPart != true) {
         Log.w('asm', 'occurrence "${o.id}": part "${o.source}" is gone');
       }
     }
     return a;
   }
 
-  /// A private copy of part [source]'s geometry for one occurrence, or null
-  /// when there is no such part any more.
-  Future<PartModel?> _loadOccurrencePart(String source) async {
-    if (_findDoc(source)?.isPart != true) return null;
-    try {
-      return await _loadPartModel(source);
-    } catch (e, st) {
-      Log.e('asm', 'could not load part "$source"', e, st);
-      return null;
+  // ---- M245: a component IS its part ---------------------------------------
+  //
+  // "A part in an assembly should be linked to the part at all times. So when
+  // the part updates, it updates in assembly."
+  //
+  // M240 loaded a PRIVATE COPY of the part for every occurrence, once, when
+  // the assembly was opened. That is a snapshot, not a link: edit the part
+  // and the assembly went on drawing what it had looked like at open time.
+  //
+  // The rule now is that there is exactly ONE PartModel per part document in
+  // the whole app, and every occurrence of that part points at it:
+  //
+  //   * open in its own tab  -> `parts[name]`, the model being edited. An
+  //     extrusion added there is in the assembly the moment you switch to it,
+  //     with no reload, no second kernel build and no copy of the mesh.
+  //   * not open             -> `_componentModels[name]`, a shared load kept
+  //     for the assemblies that reference it.
+  //
+  // The two are the SAME OBJECT across a tab open or close: opening a part
+  // promotes the shared load into `parts`, closing it hands it back. So a
+  // component never notices a tab opening, and nothing is ever loaded twice.
+  //
+  // The RealityKit side needs nothing: assemblySceneSignature already hashes
+  // each piece's mesh identity, so a rebuilt part moves the signature and the
+  // heavy push fires by itself.
+
+  /// Models for parts that are PLACED but not open in a tab. One per
+  /// document, shared by every occurrence of it, owned here.
+  final Map<String, PartModel> _componentModels = {};
+
+  /// M246 — the same, for SUBASSEMBLIES. An assembly placed inside another is
+  /// a document like any other: one model, shared, and the very one open in
+  /// its own tab when it is open, so editing a subassembly shows in its
+  /// parent for the same reason editing a part does.
+  final Map<String, AssemblyModel> _componentAssemblies = {};
+
+  /// The one model for part [name], or null when there is none to be had.
+  PartModel? _sourceModel(String name) =>
+      parts[name] ?? _componentModels[name];
+
+  /// The one model for assembly [name], or null.
+  AssemblyModel? _sourceAssembly(String name) =>
+      assemblies[name] ?? _componentAssemblies[name];
+
+  /// Every document any OPEN assembly places, transitively.
+  ///
+  /// Transitive because a subassembly's own components have to stay loaded
+  /// too: the parent draws them, and nothing else references them.
+  Set<String> _placedSources() {
+    final out = <String>{};
+    void walk(AssemblyModel a, Set<String> seen) {
+      for (final o in a.occurrences) {
+        out.add(o.source);
+        if (!o.isSubAssembly) continue;
+        if (!seen.add(o.source)) continue; // a cycle cannot be created, but
+        final child = _sourceAssembly(o.source); // a hand-edited file could
+        if (child != null) walk(child, seen);
+      }
     }
+
+    for (final a in assemblies.values) {
+      walk(a, {a.name});
+    }
+    return out;
+  }
+
+  /// Points every occurrence of every open assembly at the current model for
+  /// its source.
+  ///
+  /// Cheap and idempotent — it assigns references — so it is called after
+  /// anything that can change where a model lives rather than being reasoned
+  /// about case by case. That is the whole point: there is no path by which a
+  /// component can be left holding a stale model, because nothing has to
+  /// remember to update one.
+  void linkOccurrences() {
+    void link(AssemblyModel a, Set<String> seen) {
+      for (final o in a.occurrences) {
+        if (o.isSubAssembly) {
+          // The GUARD is against a document edited by hand into a cycle, not
+          // against anything the app can produce — placeComponent refuses to
+          // create one. Without it a cycle would recurse until the stack ran
+          // out, which is a crash on open rather than a bad drawing.
+          o.part = null;
+          o.sub = seen.contains(o.source) ? null : _sourceAssembly(o.source);
+          final child = o.sub;
+          if (child != null && seen.add(o.source)) {
+            link(child, seen);
+            seen.remove(o.source);
+          }
+        } else {
+          o.sub = null;
+          o.part = _sourceModel(o.source);
+        }
+      }
+    }
+
+    for (final a in assemblies.values) {
+      link(a, {a.name});
+    }
+  }
+
+  /// Loads whatever the open assemblies place and is not loaded yet, then
+  /// links. Awaited, because a component with no geometry draws as a missing
+  /// part and one frame of that is a flicker.
+  /// Loops rather than recurses: loading a subassembly can reveal documents
+  /// IT places, so the pass repeats until nothing new appears. Bounded by the
+  /// number of documents, and the tried-set makes a hand-edited cycle
+  /// terminate rather than spin.
+  Future<void> _loadPlacedSources() async {
+    final tried = <String>{};
+    for (var pass = 0; pass < 32; pass++) {
+      final want = _placedSources().difference(tried);
+      if (want.isEmpty) break;
+      for (final name in want) {
+        tried.add(name);
+        final doc = _findDoc(name);
+        if (doc?.isAssembly == true) {
+          if (_sourceAssembly(name) != null) continue;
+          try {
+            _componentAssemblies[name] = await _loadAssemblyModel(name);
+          } catch (e, st) {
+            Log.e('asm', 'could not load subassembly "$name"', e, st);
+          }
+        } else if (doc?.isPart == true) {
+          if (_sourceModel(name) != null) continue;
+          try {
+            _componentModels[name] = await _loadPartModel(name);
+          } catch (e, st) {
+            Log.e('asm', 'could not load part "$name"', e, st);
+          }
+        }
+      }
+      linkOccurrences(); // so the next pass can see into what just loaded
+    }
+    linkOccurrences();
+  }
+
+  /// M245 — follows a part RENAME through every assembly that places it.
+  ///
+  /// An occurrence names its source by document name, so without this a
+  /// rename would orphan every component of that part — the assembly keeps
+  /// its rows and draws nothing, which is the same failure as the part having
+  /// been deleted and is not what a rename means.
+  ///
+  /// Open assemblies are re-pointed in memory. The ones on disk are rewritten
+  /// in place, because a link that only survives while the document happens
+  /// to be open is not a link. They are small JSON files and there are as
+  /// many of them as the gallery shows, so this is a handful of reads.
+  Future<void> _renameSourceInAssemblies(String from, String to) async {
+    for (final a in assemblies.values) {
+      var touched = false;
+      for (var i = 0; i < a.occurrences.length; i++) {
+        final o = a.occurrences[i];
+        if (o.source != from) continue;
+        // The id carries the source name ("Bracket:1"), so it moves too —
+        // otherwise the browser would go on calling it by the old name and
+        // the next occurrence placed would collide with it.
+        a.rename(o, '$to:${o.id.substring(from.length + 1)}', to);
+        touched = true;
+      }
+      if (touched) {
+        a.bump();
+        unawaited(saveAssembly(a.name));
+      }
+    }
+    for (final name in library.keys.toList()) {
+      if (library[name]?.isAssembly != true) continue;
+      if (assemblies.containsKey(name)) continue; // handled above, in memory
+      try {
+        _ensureStaged(name);
+        final f = _assemblyJson(name);
+        if (!f.existsSync()) continue;
+        final j = jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
+        var touched = false;
+        for (final raw in (j['occurrences'] as List? ?? const [])) {
+          if (raw is! Map) continue;
+          if (raw['src'] != from) continue;
+          raw['src'] = to;
+          final id = raw['id'];
+          if (id is String && id.startsWith('$from:')) {
+            raw['id'] = '$to:${id.substring(from.length + 1)}';
+          }
+          touched = true;
+        }
+        if (!touched) continue;
+        // The constraints name occurrences too, and a relationship pointing
+        // at an id that no longer exists is a constraint the solver reports
+        // sick for ever.
+        for (final raw in (j['constraints'] as List? ?? const [])) {
+          if (raw is! Map) continue;
+          for (final key in const ['a', 'b', 'c']) {
+            final ref = raw[key];
+            if (ref is! Map) continue;
+            final occ = ref['occ'];
+            if (occ is String && occ.startsWith('$from:')) {
+              ref['occ'] = '$to:${occ.substring(from.length + 1)}';
+            }
+          }
+        }
+        f.writeAsStringSync(jsonEncode(j));
+        _commitStage(name, kAssemblyDocKind);
+      } catch (e, st) {
+        Log.e('asm', 'could not re-point "$name" after a rename', e, st);
+      }
+    }
+  }
+
+  /// Frees the shared models nothing places any more.
+  ///
+  /// Called when an assembly closes. A model that is ALSO open in a tab is
+  /// not ours to free — it lives in `parts` / `assemblies` and these maps do
+  /// not hold it.
+  void _evictUnplacedSources() {
+    final want = _placedSources();
+    for (final name in _componentModels.keys.toList()) {
+      if (want.contains(name)) continue;
+      _componentModels.remove(name)?.dispose();
+    }
+    for (final name in _componentAssemblies.keys.toList()) {
+      if (want.contains(name)) continue;
+      _componentAssemblies.remove(name)?.dispose();
+    }
+  }
+
+  /// The assemblies [name] places DIRECTLY, read from the document.
+  ///
+  /// From the loaded model when there is one, and from the file otherwise.
+  /// The file matters: the containment question is about documents, not about
+  /// what happens to be open, and an assembly two steps away in the chain is
+  /// very often closed.
+  Set<String> _directlyNests(String name) {
+    final loaded = _sourceAssembly(name);
+    if (loaded != null) {
+      return {
+        for (final o in loaded.occurrences)
+          if (o.isSubAssembly) o.source
+      };
+    }
+    try {
+      if (_findDoc(name)?.isAssembly != true) return const {};
+      _ensureStaged(name);
+      final f = _assemblyJson(name);
+      if (!f.existsSync()) return const {};
+      final j = jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
+      return {
+        for (final raw in (j['occurrences'] as List? ?? const []))
+          if (raw is Map && raw['kind'] == kAssemblyDocKind)
+            if (raw['src'] is String) raw['src'] as String
+      };
+    } catch (e, st) {
+      Log.e('asm', 'could not read the nesting of "$name"', e, st);
+      return const {};
+    }
+  }
+
+  /// True when placing [source] into [into] would make an assembly contain
+  /// itself, directly or through any chain of subassemblies.
+  ///
+  /// Inventor refuses this and so does everything else that can: a cyclic
+  /// containment has no geometry — the recursion that draws it never ends —
+  /// so there is nothing to show and no error the user could act on later.
+  /// It is refused at the one moment it can be explained, which is now.
+  ///
+  /// Walks the DOCUMENTS rather than the loaded models. A chain is usually
+  /// only half open: placing B into A is fine, placing A into B is a cycle,
+  /// and at that moment A is very often just a file.
+  bool _wouldNestCycle(AssemblyModel into, String source) {
+    if (source == into.name) return true;
+    final seen = <String>{source};
+    final queue = <String>[source];
+    while (queue.isNotEmpty) {
+      for (final next in _directlyNests(queue.removeLast())) {
+        if (next == into.name) return true;
+        if (seen.add(next)) queue.add(next);
+      }
+    }
+    return false;
   }
 
   Future<bool> saveAssembly(String name) async {
@@ -3776,7 +4307,7 @@ class AppState extends ChangeNotifier {
     final png = _pngFile(name);
     try {
       final pieces = [
-        for (final (id, o, s) in assemblyPieces(a)) (id, s, o.offset)
+        for (final (id, _, r, t, s) in assemblyPieces(a)) (id, s, r, t)
       ];
       if (pieces.isEmpty) {
         if (png.existsSync()) png.deleteSync();
@@ -3827,24 +4358,55 @@ class AppState extends ChangeNotifier {
   Future<AssemblyOccurrence?> placeComponent(String source) async {
     final a = currentAssembly;
     if (a == null) return null;
-    if (!isPartName(source)) {
+    // M246 — a subassembly is placed by the same command, which is Inventor's
+    // Place Component exactly: one button, and what you pick decides.
+    final asSub = isAssemblyName(source);
+    if (!asSub && !isPartName(source)) {
       toast(L.current.msgAsmNoSuchPart(source));
       return null;
     }
-    final part = await _loadOccurrencePart(source);
-    if (part == null) {
+    if (asSub && _wouldNestCycle(a, source)) {
+      toast(L.current.msgAsmWouldNest(source));
+      return null;
+    }
+    // M245 — the SHARED model, loaded once per document. Placing something
+    // that is already open in a tab, or already placed elsewhere, costs
+    // nothing and links to the very object being edited.
+    if (asSub) {
+      if (_sourceAssembly(source) == null) {
+        try {
+          _componentAssemblies[source] = await _loadAssemblyModel(source);
+        } catch (e, st) {
+          Log.e('asm', 'could not load subassembly "$source"', e, st);
+        }
+      }
+    } else if (_sourceModel(source) == null) {
+      try {
+        _componentModels[source] = await _loadPartModel(source);
+      } catch (e, st) {
+        Log.e('asm', 'could not load part "$source"', e, st);
+      }
+    }
+    final part = asSub ? null : _sourceModel(source);
+    final sub = asSub ? _sourceAssembly(source) : null;
+    if (part == null && sub == null) {
       toast(L.current.msgAsmCouldNotPlace(source));
       return null;
     }
     final occ = AssemblyOccurrence(
       id: a.nextOccurrenceId(source),
       source: source,
+      sourceKind: asSub ? kAssemblyDocKind : 'part',
       part: part,
+      sub: sub,
       grounded: a.occurrences.isEmpty,
     );
     occ.offset = nextPlacement(a, occurrenceBounds(occ));
     a.occurrences.add(occ);
     a.selected = occ;
+    // A subassembly's own components have to be resolved too — it may place
+    // parts nothing else in this session has loaded.
+    if (asSub) await _loadPlacedSources();
     a.bump();
     // Inventor runs Zoom All when a component is placed, and it has to here:
     // a placement lands CLEAR of what is already there (see nextPlacement), so
@@ -3854,14 +4416,6 @@ class AppState extends ChangeNotifier {
     notifyListeners();
     unawaited(saveAssembly(a.name));
     return occ;
-  }
-
-  /// Moves [occ] by [delta] millimetres. Grounded occurrences do not move —
-  /// see [placeComponent].
-  void moveOccurrence(AssemblyOccurrence occ, Vec3 delta) {
-    if (occ.grounded) return;
-    occ.offset = occ.offset + delta;
-    notifyListeners();
   }
 
   void selectOccurrence(AssemblyOccurrence? occ) {
@@ -3919,6 +4473,647 @@ class AppState extends ChangeNotifier {
     if (a == null || !a.vis.containsKey(key)) return;
     a.vis[key] = on;
     a.bump();
+    notifyListeners();
+  }
+
+  // ---- M242: RELATIONSHIPS -------------------------------------------------
+  //
+  // Place Constraint, the browser's Relationships folder, and the solve that
+  // both of them stand on. The division of labour:
+  //
+  //   asm_pick.dart    a tap -> an AsmRef (geometry in the component's frame)
+  //   asm_solver.dart  the constraints -> where every component ends up
+  //   here            the COMMANDS: open, collect, preview, apply, edit,
+  //                   suppress, delete, and the drag that goes through the
+  //                   solver instead of round it
+  //
+  // The one design decision worth stating up front is the PREVIEW. Inventor
+  // shows the result of a constraint before you commit it, and undoes it if
+  // you cancel. That means the document's placements are, while the dialog is
+  // open, not the committed ones — so a snapshot is taken when the dialog
+  // opens and restored on cancel. Nothing else in the app moves geometry it
+  // has not committed, which is exactly why it is written down here.
+
+  ConstraintSession? constraintSession;
+
+  /// True while Place Constraint is collecting selections, so the viewport
+  /// picks GEOMETRY instead of components and the ribbon button stays lit.
+  bool get constraintPicking => constraintSession != null;
+
+  /// Inventor's "Default to Undirected", remembered across dialogs.
+  bool defaultUndirectedAngle = false;
+
+  /// The committed placements, taken when the dialog opens. See the note
+  /// above: a preview moves the real occurrences, and Cancel has to be able
+  /// to put them back exactly.
+  Map<String, (Vec3, Quat)>? _asmSnapshot;
+
+  /// Highlighted in the viewport while the dialog collects: every filled
+  /// slot, in WORLD coordinates and ready to draw.
+  List<AsmMark> get constraintMarkers {
+    final s = constraintSession, a = currentAssembly;
+    if (s == null || a == null) return const [];
+    return [
+      for (var i = 0; i < s.needed; i++)
+        if (s.slot(i) != null) markFor(a, s.slot(i)!)
+    ];
+  }
+
+  /// One stored reference, ready to draw.
+  ///
+  /// The size comes from the COMPONENT the reference is on, not from the
+  /// assembly: a marker sized to the whole document swallows a small part and
+  /// disappears on a big one. A reference to the assembly's own origin has no
+  /// component, so it takes the assembly's extent — which is the right answer
+  /// there, since the origin planes are drawn to that extent too.
+  AsmMark markFor(AssemblyModel a, AsmRef r) {
+    final geom = worldGeomOf(a, r);
+    final o = r.isAssemblyOrigin ? null : a.byId(r.occurrence);
+    final anchor = o == null ? r.anchor : o.toWorld(r.anchor);
+    // The picked FACE's own size when the pick could measure it, which is
+    // what makes the highlight mean "this face" rather than "somewhere on
+    // this part". The component's extent is the fallback: the assembly's own
+    // origin geometry has no face, and a document written before the pick
+    // recorded one carries no extent.
+    if (r.extent > 0) return AsmMark(geom, anchor, r.extent);
+    final b = o == null ? assemblyContentBounds(a) : occurrenceBounds(o);
+    final span = b == null ? 20.0 : (b.$2 - b.$1).length;
+    return AsmMark(geom, anchor, math.max(2.0, span * 0.22));
+  }
+
+  /// Opens Place Constraint. With [edit] it opens on that constraint, filled
+  /// in, which is Inventor's double-click-a-relationship behaviour.
+  void openConstraint({AsmConstraint? edit}) {
+    final a = currentAssembly;
+    if (a == null) return;
+    final s = ConstraintSession(editing: edit);
+    if (edit != null) {
+      s.kind = edit.kind;
+      s.tab = tabOf(edit.kind);
+      s.solution = edit.solution;
+      s.a = edit.a;
+      s.b = edit.b;
+      s.c = edit.c;
+      s.value = edit.value;
+      s.name = edit.name;
+      s.armed = 0;
+    } else if (defaultUndirectedAngle) {
+      s.defaultUndirected = true;
+    }
+    constraintSession = s;
+    _takeAsmSnapshot(a);
+    _refreshConstraintPreview();
+    notifyListeners();
+  }
+
+  /// Cancel: the preview is undone and nothing is written.
+  void cancelConstraint() {
+    if (constraintSession == null) return;
+    _restoreAsmSnapshot();
+    constraintSession = null;
+    final a = currentAssembly;
+    if (a != null) {
+      a.bump();
+      _solveAssembly(a);
+    }
+    notifyListeners();
+  }
+
+  void setConstraintTab(AsmTab tab) {
+    final s = constraintSession;
+    if (s == null || s.tab == tab) return;
+    s.tab = tab;
+    // Each tab opens on its own first type, the way Inventor's does. The
+    // Constraint Set tab has no types at all yet and keeps whatever was
+    // selected, so switching to it and back does not discard the picks.
+    final kinds = switch (tab) {
+      AsmTab.assembly => kAssemblyKinds,
+      AsmTab.motion => kMotionKinds,
+      AsmTab.transitional => const [AsmKind.transitional],
+      AsmTab.constraintSet => const <AsmKind>[],
+    };
+    if (kinds.isNotEmpty && !kinds.contains(s.kind)) {
+      _applyKind(s, kinds.first);
+    }
+    notifyListeners();
+  }
+
+  void setConstraintKind(AsmKind kind) {
+    final s = constraintSession;
+    if (s == null || s.kind == kind) return;
+    _applyKind(s, kind);
+    _refreshConstraintPreview();
+    notifyListeners();
+  }
+
+  void _applyKind(ConstraintSession s, AsmKind kind) {
+    s.kind = kind;
+    s.tab = tabOf(kind);
+    final sols = solutionsFor(kind);
+    // Inventor's Default to Undirected, and the only place it acts: a NEW
+    // Angle opens on Undirected rather than on the directed default.
+    s.solution = (kind == AsmKind.angle && defaultUndirectedAngle)
+        ? AsmSolution.undirectedAngle
+        : sols.first;
+    // Changing the type keeps the picks — pointing at the same two faces and
+    // trying Flush instead of Mate is the commonest thing a user does — but
+    // the third slot belongs to a solution that may no longer exist.
+    if (s.needed < 3) s.c = null;
+    // The field opens on the kind's own neutral value, which is zero for a
+    // distance and ONE for a ratio: a gear pair of 0:1 is not a gear pair, and
+    // Inventor opens Rotation on 1 for exactly that reason.
+    s.value = valueKindOf(kind) == AsmValueKind.ratio ? 1 : 0;
+    s.armed = s.firstEmpty < 0 ? 0 : s.firstEmpty;
+    _checkConstraintPair(s);
+  }
+
+  void setConstraintSolution(AsmSolution sol) {
+    final s = constraintSession;
+    if (s == null || s.solution == sol) return;
+    if (!solutionsFor(s.kind).contains(sol)) return;
+    s.solution = sol;
+    if (s.needed < 3) s.c = null;
+    _refreshConstraintPreview();
+    notifyListeners();
+  }
+
+  void setConstraintValue(double v) {
+    final s = constraintSession;
+    if (s == null || s.value == v) return;
+    s.value = v;
+    _refreshConstraintPreview();
+    notifyListeners();
+  }
+
+  void setConstraintName(String name) {
+    final s = constraintSession;
+    if (s == null) return;
+    s.name = name;
+    notifyListeners();
+  }
+
+  /// Lights selection button [i], so the next viewport tap fills that slot.
+  /// Tapping the lit one again CLEARS it, which is how Inventor lets you
+  /// re-pick a selection you got wrong.
+  void armConstraintSelection(int i) {
+    final s = constraintSession;
+    if (s == null || i < 0 || i >= s.needed) return;
+    if (s.armed == i && s.slot(i) != null) {
+      s.setSlot(i, null);
+      _checkConstraintPair(s);
+      _refreshConstraintPreview();
+      notifyListeners();
+      return;
+    }
+    s.armed = i;
+    notifyListeners();
+  }
+
+  void toggleConstraintPreview() {
+    final s = constraintSession;
+    if (s == null) return;
+    s.showPreview = !s.showPreview;
+    _refreshConstraintPreview();
+    notifyListeners();
+  }
+
+  /// Inventor's "Predict Offset and Orientation": fill the value field with
+  /// what the two selections already measure, so applying the constraint
+  /// holds the parts where they are instead of closing them up.
+  void toggleConstraintPredict() {
+    final s = constraintSession;
+    final a = currentAssembly;
+    if (s == null || a == null) return;
+    s.predict = !s.predict;
+    if (s.predict && s.a != null && s.b != null) {
+      final v = predictedValue(s.kind, s.solution, worldGeomOf(a, s.a!),
+          worldGeomOf(a, s.b!));
+      if (v != null) s.value = v;
+    }
+    _refreshConstraintPreview();
+    notifyListeners();
+  }
+
+  void toggleConstraintPickPartFirst() {
+    final s = constraintSession;
+    if (s == null) return;
+    s.pickPartFirst = !s.pickPartFirst;
+    notifyListeners();
+  }
+
+  void toggleConstraintExpanded() {
+    final s = constraintSession;
+    if (s == null) return;
+    s.expanded = !s.expanded;
+    notifyListeners();
+  }
+
+  void toggleDefaultUndirected() {
+    final s = constraintSession;
+    if (s == null) return;
+    s.defaultUndirected = !s.defaultUndirected;
+    defaultUndirectedAngle = s.defaultUndirected;
+    notifyListeners();
+  }
+
+  /// A viewport tap while the dialog is open. Returns true when it was
+  /// consumed as a selection, so the viewport knows not to also treat it as a
+  /// component pick.
+  bool pickConstraintRef(AsmPick pick) {
+    final s = constraintSession;
+    final a = currentAssembly;
+    if (s == null || a == null) return false;
+    // Inventor refuses the SECOND selection on the component the first came
+    // from: a constraint between two faces of one part constrains nothing and
+    // is the commonest misclick there is.
+    if (s.armed > 0 &&
+        s.a != null &&
+        !pick.ref.isAssemblyOrigin &&
+        pick.ref.occurrence == s.a!.occurrence &&
+        s.armed == 1) {
+      toast(L.current.msgAsmSameComponent);
+      return true;
+    }
+    s.setSlot(s.armed, pick.ref);
+    final next = s.firstEmpty;
+    s.armed = next < 0 ? s.armed : next;
+    _checkConstraintPair(s);
+    // Predict runs on the pair, so it can only fire once the second selection
+    // has landed.
+    if (s.predict && s.a != null && s.b != null) {
+      final v = predictedValue(s.kind, s.solution, worldGeomOf(a, s.a!),
+          worldGeomOf(a, s.b!));
+      if (v != null) s.value = v;
+    }
+    _refreshConstraintPreview();
+    notifyListeners();
+    return true;
+  }
+
+  /// Records why the current pair cannot take this kind, for the dialog to
+  /// show where Inventor shows its own refusal.
+  void _checkConstraintPair(ConstraintSession s) {
+    final a = currentAssembly;
+    if (a == null || s.a == null || s.b == null) {
+      s.rejection = null;
+      return;
+    }
+    s.rejection =
+        rejectionFor(s.kind, worldGeomOf(a, s.a!), worldGeomOf(a, s.b!));
+  }
+
+  /// The constraint the session currently describes, or null when it is not
+  /// yet a constraint (a slot empty, or a pair this kind cannot act on).
+  AsmConstraint? buildSessionConstraint(AssemblyModel a) {
+    final s = constraintSession;
+    if (s == null || !s.complete) return null;
+    if (_checkedRejection(s, a) != null) return null;
+    var third = s.c;
+    // A DIRECTED angle captures its reference vector when it is created, and
+    // keeps it. That is what stops the part flipping to the other side of the
+    // pair the first time the angle passes through zero — Autodesk's own
+    // reason for offering the undirected solution at all. The reference is
+    // stored against the ASSEMBLY, not a component, because it must not turn
+    // when either part does.
+    if (s.kind == AsmKind.angle &&
+        s.solution == AsmSolution.directedAngle &&
+        third == null) {
+      final z = worldGeomOf(a, s.a!).dir.cross(worldGeomOf(a, s.b!).dir);
+      if (z.length > 1e-9) {
+        third = AsmRef(kAssemblyOrigin,
+            AsmGeom.axis(Vec3.zero, z.normalized()), 'Reference Vector');
+      }
+    }
+    final name = s.name.trim().isNotEmpty
+        ? s.name.trim()
+        : (s.editing?.name ?? nextConstraintName(a.constraints, s.kind));
+    return AsmConstraint(
+      name: name,
+      kind: s.kind,
+      solution: s.solution,
+      a: s.a!,
+      b: s.b!,
+      c: s.needed >= 3 ? s.c : third,
+      value: s.value,
+      suppressed: s.editing?.suppressed ?? false,
+    );
+  }
+
+  String? _checkedRejection(ConstraintSession s, AssemblyModel a) {
+    if (s.a == null || s.b == null) return null;
+    return rejectionFor(s.kind, worldGeomOf(a, s.a!), worldGeomOf(a, s.b!));
+  }
+
+  /// Shows what the constraint WOULD do, without committing it.
+  ///
+  /// Always from the snapshot, never from wherever the last preview left
+  /// things: solving twice from a previewed state would let a preview build
+  /// on itself and drift.
+  void _refreshConstraintPreview() {
+    final a = currentAssembly;
+    final s = constraintSession;
+    if (a == null || s == null) return;
+    _restoreAsmSnapshot();
+    if (!s.showPreview) {
+      _solveAssembly(a);
+      return;
+    }
+    final trial = buildSessionConstraint(a);
+    if (trial == null) {
+      _solveAssembly(a);
+      return;
+    }
+    // While editing, the constraint being replaced must not fight its own
+    // replacement.
+    final edited = s.editing;
+    final was = edited?.suppressed;
+    if (edited != null) edited.suppressed = true;
+    a.constraints.add(trial);
+    _solveAssembly(a);
+    a.constraints.remove(trial);
+    if (edited != null && was != null) edited.suppressed = was;
+  }
+
+  /// Apply: commit the constraint and keep the dialog open for the next one,
+  /// which is what makes placing six mates in a row bearable.
+  bool applyConstraint() {
+    final a = currentAssembly;
+    final s = constraintSession;
+    if (a == null || s == null) return false;
+    if (!s.complete) {
+      toast(L.current.msgAsmPickTwo);
+      return false;
+    }
+    final reason = _checkedRejection(s, a);
+    if (reason != null) {
+      toast(_constraintRejection(reason));
+      return false;
+    }
+    _restoreAsmSnapshot();
+    final built = buildSessionConstraint(a);
+    if (built == null) return false;
+    final edited = s.editing;
+    if (edited != null) {
+      edited
+        ..kind = built.kind
+        ..solution = built.solution
+        ..a = built.a
+        ..b = built.b
+        ..c = built.c
+        ..value = built.value;
+    } else {
+      a.constraints.add(built);
+    }
+    final report = _solveAssembly(a);
+    if (report.sick.containsKey(built.name)) {
+      toast(_constraintRejection(report.sick[built.name]!));
+    }
+    a.bump();
+    _takeAsmSnapshot(a);
+    // Ready for the next one: the picks are consumed, the settings are not.
+    // Inventor keeps the type, the solution and the offset across an Apply,
+    // and clears only what you pointed at.
+    if (edited == null) {
+      s.a = null;
+      s.b = null;
+      s.c = null;
+      s.armed = 0;
+      s.rejection = null;
+    }
+    notifyListeners();
+    unawaited(saveAssembly(a.name));
+    return true;
+  }
+
+  /// OK: apply, then close.
+  void okConstraint() {
+    final s = constraintSession;
+    if (s == null) return;
+    // OK on a dialog that has collected nothing is a Cancel — Inventor greys
+    // its OK out in that state, and reaching this from a keyboard should not
+    // be able to leave the preview applied.
+    if (!s.complete) {
+      cancelConstraint();
+      return;
+    }
+    if (!applyConstraint()) return;
+    constraintSession = null;
+    _asmSnapshot = null;
+    notifyListeners();
+  }
+
+  // ---- the Relationships folder -------------------------------------------
+
+  void selectConstraint(AsmConstraint? c) {
+    final a = currentAssembly;
+    if (a == null || identical(a.selectedConstraint, c)) return;
+    a.selectedConstraint = c;
+    notifyListeners();
+  }
+
+  void deleteConstraint(AsmConstraint c) {
+    final a = currentAssembly;
+    if (a == null) return;
+    a.constraints.remove(c);
+    if (identical(a.selectedConstraint, c)) a.selectedConstraint = null;
+    // Deleting a constraint gives freedom back; it never takes any, so the
+    // components stay exactly where the last solve left them and only the
+    // reported DOF changes.
+    _solveAssembly(a);
+    a.bump();
+    notifyListeners();
+    unawaited(saveAssembly(a.name));
+  }
+
+  void toggleConstraintSuppressed(AsmConstraint c) {
+    final a = currentAssembly;
+    if (a == null) return;
+    c.suppressed = !c.suppressed;
+    // A suppressed constraint is switched off, not broken: clear the verdict
+    // the last solve left on it so the browser does not go on showing it sick.
+    if (c.suppressed) c.error = null;
+    _solveAssembly(a);
+    a.bump();
+    notifyListeners();
+    unawaited(saveAssembly(a.name));
+  }
+
+  /// Runs the solver and files its verdict on the model. Every command that
+  /// can change where a component belongs goes through here, so there is one
+  /// place the summary and the per-constraint sickness are written.
+  AsmSolveReport _solveAssembly(AssemblyModel a, {AsmDrag? drag}) {
+    final report = solveAssembly(a, drag: drag);
+    a.solveSummary = AsmSolveSummary(
+      dof: report.dof,
+      fullyConstrained: report.fullyConstrained,
+      sickCount: report.sick.length,
+    );
+    return report;
+  }
+
+  /// Re-solves the open assembly on demand — the ribbon's Update, and what a
+  /// test calls to assert where the solver put things.
+  AsmSolveReport? solveCurrentAssembly() {
+    final a = currentAssembly;
+    if (a == null) return null;
+    final r = _solveAssembly(a);
+    notifyListeners();
+    return r;
+  }
+
+  // ---- placement snapshots -------------------------------------------------
+
+  void _takeAsmSnapshot(AssemblyModel a) {
+    _asmSnapshot = {for (final o in a.occurrences) o.id: (o.offset, o.rot)};
+  }
+
+  void _restoreAsmSnapshot() {
+    final a = currentAssembly;
+    final snap = _asmSnapshot;
+    if (a == null || snap == null) return;
+    for (final o in a.occurrences) {
+      final was = snap[o.id];
+      if (was == null) continue;
+      o.offset = was.$1;
+      o.rot = was.$2;
+    }
+  }
+
+  /// The l10n sentence for a solver or dialog refusal key.
+  String _constraintRejection(String key) {
+    final t = L.current;
+    return switch (key) {
+      'tangentNeedsRound' => t.msgAsmTangentNeedsRound,
+      'insertNeedsAxes' => t.msgAsmInsertNeedsAxes,
+      'angleNeedsDirections' => t.msgAsmAngleNeedsDirections,
+      'motionNeedsAxes' => t.msgAsmMotionNeedsAxes,
+      'bothGrounded' => t.msgAsmBothGrounded,
+      'missingComponent' => t.msgAsmMissingComponent,
+      'cannotSatisfy' => t.msgAsmCannotSatisfy,
+      _ => t.msgAsmCannotConstrain,
+    };
+  }
+
+  /// The sentence for a constraint's own error, for the browser's tooltip.
+  String constraintErrorText(AsmConstraint c) =>
+      _constraintRejection(c.error ?? 'cannotConstrain');
+
+  /// The sentence for a refusal key the DIALOG is holding, so the panel can
+  /// show it without knowing the keys.
+  String constraintRejectionText(String key) => _constraintRejection(key);
+
+  // ---- dragging a component through what freedom it has left ---------------
+  //
+  // M240 dragged by adding a delta to a placement, which is right for a loose
+  // part and wrong for anything constrained: a component mated to another
+  // would simply leave, and a linkage grabbed by one link would come apart.
+  //
+  // So a drag now has two paths, chosen by whether the component is ATTACHED
+  // to anything:
+  //
+  //   loose      the delta, applied directly. Exact, allocation-free, and
+  //              identical to what M240 did — a part with no relationships
+  //              must not start feeling like a solve.
+  //   attached   a soft pull on the grip point, solved with every constraint
+  //              in the assembly (asm_solver's AsmDrag). The mechanism follows
+  //              the finger as far as its freedom allows and stops dead where
+  //              it does not, which is Inventor's behaviour exactly.
+  //
+  // The GRIP is where the finger went down, in the component's own frame. It
+  // has to be: grabbing a crank at its far end and grabbing it at its pivot
+  // are different gestures, and a drag that always pulled on the origin could
+  // never turn anything.
+
+  /// The component being dragged, its grip in local coordinates, and whether
+  /// this drag needs the solver.
+  String? _dragOccId;
+  Vec3 _dragGrip = Vec3.zero;
+  bool _dragSolved = false;
+
+  /// Called on pointer-down over a component, with the world point touched.
+  void beginOccurrenceDrag(AssemblyOccurrence occ, Vec3 worldGrip) {
+    final a = currentAssembly;
+    if (a == null) return;
+    _dragOccId = occ.id;
+    _dragGrip = occ.toLocal(worldGrip);
+    _dragSolved = _isAttached(a, occ.id);
+  }
+
+  /// True when [id] is connected, through active positional constraints, to
+  /// anything at all. Transitively: a link two joints away from the one being
+  /// dragged still has to move with it.
+  bool _isAttached(AssemblyModel a, String id) {
+    final seen = <String>{id};
+    final queue = <String>[id];
+    while (queue.isNotEmpty) {
+      final at = queue.removeLast();
+      for (final c in a.constraints) {
+        if (c.suppressed || !c.isPositional) continue;
+        if (!c.touches(at)) continue;
+        // A constraint to the assembly's own origin attaches too — it is what
+        // pins a part to the XY plane — so the constraint counts even when it
+        // names only one component.
+        if (c.occurrences.length < 2) return true;
+        for (final other in c.occurrences) {
+          if (seen.add(other)) queue.add(other);
+        }
+      }
+    }
+    return seen.length > 1;
+  }
+
+  /// Moves the dragged component so its grip lands on [worldTarget].
+  void dragOccurrenceTo(Vec3 worldTarget) {
+    final a = currentAssembly;
+    final id = _dragOccId;
+    if (a == null || id == null) return;
+    final occ = a.byId(id);
+    if (occ == null || occ.grounded) return;
+    if (!_dragSolved) {
+      occ.offset = occ.offset + (worldTarget - occ.toWorld(_dragGrip));
+      notifyListeners();
+      return;
+    }
+    _solveAssembly(a, drag: AsmDrag(id, _dragGrip, worldTarget));
+    notifyListeners();
+  }
+
+  /// Moves [occ] by [delta] millimetres. Grounded occurrences do not move —
+  /// see [placeComponent].
+  ///
+  /// The delta form, kept because it is what a caller with no grip has: it
+  /// pulls on the component's own origin, which for a loose part is the same
+  /// translation and for an attached one is the honest "drag it from the
+  /// middle".
+  void moveOccurrence(AssemblyOccurrence occ, Vec3 delta) {
+    if (occ.grounded) return;
+    final a = currentAssembly;
+    if (a == null || !_isAttached(a, occ.id)) {
+      occ.offset = occ.offset + delta;
+      notifyListeners();
+      return;
+    }
+    _solveAssembly(a,
+        drag: AsmDrag(occ.id, Vec3.zero, occ.toWorld(Vec3.zero) + delta));
+    notifyListeners();
+  }
+
+  /// Turns [occ] about the world axis [axis] through [pivot], driving any
+  /// motion constraints it is the mover of.
+  ///
+  /// This is the second half of "dynamic": a gear pair is not solved (see
+  /// asm_solver's header — motion constraints act only on open degrees of
+  /// freedom), it is DRIVEN, so turning one shaft has to propose where the
+  /// other goes and let the assembly constraints have the last word.
+  void turnOccurrence(
+      AssemblyOccurrence occ, Vec3 axis, Vec3 pivot, double radians) {
+    final a = currentAssembly;
+    if (a == null || occ.grounded || radians.abs() < 1e-12) return;
+    final q = Quat.axisAngle(axis, radians);
+    occ.rot = (q * occ.rot).normalized();
+    occ.offset = pivot + q.rotate(occ.offset - pivot);
+    driveMotion(a, occ.id, radians);
+    _solveAssembly(a);
     notifyListeners();
   }
 
@@ -8143,6 +9338,10 @@ class AppState extends ChangeNotifier {
       cancelExtrude(); // notifies for itself now (M210)
     } else if (pickPlane) {
       cancelPlanePick();
+    } else if (selectedBody != null) {
+      // Nothing is running: Esc then means "deselect", the same way it clears
+      // a selected component in an assembly.
+      selectBody(null);
     }
   }
 
@@ -8540,8 +9739,89 @@ class AppState extends ChangeNotifier {
   Constraint? pendingDim;
 
   /// Geometry with an in-progress grip drag applied (painter reads this).
+  /// The geometry to draw THIS frame — which, during a grip drag, is the
+  /// result of a live 25-iteration constraint solve.
+  ///
+  /// Measure it, because of where it runs. This is called from
+  /// `CustomPainter.paint` (the comment below says so) and from five other
+  /// sites including the snap path and the drag commit, so a single
+  /// pointer-move used to pay for the solve more than once —
+  /// `PERFORMANCE_PROFILE.md` §5.2 counted 120 solves against 60 painted
+  /// frames. It no longer does: the answer is memoised on the drag position,
+  /// so every caller within one position shares one solve.
+  ///
+  /// `2d.displayGeometry.solves` counts the calls that actually solved and
+  /// `2d.displayGeometry.cacheHit` the ones answered from the memo; the two
+  /// together are the call count, and the first divided by frames is now 1.
+  /// The early return is left uncounted on purpose — a non-drag frame does no
+  /// work here and should not dilute the average.
   List<Geo> displayGeometry(SketchModel s) {
-    if (dragGrip == null || dragPos == null) return s.geometry;
+    if (dragGrip == null || dragPos == null) {
+      // No drag in flight, so nothing cached can ever be returned again — the
+      // guards below would all miss anyway. Dropping the references here rather
+      // than relying on that keeps a finished drag's geometry list from
+      // outliving the drag; this is the first paint after every release.
+      if (_dgResult != null) {
+        _dgSketch = null;
+        _dgGrip = null;
+        _dgPos = null;
+        _dgSource = null;
+        _dgResult = null;
+      }
+      return s.geometry;
+    }
+    // S4 — ONE SOLVE PER DRAG POSITION, NOT PER CALLER.
+    //
+    // Measured: 60 painted frames of `ui.drag60` issued 120 calls and 120
+    // solves. Two call sites in the painter (the `ent.dofColour` phase and the
+    // `constraints` phase) each asked this question about the same cursor
+    // position, and a third (the tool preview) and a fourth (endGripDrag's
+    // commit) ask it again whenever they are live.
+    //
+    // They were not duplicates, which is the part worth reading carefully.
+    // _displayGeometryInner ENDS a good frame with `_lastGoodDragGeo = gs` and
+    // OPENS the next call by warm-starting from that field, so the second call
+    // re-pulled the grip to the cursor and ran 25 more solver iterations on the
+    // first call's output. Consequences, all measured rather than argued:
+    //
+    //   - entities were drawn from the first call's list and constraint glyphs
+    //     from the second's, so a glyph sat where its entity was about to be
+    //     rather than where it was drawn;
+    //   - the count varied with UI state (1, 2 or 3 solves per frame depending
+    //     on edit mode and whether a tool preview was up), so the geometry a
+    //     drag COMMITTED depended on whether glyphs were switched on.
+    //
+    // Collapsing them is exactly identical for free drags, body drags and
+    // drags whose cursor the constraints cannot reach (maxDelta 0.000e+0 on
+    // all three). On a genuinely coupled system — two slots joined by a
+    // tangent and a point-on-curve — it moves the answer by 3.2e-4 on a 64-unit
+    // sketch, 5 ppm, and that difference is a point on the constraint manifold
+    // and not a residual off it: both regimes commit at residual norm 2.828e-6,
+    // equal to four significant figures, against a satisfaction threshold of
+    // 1e-6 and a renderable threshold of 1e-2.
+    //
+    // The full write-up, with the arithmetic and the pre-registered
+    // predictions, is perf/findings/S4-painter.md.
+    if (identical(_dgSketch, s) &&
+        identical(_dgGrip, dragGrip) &&
+        identical(_dgSource, s.geometry) &&
+        _dgPos == dragPos &&
+        _dgResult != null) {
+      Perf.count('2d.displayGeometry.cacheHit');
+      return _dgResult!;
+    }
+    Perf.count('2d.displayGeometry.solves');
+    final out =
+        Perf.span('2d.displayGeometry', () => _displayGeometryInner(s));
+    _dgSketch = s;
+    _dgGrip = dragGrip;
+    _dgPos = dragPos;
+    _dgSource = s.geometry;
+    _dgResult = out;
+    return out;
+  }
+
+  List<Geo> _displayGeometryInner(SketchModel s) {
     // NB: this runs INSIDE CustomPainter.paint. A throw here aborts the whole
     // paint, so every entity after it stays unpainted and the sketch looks like
     // it vanished. Likewise NaN/Inf: Skia drops those paths silently. Neither
@@ -9246,7 +10526,7 @@ class AppState extends ChangeNotifier {
     // M41: expressions referencing driven (reference) parameters follow the
     // fresh measurements; guarded so the chase's own solves do not recurse.
     if (!_inExprChase) _chaseExpressions(s);
-    analysis = analyzeSketch(s.geometry, s.constraints);
+    analysis = _analysisCache.of(s.geometry, s.constraints);
     // UNDO JOURNAL (M39): every committed mutation funnels through this
     // rebuild (the C-API is add-only), so this one call records the whole
     // app's edits — draw, drag, trim, fillet, patterns, dimensions,
@@ -9363,6 +10643,40 @@ class AppState extends ChangeNotifier {
   /// browser and the 3D view, so the two agree about what a click would take.
   String? hoverBody;
 
+  /// The solid body SELECTED in the model browser, or null.
+  ///
+  /// Inventor's part-mode selection: clicking a Solid Bodies row highlights
+  /// the row and the body itself in 3D, and clicking it again clears both.
+  /// Kept here, next to [hoverBody], for the same reason that one is — the
+  /// browser (Flutter and native) and both renderers must read ONE answer, or
+  /// the row and the geometry can disagree about what is selected.
+  String? selectedBody;
+
+  /// The body under the pointer in the MODEL BROWSER, or null.
+  ///
+  /// Deliberately not [hoverBody]: that one belongs to the extrude dialog's
+  /// target pick and re-previews the boolean as it moves, which is far too
+  /// much to happen because a pointer crossed a tree row. This one only lights
+  /// things up — the row, and the body itself in 3D, in the same colour a
+  /// hovered assembly component gets.
+  String? browserHoverBody;
+
+  void setBrowserHoverBody(String? name) {
+    if (browserHoverBody == name) return;
+    browserHoverBody = name;
+    notifyListeners();
+  }
+
+  /// Selects [name], or clears the selection when it is already selected.
+  void toggleBodySelected(String name) =>
+      selectBody(selectedBody == name ? null : name);
+
+  void selectBody(String? name) {
+    if (selectedBody == name) return;
+    selectedBody = name;
+    notifyListeners();
+  }
+
   /// M97 — renames a body everywhere it is built.
   bool renameBody(String from, String to) {
     final p = currentPart;
@@ -9376,6 +10690,8 @@ class AppState extends ChangeNotifier {
     for (final f in p.features) {
       if (f.bodyName == from) f.bodyName = n;
     }
+    if (selectedBody == from) selectedBody = n; // the selection follows it
+    if (browserHoverBody == from) browserHoverBody = n;
     p.dirty = true;
     if (curTab != null) savePart(curTab!);
     notifyListeners();
@@ -9389,6 +10705,8 @@ class AppState extends ChangeNotifier {
     final victims = [for (final f in p.features) if (f.bodyName == bodyName) f];
     if (victims.isEmpty) return 0;
     _partCheckpoint(p); // M182 — deleting a body must be undoable
+    if (selectedBody == bodyName) selectedBody = null; // nothing left to light
+    if (browserHoverBody == bodyName) browserHoverBody = null;
     for (final f in victims) {
       f.disposeSolid();
       p.features.remove(f);
@@ -9679,6 +10997,9 @@ class AppState extends ChangeNotifier {
     if (extrudeSession == null) return;
     pickingBody = true;
     hoverBody = null;
+    // The browser's own prehighlight steps aside: while a pick is armed the
+    // hover belongs to the dialog, and two lit bodies would be one too many.
+    browserHoverBody = null;
     toast(L.current.msgSelectTargetBody);
     notifyListeners();
   }
@@ -10374,7 +11695,16 @@ class AppState extends ChangeNotifier {
             i
       };
 
-  int? _pickEntity(SketchModel s, Offset w) {
+  /// Nearest pickable entity to [w], or null.
+  ///
+  /// Linear over the whole sketch, called from ~12 sites on the tap and drag
+  /// paths (several of them more than once per event). The span answers
+  /// whether that linearity is affordable at the sketch sizes we actually
+  /// have, before anyone reaches for a spatial index.
+  int? _pickEntity(SketchModel s, Offset w) =>
+      Perf.span('2d.pickEntity', () => _pickEntityInner(s, w));
+
+  int? _pickEntityInner(SketchModel s, Offset w) {
     var best = -1;
     var bd = 10 / zoom;
     // A TIE goes to normal geometry. After a kept-carrier trim (M187) every
@@ -14296,6 +15626,15 @@ class AppState extends ChangeNotifier {
 
   // ---- save / load / preview ----
   Future<bool> saveSketch(String name) async {
+    final sw = Stopwatch()..start();
+    try {
+      return await _saveSketchInner(name);
+    } finally {
+      Perf.record('io.saveSketch', sw.elapsedMicroseconds / 1000.0);
+    }
+  }
+
+  Future<bool> _saveSketchInner(String name) async {
     final s = sketches[name];
     if (s == null || _docsDir == null) return false;
     _ensureStaged(name);

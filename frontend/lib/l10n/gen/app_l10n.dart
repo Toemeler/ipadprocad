@@ -5412,6 +5412,354 @@ abstract class AppL10n {
   /// In de, this message translates to:
   /// **'Fixiert'**
   String get ctxGrounded;
+
+  /// Titel des Abhängigkeitsdialogs. Inventor DE: "Abhängigkeit platzieren".
+  ///
+  /// In de, this message translates to:
+  /// **'Abhängigkeit platzieren'**
+  String get dlgPlaceConstraint;
+
+  /// Erster Reiter des Abhängigkeitsdialogs (Passend, Winkel, Tangential, Einfügen, Symmetrie).
+  ///
+  /// In de, this message translates to:
+  /// **'Baugruppe'**
+  String get tabAsmAssembly;
+
+  /// Zweiter Reiter des Abhängigkeitsdialogs (Drehung, Drehung-Translation).
+  ///
+  /// In de, this message translates to:
+  /// **'Bewegung'**
+  String get tabAsmMotion;
+
+  /// Dritter Reiter des Abhängigkeitsdialogs (Kurvenscheibe und Abtaster).
+  ///
+  /// In de, this message translates to:
+  /// **'Übergang'**
+  String get tabAsmTransitional;
+
+  /// Vierter Reiter des Abhängigkeitsdialogs. Inventor DE: "Abhängigkeitssatz".
+  ///
+  /// In de, this message translates to:
+  /// **'Abhängigkeitssatz'**
+  String get tabAsmConstraintSet;
+
+  /// Gruppe der Typ-Schaltflächen im Abhängigkeitsdialog.
+  ///
+  /// In de, this message translates to:
+  /// **'Typ'**
+  String get grpAsmType;
+
+  /// Gruppe der Auswahlschaltflächen im Abhängigkeitsdialog.
+  ///
+  /// In de, this message translates to:
+  /// **'Auswahlen'**
+  String get grpAsmSelections;
+
+  /// Gruppe der Lösungsschaltflächen im Abhängigkeitsdialog.
+  ///
+  /// In de, this message translates to:
+  /// **'Lösung'**
+  String get grpAsmSolution;
+
+  /// Beschriftung des Zahlenfelds bei Passend, Tangential und Einfügen. Mit Doppelpunkt wie in Inventor.
+  ///
+  /// In de, this message translates to:
+  /// **'Versatz:'**
+  String get lblAsmOffset;
+
+  /// Beschriftung des Zahlenfelds bei einer Winkelabhängigkeit.
+  ///
+  /// In de, this message translates to:
+  /// **'Winkel:'**
+  String get lblAsmAngle;
+
+  /// Beschriftung des Zahlenfelds bei einer Drehungsabhängigkeit (Zahnradverhältnis).
+  ///
+  /// In de, this message translates to:
+  /// **'Verhältnis:'**
+  String get lblAsmRatio;
+
+  /// Beschriftung des Zahlenfelds bei Drehung-Translation: Weg pro voller Umdrehung.
+  ///
+  /// In de, this message translates to:
+  /// **'Abstand:'**
+  String get lblAsmDistance;
+
+  /// Kontrollkästchen neben den Auswahlschaltflächen. Inventor DE: "Bauteil zuerst wählen".
+  ///
+  /// In de, this message translates to:
+  /// **'Bauteil zuerst wählen'**
+  String get cbAsmPickPartFirst;
+
+  /// Kontrollkästchen mit dem Brillensymbol: zeigt die Wirkung vor dem Übernehmen.
+  ///
+  /// In de, this message translates to:
+  /// **'Vorschau anzeigen'**
+  String get cbAsmShowPreview;
+
+  /// Kontrollkästchen: füllt das Zahlenfeld mit dem aktuell gemessenen Wert.
+  ///
+  /// In de, this message translates to:
+  /// **'Versatz und Ausrichtung vorhersagen'**
+  String get cbAsmPredict;
+
+  /// Kontrollkästchen hinter dem Erweitern-Knopf: neue Winkelabhängigkeiten öffnen ungerichtet.
+  ///
+  /// In de, this message translates to:
+  /// **'Standardmäßig ungerichtet'**
+  String get cbAsmDefaultUndirected;
+
+  /// Namensfeld hinter dem Erweitern-Knopf des Abhängigkeitsdialogs.
+  ///
+  /// In de, this message translates to:
+  /// **'Name'**
+  String get lblAsmName;
+
+  /// Platzhalter im Namensfeld: leer lassen heisst automatisch benennen.
+  ///
+  /// In de, this message translates to:
+  /// **'Automatisch'**
+  String get hintAsmAutoName;
+
+  /// Tooltip der nummerierten Auswahlschaltflächen.
+  ///
+  /// In de, this message translates to:
+  /// **'Auswahl {n}'**
+  String tipAsmSelection(int n);
+
+  /// Hinweis im Dialog, solange eine Auswahl fehlt.
+  ///
+  /// In de, this message translates to:
+  /// **'Fläche, Kante oder Achse antippen'**
+  String get hintAsmPickGeometry;
+
+  /// Abhängigkeitstyp. Inventor DE: "Passend".
+  ///
+  /// In de, this message translates to:
+  /// **'Passend'**
+  String get asmMate;
+
+  /// Abhängigkeitstyp Winkel.
+  ///
+  /// In de, this message translates to:
+  /// **'Winkel'**
+  String get asmAngle;
+
+  /// Abhängigkeitstyp Tangential.
+  ///
+  /// In de, this message translates to:
+  /// **'Tangential'**
+  String get asmTangent;
+
+  /// Abhängigkeitstyp Einfügen (Schraube im Loch).
+  ///
+  /// In de, this message translates to:
+  /// **'Einfügen'**
+  String get asmInsert;
+
+  /// Abhängigkeitstyp Symmetrie.
+  ///
+  /// In de, this message translates to:
+  /// **'Symmetrie'**
+  String get asmSymmetry;
+
+  /// Bewegungsabhängigkeit: Zahnradpaar.
+  ///
+  /// In de, this message translates to:
+  /// **'Drehung'**
+  String get asmRotation;
+
+  /// Bewegungsabhängigkeit: Zahnstange und Ritzel.
+  ///
+  /// In de, this message translates to:
+  /// **'Drehung-Translation'**
+  String get asmRotationTranslation;
+
+  /// Übergangsabhängigkeit: Kurvenscheibe und Abtaster.
+  ///
+  /// In de, this message translates to:
+  /// **'Übergang'**
+  String get asmTransitional;
+
+  /// Lösung einer Passend-Abhängigkeit: Flächen zeigen aufeinander zu.
+  ///
+  /// In de, this message translates to:
+  /// **'Passend'**
+  String get solMate;
+
+  /// Lösung einer Passend-Abhängigkeit: Flächen zeigen in dieselbe Richtung.
+  ///
+  /// In de, this message translates to:
+  /// **'Ausgerichtet'**
+  String get solFlush;
+
+  /// Winkellösung mit festgehaltenem Referenzvektor.
+  ///
+  /// In de, this message translates to:
+  /// **'Gerichteter Winkel'**
+  String get solDirectedAngle;
+
+  /// Winkellösung ohne Vorzeichen.
+  ///
+  /// In de, this message translates to:
+  /// **'Ungerichteter Winkel'**
+  String get solUndirectedAngle;
+
+  /// Winkellösung mit einer dritten Auswahl als Referenzachse.
+  ///
+  /// In de, this message translates to:
+  /// **'Expliziter Referenzvektor'**
+  String get solExplicitVector;
+
+  /// Tangentiallösung: der Zylinder liegt innen an.
+  ///
+  /// In de, this message translates to:
+  /// **'Innen'**
+  String get solInside;
+
+  /// Tangentiallösung: der Zylinder liegt außen an.
+  ///
+  /// In de, this message translates to:
+  /// **'Außen'**
+  String get solOutside;
+
+  /// Einfügelösung: die Teile zeigen aufeinander zu.
+  ///
+  /// In de, this message translates to:
+  /// **'Entgegengesetzt'**
+  String get solOpposed;
+
+  /// Einfügelösung: die Teile zeigen in dieselbe Richtung.
+  ///
+  /// In de, this message translates to:
+  /// **'Ausgerichtet'**
+  String get solAligned;
+
+  /// Symmetrielösung: gespiegelt zueinander.
+  ///
+  /// In de, this message translates to:
+  /// **'Symmetrisch'**
+  String get solSymmetric;
+
+  /// Symmetrielösung mit umgekehrtem Richtungssinn.
+  ///
+  /// In de, this message translates to:
+  /// **'Asymmetrisch'**
+  String get solAsymmetric;
+
+  /// Bewegungslösung: gleicher Drehsinn.
+  ///
+  /// In de, this message translates to:
+  /// **'Vorwärts'**
+  String get solForward;
+
+  /// Bewegungslösung: umgekehrter Drehsinn.
+  ///
+  /// In de, this message translates to:
+  /// **'Rückwärts'**
+  String get solReverse;
+
+  /// Kontextmenü einer Abhängigkeit: vorübergehend abschalten.
+  ///
+  /// In de, this message translates to:
+  /// **'Unterdrücken'**
+  String get ctxSuppress;
+
+  /// Kontextmenü einer unterdrückten Abhängigkeit.
+  ///
+  /// In de, this message translates to:
+  /// **'Unterdrückung aufheben'**
+  String get ctxUnsuppress;
+
+  /// Statuszeile der Baugruppe: verbleibende Freiheitsgrade.
+  ///
+  /// In de, this message translates to:
+  /// **'{n} Freiheitsgrade'**
+  String hudAsmDof(int n);
+
+  /// Statuszeile der Baugruppe, wenn kein Freiheitsgrad übrig ist.
+  ///
+  /// In de, this message translates to:
+  /// **'Vollständig bestimmt'**
+  String get hudAsmFullyConstrained;
+
+  /// Meldung, wenn die zweite Auswahl dieselbe Komponente betrifft wie die erste.
+  ///
+  /// In de, this message translates to:
+  /// **'Beide Auswahlen liegen auf derselben Komponente.'**
+  String get msgAsmSameComponent;
+
+  /// Meldung, wenn OK oder Übernehmen ohne vollständige Auswahl gedrückt wird.
+  ///
+  /// In de, this message translates to:
+  /// **'Zuerst zwei Geometrien auswählen.'**
+  String get msgAsmPickTwo;
+
+  /// Meldung: Tangential verlangt einen Zylinder auf mindestens einer Seite.
+  ///
+  /// In de, this message translates to:
+  /// **'Tangential braucht eine runde Fläche.'**
+  String get msgAsmTangentNeedsRound;
+
+  /// Meldung: Einfügen verlangt auf beiden Seiten eine Achse.
+  ///
+  /// In de, this message translates to:
+  /// **'Einfügen braucht zwei Achsen oder Kreiskanten.'**
+  String get msgAsmInsertNeedsAxes;
+
+  /// Meldung: eine Winkelabhängigkeit kann nicht auf einen Punkt wirken.
+  ///
+  /// In de, this message translates to:
+  /// **'Winkel braucht zwei Richtungen.'**
+  String get msgAsmAngleNeedsDirections;
+
+  /// Meldung: eine Bewegungsabhängigkeit verlangt zwei Drehachsen.
+  ///
+  /// In de, this message translates to:
+  /// **'Bewegung braucht zwei Achsen.'**
+  String get msgAsmMotionNeedsAxes;
+
+  /// Meldung: nichts konnte sich bewegen, weil beide Seiten fixiert sind.
+  ///
+  /// In de, this message translates to:
+  /// **'Beide Komponenten sind fixiert.'**
+  String get msgAsmBothGrounded;
+
+  /// Meldung: die Abhängigkeit zeigt auf eine Komponente, die es nicht mehr gibt.
+  ///
+  /// In de, this message translates to:
+  /// **'Die Komponente dieser Abhängigkeit fehlt.'**
+  String get msgAsmMissingComponent;
+
+  /// Meldung: der Löser hat die Abhängigkeit nicht erfüllen können.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese Abhängigkeit lässt sich nicht erfüllen.'**
+  String get msgAsmCannotSatisfy;
+
+  /// Meldung: das gewählte Geometriepaar passt nicht zum gewählten Typ.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese Auswahl lässt sich so nicht abhängig machen.'**
+  String get msgAsmCannotConstrain;
+
+  /// Meldung nach dem Löschen einer Abhängigkeit.
+  ///
+  /// In de, this message translates to:
+  /// **'„{name}“ gelöscht.'**
+  String msgAsmConstraintDeleted(String name);
+
+  /// Hinweis im leeren Reiter Abhängigkeitssatz: der Typ braucht ein BKS, das es noch nicht gibt.
+  ///
+  /// In de, this message translates to:
+  /// **'Noch nicht verfügbar'**
+  String get hintAsmConstraintSet;
+
+  /// Meldung: eine Baugruppe kann sich nicht selbst enthalten.
+  ///
+  /// In de, this message translates to:
+  /// **'„{name}“ enthält diese Baugruppe bereits.'**
+  String msgAsmWouldNest(String name);
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

@@ -3,10 +3,13 @@
 // On iOS the panel is UIKit on Liquid Glass; everywhere else the original
 // Flutter tree is used unchanged, so the desktop/host-test path keeps working
 // and nothing here can regress it.
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:native_menu/native_menu.dart';
 
 import '../app_state.dart';
+import '../asm_constraints.dart';
 import '../assembly.dart';
 import '../menus.dart';
 import '../log.dart';
@@ -55,7 +58,13 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
   int? _dragEop;
 
   /// M118 — retracted to icons only.
-  bool _collapsed = false;
+  ///
+  /// M242 — and RETRACTED IS THE DEFAULT, in every document kind. The panel is
+  /// 264 pt of a 1024 pt screen and the thing being drawn is the point of the
+  /// app; the retracted card keeps every id, glyph, tint and menu (that is
+  /// what [buildBrowserRows]'s `collapsed` pass is for, M200), so nothing is
+  /// unreachable — it costs one tap on the chevron to have the labels back.
+  bool _collapsed = true;
 
   static const double _kWide = 264;
   /// M121 — retracted width. The card keeps its 28 pt left inset, so 62 left
@@ -82,6 +91,54 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
   /// on a device that never hovers would make it unreachable.
   bool _hasHover = false;
 
+  /// M243 — the row under the pointer, its vertical centre inside the panel,
+  /// and the tooltip that appears if the pointer STAYS there.
+  ///
+  /// Retracted, a row is a glyph and nothing else: hovering grows it, and
+  /// dwelling spells out what it is, because a column of icons is a column of
+  /// guesses until it can be asked.
+  String? _hoverRow;
+  double _hoverY = 0;
+  String? _tip;
+  Timer? _tipTimer;
+
+  /// The rows as last pushed, so a hovered id can be turned into a NAME
+  /// without rebuilding the tree to ask.
+  List<GlassRow> _rows = const [];
+
+  static const Duration _kTipDelay = Duration(milliseconds: 400);
+
+  /// M244 — the retract chevron's target, and whether the pointer is on it.
+  static const double _kChev = 26;
+  bool _handleHot = false;
+
+  /// M244 — where the panel says its rows are: the top and bottom of the list
+  /// and the trailing edge of the retracted glyph column, all in the panel's
+  /// own coordinates. The defaults are the empty-panel case (12 pt of card
+  /// inset + 6 of list inset, no rows), so the handle is never wildly placed
+  /// in the frame before the first `metrics` arrives.
+  double _rowsTop = 18;
+  double _rowsBottom = 18;
+  double _glyphX = 38;
+
+  /// The chevron's left edge. Retracted it stands just past the glyphs;
+  /// expanded, the wide card's rows run the full width, so the strip beside
+  /// the card is still the only place it can go.
+  double get _handleLeft => _collapsed
+      ? _glyphX + 6
+      : _kWide + (_kHandle - _kChev) / 2;
+
+  /// The chevron's CENTRE: the middle of the rows, kept inside the panel.
+  ///
+  /// A list longer than the panel is clamped to the panel's own middle — at
+  /// that point every row is "visible" and the arithmetic answer would be off
+  /// the bottom of the screen.
+  double _handleMid(double height) {
+    if (height <= _kChev) return height / 2;
+    final mid = (_rowsTop + _rowsBottom.clamp(_rowsTop, height)) / 2;
+    return mid.clamp(_kChev / 2, height - _kChev / 2);
+  }
+
   AppState get app => widget.app;
 
   @override
@@ -91,6 +148,16 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
     // cannot see these private metrics. Keep the two in step here rather than
     // discovering the drift as a triad sitting on the panel.
     assert(NativeModelBrowser.occupiedWidth == _kWide + _kHandle);
+    // M242 — the panel opens RETRACTED, so the triad has to be told the narrow
+    // width before the first frame rather than after the first toggle.
+    // occupiedWidth (the expanded figure) is what the notifier starts on.
+    _publishWidth();
+  }
+
+  @override
+  void dispose() {
+    _tipTimer?.cancel();
+    super.dispose();
   }
 
   /// M207 — tell the triad how much room the panel is taking. Deferred: this
@@ -109,12 +176,32 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
     if (!GlassBrowser.isSupported) return ModelBrowser(app: app);
     return AnimatedBuilder(
       animation: app,
-      builder: (_, __) => MouseRegion(
+      builder: (_, __) {
+        // Built once here, kept, and pushed from the one place: the hover
+        // handler has to be able to look a row's NAME up by id, and rebuilding
+        // the whole tree to answer that would be a second source of truth.
+        _rows = buildBrowserRows(app,
+            expanded: _expanded,
+            dragEop: _dragEop,
+            collapsed: _collapsed,
+            hoverId: _hoverRow);
+        return MouseRegion(
         onEnter: (_) => setState(() {
           _near = true;
           _hasHover = true;
         }),
-        onExit: (_) => setState(() => _near = false),
+        // Leaving the panel takes the prehighlight and the tooltip with it:
+        // UIKit reports the row the pointer moved OFF, but not a pointer that
+        // left the card entirely in one motion.
+        onExit: (_) {
+          _tipTimer?.cancel();
+          if (!app.pickingBody) app.setBrowserHoverBody(null);
+          setState(() {
+            _near = false;
+            _hoverRow = null;
+            _tip = null;
+          });
+        },
         child: AnimatedContainer(
         // M118 — retracts to the timeline icons. Animated so the panel reads
         // as one object sliding, not two states swapping.
@@ -142,7 +229,16 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
         // The strip is part of the widget's width so the handle sits BESIDE
         // the card, never over it.
         width: (_collapsed ? _kNarrow : _kWide) + _kHandle,
-        child: Stack(children: [
+        // LayoutBuilder for the panel's HEIGHT: the retract handle is placed
+        // against the rows and clamped to what is on screen (M244), and the
+        // panel is sized `double.infinity` by its parent, so this is the only
+        // place that number exists.
+        child: LayoutBuilder(builder: (context, bc) {
+        final height = bc.maxHeight;
+        // Clip.none: the hover tooltip is parked BESIDE the card, outside this
+        // widget's own width. It is behind an IgnorePointer, so nothing it
+        // covers becomes unreachable.
+        return Stack(clipBehavior: Clip.none, children: [
         // M120 — the card ends WHERE THE STRIP BEGINS. Sizing it by width let
         // it run under the handle, and a Flutter GestureDetector on top of a
         // platform view swallows the touch: tapping a folder's disclosure
@@ -157,9 +253,10 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
           // M199 — retracted, the panel is icons over the model and nothing
           // else: the glass goes with the labels.
           glass: !_collapsed,
-          rows: buildBrowserRows(app,
-              expanded: _expanded, dragEop: _dragEop, collapsed: _collapsed),
+          rows: _rows,
           onTap: _onTap,
+          onHover: _onHover,
+          onMetrics: _onMetrics,
           onEye: _onEye,
           onExpand: (id, on) => setState(() {
             Log.i('browser', 'expand $id on=$on');
@@ -174,23 +271,35 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
           onEopEnd: _onEopEnd,
         ),
         ),
-        // The handle: a chevron in the strip beside the card. Tap toggles; a
-        // horizontal swipe on it does the same, in the direction you swipe —
-        // the panel should obey the gesture you would try first. It fades in
-        // when the pointer comes near, and on touch-only devices (no hover
-        // events at all) it stays visible so it is never unreachable.
+        // The handle: a chevron BESIDE THE ROWS. Tap toggles; a horizontal
+        // swipe on it does the same, in the direction you swipe — the panel
+        // should obey the gesture you would try first. It fades in when the
+        // pointer comes near, and on touch-only devices (no hover events at
+        // all) it stays visible so it is never unreachable.
+        //
+        // M244 — it used to be centred in a full-height strip, which on a
+        // retracted card is a chevron floating in the middle of the screen
+        // with the icons it belongs to bunched at the top, an arm's length
+        // away. It now sits at the middle of the ROWS' height and, retracted,
+        // just past the glyph column — both measured by the panel itself
+        // (onMetrics) rather than guessed at from here.
         Positioned(
-          right: 0,
-          top: 0,
-          bottom: 0,
-          width: _kHandle,
+          left: _handleLeft,
+          top: _handleMid(height) - _kChev / 2,
+          width: _kChev,
+          height: _kChev,
           child: AnimatedOpacity(
             duration: const Duration(milliseconds: 150),
             opacity: (!_hasHover || _near) ? 1 : 0,
+            child: MouseRegion(
+            cursor: SystemMouseCursors.click,
+            onEnter: (_) => setState(() => _handleHot = true),
+            onExit: (_) => setState(() => _handleHot = false),
             child: GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: () => setState(() {
               _collapsed = !_collapsed;
+              _handleHot = false; // the chevron moves out from under the pointer
               _publishWidth();
             }),
             onHorizontalDragEnd: (d) {
@@ -201,24 +310,114 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
                 _publishWidth();
               });
             },
-            child: Center(
-              child: AnimatedRotation(
-                duration: const Duration(milliseconds: 220),
-                turns: _collapsed ? 0.5 : 0,
-                child: Icon(Icons.chevron_left,
-                    size: 18, color: T.dim),
+            child: DecoratedBox(
+              // The hover answer: a chip under the glyph, the same shape the
+              // retracted rows use, so the handle reads as one of the panel's
+              // own controls rather than a stray arrow.
+              decoration: BoxDecoration(
+                color: _handleHot ? T.accent.withValues(alpha: 0.18) : null,
+                borderRadius: BorderRadius.circular(_kChev / 2),
+              ),
+              child: Center(
+                child: AnimatedRotation(
+                  duration: const Duration(milliseconds: 220),
+                  turns: _collapsed ? 0.5 : 0,
+                  child: Icon(Icons.chevron_left,
+                      size: 18, color: _handleHot ? T.text : T.dim),
+                ),
               ),
             ),
           ),
           ),
+          ),
         ),
-        ]),
+        // M243 — the dwell tooltip: the retracted row's NAME, parked beside
+        // the card. It is a Flutter layer rather than a UIKit one because the
+        // platform view is 56 pt wide and clips its own content — a label that
+        // says "Extrusion1" has nowhere to go inside it.
+        if (_tip != null && _collapsed)
+          Positioned(
+            // Just past the chevron, which retracted stands beside the glyphs
+            // — the tooltip must not land on top of it.
+            left: _handleLeft + _kChev + 4,
+            top: _hoverY - 13,
+            // A width and an Align, rather than a bare child: a Positioned
+            // with no width is laid out against the STACK, which is 80 pt
+            // wide here, and the name would wrap inside the panel it is meant
+            // to stand beside. The Align hands the chip loose constraints so
+            // it still sizes to its text, up to this cap.
+            width: 200,
+            child: IgnorePointer(
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: _HoverTip(text: _tip!),
+              ),
+            ),
+          ),
+        ]);
+        }),
       ),
-      ),
+      );
+      },
     );
   }
 
   // -- events ---------------------------------------------------------------
+
+  /// M242 — the row under the pointer (trackpad / Pencil hover), or '' when it
+  /// is over none, with [y] the row's centre inside the panel.
+  ///
+  /// Two things come of it. A BODY row prehighlights its solid in 3D, the way
+  /// the Flutter browser does on a desktop run — except while the extrude
+  /// dialog is picking a target body, when that hover belongs to the dialog
+  /// (app.hoverBody, which re-previews the boolean) and this stays out of the
+  /// way. And EVERY row, retracted, grows under the pointer and spells its
+  /// name out beside the panel if the pointer stays on it.
+  void _onHover(String id, double y) {
+    final row = id.isEmpty ? null : id;
+    if (!app.pickingBody) {
+      app.setBrowserHoverBody(
+          row != null && row.startsWith(kIdBody)
+              ? row.substring(kIdBody.length)
+              : null);
+    }
+    _tipTimer?.cancel();
+    if (_hoverRow != row || _tip != null) {
+      setState(() {
+        _hoverRow = row;
+        _hoverY = y;
+        _tip = null; // moving cancels the dwell; the name earns its way back
+      });
+    }
+    if (row == null || !_collapsed) return;
+    _tipTimer = Timer(_kTipDelay, () {
+      if (!mounted || !_collapsed || _hoverRow != row) return;
+      final name = _nameOf(row);
+      if (name.isEmpty) return;
+      setState(() => _tip = name);
+    });
+  }
+
+  /// M244 — the panel reporting where its rows ended up. Guarded, because it
+  /// arrives from a push that a build caused: setting state unconditionally
+  /// would schedule a rebuild for every rebuild.
+  void _onMetrics(double top, double bottom, double x) {
+    if (_rowsTop == top && _rowsBottom == bottom && _glyphX == x) return;
+    setState(() {
+      _rowsTop = top;
+      _rowsBottom = bottom;
+      _glyphX = x;
+    });
+  }
+
+  /// The hovered row's NAME. [GlassRow.title] survives the retracted row's
+  /// stripped label, which is the whole reason it exists.
+  String _nameOf(String id) {
+    for (final r in _rows) {
+      if (r.id == id) return r.title;
+    }
+    return '';
+  }
 
   void _onTap(String id) {
     // M204 — every native browser event is logged from here on.
@@ -254,13 +453,46 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
     if (id.startsWith(kIdComponent)) {
       final o = _component(id);
       if (o != null) {
+        // M242 — a component with relationships under it is a folder as well
+        // as a selection. Selecting it and disclosing it are the same tap,
+        // which is what the Origin folder already does one row above.
+        // M246 — and a SUBASSEMBLY always discloses: its contents are there.
+        if (o.sub != null ||
+            app.currentAssembly?.constraintsOn(o.id).isNotEmpty == true) {
+          setState(() {
+            if (!_expanded.remove(id)) _expanded.add(id);
+          });
+        }
         app.selectOccurrence(
             identical(app.currentAssembly?.selected, o) ? null : o);
       }
       return;
     }
-    if (id.startsWith(kIdBody) && app.pickingBody) {
-      app.pickBody(id.substring(kIdBody.length));
+    // M242 — tapping a relationship SELECTS it; tapping the selected one
+    // again OPENS it. There is no double-click on this tree (it is a UIKit
+    // list reporting single taps), so "tap the selected one again" is the
+    // gesture that stands in for Inventor's double-click-to-edit — the same
+    // rule the component row already uses to clear its own selection.
+    if (id.startsWith(kIdConstraint)) {
+      final c = _constraint(id);
+      if (c == null) return;
+      if (identical(app.currentAssembly?.selectedConstraint, c)) {
+        app.openConstraint(edit: c);
+      } else {
+        app.selectConstraint(c);
+      }
+      return;
+    }
+    // A body row is a PICK while the extrude dialog is waiting for one, and
+    // an ordinary selection otherwise: tapping it highlights the row and the
+    // body in 3D, tapping it again clears both (as a component row does).
+    if (id.startsWith(kIdBody)) {
+      final name = id.substring(kIdBody.length);
+      if (app.pickingBody) {
+        app.pickBody(name);
+      } else {
+        app.toggleBodySelected(name);
+      }
       return;
     }
     if (id.startsWith(kIdLayer)) {
@@ -361,7 +593,33 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
   /// occurrence id WHOLE — it contains a colon of its own ("Bracket:1"), so it
   /// must never be split on one.
   AssemblyOccurrence? _component(String rowId) =>
-      app.currentAssembly?.byId(rowId.substring(kIdComponent.length));
+      _componentAt(rowId.substring(kIdComponent.length));
+
+  /// M246 — walks a nested component path down through subassemblies.
+  ///
+  /// A row id is `cp:Bracket:1` at the top level and
+  /// `cp:Machine:1/Bracket:1` one level down, so the path is split on '/'
+  /// and each step resolved inside the previous one's subassembly. The
+  /// occurrence id itself carries a colon ("Bracket:1"), which is exactly why
+  /// the separator is a slash and never one.
+  AssemblyOccurrence? _componentAt(String path) {
+    var model = app.currentAssembly;
+    if (model == null) return null;
+    AssemblyOccurrence? found;
+    for (final step in path.split('/')) {
+      if (model == null) return null;
+      found = model.byId(step);
+      if (found == null) return null;
+      model = found.sub;
+    }
+    return found;
+  }
+
+  /// The relationship a `rel:` row addresses. Same rule as [_component]: the
+  /// name after the prefix carries a colon of its own ("Mate:1").
+  AsmConstraint? _constraint(String rowId) =>
+      app.currentAssembly?.constraintNamed(
+          rowId.substring(kIdConstraint.length));
 
   WorkAxis? _workAxis(PartModel? part, String rowId) {
     final seq = int.tryParse(rowId.substring(kIdWorkAxis.length));
@@ -402,6 +660,22 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
           break;
         case 'cpDelete':
           app.deleteOccurrence(o);
+          break;
+      }
+      return;
+    }
+    if (id.startsWith(kIdConstraint)) {
+      final c = _constraint(id);
+      if (c == null) return;
+      switch (item) {
+        case 'relEdit':
+          app.openConstraint(edit: c);
+          break;
+        case 'relSuppress':
+          app.toggleConstraintSuppressed(c);
+          break;
+        case 'relDelete':
+          app.deleteConstraint(c);
           break;
       }
       return;
@@ -636,5 +910,39 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
       confirmLabel: L.of(context).delete,
     );
     if (ok) app.deleteBelowEndOfPart();
+  }
+}
+
+/// M243 — the retracted panel's dwell tooltip.
+///
+/// A plain chip, not a Material [Tooltip]: the trigger is a hover reported by
+/// UIKit over a method channel, so there is no Flutter widget under the
+/// pointer for a Tooltip to hang off. Styling follows the app's own dark
+/// chrome rather than Material's, for the same reason every other panel here
+/// does.
+class _HoverTip extends StatelessWidget {
+  final String text;
+  const _HoverTip({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: T.mbBg,
+        borderRadius: BorderRadius.circular(7),
+        border: Border.all(color: T.mbActiveOutline, width: 1),
+        // T.scrim, not a literal: the same drop the floating panels use, and
+        // the palette owns it (M236 — the theme test fails a colour written
+        // inline anywhere outside theme.dart, and it is right to).
+        boxShadow: [
+          BoxShadow(color: T.scrim, blurRadius: 8, offset: const Offset(0, 2)),
+        ],
+      ),
+      child: Text(text,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(fontSize: 12, color: T.text)),
+    );
   }
 }

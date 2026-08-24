@@ -347,11 +347,79 @@ int occt_shape_edge_count(const occt_shape *shape);
  *          (0 = tangent-continuous, 90 = square corner)
  *   [11]   v13: +1 CONVEX (exterior corner -> Inventor calls it a round),
  *          -1 CONCAVE (interior corner -> a fillet), 0 unknown/tangent
+ *          v22: decided locally, from the two into-face directions, instead
+ *          of by stepping off the edge and asking a solid classifier. The
+ *          set of edges that get a nonzero sign is unchanged; the SIGN
+ *          changes on shapes with a feature thinner than
+ *          ‖bbox diagonal‖/1414, where the old answer was wrong. See
+ *          convexity_sign in the .cpp.
  * This is the fingerprint Dart persists so a fillet survives a rebuild: OCCT
  * indices are NOT stable across a recompute, midpoint+length+type is.
+ * NOTE that [11] is not part of that fingerprint and never has been — Dart
+ * stores midpoint, length, type and radius (part_model.dart EdgeSel) — so a
+ * change to [11] cannot move which edge a blend reattaches to.
  * Returns 1/0.
  */
 int occt_shape_edge_info(const occt_shape *shape, int index, double *out12);
+
+/*
+ * v21 — the record of EVERY topological edge, in ONE traversal of the shape.
+ *
+ * Same twelve doubles per edge, same order, same meaning as
+ * occt_shape_edge_info; record i (0-based) describes edge i+1, so
+ * out12n[12*i + f] is field f of edge i+1. `cap` is the number of RECORDS the
+ * buffer holds — pass occt_shape_edge_count(shape); a buffer smaller than the
+ * edge count is refused rather than partially filled. Returns the number of
+ * records written, or -1 on failure.
+ *
+ * WHY THIS EXISTS, and it is not stylistic. occt_shape_edge_info derives four
+ * things from the WHOLE shape — the edge map, the edge->face ancestor map, the
+ * bounding box, and a solid classifier — and discards all four when it
+ * returns. Calling it once per edge is therefore n x Θ(n).
+ * PERFORMANCE_PROFILE.md §6.5 measures that on a device as k = 2.012
+ * [1.910, 2.113], R² = 1.0000, against a control performing strictly more work
+ * at k = 1.063: a ratio of 200.3x at 1440 edges, ten seconds for one
+ * enumeration, and an extrapolated 56.4 s on the part that failed in the
+ * field. This entry point builds those four once and answers every edge from
+ * them.
+ *
+ * The per-edge computation is literally the same code (see edge_info_ctx in
+ * the .cpp), so the two paths agree bit for bit; smoke scenario [35] pins
+ * that on four solids across all twelve fields.
+ *
+ * One departure from the single-edge contract, and it is deliberate: an edge
+ * the kernel cannot read does not abandon the enumeration. It comes back with
+ * type -1 — outside the documented 0..4 range — and callers drop it. That
+ * reproduces exactly what a Dart-side loop over occt_shape_edge_info did with
+ * a failing edge. Type 0 remains "degenerate edge, legitimately empty" and is
+ * still a valid record.
+ */
+int occt_shape_edges_info(const occt_shape *shape, double *out12n, int cap);
+
+/*
+ * v22 — TEST ONLY, and application code must not call it.
+ *
+ * occt_shape_edges_info with field 11 (convexity) decided the way v21 and
+ * earlier decided it: step ‖bbox diagonal‖/1000 from the edge midpoint along
+ * the bisector of the two into-face directions and ask
+ * BRepClass3d_SolidClassifier whether the point is inside the solid. Every
+ * other field is computed by the same code as the shipping path, so a
+ * difference in fields 0..10 between the two is a defect by construction.
+ *
+ * It exists for one reason: smoke scenario [36] compares the shipping path
+ * against it **in the same run on the same machine**, which is what proves
+ * the two agree; a golden recorded from one machine would pin that machine's
+ * digits and prove nothing (OPTIMIZATION_PLAN_2.md §1.4, and the four red
+ * tests of build 437 that taught it).
+ *
+ * DO NOT SHIP CALLS TO THIS. On a shape carrying a feature thinner than
+ * ‖bbox diagonal‖/1414 — a rib, a seal groove, sheet metal — the probe steps
+ * clean through the material and the sign comes back inverted. A 200 x 0.1 x
+ * 20 box, which is convex, comes back with eight of its twelve edges marked
+ * concave. That is why v22 stopped using it.
+ */
+int occt_shape_edges_info_ref(const occt_shape *shape, double *out12n,
+                              int cap);
 
 /*
  * v12 — For every DISPLAY edge of the mesh (same order and count as
@@ -490,10 +558,23 @@ int occt_revolve_hits_face(const occt_shape *shape, double ax_px, double ax_py,
  *   1 = Fixed       — the section keeps its original orientation.
  *   2 = Follow Path and Guide — as 0, corrected against the path's own frame.
  *
+ * v25 — orientation 1 was BROKEN on any path that bends, and had been since
+ * v15: it selected OCCT's constant-binormal law rather than its fixed-trihedron
+ * one, and the constant-binormal law replaces the sweep frame's tangent with a
+ * projection of the real one. A 10x10 square on a 16-span arc came out at
+ * 16 429 where the analytic answer is 6 000, and failed BRepCheck_Analyzer.
+ * Straight single-segment paths were and remain exact. Test for >= 25 if you
+ * need orientation 1 to be trustworthy on a bending path.
+ *
  * `taper_deg` widens or narrows the section along the path (a linear scaling
  * law); 0 keeps it constant. `twist_deg` is accepted but NOT implemented and
  * a non-zero value is REFUSED rather than silently ignored — a swept solid
  * that quietly failed to twist is a wrong part, not a cosmetic miss.
+ *
+ * v24 — what happens to that "3D polyline" changed. See occt_sweep_profile_ex
+ * below: this entry point is now OCCT_SWEEP_PATH_AUTO, and for a path that
+ * came from the caller's own curve sampler it produces a DIFFERENT (smoother,
+ * far smaller, and buildable) solid than v23 did.
  *
  * NULL on failure.
  */
@@ -502,6 +583,62 @@ occt_shape *occt_sweep_profile(const double *xyb, const int *loop_counts,
                                const double *path_pts, int npath,
                                int orientation, double taper_deg,
                                double twist_deg);
+
+/* ---- v24: how a sampled path becomes a spine ----------------------------- */
+
+/*
+ * The path arrives as a polyline whatever the user drew, because
+ * `sketchCurve` flattens arcs, circles and splines before the shim is called
+ * (`sampleEntity(g, arcSamples: 64)` — 64 spans for EVERY arc, whatever its
+ * angle). Every joint of that polyline was then mitered, because the sweep
+ * sets BRepBuilderAPI_RightCorner, and inside OCCT a miter is a full
+ * BOPAlgo_PaveFiller between the two adjacent shells — one face per profile
+ * segment each. It is a boolean per joint over the whole profile.
+ *
+ * Measured (perf/findings/S14-sweep.md): that is 96.6 % of the call and turns
+ * a linear sweep into a cubic one. It made a 1200-segment ring on a 16-span
+ * sampled arc FAIL after 231 s on the device, and it makes a 64-segment ring
+ * on a 64-span sampled arc — which is what any arc path produces — corrupt the
+ * heap and abort the process.
+ *
+ * So v24 distinguishes joints the user DREW from joints the sampler MADE:
+ *
+ *   AUTO   — the default, and what occt_sweep_profile now does. Runs of points
+ *            whose interior joints are all <= 360/64 = 5.625 deg (the largest
+ *            joint the app's own sampler can emit) become one C2 B-spline
+ *            edge interpolated THROUGH every point; a joint above that stays a
+ *            vertex and is still mitered exactly as before.
+ *   POLY   — v23 behaviour, bit for bit: one straight edge per pair of points.
+ *            Kept so old and new can be compared in ONE run on ONE machine
+ *            (smoke scenario [37]), and as the escape hatch if the integrator
+ *            wants the old shape back.
+ *   SMOOTH — one interpolated curve through the whole path regardless of its
+ *            joints, for a caller that KNOWS its path is a sampled curve.
+ *
+ * A path of two points is one straight edge in every mode. AND AUTO DOES NOT
+ * SMOOTH A PROFILE WITH HOLES: finish_pipe cuts each hole out of the body with
+ * a boolean, and between two solids made of general swept surfaces that
+ * boolean costs about 80x what it costs between two solids made of planes
+ * (measured: 21 653 ms against a 258 ms whole operation). A holed profile
+ * therefore keeps the v23 spine — and keeps v23's failure at large segment
+ * counts. SMOOTH is not restricted: it is an explicit request.
+ *
+ * BEHAVIOUR CHANGE, and the integrator's call, not the shim's: an AUTO sweep
+ * along a sampled arc has a different FACE COUNT and different topology from
+ * the v23 one (segments + 2 instead of segments x spans + 2), the same volume,
+ * and about 4.4 % of its volume in a different place. Anything that reattaches
+ * a downstream feature to a face or edge of a sweep by index or fingerprint
+ * may therefore reattach differently on an existing part.
+ */
+#define OCCT_SWEEP_PATH_AUTO 0
+#define OCCT_SWEEP_PATH_POLY 1
+#define OCCT_SWEEP_PATH_SMOOTH 2
+
+occt_shape *occt_sweep_profile_ex(const double *xyb, const int *loop_counts,
+                                  int nloops, const double *mat34,
+                                  const double *path_pts, int npath,
+                                  int orientation, double taper_deg,
+                                  double twist_deg, int path_mode);
 
 /*
  * v15 — Loft through a series of SECTIONS (Inventor's Loft).

@@ -100,6 +100,12 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
         case "isSupported":
             result(true)
 
+        // M214 — the numbers Dart cannot see: thermal state, physical
+        // footprint (which is what iOS kills on, not RSS), memory headroom and
+        // per-thread CPU. Pull-only, so a scenario runner and the bug bundle
+        // can each take a snapshot whenever they need one. See PerfProbe.
+        case "perfProbe":
+            result(PerfProbe.snapshot())
         // M237 — the Flutter palette, pushed into UIKit. Every glass surface
         // bound through AppearanceBinder switches with it, so the material and
         // the Flutter text on top of it always come from the same scheme.

@@ -141,6 +141,29 @@ void main() {
     }
   });
 
+  // M243 — the retracted panel answers a POINTER: the row under it grows, and
+  // dwelling on it spells the name out. Both need the row to know two things
+  // the 56 pt card cannot show — that it is hovered, and what it is called.
+  test('a retracted row still knows its NAME, even with the label gone', () {
+    final rows = collapsed(insideSketch());
+    final l1 = rows.firstWhere((r) => r.id == '${kIdLayer}Layer 1');
+    expect(l1.label, isEmpty, reason: 'no room for text at 56 pt');
+    expect(l1.title, 'Layer 1',
+        reason: 'the tooltip and the context menu both read this');
+  });
+
+  test('the hovered row, and only it, is marked', () {
+    final app = insideSketch(layers: 2, eosAfter: 2);
+    final rows = buildBrowserRows(app,
+        expanded: const {'bodies'},
+        collapsed: true,
+        hoverId: '${kIdLayer}Layer 2');
+    final hot = rows.where((r) => r.hovered).map((r) => r.id);
+    expect(hot, ['${kIdLayer}Layer 2']);
+    // and with nothing hovered, nothing is marked
+    expect(collapsed(app).where((r) => r.hovered), isEmpty);
+  });
+
   test('with no document open, narrow and wide still agree', () {
     // The browser is not rendered on the home gallery at all, so what matters
     // here is only that the two widths cannot disagree.

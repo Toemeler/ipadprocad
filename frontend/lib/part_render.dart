@@ -20,6 +20,8 @@ import 'package:flutter/material.dart';
 
 import 'ffi/occt_engine.dart' show OcctMeshData;
 import 'part_model.dart';
+import 'perf.dart';
+import 'quat.dart';
 import 'theme.dart';
 
 // M236 — palette reads, not constants, so a solid picks up the active scheme
@@ -174,7 +176,15 @@ Vec3 solidLight(Cam3 cam) =>
 /// Projects the front-facing triangles of [m]: backface-culled against the
 /// camera, flat-shaded against [solidLight], depth = triangle centroid along
 /// the view ray (painter's algorithm sorts far-to-near on it).
-List<ProjectedTri> projectSolidTriangles(OcctMeshData m, Cam3 cam) {
+/// CPU projection of every triangle through the camera.
+///
+/// Cost scales with the TRIANGLE COUNT, not the screen, so it grows with the
+/// model rather than with what is visible — 34 000 triangles is 34 000
+/// iterations whether one of them is on screen or all of them.
+List<ProjectedTri> projectSolidTriangles(OcctMeshData m, Cam3 cam) =>
+    Perf.span('render.projectTris', () => _projectSolidTrianglesInner(m, cam));
+
+List<ProjectedTri> _projectSolidTrianglesInner(OcctMeshData m, Cam3 cam) {
   final light = solidLight(cam);
   final out = <ProjectedTri>[];
   for (var t = 0; t < m.indices.length; t += 3) {
@@ -196,7 +206,10 @@ List<ProjectedTri> projectSolidTriangles(OcctMeshData m, Cam3 cam) {
 
 /// Projects the B-Rep edge polylines of [m] as screen segments. The depth
 /// carries the 0.35 viewer bias so an edge draws over the faces it borders.
-List<ProjectedEdge> projectSolidEdges(OcctMeshData m, Cam3 cam) {
+List<ProjectedEdge> projectSolidEdges(OcctMeshData m, Cam3 cam) =>
+    Perf.span('render.projectEdges', () => _projectSolidEdgesInner(m, cam));
+
+List<ProjectedEdge> _projectSolidEdgesInner(OcctMeshData m, Cam3 cam) {
   final out = <ProjectedEdge>[];
   for (var e = 0; e + 1 < m.edgeStarts.length; e++) {
     for (var k = m.edgeStarts[e]; k + 1 < m.edgeStarts[e + 1]; k++) {
@@ -282,6 +295,13 @@ class SceneSolid {
 /// [SceneOccluders] hide one component behind another — and lets the shaded
 /// triangles of the whole assembly go through one sort.
 SceneSolid buildSceneSolid(KernelSolid solid, Cam3 cam,
+        {bool preview = false, double depthBias = 0}) =>
+    Perf.span(
+        'render.buildSceneSolid',
+        () => _buildSceneSolidInner(solid, cam,
+            preview: preview, depthBias: depthBias));
+
+SceneSolid _buildSceneSolidInner(KernelSolid solid, Cam3 cam,
     {bool preview = false, double depthBias = 0}) {
   final m = solid.mesh;
   final light = solidLight(cam);
@@ -561,6 +581,11 @@ List<(Vec3, Vec3)> cylinderSilhouettes(List<double> rec, Cam3 cam) {
 /// shared edges between a front- and a back-facing triangle of the SAME
 /// face. Fine adaptive tessellation keeps this visually smooth.
 List<(Offset, Offset, double)> meshSilhouetteSegments(
+        OcctMeshData m, SceneSolid scene, int faceId) =>
+    Perf.span('render.silhouette',
+        () => _meshSilhouetteSegmentsInner(m, scene, faceId));
+
+List<(Offset, Offset, double)> _meshSilhouetteSegmentsInner(
     OcctMeshData m, SceneSolid scene, int faceId) {
   // pass 1: remember the FIRST triangle using each undirected vertex pair
   final byEdge = <int, (int, bool)>{}; // packed pair -> (tri, front)
@@ -799,6 +824,22 @@ void paintPartSolids(
   /// COMPONENT is "all of it", and spelling that as a set at the call site
   /// would only rebuild the edge list the painter is about to walk anyway.
   bool accentAll = false,
+
+  /// M242 — the solids of the body SELECTED in the model browser. Their faces
+  /// are washed with [selectedTint] and their edges accented, which is what
+  /// RealityKit says with a tinted material (see reality_scene's
+  /// `_bodyRowTint`): the two viewports must agree about what selection looks
+  /// like. Compared by identity — a body is a handful of solids, so a linear
+  /// scan beats building a set per frame.
+  List<KernelSolid> selectedSolids = const [],
+  Color? selectedTint,
+
+  /// The solids of the body merely HOVERED in the model browser: the same wash
+  /// at half the strength and no edge accent, so the prehighlight reads as the
+  /// weaker statement it is. A solid that is in both sets is drawn SELECTED —
+  /// two washes would compound into a third colour that means nothing.
+  List<KernelSolid> hoveredSolids = const [],
+  Color? hoveredTint,
 }) {
   final opaque = [for (final s in solids) buildSceneSolid(s, cam)];
   final occ = SceneOccluders(opaque);
@@ -838,16 +879,49 @@ void paintPartSolids(
     }
   }
 
+  // 2b. the browser's selection / hover wash, over the shading and under the
+  //     edges. Same treatment paintAssemblySolids gives a selected component,
+  //     because it is the same statement: the whole body is picked.
+  bool isSelected(KernelSolid s) =>
+      selectedSolids.any((x) => identical(x, s));
+  bool isHovered(KernelSolid s) =>
+      !isSelected(s) && hoveredSolids.any((x) => identical(x, s));
+  for (final (pick, tint, alpha) in [
+    (isSelected, selectedTint ?? kFaceHighlight, 0.42),
+    (isHovered, hoveredTint ?? kFaceHighlight, 0.20),
+  ]) {
+    final tris = [
+      for (final s in opaque)
+        if (pick(s.solid))
+          for (final t in s.tris)
+            if (t.front) t
+    ];
+    if (tris.isEmpty) continue;
+    final pos = Float32List(tris.length * 6);
+    var pi = 0;
+    for (final t in tris) {
+      pos[pi++] = t.a.dx;
+      pos[pi++] = t.a.dy;
+      pos[pi++] = t.b.dx;
+      pos[pi++] = t.b.dy;
+      pos[pi++] = t.c.dx;
+      pos[pi++] = t.c.dy;
+    }
+    canvas.drawVertices(ui.Vertices.raw(ui.VertexMode.triangles, pos),
+        BlendMode.srcOver, Paint()..color = tint.withValues(alpha: alpha));
+  }
+
   // 3. edges + silhouettes over the shading
   for (final s in opaque) {
+    final on = accentAll || isSelected(s.solid);
     _paintSolidEdges(canvas, cam, s, occ, kSolidEdge,
         accent: (accentSolid != null && identical(s.solid, accentSolid))
             ? accentEdges
             : const {},
-        accentAll: accentAll,
+        accentAll: on,
         accentColor: accentColor);
-    _paintSolidSilhouettes(canvas, cam, s, occ,
-        accentAll ? (accentColor ?? kEdgeAccent) : kSolidEdge);
+    _paintSolidSilhouettes(
+        canvas, cam, s, occ, on ? (accentColor ?? kEdgeAccent) : kSolidEdge);
   }
 
   // 4. translucent live preview on top (its own sort; edges dimmed and only
@@ -882,19 +956,49 @@ void paintPartSolids(
 // frame — the drag would otherwise rebuild every vertex buffer it touches.
 // ---------------------------------------------------------------------------
 
-/// One placed component: where it sits, and the solids it is made of.
-typedef PlacedComponent = (Vec3, List<KernelSolid>);
+/// One placed component: the world-placed pieces it is made of.
+///
+/// M246 — a LIST of transforms rather than one. A component used to be "these
+/// solids, at this placement", which is true of a part and false of a
+/// SUBASSEMBLY: its own components each sit somewhere inside it, so every
+/// piece carries its own composed transform. A part still arrives as a list
+/// of pieces all at the same placement, so nothing about the single-part case
+/// changed except where the transform is written down.
+class PlacedComponent {
+  const PlacedComponent(this.pieces);
 
-/// [cam] as seen by geometry translated by [t] — see the note above.
-Cam3 shiftedCam(Cam3 cam, Vec3 t) => Cam3.basis(
-      dir: cam.dir,
-      s: cam.s,
-      u: cam.u,
+  /// (rotation, translation, solid), already composed into world space.
+  final List<(Quat, Vec3, KernelSolid)> pieces;
+}
+
+/// [cam] as seen by geometry that has been moved by the rigid transform
+/// (rot, t) — the identity the note above describes, generalised from a pure
+/// translation to a full placement.
+///
+/// M242 gave a component an ORIENTATION, and the identity still holds, because
+/// the projection is affine in the world point and the world point is affine
+/// in the local one:
+///
+///     project(R·l + t)
+///       = ((R·l + t)·s - ox) / k
+///       = (l·(Rᵀ·s) - (ox - t·s)) / k
+///
+/// So a rotated component is the same camera with its BASIS turned the other
+/// way and its pan shifted — no mesh is copied, exactly as before. The view
+/// direction turns with the basis too, which is what keeps the front-face test
+/// inside buildSceneSolid correct in the component's own space.
+Cam3 placedCam(Cam3 cam, Quat rot, Vec3 t) => Cam3.basis(
+      dir: rot.unrotate(cam.dir),
+      s: rot.unrotate(cam.s),
+      u: rot.unrotate(cam.u),
       halfH: cam.halfH,
       ox: cam.ox - t.dot(cam.s),
       oy: cam.oy - t.dot(cam.u),
       size: cam.size,
     );
+
+/// [placedCam] for a component that has only been moved, not turned.
+Cam3 shiftedCam(Cam3 cam, Vec3 t) => placedCam(cam, Quat.identity, t);
 
 /// Draws every component of an assembly, and hands back the occluder it built
 /// so the caller can draw origin planes and axes THROUGH the model the way the
@@ -931,24 +1035,26 @@ SceneOccluders? paintAssemblySolids(
   Color? selectedTint,
   Color? hoveredTint,
 }) {
-  // (component index, its solids projected through its own shifted camera)
-  final scenes = <(int, SceneSolid)>[];
+  // (component index, the piece's own placed camera, the projected solid).
+  //
+  // M246 — the camera is per PIECE, not per component: a subassembly's parts
+  // each sit somewhere inside it, so one camera per component would draw them
+  // all at the subassembly's own origin, stacked.
+  final scenes = <(int, Cam3, SceneSolid)>[];
   for (var i = 0; i < placed.length; i++) {
-    final (at, solids) = placed[i];
-    final sc = shiftedCam(cam, at);
-    final bias = cam.depth(at);
-    for (final s in solids) {
-      scenes.add((i, buildSceneSolid(s, sc, depthBias: bias)));
+    for (final (r, t, s) in placed[i].pieces) {
+      final sc = placedCam(cam, r, t);
+      scenes.add((i, sc, buildSceneSolid(s, sc, depthBias: cam.depth(t))));
     }
   }
   if (scenes.isEmpty) return null;
-  final occ = SceneOccluders([for (final (_, s) in scenes) s]);
+  final occ = SceneOccluders([for (final (_, _, s) in scenes) s]);
 
   // 1. shaded faces of the WHOLE assembly, one watertight sorted buffer
   _drawShaded(
       canvas,
       [
-        for (final (_, s) in scenes)
+        for (final (_, _, s) in scenes)
           for (final t in s.tris)
             if (t.front) t
       ],
@@ -965,7 +1071,7 @@ SceneOccluders? paintAssemblySolids(
   ]) {
     if (which < 0) continue;
     final tris = [
-      for (final (i, sol) in scenes)
+      for (final (i, _, sol) in scenes)
         if (i == which)
           for (final t in sol.tris)
             if (t.front) t
@@ -986,12 +1092,11 @@ SceneOccluders? paintAssemblySolids(
   }
 
   // 3. edges + silhouettes over the shading, against the shared occluder
-  for (final (i, s) in scenes) {
+  for (final (i, sc, s) in scenes) {
     final on = i == selected;
-    // The EDGES are drawn through the component's own shifted camera: the
-    // occluder is in screen space and shared, but where an edge lands is the
-    // component's own business.
-    final sc = shiftedCam(cam, placed[i].$1);
+    // The EDGES are drawn through the PIECE's own placed camera, carried
+    // along from the pass above: the occluder is in screen space and shared,
+    // but where an edge lands is the piece's own business.
     _paintSolidEdges(canvas, sc, s, occ, kSolidEdge,
         accentAll: on, accentColor: accentColor);
     _paintSolidSilhouettes(
@@ -1020,11 +1125,11 @@ void fitAssemblyView(PartCamera cam, List<PlacedComponent> placed, Size size) {
 /// Every placed vertex of [placed], in world coordinates.
 void Function(void Function(Vec3)) _walkPlaced(List<PlacedComponent> placed) =>
     (add) {
-      for (final (at, solids) in placed) {
-        for (final sol in solids) {
+      for (final c in placed) {
+        for (final (r, t, sol) in c.pieces) {
           final pos = sol.mesh.positions;
           for (var i = 0; i + 2 < pos.length; i += 3) {
-            add(Vec3(pos[i] + at.x, pos[i + 1] + at.y, pos[i + 2] + at.z));
+            add(r.rotate(Vec3(pos[i], pos[i + 1], pos[i + 2])) + t);
           }
         }
       }

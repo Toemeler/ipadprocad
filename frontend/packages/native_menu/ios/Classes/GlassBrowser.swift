@@ -26,12 +26,14 @@ struct BrowserRow {
     let depth: Int
     let symbol: String      // SF Symbol name
     let label: String
+    let title: String       // M243 — the NAME, even when the label is hidden
     let hasEye: Bool
     let eyeOn: Bool
     let dim: Bool           // rolled back / hidden -> drawn faded
     let expandable: Bool
     let expanded: Bool
     let selected: Bool
+    let hovered: Bool       // M242 — pointer prehighlight
     let isEop: Bool
     let tint: String?       // "blue" | "red" | nil
     let menu: [[[String: Any]]]  // sections of items: {id,title,symbol,destructive}
@@ -41,6 +43,7 @@ struct BrowserRow {
         else { return nil }
         self.id = id
         self.label = label
+        title = m["title"] as? String ?? label
         depth = (m["depth"] as? NSNumber)?.intValue ?? 0
         symbol = m["symbol"] as? String ?? "cube"
         hasEye = (m["hasEye"] as? NSNumber)?.boolValue ?? false
@@ -49,6 +52,7 @@ struct BrowserRow {
         expandable = (m["expandable"] as? NSNumber)?.boolValue ?? false
         expanded = (m["expanded"] as? NSNumber)?.boolValue ?? false
         selected = (m["selected"] as? NSNumber)?.boolValue ?? false
+        hovered = (m["hovered"] as? NSNumber)?.boolValue ?? false
         isEop = (m["isEop"] as? NSNumber)?.boolValue ?? false
         tint = m["tint"] as? String
         menu = (m["menu"] as? [[[String: Any]]]) ?? []
@@ -182,6 +186,13 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
     /// One indent step, used by the cell's `indentationWidth`.
     static let indentStep: CGFloat = 11
 
+    /// M244 — the trailing edge of the RETRACTED glyph column, in the view's
+    /// own coordinates: the card's inset, the cell's leading margin and the
+    /// reserved image box, which is all a 56 pt card holds. Flutter draws the
+    /// retract chevron and has no way to know any of those three, so the
+    /// number is sent rather than guessed at on the other side.
+    static var glyphTrailing: CGFloat { inset.left + 4 + 20 }
+
     /// M148 — EXPLICIT row height.
     ///
     /// The content configuration has asked for 3 pt margins around an 11.5 pt
@@ -302,9 +313,21 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
                 // into the trailing edge.
                 c.directionalLayoutMargins = NSDirectionalEdgeInsets(
                     top: 5, leading: 4, bottom: 5, trailing: 4)
+                // M243 — THE GLYPH UNDER THE POINTER GROWS.
+                //
+                // Retracted there is no label to highlight and no room for
+                // one, so the row answers the pointer the way a dock icon
+                // does: it gets bigger. The reserved size grows with it, or
+                // the larger symbol would be clipped to the old box and
+                // nothing visible would happen.
+                let big = r.hovered
                 c.imageProperties.reservedLayoutSize =
-                    CGSize(width: 20, height: 20)
-                c.imageProperties.maximumSize = CGSize(width: 18, height: 18)
+                    CGSize(width: big ? 26 : 20, height: big ? 26 : 20)
+                c.imageProperties.maximumSize =
+                    CGSize(width: big ? 24 : 18, height: big ? 24 : 18)
+                c.imageProperties.preferredSymbolConfiguration =
+                    UIImage.SymbolConfiguration(
+                        pointSize: big ? 15 : 11, weight: .regular)
             }
             switch r.tint {
             case "blue": c.imageProperties.tintColor = .systemBlue
@@ -321,9 +344,25 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
             cell.contentConfiguration = c
 
             var bg = UIBackgroundConfiguration.listPlainCell()
+            // M242 — selection, then the pointer prehighlight at half its
+            // strength. Selected WINS on a row that is both: two washes would
+            // compound into a third colour that means nothing.
             bg.backgroundColor = r.selected
                 ? UIColor.systemBlue.withAlphaComponent(0.28)
-                : .clear
+                : (r.hovered
+                   ? UIColor.systemBlue.withAlphaComponent(0.14)
+                   : .clear)
+            // M243 — retracted, that highlight is a CHIP around the glyph, not
+            // a bar across the card. "It looks as if there was an invisible
+            // background bar": a full-width wash on a 56 pt column of icons is
+            // exactly that, and it is why the icons did not read as separate
+            // items. Inset to the glyph and rounded, each row is its own
+            // object again.
+            if r.label.isEmpty {
+                bg.backgroundInsets = NSDirectionalEdgeInsets(
+                    top: 1, leading: 6, bottom: 1, trailing: 6)
+                bg.cornerRadius = 9
+            }
             cell.backgroundConfiguration = bg
 
             var accessories: [UICellAccessory] = []
@@ -396,6 +435,41 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
         // rejects immediately for any other row, so the scroll pan is released
         // in the same event.
         collection.panGestureRecognizer.require(toFail: pan)
+
+        // M242 — POINTER HOVER (trackpad, or Apple Pencil on a hover-capable
+        // iPad). The row under the pointer is published to Dart, which lights
+        // the matching solid in 3D as well; touch input never fires this, so a
+        // finger-only session behaves exactly as before.
+        let hover = UIHoverGestureRecognizer(
+            target: self, action: #selector(onHover(_:)))
+        collection.addGestureRecognizer(hover)
+    }
+
+    /// The row the pointer last reported, so a move WITHIN one row costs
+    /// nothing: a hover push reloads the tree's snapshot on the Dart side.
+    private var hoveredId = ""
+
+    @objc private func onHover(_ g: UIHoverGestureRecognizer) {
+        var id = ""
+        var y = 0.0
+        if g.state == .began || g.state == .changed {
+            let pt = g.location(in: collection)
+            if let ip = collection.indexPathForItem(at: pt),
+               ip.item < rows.count {
+                id = rows[ip.item].id
+                // M243 — the row's CENTRE, in the platform view's own
+                // coordinates: Dart parks the tooltip beside it, and only this
+                // side knows where a row ended up once the list has scrolled.
+                if let f = collection.layoutAttributesForItem(at: ip)?.frame {
+                    y = Double(collection.convert(f, to: container).midY)
+                }
+            }
+        }
+        // "" is "the pointer is over no row", including .ended: an empty string
+        // rather than a nil keeps the argument map free of NSNull.
+        if id == hoveredId { return }
+        hoveredId = id
+        channel.invokeMethod("hover", arguments: ["id": id, "y": y])
     }
 
     private func apply(_ list: [BrowserRow]) {
@@ -405,6 +479,26 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
         snap.appendSections([0])
         snap.appendItems(list.map(\.id))
         dataSource.applySnapshotUsingReloadData(snap)
+        pushMetrics()
+    }
+
+    /// M244 — where the rows actually are, so the retract handle can stand
+    /// beside them instead of in the middle of an empty panel.
+    ///
+    /// Arithmetic over this file's own metrics rather than a question for the
+    /// layout: the rows are a uniform height, the two insets are constants,
+    /// and asking `layoutAttributesForItem` would tie the answer to whether a
+    /// layout pass had run yet — which, straight after a snapshot, it has not.
+    /// Scrolling is deliberately not tracked: a handle that slid up and down
+    /// with the list would be harder to find than one that stays put.
+    private func pushMetrics() {
+        let top = GlassBrowserView.inset.top + 6 // + the collection's own inset
+        let bottom = top + CGFloat(rows.count) * GlassBrowserView.rowHeight
+        channel.invokeMethod("metrics", arguments: [
+            "top": Double(top),
+            "bottom": Double(bottom),
+            "x": Double(GlassBrowserView.glyphTrailing),
+        ])
     }
 
     // -- interaction ---------------------------------------------------------
@@ -447,8 +541,50 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
                 if items.isEmpty { return nil }
                 return UIMenu(title: "", options: .displayInline, children: items)
             }
-            return UIMenu(title: r.label, children: sections)
+            return UIMenu(title: r.title, children: sections)
         }
+    }
+
+    /// M243 — WHAT A LONG PRESS LIFTS.
+    ///
+    /// With no preview of our own UIKit lifts the whole cell, and a cell here
+    /// is the full width of the card with a transparent background: the press
+    /// produced a wide, empty slab with a glyph somewhere inside it — "it
+    /// looks as if there was an invisible background bar". The preview is
+    /// clipped to what the row actually DRAWS instead: the icon chip when the
+    /// panel is retracted, the row itself when it is not.
+    private func liftPreview(_ configuration: UIContextMenuConfiguration)
+        -> UITargetedPreview? {
+        guard let ns = configuration.identifier as? NSString else { return nil }
+        let id = ns as String
+        guard let i = rows.firstIndex(where: { $0.id == id }),
+              let cell = collection.cellForItem(at: IndexPath(item: i, section: 0))
+        else { return nil }
+        let b = cell.bounds
+        // Matches the background chip above, so what lifts is what was lit.
+        let rect = rows[i].label.isEmpty
+            ? b.insetBy(dx: max(0, (b.width - 34) / 2), dy: 1)
+            : b.insetBy(dx: 2, dy: 1)
+        let p = UIPreviewParameters()
+        p.backgroundColor = .clear
+        p.visiblePath = UIBezierPath(roundedRect: rect, cornerRadius: 9)
+        return UITargetedPreview(view: cell, parameters: p)
+    }
+
+    func collectionView(
+        _ cv: UICollectionView,
+        previewForHighlightingContextMenuWithConfiguration
+            configuration: UIContextMenuConfiguration
+    ) -> UITargetedPreview? {
+        liftPreview(configuration)
+    }
+
+    func collectionView(
+        _ cv: UICollectionView,
+        previewForDismissingContextMenuWithConfiguration
+            configuration: UIContextMenuConfiguration
+    ) -> UITargetedPreview? {
+        liftPreview(configuration)
     }
 
     /// M122 — the End of Part row under [pt], with a little slack.

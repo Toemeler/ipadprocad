@@ -31,17 +31,24 @@ import 'package:flutter/painting.dart' show Color;
 
 import 'assembly.dart';
 import 'part_model.dart';
+import 'quat.dart';
 import 'reality_payload.dart';
 import 'theme.dart';
 
 /// One drawable piece of an assembly: the payload id it travels under, the
-/// occurrence it belongs to, and the solid itself.
+/// occurrence it belongs to, its WORLD transform, and the solid itself.
 ///
-/// The id is `<occurrence>/<feature>` — "Bracket:1/Extrusion1". It has to be
-/// unique across the whole scene (the renderer keys its entity cache on it),
-/// and two occurrences of one part carry the same feature names, so the
-/// occurrence id is the only thing that can separate them.
-typedef AssemblyPiece = (String, AssemblyOccurrence, KernelSolid);
+/// The id is `<occurrence>/<path>` — "Bracket:1/Extrusion1", and one level
+/// deeper "Machine:1/Bracket:1/Extrusion1". It has to be unique across the
+/// whole scene (the renderer keys its entity cache on it), and two
+/// occurrences of one part carry the same inner names, so the occurrence id
+/// is the only thing that can separate them.
+///
+/// M246 — the TRANSFORM travels with the piece rather than being taken from
+/// the occurrence, because a subassembly's parts each sit somewhere inside
+/// it: reading the occurrence's own placement would put every part of a
+/// subassembly at the subassembly's origin, stacked.
+typedef AssemblyPiece = (String, AssemblyOccurrence, Quat, Vec3, KernelSolid);
 
 /// Everything the assembly draws, in occurrence order.
 ///
@@ -51,7 +58,8 @@ typedef AssemblyPiece = (String, AssemblyOccurrence, KernelSolid);
 List<AssemblyPiece> assemblyPieces(AssemblyModel a) => [
       for (final o in a.occurrences)
         if (o.visible)
-          for (final (feature, s) in o.namedSolids) ('${o.id}/$feature', o, s),
+          for (final (path, r, t, s) in o.worldSolids)
+            ('${o.id}/$path', o, r, t, s),
     ];
 
 /// The tint a component is drawn in, as a packed ARGB, or [kNoTint] for the
@@ -73,7 +81,8 @@ int assemblyTint(AssemblyModel a, AssemblyOccurrence o, {String? hoverId}) {
 /// Mesh revisions currently on screen, so the next push can omit the buffers
 /// of everything that did not change. Mirrors `sceneRevs` on the part side.
 Map<String, int> assemblySceneRevs(AssemblyModel a) => {
-      for (final (id, _, s) in assemblyPieces(a)) id: identityHashCode(s.mesh),
+      for (final (id, _, _, _, s) in assemblyPieces(a))
+        id: identityHashCode(s.mesh),
     };
 
 /// The full scene: solids with their placements, the origin planes, the origin
@@ -88,11 +97,12 @@ Map<String, dynamic> buildAssemblyScenePayload(
 }) =>
     {
       'solids': [
-        for (final (id, o, s) in assemblyPieces(a))
+        for (final (id, o, r, t, s) in assemblyPieces(a))
           solidPayload(
             id,
             s,
-            at: o.offset,
+            at: t,
+            rot: r,
             tint: assemblyTint(a, o, hoverId: hoverId),
             includeGeometry: knownRevs?[id] != identityHashCode(s.mesh),
           ),
@@ -115,10 +125,11 @@ Map<String, dynamic> buildAssemblyOverlaysPayload(AssemblyModel a,
         {String? hoverId}) =>
     {
       'placements': [
-        for (final (id, o, _) in assemblyPieces(a))
+        for (final (id, o, r, t, _) in assemblyPieces(a))
           {
             'id': id,
-            'at': [o.offset.x, o.offset.y, o.offset.z],
+            'at': [t.x, t.y, t.z],
+            'rot': [r.x, r.y, r.z, r.w],
             'tint': assemblyTint(a, o, hoverId: hoverId),
           },
       ],
@@ -175,7 +186,7 @@ String assemblySceneSignature(AssemblyModel a) {
     sb.write(a.vis[k] == true ? '1' : '0');
   }
   sb.write(';s:');
-  for (final (id, _, s) in assemblyPieces(a)) {
+  for (final (id, _, _, _, s) in assemblyPieces(a)) {
     sb
       ..write(id)
       ..write('=')

@@ -122,7 +122,10 @@ class FakeKernel implements PartKernel {
   @override
   KernelSolid? sweep(List<List<List<Offset>>> groups, List<double> mat34,
           List<double> pathPts,
-          {int orientation = 0, double taperDeg = 0, double twistDeg = 0}) =>
+          {int orientation = 0,
+           double taperDeg = 0,
+           double twistDeg = 0,
+           int pathMode = SweepPathMode.auto}) =>
       null;
   @override
   KernelSolid? loft(List<List<Offset>> sections, List<List<double>> mats,

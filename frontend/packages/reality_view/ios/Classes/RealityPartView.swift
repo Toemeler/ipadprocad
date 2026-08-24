@@ -15,6 +15,7 @@
 //              only affects near/far, not projected size
 //   vertical world extent on screen = 2·halfH          // ⇒ ortho scale
 import Flutter
+import Foundation
 import UIKit
 import simd
 
@@ -58,16 +59,35 @@ final class RealityPartView: NSObject, FlutterPlatformView {
     func view() -> UIView { container }
 
     private func handle(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) {
+        // Answerable without a renderer, and deliberately BEFORE the guard: on
+        // iOS 14 there is no PartRenderer, and a drain that returned nothing
+        // there would look identical to a drain that found no work.
+        if call.method == "perfDrain" {
+            result(RvPerf.drain())
+            return
+        }
         guard #available(iOS 15.0, *), let r = renderer as? PartRenderer else {
             result(nil)
             return
         }
         let args = call.arguments as? [String: Any] ?? [:]
+        // Timed HERE rather than in Dart. `3d.push` on the Dart side measures
+        // how long the channel call takes to return, which on an asynchronous
+        // channel is not how long the scene took to apply — a Dart reading can
+        // be a fraction of a millisecond while RealityKit spends thirty on the
+        // same payload.
         switch call.method {
-        case "setScene":    r.setScene(args);    result(nil)
-        case "setOverlays": r.setOverlays(args); result(nil)
-        case "setCamera":   r.setCamera(args);   result(nil)
-        default:            result(FlutterMethodNotImplemented)
+        case "setScene":
+            RvPerf.time("rv.native.setScene") { r.setScene(args) }
+            result(nil)
+        case "setOverlays":
+            RvPerf.time("rv.native.setOverlays") { r.setOverlays(args) }
+            result(nil)
+        case "setCamera":
+            RvPerf.time("rv.native.setCamera") { r.setCamera(args) }
+            result(nil)
+        default:
+            result(FlutterMethodNotImplemented)
         }
     }
 
@@ -140,6 +160,10 @@ final class PartRenderer: NSObject {
     /// Where each solid's holder sits. An assembly component's placement (M241);
     /// zero for every solid of a part, which is why a part is unaffected.
     private var solidPlacement: [String: SIMD3<Float>] = [:]
+    /// How each solid's holder is turned (M242). Identity for a part and for
+    /// an unrotated component; a constraint solve is the only thing that puts
+    /// anything else here, and it does so through the LIGHT overlay push.
+    private var solidOrientation: [String: simd_quatf] = [:]
     private var planeEntities: [String: PlaneEntity] = [:]
     private var axisEntities: [String: AxisEntity] = [:]
     private var cpEntity: Entity?
@@ -225,6 +249,21 @@ final class PartRenderer: NSObject {
         root.addChild(cameraEntity)
         root.addChild(sketchRoot)
         arView.scene.anchors.append(root)
+
+        // S8 — pay RealityKit's first-use cost here rather than on the first
+        // scene. See RealityWarmup in PartScene.swift for why ~417 of the
+        // 419.47 ms §7.2.2 attributes to the origin planes is not the planes.
+        //
+        // `async`, not inline: inline would simply move the stall into
+        // platform-view creation, where the user is equally waiting and the
+        // viewport has not even painted its background yet. One runloop turn
+        // later the surface is up, and the first setScene is still at least a
+        // Flutter frame away (viewport3d.dart pushes from the build that
+        // follows onCreated's post-frame setState).
+        //
+        // No capture of self: the warm-up owns nothing and must not keep this
+        // renderer alive if the view is torn down before it runs.
+        DispatchQueue.main.async { RealityWarmup.run() }
     }
 
     // MARK: - Camera
@@ -433,19 +472,32 @@ final class PartRenderer: NSObject {
     func setScene(_ a: [String: Any]) {
         sceneRadius = 15 // origin planes span ±10 mm (diagonal ≈ 14.1)
         edgeBuildHalfH = cam.halfH
-        rebuildSolids(a["solids"] as? [[String: Any]] ?? [])
-        rebuildPlanes(a["planes"] as? [[String: Any]] ?? [])
-        rebuildAxes(a["axes"] as? [[String: Any]] ?? [])
-        rebuildCenterPoint(a["cp"] as? [String: Any])
-        rebuildSketches(a["sketches"] as? [[String: Any]] ?? [])
-        applySketchAccents(hover: a["hoverSketch"] as? String,
-                           selected: Set(a["selSketch"] as? [String] ?? []))
-        rebuildEdgeAccents(from: a["edgeAccent"])
-        rebuildPreview(a["preview"] as? [String: Any])
+        // Phase by phase, for the same reason the 2D painter is: knowing a
+        // scene rebuild cost 40 ms is not actionable, knowing that 36 of them
+        // were mesh upload in rebuildSolids is.
+        RvPerf.time("rv.native.solids") {
+            rebuildSolids(a["solids"] as? [[String: Any]] ?? [])
+        }
+        RvPerf.time("rv.native.planes") {
+            rebuildPlanes(a["planes"] as? [[String: Any]] ?? [])
+            rebuildAxes(a["axes"] as? [[String: Any]] ?? [])
+            rebuildCenterPoint(a["cp"] as? [String: Any])
+        }
+        RvPerf.time("rv.native.sketches") {
+            rebuildSketches(a["sketches"] as? [[String: Any]] ?? [])
+            applySketchAccents(hover: a["hoverSketch"] as? String,
+                               selected: Set(a["selSketch"] as? [String] ?? []))
+        }
+        RvPerf.time("rv.native.accents") {
+            rebuildEdgeAccents(from: a["edgeAccent"])
+            rebuildPreview(a["preview"] as? [String: Any])
+        }
         cpState = nil
         builtHighlight = nil
-        rebuildHighlight(from: a["highlight"] as? [String: Any])
-        placeCamera()
+        RvPerf.time("rv.native.highlight") {
+            rebuildHighlight(from: a["highlight"] as? [String: Any])
+        }
+        RvPerf.time("rv.native.placeCamera") { placeCamera() }
     }
 
     // Light-touch: hover tints + visibility + face highlight, no mesh upload.
@@ -458,7 +510,9 @@ final class PartRenderer: NSObject {
         if let places = a["placements"] as? [[String: Any]] {
             for p in places {
                 guard let id = p["id"] as? String else { continue }
-                applyPlacement(id, Payload.vec3(p["at"]) ?? SIMD3<Float>(0, 0, 0))
+                applyPlacement(id,
+                               Payload.vec3(p["at"]) ?? SIMD3<Float>(0, 0, 0),
+                               Payload.quat(p["rot"]) ?? simd_quatf(ix: 0, iy: 0, iz: 0, r: 1))
                 applyTint(id, Payload.argb(p["tint"]))
             }
         }
@@ -523,6 +577,7 @@ final class PartRenderer: NSObject {
             solidShaded[id] = nil
             solidTint[id] = nil
             solidPlacement[id] = nil
+            solidOrientation[id] = nil
         }
         for (id, e) in solidEdges where !ids.contains(id) {
             e.removeFromParent(); solidEdges[id] = nil; solidRev[id] = nil
@@ -534,6 +589,7 @@ final class PartRenderer: NSObject {
             guard let id = s["id"] as? String else { continue }
             let rev = (s["rev"] as? NSNumber)?.intValue ?? 0
             let at = Payload.vec3(s["at"]) ?? SIMD3<Float>(0, 0, 0)
+            let rot = Payload.quat(s["rot"]) ?? simd_quatf(ix: 0, iy: 0, iz: 0, r: 1)
             let tint = Payload.argb(s["tint"])
             // Dart omits the buffers when a solid's mesh is unchanged: keep the
             // entity and the cached geometry that are already on screen.
@@ -545,7 +601,7 @@ final class PartRenderer: NSObject {
             // every vertex of the part being dragged.
             if s["positions"] == nil {
                 if let cached = solidCache[id] {
-                    applyPlacement(id, at)
+                    applyPlacement(id, at, rot)
                     applyTint(id, tint)
                     sceneRadius = max(sceneRadius,
                                       cached.boundingRadius + simd_length(at))
@@ -573,7 +629,9 @@ final class PartRenderer: NSObject {
             let edges = geom.edgeEntity(radius: edgeRadius, viewDir: outlineDir)
             let holder = Entity()
             holder.position = at
+            holder.orientation = rot
             solidPlacement[id] = at
+            solidOrientation[id] = rot
             solidTint[id] = tint
             solidShaded[id] = shaded as? ModelEntity
             holder.addChild(shaded)
@@ -597,12 +655,24 @@ final class PartRenderer: NSObject {
     /// result against every other component for free. This is what makes
     /// dragging a component cost a transform write per frame instead of a
     /// multi-megabyte buffer upload.
-    private func applyPlacement(_ id: String, _ at: SIMD3<Float>) {
+    private func applyPlacement(_ id: String, _ at: SIMD3<Float>,
+                                _ rot: simd_quatf) {
         guard let holder = solidEntities[id] else { return }
-        if let was = solidPlacement[id], simd_distance(was, at) < 1e-7 { return }
+        // Both halves of the rigid transform have to be compared before the
+        // early-out: a component being SPUN by the constraint solver holds its
+        // position exactly, and testing the translation alone would freeze it.
+        let sameAt = solidPlacement[id].map { simd_distance($0, at) < 1e-7 } ?? false
+        let sameRot = solidOrientation[id].map {
+            abs(simd_dot($0.vector, rot.vector)) > 1 - 1e-9
+        } ?? false
+        if sameAt && sameRot { return }
         solidPlacement[id] = at
+        solidOrientation[id] = rot
         holder.position = at
+        holder.orientation = rot
         if let g = solidCache[id] {
+            // A rotation about the holder's own origin leaves the radius the
+            // mesh sweeps unchanged, so only the translation enters here.
             sceneRadius = max(sceneRadius, g.boundingRadius + simd_length(at))
         }
     }
@@ -813,13 +883,19 @@ final class PartRenderer: NSObject {
               let face = (h["face"] as? NSNumber)?.intValue,
               face >= 0,
               let geom = solidCache[id] else { return }
+        // M242 — the lift is a WORLD direction (toward the camera) but the
+        // submesh is built in the solid's own space, so a rotated component
+        // needs it brought back into that space first. Identity for a part.
+        let spin = solidOrientation[id] ?? simd_quatf(ix: 0, iy: 0, iz: 0, r: 1)
         guard let e = geom.faceHighlightEntity(
-            face: face, eps: highlightEps, lift: cam.dir) else { return }
+            face: face, eps: highlightEps,
+            lift: spin.inverse.act(cam.dir)) else { return }
         // M241 — the submesh is built in the solid's OWN space, so a solid
         // that carries a placement needs it applied here too. Zero for every
         // part, which is every caller today; written down so the first
         // assembly command that highlights a face does not have to find this.
         e.position = solidPlacement[id] ?? SIMD3<Float>(0, 0, 0)
+        e.orientation = solidOrientation[id] ?? simd_quatf(ix: 0, iy: 0, iz: 0, r: 1)
         highlightEntity = e
         root.addChild(e)
     }

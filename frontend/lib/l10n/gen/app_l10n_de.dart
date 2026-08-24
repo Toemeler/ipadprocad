@@ -3245,4 +3245,191 @@ class AppL10nDe extends AppL10n {
 
   @override
   String get ctxGrounded => 'Fixiert';
+
+  @override
+  String get dlgPlaceConstraint => 'Abhängigkeit platzieren';
+
+  @override
+  String get tabAsmAssembly => 'Baugruppe';
+
+  @override
+  String get tabAsmMotion => 'Bewegung';
+
+  @override
+  String get tabAsmTransitional => 'Übergang';
+
+  @override
+  String get tabAsmConstraintSet => 'Abhängigkeitssatz';
+
+  @override
+  String get grpAsmType => 'Typ';
+
+  @override
+  String get grpAsmSelections => 'Auswahlen';
+
+  @override
+  String get grpAsmSolution => 'Lösung';
+
+  @override
+  String get lblAsmOffset => 'Versatz:';
+
+  @override
+  String get lblAsmAngle => 'Winkel:';
+
+  @override
+  String get lblAsmRatio => 'Verhältnis:';
+
+  @override
+  String get lblAsmDistance => 'Abstand:';
+
+  @override
+  String get cbAsmPickPartFirst => 'Bauteil zuerst wählen';
+
+  @override
+  String get cbAsmShowPreview => 'Vorschau anzeigen';
+
+  @override
+  String get cbAsmPredict => 'Versatz und Ausrichtung vorhersagen';
+
+  @override
+  String get cbAsmDefaultUndirected => 'Standardmäßig ungerichtet';
+
+  @override
+  String get lblAsmName => 'Name';
+
+  @override
+  String get hintAsmAutoName => 'Automatisch';
+
+  @override
+  String tipAsmSelection(int n) {
+    return 'Auswahl $n';
+  }
+
+  @override
+  String get hintAsmPickGeometry => 'Fläche, Kante oder Achse antippen';
+
+  @override
+  String get asmMate => 'Passend';
+
+  @override
+  String get asmAngle => 'Winkel';
+
+  @override
+  String get asmTangent => 'Tangential';
+
+  @override
+  String get asmInsert => 'Einfügen';
+
+  @override
+  String get asmSymmetry => 'Symmetrie';
+
+  @override
+  String get asmRotation => 'Drehung';
+
+  @override
+  String get asmRotationTranslation => 'Drehung-Translation';
+
+  @override
+  String get asmTransitional => 'Übergang';
+
+  @override
+  String get solMate => 'Passend';
+
+  @override
+  String get solFlush => 'Ausgerichtet';
+
+  @override
+  String get solDirectedAngle => 'Gerichteter Winkel';
+
+  @override
+  String get solUndirectedAngle => 'Ungerichteter Winkel';
+
+  @override
+  String get solExplicitVector => 'Expliziter Referenzvektor';
+
+  @override
+  String get solInside => 'Innen';
+
+  @override
+  String get solOutside => 'Außen';
+
+  @override
+  String get solOpposed => 'Entgegengesetzt';
+
+  @override
+  String get solAligned => 'Ausgerichtet';
+
+  @override
+  String get solSymmetric => 'Symmetrisch';
+
+  @override
+  String get solAsymmetric => 'Asymmetrisch';
+
+  @override
+  String get solForward => 'Vorwärts';
+
+  @override
+  String get solReverse => 'Rückwärts';
+
+  @override
+  String get ctxSuppress => 'Unterdrücken';
+
+  @override
+  String get ctxUnsuppress => 'Unterdrückung aufheben';
+
+  @override
+  String hudAsmDof(int n) {
+    return '$n Freiheitsgrade';
+  }
+
+  @override
+  String get hudAsmFullyConstrained => 'Vollständig bestimmt';
+
+  @override
+  String get msgAsmSameComponent =>
+      'Beide Auswahlen liegen auf derselben Komponente.';
+
+  @override
+  String get msgAsmPickTwo => 'Zuerst zwei Geometrien auswählen.';
+
+  @override
+  String get msgAsmTangentNeedsRound => 'Tangential braucht eine runde Fläche.';
+
+  @override
+  String get msgAsmInsertNeedsAxes =>
+      'Einfügen braucht zwei Achsen oder Kreiskanten.';
+
+  @override
+  String get msgAsmAngleNeedsDirections => 'Winkel braucht zwei Richtungen.';
+
+  @override
+  String get msgAsmMotionNeedsAxes => 'Bewegung braucht zwei Achsen.';
+
+  @override
+  String get msgAsmBothGrounded => 'Beide Komponenten sind fixiert.';
+
+  @override
+  String get msgAsmMissingComponent =>
+      'Die Komponente dieser Abhängigkeit fehlt.';
+
+  @override
+  String get msgAsmCannotSatisfy =>
+      'Diese Abhängigkeit lässt sich nicht erfüllen.';
+
+  @override
+  String get msgAsmCannotConstrain =>
+      'Diese Auswahl lässt sich so nicht abhängig machen.';
+
+  @override
+  String msgAsmConstraintDeleted(String name) {
+    return '„$name“ gelöscht.';
+  }
+
+  @override
+  String get hintAsmConstraintSet => 'Noch nicht verfügbar';
+
+  @override
+  String msgAsmWouldNest(String name) {
+    return '„$name“ enthält diese Baugruppe bereits.';
+  }
 }

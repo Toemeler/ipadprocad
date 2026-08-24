@@ -209,14 +209,29 @@ class Log {
   }
 
   /// Runs [fn] with breadcrumbs before/after; rethrows after logging.
+  /// Where [step]/[stepAsync] durations go, on top of the log line.
+  ///
+  /// `Perf.init()` installs `Perf.record` here. The indirection exists because
+  /// perf.dart imports THIS file; a direct import back would be a cycle. The
+  /// payoff is that every existing `Log.step` site — the whole launch
+  /// sequence, engine bring-up, document load — becomes a timed span without
+  /// touching any of those 17 call sites.
+  static void Function(String name, double ms)? stepSink;
+
+  /// Timed, logged, and recorded. The elapsed time is appended to the closing
+  /// line so a plain read of prototype_log.txt shows where launch time went,
+  /// even when the perf log is not at hand.
   static T step<T>(String tag, String what, T Function() fn) {
     i(tag, '>> $what');
+    final sw = Stopwatch()..start();
     try {
       final r = fn();
-      i(tag, '<< $what OK');
+      sw.stop();
+      _emitStep(tag, what, sw);
       return r;
     } catch (e2, st) {
-      Log.e(tag, 'FAILED in $what', e2, st);
+      sw.stop();
+      Log.e(tag, 'FAILED in $what after ${sw.elapsedMilliseconds} ms', e2, st);
       rethrow;
     }
   }
@@ -224,14 +239,23 @@ class Log {
   static Future<T> stepAsync<T>(
       String tag, String what, Future<T> Function() fn) async {
     i(tag, '>> $what');
+    final sw = Stopwatch()..start();
     try {
       final r = await fn();
-      i(tag, '<< $what OK');
+      sw.stop();
+      _emitStep(tag, what, sw);
       return r;
     } catch (e2, st) {
-      Log.e(tag, 'FAILED in $what', e2, st);
+      sw.stop();
+      Log.e(tag, 'FAILED in $what after ${sw.elapsedMilliseconds} ms', e2, st);
       rethrow;
     }
+  }
+
+  static void _emitStep(String tag, String what, Stopwatch sw) {
+    final ms = sw.elapsedMicroseconds / 1000.0;
+    i(tag, '<< $what OK (${ms.toStringAsFixed(1)} ms)');
+    stepSink?.call('step.$tag.$what', ms);
   }
 
   static void dispose() {

@@ -19,11 +19,14 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <memory>
+#include <unordered_map>
 #include <vector>
 
 #include <Standard_Failure.hxx>
 #include <Standard_Version.hxx>
 
+#include <gp.hxx>
 #include <gp_Ax2.hxx>
 #include <gp_Dir.hxx>
 #include <gp_Pnt.hxx>
@@ -106,6 +109,9 @@
 #include <Geom_Circle.hxx>
 /* v15: sweep, loft, coil */
 #include <BRepOffsetAPI_MakePipeShell.hxx>
+/* v24: a spine that is a CURVE where the caller sampled one */
+#include <GeomAPI_Interpolate.hxx>
+#include <TColgp_HArray1OfPnt.hxx>
 #include <BRepOffsetAPI_ThruSections.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
 #include <Geom_CylindricalSurface.hxx>
@@ -193,7 +199,10 @@ extern "C" const char *occt_version(void)
     /* Keep the grep marker "Prototype OCCT shim" a single literal. */
     static char buf[128] = "";
     if (!buf[0]) {
-        std::snprintf(buf, sizeof(buf), "Prototype OCCT shim v21 (OCCT %s)",
+        /* Kept in step with occt_shim_version() below. It had said "v21"
+         * since v21 while the number went 22, 23 — a string nobody reads
+         * against a number three releases ahead of it. */
+        std::snprintf(buf, sizeof(buf), "Prototype OCCT shim v26 (OCCT %s)",
                       OCC_VERSION_COMPLETE);
     }
     return buf;
@@ -205,7 +214,67 @@ extern "C" const char *occt_version(void)
  * either, so it takes the next free number rather than pretending one of the
  * two v17s did not happen. A version that means different things in two
  * binaries is worse than a gap in the sequence. */
-extern "C" int occt_shim_version(void) { return 21; }
+/* v21 (S2 of the optimisation split): occt_shape_edges_info. Five sessions
+ * are editing this repository in parallel, and the v17 collision above is
+ * what happens when two of them pick the same number — this one is taken by
+ * the session that owns backend/occt/shim/**, which is the only one adding
+ * shim surface. */
+/* v22 (S6, round two): the convexity sign in field 11 stops going through
+ * BRepClass3d_SolidClassifier — see convexity_sign — and
+ * occt_shape_edges_info_ref appears as its test-only reference. Field 11's
+ * VALUE changes on shapes with a feature thinner than ‖bbox diagonal‖/1414,
+ * where the pre-v22 answer was wrong; nothing else in the record moves. A
+ * caller that must know whether it is talking to a binary whose thin-wall
+ * convexity can be trusted tests for >= 22. */
+/* v23 — AND IT HAPPENED AGAIN, exactly as the v17 note above predicted it
+ * would. Two lineages both shipped a "v21": the optimisation branch's
+ * occt_shape_edges_info, and main's occt_brep_from_mesh (M232, mesh import).
+ * Neither knew about the other, so "v21" named two different ABIs.
+ *
+ * Resolved the way the v17 collision was, and for the reason recorded there —
+ * "a version that means different things in two binaries is worse than a gap
+ * in the sequence". The merged surface is strictly larger than either side,
+ * so it takes the next free number instead of pretending one of the two v21s
+ * did not happen. A v23 binary has ALL of it: edges_info, the local convexity
+ * sign, and brep_from_mesh. */
+/* v24 (S14, round three): occt_sweep_profile_ex and the OCCT_SWEEP_PATH_*
+ * modes — and, more importantly, a CHANGE OF BEHAVIOUR in occt_sweep_profile
+ * itself, which now takes OCCT_SWEEP_PATH_AUTO.
+ *
+ * A sweep whose path came from the application's own curve sampler now runs
+ * along an interpolated curve rather than along the sampler's polyline, so its
+ * result has `segments + 2` faces where v23 gave `segments x spans + 2`. Same
+ * volume to eight figures, about 4.4 % of it in a different place, and it
+ * BUILDS in the regime where v23 failed after four minutes or aborted the
+ * process. A caller that must have the old shape asks for
+ * OCCT_SWEEP_PATH_POLY; a caller that must know whether it is talking to a
+ * binary that can build a 1200-segment sweep tests for >= 24.
+ *
+ * Taken by the session that owns backend/occt/shim/** — the rule that kept the
+ * v17 and v21/v23 collisions from being worse, and it is why 24 and not 23.1
+ * or a reuse of 23. */
+/* v25 (S14, item 1): orientation 1 ("Fixed") stops calling the wrong OCCT
+ * mode. It has mapped to GeomFill_ConstantBiNormal since v15, which replaces
+ * the sweep frame's tangent with its projection perpendicular to the binormal;
+ * on any path that bends, the result was a self-intersecting shell that
+ * BRepCheck_Analyzer rejects and whose volume was up to 174 % too large — a
+ * part nearly three times too big that the app would accept and draw. It now
+ * uses GeomFill_IsFixed ("all sections will be parallel"), which is what the
+ * call site has always claimed it meant.
+ *
+ * Straight single-segment paths are UNCHANGED, bit for bit, in both laws; only
+ * bending paths move, and they move from invalid to analytic. A caller that
+ * must know whether orientation 1 can be trusted on a bending path tests for
+ * >= 25. Independent of v24: the repair works on the v23 polyline spine. */
+/* v26 (S14, item 2): a hole is placed the way its own body is placed.
+ * finish_pipe had added every hole with WithCorrection = Standard_True since
+ * v15 while occt_sweep_profile added the outer wire with the caller's setting,
+ * so on any path the section is not perpendicular to, a holed sweep lost about
+ * 3.2 % of its volume. Straight paths were exact, which is why it survived.
+ * Orientations 0 and 1 move; orientation 2 and occt_coil_profile do not, since
+ * they were already passing True. Test for >= 26 if a holed sweep's volume has
+ * to be right. */
+extern "C" int occt_shim_version(void) { return 26; }
 
 extern "C" const char *occt_last_error(void) { return g_err; }
 
@@ -2142,28 +2211,45 @@ static bool face_outward_normal(const TopoDS_Face &face, const TopoDS_Edge &edge
     return true;
 }
 
-/* Unit direction that leaves [edge] and runs INTO [face], tangent to it.
+/* Orientation of `edge` where it sits in `face`'s own boundary traversal, by
+ * SCANNING the face. The first occurrence wins — a seam edge appears twice,
+ * once each way, and taking the first is what this has always done.
  *
- * Built from the edge tangent oriented along the face's own boundary
- * traversal: with an outward normal and a CCW outer loop seen from outside,
- * the interior lies to the left, i.e. along nOut x T. Taking the orientation
- * from the face's explorer (rather than assuming FORWARD) is what makes this
- * work for the second face of the pair, where the shared edge is traversed
- * the other way. */
-static bool into_face_dir(const TopoDS_Face &face, const TopoDS_Edge &edge,
-                         double t, const gp_Dir &nOut, gp_Dir &out)
+ * v21 note: this scan is O(edges of the face) and is asked twice per edge.
+ * On an n-gon prism — the profile's own fixture — the two end faces carry n
+ * edges each and two thirds of all edges touch one, so an enumeration pays
+ * 2n x O(n). See edge_info_ctx::edge_orientation_in for the index that
+ * replaces it when the whole shape is being enumerated, and §6.5 of the
+ * profile for why that matters. */
+static bool edge_ori_in_face(const TopoDS_Face &face, const TopoDS_Edge &edge,
+                             TopAbs_Orientation &out)
 {
-    TopAbs_Orientation ori = TopAbs_FORWARD;
-    bool found = false;
     for (TopExp_Explorer ex(face, TopAbs_EDGE); ex.More(); ex.Next()) {
         if (ex.Current().IsSame(edge)) {
-            ori = ex.Current().Orientation();
-            found = true;
-            break;
+            out = ex.Current().Orientation();
+            return true;
         }
     }
-    if (!found)
-        return false;
+    return false;
+}
+
+/* Unit direction that leaves [edge] and runs INTO [face], tangent to it, given
+ * the edge's orientation in that face's own boundary traversal.
+ *
+ * Built from the edge tangent oriented along that traversal: with an outward
+ * normal and a CCW outer loop seen from outside, the interior lies to the
+ * left, i.e. along nOut x T. Taking the orientation from the face (rather than
+ * assuming FORWARD) is what makes this work for the second face of the pair,
+ * where the shared edge is traversed the other way.
+ *
+ * The orientation arrives as an argument rather than being looked up here, so
+ * that the bulk path can serve it from a per-shape index and the single-edge
+ * path from a scan, with not one line of the geometry duplicated between
+ * them. */
+static bool into_face_dir_with_ori(const TopoDS_Edge &edge, double t,
+                                   const gp_Dir &nOut, TopAbs_Orientation ori,
+                                   gp_Dir &out)
+{
     BRepAdaptor_Curve c(edge);
     gp_Pnt p;
     gp_Vec d1;
@@ -2180,22 +2266,262 @@ static bool into_face_dir(const TopoDS_Face &face, const TopoDS_Edge &edge,
     return true;
 }
 
-extern "C" int occt_shape_edge_info(const occt_shape *shape, int index,
-                                    double *out12)
+/*
+ * v21 — everything one edge query derives from the WHOLE SHAPE rather than
+ * from the edge it was asked about.
+ *
+ * This struct exists because of a measurement. `occt_shape_edge_info` used to
+ * build all four of these inline, per call, and throw them away; enumerating
+ * every edge of a solid therefore cost n x Θ(n). PERFORMANCE_PROFILE.md §6.5
+ * measures that as k = 2.012 [1.910, 2.113], R² = 1.0000, against a control
+ * doing strictly more work at k = 1.063 — 200.3x at 1440 edges, and an
+ * extrapolated 56.4 s on the part that died in the field.
+ *
+ * None of the four depends on `index`:
+ *   - MapShapes(EDGE)                is a pure function of the shape
+ *   - MapShapesAndAncestors(E, F)    is a pure function of the shape
+ *   - the bounding box, hence `step`, is a pure function of the shape
+ *   - the solid classifier is LOADED with the shape and then asked about
+ *     points; construction is the expensive half, Perform is the query
+ *
+ * So one context per SHAPE serves every edge, and edge_info_one below cannot
+ * tell whether it was handed a context built for it alone (the single-edge
+ * entry point, whose cost is therefore exactly what it always was) or one
+ * shared across an enumeration (the bulk entry point). That is what makes the
+ * two paths bit-identical by construction rather than by testing — though
+ * smoke scenario [35] tests it anyway, on all twelve doubles, exactly.
+ *
+ * Each member is built LAZILY, so the single-edge path still performs exactly
+ * the operations it performed before, in the same order, and no others: a
+ * degenerate edge returns before the ancestor map is ever needed, and an edge
+ * with other than two adjacent faces never reaches the classifier.
+ */
+struct edge_info_ctx
 {
-    OCCT_TRY("occt_shape_edge_info")
+    const TopoDS_Shape &s;
+    TopTools_IndexedMapOfShape edges;
+
+    /* `shared` = this context will serve EVERY edge of the shape, so indices
+     * whose build cost is Θ(shape) pay for themselves. A context built for one
+     * query leaves them alone: that path is this branch's control and must
+     * cost exactly what it always did.
+     *
+     * `classifier_convexity` = decide field 11 the pre-v22 way, with
+     * BRepClass3d_SolidClassifier. TEST ONLY — see convexity_sign and
+     * occt_shape_edges_info_ref. Nothing the app calls sets it. */
+    explicit edge_info_ctx(const TopoDS_Shape &sh, bool shared = false,
+                           bool classifier_convexity = false)
+        : s(sh), m_shared(shared), m_cls_convexity(classifier_convexity)
+    {
+        TopExp::MapShapes(s, TopAbs_EDGE, edges);
+    }
+
+    bool convexity_by_classifier() const { return m_cls_convexity; }
+
+    const TopTools_IndexedDataMapOfShapeListOfShape &faces()
+    {
+        if (!m_faces_done) {
+            TopExp::MapShapesAndAncestors(s, TopAbs_EDGE, TopAbs_FACE,
+                                          m_edge_faces);
+            m_faces_done = true;
+        }
+        return m_edge_faces;
+    }
+
+    /* The distance to step off the edge before asking the solid where we
+     * landed: 1/1000 of the shape's diagonal, exactly as the per-call code
+     * computed it. */
+    double classifier_step()
+    {
+        if (!m_step_done) {
+            Bnd_Box bb;
+            BRepBndLib::Add(s, bb);
+            m_step = 1.0e-3 * (bb.IsVoid() ? 1.0 : sqrt(bb.SquareExtent()));
+            m_step_done = true;
+        }
+        return m_step;
+    }
+
+    BRepClass3d_SolidClassifier &classifier()
+    {
+        if (!m_cls)
+            m_cls.reset(new BRepClass3d_SolidClassifier(s));
+        return *m_cls;
+    }
+
+    /* Orientation of `edge` where it sits in `face`'s boundary traversal.
+     *
+     * THE SECOND QUADRATIC. Hoisting the four whole-shape objects took a
+     * factor of ~20 out of the constant and left the exponent at k = 1.909
+     * [1.887, 1.932] (Lane C, shim v21, four rungs, R² = 0.9999) — measured,
+     * not guessed, and it refuted the prediction that the exponent would fall
+     * to 1. What remained is this: `edge_ori_in_face` scans the face's edges
+     * to find the one it was asked about, and is asked twice per edge. On the
+     * fixture the profile ladders over — an n-gon prism, two end faces of n
+     * edges each and n side faces of four — two thirds of all edges touch an
+     * end face, so an enumeration performs 2n × O(n) explorer steps.
+     *
+     * Lane C's allocation counters fit that arithmetic and not much else:
+     * allocations per edge come to 12.25·n + 290 over four rungs, exactly
+     * linear in n, which is a per-edge cost proportional to the FACE being
+     * scanned. The classifier hypothesis Session 1 raised fits the totals too
+     * — the discriminator is that this scan is a plain O(n) loop visible in
+     * the source, and removing it is free.
+     *
+     * The index is built PER FACE, on first request, by exploring the very
+     * TopoDS_Face object the caller passed. Not from a separate MapShapes
+     * pass: a face reached through the ancestor map and a face reached through
+     * MapShapes could in principle differ in orientation, and every edge
+     * orientation the explorer reports is composed with the face's. Exploring
+     * the caller's own object removes that question rather than answering it.
+     * The guard below covers the remaining case — a second face that is IsSame
+     * to an indexed one but oriented the other way falls back to the scan.
+     *
+     * Total build cost is one explorer pass per face, i.e. Θ(face-edge
+     * incidences) = Θ(E) on a manifold solid, against the Θ(E·F) it replaces.
+     */
+    bool edge_orientation_in(const TopoDS_Face &face, const TopoDS_Edge &edge,
+                             TopAbs_Orientation &out)
+    {
+        if (!m_shared)
+            return edge_ori_in_face(face, edge, out);
+        if (m_face_idx.Extent() == 0)
+            TopExp::MapShapes(s, TopAbs_FACE, m_face_idx);
+        const int fi = m_face_idx.FindIndex(face);
+        const int ei = edges.FindIndex(edge);
+        if (fi < 1 || ei < 1)
+            return edge_ori_in_face(face, edge, out);
+        if (m_row_ori.size() < (size_t)m_face_idx.Extent() + 1) {
+            m_row_ori.assign((size_t)m_face_idx.Extent() + 1,
+                             (signed char)-1);
+        }
+        const signed char have = m_row_ori[(size_t)fi];
+        if (have < 0) {
+            /* First question about this face: index it, from THIS object. */
+            for (TopExp_Explorer ex(face, TopAbs_EDGE); ex.More(); ex.Next()) {
+                const int k = edges.FindIndex(ex.Current());
+                if (k < 1)
+                    continue;
+                /* emplace, not assignment: the FIRST occurrence wins, which is
+                 * what the scan's `break` did. A seam edge appears twice. */
+                m_ori.emplace(ori_key(fi, k),
+                              (int)ex.Current().Orientation());
+            }
+            m_row_ori[(size_t)fi] = (signed char)face.Orientation();
+        } else if (have != (signed char)face.Orientation()) {
+            /* Same face by IsSame, opposite orientation: its edges would come
+             * back composed the other way. Do not serve those from the index. */
+            return edge_ori_in_face(face, edge, out);
+        }
+        const std::unordered_map<unsigned long long, int>::const_iterator it =
+            m_ori.find(ori_key(fi, ei));
+        if (it == m_ori.end())
+            return false; /* not on this face — same answer the scan gives */
+        out = (TopAbs_Orientation)it->second;
+        return true;
+    }
+
+    /* Throw the shared classifier away after a failed query. The per-edge path
+     * this replaces built a fresh one every time, so a classifier left in a
+     * bad state by one edge could not affect the next; sharing one across an
+     * enumeration would break that, and a WRONG convexity is far worse than a
+     * slow one — it is what decides fillet from round, and it is persisted
+     * into the fingerprint a blend is reattached by. */
+    void forget_classifier() { m_cls.reset(); }
+
+  private:
+    static unsigned long long ori_key(int face_idx, int edge_idx)
+    {
+        return ((unsigned long long)(unsigned)face_idx << 32) |
+               (unsigned long long)(unsigned)edge_idx;
+    }
+
+    const bool m_shared;
+    const bool m_cls_convexity;
+    bool m_faces_done = false;
+    TopTools_IndexedDataMapOfShapeListOfShape m_edge_faces;
+    bool m_step_done = false;
+    double m_step = 0.0;
+    std::unique_ptr<BRepClass3d_SolidClassifier> m_cls;
+    /* Face-edge orientation index, shared path only. m_row_ori[i] is -1 until
+     * face i has been indexed, then holds the orientation of the face object
+     * it was indexed from. */
+    TopTools_IndexedMapOfShape m_face_idx;
+    std::vector<signed char> m_row_ori;
+    std::unordered_map<unsigned long long, int> m_ori;
+};
+
+/*
+ * v22 — CONVEXITY: +1 exterior corner (a "round"), -1 interior corner (a
+ * "fillet"). This is field 11, and it is the only field this function decides.
+ *
+ * THE LOCAL TEST. u1 leaves the edge into face 1, u2 into face 2, both
+ * perpendicular to the edge and tangent to their face. Write T for the edge
+ * tangent along face 1's own boundary traversal, so u1 = n1 x T and
+ * u2 = n2 x (-T). Then
+ *
+ *     u1 . n2  =  (n1 x T) . n2  =  T . (n2 x n1)  =  u2 . n1
+ *
+ * identically -- the two dot products are the same number, so there is no
+ * second opinion available from computing both. Its sign is the answer:
+ * walking into face 1 takes you to the INNER side of face 2's tangent plane
+ * exactly when the corner is exterior.
+ *
+ * WHAT IT REPLACED, AND WHY. Until v21 this stepped ‖bbox diagonal‖/1000 along
+ * the bisector of u1 and u2 and asked BRepClass3d_SolidClassifier whether the
+ * point had landed in the solid. Two problems, one of cost and one of
+ * correctness, and the second is the one that matters:
+ *
+ *   COST. BRepClass3d_SClassifier::Perform is Theta(shape) per call -- it
+ *   rebuilds the whole solid's edge->face ancestor map every time
+ *   (BRepClass3d_SClassifier.cxx:227 in V7_9_3) and intersects its ray against
+ *   every face, because RejectShell and RejectFace return Standard_False
+ *   unconditionally (BRepClass3d_SolidExplorer.cxx:1025, :1075). One call per
+ *   edge is therefore Theta(E*F): measured at 98.6 % of a whole enumeration
+ *   and k = 1.889 [1.755, 2.023] on the profile's own ladder fixture.
+ *   perf/findings/S6-shim2.md §4.
+ *
+ *   CORRECTNESS. The step is a property of the WHOLE SHAPE and is not scaled
+ *   to local feature size, and the bisector stands at 45 degrees to each face
+ *   of a square corner, so the probe crosses any wall thinner than
+ *   ‖diagonal‖/(1000*sqrt(2)) and answers about the far side of it. A box is
+ *   a convex solid; a 200 x 0.1 x 20 box has eight of its twelve edges
+ *   reported CONCAVE by the classifier path. That is not a tie between two
+ *   opinions. Measured threshold and sweep: S6-shim2.md §5.1, pinned by smoke
+ *   scenario [36].
+ *
+ * The classifier path is kept, reachable only through
+ * occt_shape_edges_info_ref, so that [36] can compare the two in one run on
+ * one machine -- which is what proves the claim, where a recorded golden
+ * would only pin one machine's digits (OPTIMIZATION_PLAN_2.md §1.4).
+ */
+static double convexity_sign(edge_info_ctx &ctx, const gp_Pnt &pm, gp_Vec m,
+                             const gp_Dir &n2, const gp_Dir &u1)
+{
+    if (!ctx.convexity_by_classifier())
+        return (u1.Dot(n2) < 0.0) ? 1.0 : -1.0;
+
+    /* Reference path: pre-v22 behaviour, byte for byte. Test-only. `m` is
+     * taken BY VALUE and normalised here rather than at the call site, so the
+     * shipping path does not pay a square root it has no use for. */
+    m.Normalize();
+    const double step = ctx.classifier_step();
+    BRepClass3d_SolidClassifier &cls = ctx.classifier();
+    cls.Perform(pm.Translated(m * step), 1.0e-7);
+    return (cls.State() == TopAbs_IN) ? 1.0 : -1.0;
+}
+
+/*
+ * The twelve doubles for ONE edge, 1-based `index` into ctx.edges.
+ *
+ * This is the body `occt_shape_edge_info` has always had, moved verbatim so
+ * that the single-edge and bulk entry points cannot drift apart. Returns 1 on
+ * success, 0 if the edge could not be read at all.
+ */
+static int edge_info_one(edge_info_ctx &ctx, int index, double *out12)
+{
     double *out10 = out12; /* first ten fields are unchanged since v12 */
-    if (!shape || !out12) {
-        set_err("occt_shape_edge_info", "null argument");
-        return 0;
-    }
-    TopTools_IndexedMapOfShape m;
-    TopExp::MapShapes(shape->s, TopAbs_EDGE, m);
-    if (index < 1 || index > m.Extent()) {
-        set_err("occt_shape_edge_info", "edge index out of range");
-        return 0;
-    }
-    const TopoDS_Edge edge = TopoDS::Edge(m.FindKey(index));
+    const TopoDS_Edge edge = TopoDS::Edge(ctx.edges.FindKey(index));
     for (int i = 0; i < 12; ++i)
         out12[i] = 0.0;
     if (BRep_Tool::Degenerated(edge))
@@ -2243,9 +2569,7 @@ extern "C" int occt_shape_edge_info(const occt_shape *shape, int index,
     out10[6] = d1.Z();
     out10[7] = len;
 
-    TopTools_IndexedDataMapOfShapeListOfShape edgeFaces;
-    TopExp::MapShapesAndAncestors(shape->s, TopAbs_EDGE, TopAbs_FACE,
-                                  edgeFaces);
+    const TopTools_IndexedDataMapOfShapeListOfShape &edgeFaces = ctx.faces();
     out10[9] = edgeFaces.Contains(edge)
                    ? (double)edgeFaces.FindFromKey(edge).Extent()
                    : 0.0;
@@ -2269,33 +2593,148 @@ extern "C" int occt_shape_edge_info(const occt_shape *shape, int index,
             face_outward_normal(f2, edge, tmid, n2)) {
             const double c = std::max(-1.0, std::min(1.0, n1.Dot(n2)));
             out12[10] = std::acos(c) * 180.0 / M_PI;
-            /* The BISECTOR OF THE TWO INTO-FACE DIRECTIONS, not of the two
-             * normals. The first attempt used the normals and reported every
-             * edge convex: stepping inward along the averaged normal lands in
-             * material for a concave edge just as much as for a convex one, so
-             * it does not discriminate at all. Walking into the faces does:
-             * for an exterior corner the bisector points into the solid, for
-             * an interior corner it points into the void the corner opens
-             * onto. */
+            /* v22 — the sign comes from the two INTO-FACE DIRECTIONS, and
+             * from nothing else. See convexity_sign below for what this
+             * replaced and why; the guards around it are unchanged, so
+             * exactly the same set of edges receives a sign as before.
+             *
+             * (The historical note that belongs here: the FIRST attempt at a
+             * local test averaged the two NORMALS and reported every edge
+             * convex, because stepping inward along the averaged normal lands
+             * in material for a concave edge just as much as for a convex
+             * one. That failure is what sent this code to a solid classifier.
+             * It was the wrong local test, not a proof that local tests
+             * cannot work: walking into the FACES discriminates, and the
+             * bisector's sign against the opposite face's normal is the
+             * discrimination.) */
+            TopAbs_Orientation o1 = TopAbs_FORWARD, o2 = TopAbs_FORWARD;
             if (out12[10] > 1.0e-3 &&
-                into_face_dir(f1, edge, tmid, n1, u1) &&
-                into_face_dir(f2, edge, tmid, n2, u2)) {
+                ctx.edge_orientation_in(f1, edge, o1) &&
+                into_face_dir_with_ori(edge, tmid, n1, o1, u1) &&
+                ctx.edge_orientation_in(f2, edge, o2) &&
+                into_face_dir_with_ori(edge, tmid, n2, o2, u2)) {
                 gp_Vec m(u1.XYZ() + u2.XYZ());
-                if (m.Magnitude() > 1e-9) {
-                    m.Normalize();
-                    Bnd_Box bb;
-                    BRepBndLib::Add(shape->s, bb);
-                    const double step =
-                        1.0e-3 * (bb.IsVoid() ? 1.0 : sqrt(bb.SquareExtent()));
-                    BRepClass3d_SolidClassifier cls(shape->s);
-                    cls.Perform(pm.Translated(m * step), 1.0e-7);
-                    out12[11] = (cls.State() == TopAbs_IN) ? 1.0 : -1.0;
-                }
+                if (m.Magnitude() > 1e-9)
+                    out12[11] = convexity_sign(ctx, pm, m, n2, u1);
             }
         }
     }
     return 1;
+}
+
+extern "C" int occt_shape_edge_info(const occt_shape *shape, int index,
+                                    double *out12)
+{
+    OCCT_TRY("occt_shape_edge_info")
+    if (!shape || !out12) {
+        set_err("occt_shape_edge_info", "null argument");
+        return 0;
+    }
+    edge_info_ctx ctx(shape->s);
+    if (index < 1 || index > ctx.edges.Extent()) {
+        set_err("occt_shape_edge_info", "edge index out of range");
+        return 0;
+    }
+    return edge_info_one(ctx, index, out12);
     OCCT_CATCH("occt_shape_edge_info", 0)
+}
+
+/*
+ * v21 — every edge's record in ONE traversal. See occt_capi.h for the
+ * contract and edge_info_ctx above for why this is not merely a convenience
+ * wrapper around the call above.
+ *
+ * A failure on ONE edge does not abandon the enumeration. The per-edge path it
+ * replaces was called from Dart in a loop that dropped a null result and
+ * carried on, so abandoning the whole array here would be a behaviour change
+ * on exactly the malformed shapes where behaviour matters most. Such an edge
+ * gets type -1 — outside the documented 0..4 range — and the caller drops it,
+ * which reproduces the old loop exactly. Type 0 still means "degenerate edge,
+ * legitimately empty" and is still KEPT.
+ */
+extern "C" int occt_shape_edges_info(const occt_shape *shape, double *out12n,
+                                     int cap)
+{
+    OCCT_TRY("occt_shape_edges_info")
+    if (!shape || !out12n) {
+        set_err("occt_shape_edges_info", "null argument");
+        return -1;
+    }
+    edge_info_ctx ctx(shape->s, /*shared=*/true);
+    const int n = ctx.edges.Extent();
+    if (cap < n) {
+        set_err("occt_shape_edges_info", "output buffer too small");
+        return -1;
+    }
+    for (int i = 1; i <= n; ++i) {
+        double *rec = out12n + 12 * (i - 1);
+        try {
+            if (!edge_info_one(ctx, i, rec))
+                rec[0] = -1.0;
+        } catch (const Standard_Failure &) {
+            for (int k = 0; k < 12; ++k)
+                rec[k] = 0.0;
+            rec[0] = -1.0;
+            ctx.forget_classifier();
+        } catch (...) {
+            for (int k = 0; k < 12; ++k)
+                rec[k] = 0.0;
+            rec[0] = -1.0;
+            ctx.forget_classifier();
+        }
+    }
+    return n;
+    OCCT_CATCH("occt_shape_edges_info", -1)
+}
+
+/*
+ * v22 — TEST ONLY. occt_shape_edges_info with field 11 decided the pre-v22
+ * way, by BRepClass3d_SolidClassifier.
+ *
+ * It exists so that the shipping path can be compared against the path it
+ * replaced **in one run, on one machine** — smoke scenario [36] — which is
+ * what makes the comparison a proof of equivalence rather than a record of
+ * one machine's digits. OPTIMIZATION_PLAN_2.md §1.4 is the rule and the
+ * cautionary tale behind it.
+ *
+ * It is deliberately NOT bound in frontend/lib/ffi/occt_engine.dart and no
+ * application code may call it: on shapes with a feature thinner than
+ * ‖bbox diagonal‖/1414 it returns WRONG convexity signs, which is why v22
+ * stopped using it. See convexity_sign.
+ */
+extern "C" int occt_shape_edges_info_ref(const occt_shape *shape,
+                                         double *out12n, int cap)
+{
+    OCCT_TRY("occt_shape_edges_info_ref")
+    if (!shape || !out12n) {
+        set_err("occt_shape_edges_info_ref", "null argument");
+        return -1;
+    }
+    edge_info_ctx ctx(shape->s, /*shared=*/true, /*classifier_convexity=*/true);
+    const int n = ctx.edges.Extent();
+    if (cap < n) {
+        set_err("occt_shape_edges_info_ref", "output buffer too small");
+        return -1;
+    }
+    for (int i = 1; i <= n; ++i) {
+        double *rec = out12n + 12 * (i - 1);
+        try {
+            if (!edge_info_one(ctx, i, rec))
+                rec[0] = -1.0;
+        } catch (const Standard_Failure &) {
+            for (int k = 0; k < 12; ++k)
+                rec[k] = 0.0;
+            rec[0] = -1.0;
+            ctx.forget_classifier();
+        } catch (...) {
+            for (int k = 0; k < 12; ++k)
+                rec[k] = 0.0;
+            rec[0] = -1.0;
+            ctx.forget_classifier();
+        }
+    }
+    return n;
+    OCCT_CATCH("occt_shape_edges_info_ref", -1)
 }
 
 extern "C" int occt_mesh_edge_ids(const occt_mesh *m, int *out)
@@ -3077,34 +3516,243 @@ static bool placed_profile_wires(const double *xyb, const int *loop_counts,
     return true;
 }
 
-/* A spine wire through world-space points. Straight segments: the caller has
- * already sampled the curve it picked, so interpolating again would only add
- * error the user cannot see or control. */
-static bool spine_from_points(const double *pts, int n, const char *who,
-                              TopoDS_Wire &out)
+/* ---- v24: the spine of a SAMPLED path ------------------------------------
+ *
+ * The comment this replaces said "the caller has already sampled the curve it
+ * picked, so interpolating again would only add error the user cannot see or
+ * control". That reasoning was about ACCURACY and it is still right about
+ * accuracy. It was wrong about cost, by three orders of magnitude, and the
+ * measurement is in perf/findings/S14-sweep.md:
+ *
+ *   - Every joint of a polyline spine is mitered, because occt_sweep_profile
+ *     sets BRepBuilderAPI_RightCorner. Inside OCCT that reaches
+ *     BRepFill_Sweep::PerformCorner, which hands the two adjacent shells —
+ *     one face per profile segment EACH — to a full BOPAlgo_PaveFiller. It is
+ *     a boolean, per joint, over the whole profile.
+ *   - Measured: 96.6 % of the call, and it turns a linear sweep into a cubic
+ *     one. A 512-segment ring on a 16-span path is 447 s; the same ring on a
+ *     1-span path, which has no joint at all, is 62 ms.
+ *   - At 1200 segments x 16 spans it does not merely cost, it FAILS —
+ *     "BRep_API: command not done" after 742 s here and 231 s on the device.
+ *   - At 64 segments x 64 spans, which is what sampleEntity(arcSamples: 64)
+ *     produces for ANY arc, it corrupts the heap and aborts the process.
+ *
+ * So: joints somebody DREW still get a polyline and still get mitered, which
+ * is the behaviour scenario [30] pins and the reason RightCorner is set at
+ * all. Runs of points that came from the caller's own curve sampler get a C2
+ * B-spline interpolated THROUGH every one of them — the samples all stay on
+ * the spine, so the spine is never further from the path than the path was
+ * from what the user drew, and there is no joint left to miter.
+ */
+
+/* The largest joint angle the application's own curve sampler can emit.
+ *
+ * sketchCurve (frontend/lib/part_model.dart:8647) hands every arc and every
+ * circle to sampleEntity(g, arcSamples: 64) (frontend/lib/snap.dart:453),
+ * which splits the entity's sweep into 64 EQUAL steps whatever its angle. A
+ * full circle is 64 joints of 360/64 = 5.625 deg; a 90 deg arc is 64 joints of
+ * 1.406 deg. 5.625 deg is the ceiling and only a closed circle reaches it.
+ *
+ * So a joint at or below this CAN have come from the sampler, and a joint
+ * above it CANNOT: it is a vertex somebody drew. That is the whole derivation
+ * — the number is a property of the caller, not one chosen to make a benchmark
+ * fast. IF arcSamples EVER STOPS BEING 64, THIS MUST MOVE WITH IT.
+ *
+ * What it costs to be wrong at that angle, measured (S14 §2.6): at 5.625 deg a
+ * mitered and an un-mitered joint differ by 0.50 % of the swept volume; at
+ * 90 deg they differ by 46.7 % and the un-mitered one is invalid. The
+ * threshold sits where the two treatments still nearly agree, four times
+ * further out than the catastrophe. */
+static const double kSampledJointDeg = 360.0 / 64.0;
+
+/* Slack on the comparison so a circle's own 5.625 deg joints, arrived at
+ * through cos and sin, land INSIDE the threshold rather than on it. */
+static const double kJointEps = 1.0e-6;
+
+/* The turn between two consecutive segments, in degrees: 0 straight, 180 a
+ * reversal. */
+static double joint_deg(const gp_Pnt &a, const gp_Pnt &b, const gp_Pnt &c)
 {
+    const gp_Vec u(a, b), v(b, c);
+    if (u.Magnitude() < 1e-12 || v.Magnitude() < 1e-12)
+        return 0.0;
+    return u.Angle(v) * 180.0 / M_PI;
+}
+
+/* True when every interior joint of pts[i0..i1] is straight to within floating
+ * point. Such a run must NOT be interpolated: a B-spline through collinear
+ * points is geometrically the same line, but it is a B-SPLINE, so the faces
+ * swept along it stop being planes — and a plane is what makes the boolean
+ * that removes a hole cheap (§4.1 of S14's findings measured that at 80x).
+ * Nothing curved is being given up here, so v23's straight segments stay. */
+static bool run_is_straight(const std::vector<gp_Pnt> &pts, int i0, int i1)
+{
+    for (int i = i0 + 1; i < i1; ++i)
+        if (joint_deg(pts[i - 1], pts[i], pts[i + 1]) > 1.0e-9)
+            return false;
+    return true;
+}
+
+/* One edge through pts[i0..i1] inclusive. Two points give a line; more give a
+ * C2 B-spline INTERPOLATED through every point, not fitted near them. */
+static bool run_edge(const std::vector<gp_Pnt> &pts, int i0, int i1,
+                     TopoDS_Edge &out)
+{
+    const int n = i1 - i0 + 1;
+    if (n < 2)
+        return false;
+    if (n == 2) {
+        BRepBuilderAPI_MakeEdge mk(pts[i0], pts[i1]);
+        if (!mk.IsDone())
+            return false;
+        out = mk.Edge();
+        return true;
+    }
+    Handle(TColgp_HArray1OfPnt) h = new TColgp_HArray1OfPnt(1, n);
+    for (int i = 0; i < n; ++i)
+        h->SetValue(i + 1, pts[i0 + i]);
+    GeomAPI_Interpolate itp(h, Standard_False, 1.0e-7);
+    itp.Perform();
+    if (!itp.IsDone())
+        return false;
+    BRepBuilderAPI_MakeEdge mk(itp.Curve());
+    if (!mk.IsDone())
+        return false;
+    out = mk.Edge();
+    return true;
+}
+
+/* A spine wire through world-space points.
+ *
+ * `path_mode` is one of OCCT_SWEEP_PATH_*. `smoothed` reports whether any run
+ * was interpolated, which the caller needs: on a spine that is a curve the
+ * Frenet trihedron carries the curve's TORSION and rotates the section about
+ * the tangent — measured at 81 deg over this project's own sweep fixture —
+ * where a polyline, having no torsion, does not. The corrected Frenet
+ * trihedron is the one that reproduces the polyline's section orientation, and
+ * on a polyline the two are identical (measured at 2, 4 and 16 spans: same
+ * volume, same bounding box, to every printed digit). */
+static bool spine_from_points_ex(const double *pts, int n, int path_mode,
+                                 const char *who, TopoDS_Wire &out,
+                                 bool *smoothed)
+{
+    if (smoothed)
+        *smoothed = false;
     if (!pts || n < 2) {
         set_err(who, "a path needs at least 2 points");
         return false;
     }
-    BRepBuilderAPI_MakePolygon poly;
-    gp_Pnt prev(pts[0], pts[1], pts[2]);
-    poly.Add(prev);
-    int used = 1;
+
+    /* Deduplicate exactly as the polyline path always has: an edge of zero
+     * length breaks sweeps, and it would make the interpolation singular. */
+    std::vector<gp_Pnt> p;
+    p.reserve(static_cast<size_t>(n));
+    p.emplace_back(pts[0], pts[1], pts[2]);
     for (int i = 1; i < n; ++i) {
         const gp_Pnt q(pts[3 * i], pts[3 * i + 1], pts[3 * i + 2]);
-        if (q.Distance(prev) < 1e-9)
-            continue; /* duplicate sample: an edge of zero length breaks sweeps */
-        poly.Add(q);
-        prev = q;
-        ++used;
+        if (q.Distance(p.back()) < 1e-9)
+            continue;
+        p.push_back(q);
     }
-    if (used < 2 || !poly.IsDone()) {
+    if (p.size() < 2) {
         set_err(who, "the path collapsed to a single point");
         return false;
     }
-    out = poly.Wire();
+
+    const int np = static_cast<int>(p.size());
+    /* Two points is one straight edge in every mode, and the polygon path is
+     * what has always built it. */
+    if (path_mode == OCCT_SWEEP_PATH_POLY || np == 2) {
+        BRepBuilderAPI_MakePolygon poly;
+        for (const gp_Pnt &q : p)
+            poly.Add(q);
+        if (!poly.IsDone()) {
+            set_err(who, "the path collapsed to a single point");
+            return false;
+        }
+        out = poly.Wire();
+        return true;
+    }
+
+    /* Split into maximal runs whose INTERIOR joints are all shallow enough to
+     * have come from the sampler. A run boundary is a joint somebody drew, and
+     * it stays a vertex of the wire so RightCorner still miters it. In SMOOTH
+     * mode there is one run over everything, which is the escape hatch a
+     * caller who KNOWS its path is a sampled curve can ask for. */
+    std::vector<int> cut; /* indices where a run ends and the next begins */
+    if (path_mode != OCCT_SWEEP_PATH_SMOOTH) {
+        for (int i = 1; i + 1 < np; ++i)
+            if (joint_deg(p[i - 1], p[i], p[i + 1]) >
+                kSampledJointDeg + kJointEps)
+                cut.push_back(i);
+    }
+
+    /* Nothing to smooth: every joint was drawn. Take the polygon path
+     * unchanged — byte for byte the v23 result, which is what scenario [37]'s
+     * differential arm checks. */
+    if (static_cast<int>(cut.size()) == np - 2) {
+        BRepBuilderAPI_MakePolygon poly;
+        for (const gp_Pnt &q : p)
+            poly.Add(q);
+        if (!poly.IsDone()) {
+            set_err(who, "the path collapsed to a single point");
+            return false;
+        }
+        out = poly.Wire();
+        return true;
+    }
+
+    BRepBuilderAPI_MakeWire mk;
+    int start = 0;
+    bool any = false;
+    cut.push_back(np - 1); /* the last run ends at the last point */
+    for (const int end : cut) {
+        TopoDS_Edge e;
+        if (run_is_straight(p, start, end)) {
+            /* A straight run is v23's straight run, edge for edge. */
+            for (int i = start; i < end; ++i) {
+                BRepBuilderAPI_MakeEdge le(p[i], p[i + 1]);
+                if (!le.IsDone()) {
+                    set_err(who, "the path collapsed to a single point");
+                    return false;
+                }
+                mk.Add(le.Edge());
+            }
+        } else if (!run_edge(p, start, end, e)) {
+            /* An interpolation that will not run is not a reason to fail the
+             * sweep: fall back to the straight segments of that run, which is
+             * exactly what v23 would have built for the whole path. */
+            for (int i = start; i < end; ++i) {
+                BRepBuilderAPI_MakeEdge le(p[i], p[i + 1]);
+                if (!le.IsDone()) {
+                    set_err(who, "the path collapsed to a single point");
+                    return false;
+                }
+                mk.Add(le.Edge());
+            }
+        } else {
+            if (end - start >= 2)
+                any = true;
+            mk.Add(e);
+        }
+        start = end;
+    }
+    if (!mk.IsDone()) {
+        set_err(who, "the path could not be assembled into a spine");
+        return false;
+    }
+    out = mk.Wire();
+    if (smoothed)
+        *smoothed = any;
     return true;
+}
+
+/* The v23 entry point, unchanged for every caller that does not care. */
+static bool spine_from_points(const double *pts, int n, const char *who,
+                              TopoDS_Wire &out)
+{
+    return spine_from_points_ex(pts, n, OCCT_SWEEP_PATH_POLY, who, out,
+                                nullptr);
 }
 
 /* Runs a MakePipeShell that has already been given its mode and profile, and
@@ -3112,9 +3760,10 @@ static bool spine_from_points(const double *pts, int n, const char *who,
 static occt_shape *finish_pipe(BRepOffsetAPI_MakePipeShell &mk,
                                const std::vector<TopoDS_Wire> &holes,
                                const TopoDS_Wire &spine, int orientation,
-                               double taper_deg, const char *who)
+                               double taper_deg, const char *who,
+                               bool corrected_frenet,
+                               Standard_Boolean with_correction)
 {
-    (void)orientation;
     mk.Build();
     if (!mk.IsDone()) {
         set_err(who, "the sweep failed (path too tight for the section?)");
@@ -3134,14 +3783,49 @@ static occt_shape *finish_pipe(BRepOffsetAPI_MakePipeShell &mk,
     for (const TopoDS_Wire &h : holes) {
         BRepOffsetAPI_MakePipeShell hm(spine);
         hm.SetTransitionMode(BRepBuilderAPI_RightCorner);
-        hm.SetMode(Standard_True);
+        /* v24: the hole is swept along the SAME spine wire, so it inherits the
+         * smoothing for free — but it must inherit the TRIHEDRON too, or the
+         * hole spirals through a body that does not. The caller says which,
+         * rather than this function guessing from the spine: the coil's spine
+         * has always been a curve and its holes have always been Frenet, and a
+         * guess here would change that silently. */
+        /* v26, and this is the half the first measurement of the fix
+         * uncovered: `orientation` has been a parameter of this function since
+         * v15 and its first line threw it away with `(void)orientation`. So a
+         * hole was swept with a Frenet trihedron even when its body was swept
+         * with a fixed one, and repairing WithCorrection alone left
+         * orientation 1 at +0.17 % instead of -3.17 %. Both are the same
+         * defect — the hole is not placed the way its body is placed — and
+         * both parameters of that placement now come from the body. */
+        if (orientation == 1)
+            hm.SetMode(gp_Ax2(gp::Origin(), gp_Dir(0, 0, 1), gp_Dir(1, 0, 0)));
+        else
+            hm.SetMode(corrected_frenet ? Standard_False : Standard_True);
+        /* `with_correction` is the CALLER'S, not a hard-coded
+         * Standard_True. It had been True here since v15 while
+         * occt_sweep_profile added the OUTER wire with the caller's own
+         * setting — Standard_False for orientations 0 and 1 — so the two wires
+         * of one solid were placed against different frames and the hole did
+         * not sit where the body was.
+         *
+         * The measurement that pins it needs no analytic model: a tube's
+         * volume must be the difference of the two single-loop sweeps that
+         * make it. On a 24-segment r=6 ring with an r=3 hole over the arc
+         * path, outer 6 708.589649 minus hole 1 677.147412 is 5 031.442237,
+         * and the tube came out 4 871.741766 — 3.17 % short.
+         *
+         * The control is already in the code: ORIENTATION 2 passes
+         * Standard_True, which is what this line hard-coded, and its tube is
+         * exact to every digit. So is occt_coil_profile's, which also passes
+         * True. Threading the caller's value through leaves both of those
+         * untouched and repairs the two that disagreed. */
         if (taper_deg != 0.0) {
             const double k = std::tan(taper_deg * M_PI / 180.0);
             Handle(Law_Linear) law = new Law_Linear();
             law->Set(0.0, 1.0, 1.0, 1.0 + k);
-            hm.SetLaw(h, law, Standard_False, Standard_True);
+            hm.SetLaw(h, law, Standard_False, with_correction);
         } else {
-            hm.Add(h, Standard_False, Standard_True);
+            hm.Add(h, Standard_False, with_correction);
         }
         hm.Build();
         if (!hm.IsDone() || !hm.MakeSolid()) {
@@ -3161,12 +3845,12 @@ static occt_shape *finish_pipe(BRepOffsetAPI_MakePipeShell &mk,
     return wrap(uni.Shape(), who);
 }
 
-extern "C" occt_shape *occt_sweep_profile(const double *xyb,
-                                          const int *loop_counts, int nloops,
-                                          const double *mat34,
-                                          const double *path_pts, int npath,
-                                          int orientation, double taper_deg,
-                                          double twist_deg)
+extern "C" occt_shape *occt_sweep_profile_ex(const double *xyb,
+                                             const int *loop_counts,
+                                             int nloops, const double *mat34,
+                                             const double *path_pts, int npath,
+                                             int orientation, double taper_deg,
+                                             double twist_deg, int path_mode)
 {
     OCCT_TRY("occt_sweep_profile")
     if (std::fabs(twist_deg) > 1e-9) {
@@ -3175,26 +3859,100 @@ extern "C" occt_shape *occt_sweep_profile(const double *xyb,
         set_err("occt_sweep_profile", "twist is not implemented yet");
         return nullptr;
     }
+    if (path_mode < OCCT_SWEEP_PATH_AUTO || path_mode > OCCT_SWEEP_PATH_SMOOTH) {
+        set_err("occt_sweep_profile", "unknown path mode");
+        return nullptr;
+    }
     TopoDS_Wire outer, spine;
     std::vector<TopoDS_Wire> holes;
     if (!placed_profile_wires(xyb, loop_counts, nloops, mat34,
                               "occt_sweep_profile", outer, holes))
         return nullptr;
-    if (!spine_from_points(path_pts, npath, "occt_sweep_profile", spine))
+    /* A HOLE COSTS MORE THAN THE CORNERS SAVE, so AUTO does not smooth one.
+     *
+     * finish_pipe sweeps every hole separately and CUTS it out of the body.
+     * On a polyline spine both operands are made of planes and that boolean is
+     * cheap; on a smoothed spine both are made of general swept surfaces, and
+     * a plane/plane intersection becomes a surface/surface one. Measured on a
+     * 24-segment ring with an r=3 hole over 16 spans: the two sweeps take
+     * 36.5 ms and 29.5 ms, and the cut between them takes 21 653.6 ms — 99.7 %
+     * of the call, against 258.7 ms for the WHOLE v23 operation. Smoothing
+     * would make a holed sweep about 80x slower, which is not a trade this
+     * session gets to make on the user's behalf.
+     *
+     * So a holed profile keeps the v23 spine exactly, which also means a holed
+     * profile keeps v23's failure at 1200 segments. That is the half of this
+     * finding that is NOT fixed, it is stated as such in
+     * perf/findings/S14-sweep.md §6.1, and the way out is to stop cutting
+     * holes out of sweeps rather than to smooth less — which is a bigger
+     * change than this one and is the integrator's to schedule.
+     *
+     * OCCT_SWEEP_PATH_SMOOTH is deliberately NOT restricted: it is an explicit
+     * request from a caller who has decided for itself. */
+    const int effective_mode =
+        (path_mode == OCCT_SWEEP_PATH_AUTO && nloops > 1)
+            ? OCCT_SWEEP_PATH_POLY
+            : path_mode;
+    bool smoothed = false;
+    if (!spine_from_points_ex(path_pts, npath, effective_mode,
+                              "occt_sweep_profile", spine, &smoothed))
         return nullptr;
 
     BRepOffsetAPI_MakePipeShell mk(spine);
     /* A path with a SHARP corner (an L, the common case for a swept bar) fails
      * outright in the default Transformed mode. RightCorner miters the section
      * through the corner, which is both what OCCT can build and what a swept
-     * bar actually looks like. */
+     * bar actually looks like.
+     *
+     * v24: still set, and now usually inert. It applies to the joints between
+     * spine EDGES, and a smoothed run is one edge — so a path that came from
+     * the curve sampler has no joints left and pays nothing, while a drawn
+     * corner is still a joint and is still mitered exactly as before. */
     mk.SetTransitionMode(BRepBuilderAPI_RightCorner);
     /* 1 = Fixed keeps the section's own orientation; 0 and 2 both follow the
-     * path, 2 additionally correcting against the spine's frame. */
+     * path, 2 additionally correcting against the spine's frame.
+     *
+     * v25: "Fixed" was calling the WRONG OCCT MODE, and had been since v15.
+     * SetMode(gp_Dir) is BRepFill_PipeShell::Set(const gp_Dir&), which builds a
+     * GeomFill_ConstantBiNormal — a law that pins the binormal and then, in its
+     * D0, REPLACES the frame's tangent with `Normal ^ BiNormal`, i.e. with the
+     * real tangent's projection perpendicular to the binormal. On a path that
+     * climbs at 25 deg from +Z that projection is 65 deg away from where the
+     * spine actually goes, and on a polyline the mismatch compounds at every
+     * joint into a shell that passes through itself.
+     *
+     * SetMode(gp_Ax2) is Set(const gp_Ax2&) -> GeomFill_IsFixed, whose own
+     * documentation is "all sections will be parallel" — which is what this
+     * comment has always said orientation 1 means.
+     *
+     * Measured on a 10x10 square over the arc path (S14 §9.2), against an
+     * analytic 6000 that Cavalieri gives whatever the path does in XY:
+     *
+     *     spans   ConstantBiNormal            Fixed
+     *       2     7 448.5352  +24.1 % INVALID  6 000.0000 valid
+     *       4     8 980.7801  +49.7 % INVALID  6 000.0000 valid
+     *      16    16 429.0722 +173.8 % INVALID  6 000.0000 valid
+     *
+     * A single straight segment is 4 000.0000 / 6 000.0000 in BOTH laws, which
+     * is why nothing caught this: the mode only goes wrong once the path bends.
+     *
+     * The axis is a readable constant rather than something derived from
+     * mat34, and that is measured, not assumed: GeomFill_Fixed is a CONSTANT
+     * trihedron, so it cancels out of the location law's relative transform.
+     * Three unrelated gp_Ax2 values — (origin, +Z, +X), ((7,-3,11), +X, +Y) and
+     * (origin, (1,2,3), (3,0,-1)) — give the same solid to every printed digit
+     * (S14 §9.3). */
     if (orientation == 1)
-        mk.SetMode(gp_Dir(0, 0, 1));
+        mk.SetMode(gp_Ax2(gp::Origin(), gp_Dir(0, 0, 1), gp_Dir(1, 0, 0)));
     else
-        mk.SetMode(Standard_True); /* Frenet */
+        /* v24: on a spine carrying a real curve, plain Frenet also carries its
+         * TORSION and spins the section about the tangent — 81 deg over this
+         * project's own sweep fixture, which a circular section hides and a
+         * square one does not. Corrected Frenet is the trihedron that
+         * reproduces what the polyline did, and on a polyline the two are
+         * measurably identical, so this changes nothing where nothing was
+         * smoothed. */
+        mk.SetMode(smoothed ? Standard_False : Standard_True);
     const Standard_Boolean correct =
         orientation == 2 ? Standard_True : Standard_False;
     if (taper_deg != 0.0) {
@@ -3206,8 +3964,20 @@ extern "C" occt_shape *occt_sweep_profile(const double *xyb,
         mk.Add(outer, Standard_False, correct);
     }
     return finish_pipe(mk, holes, spine, orientation, taper_deg,
-                       "occt_sweep_profile");
+                       "occt_sweep_profile", smoothed, correct);
     OCCT_CATCH("occt_sweep_profile", nullptr)
+}
+
+extern "C" occt_shape *occt_sweep_profile(const double *xyb,
+                                          const int *loop_counts, int nloops,
+                                          const double *mat34,
+                                          const double *path_pts, int npath,
+                                          int orientation, double taper_deg,
+                                          double twist_deg)
+{
+    return occt_sweep_profile_ex(xyb, loop_counts, nloops, mat34, path_pts,
+                                 npath, orientation, taper_deg, twist_deg,
+                                 OCCT_SWEEP_PATH_AUTO);
 }
 
 extern "C" occt_shape *occt_loft_sections(const double *xyb,
@@ -3360,7 +4130,13 @@ extern "C" occt_shape *occt_coil_profile(const double *xyb,
     } else {
         mk.Add(outer, Standard_False, Standard_True);
     }
-    return finish_pipe(mk, holes, spine, 0, taper_deg, "occt_coil_profile");
+    /* Frenet for the holes, as it has always been: the coil's own outer sweep
+     * is Frenet and the two must agree. And Standard_True for the correction,
+     * because that is what the coil adds its OUTER wire with, twenty lines
+     * up — which is why the coil has never had the defect v26 repairs in the
+     * sweep. */
+    return finish_pipe(mk, holes, spine, 0, taper_deg, "occt_coil_profile",
+                       false, Standard_True);
     OCCT_CATCH("occt_coil_profile", nullptr)
 }
 

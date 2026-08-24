@@ -9,6 +9,8 @@ import 'package:flutter/services.dart';
 
 import 'log.dart';
 import 'perf.dart';
+import 'ffi/perf_hook.dart';
+import 'package:reality_view/perf_hook.dart';
 
 import 'app_state.dart';
 import 'l10n/l.dart';
@@ -32,6 +34,7 @@ import 'widgets/viewport_assembly.dart';
 import 'widgets/edge_feature_dialog.dart';
 import 'widgets/extrude_dialog.dart';
 import 'widgets/combine_dialog.dart';
+import 'widgets/constraint_dialog.dart';
 import 'widgets/split_dialog.dart';
 import 'widgets/hole_dialog.dart';
 import 'widgets/work_plane_offset_field.dart';
@@ -40,10 +43,29 @@ void main() {
   // Logger FIRST — works synchronously, before any binding exists.
   Log.init();
   Perf.init();
+  // The FFI modules time through injected hooks so they keep their "only
+  // dart:ffi" invariant (see ffi/perf_hook.dart). Install the real recorder
+  // before anything can call the kernel — an unwired hook silently records
+  // nothing, which would look exactly like a kernel that costs nothing.
+  installFfiPerfHooks(span: Perf.span, count: Perf.count);
+  // Same seam for the RealityKit plugin: it is a separate package and the
+  // dependency runs app -> plugin, so it cannot import perf.dart either.
+  installRealityViewPerfHooks(record: Perf.record, count: Perf.count);
+  installNativeMenuPerfHooks(record: Perf.record, count: Perf.count);
+  // Time to first frame: the one launch number a user actually feels. Measured
+  // from the top of main() to the first frame the engine reports as rasterised,
+  // which is the same event MetricKit's MXAppLaunchMetric ends on — so the two
+  // can be compared instead of argued about.
+  Perf.markLaunchStart();
   runZonedGuarded(() {
     Log.step('main', 'WidgetsFlutterBinding.ensureInitialized', () {
       WidgetsFlutterBinding.ensureInitialized();
     });
+    // Only NOW can frame timings be registered — SchedulerBinding.instance
+    // does not exist before the line above. Perf.init() ran earlier on purpose
+    // (the file must be open before anything can be measured); this is the
+    // half that needs the binding. See Perf.attachToBinding.
+    Perf.attachToBinding();
     // Route every framework + platform-dispatcher error into the log file.
     FlutterError.onError = (details) {
       Log.e('flutter', 'FlutterError: ${details.exceptionAsString()}',
@@ -285,7 +307,17 @@ class PrototypeApp extends StatelessWidget {
                                   // (extrude, hole, pattern, work plane) can
                                   // apply to it.
                                   child: app.currentAssembly != null
-                                      ? ViewportAssembly(app: app)
+                                      // M242 — the assembly gained a floating
+                                      // panel of its own, so the viewport is
+                                      // no longer the whole branch: Place
+                                      // Constraint is modeless and has to sit
+                                      // OVER the viewport it collects from.
+                                      ? Stack(children: [
+                                          Positioned.fill(
+                                              child: ViewportAssembly(app: app)),
+                                          if (app.constraintSession != null)
+                                            ConstraintDialog(app: app),
+                                        ])
                                       : app.currentPart != null
                                       ? Stack(children: [
                                           Positioned.fill(

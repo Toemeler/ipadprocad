@@ -58,6 +58,12 @@ const Map<String, Set<String>> kAllowed = {
     'Offset \${workPlaneOffset.toStringAsFixed(2)} mm from \$label',
     'Part\$n',
     'Plane',
+    // M242 — the LABEL of the reference vector a directed Angle captures when
+    // it is created. It is an AsmRef.label, which is written into the .pas
+    // beside the geometry it names, exactly like the 'Face' and 'Circular
+    // Edge' labels the picker stores — translating one would make a
+    // German-authored assembly read differently when opened in English.
+    'Reference Vector',
     'Revolution',
     'Scale',
     'Sketch\$_newN',
