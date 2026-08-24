@@ -554,3 +554,264 @@ Predicted     : delta ZERO. No file under frontend/ is touched by this
 Falsifiable by: any change in either, which would mean I edited something I
                 do not own.
 ```
+
+---
+
+## 4. What was built
+
+Three commits, and each reverts on its own:
+
+| | |
+| --- | --- |
+| `bdaf900` | the instrument — `backend/bench/hole_probe.cpp`, off by default |
+| `4918eb6` | the change — the guard, the assembly, the fallback, the lifted restriction, scenario [39] |
+| `26bc628` | Lane C's missing holed ladder |
+
+### 4.1 The change, in three pieces
+
+**The guard, `profile_holes_are_separate`.** Runs on `xyb` in the profile's own
+2D coordinates before any wire exists. Flattens each loop at 2° per sub-chord,
+keeping the largest sagitta it discards; then, for every hole, checks that one
+of its vertices is inside loop 0 and that no point of its boundary comes within
+`sag(O) + sag(H) + 1e-7·diag` of loop 0's; then the same between every pair of
+holes, plus "neither hole's first vertex is inside the other". **1.52 ms at
+1200 × 1200 vertices** — P8's ceiling was 50 ms and its estimate 7.2 ms; the
+axis-aligned rejection is cheaper than I costed it because two concentric rings
+fail the first comparison of four.
+
+**The assembly, `assemble_holed_pipe`.** Takes `mk.Shape()` and
+`mk.FirstShape()`/`LastShape()` **before** `MakeSolid`, because
+`BRepFill_PipeShell::MakeSolid` caps the shell in place and turns those end
+wires into end faces; sweeps each hole with the same configuration the boolean
+branch uses (one shared `configure_hole_pipe`, so the two routes cannot drift
+apart on v26's repair); builds each cap with `BRepLib_MakeFace(outer,
+onlyPlane)` — the same call OCCT's own `PerformPlan` makes — and adds the inner
+wires to it; sews; requires exactly one shell, no free edges, no multiple
+edges, and every input face present; then settles the global sense with
+`BRepClass3d_SolidClassifier::PerformInfinitePoint`, as `MakeSolid` does.
+
+**The fallback.** The v26 `BRepAlgoAPI_Cut` loop, unchanged, in an `else`. It is
+the same lines and not a reimplementation, which is what makes "the fallback
+produces what the boolean produced" checkable rather than aspirational. It
+costs one extra sweep per hole when the assembly declines partway, on a path
+that was already going to pay for a boolean.
+
+### 4.2 Adjudication
+
+| | prediction | outcome |
+| --- | --- | --- |
+| **P5** | the assembly is the subtraction at [37f]'s fixtures | **HELD** — all three orientations equal to 1e-9; [39g] adds the direct comparison against `occt_cut` and gets 3.6e-16 (POLY) and 1.8e-16 (SMOOTH) with **the same face count**, 386/386 and 50/50 |
+| **P6** | AUTO smooths a holed profile now | **HELD** — 50 faces against POLY's 386, volume 5 031.037365 against the analytic annulus 5 031.440835, 8.0e-5 relative, inside the registered 1e-4 |
+| **P7** | a poking hole is refused and matches the boolean | **HELD** — orientation 0 exact (0.000e+00), orientation 1 at 1.5e-16. **The first version of this arm FAILED and the failure was mine**: see §4.4 |
+| **P8** | the guard costs under 50 ms at 1200 × 1200 | **HELD** — 1.52 ms |
+| **P9** | two and three holes are analytic | **HELD** — 3 913.343961950 and 3 935.705927447 against 3 913.343961950 and 3 935.705927447, and 7.5e-15 on the arc |
+| **P10** | a tapered holed sweep is analytic | **HELD on the straight path** — 3 656.315817683 against 3 656.315817683. **Its arc arms found a defect that is not mine**: §4.3 |
+| **P11** | the coil moves by a differential, not a constant | **HELD** — 5 562.133035056 and 50 faces, the same value S14's P16 recorded, equal to its own outer-minus-hole at 8.2e-16 |
+| **P12** | a non-coplanar hole end section is not constructible | **AS REGISTERED — argued, not pinned.** No fixture reaches the check |
+| **P13** | overlapping holes fall back and match the boolean | **HELD** — 3 548.350261969 against the double cut, exact |
+| **P14** | the Dart side does not move | **HELD** — `git diff origin/claude/perf-opt2 -- frontend/` is empty |
+| **P0–P4** | round one | §2.2 |
+
+**And the bar.** `[39f]`: a 1200-segment ring with an r=3 hole on the 16-span
+sampled arc — **2 402 faces, valid, volume 5 089.335272 against an analytic
+5 089.356844 (4.24e-6)** — where the v26 route returns nothing after
+490 407.2 ms with `occt_sweep_profile: BRep_API: command not done`.
+
+### 4.3 A defect this session found and did NOT fix
+
+**A tapered sweep along a spine of more than one edge produces an INVALID
+solid, and it has nothing to do with holes.**
+
+Found by P10's arc arm, which asserted validity and did not get it. Measured
+against the **v26** shim built from this branch's parent commit, in the same
+run, on the **single-loop** sweep — so the assembly is not involved at all:
+
+| fixture | v26 | v27 |
+| --- | --- | --- |
+| 24-gon r=6, 8-span polyline arc, taper 5°, **one loop** | 10 476.381185581 **INVALID** | 10 476.381185581 **INVALID** |
+| the same, taper 0 | 6 708.589649052 valid | 6 708.589649052 valid |
+| the same, taper 5°, SMOOTH spine | 7 312.043216529 valid | 7 312.043216529 valid |
+| 10×10 square, **drawn 90° L path**, taper 5°, plain AUTO | 8 555.054342 **INVALID** | 8 555.054342 **INVALID** |
+| the same, taper 0 | 7 000.000000 valid | 7 000.000000 valid |
+
+Every digit identical between the two shims. **A one-edge spine is fine; a
+straight path is fine; a smoothed run is fine.** What is not fine is a taper
+across a mitered joint — and the last row matters most, because a drawn
+90° corner is not an exotic input. It is a swept bar with a draft angle, under
+plain `OCCT_SWEEP_PATH_AUTO`, and the app would accept and draw the result.
+
+Not fixed here, deliberately: it is a second defect, in a second mechanism
+(`SetLaw` across `BRepFill_Sweep::PerformCorner` rather than anything about
+holes), and it deserves its own pre-registration rather than being folded into
+a commit about something else. `[39b]` records it in the test file and asserts
+what can honestly be asserted instead — that the tube equals the boolean
+exactly, and that it is valid **exactly when the unholed sweep it is made from
+is**. The assembly is not allowed to be worse than its own ingredients; it is
+not asked to be better. **`Needs:` integrator.**
+
+### 4.4 The guard was wrong, and a fixture I nearly did not write caught it
+
+`flatten_loop` computed the arc centre by stepping **against** the chord's left
+normal. A DXF bulge is `tan(θ/4)` and a positive one is counter-clockwise; a
+body turning counter-clockwise keeps its centre of curvature on its left, so
+the belly is on the right — which is also why `arc_loop_signed_area` **adds**
+the segment area for `b > 0` on a counter-clockwise loop. The sign was
+inverted.
+
+The arithmetic that settles it is one line. With `p0 = (0,0)`, `p1 = (10,0)`,
+`b = tan 22.5°`, rotating `p0` about the centre by θ must land on `p1`:
+
+```
+  m - n*h : centre (5.000, -5.000)  endpoint (-0.000, -10.000)   wrong
+  m + n*h : centre (5.000,  5.000)  endpoint ( 10.000,   0.000)  p1
+```
+
+**What it cost, had it shipped:** the flattened polygon traces a region the
+profile does not have, so the guard answers a question about the wrong shape —
+and it can therefore say *"this hole is safely inside"* about a hole that is
+not. That is a false YES, which is the one failure mode the guard exists to
+prevent, and it produces a **wrong solid** rather than a slow one. It was found
+by a bulged fixture reporting "separate" for a hole outside the profile.
+
+Two checks now stand behind it, both in the repository:
+
+* `[39h]` sweeps a **true circle** — a 2-point loop with bulge 1 at both
+  vertices, two semicircles, area exactly 25π — with a 24-gon hole, and pins
+  3 017.359511941 against an analytic 3 017.359511941 (3.0e-16). A profile with
+  no straight edges at all, so the flattening has nowhere to hide.
+* the same circle with a hole **straddling** its wall at x = 4.5…5.5: refused,
+  boolean, 3 121.926488718 against `occt_cut`'s 3 121.926488718 — and
+  `outer − hole` printed beside it at 3 101.592653590, which is what proves the
+  hole really straddles rather than merely sitting near the wall.
+
+And separately, `flatten_loop`'s signed area now agrees with
+`arc_loop_signed_area`'s on five loops (square, bowed in, bowed out, and a
+circle both ways), in sign and to the sagitta: 30.1386 against 30.1101,
+169.8614 against 169.8899, ±78.5239 against ±78.5398.
+
+### 4.5 The other thing the first run caught, in the test rather than the code
+
+`[39c]`'s reference sweeps asked for `OCCT_SWEEP_PATH_AUTO`. The **tube** asks
+for AUTO too, but the guard refuses that profile, so AUTO falls back to POLY
+for it — while a *single-loop* reference sweep asked for AUTO is smoothed. Two
+different spines, compared as though they were one.
+
+Orientation 0 came out 1.1 % apart and orientation 1 agreed to 4e-10, which is
+the tell: "Fixed" gives `A × rise` whatever the path does in XY, so it cannot
+see a spine change. Naming the mode on all three sweeps is what makes that arm
+a differential.
+
+### 4.6 Lane C had no holed sweep at all
+
+`sweep.holed` is new, and the reason it is new is worth saying: **nothing in
+the per-push gate exercised a two-loop profile.** That is how a holed sweep
+stayed on the v23 mitered spine, and stayed failing at 1200 segments, through
+v24, v25 and v26 without anything noticing.
+
+| ladder | k | R² | interval |
+| --- | ---: | ---: | --- |
+| `sweep.segments` | 1.194 | 0.9945 | [1.020, 1.368] |
+| **`sweep.holed`** | **1.143** | 0.9987 | [1.061, 1.226] |
+| `sweep.legacy` (v23) | 1.914 | 0.9785 | [1.359, 2.470] |
+| `sweep.coil` | 1.388 | 0.9491 | [0.758, 2.018] |
+
+95.2 / 221.3 / 464.7 ms at 32 / 64 / 128 segments, against the unholed
+43.6 / 110.9 / 228.1 — **almost exactly 2×, which is what "two sweeps instead
+of one" predicts** and is the shape of the claim rather than a number to
+record. The holed sweep now sits in the same family as the unholed one.
+
+---
+
+## 5. What I am unsure of
+
+1. **The 25 minutes I could not reproduce.** §2.3. S14 killed a prototype after
+   25 minutes at 1200 segments; the same operation here is 33.5 s end to end
+   and ~11.7 s scaled to S14's machine. I have three candidate explanations
+   (a plane fit over both wires instead of one, a rebuilt cap wire defeating
+   sewing's identity match, a Debug kernel) and **no way to choose between
+   them**, because the prototype is not in the repository. If the real cause is
+   none of those and it is something my probe also does, then the number I am
+   quoting for construction is wrong by two orders of magnitude and I have not
+   noticed. What makes me think that is unlikely is [39f], which builds the
+   thing through the shipped entry point in a smoke test and takes 8 s — but
+   that is the same code path as the probe, so it is not independent evidence.
+
+2. **P12 is argued, not pinned, and I said so before I wrote it.** No fixture I
+   can build makes the coplanarity check fire, because `placed_profile_wires`
+   puts every loop in one plane and `finish_pipe` places them all with one
+   spine, one trihedron, one `WithCorrection` and one taper law. Delete the
+   check and nothing goes red. It is kept because those four agreements are
+   *conventions between two call sites*, not invariants the type system holds,
+   and v26 exists because two of them had silently disagreed since v15.
+
+3. **The guard's margin is `1e-7 · diag` and I chose that number by
+   analogy, not by derivation.** The sagitta terms are derived — they are the
+   flattening's own error and they belong there. The relative term is there to
+   keep the test scale-free and to refuse a hole that is *exactly* tangent to
+   the wall, where the assembly and the boolean genuinely disagree about what
+   the solid is. I do not know what the right value is. Too small and a
+   tangent hole assembles into a solid with a degenerate cap edge; too large
+   and a legitimately-thin wall falls back to a boolean it did not need. I have
+   tested neither end. **A wall thinner than 1e-7 of the profile's diagonal is
+   the case to build a fixture for**, and I did not.
+
+4. **Sewing is 64 % of construction at 1200 segments** — 5 094.6 ms of
+   7 952.7 ms — and it is doing less work than it looks like it should. The
+   cap's outer wire IS `mk.FirstShape()`, which is the lateral shell's own free
+   boundary, the same `TShape`, so there is nothing to match there. A shell
+   built directly with `BRep_Builder` would skip almost all of it. I did not
+   take that, because sewing is also what settles the face orientations (the
+   hole's shell must face *into* the hole) and what reports `NbFreeEdges()`,
+   which is the closed-shell guard. **Measured, not taken** — the trade is
+   about 5 s at 1200 segments against doing the orientation reasoning by hand,
+   and I would want a fixture for a *non-convex* profile before touching it.
+
+5. **`BRepGProp::VolumeProperties` costs 7 ms per B-spline face** and I found
+   that by accident, looking for something else. It is the largest single stage
+   in the 1200-segment measurement — 16 778.5 ms, more than the whole
+   construction — and it is equally large on the *unholed* control, so it has
+   nothing to do with this session. It is not in the shipped path either. But
+   `occt_shape_volume` **is** called by the app, and nothing anywhere in this
+   repository's profile says it is not free. I have not looked at where.
+
+6. **The taper defect in §4.3 is characterised, not diagnosed.** I know it
+   needs a taper and a spine of more than one edge, I know it predates v27
+   digit for digit, and I know a drawn L path reaches it under plain AUTO. I do
+   not know whether the shell self-intersects at the miter, whether the caps
+   are wrong, or whether `Law_Linear` and `BRepFill_Sweep::PerformCorner`
+   simply do not compose. I stopped at "not mine to fix in this commit" rather
+   than at "understood".
+
+7. **[39f] costs about 33 s of a 2 m 12 s smoke run on this machine**, and
+   three quarters of that is the two verification calls, not the sweep. On the
+   CI runner (~2.9× faster here) it should be ~12 s. If that becomes the
+   reason someone drops the arm, **drop `occt_shape_volume` before
+   `occt_shape_valid`** — a solid that builds and is invalid is the worst
+   outcome available at that size, and it is the cheaper of the two calls.
+
+8. **Everything S14 §14.3 still says.** Item 3 (the hole assembly at scale) is
+   answered. Item 4 (containment) is answered by a guard whose margin is item 3
+   of this list. Items 1, 2, 5 and 6 stand exactly as written — and item 6, "I
+   do not know what else in this shim is only ever exercised straight", just
+   collected another example that is not about holes at all: §4.3's taper.
+
+---
+
+## 6. Definition of done
+
+| | |
+| --- | --- |
+| `flutter analyze --no-pub --no-fatal-infos --no-fatal-warnings` | 56 issues, **delta ZERO** — and provably so rather than by comparison: `git diff origin/claude/perf-opt2 -- frontend/` is empty, no Dart file is touched |
+| `flutter test` | **2 368 passed**, three consecutive runs, full logs kept (§6.1) |
+| `python3 -m unittest discover -s ci -p 'test_*.py'` | **52 tests, OK** |
+| `occt_smoke` on real OCCT 7.9.3 | **PASS**, 2 m 12 s, with a scenario per new claim: [39a] two and three holes, [39b] taper, [39c] a hole poking out, [39d] overlapping holes, [39e] the coil, [39f] the 1200-segment bar, [39g] the assembly against the boolean, [39h] arcs and a straddling hole; [37f] arm 3 inverted |
+| `occt_mesh_recon_test` | **86 passed, 0 failed** |
+| `occt_bench` (Lane C) | **LANE C: PASS**; `HARNESS: NOT VALIDATED` on `edgeInfo1`, which is the run-to-run instrument variance S14 §5.4 measured at a spread of 0.118 on untouched code |
+| predictions before the code | `d6f25b6` (P0–P4) → `bdaf900`; `c937778` (P5–P14) → `4918eb6` |
+| separate, revertible commits | instrument `bdaf900`, change `4918eb6`, Lane C `26bc628` |
+| `perf/baseline.json`, `PERFORMANCE_PROFILE.md`, `frontend/lib/perf*.dart` | untouched |
+
+`pubspec.lock` is untouched, and that took two attempts: the first Flutter I
+installed was 3.35.5, which resolved `characters` and `intl` **downwards** and
+rewrote the lock. Reverted, and the whole verification re-run on **3.47.1**,
+which is what round one's §1.4 says CI uses.
