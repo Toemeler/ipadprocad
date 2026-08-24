@@ -4121,7 +4121,10 @@ class AppState extends ChangeNotifier {
     // trying Flush instead of Mate is the commonest thing a user does — but
     // the third slot belongs to a solution that may no longer exist.
     if (s.needed < 3) s.c = null;
-    s.value = 0;
+    // The field opens on the kind's own neutral value, which is zero for a
+    // distance and ONE for a ratio: a gear pair of 0:1 is not a gear pair, and
+    // Inventor opens Rotation on 1 for exactly that reason.
+    s.value = valueKindOf(kind) == AsmValueKind.ratio ? 1 : 0;
     s.armed = s.firstEmpty < 0 ? 0 : s.firstEmpty;
     _checkConstraintPair(s);
   }

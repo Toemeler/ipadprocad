@@ -113,7 +113,7 @@ List<List<GlassMenuItem>> _componentMenu(AssemblyOccurrence o) => [
 GlassRow _constraintRow(AssemblyModel asm, AsmConstraint c,
         {required int depth}) =>
     GlassRow(
-      id: '\$kIdConstraint\${c.name}',
+      id: '$kIdConstraint${c.name}',
       label: c.name,
       symbol: c.suppressed
           ? 'link.badge.plus'

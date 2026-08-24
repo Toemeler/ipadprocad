@@ -87,8 +87,8 @@ class _ConstraintDialogState extends State<ConstraintDialog> {
     }
     if (_name.text != s.name) _name.text = s.name;
 
-    const w = 372.0;
-    final h = s.expanded ? 320.0 : 252.0;
+    const w = 420.0;
+    final h = s.expanded ? 330.0 : 256.0;
     final vp = MediaQuery.sizeOf(context);
     final pos = _pos ?? DialogDock.spot(vp, Size(w, h));
     return Positioned(
@@ -145,7 +145,7 @@ class _ConstraintDialogState extends State<ConstraintDialog> {
   Widget _title(AppState app, AppL10n t) => GestureDetector(
         onPanUpdate: (d) => setState(() {
           final vp = MediaQuery.sizeOf(context);
-          _pos = (_pos ?? DialogDock.spot(vp, const Size(372, 252))) + d.delta;
+          _pos = (_pos ?? DialogDock.spot(vp, const Size(420, 256))) + d.delta;
         }),
         child: Container(
           padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
@@ -155,8 +155,12 @@ class _ConstraintDialogState extends State<ConstraintDialog> {
             borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
           ),
           child: Row(children: [
-            Text(t.dlgPlaceConstraint,
-                style: ts(13, T.text, w: FontWeight.w600)),
+            Flexible(
+              child: Text(t.dlgPlaceConstraint,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: ts(13, T.text, w: FontWeight.w600)),
+            ),
             const Spacer(),
             GestureDetector(
               onTap: app.cancelConstraint,
@@ -172,35 +176,43 @@ class _ConstraintDialogState extends State<ConstraintDialog> {
   Widget _tabs(AppState app, ConstraintSession s, AppL10n t) => Container(
         height: 26,
         padding: const EdgeInsets.only(left: 8),
-        decoration:
-            BoxDecoration(border: Border(bottom: BorderSide(color: T.panelSep))),
-        child: Row(children: [
-          for (final (tab, label) in [
-            (AsmTab.assembly, t.tabAsmAssembly),
-            (AsmTab.motion, t.tabAsmMotion),
-            (AsmTab.transitional, t.tabAsmTransitional),
-            (AsmTab.constraintSet, t.tabAsmConstraintSet),
-          ])
-            GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: () => app.setConstraintTab(tab),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: s.tab == tab ? T.panel : Colors.transparent,
-                  border: s.tab == tab
-                      ? Border(bottom: BorderSide(color: T.accent, width: 2))
-                      : null,
+        decoration: BoxDecoration(
+            border: Border(bottom: BorderSide(color: T.panelSep))),
+        // The four names are long in German and longer again at an
+        // accessibility text size; Inventor's strip cannot scroll because its
+        // dialog is a fixed-width Win32 window, and this one is not. Scrolling
+        // is the honest answer: every tab stays reachable at any label length,
+        // and at the common one nothing moves.
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(children: [
+            for (final (tab, label) in [
+              (AsmTab.assembly, t.tabAsmAssembly),
+              (AsmTab.motion, t.tabAsmMotion),
+              (AsmTab.transitional, t.tabAsmTransitional),
+              (AsmTab.constraintSet, t.tabAsmConstraintSet),
+            ])
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => app.setConstraintTab(tab),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: s.tab == tab ? T.panel : Colors.transparent,
+                    border: s.tab == tab
+                        ? Border(bottom: BorderSide(color: T.accent, width: 2))
+                        : null,
+                  ),
+                  child: Text(label,
+                      style: ts(11.5, s.tab == tab ? T.text : T.dim,
+                          w: s.tab == tab
+                              ? FontWeight.w600
+                              : FontWeight.normal)),
                 ),
-                child: Text(label,
-                    style: ts(11.5, s.tab == tab ? T.text : T.dim,
-                        w: s.tab == tab
-                            ? FontWeight.w600
-                            : FontWeight.normal)),
               ),
-            ),
-        ]),
+          ]),
+        ),
       );
 
   /// The bordered, titled box Inventor groups its controls in.
@@ -214,7 +226,10 @@ class _ConstraintDialogState extends State<ConstraintDialog> {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(title, style: ts(10.5, T.dim)),
+              Text(title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: ts(10.5, T.dim)),
               const SizedBox(height: 4),
               child,
             ]),
@@ -242,16 +257,14 @@ class _ConstraintDialogState extends State<ConstraintDialog> {
                 child: Text(t.hintAsmConstraintSet, style: ts(11, T.dim)),
               ),
             )
-          : Row(children: [
-              for (final k in kinds) ...[
+          : Wrap(spacing: 3, runSpacing: 3, children: [
+              for (final k in kinds)
                 _iconButton(
                   icon: AC[_typeIcon(k)]!,
                   on: s.kind == k,
                   tip: constraintLabel(t, k),
                   onTap: () => app.setConstraintKind(k),
                 ),
-                const SizedBox(width: 3),
-              ]
             ]),
     );
   }
@@ -272,12 +285,8 @@ class _ConstraintDialogState extends State<ConstraintDialog> {
   Widget _selectionGroup(AppState app, ConstraintSession s, AppL10n t) =>
       _group(
         t.grpAsmSelections,
-        Row(children: [
-          for (var i = 0; i < s.needed; i++) ...[
-            _selectionButton(app, s, t, i),
-            const SizedBox(width: 3),
-          ],
-          const Spacer(),
+        Wrap(spacing: 3, runSpacing: 3, children: [
+          for (var i = 0; i < s.needed; i++) _selectionButton(app, s, t, i),
           _glyphCheckbox(
             on: s.pickPartFirst,
             icon: asmPickPartIcon,
@@ -287,8 +296,7 @@ class _ConstraintDialogState extends State<ConstraintDialog> {
         ]),
       );
 
-  Widget _selectionButton(
-      AppState app, ConstraintSession s, AppL10n t, int i) {
+  Widget _selectionButton(AppState app, ConstraintSession s, AppL10n t, int i) {
     final filled = s.slot(i) != null;
     final armed = s.armed == i;
     return Tooltip(
@@ -330,7 +338,8 @@ class _ConstraintDialogState extends State<ConstraintDialog> {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(_valueLabel(t, kind), style: ts(11, T.dim)),
+        Text(_valueLabel(t, kind),
+            maxLines: 1, overflow: TextOverflow.ellipsis, style: ts(11, T.dim)),
         const SizedBox(height: 3),
         // A kind with no value still reserves the row: the dialog must not
         // change height when the type changes, or the buttons move out from
@@ -434,8 +443,7 @@ class _ConstraintDialogState extends State<ConstraintDialog> {
 
   // ---- Solution ------------------------------------------------------------
 
-  Widget _solutionGroup(AppState app, ConstraintSession s, AppL10n t) =>
-      _group(
+  Widget _solutionGroup(AppState app, ConstraintSession s, AppL10n t) => _group(
         t.grpAsmSolution,
         Wrap(spacing: 3, runSpacing: 3, children: [
           for (final sol in solutionsFor(s.kind))
@@ -481,18 +489,33 @@ class _ConstraintDialogState extends State<ConstraintDialog> {
 
   // ---- footer --------------------------------------------------------------
 
+  /// The command row.
+  ///
+  /// spaceBetween rather than Spacers, and the three buttons travel as ONE
+  /// cluster inside a FittedBox: with each button its own flex child the gaps
+  /// competed with them for space and starved the long German labels into
+  /// "Abbr…" and "Über…". This way the cluster takes its natural width, the
+  /// two gaps absorb whatever is left, and only a genuinely impossible width
+  /// (an accessibility text size) scales the cluster down rather than
+  /// clipping it.
   Widget _footer(AppState app, ConstraintSession s, AppL10n t) => Padding(
         padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
-        child: Row(children: [
+        child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
           _flatButton('?', null, width: 26),
-          const Spacer(),
-          _flatButton(t.ok, s.complete ? app.okConstraint : null,
-              primary: true),
-          const SizedBox(width: 6),
-          _flatButton(t.cancel, app.cancelConstraint),
-          const SizedBox(width: 6),
-          _flatButton(t.apply, s.complete ? () => app.applyConstraint() : null),
-          const Spacer(),
+          Flexible(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                _flatButton(t.ok, s.complete ? app.okConstraint : null,
+                    primary: true),
+                const SizedBox(width: 6),
+                _flatButton(t.cancel, app.cancelConstraint),
+                const SizedBox(width: 6),
+                _flatButton(
+                    t.apply, s.complete ? () => app.applyConstraint() : null),
+              ]),
+            ),
+          ),
           _flatButton(s.expanded ? '<<' : '>>', app.toggleConstraintExpanded,
               width: 30),
         ]),
@@ -512,6 +535,7 @@ class _ConstraintDialogState extends State<ConstraintDialog> {
               const SizedBox(height: 4),
               Row(children: [
                 Expanded(
+                  flex: 3,
                   child: Container(
                     height: 26,
                     padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -540,14 +564,17 @@ class _ConstraintDialogState extends State<ConstraintDialog> {
                 // box is drawn for every type and only lives on that one —
                 // which is what Inventor does, and why it looks disabled
                 // beside a Mate.
-                Opacity(
-                  opacity: s.kind == AsmKind.angle ? 1 : 0.4,
-                  child: IgnorePointer(
-                    ignoring: s.kind != AsmKind.angle,
-                    child: _textCheckbox(
-                      on: s.defaultUndirected,
-                      label: t.cbAsmDefaultUndirected,
-                      onTap: app.toggleDefaultUndirected,
+                Expanded(
+                  flex: 4,
+                  child: Opacity(
+                    opacity: s.kind == AsmKind.angle ? 1 : 0.4,
+                    child: IgnorePointer(
+                      ignoring: s.kind != AsmKind.angle,
+                      child: _textCheckbox(
+                        on: s.defaultUndirected,
+                        label: t.cbAsmDefaultUndirected,
+                        onTap: app.toggleDefaultUndirected,
+                      ),
                     ),
                   ),
                 ),
@@ -614,7 +641,12 @@ class _ConstraintDialogState extends State<ConstraintDialog> {
         child: Row(mainAxisSize: MainAxisSize.min, children: [
           _box(on),
           const SizedBox(width: 5),
-          Text(label, style: ts(11, T.text)),
+          Flexible(
+            child: Text(label,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: ts(11, T.text)),
+          ),
         ]),
       );
 
@@ -627,18 +659,21 @@ class _ConstraintDialogState extends State<ConstraintDialog> {
           border: Border.all(color: on ? T.accent : T.panelSep),
           borderRadius: BorderRadius.circular(2),
         ),
-        child: on
-            ? const Icon(Icons.check, size: 10, color: Colors.white)
-            : null,
+        child:
+            on ? const Icon(Icons.check, size: 10, color: Colors.white) : null,
       );
 
+  /// [width] is a FLOOR, not a size: "Übernehmen" is half again as long as
+  /// "Apply", and a fixed width would clip the German label rather than grow.
+  /// The same rule the ribbon's _Big buttons follow.
   Widget _flatButton(String label, VoidCallback? onTap,
-          {bool primary = false, double width = 62}) =>
+          {bool primary = false, double width = 58}) =>
       GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: onTap,
         child: Container(
-          width: width,
+          constraints: BoxConstraints(minWidth: width),
+          padding: const EdgeInsets.symmetric(horizontal: 8),
           height: 26,
           alignment: Alignment.center,
           decoration: BoxDecoration(
@@ -650,6 +685,8 @@ class _ConstraintDialogState extends State<ConstraintDialog> {
             borderRadius: BorderRadius.circular(3),
           ),
           child: Text(label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: ts(12, onTap == null ? T.dim : T.text,
                   w: primary ? FontWeight.w600 : FontWeight.normal)),
         ),

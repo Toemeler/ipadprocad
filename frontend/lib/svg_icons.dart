@@ -423,7 +423,7 @@ final Map<String, String> AC = {
   'tangent': S(24, '<circle cx="12" cy="9" r="6" fill="#54B0E8" stroke="#1a5f95" stroke-width=".9"/><path d="M2 15 L22 15 L22 20 L2 20 Z" fill="#8C939A" stroke="#4d5257" stroke-width=".8"/><path d="M2 15 h20" stroke="$YL" stroke-width="1.4"/><circle cx="12" cy="15" r="1.5" fill="#5CBF4A"/>'),
   // Insert: a shaft down the middle of a bore, with the two circular edges
   // that Insert is actually created by picking.
-  'insert': S(24, '<ellipse cx="12" cy="6" rx="8" ry="3" fill="#8C939A" stroke="#4d5257" stroke-width=".8"/><path d="M4 6 v9 a8 3 0 0 0 16 0 V6" fill="#5b6167" fill-opacity=".55" stroke="#4d5257" stroke-width=".8"/><ellipse cx="12" cy="6" rx="3.6" ry="1.5" fill="#54B0E8" stroke="#1a5f95" stroke-width=".8"/><path d="M8.4 6 v13 a3.6 1.5 0 0 0 7.2 0 V6" fill="#54B0E8" stroke="#1a5f95" stroke-width=".8"/><path d="M12 1 v21" stroke="$YL" stroke-width="1" stroke-dasharray="3 2"/>'),
+  'insert': S(24, '<ellipse cx="12" cy="13" rx="8" ry="3" fill="#8C939A" stroke="#4d5257" stroke-width=".9"/><path d="M4 13 v6 a8 3 0 0 0 16 0 V13" fill="#5b6167" stroke="#4d5257" stroke-width=".9"/><ellipse cx="12" cy="13" rx="3.4" ry="1.4" fill="#2b2f33" stroke="$YL" stroke-width="1.1"/><ellipse cx="12" cy="4" rx="3.4" ry="1.4" fill="#54B0E8" stroke="#1a5f95" stroke-width=".8"/><path d="M8.6 4 v5 a3.4 1.4 0 0 0 6.8 0 V4" fill="#54B0E8" stroke="#1a5f95" stroke-width=".8"/><ellipse cx="12" cy="9" rx="3.4" ry="1.4" fill="none" stroke="$YL" stroke-width="1.1"/>'),
   // Symmetry: a pair either side of the plane they are symmetric about.
   'symmetry': S(24, '<path d="M2 8 L8 5 L8 15 L2 18 Z" fill="#54B0E8" stroke="#1a5f95" stroke-width=".8"/><path d="M16 5 L22 8 L22 18 L16 15 Z" fill="#8C939A" stroke="#4d5257" stroke-width=".8"/><path d="M12 2 v20" stroke="$YL" stroke-width="1.3" stroke-dasharray="3.5 2.5"/><path d="M9 11 h2 M15 11 h-2" stroke="#5CBF4A" stroke-width="1.2"/>'),
   // ---- motion -------------------------------------------------------------
@@ -437,8 +437,8 @@ final Map<String, String> AC = {
 
   // ---- solutions ----------------------------------------------------------
   // Mate: the two faces point AT each other. Flush: the same way.
-  'solMate': S(24, '<path d="M2 6 L9 3 L9 17 L2 20 Z" fill="#54B0E8" stroke="#1a5f95" stroke-width=".8"/><path d="M15 3 L22 6 L22 20 L15 17 Z" fill="#8C939A" stroke="#4d5257" stroke-width=".8"/><path d="M9 3 v14 M15 3 v14" stroke="$YL" stroke-width="1.2"/><path d="M10 10 h1.6 M11.6 10 l-1.5-1.2 M11.6 10 l-1.5 1.2 M14 10 h-1.6 M12.4 10 l1.5-1.2 M12.4 10 l1.5 1.2" stroke="#5CBF4A" stroke-width="1.1"/>'),
-  'solFlush': S(24, '<path d="M2 6 L9 3 L9 17 L2 20 Z" fill="#54B0E8" stroke="#1a5f95" stroke-width=".8"/><path d="M15 3 L22 6 L22 20 L15 17 Z" fill="#8C939A" stroke="#4d5257" stroke-width=".8"/><path d="M9 3 v14 M15 3 v14" stroke="$YL" stroke-width="1.2"/><path d="M10 8 h4 M14 8 l-1.6-1.2 M14 8 l-1.6 1.2 M10 13 h4 M14 13 l-1.6-1.2 M14 13 l-1.6 1.2" stroke="#5CBF4A" stroke-width="1.1"/>'),
+  'solMate': S(24, '<path d="M1 6 L8 2 L8 17 L1 21 Z" fill="#54B0E8" stroke="#1a5f95" stroke-width=".8"/><path d="M16 2 L23 6 L23 21 L16 17 Z" fill="#8C939A" stroke="#4d5257" stroke-width=".8"/><path d="M8 2 v15 M16 2 v15" stroke="$YL" stroke-width="1.4"/><path d="M9 11.5 L11.6 11.5 M11.6 11.5 l-2.4-2 M11.6 11.5 l-2.4 2 M15 11.5 L12.4 11.5 M12.4 11.5 l2.4-2 M12.4 11.5 l2.4 2" stroke="#5CBF4A" stroke-width="1.7"/>'),
+  'solFlush': S(24, '<path d="M1 6 L8 2 L8 17 L1 21 Z" fill="#54B0E8" stroke="#1a5f95" stroke-width=".8"/><path d="M16 2 L23 6 L23 21 L16 17 Z" fill="#8C939A" stroke="#4d5257" stroke-width=".8"/><path d="M8 2 v15 M16 2 v15" stroke="$YL" stroke-width="1.4"/><path d="M9 8 L15 8 M15 8 l-2.6-2 M15 8 l-2.6 2 M9 15 L15 15 M15 15 l-2.6-2 M15 15 l-2.6 2" stroke="#5CBF4A" stroke-width="1.7"/>'),
   // Angle: the arc with a sense, without one, and with an explicit axis.
   'solDirectedAngle': S(24, '<path d="M4 19 h15" stroke="#8C939A" stroke-width="2"/><path d="M4 19 L18 7" stroke="#54B0E8" stroke-width="2"/><path d="M13 19 A 9 9 0 0 0 11.2 13.6" fill="none" stroke="#5CBF4A" stroke-width="1.3"/><path d="M11.2 13.6 l2.2.3 M11.2 13.6 l.1 2.2" stroke="#5CBF4A" stroke-width="1.1"/><path d="M4 19 v-13" stroke="$YL" stroke-width="1.1" stroke-dasharray="2.6 2"/>'),
   'solUndirectedAngle': S(24, '<path d="M4 19 h15" stroke="#8C939A" stroke-width="2"/><path d="M4 19 L18 7" stroke="#54B0E8" stroke-width="2"/><path d="M13 19 A 9 9 0 0 0 11.2 13.6" fill="none" stroke="#5CBF4A" stroke-width="1.3"/>'),
@@ -472,7 +472,7 @@ const asmPickPartIcon =
 
 /// "Show Preview", the checkbox's graphic label: Inventor's spectacles.
 const asmPreviewIcon =
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="4.2" cy="9" r="2.8" fill="none" stroke="#C4C9CE" stroke-width="1.1"/><circle cx="11.8" cy="9" r="2.8" fill="none" stroke="#C4C9CE" stroke-width="1.1"/><path d="M7 8.6h2M1.4 8.2C1.4 5 3 3 5 3M14.6 8.2C14.6 5 13 3 11 3" fill="none" stroke="#C4C9CE" stroke-width="1.1"/></svg>';
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect x="0.9" y="6" width="6" height="5" rx="1.4" fill="#3D9BE9" fill-opacity=".35" stroke="#C4C9CE" stroke-width="1.2"/><rect x="9.1" y="6" width="6" height="5" rx="1.4" fill="#3D9BE9" fill-opacity=".35" stroke="#C4C9CE" stroke-width="1.2"/><path d="M6.9 8.2h2.2M0.9 8.2L0.9 6.4Q0.9 4.6 3 4.6M15.1 8.2L15.1 6.4Q15.1 4.6 13 4.6" fill="none" stroke="#C4C9CE" stroke-width="1.2"/></svg>';
 
 /// "Predict Offset and Orientation": the measured gap being read off.
 const asmPredictIcon =
