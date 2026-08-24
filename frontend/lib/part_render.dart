@@ -800,6 +800,22 @@ void paintPartSolids(
   /// COMPONENT is "all of it", and spelling that as a set at the call site
   /// would only rebuild the edge list the painter is about to walk anyway.
   bool accentAll = false,
+
+  /// M242 — the solids of the body SELECTED in the model browser. Their faces
+  /// are washed with [selectedTint] and their edges accented, which is what
+  /// RealityKit says with a tinted material (see reality_scene's
+  /// `_bodyRowTint`): the two viewports must agree about what selection looks
+  /// like. Compared by identity — a body is a handful of solids, so a linear
+  /// scan beats building a set per frame.
+  List<KernelSolid> selectedSolids = const [],
+  Color? selectedTint,
+
+  /// The solids of the body merely HOVERED in the model browser: the same wash
+  /// at half the strength and no edge accent, so the prehighlight reads as the
+  /// weaker statement it is. A solid that is in both sets is drawn SELECTED —
+  /// two washes would compound into a third colour that means nothing.
+  List<KernelSolid> hoveredSolids = const [],
+  Color? hoveredTint,
 }) {
   final opaque = [for (final s in solids) buildSceneSolid(s, cam)];
   final occ = SceneOccluders(opaque);
@@ -839,16 +855,49 @@ void paintPartSolids(
     }
   }
 
+  // 2b. the browser's selection / hover wash, over the shading and under the
+  //     edges. Same treatment paintAssemblySolids gives a selected component,
+  //     because it is the same statement: the whole body is picked.
+  bool isSelected(KernelSolid s) =>
+      selectedSolids.any((x) => identical(x, s));
+  bool isHovered(KernelSolid s) =>
+      !isSelected(s) && hoveredSolids.any((x) => identical(x, s));
+  for (final (pick, tint, alpha) in [
+    (isSelected, selectedTint ?? kFaceHighlight, 0.42),
+    (isHovered, hoveredTint ?? kFaceHighlight, 0.20),
+  ]) {
+    final tris = [
+      for (final s in opaque)
+        if (pick(s.solid))
+          for (final t in s.tris)
+            if (t.front) t
+    ];
+    if (tris.isEmpty) continue;
+    final pos = Float32List(tris.length * 6);
+    var pi = 0;
+    for (final t in tris) {
+      pos[pi++] = t.a.dx;
+      pos[pi++] = t.a.dy;
+      pos[pi++] = t.b.dx;
+      pos[pi++] = t.b.dy;
+      pos[pi++] = t.c.dx;
+      pos[pi++] = t.c.dy;
+    }
+    canvas.drawVertices(ui.Vertices.raw(ui.VertexMode.triangles, pos),
+        BlendMode.srcOver, Paint()..color = tint.withValues(alpha: alpha));
+  }
+
   // 3. edges + silhouettes over the shading
   for (final s in opaque) {
+    final on = accentAll || isSelected(s.solid);
     _paintSolidEdges(canvas, cam, s, occ, kSolidEdge,
         accent: (accentSolid != null && identical(s.solid, accentSolid))
             ? accentEdges
             : const {},
-        accentAll: accentAll,
+        accentAll: on,
         accentColor: accentColor);
-    _paintSolidSilhouettes(canvas, cam, s, occ,
-        accentAll ? (accentColor ?? kEdgeAccent) : kSolidEdge);
+    _paintSolidSilhouettes(
+        canvas, cam, s, occ, on ? (accentColor ?? kEdgeAccent) : kSolidEdge);
   }
 
   // 4. translucent live preview on top (its own sort; edges dimmed and only

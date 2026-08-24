@@ -2159,6 +2159,8 @@ class AppState extends ChangeNotifier {
     finishEdit(save: false);
     flushCurrentDocument();
     curTab = null;
+    selectedBody = null;
+    browserHoverBody = null;
     _reanalyze();
     notifyListeners();
   }
@@ -2532,6 +2534,10 @@ class AppState extends ChangeNotifier {
       s.resetHistory();
     }
     if (!openTabs.contains(name)) openTabs.add(name);
+    if (curTab != name) {
+      selectedBody = null; // a selection belongs to ONE part
+      browserHoverBody = null;
+    }
     curTab = name;
     _reanalyze();
     notifyListeners();
@@ -3319,6 +3325,10 @@ class AppState extends ChangeNotifier {
     // this is the cheapest honest moment to redraw it. Once per document.
     unawaited(_repairPreview(name));
     if (!openTabs.contains(name)) openTabs.add(name);
+    if (curTab != name) {
+      selectedBody = null; // a selection belongs to ONE part
+      browserHoverBody = null;
+    }
     curTab = name;
     activeChild = null;
     editingLayer = null;
@@ -3784,6 +3794,10 @@ class AppState extends ChangeNotifier {
       assemblies[name] = await _loadAssemblyModel(name);
     }
     if (!openTabs.contains(name)) openTabs.add(name);
+    if (curTab != name) {
+      selectedBody = null; // a selection belongs to ONE part
+      browserHoverBody = null;
+    }
     curTab = name;
     activeChild = null;
     editingLayer = null;
@@ -8840,6 +8854,10 @@ class AppState extends ChangeNotifier {
       cancelExtrude(); // notifies for itself now (M210)
     } else if (pickPlane) {
       cancelPlanePick();
+    } else if (selectedBody != null) {
+      // Nothing is running: Esc then means "deselect", the same way it clears
+      // a selected component in an assembly.
+      selectBody(null);
     }
   }
 
@@ -10060,6 +10078,40 @@ class AppState extends ChangeNotifier {
   /// browser and the 3D view, so the two agree about what a click would take.
   String? hoverBody;
 
+  /// The solid body SELECTED in the model browser, or null.
+  ///
+  /// Inventor's part-mode selection: clicking a Solid Bodies row highlights
+  /// the row and the body itself in 3D, and clicking it again clears both.
+  /// Kept here, next to [hoverBody], for the same reason that one is — the
+  /// browser (Flutter and native) and both renderers must read ONE answer, or
+  /// the row and the geometry can disagree about what is selected.
+  String? selectedBody;
+
+  /// The body under the pointer in the MODEL BROWSER, or null.
+  ///
+  /// Deliberately not [hoverBody]: that one belongs to the extrude dialog's
+  /// target pick and re-previews the boolean as it moves, which is far too
+  /// much to happen because a pointer crossed a tree row. This one only lights
+  /// things up — the row, and the body itself in 3D, in the same colour a
+  /// hovered assembly component gets.
+  String? browserHoverBody;
+
+  void setBrowserHoverBody(String? name) {
+    if (browserHoverBody == name) return;
+    browserHoverBody = name;
+    notifyListeners();
+  }
+
+  /// Selects [name], or clears the selection when it is already selected.
+  void toggleBodySelected(String name) =>
+      selectBody(selectedBody == name ? null : name);
+
+  void selectBody(String? name) {
+    if (selectedBody == name) return;
+    selectedBody = name;
+    notifyListeners();
+  }
+
   /// M97 — renames a body everywhere it is built.
   bool renameBody(String from, String to) {
     final p = currentPart;
@@ -10073,6 +10125,8 @@ class AppState extends ChangeNotifier {
     for (final f in p.features) {
       if (f.bodyName == from) f.bodyName = n;
     }
+    if (selectedBody == from) selectedBody = n; // the selection follows it
+    if (browserHoverBody == from) browserHoverBody = n;
     p.dirty = true;
     if (curTab != null) savePart(curTab!);
     notifyListeners();
@@ -10086,6 +10140,8 @@ class AppState extends ChangeNotifier {
     final victims = [for (final f in p.features) if (f.bodyName == bodyName) f];
     if (victims.isEmpty) return 0;
     _partCheckpoint(p); // M182 — deleting a body must be undoable
+    if (selectedBody == bodyName) selectedBody = null; // nothing left to light
+    if (browserHoverBody == bodyName) browserHoverBody = null;
     for (final f in victims) {
       f.disposeSolid();
       p.features.remove(f);
@@ -10376,6 +10432,9 @@ class AppState extends ChangeNotifier {
     if (extrudeSession == null) return;
     pickingBody = true;
     hoverBody = null;
+    // The browser's own prehighlight steps aside: while a pick is armed the
+    // hover belongs to the dialog, and two lit bodies would be one too many.
+    browserHoverBody = null;
     toast(L.current.msgSelectTargetBody);
     notifyListeners();
   }

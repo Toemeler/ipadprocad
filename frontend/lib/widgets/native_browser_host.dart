@@ -3,6 +3,8 @@
 // On iOS the panel is UIKit on Liquid Glass; everywhere else the original
 // Flutter tree is used unchanged, so the desktop/host-test path keeps working
 // and nothing here can regress it.
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:native_menu/native_menu.dart';
 
@@ -89,6 +91,23 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
   /// on a device that never hovers would make it unreachable.
   bool _hasHover = false;
 
+  /// M243 — the row under the pointer, its vertical centre inside the panel,
+  /// and the tooltip that appears if the pointer STAYS there.
+  ///
+  /// Retracted, a row is a glyph and nothing else: hovering grows it, and
+  /// dwelling spells out what it is, because a column of icons is a column of
+  /// guesses until it can be asked.
+  String? _hoverRow;
+  double _hoverY = 0;
+  String? _tip;
+  Timer? _tipTimer;
+
+  /// The rows as last pushed, so a hovered id can be turned into a NAME
+  /// without rebuilding the tree to ask.
+  List<GlassRow> _rows = const [];
+
+  static const Duration _kTipDelay = Duration(milliseconds: 400);
+
   AppState get app => widget.app;
 
   @override
@@ -102,6 +121,12 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
     // width before the first frame rather than after the first toggle.
     // occupiedWidth (the expanded figure) is what the notifier starts on.
     _publishWidth();
+  }
+
+  @override
+  void dispose() {
+    _tipTimer?.cancel();
+    super.dispose();
   }
 
   /// M207 — tell the triad how much room the panel is taking. Deferred: this
@@ -120,12 +145,32 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
     if (!GlassBrowser.isSupported) return ModelBrowser(app: app);
     return AnimatedBuilder(
       animation: app,
-      builder: (_, __) => MouseRegion(
+      builder: (_, __) {
+        // Built once here, kept, and pushed from the one place: the hover
+        // handler has to be able to look a row's NAME up by id, and rebuilding
+        // the whole tree to answer that would be a second source of truth.
+        _rows = buildBrowserRows(app,
+            expanded: _expanded,
+            dragEop: _dragEop,
+            collapsed: _collapsed,
+            hoverId: _hoverRow);
+        return MouseRegion(
         onEnter: (_) => setState(() {
           _near = true;
           _hasHover = true;
         }),
-        onExit: (_) => setState(() => _near = false),
+        // Leaving the panel takes the prehighlight and the tooltip with it:
+        // UIKit reports the row the pointer moved OFF, but not a pointer that
+        // left the card entirely in one motion.
+        onExit: (_) {
+          _tipTimer?.cancel();
+          if (!app.pickingBody) app.setBrowserHoverBody(null);
+          setState(() {
+            _near = false;
+            _hoverRow = null;
+            _tip = null;
+          });
+        },
         child: AnimatedContainer(
         // M118 — retracts to the timeline icons. Animated so the panel reads
         // as one object sliding, not two states swapping.
@@ -153,7 +198,10 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
         // The strip is part of the widget's width so the handle sits BESIDE
         // the card, never over it.
         width: (_collapsed ? _kNarrow : _kWide) + _kHandle,
-        child: Stack(children: [
+        // Clip.none: the hover tooltip is parked BESIDE the card, outside this
+        // widget's own width. It is behind an IgnorePointer, so nothing it
+        // covers becomes unreachable.
+        child: Stack(clipBehavior: Clip.none, children: [
         // M120 — the card ends WHERE THE STRIP BEGINS. Sizing it by width let
         // it run under the handle, and a Flutter GestureDetector on top of a
         // platform view swallows the touch: tapping a folder's disclosure
@@ -168,9 +216,9 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
           // M199 — retracted, the panel is icons over the model and nothing
           // else: the glass goes with the labels.
           glass: !_collapsed,
-          rows: buildBrowserRows(app,
-              expanded: _expanded, dragEop: _dragEop, collapsed: _collapsed),
+          rows: _rows,
           onTap: _onTap,
+          onHover: _onHover,
           onEye: _onEye,
           onExpand: (id, on) => setState(() {
             Log.i('browser', 'expand $id on=$on');
@@ -223,13 +271,78 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
           ),
           ),
         ),
+        // M243 — the dwell tooltip: the retracted row's NAME, parked beside
+        // the card. It is a Flutter layer rather than a UIKit one because the
+        // platform view is 56 pt wide and clips its own content — a label that
+        // says "Extrusion1" has nowhere to go inside it.
+        if (_tip != null && _collapsed)
+          Positioned(
+            left: _kNarrow + _kHandle + 2,
+            top: _hoverY - 13,
+            // A width and an Align, rather than a bare child: a Positioned
+            // with no width is laid out against the STACK, which is 80 pt
+            // wide here, and the name would wrap inside the panel it is meant
+            // to stand beside. The Align hands the chip loose constraints so
+            // it still sizes to its text, up to this cap.
+            width: 200,
+            child: IgnorePointer(
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: _HoverTip(text: _tip!),
+              ),
+            ),
+          ),
         ]),
       ),
-      ),
+      );
+      },
     );
   }
 
   // -- events ---------------------------------------------------------------
+
+  /// M242 — the row under the pointer (trackpad / Pencil hover), or '' when it
+  /// is over none, with [y] the row's centre inside the panel.
+  ///
+  /// Two things come of it. A BODY row prehighlights its solid in 3D, the way
+  /// the Flutter browser does on a desktop run — except while the extrude
+  /// dialog is picking a target body, when that hover belongs to the dialog
+  /// (app.hoverBody, which re-previews the boolean) and this stays out of the
+  /// way. And EVERY row, retracted, grows under the pointer and spells its
+  /// name out beside the panel if the pointer stays on it.
+  void _onHover(String id, double y) {
+    final row = id.isEmpty ? null : id;
+    if (!app.pickingBody) {
+      app.setBrowserHoverBody(
+          row != null && row.startsWith(kIdBody)
+              ? row.substring(kIdBody.length)
+              : null);
+    }
+    _tipTimer?.cancel();
+    if (_hoverRow != row || _tip != null) {
+      setState(() {
+        _hoverRow = row;
+        _hoverY = y;
+        _tip = null; // moving cancels the dwell; the name earns its way back
+      });
+    }
+    if (row == null || !_collapsed) return;
+    _tipTimer = Timer(_kTipDelay, () {
+      if (!mounted || !_collapsed || _hoverRow != row) return;
+      final name = _nameOf(row);
+      if (name.isEmpty) return;
+      setState(() => _tip = name);
+    });
+  }
+
+  /// The hovered row's NAME. [GlassRow.title] survives the retracted row's
+  /// stripped label, which is the whole reason it exists.
+  String _nameOf(String id) {
+    for (final r in _rows) {
+      if (r.id == id) return r.title;
+    }
+    return '';
+  }
 
   void _onTap(String id) {
     // M204 — every native browser event is logged from here on.
@@ -293,8 +406,16 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
       }
       return;
     }
-    if (id.startsWith(kIdBody) && app.pickingBody) {
-      app.pickBody(id.substring(kIdBody.length));
+    // A body row is a PICK while the extrude dialog is waiting for one, and
+    // an ordinary selection otherwise: tapping it highlights the row and the
+    // body in 3D, tapping it again clears both (as a component row does).
+    if (id.startsWith(kIdBody)) {
+      final name = id.substring(kIdBody.length);
+      if (app.pickingBody) {
+        app.pickBody(name);
+      } else {
+        app.toggleBodySelected(name);
+      }
       return;
     }
     if (id.startsWith(kIdLayer)) {
@@ -692,5 +813,39 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
       confirmLabel: L.of(context).delete,
     );
     if (ok) app.deleteBelowEndOfPart();
+  }
+}
+
+/// M243 — the retracted panel's dwell tooltip.
+///
+/// A plain chip, not a Material [Tooltip]: the trigger is a hover reported by
+/// UIKit over a method channel, so there is no Flutter widget under the
+/// pointer for a Tooltip to hang off. Styling follows the app's own dark
+/// chrome rather than Material's, for the same reason every other panel here
+/// does.
+class _HoverTip extends StatelessWidget {
+  final String text;
+  const _HoverTip({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: T.mbBg,
+        borderRadius: BorderRadius.circular(7),
+        border: Border.all(color: T.mbActiveOutline, width: 1),
+        // T.scrim, not a literal: the same drop the floating panels use, and
+        // the palette owns it (M236 — the theme test fails a colour written
+        // inline anywhere outside theme.dart, and it is right to).
+        boxShadow: [
+          BoxShadow(color: T.scrim, blurRadius: 8, offset: const Offset(0, 2)),
+        ],
+      ),
+      child: Text(text,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(fontSize: 12, color: T.text)),
+    );
   }
 }

@@ -25,6 +25,14 @@ class GlassRow {
   final String symbol;
   final String label;
 
+  /// M243 — the row's NAME, which survives [compact] where [label] does not.
+  ///
+  /// A retracted row draws no text, but it still has to be able to SAY what it
+  /// is: the context menu's title and the hover tooltip both read this. It
+  /// defaults to [label], so a caller that never retracts nothing has to
+  /// think about it.
+  final String title;
+
   final bool hasEye;
   final bool eyeOn;
 
@@ -34,6 +42,10 @@ class GlassRow {
   final bool expandable;
   final bool expanded;
   final bool selected;
+
+  /// M242 — the row under the POINTER (trackpad / Apple Pencil hover). Drawn
+  /// like [selected] at half the strength: a prehighlight, not a choice.
+  final bool hovered;
 
   /// The End of Part marker — the only draggable row.
   final bool isEop;
@@ -47,6 +59,7 @@ class GlassRow {
   const GlassRow({
     required this.id,
     required this.label,
+    String? title,
     this.depth = 0,
     this.symbol = 'cube',
     this.hasEye = false,
@@ -55,10 +68,11 @@ class GlassRow {
     this.expandable = false,
     this.expanded = false,
     this.selected = false,
+    this.hovered = false,
     this.isEop = false,
     this.tint,
     this.menu = const [],
-  });
+  }) : title = title ?? label;
 
   /// M200 — the same row, retracted: no label, no indentation, no eye.
   ///
@@ -75,6 +89,9 @@ class GlassRow {
   GlassRow compact() => GlassRow(
         id: id,
         label: '',
+        // M243 — the NAME goes with it, unlike the label: retracted, it is
+        // what the context menu is titled and what the tooltip spells out.
+        title: title,
         depth: 0,
         symbol: symbol,
         hasEye: false,
@@ -83,14 +100,37 @@ class GlassRow {
         expandable: false,
         expanded: expanded,
         selected: selected,
+        hovered: hovered,
         isEop: isEop,
         tint: tint,
         menu: menu,
       );
 
+  /// M243 — the same row, marked as the one under the pointer.
+  GlassRow hover(bool on) => on == hovered
+      ? this
+      : GlassRow(
+          id: id,
+          label: label,
+          title: title,
+          depth: depth,
+          symbol: symbol,
+          hasEye: hasEye,
+          eyeOn: eyeOn,
+          dim: dim,
+          expandable: expandable,
+          expanded: expanded,
+          selected: selected,
+          hovered: on,
+          isEop: isEop,
+          tint: tint,
+          menu: menu,
+        );
+
   Map<String, Object?> toMap() => {
         'id': id,
         'label': label,
+        'title': title,
         'depth': depth,
         'symbol': symbol,
         'hasEye': hasEye,
@@ -99,6 +139,7 @@ class GlassRow {
         'expandable': expandable,
         'expanded': expanded,
         'selected': selected,
+        'hovered': hovered,
         'isEop': isEop,
         if (tint != null) 'tint': tint,
         'menu': [
@@ -132,6 +173,12 @@ class GlassMenuItem {
 class GlassBrowser extends StatefulWidget {
   final List<GlassRow> rows;
   final void Function(String id) onTap;
+
+  /// M242 — the row under the pointer, or '' when it left the panel, with the
+  /// row's vertical CENTRE in the panel's own coordinates so the caller can
+  /// put something beside it. Optional: a surface that does not care about
+  /// hover simply does not pass it.
+  final void Function(String id, double y)? onHover;
   final void Function(String id) onEye;
   final void Function(String id, bool expanded) onExpand;
   final void Function(String id, String item) onMenu;
@@ -150,6 +197,7 @@ class GlassBrowser extends StatefulWidget {
     super.key,
     required this.rows,
     required this.onTap,
+    this.onHover,
     required this.onEye,
     required this.onExpand,
     required this.onMenu,
@@ -177,6 +225,10 @@ class _GlassBrowserState extends State<GlassBrowser> {
       switch (call.method) {
         case 'tap':
           widget.onTap(a['id'] as String? ?? '');
+          break;
+        case 'hover':
+          widget.onHover?.call(
+              a['id'] as String? ?? '', (a['y'] as num?)?.toDouble() ?? 0);
           break;
         case 'eye':
           widget.onEye(a['id'] as String? ?? '');
