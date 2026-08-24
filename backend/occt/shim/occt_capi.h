@@ -558,10 +558,23 @@ int occt_revolve_hits_face(const occt_shape *shape, double ax_px, double ax_py,
  *   1 = Fixed       — the section keeps its original orientation.
  *   2 = Follow Path and Guide — as 0, corrected against the path's own frame.
  *
+ * v25 — orientation 1 was BROKEN on any path that bends, and had been since
+ * v15: it selected OCCT's constant-binormal law rather than its fixed-trihedron
+ * one, and the constant-binormal law replaces the sweep frame's tangent with a
+ * projection of the real one. A 10x10 square on a 16-span arc came out at
+ * 16 429 where the analytic answer is 6 000, and failed BRepCheck_Analyzer.
+ * Straight single-segment paths were and remain exact. Test for >= 25 if you
+ * need orientation 1 to be trustworthy on a bending path.
+ *
  * `taper_deg` widens or narrows the section along the path (a linear scaling
  * law); 0 keeps it constant. `twist_deg` is accepted but NOT implemented and
  * a non-zero value is REFUSED rather than silently ignored — a swept solid
  * that quietly failed to twist is a wrong part, not a cosmetic miss.
+ *
+ * v24 — what happens to that "3D polyline" changed. See occt_sweep_profile_ex
+ * below: this entry point is now OCCT_SWEEP_PATH_AUTO, and for a path that
+ * came from the caller's own curve sampler it produces a DIFFERENT (smoother,
+ * far smaller, and buildable) solid than v23 did.
  *
  * NULL on failure.
  */
@@ -570,6 +583,62 @@ occt_shape *occt_sweep_profile(const double *xyb, const int *loop_counts,
                                const double *path_pts, int npath,
                                int orientation, double taper_deg,
                                double twist_deg);
+
+/* ---- v24: how a sampled path becomes a spine ----------------------------- */
+
+/*
+ * The path arrives as a polyline whatever the user drew, because
+ * `sketchCurve` flattens arcs, circles and splines before the shim is called
+ * (`sampleEntity(g, arcSamples: 64)` — 64 spans for EVERY arc, whatever its
+ * angle). Every joint of that polyline was then mitered, because the sweep
+ * sets BRepBuilderAPI_RightCorner, and inside OCCT a miter is a full
+ * BOPAlgo_PaveFiller between the two adjacent shells — one face per profile
+ * segment each. It is a boolean per joint over the whole profile.
+ *
+ * Measured (perf/findings/S14-sweep.md): that is 96.6 % of the call and turns
+ * a linear sweep into a cubic one. It made a 1200-segment ring on a 16-span
+ * sampled arc FAIL after 231 s on the device, and it makes a 64-segment ring
+ * on a 64-span sampled arc — which is what any arc path produces — corrupt the
+ * heap and abort the process.
+ *
+ * So v24 distinguishes joints the user DREW from joints the sampler MADE:
+ *
+ *   AUTO   — the default, and what occt_sweep_profile now does. Runs of points
+ *            whose interior joints are all <= 360/64 = 5.625 deg (the largest
+ *            joint the app's own sampler can emit) become one C2 B-spline
+ *            edge interpolated THROUGH every point; a joint above that stays a
+ *            vertex and is still mitered exactly as before.
+ *   POLY   — v23 behaviour, bit for bit: one straight edge per pair of points.
+ *            Kept so old and new can be compared in ONE run on ONE machine
+ *            (smoke scenario [37]), and as the escape hatch if the integrator
+ *            wants the old shape back.
+ *   SMOOTH — one interpolated curve through the whole path regardless of its
+ *            joints, for a caller that KNOWS its path is a sampled curve.
+ *
+ * A path of two points is one straight edge in every mode. AND AUTO DOES NOT
+ * SMOOTH A PROFILE WITH HOLES: finish_pipe cuts each hole out of the body with
+ * a boolean, and between two solids made of general swept surfaces that
+ * boolean costs about 80x what it costs between two solids made of planes
+ * (measured: 21 653 ms against a 258 ms whole operation). A holed profile
+ * therefore keeps the v23 spine — and keeps v23's failure at large segment
+ * counts. SMOOTH is not restricted: it is an explicit request.
+ *
+ * BEHAVIOUR CHANGE, and the integrator's call, not the shim's: an AUTO sweep
+ * along a sampled arc has a different FACE COUNT and different topology from
+ * the v23 one (segments + 2 instead of segments x spans + 2), the same volume,
+ * and about 4.4 % of its volume in a different place. Anything that reattaches
+ * a downstream feature to a face or edge of a sweep by index or fingerprint
+ * may therefore reattach differently on an existing part.
+ */
+#define OCCT_SWEEP_PATH_AUTO 0
+#define OCCT_SWEEP_PATH_POLY 1
+#define OCCT_SWEEP_PATH_SMOOTH 2
+
+occt_shape *occt_sweep_profile_ex(const double *xyb, const int *loop_counts,
+                                  int nloops, const double *mat34,
+                                  const double *path_pts, int npath,
+                                  int orientation, double taper_deg,
+                                  double twist_deg, int path_mode);
 
 /*
  * v15 — Loft through a series of SECTIONS (Inventor's Loft).

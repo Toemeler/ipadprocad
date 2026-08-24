@@ -26,6 +26,7 @@
 #include <Standard_Failure.hxx>
 #include <Standard_Version.hxx>
 
+#include <gp.hxx>
 #include <gp_Ax2.hxx>
 #include <gp_Dir.hxx>
 #include <gp_Pnt.hxx>
@@ -108,6 +109,9 @@
 #include <Geom_Circle.hxx>
 /* v15: sweep, loft, coil */
 #include <BRepOffsetAPI_MakePipeShell.hxx>
+/* v24: a spine that is a CURVE where the caller sampled one */
+#include <GeomAPI_Interpolate.hxx>
+#include <TColgp_HArray1OfPnt.hxx>
 #include <BRepOffsetAPI_ThruSections.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
 #include <Geom_CylindricalSurface.hxx>
@@ -195,7 +199,10 @@ extern "C" const char *occt_version(void)
     /* Keep the grep marker "Prototype OCCT shim" a single literal. */
     static char buf[128] = "";
     if (!buf[0]) {
-        std::snprintf(buf, sizeof(buf), "Prototype OCCT shim v21 (OCCT %s)",
+        /* Kept in step with occt_shim_version() below. It had said "v21"
+         * since v21 while the number went 22, 23 — a string nobody reads
+         * against a number three releases ahead of it. */
+        std::snprintf(buf, sizeof(buf), "Prototype OCCT shim v26 (OCCT %s)",
                       OCC_VERSION_COMPLETE);
     }
     return buf;
@@ -230,7 +237,44 @@ extern "C" const char *occt_version(void)
  * so it takes the next free number instead of pretending one of the two v21s
  * did not happen. A v23 binary has ALL of it: edges_info, the local convexity
  * sign, and brep_from_mesh. */
-extern "C" int occt_shim_version(void) { return 23; }
+/* v24 (S14, round three): occt_sweep_profile_ex and the OCCT_SWEEP_PATH_*
+ * modes — and, more importantly, a CHANGE OF BEHAVIOUR in occt_sweep_profile
+ * itself, which now takes OCCT_SWEEP_PATH_AUTO.
+ *
+ * A sweep whose path came from the application's own curve sampler now runs
+ * along an interpolated curve rather than along the sampler's polyline, so its
+ * result has `segments + 2` faces where v23 gave `segments x spans + 2`. Same
+ * volume to eight figures, about 4.4 % of it in a different place, and it
+ * BUILDS in the regime where v23 failed after four minutes or aborted the
+ * process. A caller that must have the old shape asks for
+ * OCCT_SWEEP_PATH_POLY; a caller that must know whether it is talking to a
+ * binary that can build a 1200-segment sweep tests for >= 24.
+ *
+ * Taken by the session that owns backend/occt/shim/** — the rule that kept the
+ * v17 and v21/v23 collisions from being worse, and it is why 24 and not 23.1
+ * or a reuse of 23. */
+/* v25 (S14, item 1): orientation 1 ("Fixed") stops calling the wrong OCCT
+ * mode. It has mapped to GeomFill_ConstantBiNormal since v15, which replaces
+ * the sweep frame's tangent with its projection perpendicular to the binormal;
+ * on any path that bends, the result was a self-intersecting shell that
+ * BRepCheck_Analyzer rejects and whose volume was up to 174 % too large — a
+ * part nearly three times too big that the app would accept and draw. It now
+ * uses GeomFill_IsFixed ("all sections will be parallel"), which is what the
+ * call site has always claimed it meant.
+ *
+ * Straight single-segment paths are UNCHANGED, bit for bit, in both laws; only
+ * bending paths move, and they move from invalid to analytic. A caller that
+ * must know whether orientation 1 can be trusted on a bending path tests for
+ * >= 25. Independent of v24: the repair works on the v23 polyline spine. */
+/* v26 (S14, item 2): a hole is placed the way its own body is placed.
+ * finish_pipe had added every hole with WithCorrection = Standard_True since
+ * v15 while occt_sweep_profile added the outer wire with the caller's setting,
+ * so on any path the section is not perpendicular to, a holed sweep lost about
+ * 3.2 % of its volume. Straight paths were exact, which is why it survived.
+ * Orientations 0 and 1 move; orientation 2 and occt_coil_profile do not, since
+ * they were already passing True. Test for >= 26 if a holed sweep's volume has
+ * to be right. */
+extern "C" int occt_shim_version(void) { return 26; }
 
 extern "C" const char *occt_last_error(void) { return g_err; }
 
@@ -3472,34 +3516,243 @@ static bool placed_profile_wires(const double *xyb, const int *loop_counts,
     return true;
 }
 
-/* A spine wire through world-space points. Straight segments: the caller has
- * already sampled the curve it picked, so interpolating again would only add
- * error the user cannot see or control. */
-static bool spine_from_points(const double *pts, int n, const char *who,
-                              TopoDS_Wire &out)
+/* ---- v24: the spine of a SAMPLED path ------------------------------------
+ *
+ * The comment this replaces said "the caller has already sampled the curve it
+ * picked, so interpolating again would only add error the user cannot see or
+ * control". That reasoning was about ACCURACY and it is still right about
+ * accuracy. It was wrong about cost, by three orders of magnitude, and the
+ * measurement is in perf/findings/S14-sweep.md:
+ *
+ *   - Every joint of a polyline spine is mitered, because occt_sweep_profile
+ *     sets BRepBuilderAPI_RightCorner. Inside OCCT that reaches
+ *     BRepFill_Sweep::PerformCorner, which hands the two adjacent shells —
+ *     one face per profile segment EACH — to a full BOPAlgo_PaveFiller. It is
+ *     a boolean, per joint, over the whole profile.
+ *   - Measured: 96.6 % of the call, and it turns a linear sweep into a cubic
+ *     one. A 512-segment ring on a 16-span path is 447 s; the same ring on a
+ *     1-span path, which has no joint at all, is 62 ms.
+ *   - At 1200 segments x 16 spans it does not merely cost, it FAILS —
+ *     "BRep_API: command not done" after 742 s here and 231 s on the device.
+ *   - At 64 segments x 64 spans, which is what sampleEntity(arcSamples: 64)
+ *     produces for ANY arc, it corrupts the heap and aborts the process.
+ *
+ * So: joints somebody DREW still get a polyline and still get mitered, which
+ * is the behaviour scenario [30] pins and the reason RightCorner is set at
+ * all. Runs of points that came from the caller's own curve sampler get a C2
+ * B-spline interpolated THROUGH every one of them — the samples all stay on
+ * the spine, so the spine is never further from the path than the path was
+ * from what the user drew, and there is no joint left to miter.
+ */
+
+/* The largest joint angle the application's own curve sampler can emit.
+ *
+ * sketchCurve (frontend/lib/part_model.dart:8647) hands every arc and every
+ * circle to sampleEntity(g, arcSamples: 64) (frontend/lib/snap.dart:453),
+ * which splits the entity's sweep into 64 EQUAL steps whatever its angle. A
+ * full circle is 64 joints of 360/64 = 5.625 deg; a 90 deg arc is 64 joints of
+ * 1.406 deg. 5.625 deg is the ceiling and only a closed circle reaches it.
+ *
+ * So a joint at or below this CAN have come from the sampler, and a joint
+ * above it CANNOT: it is a vertex somebody drew. That is the whole derivation
+ * — the number is a property of the caller, not one chosen to make a benchmark
+ * fast. IF arcSamples EVER STOPS BEING 64, THIS MUST MOVE WITH IT.
+ *
+ * What it costs to be wrong at that angle, measured (S14 §2.6): at 5.625 deg a
+ * mitered and an un-mitered joint differ by 0.50 % of the swept volume; at
+ * 90 deg they differ by 46.7 % and the un-mitered one is invalid. The
+ * threshold sits where the two treatments still nearly agree, four times
+ * further out than the catastrophe. */
+static const double kSampledJointDeg = 360.0 / 64.0;
+
+/* Slack on the comparison so a circle's own 5.625 deg joints, arrived at
+ * through cos and sin, land INSIDE the threshold rather than on it. */
+static const double kJointEps = 1.0e-6;
+
+/* The turn between two consecutive segments, in degrees: 0 straight, 180 a
+ * reversal. */
+static double joint_deg(const gp_Pnt &a, const gp_Pnt &b, const gp_Pnt &c)
 {
+    const gp_Vec u(a, b), v(b, c);
+    if (u.Magnitude() < 1e-12 || v.Magnitude() < 1e-12)
+        return 0.0;
+    return u.Angle(v) * 180.0 / M_PI;
+}
+
+/* True when every interior joint of pts[i0..i1] is straight to within floating
+ * point. Such a run must NOT be interpolated: a B-spline through collinear
+ * points is geometrically the same line, but it is a B-SPLINE, so the faces
+ * swept along it stop being planes — and a plane is what makes the boolean
+ * that removes a hole cheap (§4.1 of S14's findings measured that at 80x).
+ * Nothing curved is being given up here, so v23's straight segments stay. */
+static bool run_is_straight(const std::vector<gp_Pnt> &pts, int i0, int i1)
+{
+    for (int i = i0 + 1; i < i1; ++i)
+        if (joint_deg(pts[i - 1], pts[i], pts[i + 1]) > 1.0e-9)
+            return false;
+    return true;
+}
+
+/* One edge through pts[i0..i1] inclusive. Two points give a line; more give a
+ * C2 B-spline INTERPOLATED through every point, not fitted near them. */
+static bool run_edge(const std::vector<gp_Pnt> &pts, int i0, int i1,
+                     TopoDS_Edge &out)
+{
+    const int n = i1 - i0 + 1;
+    if (n < 2)
+        return false;
+    if (n == 2) {
+        BRepBuilderAPI_MakeEdge mk(pts[i0], pts[i1]);
+        if (!mk.IsDone())
+            return false;
+        out = mk.Edge();
+        return true;
+    }
+    Handle(TColgp_HArray1OfPnt) h = new TColgp_HArray1OfPnt(1, n);
+    for (int i = 0; i < n; ++i)
+        h->SetValue(i + 1, pts[i0 + i]);
+    GeomAPI_Interpolate itp(h, Standard_False, 1.0e-7);
+    itp.Perform();
+    if (!itp.IsDone())
+        return false;
+    BRepBuilderAPI_MakeEdge mk(itp.Curve());
+    if (!mk.IsDone())
+        return false;
+    out = mk.Edge();
+    return true;
+}
+
+/* A spine wire through world-space points.
+ *
+ * `path_mode` is one of OCCT_SWEEP_PATH_*. `smoothed` reports whether any run
+ * was interpolated, which the caller needs: on a spine that is a curve the
+ * Frenet trihedron carries the curve's TORSION and rotates the section about
+ * the tangent — measured at 81 deg over this project's own sweep fixture —
+ * where a polyline, having no torsion, does not. The corrected Frenet
+ * trihedron is the one that reproduces the polyline's section orientation, and
+ * on a polyline the two are identical (measured at 2, 4 and 16 spans: same
+ * volume, same bounding box, to every printed digit). */
+static bool spine_from_points_ex(const double *pts, int n, int path_mode,
+                                 const char *who, TopoDS_Wire &out,
+                                 bool *smoothed)
+{
+    if (smoothed)
+        *smoothed = false;
     if (!pts || n < 2) {
         set_err(who, "a path needs at least 2 points");
         return false;
     }
-    BRepBuilderAPI_MakePolygon poly;
-    gp_Pnt prev(pts[0], pts[1], pts[2]);
-    poly.Add(prev);
-    int used = 1;
+
+    /* Deduplicate exactly as the polyline path always has: an edge of zero
+     * length breaks sweeps, and it would make the interpolation singular. */
+    std::vector<gp_Pnt> p;
+    p.reserve(static_cast<size_t>(n));
+    p.emplace_back(pts[0], pts[1], pts[2]);
     for (int i = 1; i < n; ++i) {
         const gp_Pnt q(pts[3 * i], pts[3 * i + 1], pts[3 * i + 2]);
-        if (q.Distance(prev) < 1e-9)
-            continue; /* duplicate sample: an edge of zero length breaks sweeps */
-        poly.Add(q);
-        prev = q;
-        ++used;
+        if (q.Distance(p.back()) < 1e-9)
+            continue;
+        p.push_back(q);
     }
-    if (used < 2 || !poly.IsDone()) {
+    if (p.size() < 2) {
         set_err(who, "the path collapsed to a single point");
         return false;
     }
-    out = poly.Wire();
+
+    const int np = static_cast<int>(p.size());
+    /* Two points is one straight edge in every mode, and the polygon path is
+     * what has always built it. */
+    if (path_mode == OCCT_SWEEP_PATH_POLY || np == 2) {
+        BRepBuilderAPI_MakePolygon poly;
+        for (const gp_Pnt &q : p)
+            poly.Add(q);
+        if (!poly.IsDone()) {
+            set_err(who, "the path collapsed to a single point");
+            return false;
+        }
+        out = poly.Wire();
+        return true;
+    }
+
+    /* Split into maximal runs whose INTERIOR joints are all shallow enough to
+     * have come from the sampler. A run boundary is a joint somebody drew, and
+     * it stays a vertex of the wire so RightCorner still miters it. In SMOOTH
+     * mode there is one run over everything, which is the escape hatch a
+     * caller who KNOWS its path is a sampled curve can ask for. */
+    std::vector<int> cut; /* indices where a run ends and the next begins */
+    if (path_mode != OCCT_SWEEP_PATH_SMOOTH) {
+        for (int i = 1; i + 1 < np; ++i)
+            if (joint_deg(p[i - 1], p[i], p[i + 1]) >
+                kSampledJointDeg + kJointEps)
+                cut.push_back(i);
+    }
+
+    /* Nothing to smooth: every joint was drawn. Take the polygon path
+     * unchanged — byte for byte the v23 result, which is what scenario [37]'s
+     * differential arm checks. */
+    if (static_cast<int>(cut.size()) == np - 2) {
+        BRepBuilderAPI_MakePolygon poly;
+        for (const gp_Pnt &q : p)
+            poly.Add(q);
+        if (!poly.IsDone()) {
+            set_err(who, "the path collapsed to a single point");
+            return false;
+        }
+        out = poly.Wire();
+        return true;
+    }
+
+    BRepBuilderAPI_MakeWire mk;
+    int start = 0;
+    bool any = false;
+    cut.push_back(np - 1); /* the last run ends at the last point */
+    for (const int end : cut) {
+        TopoDS_Edge e;
+        if (run_is_straight(p, start, end)) {
+            /* A straight run is v23's straight run, edge for edge. */
+            for (int i = start; i < end; ++i) {
+                BRepBuilderAPI_MakeEdge le(p[i], p[i + 1]);
+                if (!le.IsDone()) {
+                    set_err(who, "the path collapsed to a single point");
+                    return false;
+                }
+                mk.Add(le.Edge());
+            }
+        } else if (!run_edge(p, start, end, e)) {
+            /* An interpolation that will not run is not a reason to fail the
+             * sweep: fall back to the straight segments of that run, which is
+             * exactly what v23 would have built for the whole path. */
+            for (int i = start; i < end; ++i) {
+                BRepBuilderAPI_MakeEdge le(p[i], p[i + 1]);
+                if (!le.IsDone()) {
+                    set_err(who, "the path collapsed to a single point");
+                    return false;
+                }
+                mk.Add(le.Edge());
+            }
+        } else {
+            if (end - start >= 2)
+                any = true;
+            mk.Add(e);
+        }
+        start = end;
+    }
+    if (!mk.IsDone()) {
+        set_err(who, "the path could not be assembled into a spine");
+        return false;
+    }
+    out = mk.Wire();
+    if (smoothed)
+        *smoothed = any;
     return true;
+}
+
+/* The v23 entry point, unchanged for every caller that does not care. */
+static bool spine_from_points(const double *pts, int n, const char *who,
+                              TopoDS_Wire &out)
+{
+    return spine_from_points_ex(pts, n, OCCT_SWEEP_PATH_POLY, who, out,
+                                nullptr);
 }
 
 /* Runs a MakePipeShell that has already been given its mode and profile, and
@@ -3507,9 +3760,10 @@ static bool spine_from_points(const double *pts, int n, const char *who,
 static occt_shape *finish_pipe(BRepOffsetAPI_MakePipeShell &mk,
                                const std::vector<TopoDS_Wire> &holes,
                                const TopoDS_Wire &spine, int orientation,
-                               double taper_deg, const char *who)
+                               double taper_deg, const char *who,
+                               bool corrected_frenet,
+                               Standard_Boolean with_correction)
 {
-    (void)orientation;
     mk.Build();
     if (!mk.IsDone()) {
         set_err(who, "the sweep failed (path too tight for the section?)");
@@ -3529,14 +3783,49 @@ static occt_shape *finish_pipe(BRepOffsetAPI_MakePipeShell &mk,
     for (const TopoDS_Wire &h : holes) {
         BRepOffsetAPI_MakePipeShell hm(spine);
         hm.SetTransitionMode(BRepBuilderAPI_RightCorner);
-        hm.SetMode(Standard_True);
+        /* v24: the hole is swept along the SAME spine wire, so it inherits the
+         * smoothing for free — but it must inherit the TRIHEDRON too, or the
+         * hole spirals through a body that does not. The caller says which,
+         * rather than this function guessing from the spine: the coil's spine
+         * has always been a curve and its holes have always been Frenet, and a
+         * guess here would change that silently. */
+        /* v26, and this is the half the first measurement of the fix
+         * uncovered: `orientation` has been a parameter of this function since
+         * v15 and its first line threw it away with `(void)orientation`. So a
+         * hole was swept with a Frenet trihedron even when its body was swept
+         * with a fixed one, and repairing WithCorrection alone left
+         * orientation 1 at +0.17 % instead of -3.17 %. Both are the same
+         * defect — the hole is not placed the way its body is placed — and
+         * both parameters of that placement now come from the body. */
+        if (orientation == 1)
+            hm.SetMode(gp_Ax2(gp::Origin(), gp_Dir(0, 0, 1), gp_Dir(1, 0, 0)));
+        else
+            hm.SetMode(corrected_frenet ? Standard_False : Standard_True);
+        /* `with_correction` is the CALLER'S, not a hard-coded
+         * Standard_True. It had been True here since v15 while
+         * occt_sweep_profile added the OUTER wire with the caller's own
+         * setting — Standard_False for orientations 0 and 1 — so the two wires
+         * of one solid were placed against different frames and the hole did
+         * not sit where the body was.
+         *
+         * The measurement that pins it needs no analytic model: a tube's
+         * volume must be the difference of the two single-loop sweeps that
+         * make it. On a 24-segment r=6 ring with an r=3 hole over the arc
+         * path, outer 6 708.589649 minus hole 1 677.147412 is 5 031.442237,
+         * and the tube came out 4 871.741766 — 3.17 % short.
+         *
+         * The control is already in the code: ORIENTATION 2 passes
+         * Standard_True, which is what this line hard-coded, and its tube is
+         * exact to every digit. So is occt_coil_profile's, which also passes
+         * True. Threading the caller's value through leaves both of those
+         * untouched and repairs the two that disagreed. */
         if (taper_deg != 0.0) {
             const double k = std::tan(taper_deg * M_PI / 180.0);
             Handle(Law_Linear) law = new Law_Linear();
             law->Set(0.0, 1.0, 1.0, 1.0 + k);
-            hm.SetLaw(h, law, Standard_False, Standard_True);
+            hm.SetLaw(h, law, Standard_False, with_correction);
         } else {
-            hm.Add(h, Standard_False, Standard_True);
+            hm.Add(h, Standard_False, with_correction);
         }
         hm.Build();
         if (!hm.IsDone() || !hm.MakeSolid()) {
@@ -3556,12 +3845,12 @@ static occt_shape *finish_pipe(BRepOffsetAPI_MakePipeShell &mk,
     return wrap(uni.Shape(), who);
 }
 
-extern "C" occt_shape *occt_sweep_profile(const double *xyb,
-                                          const int *loop_counts, int nloops,
-                                          const double *mat34,
-                                          const double *path_pts, int npath,
-                                          int orientation, double taper_deg,
-                                          double twist_deg)
+extern "C" occt_shape *occt_sweep_profile_ex(const double *xyb,
+                                             const int *loop_counts,
+                                             int nloops, const double *mat34,
+                                             const double *path_pts, int npath,
+                                             int orientation, double taper_deg,
+                                             double twist_deg, int path_mode)
 {
     OCCT_TRY("occt_sweep_profile")
     if (std::fabs(twist_deg) > 1e-9) {
@@ -3570,26 +3859,100 @@ extern "C" occt_shape *occt_sweep_profile(const double *xyb,
         set_err("occt_sweep_profile", "twist is not implemented yet");
         return nullptr;
     }
+    if (path_mode < OCCT_SWEEP_PATH_AUTO || path_mode > OCCT_SWEEP_PATH_SMOOTH) {
+        set_err("occt_sweep_profile", "unknown path mode");
+        return nullptr;
+    }
     TopoDS_Wire outer, spine;
     std::vector<TopoDS_Wire> holes;
     if (!placed_profile_wires(xyb, loop_counts, nloops, mat34,
                               "occt_sweep_profile", outer, holes))
         return nullptr;
-    if (!spine_from_points(path_pts, npath, "occt_sweep_profile", spine))
+    /* A HOLE COSTS MORE THAN THE CORNERS SAVE, so AUTO does not smooth one.
+     *
+     * finish_pipe sweeps every hole separately and CUTS it out of the body.
+     * On a polyline spine both operands are made of planes and that boolean is
+     * cheap; on a smoothed spine both are made of general swept surfaces, and
+     * a plane/plane intersection becomes a surface/surface one. Measured on a
+     * 24-segment ring with an r=3 hole over 16 spans: the two sweeps take
+     * 36.5 ms and 29.5 ms, and the cut between them takes 21 653.6 ms — 99.7 %
+     * of the call, against 258.7 ms for the WHOLE v23 operation. Smoothing
+     * would make a holed sweep about 80x slower, which is not a trade this
+     * session gets to make on the user's behalf.
+     *
+     * So a holed profile keeps the v23 spine exactly, which also means a holed
+     * profile keeps v23's failure at 1200 segments. That is the half of this
+     * finding that is NOT fixed, it is stated as such in
+     * perf/findings/S14-sweep.md §6.1, and the way out is to stop cutting
+     * holes out of sweeps rather than to smooth less — which is a bigger
+     * change than this one and is the integrator's to schedule.
+     *
+     * OCCT_SWEEP_PATH_SMOOTH is deliberately NOT restricted: it is an explicit
+     * request from a caller who has decided for itself. */
+    const int effective_mode =
+        (path_mode == OCCT_SWEEP_PATH_AUTO && nloops > 1)
+            ? OCCT_SWEEP_PATH_POLY
+            : path_mode;
+    bool smoothed = false;
+    if (!spine_from_points_ex(path_pts, npath, effective_mode,
+                              "occt_sweep_profile", spine, &smoothed))
         return nullptr;
 
     BRepOffsetAPI_MakePipeShell mk(spine);
     /* A path with a SHARP corner (an L, the common case for a swept bar) fails
      * outright in the default Transformed mode. RightCorner miters the section
      * through the corner, which is both what OCCT can build and what a swept
-     * bar actually looks like. */
+     * bar actually looks like.
+     *
+     * v24: still set, and now usually inert. It applies to the joints between
+     * spine EDGES, and a smoothed run is one edge — so a path that came from
+     * the curve sampler has no joints left and pays nothing, while a drawn
+     * corner is still a joint and is still mitered exactly as before. */
     mk.SetTransitionMode(BRepBuilderAPI_RightCorner);
     /* 1 = Fixed keeps the section's own orientation; 0 and 2 both follow the
-     * path, 2 additionally correcting against the spine's frame. */
+     * path, 2 additionally correcting against the spine's frame.
+     *
+     * v25: "Fixed" was calling the WRONG OCCT MODE, and had been since v15.
+     * SetMode(gp_Dir) is BRepFill_PipeShell::Set(const gp_Dir&), which builds a
+     * GeomFill_ConstantBiNormal — a law that pins the binormal and then, in its
+     * D0, REPLACES the frame's tangent with `Normal ^ BiNormal`, i.e. with the
+     * real tangent's projection perpendicular to the binormal. On a path that
+     * climbs at 25 deg from +Z that projection is 65 deg away from where the
+     * spine actually goes, and on a polyline the mismatch compounds at every
+     * joint into a shell that passes through itself.
+     *
+     * SetMode(gp_Ax2) is Set(const gp_Ax2&) -> GeomFill_IsFixed, whose own
+     * documentation is "all sections will be parallel" — which is what this
+     * comment has always said orientation 1 means.
+     *
+     * Measured on a 10x10 square over the arc path (S14 §9.2), against an
+     * analytic 6000 that Cavalieri gives whatever the path does in XY:
+     *
+     *     spans   ConstantBiNormal            Fixed
+     *       2     7 448.5352  +24.1 % INVALID  6 000.0000 valid
+     *       4     8 980.7801  +49.7 % INVALID  6 000.0000 valid
+     *      16    16 429.0722 +173.8 % INVALID  6 000.0000 valid
+     *
+     * A single straight segment is 4 000.0000 / 6 000.0000 in BOTH laws, which
+     * is why nothing caught this: the mode only goes wrong once the path bends.
+     *
+     * The axis is a readable constant rather than something derived from
+     * mat34, and that is measured, not assumed: GeomFill_Fixed is a CONSTANT
+     * trihedron, so it cancels out of the location law's relative transform.
+     * Three unrelated gp_Ax2 values — (origin, +Z, +X), ((7,-3,11), +X, +Y) and
+     * (origin, (1,2,3), (3,0,-1)) — give the same solid to every printed digit
+     * (S14 §9.3). */
     if (orientation == 1)
-        mk.SetMode(gp_Dir(0, 0, 1));
+        mk.SetMode(gp_Ax2(gp::Origin(), gp_Dir(0, 0, 1), gp_Dir(1, 0, 0)));
     else
-        mk.SetMode(Standard_True); /* Frenet */
+        /* v24: on a spine carrying a real curve, plain Frenet also carries its
+         * TORSION and spins the section about the tangent — 81 deg over this
+         * project's own sweep fixture, which a circular section hides and a
+         * square one does not. Corrected Frenet is the trihedron that
+         * reproduces what the polyline did, and on a polyline the two are
+         * measurably identical, so this changes nothing where nothing was
+         * smoothed. */
+        mk.SetMode(smoothed ? Standard_False : Standard_True);
     const Standard_Boolean correct =
         orientation == 2 ? Standard_True : Standard_False;
     if (taper_deg != 0.0) {
@@ -3601,8 +3964,20 @@ extern "C" occt_shape *occt_sweep_profile(const double *xyb,
         mk.Add(outer, Standard_False, correct);
     }
     return finish_pipe(mk, holes, spine, orientation, taper_deg,
-                       "occt_sweep_profile");
+                       "occt_sweep_profile", smoothed, correct);
     OCCT_CATCH("occt_sweep_profile", nullptr)
+}
+
+extern "C" occt_shape *occt_sweep_profile(const double *xyb,
+                                          const int *loop_counts, int nloops,
+                                          const double *mat34,
+                                          const double *path_pts, int npath,
+                                          int orientation, double taper_deg,
+                                          double twist_deg)
+{
+    return occt_sweep_profile_ex(xyb, loop_counts, nloops, mat34, path_pts,
+                                 npath, orientation, taper_deg, twist_deg,
+                                 OCCT_SWEEP_PATH_AUTO);
 }
 
 extern "C" occt_shape *occt_loft_sections(const double *xyb,
@@ -3755,7 +4130,13 @@ extern "C" occt_shape *occt_coil_profile(const double *xyb,
     } else {
         mk.Add(outer, Standard_False, Standard_True);
     }
-    return finish_pipe(mk, holes, spine, 0, taper_deg, "occt_coil_profile");
+    /* Frenet for the holes, as it has always been: the coil's own outer sweep
+     * is Frenet and the two must agree. And Standard_True for the correction,
+     * because that is what the coil adds its OUTER wire with, twenty lines
+     * up — which is why the coil has never had the defect v26 repairs in the
+     * sweep. */
+    return finish_pipe(mk, holes, spine, 0, taper_deg, "occt_coil_profile",
+                       false, Standard_True);
     OCCT_CATCH("occt_coil_profile", nullptr)
 }
 

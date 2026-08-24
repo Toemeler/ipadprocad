@@ -6101,7 +6101,10 @@ abstract class PartKernel {
   /// point), placing the profile with [mat34].
   KernelSolid? sweep(List<List<List<Offset>>> groups, List<double> mat34,
           List<double> pathPts,
-          {int orientation = 0, double taperDeg = 0, double twistDeg = 0}) =>
+          {int orientation = 0,
+          double taperDeg = 0,
+          double twistDeg = 0,
+          int pathMode = SweepPathMode.auto}) =>
       null;
 
   /// Lofts through [sections] (one closed loop each) placed by [mats].
@@ -6525,7 +6528,10 @@ class OcctPartKernel implements PartKernel {
   @override
   KernelSolid? sweep(List<List<List<Offset>>> groups, List<double> mat34,
       List<double> pathPts,
-      {int orientation = 0, double taperDeg = 0, double twistDeg = 0}) {
+      {int orientation = 0,
+      double taperDeg = 0,
+      double twistDeg = 0,
+      int pathMode = SweepPathMode.auto}) {
     final ffi = _ffi;
     if (ffi == null) {
       _err = 'no 3D kernel linked (occt_* symbols missing)';
@@ -6536,7 +6542,10 @@ class OcctPartKernel implements PartKernel {
       for (final g in groups) {
         final loops = [for (final loop in g) encodeLoopSegs(arcFitLoop(loop))];
         final part = ffi.sweepProfile(loops, mat34, pathPts,
-            orientation: orientation, taperDeg: taperDeg, twistDeg: twistDeg);
+            orientation: orientation,
+            taperDeg: taperDeg,
+            twistDeg: twistDeg,
+            pathMode: pathMode);
         if (part == null) {
           _err = ffi.lastError();
           acc?.dispose();
@@ -7380,11 +7389,58 @@ bool _recomputeRevolve(PartModel part, RevolveFeature f, PartKernel kernel,
 /// if it no longer fits, every curve in the sketch is scored so a path
 /// survives having geometry inserted before it.
 (List<double>?, String?) resolvePath(PartModel part, CurveSel sel) {
+  final (pts, _, err) = resolvePathWithMode(part, sel);
+  return (pts, err);
+}
+
+/// S14 — which OCCT path mode the resolved curve calls for.
+///
+/// `sketchCurve` is a four-way switch and every branch knows exactly what it
+/// produced, so the classification the shim used to infer from a 5.625° joint
+/// threshold is free here — and better in both directions. An arc is smooth
+/// WHATEVER its joint angle, so a coarse arc no longer depends on staying
+/// under a threshold; a polyline vertex is a design feature HOWEVER shallow,
+/// so a hand-drawn 5° bend stops being rounded off.
+///
+/// The flattened-spline row stays on the heuristic deliberately.
+/// `splineCurveFor` routes `Geo.gearTag` to `gearCurve`, and an involute gear
+/// outline flattened into a polyline has a genuine sharp corner at every
+/// tooth. Declaring it smooth would round off the teeth of a part whose whole
+/// purpose is its teeth, so it goes as `auto` and the shim's threshold
+/// arbitrates.
+int sweepPathModeOf(Geo g) {
+  if (g.type == Geo.polyline) {
+    // A drawn polyline: every vertex is one somebody placed.
+    if (g.spline == Geo.straight) return SweepPathMode.polyline;
+    // Flattened to a tolerance, and possibly over a real cusp.
+    return SweepPathMode.auto;
+  }
+  if (g.type == Geo.arc || g.type == Geo.circle) {
+    // sampleEntity splits the sweep into 64 EQUAL steps whatever its angle,
+    // so every joint here is an artefact of that and nothing else.
+    return SweepPathMode.smooth;
+  }
+  // A line is two points, which is one straight edge in every mode; anything
+  // else is not a shape this switch has been reasoned about, so it keeps the
+  // behaviour it had.
+  return g.type == Geo.line ? SweepPathMode.polyline : SweepPathMode.auto;
+}
+
+/// As [resolvePath], and also says what KIND of curve the points came from.
+///
+/// Kept separate rather than widening [resolvePath]'s tuple: its two other
+/// callers are the pattern-along-path features, which do not sweep anything
+/// and have no use for a mode.
+(List<double>?, int, String?) resolvePathWithMode(
+    PartModel part, CurveSel sel) {
   final cs = part.sketchByName(sel.sketchName);
-  if (cs == null) return (null, 'the path sketch no longer exists');
+  if (cs == null) {
+    return (null, SweepPathMode.auto, 'the path sketch no longer exists');
+  }
   final frame = sketchFrameOf(cs);
   final geo = cs.model.geometry;
   List<Offset>? best;
+  var bestMode = SweepPathMode.auto;
   var bestScore = double.infinity;
   for (var i = 0; i < geo.length; i++) {
     final pts = sketchCurve(geo[i]);
@@ -7395,12 +7451,19 @@ bool _recomputeRevolve(PartModel part, RevolveFeature f, PartKernel kernel,
     if (sc < bestScore) {
       bestScore = sc;
       best = pts;
+      // Read from the entity that WON, not from the hinted index: the path is
+      // re-matched by fingerprint, so the two can differ after an edit.
+      bestMode = sweepPathModeOf(geo[i]);
       sel.geoIndex = i;
     }
   }
-  if (best == null) return (null, 'the path curve could not be found');
+  if (best == null) {
+    return (null, SweepPathMode.auto, 'the path curve could not be found');
+  }
   final tol = 0.25 * (sel.length.abs() + 1.0);
-  if (bestScore > tol) return (null, 'the path curve has changed too much');
+  if (bestScore > tol) {
+    return (null, SweepPathMode.auto, 'the path curve has changed too much');
+  }
   sel.x0 = best.first.dx;
   sel.y0 = best.first.dy;
   sel.x1 = best.last.dx;
@@ -7410,7 +7473,7 @@ bool _recomputeRevolve(PartModel part, RevolveFeature f, PartKernel kernel,
     final w = frame.toWorld(p);
     out..add(w.x)..add(w.y)..add(w.z);
   }
-  return (out, null);
+  return (out, bestMode, null);
 }
 
 /// S11 — the exact argument list [_recomputeSweep] hands the kernel.
@@ -7426,13 +7489,20 @@ bool _recomputeRevolve(PartModel part, RevolveFeature f, PartKernel kernel,
 /// produces a key of some tens of kilobytes, built in milliseconds, against a
 /// sweep that took 102 seconds.
 String _sweepArgSig(List<List<List<Offset>>> groups, List<double> mat34,
-    List<double> pathPts, SweepFeature f) {
+    List<double> pathPts, SweepFeature f, int pathMode) {
   final b = StringBuffer()
     ..write(f.orientation)
     ..write(',')
     ..write(f.taperDeg)
     ..write(',')
     ..write(f.twistDeg)
+    ..write(',')
+    // S14 — the PATH MODE is an argument to the sweep, so it belongs in the
+    // key. Two sketch entities can resolve to the same points and want
+    // opposite treatment at every joint (an arc that was traced over, a
+    // polyline drawn through an arc's samples), and without this the second
+    // one would be served the first one's solid.
+    ..write(pathMode)
     ..write('|');
   for (final m in mat34) {
     b..write(m)..write(' ');
@@ -7467,7 +7537,7 @@ bool _recomputeSweep(PartModel part, SweepFeature f, PartKernel kernel) {
     f.computeError = 'no path selected';
     return false;
   }
-  final (pts, perr) = resolvePath(part, sel);
+  final (pts, pathMode, perr) = resolvePathWithMode(part, sel);
   if (pts == null) {
     f.disposeSolid();
     f.computeError = perr ?? 'path resolution failed';
@@ -7491,7 +7561,7 @@ bool _recomputeSweep(PartModel part, SweepFeature f, PartKernel kernel) {
   // Resolution still happens on every call. It is the cheap half (reading two
   // sketches) and it is what makes the key trustworthy; skipping it would mean
   // guarding on the feature's parameters while the geometry moved underneath.
-  final sig = _sweepArgSig(groups, mat34, pts, f);
+  final sig = _sweepArgSig(groups, mat34, pts, f, pathMode);
   if (f.solid != null && f.sweptFrom == sig) {
     Perf.count('kernel.sweep.reuse');
     return true;
@@ -7502,7 +7572,8 @@ bool _recomputeSweep(PartModel part, SweepFeature f, PartKernel kernel) {
   final solid = kernel.sweep(groups, mat34, pts,
       orientation: f.orientation,
       taperDeg: f.taperDeg,
-      twistDeg: f.twistDeg);
+      twistDeg: f.twistDeg,
+      pathMode: pathMode);
   if (solid == null) {
     f.computeError = kernel.lastError;
     return false;

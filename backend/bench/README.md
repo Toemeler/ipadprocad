@@ -118,6 +118,42 @@ three):
 | `rayHits` | one ray through the solid | §6.7, the 3D pick path |
 | `filletEx1` | `occt_fillet_edges_ex`, one edge | §6.3 against shape size |
 
+Then the SWEEP ladders — the axis no tier measured until the device did, and
+the one that found a defect rather than a cost. The fixture is the perf tier's
+own (`perf_scenarios_profile.dart`): `arcRing(segments, 6)` swept along
+`arcPath(spans + 1, 60)`, a quarter turn of radius 18 climbing to z = 60.
+
+| op | swept axis | what it answers |
+| --- | --- | --- |
+| `sweep.segments` | 32 / 64 / 128 (default) | the shipped path, `OCCT_SWEEP_PATH_AUTO` |
+| `sweep.legacy` | the same, capped at `--sweep-legacy-max` | **v23**, `OCCT_SWEEP_PATH_POLY` — old against new in ONE run |
+| `sweep.coil` | the same | the CONTROL: `occt_coil_profile` sweeps the same quarter turn along an exact helix |
+| `sweep.spans` | 1 / 2 / 4 / 8 / 16 | corner COUNT against total TURNING — the two are separable here |
+| `sweep.ph.*` | per rung | the five phases inside one v23 call |
+| `sweep.var.*` | at one rung | the levers, each with its volume, face count and validity |
+
+Three things about them are deliberate:
+
+* **The legacy arm is capped** (`--sweep-legacy-max`, default 128). v23 costs
+  **447 s** at 512 segments and does not finish at all at 1200 — it fails after
+  **742 s**. A job that runs on every push cannot climb that; the cap moves for
+  anyone who wants to watch it break.
+* **A failed rung is recorded, not dropped.** `Measured::ok` is false, the
+  reports print **FAILED**, the JSON carries `"ok": false` (schema
+  `kernel-bench/2`), and no fit includes it. Its `mean_ms` is a
+  time-to-failure. Without this the device's broken 1200-segment rung would
+  rank as its fastest large one.
+* **`sweep.var.*` reports geometry next to cost**, because a cheaper sweep that
+  builds a different solid is not a cheaper sweep — and two of the obvious
+  levers are exactly that. See `perf/findings/S14-sweep.md` §2.6.
+
+`sweep.ph.*` comes from `bench_sweep.cpp`, a REPLICA of the shim's pipeline
+built from the same OCCT classes, because the cost lives inside one C call and
+`BRepOffsetAPI_MakePipeShell` hides the one parameter worth varying (OCCT's
+`angmin` corner deadband, hard-coded at 1e-2 rad). The run prints
+`replica check: shim (POLY) … vs replica …  ratio …`; **read the phase table
+only if that ratio is near 1.**
+
 Then two sweeps on a fixed `ring(24, 40) × 10` solid, which is the device's own
 fillet fixture:
 
@@ -189,6 +225,7 @@ not a measurement.
 | | |
 | --- | --- |
 | `bench_occt.cpp` | the ladder, the sweeps, the fits, the reports |
+| `bench_sweep.{h,cpp}` | the sweep pipeline rebuilt so its phases and its levers can be told apart |
 | `bench_stats.{h,cpp}` | mean / sd / p95, and the log-log OLS fit |
 | `bench_stats_test.cpp` | that arithmetic against analytic ground truth |
 | `bench_alloc.{h,cpp}` | the two-layer allocation counter and its self-test |

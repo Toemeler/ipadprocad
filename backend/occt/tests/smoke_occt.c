@@ -2196,6 +2196,558 @@ int main(void)
             occt_free_shape(f36[ci].s);
     }
 
+    /* [37] v24 SWEEP ALONG A SAMPLED CURVE — the regime that did not build.
+     *
+     * A device capture on 2026-08-24 ran a 1200-segment ring along a 16-span
+     * sampled arc and got "BRep_API: command not done" after 231 085 ms. The
+     * cause is in perf/findings/S14-sweep.md: every joint of the sampler's
+     * polyline was mitered, and a miter is a BOPAlgo_PaveFiller between two
+     * shells carrying one face per profile segment each.
+     *
+     * Five things are pinned here, and the first two matter most:
+     *
+     *  (a) A DRAWN corner is untouched — AUTO and POLY produce the same solid,
+     *      compared in ONE run on THIS machine rather than against a recorded
+     *      constant. If the fix ever starts rounding off geometry a user drew,
+     *      this is what says so.
+     *  (b) A SAMPLED path IS smoothed, and the face count says it: one spine
+     *      edge means `segments + 2` faces, not `segments x spans + 2`.
+     *  (c) The threshold is the app's own sampler ceiling, 360/64 = 5.625 deg:
+     *      a joint just under it is smoothed, a joint just over it is not.
+     *  (d) The rung that FAILED on the device builds, is valid, and encloses
+     *      the analytic volume. THERE IS NO OLD BEHAVIOUR TO COMPARE IT TO —
+     *      the old path produces nothing at all here — so this arm is an
+     *      absolute check against arithmetic, not a differential one, and it
+     *      is the only arm of [37] that is.
+     *  (e) The rungs that were silently WRONG (10.6 % too large, invalid) and
+     *      that ABORTED THE PROCESS with a corrupt heap are correct now. POLY
+     *      is deliberately NOT run at those sizes: one of them kills the
+     *      process and the other takes twelve minutes.
+     */
+    {
+        /* The fixture is the perf tier's: frontend/lib/perf_scenarios_profile
+         * .dart sweeps arcRing(segments, 6) along arcPath(spans + 1, 60). */
+        const double I37[12] = {1,0,0,0, 0,1,0,0, 0,0,1,0};
+        static double prof37[2048 * 3];
+        static double path37[513 * 3];
+
+        /* V = A(n) . L . cos(tilt) holds for this sweep to eight figures, with
+         * L the TRUE arc length of the curve the polyline samples — see S14
+         * §2.8, which also says plainly that I could not derive why the
+         * polyline's own (shorter) length does not appear instead. */
+        const double kL37 = 66.328259;      /* hypot(18, 120/pi) * pi/2 */
+        const double kCos37 = 0.90459156;   /* (120/pi) / hypot(18, 120/pi) */
+
+        int i37;
+
+        /* ---- (a) a drawn 90-degree corner is untouched, AUTO vs POLY ---- */
+        {
+            const double P[] = {0,0,0,  10,0,0,  10,10,0,  0,10,0};
+            const int lc[] = {4};
+            const double lpath[] = {0,0,0,  0,0,40,  30,0,40};
+            occt_shape *au = occt_sweep_profile_ex(P, lc, 1, I37, lpath, 3,
+                                                   0, 0.0, 0.0,
+                                                   OCCT_SWEEP_PATH_AUTO);
+            occt_shape *po = occt_sweep_profile_ex(P, lc, 1, I37, lpath, 3,
+                                                   0, 0.0, 0.0,
+                                                   OCCT_SWEEP_PATH_POLY);
+            if (check(au != NULL, "[37a] AUTO refused a 90-degree L path") &&
+                check(po != NULL, "[37a] POLY refused a 90-degree L path")) {
+                int fa = 0, ea = 0, va = 0, fp = 0, ep = 0, vp = 0;
+                occt_shape_counts(au, &fa, &ea, &va);
+                occt_shape_counts(po, &fp, &ep, &vp);
+                const double vau = occt_shape_volume(au);
+                const double vpo = occt_shape_volume(po);
+                printf("[37a] L path 90 deg: AUTO vol=%.9f f=%d e=%d v=%d | "
+                       "POLY vol=%.9f f=%d e=%d v=%d\n",
+                       vau, fa, ea, va, vpo, fp, ep, vp);
+                /* Not "close to": the same. 90 deg is far above the 5.625 deg
+                 * threshold, so AUTO takes the polygon path and every later
+                 * call sees identical arguments. */
+                check(vau == vpo, "[37a] AUTO changed a DRAWN corner's volume");
+                check(fa == fp && ea == ep && va == vp,
+                      "[37a] AUTO changed a DRAWN corner's topology");
+                check(near_rel(vau, 6000.0, 1e-9),
+                      "[37a] the mitered L is not the analytic 6000");
+                check(occt_shape_valid(au), "[37a] AUTO's L solid is invalid");
+            }
+            if (au) occt_free_shape(au);
+            if (po) occt_free_shape(po);
+        }
+
+        /* ---- (b) a sampled arc path IS smoothed ---- */
+        {
+            const int seg = 64, spans = 16;
+            const int lc[] = {64};
+            for (i37 = 0; i37 < seg; ++i37) {
+                const double a = 2.0 * M_PI * i37 / seg;
+                prof37[3*i37+0] = 6.0 * cos(a);
+                prof37[3*i37+1] = 6.0 * sin(a);
+                prof37[3*i37+2] = 0.0;
+            }
+            for (i37 = 0; i37 <= spans; ++i37) {
+                const double t = (double)i37 / spans, a = t * M_PI / 2.0;
+                path37[3*i37+0] = 60.0 * sin(a) * 0.3;
+                path37[3*i37+1] = 60.0 * (1.0 - cos(a)) * 0.3;
+                path37[3*i37+2] = t * 60.0;
+            }
+            occt_shape *au = occt_sweep_profile_ex(prof37, lc, 1, I37, path37,
+                                                   spans + 1, 0, 0.0, 0.0,
+                                                   OCCT_SWEEP_PATH_AUTO);
+            occt_shape *po = occt_sweep_profile_ex(prof37, lc, 1, I37, path37,
+                                                   spans + 1, 0, 0.0, 0.0,
+                                                   OCCT_SWEEP_PATH_POLY);
+            if (check(au != NULL, "[37b] AUTO refused a sampled arc path") &&
+                check(po != NULL, "[37b] POLY refused a sampled arc path")) {
+                int fa = 0, fp = 0;
+                occt_shape_counts(au, &fa, NULL, NULL);
+                occt_shape_counts(po, &fp, NULL, NULL);
+                const double want = 0.5 * seg * 36.0 * sin(2.0 * M_PI / seg)
+                                    * kL37 * kCos37;
+                printf("[37b] 64 seg x 16 spans: AUTO f=%d vol=%.6f | "
+                       "POLY f=%d vol=%.6f | analytic %.6f\n",
+                       fa, occt_shape_volume(au), fp, occt_shape_volume(po),
+                       want);
+                /* One spine edge: seg lateral faces plus two caps. */
+                check(fa == seg + 2,
+                      "[37b] AUTO did not smooth a sampled arc path");
+                check(fp == seg * spans + 2,
+                      "[37b] POLY is no longer the v23 polyline path");
+                /* Both are right here; this is the size at which they agree,
+                 * and saying so is what makes (e) mean something. */
+                check(near_rel(occt_shape_volume(au), want, 1e-4),
+                      "[37b] AUTO's volume is not the analytic one");
+                check(near_rel(occt_shape_volume(po), want, 1e-4),
+                      "[37b] POLY's volume is not the analytic one");
+                check(occt_shape_valid(au), "[37b] AUTO's solid is invalid");
+                /* S14 item 3, P17: an arc's joints are sweep/64 <= 5.625 deg
+                 * by construction, so AUTO already smooths every arc and the
+                 * Dart side DECLARING it smooth can only agree. If these two
+                 * ever diverge, the threshold is wrong rather than merely
+                 * unnecessary, and that is worth a test failure. */
+                {
+                    occt_shape *sm = occt_sweep_profile_ex(
+                        prof37, lc, 1, I37, path37, spans + 1, 0, 0.0, 0.0,
+                        OCCT_SWEEP_PATH_SMOOTH);
+                    if (check(sm != NULL, "[37b] SMOOTH refused an arc path")) {
+                        int fs = 0;
+                        occt_shape_counts(sm, &fs, NULL, NULL);
+                        printf("[37b] the same arc DECLARED smooth: f=%d "
+                               "vol=%.6f (AUTO inferred the same)\n", fs,
+                               occt_shape_volume(sm));
+                        check(fs == fa && occt_shape_volume(sm)
+                                              == occt_shape_volume(au),
+                              "[37b] declaring an arc smooth differs from "
+                              "inferring it");
+                        occt_free_shape(sm);
+                    }
+                }
+            }
+            if (au) occt_free_shape(au);
+            if (po) occt_free_shape(po);
+        }
+
+        /* ---- (c) the threshold, from both sides ---- */
+        {
+            const double P[] = {0,0,0,  10,0,0,  10,10,0,  0,10,0};
+            const int lc[] = {4};
+            /* straight 40 up, then 30 more at `deg` off it, in the XZ plane */
+            const double under = 5.0, over = 6.5; /* 5.625 is the threshold */
+            double pu[9], pv[9];
+            double d;
+            int k;
+            for (k = 0; k < 2; ++k) {
+                double *q = k ? pv : pu;
+                d = (k ? over : under) * M_PI / 180.0;
+                q[0]=0; q[1]=0; q[2]=0;
+                q[3]=0; q[4]=0; q[5]=40;
+                q[6]=30*sin(d); q[7]=0; q[8]=40+30*cos(d);
+            }
+            occt_shape *su = occt_sweep_profile_ex(P, lc, 1, I37, pu, 3, 0,
+                                                   0.0, 0.0,
+                                                   OCCT_SWEEP_PATH_AUTO);
+            occt_shape *sv = occt_sweep_profile_ex(P, lc, 1, I37, pv, 3, 0,
+                                                   0.0, 0.0,
+                                                   OCCT_SWEEP_PATH_AUTO);
+            if (check(su != NULL, "[37c] AUTO refused a 5.0-degree joint") &&
+                check(sv != NULL, "[37c] AUTO refused a 6.5-degree joint")) {
+                int fu = 0, fv = 0;
+                occt_shape_counts(su, &fu, NULL, NULL);
+                occt_shape_counts(sv, &fv, NULL, NULL);
+                printf("[37c] joint 5.0 deg -> %d faces (smoothed), "
+                       "6.5 deg -> %d faces (mitered); threshold 5.625\n",
+                       fu, fv);
+                /* 6 = one smooth run: 4 lateral faces + 2 caps.
+                 * 8 = two runs: 8 lateral faces + 2 caps, less the two whose
+                 *     planes survive the bend (it turns in XZ, so the +-Y
+                 *     faces stay coplanar) and which finish_pipe's
+                 *     UnifySameDomain therefore merges. Both counts are
+                 *     exact; what the pin is really saying is that one path
+                 *     has a joint in it and the other does not. */
+                check(fu == 6, "[37c] a 5.0-degree joint was NOT smoothed");
+                check(fv == 8, "[37c] a 6.5-degree joint WAS smoothed");
+            }
+            /* And the same 5.0-degree joint DECLARED as drawn: the caller
+             * saying "these are my vertices" must override the threshold, or
+             * item 3's whole point is lost. This is what a hand-drawn polyline
+             * path now gets from the Dart side. */
+            {
+                occt_shape *sd = occt_sweep_profile_ex(P, lc, 1, I37, pu, 3, 0,
+                                                       0.0, 0.0,
+                                                       OCCT_SWEEP_PATH_POLY);
+                if (check(sd != NULL, "[37c] POLY refused a 5.0-degree joint")) {
+                    int fd = 0;
+                    occt_shape_counts(sd, &fd, NULL, NULL);
+                    printf("[37c] the SAME 5.0-degree joint declared POLY -> "
+                           "%d faces (mitered, not smoothed)\n", fd);
+                    check(fd == 8, "[37c] a DECLARED polyline joint was "
+                                   "smoothed anyway");
+                    occt_free_shape(sd);
+                }
+            }
+            if (su) occt_free_shape(su);
+            if (sv) occt_free_shape(sv);
+        }
+
+        /* ---- (d) the rung that FAILED on the device ---- */
+        {
+            const int seg = 1200, spans = 16;
+            const int lc[] = {1200};
+            for (i37 = 0; i37 < seg; ++i37) {
+                const double a = 2.0 * M_PI * i37 / seg;
+                prof37[3*i37+0] = 6.0 * cos(a);
+                prof37[3*i37+1] = 6.0 * sin(a);
+                prof37[3*i37+2] = 0.0;
+            }
+            for (i37 = 0; i37 <= spans; ++i37) {
+                const double t = (double)i37 / spans, a = t * M_PI / 2.0;
+                path37[3*i37+0] = 60.0 * sin(a) * 0.3;
+                path37[3*i37+1] = 60.0 * (1.0 - cos(a)) * 0.3;
+                path37[3*i37+2] = t * 60.0;
+            }
+            occt_shape *s = occt_sweep_profile_ex(prof37, lc, 1, I37, path37,
+                                                  spans + 1, 0, 0.0, 0.0,
+                                                  OCCT_SWEEP_PATH_AUTO);
+            /* No POLY arm: it FAILS here, after 231 s on the device and 742 s
+             * on the machine this was developed on. There is nothing to be
+             * equivalent to. */
+            if (check(s != NULL,
+                      "[37d] 1200 segments x 16 spans STILL does not build")) {
+                int f = 0;
+                double v;
+                occt_shape_counts(s, &f, NULL, NULL);
+                v = occt_shape_volume(s);
+                printf("[37d] 1200 seg x 16 spans: f=%d vol=%.6f "
+                       "(analytic %.6f) — v23 FAILED here\n", f, v,
+                       0.5 * seg * 36.0 * sin(2.0 * M_PI / seg) * kL37 * kCos37);
+                check(f == seg + 2, "[37d] the 1200-segment sweep is not one "
+                                    "smooth run");
+                check(near_rel(v, 0.5 * seg * 36.0 * sin(2.0 * M_PI / seg)
+                                      * kL37 * kCos37, 1e-4),
+                      "[37d] the 1200-segment volume is not analytic");
+                check(occt_shape_valid(s), "[37d] the 1200-segment solid is "
+                                           "invalid");
+                occt_free_shape(s);
+            }
+        }
+
+        /* ---- (f) a HOLE is placed the way its own body is placed ----
+         *
+         * v26. finish_pipe had added every hole with
+         * WithCorrection = Standard_True since v15 while occt_sweep_profile
+         * added the outer wire with the CALLER'S setting, and it threw away the
+         * `orientation` it was passed (`(void)orientation`) so the hole got a
+         * Frenet trihedron even when the body got a fixed one. Two wires, two
+         * frames, one solid: a holed sweep along a tilted path lost 3.2 % of
+         * its volume, silently, on every path that was not straight.
+         *
+         * THE TEST THAT MATTERS IS THE DIFFERENTIAL, and it needs no analytic
+         * model: a tube's volume must be the difference of the two single-loop
+         * sweeps that make it, and all three of those are built here in one
+         * run. It also holds for orientation 2, where the analytic annulus does
+         * NOT — WithCorrection rotates the section, so orientation 2's tube is
+         * legitimately a different solid. An analytic-only test would have had
+         * to skip the orientation the defect's own control lived in.
+         */
+        {
+            const int seg = 24, spans = 8;
+            const int lc2[] = {24, 24};
+            const int lc1[] = {24};
+            double xyb[2 * 24 * 3];
+            double outer[24 * 3], inner[24 * 3];
+            const double ann = 0.5 * seg * 36.0 * sin(2.0 * M_PI / seg)
+                               - 0.5 * seg * 9.0 * sin(2.0 * M_PI / seg);
+            int orient;
+            for (i37 = 0; i37 < seg; ++i37) {
+                const double a = 2.0 * M_PI * i37 / seg;
+                outer[3*i37+0] = xyb[3*i37+0] = 6.0 * cos(a);
+                outer[3*i37+1] = xyb[3*i37+1] = 6.0 * sin(a);
+                outer[3*i37+2] = xyb[3*i37+2] = 0.0;
+                inner[3*i37+0] = xyb[3*(seg+i37)+0] = 3.0 * cos(a);
+                inner[3*i37+1] = xyb[3*(seg+i37)+1] = 3.0 * sin(a);
+                inner[3*i37+2] = xyb[3*(seg+i37)+2] = 0.0;
+            }
+
+            /* arm 1 — a straight path, where the answer is arithmetic */
+            {
+                const double sp[6] = {0,0,0, 0,0,40};
+                occt_shape *t = occt_sweep_profile_ex(xyb, lc2, 2, I37, sp, 2,
+                                                      0, 0.0, 0.0,
+                                                      OCCT_SWEEP_PATH_AUTO);
+                if (check(t != NULL, "[37f] a holed profile on a straight "
+                                     "path refused")) {
+                    const double v = occt_shape_volume(t);
+                    printf("[37f] tube on a STRAIGHT path: vol=%.6f "
+                           "(analytic %.6f) %s\n", v, ann * 40.0,
+                           occt_shape_valid(t) ? "valid" : "INVALID");
+                    check(near_rel(v, ann * 40.0, 1e-9),
+                          "[37f] the straight tube is not analytic");
+                    check(occt_shape_valid(t), "[37f] the straight tube is "
+                                               "invalid");
+                    occt_free_shape(t);
+                }
+            }
+
+            for (i37 = 0; i37 <= spans; ++i37) {
+                const double t = (double)i37 / spans, a = t * M_PI / 2.0;
+                path37[3*i37+0] = 60.0 * sin(a) * 0.3;
+                path37[3*i37+1] = 60.0 * (1.0 - cos(a)) * 0.3;
+                path37[3*i37+2] = t * 60.0;
+            }
+
+            /* arm 2 — the differential, at all three orientations */
+            for (orient = 0; orient <= 2; ++orient) {
+                occt_shape *tu = occt_sweep_profile_ex(xyb, lc2, 2, I37, path37,
+                                                       spans + 1, orient, 0.0,
+                                                       0.0,
+                                                       OCCT_SWEEP_PATH_POLY);
+                occt_shape *bo = occt_sweep_profile_ex(outer, lc1, 1, I37,
+                                                       path37, spans + 1,
+                                                       orient, 0.0, 0.0,
+                                                       OCCT_SWEEP_PATH_POLY);
+                occt_shape *hi = occt_sweep_profile_ex(inner, lc1, 1, I37,
+                                                       path37, spans + 1,
+                                                       orient, 0.0, 0.0,
+                                                       OCCT_SWEEP_PATH_POLY);
+                if (check(tu != NULL && bo != NULL && hi != NULL,
+                          "[37f] a sweep refused on the tilted arc path")) {
+                    const double vt = occt_shape_volume(tu);
+                    const double want = occt_shape_volume(bo)
+                                        - occt_shape_volume(hi);
+                    printf("[37f] tube on a tilted arc, orientation %d: "
+                           "vol=%.6f  outer-hole=%.6f  (%+.4f %%) %s\n",
+                           orient, vt, want, 100.0 * (vt - want) / want,
+                           occt_shape_valid(tu) ? "valid" : "INVALID");
+                    check(near_rel(vt, want, 1e-9),
+                          "[37f] a hole is not placed the way its body is");
+                    check(occt_shape_valid(tu), "[37f] the tube is invalid");
+                    /* and for the two orientations that do not rotate the
+                     * section, the analytic annulus agrees as well */
+                    if (orient != 2)
+                        check(near_rel(vt, ann * kL37 * kCos37, 1e-6),
+                              "[37f] the tube is not the analytic annulus");
+                }
+                if (tu) occt_free_shape(tu);
+                if (bo) occt_free_shape(bo);
+                if (hi) occt_free_shape(hi);
+            }
+
+            /* arm 3 — and v24 still does not smooth a holed profile, so AUTO
+             * and POLY must be the same object, not merely close */
+            {
+                occt_shape *au = occt_sweep_profile_ex(xyb, lc2, 2, I37, path37,
+                                                       spans + 1, 0, 0.0, 0.0,
+                                                       OCCT_SWEEP_PATH_AUTO);
+                occt_shape *po = occt_sweep_profile_ex(xyb, lc2, 2, I37, path37,
+                                                       spans + 1, 0, 0.0, 0.0,
+                                                       OCCT_SWEEP_PATH_POLY);
+                if (check(au != NULL && po != NULL,
+                          "[37f] AUTO or POLY refused a holed profile")) {
+                    int fa = 0, fp = 0;
+                    occt_shape_counts(au, &fa, NULL, NULL);
+                    occt_shape_counts(po, &fp, NULL, NULL);
+                    check(occt_shape_volume(au) == occt_shape_volume(po)
+                          && fa == fp,
+                          "[37f] AUTO smoothed a holed profile");
+                }
+                if (au) occt_free_shape(au);
+                if (po) occt_free_shape(po);
+            }
+        }
+
+        /* ---- (h) a STRAIGHT run stays straight ----
+         *
+         * Five collinear points have joints of 0 degrees, which is well under
+         * the threshold, so a naive reading of "smooth the shallow runs" would
+         * interpolate them. It must not: a B-spline through collinear points is
+         * the same LINE, but the faces swept along it stop being PLANES — and
+         * a plane is what makes the boolean that removes a hole cheap. Nothing
+         * curved is given up by leaving it alone, so v23's edges stay.
+         *
+         * BE PRECISE ABOUT WHAT THIS PROVES. The face count does NOT
+         * discriminate: an interpolated spine would give one spline edge and
+         * 4 + 2 faces, and the polyline's 16 + 2 are merged down to the same 6
+         * by finish_pipe's UnifySameDomain. What discriminates is the EXACT
+         * equality below — a swept B-spline surface would not reproduce the
+         * planar sweep's volume bit for bit — plus the analytic 4000. So this
+         * arm is a differential with an arithmetic backstop, and it is not a
+         * check on the surface type, which the C ABI cannot see.
+         */
+        {
+            const double P[] = {0,0,0,  10,0,0,  10,10,0,  0,10,0};
+            const int lc[] = {4};
+            const double sp[15] = {0,0,0,  0,0,10,  0,0,20,  0,0,30,  0,0,40};
+            occt_shape *au = occt_sweep_profile_ex(P, lc, 1, I37, sp, 5, 0,
+                                                   0.0, 0.0,
+                                                   OCCT_SWEEP_PATH_AUTO);
+            occt_shape *po = occt_sweep_profile_ex(P, lc, 1, I37, sp, 5, 0,
+                                                   0.0, 0.0,
+                                                   OCCT_SWEEP_PATH_POLY);
+            if (check(au != NULL, "[37h] AUTO refused a collinear path") &&
+                check(po != NULL, "[37h] POLY refused a collinear path")) {
+                int fa = 0, ea = 0, fp = 0, ep = 0;
+                const double va = occt_shape_volume(au);
+                const double vp = occt_shape_volume(po);
+                occt_shape_counts(au, &fa, &ea, NULL);
+                occt_shape_counts(po, &fp, &ep, NULL);
+                printf("[37h] 5 collinear points: AUTO vol=%.9f f=%d e=%d | "
+                       "POLY vol=%.9f f=%d e=%d\n", va, fa, ea, vp, fp, ep);
+                check(va == vp && fa == fp && ea == ep,
+                      "[37h] a straight run was not left alone");
+                check(near_rel(va, 4000.0, 1e-9),
+                      "[37h] the straight sweep is not the analytic 4000");
+            }
+            if (au) occt_free_shape(au);
+            if (po) occt_free_shape(po);
+        }
+
+        /* ---- (e) the two rungs v23 got WRONG rather than slow ---- */
+        {
+            const int seg = 64;
+            const int lc[] = {64};
+            int spansv[2];
+            int si;
+            spansv[0] = 32; /* v23: 7490.04, 10.6 % too large, and INVALID */
+            spansv[1] = 64; /* v23: heap corruption, SIGABRT, no result */
+            for (i37 = 0; i37 < seg; ++i37) {
+                const double a = 2.0 * M_PI * i37 / seg;
+                prof37[3*i37+0] = 6.0 * cos(a);
+                prof37[3*i37+1] = 6.0 * sin(a);
+                prof37[3*i37+2] = 0.0;
+            }
+            for (si = 0; si < 2; ++si) {
+                const int spans = spansv[si];
+                const double want = 0.5 * seg * 36.0 * sin(2.0 * M_PI / seg)
+                                    * kL37 * kCos37;
+                occt_shape *s;
+                for (i37 = 0; i37 <= spans; ++i37) {
+                    const double t = (double)i37 / spans, a = t * M_PI / 2.0;
+                    path37[3*i37+0] = 60.0 * sin(a) * 0.3;
+                    path37[3*i37+1] = 60.0 * (1.0 - cos(a)) * 0.3;
+                    path37[3*i37+2] = t * 60.0;
+                }
+                s = occt_sweep_profile_ex(prof37, lc, 1, I37, path37, spans + 1,
+                                          0, 0.0, 0.0, OCCT_SWEEP_PATH_AUTO);
+                if (check(s != NULL, "[37e] a short-span sampled arc refused")) {
+                    int f = 0;
+                    const double v = occt_shape_volume(s);
+                    occt_shape_counts(s, &f, NULL, NULL);
+                    printf("[37e] 64 seg x %d spans: f=%d vol=%.6f "
+                           "(analytic %.6f) %s\n", spans, f, v, want,
+                           occt_shape_valid(s) ? "valid" : "INVALID");
+                    check(f == seg + 2, "[37e] not one smooth run");
+                    check(near_rel(v, want, 1e-4),
+                          "[37e] the volume is not analytic");
+                    check(occt_shape_valid(s), "[37e] the solid is invalid");
+                    occt_free_shape(s);
+                }
+            }
+        }
+    }
+
+    /* [38] v25 ORIENTATION 1 ("Fixed") ON A PATH THAT BENDS.
+     *
+     * Broken since v15 and never caught, because a STRAIGHT path is exact in
+     * both OCCT laws and nothing else was tried. `occt_sweep_profile` mapped
+     * orientation 1 to BRepFill_PipeShell::Set(const gp_Dir&) —
+     * GeomFill_ConstantBiNormal, which replaces the sweep frame's tangent with
+     * the real tangent's projection perpendicular to the binormal. On a path
+     * climbing at 25 deg from +Z that is 65 deg off, and the shell passes
+     * through itself: 16 429 where the answer is 6 000, and INVALID.
+     *
+     * "Fixed" means every section stays parallel to the profile plane, so
+     * Cavalieri gives the volume outright: section area x total rise in z,
+     * whatever the path does in XY. A 10x10 square climbing to z = 60 is
+     * 100 x 60 = 6000 EXACTLY, at every span count. That is what is asserted,
+     * and it is arithmetic rather than a recorded number.
+     *
+     * The POLY arm is the one that matters to the integrator: it runs the v23
+     * spine, so it says this fix does not depend on v24. Both are asserted
+     * here so the independence is a test result and not a claim.
+     */
+    {
+        const double S[] = {-5,-5,0,  5,-5,0,  5,5,0,  -5,5,0};
+        const int lc[] = {4};
+        const double I38[12] = {1,0,0,0, 0,1,0,0, 0,0,1,0};
+        double p38[3 * 17];
+        int spansv[3];
+        int si, i38, mode;
+        spansv[0] = 2; spansv[1] = 4; spansv[2] = 16;
+
+        /* the straight arm first: the case that already worked must not move */
+        {
+            const double up[6] = {0,0,0, 0,0,40};
+            occt_shape *a = occt_sweep_profile_ex(S, lc, 1, I38, up, 2, 1,
+                                                  0.0, 0.0,
+                                                  OCCT_SWEEP_PATH_POLY);
+            if (check(a != NULL, "[38] orientation 1 refused a straight path")) {
+                int f = 0;
+                const double v = occt_shape_volume(a);
+                occt_shape_counts(a, &f, NULL, NULL);
+                printf("[38] straight +Z, orientation 1: vol=%.9f f=%d %s "
+                       "(analytic 4000)\n", v, f,
+                       occt_shape_valid(a) ? "valid" : "INVALID");
+                check(near_rel(v, 4000.0, 1e-9),
+                      "[38] the straight Fixed sweep is not analytic");
+                check(occt_shape_valid(a), "[38] the straight Fixed sweep is "
+                                           "invalid");
+                occt_free_shape(a);
+            }
+        }
+
+        /* and the bending arm, in BOTH path modes */
+        for (mode = 0; mode < 2; ++mode) {
+            const int pm = mode ? OCCT_SWEEP_PATH_AUTO : OCCT_SWEEP_PATH_POLY;
+            for (si = 0; si < 3; ++si) {
+                const int spans = spansv[si];
+                occt_shape *a;
+                for (i38 = 0; i38 <= spans; ++i38) {
+                    const double t = (double)i38 / spans, ang = t * M_PI / 2.0;
+                    p38[3*i38+0] = 60.0 * sin(ang) * 0.3;
+                    p38[3*i38+1] = 60.0 * (1.0 - cos(ang)) * 0.3;
+                    p38[3*i38+2] = t * 60.0;
+                }
+                a = occt_sweep_profile_ex(S, lc, 1, I38, p38, spans + 1, 1,
+                                          0.0, 0.0, pm);
+                if (check(a != NULL, "[38] orientation 1 refused an arc path")) {
+                    const double v = occt_shape_volume(a);
+                    /* label from `mode`, NOT from `pm`: AUTO is 0 and POLY
+                     * is 1, so `pm ? "AUTO" : "POLY"` prints exactly the wrong
+                     * one — which it did, until this line was read. */
+                    printf("[38] arc %2d spans, orientation 1, %s: vol=%.9f %s "
+                           "(analytic 6000; v23 gave 7448 / 8981 / 16429, all "
+                           "INVALID)\n", spans, mode ? "AUTO" : "POLY", v,
+                           occt_shape_valid(a) ? "valid" : "INVALID");
+                    check(near_rel(v, 6000.0, 1e-9),
+                          "[38] Fixed did not keep the sections parallel");
+                    check(occt_shape_valid(a),
+                          "[38] the Fixed sweep is invalid");
+                    occt_free_shape(a);
+                }
+            }
+        }
+    }
+
     if (g_failures == 0) {
         printf("OCCT SMOKE: PASS\n");
         return 0;
