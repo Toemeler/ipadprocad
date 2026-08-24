@@ -3494,3 +3494,54 @@ noticed the **skip count varies between runs** (2 367 + 1 skipped against
 2 368 + 0), so something in the suite is already conditional on state that is
 not fixed. That is worth someone's attention independently of S14's work. If it
 recurs, keep the log.
+
+---
+
+## 2026-08-24 — INTEGRATOR — fixing the gate's false positive, and correcting my own diagnosis of it
+
+**Needs:** nobody. `ci/**` is the integrator's.
+
+Round two's gate reported one regression — `constraints.add.coincident`,
++23.6 % — and it was not one. I cleared it by hand (12 of its 14 siblings moved
+DOWN; the only two that moved up are the two that execute first, and
+`coincident` is `CType.values[0]`; p ≈ 1.1 % under a random-position null) and
+said the underlying defect was that **115 of 165 gated spans have n = 1**, so
+70 % of the gate's surface was single-sample comparisons.
+
+**That framing was wrong, and my own test caught it before it shipped.**
+
+I first wrote the obvious fix: `MIN_GATED_N = 3`, exempting low-n spans from
+failing. `test_a_regression_in_one_scenario_survives_aggregation` went red
+immediately, and it was right to. That test injects a real 40 % regression into
+`kernel.allEdges.sweep.120::ffi.occt.allEdges` — **which has n = 1 in the
+actual capture** — at 600 ms. Exempting low n would have traded round two's
+false positive for a false negative on exactly the class of regression the
+gate exists to catch. A 240 ms move is not the scheduler at any n.
+
+So the defect is not that n = 1 cannot be gated. It is that **at low n a
+PERCENTAGE is the wrong instrument.** The whole coincident finding was
+0.2590 → 0.3200 ms: **61 microseconds**, the scale of one context switch or one
+minor page fault, with no second observation to average it away. The same 61 µs
+at n = 64 would be a real finding; at n = 1 it is the operating system.
+
+**The rule, and its size comes from the machine rather than from the data:**
+
+```
+n < 3  AND  absolute delta < 0.5 ms   ->  UNRESOLVED, reported, not fatal
+otherwise                             ->  the percentage floor as before
+```
+
+61 µs fails that by a factor of eight; the injected 240 ms clears it by a
+factor of 480. Nothing is hidden — `UNRESOLVED` prints above the notes and
+says in its own header that it is "NOT failures and NOT clean bills of health".
+
+Three tests added, 52 passing. Re-run against the real round-two capture: **exit
+0**, with the two coincident entries listed as unresolved and everything else
+unchanged.
+
+**What this does NOT fix.** The apparatus still gives the gate one observation
+for most spans, and no rule here manufactures a second. The real repair is more
+observations, and it belongs to whoever owns `frontend/lib/perf_scenarios*.dart`
+— deliberately frozen so captures stay comparable. Until then the gate is honest
+about what it cannot resolve rather than guessing, and a low-n span that moves
+by more than half a millisecond still fails.

@@ -784,6 +784,78 @@ class TestGate(unittest.TestCase):
         self.assertFalse(any(s.startswith("SLOWER   [all]") for s in f.fail),
                          "the aggregate alone would not have caught this")
 
+    def test_a_microsecond_move_at_n_1_is_unresolved_not_a_regression(self):
+        """Round two's only regression, and it was not one.
+
+        `constraints.add.coincident` went 0.2590 -> 0.3200 ms at n = 1: over
+        the family's 21 % floor, and 61 microseconds in absolute terms — the
+        scale of one context switch, with no second observation to average it
+        away. It was warm-up (`coincident` is `CType.values[0]`, and 12 of its
+        14 siblings moved DOWN). Reported, not failed.
+        """
+        # The helper's default noiseFloor would put the fallback
+        # threshold at 29 %, above this movement, so it would never
+        # reach the rule under test. The real capture's floor for
+        # this family was 21 %.
+        base = self._base(
+            noiseFloor={"extrude": 0.04},
+            scenarioSpans={
+                "constraints.addEachType::constraints.add.coincident":
+                    {"n": 1, "meanMs": 0.2590}})
+        new = json.loads(json.dumps(base))
+        new["conditions"]["capturedAt"] = "t1"
+        new["scenarioSpans"][
+            "constraints.addEachType::constraints.add.coincident"
+        ]["meanMs"] = 0.3200
+        f, _ = pg.compare(new, base)
+        self.assertFalse(f.fail, f.fail)
+        self.assertTrue(any("coincident" in s for s in f.unresolved))
+        self.assertTrue(any("61 us" in s for s in f.unresolved), f.unresolved)
+
+    def test_a_big_absolute_move_at_n_1_still_fails(self):
+        """The guarantee the first version of this fix would have broken.
+
+        Exempting low n outright made
+        `test_a_regression_in_one_scenario_survives_aggregation` fail, and it
+        was right to. 240 ms is not the scheduler at any n.
+        """
+        base = self._base(scenarioSpans={
+            "kernel.allEdges.sweep.120::ffi.occt.allEdges":
+                {"n": 1, "meanMs": 600.0}})
+        new = json.loads(json.dumps(base))
+        new["conditions"]["capturedAt"] = "t1"
+        new["scenarioSpans"][
+            "kernel.allEdges.sweep.120::ffi.occt.allEdges"]["meanMs"] = 840.0
+        f, _ = pg.compare(new, base)
+        self.assertTrue(any("SLOWER" in s and "sweep.120" in s
+                            for s in f.fail), f.fail)
+        self.assertFalse(f.unresolved)
+
+    def test_the_absolute_floor_stops_applying_once_n_buys_averaging(self):
+        """A 61 us move is a real finding when it is the mean of many.
+
+        The rule exists because one observation cannot average out a context
+        switch. With n above the threshold it can, so the percentage floor
+        stands alone and the same tiny movement fails.
+        """
+        # The helper's default noiseFloor would put the fallback
+        # threshold at 29 %, above this movement, so it would never
+        # reach the rule under test. The real capture's floor for
+        # this family was 21 %.
+        base = self._base(
+            noiseFloor={"extrude": 0.04},
+            scenarioSpans={
+                "constraints.addEachType::constraints.add.coincident":
+                    {"n": 64, "meanMs": 0.2590}})
+        new = json.loads(json.dumps(base))
+        new["conditions"]["capturedAt"] = "t1"
+        new["scenarioSpans"][
+            "constraints.addEachType::constraints.add.coincident"
+        ]["meanMs"] = 0.3200
+        f, _ = pg.compare(new, base)
+        self.assertTrue(any("SLOWER" in s for s in f.fail), f.fail)
+        self.assertFalse(f.unresolved)
+
     def test_scenario_spans_carry_the_family_for_the_noise_floor(self):
         # The key is "scenario::span"; the FAMILY must come from the span half,
         # or every per-scenario entry silently falls back to the default floor.

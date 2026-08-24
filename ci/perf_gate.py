@@ -73,6 +73,34 @@ EXIT_OK, EXIT_REGRESSION, EXIT_REFUSED = 0, 1, 2
 # between two such numbers is noise. 0.05 ms = 50 ticks.
 MIN_GATED_MEAN_MS = 0.05
 
+# At low n, a PERCENTAGE is the wrong instrument, and an ABSOLUTE floor is the
+# right one.
+#
+# Round two's only regression was `constraints.add.coincident`, +23.6 %, over
+# the 21 % family floor — and n was 1 on both sides. In absolute terms the
+# whole finding was 0.2590 -> 0.3200 ms: **61 microseconds.** That is the scale
+# of one context switch or one minor page fault, and at n = 1 there is no
+# second observation to average it away.
+#
+# The first fix I wrote for this exempted every span with n < 3 from failing.
+# `test_a_regression_in_one_scenario_survives_aggregation` immediately caught
+# that it was wrong, and it was right to: that test injects a real 40 %
+# regression into `kernel.allEdges.sweep.120::ffi.occt.allEdges`, which has
+# n = 1 in the actual capture and a mean of 600 ms. Moving 240 ms is not a
+# scheduling hiccup at any n. Exempting low n would have traded round two's
+# false positive for a false negative on exactly the class of regression this
+# gate exists to catch.
+#
+# So the rule is absolute, not statistical, and its size comes from the
+# machine rather than from the data: below this, a single-observation
+# difference is indistinguishable from the operating system looking away.
+# 61 us fails it; 240 ms clears it by a factor of 480.
+#
+# Spans with enough observations keep the percentage floor alone — averaging
+# is what n buys, and this rule stops applying once you have it.
+MIN_GATED_DELTA_MS = 0.5
+LOW_N = 3
+
 # WHICH GAUGES MAY BE GATED HARD
 #
 # The hard tier treats a changed gauge as "the fixture changed size, so the
@@ -288,6 +316,9 @@ class Findings:
         self.fail: list[str] = []
         self.note: list[str] = []
         self.skipped: list[str] = []
+        # Over the percentage floor, but too small in absolute terms to tell
+        # from the scheduler at this n. Reported, never fatal.
+        self.unresolved: list[str] = []
 
 
 def compare(new: dict, base: dict, allow_clock_mismatch: bool = False
@@ -375,10 +406,17 @@ def compare(new: dict, base: dict, allow_clock_mismatch: bool = False
                 # this is: "scenario::span" ends with the span.
                 thr = threshold_for(k.split("::")[-1], floors)
                 if delta > thr:
-                    f.fail.append(
-                        f"SLOWER   {label}{k}: {bs['meanMs']:.4f} -> "
-                        f"{ns['meanMs']:.4f} ms "
-                        f"({delta * 100:+.1f}%, floor {thr * 100:.0f}%)")
+                    absMs = ns["meanMs"] - bs["meanMs"]
+                    line = (f"{label}{k}: {bs['meanMs']:.4f} -> "
+                            f"{ns['meanMs']:.4f} ms "
+                            f"({delta * 100:+.1f}%, floor {thr * 100:.0f}%)")
+                    # n is equal on both sides here — the CALLS check above
+                    # returned on any span where it is not.
+                    if ns["n"] < LOW_N and absMs < MIN_GATED_DELTA_MS:
+                        f.unresolved.append(
+                            f"n={ns['n']}  +{absMs * 1000:.0f} us  {line}")
+                    else:
+                        f.fail.append(f"SLOWER   {line}")
                 elif delta < -thr:
                     f.note.append(
                         f"faster        {label}{k}: {bs['meanMs']:.4f} -> "
@@ -420,6 +458,15 @@ def render(f: Findings, new: dict, base: dict, gated: bool) -> list[str]:
         out.append("")
     else:
         out.append("No regression against the baseline.")
+        out.append("")
+    if f.unresolved:
+        out.append(f"UNRESOLVED ({len(f.unresolved)}) — over the floor in "
+                   f"percent, under it in microseconds")
+        out.append(f"  At n < {LOW_N} a difference below "
+                   f"{MIN_GATED_DELTA_MS * 1000:.0f} us is not "
+                   f"distinguishable from the scheduler.")
+        out.append("  These are NOT failures and NOT clean bills of health.")
+        out += [f"  {s}" for s in f.unresolved]
         out.append("")
     if f.note:
         out.append(f"NOTES ({len(f.note)}) — not failures")
