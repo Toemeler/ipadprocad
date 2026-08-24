@@ -3377,3 +3377,19 @@ S14 §13.2, and I recommend **not** taking it first. A closed spine has no end
 caps, and `finish_pipe`'s `MakeSolid()` closes a shell with caps — that is more
 consequence than one line should carry unmeasured. Make the app SAY the path
 was swept open; decide the geometry on evidence afterwards.
+
+### S14-14 — one `flutter test` run in seven failed and I cannot name it
+
+Recorded because rounding it to "green" would be the wrong call. One run
+reported `+2367 -1`; six subsequent runs with full logs kept all passed at
+2 368 with no `[E]` marker. I had piped the failing run's output to `tail -1`
+and lost the name.
+
+The suite's skip count also varies run to run (2 367 + 1 skipped against
+2 368 + 0), so something in it is already conditional on state that is not
+fixed between runs — which is worth someone's attention independently of
+whether my one failure was related.
+
+**If `flutter test` fails once and passes on retry, keep the log.** S14's Dart
+changes (`resolvePathWithMode`, `_sweepArgSig`'s new key field, and the six
+`PartKernel` fakes) are the place to look first if it recurs near the sweep.

@@ -1620,7 +1620,7 @@ known-wrong orientation 1 for the length of one commit.
 | | |
 | --- | --- |
 | `flutter analyze --no-pub --no-fatal-infos --no-fatal-warnings` | **56 issues, delta ZERO in substance.** The diff against the pre-session baseline is one line: a pre-existing `unnecessary_cast` warning in `part_model.dart` moved from line 7906 to 7977 because I inserted above it. Same finding, same file, same rule. |
-| `flutter test` | **2 368 passed, 1 skipped** — the baseline's 2 365 plus the three tests added here |
+| `flutter test` | **2 368 passed** — the baseline's 2 365 plus the three tests added here. **One run out of seven failed and I could not name it: see §14.5.** |
 | `python3 -m unittest discover -s ci -p 'test_*.py'` | **49 tests, OK** |
 | `occt_smoke` on real OCCT 7.9.3 | **PASS**, with a scenario per fix: [38] for item 1, [37f] rewritten for item 2, [37b]/[37c] extended for item 3 |
 | `occt_mesh_recon_test` | **86 passed, 0 failed** |
@@ -1629,3 +1629,32 @@ known-wrong orientation 1 for the length of one commit.
 | separate, revertible commits | item 1 `702e712`, item 2 `fa7924f`, item 3 `119145b`, and neither of the first two depends on v24 |
 
 `pubspec.lock` is untouched — checked again after every Dart run.
+
+### 14.5 One test run in seven failed, and I could not identify it
+
+The first of my final verification runs reported `+2367 -1: Some tests failed`.
+I had piped the output to `tail -1`, so **the failing test's name was thrown
+away**, which was careless of me at exactly the wrong moment.
+
+Six subsequent full runs — all with complete logs kept — passed at 2 368, with
+no `[E]` marker anywhere in any of them. So I have one failure I cannot name
+against six clean runs, and I am recording it rather than rounding it to
+"green":
+
+* **What I know.** The count was 2 367 passed, 1 failed. The test *displayed*
+  on the progress line was `device_replay_test.dart: coincident tool: 2nd pick
+  on a stacked point picks the OTHER entity`, but with the compact reporter
+  that is the test currently RUNNING, not the one that failed, so it is a weak
+  hint at best.
+* **What I do not know.** Which test, and whether it is related to this work at
+  all. The suite's skip count also varies between runs (2 367 + 1 skipped
+  against 2 368 + 0), so at least one test in it is already conditional on
+  something that is not fixed run to run.
+* **What I did not do.** Bisect it by reverting my Dart changes and re-running,
+  because three full-suite runs were in flight against the working tree at the
+  time and swapping files under them would have produced a worse mess than the
+  one I was investigating. With hindsight I should have serialised that.
+
+**For the next session:** if `flutter test` fails once and passes on retry,
+keep the log. If it recurs near this area, my changes to `resolvePath`'s
+sibling and the six kernel fakes are the obvious place to look first.
