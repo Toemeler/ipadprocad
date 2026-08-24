@@ -3545,3 +3545,110 @@ observations, and it belongs to whoever owns `frontend/lib/perf_scenarios*.dart`
 — deliberately frozen so captures stay comparable. Until then the gate is honest
 about what it cannot resolve rather than guessing, and a low-n span that moves
 by more than half a millisecond still fails.
+
+---
+
+## S16-1 — three defects found by an audit, none of them fixed. **Needs:** integrator
+
+**From:** S16 (`claude/perf-opt3-straight-audit`, branched from
+`claude/perf-opt2`)
+**Full write-up:** `perf/findings/S16-straight-audit.md`
+
+S14 closed with a question about its own work: "I do not know what else in this
+shim is only ever exercised straight." S16 is that audit. **Eight
+direction/axis/placement parameters in the C ABI had never been passed anything
+but their trivial value.** Twelve predictions were registered at `ed46cc6`
+before any fixture existed; all twelve are adjudicated against real OCCT 7.9.3
+in `b66de73` and after. **Three defects, nine clean.**
+
+`occt_smoke` is **PASS** and `occt_shim_version()` is **unchanged at 26** — this
+session added no ABI surface, only fixtures. Nothing in `backend/occt/shim/**`
+was touched.
+
+**The three, in severity order. All are behaviour changes, so all are yours.**
+
+1. **`occt_coil_profile`: the `clockwise` flag makes the coil DESCEND instead of
+   reversing its handedness.** `gp_Dir2d d2(cw ? -1.0 : 1.0, cw ? -slope : slope)`
+   negates *both* components, which is the same right-handed helix run backwards
+   and downwards; a left-handed one needs opposite signs. Measured on [32]'s own
+   fixture: `z[-50.997, 0.997]` where `clockwise = 0` gives `z[-0.997, 50.997]`,
+   **with the volume identical to ten significant figures** — no volume check
+   could ever have caught it. `coilClockwise` is a UI checkbox
+   (`app_state.dart:7277`) that no test in the repository has ever set to true.
+   **A user who ticks it gets a wrong part, silently.** The repair looks like one
+   line — `gp_Dir2d d2(clockwise ? -1.0 : 1.0, slope)` — and it is upstream of
+   `finish_pipe`, so it does not touch S15's work. Pinned by scenario **[39d]**,
+   which asserts the *defect* and prints a `*** DEFECT ***` banner, so a fix
+   trips the test rather than passing unnoticed.
+
+2. **`occt_move_faces` leans on an oblique delta.** The face is swept along the
+   whole delta and the prism fused, so an oblique move unions a *leaning* prism —
+   an unsupported overhang on one side, a re-entrant notch on the other — instead
+   of the walls following the face. **Volume and `BRepCheck_Analyzer` are both
+   blind to it**: the volume is exactly the perpendicular answer (10 000 on the
+   20-cube fixture) and the solid is valid. A ray at `x = 2` exits at **22**
+   where a moved-face reading gives 10. *Latent today*: `setFaceEditValue` has
+   no caller, so no panel offers a free direction yet — but `DirectEditFeature`'s
+   own doc says `DirectOp.move` "takes a free direction", and the file format
+   stores `[dx, dy, dz]`. **It ships the day that panel is wired.** Two
+   defensible repairs and the choice is a behaviour decision: refuse an oblique
+   delta with a clear message, or decompose it and move the face properly.
+   Pinned by **[39i]**, same discipline.
+
+3. **`occt_chamfer_edges`' `angle_deg >= 90` guard assumes a perpendicular
+   edge.** The admissible range is `α < 180° − θ`, which is `α < 90°` only when
+   `θ = 90°`. Measured on a 60° edge: `α = 80` builds, `α = 100` is **refused**,
+   and *the identical chamfer spelled as mode 1* builds and removes exactly the
+   analytic 99.744831. So two spellings of one chamfer, one refused for no
+   geometric reason. Least serious of the three — the user sees an error, not a
+   bad solid — and the cheapest to fix, since `occt_shape_edge_info` field [10]
+   already computes the dihedral the guard needs. Scenario **[39j]**.
+
+**What was fine, so nobody re-checks it:** the revolve is fully general in its
+axis *including its holes* (the control for S14's item 2 — that defect is not
+here); the coil's axis handling is general (equivariant to 6.7e-15); the boolean
+ops are equivariant to 1.25e-16 with a rotated operand; the loft is exactly
+equivariant with rotated section matrices; `occt_transform` has six orders of
+headroom on its rigidity guard (residual 4.16e-17 against a 1e-9 tolerance);
+mirror is correct about an oblique plane, proved by a cut rather than a fuse;
+fillets are correct on a 135° edge to nine places; and chamfer mode 1 — which
+had **no fixture anywhere in the suite** — works and distinguishes its two
+distances. §1.4 of the findings is the table to read.
+
+**One instrument note that is nobody's defect but somebody's trap:**
+`occt_bbox` is `BRepBndLib::Add`, which inflates the box by the shape tolerance,
+about **1e-7 in every direction**. Every existing bbox assertion hides it by
+comparing relatively against values of order 10. A caller reading it as an exact
+bound — fit-to-view, clearance, "does this fit in the print volume" — is reading
+a value systematically 2e-7 too large per extent, and the header does not say so.
+
+**Not verified here:** Flutter is not installed in this environment, so
+`flutter analyze` and `flutter test` were not run. The diff is two files —
+`backend/occt/tests/smoke_occt.c` and `perf/findings/S16-straight-audit.md` —
+and touches no Dart at all, so the delta is structurally zero rather than
+measured zero. Stated rather than claimed.
+
+## S16-2 — for S15: the audit did NOT enter the sweep path
+
+**From:** S16. **For:** S15 (`claude/perf-opt3-holes`)
+
+Deliberately, per the brief: sweeps are yours. `occt_sweep_profile` and
+`occt_sweep_profile_ex` are excluded in §1.2 of my findings with that reason,
+and scenarios [30], [37] and [38] are untouched. **My audit found nothing in the
+sweep path because it did not look — that is an empty region on the map, not a
+clearance.**
+
+Two things that touch your ground and neither of which is a request:
+
+* The coil defect above lives in `occt_coil_profile`'s helix construction,
+  **before** the `finish_pipe` call, so a repair there does not collide with
+  what you are changing. I have not made that repair.
+* `occt_coil_profile`'s `taper_deg` is **0 in every call in the suite**, and it
+  is the parameter that selects `SetLaw` over `Add` on the `MakePipeShell` —
+  i.e. it changes which `finish_pipe` entry path runs. If your work moves
+  anything about how a law is applied, that branch has no fixture behind it.
+  Listed in §1.4 as a still-untested row.
+
+My only file in `backend/occt/**` is `tests/smoke_occt.c`, and within it only
+scenario [39], appended after [38]. If we conflict there it will be at the
+insertion point and both sides keep.

@@ -2866,14 +2866,25 @@ int main(void)
                 if (check(back != NULL, "[39a] inverse transform failed")) {
                     double bb[6];
                     if (occt_bbox(back, bb)) {
+                        /* 1e-6 absolute, NOT 1e-9: occt_bbox is
+                         * BRepBndLib::Add, which inflates the box by the
+                         * shape's own tolerance. Every box this file measures
+                         * comes back about 1e-7 too big in each direction, and
+                         * the existing fixtures only hide it because they
+                         * compare RELATIVELY against values of order 10. At
+                         * 1e-9 absolute the round trip "fails" by exactly that
+                         * gap, which is OCCT reporting a bound, not a
+                         * transform losing precision — the residual measured
+                         * one line above is 4e-17. */
                         printf("[39a] round trip bbox [%.9f %.9f %.9f]-"
-                               "[%.9f %.9f %.9f]\n",
+                               "[%.9f %.9f %.9f] (occt_bbox carries the shape "
+                               "tolerance, ~1e-7, as a gap)\n",
                                bb[0], bb[1], bb[2], bb[3], bb[4], bb[5]);
-                        check(fabs(bb[0]) < 1e-9 && fabs(bb[1]) < 1e-9 &&
-                              fabs(bb[2]) < 1e-9 &&
-                              near_rel(bb[3], 10.0, 1e-9) &&
-                              near_rel(bb[4], 20.0, 1e-9) &&
-                              near_rel(bb[5], 30.0, 1e-9),
+                        check(fabs(bb[0]) < 1e-6 && fabs(bb[1]) < 1e-6 &&
+                              fabs(bb[2]) < 1e-6 &&
+                              fabs(bb[3] - 10.0) < 1e-6 &&
+                              fabs(bb[4] - 20.0) < 1e-6 &&
+                              fabs(bb[5] - 30.0) < 1e-6,
                               "[39a] R-inverse(R(box)) is not the box");
                     }
                 }
@@ -3011,18 +3022,37 @@ int main(void)
                       "[39d] handedness must not change how much material "
                       "there is");
                 check(occt_shape_valid(cw), "[39d] clockwise coil invalid");
-                /* THE CHECK THIS SCENARIO EXISTS FOR. Inventor's Rotation flag
-                 * flips the winding; the coil still RISES by `height`. A coil
-                 * that descends instead is a wrong part, not a cosmetic miss.
-                 * Tolerance is generous (the section is 2 mm deep, so the
-                 * extremes sit a little outside the nominal 0..50) — this is
-                 * asking which SIDE of the profile the coil went, not pinning
-                 * a digit. */
-                check(b1[5] > 45.0 && b1[2] > -5.0,
-                      "[39d] the clockwise coil DESCENDS: `clockwise` negates "
-                      "both components of the helix direction, which runs the "
-                      "same right-handed helix backwards instead of building "
-                      "the left-handed one");
+                /* THE CHECK THIS SCENARIO EXISTS FOR — and it PINS THE
+                 * DEFECT, not the intent.
+                 *
+                 * Inventor's Rotation flag flips the winding; the coil still
+                 * RISES by `height`. This one descends: `clockwise` negates
+                 * BOTH components of the helix direction, and negating both is
+                 * the same right-handed helix run backwards, not the
+                 * left-handed one. A left-handed helix needs the components to
+                 * have OPPOSITE signs, (-1, +slope).
+                 *
+                 * S16 is an audit. OPTIMIZATION_PLAN_2.md section 0.6 —
+                 * "found a defect in another session's area? write it down, do
+                 * not fix it" — and the brief's "any behaviour change is routed
+                 * to the integrator" both bind, so this asserts what the shim
+                 * DOES and the verdict lives in
+                 * perf/findings/S16-straight-audit.md. The printed line says
+                 * DEFECT so a log reader sees it (read the log, not the
+                 * checkmark).
+                 *
+                 * If this check ever starts FAILING, the coil was fixed: the
+                 * scenario must then be rewritten to assert b1[5] > 45, which
+                 * is what a left-handed coil that rises looks like. */
+                printf("[39d] *** DEFECT (S16 P1) *** `clockwise` DESCENDS "
+                       "instead of reversing the handedness: z[%.4f,%.4f] "
+                       "where a left-handed coil rising by 50 would give "
+                       "z[~0,~50]. Recorded, NOT fixed — routed to the "
+                       "integrator.\n", b1[2], b1[5]);
+                check(b1[5] < 5.0 && b1[2] < -45.0,
+                      "[39d] the clockwise coil no longer descends — if this "
+                      "fails the defect was FIXED and this scenario must be "
+                      "rewritten to assert the rise");
             }
             occt_free_shape(ccw);
             occt_free_shape(cw);
@@ -3090,14 +3120,59 @@ int main(void)
                 if (check(both != NULL,
                           "[39f] fuse(original, oblique mirror) failed")) {
                     const double v = occt_shape_volume(both);
-                    printf("[39f] oblique mirror fuse volume %.6f (each half "
-                           "6000, overlapping)\n", v);
+                    printf("[39f] oblique mirror fuse volume %.6f (two "
+                           "DISJOINT halves of 6000 — see the overlapping "
+                           "pair below for the test with teeth)\n", v);
                     check(v > 6000.0 + 1e-6,
                           "[39f] the mirrored half added nothing — the "
                           "reflection is probably inside out");
                     occt_free_shape(both);
                 }
                 occt_free_shape(mir);
+            }
+            /* The fuse above is weaker than it looks: reflecting [0,10]x
+             * [0,20] about the plane through the ORIGIN with normal
+             * (1,1,0)/sqrt(2) sends (x,y) to (-y,-x), so the image is
+             * DISJOINT from the original and touches it only at a corner —
+             * 6000 + 6000 with nothing to subtract. [13b] has the same
+             * weakness. Move the plane so the halves genuinely OVERLAP and the
+             * booleans acquire teeth.
+             *
+             * Plane through (7,0,0), same normal: (x,y) -> (7-y, 7-x), so the
+             * image is the box x in [-13,7], y in [-3,7], z in [0,30]. The
+             * overlap is 7 x 7 x 30 = 1470, hence
+             *   fuse = 6000 + 6000 - 1470 = 10530
+             *   cut  = 6000 - 1470         =  4530
+             * and the CUT is the sharp one: an inside-out tool removes the
+             * complement of what it should, which no volume near 4530 can
+             * survive. */
+            {
+                const double po[6] = {7, 0, 0,
+                                      0.70710678118654752440,
+                                      0.70710678118654752440, 0};
+                occt_shape *mo = b ? occt_mirror(b, po) : NULL;
+                if (check(mo != NULL, "[39f] overlapping oblique mirror NULL")) {
+                    occt_shape *fu = occt_fuse(b, mo);
+                    occt_shape *cu = occt_cut(b, mo);
+                    if (check(fu != NULL && cu != NULL,
+                              "[39f] boolean against an oblique mirror failed")) {
+                        printf("[39f] overlapping oblique mirror: fuse %.6f "
+                               "(want 10530), cut %.6f (want 4530)\n",
+                               occt_shape_volume(fu), occt_shape_volume(cu));
+                        check(near_rel(occt_shape_volume(fu), 10530.0, 1e-9),
+                              "[39f] the fused halves are not 12000 minus the "
+                              "1470 they share");
+                        check(near_rel(occt_shape_volume(cu), 4530.0, 1e-9),
+                              "[39f] cutting with the mirrored half removed the "
+                              "wrong material — the reflection is inside out");
+                        check(occt_shape_valid(fu) && occt_shape_valid(cu),
+                              "[39f] a boolean against the oblique mirror is "
+                              "invalid");
+                    }
+                    occt_free_shape(fu);
+                    occt_free_shape(cu);
+                    occt_free_shape(mo);
+                }
             }
             /* The normal is documented as normalised here. Nothing has ever
              * passed one that was not already unit. */
@@ -3365,7 +3440,13 @@ int main(void)
             const double P[] = {0.0, 0.0, 0.0,  30.0, 0.0, 0.0,
                                 15.0, 25.9807621135331594, 0.0};
             const int lc[] = {3};
-            occt_shape *wedge = occt_extrude_profile(P, lc, 1, 20.0, 0.0);
+            /* _arcs, not the plain form: occt_extrude_profile takes TWO
+             * doubles per vertex and occt_extrude_profile_arcs takes THREE
+             * (x, y, bulge). Feeding the triples to the plain form makes it
+             * read every third number as the next x, which came back as
+             * "outer loop is degenerate" rather than as a wrong solid — the
+             * one good thing about that mistake. */
+            occt_shape *wedge = occt_extrude_profile_arcs(P, lc, 1, 20.0, 0.0);
             int e60 = -1;
             if (check(wedge != NULL, "[39j] wedge prism returned NULL")) {
                 const int ne = occt_shape_edge_count(wedge);

@@ -95,6 +95,38 @@ are reachable from the UI with a value the suite has never produced:
 That is the map. §4 is what I think it means; §5 is what happened when I bent
 each one.
 
+### 1.4 The same table, AFTER this session — the one to read first
+
+This is the answer to "is this operation tested away from the axis?". Every row
+that said TRIVIAL in §1.1 now names the fixture that bends it.
+
+| Op | Parameter | Non-trivial fixture | Verdict |
+| --- | --- | --- | --- |
+| `occt_revolve_profile` | axis point + direction | **[39b]** oblique off-origin axis, axis reversed, quarter turn — against Pappus | correct |
+| `occt_revolve_profile` | hole vs body axis | **[39c]** holed profile on the same oblique axis — Pappus twice | correct |
+| `occt_coil_profile` | axis point + direction | **[39e]** axis and profile frame rotated together — equivariance | correct |
+| `occt_coil_profile` | `clockwise` | **[39d]** | **DEFECT — descends instead of reversing handedness (§5.1)** |
+| `occt_loft_sections` | per-section `mats` | **[39h]** both matrices rotated (equivariance) + one section tilted 20° | correct |
+| `occt_mirror` | plane normal | **[39f]** oblique normal, un-normalised normal, and an *overlapping* mirror proved by a cut | correct |
+| `occt_move_faces` | `(dx,dy,dz)` | **[39i]** | **DEFECT — leans on an oblique delta (§5.2)** |
+| `occt_transform` | `mat34` rotation | **[39a]** 37° about `(1,2,3)/√14`, residual measured, round trip | correct |
+| `occt_fillet_edges` | edge frame | **[39k]** a 135° edge, against the analytic corner-round | correct |
+| `occt_chamfer_edges` | `modes[i] == 1` | **[39l]** both distance orderings, discriminated by the cut-away wedge | correct |
+| `occt_chamfer_edges` | `angle_deg` guard | **[39j]** a 60° edge | **DEFECT — the `>= 90` guard assumes a perpendicular edge (§5.3)** |
+| `occt_fuse` / `_cut` / `_common` | relative placement | **[39g]** rotated operand, equivariance | correct |
+| `occt_loft_sections` | `closed` | **still untested** | unknown |
+| `occt_coil_profile` | `taper_deg` | **still untested** (0 in every call) | unknown |
+| `occt_chamfer_edges_ex` | `out_dropped` / `out_scale` | **still untested directly** | unknown |
+| `occt_sweep_profile` / `_ex` | everything | S14 §9–§11, scenarios [30] [37] [38] | S14's / S15's ground |
+
+The three "still untested" rows are the honest empty regions this session did
+not close. `closed` and `taper_deg` are flags rather than directions, so they
+fall outside the hypothesis; they are listed because the inventory would be
+dishonest without them.
+
+That is the map. §4 is what I think it means; §5 is what happened when I bent
+each one.
+
 ---
 
 ## 2. The instrument, and why it is not a golden
@@ -458,3 +490,320 @@ entry point stops being an audit. Anything in the sweep path goes to
 
 *§5 onward — results — is written after the fixtures run. Nothing below this
 line existed when the predictions above were committed.*
+
+---
+
+## 5. RESULTS
+
+Twelve predictions, twelve adjudicated, on real OCCT 7.9.3 built from the
+pinned submodule (`a016080`) on this machine, in one run. Every number below is
+from `backend/occt/build/occt_smoke`, scenario [39]; `occt_smoke` reports
+**PASS** and `occt_mesh_recon_test` **86 passed, 0 failed** with the audit in
+place.
+
+| | Prediction | Verdict | The number that settled it |
+| --- | --- | --- | --- |
+| P1 | coil `clockwise` descends instead of reversing handedness | **CONFIRMED — DEFECT** | `z[-50.997, 0.997]` where `clockwise = 0` gives `z[-0.997, 50.997]` |
+| P2 | coil correct on an oblique axis | **HELD** | equivariance rel diff **6.7e-15** |
+| P3 | revolve correct on an oblique, off-origin axis | **HELD** | 838.805239 against Pappus 838.805239 |
+| P4 | revolve's hole shares its body's axis | **HELD** | 3267.256360 against Pappus-twice 3267.256360 |
+| P5 | `occt_transform` accepts a real rotation | **HELD** | orthonormality residual **4.16e-17**, `|det−1|` exactly 0 |
+| P6 | mirror correct about an oblique plane | **HELD** | fuse 10530.000000, cut 4530.000000, both exact |
+| P7 | booleans correct with a rotated operand | **HELD** | equivariance rel diff **1.25e-16** |
+| P8 | loft correct with rotated section placements | **HELD** | 2500.000000000, exact to nine printed places |
+| P9 | `occt_move_faces` leans on an oblique delta | **CONFIRMED — DEFECT** | ray exits at **22.0000**, not 10; volume 10000 and `valid` regardless |
+| P10 | the chamfer's `angle >= 90` guard assumes a 90° edge | **CONFIRMED — DEFECT** | on a 60° edge: α=80 builds, α=100 **REFUSED**, the *same chamfer* as mode 1 builds and removes 99.744831 = analytic |
+| P11 | fillet correct away from a 90° edge | **HELD** | removed 1.721158454 against analytic 1.721158454 |
+| P12 | chamfer mode 1 works and distinguishes its two distances | **HELD** | wedge extents (2, 4, 20) vs (4, 2, 20) — transposed, as required |
+
+**Three defects, nine clean.** The hypothesis is *partly* confirmed: bending a
+trivially-tested parameter found something three times out of twelve, which is
+a high enough hit rate to justify the search and a low enough one to refute
+"everything away from the axis is broken". Nine ops are equivariant to
+somewhere between 1e-15 and exact, and that is the most useful single sentence
+in this file.
+
+### 5.1 Defect 1 — the coil's `clockwise` flag descends (P1)
+
+`occt_capi.cpp`, `occt_coil_profile`:
+
+```c
+const double slope = height / turns;
+const gp_Dir2d d2(clockwise != 0 ? -1.0 : 1.0,
+                  clockwise != 0 ? -slope : slope);
+```
+
+The helix is a straight line in the cylinder's `(u, v)` parameter space — `u`
+winds, `v` climbs. The flag negates **both** components, and
+`{(−t, −t·slope)}` is the same point set as `{(s, s·slope)}` for `s ∈ [−plen, 0]`:
+**the same right-handed helix, run backwards and downwards.** A left-handed
+helix needs the components to have *opposite* signs, `(−1, +slope)`.
+
+Measured, on [32]'s own fixture (5 turns, 50 mm rise):
+
+```
+[39d] ccw vol 2521.2203 z[-0.9968,50.9969] | cw vol 2521.2203 z[-50.9969,0.9968]
+```
+
+The volume is **identical to ten significant figures** — same helix length,
+so no volume check anywhere could ever have caught this. The bounding box is
+mirrored about `z = 0`.
+
+**Why it survived.** `clockwise` is passed as `0` in all four of [32]'s calls,
+which are the only coil calls in the suite. It is a UI checkbox
+(`app_state.dart:7277` → `part_model.dart:7947`), persisted as `'cw'`, and
+**no test in the repository has ever set it to true.** Exactly S14's shape.
+
+**Severity: a wrong part, silently.** A user who ticks "clockwise" gets a coil
+below the profile instead of above it, still right-handed. Nothing errors.
+
+**Not fixed here** — it is a behaviour change and this is an audit
+(`OPTIMIZATION_PLAN_2.md` §0.6, and the brief). The one-line repair is
+`gp_Dir2d d2(clockwise ? -1.0 : 1.0, slope)`, which flips the winding and keeps
+the rise. It is upstream of `finish_pipe`, so it does not collide with S15.
+Routed in `CROSS-SESSION.md`.
+
+### 5.2 Defect 2 — `occt_move_faces` leans on an oblique delta (P9)
+
+The face is swept along the **whole** delta and the prism fused:
+
+```c
+BRepPrimAPI_MakePrism prism(f, delta);
+const double along = delta.Dot(gp_Vec(outward));
+... along > 0 ? Fuse(acc, tool) : Cut(acc, tool)
+```
+
+Parallel to the normal, that prism is the slab between old face and new, and
+the fuse is exact. **Oblique, the prism leans:** the union carries an
+unsupported overhang on one side and a re-entrant notch on the other, instead
+of the neighbouring walls following the face.
+
+The 20-cube's top face moved by `(5, 0, 5)`:
+
+```
+[39i] oblique move volume 10000.000000 ... valid=1, ray x=2 hits=2 0.0000 22.0000
+```
+
+**Both instruments the suite owns are blind to it.** A leaning prism has volume
+`A·|delta·n| = 400 × 5 = 2000`, exactly the perpendicular answer, and shearing
+the top face is Cavalieri-neutral — so both readings give 10 000.
+`BRepCheck_Analyzer` passes: the union is a perfectly valid solid. Only a ray
+separates them, and it lands where predicted: material continues to
+`z = 20 + 5·(2/5) = 22`, where a solid whose walls followed its moved face
+would end at `z = 25·(2/5) = 10`.
+
+**Severity: latent, and becoming live.** The header scopes the guarantee
+("exact whenever the neighbouring walls are parallel to the motion") but
+nothing **enforces** it. Today `setFaceEditValue` — the only writer of
+`dx/dy/dz` — **has no caller**, so the panel that would offer a free direction
+is not wired yet. But `DirectEditFeature`'s own doc comment says
+`DirectOp.move` "takes a free direction" against `DirectOp.size`'s
+"pushes along the face's own normal", the persistence format is
+`'d': [dx, dy, dz]`, and the Dart tests only ever set `dz`. **The shim, the
+feature model and the file format all accept an oblique delta; the UI does not
+offer one yet.** The day that panel is wired, this ships.
+
+I am deliberately not claiming what Inventor does here — I cannot verify it in
+this environment. What I *can* say without a reference implementation is that
+the two readings differ, the shim's is undocumented, and nothing refuses the
+input. See §7.
+
+**Not fixed here.** Two defensible repairs, and choosing between them is a
+behaviour decision: refuse an oblique delta with a clear message (small, safe,
+loses a capability the model claims to have), or decompose the delta and move
+the face properly (right, and a real piece of work). Routed.
+
+### 5.3 Defect 3 — the chamfer's `angle >= 90` guard assumes a 90° edge (P10)
+
+```c
+if (modes[i] == 2 && (!angle_deg || !(angle_deg[i] > 0.0) || angle_deg[i] >= 90.0))
+```
+
+`AddDA`'s angle is measured **from the reference face**. In the cross-section
+triangle — apex `O` on the edge, tangent point `A` on the reference face,
+tangent point `B` on the other — the interior dihedral is the angle at `O` and
+the chamfer angle `α` is the angle at `A`, so the three summing to 180° gives
+
+```
+    α  <  180° − θ
+```
+
+which is `α < 90°` **if and only if `θ = 90°`.** The guard is not merely tuned
+to a perpendicular edge; it is the *exactly correct* rule for one, and wrong in
+**both directions** away from it.
+
+On an equilateral triangular prism (θ = 60° at every vertical edge, so α may
+legally reach 120°):
+
+```
+[39j] theta=60 edge: mode2 alpha=80 -> built | mode2 alpha=100 -> REFUSED |
+      the SAME chamfer as mode1 (d1=2, d2=5.758770) -> built
+[39j] mode1 removed 99.744831 (analytic 99.744831)
+```
+
+α = 80° builds, so mode 2 works on this edge and the refusal is the guard, not
+the geometry. α = 100° is refused. **The identical chamfer, spelled as two
+distances, builds and removes exactly `½·d1·d2·sin 60° · 20 = 99.744831`.** Two
+spellings of one chamfer; one of them refused for no geometric reason.
+
+The other half of the same error is untested here and I state it as derivation
+rather than measurement: on an **obtuse** edge (θ = 135°, legal range α < 45°)
+the guard is too **permissive** — it accepts 60°, which is impossible, and the
+user gets OCCT's failure instead of the guard's clear message.
+
+**Severity: a refused legal operation, not a wrong part.** The user sees an
+error, not a bad solid. That makes it the least serious of the three and also
+the cheapest to fix: the guard needs the edge's own dihedral, which
+`occt_shape_edge_info` field [10] already computes.
+
+**Not fixed here.** It changes what the ABI accepts. Routed.
+
+### 5.4 The nine that were fine, so nobody re-checks them
+
+This is the half of the audit worth as much as the defects.
+
+* **`occt_revolve_profile` is fully general in its axis.** `axis_side()` is a
+  genuine 2D cross product in both point and direction; the guard tolerance
+  scales with the profile; and **one `const gp_Ax1` is used for the body and
+  for every hole** — which is precisely the defect S14 found in the holed
+  sweep, and it is absent here. Pappus holds exactly on an oblique off-origin
+  axis, on that axis reversed, on a quarter turn, and with a hole. [39b], [39c].
+* **`occt_coil_profile`'s axis handling is general.** The helix frame is built
+  from `adir`, the true perpendicular foot, and the true radius vector — no
+  `+Z` anywhere. Equivariant to 6.7e-15. The defect is in the *handedness*
+  flag, not the axis. [39e].
+* **`occt_transform` has six orders of headroom.** A hand-composed Rodrigues
+  matrix is orthonormal to **4.16e-17** against a `1e-9` guard, with
+  `|det−1|` exactly zero. The suite's only previous rotation had entries
+  exactly `0`/`±1`, so this had genuinely never been tested; it is fine. [39a].
+* **`occt_mirror` is general in its normal**, normalises correctly (a `(3,3,0)`
+  normal gives the identical solid to `(1,1,0)/√2`), and its orientation repair
+  works obliquely — proved by a **cut**, 4530.000000 exact, which an inside-out
+  tool could not produce. [39f].
+* **Booleans are equivariant to 1.25e-16 with a rotated operand.** As predicted
+  from the mechanism: they compose no frame. [39g].
+* **`occt_loft_sections` is equivariant exactly** (2500.000000000) with both
+  section matrices rotated, and builds a valid solid from a genuinely tilted
+  section. [39h].
+* **Fillets are correct away from 90°.** A 135° edge removes 1.721158454
+  against an analytic 1.721158454 — nine places, the same 1e-6 [21] holds at
+  90°. [39k].
+* **Chamfer mode 1 works**, removes `½·d1·d2·L` exactly, and lands its two
+  distances on the two different faces (wedge extents transpose when the pair
+  is swapped). It had **no fixture anywhere in the file** before this. [39l].
+* **`occt_scale_shape`** was excluded with a reason (§1.2): a point and a
+  scalar, no direction to be wrong about.
+
+### 5.5 An instrument finding I was not looking for
+
+**`occt_bbox` reports a box inflated by the shape's own tolerance, about 1e-7
+in each direction.** It is `BRepBndLib::Add`, which does that by design. Every
+existing bbox assertion in the file hides it by comparing *relatively* against
+values of order 10, where 1e-7 is 1e-8 relative. [39a]'s round trip compared
+against **zero**, where relative tolerance is meaningless, and the gap showed
+up immediately as a "failure" of a transform whose actual residual is 4e-17.
+
+Nothing is wrong with `occt_bbox`. But a caller who reads it as an exact bound
+— for a fit-to-view, a clearance check, a "does this fit in the print volume"
+test — is reading a value that is systematically 2e-7 too large in every
+extent, and the header does not say so. Recorded rather than changed: it is
+outside this audit's mandate and touching it would move numbers.
+
+---
+
+## 6. What I deliberately did not do
+
+* **Fixed nothing.** All three defects are behaviour changes; the brief and
+  `OPTIMIZATION_PLAN_2.md` §0.6 both route those to the integrator. The
+  fixtures for the two that are silent ([39d], [39i]) **pin the defective
+  behaviour on purpose**, each with a comment saying so and, for the coil, a
+  printed `*** DEFECT ***` banner — so the suite stays green, the defect is
+  loud in the log, and a future fix *trips the test* instead of passing
+  unnoticed. Both say in as many words what to rewrite them to when the fix
+  lands.
+* **Did not touch the sweep.** `occt_sweep_profile` / `_ex` are S14's audited
+  ground and S15's live work. The audit found nothing there because it did not
+  look; that is an honest empty region on the map, not a clearance.
+* **Did not bump `occt_shim_version()`.** It stays **26**: this session added
+  no ABI surface at all, only fixtures. Bumping it would have made three device
+  captures disagree about what 26 meant.
+* **Did not test the obtuse half of defect 3.** §5.3's claim about θ = 135° is
+  derivation, not measurement. It follows from the same triangle, but I did not
+  build the fixture.
+* **Did not audit `occt_ray_hits`' direction, the STEP path, or the mesh
+  converters.** Excluded with reasons in §1.2. `occt_ray_hits` is the weakest
+  of those exclusions — it does take a direction — but it reads geometry rather
+  than composing a frame, and [23]/[24] already cast along several directions.
+
+---
+
+## 7. What I am unsure of
+
+1. **What "move a face obliquely" is supposed to mean.** I established that the
+   shim unions a leaning prism and that a solid whose walls followed its moved
+   face would end at `z = 10` rather than 22. I did **not** establish that the
+   second reading is Inventor's — I have no Inventor here, and the repo's own
+   header describes the guarantee by its *scope* ("walls parallel to the
+   motion") rather than by what happens outside it. So defect 2 is solidly
+   "the shim does something undocumented and unrefused on an input its own
+   feature model advertises", and only probably "the shim does the wrong
+   thing". That distinction matters for which repair is right, and it is the
+   integrator's call, not mine.
+2. **Whether the coil's `clockwise` was ever *meant* to reverse handedness.**
+   The header says "picks the handedness" and Inventor's Coil dialog has a
+   Rotation control that does exactly that, which is why I call it a defect.
+   But nothing in the repo pins the intended behaviour, and the alternative
+   reading — that someone wanted a downward coil and spelled it this way — is
+   not *impossible*, only unlikely and undocumented. If it were intended, the
+   flag is misnamed and the header is wrong.
+3. **The obtuse half of the chamfer guard** (§5.3), which is derived and not
+   measured.
+4. **Whether nine "HELD" verdicts generalise beyond one rotation.** Every
+   equivariance check uses **one** rigid motion, 37° about `(1,2,3)/√14`. That
+   is a genuinely arbitrary rotation with irrational entries and it exercises
+   every matrix element, but it is one sample. A defect that happened to
+   commute with *that* rotation would pass. I think that is very unlikely —
+   the defects this class produces (a baked-in `+Z`, a frame composed twice)
+   fail for almost every rotation — but "unlikely" is not "impossible", and S14
+   §14.3.2 records exactly this shape of doubt about its own `gp_Ax2`
+   cancellation. Doubling the sample would cost about twenty lines and I chose
+   breadth over depth; a session with the map in hand could spend that.
+5. **Whether the inventory is complete.** I read every call site of every
+   direction/axis/placement parameter in `smoke_occt.c` and built §1 from the
+   source rather than from memory. But the suite is 3 600 lines and the shim is
+   4 258, and "I read all of it" is a claim about my attention, not a proof.
+   The exclusions in §1.2 are where I would look first if §1 turns out to have
+   a hole — particularly `occt_ray_hits`.
+6. **The Dart side is unverified in this environment.** Flutter is not
+   installed here, so `flutter analyze` and `flutter test` could not be run.
+   The diff touches **no Dart file at all** — two files, `smoke_occt.c` and
+   this one — so the delta is structurally zero rather than measured zero, and
+   I would rather say that than claim a green I did not see. §8 records it as
+   such.
+
+---
+
+## 8. Definition of done
+
+| | |
+| --- | --- |
+| The inventory table, complete | **§1** — every entry point audited or excluded with a reason (§1.2) |
+| Predictions committed before tests | `ed46cc6` (P1–P12) → fixtures at `b66de73`. P10's *witness* was restated before running, with the original left visible and the reason recorded |
+| `occt_smoke` on real OCCT 7.9.3 | **PASS**, built from the pinned submodule `a016080` on this machine |
+| `occt_mesh_recon_test` | **86 passed, 0 failed** |
+| `python3 -m unittest discover -s ci -p 'test_*.py'` | **52 tests, OK** |
+| `flutter analyze` / `flutter test` | **NOT RUN — Flutter is not installed in this environment.** The diff touches no Dart file (`git diff --stat`: `smoke_occt.c`, `S16-straight-audit.md`), so the analyze delta is structurally zero. Stated rather than claimed — see §7.6 |
+| New fixtures for every non-trivial case | **12**, scenario [39a]–[39l] |
+| `occt_shim_version()` | **unchanged at 26** — no ABI surface added |
+| Behaviour changes | **none merged.** Three defects recorded and routed via `CROSS-SESSION.md` |
+
+---
+
+## 9. The one-line answer to S14's question
+
+> *"I do not know what else in this shim is only ever exercised straight."*
+
+Eight parameters were. **Three of them were wrong away from the trivial value,
+and nine other ops are equivariant to between 1e-15 and exact.** The map is
+§1; the next person can answer "is this operation tested away from the axis?"
+by reading one table.
