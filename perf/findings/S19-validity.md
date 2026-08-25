@@ -287,3 +287,41 @@ clean contain none.
   integrator and this session is the evidence for it, not the execution of it.
   Anything this session ships must be additive and must leave every existing
   call bit-identical.
+
+### Prediction P10 — an amendment, still before the instrument exists
+
+Added after reading `EvalExtrapol` and `Box()` in OCCT's source and before a
+single measurement — the probe binary does not exist yet, because the kernel it
+links against is still compiling. It is registered as a prediction rather than
+folded into P7 because it changes what P7 says the tell should be.
+
+`Box(Sec, U, box)` (`BRepFill_Sweep.cxx:199`) boxes the poles that
+`GeomFill_SectionLaw::D0` returns, and for a wire section that law is
+`BRepFill_ShapeLaw`, whose curves come from `BRep_Tool::Curve` — the section
+wire's own placed 3D curves. So `R = 2·max(|Xmin|,|Xmax|,|Ymin|,|Ymax|)` is
+measured **from the world origin, which this fixture puts on the spine's first
+point**, not from the section's centroid. That makes `Extrap` computable for
+S18 §5.1's three rows without running anything:
+
+| section | R | Extrap at spans = 16 | Extrap / L |
+| --- | ---: | ---: | ---: |
+| [−5,5]² (valid) | 10 | 0.2191 | 0.053 |
+| [0,2]² (valid) | 4 | 0.0937 | 0.023 |
+| [0,10]² (**INVALID**) | 20 | 0.4283 | 0.103 |
+
+Predicted: **`Extrap > L` is not the discriminator.** The extension is a tenth
+of a leg in the failing row and a twentieth in a passing one — a factor of 2
+between them and an order of magnitude of headroom in both. So if P7 is right
+about the corner being left untrimmed, the trim is failing for a reason other
+than the extension overrunning the neighbouring leg, and naming that reason is
+what the instrumented build is for.
+
+Consequence for P7's tell: the bounding-box overshoot on this fixture is
+predicted at **0.428 in the extension's own direction**, not at the multiple
+legs an "extensions collide" picture would need — small, and measurable only
+because it is exactly computable.
+
+Also predicted, and this is the one that would embarrass the arithmetic above:
+the boundary in the offset ladder (P9a) does NOT sit where `Extrap = L` would
+put it, which on this fixture is R = 396, i.e. a section reaching 198 — four
+times past the fold threshold and off the end of the ladder.
