@@ -3381,4 +3381,9 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get hintAsmConstraintSet => 'Not available yet';
+
+  @override
+  String msgAsmWouldNest(String name) {
+    return '“$name” already contains this assembly.';
+  }
 }

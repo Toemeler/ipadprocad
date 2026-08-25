@@ -5754,6 +5754,12 @@ abstract class AppL10n {
   /// In de, this message translates to:
   /// **'Noch nicht verfügbar'**
   String get hintAsmConstraintSet;
+
+  /// Meldung: eine Baugruppe kann sich nicht selbst enthalten.
+  ///
+  /// In de, this message translates to:
+  /// **'„{name}“ enthält diese Baugruppe bereits.'**
+  String msgAsmWouldNest(String name);
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

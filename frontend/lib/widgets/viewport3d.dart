@@ -2343,11 +2343,35 @@ void _dashedLine(Canvas canvas, Offset a, Offset b, Paint paint,
 /// filled quad that has to be depth-tested against the solid — which is why
 /// that one goes through the scene payload and these two do not.)
 void paintWorkFeatures(
-    Canvas canvas, Cam3 cam, PartModel part, AppState app) {
-  for (final a in part.workAxes) {
+        Canvas canvas, Cam3 cam, PartModel part, AppState app) =>
+    paintWorkAxesAndPoints(canvas, cam,
+        axes: part.workAxes,
+        points: part.workPoints,
+        bounds: partContentBounds(part),
+        app: app);
+
+/// M247 — the same two glyphs, for whichever document owns them.
+///
+/// Split out with the lists and the content box as parameters so the ASSEMBLY
+/// viewport draws its own work axes and points with this code and not a copy
+/// of it: the dash pattern, the selection colour and the end caps are what
+/// tell a user "this is a work axis", and two implementations would be two
+/// answers to that.
+///
+/// [bounds] is the document's content box, which is what the axis is spanned
+/// over — a part's for a part, the placed components' for an assembly.
+void paintWorkAxesAndPoints(
+  Canvas canvas,
+  Cam3 cam, {
+  required Iterable<WorkAxis> axes,
+  required Iterable<WorkPoint> points,
+  required (Vec3, Vec3)? bounds,
+  required AppState app,
+}) {
+  for (final a in axes) {
     if (!a.visible) continue;
     final sel = identical(app.selectedWorkAxis, a);
-    final b = partContentBounds(part);
+    final b = bounds;
     final (e0, e1) = workAxisSpan(a.at, a.dir, b?.$1 ?? a.at, b?.$2 ?? a.at);
     final p0 = cam.project(e0), p1 = cam.project(e1);
     // Dashed, because unlike an origin axis this is something the user made
@@ -2372,7 +2396,7 @@ void paintWorkFeatures(
       }
     }
   }
-  for (final pt in part.workPoints) {
+  for (final pt in points) {
     if (!pt.visible) continue;
     final sel = identical(app.selectedWorkPoint, pt);
     final c = cam.project(pt.at);

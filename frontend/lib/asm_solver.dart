@@ -855,7 +855,12 @@ double _contactError(AsmGeom moving, AsmGeom face) {
 /// else works on [AsmGeom]s that a pick already reduced.
 List<AsmGeom> localFacesOf(AssemblyOccurrence o) {
   final out = <AsmGeom>[];
-  for (final s in o.solids) {
+  for (final (_, r, t, s) in o.localSolids) {
+    // M246 — a subassembly's parts sit inside it, so a face record has to be
+    // lifted by the piece's own transform before it means anything in the
+    // component's frame. Identity for a part.
+    Vec3 up(Vec3 v) => r.rotate(v) + t;
+    Vec3 upDir(Vec3 v) => r.rotate(v);
     final info = s.mesh.faceInfos;
     final n = info.length ~/ 15;
     for (var f = 0; f < n; f++) {
@@ -864,9 +869,9 @@ List<AsmGeom> localFacesOf(AssemblyOccurrence o) {
       final at = Vec3(info[base + 1], info[base + 2], info[base + 3]);
       final dir = Vec3(info[base + 4], info[base + 5], info[base + 6]);
       if (type == kFacePlane) {
-        out.add(AsmGeom.plane(at, dir));
+        out.add(AsmGeom.plane(up(at), upDir(dir)));
       } else if (type == kFaceCylinder) {
-        out.add(AsmGeom.axis(at, dir, radius: info[base + 10]));
+        out.add(AsmGeom.axis(up(at), upDir(dir), radius: info[base + 10]));
       }
     }
   }

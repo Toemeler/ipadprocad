@@ -23,6 +23,7 @@
 #include <BRepPrimAPI_MakeSphere.hxx>
 #include <BRepPrimAPI_MakeCone.hxx>
 #include <BRepPrimAPI_MakeTorus.hxx>
+#include <BRepAlgoAPI_Common.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepFilletAPI_MakeFillet.hxx>
@@ -35,6 +36,7 @@
 #include <TopoDS.hxx>
 #include <TopoDS_Face.hxx>
 #include <TopLoc_Location.hxx>
+#include <algorithm>
 #include <BRepBndLib.hxx>
 #include <BRepBuilderAPI_GTransform.hxx>
 #include <BRepCheck_Analyzer.hxx>
@@ -447,13 +449,12 @@ int main()
             TopoDS_Shape out = Run(src, 0.4, r);
             report(r);
             chk("survives the cone face", !out.IsNull());
-            /* At THIS tessellation the fitted pass cannot hold the shell
-             * together and the faceted fallback takes over, so the report is
-             * the fallback's — which is the point: a watertight solid, not a
-             * shattered open shell. The crash this case exists for happens in
-             * the fitted pass either way, long before any fallback. Case 10
-             * below is where the cone itself has to be recognised. */
             chk("still a closed solid", r.closed == 1);
+            chk("and recognised, coarse as it is",
+                r.planes == 1 && r.cylinders == 1 && r.cones == 1,
+                std::to_string(r.planes) + "pl " +
+                    std::to_string(r.cylinders) + "cy " +
+                    std::to_string(r.cones) + "co");
         }
     }
     // ---- 10. the same post, tessellated finely: crease splitting ---------
@@ -732,6 +733,119 @@ int main()
         }
     }
 
+    // ---- 13. a curved shell with REAL holes in it ------------------------
+    //
+    // The case the user was actually looking at, and the one that made the
+    // all-or-nothing fallback indefensible: a shell that fits no primitive
+    // anywhere, drilled with holes that are exactly what they look like. The
+    // fitted pass shatters on the shell and is right about the holes, so the
+    // decision has to be made per PATCH: the holes keep their cylinders, the
+    // shell goes to triangles, and neither is thrown away because of the other.
+    //
+    // What separates a real hole from a strip of the shell is not the residual
+    // — on a squashed sphere a strip fits a cylinder to a fiftieth of tolerance
+    // — but where the patch came from. A hole arrives as a whole smooth patch
+    // bounded by its own rim; a strip is one of the pieces a smooth region was
+    // broken into.
+    {
+        std::printf("== a curved shell with four real holes ==\n");
+        gp_GTrsf g;
+        g.SetValue(1, 1, 1.0);
+        g.SetValue(2, 2, 1.7);
+        g.SetValue(3, 3, 0.55);
+        TopoDS_Shape src =
+            BRepAlgoAPI_Cut(
+                BRepBuilderAPI_GTransform(BRepPrimAPI_MakeSphere(30.).Shape(), g,
+                                          Standard_True)
+                    .Shape(),
+                BRepBuilderAPI_GTransform(BRepPrimAPI_MakeSphere(27.).Shape(), g,
+                                          Standard_True)
+                    .Shape())
+                .Shape();
+        src = BRepAlgoAPI_Common(
+                  src, BRepPrimAPI_MakeBox(gp_Pnt(-60, -60, 0),
+                                           gp_Pnt(60, 60, 60))
+                           .Shape())
+                  .Shape();
+        const double rad[4] = {2., 3., 4., 5.};
+        const double hx[4] = {-14, 14, -14, 14}, hy[4] = {-22, -22, 22, 22};
+        for (int i = 0; i < 4; ++i)
+            src = BRepAlgoAPI_Cut(
+                      src, BRepPrimAPI_MakeCylinder(
+                               gp_Ax2(gp_Pnt(hx[i], hy[i], -50), gp_Dir(0, 0, 1)),
+                               rad[i], 200.)
+                               .Shape())
+                      .Shape();
+
+        meshrecon::Report r;
+        TopoDS_Shape out = Run(src, 0.4, r);
+        report(r);
+        chk("built something", !out.IsNull());
+        chk("the four holes are cylinders", r.cylinders == 4,
+            std::to_string(r.cylinders) + " cylinders");
+        chk("and nothing was invented on the shell", r.spheres == 0,
+            std::to_string(r.spheres) + " spheres");
+        chk("the shell itself went to triangles", r.faceted_patches > 10,
+            std::to_string(r.faceted_patches) + " faceted patches");
+        if (!out.IsNull()) {
+            std::vector<double> radii;
+            for (TopExp_Explorer ex(out, TopAbs_FACE); ex.More(); ex.Next()) {
+                BRepAdaptor_Surface sa(TopoDS::Face(ex.Current()));
+                if (sa.GetType() == GeomAbs_Cylinder)
+                    radii.push_back(sa.Cylinder().Radius());
+            }
+            std::sort(radii.begin(), radii.end());
+            bool exact = radii.size() == 4;
+            for (size_t i = 0; i < radii.size() && exact; ++i)
+                exact = std::fabs(radii[i] - rad[i]) < 1e-4;
+            std::string got;
+            for (double x : radii)
+                got += std::to_string(x) + " ";
+            chk("with their true radii, to four decimals", exact, got);
+            chk("nothing reaches outside the mesh",
+                Overshoot(out) < g_meshDiag * 0.02,
+                std::to_string(Overshoot(out)) + " mm");
+        }
+    }
+
+    // ---- 14. the same post at every taper, which greedy growing could not --
+    //
+    // A cylinder into a cone, swept from a 6-degree taper to a 63-degree one.
+    // Region growing was right at the ends and hopeless in the middle — 24 and
+    // 26 patches at 9 and 15 degrees, open shells both — because the first
+    // seed off a tessellated barrel is a PLANE that fits three columns to well
+    // inside tolerance, and once it has committed there is no way back.
+    //
+    // RANSAC does not commit. It proposes candidates from random seeds and
+    // scores each against the whole patch, so the plane's three columns lose
+    // to the cylinder's barrel on evidence. Every angle in the sweep now comes
+    // back as exactly what it is.
+    {
+        std::printf("== a tapered post at every taper ==\n");
+        for (double coneH : {40., 25., 15., 10., 6., 2.}) {
+            TopoDS_Shape src =
+                BRepAlgoAPI_Fuse(
+                    BRepPrimAPI_MakeCylinder(4., 10.).Shape(),
+                    BRepPrimAPI_MakeCone(
+                        gp_Ax2(gp_Pnt(0, 0, 10), gp_Dir(0, 0, 1)), 4., 0., coneH)
+                        .Shape())
+                    .Shape();
+            meshrecon::Report r;
+            TopoDS_Shape out = Run(src, 0.02, r);
+            const double halfAngle = std::atan(4.0 / coneH) * 180.0 / M_PI;
+            std::printf("   %5.1f deg taper: ", halfAngle);
+            report(r);
+            chk("disc + barrel + cone, whatever the taper",
+                r.planes == 1 && r.cylinders == 1 && r.cones == 1,
+                std::to_string(halfAngle) + " deg: " +
+                    std::to_string(r.planes) + "pl " +
+                    std::to_string(r.cylinders) + "cy " +
+                    std::to_string(r.cones) + "co");
+            chk("closed solid", r.closed == 1,
+                std::to_string(halfAngle) + " deg");
+        }
+    }
+
     // ---- what a DOWNLOADED mesh is, and none of the above was ------------
     //
     // Every fixture up to here came out of OCCT's own tessellator: closed,
@@ -897,6 +1011,195 @@ int main()
                 t.push_back(rnd() % nv);
             }
             survives("random triangle soup", v, t);
+        }
+    }
+
+    // ---- 15. a torus, which nothing in this suite had ever asked for -----
+    {
+        std::printf("== a plain torus R=20 r=6 ==\n");
+        for (double defl : {0.4, 0.1}) {
+            TopoDS_Shape src = BRepPrimAPI_MakeTorus(20., 6.).Shape();
+            meshrecon::Report r;
+            TopoDS_Shape out = Run(src, defl, r);
+            report(r);
+            chk("built something", !out.IsNull());
+            if (out.IsNull())
+                continue;
+            Counts c = FaceKinds(out);
+            /* The old seed paired each normal with one a stride away and
+             * intersected the lines. That finds a cylinder's axis; on a torus
+             * a normal meets the SPINE, not the axis, so half the samples
+             * landed in the wrong place and the fit came back R=16.1 r=16.1
+             * against a truth of 20 and 6, at a residual of 4.6 mm on a mesh
+             * with no noise in it. A torus was therefore never once
+             * recognised, and every fillet ring — the only torus most parts
+             * contain — came back as several hundred planes. */
+            chk("one toroidal face", c.tor == 1 && c.total == 1,
+                std::to_string(c.tor) + " tori of " +
+                    std::to_string(c.total) + " faces");
+            chk("closed solid", r.closed == 1);
+            for (TopExp_Explorer ex(out, TopAbs_FACE); ex.More(); ex.Next()) {
+                BRepAdaptor_Surface sa(TopoDS::Face(ex.Current()));
+                if (sa.GetType() != GeomAbs_Torus)
+                    continue;
+                chk("with its true radii",
+                    std::fabs(sa.Torus().MajorRadius() - 20.) < 1e-3 &&
+                        std::fabs(sa.Torus().MinorRadius() - 6.) < 1e-3,
+                    std::to_string(sa.Torus().MajorRadius()) + " / " +
+                        std::to_string(sa.Torus().MinorRadius()));
+            }
+        }
+    }
+    // ---- 16. the plate a download actually looks like ---------------------
+    {
+        /* Rounded corners, a raised boss, five holes, and coarse enough that
+         * its circles are twelve-sided — which is what came back from the
+         * user's file with its corners in flat bands and its holes as prisms.
+         *
+         * Two things had to be true for this to work and neither was. RANSAC
+         * fitted every candidate to a fixed forty-triangle neighbourhood, so
+         * on a part whose fillets are twelve facets each every sample spanned
+         * a fillet AND the wall it is tangent to, every fit failed, and the
+         * side band came back with nothing found in it at all. And a merge
+         * only had to stay within tolerance, so a fillet that HAD been found
+         * was then fused with two triangles of that wall into a torus bent
+         * round an axis that is nowhere in the part, which added 42% to the
+         * model's volume. */
+        std::printf("== coarse plate: rounded corners, boss, five holes ==\n");
+        TopoDS_Shape box = BRepPrimAPI_MakeBox(60., 40., 6.).Shape();
+        BRepFilletAPI_MakeFillet fil(box);
+        TopTools_IndexedMapOfShape edges;
+        TopExp::MapShapes(box, TopAbs_EDGE, edges);
+        for (int i = 1; i <= edges.Extent(); ++i) {
+            const TopoDS_Edge e = TopoDS::Edge(edges(i));
+            gp_Pnt a = BRep_Tool::Pnt(TopExp::FirstVertex(e));
+            gp_Pnt b = BRep_Tool::Pnt(TopExp::LastVertex(e));
+            if (std::fabs(a.X() - b.X()) < 1e-7 &&
+                std::fabs(a.Y() - b.Y()) < 1e-7)
+                fil.Add(5., e); /* the four vertical corners */
+        }
+        TopoDS_Shape src = fil.Shape();
+        src = BRepAlgoAPI_Fuse(
+                  src, BRepPrimAPI_MakeCylinder(
+                           gp_Ax2(gp_Pnt(30., 20., 6.), gp_Dir(0, 0, 1)), 9.,
+                           4.)
+                           .Shape())
+                  .Shape();
+        const double hx[5] = {30., 10., 50., 10., 50.};
+        const double hy[5] = {20., 8., 8., 32., 32.};
+        const double hr[5] = {4.5, 2.2, 2.2, 2.2, 2.2};
+        for (int i = 0; i < 5; ++i)
+            src = BRepAlgoAPI_Cut(
+                      src,
+                      BRepPrimAPI_MakeCylinder(
+                          gp_Ax2(gp_Pnt(hx[i], hy[i], -1.), gp_Dir(0, 0, 1)),
+                          hr[i], 20.)
+                          .Shape())
+                      .Shape();
+        meshrecon::Report r;
+        TopoDS_Shape out = Run(src, 0.25, r);
+        report(r);
+        chk("built something", !out.IsNull());
+        if (!out.IsNull()) {
+            Counts c = FaceKinds(out);
+            chk("closed solid", r.closed == 1);
+            chk("nothing went to triangles", r.faceted_patches == 0,
+                std::to_string(r.faceted_patches) + " faceted");
+            /* 7 planes: top, bottom, four walls, boss top.
+             * 10 cylinders: four corner fillets, five holes, the boss. */
+            chk("7 planes and 10 cylinders, and nothing else",
+                c.planes == 7 && c.cyl == 10 && c.total == 17,
+                std::to_string(c.planes) + "pl " + std::to_string(c.cyl) +
+                    "cy of " + std::to_string(c.total));
+            std::vector<double> radii;
+            for (TopExp_Explorer ex(out, TopAbs_FACE); ex.More(); ex.Next()) {
+                BRepAdaptor_Surface sa(TopoDS::Face(ex.Current()));
+                if (sa.GetType() == GeomAbs_Cylinder)
+                    radii.push_back(sa.Cylinder().Radius());
+            }
+            std::sort(radii.begin(), radii.end());
+            const double want[10] = {2.2, 2.2, 2.2, 2.2, 4.5,
+                                     5.0, 5.0, 5.0, 5.0, 9.0};
+            bool exact = radii.size() == 10;
+            std::string got;
+            for (size_t i = 0; i < radii.size(); ++i) {
+                got += std::to_string(radii[i]) + " ";
+                if (i < 10 && std::fabs(radii[i] - want[i]) > 1e-4)
+                    exact = false;
+            }
+            chk("every radius exact: four fillets, five holes, the boss",
+                exact, got);
+            const double v = Volume(out);
+            chk("volume", std::fabs(v - g_meshVolume) / g_meshVolume < 1e-3,
+                std::to_string(v) + " mesh " + std::to_string(g_meshVolume));
+        }
+    }
+
+    // ---- 17. the same plate with a FILLET where the boss meets it ---------
+    {
+        /* The blend ring is a torus, and it touches the plate top and the boss
+         * side TANGENTIALLY — which is what a fillet is, and the one case a
+         * surface intersector cannot do: the two surfaces graze rather than
+         * cross and the system is singular along the answer. GeomAPI_IntSS
+         * returned nothing, the plate's inner wire fell back to the inscribed
+         * polygon while the torus kept its true circle, and the shell stayed
+         * open along that one seam: 2 free edges of 45, half a millimetre
+         * apart. A fillet's contacts are not general intersections though —
+         * they are the circle of the torus's major radius, in closed form. */
+        std::printf("== plate with a filleted boss: a real torus ring ==\n");
+        TopoDS_Shape s0 = BRepPrimAPI_MakeBox(60., 40., 6.).Shape();
+        s0 = BRepAlgoAPI_Fuse(
+                 s0, BRepPrimAPI_MakeCylinder(
+                         gp_Ax2(gp_Pnt(30., 20., 6.), gp_Dir(0, 0, 1)), 9., 4.)
+                         .Shape())
+                 .Shape();
+        BRepFilletAPI_MakeFillet bf(s0);
+        TopTools_IndexedMapOfShape be;
+        TopExp::MapShapes(s0, TopAbs_EDGE, be);
+        for (int i = 1; i <= be.Extent(); ++i) {
+            const TopoDS_Edge e = TopoDS::Edge(be(i));
+            gp_Pnt a = BRep_Tool::Pnt(TopExp::FirstVertex(e));
+            if (std::fabs(a.Z() - 6.) < 1e-7 &&
+                std::fabs(std::hypot(a.X() - 30., a.Y() - 20.) - 9.) < 1e-6)
+                bf.Add(1.5, e);
+        }
+        TopoDS_Shape src;
+        try {
+            src = bf.Shape();
+        } catch (const Standard_Failure &) {
+        }
+        chk("the reference fillet built", !src.IsNull());
+        if (!src.IsNull()) {
+            for (double defl : {0.1, 0.03}) {
+                meshrecon::Report r;
+                TopoDS_Shape out = Run(src, defl, r);
+                report(r);
+                chk("built something", !out.IsNull());
+                if (out.IsNull())
+                    continue;
+                Counts c = FaceKinds(out);
+                chk("closed solid", r.closed == 1);
+                chk("the blend is one torus", c.tor == 1,
+                    std::to_string(c.tor) + " tori");
+                chk("and nothing went to triangles", r.faceted_patches == 0,
+                    std::to_string(r.faceted_patches) + " faceted");
+                for (TopExp_Explorer ex(out, TopAbs_FACE); ex.More();
+                     ex.Next()) {
+                    BRepAdaptor_Surface sa(TopoDS::Face(ex.Current()));
+                    if (sa.GetType() != GeomAbs_Torus)
+                        continue;
+                    /* Boss radius 9 plus fillet 1.5: the spine sits at 10.5. */
+                    chk("with the blend's true radii",
+                        std::fabs(sa.Torus().MajorRadius() - 10.5) < 1e-3 &&
+                            std::fabs(sa.Torus().MinorRadius() - 1.5) < 1e-3,
+                        std::to_string(sa.Torus().MajorRadius()) + " / " +
+                            std::to_string(sa.Torus().MinorRadius()));
+                }
+                chk("volume",
+                    std::fabs(Volume(out) - g_meshVolume) / g_meshVolume < 1e-3,
+                    std::to_string(Volume(out)) + " mesh " +
+                        std::to_string(g_meshVolume));
+            }
         }
     }
 

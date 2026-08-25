@@ -19,16 +19,34 @@
 // folder lists them, Place Constraint creates them, and dragging a component
 // goes through the solver so a mechanism follows the finger.
 //
-// What that did NOT change is the thing that makes this file small: the
-// placement is still a TRANSFORM APPLIED TO THE SOURCE PART, never a copy of
-// its geometry. Every renderer and hit-test treats a component as "the source
-// part, placed", which is what lets the assembly reuse the part's renderers
-// rather than fork them — on RealityKit it is position + orientation on the
-// solid's holder Entity (M241/M242, see reality_assembly.dart), and on the
-// CPU painter it is a placed camera (see placedCam in part_render.dart).
+// M245 made the link to the source LIVE: an occurrence borrows the one model
+// per document rather than owning a copy, so editing the part updates every
+// assembly that places it. See AssemblyOccurrence.
+//
+// M246 let an occurrence place an ASSEMBLY. Inventor's rule is what makes
+// that small: a subassembly is ONE RIGID BODY in its parent. The solver still
+// sees one body per occurrence and the parent's constraints still act on the
+// whole thing; what changes is only the geometry, and only in one way —
+//
+//     a component used to be  "these solids, at this placement"
+//     a component is now      "these solids, EACH at its own placement"
+//
+// which is true of a part too (every feature at the identity) and is the only
+// shape that can also describe a subassembly. [AssemblyOccurrence.localSolids]
+// is where that is written down, once, and every renderer, picker and payload
+// reads it from there.
+//
+// What none of that changed is the thing that makes this file small: a
+// placement is still a TRANSFORM APPLIED TO THE SOURCE, never a copy of its
+// geometry. Every renderer and hit-test treats a component as "the source,
+// placed", which is what lets the assembly reuse the part's renderers rather
+// than fork them — on RealityKit it is position + orientation on the solid's
+// holder Entity (M241/M242, see reality_assembly.dart), and on the CPU
+// painter it is a placed camera (see placedCam in part_render.dart).
 import 'dart:math' as math;
 
 import 'asm_constraints.dart';
+import 'asm_work_features.dart';
 import 'doc_file.dart' show kAssemblyDocKind;
 import 'part_model.dart';
 import 'quat.dart';
@@ -36,17 +54,43 @@ import 'part_render.dart' show PlacedComponent;
 
 /// One placed component: a REFERENCE to a part document plus where it sits.
 ///
-/// The geometry is not copied. [part] is the source part loaded into memory,
-/// owned by this occurrence and disposed with it — two occurrences of the same
-/// part each hold their own [PartModel], which is wasteful and is the honest
-/// shape for now: sharing one model between occurrences only pays off once
-/// occurrences can differ (representations, iParts), and neither exists yet.
+/// M245 — THE GEOMETRY IS BORROWED, NEVER OWNED.
+///
+/// M240 gave each occurrence its own [PartModel], loaded from disk when the
+/// assembly opened. That made a component a SNAPSHOT: edit the part, and the
+/// assembly went on drawing whatever the part had looked like when the
+/// document was last opened. It is not what a component is.
+///
+/// [part] is now a reference to the ONE model for that document, handed over
+/// by [AppState.linkOccurrences]. When the part is open in its own tab that
+/// is literally the model being edited, so an extrusion added there is in
+/// every assembly that places the part the moment you look — no reload, no
+/// second kernel build, no copy of the mesh. When it is not open it is the
+/// shared read-only load AppState keeps for exactly this.
+///
+/// The consequence for this class is one line long and worth stating: it must
+/// not dispose what it did not allocate. See [dispose].
 class AssemblyOccurrence {
   /// Unique within the assembly, and shown in the browser: "Bracket:1".
   final String id;
 
-  /// Document name of the placed part.
+  /// Document name of what is placed.
   final String source;
+
+  /// M246 — WHICH KIND of document [source] names.
+  ///
+  /// Inventor places parts and subassemblies through one command and lists
+  /// them in one tree, and so does this. The kind is recorded rather than
+  /// looked up because a component whose document has been DELETED still has
+  /// to say what it was: "the part is gone" and "the subassembly is gone" are
+  /// different sentences, and neither can be derived from a file that is not
+  /// there.
+  ///
+  /// [kAssemblyDocKind] or 'part'. Absent on a document written before this
+  /// existed, which then reads as a part — which is what all of them were.
+  final String sourceKind;
+
+  bool get isSubAssembly => sourceKind == kAssemblyDocKind;
 
   /// Placement, in millimetres from the assembly origin.
   Vec3 offset;
@@ -69,17 +113,32 @@ class AssemblyOccurrence {
 
   bool visible;
 
-  /// The loaded source part, or null while it is still being read.
+  /// The source part's model — BORROWED, not owned. Null while it is still
+  /// being read, when the part has been deleted from the gallery, and always
+  /// when this occurrence places an assembly.
+  ///
+  /// Written by [AppState.linkOccurrences], which is the only thing that
+  /// knows where a document's model lives.
   PartModel? part;
+
+  /// M246 — the SUBASSEMBLY this occurrence places, borrowed the same way.
+  ///
+  /// Exactly one of [part] and [sub] is ever set. Both are written by
+  /// [AppState.linkOccurrences] and neither is owned here — the model may be
+  /// the one open in its own tab, which is what makes a change to a
+  /// subassembly appear in its parent.
+  AssemblyModel? sub;
 
   AssemblyOccurrence({
     required this.id,
     required this.source,
+    this.sourceKind = 'part',
     Vec3? offset,
     Quat? rot,
     this.grounded = false,
     this.visible = true,
     this.part,
+    this.sub,
   })  : offset = offset ?? Vec3.zero,
         rot = rot ?? Quat.identity;
 
@@ -101,37 +160,65 @@ class AssemblyOccurrence {
 
   Vec3 dirToLocal(Vec3 world) => rot.unrotate(world);
 
-  /// The solids this occurrence draws, each with the FEATURE NAME that built
-  /// it, in the SOURCE part's own coordinates. Callers add [offset] themselves
-  /// — see the note in the file header.
+  /// Everything this occurrence draws, in ITS OWN coordinates: a path that
+  /// names the piece, the rigid transform that places it inside the
+  /// component, and the solid.
   ///
-  /// ONE definition of "what a component draws". The rule (visible, built,
-  /// not folded away by a boolean, not below End of Part) is the part
+  /// ONE definition of "what a component draws". The rule for a part (visible,
+  /// built, not folded away by a boolean, not below End of Part) is the part
   /// viewport's own, and it is stated here exactly once: the CPU painter, the
   /// RealityKit payload, the bounds walk and the picker all read it from here,
   /// so a component cannot be drawn by one and missed by another.
-  Iterable<(String, KernelSolid)> get namedSolids sync* {
+  ///
+  /// M246 — the inner transform is what a SUBASSEMBLY needs and a part never
+  /// does. A part's features are all in the part's own space, so every one of
+  /// them comes back at the identity. A subassembly's components are not: each
+  /// sits somewhere inside it, and that placement composes with this
+  /// occurrence's own. The recursion is what makes a subassembly of a
+  /// subassembly work, and it terminates because a cycle can never be created
+  /// — see AppState.placeComponent.
+  ///
+  /// The PATH is what keeps ids unique down the tree: "Extrusion1" for a part,
+  /// "Gearbox:1/Extrusion1" one level down. The renderer keys its entity cache
+  /// on it, and two occurrences of one subassembly carry the same inner names.
+  Iterable<(String, Quat, Vec3, KernelSolid)> get localSolids sync* {
     final p = part;
-    if (p == null) return;
-    for (final f in p.features) {
-      if (f.visible && f.solid != null && !f.consumedByJoin && !f.rolledBack) {
-        yield (f.name, f.solid!);
+    if (p != null) {
+      for (final f in p.features) {
+        if (f.visible && f.solid != null && !f.consumedByJoin && !f.rolledBack) {
+          yield (f.name, Quat.identity, Vec3.zero, f.solid!);
+        }
+      }
+      return;
+    }
+    final a = sub;
+    if (a == null) return;
+    for (final child in a.occurrences) {
+      if (!child.visible) continue;
+      for (final (path, r, t, solid) in child.localSolids) {
+        // world_of_this_component = child_transform * inner_transform
+        yield ('${child.id}/$path', (child.rot * r).normalized(),
+            child.toWorld(t), solid);
       }
     }
   }
 
-  /// [namedSolids] without the names, for the painters that do not need them.
-  Iterable<KernelSolid> get solids sync* {
-    for (final (_, s) in namedSolids) {
-      yield s;
+  /// [localSolids] placed in WORLD coordinates, which is what every painter,
+  /// picker and payload actually wants.
+  Iterable<(String, Quat, Vec3, KernelSolid)> get worldSolids sync* {
+    for (final (path, r, t, solid) in localSolids) {
+      yield (path, (rot * r).normalized(), toWorld(t), solid);
     }
   }
 
-  bool get loaded => part != null;
+  bool get loaded => part != null || sub != null;
 
   Map<String, dynamic> toJson() => {
         'id': id,
         'src': source,
+        // Omitted for a part, so a document holding only parts is byte-
+        // identical to one written before subassemblies existed.
+        if (isSubAssembly) 'kind': kAssemblyDocKind,
         'x': offset.x,
         'y': offset.y,
         'z': offset.z,
@@ -150,6 +237,7 @@ class AssemblyOccurrence {
     return AssemblyOccurrence(
       id: id,
       source: src,
+      sourceKind: j['kind'] == kAssemblyDocKind ? kAssemblyDocKind : 'part',
       offset: Vec3(n('x'), n('y'), n('z')),
       rot: Quat.fromJson(j['rot']),
       grounded: j['grounded'] == true,
@@ -157,9 +245,15 @@ class AssemblyOccurrence {
     );
   }
 
+  /// Drops the reference and NOTHING ELSE.
+  ///
+  /// The model belongs to AppState — it is very often the one open in the
+  /// part's own tab — so disposing it here would take the kernel solids out
+  /// from under the editor. Two occurrences of one part share one model, so
+  /// it would not even be safe among occurrences.
   void dispose() {
-    part?.dispose();
     part = null;
+    sub = null;
   }
 }
 
@@ -177,6 +271,40 @@ class AssemblyModel {
   /// they were placed. This is what the Relationships folder lists and what
   /// the solver drives to zero.
   final List<AsmConstraint> constraints = [];
+
+  /// M247 — the assembly's OWN work features, in creation order.
+  ///
+  /// They belong to the .pas document and to no part in it: a work plane
+  /// mating two components is not a feature of either. Three parallel lists
+  /// for the reason [PartModel] gives for its three — they are not timeline
+  /// nodes, they share one `seq` numbering, and the browser interleaves them
+  /// by it.
+  ///
+  /// Unlike a part's, these are PARAMETRIC: each stores the picks it was
+  /// built from as [AsmRef]s and is re-derived after every solve. See
+  /// asm_work_features.dart for why that is not optional here.
+  final List<AsmWorkPlane> workPlanes = [];
+  final List<AsmWorkAxis> workAxes = [];
+  final List<AsmWorkPoint> workPoints = [];
+
+  /// The next free work-feature `seq`, shared across all three lists so a
+  /// plane, an axis and a point never collide on a browser row id.
+  ///
+  /// Scanned rather than counted, so deleting the newest feature and making
+  /// another does not hand out its number twice; and derived rather than
+  /// stored, because an assembly holds a handful of these and a counter that
+  /// had to be serialised is one more thing a hand-edited file can get wrong.
+  int nextWorkSeq() {
+    var n = 0;
+    for (final s in [
+      for (final w in workPlanes) w.seq,
+      for (final x in workAxes) x.seq,
+      for (final p in workPoints) p.seq,
+    ]) {
+      if (s > n) n = s;
+    }
+    return n + 1;
+  }
 
   /// The last solve's verdict, for the browser and the status line. Runtime
   /// only — a document records what the user asked for, never how it went.
@@ -236,6 +364,47 @@ class AssemblyModel {
     return null;
   }
 
+  /// M245 — renames an occurrence, carrying its relationships with it.
+  ///
+  /// Only a part RENAME reaches here: an occurrence is named after the
+  /// document it instantiates, so when that document is renamed the
+  /// occurrence has to move with it or the browser goes on showing the old
+  /// name and the next placement collides with it. Every constraint that
+  /// names the old id is re-pointed in the same pass — a relationship to an
+  /// occurrence that no longer exists is one the solver reports sick for
+  /// ever.
+  void rename(AssemblyOccurrence o, String newId, String newSource) {
+    if (newId == o.id && newSource == o.source) return;
+    final was = o.id;
+    final i = occurrences.indexOf(o);
+    if (i < 0) return;
+    final moved = AssemblyOccurrence(
+      id: newId,
+      source: newSource,
+      sourceKind: o.sourceKind,
+      offset: o.offset,
+      rot: o.rot,
+      grounded: o.grounded,
+      visible: o.visible,
+      part: o.part,
+      sub: o.sub,
+    );
+    occurrences[i] = moved;
+    if (identical(selected, o)) selected = moved;
+    for (final c in constraints) {
+      if (c.a.occurrence == was) c.a = _repoint(c.a, newId);
+      if (c.b.occurrence == was) c.b = _repoint(c.b, newId);
+      final third = c.c;
+      if (third != null && third.occurrence == was) {
+        c.c = _repoint(third, newId);
+      }
+    }
+  }
+
+  static AsmRef _repoint(AsmRef r, String occurrence) => AsmRef(
+      occurrence, r.geom, r.label,
+      anchor: r.anchor, extent: r.extent, feature: r.feature);
+
   void remove(AssemblyOccurrence o) {
     occurrences.remove(o);
     if (identical(selected, o)) selected = null;
@@ -243,12 +412,57 @@ class AssemblyModel {
     // dangling reference the solver would have to keep reporting as sick.
     // Inventor deletes them with the component, and says so in its prompt.
     constraints.removeWhere((c) => c.touches(o.id));
+    // M247 — and the same for a work feature built on it. A plane whose face
+    // has left the document cannot be re-derived, so keeping it would leave a
+    // row that is permanently in error and a plane frozen at wherever the
+    // component last was. Anything built ON that plane goes too, which is why
+    // this loops until nothing more falls.
+    _dropWorkFeaturesTouching({o.id});
     if (selectedConstraint != null &&
         !constraints.contains(selectedConstraint)) {
       selectedConstraint = null;
     }
     o.dispose();
   }
+
+  /// Removes every work feature that depends, directly or through another
+  /// work feature, on one of [gone] — and every constraint left naming one.
+  ///
+  /// Transitive because a work feature is a legitimate input to another one:
+  /// dropping a plane without dropping the axis built on it would leave the
+  /// axis permanently unresolvable, which is the dangling row this is here to
+  /// prevent.
+  void _dropWorkFeaturesTouching(Set<String> gone) {
+    var again = true;
+    while (again) {
+      again = false;
+      bool doomed(List<AsmRef> refs) => refs.any((r) =>
+          (!r.isAssemblyOrigin && gone.contains(r.occurrence)) ||
+          (r.feature != null && gone.contains(r.feature)));
+      void sweep<T>(List<T> list, List<AsmRef> Function(T) refsOf,
+          String Function(T) idOf) {
+        list.removeWhere((f) {
+          if (!doomed(refsOf(f))) return false;
+          gone.add(idOf(f));
+          again = true;
+          return true;
+        });
+      }
+
+      sweep<AsmWorkPlane>(workPlanes, (w) => w.refs, (w) => w.id);
+      sweep<AsmWorkAxis>(workAxes, (x) => x.refs, (x) => x.id);
+      sweep<AsmWorkPoint>(workPoints, (p) => p.refs, (p) => p.id);
+    }
+    constraints.removeWhere((c) => [c.a, c.b, if (c.c != null) c.c!]
+        .any((r) => r.feature != null && gone.contains(r.feature)));
+    if (selectedConstraint != null &&
+        !constraints.contains(selectedConstraint)) {
+      selectedConstraint = null;
+    }
+  }
+
+  /// M247 — deletes one work feature, and whatever was built on it.
+  void removeWorkFeature(String id) => _dropWorkFeaturesTouching({id});
 
   /// The constraint highlighted in the browser, if any.
   AsmConstraint? selectedConstraint;
@@ -280,6 +494,14 @@ class AssemblyModel {
         'occurrences': [for (final o in occurrences) o.toJson()],
         if (constraints.isNotEmpty)
           'constraints': [for (final c in constraints) c.toJson()],
+        // M247 — written only when there are some, so an assembly without
+        // work features is byte-identical to one saved before they existed.
+        if (workPlanes.isNotEmpty)
+          'workPlanes': [for (final w in workPlanes) w.toJson()],
+        if (workAxes.isNotEmpty)
+          'workAxes': [for (final x in workAxes) x.toJson()],
+        if (workPoints.isNotEmpty)
+          'workPoints': [for (final p in workPoints) p.toJson()],
       };
 
   /// Reads [j] into this model. Occurrences come back WITHOUT their geometry —
@@ -326,6 +548,38 @@ class AssemblyModel {
       if (con.occurrences.any((id) => byId(id) == null)) continue;
       constraints.add(con);
     }
+    workPlanes.clear();
+    workAxes.clear();
+    workPoints.clear();
+    for (final w in (j['workPlanes'] as List? ?? const [])) {
+      if (w is! Map) continue;
+      final f = AsmWorkPlane.fromJson(w.cast<String, dynamic>());
+      if (f != null) workPlanes.add(f);
+    }
+    for (final x in (j['workAxes'] as List? ?? const [])) {
+      if (x is! Map) continue;
+      final f = AsmWorkAxis.fromJson(x.cast<String, dynamic>());
+      if (f != null) workAxes.add(f);
+    }
+    for (final p in (j['workPoints'] as List? ?? const [])) {
+      if (p is! Map) continue;
+      final f = AsmWorkPoint.fromJson(p.cast<String, dynamic>());
+      if (f != null) workPoints.add(f);
+    }
+    // A work feature whose component is not in this document is dropped for
+    // the same reason a constraint is: there is nothing to re-derive it
+    // against, and it can only have come from a file edited by hand.
+    _dropWorkFeaturesTouching({
+      for (final w in workPlanes)
+        for (final r in w.refs)
+          if (!r.isAssemblyOrigin && byId(r.occurrence) == null) r.occurrence,
+      for (final x in workAxes)
+        for (final r in x.refs)
+          if (!r.isAssemblyOrigin && byId(r.occurrence) == null) r.occurrence,
+      for (final p in workPoints)
+        for (final r in p.refs)
+          if (!r.isAssemblyOrigin && byId(r.occurrence) == null) r.occurrence,
+    });
   }
 
   void dispose() {
@@ -334,6 +588,9 @@ class AssemblyModel {
     }
     occurrences.clear();
     constraints.clear();
+    workPlanes.clear();
+    workAxes.clear();
+    workPoints.clear();
     selected = null;
     selectedConstraint = null;
   }
@@ -364,13 +621,18 @@ class AsmSolveSummary {
   bool get allConstrained => dof == 0;
 }
 
-/// What the painters draw: every VISIBLE occurrence that has geometry, as
-/// (placement, solids). The order is the occurrence order; the painter sorts
-/// by depth itself (see [paintAssemblySolids]), and the viewport needs the
-/// occurrence order preserved so it can map a painter index back to a row.
+/// What the painters draw: every VISIBLE occurrence, as the world-placed
+/// pieces it is made of.
+///
+/// The order is the occurrence order; the painter sorts by depth itself (see
+/// [paintAssemblySolids]), and the viewport needs the occurrence order
+/// preserved so it can map a painter index back to a row.
 List<PlacedComponent> placedComponents(AssemblyModel a) => [
       for (final o in a.occurrences)
-        if (o.visible) PlacedComponent(o.rot, o.offset, o.solids.toList())
+        if (o.visible)
+          PlacedComponent([
+            for (final (_, r, t, s) in o.worldSolids) (r, t, s),
+          ])
     ];
 
 /// M242 — a stored reference's geometry in WORLD coordinates, right now.
@@ -385,6 +647,16 @@ List<PlacedComponent> placedComponents(AssemblyModel a) => [
 /// and it keeps the browser and the dialog rendering a row that the solve
 /// separately reports as sick, rather than crashing on it.
 AsmGeom worldGeomOf(AssemblyModel a, AsmRef r) {
+  // M247 — an assembly WORK FEATURE moves, so its reference names it by id
+  // and reads the current answer rather than the frame it had when it was
+  // picked. See AsmRef.feature. A feature that has been deleted falls back to
+  // the stored geometry, which is what keeps a browser row rendering while
+  // the solve separately reports the constraint sick.
+  final wf = r.feature;
+  if (wf != null) {
+    final live = asmWorkGeom(a, wf);
+    if (live != null) return live;
+  }
   if (r.isAssemblyOrigin) return r.geom;
   final o = a.byId(r.occurrence);
   if (o == null) return r.geom;
@@ -402,25 +674,32 @@ AsmGeom worldGeomOf(AssemblyModel a, AsmRef r) {
 /// The part-side twin is [partContentBounds]; this one is not memoised because
 /// an assembly holds a handful of occurrences rather than a timeline of
 /// features, and the walk is over meshes that are already in memory.
-(Vec3, Vec3)? assemblyContentBounds(AssemblyModel a) {
+(Vec3, Vec3)? assemblyContentBounds(AssemblyModel a) => _boundsOf([
+      for (final o in a.occurrences)
+        if (o.visible) ...o.worldSolids
+    ]);
+
+/// World bounds of a list of placed solids, or null when there are none.
+///
+/// M246 — one walk, because a piece now carries its OWN transform inside its
+/// component (a subassembly's parts are not at its origin) and composing that
+/// with the component's in two separate loops is two chances to get it wrong.
+(Vec3, Vec3)? _boundsOf(List<(String, Quat, Vec3, KernelSolid)> pieces) {
   var minX = double.infinity, minY = double.infinity, minZ = double.infinity;
   var maxX = -double.infinity, maxY = -double.infinity, maxZ = -double.infinity;
   var any = false;
-  for (final o in a.occurrences) {
-    if (!o.visible) continue;
-    for (final s in o.solids) {
-      final pos = s.mesh.positions;
-      for (var i = 0; i + 2 < pos.length; i += 3) {
-        final w = o.toWorld(Vec3(pos[i], pos[i + 1], pos[i + 2]));
-        if (!w.x.isFinite || !w.y.isFinite || !w.z.isFinite) continue;
-        any = true;
-        if (w.x < minX) minX = w.x;
-        if (w.y < minY) minY = w.y;
-        if (w.z < minZ) minZ = w.z;
-        if (w.x > maxX) maxX = w.x;
-        if (w.y > maxY) maxY = w.y;
-        if (w.z > maxZ) maxZ = w.z;
-      }
+  for (final (_, r, t, s) in pieces) {
+    final pos = s.mesh.positions;
+    for (var i = 0; i + 2 < pos.length; i += 3) {
+      final w = r.rotate(Vec3(pos[i], pos[i + 1], pos[i + 2])) + t;
+      if (!w.x.isFinite || !w.y.isFinite || !w.z.isFinite) continue;
+      any = true;
+      if (w.x < minX) minX = w.x;
+      if (w.y < minY) minY = w.y;
+      if (w.z < minZ) minZ = w.z;
+      if (w.x > maxX) maxX = w.x;
+      if (w.y > maxY) maxY = w.y;
+      if (w.z > maxZ) maxZ = w.z;
     }
   }
   if (!any) return null;
@@ -445,29 +724,10 @@ AsmGeom worldGeomOf(AssemblyModel a, AsmRef r) {
 }
 
 /// World bounds of ONE occurrence, placement included, or null when it holds
-/// no geometry. Used to frame the view on a newly placed component and as the
-/// cheap first pass of the drag hit-test.
-(Vec3, Vec3)? occurrenceBounds(AssemblyOccurrence o) {
-  var minX = double.infinity, minY = double.infinity, minZ = double.infinity;
-  var maxX = -double.infinity, maxY = -double.infinity, maxZ = -double.infinity;
-  var any = false;
-  for (final s in o.solids) {
-    final pos = s.mesh.positions;
-    for (var i = 0; i + 2 < pos.length; i += 3) {
-      final w = o.toWorld(Vec3(pos[i], pos[i + 1], pos[i + 2]));
-      if (!w.x.isFinite || !w.y.isFinite || !w.z.isFinite) continue;
-      any = true;
-      if (w.x < minX) minX = w.x;
-      if (w.y < minY) minY = w.y;
-      if (w.z < minZ) minZ = w.z;
-      if (w.x > maxX) maxX = w.x;
-      if (w.y > maxY) maxY = w.y;
-      if (w.z > maxZ) maxZ = w.z;
-    }
-  }
-  if (!any) return null;
-  return (Vec3(minX, minY, minZ), Vec3(maxX, maxY, maxZ));
-}
+/// no geometry. Used to frame the view on a newly placed component, to size
+/// the constraint highlight, and as the cheap first pass of the drag hit-test.
+(Vec3, Vec3)? occurrenceBounds(AssemblyOccurrence o) =>
+    _boundsOf(o.worldSolids.toList());
 
 /// Where a NEWLY placed occurrence goes.
 ///

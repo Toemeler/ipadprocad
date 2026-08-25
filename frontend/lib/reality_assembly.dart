@@ -31,17 +31,24 @@ import 'package:flutter/painting.dart' show Color;
 
 import 'assembly.dart';
 import 'part_model.dart';
+import 'quat.dart';
 import 'reality_payload.dart';
 import 'theme.dart';
 
 /// One drawable piece of an assembly: the payload id it travels under, the
-/// occurrence it belongs to, and the solid itself.
+/// occurrence it belongs to, its WORLD transform, and the solid itself.
 ///
-/// The id is `<occurrence>/<feature>` — "Bracket:1/Extrusion1". It has to be
-/// unique across the whole scene (the renderer keys its entity cache on it),
-/// and two occurrences of one part carry the same feature names, so the
-/// occurrence id is the only thing that can separate them.
-typedef AssemblyPiece = (String, AssemblyOccurrence, KernelSolid);
+/// The id is `<occurrence>/<path>` — "Bracket:1/Extrusion1", and one level
+/// deeper "Machine:1/Bracket:1/Extrusion1". It has to be unique across the
+/// whole scene (the renderer keys its entity cache on it), and two
+/// occurrences of one part carry the same inner names, so the occurrence id
+/// is the only thing that can separate them.
+///
+/// M246 — the TRANSFORM travels with the piece rather than being taken from
+/// the occurrence, because a subassembly's parts each sit somewhere inside
+/// it: reading the occurrence's own placement would put every part of a
+/// subassembly at the subassembly's origin, stacked.
+typedef AssemblyPiece = (String, AssemblyOccurrence, Quat, Vec3, KernelSolid);
 
 /// Everything the assembly draws, in occurrence order.
 ///
@@ -51,7 +58,8 @@ typedef AssemblyPiece = (String, AssemblyOccurrence, KernelSolid);
 List<AssemblyPiece> assemblyPieces(AssemblyModel a) => [
       for (final o in a.occurrences)
         if (o.visible)
-          for (final (feature, s) in o.namedSolids) ('${o.id}/$feature', o, s),
+          for (final (path, r, t, s) in o.worldSolids)
+            ('${o.id}/$path', o, r, t, s),
     ];
 
 /// The tint a component is drawn in, as a packed ARGB, or [kNoTint] for the
@@ -73,7 +81,8 @@ int assemblyTint(AssemblyModel a, AssemblyOccurrence o, {String? hoverId}) {
 /// Mesh revisions currently on screen, so the next push can omit the buffers
 /// of everything that did not change. Mirrors `sceneRevs` on the part side.
 Map<String, int> assemblySceneRevs(AssemblyModel a) => {
-      for (final (id, _, s) in assemblyPieces(a)) id: identityHashCode(s.mesh),
+      for (final (id, _, _, _, s) in assemblyPieces(a))
+        id: identityHashCode(s.mesh),
     };
 
 /// The full scene: solids with their placements, the origin planes, the origin
@@ -88,12 +97,12 @@ Map<String, dynamic> buildAssemblyScenePayload(
 }) =>
     {
       'solids': [
-        for (final (id, o, s) in assemblyPieces(a))
+        for (final (id, o, r, t, s) in assemblyPieces(a))
           solidPayload(
             id,
             s,
-            at: o.offset,
-            rot: o.rot,
+            at: t,
+            rot: r,
             tint: assemblyTint(a, o, hoverId: hoverId),
             includeGeometry: knownRevs?[id] != identityHashCode(s.mesh),
           ),
@@ -116,17 +125,22 @@ Map<String, dynamic> buildAssemblyOverlaysPayload(AssemblyModel a,
         {String? hoverId}) =>
     {
       'placements': [
-        for (final (id, o, _) in assemblyPieces(a))
+        for (final (id, o, r, t, _) in assemblyPieces(a))
           {
             'id': id,
-            'at': [o.offset.x, o.offset.y, o.offset.z],
-            'rot': [o.rot.x, o.rot.y, o.rot.z, o.rot.w],
+            'at': [t.x, t.y, t.z],
+            'rot': [r.x, r.y, r.z, r.w],
             'tint': assemblyTint(a, o, hoverId: hoverId),
           },
       ],
       'planes': [
         for (final key in kPlaneKeys)
           {'key': key, 'visible': a.vis[key] == true, 'hot': false},
+        // M247 — a work plane's eye has to reach the device on the light push
+        // as well, or toggling one would wait for whatever next moved the
+        // scene signature.
+        for (final w in a.workPlanes)
+          {'key': w.id, 'visible': w.visible, 'hot': false},
       ],
       'axes': [
         for (final (key, _) in kAssemblyAxes)
@@ -146,6 +160,21 @@ List<Map<String, dynamic>> assemblyPlanePayloads(AssemblyModel a) => [
       for (final key in kPlaneKeys)
         planePayload(key, planeFrame(key), assemblyPlaneRect(a, key),
             visible: a.vis[key] == true, hot: false),
+      // M247 — the assembly's own work planes ride the SAME list, exactly as a
+      // part's do in _planePayloads (M165). A work plane is a filled quad that
+      // has to be depth-tested against the components, which is a thing the
+      // screen-space HUD cannot do and the RealityKit scene already does — so
+      // this is the one of the three work features that goes through the
+      // payload, and the axes and points stay on the HUD.
+      //
+      // Sized by planeRectInBounds against the assembly's padded extent, which
+      // is the very function the origin planes above go through: a work plane
+      // frames the model the way they do rather than being a fixed square, and
+      // the picker hit-tests the same rectangle.
+      for (final w in a.workPlanes)
+        planePayload(w.id, w.frame,
+            planeRectInBounds(assemblyOriginExtent(a), w.frame),
+            visible: w.visible, hot: false),
     ];
 
 List<Map<String, dynamic>> assemblyAxisPayloads(AssemblyModel a) => [
@@ -176,8 +205,32 @@ String assemblySceneSignature(AssemblyModel a) {
   for (final k in const ['yz', 'xz', 'xy', 'x', 'y', 'z', 'cp']) {
     sb.write(a.vis[k] == true ? '1' : '0');
   }
+  // M247 — the work planes' GEOMETRY is in the heavy push, and unlike a
+  // component's it is not expressible as a placement the renderer can apply
+  // itself: a re-solve changes the quad's corners. So the frame goes in the
+  // signature, and a work feature that moves rebuilds the plane meshes and
+  // nothing else. (gen already covers a feature being created or deleted.)
+  sb.write(';wp:');
+  for (final w in a.workPlanes) {
+    final f = w.frame;
+    sb
+      ..write(w.id)
+      ..write(w.visible ? '=' : '-')
+      ..write(f.origin.x.toStringAsFixed(3))
+      ..write(',')
+      ..write(f.origin.y.toStringAsFixed(3))
+      ..write(',')
+      ..write(f.origin.z.toStringAsFixed(3))
+      ..write(',')
+      ..write(f.n.x.toStringAsFixed(4))
+      ..write(',')
+      ..write(f.n.y.toStringAsFixed(4))
+      ..write(',')
+      ..write(f.n.z.toStringAsFixed(4))
+      ..write(';');
+  }
   sb.write(';s:');
-  for (final (id, _, s) in assemblyPieces(a)) {
+  for (final (id, _, _, _, s) in assemblyPieces(a)) {
     sb
       ..write(id)
       ..write('=')

@@ -2797,5 +2797,14 @@
   "hintAsmConstraintSet": "Noch nicht verfügbar",
   "@hintAsmConstraintSet": {
     "description": "Hinweis im leeren Reiter Abhängigkeitssatz: der Typ braucht ein BKS, das es noch nicht gibt."
+  },
+  "msgAsmWouldNest": "„{name}“ enthält diese Baugruppe bereits.",
+  "@msgAsmWouldNest": {
+    "description": "Meldung: eine Baugruppe kann sich nicht selbst enthalten.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
   }
 }

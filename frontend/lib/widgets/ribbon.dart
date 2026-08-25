@@ -955,15 +955,18 @@ class _RibbonState extends State<Ribbon> {
   // ---- M240: the ASSEMBLY ribbon (Inventor's Assemble tab).
   //
   // Component / Position / Relationships / Pattern / Work Features, in
-  // Inventor's own order and with Inventor's own wording. ONE command is
-  // wired — Place — and every other button is drawn in Inventor's DISABLED
-  // state rather than folded behind a ▼ (see [_Big.enabled] for why this tab
-  // gets that third option and the part ribbon does not).
+  // Inventor's own order and with Inventor's own wording. Place (M240),
+  // Constrain (M242) and the whole Work Features panel (M247) are wired;
+  // every other button is drawn in Inventor's DISABLED state rather than
+  // folded behind a ▼ (see [_BigWide.enabled] for why this tab gets that third
+  // option and the part ribbon does not).
   //
-  // Work Features reuses the part ribbon's WF icons and its Plane/Axis/Point/
-  // UCS layout unchanged: an assembly work plane IS a part work plane placed
-  // in another document, so drawing it a second way would be inventing a
-  // difference that is not there.
+  // Work Features reuses the part ribbon's WF icons, its Plane/Axis/Point/UCS
+  // layout AND its commands: the entries below call the same AppState methods
+  // the part panel calls, and those route on the open document. An assembly
+  // work plane is built by the same thirteen Inventor methods a part's is, so
+  // giving it a second ribbon would be inventing a difference that is not
+  // there.
   Widget _assemblyRibbon(AppState app) {
     final t = L.of(context);
     // Small rows, all disabled: the assembly tab has no built command that
@@ -982,6 +985,29 @@ class _RibbonState extends State<Ribbon> {
                       label: rows[i].$2,
                       enabled: false,
                       onTap: null),
+                ]
+              ]),
+        );
+    // M247 — small rows that are BUILT, each with the drop chip its flyout
+    // needs. The part ribbon's `col` in every respect but the file it is
+    // written in; it cannot simply be shared because both are closures over
+    // their own ribbon's `toggleFly` context.
+    Widget wfCol(List<(String, String, VoidCallback, String)> rows,
+            {double leftPad = 8}) =>
+        Padding(
+          padding: EdgeInsets.only(left: leftPad),
+          child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (var i = 0; i < rows.length; i++) ...[
+                  if (i > 0) const SizedBox(height: 2),
+                  _SmallRow(
+                      icon: rows[i].$1,
+                      label: rows[i].$2,
+                      flyId: rows[i].$4,
+                      onFly: toggleFly,
+                      onTap: rows[i].$3),
                 ]
               ]),
         );
@@ -1061,19 +1087,51 @@ class _RibbonState extends State<Ribbon> {
             (AS['copy']!, t.btnCopy),
           ], leftPad: 2),
         ),
-        // ---- Work Features: the part ribbon's panel, all four inert --------
+        // ---- Work Features: the part ribbon's panel, on this document ------
+        //
+        // M247 — WIRED, and deliberately the part ribbon's panel rather than a
+        // second one. An assembly work plane is built by the same commands
+        // from the same flyout lists: every entry below calls the SAME
+        // AppState method the part panel calls, and that method arms whichever
+        // document is open (see startWorkAxis and its three siblings). Two
+        // ribbons calling two sets of commands would be two places for the
+        // Inventor method list to drift.
+        //
+        // UCS stays behind the ▼, dimmed and untappable, exactly as it does in
+        // the part panel and for the reason stated there: it is a coordinate
+        // SYSTEM with its own triad and placement gestures, not a third
+        // variant of Axis and Point. It is unbuilt in BOTH modes; building it
+        // in one would be the half-built version of the same lie M157 named.
         _panel(
           label: t.panelWorkFeatures,
           arrow: false,
+          overId: 'ov-workasm',
+          over: () => [
+            OverItem(WF['ucs']!, t.btnUcs, null),
+          ],
           child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             _Big(
+                id: 'plane',
                 label: t.btnPlane,
                 icon: WF['plane']!,
-                enabled: false),
-            offCol([
-              (WF['axis']!, t.btnAxis),
-              (WF['point']!, t.btnPoint),
-              (WF['ucs']!, t.btnUcs),
+                onFly: toggleFly,
+                // The button BODY runs Inventor's most-used entry, Offset
+                // from Plane — the same default the part button has had since
+                // M157. The flyout carries the other twelve.
+                onDefault: () => app.startWorkPlane(WorkPlaneKind.offset)),
+            wfCol([
+              (
+                WF['axis']!,
+                t.btnAxis,
+                () => app.startWorkAxis(WorkAxisMethod.auto),
+                'axis'
+              ),
+              (
+                WF['point']!,
+                t.btnPoint,
+                () => app.startWorkPoint(WorkPointMethod.auto),
+                'point'
+              ),
             ]),
           ]),
         ),
@@ -1109,7 +1167,15 @@ class _RibbonState extends State<Ribbon> {
         pick = await NativeMenu.menu(
           items: [
             for (final n in parts)
-              NativeMenuItem(id: 'p:$n', title: n, symbol: 'cube'),
+              NativeMenuItem(
+                  id: 'p:$n',
+                  title: n,
+                  // M246 — a SUBASSEMBLY is placed by the same command and
+                  // has to be told apart in the list, because "Gearbox" says
+                  // nothing about which kind of document it is.
+                  symbol: app.isAssemblyName(n)
+                      ? 'square.stack.3d.up'
+                      : 'cube'),
           ],
           anchor: anchor,
           cancelLabel: t.cancel,
@@ -1126,7 +1192,8 @@ class _RibbonState extends State<Ribbon> {
                 value: 'p:$n',
                 height: 40,
                 child: Row(children: [
-                  svg(part3dMenuIcon, 18),
+                  svg(app.isAssemblyName(n) ? assemblyMenuIcon : part3dMenuIcon,
+                      18),
                   const SizedBox(width: 10),
                   Text(n, style: ts(12.5, T.text)),
                 ]),
@@ -1720,29 +1787,21 @@ class _Big extends StatelessWidget {
   final bool active;
   final VoidCallback? onDefault; // button body = default tool (Inventor)
 
-  /// M240 — Inventor's DISABLED state, and the honest middle ground between
-  /// M216's two options.
-  ///
-  /// M216's rule is that a command which does nothing must not take permanent
-  /// ribbon width: it goes behind the panel's ▼, where _OverRow draws it
-  /// dimmed and untappable. That rule assumes the panel around it is real. The
-  /// assembly tab is a LAYOUT being built — the whole point of it is that the
-  /// panels stand where Inventor's stand — so folding eleven of its twelve
-  /// commands away would leave a tab that shows nothing of what it is going to
-  /// be. Inventor itself draws these greyed rather than hidden (Free Move,
-  /// Free Rotate and Show Sick are greyed in an empty assembly), so the third
-  /// state is Inventor's own, not an excuse: dimmed, no hover, no tap, no lie.
-  final bool enabled;
   const _Big({this.id, required this.label, required this.icon, this.onFly,
-      this.active = false, this.onDefault, this.enabled = true})
+      this.active = false, this.onDefault})
       : showDd = true;
   const _Big.plain({required this.label, required this.icon})
       : id = null,
         onFly = null,
         showDd = false,
         active = false,
-        enabled = true,
         onDefault = null;
+
+  /// M247 — every _Big on every tab is now a built command, so this no longer
+  /// carries the disabled flag its siblings do. The rule it stated has moved
+  /// to [_BigWide.enabled], which still needs it (assembly > Component >
+  /// Create, and Relationships > Joint).
+  bool get enabled => true;
 
   @override
   Widget build(BuildContext context) {
@@ -1812,7 +1871,18 @@ class _BigWide extends StatelessWidget {
   final VoidCallback? onTap;
   final bool active;
 
-  /// See [_Big.enabled] — Inventor's greyed state, for the assembly tab.
+  /// M240 — Inventor's DISABLED state, and the honest middle ground between
+  /// M216's two options.
+  ///
+  /// M216's rule is that a command which does nothing must not take permanent
+  /// ribbon width: it goes behind the panel's ▼, where _OverRow draws it
+  /// dimmed and untappable. That rule assumes the panel around it is real. The
+  /// assembly tab is a LAYOUT being built — the whole point of it is that the
+  /// panels stand where Inventor's stand — so folding eleven of its twelve
+  /// commands away would leave a tab that shows nothing of what it is going to
+  /// be. Inventor itself draws these greyed rather than hidden (Free Move,
+  /// Free Rotate and Show Sick are greyed in an empty assembly), so the third
+  /// state is Inventor's own, not an excuse: dimmed, no hover, no tap, no lie.
   final bool enabled;
   const _BigWide(
       {required this.width,
@@ -1880,7 +1950,7 @@ class _SmallRow extends StatelessWidget {
   final VoidCallback? onTap;
   final bool active;
 
-  /// See [_Big.enabled] — Inventor's greyed state, for the assembly tab.
+  /// See [_BigWide.enabled] — Inventor's greyed state, for the assembly tab.
   final bool enabled;
 
   /// Replaces the SVG when the glyph is not an icon — Parameters uses

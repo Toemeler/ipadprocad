@@ -19,6 +19,7 @@
 //   * THE BROWSER AND THE RIBBON, so the rows and the button that reach all
 //     of the above cannot be wired to nothing.
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -88,9 +89,20 @@ KernelSolid facedBox({double h = 10}) {
     idx.addAll([base, base + 1, base + 2, base, base + 2, base + 3]);
     triFaces.addAll([f, f]);
     final n = normals[f];
+    // THE POINT IS ON THE PLANE AND FAR FROM THE FACE, which is what OCCT
+    // actually gives: `pl.Location()` is the plane's own reference point, and
+    // for a face built by an extrusion that is the SKETCH ORIGIN — on the
+    // plane by construction, but routinely metres away from the face itself.
+    //
+    // A fake that put the point in the middle of its own face would make
+    // every marker test pass while the real app drew the highlight in mid-air
+    // beside the model, which is exactly what happened. So this one lies the
+    // way the kernel lies: 250 mm along the plane, no distance across it.
+    final away = [n[1], n[2], n[0]]; // any direction perpendicular to n
     infos.addAll([
       0, // plane
-      n[0] * h, n[1] * h, n[2] * h, // a point ON it
+      n[0] * h + away[0] * 250, n[1] * h + away[1] * 250,
+      n[2] * h + away[2] * 250,
       n[0], n[1], n[2], // outward normal
       0, 0, 0, // x-direction of the frame, unused here
       0, // radius
@@ -178,12 +190,15 @@ void main() {
       expect(pick, isNotNull);
       expect(pick!.ref.occurrence, 'Bracket:1');
       expect(pick.ref.geom.isPlane, isTrue);
-      // Local: on the box's own surface, so every coordinate is within its
-      // own half-size. A world-space answer would carry the 40.
-      expect(pick.ref.geom.at.x.abs(), lessThanOrEqualTo(10 + 1e-9),
+      // The ANCHOR is the tapped point, and it is LOCAL: on the box's own
+      // surface, so every coordinate is within its own half-size. A
+      // world-space answer would carry the 40.
+      expect(pick.ref.anchor.x.abs(), lessThanOrEqualTo(10 + 1e-9),
           reason: 'stored geometry must be LOCAL, not world');
       // And the world form, which the preview and the marker need, does.
       expect(pick.world.at.x, closeTo(40 + pick.ref.geom.at.x, 1e-9));
+      expect((pick.hit - const Vec3(40, 0, 0)).length, lessThan(15),
+          reason: 'the hit is where the finger landed, in world space');
     });
 
     test('a ROTATED component reports the same local face and a turned '
@@ -202,6 +217,8 @@ void main() {
       // ...and the world one is that normal, turned.
       final want = o.dirToWorld(local.dir);
       expect((world.dir - want).length, lessThan(1e-9));
+      // The anchor round-trips through the same transform.
+      expect((o.toWorld(pick.ref.anchor) - pick.hit).length, lessThan(1e-9));
     });
 
     test('a hidden component is not pickable, and neither is a missing one',
@@ -248,6 +265,127 @@ void main() {
     test('a tap on nothing is null, not the nearest thing on screen', () {
       final a = AssemblyModel('A')..occurrences.add(occ('A:1', Vec3.zero));
       expect(pickAsmRef(a, frontCam(), const Offset(3, 3)), isNull);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  group('the highlight lands ON the surface', () {
+    // The bug this group exists for: the marker was drawn around the
+    // GEOMETRY'S own point, and a plane's own point is wherever the kernel
+    // put it. On a real part that is the sketch origin, so the highlight
+    // appeared in mid-air beside the model — "it doesn't appear on the
+    // object's surface". Every assertion below is about the marker being on
+    // the face, not near it.
+    test('a plane patch is centred on the TAPPED point, not on the '
+        'geometry\'s own', () {
+      final o = occ('Bracket:1', const Vec3(40, 0, 0));
+      final a = AssemblyModel('A')..occurrences.add(o);
+      final app = asmApp('ipc_m242_mark', []);
+      app.assemblies['Gearbox'] = a;
+      final cam = frontCam();
+      final px = cam.project(const Vec3(40, 0, 0));
+      final pick = pickAsmRef(a, cam, px)!;
+      // The record's own point is 250 mm away along the plane — the fake
+      // lies the way OCCT does — so a marker built from it would sit out
+      // there instead of on the face.
+      expect(pick.ref.geom.at.length, greaterThan(200),
+          reason: 'the fake reports a far reference point, like the kernel');
+
+      final mark = app.markFor(a, pick.ref);
+      final (pts, closed) = refMarker(mark);
+      expect(closed, isTrue, reason: 'a plane draws as a closed patch');
+      final n = mark.geom.dir.normalized();
+      for (final p in pts) {
+        // ON THE PLANE: every corner satisfies the plane equation.
+        expect((p - mark.geom.at).dot(n).abs(), lessThan(1e-9),
+            reason: 'a corner off the plane is a marker floating over it');
+        // AND ON THE COMPONENT: within its own bounds, not out at the origin.
+        expect((p - o.offset).length, lessThan(60),
+            reason: 'the patch has to be on the part, not beside it');
+      }
+      // Its centre is the tapped point.
+      var c = Vec3.zero;
+      for (final p in pts) {
+        c = c + p;
+      }
+      c = c * (1 / pts.length);
+      expect((c - mark.anchor).length, lessThan(1e-6));
+    });
+
+    test('a ring is drawn at the height the cylinder was tapped', () {
+      // A cylinder's record point is on the AXIS, at whatever height the
+      // kernel chose. The ring has to appear where the finger was.
+      const axis = AsmGeom.axis(Vec3.zero, Vec3(0, 0, 1), radius: 5);
+      final mark = AsmMark(axis, const Vec3(3, 4, 30), 20);
+      final (pts, closed) = refMarker(mark);
+      expect(closed, isTrue);
+      for (final p in pts) {
+        expect(p.z, closeTo(30, 1e-9), reason: 'at the tapped height');
+        expect(math.sqrt(p.x * p.x + p.y * p.y), closeTo(5, 1e-9),
+            reason: 'and on the cylinder, at its own radius');
+      }
+    });
+
+    test('an axis segment is centred on the tapped point', () {
+      const ax = AsmGeom.axis(Vec3.zero, Vec3(1, 0, 0));
+      final mark = AsmMark(ax, const Vec3(25, 2, -3), 10);
+      final (pts, closed) = refMarker(mark);
+      expect(closed, isFalse);
+      expect(pts, hasLength(2));
+      // Centred on the anchor PROJECTED onto the axis — on the line, at the
+      // tapped station.
+      expect(pts[0].x, closeTo(15, 1e-9));
+      expect(pts[1].x, closeTo(35, 1e-9));
+      for (final p in pts) {
+        expect(p.y.abs() + p.z.abs(), lessThan(1e-9),
+            reason: 'the segment lies ON the axis');
+      }
+    });
+
+    test('the marker is sized to the COMPONENT, not to the assembly', () {
+      // A small part in a big assembly: a marker sized to the document would
+      // swallow the part it belongs to.
+      final small = occ('Pin:1', Vec3.zero, h: 2);
+      final big = occ('Bed:1', const Vec3(400, 0, 0), h: 200);
+      final a = AssemblyModel('A')
+        ..occurrences.add(small)
+        ..occurrences.add(big);
+      final app = asmApp('ipc_m242_size', []);
+      app.assemblies['Gearbox'] = a;
+      final onSmall = app.markFor(
+          a,
+          AsmRef('Pin:1', const AsmGeom.plane(Vec3.zero, Vec3(0, 0, 1)),
+              'Face'));
+      final onBig = app.markFor(
+          a,
+          AsmRef('Bed:1', const AsmGeom.plane(Vec3.zero, Vec3(0, 0, 1)),
+              'Face'));
+      expect(onSmall.size, lessThan(onBig.size / 10));
+      expect(onSmall.size, greaterThan(0));
+    });
+
+    test('a saved constraint highlights the same place after a reload',
+        () async {
+      final app = asmApp('ipc_m242_markrt', [
+        occ('Base:1', Vec3.zero, grounded: true),
+        occ('Lid:1', const Vec3(40, 0, 0)),
+      ]);
+      final a = app.currentAssembly!;
+      a.constraints.add(AsmConstraint(
+        name: 'Mate:1',
+        kind: AsmKind.mate,
+        solution: AsmSolution.mate,
+        a: AsmRef('Base:1', const AsmGeom.plane(Vec3.zero, Vec3(0, 0, 1)),
+            'Face', anchor: const Vec3(3, -4, 10)),
+        b: AsmRef('Lid:1', const AsmGeom.plane(Vec3.zero, Vec3(0, 0, -1)),
+            'Face', anchor: const Vec3(-2, 5, -10)),
+      ));
+      await app.saveAssembly('Gearbox');
+      await app.closeTab('Gearbox');
+      await app.openAssembly('Gearbox');
+      final back = app.currentAssembly!.constraints.single;
+      expect((back.a.anchor - const Vec3(3, -4, 10)).length, lessThan(1e-9));
+      expect((back.b.anchor - const Vec3(-2, 5, -10)).length, lessThan(1e-9));
     });
   });
 

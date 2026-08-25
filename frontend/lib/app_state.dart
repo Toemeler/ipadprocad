@@ -15,6 +15,7 @@ import 'package:reality_view/reality_view.dart' show RealityThumbnailer;
 import 'asm_constraints.dart';
 import 'asm_pick.dart';
 import 'asm_solver.dart';
+import 'asm_work_features.dart';
 import 'assembly.dart';
 import 'quat.dart';
 import 'reality_assembly.dart';
@@ -2778,6 +2779,7 @@ class AppState extends ChangeNotifier {
     if (assemblies.containsKey(name)) {
       await saveAssembly(name);
       assemblies.remove(name)?.dispose();
+      _evictUnplacedSources();
     } else if (parts.containsKey(name)) {
       if (curTab == name) {
         cancel3DCommands(); // M230
@@ -2786,7 +2788,18 @@ class AppState extends ChangeNotifier {
         finishEdit(save: false);
       }
       await savePart(name);
-      parts.remove(name)?.dispose();
+      final model = parts.remove(name);
+      // M245 — an assembly still placing this part is still drawing this
+      // model. Hand it to the shared map instead of disposing it: the
+      // occurrences already point at it, so the transfer is invisible to
+      // them, and disposing would blank every component of it.
+      if (model != null) {
+        if (_placedSources().contains(name)) {
+          _componentModels[name] = model;
+        } else {
+          model.dispose();
+        }
+      }
     } else {
       await saveSketch(name);
     }
@@ -3421,7 +3434,15 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _openPartInner(String name) async {
-    if (!parts.containsKey(name)) parts[name] = await _loadPartModel(name);
+    if (!parts.containsKey(name)) {
+      // M245 — an open assembly may already hold this part's model. PROMOTE
+      // it rather than reading the file again: the editor and every component
+      // of it then share one object, which is what makes an edit here appear
+      // in the assembly with nothing to propagate.
+      final shared = _componentModels.remove(name);
+      parts[name] = shared ?? await _loadPartModel(name);
+    }
+    linkOccurrences();
     // M237 — the still inside this document may predate the transparent
     // format, in which case its gallery card is a charcoal rectangle on a
     // cream shelf. The model is loaded and the kernel is warm right here, so
@@ -3788,6 +3809,11 @@ class AppState extends ChangeNotifier {
       _reanalyze();
     }
     parts.remove(name)?.dispose();
+    // M245 — every component of it loses its geometry and keeps its row, so
+    // the assembly says the part is gone rather than quietly drawing a copy
+    // that no longer exists anywhere.
+    _componentModels.remove(name)?.dispose();
+    linkOccurrences();
     _deleteDocFile(name);
     await refreshSaved();
     notifyListeners();
@@ -3812,6 +3838,13 @@ class AppState extends ChangeNotifier {
       }
     }
     if (!_renameDocFile(from, target)) return false;
+    // M245 — every assembly that places this part follows it. Done AFTER the
+    // file has moved, so a failed rename leaves every reference pointing at
+    // the document that is still there.
+    final moved = _componentModels.remove(from);
+    if (moved != null) _componentModels[target] = moved;
+    await _renameSourceInAssemblies(from, target);
+    linkOccurrences();
     if (wasOpen) {
       await openPart(target);
       openTabs.remove(target);
@@ -3868,13 +3901,23 @@ class AppState extends ChangeNotifier {
     return 'Assembly$n';
   }
 
-  /// The parts that can be PLACED into an assembly: every part document in the
-  /// gallery, most recently modified first, so the one you were just working
+  /// What can be PLACED into the open assembly: every part in the gallery
+  /// and, M246, every OTHER assembly that would not make this one contain
+  /// itself. Most recently modified first, so the one you were just working
   /// on is at the top of the list.
+  ///
+  /// The name is historical — it offered only parts until subassemblies
+  /// existed — and is kept because the ribbon, the tests and the toast keys
+  /// all say it.
   List<String> placeableParts() {
+    final into = currentAssembly;
     final out = [
       for (final e in library.entries)
-        if (e.value.isPart) e.key
+        if (e.value.isPart ||
+            (e.value.isAssembly &&
+                into != null &&
+                !_wouldNestCycle(into, e.key)))
+          e.key
     ];
     final when = <String, DateTime>{
       for (final s in saved) s.name: s.modified,
@@ -3909,6 +3952,10 @@ class AppState extends ChangeNotifier {
     if (!assemblies.containsKey(name)) {
       assemblies[name] = await _loadAssemblyModel(name);
     }
+    // M245 — the geometry comes from the ONE model per part document, loaded
+    // now if nothing holds it yet. Awaited: a component with no geometry
+    // draws as a missing part, and one frame of that is a flicker.
+    await _loadPlacedSources();
     if (!openTabs.contains(name)) openTabs.add(name);
     if (curTab != name) {
       selectedBody = null; // a selection belongs to ONE part
@@ -3944,24 +3991,300 @@ class AppState extends ChangeNotifier {
     // Dropping the row instead would silently rewrite the user's assembly the
     // first time a file went walkabout.
     for (final o in List<AssemblyOccurrence>.of(a.occurrences)) {
-      o.part = await _loadOccurrencePart(o.source);
-      if (o.part == null) {
+      // The MODEL is not loaded here — see linkOccurrences. The assembly is
+      // not in `assemblies` yet at this point, so there is nothing for the
+      // link to walk; openAssembly does it once the model is in place.
+      if (_findDoc(o.source)?.isPart != true) {
         Log.w('asm', 'occurrence "${o.id}": part "${o.source}" is gone');
       }
     }
     return a;
   }
 
-  /// A private copy of part [source]'s geometry for one occurrence, or null
-  /// when there is no such part any more.
-  Future<PartModel?> _loadOccurrencePart(String source) async {
-    if (_findDoc(source)?.isPart != true) return null;
-    try {
-      return await _loadPartModel(source);
-    } catch (e, st) {
-      Log.e('asm', 'could not load part "$source"', e, st);
-      return null;
+  // ---- M245: a component IS its part ---------------------------------------
+  //
+  // "A part in an assembly should be linked to the part at all times. So when
+  // the part updates, it updates in assembly."
+  //
+  // M240 loaded a PRIVATE COPY of the part for every occurrence, once, when
+  // the assembly was opened. That is a snapshot, not a link: edit the part
+  // and the assembly went on drawing what it had looked like at open time.
+  //
+  // The rule now is that there is exactly ONE PartModel per part document in
+  // the whole app, and every occurrence of that part points at it:
+  //
+  //   * open in its own tab  -> `parts[name]`, the model being edited. An
+  //     extrusion added there is in the assembly the moment you switch to it,
+  //     with no reload, no second kernel build and no copy of the mesh.
+  //   * not open             -> `_componentModels[name]`, a shared load kept
+  //     for the assemblies that reference it.
+  //
+  // The two are the SAME OBJECT across a tab open or close: opening a part
+  // promotes the shared load into `parts`, closing it hands it back. So a
+  // component never notices a tab opening, and nothing is ever loaded twice.
+  //
+  // The RealityKit side needs nothing: assemblySceneSignature already hashes
+  // each piece's mesh identity, so a rebuilt part moves the signature and the
+  // heavy push fires by itself.
+
+  /// Models for parts that are PLACED but not open in a tab. One per
+  /// document, shared by every occurrence of it, owned here.
+  final Map<String, PartModel> _componentModels = {};
+
+  /// M246 — the same, for SUBASSEMBLIES. An assembly placed inside another is
+  /// a document like any other: one model, shared, and the very one open in
+  /// its own tab when it is open, so editing a subassembly shows in its
+  /// parent for the same reason editing a part does.
+  final Map<String, AssemblyModel> _componentAssemblies = {};
+
+  /// The one model for part [name], or null when there is none to be had.
+  PartModel? _sourceModel(String name) =>
+      parts[name] ?? _componentModels[name];
+
+  /// The one model for assembly [name], or null.
+  AssemblyModel? _sourceAssembly(String name) =>
+      assemblies[name] ?? _componentAssemblies[name];
+
+  /// Every document any OPEN assembly places, transitively.
+  ///
+  /// Transitive because a subassembly's own components have to stay loaded
+  /// too: the parent draws them, and nothing else references them.
+  Set<String> _placedSources() {
+    final out = <String>{};
+    void walk(AssemblyModel a, Set<String> seen) {
+      for (final o in a.occurrences) {
+        out.add(o.source);
+        if (!o.isSubAssembly) continue;
+        if (!seen.add(o.source)) continue; // a cycle cannot be created, but
+        final child = _sourceAssembly(o.source); // a hand-edited file could
+        if (child != null) walk(child, seen);
+      }
     }
+
+    for (final a in assemblies.values) {
+      walk(a, {a.name});
+    }
+    return out;
+  }
+
+  /// Points every occurrence of every open assembly at the current model for
+  /// its source.
+  ///
+  /// Cheap and idempotent — it assigns references — so it is called after
+  /// anything that can change where a model lives rather than being reasoned
+  /// about case by case. That is the whole point: there is no path by which a
+  /// component can be left holding a stale model, because nothing has to
+  /// remember to update one.
+  void linkOccurrences() {
+    void link(AssemblyModel a, Set<String> seen) {
+      for (final o in a.occurrences) {
+        if (o.isSubAssembly) {
+          // The GUARD is against a document edited by hand into a cycle, not
+          // against anything the app can produce — placeComponent refuses to
+          // create one. Without it a cycle would recurse until the stack ran
+          // out, which is a crash on open rather than a bad drawing.
+          o.part = null;
+          o.sub = seen.contains(o.source) ? null : _sourceAssembly(o.source);
+          final child = o.sub;
+          if (child != null && seen.add(o.source)) {
+            link(child, seen);
+            seen.remove(o.source);
+          }
+        } else {
+          o.sub = null;
+          o.part = _sourceModel(o.source);
+        }
+      }
+    }
+
+    for (final a in assemblies.values) {
+      link(a, {a.name});
+      // M247 — the geometry a work feature was built from has just been
+      // (re)attached, and with M245's live link it may be a part that was
+      // edited in its own tab since. Re-deriving here is what makes a work
+      // plane on a face follow that face across a part edit, and it is the
+      // same reason the solve calls it: a work feature is a function of its
+      // inputs, so every point where the inputs can have changed re-runs it.
+      _resolveAsmWorkFeatures(a);
+    }
+  }
+
+  /// Loads whatever the open assemblies place and is not loaded yet, then
+  /// links. Awaited, because a component with no geometry draws as a missing
+  /// part and one frame of that is a flicker.
+  /// Loops rather than recurses: loading a subassembly can reveal documents
+  /// IT places, so the pass repeats until nothing new appears. Bounded by the
+  /// number of documents, and the tried-set makes a hand-edited cycle
+  /// terminate rather than spin.
+  Future<void> _loadPlacedSources() async {
+    final tried = <String>{};
+    for (var pass = 0; pass < 32; pass++) {
+      final want = _placedSources().difference(tried);
+      if (want.isEmpty) break;
+      for (final name in want) {
+        tried.add(name);
+        final doc = _findDoc(name);
+        if (doc?.isAssembly == true) {
+          if (_sourceAssembly(name) != null) continue;
+          try {
+            _componentAssemblies[name] = await _loadAssemblyModel(name);
+          } catch (e, st) {
+            Log.e('asm', 'could not load subassembly "$name"', e, st);
+          }
+        } else if (doc?.isPart == true) {
+          if (_sourceModel(name) != null) continue;
+          try {
+            _componentModels[name] = await _loadPartModel(name);
+          } catch (e, st) {
+            Log.e('asm', 'could not load part "$name"', e, st);
+          }
+        }
+      }
+      linkOccurrences(); // so the next pass can see into what just loaded
+    }
+    linkOccurrences();
+  }
+
+  /// M245 — follows a part RENAME through every assembly that places it.
+  ///
+  /// An occurrence names its source by document name, so without this a
+  /// rename would orphan every component of that part — the assembly keeps
+  /// its rows and draws nothing, which is the same failure as the part having
+  /// been deleted and is not what a rename means.
+  ///
+  /// Open assemblies are re-pointed in memory. The ones on disk are rewritten
+  /// in place, because a link that only survives while the document happens
+  /// to be open is not a link. They are small JSON files and there are as
+  /// many of them as the gallery shows, so this is a handful of reads.
+  Future<void> _renameSourceInAssemblies(String from, String to) async {
+    for (final a in assemblies.values) {
+      var touched = false;
+      for (var i = 0; i < a.occurrences.length; i++) {
+        final o = a.occurrences[i];
+        if (o.source != from) continue;
+        // The id carries the source name ("Bracket:1"), so it moves too —
+        // otherwise the browser would go on calling it by the old name and
+        // the next occurrence placed would collide with it.
+        a.rename(o, '$to:${o.id.substring(from.length + 1)}', to);
+        touched = true;
+      }
+      if (touched) {
+        a.bump();
+        unawaited(saveAssembly(a.name));
+      }
+    }
+    for (final name in library.keys.toList()) {
+      if (library[name]?.isAssembly != true) continue;
+      if (assemblies.containsKey(name)) continue; // handled above, in memory
+      try {
+        _ensureStaged(name);
+        final f = _assemblyJson(name);
+        if (!f.existsSync()) continue;
+        final j = jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
+        var touched = false;
+        for (final raw in (j['occurrences'] as List? ?? const [])) {
+          if (raw is! Map) continue;
+          if (raw['src'] != from) continue;
+          raw['src'] = to;
+          final id = raw['id'];
+          if (id is String && id.startsWith('$from:')) {
+            raw['id'] = '$to:${id.substring(from.length + 1)}';
+          }
+          touched = true;
+        }
+        if (!touched) continue;
+        // The constraints name occurrences too, and a relationship pointing
+        // at an id that no longer exists is a constraint the solver reports
+        // sick for ever.
+        for (final raw in (j['constraints'] as List? ?? const [])) {
+          if (raw is! Map) continue;
+          for (final key in const ['a', 'b', 'c']) {
+            final ref = raw[key];
+            if (ref is! Map) continue;
+            final occ = ref['occ'];
+            if (occ is String && occ.startsWith('$from:')) {
+              ref['occ'] = '$to:${occ.substring(from.length + 1)}';
+            }
+          }
+        }
+        f.writeAsStringSync(jsonEncode(j));
+        _commitStage(name, kAssemblyDocKind);
+      } catch (e, st) {
+        Log.e('asm', 'could not re-point "$name" after a rename', e, st);
+      }
+    }
+  }
+
+  /// Frees the shared models nothing places any more.
+  ///
+  /// Called when an assembly closes. A model that is ALSO open in a tab is
+  /// not ours to free — it lives in `parts` / `assemblies` and these maps do
+  /// not hold it.
+  void _evictUnplacedSources() {
+    final want = _placedSources();
+    for (final name in _componentModels.keys.toList()) {
+      if (want.contains(name)) continue;
+      _componentModels.remove(name)?.dispose();
+    }
+    for (final name in _componentAssemblies.keys.toList()) {
+      if (want.contains(name)) continue;
+      _componentAssemblies.remove(name)?.dispose();
+    }
+  }
+
+  /// The assemblies [name] places DIRECTLY, read from the document.
+  ///
+  /// From the loaded model when there is one, and from the file otherwise.
+  /// The file matters: the containment question is about documents, not about
+  /// what happens to be open, and an assembly two steps away in the chain is
+  /// very often closed.
+  Set<String> _directlyNests(String name) {
+    final loaded = _sourceAssembly(name);
+    if (loaded != null) {
+      return {
+        for (final o in loaded.occurrences)
+          if (o.isSubAssembly) o.source
+      };
+    }
+    try {
+      if (_findDoc(name)?.isAssembly != true) return const {};
+      _ensureStaged(name);
+      final f = _assemblyJson(name);
+      if (!f.existsSync()) return const {};
+      final j = jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
+      return {
+        for (final raw in (j['occurrences'] as List? ?? const []))
+          if (raw is Map && raw['kind'] == kAssemblyDocKind)
+            if (raw['src'] is String) raw['src'] as String
+      };
+    } catch (e, st) {
+      Log.e('asm', 'could not read the nesting of "$name"', e, st);
+      return const {};
+    }
+  }
+
+  /// True when placing [source] into [into] would make an assembly contain
+  /// itself, directly or through any chain of subassemblies.
+  ///
+  /// Inventor refuses this and so does everything else that can: a cyclic
+  /// containment has no geometry — the recursion that draws it never ends —
+  /// so there is nothing to show and no error the user could act on later.
+  /// It is refused at the one moment it can be explained, which is now.
+  ///
+  /// Walks the DOCUMENTS rather than the loaded models. A chain is usually
+  /// only half open: placing B into A is fine, placing A into B is a cycle,
+  /// and at that moment A is very often just a file.
+  bool _wouldNestCycle(AssemblyModel into, String source) {
+    if (source == into.name) return true;
+    final seen = <String>{source};
+    final queue = <String>[source];
+    while (queue.isNotEmpty) {
+      for (final next in _directlyNests(queue.removeLast())) {
+        if (next == into.name) return true;
+        if (seen.add(next)) queue.add(next);
+      }
+    }
+    return false;
   }
 
   Future<bool> saveAssembly(String name) async {
@@ -3992,7 +4315,7 @@ class AppState extends ChangeNotifier {
     final png = _pngFile(name);
     try {
       final pieces = [
-        for (final (id, o, s) in assemblyPieces(a)) (id, s, o.rot, o.offset)
+        for (final (id, _, r, t, s) in assemblyPieces(a)) (id, s, r, t)
       ];
       if (pieces.isEmpty) {
         if (png.existsSync()) png.deleteSync();
@@ -4043,24 +4366,55 @@ class AppState extends ChangeNotifier {
   Future<AssemblyOccurrence?> placeComponent(String source) async {
     final a = currentAssembly;
     if (a == null) return null;
-    if (!isPartName(source)) {
+    // M246 — a subassembly is placed by the same command, which is Inventor's
+    // Place Component exactly: one button, and what you pick decides.
+    final asSub = isAssemblyName(source);
+    if (!asSub && !isPartName(source)) {
       toast(L.current.msgAsmNoSuchPart(source));
       return null;
     }
-    final part = await _loadOccurrencePart(source);
-    if (part == null) {
+    if (asSub && _wouldNestCycle(a, source)) {
+      toast(L.current.msgAsmWouldNest(source));
+      return null;
+    }
+    // M245 — the SHARED model, loaded once per document. Placing something
+    // that is already open in a tab, or already placed elsewhere, costs
+    // nothing and links to the very object being edited.
+    if (asSub) {
+      if (_sourceAssembly(source) == null) {
+        try {
+          _componentAssemblies[source] = await _loadAssemblyModel(source);
+        } catch (e, st) {
+          Log.e('asm', 'could not load subassembly "$source"', e, st);
+        }
+      }
+    } else if (_sourceModel(source) == null) {
+      try {
+        _componentModels[source] = await _loadPartModel(source);
+      } catch (e, st) {
+        Log.e('asm', 'could not load part "$source"', e, st);
+      }
+    }
+    final part = asSub ? null : _sourceModel(source);
+    final sub = asSub ? _sourceAssembly(source) : null;
+    if (part == null && sub == null) {
       toast(L.current.msgAsmCouldNotPlace(source));
       return null;
     }
     final occ = AssemblyOccurrence(
       id: a.nextOccurrenceId(source),
       source: source,
+      sourceKind: asSub ? kAssemblyDocKind : 'part',
       part: part,
+      sub: sub,
       grounded: a.occurrences.isEmpty,
     );
     occ.offset = nextPlacement(a, occurrenceBounds(occ));
     a.occurrences.add(occ);
     a.selected = occ;
+    // A subassembly's own components have to be resolved too — it may place
+    // parts nothing else in this session has loaded.
+    if (asSub) await _loadPlacedSources();
     a.bump();
     // Inventor runs Zoom All when a component is placed, and it has to here:
     // a placement lands CLEAR of what is already there (see nextPlacement), so
@@ -4162,15 +4516,54 @@ class AppState extends ChangeNotifier {
   /// to put them back exactly.
   Map<String, (Vec3, Quat)>? _asmSnapshot;
 
-  /// Highlighted in the viewport while the dialog collects: the geometry of
-  /// every filled slot, in WORLD coordinates, plus the one under the pointer.
-  List<AsmGeom> get constraintMarkers {
+  /// Highlighted in the viewport while the dialog collects: every filled
+  /// slot, in WORLD coordinates and ready to draw.
+  List<AsmMark> get constraintMarkers {
     final s = constraintSession, a = currentAssembly;
     if (s == null || a == null) return const [];
     return [
       for (var i = 0; i < s.needed; i++)
-        if (s.slot(i) != null) worldGeomOf(a, s.slot(i)!)
+        if (s.slot(i) != null) markFor(a, s.slot(i)!)
     ];
+  }
+
+  /// M247 — what the ASSEMBLY command that is currently collecting has taken,
+  /// ready to draw.
+  ///
+  /// One list for both commands because at most one of them is ever armed:
+  /// openConstraint and the work-feature commands cancel each other, for the
+  /// same reason the three work-feature commands cancel each other. The
+  /// viewport therefore draws "the current selection" rather than having to
+  /// know which command made it.
+  List<AsmMark> get asmMarkers {
+    final a = currentAssembly;
+    if (a == null) return const [];
+    if (asmPickWorkGeometry) {
+      return [for (final r in _asmWfPicks) markFor(a, r)];
+    }
+    return constraintMarkers;
+  }
+
+  /// One stored reference, ready to draw.
+  ///
+  /// The size comes from the COMPONENT the reference is on, not from the
+  /// assembly: a marker sized to the whole document swallows a small part and
+  /// disappears on a big one. A reference to the assembly's own origin has no
+  /// component, so it takes the assembly's extent — which is the right answer
+  /// there, since the origin planes are drawn to that extent too.
+  AsmMark markFor(AssemblyModel a, AsmRef r) {
+    final geom = worldGeomOf(a, r);
+    final o = r.isAssemblyOrigin ? null : a.byId(r.occurrence);
+    final anchor = o == null ? r.anchor : o.toWorld(r.anchor);
+    // The picked FACE's own size when the pick could measure it, which is
+    // what makes the highlight mean "this face" rather than "somewhere on
+    // this part". The component's extent is the fallback: the assembly's own
+    // origin geometry has no face, and a document written before the pick
+    // recorded one carries no extent.
+    if (r.extent > 0) return AsmMark(geom, anchor, r.extent);
+    final b = o == null ? assemblyContentBounds(a) : occurrenceBounds(o);
+    final span = b == null ? 20.0 : (b.$2 - b.$1).length;
+    return AsmMark(geom, anchor, math.max(2.0, span * 0.22));
   }
 
   /// Opens Place Constraint. With [edit] it opens on that constraint, filled
@@ -4575,6 +4968,18 @@ class AppState extends ChangeNotifier {
   /// place the summary and the per-constraint sickness are written.
   AsmSolveReport _solveAssembly(AssemblyModel a, {AsmDrag? drag}) {
     final report = solveAssembly(a, drag: drag);
+    // M247 — the components have just moved, so every work feature built on
+    // one is now naming the wrong place until it is re-derived. AFTER the
+    // solve, because that is what it is a function of.
+    //
+    // Honest scope note: a constraint that references an assembly work
+    // feature therefore sees the frame from the PREVIOUS solve, not a
+    // simultaneous one. Inventor calls that adaptivity and solves it properly;
+    // here it converges over successive solves instead, which is right for
+    // the common case (a plane built on a grounded component, or one whose
+    // inputs the constraint does not itself move) and stated rather than
+    // hidden for the case where it is not.
+    _resolveAsmWorkFeatures(a);
     a.solveSummary = AsmSolveSummary(
       dof: report.dof,
       fullyConstrained: report.fullyConstrained,
@@ -5318,6 +5723,12 @@ class AppState extends ChangeNotifier {
   /// Arm work plane creation. Cancels itself if the same kind is armed twice,
   /// so the ribbon button toggles.
   void startWorkPlane(WorkPlaneKind kind) {
+    // M247 — the assembly's twin. ONE command per method, routed here rather
+    // than duplicated in the ribbon: the button, the flyout entry, the label
+    // and the toggle contract are the same in both documents, and only what
+    // it is armed ON differs.
+    final asm = currentAssembly;
+    if (asm != null) return _armAsmWorkFeature(asm, planeKind: kind);
     final p = currentPart;
     if (p == null) return;
     if (workPlaneArm == kind) return cancelWorkPlane();
@@ -5495,8 +5906,7 @@ class AppState extends ChangeNotifier {
     final w = selectedWorkPlane, from = _wpDragFrom;
     if (w == null || from == null || !deltaMm.isFinite) return;
     if (!w.setOffset(from + deltaMm)) return;
-    final p = currentPart;
-    if (p != null) p.dirty = true;
+    currentPart?.dirty = true;
     notifyListeners(); // the scene signature carries the position (M165)
   }
 
@@ -5533,14 +5943,12 @@ class AppState extends ChangeNotifier {
 
   /// M229 — the angle twin of [setWorkPlaneOffset].
   bool setWorkPlaneAngle(WorkPlane wp, double deg) {
-    final p = currentPart;
-    if (p == null || !wp.angleEditable) return false;
+    if (currentAssembly == null && currentPart == null) return false;
+    if (!wp.angleEditable) return false;
     if (!wp.setAngle(deg)) return false;
     workPlaneAngle = deg; // the next one starts from what you last used
-    p.dirty = true;
     Log.i('part', 'work plane "${wp.name}" -> ${wp.def}');
-    if (curTab != null) savePart(curTab!);
-    notifyListeners();
+    _workFeatureTouched();
     return true;
   }
 
@@ -5555,8 +5963,11 @@ class AppState extends ChangeNotifier {
     // in (the field passes the plane's own unit).
     final ok = w.kind == WorkPlaneKind.angle ? w.setAngle(mm) : w.setOffset(mm);
     if (!ok) return;
-    final p = currentPart;
-    if (p != null) p.dirty = true;
+    // M247 — no save and no bump on a live scrub: this fires per frame, and
+    // an assembly work plane's frame is in the scene signature already, so
+    // the device sees the move without the heavy push being forced. The save
+    // comes when the scrub commits.
+    currentPart?.dirty = true;
     notifyListeners();
   }
 
@@ -5569,10 +5980,7 @@ class AppState extends ChangeNotifier {
     if (w == null || !w.offsetEditable) return;
     final v = (w.offset ?? 0) + steps * (coarse ? 1.0 : 0.1);
     if (!w.setOffset(v)) return;
-    final p = currentPart;
-    if (p != null) p.dirty = true;
-    if (curTab != null) savePart(curTab!);
-    notifyListeners();
+    _workFeatureTouched();
   }
 
   /// Esc: put the plane back where the drag started and close the field.
@@ -5787,31 +6195,60 @@ class AppState extends ChangeNotifier {
   /// existed nothing ever assigned it, so every offset plane in every saved
   /// document sits exactly 10 mm from its base.
   bool setWorkPlaneOffset(WorkPlane wp, double d) {
-    final p = currentPart;
-    if (p == null || !wp.offsetEditable) return false;
+    // M247 — the owner is whichever document is open. These four value paths
+    // bailed on `currentPart == null`, which in an assembly meant the field
+    // accepted a number and wrote nothing at all.
+    if (currentAssembly == null && currentPart == null) return false;
+    if (!wp.offsetEditable) return false;
     if (!wp.setOffset(d)) return false;
     workPlaneOffset = d; // the next new plane starts from what you last used
-    p.dirty = true;
     Log.i('part', 'work plane "${wp.name}" -> ${wp.def}');
-    if (curTab != null) savePart(curTab!);
-    notifyListeners();
+    _workFeatureTouched();
     return true;
   }
 
   /// Browser eye on a work plane — Inventor's per-plane Visibility.
   void toggleWorkPlaneVisible(WorkPlane wp) {
     wp.visible = !wp.visible;
-    final p = currentPart;
-    if (p != null) p.dirty = true;
-    if (curTab != null) savePart(curTab!);
-    notifyListeners();
+    _workFeatureTouched();
   }
 
   void deleteWorkPlane(WorkPlane wp) {
+    final a = currentAssembly;
+    if (a != null) {
+      // M247 — and whatever was built ON it: see AssemblyModel.removeWorkFeature.
+      a.removeWorkFeature(wp.id);
+      if (identical(selectedWorkPlane, wp)) selectWorkPlane(null);
+      _workFeatureTouched();
+      return;
+    }
     final p = currentPart;
     if (p == null) return;
     p.workPlanes.remove(wp);
     p.dirty = true;
+    if (curTab != null) savePart(curTab!);
+    notifyListeners();
+  }
+
+  /// M247 — a work feature belongs to whichever document is open, and only
+  /// that document has to be marked dirty and saved.
+  ///
+  /// One helper rather than the `currentPart?.dirty = true; savePart(curTab!)`
+  /// pair repeated five times: an assembly reached those lines and quietly
+  /// wrote nothing, which is the shape of bug that only shows up after a
+  /// restart.
+  void _workFeatureTouched() {
+    final a = currentAssembly;
+    if (a != null) {
+      // The plane quads live in the HEAVY RealityKit push, so a visibility
+      // change has to move the scene signature or the device keeps drawing
+      // what it was given.
+      a.bump();
+      notifyListeners();
+      unawaited(saveAssembly(a.name));
+      return;
+    }
+    currentPart?.dirty = true;
     if (curTab != null) savePart(curTab!);
     notifyListeners();
   }
@@ -6011,6 +6448,8 @@ class AppState extends ChangeNotifier {
   /// Arm Work Axis with [method]. Re-arming the same method cancels, so every
   /// ribbon entry is a toggle — the same contract [startWorkPlane] has.
   void startWorkAxis(WorkAxisMethod method) {
+    final asm = currentAssembly;
+    if (asm != null) return _armAsmWorkFeature(asm, axis: method);
     final p = currentPart;
     if (p == null) return;
     if (workAxisArm == method) return cancelWorkFeature();
@@ -6021,6 +6460,8 @@ class AppState extends ChangeNotifier {
   }
 
   void startWorkPoint(WorkPointMethod method) {
+    final asm = currentAssembly;
+    if (asm != null) return _armAsmWorkFeature(asm, point: method);
     final p = currentPart;
     if (p == null) return;
     if (workPointArm == method) return cancelWorkFeature();
@@ -6033,6 +6474,8 @@ class AppState extends ChangeNotifier {
   /// M223 — arm one of the pick-only Work Plane methods. Same toggle contract
   /// as [startWorkAxis]: the same entry twice cancels.
   void startWorkPlaneMethod(WorkPlaneMethod method) {
+    final asm = currentAssembly;
+    if (asm != null) return _armAsmWorkFeature(asm, planeMethod: method);
     final p = currentPart;
     if (p == null) return;
     if (workPlaneMethodArm == method) return cancelWorkFeature();
@@ -6061,9 +6504,15 @@ class AppState extends ChangeNotifier {
   bool _wfOriginAutoShown = false;
 
   void cancelWorkFeature() {
+    // M247 — in an assembly [workPlaneArm] is part of this command rather
+    // than of the part's separate offset/midplane flow, so it disarms here
+    // too. In a part it is left alone: cancelWorkPlane owns it there, and
+    // clearing it from here would cancel a flow this command never started.
+    final asm = currentAssembly;
     if (workAxisArm == null &&
         workPointArm == null &&
-        workPlaneMethodArm == null) {
+        workPlaneMethodArm == null &&
+        (asm == null || workPlaneArm == null)) {
       return;
     }
     workAxisArm = null;
@@ -6071,6 +6520,13 @@ class AppState extends ChangeNotifier {
     workPlaneMethodArm = null;
     _wfPicks.clear();
     workFeaturePrompt = '';
+    if (asm != null) {
+      workPlaneArm = null;
+      _asmWfPicks.clear();
+      _asmWfOriginRestore(asm);
+      notifyListeners();
+      return;
+    }
     final p = currentPart;
     if (p != null && _wfOriginAutoShown) {
       p.vis['yz'] = p.vis['xz'] = p.vis['xy'] = false;
@@ -6247,46 +6703,308 @@ class AppState extends ChangeNotifier {
     return '$base$n';
   }
 
+  // ---- M247: the assembly's work features ---------------------------------
+  //
+  // The SAME commands, armed on the .pas document instead of the .ptp. The
+  // arm fields above are shared — a command is armed once and three of them
+  // competing for one tap is not a UI, whichever document is open — and the
+  // only thing this section adds is a second pick list, because what an
+  // assembly tap yields is an [AsmRef] and what a part tap yields is a
+  // [WorkRef].
+  //
+  // Why the AsmRef and not the WorkRef is what is kept: the WorkRef is a
+  // world-space snapshot, and in an assembly the world moves. See
+  // asm_work_features.dart.
+
+  /// Picks collected so far for the armed ASSEMBLY work-feature command, in
+  /// the order they were made.
+  final List<AsmRef> _asmWfPicks = [];
+
+  /// True while a work-feature command is collecting in an assembly. The
+  /// assembly viewport reads this exactly as the part viewport reads
+  /// [pickWorkGeometry] — and this is deliberately not the same getter, since
+  /// [pickPlane] and [workPlaneArm] mean something in a part that they do not
+  /// mean here.
+  bool get asmPickWorkGeometry =>
+      currentAssembly != null &&
+      (workAxisArm != null ||
+          workPointArm != null ||
+          workPlaneMethodArm != null ||
+          workPlaneArm != null);
+
+  /// How many picks the armed assembly command has taken.
+  int get asmWorkFeaturePickCount => _asmWfPicks.length;
+
+  /// The references it has taken, for the viewport's highlight.
+  List<AsmRef> get asmWorkFeaturePicks => List.unmodifiable(_asmWfPicks);
+
+  void _armAsmWorkFeature(AssemblyModel a,
+      {WorkPlaneKind? planeKind,
+      WorkPlaneMethod? planeMethod,
+      WorkAxisMethod? axis,
+      WorkPointMethod? point}) {
+    // Every ribbon entry is a TOGGLE: the same entry twice cancels. Same
+    // contract the part side has had since M151, and the only way out of a
+    // command on a device with no Escape key.
+    if ((planeKind != null && workPlaneArm == planeKind) ||
+        (planeMethod != null && workPlaneMethodArm == planeMethod) ||
+        (axis != null && workAxisArm == axis) ||
+        (point != null && workPointArm == point)) {
+      return cancelWorkFeature();
+    }
+    cancelWorkFeature();
+    workPlaneArm = planeKind;
+    workPlaneMethodArm = planeMethod;
+    workAxisArm = axis;
+    workPointArm = point;
+    _asmWfPicks.clear();
+    workFeaturePrompt = _asmWorkPrompt(0);
+    // The origin geometry is offered for the duration, exactly as the part
+    // flows do: an assembly with one component and no visible origin plane
+    // has very little to point at, and a work plane offset from the assembly
+    // XY is one of the first things you want.
+    _wfOriginAutoShown = a.isEmpty;
+    if (_wfOriginAutoShown) {
+      for (final k in a.vis.keys) {
+        a.vis[k] = true;
+      }
+      a.bump();
+    }
+    toast(workFeaturePrompt);
+    notifyListeners();
+  }
+
+  /// The prompt for the armed assembly command, given how many picks it has.
+  String _asmWorkPrompt(int have) {
+    final pm = workPlaneMethodArm;
+    if (pm != null) return workPlanePrompt(pm, have);
+    final pk = workPlaneArm;
+    if (pk != null) return asmPlanePrompt(pk, have);
+    final ax = workAxisArm;
+    if (ax != null) return workAxisPrompt(ax, have);
+    final pt = workPointArm;
+    if (pt != null) return workPointPrompt(pt, have);
+    return '';
+  }
+
+  /// Puts the assembly's origin geometry back the way [_armAsmWorkFeature]
+  /// found it.
+  void _asmWfOriginRestore(AssemblyModel a) {
+    if (!_wfOriginAutoShown) return;
+    for (final k in a.vis.keys) {
+      a.vis[k] = false;
+    }
+    a.bump();
+    _wfOriginAutoShown = false;
+  }
+
+  /// The assembly viewport reports one pick. Returns true when it was taken.
+  ///
+  /// Three outcomes, and the third is the one that matters: a rejected pick is
+  /// DROPPED and the command stays armed, so a mis-tap costs you that tap and
+  /// nothing else. Same rule the part side states, for the same reason.
+  bool asmWorkFeaturePick(AsmPick pick) {
+    final a = currentAssembly;
+    if (a == null || !asmPickWorkGeometry) return false;
+    _asmWfPicks.add(pick.ref);
+    final refs = asmWorkRefs(a, _asmWfPicks);
+    if (refs == null) {
+      // Only reachable if a component vanished between the tap and here.
+      _asmWfPicks.removeLast();
+      return false;
+    }
+    final pm = workPlaneMethodArm, pk = workPlaneArm;
+    if (pm != null || pk != null) {
+      final r = solveAsmWorkPlane(
+          pk ?? _kindOfPlaneMethod(pm!), pm, refs,
+          offset: workPlaneOffset, angleDeg: workPlaneAngle);
+      if (r.outcome == WorkPickOutcome.complete) {
+        _commitAsmWorkPlane(a, r.solution!, pk, pm);
+        return true;
+      }
+      return _asmWfPending(r.outcome, r.message);
+    }
+    if (workAxisArm != null) {
+      final r = solveWorkAxis(workAxisArm!, refs);
+      if (r.outcome == WorkPickOutcome.complete) {
+        _commitAsmWorkAxis(a, r.solution!, workAxisArm!);
+        return true;
+      }
+      return _asmWfPending(r.outcome, r.message);
+    }
+    final m = workPointArm!;
+    final r = solveWorkPoint(m, refs);
+    if (r.outcome == WorkPickOutcome.complete) {
+      _commitAsmWorkPoint(a, r.solution!, m);
+      return true;
+    }
+    return _asmWfPending(r.outcome, r.message);
+  }
+
+  /// Which [WorkPlaneKind] a pick-only method produces. Only the angle method
+  /// carries a re-typable number; everything else is [constructed], which is
+  /// what the value field asks about before offering to edit anything.
+  WorkPlaneKind _kindOfPlaneMethod(WorkPlaneMethod m) =>
+      m == WorkPlaneMethod.angleToPlaneAroundEdge
+          ? WorkPlaneKind.angle
+          : WorkPlaneKind.constructed;
+
+  bool _asmWfPending(WorkPickOutcome outcome, String message) {
+    final kept = outcome == WorkPickOutcome.needMore;
+    if (kept) {
+      workFeaturePrompt = message;
+    } else {
+      _asmWfPicks.removeLast();
+    }
+    toast(message);
+    notifyListeners();
+    return kept;
+  }
+
+  void _commitAsmWorkPlane(AssemblyModel a, WorkPlaneSolution s,
+      WorkPlaneKind? kind, WorkPlaneMethod? method) {
+    final w = AsmWorkPlane(
+      _freeWorkName('Work Plane', {for (final x in a.workPlanes) x.name}),
+      a.nextWorkSeq(),
+      kind ?? _kindOfPlaneMethod(method!),
+      s.def,
+      workPlaneFrameAt(s.at, s.n),
+      method: method,
+      refs: List.of(_asmWfPicks),
+      offset: kind == WorkPlaneKind.offset ? workPlaneOffset : null,
+      angle: method == WorkPlaneMethod.angleToPlaneAroundEdge
+          ? workPlaneAngle
+          : null,
+    );
+    a.workPlanes.add(w);
+    _finishAsmWorkFeature(a);
+    // Re-derive it once, straight away: the frame above is right, but the
+    // base and pivot the value field edits are filled in by the re-solve, so
+    // the field has to see one before it can offer to move anything.
+    resolveAsmWorkPlane(a, w);
+    selectWorkPlane(w);
+    if (w.valueEditable) workPlaneOffsetEditing = true;
+    _asmWorkFeatureMade(a, w.name, w.def);
+  }
+
+  void _commitAsmWorkAxis(
+      AssemblyModel a, WorkAxisSolution s, WorkAxisMethod method) {
+    final x = AsmWorkAxis(
+        _freeWorkName('Work Axis', {for (final v in a.workAxes) v.name}),
+        a.nextWorkSeq(),
+        s.def,
+        s.at,
+        s.dir,
+        method: method,
+        refs: List.of(_asmWfPicks));
+    a.workAxes.add(x);
+    _finishAsmWorkFeature(a);
+    selectedWorkPoint = null;
+    selectedWorkAxis = x;
+    _asmWorkFeatureMade(a, x.name, x.def);
+  }
+
+  void _commitAsmWorkPoint(
+      AssemblyModel a, WorkPointSolution s, WorkPointMethod method) {
+    final pt = AsmWorkPoint(
+        _freeWorkName('Work Point', {for (final v in a.workPoints) v.name}),
+        a.nextWorkSeq(),
+        s.def,
+        s.at,
+        method: method,
+        refs: List.of(_asmWfPicks),
+        grounded: method == WorkPointMethod.grounded);
+    a.workPoints.add(pt);
+    _finishAsmWorkFeature(a);
+    selectedWorkAxis = null;
+    selectedWorkPoint = pt;
+    _asmWorkFeatureMade(a, pt.name, pt.def);
+  }
+
+  void _finishAsmWorkFeature(AssemblyModel a) {
+    workPlaneArm = null;
+    workPlaneMethodArm = null;
+    workAxisArm = null;
+    workPointArm = null;
+    _asmWfPicks.clear();
+    workFeaturePrompt = '';
+    _asmWfOriginRestore(a);
+  }
+
+  void _asmWorkFeatureMade(AssemblyModel a, String name, String def) {
+    a.bump();
+    toast(L.current.msgNameColonDef(name, def));
+    Log.i('assembly', 'work feature "$name" — $def');
+    notifyListeners();
+    unawaited(saveAssembly(a.name));
+  }
+
+  /// M247 — re-derives every assembly work feature from its stored picks.
+  ///
+  /// Called from [_solveAssembly], which is the one funnel every command that
+  /// can move a component already goes through. Anywhere else and a work
+  /// feature would go stale on whichever path forgot it.
+  void _resolveAsmWorkFeatures(AssemblyModel a) {
+    if (a.workPlanes.isEmpty && a.workAxes.isEmpty && a.workPoints.isEmpty) {
+      return;
+    }
+    resolveAsmWorkFeatures(a);
+  }
+
   void toggleWorkAxisVisible(WorkAxis a) {
     a.visible = !a.visible;
-    currentPart?.dirty = true;
-    if (curTab != null) savePart(curTab!);
-    notifyListeners();
+    _workFeatureTouched();
   }
 
   void toggleWorkPointVisible(WorkPoint pt) {
     pt.visible = !pt.visible;
-    currentPart?.dirty = true;
-    if (curTab != null) savePart(curTab!);
-    notifyListeners();
+    _workFeatureTouched();
   }
 
   void deleteWorkAxis(WorkAxis a) {
+    if (identical(selectedWorkAxis, a)) selectedWorkAxis = null;
+    final asm = currentAssembly;
+    if (asm != null) {
+      asm.removeWorkFeature(a.id);
+      _workFeatureTouched();
+      return;
+    }
     final p = currentPart;
     if (p == null) return;
     p.workAxes.remove(a);
-    if (identical(selectedWorkAxis, a)) selectedWorkAxis = null;
     p.dirty = true;
     if (curTab != null) savePart(curTab!);
     notifyListeners();
   }
 
   void deleteWorkPoint(WorkPoint pt) {
+    if (identical(selectedWorkPoint, pt)) selectedWorkPoint = null;
+    final asm = currentAssembly;
+    if (asm != null) {
+      asm.removeWorkFeature(pt.id);
+      _workFeatureTouched();
+      return;
+    }
     final p = currentPart;
     if (p == null) return;
     p.workPoints.remove(pt);
-    if (identical(selectedWorkPoint, pt)) selectedWorkPoint = null;
     p.dirty = true;
     if (curTab != null) savePart(curTab!);
     notifyListeners();
   }
 
   /// Reverses a work axis. See [WorkAxis.flip] for why this exists.
+  ///
+  /// M247 — an ASSEMBLY axis is re-derived from its picks after every solve,
+  /// and the solver preserves the sign the method gave it, so a flip that only
+  /// negated [WorkAxis.dir] would be undone by the next drag. The re-solve is
+  /// the wrong place to hold a user's choice, so the flip is not offered on
+  /// one: re-picking two points the other way round is the honest way to
+  /// reverse it, and saying so beats a button that works until you move
+  /// something. See _workAxisMenu.
   void flipWorkAxis(WorkAxis a) {
     a.flip();
-    currentPart?.dirty = true;
-    if (curTab != null) savePart(curTab!);
-    notifyListeners();
+    _workFeatureTouched();
   }
 
   /// The 3D viewport reports a tapped PLANAR SOLID FACE (M58): same flow as

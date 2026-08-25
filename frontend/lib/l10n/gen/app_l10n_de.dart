@@ -3427,4 +3427,9 @@ class AppL10nDe extends AppL10n {
 
   @override
   String get hintAsmConstraintSet => 'Noch nicht verfügbar';
+
+  @override
+  String msgAsmWouldNest(String name) {
+    return '„$name“ enthält diese Baugruppe bereits.';
+  }
 }
