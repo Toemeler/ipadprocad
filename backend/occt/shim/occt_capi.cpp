@@ -4642,8 +4642,38 @@ extern "C" occt_shape *occt_coil_profile(const double *xyb,
     /* A straight line in the cylinder's (u, v) space IS a helix: u winds
      * around, v climbs the axis. Slope = total rise over total turn. */
     const double slope = height / turns;
-    const gp_Dir2d d2(clockwise != 0 ? -1.0 : 1.0,
-                      clockwise != 0 ? -slope : slope);
+    /* v28 (S17): only the WINDING is negated, never the climb.
+     *
+     * What (u, v) mean is settled by ElSLib::CylinderD0, which
+     * Geom_CylindricalSurface::D0 delegates to:
+     *     P(u, v) = Loc + R cos u . XDir + R sin u . YDir + v . ZDir
+     * and the frame above is built with gp_Ax3(P, N, Vx), whose inline body
+     * (gp_Ax3.hxx) sets vydir = theN ^ vxdir -- YDir = N x XDir, so the frame
+     * is right-handed and Direct() is 1. Increasing u therefore turns
+     * COUNTERCLOCKWISE about the axis while increasing v advances along it:
+     * (du > 0, dv > 0) is a right-handed screw and the left-handed one is
+     * (du < 0, dv > 0).
+     *
+     * Until v28 this negated BOTH components for `clockwise`, giving
+     * (-1, -slope). That is antiparallel to (1, slope) -- the same line
+     * through the origin in (u, v), so the same point set, so the SAME
+     * right-handed helix, merely traversed backwards and occupying
+     * v in [-height, 0]. A user who ticked the box got a coil hanging BELOW
+     * the profile with its handedness unchanged, and no volume check could
+     * ever see it: the helix length, and so the material, is identical either
+     * way. S16 measured exactly that (z[-50.9969, 0.9968] against
+     * z[-0.9968, 50.9969]); perf/findings/S17-oblique.md section 0.1 has the
+     * upstream lines.
+     *
+     * With one component negated the coil is the mirror image of the
+     * counterclockwise one through the plane containing the axis and the
+     * starting section -- opposite handedness, same rise, same volume, which
+     * is what the header's "picks the handedness" has always claimed.
+     *
+     * `plen` below is unaffected: gp_Dir2d normalises, so |d2.X()| is
+     * 1/sqrt(1+slope^2) whichever sign the winding has, and the line still
+     * reaches u = -+turns, v = +height at t = plen. */
+    const gp_Dir2d d2(clockwise != 0 ? -1.0 : 1.0, slope);
     Handle(Geom2d_Line) line2d = new Geom2d_Line(gp_Pnt2d(0.0, 0.0), d2);
     /* Parameter length along the 2D line that spans `turns` in u. */
     const double plen = turns / std::fabs(d2.X());

@@ -3664,19 +3664,46 @@ int main(void)
             }
         }
 
-        /* ---- [40d] P1 — the COIL's `clockwise` flag --------------------- */
+        /* ---- [40d] R1 — the COIL's `clockwise` flag (S17: FIXED) -------- */
         {
             /* [32]'s fixture verbatim, which is the ONLY coil fixture in the
              * suite and passes clockwise = 0 in all four of its calls. The
              * flag is a checkbox in the app (app_state.dart:7277) and no test
-             * has ever set it.
+             * had ever set it, which is how it stayed wrong for nine months.
              *
-             * The helix is a straight line in the cylinder's (u,v) space, and
-             * the flag negates BOTH components:
-             *     gp_Dir2d d2(cw ? -1.0 : 1.0, cw ? -slope : slope);
-             * Negating both is the same helix run backwards, not the opposite
-             * handedness. Volume cannot see it — same helix length either way.
-             * The bounding box can. */
+             * S16 recorded the defect here and pinned it; S17 (shim v28)
+             * repaired it and this scenario now asserts the GROUND TRUTH.
+             *
+             * The helix is a straight line in the cylinder's (u,v) space.
+             * ElSLib::CylinderD0 fixes what (u,v) mean —
+             *     P(u,v) = Loc + R cos u . XDir + R sin u . YDir + v . ZDir
+             * — and gp_Ax3(P,N,Vx) makes YDir = N x XDir, so the frame is
+             * right-handed: u turns counterclockwise about the axis and v
+             * advances along it. (du>0, dv>0) is right-handed; the LEFT-handed
+             * helix is (du<0, dv>0). The flag used to negate BOTH components,
+             * which is antiparallel to (1, slope) — the same line in (u,v),
+             * the same point set, the SAME right-handed helix run backwards
+             * and hanging below the profile.
+             *
+             * Volume can see none of this: the helix length, and so the
+             * material, is identical for all four sign pairs. Two things can.
+             *
+             * 1. THE RISE. The fixed clockwise coil is the exact mirror image
+             *    of the counterclockwise one through the plane y = 0 (u -> -u
+             *    negates y and fixes z, and the starting section lies in the
+             *    XZ plane, which that mirror fixes). A mirror is an isometry,
+             *    so the two coils must share their z extent to the last bit —
+             *    not merely "land near 0 and 50".
+             *
+             * 2. THE HANDEDNESS, which needs a ray. Cast +Z up the line
+             *    x = 0, y = 20, which passes through the helix point at
+             *    azimuth u = pi/2. Material crosses wherever u = pi/2 mod 2pi:
+             *      ccw, u in [0, 10pi]:   u = pi/2 + 2pi k  -> z = 2.5 + 10k
+             *      cw,  u in [-10pi, 0]:  u = pi/2 - 2pi m  -> z = 7.5 + 10m'
+             *    Five 2 mm passes each, interleaved at HALF A TURN — 5 mm —
+             *    which is what "opposite handedness, same rise" means and what
+             *    no bounding box and no volume can report. Before the fix the
+             *    clockwise crossings were at z = -7.5, -17.5, ... */
             const double P[] = {19, -1, 0,  21, -1, 0,  21, 1, 0,  19, 1, 0};
             const int lc[] = {4};
             const double m[12] = {1,0,0,0, 0,0,-1,0, 0,1,0,0};
@@ -3702,37 +3729,61 @@ int main(void)
                       "[40d] handedness must not change how much material "
                       "there is");
                 check(occt_shape_valid(cw), "[40d] clockwise coil invalid");
-                /* THE CHECK THIS SCENARIO EXISTS FOR — and it PINS THE
-                 * DEFECT, not the intent.
-                 *
-                 * Inventor's Rotation flag flips the winding; the coil still
-                 * RISES by `height`. This one descends: `clockwise` negates
-                 * BOTH components of the helix direction, and negating both is
-                 * the same right-handed helix run backwards, not the
-                 * left-handed one. A left-handed helix needs the components to
-                 * have OPPOSITE signs, (-1, +slope).
-                 *
-                 * S16 is an audit. OPTIMIZATION_PLAN_2.md section 0.6 —
-                 * "found a defect in another session's area? write it down, do
-                 * not fix it" — and the brief's "any behaviour change is routed
-                 * to the integrator" both bind, so this asserts what the shim
-                 * DOES and the verdict lives in
-                 * perf/findings/S16-straight-audit.md. The printed line says
-                 * DEFECT so a log reader sees it (read the log, not the
-                 * checkmark).
-                 *
-                 * If this check ever starts FAILING, the coil was fixed: the
-                 * scenario must then be rewritten to assert b1[5] > 45, which
-                 * is what a left-handed coil that rises looks like. */
-                printf("[40d] *** DEFECT (S16 P1) *** `clockwise` DESCENDS "
-                       "instead of reversing the handedness: z[%.4f,%.4f] "
-                       "where a left-handed coil rising by 50 would give "
-                       "z[~0,~50]. Recorded, NOT fixed — routed to the "
-                       "integrator.\n", b1[2], b1[5]);
-                check(b1[5] < 5.0 && b1[2] < -45.0,
-                      "[40d] the clockwise coil no longer descends — if this "
-                      "fails the defect was FIXED and this scenario must be "
-                      "rewritten to assert the rise");
+
+                /* GROUND TRUTH 1 — THE RISE. The clockwise coil is the mirror
+                 * image of the counterclockwise one, so its z extent is the
+                 * SAME, both ends, to the last bit. Before the fix these were
+                 * negated: z[-50.9969, 0.9968] against z[-0.9968, 50.9969]. */
+                check(near_rel(b1[2], b0[2], 1e-9) &&
+                      near_rel(b1[5], b0[5], 1e-9),
+                      "[40d] the clockwise coil does not RISE like the "
+                      "counterclockwise one — if its z range is negated, "
+                      "`clockwise` is negating the climb as well as the "
+                      "winding (S16 P1, repaired in v28)");
+                check(b1[5] > 45.0 && b1[2] < 5.0,
+                      "[40d] the clockwise coil must span roughly z[0,50]");
+
+                /* GROUND TRUTH 2 — THE HANDEDNESS, by ray. See the header
+                 * comment: the two coils cross the azimuth-90 line half a turn
+                 * apart. This is the check that says the winding reversed, and
+                 * it is the only instrument in the suite that can. */
+                {
+                    double h0[16], h1[16];
+                    const int n0 = occt_ray_hits(ccw, 0.0, 20.0, -10.0,
+                                                 0.0, 0.0, 1.0, h0, 16);
+                    const int n1 = occt_ray_hits(cw, 0.0, 20.0, -10.0,
+                                                 0.0, 0.0, 1.0, h1, 16);
+                    printf("[40d] azimuth-90 ray: ccw %d hits, cw %d hits\n",
+                           n0, n1);
+                    if (check(n0 == 10 && n1 == 10,
+                              "[40d] the azimuth-90 ray must cross five 2 mm "
+                              "passes of each coil")) {
+                        int k;
+                        int ok = 1;
+                        for (k = 0; k < 5; ++k) {
+                            /* Midpoint of each entry/exit pair. The ray runs
+                             * through the section's centre and the section is
+                             * centrally symmetric, so the midpoint IS the
+                             * helix crossing; the 5e-2 is for the tube's
+                             * curvature across a 2 mm chord and nothing
+                             * else. */
+                            const double m0 =
+                                0.5 * (h0[2 * k] + h0[2 * k + 1]) - 10.0;
+                            const double m1 =
+                                0.5 * (h1[2 * k] + h1[2 * k + 1]) - 10.0;
+                            printf("[40d]   pass %d: ccw z %.4f (want %.1f) | "
+                                   "cw z %.4f (want %.1f)\n",
+                                   k, m0, 2.5 + 10.0 * k, m1,
+                                   7.5 + 10.0 * k);
+                            if (fabs(m0 - (2.5 + 10.0 * k)) > 5e-2) ok = 0;
+                            if (fabs(m1 - (7.5 + 10.0 * k)) > 5e-2) ok = 0;
+                        }
+                        check(ok,
+                              "[40d] the two coils do not interleave half a "
+                              "turn apart — the clockwise coil has the same "
+                              "handedness as the counterclockwise one");
+                    }
+                }
             }
             occt_free_shape(ccw);
             occt_free_shape(cw);
