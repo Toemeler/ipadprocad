@@ -496,6 +496,64 @@ was measured: an inner rim left out is a hole not cut, the face covers it, and
 the volume came back 194% high. That one change took a coarse filleted plate
 from 324 planes to its 18 real faces.
 
+### Then a downloaded ORGANIC model, which is most of MakerWorld
+
+Everything above is about parts. The other half of what people download is
+figurines, lithophanes, organic brackets — models with no primitive anywhere,
+and the right answer for them has always been triangles. Timed at the sizes
+those files actually come in, the pipeline took **622 seconds on 25 280
+triangles**. On an iPad that is the app gone, and no amount of recognition
+quality matters if the file cannot be opened.
+
+The faceted build itself was never the problem: 0.12 ms per triangle and
+linear, the same 25 280 triangles in 3.3 seconds. The whole cost was the
+*prismatic* pipeline running to completion on a model it was going to discard
+— and within it, one pass:
+
+| stage, 3480-triangle blob | before |
+|---|---|
+| smooth patches | 0.1 ms |
+| split | 994 ms |
+| **merge** | **3465 ms** |
+| refine boundaries | 164 ms |
+| build + emit | 198 ms |
+
+`MergeRegions` enumerates every adjacent pair of patches and fits the union of
+each — five kinds, seed plus Levenberg-Marquardt — over eight passes. On a
+lumpy blob cut into eight hundred pieces that is thousands of full fits, every
+one of which fails.
+
+The fix is not to make the pass cheaper but to **ask the freeform question
+before doing the work, not after**. The judgement was already there and
+already correct; it simply ran at the end, after merging, boundary refinement
+and face building had all been paid for. Moved ahead of them, and given to
+`MergeRegions` as a set of runs to skip:
+
+| stage, same blob | before | after |
+|---|---|---|
+| merge | 3465 ms | **0.3 ms** |
+
+| organic model | before | after |
+|---|---|---|
+| 6 240 triangles | 17.1 s | **2.2 s** |
+| 25 280 triangles | **622 s** | **6.5 s** |
+| 67 080 triangles | 87 s | **16.3 s** |
+
+Moving it earlier then exposed the one case the late pass had been hiding. A
+lumpy surface throws off single facets whose three neighbours are all across a
+sharp edge, so each is a smooth run of ONE triangle that fits its own plane
+exactly. Twenty-six of them survived, because each was another's fitted
+neighbour. "Has a big fitted neighbour" is not the test either — a box is six
+faces of two triangles and every neighbour of every one of them is just as
+small. What separates them is what lies along the *edges*: a box face meets
+faces on all four sides; a facet adrift in an organic shell meets triangles on
+most of its own. More than half a patch's boundary against triangles, and it
+becomes one.
+
+A side effect worth recording: the curved shell with four drilled holes, which
+had never closed, now does. Fewer invented scraps between the real cylinders
+and the triangles means fewer seams for the sewing to reconcile.
+
 The suite is 132 assertions and covers all of it: a plain torus at two
 tessellations; the coarse plate — the shape of the file that started this —
 which must come back as exactly 7 planes and 10 cylinders with every radius
