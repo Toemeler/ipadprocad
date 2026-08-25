@@ -2648,10 +2648,12 @@ void SplitPatch(const Mesh &m, const std::vector<int> &tris, double tol,
     if (depth < kMaxCreaseDepth) {
         std::vector<std::vector<int>> parts;
         if (SplitAtCrease(m, tris, minTris, parts)) {
+#ifdef MESHRECON_TRACE
             MR_TRACE("      crease ->");
             for (const std::vector<int> &pp : parts)
                 MR_TRACE(" %d", (int)pp.size());
             MR_TRACE("\n");
+#endif
             for (const std::vector<int> &pp : parts)
                 SplitPatch(m, pp, tol, scale, minTris, origin, depth + 1, out);
             return;
