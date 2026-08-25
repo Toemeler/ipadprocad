@@ -661,5 +661,5 @@ pointer here.
 | `flutter analyze --no-fatal-infos --no-fatal-warnings` | **no new issue.** 62 issues before and after; the one `unnecessary_cast` in `part_model.dart` is on the clean tree too |
 | `flutter test` | **2564 passed, 0 failed**, Flutter **3.47.1** — the version CI runs, on this machine. Not "structurally zero": measured |
 | `occt_shim_version()` | **unchanged at 28.** No C ABI surface added, no scenario claimed |
-| Shim, `occt_engine.dart`, `app_state.dart`, widgets, `perf*`, baseline | **untouched** — `git diff --name-only` is `part_model.dart` plus six test files, one findings file and one README row |
+| Shim, `occt_engine.dart`, `app_state.dart`, widgets, `perf*`, baseline | **untouched** — `git diff --name-only` over the whole session is `part_model.dart`, **seven** test files, one findings file, one README row and one CROSS-SESSION entry |
 | Routed, not fixed | **§5** — `edgeChain`'s inert-and-wrong default, Direct Edit's inert commands, the stale shim header, three untested regions |
