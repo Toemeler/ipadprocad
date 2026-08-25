@@ -4056,27 +4056,41 @@ int main(void)
             }
         }
 
-        /* ---- [40i] P9 — MOVE FACES with an OBLIQUE delta ---------------- */
+        /* ---- [40i] R2 — MOVE FACES, OBLIQUE delta (S17: FIXED) ---------- */
         {
             /* [34] moves the top face by (0,0,5): exactly along its own
-             * outward normal, which is the ONE case the header claims to be
+             * outward normal, which was the ONE case the header claimed to be
              * exact. Bend the delta to (5,0,5).
              *
-             * The implementation sweeps the face along the WHOLE delta and
-             * fuses the prism. Perpendicular, that prism is the slab between
-             * the old face and the new one. Oblique, it LEANS: the union
-             * carries an unsupported overhang on one side and a re-entrant
-             * notch on the other, instead of the neighbouring walls following
-             * the face.
+             * S16 recorded the defect here and pinned it; S17 (shim v28)
+             * repaired it and this scenario now asserts the GROUND TRUTH.
              *
-             * Volume cannot see this. A leaning prism has volume
-             * A*|delta.n| = 400*5 = 2000, exactly the perpendicular answer,
-             * and shearing the top face is Cavalieri-neutral, so BOTH
-             * readings give 10000. BRepCheck_Analyzer cannot see it either:
-             * the union is a perfectly valid solid. The discriminator is a
-             * RAY: up the line x=2, y=10,
-             *   walls-follow  -> the top at x=2 is z = 25*(2/5) = 10
-             *   leaning prism -> material to z = 20 + 5*(2/5) = 22 */
+             * Before v28 the face was swept along the WHOLE delta, so the
+             * prism LEANED and the union carried an unsupported overhang on
+             * one side and a re-entrant notch on the other. Since v28 each
+             * face is swept along the delta's component on its OWN NORMAL: the
+             * neighbouring walls stay put, so a planar face's outline is still
+             * the intersection of its moved plane with those walls, and the
+             * tangential part of the delta is carried onto the face's own
+             * plane — unobservable, which is what the loop's own skip has said
+             * about a wholly tangential delta since M217.
+             *
+             * NEITHER instrument the suite owned can see any of this. Volume:
+             * a leaning prism has volume A*|delta.n| = 400*5 = 2000, exactly
+             * the perpendicular answer, and shearing the top face is
+             * Cavalieri-neutral, so every reading gives 10000.
+             * BRepCheck_Analyzer: the union was a perfectly valid solid. Three
+             * things can, and this scenario asserts all three.
+             *
+             * NOTE, because it contradicts what S16 wrote here: S16 named the
+             * fixed answer as "the walls follow the face", ray exit at
+             * z = 25*(2/5) = 10. It is 25. Walls-follow contradicts the skip
+             * in the loop (a purely tangential move would shear the box rather
+             * than do nothing), it moves surfaces the caller never selected,
+             * and it is the operation part_model.dart:3321 records the repo as
+             * deliberately not shipping. perf/findings/S17-oblique.md
+             * section 0.2 argues it out. The DEFECT S16 found is real either
+             * way: 22 is nobody's answer. */
             occt_shape *box = occt_make_box(20, 20, 20);
             int top = -1;
             if (box != NULL) {
@@ -4110,37 +4124,143 @@ int main(void)
             if (check(top > 0, "[40i] could not find the top face")) {
                 const int ids[1] = {top};
                 occt_shape *ob = occt_move_faces(box, ids, 1, 5.0, 0.0, 5.0);
-                if (check(ob != NULL,
+                occt_shape *pp = occt_move_faces(box, ids, 1, 0.0, 0.0, 5.0);
+                if (check(ob != NULL && pp != NULL,
                           "[40i] an oblique move was neither refused nor built")) {
-                    double hits[8];
+                    double hits[8], bo[6], bp[6];
                     const double v = occt_shape_volume(ob);
                     const int n = occt_ray_hits(ob, 2.0, 10.0, -10.0,
                                                 0.0, 0.0, 1.0, hits, 8);
+                    occt_bbox(ob, bo);
+                    occt_bbox(pp, bp);
                     printf("[40i] oblique move volume %.6f (perpendicular move "
-                           "gives 10000 too), valid=%d, ray x=2 hits=%d",
-                           v, occt_shape_valid(ob), n);
+                           "gives 10000 too), valid=%d, x-max %.4f, ray x=2 "
+                           "hits=%d", v, occt_shape_valid(ob), bo[3], n);
                     if (n > 0) {
                         int k;
                         for (k = 0; k < n; ++k)
                             printf(" %.4f", hits[k] - 10.0);
                     }
-                    printf(" (walls-follow says the top is at 10, a leaning "
-                           "prism says 22)\n");
+                    printf(" (the moved plane says 25; the old leaning prism "
+                           "said 22 and reached x = 25)\n");
                     check(near_rel(v, 10000.0, 1e-6),
                           "[40i] volume is not the swept-slab answer");
                     check(occt_shape_valid(ob),
                           "[40i] the oblique move is invalid");
-                    /* The finding, pinned. If this check ever starts failing
-                     * because the exit moved to ~10, the op was fixed and this
-                     * scenario should be rewritten to assert the fix. */
+
+                    /* GROUND TRUTH 1 — THE RAY. The slab now spans z in
+                     * [20,25] across the whole face, so the exit above x = 2 is
+                     * 25 exactly. It was 22. */
                     if (check(n >= 2, "[40i] the ray missed the moved body")) {
                         const double exit_z = hits[n - 1] - 10.0;
-                        check(fabs(exit_z - 22.0) < 1e-6,
-                              "[40i] the oblique move no longer leans — if the "
-                              "exit is now ~10 the op was FIXED and this "
-                              "scenario must be rewritten");
+                        check(fabs(exit_z - 25.0) < 1e-6,
+                              "[40i] the oblique move still LEANS — an exit at "
+                              "22 means the prism is being swept along the "
+                              "whole delta again (S16 P9, repaired in v28)");
                     }
-                    occt_free_shape(ob);
+
+                    /* GROUND TRUTH 2 — THE BOUNDING BOX, which is the cheapest
+                     * witness this defect ever had and which nobody looked at.
+                     * The leaning prism carried material out to x = 25; the
+                     * projected one cannot leave the face's own footprint. */
+                    /* 1e-6, not 1e-9, and the reason is the instrument
+                     * rather than the geometry: occt_bbox returns Bnd_Box::Get
+                     * on a box BRepBndLib::Add has inflated by the shape's
+                     * tolerance, so every extent is out by exactly 1e-7 —
+                     * measured here, -1e-07 and 20.0000001 on a plain
+                     * occt_make_box(20,20,20). An ABSOLUTE bbox comparison
+                     * cannot be tighter than that gap. It costs nothing: the
+                     * two readings this discriminates are 20 and 25. (The
+                     * bbox-to-bbox comparison further down stays at 1e-9,
+                     * because both sides carry the same gap.) */
+                    check(fabs(bo[3] - 20.0) < 1e-6 &&
+                          fabs(bo[0]) < 1e-6 && fabs(bo[5] - 25.0) < 1e-6,
+                          "[40i] the moved body is not [0,20]x[0,20]x[0,25] — "
+                          "an x-max of 25 is the overhang the lean produced");
+
+                    /* GROUND TRUTH 3 — THE EQUIVALENCE, which IS the claim.
+                     * The tangential component is unobservable, so an oblique
+                     * move and its normal component must return the SAME
+                     * solid. Asserted as a test rather than as a comment. */
+                    check(near_rel(v, occt_shape_volume(pp), 1e-9),
+                          "[40i] oblique and perpendicular moves disagree on "
+                          "volume");
+                    {
+                        int j;
+                        int same = 1;
+                        for (j = 0; j < 6; ++j)
+                            if (fabs(bo[j] - bp[j]) > 1e-9) same = 0;
+                        check(same,
+                              "[40i] an oblique move and its normal component "
+                              "must return the same solid — the tangential "
+                              "part of a planar face's delta is carried onto "
+                              "its own plane");
+                    }
+                    {
+                        /* Two rays rather than one, so the agreement is about
+                         * the whole face and not about the one abscissa the
+                         * lean happened to spare. */
+                        double ho[8], hp[8];
+                        const double xs[2] = {2.0, 18.0};
+                        int j;
+                        for (j = 0; j < 2; ++j) {
+                            const int no = occt_ray_hits(ob, xs[j], 10.0, -10.0,
+                                                         0.0, 0.0, 1.0, ho, 8);
+                            const int np = occt_ray_hits(pp, xs[j], 10.0, -10.0,
+                                                         0.0, 0.0, 1.0, hp, 8);
+                            if (check(no >= 2 && no == np,
+                                      "[40i] the two moves give different hit "
+                                      "counts")) {
+                                printf("[40i]   x=%.0f: oblique exits %.6f, "
+                                       "perpendicular exits %.6f\n", xs[j],
+                                       ho[no - 1] - 10.0, hp[np - 1] - 10.0);
+                                check(fabs(ho[no - 1] - hp[np - 1]) < 1e-9,
+                                      "[40i] the two moves put the top face in "
+                                      "different places");
+                            }
+                        }
+                    }
+                }
+                occt_free_shape(ob);
+                occt_free_shape(pp);
+
+                /* GROUND TRUTH 4 — CONTINUITY AT ZERO, the sharpest form of
+                 * the defect and the reason it is a defect rather than a
+                 * scoping question about tapered neighbours.
+                 *
+                 * A wholly tangential move is skipped and returns the body
+                 * untouched — that has been true and deliberate since M217.
+                 * Before v28, tipping the delta by one micron grew a 5 mm
+                 * overhang: (5,0,0) gave x-max 20 and (5,0,0.001) gave x-max
+                 * 25. A 5 mm jump in the answer for a 0.001 mm change in the
+                 * input. Since v28 both are 20 and the volume moves by 0.4. */
+                {
+                    occt_shape *flat = occt_move_faces(box, ids, 1,
+                                                       5.0, 0.0, 0.0);
+                    occt_shape *tip = occt_move_faces(box, ids, 1,
+                                                      5.0, 0.0, 0.001);
+                    if (check(flat != NULL && tip != NULL,
+                              "[40i] the continuity probe was refused")) {
+                        double bf[6], bt[6];
+                        occt_bbox(flat, bf);
+                        occt_bbox(tip, bt);
+                        printf("[40i] continuity: (5,0,0) vol %.6f x-max %.4f | "
+                               "(5,0,0.001) vol %.6f x-max %.4f\n",
+                               occt_shape_volume(flat), bf[3],
+                               occt_shape_volume(tip), bt[3]);
+                        check(near_rel(occt_shape_volume(flat), 8000.0, 1e-9) &&
+                              fabs(bf[3] - 20.0) < 1e-6, /* the 1e-7 gap */
+                              "[40i] a wholly tangential move must change "
+                              "nothing");
+                        check(fabs(bt[3] - 20.0) < 1e-6,
+                              "[40i] a 0.001 mm tip of the delta grew a 5 mm "
+                              "overhang — the tangential component is being "
+                              "swept again");
+                        check(near_rel(occt_shape_volume(tip), 8000.4, 1e-6),
+                              "[40i] the tipped move is not the 0.001 mm slab");
+                    }
+                    occt_free_shape(flat);
+                    occt_free_shape(tip);
                 }
             }
             occt_free_shape(box);

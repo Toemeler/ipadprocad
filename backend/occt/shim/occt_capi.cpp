@@ -1920,6 +1920,12 @@ extern "C" occt_shape *occt_delete_faces(const occt_shape *shape,
  * tapered neighbour the two differ, and the caller is told (see the Dart
  * side) rather than being handed a quiet approximation.
  *
+ * v28 (S17): the prism is swept along the delta's component ALONG EACH FACE'S
+ * OWN NORMAL rather than along the whole delta, which is what makes the
+ * paragraph above true of an oblique delta and not only of a perpendicular
+ * one. The long note at the sweep itself has the mechanism and what was
+ * rejected.
+ *
  * Fuse or cut is decided PER FACE by the sign of delta against that face's
  * outward normal: moving a face along its outward normal adds the swept
  * material, moving it inward removes it. A selection whose faces disagree is
@@ -1963,7 +1969,58 @@ extern "C" occt_shape *occt_move_faces(const occt_shape *shape,
              * move fail because one face happened to be edge-on. */
             continue;
         }
-        BRepPrimAPI_MakePrism prism(f, delta);
+        /* v28 (S17): sweep the OBSERVABLE part of the delta, which is its
+         * component along this face's own normal.
+         *
+         * Until v28 the prism was built from `delta` entire, and the six lines
+         * above already say why that cannot be right: a delta lying wholly in
+         * the face's plane is skipped BECAUSE it "changes nothing about the
+         * solid". That is true, and it is true for the tangential PART of an
+         * oblique delta for exactly the same reason — a planar face slid
+         * inside its own plane is carried onto itself, and with the
+         * neighbouring walls where they were, the face's outline is still the
+         * intersection of its plane with those walls. The two statements
+         * cannot both be honoured by one prism, and until now the guard held
+         * one and the sweep held the other.
+         *
+         * What the whole delta produced instead: BRepPrimAPI_MakePrism is a
+         * pure translational sweep (BRepSweep_Prism hands V to
+         * BRepSweep_Translation, which does gpt.SetTranslation(V)), so the
+         * prism LEANED, and the union carried an unsupported overhang on one
+         * side and a re-entrant notch on the other. Neither belongs to any
+         * reading of "move this face". S16 measured it — a 20-cube's top face
+         * moved by (5,0,5) kept material out to z = 22 above x = 2, and out to
+         * x = 25 in the bargain — and could see it with neither volume (a
+         * leaning prism has volume A|delta.n|, the perpendicular answer, and
+         * shearing the top face is Cavalieri-neutral) nor BRepCheck_Analyzer
+         * (the union is a perfectly valid solid).
+         *
+         * The sharpest form of it, and the reason this is a defect rather than
+         * a scoping question about tapered neighbours: moving that top face by
+         * (5,0,0) returned the box untouched, by the skip above, while moving
+         * it by (5,0,0.001) grew a 5 mm overhang. A 5 mm jump in the answer for
+         * a 0.001 mm change in the input.
+         *
+         * NOT adopted: sweeping the face and letting the neighbouring WALLS
+         * follow it (S16 section 5.2's reading, ray exit at 10 rather than 25).
+         * That reading contradicts the skip above — a purely tangential move
+         * would shear the box instead of doing nothing — it moves surfaces the
+         * caller never selected, and it is precisely the operation
+         * part_model.dart:3321 records the repo as deliberately not shipping
+         * ("sliding its surface and re-trimming its neighbours — a
+         * BRepTools_Modification subclass whose failure modes only appear on
+         * real shapes"). perf/findings/S17-oblique.md section 0.2 argues it
+         * out; the disagreement with S16 is registered there rather than
+         * buried here.
+         *
+         * SCOPE, stated because the header's guarantee is what got scoped and
+         * never enforced: this is exact for a PLANAR face. For a curved one
+         * face_outward samples the mid-parameter normal and prism-and-fuse was
+         * ill-posed before this change and is ill-posed after it — projecting
+         * onto one representative normal of a cylinder is as arbitrary as
+         * sweeping the whole delta was. That case is untouched and unclaimed. */
+        const gp_Vec push = gp_Vec(outward) * along;
+        BRepPrimAPI_MakePrism prism(f, push);
         if (!prism.IsDone()) {
             set_err("occt_move_faces", "could not sweep a selected face");
             return nullptr;
