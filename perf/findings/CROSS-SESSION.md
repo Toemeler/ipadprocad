@@ -3545,3 +3545,51 @@ observations, and it belongs to whoever owns `frontend/lib/perf_scenarios*.dart`
 — deliberately frozen so captures stay comparable. Until then the gate is honest
 about what it cannot resolve rather than guessing, and a low-n span that moves
 by more than half a millisecond still fails.
+
+---
+## 2026-08-25 — S18 — S14 §7.2's unexplained volume identity is Cavalieri, and it is `A * dz`
+
+S14 §2.8 found that `V = A(n) * L * cos 25.2316°` reproduced every rung of its
+sweep fixture to 8–10 figures with `L` the TRUE arc length of the underlying
+curve rather than the polyline's own length, could not derive it, and put it
+second in its §7 list of things it might be expensive to be wrong about — with
+the honest note that "if it is a property of this fixture rather than of sweeps,
+that pin is weaker than it looks."
+
+It is a property of the fixture, and the general law behind it is simpler.
+
+The ring is centred ON the spine. A mitred corner's effect on volume is
+`2 * A * c_t * tan(theta/2)` with `c_t` the section centroid's offset along the
+turn (S18-corners.md §1.1, and smoke [42b] and [42c] pin it), so a centred
+section has **no corner correction at any joint angle and at any span count** —
+which is exactly the "at every sampling density" S14 observed. What is left is
+Cavalieri: the section's normal starts at +Z, the helix rises exactly 60, so
+
+```
+V = A * dz
+```
+
+Measured through S14's own replica, three span counts:
+
+```
+spans   measured        A*dz            rel        A*L_poly*cos(tilt)   rel
+ 2      6783.115299   6783.115299   +4.02e-16      6752.008242      +4.61e-03
+ 4      6783.115299   6783.115299   -9.39e-16      6775.231327      +1.16e-03
+16      6783.115299   6783.115299   -1.39e-14      6782.620451      +7.30e-05
+```
+
+`A(128-gon, r=6) * 60 = 113.0519216503711 * 60 = 6783.115299`. S14's form agrees
+only because that helix has a constant pitch angle, which makes
+`L_true * cos(tilt)` equal `dz`; it is off in the fifth figure once you use the
+polyline's own length, which is what the mitred sweep actually runs along.
+
+Confirmed independently on a different section: a CENTRED 10x10 square on the
+same 16-edge polyline arc gives **6000.000000** against `A*dz = 100*60`, valid.
+
+**Why this is worth an entry rather than a line in my own file:** `A*dz` is a
+better analytic pin than the one S14 shipped and it costs nothing to use — any
+sweep of a section centred on its spine, in any corner mode, at any sampling
+density. Anyone writing a sweep test should reach for it first.
+
+*(S14's §7.2 is not edited. This is the answer to it, written where S14 can
+find it.)*
