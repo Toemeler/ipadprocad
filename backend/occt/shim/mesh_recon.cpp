@@ -4477,17 +4477,21 @@ TopoDS_Edge ChainEdge(BuildCtx &ctx, const Chain &c, int self,
                                 if (me.IsDone())
                                     e = me.Edge();
                                 else
-                                    MR_TRACE("          trim fwd err=%d u[%.4f "
-                                             "%.4f]\n",
-                                             (int)me.Error(), u1, u2);
+                                    MR_TRACE("          trim fwd err=%d d "
+                                             "%.7f/%.7f vmax %.7f\n",
+                                             (int)me.Error(),
+                                             p1.LowerDistance(),
+                                             p2.LowerDistance(), vmax);
                             } else {
                                 BRepBuilderAPI_MakeEdge me(cur, vb, va, u2, u1);
                                 if (me.IsDone())
                                     e = me.Edge();
                                 else
-                                    MR_TRACE("          trim rev err=%d u[%.4f "
-                                             "%.4f]\n",
-                                             (int)me.Error(), u2, u1);
+                                    MR_TRACE("          trim rev err=%d d "
+                                             "%.7f/%.7f vmax %.7f\n",
+                                             (int)me.Error(),
+                                             p1.LowerDistance(),
+                                             p2.LowerDistance(), vmax);
                             }
                         }
                     }
