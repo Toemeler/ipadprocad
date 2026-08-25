@@ -594,8 +594,14 @@ segments      ms      fitted exponent k = 1.392  [1.314, 1.471]  R2 = 0.9983
       64   152.2      local k: 32->64  1.31
      128   383.9              64->128  1.33
      256  1124.1             128->256  1.55
-     512  3103.7             256->512  1.47
+     512  3106.7             256->512  1.47
 ```
+
+The 32..256 rungs are `occt_bench`'s `sweep.corners` ladder and the fit is its
+own; the 512 rung is the same fixture measured by the §3.7 prototype's control
+arm, because the bench's default budget stops the ladder before it. Both run the
+identical staircase: a ring of circumradius 6 over legs 30/25/25/30 with joints
+of +90, -90, +90 degrees.
 
 **The bar is not met, and it cannot be met by the lever that was left open.**
 512 segments over three drawn corners is 3.1 s here. Applying S14's measured
@@ -855,7 +861,7 @@ The escape hatches, in increasing order of work:
 | `python3 -m unittest discover -s ci` | **52 tests, OK** |
 | `occt_bench` (Lane C) | **LANE C: PASS, HARNESS: VALIDATED** — all three calibration exponents agree with §6.5 |
 | `gcc -fsyntax-only` brace guard | run before every commit, and it caught one unterminated comment |
-| `flutter analyze` delta | **cannot be run: no Flutter SDK in this container.** No Dart file was touched — `git diff --stat` over `frontend/` is empty — so the delta is zero by construction, but that is an argument and not a measurement, and it is recorded as an argument. |
+| `flutter analyze` delta | **cannot be run: no Flutter SDK is installed in this container.** No Dart file was touched: `git diff --stat 2de4e97..HEAD` (the branch point) lists seven files, all of them shim, tests, bench or findings, and nothing under `frontend/`. So the delta is zero by construction — but that is an argument, not a measurement, and it is recorded as an argument. |
 | `flutter test` | same — not runnable here, no Dart touched |
 
 The OCCT install used for all of the above was built from the pinned `V7_9_3`
