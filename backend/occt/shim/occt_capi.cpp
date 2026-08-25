@@ -208,11 +208,16 @@ extern "C" const char *occt_version(void)
     /* Keep the grep marker "Prototype OCCT shim" a single literal. */
     static char buf[128] = "";
     if (!buf[0]) {
-        /* Kept in step with occt_shim_version() below. It had said "v21"
-         * since v21 while the number went 22, 23 — a string nobody reads
-         * against a number three releases ahead of it. */
-        std::snprintf(buf, sizeof(buf), "Prototype OCCT shim v27 (OCCT %s)",
-                      OCC_VERSION_COMPLETE);
+        /* v28 (S17): ASKS occt_shim_version() instead of repeating it.
+         *
+         * The note this replaces said it was "kept in step with
+         * occt_shim_version() below", having said "v21" while the number went
+         * 22, 23 — and it had drifted again by v27/v28, because "kept in step"
+         * is a promise a literal cannot make. Now it cannot drift: there is one
+         * number and the string reads it. The grep marker "Prototype OCCT shim"
+         * stays a single literal, which is all the CI link check needs. */
+        std::snprintf(buf, sizeof(buf), "Prototype OCCT shim v%d (OCCT %s)",
+                      occt_shim_version(), OCC_VERSION_COMPLETE);
     }
     return buf;
 }
@@ -316,7 +321,51 @@ extern "C" const char *occt_version(void)
  *
  * Taken by the session that owns backend/occt/shim/**, per the v17 and
  * v21/v23 collision notes above. */
-extern "C" int occt_shim_version(void) { return 27; }
+/* v28 (S17): the three defects S16's audit found away from the trivial value,
+ * repaired. All three are BEHAVIOUR changes on inputs no test had ever sent,
+ * which is why nine months of green did not catch them. Each has its mechanism
+ * at its own site and in perf/findings/S17-oblique.md section 0; this is what
+ * a caller learns by testing for >= 28.
+ *
+ *  1. occt_coil_profile's `clockwise` reverses the WINDING and no longer the
+ *     climb. It used to negate both components of the helix's (u,v) direction,
+ *     which is the same right-handed helix run backwards: a coil that DESCENDED
+ *     to z in [-height, 0] with its handedness unchanged. It now rises by
+ *     `height` and is the mirror image of the counterclockwise coil. Volume is
+ *     unchanged to the last bit either way — the helix length is the same — so
+ *     a caller who needs to know cannot ask the volume; test the version, or
+ *     the bounding box.
+ *
+ *  2. occt_move_faces sweeps each face along the component of the delta on its
+ *     OWN NORMAL, not along the whole delta. An oblique delta used to sweep a
+ *     LEANING prism, whose union carried an overhang on one side and a
+ *     re-entrant notch on the other; it now returns the same solid as the
+ *     delta's normal component alone. A 20-cube's top face moved by (5,0,5) is
+ *     volume 10 000 and valid BOTH ways — the discriminators are the bounding
+ *     box (x-max was 25, is 20) and a ray (the exit above x = 2 was 22, is 25).
+ *     A caller who was relying on the lean was relying on an overhang; a caller
+ *     who only ever moved along the normal sees nothing change.
+ *
+ *  3. occt_chamfer_edges mode 2 accepts 0 < angle_deg < 180 - theta, the edge's
+ *     own admissible range, where it used to accept 0 < angle_deg < 90. The
+ *     bound is the angle between the edge's two outward normals, which is
+ *     occt_shape_edge_info field [10], so a caller can compute what will be
+ *     accepted. This cuts BOTH ways and a caller should know which it is
+ *     relying on: an acute edge now accepts angles that used to be refused (a
+ *     60-degree edge reaches 120), and an OBTUSE edge now refuses angles that
+ *     used to be passed to OCCT and to fail there (a 135-degree edge stops at
+ *     45). An edge whose bound cannot be measured keeps the 90 rule, so every
+ *     perpendicular edge — which is every chamfer fixture before [40j] — is
+ *     bit-identical.
+ *
+ * Not in v28, found while establishing (3) and routed rather than fixed:
+ * part_model.dart's Flip sends 90 - angle for mode 2, the same hardcoded
+ * perpendicular assumption one layer up. Dart is not this session's.
+ *
+ * Taken by the session that owns backend/occt/shim/**, per the collision notes
+ * above; the brief allocated it rather than leaving it to be read off the
+ * file, this project having had three identifier collisions already. */
+extern "C" int occt_shim_version(void) { return 28; }
 
 extern "C" const char *occt_last_error(void) { return g_err; }
 
@@ -1920,6 +1969,12 @@ extern "C" occt_shape *occt_delete_faces(const occt_shape *shape,
  * tapered neighbour the two differ, and the caller is told (see the Dart
  * side) rather than being handed a quiet approximation.
  *
+ * v28 (S17): the prism is swept along the delta's component ALONG EACH FACE'S
+ * OWN NORMAL rather than along the whole delta, which is what makes the
+ * paragraph above true of an oblique delta and not only of a perpendicular
+ * one. The long note at the sweep itself has the mechanism and what was
+ * rejected.
+ *
  * Fuse or cut is decided PER FACE by the sign of delta against that face's
  * outward normal: moving a face along its outward normal adds the swept
  * material, moving it inward removes it. A selection whose faces disagree is
@@ -1963,7 +2018,58 @@ extern "C" occt_shape *occt_move_faces(const occt_shape *shape,
              * move fail because one face happened to be edge-on. */
             continue;
         }
-        BRepPrimAPI_MakePrism prism(f, delta);
+        /* v28 (S17): sweep the OBSERVABLE part of the delta, which is its
+         * component along this face's own normal.
+         *
+         * Until v28 the prism was built from `delta` entire, and the six lines
+         * above already say why that cannot be right: a delta lying wholly in
+         * the face's plane is skipped BECAUSE it "changes nothing about the
+         * solid". That is true, and it is true for the tangential PART of an
+         * oblique delta for exactly the same reason — a planar face slid
+         * inside its own plane is carried onto itself, and with the
+         * neighbouring walls where they were, the face's outline is still the
+         * intersection of its plane with those walls. The two statements
+         * cannot both be honoured by one prism, and until now the guard held
+         * one and the sweep held the other.
+         *
+         * What the whole delta produced instead: BRepPrimAPI_MakePrism is a
+         * pure translational sweep (BRepSweep_Prism hands V to
+         * BRepSweep_Translation, which does gpt.SetTranslation(V)), so the
+         * prism LEANED, and the union carried an unsupported overhang on one
+         * side and a re-entrant notch on the other. Neither belongs to any
+         * reading of "move this face". S16 measured it — a 20-cube's top face
+         * moved by (5,0,5) kept material out to z = 22 above x = 2, and out to
+         * x = 25 in the bargain — and could see it with neither volume (a
+         * leaning prism has volume A|delta.n|, the perpendicular answer, and
+         * shearing the top face is Cavalieri-neutral) nor BRepCheck_Analyzer
+         * (the union is a perfectly valid solid).
+         *
+         * The sharpest form of it, and the reason this is a defect rather than
+         * a scoping question about tapered neighbours: moving that top face by
+         * (5,0,0) returned the box untouched, by the skip above, while moving
+         * it by (5,0,0.001) grew a 5 mm overhang. A 5 mm jump in the answer for
+         * a 0.001 mm change in the input.
+         *
+         * NOT adopted: sweeping the face and letting the neighbouring WALLS
+         * follow it (S16 section 5.2's reading, ray exit at 10 rather than 25).
+         * That reading contradicts the skip above — a purely tangential move
+         * would shear the box instead of doing nothing — it moves surfaces the
+         * caller never selected, and it is precisely the operation
+         * part_model.dart:3321 records the repo as deliberately not shipping
+         * ("sliding its surface and re-trimming its neighbours — a
+         * BRepTools_Modification subclass whose failure modes only appear on
+         * real shapes"). perf/findings/S17-oblique.md section 0.2 argues it
+         * out; the disagreement with S16 is registered there rather than
+         * buried here.
+         *
+         * SCOPE, stated because the header's guarantee is what got scoped and
+         * never enforced: this is exact for a PLANAR face. For a curved one
+         * face_outward samples the mid-parameter normal and prism-and-fuse was
+         * ill-posed before this change and is ill-posed after it — projecting
+         * onto one representative normal of a cylinder is as arbitrary as
+         * sweeping the whole delta was. That case is untouched and unclaimed. */
+        const gp_Vec push = gp_Vec(outward) * along;
+        BRepPrimAPI_MakePrism prism(f, push);
         if (!prism.IsDone()) {
             set_err("occt_move_faces", "could not sweep a selected face");
             return nullptr;
@@ -3249,6 +3355,72 @@ extern "C" occt_shape *occt_fillet_edges(const occt_shape *shape,
                                 nullptr);
 }
 
+/*
+ * v28 (S17) — the largest mode-2 chamfer angle THIS edge admits, in degrees.
+ *
+ * OCCT's own plane/plane chamfer prints the rule. ChFiKPart_MakeChAsym builds
+ * the two into-face directions at the edge, takes cosP as their dot product,
+ * and computes the second distance as
+ *
+ *     dis2 = Dis / (cosP + sinP / Tan(Angle))
+ *
+ * (src/ChFiKPart/ChFiKPart_ComputeData_ChAsymPlnPln.cxx). Those two directions
+ * are the ones edge_info's convexity sign is built from, so cosP is the cosine
+ * of the INTERIOR DIHEDRAL theta, and the expression is the law of sines:
+ *
+ *     dis2 = d1 . sin(alpha) / sin(alpha + theta)
+ *
+ * with alpha the angle at the reference face's tangent point — which is also
+ * why AddDA's angle is measured FROM that face: Dis and Angle are both
+ * anchored on the face handed to it. dis2 blows up at alpha + theta = 180 and
+ * goes NEGATIVE past it, so the admissible range is
+ *
+ *     0 < alpha < 180 - theta
+ *
+ * exactly, and that equals the historical 90 if and only if theta is 90.
+ * 180 - theta is the angle between the two OUTWARD normals, which is what
+ * occt_shape_edge_info reports as field [10] — so this limit and that field
+ * are the same number by construction, computed here from the same helper at
+ * the same arc-length midpoint so the two cannot drift apart.
+ *
+ * False when it cannot be measured — an edge without exactly two faces, or
+ * normals that will not evaluate — and `out_deg` is then left alone. The
+ * caller keeps the historical 90 in that case: refusing instead would be a
+ * second behaviour change nobody asked for.
+ */
+static bool edge_chamfer_angle_limit(
+    const TopTools_IndexedDataMapOfShapeListOfShape &edgeFaces,
+    const TopoDS_Edge &edge, double &out_deg)
+{
+    if (!edgeFaces.Contains(edge))
+        return false;
+    const TopTools_ListOfShape &fl = edgeFaces.FindFromKey(edge);
+    if (fl.Extent() != 2)
+        return false;
+    BRepAdaptor_Curve ec(edge);
+    /* The SAME midpoint edge_info uses: by arc length, not by parameter, so
+     * that a rebuilt B-spline does not move it. */
+    double tmid = 0.5 * (ec.FirstParameter() + ec.LastParameter());
+    const double len = GCPnts_AbscissaPoint::Length(ec);
+    if (len > 1e-12) {
+        GCPnts_AbscissaPoint ap(ec, len * 0.5, ec.FirstParameter());
+        if (ap.IsDone())
+            tmid = ap.Parameter();
+    }
+    gp_Dir n1, n2;
+    if (!face_outward_normal(TopoDS::Face(fl.First()), edge, tmid, n1) ||
+        !face_outward_normal(TopoDS::Face(fl.Last()), edge, tmid, n2))
+        return false;
+    const double dot = std::max(-1.0, std::min(1.0, n1.Dot(n2)));
+    const double deg = std::acos(dot) * 180.0 / M_PI;
+    if (!(deg > 1e-9))
+        return false; /* tangent faces: no chamfer angle is admissible, and
+                       * saying so through the 90 rule is no worse than
+                       * inventing a limit of 0 here. */
+    out_deg = deg;
+    return true;
+}
+
 extern "C" occt_shape *occt_chamfer_edges_ex(
     const occt_shape *shape, const int *edge_ids, const int *modes,
     const double *d1, const double *d2, const double *angle_deg, int n,
@@ -3284,10 +3456,9 @@ extern "C" occt_shape *occt_chamfer_edges_ex(
                     "two-distance chamfer needs a positive second distance");
             return nullptr;
         }
-        if (modes[i] == 2 &&
-            (!angle_deg || !(angle_deg[i] > 0.0) || angle_deg[i] >= 90.0)) {
+        if (modes[i] == 2 && (!angle_deg || !(angle_deg[i] > 0.0))) {
             set_err("occt_chamfer_edges",
-                    "chamfer angle must be in (0, 90) deg");
+                    "chamfer angle must be greater than 0 deg");
             return nullptr;
         }
         const TopoDS_Edge e = TopoDS::Edge(emap.FindKey(edge_ids[i]));
@@ -3297,6 +3468,44 @@ extern "C" occt_shape *occt_chamfer_edges_ex(
             set_err("occt_chamfer_edges",
                     "edge has no adjacent face to measure from");
             return nullptr;
+        }
+        /* v28 (S17): the upper bound is the EDGE'S, not a literal 90.
+         *
+         * Until v28 this read `angle_deg[i] >= 90.0`. That is the exactly
+         * correct rule for a perpendicular edge and wrong in BOTH directions
+         * away from one, because the admissible range is alpha < 180 - theta
+         * (see edge_chamfer_angle_limit for OCCT's own arithmetic):
+         *
+         *  - on an ACUTE edge it was too STRICT. On an equilateral prism's
+         *    60-degree edge the range reaches 120, and alpha = 100 was refused
+         *    though OCCT builds it perfectly well — and builds it when the
+         *    SAME chamfer is spelled as two distances, which mode 1 let
+         *    through. Two spellings of one chamfer, one refused for no
+         *    geometric reason. That asymmetry is what S16 measured ([40j]).
+         *  - on an OBTUSE edge it was too PERMISSIVE. On a 135-degree edge the
+         *    range is only 45, so alpha = 60 passed the guard and handed OCCT
+         *    dis2 = -6.692130, a negative distance. The user got OCCT's
+         *    failure where the guard's own sentence was available. [41a].
+         *
+         * It is checked here, after the degenerate skip and the reference-face
+         * check, because it needs the edge; the mode-2 "> 0" test above stays
+         * where it was, being argument validation rather than geometry, so a
+         * degenerate edge is still skipped rather than judged. */
+        if (modes[i] == 2) {
+            double limit = 90.0; /* the historical rule, kept for an edge whose
+                                  * own limit cannot be measured */
+            edge_chamfer_angle_limit(edgeFaces, e, limit);
+            if (angle_deg[i] >= limit) {
+                char msg[192];
+                std::snprintf(msg, sizeof(msg),
+                              "chamfer angle must be in (0, %.6g) deg on this "
+                              "edge: its faces meet at %.6g deg, and the "
+                              "chamfer degenerates when the angle reaches "
+                              "180 minus that",
+                              limit, 180.0 - limit);
+                set_err("occt_chamfer_edges", msg);
+                return nullptr;
+            }
         }
         keep.push_back(i);
     }
@@ -4642,8 +4851,38 @@ extern "C" occt_shape *occt_coil_profile(const double *xyb,
     /* A straight line in the cylinder's (u, v) space IS a helix: u winds
      * around, v climbs the axis. Slope = total rise over total turn. */
     const double slope = height / turns;
-    const gp_Dir2d d2(clockwise != 0 ? -1.0 : 1.0,
-                      clockwise != 0 ? -slope : slope);
+    /* v28 (S17): only the WINDING is negated, never the climb.
+     *
+     * What (u, v) mean is settled by ElSLib::CylinderD0, which
+     * Geom_CylindricalSurface::D0 delegates to:
+     *     P(u, v) = Loc + R cos u . XDir + R sin u . YDir + v . ZDir
+     * and the frame above is built with gp_Ax3(P, N, Vx), whose inline body
+     * (gp_Ax3.hxx) sets vydir = theN ^ vxdir -- YDir = N x XDir, so the frame
+     * is right-handed and Direct() is 1. Increasing u therefore turns
+     * COUNTERCLOCKWISE about the axis while increasing v advances along it:
+     * (du > 0, dv > 0) is a right-handed screw and the left-handed one is
+     * (du < 0, dv > 0).
+     *
+     * Until v28 this negated BOTH components for `clockwise`, giving
+     * (-1, -slope). That is antiparallel to (1, slope) -- the same line
+     * through the origin in (u, v), so the same point set, so the SAME
+     * right-handed helix, merely traversed backwards and occupying
+     * v in [-height, 0]. A user who ticked the box got a coil hanging BELOW
+     * the profile with its handedness unchanged, and no volume check could
+     * ever see it: the helix length, and so the material, is identical either
+     * way. S16 measured exactly that (z[-50.9969, 0.9968] against
+     * z[-0.9968, 50.9969]); perf/findings/S17-oblique.md section 0.1 has the
+     * upstream lines.
+     *
+     * With one component negated the coil is the mirror image of the
+     * counterclockwise one through the plane containing the axis and the
+     * starting section -- opposite handedness, same rise, same volume, which
+     * is what the header's "picks the handedness" has always claimed.
+     *
+     * `plen` below is unaffected: gp_Dir2d normalises, so |d2.X()| is
+     * 1/sqrt(1+slope^2) whichever sign the winding has, and the line still
+     * reaches u = -+turns, v = +height at t = plen. */
+    const gp_Dir2d d2(clockwise != 0 ? -1.0 : 1.0, slope);
     Handle(Geom2d_Line) line2d = new Geom2d_Line(gp_Pnt2d(0.0, 0.0), d2);
     /* Parameter length along the 2D line that spans `turns` in u. */
     const double plen = turns / std::fabs(d2.X());

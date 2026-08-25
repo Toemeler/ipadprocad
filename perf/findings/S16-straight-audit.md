@@ -108,19 +108,30 @@ each one.
 This is the answer to "is this operation tested away from the axis?". Every row
 that said TRIVIAL in §1.1 now names the fixture that bends it.
 
+> **Amended by S17.** The three DEFECT rows now read *correct*: S17 repaired
+> all three in shim **v28** and converted [40d], [40i] and [40j] from pinning
+> the defective behaviour to asserting ground truth, so each one would now fail
+> if the defect came back. §5.1–§5.3 below are left exactly as S16 committed
+> them — they were true of v27 and they are the record of what was measured —
+> and `perf/findings/S17-oblique.md` carries the mechanisms, the repairs, and
+> one **disagreement**: S17 does not adopt §5.2's stated ground truth for the
+> oblique face move (its ray exit is 25, not 10) while agreeing the v27
+> behaviour was a defect. §5.3's untested obtuse half is now measured, in
+> [41a]. This is the only edit S17 made to this file.
+
 | Op | Parameter | Non-trivial fixture | Verdict |
 | --- | --- | --- | --- |
 | `occt_revolve_profile` | axis point + direction | **[40b]** oblique off-origin axis, axis reversed, quarter turn — against Pappus | correct |
 | `occt_revolve_profile` | hole vs body axis | **[40c]** holed profile on the same oblique axis — Pappus twice | correct |
 | `occt_coil_profile` | axis point + direction | **[40e]** axis and profile frame rotated together — equivariance | correct |
-| `occt_coil_profile` | `clockwise` | **[40d]** | **DEFECT — descends instead of reversing handedness (§5.1)** |
+| `occt_coil_profile` | `clockwise` | **[40d]** now asserts the rise and the half-turn interleave | **correct — repaired in shim v28 (S17); was the DEFECT of §5.1** |
 | `occt_loft_sections` | per-section `mats` | **[40h]** both matrices rotated (equivariance) + one section tilted 20° | correct |
 | `occt_mirror` | plane normal | **[40f]** oblique normal, un-normalised normal, and an *overlapping* mirror proved by a cut | correct |
-| `occt_move_faces` | `(dx,dy,dz)` | **[40i]** | **DEFECT — leans on an oblique delta (§5.2)** |
+| `occt_move_faces` | `(dx,dy,dz)` | **[40i]** now asserts the moved plane, the bbox and the equivalence | **correct — repaired in shim v28 (S17); was the DEFECT of §5.2, though not to the ground truth §5.2 named — see S17 §0.2** |
 | `occt_transform` | `mat34` rotation | **[40a]** 37° about `(1,2,3)/√14`, residual measured, round trip | correct |
 | `occt_fillet_edges` | edge frame | **[40k]** a 135° edge, against the analytic corner-round | correct |
 | `occt_chamfer_edges` | `modes[i] == 1` | **[40l]** both distance orderings, discriminated by the cut-away wedge | correct |
-| `occt_chamfer_edges` | `angle_deg` guard | **[40j]** a 60° edge | **DEFECT — the `>= 90` guard assumes a perpendicular edge (§5.3)** |
+| `occt_chamfer_edges` | `angle_deg` guard | **[40j]** a 60° edge, **[41a]** a 135° one, **[41b]** the law, **[41c]** the 90° regression pin | **correct — repaired in shim v28 (S17); was the DEFECT of §5.3, and S17 measured the obtuse half §5.3 left as derivation** |
 | `occt_fuse` / `_cut` / `_common` | relative placement | **[40g]** rotated operand, equivariance | correct |
 | `occt_loft_sections` | `closed` | **still untested** | unknown |
 | `occt_coil_profile` | `taper_deg` | **still untested** (0 in every call) | unknown |
