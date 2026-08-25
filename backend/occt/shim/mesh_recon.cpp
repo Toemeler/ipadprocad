@@ -1264,6 +1264,24 @@ const int kRansacTrialsPerSize = 12; /* candidates per rung, per round */
  * surface the mesh was made from. */
 const double kExactFitFraction = 0.02;
 
+/* Below this an edge is not turning at all: the quad diagonals of a
+ * quad-meshed surface sit at exactly zero and must never be averaged in. */
+const double kBendFloorDeg = 0.5;
+
+/* The band the feature angle is allowed to land in, and the sample it needs
+ * before it is worth reading at all. Outside the band the histogram is saying
+ * something the geometry does not support — a model with no features, or one
+ * that is nothing but features — and the caller's own value stands. */
+const double kFeatureAngleMinDeg = 12.0;
+const double kFeatureAngleMaxDeg = 55.0;
+const int kFeatureAngleMinEdges = 24;
+
+/* What makes the split believable: each side of it must hold at least a
+ * twelfth of the bending edges, and the gap between them must be this many
+ * degrees wide. */
+const double kFeatureModeFraction = 12.0;
+const int kFeatureGapBins = 6; /* degrees of empty histogram that make a gap */
+
 /* How much slack a second sewing pass gets when the first leaves a hybrid
  * shell open. Bounded: past this the "seam" being closed is a real gap. */
 const double kSewRetryFactor = 5.0;
@@ -1288,6 +1306,15 @@ const double kCentroidFacetFraction = 0.25;
 const int kFreeformMinRun = 60;
 const int kFreeformPieceTriangles = 8;
 const int kFreeformCoverDenom = 8; /* under an eighth explained: freeform */
+
+/* How small a fitted patch must be, as a fraction of the model's surface,
+ * before being alone among triangles is reason enough to become triangles. */
+const double kScrapAreaFraction = 0.002;
+
+/* The precision a tessellated model's own vertices hold, as a fraction of its
+ * size: float32 gives about a tenth of this, so it is a bar with headroom and
+ * still four hundred times tighter than a typical tolerance. */
+const double kMeshPrecisionFrac = 1.0e-6;
 
 /* How far round its own surface a patch must reach before the radius it
  * fitted means anything. Twenty-five degrees of arc; below that a wide range
@@ -1568,6 +1595,112 @@ void PatchPoints(const Mesh &m, const std::vector<int> &tris, PatchData &d,
     }
 }
 
+/* At what angle an edge stops being TESSELLATION and becomes a FEATURE — read
+ * off this mesh, not fixed in advance.
+ *
+ * A fixed bar cannot work, because the two things it separates live at
+ * different angles in different files. The user's part is a 20x50 plate from
+ * Shapr3D: its fillets are tessellated in so few rows that consecutive facets
+ * turn by 22 to 30 degrees, while its real edges turn by 80 to 100. At the
+ * shipped 22 degrees, 252 of those tessellation steps counted as features and
+ * the model arrived at the fitter as 149 smooth runs — most of them a single
+ * facet — where the part has about twenty faces. Nothing downstream recovers
+ * from that: a face carved out of one facet fits its own plane exactly, and
+ * 124 of them were kept.
+ *
+ * The mesh says where the line is. A tessellated CAD model has a bimodal
+ * histogram — a dense cluster of small steps from tessellating smooth
+ * surfaces, a second cluster at the corners — and the answer is the valley
+ * between them. Otsu's threshold (maximum between-class variance) finds it
+ * without assuming where it is: on that plate it lands at 42.5 degrees, and
+ * the count of sharp edges is flat at 385-387 anywhere from 30 to 50, which
+ * is what a real valley looks like.
+ *
+ * Biased high on purpose. Under-segmentation is recoverable — a patch holding
+ * two surfaces is exactly what SplitPatch, the crease cut and RANSAC are for —
+ * and over-segmentation is not. */
+double FeatureAngleDeg(const Mesh &m, double fallback)
+{
+    std::vector<int> hist(180, 0);
+    int nb = 0;
+    const int nt = m.triCount();
+    for (int t = 0; t < nt; ++t) {
+        for (int k = 0; k < 3; ++k) {
+            const int o = m.adj[t * 3 + k];
+            if (o < 0 || o < t)
+                continue;
+            const double c =
+                std::max(-1.0, std::min(1.0, Dot(m.tnorm[t], m.tnorm[o])));
+            const double deg = std::acos(c) * 180.0 / M_PI;
+            /* The quad diagonals of a quad-meshed surface sit at exactly zero
+             * and say nothing about where the line is. */
+            if (deg <= kBendFloorDeg)
+                continue;
+            hist[std::min(179, static_cast<int>(deg))]++;
+            nb++;
+        }
+    }
+    if (nb < kFeatureAngleMinEdges)
+        return fallback;
+
+    /* Walk UP from the middle of the tessellation until the histogram opens.
+     *
+     * Otsu's threshold was the obvious tool and it is the wrong one, because
+     * the histogram often has three clusters rather than two: on a plate with
+     * large corner fillets there is a mode where the fillet leaves the wall
+     * tangentially, a second at the fillet's own facet steps, and a third at
+     * the ninety-degree edges. Otsu maximises between-class variance, lands in
+     * the FIRST valley at 21 degrees, and cuts the fillet along its own
+     * tessellation — precisely the failure this exists to prevent.
+     *
+     * Walking down from the sharpest edge is wrong the other way: it clears
+     * every tessellation cluster but also every OBLIQUE feature, and on the
+     * user's part that put the line at 57 degrees, swallowing eighteen real
+     * edges between 45 and 56.
+     *
+     * The median bending angle is inside the tessellation by construction —
+     * that is what most edges are on a tessellated model — so start there and
+     * take the first real gap above it. Below the gap is how finely this mesh
+     * was cut up; above it is the part. */
+    int med = 0;
+    {
+        int seen = 0;
+        for (int i = 0; i < 180; ++i) {
+            seen += hist[i];
+            if (seen * 2 >= nb) {
+                med = i;
+                break;
+            }
+        }
+    }
+    int at = -1, run = 0;
+    for (int i = med + 1; i < 180; ++i) {
+        if (hist[i] == 0) {
+            if (++run == 1)
+                at = i;
+            if (run >= kFeatureGapBins)
+                break;
+        } else {
+            run = 0;
+            at = -1;
+        }
+    }
+    /* No gap above the median: the mesh is nothing but tessellation (an
+     * organic shell) or nothing but features (a low-poly design). Neither
+     * wants a computed angle, and the caller's own value stands. */
+    if (at < 0 || run < kFeatureGapBins)
+        return fallback;
+    double above = 0;
+    for (int i = at; i < 180; ++i)
+        above += hist[i];
+    const double below = nb - above;
+    if (std::min(above, below) * kFeatureModeFraction < nb)
+        return fallback;
+
+    return std::max(kFeatureAngleMinDeg,
+                    std::min(kFeatureAngleMaxDeg, at + 0.0));
+}
+
 /* Groups triangles into patches bounded by sharp edges — the cheap, correct
  * first cut. A model that came from CAD (which is most of what gets
  * downloaded) is already almost segmented this way: a cylinder's barrel is one
@@ -1655,10 +1788,18 @@ double FacetBulge(SurfKind k, const double *q, const Mesh &m, int t,
     return worst;
 }
 
+#ifdef MESHRECON_TRACE
+const char *g_why = "ok";
+#define WHY(x) (g_why = (x))
+#else
+#define WHY(x) ((void)0)
+#endif
+
 bool Identifiable(const Patch &p, const Mesh &m, double tol, bool fragment)
 {
+    WHY("ok");
     if (p.fit.kind == kNone)
-        return false;
+        return WHY("nofit"), false;
 
     /* RESIDUAL. This is the sharpest of the three, and the reason is that a
      * tessellation puts its vertices ON the surface it came from: a real hole
@@ -1669,7 +1810,7 @@ bool Identifiable(const Patch &p, const Mesh &m, double tol, bool fragment)
      * cylinders came back at 0.000, and the twenty "spheres" the fitter
      * invented on the shell at 0.05 to 0.16. Nothing lands in between. */
     if (p.fit.rms > tol * kTrustRmsFraction)
-        return false;
+        return WHY("rms"), false;
     /* And a FRAGMENT is held to the exact bar instead.
      *
      * A patch that is a whole smooth run has a witness: the mesh's own sharp
@@ -1682,13 +1823,13 @@ bool Identifiable(const Patch &p, const Mesh &m, double tol, bool fragment)
      * tolerance, and every one of them gone at 0.02 — while the four real
      * drilled holes in the same shell fit at 0.00000 and stay. */
     if (fragment && p.fit.rms > tol * kExactFitFraction)
-        return false;
+        return WHY("notexact"), false;
     /* A plane is pinned down exactly by three points, so the sample-size floor
      * is for the CURVED kinds only — a box face is two triangles and perfectly
      * knowable, and holding it to six was how a box lost its planes. */
     if (p.fit.kind != kPlane &&
         static_cast<int>(p.tris.size()) < kMinTrustTriangles)
-        return false;
+        return WHY("tootiny"), false;
 
     /* What this tessellation can deliver: the median angle between neighbouring
      * facets inside the patch. A fit cannot be truer than half of that. */
@@ -1722,7 +1863,7 @@ bool Identifiable(const Patch &p, const Mesh &m, double tol, bool fragment)
     const double allowed =
         std::max(facet * kAgreeFacetFactor, kAgreeFloorRad);
     if (std::acos(std::max(-1.0, std::min(1.0, p.fit.agree))) > allowed)
-        return false;
+        return WHY("agree"), false;
 
     /* A plane has no radius to pin down, so agreement is the whole test. */
     if (p.fit.kind == kPlane)
@@ -1751,7 +1892,7 @@ bool Identifiable(const Patch &p, const Mesh &m, double tol, bool fragment)
             double bar = 0;
             if (FacetBulge(p.fit.kind, p.fit.q, m, p.tris[i], bar) >
                 std::max(bar, tol))
-                return false;
+                return WHY("bulge"), false;
         }
     }
 
@@ -1763,9 +1904,9 @@ bool Identifiable(const Patch &p, const Mesh &m, double tol, bool fragment)
         for (int k = 0; k < 3; ++k)
             pts.push_back(m.pos[m.tri[p.tris[i] * 3 + k]]);
     if (pts.size() < 3)
-        return false;
+        return WHY("nopoints"), false;
     if (SurfaceCoverage(p.fit.kind, p.fit.q, pts) < kMinSweepRad)
-        return false;
+        return WHY("sweep"), false;
     return true;
 }
 
@@ -2091,7 +2232,9 @@ void SplitByRansac(const Mesh &m, const std::vector<int> &tris, double tol,
     std::unordered_map<int, int> local;
     for (int i = 0; i < n; ++i)
         local.emplace(tris[i], i);
+    const size_t before = out.size();
     std::vector<char> taken(n, 0);
+    std::vector<char> barred(n, 0); /* seeds that led nowhere */
     int remaining = n;
 
     unsigned rng = 0x9E3779B9u ^ (unsigned)n ^ ((unsigned)tris[0] * 2654435761u);
@@ -2116,9 +2259,9 @@ void SplitByRansac(const Mesh &m, const std::vector<int> &tris, double tol,
         for (int trial = 0; trial < trials; ++trial) {
             const int want = kRansacSeedLadder[trial % kRansacLadderSteps];
             int start = -1;
-            for (int a = 0; a < 8 && start < 0; ++a) {
+            for (int a = 0; a < 16 && start < 0; ++a) {
                 const int c = (int)(next() % (unsigned)n);
-                if (!taken[c])
+                if (!taken[c] && !barred[c])
                     start = c;
             }
             if (start < 0)
@@ -2211,6 +2354,16 @@ void SplitByRansac(const Mesh &m, const std::vector<int> &tris, double tol,
                 }
             }
             const double candRms = sn2 ? std::sqrt(ss / sn2) : 1e300;
+            /* A candidate that cannot be kept must not be allowed to win.
+             *
+             * Four triangles fit a sphere exactly wherever you put them, and
+             * such a sphere — support 4, residual zero — took the round from a
+             * cylinder explaining nineteen triangles of a real fillet, purely
+             * by being exact. The extraction then stopped for want of support
+             * and two thirds of the run went to triangles. Nothing below the
+             * floor is evidence; it should not be on the ballot. */
+            if ((int)inliers.size() < std::max(minTris, kRansacMinSupport))
+                continue;
             if (BeatsCandidate(inliers.size(), candRms, f.kind, best.size(),
                                bestRms, bestFit.kind, tol)) {
                 best = inliers;
@@ -2219,10 +2372,30 @@ void SplitByRansac(const Mesh &m, const std::vector<int> &tris, double tol,
                 bestStart = start;
             }
         }
-        if ((int)best.size() < std::max(minTris, kRansacMinSupport))
+#ifdef MESHRECON_TRACE
+        {
+            V3 lo(1e30, 1e30, 1e30), hi(-1e30, -1e30, -1e30);
+            for (int i : best)
+                for (int k = 0; k < 3; ++k) {
+                    const V3 &q = m.pos[m.tri[tris[i] * 3 + k]];
+                    lo = V3(std::min(lo.x, q.x), std::min(lo.y, q.y),
+                            std::min(lo.z, q.z));
+                    hi = V3(std::max(hi.x, q.x), std::max(hi.y, q.y),
+                            std::max(hi.z, q.z));
+                }
+            MR_TRACE("        round %d: best %d tri, kind %s, rms %.6f, "
+                     "box (%.2f %.2f %.2f)-(%.2f %.2f %.2f) (remaining %d)\n",
+                     round, (int)best.size(), KindName(bestFit.kind), bestRms,
+                     lo.x, lo.y, lo.z, hi.x, hi.y, hi.z, remaining);
+        }
+#endif
+        if ((int)best.size() < std::max(minTris, kRansacMinSupport)) {
+            MR_TRACE("        -> too little support, stop\n");
             break;
+        }
 
-        /* TIGHTEN the claim.
+        /* TIGHTEN the claim — either because the winner is exact, or as a
+         * RECOVERY when its refit is not.
          *
          * Claiming at tolerance is right for the surface being proposed and
          * too generous at a TANGENCY, where the neighbouring face hugs the
@@ -2230,16 +2403,31 @@ void SplitByRansac(const Mesh &m, const std::vector<int> &tris, double tol,
          * meets its wall. Those triangles pass the distance test and the
          * normal test (at the tangent line the two surfaces share a normal),
          * so the fillet arrives at the refit carrying two triangles of flat
-         * wall, no longer fits a cylinder, and comes back as a torus bent
-         * around an axis that exists nowhere in the part.
+         * wall and comes back as a torus bent round an axis that exists
+         * nowhere in the part.
          *
-         * When the winner is EXACT it is one of the surfaces this mesh was
-         * tessellated from, and then every triangle that truly belongs to it
-         * lies ON it. Re-claim at that standard and the tangent strip drops
-         * away, while nothing that really is the surface moves. */
-        if (bestStart >= 0 && bestRms <= tol * kExactFitFraction) {
-            const double tight =
-                std::max(tol * kExactFitFraction, scale * 1e-6);
+         * A surface the mesh was tessellated from is met by its own vertices
+         * exactly, so re-claiming at that standard drops the tangent strip and
+         * moves nothing that really is the surface. Worth doing when the
+         * winner already looks exact, and worth doing AGAIN, around the refit,
+         * when it does not: a mixed claim whose refit misses the exact bar is
+         * usually one good surface plus a fringe, and the fringe is what the
+         * tight threshold removes. */
+        auto tighten = [&](SurfKind kind, const double *q) {
+            if (bestStart < 0)
+                return;
+            /* The mesh's OWN precision, not a fraction of tolerance.
+             *
+             * A tessellated CAD model's vertices sit on their surface to
+             * float32 — three millionths of a millimetre at this size — so
+             * anything measurably off it belongs to something else. Measured
+             * on the user's part: every triangle of the r=1 fillet along its
+             * long edge lies at 0.0000 from that cylinder, and the ten
+             * triangles of the transition beside it at 0.0018 to 0.0275. A
+             * bar of two thousandths let the nearest of those in, the strip
+             * stopped being a cylinder, and the whole fillet went to
+             * triangles. */
+            const double tight = std::max(scale * kMeshPrecisionFrac, 1e-9);
             std::vector<int> tightened;
             std::unordered_map<int, char> mark2;
             stack.assign(1, bestStart);
@@ -2250,8 +2438,8 @@ void SplitByRansac(const Mesh &m, const std::vector<int> &tris, double tol,
                 const int t = tris[i];
                 bool ok = true;
                 for (int k = 0; k < 3 && ok; ++k)
-                    if (std::fabs(SurfDist(bestFit.kind, bestFit.q,
-                                           m.pos[m.tri[t * 3 + k]])) > tight)
+                    if (std::fabs(SurfDist(kind, q, m.pos[m.tri[t * 3 + k]])) >
+                        tight)
                         ok = false;
                 if (!ok)
                     continue;
@@ -2271,7 +2459,9 @@ void SplitByRansac(const Mesh &m, const std::vector<int> &tris, double tol,
             }
             if ((int)tightened.size() >= std::max(minTris, kRansacMinSupport))
                 best.swap(tightened);
-        }
+        };
+        if (bestRms <= tol * kExactFitFraction)
+            tighten(bestFit.kind, bestFit.q);
 
         /* Refit on everything it claimed, and keep it only if it still holds. */
         std::vector<int> claimed;
@@ -2299,14 +2489,136 @@ void SplitByRansac(const Mesh &m, const std::vector<int> &tris, double tol,
          * downloaded CAD model, where this pass should find every fillet, and
          * an organic one, where it should find nothing at all. */
         if (pa.fit.kind == kNone || pa.fit.rms > tol * kExactFitFraction ||
-            !Identifiable(pa, m, tol, true))
-            break;
+            !Identifiable(pa, m, tol, true)) {
+            /* Before giving up on this seed, re-claim TIGHTLY and refit.
+             *
+             * A claim made at tolerance is a claim made five hundred times
+             * looser than a tessellated model's own vertices, so on a narrow
+             * blend it runs straight past the point where the blend stops
+             * being a cylinder and becomes a torus, and the mixture fits
+             * nothing. The seed itself was fitted to a handful of triangles
+             * and is usually a real local surface — measured on the user's
+             * part, thirteen rounds in a row proposed one and had its claim
+             * spoiled this way — so re-claim around the SEED at the mesh's own
+             * precision, and failing that around the refit. */
+            for (int attempt = 0; attempt < 2; ++attempt) {
+                const double *q = attempt == 0 ? bestFit.q : pa.fit.q;
+                const SurfKind kind = attempt == 0 ? bestFit.kind : pa.fit.kind;
+                if (kind == kNone)
+                    continue;
+                const size_t was = best.size();
+                tighten(kind, q);
+                if (best.size() == was)
+                    continue;
+                claimed.clear();
+                for (int i : best)
+                    claimed.push_back(tris[i]);
+                PatchPoints(m, claimed, pd, 4000);
+                pa.tris = claimed;
+                pa.fit = FitPatch(pd, tol, scale);
+                if (pa.fit.kind != kNone &&
+                    pa.fit.rms <= tol * kExactFitFraction &&
+                    Identifiable(pa, m, tol, true))
+                    break;
+            }
+        }
+        if (pa.fit.kind == kNone || pa.fit.rms > tol * kExactFitFraction ||
+            !Identifiable(pa, m, tol, true)) {
+            /* A proposal that does not survive its refit is not the end of the
+             * search — it only means this seed was a bad one. Bar its
+             * triangles from seeding again (or the same winner comes back
+             * every round) and carry on; they stay claimable by anything else
+             * and otherwise fall through to the leftover. Stopping here
+             * instead left two thirds of the user's part unexplained. */
+            MR_TRACE("        -> refit %s rms %.6f rejected, reseeding\n",
+                     KindName(pa.fit.kind), pa.fit.rms);
+            bool anyNew = false;
+            for (int i : best)
+                if (!barred[i]) {
+                    barred[i] = 1;
+                    anyNew = true;
+                }
+            if (!anyNew)
+                break;
+            continue;
+        }
         out.push_back(pa);
         for (int i : best) {
             taken[i] = 1;
             remaining--;
         }
+        /* A seed that led nowhere may lead somewhere now: taking a surface out
+         * changes what its neighbours are next to, and the claim that ran past
+         * a transition last time may stop at it this time. */
+        std::fill(barred.begin(), barred.end(), 0);
     }
+    /* Sweep the leftovers into the surfaces already found.
+     *
+     * What RANSAC leaves behind is rarely a surface of its own — it is the
+     * fringe of one it already has, dropped because a claim stopped a row
+     * short or a seed was barred. A triangle lying EXACTLY on a surface this
+     * patch is already known to contain belongs to it, and taking it there is
+     * both more accurate and one seam fewer than emitting it as loose
+     * triangles. Held to the mesh's own precision, not to tolerance, so
+     * nothing is dragged across a tangency. */
+    if (out.size() > before) {
+        const double tight = std::max(tol * kExactFitFraction, scale * 1e-6);
+        std::vector<int> owner(n, -1);
+        for (size_t p = before; p < out.size(); ++p)
+            for (int t : out[p].tris) {
+                auto it = local.find(t);
+                if (it != local.end())
+                    owner[it->second] = static_cast<int>(p);
+            }
+        bool moved = true;
+        while (moved) {
+            moved = false;
+            for (int i = 0; i < n; ++i) {
+                if (taken[i])
+                    continue;
+                const int t = tris[i];
+                int into = -1;
+                for (int k = 0; k < 3 && into < 0; ++k) {
+                    const int o = m.adj[t * 3 + k];
+                    if (o < 0)
+                        continue;
+                    auto it = local.find(o);
+                    if (it == local.end() || owner[it->second] < 0)
+                        continue;
+                    const Fit &f = out[owner[it->second]].fit;
+                    bool ok = true;
+                    for (int v = 0; v < 3 && ok; ++v)
+                        if (std::fabs(SurfDist(f.kind, f.q,
+                                               m.pos[m.tri[t * 3 + v]])) >
+                            tight)
+                            ok = false;
+                    if (ok) {
+                        const V3 sn =
+                            SurfNormal(f.kind, f.q, m.pos[m.tri[t * 3]],
+                                       std::max(scale * 1e-5, 1e-9));
+                        if (Norm(sn) > 0.5 &&
+                            std::fabs(Dot(sn, m.tnorm[t])) < kRansacNormalGate)
+                            ok = false;
+                    }
+                    if (ok) {
+                        double bar = 0;
+                        if (FacetBulge(f.kind, f.q, m, t, bar) >
+                            std::max(bar, tol))
+                            ok = false;
+                    }
+                    if (ok)
+                        into = owner[it->second];
+                }
+                if (into >= 0) {
+                    out[into].tris.push_back(t);
+                    owner[i] = into;
+                    taken[i] = 1;
+                    moved = true;
+                }
+            }
+        }
+    }
+
     for (int i = 0; i < n; ++i)
         if (!taken[i])
             leftover.push_back(tris[i]);
@@ -2331,9 +2643,15 @@ void SplitPatch(const Mesh &m, const std::vector<int> &tris, double tol,
         out.push_back(pa);
         return;
     }
+    MR_TRACE("    split %d tri (depth %d): fit %s\n", (int)tris.size(), depth,
+             KindName(pa.fit.kind));
     if (depth < kMaxCreaseDepth) {
         std::vector<std::vector<int>> parts;
         if (SplitAtCrease(m, tris, minTris, parts)) {
+            MR_TRACE("      crease ->");
+            for (const std::vector<int> &pp : parts)
+                MR_TRACE(" %d", (int)pp.size());
+            MR_TRACE("\n");
             for (const std::vector<int> &pp : parts)
                 SplitPatch(m, pp, tol, scale, minTris, origin, depth + 1, out);
             return;
@@ -2345,6 +2663,8 @@ void SplitPatch(const Mesh &m, const std::vector<int> &tris, double tol,
     const size_t before = out.size();
     std::vector<int> rest;
     SplitByRansac(m, tris, tol, scale, minTris, origin, out, rest);
+    MR_TRACE("      ransac %d tri -> %d surfaces, %d left\n", (int)tris.size(),
+             (int)(out.size() - before), (int)rest.size());
     if (rest.empty())
         return;
     if (rest.size() < tris.size()) {
@@ -2541,7 +2861,18 @@ void FreeformRuns(const std::vector<Patch> &patches, const Mesh &m, double tol,
         std::pair<int, int> &c = cover[pa.origin];
         c.second += static_cast<int>(pa.tris.size());
         const bool frag = cutInto[pa.origin] > 1;
-        if (pa.fit.kind != kNone && Identifiable(pa, m, tol, frag)) {
+        const bool id = pa.fit.kind != kNone && Identifiable(pa, m, tol, frag);
+        if (pa.tris.size() >= 8)
+            MR_TRACE("     run %d piece %4d tri %-7s rms %.6f -> %s (%s)\n",
+                     pa.origin, (int)pa.tris.size(), KindName(pa.fit.kind),
+                     pa.fit.rms, id ? "keep" : "drop",
+#ifdef MESHRECON_TRACE
+                     g_why
+#else
+                     ""
+#endif
+            );
+        if (id) {
             c.first += static_cast<int>(pa.tris.size());
             keptSizes[pa.origin].push_back(static_cast<int>(pa.tris.size()));
         }
@@ -2565,8 +2896,21 @@ void FreeformRuns(const std::vector<Patch> &patches, const Mesh &m, double tol,
             freeform.insert(it->first);
             continue;
         }
-        std::sort(sz.begin(), sz.end());
-        if (sz[sz.size() / 2] < kFreeformPieceTriangles)
+        /* And most of what IS explained has to be scraps.
+         *
+         * The median piece size looked like the right statistic and is not: a
+         * run can be mostly triangles and still contain one real face, and
+         * then the median is dominated by the scraps beside it. On the user's
+         * part the blend ring round the boss on the underside — a torus, 87
+         * triangles, residual zero — shared its run with sixteen one-triangle
+         * offcuts, so the median said "facet-sized" and the whole run, ring
+         * included, went to triangles. Weigh by triangles instead: 87 of the
+         * 106 explained are that one ring, so the run is not scrap. */
+        int scrap = 0;
+        for (int x : sz)
+            if (x < kFreeformPieceTriangles)
+                scrap += x;
+        if (scrap * 2 > kept)
             freeform.insert(it->first);
     }
     MR_TRACE("  [freeform] %d of %d runs\n", (int)freeform.size(),
@@ -3953,17 +4297,21 @@ bool BuildAnalyticFace(BuildCtx &ctx, const Mesh &m, const Patch &patch,
 
     /* Every boundary run closed, and the patch goes the whole way round: also
      * seamless, also parametric. A barrel between two caps is this case. */
-    bool allClosed = true;
-    for (const std::vector<Chain> &chains : loops) {
-        if (chains.size() != 1 ||
-            chains[0].verts.front() != chains[0].verts.back()) {
-            allClosed = false;
-            break;
-        }
-    }
-    if (allClosed && (surf->IsUPeriodic() || surf->IsVPeriodic())) {
+    /* A boundary that goes all the way ROUND a periodic surface does not say
+     * which side of itself the face is on.
+     *
+     * Two circles round a torus bound the ninety-degree band between them and
+     * equally the two-hundred-and-seventy-degree band the other way, and
+     * MakeFace picks by the surface's own parametrisation rather than by the
+     * mesh. On the user's part the blend ring round the boss came back as
+     * three quarters of its tube — a face of area 535 where the ring is 160,
+     * ballooning out of the model and adding fifteen percent to its volume.
+     * The mesh knows which band it is: MeasureUv reads the extent off the
+     * triangles. So whenever a direction comes back FULL, trim
+     * parametrically and do not ask MakeFace to guess. */
+    if (surf->IsUPeriodic() || surf->IsVPeriodic()) {
         const UvExtent e = MeasureUv(m, patch.tris, surf);
-        MR_TRACE("      closed loops: uv ok=%d u[%.3f %.3f]%s v[%.3f %.3f]%s\n",
+        MR_TRACE("      periodic: uv ok=%d u[%.3f %.3f]%s v[%.3f %.3f]%s\n",
                  (int)e.ok, e.u1, e.u2, e.uFull ? " FULL" : "", e.v1, e.v2,
                  e.vFull ? " FULL" : "");
         if (e.ok && (e.uFull || e.vFull)) {
@@ -4568,7 +4916,10 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
     std::unordered_set<int> freeform;
     try {
         MR_STAGE("start");
-        SmoothPatches(m, prm.sharp_deg, patchOf, rawPatches);
+        const double sharpDeg = FeatureAngleDeg(m, prm.sharp_deg);
+        MR_TRACE("  feature angle: %.1f deg (default %.1f)\n", sharpDeg,
+                 prm.sharp_deg);
+        SmoothPatches(m, sharpDeg, patchOf, rawPatches);
         MR_STAGE("smooth patches");
         std::vector<std::vector<int>> byPatch(rawPatches);
         for (int t = 0; t < m.triCount(); ++t)
@@ -4585,6 +4936,24 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
                        patches);
         }
         MR_STAGE("split");
+#ifdef MESHRECON_TRACE
+        {
+            std::vector<int> own(m.triCount(), -1);
+            for (size_t i = 0; i < patches.size(); ++i)
+                for (int t : patches[i].tris)
+                    own[t] = static_cast<int>(i);
+            FILE *sf = std::fopen("segments_split.txt", "w");
+            if (sf) {
+                for (int t = 0; t < m.triCount(); ++t) {
+                    const int i = own[t];
+                    std::fprintf(sf, "%d %d %d %d\n", t, i,
+                                 i >= 0 ? patches[i].origin : -1,
+                                 i >= 0 ? (int)patches[i].fit.kind : 0);
+                }
+                std::fclose(sf);
+            }
+        }
+#endif
         FreeformRuns(patches, m, tol, freeform);
         for (Patch &pa : patches)
             if (freeform.find(pa.origin) != freeform.end())
@@ -4662,6 +5031,9 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
      * buys nothing at all, because the fitted plane IS the triangle. So let it
      * be the triangle. */
     {
+        double totalArea = 0;
+        for (int t = 0; t < m.triCount(); ++t)
+            totalArea += m.tarea[t];
         std::vector<int> owner(m.triCount(), -1);
         for (size_t i = 0; i < patches.size(); ++i)
             for (int t : patches[i].tris)
@@ -4672,6 +5044,20 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
                 Patch &pa = patches[i];
                 if (pa.fit.kind == kNone ||
                     static_cast<int>(pa.tris.size()) >= kFreeformPieceTriangles)
+                    continue;
+                /* Small in AREA, not merely in triangles.
+                 *
+                 * Triangle count says a six-facet strip is as slight as a
+                 * single facet, and it is not: on the user's part that strip
+                 * is a flat wall forty millimetres long, four percent of the
+                 * model's surface, and demoting it started an avalanche —
+                 * every fitted neighbour then had a faceted neighbour of its
+                 * own. What this rule is for is the offcut a lumpy surface
+                 * throws off, which is a thousandth of the part. */
+                double area = 0;
+                for (int t : pa.tris)
+                    area += m.tarea[t];
+                if (area > totalArea * kScrapAreaFraction)
                     continue;
                 /* How much of its BOUNDARY faces triangles.
                  *
@@ -4748,6 +5134,27 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
         }
     }
     MR_STAGE("patch verdicts");
+#ifdef MESHRECON_TRACE
+    /* One line per triangle: which patch, which smooth run, what kind was
+     * kept. The development harness renders the mesh from this, which is the
+     * only way to see WHAT a run that fitted nothing actually is. */
+    {
+        std::vector<int> ownerOf(m.triCount(), -1);
+        for (size_t i = 0; i < patches.size(); ++i)
+            for (int t : patches[i].tris)
+                ownerOf[t] = static_cast<int>(i);
+        FILE *sf = std::fopen("segments.txt", "w");
+        if (sf) {
+            for (int t = 0; t < m.triCount(); ++t) {
+                const int i = ownerOf[t];
+                std::fprintf(sf, "%d %d %d %d\n", t, i,
+                             i >= 0 ? patches[i].origin : -1,
+                             i >= 0 ? (int)patches[i].fit.kind : 0);
+            }
+            std::fclose(sf);
+        }
+    }
+#endif
 
     std::vector<Handle(Geom_Surface)> surfs(patches.size());
     double rmsNum = 0, rmsDen = 0;
