@@ -1461,48 +1461,36 @@ Fit FitPatch(const PatchData &d, double tol, double scale)
         if (agree < kMinNormalAgreement)
             continue;
         if (rms <= tol) {
-            /* Of the kinds that PASS through the points, take the one that
-             * also POINTS the way the mesh does — and keep the simpler kind
-             * when the two are level.
+            /* Which of the kinds that PASS through the points is the surface
+             * these points came off. Three questions, in order.
              *
-             * "Simplest kind that fits wins" is right on a whole face and
-             * wrong on a piece of one, and region growing works on pieces. A
-             * plane fits three columns of a tessellated cylinder to well
-             * inside tolerance; so does a sphere the size of a house. Taking
-             * either meant the running fit stopped at the third column and the
-             * barrel came out as a fan of planar strips — which is what a
-             * cylinder-into-cone patch turned into, all the way down. The
-             * residual cannot tell those apart; the normals can, and by a wide
-             * margin: on that strip a plane agrees to 0.94, the cylinder to
-             * 0.999. The slack keeps a genuinely flat face a PLANE rather than
-             * a sphere of radius ten thousand, which is what the old rule was
-             * protecting and is still worth protecting. */
-            /* And PREFER a kind this sample can pin down. Six triangles off
-             * a coarse corner fillet fit a sphere marginally better than the
-             * cylinder they came from — the normals barely separate them —
-             * but they go 90 degrees round the cylinder and only a few
-             * degrees round the sphere, so only one of the two is knowable
-             * from this sample. Taking the sphere meant the fillet was
-             * rejected for want of coverage and went to triangles, when the
-             * cylinder standing right beside it was exact and complete. */
+             * CAN THIS SAMPLE PIN IT DOWN? Twenty degrees of a cylinder is an
+             * arc a thousand radii pass through within tolerance. Six
+             * triangles off a coarse corner fillet fit a sphere marginally
+             * better than the cylinder they came from — the normals barely
+             * separate them — but they go ninety degrees round the cylinder
+             * and a few round the sphere. Only one of the two is knowable from
+             * this sample, and taking the other sent the fillet to triangles.
+             *
+             * IS IT EXACT? A tessellation puts its vertices ON the surface
+             * they came from, so this is not a matter of degree: it separates
+             * the surface the part was built from one that merely passes near.
+             * Two rows of a boss's fillet ring were fitted by a sphere at
+             * 0.0377, a cone at 0.0350 and a torus at 0.0000030 — the true
+             * R=10.5, r=1.5, to seven figures — while their normal agreements
+             * were 0.985, 0.987 and 0.987. At three decimals the normals
+             * cannot tell them apart; the residual does, by twelve thousand.
+             * (On a noisy mesh nothing is exact, every candidate lands in the
+             * same tier, and this question simply does not arise.)
+             *
+             * DOES IT POINT THE WAY THE MESH DOES, and is the simpler kind
+             * level with it? A plane fits three columns of a tessellated
+             * cylinder to well inside tolerance and so does a sphere the size
+             * of a house; the residual cannot tell those apart but the normals
+             * can, by a wide margin — 0.94 against 0.999 on that strip. The
+             * slack keeps a genuinely flat face a PLANE rather than a sphere
+             * of radius ten thousand. */
             const bool pinned = SurfaceCoverage(k, q, pts) >= kMinSweepRad;
-            /* And an EXACT fit outranks agreement, because agreement cannot
-             * see the difference and the residual can.
-             *
-             * Two rows of a boss's fillet ring: the sphere fitted them at
-             * 0.0377, the cone at 0.0350 and the torus at 0.0000030 — the true
-             * R=10.5, r=1.5, to seven figures. Their normal agreements were
-             * 0.985, 0.987 and 0.987. At three decimal places the normals
-             * cannot separate a surface that is right from one that is merely
-             * near, so the sphere kept it by being asked first, and a fillet
-             * ring came back as a stack of concentric spherical bands. The
-             * residual separates them by a factor of twelve thousand.
-             *
-             * A tessellation puts its vertices ON the surface they came from,
-             * so "exact" is not a matter of degree here: it is the difference
-             * between the surface the part was built from and one that passes
-             * nearby. On a noisy mesh nothing is exact, every candidate lands
-             * in the same tier, and this is the agreement rule again. */
             const bool exact = rms <= tol * kExactFitFraction;
             const bool better =
                 !have || (pinned && !chosenPinned) ||
