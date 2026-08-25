@@ -3916,3 +3916,137 @@ S16's text is left as committed — but whoever schedules next should know that
 two routed items may have been lost, and that S17 closed item 1 of the two that
 survived. Item 2, S15's invalid tapered sweep along a multi-edge spine, is
 still open and is not S17's.
+
+---
+
+## 2026-08-25 — INTEGRATOR — handover: the state re-verified from the repository, and four corrections to the handoff I was given
+
+**Needs:** nobody. This is a record of what I checked before advising the owner,
+written because the standing rule on this branch is that a ruling made on a
+summary gets corrected later.
+
+I was handed a written state of the project and told to verify it rather than
+accept it. Most of it holds. Four things do not, and one trap is narrower than
+it was described.
+
+### What holds, checked rather than read
+
+| claim | how checked | verdict |
+| --- | --- | --- |
+| `claude/perf-opt2` is `2f2a308` | `git rev-parse` after a full-refspec fetch | holds |
+| `build-477` → `2f2a308` | `git rev-parse build-477^{commit}` | holds |
+| shim ABI is **v28** | `occt_capi.cpp:368`, `occt_shim_version()` returns 28 | holds |
+| baseline is round two's Capture A | `perf/baseline.json` `conditions`: build `cb1d183`, `capturedAt` 2026-08-24T10:14:11, `lowPowerMode` false, `thermalPre`/`thermalPost` nominal, runners `perf_scenarios/v1` + `_stress/v1` + `_ui/v1` | holds |
+| the gate has 52 tests | `python3 -m unittest discover -s ci -p 'test_*.py'` → **Ran 52 tests, OK** | holds |
+| the gate's low-n floor | `ci/perf_gate.py:101` `MIN_GATED_DELTA_MS = 0.5`, `:102` `LOW_N = 3`, applied at `:415` as `n < LOW_N AND absMs < MIN_GATED_DELTA_MS → unresolved`, i.e. **both** conditions, not an exemption | holds |
+| next free smoke scenario is `[42]` | highest scenario label in `smoke_occt.c` is `[41c]` (S17's) | holds |
+| the brace guard | `gcc -fsyntax-only -I backend/occt/shim backend/occt/tests/smoke_occt.c` → clean, in about a second | holds |
+| `frontend/.flutter-plugins-dependencies` is tracked despite being ignored | `git ls-files --error-unmatch` succeeds; `frontend/.gitignore:8` lists it; the file's own first field reads *"This is a generated file; do not edit or check into version control"* and it carries `/root/.pub-cache/...` and `/home/user/ipadprocad/...` | holds |
+| §19 has no S17 subsection | §19 runs 19.1–19.4 and stops; S17's work is recorded only in `CROSS-SESSION.md` and `S17-oblique.md` | holds |
+| `CONFLICTS.md` | header only, no entries | holds |
+
+### Correction 1 — `main` is NOT `2f2a308` any more
+
+I was told `main == claude/perf-opt2 == 2f2a308`. It was true when written and
+is stale now. `origin/main` is **`902c8bc`**, five commits ahead:
+
+```
+902c8bc Merge remote-tracking branch 'origin/main'
+9b2b8c7 M248: the winding trap is real, and it is not where it looked
+54987bf M248: the Pattern panel does something, in both viewports and both browsers
+2363325 M248: an assembly pattern places components, and re-solves rather than bakes
+09f8957 M248: a component can be mirrored, and a mirror is not a rotation
+```
+
+`git merge-base origin/main 2f2a308` is `2f2a308` itself, so **`perf-opt2` is
+fully contained in main and nothing of the perf work is stranded.** Main has
+simply moved on, with assembly-pattern feature work.
+
+**This does not change the capture instruction and should not.** The capture
+must be taken on `build-477`, which is `2f2a308`, because that is the perf
+lineage's tip and because the baseline it will be gated against is `cb1d183`.
+Capturing on a build carrying M248 would put five commits of unmeasured feature
+work inside the comparison — the exact attribution loss `OPTIMIZATION_PLAN_2.md`
+§1.1 tagged a capture point to prevent. Recorded so nobody later reads the gap
+between `build-477` and main's tip as an oversight.
+
+Note also that **M248 is assembly-pattern work**, and the 2026-08-23 entry above
+established that main's assembly viewport reuses the part viewport's span names
+(`3d.push`, `3d.payload`, `sceneTris`, `kernel.remesh`). The suite never opens an
+assembly, so an automated capture still cannot mix them — but that argument now
+has to cover five more commits than when it was made, and it was not re-checked
+here.
+
+### Correction 2 — `build-478` exists and is the same commit
+
+`build-477` and `build-478` both point at `2f2a308`. Either is the capture build;
+they are the same code, and 478 is the later of the two. Told to check the tag,
+I found two.
+
+### Correction 3 — the `occt-build.yml` trap is real but narrower than stated
+
+I was told it "only triggers on push to `main`". Reading `.github/workflows/occt-build.yml:17-30`:
+
+```yaml
+on:
+  push:         { branches: [ main ], paths: [ 'backend/occt/**', '.gitmodules', '.github/workflows/occt-build.yml' ] }
+  pull_request: { branches: [ main ], paths: [ same three ] }
+  workflow_dispatch:
+```
+
+Two things follow that the warning as written would have had me get wrong:
+
+* **A pull request into `main` touching `backend/occt/**` DOES run it.** So the
+  gap is not "PRs are unprotected" — it is a push to any non-main branch, and a
+  merge into main that does not go through a PR.
+* **`workflow_dispatch` is present**, so the prescribed remedy — dispatch it
+  manually on the branch before merging — actually works. Had it been absent,
+  the advice would have been unfollowable.
+
+It remains true that this is the **only** workflow that compiles `smoke_occt.c`
+or runs `occt_smoke`: `grep -rln 'smoke_occt\|occt_smoke' .github/workflows/`
+returns that file and nothing else. The trap's substance stands; its mechanism
+was described one notch too broadly.
+
+### Correction 4 — a pointer in the handoff
+
+I was sent to `S15-holes.md` **§6** for "what it did not fix". §6 is Definition
+of done. The material is **§5** (eight items of "what I am unsure of") and
+**§4.3**, which is where the invalid tapered sweep is characterised — including
+the row that makes it matter: a 10×10 square on a **drawn 90° L path** with a 5°
+taper under plain `OCCT_SWEEP_PATH_AUTO` returns 8 555.054342 INVALID on v26 and
+v27 alike, every digit identical, while the same fixture at taper 0 is valid.
+A swept bar with a draft angle is not an exotic input.
+
+### One number traced rather than carried
+
+Trap 8 of my brief says not to move a number between contexts, so I traced the
+one I was most likely to repeat wrongly: **"512 segments on a 3-corner path was
+79 s on device."**
+
+It is a **device** number. `S14-sweep.md:34` is the `profile.sweep.spans` ladder
+with the column headed `device`, 4 spans / 3 corners / **79 306 ms**, from round
+two's Arm B. Worth stating because §18.4's prose introduces the 94 ms / 79 306 ms
+pair as "measured on a desktop replica", which reads as if the pair were desktop;
+the replica is where the *mechanism* was isolated, the ladder is the device. The
+figure survives the check.
+
+**A consequence for the next capture that the phrase "arm B is the first time the
+sweep meets an iPad" could obscure:** Arm B is not new — round two took one, and
+it is where 79 306 ms, 132 112 ms and the failing 1200 rung come from. What has
+never met an iPad is the **fixed** sweep. Round two's Arm B ran a **v23** kernel.
+v24, v27 and v28 are desktop-only to this day, exactly as §19's provenance
+warning says.
+
+### What I did not do
+
+Not merged, not pushed to `main`, not dispatched a workflow, not re-recorded
+`CALIBRATION.txt` or `perf/baseline.json`, not touched
+`frontend/.flutter-plugins-dependencies` — the `git rm --cached` is one command
+and still the right one, but main is everyone's base and it is the owner's to
+schedule, not mine to slip into a handover commit.
+
+Not verified: `flutter analyze` and `flutter test`, no Flutter SDK in this
+container — the same wall S6, S12 and two earlier integrator entries hit, stated
+rather than assumed. And I did not re-check the assembly-span argument of
+Correction 1 against M248's five commits; it is flagged, not closed.
