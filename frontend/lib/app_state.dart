@@ -15,6 +15,7 @@ import 'package:reality_view/reality_view.dart' show RealityThumbnailer;
 import 'asm_constraints.dart';
 import 'asm_pick.dart';
 import 'asm_solver.dart';
+import 'asm_work_features.dart';
 import 'assembly.dart';
 import 'quat.dart';
 import 'reality_assembly.dart';
@@ -4098,6 +4099,13 @@ class AppState extends ChangeNotifier {
 
     for (final a in assemblies.values) {
       link(a, {a.name});
+      // M247 — the geometry a work feature was built from has just been
+      // (re)attached, and with M245's live link it may be a part that was
+      // edited in its own tab since. Re-deriving here is what makes a work
+      // plane on a face follow that face across a part edit, and it is the
+      // same reason the solve calls it: a work feature is a function of its
+      // inputs, so every point where the inputs can have changed re-runs it.
+      _resolveAsmWorkFeatures(a);
     }
   }
 
@@ -4943,6 +4951,18 @@ class AppState extends ChangeNotifier {
   /// place the summary and the per-constraint sickness are written.
   AsmSolveReport _solveAssembly(AssemblyModel a, {AsmDrag? drag}) {
     final report = solveAssembly(a, drag: drag);
+    // M247 — the components have just moved, so every work feature built on
+    // one is now naming the wrong place until it is re-derived. AFTER the
+    // solve, because that is what it is a function of.
+    //
+    // Honest scope note: a constraint that references an assembly work
+    // feature therefore sees the frame from the PREVIOUS solve, not a
+    // simultaneous one. Inventor calls that adaptivity and solves it properly;
+    // here it converges over successive solves instead, which is right for
+    // the common case (a plane built on a grounded component, or one whose
+    // inputs the constraint does not itself move) and stated rather than
+    // hidden for the case where it is not.
+    _resolveAsmWorkFeatures(a);
     a.solveSummary = AsmSolveSummary(
       dof: report.dof,
       fullyConstrained: report.fullyConstrained,
@@ -5686,6 +5706,12 @@ class AppState extends ChangeNotifier {
   /// Arm work plane creation. Cancels itself if the same kind is armed twice,
   /// so the ribbon button toggles.
   void startWorkPlane(WorkPlaneKind kind) {
+    // M247 — the assembly's twin. ONE command per method, routed here rather
+    // than duplicated in the ribbon: the button, the flyout entry, the label
+    // and the toggle contract are the same in both documents, and only what
+    // it is armed ON differs.
+    final asm = currentAssembly;
+    if (asm != null) return _armAsmWorkFeature(asm, planeKind: kind);
     final p = currentPart;
     if (p == null) return;
     if (workPlaneArm == kind) return cancelWorkPlane();
@@ -6169,17 +6195,45 @@ class AppState extends ChangeNotifier {
   /// Browser eye on a work plane — Inventor's per-plane Visibility.
   void toggleWorkPlaneVisible(WorkPlane wp) {
     wp.visible = !wp.visible;
-    final p = currentPart;
-    if (p != null) p.dirty = true;
-    if (curTab != null) savePart(curTab!);
-    notifyListeners();
+    _workFeatureTouched();
   }
 
   void deleteWorkPlane(WorkPlane wp) {
+    final a = currentAssembly;
+    if (a != null) {
+      // M247 — and whatever was built ON it: see AssemblyModel.removeWorkFeature.
+      a.removeWorkFeature(wp.id);
+      if (identical(selectedWorkPlane, wp)) selectWorkPlane(null);
+      _workFeatureTouched();
+      return;
+    }
     final p = currentPart;
     if (p == null) return;
     p.workPlanes.remove(wp);
     p.dirty = true;
+    if (curTab != null) savePart(curTab!);
+    notifyListeners();
+  }
+
+  /// M247 — a work feature belongs to whichever document is open, and only
+  /// that document has to be marked dirty and saved.
+  ///
+  /// One helper rather than the `currentPart?.dirty = true; savePart(curTab!)`
+  /// pair repeated five times: an assembly reached those lines and quietly
+  /// wrote nothing, which is the shape of bug that only shows up after a
+  /// restart.
+  void _workFeatureTouched() {
+    final a = currentAssembly;
+    if (a != null) {
+      // The plane quads live in the HEAVY RealityKit push, so a visibility
+      // change has to move the scene signature or the device keeps drawing
+      // what it was given.
+      a.bump();
+      notifyListeners();
+      unawaited(saveAssembly(a.name));
+      return;
+    }
+    currentPart?.dirty = true;
     if (curTab != null) savePart(curTab!);
     notifyListeners();
   }
@@ -6379,6 +6433,8 @@ class AppState extends ChangeNotifier {
   /// Arm Work Axis with [method]. Re-arming the same method cancels, so every
   /// ribbon entry is a toggle — the same contract [startWorkPlane] has.
   void startWorkAxis(WorkAxisMethod method) {
+    final asm = currentAssembly;
+    if (asm != null) return _armAsmWorkFeature(asm, axis: method);
     final p = currentPart;
     if (p == null) return;
     if (workAxisArm == method) return cancelWorkFeature();
@@ -6389,6 +6445,8 @@ class AppState extends ChangeNotifier {
   }
 
   void startWorkPoint(WorkPointMethod method) {
+    final asm = currentAssembly;
+    if (asm != null) return _armAsmWorkFeature(asm, point: method);
     final p = currentPart;
     if (p == null) return;
     if (workPointArm == method) return cancelWorkFeature();
@@ -6401,6 +6459,8 @@ class AppState extends ChangeNotifier {
   /// M223 — arm one of the pick-only Work Plane methods. Same toggle contract
   /// as [startWorkAxis]: the same entry twice cancels.
   void startWorkPlaneMethod(WorkPlaneMethod method) {
+    final asm = currentAssembly;
+    if (asm != null) return _armAsmWorkFeature(asm, planeMethod: method);
     final p = currentPart;
     if (p == null) return;
     if (workPlaneMethodArm == method) return cancelWorkFeature();
@@ -6429,9 +6489,15 @@ class AppState extends ChangeNotifier {
   bool _wfOriginAutoShown = false;
 
   void cancelWorkFeature() {
+    // M247 — in an assembly [workPlaneArm] is part of this command rather
+    // than of the part's separate offset/midplane flow, so it disarms here
+    // too. In a part it is left alone: cancelWorkPlane owns it there, and
+    // clearing it from here would cancel a flow this command never started.
+    final asm = currentAssembly;
     if (workAxisArm == null &&
         workPointArm == null &&
-        workPlaneMethodArm == null) {
+        workPlaneMethodArm == null &&
+        (asm == null || workPlaneArm == null)) {
       return;
     }
     workAxisArm = null;
@@ -6439,6 +6505,13 @@ class AppState extends ChangeNotifier {
     workPlaneMethodArm = null;
     _wfPicks.clear();
     workFeaturePrompt = '';
+    if (asm != null) {
+      workPlaneArm = null;
+      _asmWfPicks.clear();
+      _asmWfOriginRestore(asm);
+      notifyListeners();
+      return;
+    }
     final p = currentPart;
     if (p != null && _wfOriginAutoShown) {
       p.vis['yz'] = p.vis['xz'] = p.vis['xy'] = false;
@@ -6615,46 +6688,308 @@ class AppState extends ChangeNotifier {
     return '$base$n';
   }
 
+  // ---- M247: the assembly's work features ---------------------------------
+  //
+  // The SAME commands, armed on the .pas document instead of the .ptp. The
+  // arm fields above are shared — a command is armed once and three of them
+  // competing for one tap is not a UI, whichever document is open — and the
+  // only thing this section adds is a second pick list, because what an
+  // assembly tap yields is an [AsmRef] and what a part tap yields is a
+  // [WorkRef].
+  //
+  // Why the AsmRef and not the WorkRef is what is kept: the WorkRef is a
+  // world-space snapshot, and in an assembly the world moves. See
+  // asm_work_features.dart.
+
+  /// Picks collected so far for the armed ASSEMBLY work-feature command, in
+  /// the order they were made.
+  final List<AsmRef> _asmWfPicks = [];
+
+  /// True while a work-feature command is collecting in an assembly. The
+  /// assembly viewport reads this exactly as the part viewport reads
+  /// [pickWorkGeometry] — and this is deliberately not the same getter, since
+  /// [pickPlane] and [workPlaneArm] mean something in a part that they do not
+  /// mean here.
+  bool get asmPickWorkGeometry =>
+      currentAssembly != null &&
+      (workAxisArm != null ||
+          workPointArm != null ||
+          workPlaneMethodArm != null ||
+          workPlaneArm != null);
+
+  /// How many picks the armed assembly command has taken.
+  int get asmWorkFeaturePickCount => _asmWfPicks.length;
+
+  /// The references it has taken, for the viewport's highlight.
+  List<AsmRef> get asmWorkFeaturePicks => List.unmodifiable(_asmWfPicks);
+
+  void _armAsmWorkFeature(AssemblyModel a,
+      {WorkPlaneKind? planeKind,
+      WorkPlaneMethod? planeMethod,
+      WorkAxisMethod? axis,
+      WorkPointMethod? point}) {
+    // Every ribbon entry is a TOGGLE: the same entry twice cancels. Same
+    // contract the part side has had since M151, and the only way out of a
+    // command on a device with no Escape key.
+    if ((planeKind != null && workPlaneArm == planeKind) ||
+        (planeMethod != null && workPlaneMethodArm == planeMethod) ||
+        (axis != null && workAxisArm == axis) ||
+        (point != null && workPointArm == point)) {
+      return cancelWorkFeature();
+    }
+    cancelWorkFeature();
+    workPlaneArm = planeKind;
+    workPlaneMethodArm = planeMethod;
+    workAxisArm = axis;
+    workPointArm = point;
+    _asmWfPicks.clear();
+    workFeaturePrompt = _asmWorkPrompt(0);
+    // The origin geometry is offered for the duration, exactly as the part
+    // flows do: an assembly with one component and no visible origin plane
+    // has very little to point at, and a work plane offset from the assembly
+    // XY is one of the first things you want.
+    _wfOriginAutoShown = a.isEmpty;
+    if (_wfOriginAutoShown) {
+      for (final k in a.vis.keys) {
+        a.vis[k] = true;
+      }
+      a.bump();
+    }
+    toast(workFeaturePrompt);
+    notifyListeners();
+  }
+
+  /// The prompt for the armed assembly command, given how many picks it has.
+  String _asmWorkPrompt(int have) {
+    final pm = workPlaneMethodArm;
+    if (pm != null) return workPlanePrompt(pm, have);
+    final pk = workPlaneArm;
+    if (pk != null) return asmPlanePrompt(pk, have);
+    final ax = workAxisArm;
+    if (ax != null) return workAxisPrompt(ax, have);
+    final pt = workPointArm;
+    if (pt != null) return workPointPrompt(pt, have);
+    return '';
+  }
+
+  /// Puts the assembly's origin geometry back the way [_armAsmWorkFeature]
+  /// found it.
+  void _asmWfOriginRestore(AssemblyModel a) {
+    if (!_wfOriginAutoShown) return;
+    for (final k in a.vis.keys) {
+      a.vis[k] = false;
+    }
+    a.bump();
+    _wfOriginAutoShown = false;
+  }
+
+  /// The assembly viewport reports one pick. Returns true when it was taken.
+  ///
+  /// Three outcomes, and the third is the one that matters: a rejected pick is
+  /// DROPPED and the command stays armed, so a mis-tap costs you that tap and
+  /// nothing else. Same rule the part side states, for the same reason.
+  bool asmWorkFeaturePick(AsmPick pick) {
+    final a = currentAssembly;
+    if (a == null || !asmPickWorkGeometry) return false;
+    _asmWfPicks.add(pick.ref);
+    final refs = asmWorkRefs(a, _asmWfPicks);
+    if (refs == null) {
+      // Only reachable if a component vanished between the tap and here.
+      _asmWfPicks.removeLast();
+      return false;
+    }
+    final pm = workPlaneMethodArm, pk = workPlaneArm;
+    if (pm != null || pk != null) {
+      final r = solveAsmWorkPlane(
+          pk ?? _kindOfPlaneMethod(pm!), pm, refs,
+          offset: workPlaneOffset, angleDeg: workPlaneAngle);
+      if (r.outcome == WorkPickOutcome.complete) {
+        _commitAsmWorkPlane(a, r.solution!, pk, pm);
+        return true;
+      }
+      return _asmWfPending(r.outcome, r.message);
+    }
+    if (workAxisArm != null) {
+      final r = solveWorkAxis(workAxisArm!, refs);
+      if (r.outcome == WorkPickOutcome.complete) {
+        _commitAsmWorkAxis(a, r.solution!, workAxisArm!);
+        return true;
+      }
+      return _asmWfPending(r.outcome, r.message);
+    }
+    final m = workPointArm!;
+    final r = solveWorkPoint(m, refs);
+    if (r.outcome == WorkPickOutcome.complete) {
+      _commitAsmWorkPoint(a, r.solution!, m);
+      return true;
+    }
+    return _asmWfPending(r.outcome, r.message);
+  }
+
+  /// Which [WorkPlaneKind] a pick-only method produces. Only the angle method
+  /// carries a re-typable number; everything else is [constructed], which is
+  /// what the value field asks about before offering to edit anything.
+  WorkPlaneKind _kindOfPlaneMethod(WorkPlaneMethod m) =>
+      m == WorkPlaneMethod.angleToPlaneAroundEdge
+          ? WorkPlaneKind.angle
+          : WorkPlaneKind.constructed;
+
+  bool _asmWfPending(WorkPickOutcome outcome, String message) {
+    final kept = outcome == WorkPickOutcome.needMore;
+    if (kept) {
+      workFeaturePrompt = message;
+    } else {
+      _asmWfPicks.removeLast();
+    }
+    toast(message);
+    notifyListeners();
+    return kept;
+  }
+
+  void _commitAsmWorkPlane(AssemblyModel a, WorkPlaneSolution s,
+      WorkPlaneKind? kind, WorkPlaneMethod? method) {
+    final w = AsmWorkPlane(
+      _freeWorkName('Work Plane', {for (final x in a.workPlanes) x.name}),
+      a.nextWorkSeq(),
+      kind ?? _kindOfPlaneMethod(method!),
+      s.def,
+      workPlaneFrameAt(s.at, s.n),
+      method: method,
+      refs: List.of(_asmWfPicks),
+      offset: kind == WorkPlaneKind.offset ? workPlaneOffset : null,
+      angle: method == WorkPlaneMethod.angleToPlaneAroundEdge
+          ? workPlaneAngle
+          : null,
+    );
+    a.workPlanes.add(w);
+    _finishAsmWorkFeature(a);
+    // Re-derive it once, straight away: the frame above is right, but the
+    // base and pivot the value field edits are filled in by the re-solve, so
+    // the field has to see one before it can offer to move anything.
+    resolveAsmWorkPlane(a, w);
+    selectWorkPlane(w);
+    if (w.valueEditable) workPlaneOffsetEditing = true;
+    _asmWorkFeatureMade(a, w.name, w.def);
+  }
+
+  void _commitAsmWorkAxis(
+      AssemblyModel a, WorkAxisSolution s, WorkAxisMethod method) {
+    final x = AsmWorkAxis(
+        _freeWorkName('Work Axis', {for (final v in a.workAxes) v.name}),
+        a.nextWorkSeq(),
+        s.def,
+        s.at,
+        s.dir,
+        method: method,
+        refs: List.of(_asmWfPicks));
+    a.workAxes.add(x);
+    _finishAsmWorkFeature(a);
+    selectedWorkPoint = null;
+    selectedWorkAxis = x;
+    _asmWorkFeatureMade(a, x.name, x.def);
+  }
+
+  void _commitAsmWorkPoint(
+      AssemblyModel a, WorkPointSolution s, WorkPointMethod method) {
+    final pt = AsmWorkPoint(
+        _freeWorkName('Work Point', {for (final v in a.workPoints) v.name}),
+        a.nextWorkSeq(),
+        s.def,
+        s.at,
+        method: method,
+        refs: List.of(_asmWfPicks),
+        grounded: method == WorkPointMethod.grounded);
+    a.workPoints.add(pt);
+    _finishAsmWorkFeature(a);
+    selectedWorkAxis = null;
+    selectedWorkPoint = pt;
+    _asmWorkFeatureMade(a, pt.name, pt.def);
+  }
+
+  void _finishAsmWorkFeature(AssemblyModel a) {
+    workPlaneArm = null;
+    workPlaneMethodArm = null;
+    workAxisArm = null;
+    workPointArm = null;
+    _asmWfPicks.clear();
+    workFeaturePrompt = '';
+    _asmWfOriginRestore(a);
+  }
+
+  void _asmWorkFeatureMade(AssemblyModel a, String name, String def) {
+    a.bump();
+    toast(L.current.msgNameColonDef(name, def));
+    Log.i('assembly', 'work feature "$name" — $def');
+    notifyListeners();
+    unawaited(saveAssembly(a.name));
+  }
+
+  /// M247 — re-derives every assembly work feature from its stored picks.
+  ///
+  /// Called from [_solveAssembly], which is the one funnel every command that
+  /// can move a component already goes through. Anywhere else and a work
+  /// feature would go stale on whichever path forgot it.
+  void _resolveAsmWorkFeatures(AssemblyModel a) {
+    if (a.workPlanes.isEmpty && a.workAxes.isEmpty && a.workPoints.isEmpty) {
+      return;
+    }
+    resolveAsmWorkFeatures(a);
+  }
+
   void toggleWorkAxisVisible(WorkAxis a) {
     a.visible = !a.visible;
-    currentPart?.dirty = true;
-    if (curTab != null) savePart(curTab!);
-    notifyListeners();
+    _workFeatureTouched();
   }
 
   void toggleWorkPointVisible(WorkPoint pt) {
     pt.visible = !pt.visible;
-    currentPart?.dirty = true;
-    if (curTab != null) savePart(curTab!);
-    notifyListeners();
+    _workFeatureTouched();
   }
 
   void deleteWorkAxis(WorkAxis a) {
+    if (identical(selectedWorkAxis, a)) selectedWorkAxis = null;
+    final asm = currentAssembly;
+    if (asm != null) {
+      asm.removeWorkFeature(a.id);
+      _workFeatureTouched();
+      return;
+    }
     final p = currentPart;
     if (p == null) return;
     p.workAxes.remove(a);
-    if (identical(selectedWorkAxis, a)) selectedWorkAxis = null;
     p.dirty = true;
     if (curTab != null) savePart(curTab!);
     notifyListeners();
   }
 
   void deleteWorkPoint(WorkPoint pt) {
+    if (identical(selectedWorkPoint, pt)) selectedWorkPoint = null;
+    final asm = currentAssembly;
+    if (asm != null) {
+      asm.removeWorkFeature(pt.id);
+      _workFeatureTouched();
+      return;
+    }
     final p = currentPart;
     if (p == null) return;
     p.workPoints.remove(pt);
-    if (identical(selectedWorkPoint, pt)) selectedWorkPoint = null;
     p.dirty = true;
     if (curTab != null) savePart(curTab!);
     notifyListeners();
   }
 
   /// Reverses a work axis. See [WorkAxis.flip] for why this exists.
+  ///
+  /// M247 — an ASSEMBLY axis is re-derived from its picks after every solve,
+  /// and the solver preserves the sign the method gave it, so a flip that only
+  /// negated [WorkAxis.dir] would be undone by the next drag. The re-solve is
+  /// the wrong place to hold a user's choice, so the flip is not offered on
+  /// one: re-picking two points the other way round is the honest way to
+  /// reverse it, and saying so beats a button that works until you move
+  /// something. See _workAxisMenu.
   void flipWorkAxis(WorkAxis a) {
     a.flip();
-    currentPart?.dirty = true;
-    if (curTab != null) savePart(curTab!);
-    notifyListeners();
+    _workFeatureTouched();
   }
 
   /// The 3D viewport reports a tapped PLANAR SOLID FACE (M58): same flow as

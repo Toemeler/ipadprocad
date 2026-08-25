@@ -46,6 +46,7 @@ import 'part_pick.dart';
 import 'pick_math.dart';
 import 'part_render.dart';
 import 'quat.dart';
+import 'work_features.dart' show WorkRefSource, workAxisSpan;
 
 /// One thing the user could have meant, with everything three callers need:
 /// the reference to STORE, the geometry to draw NOW, and the depth that
@@ -157,8 +158,17 @@ AsmPick? _pickEdgeOnPiece(AssemblyOccurrence o, Quat r, Vec3 t,
       final p1 = Vec3(c[ci + 4], c[ci + 5], c[ci + 6]);
       final d = p1 - p0;
       if (d.length > 1e-9) {
-        return _local(o, AsmGeom.axis(up(p0), upDir(d).normalized()), 'Edge',
-            depth, world,
+        return _local(
+            o,
+            // M247 — `source` is what a WORK FEATURE needs and a constraint
+            // does not: an edge, a circle and a cylinder all reduce to an
+            // axis here, and "Through Center of Circular Edge" has to be able
+            // to tell them apart. See AsmGeom.source.
+            AsmGeom.axis(up(p0), upDir(d).normalized(),
+                source: WorkRefSource.edge),
+            'Edge',
+            depth,
+            world,
             anchor: up((p0 + p1) * 0.5), extent: d.length * 0.5);
       }
     } else if (type == 2 || type == 3) {
@@ -173,7 +183,8 @@ AsmPick? _pickEdgeOnPiece(AssemblyOccurrence o, Quat r, Vec3 t,
             // Insert are usually reached through, and dropping the radius
             // here is what would make Tangent refuse a perfectly round pick.
             AsmGeom.axis(up(centre), upDir(axis).normalized(),
-                radius: type == 2 ? c[ci + 10] : 0),
+                radius: type == 2 ? c[ci + 10] : 0,
+                source: WorkRefSource.circle),
             type == 2 ? 'Circular Edge' : 'Elliptical Edge',
             depth,
             world,
@@ -273,7 +284,8 @@ AsmPick? _pickFaceOn(AssemblyOccurrence o, Cam3 cam, Offset px) {
         anchor: mid, extent: span),
     kFaceCylinder => _local(
         o,
-        AsmGeom.axis(at, dir, radius: info[10]),
+        AsmGeom.axis(at, dir,
+            radius: info[10], source: WorkRefSource.revolved),
         'Cylindrical Face',
         bestDepth,
         world,
@@ -284,12 +296,30 @@ AsmPick? _pickFaceOn(AssemblyOccurrence o, Cam3 cam, Offset px) {
         extent: info[10]),
     // A cone has an axis and no single radius, so it constrains like an axis
     // and refuses Tangent — which is what Inventor does with one too.
-    kFaceCone => _local(o, AsmGeom.axis(at, dir), 'Conical Face', bestDepth,
-        world, anchor: mid, extent: span),
-    kFaceSphere => _local(o, AsmGeom.point(at), 'Spherical Face', bestDepth,
-        world, anchor: mid, extent: span),
-    kFaceTorus => _local(o, AsmGeom.axis(at, dir), 'Toroidal Face', bestDepth,
-        world, anchor: mid, extent: span),
+    kFaceCone => _local(
+        o,
+        AsmGeom.axis(at, dir, source: WorkRefSource.revolved),
+        'Conical Face',
+        bestDepth,
+        world,
+        anchor: mid,
+        extent: span),
+    kFaceSphere => _local(
+        o,
+        AsmGeom.point(at, source: WorkRefSource.sphere),
+        'Spherical Face',
+        bestDepth,
+        world,
+        anchor: mid,
+        extent: span),
+    kFaceTorus => _local(
+        o,
+        AsmGeom.axis(at, dir, source: WorkRefSource.torus),
+        'Toroidal Face',
+        bestDepth,
+        world,
+        anchor: mid,
+        extent: span),
     // A surface with no axis and no centre offers nothing to constrain to.
     _ => null,
   };
@@ -425,6 +455,66 @@ AsmPick? _pickOriginOf(AssemblyModel a, Cam3 cam, Offset px) {
         const AsmGeom.point(Vec3.zero),
         cam.depth(Vec3.zero) + 2 * kAsmEdgeBias,
         Vec3.zero));
+  }
+  offer(_pickWorkFeatureOf(a, cam, px));
+  return best;
+}
+
+/// M247 — the assembly's OWN work planes, axes and points.
+///
+/// Offered here, beside the origin geometry, because they belong to the same
+/// document and to no component — and because this is the one hook that
+/// serves BOTH commands at once: Place Constraint reaches them through
+/// [pickAsmRef] and so does the next work feature, so a work plane can be
+/// mated to and built on without either command knowing the other exists.
+///
+/// What the reference carries is the feature's ID, not its frame. These move
+/// (see AsmRef.feature), so a baked reference would name where the plane used
+/// to be. [AsmGeom] is filled in with the current frame all the same, as the
+/// fallback for a document opened after the feature was deleted.
+///
+/// Only what is DRAWN answers, the same rule the origin geometry follows: an
+/// invisible work plane is not on screen, and picking one would be picking
+/// something the user cannot see.
+AsmPick? _pickWorkFeatureOf(AssemblyModel a, Cam3 cam, Offset px) {
+  AsmPick? best;
+  void offer(AsmPick? p) {
+    if (p == null) return;
+    if (best == null || p.depth > best!.depth) best = p;
+  }
+
+  AsmPick pick(AsmGeom g, String label, String id, double depth, Vec3 hit) =>
+      AsmPick(AsmRef(kAssemblyOrigin, g, label, anchor: hit, feature: id), g,
+          depth, hit);
+
+  final extent = assemblyOriginExtent(a);
+  for (final w in a.workPlanes) {
+    if (!w.visible) continue;
+    final f = w.frame;
+    final hit = cam.rayOnPlane(px, f.n, f.origin);
+    if (hit == null) continue;
+    final (uMin, uMax, vMin, vMax) = planeRectInBounds(extent, f);
+    final uv = f.toSketch(hit);
+    if (uv.dx < uMin || uv.dx > uMax || uv.dy < vMin || uv.dy > vMax) continue;
+    offer(pick(AsmGeom.plane(f.origin, f.n), w.name, w.id, cam.depth(hit),
+        hit));
+  }
+  for (final x in a.workAxes) {
+    if (!x.visible) continue;
+    final (e0, e1) = workAxisSpan(x.at, x.dir, extent.$1, extent.$2);
+    final (d2, t) = segDistSq(px, cam.project(e0), cam.project(e1));
+    if (d2 > kAsmOriginTolerancePx * kAsmOriginTolerancePx) continue;
+    final hit = e0 + (e1 - e0) * t;
+    // Nearer than a plane through it, exactly as an origin axis is: an axis
+    // lying in a visible work plane still has to be takeable.
+    offer(pick(AsmGeom.axis(x.at, x.dir), x.name, x.id,
+        cam.depth(hit) + kAsmEdgeBias, hit));
+  }
+  for (final p in a.workPoints) {
+    if (!p.visible) continue;
+    if ((cam.project(p.at) - px).distance > kAsmOriginTolerancePx) continue;
+    offer(pick(AsmGeom.point(p.at), p.name, p.id,
+        cam.depth(p.at) + 2 * kAsmEdgeBias, p.at));
   }
   return best;
 }

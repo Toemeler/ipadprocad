@@ -46,6 +46,7 @@
 import 'dart:math' as math;
 
 import 'asm_constraints.dart';
+import 'asm_work_features.dart';
 import 'doc_file.dart' show kAssemblyDocKind;
 import 'part_model.dart';
 import 'quat.dart';
@@ -271,6 +272,40 @@ class AssemblyModel {
   /// the solver drives to zero.
   final List<AsmConstraint> constraints = [];
 
+  /// M247 — the assembly's OWN work features, in creation order.
+  ///
+  /// They belong to the .pas document and to no part in it: a work plane
+  /// mating two components is not a feature of either. Three parallel lists
+  /// for the reason [PartModel] gives for its three — they are not timeline
+  /// nodes, they share one `seq` numbering, and the browser interleaves them
+  /// by it.
+  ///
+  /// Unlike a part's, these are PARAMETRIC: each stores the picks it was
+  /// built from as [AsmRef]s and is re-derived after every solve. See
+  /// asm_work_features.dart for why that is not optional here.
+  final List<AsmWorkPlane> workPlanes = [];
+  final List<AsmWorkAxis> workAxes = [];
+  final List<AsmWorkPoint> workPoints = [];
+
+  /// The next free work-feature `seq`, shared across all three lists so a
+  /// plane, an axis and a point never collide on a browser row id.
+  ///
+  /// Scanned rather than counted, so deleting the newest feature and making
+  /// another does not hand out its number twice; and derived rather than
+  /// stored, because an assembly holds a handful of these and a counter that
+  /// had to be serialised is one more thing a hand-edited file can get wrong.
+  int nextWorkSeq() {
+    var n = 0;
+    for (final s in [
+      for (final w in workPlanes) w.seq,
+      for (final x in workAxes) x.seq,
+      for (final p in workPoints) p.seq,
+    ]) {
+      if (s > n) n = s;
+    }
+    return n + 1;
+  }
+
   /// The last solve's verdict, for the browser and the status line. Runtime
   /// only — a document records what the user asked for, never how it went.
   AsmSolveSummary solveSummary = const AsmSolveSummary.empty();
@@ -368,7 +403,7 @@ class AssemblyModel {
 
   static AsmRef _repoint(AsmRef r, String occurrence) => AsmRef(
       occurrence, r.geom, r.label,
-      anchor: r.anchor, extent: r.extent);
+      anchor: r.anchor, extent: r.extent, feature: r.feature);
 
   void remove(AssemblyOccurrence o) {
     occurrences.remove(o);
@@ -377,12 +412,57 @@ class AssemblyModel {
     // dangling reference the solver would have to keep reporting as sick.
     // Inventor deletes them with the component, and says so in its prompt.
     constraints.removeWhere((c) => c.touches(o.id));
+    // M247 — and the same for a work feature built on it. A plane whose face
+    // has left the document cannot be re-derived, so keeping it would leave a
+    // row that is permanently in error and a plane frozen at wherever the
+    // component last was. Anything built ON that plane goes too, which is why
+    // this loops until nothing more falls.
+    _dropWorkFeaturesTouching({o.id});
     if (selectedConstraint != null &&
         !constraints.contains(selectedConstraint)) {
       selectedConstraint = null;
     }
     o.dispose();
   }
+
+  /// Removes every work feature that depends, directly or through another
+  /// work feature, on one of [gone] — and every constraint left naming one.
+  ///
+  /// Transitive because a work feature is a legitimate input to another one:
+  /// dropping a plane without dropping the axis built on it would leave the
+  /// axis permanently unresolvable, which is the dangling row this is here to
+  /// prevent.
+  void _dropWorkFeaturesTouching(Set<String> gone) {
+    var again = true;
+    while (again) {
+      again = false;
+      bool doomed(List<AsmRef> refs) => refs.any((r) =>
+          (!r.isAssemblyOrigin && gone.contains(r.occurrence)) ||
+          (r.feature != null && gone.contains(r.feature)));
+      void sweep<T>(List<T> list, List<AsmRef> Function(T) refsOf,
+          String Function(T) idOf) {
+        list.removeWhere((f) {
+          if (!doomed(refsOf(f))) return false;
+          gone.add(idOf(f));
+          again = true;
+          return true;
+        });
+      }
+
+      sweep<AsmWorkPlane>(workPlanes, (w) => w.refs, (w) => w.id);
+      sweep<AsmWorkAxis>(workAxes, (x) => x.refs, (x) => x.id);
+      sweep<AsmWorkPoint>(workPoints, (p) => p.refs, (p) => p.id);
+    }
+    constraints.removeWhere((c) => [c.a, c.b, if (c.c != null) c.c!]
+        .any((r) => r.feature != null && gone.contains(r.feature)));
+    if (selectedConstraint != null &&
+        !constraints.contains(selectedConstraint)) {
+      selectedConstraint = null;
+    }
+  }
+
+  /// M247 — deletes one work feature, and whatever was built on it.
+  void removeWorkFeature(String id) => _dropWorkFeaturesTouching({id});
 
   /// The constraint highlighted in the browser, if any.
   AsmConstraint? selectedConstraint;
@@ -414,6 +494,14 @@ class AssemblyModel {
         'occurrences': [for (final o in occurrences) o.toJson()],
         if (constraints.isNotEmpty)
           'constraints': [for (final c in constraints) c.toJson()],
+        // M247 — written only when there are some, so an assembly without
+        // work features is byte-identical to one saved before they existed.
+        if (workPlanes.isNotEmpty)
+          'workPlanes': [for (final w in workPlanes) w.toJson()],
+        if (workAxes.isNotEmpty)
+          'workAxes': [for (final x in workAxes) x.toJson()],
+        if (workPoints.isNotEmpty)
+          'workPoints': [for (final p in workPoints) p.toJson()],
       };
 
   /// Reads [j] into this model. Occurrences come back WITHOUT their geometry —
@@ -460,6 +548,38 @@ class AssemblyModel {
       if (con.occurrences.any((id) => byId(id) == null)) continue;
       constraints.add(con);
     }
+    workPlanes.clear();
+    workAxes.clear();
+    workPoints.clear();
+    for (final w in (j['workPlanes'] as List? ?? const [])) {
+      if (w is! Map) continue;
+      final f = AsmWorkPlane.fromJson(w.cast<String, dynamic>());
+      if (f != null) workPlanes.add(f);
+    }
+    for (final x in (j['workAxes'] as List? ?? const [])) {
+      if (x is! Map) continue;
+      final f = AsmWorkAxis.fromJson(x.cast<String, dynamic>());
+      if (f != null) workAxes.add(f);
+    }
+    for (final p in (j['workPoints'] as List? ?? const [])) {
+      if (p is! Map) continue;
+      final f = AsmWorkPoint.fromJson(p.cast<String, dynamic>());
+      if (f != null) workPoints.add(f);
+    }
+    // A work feature whose component is not in this document is dropped for
+    // the same reason a constraint is: there is nothing to re-derive it
+    // against, and it can only have come from a file edited by hand.
+    _dropWorkFeaturesTouching({
+      for (final w in workPlanes)
+        for (final r in w.refs)
+          if (!r.isAssemblyOrigin && byId(r.occurrence) == null) r.occurrence,
+      for (final x in workAxes)
+        for (final r in x.refs)
+          if (!r.isAssemblyOrigin && byId(r.occurrence) == null) r.occurrence,
+      for (final p in workPoints)
+        for (final r in p.refs)
+          if (!r.isAssemblyOrigin && byId(r.occurrence) == null) r.occurrence,
+    });
   }
 
   void dispose() {
@@ -468,6 +588,9 @@ class AssemblyModel {
     }
     occurrences.clear();
     constraints.clear();
+    workPlanes.clear();
+    workAxes.clear();
+    workPoints.clear();
     selected = null;
     selectedConstraint = null;
   }
@@ -524,6 +647,16 @@ List<PlacedComponent> placedComponents(AssemblyModel a) => [
 /// and it keeps the browser and the dialog rendering a row that the solve
 /// separately reports as sick, rather than crashing on it.
 AsmGeom worldGeomOf(AssemblyModel a, AsmRef r) {
+  // M247 — an assembly WORK FEATURE moves, so its reference names it by id
+  // and reads the current answer rather than the frame it had when it was
+  // picked. See AsmRef.feature. A feature that has been deleted falls back to
+  // the stored geometry, which is what keeps a browser row rendering while
+  // the solve separately reports the constraint sick.
+  final wf = r.feature;
+  if (wf != null) {
+    final live = asmWorkGeom(a, wf);
+    if (live != null) return live;
+  }
   if (r.isAssemblyOrigin) return r.geom;
   final o = a.byId(r.occurrence);
   if (o == null) return r.geom;
