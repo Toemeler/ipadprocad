@@ -3771,9 +3771,15 @@ class ChamferFeature extends BodyModifyFeature {
     final d = dihedralDeg > 1e-9 ? dihedralDeg : 90.0;
     final a = d - angleDeg;
     // Outside the admissible range there is no triangle and no swap to make.
-    // Hand it on and let the shim refuse in its own sentence, which names the
-    // edge's real bound; inventing a refusal here would be a second, worse
-    // copy of a guard that already exists.
+    // This is reachable only when [angleDeg] is already out of range for this
+    // edge with Flip OFF, so the chamfer was never going to build. Send the
+    // non-positive angle and let the shim refuse: it says "must be greater
+    // than 0 deg" rather than naming the edge's bound, which is the vaguer of
+    // its two sentences, and that is the price of failing CLOSED here.
+    // Passing [angleDeg] through would draw the better message, but if this
+    // layer's D and the shim's limit ever disagreed it would build the
+    // UNFLIPPED chamfer while Flip is on — a wrong solid that looks right,
+    // which this file trades a worse error message for every time.
     if (!(a > 0) || !(angleDeg > 0)) return (distance1, 0.0, a);
     const rad = math.pi / 180.0;
     return (
