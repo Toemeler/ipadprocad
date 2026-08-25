@@ -141,6 +141,25 @@ const double kMinimumMotionWeight = 2e-3;
 /// far as its freedom allows, and stop dead where it does not.
 const double kDragWeight = 0.05;
 
+/// Whether the solver may MOVE [o].
+///
+/// Two reasons it may not, and they are the same reason twice: something other
+/// than the solver already decides where this body is.
+///
+///   * GROUNDED is Inventor's, and M240's — the assembly needs something to
+///     be built against.
+///   * M248 — a PATTERN ELEMENT is a function of its seed's placement and the
+///     pattern's parameters. Letting the solve pull one off its grid would be
+///     two authorities writing one placement: the solver moving it, the next
+///     regeneration snapping it back. So it behaves exactly as a grounded
+///     component does — other things may be constrained TO it, and it never
+///     moves to satisfy them.
+///
+/// Consequently a pattern element has no degrees of freedom, which is what the
+/// browser reports and what Inventor shows for one too.
+bool asmBodyIsFree(AssemblyOccurrence o) =>
+    !o.grounded && !o.isPatternElement;
+
 /// One body's state during a solve.
 class _Body {
   _Body(this.occ, this.free, this.col) : t = occ.offset, r = occ.rot;
@@ -174,7 +193,7 @@ AsmSolveReport solveAssembly(
   final bodies = <String, _Body>{};
   var cols = 0;
   for (final o in a.occurrences) {
-    final free = !o.grounded;
+    final free = asmBodyIsFree(o);
     bodies[o.id] = _Body(o, free, free ? cols : -1);
     if (free) cols += 6;
   }
@@ -199,7 +218,7 @@ AsmSolveReport solveAssembly(
       dof: cols,
       fullyConstrained: {
         for (final o in a.occurrences)
-          if (o.grounded) o.id
+          if (!asmBodyIsFree(o)) o.id
       },
       sick: sick,
       moved: const {},
@@ -365,7 +384,7 @@ String _sickReason(AsmConstraint c, AssemblyModel a) {
   // one the solver could never fix: nothing was free to move.
   final free = c.occurrences.where((id) {
     final o = a.byId(id);
-    return o != null && !o.grounded;
+    return o != null && asmBodyIsFree(o);
   });
   if (free.isEmpty) return 'bothGrounded';
   return 'cannotSatisfy';
@@ -922,7 +941,7 @@ Set<String> driveMotion(
         : (c.b.occurrence == moverId ? c.a.occurrence : null);
     if (drivenId == null) continue;
     final driven = a.byId(drivenId);
-    if (driven == null || driven.grounded) continue;
+    if (driven == null || !asmBodyIsFree(driven)) continue;
     final drivenRef = c.a.occurrence == moverId ? c.b : c.a;
     final axisLocal = drivenRef.geom.dir;
     if (axisLocal.length < 1e-9) continue;

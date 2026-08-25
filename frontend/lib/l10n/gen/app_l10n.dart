@@ -1885,6 +1885,36 @@ abstract class AppL10n {
   /// **'Zielkörper wählen — in 3D oder im Browser antippen.'**
   String get msgSelectTargetBody;
 
+  /// M248 — die Anordnung im Baugruppen-Menüband, ohne platzierte Komponente.
+  ///
+  /// In de, this message translates to:
+  /// **'{kind} braucht eine Komponente zum Kopieren — zuerst eine platzieren.'**
+  String msgPatternNeedsComponent(String kind);
+
+  /// M248 — der Aufruf, wenn die Auswahl für die Ausgangskomponenten scharf ist.
+  ///
+  /// In de, this message translates to:
+  /// **'Komponente antippen, die angeordnet werden soll.'**
+  String get msgTapComponentToPattern;
+
+  /// M248 — eine Anordnung ihrer eigenen Ausgabe wäre ein Zyklus.
+  ///
+  /// In de, this message translates to:
+  /// **'Ein Anordnungselement kann nicht angeordnet werden — die Ausgangskomponente wählen.'**
+  String get msgCannotPatternAnElement;
+
+  /// M248 — Kopieren wirkt auf die aktuelle Auswahl.
+  ///
+  /// In de, this message translates to:
+  /// **'Komponente zum Kopieren wählen.'**
+  String get msgSelectComponentToCopy;
+
+  /// M248 — die Kopie wäre eine gewöhnliche Komponente, die nur wie ein Element aussieht.
+  ///
+  /// In de, this message translates to:
+  /// **'Ein Anordnungselement kann nicht kopiert werden — die Ausgangskomponente kopieren oder die Anzahl ändern.'**
+  String get msgCannotCopyAnElement;
+
   /// No description provided for @msgPatternNeedsFeature.
   ///
   /// In de, this message translates to:
@@ -5070,6 +5100,18 @@ abstract class AppL10n {
   /// In de, this message translates to:
   /// **'Der Winkel muss zwischen 0 und 90 Grad liegen.'**
   String get valAngle0to90;
+
+  /// M248 — die Baugruppen-Anordnung ohne Ausgangskomponente.
+  ///
+  /// In de, this message translates to:
+  /// **'Mindestens eine Komponente zum Anordnen wählen.'**
+  String get valSelectOneComponent;
+
+  /// M248 — eine assoziative Anordnung, deren Bauteil-Anordnung gelöscht wurde.
+  ///
+  /// In de, this message translates to:
+  /// **'Die treibende Element-Anordnung ist nicht mehr da.'**
+  String get valDrivingFeatureGone;
 
   /// No description provided for @valSelectOneFeature.
   ///

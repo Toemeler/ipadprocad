@@ -1122,6 +1122,25 @@ class AppL10nEn extends AppL10n {
       'Select the target body — tap it in 3D or in the browser.';
 
   @override
+  String msgPatternNeedsComponent(String kind) {
+    return '$kind needs a component to copy — place one first.';
+  }
+
+  @override
+  String get msgTapComponentToPattern => 'Tap the component to pattern.';
+
+  @override
+  String get msgCannotPatternAnElement =>
+      'A pattern element cannot be patterned — select the source component.';
+
+  @override
+  String get msgSelectComponentToCopy => 'Select a component to copy.';
+
+  @override
+  String get msgCannotCopyAnElement =>
+      'A pattern element cannot be copied — copy the source component, or edit the count.';
+
+  @override
   String msgPatternNeedsFeature(String kind) {
     return '$kind needs a feature to copy — build one first.';
   }
@@ -3018,6 +3037,13 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get valAngle0to90 => 'Angle must be between 0 and 90 deg.';
+
+  @override
+  String get valSelectOneComponent =>
+      'Select at least one component to pattern.';
+
+  @override
+  String get valDrivingFeatureGone => 'The driving feature pattern is gone.';
 
   @override
   String get valSelectOneFeature => 'Select at least one feature to pattern.';

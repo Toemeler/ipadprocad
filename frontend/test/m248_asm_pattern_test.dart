@@ -29,6 +29,7 @@ import 'dart:ui' show Size;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/app_state.dart';
 import 'package:prototype/asm_constraints.dart';
+import 'package:prototype/asm_pattern.dart';
 import 'package:prototype/asm_solver.dart';
 import 'package:prototype/assembly.dart';
 import 'package:prototype/ffi/occt_engine.dart';
@@ -466,6 +467,440 @@ void main() {
       expect(r.converged, isTrue, reason: r.sick.toString());
       expect(a.occurrences[1].reflect, isNotNull,
           reason: 'and it is still mirrored afterwards');
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  group('a pattern places ORDINARY occurrences', () {
+    AssemblyModel patterned({int count = 4, double step = 25}) {
+      final a = AssemblyModel('Gearbox')
+        ..occurrences.add(occ('Bolt:1', Vec3.zero, grounded: true));
+      a.patterns.add(AsmPattern(
+        name: 'RectangularPattern1',
+        mode: PatternKind.rectangular,
+        sources: ['Bolt:1'],
+        refDirA: const AsmRef(kAssemblyOrigin,
+            AsmGeom.axis(Vec3.zero, Vec3(1, 0, 0)), 'X Axis'),
+      )
+        ..countA = count
+        ..distanceA = step
+        ..distributionA = PatternDistribution.spacing);
+      return a;
+    }
+
+    test('the elements are in a.occurrences and nothing special-cases them',
+        () {
+      final a = patterned();
+      regenerateAsmPatterns(a);
+      // Four occurrences INCLUDING the seed, which is Inventor's count.
+      expect(a.occurrences, hasLength(4));
+      expect(a.elementsOf('RectangularPattern1'), hasLength(3));
+      // They render, because placedComponents is what every painter reads and
+      // it has no idea a pattern exists.
+      expect(placedComponents(a), hasLength(4));
+      // They are picked, by the same pick that finds any other component.
+      final cam = frontCam();
+      final third = a.elementsOf('RectangularPattern1')[1];
+      expect(pickOccurrence(a, cam, cam.project(third.toWorld(Vec3.zero)))?.id,
+          third.id);
+      // And they keep the LIVE LINK: it is the same PartModel, not a copy.
+      expect(identical(third.part, a.occurrences.first.part), isTrue,
+          reason: 'rule 1 — every instance is linked directly to the part');
+    });
+
+    test('they land on the grid the parameters describe', () {
+      final a = patterned(count: 4, step: 25);
+      regenerateAsmPatterns(a);
+      final xs = a.elementsOf('RectangularPattern1')
+          .map((e) => e.offset.x)
+          .toList();
+      expect(xs, [closeTo(25, 1e-9), closeTo(50, 1e-9), closeTo(75, 1e-9)]);
+    });
+
+    test('they FOLLOW the seed when it moves', () {
+      final a = patterned();
+      regenerateAsmPatterns(a);
+      a.occurrences.first.offset = const Vec3(0, 40, 0);
+      regenerateAsmPatterns(a);
+      for (final e in a.elementsOf('RectangularPattern1')) {
+        expect(e.offset.y, closeTo(40, 1e-9),
+            reason: 'a baked element would still be on the old row');
+      }
+    });
+
+    test('the direction follows the component it was picked on', () {
+      // M247's claim, applied to a pattern: the inputs are references, not
+      // baked geometry, so turning the component the direction came from turns
+      // the row. A pattern that baked its AxisRef would keep the old row.
+      final a = AssemblyModel('Gearbox')
+        ..occurrences.add(occ('Rail:1', Vec3.zero, grounded: true))
+        ..occurrences.add(occ('Bolt:1', Vec3.zero));
+      a.patterns.add(AsmPattern(
+        name: 'RectangularPattern1',
+        mode: PatternKind.rectangular,
+        sources: ['Bolt:1'],
+        refDirA: const AsmRef(
+            'Rail:1', AsmGeom.axis(Vec3.zero, Vec3(1, 0, 0)), 'Edge'),
+      )
+        ..countA = 2
+        ..distanceA = 30);
+      regenerateAsmPatterns(a);
+      expect(a.elementsOf('RectangularPattern1').single.offset.x,
+          closeTo(30, 1e-9));
+      // A quarter turn about Z takes the rail's +X to +Y.
+      a.occurrences.first.rot =
+          Quat.axisAngle(const Vec3(0, 0, 1), math.pi / 2);
+      regenerateAsmPatterns(a);
+      final e = a.elementsOf('RectangularPattern1').single;
+      expect(e.offset.y, closeTo(30, 1e-9));
+      expect(e.offset.x.abs(), lessThan(1e-9));
+    });
+
+    test('a circular pattern turns each element with the axis', () {
+      final a = AssemblyModel('Gearbox')
+        ..occurrences.add(occ('Bolt:1', const Vec3(40, 0, 0), grounded: true));
+      a.patterns.add(AsmPattern(
+        name: 'CircularPattern1',
+        mode: PatternKind.circular,
+        sources: ['Bolt:1'],
+        refAxis: const AsmRef(kAssemblyOrigin,
+            AsmGeom.axis(Vec3.zero, Vec3(0, 0, 1)), 'Z Axis'),
+      )
+        ..countC = 4
+        ..angleC = 360
+        ..distributionC = PatternDistribution.distance
+        ..orientation = PatternOrient.rotational);
+      regenerateAsmPatterns(a);
+      final els = a.elementsOf('CircularPattern1');
+      expect(els, hasLength(3));
+      // A quarter turn puts the first at (0, 40, 0)...
+      expect(els[0].offset.x.abs(), lessThan(1e-9));
+      expect(els[0].offset.y, closeTo(40, 1e-9));
+      // ...and it is TURNED, not merely carried: its own +X points at +Y.
+      expect(els[0].dirToWorld(const Vec3(1, 0, 0)).y, closeTo(1, 1e-9));
+      // Fixed orientation carries it round without turning it.
+      a.patterns.single.orientation = PatternOrient.fixed;
+      regenerateAsmPatterns(a);
+      final fixed = a.elementsOf('CircularPattern1')[0];
+      expect(fixed.offset.y, closeTo(40, 1e-9));
+      expect(fixed.dirToWorld(const Vec3(1, 0, 0)).x, closeTo(1, 1e-9));
+    });
+
+    test('an element is DRIVEN, so it has no degrees of freedom', () {
+      final a = patterned();
+      regenerateAsmPatterns(a);
+      final r = solveAssembly(a);
+      // The seed is grounded and the three elements are driven, so nothing in
+      // this assembly is free.
+      expect(r.dof, 0);
+      expect(r.fullyConstrained, hasLength(4));
+      for (final e in a.elementsOf('RectangularPattern1')) {
+        expect(asmBodyIsFree(e), isFalse);
+      }
+    });
+
+    test('a drag never pulls an element off its grid', () {
+      final a = patterned();
+      regenerateAsmPatterns(a);
+      final e = a.elementsOf('RectangularPattern1').first;
+      final was = e.offset;
+      solveAssembly(a,
+          drag: AsmDrag(e.id, Vec3.zero, const Vec3(0, 0, 500)));
+      expect((e.offset - was).length, lessThan(1e-9),
+          reason: 'two authorities writing one placement is the failure this '
+              'prevents');
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  group('the count stays editable, and says what it costs', () {
+    AssemblyModel withConstraintOnElement() {
+      final a = AssemblyModel('Gearbox')
+        ..occurrences.add(occ('Bolt:1', Vec3.zero, grounded: true))
+        ..occurrences.add(occ('Nut:1', const Vec3(0, 100, 0)));
+      a.patterns.add(AsmPattern(
+        name: 'RectangularPattern1',
+        mode: PatternKind.rectangular,
+        sources: ['Bolt:1'],
+        refDirA: const AsmRef(kAssemblyOrigin,
+            AsmGeom.axis(Vec3.zero, Vec3(1, 0, 0)), 'X Axis'),
+      )
+        ..countA = 4
+        ..distanceA = 25);
+      regenerateAsmPatterns(a);
+      return a;
+    }
+
+    test('an element keeps its id, and therefore its relationships, when the '
+        'count grows', () {
+      final a = withConstraintOnElement();
+      final ids = a.elementsOf('RectangularPattern1').map((e) => e.id).toList();
+      a.patterns.single.countA = 6;
+      regenerateAsmPatterns(a);
+      final after = a.elementsOf('RectangularPattern1').map((e) => e.id);
+      expect(after, containsAll(ids),
+          reason: 'element 3 is element 3 however the count is edited');
+      expect(a.elementsOf('RectangularPattern1'), hasLength(5));
+    });
+
+    test('shrinking takes the highest elements, and their relationships, and '
+        'says so', () {
+      final a = withConstraintOnElement();
+      final last = a.elementsOf('RectangularPattern1').last;
+      a.constraints.add(AsmConstraint(
+        name: 'Mate1',
+        kind: AsmKind.mate,
+        solution: AsmSolution.mate,
+        a: AsmRef(last.id,
+            const AsmGeom.plane(Vec3(0, 10, 0), Vec3(0, 1, 0)), 'Face'),
+        b: const AsmRef('Nut:1',
+            AsmGeom.plane(Vec3(0, -10, 0), Vec3(0, -1, 0)), 'Face'),
+      ));
+      final kept = a.elementsOf('RectangularPattern1')[0].id;
+      a.patterns.single.countA = 2;
+      final removed = regenerateAsmPatterns(a);
+      expect(removed, contains(last.id));
+      expect(a.byId(kept), isNotNull, reason: 'element 2 is untouched');
+      expect(a.constraints, isEmpty,
+          reason: 'a relationship to a component that is gone is not a '
+              'relationship — and the panel says how many went');
+    });
+
+    test('suppressing an element hides it rather than deleting it', () {
+      final a = withConstraintOnElement();
+      a.patterns.single.suppressed.add(3);
+      regenerateAsmPatterns(a);
+      final els = a.elementsOf('RectangularPattern1');
+      expect(els, hasLength(3), reason: 'still three, one of them dark');
+      expect(els.firstWhere((e) => e.patternElement == 3).visible, isFalse);
+      // ...and restoring it brings it back, with its own id.
+      a.patterns.single.suppressed.remove(3);
+      regenerateAsmPatterns(a);
+      expect(a.elementsOf('RectangularPattern1')
+          .firstWhere((e) => e.patternElement == 3)
+          .visible, isTrue);
+    });
+
+    test('deleting the pattern deletes its elements', () {
+      final a = withConstraintOnElement();
+      a.removePattern('RectangularPattern1');
+      expect(a.elementsOf('RectangularPattern1'), isEmpty);
+      expect(a.occurrences.map((o) => o.id), ['Bolt:1', 'Nut:1']);
+    });
+
+    test('deleting the SEED deletes the pattern with it', () {
+      final a = withConstraintOnElement();
+      a.remove(a.byId('Bolt:1')!);
+      expect(a.patterns, isEmpty);
+      expect(a.occurrences.map((o) => o.id), ['Nut:1']);
+    });
+
+    test('an orphaned element is swept up rather than left unplaceable', () {
+      final a = withConstraintOnElement();
+      a.patterns.clear(); // a hand-edited document
+      regenerateAsmPatterns(a);
+      expect(a.occurrences.map((o) => o.id), ['Bolt:1', 'Nut:1']);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  group('Mirror Component', () {
+    test('the copy is a mirrored occurrence of the SAME part', () {
+      final a = AssemblyModel('Gearbox')
+        ..occurrences.add(occ('Bracket:1', const Vec3(30, 0, 0),
+            grounded: true));
+      a.patterns.add(AsmPattern(
+        name: 'Mirror1',
+        mode: PatternKind.mirror,
+        sources: ['Bracket:1'],
+        refPlane: const AsmRef(kAssemblyOrigin,
+            AsmGeom.plane(Vec3.zero, Vec3(1, 0, 0)), 'YZ Plane'),
+      ));
+      regenerateAsmPatterns(a);
+      final m = a.elementsOf('Mirror1').single;
+      expect(m.offset.x, closeTo(-30, 1e-9));
+      expect(m.mirrored, isTrue);
+      expect(identical(m.part, a.occurrences.first.part), isTrue,
+          reason: 'rule 1 — no mirrored part document');
+      // Every point of the seed lands on its own reflection.
+      for (final l in const [Vec3(0, 0, 0), Vec3(5, -3, 2), Vec3(-8, 1, 9)]) {
+        final want = reflectWorld(
+            a.occurrences.first.toWorld(l), Vec3.zero, const Vec3(1, 0, 0));
+        expect((m.toWorld(l) - want).length, lessThan(1e-9));
+      }
+    });
+
+    test('the mirror plane is anchored on the FACE, not on the record point',
+        () {
+      // M244's trap, and for a mirror it is not cosmetic: the plane's position
+      // decides where the copy lands. facedBox's record point sits ON the
+      // plane but 250 mm to one side, exactly as OCCT's does; a mirror that
+      // used it would still be right, so this pins the case where it is NOT —
+      // an anchor that has to be projected back onto the plane.
+      final a = AssemblyModel('Gearbox')
+        ..occurrences.add(occ('Bracket:1', const Vec3(30, 0, 0),
+            grounded: true))
+        ..occurrences.add(occ('Wall:1', Vec3.zero, grounded: true));
+      a.patterns.add(AsmPattern(
+        name: 'Mirror1',
+        mode: PatternKind.mirror,
+        sources: ['Bracket:1'],
+        // The record point is 250 mm off along the plane; the anchor is on it.
+        refPlane: const AsmRef('Wall:1',
+            AsmGeom.plane(Vec3(0, 250, 0), Vec3(1, 0, 0)), 'Face',
+            anchor: Vec3(0, 0, 0)),
+      ));
+      regenerateAsmPatterns(a);
+      expect(a.elementsOf('Mirror1').single.offset.x, closeTo(-30, 1e-9));
+    });
+
+    test('mirroring a mirrored component gives back a right hand', () {
+      final a = AssemblyModel('Gearbox')
+        ..occurrences.add(occ('Bracket:1', const Vec3(30, 0, 0),
+            grounded: true)
+          ..reflect = const Vec3(0, 0, 1));
+      a.patterns.add(AsmPattern(
+        name: 'Mirror1',
+        mode: PatternKind.mirror,
+        sources: ['Bracket:1'],
+        refPlane: const AsmRef(kAssemblyOrigin,
+            AsmGeom.plane(Vec3.zero, Vec3(1, 0, 0)), 'YZ Plane'),
+      ));
+      regenerateAsmPatterns(a);
+      expect(a.elementsOf('Mirror1').single.mirrored, isFalse);
+    });
+
+    test('a mirrored element renders the right way out', () {
+      final a = AssemblyModel('Gearbox')
+        ..occurrences.add(occ('Bracket:1', const Vec3(30, 0, 0),
+            grounded: true));
+      a.patterns.add(AsmPattern(
+        name: 'Mirror1',
+        mode: PatternKind.mirror,
+        sources: ['Bracket:1'],
+        refPlane: const AsmRef(kAssemblyOrigin,
+            AsmGeom.plane(Vec3.zero, Vec3(1, 0, 0)), 'YZ Plane'),
+      ));
+      regenerateAsmPatterns(a);
+      final cam = frontCam();
+      final m = a.elementsOf('Mirror1').single;
+      final placed = placedComponents(a);
+      expect(placed, hasLength(2));
+      expect(pickOccurrence(a, cam, cam.project(m.toWorld(Vec3.zero)))?.id,
+          m.id);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  group('associative — bolts that follow a hole pattern', () {
+    /// A bracket whose part carries a four-hole rectangular pattern.
+    AssemblyModel bolted({int holes = 4, double step = 20}) {
+      final bracket = occ('Bracket:1', Vec3.zero, grounded: true);
+      bracket.part!.features.add(PatternFeature(
+        name: 'HolePattern1',
+        bodyName: 'Solid1',
+        mode: PatternKind.rectangular,
+        sources: const ['Hole1'],
+        dirA: AxisRef(0, 0, 0, 1, 0, 0),
+        countA: holes,
+        distanceA: step,
+        distributionA: PatternDistribution.spacing,
+      ));
+      final a = AssemblyModel('Gearbox')
+        ..occurrences.add(bracket)
+        ..occurrences.add(occ('Bolt:1', Vec3.zero, grounded: true));
+      a.patterns.add(AsmPattern(
+        name: 'RectangularPattern1',
+        mode: PatternKind.rectangular,
+        sources: ['Bolt:1'],
+        driver: ('Bracket:1', 'HolePattern1'),
+      ));
+      return a;
+    }
+
+    test('the bolts land on the holes', () {
+      final a = bolted();
+      regenerateAsmPatterns(a);
+      final xs = a
+          .elementsOf('RectangularPattern1')
+          .map((e) => e.offset.x)
+          .toList();
+      expect(xs, [closeTo(20, 1e-9), closeTo(40, 1e-9), closeTo(60, 1e-9)]);
+    });
+
+    test('changing the PART changes the assembly, with no edit here', () {
+      // The payoff of rule 1: M245 made o.part the one model for that
+      // document, so this is literally the part being edited in its own tab.
+      final a = bolted();
+      regenerateAsmPatterns(a);
+      expect(a.elementsOf('RectangularPattern1'), hasLength(3));
+      final hp = a.byId('Bracket:1')!.part!.features
+          .whereType<PatternFeature>()
+          .single;
+      hp.countA = 6;
+      regenerateAsmPatterns(a);
+      expect(a.elementsOf('RectangularPattern1'), hasLength(5),
+          reason: 'the bolts follow the holes because the link is live');
+    });
+
+    test('the layout is lifted out of the HOST component frame', () {
+      // The bolt is not the bracket, so the displacement has to be expressed
+      // in the assembly's frame rather than assumed to be at the bracket's
+      // origin. Turn the bracket and the row of bolts turns with it.
+      final a = bolted();
+      a.byId('Bracket:1')!.rot =
+          Quat.axisAngle(const Vec3(0, 0, 1), math.pi / 2);
+      regenerateAsmPatterns(a);
+      final e = a.elementsOf('RectangularPattern1').first;
+      expect(e.offset.y, closeTo(20, 1e-9));
+      expect(e.offset.x.abs(), lessThan(1e-9));
+    });
+
+    test('a driver that has gone is reported, not guessed at', () {
+      final a = bolted();
+      regenerateAsmPatterns(a);
+      a.byId('Bracket:1')!.part!.features.removeWhere(
+          (f) => f is PatternFeature);
+      regenerateAsmPatterns(a);
+      expect(a.patterns.single.error, isNotNull);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  group('the document', () {
+    test('a pattern and its elements survive a round trip', () {
+      final a = AssemblyModel('Gearbox')
+        ..occurrences.add(occ('Bolt:1', Vec3.zero, grounded: true));
+      a.patterns.add(AsmPattern(
+        name: 'RectangularPattern1',
+        mode: PatternKind.rectangular,
+        sources: ['Bolt:1'],
+        refDirA: const AsmRef(kAssemblyOrigin,
+            AsmGeom.axis(Vec3.zero, Vec3(1, 0, 0)), 'X Axis'),
+      )
+        ..countA = 3
+        ..distanceA = 25
+        ..suppressed.add(3));
+      regenerateAsmPatterns(a);
+      final b = AssemblyModel('Gearbox')..loadJson(a.toJson());
+      expect(b.patterns, hasLength(1));
+      final p = b.patterns.single;
+      expect(p.countA, 3);
+      expect(p.distanceA, closeTo(25, 1e-9));
+      expect(p.suppressed, contains(3));
+      expect(p.refDirA?.geom.dir.x, closeTo(1, 1e-9));
+      // The ELEMENTS come back too, under their own ids, because the
+      // relationships on them name those ids.
+      expect(b.elementsOf('RectangularPattern1'), hasLength(2));
+      expect(b.elementsOf('RectangularPattern1').first.patternElement, 2);
+    });
+
+    test('an assembly with no patterns writes what it wrote before', () {
+      final a = AssemblyModel('Gearbox')
+        ..occurrences.add(occ('Bolt:1', Vec3.zero));
+      expect(a.toJson().containsKey('patterns'), isFalse);
+      expect(
+          (a.toJson()['occurrences'] as List).first.containsKey('pat'), isFalse);
     });
   });
 }

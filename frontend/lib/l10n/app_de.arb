@@ -1021,6 +1021,31 @@
   "msgThatIsBaseBody": "Das ist der Basiskörper — einen anderen zum Kombinieren wählen.",
   "msgPickKeepThenCombine": "Erst den Körper wählen, der bleibt, dann die Körper, die hineingerechnet werden.",
   "msgSelectTargetBody": "Zielkörper wählen — in 3D oder im Browser antippen.",
+  "msgPatternNeedsComponent": "{kind} braucht eine Komponente zum Kopieren — zuerst eine platzieren.",
+  "@msgPatternNeedsComponent": {
+    "description": "M248 — die Anordnung im Baugruppen-Menüband, ohne platzierte Komponente.",
+    "placeholders": {
+      "kind": {
+        "type": "String"
+      }
+    }
+  },
+  "msgTapComponentToPattern": "Komponente antippen, die angeordnet werden soll.",
+  "@msgTapComponentToPattern": {
+    "description": "M248 — der Aufruf, wenn die Auswahl für die Ausgangskomponenten scharf ist."
+  },
+  "msgCannotPatternAnElement": "Ein Anordnungselement kann nicht angeordnet werden — die Ausgangskomponente wählen.",
+  "@msgCannotPatternAnElement": {
+    "description": "M248 — eine Anordnung ihrer eigenen Ausgabe wäre ein Zyklus."
+  },
+  "msgSelectComponentToCopy": "Komponente zum Kopieren wählen.",
+  "@msgSelectComponentToCopy": {
+    "description": "M248 — Kopieren wirkt auf die aktuelle Auswahl."
+  },
+  "msgCannotCopyAnElement": "Ein Anordnungselement kann nicht kopiert werden — die Ausgangskomponente kopieren oder die Anzahl ändern.",
+  "@msgCannotCopyAnElement": {
+    "description": "M248 — die Kopie wäre eine gewöhnliche Komponente, die nur wie ein Element aussieht."
+  },
   "msgPatternNeedsFeature": "{kind} braucht ein Element zum Kopieren — zuerst eines bauen.",
   "@msgPatternNeedsFeature": {
     "placeholders": {
@@ -2410,6 +2435,14 @@
   "valDistancePositive": "Abstand muss größer als 0 sein.",
   "valDistance2Positive": "Abstand 2 muss größer als 0 sein.",
   "valAngle0to90": "Der Winkel muss zwischen 0 und 90 Grad liegen.",
+  "valSelectOneComponent": "Mindestens eine Komponente zum Anordnen wählen.",
+  "@valSelectOneComponent": {
+    "description": "M248 — die Baugruppen-Anordnung ohne Ausgangskomponente."
+  },
+  "valDrivingFeatureGone": "Die treibende Element-Anordnung ist nicht mehr da.",
+  "@valDrivingFeatureGone": {
+    "description": "M248 — eine assoziative Anordnung, deren Bauteil-Anordnung gelöscht wurde."
+  },
   "valSelectOneFeature": "Mindestens ein Element zum Anordnen wählen.",
   "valSelectDirectionA": "Richtung oder Kurve für Richtung A wählen.",
   "valCountAAtLeastOne": "Die Anzahl in Richtung A muss mindestens 1 sein.",

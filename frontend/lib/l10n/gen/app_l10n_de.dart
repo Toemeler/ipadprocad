@@ -1137,6 +1137,26 @@ class AppL10nDe extends AppL10n {
       'Zielkörper wählen — in 3D oder im Browser antippen.';
 
   @override
+  String msgPatternNeedsComponent(String kind) {
+    return '$kind braucht eine Komponente zum Kopieren — zuerst eine platzieren.';
+  }
+
+  @override
+  String get msgTapComponentToPattern =>
+      'Komponente antippen, die angeordnet werden soll.';
+
+  @override
+  String get msgCannotPatternAnElement =>
+      'Ein Anordnungselement kann nicht angeordnet werden — die Ausgangskomponente wählen.';
+
+  @override
+  String get msgSelectComponentToCopy => 'Komponente zum Kopieren wählen.';
+
+  @override
+  String get msgCannotCopyAnElement =>
+      'Ein Anordnungselement kann nicht kopiert werden — die Ausgangskomponente kopieren oder die Anzahl ändern.';
+
+  @override
   String msgPatternNeedsFeature(String kind) {
     return '$kind braucht ein Element zum Kopieren — zuerst eines bauen.';
   }
@@ -3056,6 +3076,14 @@ class AppL10nDe extends AppL10n {
 
   @override
   String get valAngle0to90 => 'Der Winkel muss zwischen 0 und 90 Grad liegen.';
+
+  @override
+  String get valSelectOneComponent =>
+      'Mindestens eine Komponente zum Anordnen wählen.';
+
+  @override
+  String get valDrivingFeatureGone =>
+      'Die treibende Element-Anordnung ist nicht mehr da.';
 
   @override
   String get valSelectOneFeature =>

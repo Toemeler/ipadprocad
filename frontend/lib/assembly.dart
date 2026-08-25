@@ -46,6 +46,7 @@
 import 'dart:math' as math;
 
 import 'asm_constraints.dart';
+import 'asm_pattern.dart';
 import 'asm_work_features.dart';
 import 'doc_file.dart' show kAssemblyDocKind;
 import 'part_model.dart';
@@ -124,6 +125,28 @@ class AssemblyOccurrence {
   /// is used.
   Vec3? reflect;
 
+  /// M248 — the PATTERN that placed this occurrence, or null for one the user
+  /// placed themselves.
+  ///
+  /// The back-reference, and the only thing about a pattern element that is
+  /// not an ordinary component: it is what lets the pattern find its own work
+  /// again on the next regeneration, what nests the row under the pattern in
+  /// the browser, and what tells the solver this body is DRIVEN rather than
+  /// free. See asm_pattern.dart, section A.
+  String? patternOf;
+
+  /// Which of the pattern's seeds this is a copy of.
+  String? patternSeed;
+
+  /// Inventor's occurrence number within the pattern, counting the seed as 1.
+  ///
+  /// The element's IDENTITY, and stable on purpose: element 3 stays element 3
+  /// across an edit to the count, which is what keeps its id and therefore its
+  /// relationships. See asm_pattern.dart, section D.
+  int? patternElement;
+
+  bool get isPatternElement => patternOf != null;
+
   /// Inventor grounds the FIRST component of an assembly, so the assembly has
   /// something to be built against. A grounded occurrence cannot be dragged.
   bool grounded;
@@ -153,6 +176,9 @@ class AssemblyOccurrence {
     Vec3? offset,
     Quat? rot,
     this.reflect,
+    this.patternOf,
+    this.patternSeed,
+    this.patternElement,
     this.grounded = false,
     this.visible = true,
     this.part,
@@ -266,6 +292,13 @@ class AssemblyOccurrence {
         // so an assembly that has never seen Mirror Component writes exactly
         // the bytes it wrote before.
         if (reflect != null) 'mir': [reflect!.x, reflect!.y, reflect!.z],
+        // M248 — written only for a pattern ELEMENT, so an assembly that has
+        // never been patterned is byte-identical to one saved before patterns
+        // existed. Saved rather than re-derived on load because the id has to
+        // survive: it is what the element's relationships name.
+        if (patternOf != null) 'pat': patternOf,
+        if (patternSeed != null) 'patSeed': patternSeed,
+        if (patternElement != null) 'patEl': patternElement,
         'grounded': grounded,
         'visible': visible,
       };
@@ -282,6 +315,9 @@ class AssemblyOccurrence {
       offset: Vec3(n('x'), n('y'), n('z')),
       rot: Quat.fromJson(j['rot']),
       reflect: _reflectFrom(j['mir']),
+      patternOf: j['pat'] as String?,
+      patternSeed: j['patSeed'] as String?,
+      patternElement: (j['patEl'] as num?)?.toInt(),
       grounded: j['grounded'] == true,
       visible: j['visible'] != false,
     );
@@ -342,6 +378,38 @@ class AssemblyModel {
   final List<AsmWorkPlane> workPlanes = [];
   final List<AsmWorkAxis> workAxes = [];
   final List<AsmWorkPoint> workPoints = [];
+
+  /// M248 — the assembly's PATTERNS, in creation order.
+  ///
+  /// They hold no geometry: their elements are ordinary entries in
+  /// [occurrences], placed by [regenerateAsmPatterns] after every solve. See
+  /// asm_pattern.dart for why that is the shape, and why an element is driven
+  /// rather than solved.
+  final List<AsmPattern> patterns = [];
+
+  AsmPattern? patternNamed(String name) {
+    for (final p in patterns) {
+      if (p.name == name) return p;
+    }
+    return null;
+  }
+
+  /// The elements of [pattern], in element order — what the browser nests
+  /// under a pattern row.
+  List<AssemblyOccurrence> elementsOf(String pattern) => [
+        for (final o in occurrences)
+          if (o.patternOf == pattern) o
+      ]..sort((x, y) => (x.patternElement ?? 0).compareTo(y.patternElement ?? 0));
+
+  /// A fresh pattern name, counting the way every other feature does.
+  String nextPatternName(PatternKind mode) {
+    final base = patternTypeLabel(mode);
+    var n = 1;
+    while (patterns.any((p) => p.name == '$base$n')) {
+      n++;
+    }
+    return '$base$n';
+  }
 
   /// The next free work-feature `seq`, shared across all three lists so a
   /// plane, an axis and a point never collide on a browser row id.
@@ -441,6 +509,9 @@ class AssemblyModel {
       offset: o.offset,
       rot: o.rot,
       reflect: o.reflect,
+      patternOf: o.patternOf,
+      patternSeed: o.patternSeed,
+      patternElement: o.patternElement,
       grounded: o.grounded,
       visible: o.visible,
       part: o.part,
@@ -475,6 +546,11 @@ class AssemblyModel {
     // component last was. Anything built ON that plane goes too, which is why
     // this loops until nothing more falls.
     _dropWorkFeaturesTouching({o.id});
+    // M248 — a pattern whose last seed has gone cannot place anything, and a
+    // pattern input built on the departed component cannot be re-derived. Its
+    // elements go with it, through this same method, so their relationships
+    // are cleaned up on the ordinary path rather than a second one.
+    _dropPatternsTouching(o.id);
     if (selectedConstraint != null &&
         !constraints.contains(selectedConstraint)) {
       selectedConstraint = null;
@@ -515,6 +591,45 @@ class AssemblyModel {
     if (selectedConstraint != null &&
         !constraints.contains(selectedConstraint)) {
       selectedConstraint = null;
+    }
+  }
+
+  /// Drops every pattern left with no seed, or whose inputs named [gone].
+  ///
+  /// Recursive through [remove] rather than iterative, because removing a
+  /// pattern removes its elements and an element can itself be the seed of a
+  /// later pattern — which is refused when it is CREATED, but a document read
+  /// from disk has to survive one anyway.
+  void _dropPatternsTouching(String gone) {
+    for (final p in [...patterns]) {
+      final inputsGone = [p.refDirA, p.refDirB, p.refAxis, p.refPlane]
+          .any((r) => r != null && r.occurrence == gone);
+      final seedsLeft =
+          p.seeds.where((id) => id != gone && byId(id) != null).length;
+      final driverGone = p.driver != null && p.driver!.$1 == gone;
+      if (!inputsGone && !driverGone && seedsLeft > 0) {
+        p.sources.remove(gone);
+        continue;
+      }
+      patterns.remove(p);
+      for (final e in elementsOf(p.name)) {
+        remove(e);
+      }
+    }
+  }
+
+  /// M248 — deletes one pattern, and every element it placed.
+  ///
+  /// Inventor's own rule, and the reason a pattern element has no Delete of
+  /// its own: the elements belong to the pattern, so removing one of them is
+  /// SUPPRESSING it (see [AsmPattern.suppressed]) and removing all of them is
+  /// deleting the pattern.
+  void removePattern(String name) {
+    final p = patternNamed(name);
+    if (p == null) return;
+    patterns.remove(p);
+    for (final e in elementsOf(name)) {
+      remove(e);
     }
   }
 
@@ -559,6 +674,10 @@ class AssemblyModel {
           'workAxes': [for (final x in workAxes) x.toJson()],
         if (workPoints.isNotEmpty)
           'workPoints': [for (final p in workPoints) p.toJson()],
+        // M248 — same rule: an assembly with no patterns writes exactly the
+        // bytes it wrote before they existed.
+        if (patterns.isNotEmpty)
+          'patterns': [for (final p in patterns) p.toJson()],
       };
 
   /// Reads [j] into this model. Occurrences come back WITHOUT their geometry —
@@ -623,6 +742,17 @@ class AssemblyModel {
       final f = AsmWorkPoint.fromJson(p.cast<String, dynamic>());
       if (f != null) workPoints.add(f);
     }
+    patterns.clear();
+    for (final p in (j['patterns'] as List? ?? const [])) {
+      if (p is! Map) continue;
+      final f = AsmPattern.fromJson(p.cast<String, dynamic>());
+      // A pattern whose seeds are not in this document is dropped, for the
+      // reason a constraint is: there is nothing to place its elements from,
+      // and it can only have come from a file edited by hand.
+      if (f == null) continue;
+      if (!f.seeds.any((id) => byId(id) != null)) continue;
+      patterns.add(f);
+    }
     // A work feature whose component is not in this document is dropped for
     // the same reason a constraint is: there is nothing to re-derive it
     // against, and it can only have come from a file edited by hand.
@@ -648,6 +778,7 @@ class AssemblyModel {
     workPlanes.clear();
     workAxes.clear();
     workPoints.clear();
+    patterns.clear();
     selected = null;
     selectedConstraint = null;
   }
