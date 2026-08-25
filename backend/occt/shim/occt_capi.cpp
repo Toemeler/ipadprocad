@@ -109,6 +109,15 @@
 #include <Geom_Circle.hxx>
 /* v15: sweep, loft, coil */
 #include <BRepOffsetAPI_MakePipeShell.hxx>
+/* v27 (S15): the holed-sweep assembly — see assemble_holed_pipe. */
+#include <BRepBuilderAPI_Sewing.hxx>
+#include <BRepLib_MakeFace.hxx>
+#include <BRepTools_WireExplorer.hxx>
+#include <Geom_Plane.hxx>
+#include <ProjLib.hxx>
+#include <Precision.hxx>
+#include <TopoDS_Shell.hxx>
+#include <TopoDS_Solid.hxx>
 /* v24: a spine that is a CURVE where the caller sampled one */
 #include <GeomAPI_Interpolate.hxx>
 #include <TColgp_HArray1OfPnt.hxx>
@@ -202,7 +211,7 @@ extern "C" const char *occt_version(void)
         /* Kept in step with occt_shim_version() below. It had said "v21"
          * since v21 while the number went 22, 23 — a string nobody reads
          * against a number three releases ahead of it. */
-        std::snprintf(buf, sizeof(buf), "Prototype OCCT shim v26 (OCCT %s)",
+        std::snprintf(buf, sizeof(buf), "Prototype OCCT shim v27 (OCCT %s)",
                       OCC_VERSION_COMPLETE);
     }
     return buf;
@@ -274,7 +283,40 @@ extern "C" const char *occt_version(void)
  * Orientations 0 and 1 move; orientation 2 and occt_coil_profile do not, since
  * they were already passing True. Test for >= 26 if a holed sweep's volume has
  * to be right. */
-extern "C" int occt_shim_version(void) { return 26; }
+/* v27 (S15): a holed profile is ASSEMBLED, not subtracted.
+ *
+ * finish_pipe had removed every hole with a BRepAlgoAPI_Cut since v15. That
+ * boolean is cheap between two solids made of planes and ruinous between two
+ * made of general swept surfaces — 21 653.6 ms against 66.0 ms for the two
+ * sweeps that feed it (S14 §4.1) — which is why occt_sweep_profile_ex forced
+ * a holed profile back onto the v23 polyline spine, and why a holed profile
+ * kept v23's outright FAILURE at 1200 segments.
+ *
+ * It now sweeps each wire to its lateral shell, caps both ends with a planar
+ * face whose outer boundary is the outer sweep's end section and whose inner
+ * boundaries are the holes', sews the pieces and makes a solid. Measured
+ * (perf/findings/S15-holes.md §2): at 24 segments the two routes return THE
+ * SAME DOUBLE — 5 031.442237 on a polyline spine, 5 031.420889 on a smooth
+ * one, relative delta 0.000e+00, same face counts, both valid. At 1200
+ * segments the assembly builds in 7 952.7 ms and is valid, where the boolean
+ * route does not return a solid at all.
+ *
+ * Three things a caller learns by testing for >= 27:
+ *
+ *  1. a holed sweep builds at sizes where v26 did not;
+ *  2. OCCT_SWEEP_PATH_AUTO now SMOOTHS a holed path. The nloops > 1
+ *     restriction existed because of the boolean's cost. This is a BEHAVIOUR
+ *     CHANGE in the same direction v24 made for unholed profiles: a holed
+ *     sweep along a sampled arc comes back with a different face count and a
+ *     volume that differs in the sixth figure;
+ *  3. a hole that is NOT strictly inside the outer boundary, or that overlaps
+ *     another hole, still works — by the v26 boolean, unchanged, and AUTO
+ *     still forces POLY in that case so the fallback does not land on the
+ *     expensive spine. profile_holes_are_separate is what decides.
+ *
+ * Taken by the session that owns backend/occt/shim/**, per the v17 and
+ * v21/v23 collision notes above. */
+extern "C" int occt_shim_version(void) { return 27; }
 
 extern "C" const char *occt_last_error(void) { return g_err; }
 
@@ -3469,6 +3511,265 @@ extern "C" int occt_revolve_hits(const occt_shape *shape, double ax_px,
 
 /* ---- v15: sweep, loft, coil ---------------------------------------------- */
 
+/* ---- v27: is a hole really a hole? --------------------------------------
+ *
+ * THE ASSEMBLY BELOW IS A SPECIAL OPERATION WHERE THE BOOLEAN WAS A GENERAL
+ * ONE, and this is the whole of the difference. BRepAlgoAPI_Cut removes
+ * whatever the hole solid occupies — inside the body, outside it, straddling
+ * its wall, overlapping another hole. An assembled annulus assumes each hole
+ * is a genuine hole: strictly inside the outer boundary, and disjoint from
+ * every other hole. Nothing in placed_profile_wires has ever checked that,
+ * because nothing needed it to.
+ *
+ * So the assembly is gated on this test, and when it says no the caller runs
+ * the v26 boolean unchanged. A false "no" costs the old speed; a false "yes"
+ * would produce a WRONG SOLID, so every uncertainty in here resolves to no.
+ *
+ * It is done in the profile's own 2D coordinates, on xyb, before any wire
+ * exists. That is a choice with a reason: placed_profile_wires maps every loop
+ * through ONE mat34, and an affine placement preserves inside and outside, so
+ * containment in the sketch plane IS containment in 3D. Testing the placed
+ * wires instead would mean 3D distance queries over B-Rep edges to learn the
+ * same thing.
+ *
+ * SUFFICIENCY, because the guard is an argument and not just a filter:
+ *
+ *   If one vertex of hole H is inside outer O, and no point of H's boundary
+ *   comes within `margin` of O's boundary, then H is entirely inside O — a
+ *   connected closed curve that never touches O cannot have points on both
+ *   sides of it.
+ *
+ * The margin is what makes the polygon test honest about arcs. A bulged edge
+ * bows off its chord, so each loop is flattened at 2 degrees per sub-chord and
+ * the largest sagitta thrown away is carried alongside; the separation has to
+ * beat the sum of both loops' sagittae plus a scale-free term. */
+
+/* One profile loop flattened to a polygon, and the largest distance by which
+ * that polygon can be inside the true arc it replaces. */
+struct flat_loop {
+    std::vector<double> xy;
+    double sag = 0.0;
+};
+
+/* At most this many points per flattened loop. It is a BUDGET, not a refusal:
+ * 2 degrees per sub-chord is the target, and a loop that would blow the budget
+ * gets a coarser step instead — which makes its sagitta larger, which makes
+ * the clearance margin larger, which makes the guard MORE conservative. The
+ * error is carried, so coarsening cannot turn a "no" into a "yes".
+ *
+ * Without it the flattening is unbounded in a way that matters: a full circle
+ * is 180 sub-chords at 2 degrees, so a 1200-vertex loop of full-circle arcs
+ * would be 216 000 points and the pairwise test 4.7e10 pairs. Nothing a user
+ * draws looks like that; a file a user IMPORTS might. */
+static const int kFlatBudget = 8192;
+
+static void flatten_loop(const double *xyb, int npts, flat_loop &out)
+{
+    /* Pass 1: how much turning is there, and can 2 degrees pay for it? */
+    double turn = 0.0;
+    for (int i = 0; i < npts; ++i) {
+        const double b = xyb[3 * i + 2];
+        if (std::fabs(b) > 1e-12)
+            turn += std::fabs(4.0 * std::atan(b));
+    }
+    const int room = kFlatBudget > npts ? kFlatBudget - npts : 1;
+    double kStep = 2.0 * M_PI / 180.0; /* 2 degrees per sub-chord */
+    if (turn / kStep > room)
+        kStep = turn / room;
+    for (int i = 0; i < npts; ++i) {
+        const int j = (i + 1) % npts;
+        const double x0 = xyb[3 * i], y0 = xyb[3 * i + 1];
+        const double b = xyb[3 * i + 2];
+        const double x1 = xyb[3 * j], y1 = xyb[3 * j + 1];
+        out.xy.push_back(x0);
+        out.xy.push_back(y0);
+        if (std::fabs(b) <= 1e-12)
+            continue;
+        const double chord = std::hypot(x1 - x0, y1 - y0);
+        const double th = 4.0 * std::atan(b); /* DXF bulge = tan(theta/4) */
+        const double sh = std::sin(0.5 * th);
+        if (chord < 1e-12 || std::fabs(sh) < 1e-12)
+            continue;
+        const double r = chord / (2.0 * sh);
+        /* Centre: the chord midpoint, stepped ALONG the left normal by
+         * r cos(theta/2). A DXF bulge is tan(theta/4) and a positive one is a
+         * counter-clockwise arc; a body turning counter-clockwise keeps its
+         * centre of curvature on its LEFT, so the belly is on the RIGHT — and
+         * a right-hand belly on a counter-clockwise loop bulges OUTWARD, which
+         * is why arc_loop_signed_area ADDS the segment area for b > 0.
+         *
+         * THE SIGN HERE WAS WRONG ON FIRST WRITING, and it is worth saying how
+         * it was caught, because the failure mode is the one this whole guard
+         * exists to prevent. Stepping against the normal instead of along it
+         * puts the arc on the wrong side of its chord, so the flattened
+         * polygon traces a shape the profile does not have — and the guard
+         * then answers a question about the wrong region and can say "this
+         * hole is safely inside" about a hole that is not. It was found by a
+         * bulged fixture that reported "separate" for a hole outside the
+         * profile, and the arithmetic that settles it is one line: with
+         * p0 = (0,0), p1 = (10,0) and b = tan(22.5 deg), rotating p0 about the
+         * centre by theta must land ON p1, and it does so only for
+         * m + n*h — the other sign lands at (0, -10). */
+        const double ux = (x1 - x0) / chord, uy = (y1 - y0) / chord;
+        const double nx = -uy, ny = ux;
+        const double h = r * std::cos(0.5 * th);
+        const double cx = 0.5 * (x0 + x1) + nx * h;
+        const double cy = 0.5 * (y0 + y1) + ny * h;
+        int nsub = static_cast<int>(std::ceil(std::fabs(th) / kStep));
+        if (nsub < 1)
+            nsub = 1;
+        if (nsub > kFlatBudget)
+            nsub = kFlatBudget;
+        const double phi = th / nsub;
+        const double sag = std::fabs(r) * (1.0 - std::cos(0.5 * phi));
+        if (sag > out.sag)
+            out.sag = sag;
+        for (int k = 1; k < nsub; ++k) {
+            const double a = phi * k, c = std::cos(a), sn = std::sin(a);
+            const double dx = x0 - cx, dy = y0 - cy;
+            out.xy.push_back(cx + dx * c - dy * sn);
+            out.xy.push_back(cy + dx * sn + dy * c);
+        }
+    }
+}
+
+static double pt_seg_d2(double px, double py, double x0, double y0, double x1,
+                        double y1)
+{
+    const double dx = x1 - x0, dy = y1 - y0;
+    const double l2 = dx * dx + dy * dy;
+    double t = l2 > 0.0 ? ((px - x0) * dx + (py - y0) * dy) / l2 : 0.0;
+    if (t < 0.0)
+        t = 0.0;
+    else if (t > 1.0)
+        t = 1.0;
+    const double qx = x0 + t * dx - px, qy = y0 + t * dy - py;
+    return qx * qx + qy * qy;
+}
+
+/* Squared distance between two 2D segments; zero when they properly cross. */
+static double seg_seg_d2(const double *a, const double *b, const double *c,
+                         const double *d)
+{
+    const double d1 = (b[0]-a[0])*(c[1]-a[1]) - (b[1]-a[1])*(c[0]-a[0]);
+    const double d2 = (b[0]-a[0])*(d[1]-a[1]) - (b[1]-a[1])*(d[0]-a[0]);
+    const double d3 = (d[0]-c[0])*(a[1]-c[1]) - (d[1]-c[1])*(a[0]-c[0]);
+    const double d4 = (d[0]-c[0])*(b[1]-c[1]) - (d[1]-c[1])*(b[0]-c[0]);
+    if (((d1 > 0.0) != (d2 > 0.0)) && ((d3 > 0.0) != (d4 > 0.0)))
+        return 0.0;
+    double m = pt_seg_d2(c[0], c[1], a[0], a[1], b[0], b[1]);
+    const double m2 = pt_seg_d2(d[0], d[1], a[0], a[1], b[0], b[1]);
+    if (m2 < m) m = m2;
+    const double m3 = pt_seg_d2(a[0], a[1], c[0], c[1], d[0], d[1]);
+    if (m3 < m) m = m3;
+    const double m4 = pt_seg_d2(b[0], b[1], c[0], c[1], d[0], d[1]);
+    if (m4 < m) m = m4;
+    return m;
+}
+
+/* Crossing-number point-in-polygon. */
+static bool pt_in_poly(double px, double py, const std::vector<double> &p)
+{
+    const size_t n = p.size() / 2;
+    bool in = false;
+    for (size_t i = 0, j = n - 1; i < n; j = i++) {
+        const double yi = p[2 * i + 1], yj = p[2 * j + 1];
+        if ((yi > py) != (yj > py)) {
+            const double xi = p[2 * i], xj = p[2 * j];
+            if (px < xi + (py - yi) * (xj - xi) / (yj - yi))
+                in = !in;
+        }
+    }
+    return in;
+}
+
+/* True when the two closed polygons keep more than `margin` between their
+ * boundaries. The axis-aligned box rejection in the inner loop is what keeps
+ * this affordable: at 1200 x 1200 segments almost every pair is four
+ * comparisons and nothing else. */
+static bool loops_clear_of(const std::vector<double> &a,
+                           const std::vector<double> &b, double margin)
+{
+    const size_t na = a.size() / 2, nb = b.size() / 2;
+    const double m2 = margin * margin;
+    for (size_t i = 0, ip = na - 1; i < na; ip = i++) {
+        const double A[2] = {a[2 * ip], a[2 * ip + 1]};
+        const double B[2] = {a[2 * i], a[2 * i + 1]};
+        const double alo0 = A[0] < B[0] ? A[0] : B[0];
+        const double ahi0 = A[0] < B[0] ? B[0] : A[0];
+        const double alo1 = A[1] < B[1] ? A[1] : B[1];
+        const double ahi1 = A[1] < B[1] ? B[1] : A[1];
+        for (size_t j = 0, jp = nb - 1; j < nb; jp = j++) {
+            const double C[2] = {b[2 * jp], b[2 * jp + 1]};
+            const double D[2] = {b[2 * j], b[2 * j + 1]};
+            if ((C[0] < D[0] ? C[0] : D[0]) > ahi0 + margin) continue;
+            if ((C[0] < D[0] ? D[0] : C[0]) < alo0 - margin) continue;
+            if ((C[1] < D[1] ? C[1] : D[1]) > ahi1 + margin) continue;
+            if ((C[1] < D[1] ? D[1] : C[1]) < alo1 - margin) continue;
+            if (seg_seg_d2(A, B, C, D) <= m2)
+                return false;
+        }
+    }
+    return true;
+}
+
+/* The gate. True only when every hole is STRICTLY inside loop 0 and the holes
+ * are pairwise disjoint and un-nested — which is exactly when the assembly and
+ * the subtraction are the same solid. */
+static bool profile_holes_are_separate(const double *xyb,
+                                       const int *loop_counts, int nloops)
+{
+    if (!xyb || !loop_counts || nloops < 2)
+        return nloops >= 1;
+    std::vector<flat_loop> f(static_cast<size_t>(nloops));
+    const double *p = xyb;
+    double lo0 = 0, lo1 = 0, hi0 = 0, hi1 = 0;
+    bool first = true;
+    for (int l = 0; l < nloops; ++l) {
+        if (loop_counts[l] < 2)
+            return false;
+        flatten_loop(p, loop_counts[l], f[static_cast<size_t>(l)]);
+        p += 3 * loop_counts[l];
+        const std::vector<double> &v = f[static_cast<size_t>(l)].xy;
+        if (v.size() < 6)
+            return false; /* fewer than three points is not a boundary */
+        for (size_t i = 0; i < v.size(); i += 2) {
+            if (first) {
+                lo0 = hi0 = v[i];
+                lo1 = hi1 = v[i + 1];
+                first = false;
+            } else {
+                if (v[i] < lo0) lo0 = v[i];
+                if (v[i] > hi0) hi0 = v[i];
+                if (v[i + 1] < lo1) lo1 = v[i + 1];
+                if (v[i + 1] > hi1) hi1 = v[i + 1];
+            }
+        }
+    }
+    const double diag = std::hypot(hi0 - lo0, hi1 - lo1);
+    if (!(diag > 0.0))
+        return false;
+    for (int i = 1; i < nloops; ++i) {
+        const flat_loop &h = f[static_cast<size_t>(i)];
+        const double m = f[0].sag + h.sag + 1e-7 * diag;
+        if (!pt_in_poly(h.xy[0], h.xy[1], f[0].xy))
+            return false;
+        if (!loops_clear_of(f[0].xy, h.xy, m))
+            return false;
+        for (int j = i + 1; j < nloops; ++j) {
+            const flat_loop &g = f[static_cast<size_t>(j)];
+            const double m2 = h.sag + g.sag + 1e-7 * diag;
+            if (pt_in_poly(g.xy[0], g.xy[1], h.xy))
+                return false;
+            if (pt_in_poly(h.xy[0], h.xy[1], g.xy))
+                return false;
+            if (!loops_clear_of(h.xy, g.xy, m2))
+                return false;
+        }
+    }
+    return true;
+}
+
 /* The placed OUTER wire of a profile, plus its hole wires. Shared by sweep,
  * loft and coil, all of which need wires rather than the faces the extrude
  * path builds. Returns false and sets the error on failure. */
@@ -3755,6 +4056,214 @@ static bool spine_from_points(const double *pts, int n, const char *who,
                                 nullptr);
 }
 
+/* One hole's sweep, configured EXACTLY as the boolean branch configures it.
+ * Shared so that the two routes cannot drift apart: whatever is true of the
+ * hole's placement is true of it in both, and v26's repair — the hole is
+ * placed the way its body is placed — stays one piece of code. */
+static void configure_hole_pipe(BRepOffsetAPI_MakePipeShell &hm,
+                                const TopoDS_Wire &h, int orientation,
+                                double taper_deg, bool corrected_frenet,
+                                Standard_Boolean with_correction)
+{
+    hm.SetTransitionMode(BRepBuilderAPI_RightCorner);
+    if (orientation == 1)
+        hm.SetMode(gp_Ax2(gp::Origin(), gp_Dir(0, 0, 1), gp_Dir(1, 0, 0)));
+    else
+        hm.SetMode(corrected_frenet ? Standard_False : Standard_True);
+    if (taper_deg != 0.0) {
+        const double k = std::tan(taper_deg * M_PI / 180.0);
+        Handle(Law_Linear) law = new Law_Linear();
+        law->Set(0.0, 1.0, 1.0, 1.0 + k);
+        hm.SetLaw(h, law, Standard_False, with_correction);
+    } else {
+        hm.Add(h, Standard_False, with_correction);
+    }
+}
+
+/* The signed area of a wire projected onto a plane, from the wire's ordered
+ * vertices. Only its SIGN is used, and the sign of a polygon through points
+ * that lie ON the loop is the loop's own sense whatever the edges do between
+ * them. */
+static double wire_sense_on(const TopoDS_Wire &w, const gp_Pln &pl)
+{
+    double a = 0.0;
+    gp_Pnt2d prev, firstp;
+    bool have = false;
+    for (BRepTools_WireExplorer ex(w); ex.More(); ex.Next()) {
+        const gp_Pnt2d q =
+            ProjLib::Project(pl, BRep_Tool::Pnt(ex.CurrentVertex()));
+        if (have)
+            a += 0.5 * (prev.X() * q.Y() - q.X() * prev.Y());
+        else
+            firstp = q;
+        prev = q;
+        have = true;
+    }
+    if (have)
+        a += 0.5 * (prev.X() * firstp.Y() - firstp.X() * prev.Y());
+    return a;
+}
+
+/* A planar end cap: `outer` bounds it, every wire in `inner` is a hole in it.
+ *
+ * The plane comes from BRepLib_MakeFace(outer, onlyPlane), which is the same
+ * call BRepFill_PipeShell::MakeSolid's own PerformPlan makes for the unholed
+ * case — so an unholed cap built here is the cap OCCT would have built.
+ *
+ * Two things are CHECKED rather than assumed, and both resolve to "refuse":
+ *  - every vertex of every inner wire lies in that plane. See
+ *    perf/findings/S15-holes.md P12 for why no fixture reaches this; it is a
+ *    backstop against a future change breaking one of the four agreements
+ *    between the outer sweep and the holes' that make it true.
+ *  - each inner wire runs OPPOSITE to the face's own outer bound. That is
+ *    read off the projected signed areas rather than assumed from the fact
+ *    that arc_loop_wire builds every loop counter-clockwise, because a wire
+ *    that circulates the wrong way makes a face whose "hole" adds material
+ *    instead of removing it, and nothing downstream would notice. */
+static bool planar_cap(const TopoDS_Wire &outer,
+                       const std::vector<TopoDS_Wire> &inner, TopoDS_Face &out)
+{
+    BRepLib_MakeFace mf(outer, Standard_True);
+    if (!mf.IsDone())
+        return false;
+    TopoDS_Face f = mf.Face();
+    if (inner.empty()) {
+        out = f;
+        return true;
+    }
+    Handle(Geom_Plane) gp_pl =
+        Handle(Geom_Plane)::DownCast(BRep_Tool::Surface(f));
+    if (gp_pl.IsNull())
+        return false;
+    const gp_Pln pln = gp_pl->Pln();
+    Bnd_Box bb;
+    BRepBndLib::Add(outer, bb);
+    if (bb.IsVoid())
+        return false;
+    double x0, y0, z0, x1, y1, z1;
+    bb.Get(x0, y0, z0, x1, y1, z1);
+    const double tol =
+        1.0e-6 * gp_Pnt(x0, y0, z0).Distance(gp_Pnt(x1, y1, z1))
+        + Precision::Confusion();
+    const TopoDS_Wire ow = BRepTools::OuterWire(f);
+    if (ow.IsNull())
+        return false;
+    const double osense = wire_sense_on(ow, pln);
+    if (std::fabs(osense) < 1e-12)
+        return false;
+    BRep_Builder bb2;
+    for (const TopoDS_Wire &w : inner) {
+        for (TopExp_Explorer e(w, TopAbs_VERTEX); e.More(); e.Next())
+            if (pln.Distance(BRep_Tool::Pnt(TopoDS::Vertex(e.Current())))
+                > tol)
+                return false; /* not coplanar with the outer end section */
+        const double is = wire_sense_on(w, pln);
+        if (std::fabs(is) < 1e-12)
+            return false;
+        bb2.Add(f, (is * osense > 0.0) ? TopoDS::Wire(w.Reversed()) : w);
+    }
+    out = f;
+    return true;
+}
+
+/* v27 — the holed sweep, ASSEMBLED.
+ *
+ * `mk` has been Built and NOT made solid: BRepFill_PipeShell::MakeSolid caps
+ * the shell in place and turns FirstShape()/LastShape() from the end WIRES
+ * into the end FACES, so the wires this needs are only available before it.
+ *
+ * Returns false for anything it does not recognise, and the caller then runs
+ * the v26 boolean. Every check below is a reason to fall back, never a reason
+ * to fail the sweep. */
+static bool assemble_holed_pipe(BRepOffsetAPI_MakePipeShell &mk,
+                                const std::vector<TopoDS_Wire> &holes,
+                                const TopoDS_Wire &spine, int orientation,
+                                double taper_deg, bool corrected_frenet,
+                                Standard_Boolean with_correction,
+                                TopoDS_Shape &out)
+{
+    const TopoDS_Shape lat0 = mk.Shape();
+    const TopoDS_Shape a0 = mk.FirstShape(), a1 = mk.LastShape();
+    if (lat0.IsNull() || a0.IsNull() || a1.IsNull()
+        || a0.ShapeType() != TopAbs_WIRE || a1.ShapeType() != TopAbs_WIRE
+        || a0.IsSame(a1))
+        return false; /* IsSame means a closed spine: one end, not two */
+
+    std::vector<TopoDS_Shape> lat;
+    std::vector<TopoDS_Wire> w0, w1;
+    lat.push_back(lat0);
+    for (const TopoDS_Wire &h : holes) {
+        BRepOffsetAPI_MakePipeShell hm(spine);
+        configure_hole_pipe(hm, h, orientation, taper_deg, corrected_frenet,
+                            with_correction);
+        hm.Build();
+        if (!hm.IsDone())
+            return false;
+        const TopoDS_Shape hl = hm.Shape();
+        const TopoDS_Shape h0 = hm.FirstShape(), h1 = hm.LastShape();
+        if (hl.IsNull() || h0.IsNull() || h1.IsNull()
+            || h0.ShapeType() != TopAbs_WIRE || h1.ShapeType() != TopAbs_WIRE)
+            return false;
+        lat.push_back(hl);
+        w0.push_back(TopoDS::Wire(h0));
+        w1.push_back(TopoDS::Wire(h1));
+    }
+
+    TopoDS_Face c0, c1;
+    if (!planar_cap(TopoDS::Wire(a0), w0, c0)
+        || !planar_cap(TopoDS::Wire(a1), w1, c1))
+        return false;
+
+    /* Sewing rather than a hand-built shell, deliberately. The caps' outer
+     * wires ARE the lateral shells' free boundaries — the same TShapes — so
+     * there is little for it to match, and in exchange it settles the face
+     * orientations (the hole's shell has to face INTO the hole) and reports
+     * NbFreeEdges(), which is the closed-shell test this needs anyway. */
+    BRepBuilderAPI_Sewing sew(Precision::Confusion());
+    int want = 2;
+    for (const TopoDS_Shape &s : lat) {
+        sew.Add(s);
+        for (TopExp_Explorer e(s, TopAbs_FACE); e.More(); e.Next())
+            ++want;
+    }
+    sew.Add(c0);
+    sew.Add(c1);
+    sew.Perform();
+    const TopoDS_Shape sewn = sew.SewedShape();
+    if (sewn.IsNull() || sew.NbFreeEdges() != 0 || sew.NbMultipleEdges() != 0)
+        return false;
+
+    int nshell = 0, nface = 0;
+    TopoDS_Shell shell;
+    for (TopExp_Explorer e(sewn, TopAbs_SHELL); e.More(); e.Next()) {
+        shell = TopoDS::Shell(e.Current());
+        ++nshell;
+    }
+    for (TopExp_Explorer e(sewn, TopAbs_FACE); e.More(); e.Next())
+        ++nface;
+    if (nshell != 1 || nface != want)
+        return false;
+
+    /* Global sense, exactly as BRepFill_PipeShell::MakeSolid settles it. */
+    TopoDS_Solid solid;
+    BRep_Builder bld;
+    bld.MakeSolid(solid);
+    bld.Add(solid, shell);
+    BRepClass3d_SolidClassifier sc(solid);
+    sc.PerformInfinitePoint(Precision::Confusion());
+    if (sc.State() == TopAbs_IN) {
+        TopoDS_Solid flipped;
+        bld.MakeSolid(flipped);
+        bld.Add(flipped, TopoDS::Shell(shell.Reversed()));
+        solid = flipped;
+    }
+    solid.Closed(Standard_True);
+    if (!has_solid_material(solid))
+        return false;
+    out = solid;
+    return true;
+}
+
 /* Runs a MakePipeShell that has already been given its mode and profile, and
  * returns the solid. Shared by sweep and coil. */
 static occt_shape *finish_pipe(BRepOffsetAPI_MakePipeShell &mk,
@@ -3762,82 +4271,105 @@ static occt_shape *finish_pipe(BRepOffsetAPI_MakePipeShell &mk,
                                const TopoDS_Wire &spine, int orientation,
                                double taper_deg, const char *who,
                                bool corrected_frenet,
-                               Standard_Boolean with_correction)
+                               Standard_Boolean with_correction,
+                               bool holes_are_separate)
 {
     mk.Build();
     if (!mk.IsDone()) {
         set_err(who, "the sweep failed (path too tight for the section?)");
         return nullptr;
     }
-    if (!mk.MakeSolid()) {
-        set_err(who, "the swept surface could not be closed into a solid");
-        return nullptr;
-    }
-    TopoDS_Shape body = mk.Shape();
-    if (!has_solid_material(body)) {
-        set_err(who, "the sweep produced no material");
-        return nullptr;
-    }
-    /* Holes are swept separately and cut, for the same reason the extrude and
-     * revolve paths do it: a multi-wire section is not reliable here. */
-    for (const TopoDS_Wire &h : holes) {
-        BRepOffsetAPI_MakePipeShell hm(spine);
-        hm.SetTransitionMode(BRepBuilderAPI_RightCorner);
-        /* v24: the hole is swept along the SAME spine wire, so it inherits the
-         * smoothing for free — but it must inherit the TRIHEDRON too, or the
-         * hole spirals through a body that does not. The caller says which,
-         * rather than this function guessing from the spine: the coil's spine
-         * has always been a curve and its holes have always been Frenet, and a
-         * guess here would change that silently. */
-        /* v26, and this is the half the first measurement of the fix
-         * uncovered: `orientation` has been a parameter of this function since
-         * v15 and its first line threw it away with `(void)orientation`. So a
-         * hole was swept with a Frenet trihedron even when its body was swept
-         * with a fixed one, and repairing WithCorrection alone left
-         * orientation 1 at +0.17 % instead of -3.17 %. Both are the same
-         * defect — the hole is not placed the way its body is placed — and
-         * both parameters of that placement now come from the body. */
-        if (orientation == 1)
-            hm.SetMode(gp_Ax2(gp::Origin(), gp_Dir(0, 0, 1), gp_Dir(1, 0, 0)));
-        else
-            hm.SetMode(corrected_frenet ? Standard_False : Standard_True);
-        /* `with_correction` is the CALLER'S, not a hard-coded
-         * Standard_True. It had been True here since v15 while
-         * occt_sweep_profile added the OUTER wire with the caller's own
-         * setting — Standard_False for orientations 0 and 1 — so the two wires
-         * of one solid were placed against different frames and the hole did
-         * not sit where the body was.
-         *
-         * The measurement that pins it needs no analytic model: a tube's
-         * volume must be the difference of the two single-loop sweeps that
-         * make it. On a 24-segment r=6 ring with an r=3 hole over the arc
-         * path, outer 6 708.589649 minus hole 1 677.147412 is 5 031.442237,
-         * and the tube came out 4 871.741766 — 3.17 % short.
-         *
-         * The control is already in the code: ORIENTATION 2 passes
-         * Standard_True, which is what this line hard-coded, and its tube is
-         * exact to every digit. So is occt_coil_profile's, which also passes
-         * True. Threading the caller's value through leaves both of those
-         * untouched and repairs the two that disagreed. */
-        if (taper_deg != 0.0) {
-            const double k = std::tan(taper_deg * M_PI / 180.0);
-            Handle(Law_Linear) law = new Law_Linear();
-            law->Set(0.0, 1.0, 1.0, 1.0 + k);
-            hm.SetLaw(h, law, Standard_False, with_correction);
-        } else {
-            hm.Add(h, Standard_False, with_correction);
-        }
-        hm.Build();
-        if (!hm.IsDone() || !hm.MakeSolid()) {
-            set_err(who, "sweeping a hole failed");
+
+    /* v27: assemble the annulus when every hole is really a hole, and fall
+     * back to v26's subtraction when it is not. `mk` must NOT be made solid
+     * before the attempt — MakeSolid caps the shell in place and turns the end
+     * WIRES the assembly needs into the end FACES. */
+    TopoDS_Shape body;
+    bool assembled = false;
+    if (!holes.empty() && holes_are_separate)
+        assembled = assemble_holed_pipe(mk, holes, spine, orientation,
+                                        taper_deg, corrected_frenet,
+                                        with_correction, body);
+
+    if (!assembled) {
+        if (!mk.MakeSolid()) {
+            set_err(who, "the swept surface could not be closed into a solid");
             return nullptr;
         }
-        BRepAlgoAPI_Cut cut(body, hm.Shape());
-        if (!cut.IsDone() || !has_solid_material(cut.Shape())) {
-            set_err(who, "cutting a hole out of the sweep failed");
+        body = mk.Shape();
+        if (!has_solid_material(body)) {
+            set_err(who, "the sweep produced no material");
             return nullptr;
         }
-        body = cut.Shape();
+        /* Holes are swept separately and cut, for the same reason the extrude and
+         * revolve paths do it: a multi-wire section is not reliable here.
+         *
+         * v27: this is now the FALLBACK, taken when the assembly above declined —
+         * a hole that pokes outside the outer boundary, two holes that overlap or
+         * nest, an end section that is not planar, a sew that did not close. It is
+         * the v26 code unchanged, deliberately: the claim "the fallback produces
+         * what the boolean produced" is only as good as the fallback BEING the
+         * boolean. The holes are swept a second time here, which costs one sweep
+         * per hole on a path that was already going to pay for a boolean. */
+        for (const TopoDS_Wire &h : holes) {
+            BRepOffsetAPI_MakePipeShell hm(spine);
+            hm.SetTransitionMode(BRepBuilderAPI_RightCorner);
+            /* v24: the hole is swept along the SAME spine wire, so it inherits the
+             * smoothing for free — but it must inherit the TRIHEDRON too, or the
+             * hole spirals through a body that does not. The caller says which,
+             * rather than this function guessing from the spine: the coil's spine
+             * has always been a curve and its holes have always been Frenet, and a
+             * guess here would change that silently. */
+            /* v26, and this is the half the first measurement of the fix
+             * uncovered: `orientation` has been a parameter of this function since
+             * v15 and its first line threw it away with `(void)orientation`. So a
+             * hole was swept with a Frenet trihedron even when its body was swept
+             * with a fixed one, and repairing WithCorrection alone left
+             * orientation 1 at +0.17 % instead of -3.17 %. Both are the same
+             * defect — the hole is not placed the way its body is placed — and
+             * both parameters of that placement now come from the body. */
+            if (orientation == 1)
+                hm.SetMode(gp_Ax2(gp::Origin(), gp_Dir(0, 0, 1), gp_Dir(1, 0, 0)));
+            else
+                hm.SetMode(corrected_frenet ? Standard_False : Standard_True);
+            /* `with_correction` is the CALLER'S, not a hard-coded
+             * Standard_True. It had been True here since v15 while
+             * occt_sweep_profile added the OUTER wire with the caller's own
+             * setting — Standard_False for orientations 0 and 1 — so the two wires
+             * of one solid were placed against different frames and the hole did
+             * not sit where the body was.
+             *
+             * The measurement that pins it needs no analytic model: a tube's
+             * volume must be the difference of the two single-loop sweeps that
+             * make it. On a 24-segment r=6 ring with an r=3 hole over the arc
+             * path, outer 6 708.589649 minus hole 1 677.147412 is 5 031.442237,
+             * and the tube came out 4 871.741766 — 3.17 % short.
+             *
+             * The control is already in the code: ORIENTATION 2 passes
+             * Standard_True, which is what this line hard-coded, and its tube is
+             * exact to every digit. So is occt_coil_profile's, which also passes
+             * True. Threading the caller's value through leaves both of those
+             * untouched and repairs the two that disagreed. */
+            if (taper_deg != 0.0) {
+                const double k = std::tan(taper_deg * M_PI / 180.0);
+                Handle(Law_Linear) law = new Law_Linear();
+                law->Set(0.0, 1.0, 1.0, 1.0 + k);
+                hm.SetLaw(h, law, Standard_False, with_correction);
+            } else {
+                hm.Add(h, Standard_False, with_correction);
+            }
+            hm.Build();
+            if (!hm.IsDone() || !hm.MakeSolid()) {
+                set_err(who, "sweeping a hole failed");
+                return nullptr;
+            }
+            BRepAlgoAPI_Cut cut(body, hm.Shape());
+            if (!cut.IsDone() || !has_solid_material(cut.Shape())) {
+                set_err(who, "cutting a hole out of the sweep failed");
+                return nullptr;
+            }
+            body = cut.Shape();
+        }
     }
     ShapeUpgrade_UnifySameDomain uni(body, Standard_True, Standard_True,
                                      Standard_False);
@@ -3868,29 +4400,37 @@ extern "C" occt_shape *occt_sweep_profile_ex(const double *xyb,
     if (!placed_profile_wires(xyb, loop_counts, nloops, mat34,
                               "occt_sweep_profile", outer, holes))
         return nullptr;
-    /* A HOLE COSTS MORE THAN THE CORNERS SAVE, so AUTO does not smooth one.
+    /* v27: A HOLE NO LONGER COSTS MORE THAN THE CORNERS SAVE — usually.
      *
-     * finish_pipe sweeps every hole separately and CUTS it out of the body.
-     * On a polyline spine both operands are made of planes and that boolean is
-     * cheap; on a smoothed spine both are made of general swept surfaces, and
-     * a plane/plane intersection becomes a surface/surface one. Measured on a
-     * 24-segment ring with an r=3 hole over 16 spans: the two sweeps take
-     * 36.5 ms and 29.5 ms, and the cut between them takes 21 653.6 ms — 99.7 %
-     * of the call, against 258.7 ms for the WHOLE v23 operation. Smoothing
-     * would make a holed sweep about 80x slower, which is not a trade this
-     * session gets to make on the user's behalf.
+     * v24's reason for forcing a holed profile back onto the polyline spine is
+     * quoted here because it is still exactly right about the boolean: on a
+     * polyline spine the cut is between two solids made of planes and it costs
+     * 85.4 ms; on a smoothed spine it is between two made of general swept
+     * surfaces and it costs 21 653.6 ms — 99.7 % of the call, against 258.7 ms
+     * for the whole v23 operation (S14 §4.1). So a holed profile kept v23's
+     * spine, and with it v23's outright FAILURE at 1200 segments.
      *
-     * So a holed profile keeps the v23 spine exactly, which also means a holed
-     * profile keeps v23's failure at 1200 segments. That is the half of this
-     * finding that is NOT fixed, it is stated as such in
-     * perf/findings/S14-sweep.md §6.1, and the way out is to stop cutting
-     * holes out of sweeps rather than to smooth less — which is a bigger
-     * change than this one and is the integrator's to schedule.
+     * finish_pipe no longer cuts. It assembles, at 7 952.7 ms for a
+     * 1200-segment holed profile that the boolean route does not build at all
+     * (perf/findings/S15-holes.md §2.2). The restriction's reason is gone with
+     * the boolean, so the restriction goes.
      *
-     * OCCT_SWEEP_PATH_SMOOTH is deliberately NOT restricted: it is an explicit
-     * request from a caller who has decided for itself. */
+     * It goes ONLY where the assembly can run. When a hole is not strictly
+     * inside the outer boundary, or two holes overlap, finish_pipe falls back
+     * to the v26 boolean — and that fallback must not land on the spine that
+     * makes the boolean 80x slower. So the guard decides the spine too, and
+     * AUTO keeps v24's behaviour exactly in the case v24's arithmetic was
+     * about.
+     *
+     * OCCT_SWEEP_PATH_SMOOTH is still deliberately NOT restricted: it is an
+     * explicit request from a caller who has decided for itself, and a caller
+     * that declares SMOOTH for a poking hole gets the slow boolean it asked
+     * for rather than a silently different spine. */
+    const bool holes_are_separate =
+        profile_holes_are_separate(xyb, loop_counts, nloops);
     const int effective_mode =
-        (path_mode == OCCT_SWEEP_PATH_AUTO && nloops > 1)
+        (path_mode == OCCT_SWEEP_PATH_AUTO && nloops > 1
+         && !holes_are_separate)
             ? OCCT_SWEEP_PATH_POLY
             : path_mode;
     bool smoothed = false;
@@ -3964,7 +4504,8 @@ extern "C" occt_shape *occt_sweep_profile_ex(const double *xyb,
         mk.Add(outer, Standard_False, correct);
     }
     return finish_pipe(mk, holes, spine, orientation, taper_deg,
-                       "occt_sweep_profile", smoothed, correct);
+                       "occt_sweep_profile", smoothed, correct,
+                       holes_are_separate);
     OCCT_CATCH("occt_sweep_profile", nullptr)
 }
 
@@ -4136,7 +4677,8 @@ extern "C" occt_shape *occt_coil_profile(const double *xyb,
      * up — which is why the coil has never had the defect v26 repairs in the
      * sweep. */
     return finish_pipe(mk, holes, spine, 0, taper_deg, "occt_coil_profile",
-                       false, Standard_True);
+                       false, Standard_True,
+                       profile_holes_are_separate(xyb, loop_counts, nloops));
     OCCT_CATCH("occt_coil_profile", nullptr)
 }
 

@@ -3545,3 +3545,99 @@ observations, and it belongs to whoever owns `frontend/lib/perf_scenarios*.dart`
 — deliberately frozen so captures stay comparable. Until then the gate is honest
 about what it cannot resolve rather than guessing, and a low-n span that moves
 by more than half a millisecond still fails.
+
+---
+
+## 2026-08-24 — S15 — a holed profile builds now; and a taper defect that is nobody's yet
+
+**Needs:** integrator, for the second half.
+
+`perf/findings/S15-holes.md`. Branch `claude/s15-holed-profile-sweep-cus40t`,
+cut from `claude/perf-opt2` at `1b0675c`. Owns `backend/occt/shim/**`,
+`backend/bench/**`, `backend/occt/tests/**` and its own findings file.
+
+### **`occt_shim_version()` is now 27.** Taken here and nowhere else.
+
+Per the v17 and v21/v23 collision notes in the shim's own header, taken by the
+session that owns `backend/occt/shim/**`. A caller that tests for >= 27 learns
+three things, and the second is a **behaviour change**:
+
+1. a holed profile is ASSEMBLED (two lateral shells plus two planar caps, sewn)
+   rather than subtracted, whenever every hole is strictly inside the outer
+   boundary and the holes are pairwise disjoint;
+2. **`OCCT_SWEEP_PATH_AUTO` now smooths a holed path.** The `nloops > 1`
+   restriction existed because of the boolean's cost. A holed sweep along a
+   sampled arc therefore comes back with a *different face count and a volume
+   that differs in the sixth figure* — the same change v24 made for unholed
+   profiles, in the same direction, for the same reason. **Routed, not merged.**
+3. a hole that is not strictly inside, or that overlaps another hole, still
+   works — by the v26 boolean, unchanged, and AUTO still forces POLY there so
+   the fallback never lands on the spine that makes the boolean 80× slower.
+
+### S14's §12 is closed, and its own uncertainty label was right
+
+S14 §14.3 item 3 said "I am reasonably confident the stall is in verification
+rather than construction, and that confidence is an inference from where a
+timer sits." **It was neither.** I could not reproduce a stall at all: the whole
+1200-segment operation — two sweeps, two caps, sew, unify, volume AND validity
+— is 33.5 s here, ~11.7 s scaled to S14's machine, of which construction is
+8.0 s. The label is what made that worth an hour.
+
+S14 §12.3 risk 2 / §14.3 item 4 (containment) is answered by a guard with its
+own derivation, its own margin arithmetic and four fixtures. §12.3's fourth
+open item — whether a non-coplanar hole end section is even constructible — is
+answered "no, and here is why", with a runtime check kept as a backstop anyway.
+
+Measured, real OCCT 7.9.3: **1200-segment ring, r=3 hole, 16-span sampled arc —
+2 402 faces, valid, 4.24e-6 from the analytic annulus, built in 7 952.7 ms**,
+where v26 returns nothing after 490 407 ms with `BRep_API: command not done`.
+
+### The half that is NOT mine: a tapered sweep across a mitered joint is invalid
+
+Found while testing something else, and it has nothing to do with holes.
+Measured on the **single-loop** sweep, against a v26 shim built from this
+branch's parent commit, in the same run, every digit identical in both:
+
+| fixture | result |
+| --- | --- |
+| 24-gon r=6, 8-span polyline arc, taper 5° | 10 476.381185581 **INVALID** |
+| the same, taper 0 | 6 708.589649052 valid |
+| the same, taper 5°, smoothed spine | 7 312.043216529 valid |
+| 10×10 square, **drawn 90° L path**, taper 5°, plain AUTO | 8 555.054342 **INVALID** |
+| the same, taper 0 | 7 000.000000 valid |
+
+A one-edge spine is fine. A taper across a miter is not. **The last row is the
+one that matters**: a swept bar with a draft angle around a drawn corner, under
+plain AUTO, is a shape a user draws — and the app would accept and draw the
+result. Characterised, not diagnosed; I do not know whether the shell
+self-intersects at the miter, whether the caps are wrong, or whether
+`Law_Linear` and `BRepFill_Sweep::PerformCorner` simply do not compose.
+
+**Not fixed**, per the standing rule: it is a second defect in a second
+mechanism and it deserves its own pre-registration rather than being folded
+into a commit about something else. Smoke `[39b]` records it and asserts what
+can honestly be asserted instead — the tube equals the boolean exactly, and it
+is valid *exactly when the unholed sweep it is made from is*.
+
+### Lane C had no holed sweep scenario at all
+
+`sweep.holed` is added (`backend/bench/**` is mine this session). That gap is
+how a holed profile stayed on the v23 mitered spine, and stayed failing at 1200
+segments, through v24, v25 and v26 without the per-push gate noticing. It fits
+k = 1.143 [1.061, 1.226] R² 0.9987 against `sweep.segments`' 1.194 and
+`sweep.legacy`'s 1.914, costs ~780 ms a run, and is capped by
+`--sweep-holed-max` (default 256, which the default 32/64/128 sizes never
+reach). `perf/baseline.json` is untouched.
+
+### Two notes for whoever runs the suite next
+
+**`flutter test` passed 2 368 three times in a row here, with full logs kept
+each time** — S14's standing note asked for that, and there is nothing to
+report against it this session. The Flutter version matters, though: the first
+one I installed (3.35.5) resolved `characters` and `intl` **downwards** and
+rewrote `pubspec.lock`. Reverted, re-installed **3.47.1**, and re-ran
+everything. If your lock file moves, check your SDK before you check your code.
+
+**`HARNESS: NOT VALIDATED` on `edgeInfo1` again**, on code v27 does not touch —
+the run-to-run instrument variance S14 §5.4 measured at a spread of 0.118
+against a device interval 0.040 wide. `LANE C: PASS`.
