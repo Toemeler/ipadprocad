@@ -4050,3 +4050,125 @@ Not verified: `flutter analyze` and `flutter test`, no Flutter SDK in this
 container — the same wall S6, S12 and two earlier integrator entries hit, stated
 rather than assumed. And I did not re-check the assembly-span argument of
 Correction 1 against M248's five commits; it is flagged, not closed.
+
+---
+
+## 2026-08-25 — INTEGRATOR — what arm B will actually measure, pre-registered; and S18 is the fourth collision
+
+**Needs:** the owner, for the S18 merge decision. The rest is pre-registration
+and is written down BEFORE the capture on purpose.
+
+Two sessions are briefed (`S19-BRIEF-validity.md`, `S20-BRIEF-dart-trivial.md`).
+This entry is the part that is not a session's.
+
+### S18 is unmerged, and it is the FOURTH identifier collision
+
+`claude/s18-corners-taper-j2cqqo` is complete and is **not** on `perf-opt2` or
+`main`. It was briefed against `main` at `2de4e97` — one commit before S15's and
+S17's work landed at `2f2a308` — noticed the discrepancy itself, and recorded it
+as its own §0 rather than working around it quietly. That was the right call and
+it is why this is cheap to fix.
+
+But it took **v27**, because 27 was the next free number *in the tree it could
+see*:
+
+| | |
+| --- | --- |
+| S18's branch point `2de4e97` | `occt_shim_version()` → **26** |
+| S18's tip | → **27** |
+| `perf-opt2` / `main` tip `2f2a308` | → **28** (v27 is S15's holed assembly, v28 is S17's three repairs) |
+
+So this is the **v21 case exactly**: two lineages, same number, different ABI.
+The rule the shim already carries applies — *"a version that means different
+things in two binaries is worse than a gap in the sequence"* — and the merged
+surface is strictly larger than either side, so **S18's work takes v29 at
+merge.** Recorded here before the merge rather than after, which is the one
+thing the previous three collisions did not get.
+
+Scenario numbers did **not** collide: `[39]` S15, `[40]` S16, `[41]` S17,
+`[42]` S18. S18 explicitly declined to back-fill the `[39]`–`[41]` gap it saw,
+on the grounds that closing a gap is how the next collision starts. That is the
+right instinct and it is now the rule.
+
+**Next free, and both are handed out with the briefs rather than read off the
+file:** shim **v30**, scenario **`[43]`**.
+
+**The decision that is the owner's, not mine:** S18 §8.2. Its v27 makes a
+tapered sweep across a drawn corner return **NULL** where it used to return a
+solid. The solid was self-intersecting and OCCT-invalid, so no call site can
+have depended on it being *right* — but a call site can certainly have depended
+on it being *non-NULL*. S18 states its own uncertainty about this first in its
+§7 and does not hide it: it has not seen the bad solid rendered, and at a small
+taper across a shallow joint the refusal may be more disruptive than the defect.
+
+### What arm B will measure, derived before the capture
+
+§18.7 and §19.4 both describe the open sweep item as *"512 segments on a
+3-corner path is 79 s on device — those joints are geometry somebody drew, and
+mitering them is correct."* **The second half of that sentence is wrong about
+this fixture**, and it matters for how arm B gets read.
+
+The device fixture is not drawn. `perf_scenarios_profile.dart:399`:
+
+```dart
+occt.sweepProfile([arcRing(segments, 6)], identityMat34(), arcPath(spans + 1, 60))
+```
+
+`arcPath` (`perf_scenarios_kernel.dart:97`) samples a parametric quarter-turn at
+`spans + 1` points. It is a **sampler**, not a vertex anybody drew — but a
+*coarse* one, and it is not `sketchCurve`, which is the sampler the shim's
+threshold was derived from.
+
+`kSampledJointDeg = 360/64 = 5.625°` (`occt_capi.cpp:4076`) is derived from
+`sketchCurve` handing every arc to `sampleEntity(arcSamples: 64)`, so a joint
+above 5.625° "CANNOT have come from the sampler: it is a vertex somebody drew".
+Sound for `sketchCurve`. `arcPath` at 5 points is a different sampler and lands
+on the wrong side of it.
+
+Computed from the fixture, against `AUTO`'s threshold:
+
+| spans | joints | max joint | AUTO does | round two (v23) |
+| ---: | ---: | ---: | --- | ---: |
+| 1 | 0 | — | nothing to miter | 94 ms |
+| **4** | 3 | **9.4905°** | **MITERS** — above threshold | **79 306 ms** |
+| 16 | 15 | 2.3962° | **SMOOTHS** | 132 093 ms |
+| 64 | 63 | 0.5994° | **SMOOTHS** | 69 501 ms, **FAILED** |
+
+**Pre-registered prediction for arm B, before the bundle exists.** The ladder
+should not speed up uniformly — it should **change shape**:
+
+* **spans = 4 stays roughly where it was (~79 s).** It is above the threshold,
+  AUTO miters it, and S18 derived why that cost cannot be removed: `Transformed`
+  supplies none of the corner's first-order effect at any angle. This rung
+  improving substantially would refute something.
+* **spans = 16 collapses**, by roughly the order of the 16.3× S18 and Lane C
+  measured between the mitered and smoothed paths.
+* **spans = 64 builds**, where in round two it failed after 69.5 s.
+
+**That split is the result to look for, and its absence is the interesting
+outcome.** If all four rungs are unchanged, AUTO is not reaching this call path
+on device and the sweep work is not being exercised at all — which no desktop
+measurement could have told us. If all four collapse, the threshold is not doing
+what its derivation says.
+
+**Why this is worth writing down now:** without it, a capture showing the 4-span
+rung still at 79 s reads as "v24 did nothing", when it is the one rung that is
+*correctly* still mitered.
+
+### And it answers S18 §7.2, which S18 could not answer from where it stood
+
+S18 measured 3.1 s where the device number implies ~23 s and said plainly: *"I do
+not know whether the device fixture has a hole in it, more corners, or longer
+legs."* It has **no hole, 3 joints of 9.49°, and legs of about 15.5** — against
+S18's own fixture of a **drawn 90°** L. Both are "3 corners"; they are 9.49° and
+90°, which is the whole difference. Nothing in S18 §3 depends on this — it is
+ratios and volumes throughout — and S18 said so. Its headline comparison to the
+device number does.
+
+**One thing I have NOT done:** confirmed that `AUTO`'s inference runs on the
+values `arcPath` produces, rather than deriving what it should do from the
+threshold and the geometry. The arithmetic above is mine and the fixture is
+read from source, but the shim was not executed on it. That is one smoke
+scenario's worth of work and it belongs to whoever next owns the shim — S19's
+brief does not include it, and it should not be inferred from this entry that
+it was measured.
