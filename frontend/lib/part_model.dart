@@ -3722,7 +3722,8 @@ class ChamferFeature extends BodyModifyFeature {
         _ => (distance1, 0.0, 0.0),
       };
 
-  /// Mode 2 with Flip on: the angle the shim's reference face must be handed.
+  /// Mode 2 with Flip on: the SAME chamfer, re-expressed against the face the
+  /// shim measures from.
   ///
   /// `occt_chamfer_edges` has no reference-face parameter — it always measures
   /// from the first face in OCCT's ancestor map (`occt_capi.h`) — so Flip
@@ -3732,18 +3733,54 @@ class ChamferFeature extends BodyModifyFeature {
   /// The chamfer, the two faces and the edge bound a triangle: apex
   /// `theta = 180 - D` at the edge, [angleDeg] where the chamfer meets the
   /// reference face, and a third angle `180 - theta - angleDeg`, which is
-  /// `D - angleDeg`. That third angle is the one Flip asks for.
+  /// `D - angleDeg`. The law of sines then gives the distance:
   ///
-  /// `D - angleDeg` is in `(0, D)` exactly when [angleDeg] is, so a flip never
-  /// turns a chamfer the shim's v28 guard accepts into one it refuses — which
-  /// `90 - angleDeg` did in both directions away from a square edge.
+  ///     angle' = D - angleDeg
+  ///     d'     = distance1 * sin(angleDeg) / sin(angle')
+  ///
+  /// which is OCCT's own `dis2 = d1 sin(alpha) / sin(alpha + theta)` read the
+  /// other way round, since `sin(alpha + theta) = sin(D - alpha)`.
+  ///
+  /// S20 — THE DISTANCE MOVES TOO, and until this it did not. Flip is
+  /// documented on the field above as swapping which face [distance1] is
+  /// measured on, the button says Swap Faces, mode 1 already does exactly
+  /// that (`(distance2, distance1)` is the mirror chamfer), and Inventor's
+  /// Distance-and-Angle method picks the face the distance belongs to. Sending
+  /// the third angle alone keeps [distance1] on the reference face, so it does
+  /// not swap anything: on a square edge with `distance1 = 2, angleDeg = 30`
+  /// the unflipped chamfer cuts (2.000, 1.155) off the two faces and the old
+  /// flip cut (2.000, 3.464) — bigger, not mirrored. With the distance moved
+  /// it cuts (1.155, 2.000), the original pair reversed, which is what
+  /// swapping the faces means. m131 asserts that reversal directly.
+  ///
+  /// Two more properties, both asserted: it is an INVOLUTION — flipping twice
+  /// returns `(distance1, angleDeg)` — and `angle'` is in `(0, D)` exactly
+  /// when [angleDeg] is, so a flip never turns a chamfer the shim's v28 guard
+  /// accepts into one it refuses.
+  ///
+  /// On a square edge this is `(distance1 * tan(angleDeg), 90 - angleDeg)`,
+  /// and at the panel's default 45 deg it is the IDENTITY — a symmetric
+  /// chamfer is its own mirror. That is why `(distance1, 90 - angleDeg)`
+  /// survived: it is right at the default, on the only kind of edge any
+  /// fixture here has ever built.
   (double, double, double) _flippedFor(double dihedralDeg) {
     // The shim's own fallback for an edge whose bound cannot be measured is
     // the historical 90 (`edge_chamfer_angle_limit` returns false and the
     // caller keeps 90), and a tangent edge reports 0. Mirroring it here is
     // what stops the two layers disagreeing about which angles an edge admits.
     final d = dihedralDeg > 1e-9 ? dihedralDeg : 90.0;
-    return (distance1, 0.0, d - angleDeg);
+    final a = d - angleDeg;
+    // Outside the admissible range there is no triangle and no swap to make.
+    // Hand it on and let the shim refuse in its own sentence, which names the
+    // edge's real bound; inventing a refusal here would be a second, worse
+    // copy of a guard that already exists.
+    if (!(a > 0) || !(angleDeg > 0)) return (distance1, 0.0, a);
+    const rad = math.pi / 180.0;
+    return (
+      distance1 * math.sin(angleDeg * rad) / math.sin(a * rad),
+      0.0,
+      a,
+    );
   }
 
   /// The three PER-EDGE argument lists for [edgeIds], read against [live] —
