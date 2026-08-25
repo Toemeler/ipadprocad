@@ -459,6 +459,31 @@ occt_shape *occt_fillet_edges(const occt_shape *shape, const int *edge_ids,
  * toggle swaps by exchanging d1/d2 (mode 1) or sending 90-angle (mode 2).
  * `d2` and `angle_deg` may be NULL when no edge uses the corresponding mode.
  * NULL on failure.
+ *
+ * v28 (S17) — mode 2's admissible range is THE EDGE'S, not a literal 90:
+ *
+ *     0 < angle_deg[i] < 180 - theta
+ *
+ * where theta is the edge's interior dihedral. That bound is the angle between
+ * the edge's two OUTWARD normals, i.e. exactly `occt_shape_edge_info` field
+ * [10], so a caller can compute what will be accepted before asking. It equals
+ * the pre-v28 90 if and only if the edge is perpendicular, which every fixture
+ * in this repo happened to be. Past the bound OCCT's own second distance,
+ * d1.sin(alpha)/sin(alpha+theta), diverges and then goes negative.
+ *
+ * So since v28 an acute edge accepts angles the shim used to refuse (a
+ * 60-degree edge reaches 120), and an obtuse edge refuses angles it used to
+ * pass to OCCT (a 135-degree edge stops at 45, where OCCT was previously being
+ * handed a negative distance and failing on its own). An edge whose bound
+ * cannot be measured — not exactly two faces, or normals that will not
+ * evaluate — keeps the 90 rule.
+ *
+ * KNOWN, NOT FIXED HERE: Dart's "Flip" sends 90-angle for mode 2, which is the
+ * same hardcoded perpendicular assumption one layer up (the flipped angle is
+ * 180-theta-angle). On a non-perpendicular edge that now produces a clear
+ * refusal from this guard instead of a wrong chamfer or an OCCT failure.
+ * part_model.dart is not this session's to change; see
+ * perf/findings/S17-oblique.md section 5.4.
  */
 occt_shape *occt_chamfer_edges(const occt_shape *shape, const int *edge_ids,
                                const int *modes, const double *d1,

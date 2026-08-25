@@ -3306,6 +3306,72 @@ extern "C" occt_shape *occt_fillet_edges(const occt_shape *shape,
                                 nullptr);
 }
 
+/*
+ * v28 (S17) — the largest mode-2 chamfer angle THIS edge admits, in degrees.
+ *
+ * OCCT's own plane/plane chamfer prints the rule. ChFiKPart_MakeChAsym builds
+ * the two into-face directions at the edge, takes cosP as their dot product,
+ * and computes the second distance as
+ *
+ *     dis2 = Dis / (cosP + sinP / Tan(Angle))
+ *
+ * (src/ChFiKPart/ChFiKPart_ComputeData_ChAsymPlnPln.cxx). Those two directions
+ * are the ones edge_info's convexity sign is built from, so cosP is the cosine
+ * of the INTERIOR DIHEDRAL theta, and the expression is the law of sines:
+ *
+ *     dis2 = d1 . sin(alpha) / sin(alpha + theta)
+ *
+ * with alpha the angle at the reference face's tangent point — which is also
+ * why AddDA's angle is measured FROM that face: Dis and Angle are both
+ * anchored on the face handed to it. dis2 blows up at alpha + theta = 180 and
+ * goes NEGATIVE past it, so the admissible range is
+ *
+ *     0 < alpha < 180 - theta
+ *
+ * exactly, and that equals the historical 90 if and only if theta is 90.
+ * 180 - theta is the angle between the two OUTWARD normals, which is what
+ * occt_shape_edge_info reports as field [10] — so this limit and that field
+ * are the same number by construction, computed here from the same helper at
+ * the same arc-length midpoint so the two cannot drift apart.
+ *
+ * False when it cannot be measured — an edge without exactly two faces, or
+ * normals that will not evaluate — and `out_deg` is then left alone. The
+ * caller keeps the historical 90 in that case: refusing instead would be a
+ * second behaviour change nobody asked for.
+ */
+static bool edge_chamfer_angle_limit(
+    const TopTools_IndexedDataMapOfShapeListOfShape &edgeFaces,
+    const TopoDS_Edge &edge, double &out_deg)
+{
+    if (!edgeFaces.Contains(edge))
+        return false;
+    const TopTools_ListOfShape &fl = edgeFaces.FindFromKey(edge);
+    if (fl.Extent() != 2)
+        return false;
+    BRepAdaptor_Curve ec(edge);
+    /* The SAME midpoint edge_info uses: by arc length, not by parameter, so
+     * that a rebuilt B-spline does not move it. */
+    double tmid = 0.5 * (ec.FirstParameter() + ec.LastParameter());
+    const double len = GCPnts_AbscissaPoint::Length(ec);
+    if (len > 1e-12) {
+        GCPnts_AbscissaPoint ap(ec, len * 0.5, ec.FirstParameter());
+        if (ap.IsDone())
+            tmid = ap.Parameter();
+    }
+    gp_Dir n1, n2;
+    if (!face_outward_normal(TopoDS::Face(fl.First()), edge, tmid, n1) ||
+        !face_outward_normal(TopoDS::Face(fl.Last()), edge, tmid, n2))
+        return false;
+    const double dot = std::max(-1.0, std::min(1.0, n1.Dot(n2)));
+    const double deg = std::acos(dot) * 180.0 / M_PI;
+    if (!(deg > 1e-9))
+        return false; /* tangent faces: no chamfer angle is admissible, and
+                       * saying so through the 90 rule is no worse than
+                       * inventing a limit of 0 here. */
+    out_deg = deg;
+    return true;
+}
+
 extern "C" occt_shape *occt_chamfer_edges_ex(
     const occt_shape *shape, const int *edge_ids, const int *modes,
     const double *d1, const double *d2, const double *angle_deg, int n,
@@ -3341,10 +3407,9 @@ extern "C" occt_shape *occt_chamfer_edges_ex(
                     "two-distance chamfer needs a positive second distance");
             return nullptr;
         }
-        if (modes[i] == 2 &&
-            (!angle_deg || !(angle_deg[i] > 0.0) || angle_deg[i] >= 90.0)) {
+        if (modes[i] == 2 && (!angle_deg || !(angle_deg[i] > 0.0))) {
             set_err("occt_chamfer_edges",
-                    "chamfer angle must be in (0, 90) deg");
+                    "chamfer angle must be greater than 0 deg");
             return nullptr;
         }
         const TopoDS_Edge e = TopoDS::Edge(emap.FindKey(edge_ids[i]));
@@ -3354,6 +3419,44 @@ extern "C" occt_shape *occt_chamfer_edges_ex(
             set_err("occt_chamfer_edges",
                     "edge has no adjacent face to measure from");
             return nullptr;
+        }
+        /* v28 (S17): the upper bound is the EDGE'S, not a literal 90.
+         *
+         * Until v28 this read `angle_deg[i] >= 90.0`. That is the exactly
+         * correct rule for a perpendicular edge and wrong in BOTH directions
+         * away from one, because the admissible range is alpha < 180 - theta
+         * (see edge_chamfer_angle_limit for OCCT's own arithmetic):
+         *
+         *  - on an ACUTE edge it was too STRICT. On an equilateral prism's
+         *    60-degree edge the range reaches 120, and alpha = 100 was refused
+         *    though OCCT builds it perfectly well — and builds it when the
+         *    SAME chamfer is spelled as two distances, which mode 1 let
+         *    through. Two spellings of one chamfer, one refused for no
+         *    geometric reason. That asymmetry is what S16 measured ([40j]).
+         *  - on an OBTUSE edge it was too PERMISSIVE. On a 135-degree edge the
+         *    range is only 45, so alpha = 60 passed the guard and handed OCCT
+         *    dis2 = -6.692130, a negative distance. The user got OCCT's
+         *    failure where the guard's own sentence was available. [41a].
+         *
+         * It is checked here, after the degenerate skip and the reference-face
+         * check, because it needs the edge; the mode-2 "> 0" test above stays
+         * where it was, being argument validation rather than geometry, so a
+         * degenerate edge is still skipped rather than judged. */
+        if (modes[i] == 2) {
+            double limit = 90.0; /* the historical rule, kept for an edge whose
+                                  * own limit cannot be measured */
+            edge_chamfer_angle_limit(edgeFaces, e, limit);
+            if (angle_deg[i] >= limit) {
+                char msg[192];
+                std::snprintf(msg, sizeof(msg),
+                              "chamfer angle must be in (0, %.6g) deg on this "
+                              "edge: its faces meet at %.6g deg, and the "
+                              "chamfer degenerates when the angle reaches "
+                              "180 minus that",
+                              limit, 180.0 - limit);
+                set_err("occt_chamfer_edges", msg);
+                return nullptr;
+            }
         }
         keep.push_back(i);
     }
