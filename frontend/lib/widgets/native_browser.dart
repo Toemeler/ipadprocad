@@ -15,6 +15,7 @@ import 'package:native_menu/native_menu.dart';
 import '../app_state.dart';
 import '../asm_constraints.dart';
 import '../asm_work_features.dart';
+import '../asm_pattern.dart';
 import '../assembly.dart';
 import '../part_model.dart';
 import '../l10n/l.dart';
@@ -60,6 +61,11 @@ const String kIdComponent = 'cp:';
 /// colon, so the prefix is matched and the rest taken whole.
 const String kIdConstraint = 'rel:';
 
+/// M248 — one assembly PATTERN: `pat:<RectangularPattern1>`. The pattern's own
+/// name has no colon in it, but the rule is the same one and is followed for
+/// the same reason: match the prefix, take the rest whole.
+const String kIdAsmPattern = 'pat:';
+
 /// M240 — the assembly's two container folders.
 const String kIdRepresentations = '__reprs__';
 const String kIdRelationships = '__rels__';
@@ -88,21 +94,76 @@ List<(String, String, String)> get kOriginRows => [
 /// and an occurrence is named after the part it is an instance of, so a free
 /// name there would be a second thing to keep in step for no gain. Visibility
 /// is the row's own eye.
-List<List<GlassMenuItem>> _componentMenu(AssemblyOccurrence o) => [
+List<List<GlassMenuItem>> _componentMenu(AssemblyOccurrence o) {
+  // M248 — a PATTERN ELEMENT has neither of the component menu's two verbs.
+  // Ground is the solver's, and an element is already driven (asmBodyIsFree);
+  // Delete would leave the pattern to place it again on the next solve, which
+  // is why Inventor gives an element Suppress instead and no Delete at all.
+  if (o.isPatternElement) {
+    return [
       [
         GlassMenuItem(
-            id: 'cpGrounded',
-            title: t.ctxGrounded,
-            symbol: o.grounded ? 'pin.fill' : 'pin'),
-      ],
-      [
-        GlassMenuItem(
-            id: 'cpDelete',
-            title: t.delete,
-            symbol: 'trash',
-            destructive: true),
+            id: 'elSuppress',
+            title: o.visible ? t.ctxSuppress : t.ctxUnsuppress,
+            symbol: o.visible ? 'eye.slash' : 'eye'),
       ],
     ];
+  }
+  return [
+    [
+      GlassMenuItem(
+          id: 'cpGrounded',
+          title: t.ctxGrounded,
+          symbol: o.grounded ? 'pin.fill' : 'pin'),
+    ],
+    [
+      GlassMenuItem(
+          id: 'cpDelete',
+          title: t.delete,
+          symbol: 'trash',
+          destructive: true),
+    ],
+  ];
+}
+
+/// M248 — one PATTERN row, and its elements when it is disclosed.
+///
+/// The elements go through [_componentRows] unchanged, because that is what
+/// they are: ordinary occurrences with their own eye, their own selection and
+/// their own relationships. Only the parent row is new.
+void _patternRows(List<GlassRow> rows, AssemblyModel asm, AsmPattern p,
+    Set<String> expanded, {required int depth}) {
+  final id = '$kIdAsmPattern${p.name}';
+  final open = expanded.contains(id);
+  final els = asm.elementsOf(p.name);
+  rows.add(GlassRow(
+    id: id,
+    label: p.name,
+    // A pattern whose last regeneration failed says so with the GLYPH, which
+    // is how this tree already draws a sick constraint: the row stays, because
+    // it is the row the user has to reach to repair it.
+    symbol: p.error != null
+        ? 'exclamationmark.triangle.fill'
+        : (p.mode == PatternKind.mirror
+            ? 'flip.horizontal'
+            : 'square.grid.2x2'),
+    tint: p.error != null ? 'red' : null,
+    depth: depth,
+    expandable: els.isNotEmpty,
+    expanded: open,
+    menu: [
+      [GlassMenuItem(id: 'patEdit', title: t.edit, symbol: 'slider.horizontal.3')],
+      [
+        GlassMenuItem(
+            id: 'patDelete', title: t.delete, symbol: 'trash', destructive: true)
+      ],
+    ],
+  ));
+  if (!open) return;
+  for (final e in els) {
+    _componentRows(rows, asm, e, expanded, depth: depth + 1, path: '');
+  }
+}
 
 /// M246 — one component and, when it is a SUBASSEMBLY and disclosed, the
 /// tree beneath it.
@@ -396,7 +457,14 @@ List<GlassRow> _buildRows(
       }
     }
     for (final o in asm.occurrences) {
+      // M248 — a pattern ELEMENT is listed under its pattern, not beside the
+      // components. Inventor's tree, and the reason the pattern node exists
+      // at all: a row per element at the top level buries the assembly.
+      if (o.isPatternElement) continue;
       _componentRows(rows, asm, o, expanded, depth: 1, path: '');
+    }
+    for (final p in asm.patterns) {
+      _patternRows(rows, asm, p, expanded, depth: 1);
     }
     // M247 — the assembly's OWN work features, below the components and in
     // creation order. Beside them rather than under one of them, because that

@@ -54,11 +54,37 @@ Map<String, dynamic> cameraPayload(PartCamera c, Size size) => {
 /// A part sends neither. Its solids are already in world coordinates and are
 /// all steel, so `at` is omitted and `tint` is [kNoTint] — the payload it
 /// produces is byte-for-byte what it produced before.
+///
+/// M248 — [mirror] is the reflection plane's unit normal in the SOURCE's own
+/// frame (see [Placement]), or null for the rigid placement every other caller
+/// sends. The BUFFERS are reflected here and `at`/`rot` stay a rigid
+/// placement, so nothing native has to know a mirror happened.
+///
+/// THE OTHER WAY WAS A NEGATIVE SCALE on the holder Entity, and it was tried
+/// first. Three things made this one better, and they are worth writing down
+/// because the scale reads like the obvious answer:
+///
+///   * The reflection plane is ARBITRARY, not axis-aligned — it is whatever
+///     plane the user picked, brought into the part's frame. `Entity.scale` is
+///     per-axis, so a general reflection needs S = R·diag(−1,1,1)·R⁻¹ and
+///     therefore a nested un-spin Entity under every mirrored holder.
+///   * A negative scale reverses winding, and `Materials.steel` culls back
+///     faces. `faceCulling = .none` is iOS 18+, so it would need either a
+///     version-gated material or a reversed index buffer — which is half of
+///     this function anyway.
+///   * The B-Rep EDGES are built natively from `edgePts`, as tubes or ribbons.
+///     They would be scaled by the same holder and need the same treatment,
+///     in Swift, where a host test cannot reach them.
+///
+/// So the geometry arrives already reflected and the renderer is unchanged.
+/// The cost is one pass over buffers this push already serialises in full, and
+/// only for a component that is actually mirrored.
 Map<String, dynamic> solidPayload(String id, KernelSolid s,
     {int material = kMatSteel,
     bool includeGeometry = true,
     Vec3 at = Vec3.zero,
     Quat rot = Quat.identity,
+    Vec3? mirror,
     int tint = kNoTint}) {
   final m = s.mesh;
   // Component-wise, NOT `at != Vec3.zero`: Vec3 has no operator==, so that
@@ -70,6 +96,9 @@ Map<String, dynamic> solidPayload(String id, KernelSolid s,
     // own component order on the Swift side. Omitted when there is none, so a
     // part's payload is byte-identical to what it has always been.
     if (!rot.isIdentity) 'rot': [rot.x, rot.y, rot.z, rot.w],
+    // No `mirror` key: the flip is in the BUFFERS, not in the transform, so
+    // there is nothing here for the renderer to apply. A key nothing reads
+    // would be a promise this payload does not keep.
     if (tint != kNoTint) 'tint': tint,
   };
   if (!includeGeometry) {
@@ -86,10 +115,20 @@ Map<String, dynamic> solidPayload(String id, KernelSolid s,
     ...place,
     // Float32 (M74): half the bytes of Float64 and no per-vertex conversion
     // on the Swift side, since the GPU wants Float32 regardless.
-    'positions': m.positions32, // world xyz per vertex
-    'normals': m.normals32, // unit outward
-    'indices': m.indices, // Int32List, CCW from outside
-    'edgePts': m.edgePoints32, // B-Rep edge polyline points
+    'positions': mirror == null
+        ? m.positions32
+        : reflectedPoints(m.positions32, mirror), // world xyz per vertex
+    // A reflection is orthogonal, so a STORED outward normal reflects like a
+    // point through the origin and stays outward.
+    'normals': mirror == null
+        ? m.normals32
+        : reflectedPoints(m.normals32, mirror), // unit outward
+    // Int32List, CCW from outside — and reversed when the positions are
+    // reflected, because reflecting them turned every triangle inside out.
+    'indices': mirror == null ? m.indices : reversedWinding(m.indices),
+    'edgePts': mirror == null
+        ? m.edgePoints32
+        : reflectedPoints(m.edgePoints32, mirror), // B-Rep edge polylines
     'edgeStarts': m.edgeStarts, // Int32List, nEdges+1 offsets
     'triFaces': m.triFaces, // Int32List (empty on legacy meshes)
     'material': material,
@@ -115,13 +154,45 @@ Map<String, dynamic> buildThumbScenePayload(List<(String, KernelSolid)> solids) 
 /// M241 — [buildThumbScenePayload] for an ASSEMBLY: the same geometry-only
 /// still, with each solid's placement travelling beside it.
 Map<String, dynamic> buildPlacedThumbScenePayload(
-        List<(String, KernelSolid, Quat, Vec3)> solids) =>
+        List<(String, KernelSolid, Placement)> solids) =>
     {
       'solids': [
-        for (final (id, s, rot, at) in solids)
-          solidPayload(id, s, at: at, rot: rot),
+        for (final (id, s, at) in solids)
+          solidPayload(id, s, at: at.at, rot: at.rot, mirror: at.reflect),
       ],
     };
+
+/// [xyz] — a flat x,y,z,x,y,z buffer — reflected in the plane through the
+/// origin with unit normal [n].
+///
+/// A copy, for the same reason [reversedWinding] copies: the buffer belongs to
+/// the mesh, and every un-mirrored occurrence of the part draws from it.
+Float32List reflectedPoints(Float32List xyz, Vec3 n) {
+  final out = Float32List(xyz.length);
+  final nx = n.x, ny = n.y, nz = n.z;
+  for (var i = 0; i + 2 < xyz.length; i += 3) {
+    final d = 2 * (xyz[i] * nx + xyz[i + 1] * ny + xyz[i + 2] * nz);
+    out[i] = xyz[i] - d * nx;
+    out[i + 1] = xyz[i + 1] - d * ny;
+    out[i + 2] = xyz[i + 2] - d * nz;
+  }
+  return out;
+}
+
+/// [indices] with every triangle's winding reversed.
+///
+/// A copy rather than an in-place swap: the list is the mesh's own buffer,
+/// shared by every other occurrence of the same part, and reversing it in
+/// place would turn all of them inside out to mirror one.
+Int32List reversedWinding(Int32List indices) {
+  final out = Int32List(indices.length);
+  for (var i = 0; i + 2 < indices.length; i += 3) {
+    out[i] = indices[i];
+    out[i + 1] = indices[i + 2];
+    out[i + 2] = indices[i + 1];
+  }
+  return out;
+}
 
 /// A [PlaneFrame]'s three axes, flattened the way PlaneEntity reads them.
 ///

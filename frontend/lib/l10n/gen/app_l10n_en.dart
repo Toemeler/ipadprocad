@@ -1122,6 +1122,38 @@ class AppL10nEn extends AppL10n {
       'Select the target body — tap it in 3D or in the browser.';
 
   @override
+  String msgPatternNeedsComponent(String kind) {
+    return '$kind needs a component to copy — place one first.';
+  }
+
+  @override
+  String msgRelationshipsDropped(int n) {
+    String _temp0 = intl.Intl.pluralLogic(
+      n,
+      locale: localeName,
+      other:
+          '$n relationships went with the elements that were removed — Cancel puts them back.',
+      one:
+          '1 relationship went with the elements that were removed — Cancel puts it back.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get msgTapComponentToPattern => 'Tap the component to pattern.';
+
+  @override
+  String get msgCannotPatternAnElement =>
+      'A pattern element cannot be patterned — select the source component.';
+
+  @override
+  String get msgSelectComponentToCopy => 'Select a component to copy.';
+
+  @override
+  String get msgCannotCopyAnElement =>
+      'A pattern element cannot be copied — copy the source component, or edit the count.';
+
+  @override
   String msgPatternNeedsFeature(String kind) {
     return '$kind needs a feature to copy — build one first.';
   }
@@ -2697,6 +2729,32 @@ class AppL10nEn extends AppL10n {
   String get lblSelectSolid => 'Select Solid';
 
   @override
+  String get lblComponent => 'Component';
+
+  @override
+  String get lblSelectComponents => 'Select components';
+
+  @override
+  String lblNComponents(int n) {
+    String _temp0 = intl.Intl.pluralLogic(
+      n,
+      locale: localeName,
+      other: '$n Components',
+      one: '1 Component',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get hintTapComponentIn3d => 'Tap the component in 3D…';
+
+  @override
+  String get lblFeaturePattern => 'Feature Pattern';
+
+  @override
+  String get lblOwnSpacing => 'Own spacing';
+
+  @override
   String get lblFeature => 'Feature';
 
   @override
@@ -3018,6 +3076,13 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get valAngle0to90 => 'Angle must be between 0 and 90 deg.';
+
+  @override
+  String get valSelectOneComponent =>
+      'Select at least one component to pattern.';
+
+  @override
+  String get valDrivingFeatureGone => 'The driving feature pattern is gone.';
 
   @override
   String get valSelectOneFeature => 'Select at least one feature to pattern.';

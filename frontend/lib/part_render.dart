@@ -967,8 +967,13 @@ void paintPartSolids(
 class PlacedComponent {
   const PlacedComponent(this.pieces);
 
-  /// (rotation, translation, solid), already composed into world space.
-  final List<(Quat, Vec3, KernelSolid)> pieces;
+  /// (placement, solid), already composed into world space.
+  ///
+  /// M248 — a [Placement] rather than a (rotation, translation) pair, because
+  /// a MIRRORED component is not a rigid transform and a quaternion cannot
+  /// hold one. The painter needs nothing else: [placedCam] takes the whole
+  /// value, and says there why the front-face test is unaffected.
+  final List<(Placement, KernelSolid)> pieces;
 }
 
 /// [cam] as seen by geometry that has been moved by the rigid transform
@@ -987,18 +992,46 @@ class PlacedComponent {
 /// way and its pan shifted — no mesh is copied, exactly as before. The view
 /// direction turns with the basis too, which is what keeps the front-face test
 /// inside buildSceneSolid correct in the component's own space.
-Cam3 placedCam(Cam3 cam, Quat rot, Vec3 t) => Cam3.basis(
-      dir: rot.unrotate(cam.dir),
-      s: rot.unrotate(cam.s),
-      u: rot.unrotate(cam.u),
+/// M248 — and the identity survives a REFLECTION unchanged, which is the one
+/// piece of luck in this milestone. project uses the basis only through dot
+/// products, so
+///
+///     project(R·S·l + t) = (l·(S·Rᵀ·s) − (ox − t·s)) / k
+///
+/// and [Placement.unapplyDir] is exactly S·Rᵀ. The camera comes back with a
+/// LEFT-handed basis, which project, depth and projectVec are all indifferent
+/// to.
+///
+/// AND SO IS THE FRONT-FACE TEST, which is worth writing down because it is
+/// the opposite of what the milestone expected. A reflection does reverse
+/// triangle winding — but only in WORLD space. Every consumer on this path
+/// works in the component's OWN space (the whole point of a placed camera) and
+/// there the mesh is untouched: cross(p1−p0, p2−p0) is still the outward
+/// normal. The map carries an outward normal to an outward normal, because it
+/// is orthogonal, so
+///
+///     (R·S·n)·dir < 0   ⟺   n·(S·Rᵀ·dir) < 0   ⟺   n·cam.dir < 0
+///
+/// and buildSceneSolid, pickOccurrence and asm_pick._pickFaceOn all keep the
+/// test they had. Adding a sign here is not harmless: it selects the BACK
+/// faces of a mirrored component, which draws with the right silhouette and
+/// the wrong shading — found by rendering one, not by any unit test.
+///
+/// The one path where the winding trap IS real is RealityKit's, because the
+/// GPU transforms the vertices before it culls. See [solidPayload].
+Cam3 placedCam(Cam3 cam, Placement at) => Cam3.basis(
+      dir: at.unapplyDir(cam.dir),
+      s: at.unapplyDir(cam.s),
+      u: at.unapplyDir(cam.u),
       halfH: cam.halfH,
-      ox: cam.ox - t.dot(cam.s),
-      oy: cam.oy - t.dot(cam.u),
+      ox: cam.ox - at.at.dot(cam.s),
+      oy: cam.oy - at.at.dot(cam.u),
       size: cam.size,
     );
 
 /// [placedCam] for a component that has only been moved, not turned.
-Cam3 shiftedCam(Cam3 cam, Vec3 t) => placedCam(cam, Quat.identity, t);
+Cam3 shiftedCam(Cam3 cam, Vec3 t) =>
+    placedCam(cam, Placement(Quat.identity, t));
 
 /// Draws every component of an assembly, and hands back the occluder it built
 /// so the caller can draw origin planes and axes THROUGH the model the way the
@@ -1042,9 +1075,9 @@ SceneOccluders? paintAssemblySolids(
   // all at the subassembly's own origin, stacked.
   final scenes = <(int, Cam3, SceneSolid)>[];
   for (var i = 0; i < placed.length; i++) {
-    for (final (r, t, s) in placed[i].pieces) {
-      final sc = placedCam(cam, r, t);
-      scenes.add((i, sc, buildSceneSolid(s, sc, depthBias: cam.depth(t))));
+    for (final (at, s) in placed[i].pieces) {
+      final sc = placedCam(cam, at);
+      scenes.add((i, sc, buildSceneSolid(s, sc, depthBias: cam.depth(at.at))));
     }
   }
   if (scenes.isEmpty) return null;
@@ -1126,10 +1159,10 @@ void fitAssemblyView(PartCamera cam, List<PlacedComponent> placed, Size size) {
 void Function(void Function(Vec3)) _walkPlaced(List<PlacedComponent> placed) =>
     (add) {
       for (final c in placed) {
-        for (final (r, t, sol) in c.pieces) {
+        for (final (at, sol) in c.pieces) {
           final pos = sol.mesh.positions;
           for (var i = 0; i + 2 < pos.length; i += 3) {
-            add(r.rotate(Vec3(pos[i], pos[i + 1], pos[i + 2])) + t);
+            add(at.apply(Vec3(pos[i], pos[i + 1], pos[i + 2])));
           }
         }
       }

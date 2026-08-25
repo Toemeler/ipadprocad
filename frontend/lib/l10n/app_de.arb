@@ -1021,6 +1021,40 @@
   "msgThatIsBaseBody": "Das ist der Basiskörper — einen anderen zum Kombinieren wählen.",
   "msgPickKeepThenCombine": "Erst den Körper wählen, der bleibt, dann die Körper, die hineingerechnet werden.",
   "msgSelectTargetBody": "Zielkörper wählen — in 3D oder im Browser antippen.",
+  "msgPatternNeedsComponent": "{kind} braucht eine Komponente zum Kopieren — zuerst eine platzieren.",
+  "@msgPatternNeedsComponent": {
+    "description": "M248 — die Anordnung im Baugruppen-Menüband, ohne platzierte Komponente.",
+    "placeholders": {
+      "kind": {
+        "type": "String"
+      }
+    }
+  },
+  "msgRelationshipsDropped": "{n, plural, =1{1 Beziehung wurde mit den entfallenen Elementen gelöscht — Abbrechen stellt sie wieder her.} other{{n} Beziehungen wurden mit den entfallenen Elementen gelöscht — Abbrechen stellt sie wieder her.}}",
+  "@msgRelationshipsDropped": {
+    "description": "M248 — die Vorschau setzt die Anordnung wirklich; eine kleinere Anzahl löscht Elemente und deren Beziehungen.",
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "msgTapComponentToPattern": "Komponente zum Anordnen antippen.",
+  "@msgTapComponentToPattern": {
+    "description": "M248 — der Aufruf, wenn die Auswahl für die Ausgangskomponenten scharf ist."
+  },
+  "msgCannotPatternAnElement": "Ein Anordnungselement kann nicht angeordnet werden — die Ausgangskomponente wählen.",
+  "@msgCannotPatternAnElement": {
+    "description": "M248 — eine Anordnung ihrer eigenen Ausgabe wäre ein Zyklus."
+  },
+  "msgSelectComponentToCopy": "Komponente zum Kopieren wählen.",
+  "@msgSelectComponentToCopy": {
+    "description": "M248 — Kopieren wirkt auf die aktuelle Auswahl."
+  },
+  "msgCannotCopyAnElement": "Ein Anordnungselement kann nicht kopiert werden — die Ausgangskomponente kopieren oder die Anzahl ändern.",
+  "@msgCannotCopyAnElement": {
+    "description": "M248 — die Kopie wäre eine gewöhnliche Komponente, die nur wie ein Element aussieht."
+  },
   "msgPatternNeedsFeature": "{kind} braucht ein Element zum Kopieren — zuerst eines bauen.",
   "@msgPatternNeedsFeature": {
     "placeholders": {
@@ -2145,6 +2179,35 @@
   "lblSingleOpenSplineOnly": "(nur ein offener Spline)",
   "lblSolid": "Volumenkörper",
   "lblSelectSolid": "Volumenkörper wählen",
+  "lblComponent": "Komponente",
+  "@lblComponent": {
+    "description": "M248 — die Eingabegeometrie der Baugruppen-Anordnung."
+  },
+  "lblSelectComponents": "Komponenten wählen",
+  "@lblSelectComponents": {
+    "description": "M248 — Platzhalter der Komponentenauswahl."
+  },
+  "lblNComponents": "{n, plural, =1{1 Komponente} other{{n} Komponenten}}",
+  "@lblNComponents": {
+    "description": "M248 — wie viele Komponenten angeordnet werden.",
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "hintTapComponentIn3d": "Komponente in 3D antippen…",
+  "@hintTapComponentIn3d": {
+    "description": "M248 — der Hinweis am Auswahlfeld für Komponenten."
+  },
+  "lblFeaturePattern": "Element-Anordnung",
+  "@lblFeaturePattern": {
+    "description": "M248 — die assoziative Anordnung folgt einer Anordnung im Bauteil."
+  },
+  "lblOwnSpacing": "Eigene Abstände",
+  "@lblOwnSpacing": {
+    "description": "M248 — keine treibende Element-Anordnung: die Anordnung rechnet selbst."
+  },
   "lblFeature": "Element",
   "lblSelectFeatures": "Elemente wählen",
   "lblDirectionA": "Richtung A",
@@ -2410,6 +2473,14 @@
   "valDistancePositive": "Abstand muss größer als 0 sein.",
   "valDistance2Positive": "Abstand 2 muss größer als 0 sein.",
   "valAngle0to90": "Der Winkel muss zwischen 0 und 90 Grad liegen.",
+  "valSelectOneComponent": "Mindestens eine Komponente zum Anordnen wählen.",
+  "@valSelectOneComponent": {
+    "description": "M248 — die Baugruppen-Anordnung ohne Ausgangskomponente."
+  },
+  "valDrivingFeatureGone": "Die treibende Element-Anordnung ist nicht mehr da.",
+  "@valDrivingFeatureGone": {
+    "description": "M248 — eine assoziative Anordnung, deren Bauteil-Anordnung gelöscht wurde."
+  },
   "valSelectOneFeature": "Mindestens ein Element zum Anordnen wählen.",
   "valSelectDirectionA": "Richtung oder Kurve für Richtung A wählen.",
   "valCountAAtLeastOne": "Die Anzahl in Richtung A muss mindestens 1 sein.",

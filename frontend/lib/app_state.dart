@@ -14,6 +14,7 @@ import 'package:reality_view/reality_view.dart' show RealityThumbnailer;
 
 import 'asm_constraints.dart';
 import 'asm_pick.dart';
+import 'asm_pattern.dart';
 import 'asm_solver.dart';
 import 'asm_work_features.dart';
 import 'assembly.dart';
@@ -704,6 +705,63 @@ class EdgeFeatureSession {
     preview?.dispose();
     preview = null;
     previewReplacesBody = null;
+  }
+}
+
+/// M248 — the live state of the ASSEMBLY's Pattern / Mirror commands.
+///
+/// EXTENDS [PartPatternSession] rather than paralleling it, for the reason
+/// [AsmPattern] extends [PatternFeature]: the panel, the rail, the counts, the
+/// distributions, the irregular rows, the suppression set and every one of
+/// AppState's `pattern*` mutators are the part's and are wanted unchanged. It
+/// rides in the same [AppState.patternSession] field, so there is ONE open
+/// command at a time and one place that closes it.
+///
+/// What it adds is the two things an assembly needs and a part cannot use: the
+/// placement inputs as [AsmRef]s (they MOVE — see asm_pattern.dart, section B)
+/// and the associative driver.
+///
+/// [features] is inherited and holds OCCURRENCE IDS. Same list, same
+/// multi-pick, same chips in the panel — "the names of what is being copied"
+/// reads the same in both documents.
+class AsmPatternSession extends PartPatternSession {
+  AsmPatternSession(super.mode, {AsmPattern? editing}) : super(editing: editing);
+
+  @override
+  AsmPattern? get editing => super.editing as AsmPattern?;
+
+  AsmRef? refDirA, refDirB, refAxis, refPlane;
+
+  /// (occurrence id, the name of a [PatternFeature] in that component's part).
+  (String, String)? driver;
+
+  /// The name the pattern will carry. Fixed when the session opens, because
+  /// the LIVE PREVIEW places its elements through the ordinary regeneration
+  /// and they have to keep finding the same pattern between keystrokes.
+  String name = '';
+
+  /// The pattern's parameters as they were before an EDIT started, so Cancel
+  /// can put them back. Null when creating.
+  AsmPattern? restore;
+
+  /// The assembly's relationships as they were when the command opened.
+  ///
+  /// The preview places the pattern FOR REAL, so shrinking the count really
+  /// does destroy the elements above it — and, with them, every constraint
+  /// that named one. That is the cost asm_pattern.dart section D names, and
+  /// this is what keeps it undoable: Cancel puts the pattern back, the
+  /// regeneration puts the elements back under their own ids, and this puts
+  /// the relationships back on them.
+  final List<AsmConstraint> constraintsBefore = [];
+
+  void readFromAsm(AsmPattern f) {
+    readFrom(f);
+    refDirA = f.refDirA;
+    refDirB = f.refDirB;
+    refAxis = f.refAxis;
+    refPlane = f.refPlane;
+    driver = f.driver;
+    name = f.name;
   }
 }
 
@@ -4315,7 +4373,7 @@ class AppState extends ChangeNotifier {
     final png = _pngFile(name);
     try {
       final pieces = [
-        for (final (id, _, r, t, s) in assemblyPieces(a)) (id, s, r, t)
+        for (final (id, _, at, s) in assemblyPieces(a)) (id, s, at)
       ];
       if (pieces.isEmpty) {
         if (png.existsSync()) png.deleteSync();
@@ -4967,7 +5025,18 @@ class AppState extends ChangeNotifier {
   /// can change where a component belongs goes through here, so there is one
   /// place the summary and the per-constraint sickness are written.
   AsmSolveReport _solveAssembly(AssemblyModel a, {AsmDrag? drag}) {
+    // M248 — BEFORE, so a constraint that names a pattern element sees it
+    // where the seed currently puts it rather than where the last solve left
+    // it, and so the body list the solve builds is the one the pattern
+    // describes. Cheap: a closed-form expression per element.
+    regenerateAsmPatterns(a);
     final report = solveAssembly(a, drag: drag);
+    // M248 — and AFTER, because the solve just moved the seeds. A pattern
+    // element is DRIVEN rather than solved (see asmBodyIsFree), so this is the
+    // only thing that places one, and running it on both sides is what makes a
+    // patterned bolt follow the bracket it was patterned from in the same
+    // gesture rather than one solve later.
+    regenerateAsmPatterns(a);
     // M247 — the components have just moved, so every work feature built on
     // one is now naming the wrong place until it is re-derived. AFTER the
     // solve, because that is what it is a function of.
@@ -8015,6 +8084,13 @@ class AppState extends ChangeNotifier {
   void switchPattern(PatternKind kind) {
     final old = patternSession;
     if (old == null || old.mode == kind) return;
+    // M248 — the assembly's rail carries the SAME promise (switch command,
+    // keep what has been picked) over a different set of inputs, so it is its
+    // own path rather than a branch inside this one.
+    if (old is AsmPatternSession) {
+      _switchAsmPattern(old, kind);
+      return;
+    }
     final s = PartPatternSession(kind, editing: null);
     s.patternSolid = old.patternSolid;
     s.features
@@ -8042,6 +8118,14 @@ class AppState extends ChangeNotifier {
   void cancelPattern() {
     final s = patternSession;
     if (s == null) return;
+    // M248 — an assembly session has a LIVE preview to take away and possibly
+    // relationships to put back, so it cancels through its own path. Routed
+    // here rather than at every caller: the panel's ✕, its Cancel button, Esc
+    // and every command that closes a sibling all come through this one.
+    if (s is AsmPatternSession) {
+      cancelAsmPattern();
+      return;
+    }
     s.disposePreview();
     patternSession = null;
     notifyListeners();
@@ -8050,6 +8134,11 @@ class AppState extends ChangeNotifier {
   /// The panel mutates the session directly (counts, flips, the active
   /// selector) and calls this to re-preview and repaint.
   void patternChanged() {
+    if (patternSession is AsmPatternSession) {
+      _updateAsmPatternPreview();
+      notifyListeners();
+      return;
+    }
     _updatePatternPreview();
     notifyListeners();
   }
@@ -8060,9 +8149,14 @@ class AppState extends ChangeNotifier {
     final s = patternSession;
     if (s == null) return;
     s.active = s.active == field ? PatternField.none : field;
+    final asm = s is AsmPatternSession;
     switch (s.active) {
       case PatternField.features:
-        toast(L.current.msgSelectFeatures);
+        // The same selector, a different noun: an assembly patterns
+        // COMPONENTS, and the part's prompt would send the user looking for a
+        // feature browser this document does not have.
+        toast(asm ? L.current.msgTapComponentToPattern
+            : L.current.msgSelectFeatures);
       case PatternField.dirA:
       case PatternField.dirB:
         toast(L.current.msgTapStraightOrCircularEdge);
@@ -8211,6 +8305,15 @@ class AppState extends ChangeNotifier {
       toast(L.current.msgEdgeNoDirection);
       return;
     }
+    // M248 — the panel's three origin-axis shortcuts reach an assembly session
+    // through here as well, so the quick row needs no branch of its own. What
+    // is stored is a REFERENCE to the assembly's own origin, which is exactly
+    // as fixed as a part's and is therefore the one AsmRef that never moves.
+    if (s is AsmPatternSession) {
+      _asmPatternAxisPicked(s, AsmRef(kAssemblyOrigin,
+          AsmGeom.axis(point, dir, source: WorkRefSource.axis), label));
+      return;
+    }
     final ref = AxisRef(point.x, point.y, point.z, dir.x, dir.y, dir.z, label);
     switch (s.active) {
       case PatternField.dirA:
@@ -8334,6 +8437,15 @@ class AppState extends ChangeNotifier {
     final s = patternSession;
     if (s == null || s.active != PatternField.plane) return;
     if (normal.length < 1e-9) return;
+    if (s is AsmPatternSession) {
+      s.refPlane = AsmRef(
+          kAssemblyOrigin, AsmGeom.plane(point, normal), label,
+          anchor: point);
+      s.active = PatternField.none;
+      _updateAsmPatternPreview();
+      notifyListeners();
+      return;
+    }
     s.plane =
         PlaneRef(point.x, point.y, point.z, normal.x, normal.y, normal.z, label);
     s.active = PatternField.none;
@@ -8578,6 +8690,7 @@ class AppState extends ChangeNotifier {
 
   Future<bool> applyPattern() async {
     final s = patternSession;
+    if (s is AsmPatternSession) return applyAsmPattern();
     final p = currentPart;
     if (s == null || p == null) return false;
     final (f, err) = _patternSessionFeature();
@@ -8611,6 +8724,493 @@ class AppState extends ChangeNotifier {
             '${f.patternSolid ? "solid" : "${f.sources.length} feature(s)"}');
     notifyListeners();
     return true;
+  }
+
+  // ---- M248 — the ASSEMBLY patterns: Pattern Component, Mirror Component,
+  //             Copy Component. ---------------------------------------------
+  //
+  // The same session and the same panel as the part's four, for the reason
+  // stated on [AsmPatternSession]. What is different is only what the commands
+  // below do with them: the picks come from the assembly viewport rather than
+  // the browser, the placement inputs are stored as references that MOVE, and
+  // the "preview" is the real thing — the pattern is placed live and Cancel
+  // removes it, exactly as the constraint preview places a real constraint and
+  // solves with it (see _refreshConstraintPreview).
+
+  /// True while the open pattern command belongs to an assembly.
+  bool get asmPatternPicking =>
+      patternSession is AsmPatternSession && currentAssembly != null;
+
+  AsmPatternSession? get asmPatternSession =>
+      patternSession is AsmPatternSession ? patternSession as AsmPatternSession : null;
+
+  /// Opens Pattern Component (rectangular / circular) or Mirror Component.
+  void openAsmPattern(PatternKind kind, [AsmPattern? edit]) {
+    final a = currentAssembly;
+    if (a == null) return;
+    // M210's toggle, keyed by kind — the same rule the part commands follow.
+    if (edit == null &&
+        patternSession is AsmPatternSession &&
+        patternSession!.editing == null &&
+        patternSession!.mode == kind) {
+      cancelPattern();
+      return;
+    }
+    if (a.occurrences.isEmpty) {
+      toast(L.current
+          .msgPatternNeedsComponent(patternKindDisplay(L.current, kind)));
+      return;
+    }
+    cancelConstraint();
+    cancelWorkFeature();
+    cancelPattern();
+    final s = AsmPatternSession(kind, editing: edit);
+    if (edit != null) {
+      s.readFromAsm(edit);
+      // A snapshot to put back on Cancel. The live preview edits the real
+      // pattern in place, so without this an opened-and-cancelled edit would
+      // leave whatever was typed before the user changed their mind.
+      s.restore = AsmPattern(
+        name: edit.name,
+        mode: edit.mode,
+        sources: [...edit.sources],
+        refDirA: edit.refDirA,
+        refDirB: edit.refDirB,
+        refAxis: edit.refAxis,
+        refPlane: edit.refPlane,
+        driver: edit.driver,
+      );
+      copyPatternParameters(edit, s.restore!);
+    } else {
+      s.name = a.nextPatternName(kind);
+      // Inventor pre-selects the component you had selected, which is nearly
+      // always the one you meant — and puts you in the seed selector either
+      // way so a second tap adds another.
+      final sel = a.selected;
+      if (sel != null && !sel.isPatternElement) s.features.add(sel.id);
+      s.active = PatternField.features;
+      // A mirror wants its plane next; a grid wants its first direction.
+      if (s.features.isNotEmpty) {
+        s.active = kind == PatternKind.mirror
+            ? PatternField.plane
+            : (kind == PatternKind.circular
+                ? PatternField.axis
+                : PatternField.dirA);
+      }
+    }
+    s.constraintsBefore.addAll(a.constraints);
+    patternSession = s;
+    _updateAsmPatternPreview();
+    notifyListeners();
+  }
+
+  /// A tap in the assembly viewport, while a pattern selector is armed.
+  ///
+  /// Returns true when it was consumed, so the viewport knows not to also
+  /// select or drag the component underneath.
+  bool asmPatternPick(AsmPick pick) {
+    final s = asmPatternSession;
+    final a = currentAssembly;
+    if (s == null || a == null) return false;
+    final r = pick.ref;
+    switch (s.active) {
+      case PatternField.features:
+        // A SEED is a component, so what is taken from the pick is only which
+        // occurrence it landed on. Tapping a chosen one removes it, which is
+        // Inventor's multi-select and the part panel's own behaviour.
+        if (r.isAssemblyOrigin) {
+          toast(L.current.msgTapComponentToPattern);
+          return true;
+        }
+        final o = a.byId(r.occurrence);
+        if (o == null) return true;
+        if (o.isPatternElement) {
+          // Patterning a pattern's own output is a cycle: the seed's placement
+          // would be a function of the pattern that is being given it.
+          toast(L.current.msgCannotPatternAnElement);
+          return true;
+        }
+        if (!s.features.remove(o.id)) s.features.add(o.id);
+      case PatternField.dirA:
+      case PatternField.dirB:
+      case PatternField.axis:
+        if (!r.geom.isAxis) {
+          toast(L.current.msgTapStraightOrCircularEdge);
+          return true;
+        }
+        if (s.active == PatternField.dirA) {
+          s.refDirA = r;
+        } else if (s.active == PatternField.dirB) {
+          s.refDirB = r;
+        } else {
+          s.refAxis = r;
+        }
+        s.active = PatternField.none;
+      case PatternField.plane:
+        if (!r.geom.isPlane) {
+          toast(L.current.msgTapPlanarFace);
+          return true;
+        }
+        s.refPlane = r;
+        s.active = PatternField.none;
+      default:
+        return false;
+    }
+    _updateAsmPatternPreview();
+    notifyListeners();
+    return true;
+  }
+
+  void _asmPatternAxisPicked(AsmPatternSession s, AsmRef r) {
+    switch (s.active) {
+      case PatternField.dirA:
+        s.refDirA = r;
+      case PatternField.dirB:
+        s.refDirB = r;
+      case PatternField.axis:
+        s.refAxis = r;
+      default:
+        return;
+    }
+    s.active = PatternField.none;
+    _updateAsmPatternPreview();
+    notifyListeners();
+  }
+
+  /// The assembly rail: switch command WITHOUT losing what has been picked.
+  ///
+  /// The seeds carry over, because they mean the same thing in all three; and
+  /// a direction and a rotation axis are both "a line you picked", so those
+  /// carry too. The mirror plane is neither, and keeping it would have the
+  /// panel saying two different things about where the copies go — Inventor's
+  /// own reason for the rail's rules, and the part [switchPattern]'s.
+  void _switchAsmPattern(AsmPatternSession old, PatternKind kind) {
+    final a = currentAssembly;
+    if (a == null || !kAsmPatternKinds.contains(kind)) return;
+    final s = AsmPatternSession(kind);
+    s.name = old.name;
+    s.restore = old.restore;
+    s.constraintsBefore.addAll(old.constraintsBefore);
+    s.features
+      ..clear()
+      ..addAll(old.features);
+    s.compute = old.compute;
+    s.driver = kind == PatternKind.mirror ? null : old.driver;
+    s.refDirA = old.refDirA ?? old.refAxis;
+    s.refAxis = old.refAxis ?? old.refDirA;
+    s.refDirB = old.refDirB;
+    s.refPlane = old.refPlane;
+    s.active = old.features.isEmpty
+        ? PatternField.features
+        : PatternField.none;
+    patternSession = s;
+    _updateAsmPatternPreview();
+    notifyListeners();
+  }
+
+  /// Inventor's Associative tab: the pattern follows a FEATURE pattern inside
+  /// a component. Null clears it and the pattern goes back to its own numbers.
+  void asmPatternSetDriver((String, String)? driver) {
+    final s = asmPatternSession;
+    if (s == null) return;
+    s.driver = driver;
+    s.active = PatternField.none;
+    _updateAsmPatternPreview();
+    notifyListeners();
+  }
+
+  /// Every feature pattern reachable from this assembly, as
+  /// (occurrence id, feature name) — what the Associative picker lists.
+  ///
+  /// Read off the LIVE models (M245), so a pattern added to a part appears
+  /// here the moment you look.
+  List<(String, String)> asmPatternDrivers() {
+    final a = currentAssembly;
+    if (a == null) return const [];
+    return [
+      for (final o in a.occurrences)
+        if (!o.isPatternElement)
+          for (final f in o.part?.features ?? const <PartFeature>[])
+            if (f is PatternFeature && f.mode != PatternKind.mirror)
+              (o.id, f.name)
+    ];
+  }
+
+  /// The pattern the panel currently describes, or the reason it cannot be
+  /// built. One function for both the preview and OK, so what is on screen is
+  /// exactly what the button keeps.
+  (AsmPattern?, String?) _asmSessionPattern() {
+    final s = asmPatternSession;
+    final a = currentAssembly;
+    if (s == null || a == null) return (null, 'no session');
+    if (s.features.isEmpty) return (null, L.current.valSelectOneComponent);
+    final f = AsmPattern(
+      name: s.name,
+      mode: s.mode,
+      sources: s.features,
+      refDirA: s.refDirA,
+      refDirB: s.refDirB,
+      refAxis: s.refAxis,
+      refPlane: s.refPlane,
+      driver: s.driver,
+    );
+    f.compute = s.compute;
+    f.suppressed.addAll(s.suppressed);
+    if (s.driver != null) {
+      if (driverFeatureOf(a, s.driver!.$1, s.driver!.$2) == null) {
+        return (null, L.current.valDrivingFeatureGone);
+      }
+      return (f, null);
+    }
+    switch (s.mode) {
+      case PatternKind.rectangular:
+        if (s.refDirA == null) return (null, L.current.valSelectDirectionA);
+        final ca = _patternCount(s.exprCountA);
+        if (ca == null) return (null, L.current.valCountAAtLeastOne);
+        final da = parseValueExpr(s.exprDistanceA);
+        if (da == null || !(da > 0)) {
+          return (null, L.current.valDistanceAPositive);
+        }
+        f
+          ..flipA = s.flipA
+          ..midplaneA = s.midplaneA
+          ..countA = ca
+          ..distanceA = da
+          ..exprCountA = s.exprCountA
+          ..exprDistanceA = s.exprDistanceA
+          ..distributionA = s.distributionA;
+        f.irregularA.addAll(s.irregularA);
+        if (s.refDirB != null) {
+          final cb = _patternCount(s.exprCountB);
+          if (cb == null) return (null, L.current.valCountBAtLeastOne);
+          final db = parseValueExpr(s.exprDistanceB);
+          if (db == null || !(db > 0)) {
+            return (null, L.current.valDistanceBPositive);
+          }
+          f
+            ..flipB = s.flipB
+            ..midplaneB = s.midplaneB
+            ..countB = cb
+            ..distanceB = db
+            ..exprCountB = s.exprCountB
+            ..exprDistanceB = s.exprDistanceB
+            ..distributionB = s.distributionB;
+          f.irregularB.addAll(s.irregularB);
+        }
+        if (f.occurrenceCount <= 1) return (null, L.current.valPatternNeedsTwo);
+      case PatternKind.circular:
+        if (s.refAxis == null) return (null, L.current.valSelectRotationAxis);
+        final n = _patternCount(s.exprCountC);
+        if (n == null) return (null, L.current.valCountAtLeastOne);
+        if (n <= 1) return (null, L.current.valPatternNeedsTwo);
+        final ang = parseValueExpr(s.exprAngleC);
+        if (ang == null || ang == 0) return (null, L.current.valAngleNotZero);
+        f
+          ..flipC = s.flipC
+          ..countC = n
+          ..angleC = ang
+          ..exprCountC = s.exprCountC
+          ..exprAngleC = s.exprAngleC
+          ..distributionC = s.distributionC
+          ..orientation = s.orientation;
+        f.irregularC.addAll(s.irregularC);
+      case PatternKind.mirror:
+        if (s.refPlane == null) return (null, L.current.valSelectMirrorPlane);
+      case PatternKind.sketchDriven:
+        return (null, L.current.valSelectPointSketch);
+    }
+    return (f, null);
+  }
+
+  /// The LIVE preview: the pattern is placed for real and Cancel takes it
+  /// away again.
+  ///
+  /// A ghost drawn by a second painter was the alternative, and it would have
+  /// been a second renderer for geometry that the ordinary one already draws
+  /// perfectly. Placing it means the preview is depth-sorted against the rest
+  /// of the assembly, tinted the same, and picked the same — and it costs one
+  /// regeneration per keystroke, which is a closed-form expression per element.
+  void _updateAsmPatternPreview() {
+    final s = asmPatternSession;
+    final a = currentAssembly;
+    if (s == null || a == null) return;
+    final (f, err) = _asmSessionPattern();
+    s.previewError = err;
+    final i = a.patterns.indexWhere((p) => p.name == s.name);
+    if (f == null) {
+      // Not buildable yet: take the elements away rather than leaving the
+      // previous keystroke's on screen, which would say the panel accepted
+      // something it is refusing.
+      if (i >= 0) a.removePattern(s.name);
+    } else if (i >= 0) {
+      a.patterns[i] = f;
+    } else {
+      a.patterns.add(f);
+    }
+    _solveAssembly(a);
+    a.bump();
+  }
+
+  /// How many relationships the open command has destroyed so far.
+  ///
+  /// The panel shows it as a warning line. It reports what has ALREADY
+  /// happened rather than what would happen, because the preview is the real
+  /// thing — you see the rows go and you see the number, and Cancel puts both
+  /// back (see [AsmPatternSession.constraintsBefore]). An element's identity
+  /// is stable across a count change, so this is only ever the relationships
+  /// on elements that genuinely ceased to exist.
+  int asmPatternDroppedRelationships() {
+    final s = asmPatternSession;
+    final a = currentAssembly;
+    if (s == null || a == null) return 0;
+    final n = s.constraintsBefore.length - a.constraints.length;
+    return n > 0 ? n : 0;
+  }
+
+  Future<bool> applyAsmPattern() async {
+    final s = asmPatternSession;
+    final a = currentAssembly;
+    if (s == null || a == null) return false;
+    final (f, err) = _asmSessionPattern();
+    if (f == null) {
+      toast(err ?? L.current.msgCannotCreatePattern);
+      return false;
+    }
+    // The preview already placed it; OK is simply "stop being able to cancel".
+    patternSession = null;
+    a.bump();
+    unawaited(saveAssembly(a.name));
+    Log.i(
+        'assembly',
+        '${patternKindLabel(f.mode)} ${s.editing == null ? "created" : "edited"} '
+            '${f.name}: ${f.seeds.length} seed(s), '
+            '${a.elementsOf(f.name).length} element(s)'
+            '${f.isAssociative ? " driven by ${f.driver!.$1}/${f.driver!.$2}" : ""}');
+    notifyListeners();
+    return true;
+  }
+
+  /// Esc / Cancel: the previewed pattern goes away, or an edited one goes
+  /// back to what it was.
+  void cancelAsmPattern() {
+    final s = asmPatternSession;
+    final a = currentAssembly;
+    if (s == null || a == null) return;
+    final was = s.restore;
+    if (was == null) {
+      a.removePattern(s.name);
+    } else {
+      final i = a.patterns.indexWhere((p) => p.name == s.name);
+      if (i >= 0) {
+        a.patterns[i] = was;
+      } else {
+        a.patterns.add(was);
+      }
+    }
+    patternSession = null;
+    // The pattern first, so the regeneration puts every element back under the
+    // id it had; THEN the relationships, which name those ids. The other order
+    // would restore constraints to components that do not exist yet, and
+    // AssemblyModel.remove would take them straight back off.
+    _solveAssembly(a);
+    for (final c in s.constraintsBefore) {
+      if (a.constraints.contains(c)) continue;
+      if (c.occurrences.any((id) => a.byId(id) == null)) continue;
+      a.constraints.add(c);
+    }
+    _solveAssembly(a);
+    a.bump();
+    notifyListeners();
+  }
+
+  /// Suppress / restore ONE element, from the browser.
+  ///
+  /// Inventor's own verb, and the reason a pattern element has no Delete: the
+  /// elements belong to the pattern. [index] is Inventor's numbering with the
+  /// seed as 1, and the seed is not the pattern's to suppress.
+  void asmPatternSuppressElement(AsmPattern p, int index, bool suppress) {
+    final a = currentAssembly;
+    if (a == null || index <= 1) return;
+    if (suppress ? !p.suppressed.add(index) : !p.suppressed.remove(index)) {
+      return;
+    }
+    _solveAssembly(a);
+    a.bump();
+    unawaited(saveAssembly(a.name));
+    Log.i('assembly',
+        '${p.name}: element $index ${suppress ? "suppressed" : "restored"}');
+    notifyListeners();
+  }
+
+  /// Deletes a pattern and every element it placed.
+  void deleteAsmPattern(String name) {
+    final a = currentAssembly;
+    if (a == null) return;
+    if (a.patternNamed(name) == null) return;
+    if (asmPatternSession?.name == name) patternSession = null;
+    a.removePattern(name);
+    _solveAssembly(a);
+    a.bump();
+    unawaited(saveAssembly(a.name));
+    Log.i('assembly', 'pattern "$name" deleted');
+    notifyListeners();
+  }
+
+  /// M248 — COPY COMPONENT.
+  ///
+  /// Inventor's Copy Components writes NEW PART DOCUMENTS, and rule 1 forbids
+  /// that: every instance in this app is an occurrence of the same document,
+  /// which is what keeps M245's live link. The honest reading of the command
+  /// that remains is "place more occurrences of the same components, keeping
+  /// their arrangement", and that is what this does.
+  ///
+  /// The difference from Place, which is the reason it is a separate command:
+  /// Place drops a fresh component at the identity, while this reproduces the
+  /// selected one AS IT SITS — its orientation and, for a mirrored component,
+  /// its handedness. A subassembly keeps everything inside it, unchanged,
+  /// because a copy of a subassembly is a second occurrence of the same
+  /// document and its contents were never this occurrence's to begin with.
+  ///
+  /// Relationships are NOT copied. A constraint mates two named components,
+  /// and a copy of one end of it is not constrained to anything — which is
+  /// what Inventor's own Copy Components does with constraints that reach
+  /// outside the copied set.
+  void copySelectedComponent() {
+    final a = currentAssembly;
+    final o = a?.selected;
+    if (a == null || o == null) {
+      toast(L.current.msgSelectComponentToCopy);
+      return;
+    }
+    if (o.isPatternElement) {
+      // A copy of an element would be an ordinary component that happened to
+      // look like one, and the next regeneration would place the element and
+      // leave the copy behind. Copy the SEED, or edit the pattern's count.
+      toast(L.current.msgCannotCopyAnElement);
+      return;
+    }
+    final bounds = occurrenceBounds(o);
+    final size = bounds == null
+        ? null
+        : (bounds.$1 - o.offset, bounds.$2 - o.offset);
+    final copy = AssemblyOccurrence(
+      id: a.nextOccurrenceId(o.source),
+      source: o.source,
+      sourceKind: o.sourceKind,
+      offset: o.offset + nextPlacement(a, size),
+      rot: o.rot,
+      reflect: o.reflect,
+      visible: o.visible,
+      part: o.part,
+      sub: o.sub,
+    );
+    a.occurrences.add(copy);
+    a.selected = copy;
+    a.bump();
+    _solveAssembly(a);
+    unawaited(saveAssembly(a.name));
+    Log.i('assembly', 'copied ${o.id} as ${copy.id}');
+    notifyListeners();
   }
 
   /// M137 — Revolve. Shares the extrude session and panel; [kind] switches

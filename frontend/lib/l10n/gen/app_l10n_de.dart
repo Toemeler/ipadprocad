@@ -1137,6 +1137,38 @@ class AppL10nDe extends AppL10n {
       'Zielkörper wählen — in 3D oder im Browser antippen.';
 
   @override
+  String msgPatternNeedsComponent(String kind) {
+    return '$kind braucht eine Komponente zum Kopieren — zuerst eine platzieren.';
+  }
+
+  @override
+  String msgRelationshipsDropped(int n) {
+    String _temp0 = intl.Intl.pluralLogic(
+      n,
+      locale: localeName,
+      other:
+          '$n Beziehungen wurden mit den entfallenen Elementen gelöscht — Abbrechen stellt sie wieder her.',
+      one:
+          '1 Beziehung wurde mit den entfallenen Elementen gelöscht — Abbrechen stellt sie wieder her.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get msgTapComponentToPattern => 'Komponente zum Anordnen antippen.';
+
+  @override
+  String get msgCannotPatternAnElement =>
+      'Ein Anordnungselement kann nicht angeordnet werden — die Ausgangskomponente wählen.';
+
+  @override
+  String get msgSelectComponentToCopy => 'Komponente zum Kopieren wählen.';
+
+  @override
+  String get msgCannotCopyAnElement =>
+      'Ein Anordnungselement kann nicht kopiert werden — die Ausgangskomponente kopieren oder die Anzahl ändern.';
+
+  @override
   String msgPatternNeedsFeature(String kind) {
     return '$kind braucht ein Element zum Kopieren — zuerst eines bauen.';
   }
@@ -2733,6 +2765,32 @@ class AppL10nDe extends AppL10n {
   String get lblSelectSolid => 'Volumenkörper wählen';
 
   @override
+  String get lblComponent => 'Komponente';
+
+  @override
+  String get lblSelectComponents => 'Komponenten wählen';
+
+  @override
+  String lblNComponents(int n) {
+    String _temp0 = intl.Intl.pluralLogic(
+      n,
+      locale: localeName,
+      other: '$n Komponenten',
+      one: '1 Komponente',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get hintTapComponentIn3d => 'Komponente in 3D antippen…';
+
+  @override
+  String get lblFeaturePattern => 'Element-Anordnung';
+
+  @override
+  String get lblOwnSpacing => 'Eigene Abstände';
+
+  @override
   String get lblFeature => 'Element';
 
   @override
@@ -3056,6 +3114,14 @@ class AppL10nDe extends AppL10n {
 
   @override
   String get valAngle0to90 => 'Der Winkel muss zwischen 0 und 90 Grad liegen.';
+
+  @override
+  String get valSelectOneComponent =>
+      'Mindestens eine Komponente zum Anordnen wählen.';
+
+  @override
+  String get valDrivingFeatureGone =>
+      'Die treibende Element-Anordnung ist nicht mehr da.';
 
   @override
   String get valSelectOneFeature =>

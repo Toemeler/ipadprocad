@@ -69,6 +69,32 @@
  *        differ and the classifier is the one that is wrong — a box is a
  *        convex solid, so the ground truth there needs no second opinion
  *
+ * v27 scenarios — S15 (holed sweep) and S16 (the straight audit):
+ *   [40] EVERY direction, axis and placement parameter in this shim, bent
+ *        once on purpose. S14 fixed three defects in the sweep and closed
+ *        with a question it could not answer: "I do not know what else in
+ *        this shim is only ever exercised straight." The inventory in
+ *        perf/findings/S16-straight-audit.md answers it by reading every
+ *        call site above — EIGHT parameters had never been passed anything
+ *        but their trivial value, and three of those are reachable from the
+ *        UI. [40a] a real rotation through occt_transform (the only rotation
+ *        this file had was {0,-1,0, 1,0,0, 0,0,1}, exact 0/±1 entries);
+ *        [40b] revolve about an oblique, off-origin axis, against PAPPUS
+ *        rather than a golden; [40c] a hole revolved about that same axis —
+ *        the control for S14's item 2; [40d] the coil's `clockwise` flag,
+ *        which nothing had ever set; [40e] the coil about an oblique axis;
+ *        [40f] an oblique mirror plane; [40g] a boolean with a ROTATED
+ *        operand; [40h] loft with rotated section placements; [40i] a face
+ *        moved along an OBLIQUE delta; [40j] the chamfer's `angle >= 90`
+ *        guard on a 60° edge; [40k] a fillet on a 135° edge; [40l] chamfer
+ *        mode 1, which had no fixture anywhere in this file.
+ *
+ *        Where no closed form exists the instrument is RIGID EQUIVARIANCE:
+ *        op(R·inputs) == R·op(inputs), and volume is invariant under R, so
+ *        equality of the two volumes is a necessary condition needing no
+ *        analytic formula and no recorded golden — and it fails exactly when
+ *        the code has an axis baked in that the caller thinks is a parameter.
+ *
  * Output contract for CI (read the log, not the checkmark — HANDOFF rule):
  *   prints "OCCT SMOKE: PASS" on success, "OCCT SMOKE: FAIL (...)" otherwise,
  *   and exits non-zero on any failure.
@@ -2552,8 +2578,22 @@ int main(void)
                 if (hi) occt_free_shape(hi);
             }
 
-            /* arm 3 — and v24 still does not smooth a holed profile, so AUTO
-             * and POLY must be the same object, not merely close */
+            /* arm 3 — v27: AUTO now DOES smooth a holed profile, and this
+             * arm is inverted to say so.
+             *
+             * It read "AUTO and POLY must be the same object" because v24
+             * forced a holed profile back onto the polyline spine — the hole
+             * was removed with a boolean, and that boolean costs 21 653.6 ms
+             * between two smooth-spine solids against 85.4 ms between two
+             * polyline ones (S14 §4.1). v27 assembles instead of subtracting,
+             * so the reason is gone and the restriction with it.
+             *
+             * THIS IS THE BEHAVIOUR CHANGE THIS SESSION MAKES, and it is the
+             * same one v24 made for unholed profiles: a holed sweep along a
+             * sampled arc comes back as one smooth run instead of a mitered
+             * one. The check below is what a smooth run MEANS — 2 faces per
+             * profile segment plus 2 caps — plus the analytic annulus, rather
+             * than a recorded number. */
             {
                 occt_shape *au = occt_sweep_profile_ex(xyb, lc2, 2, I37, path37,
                                                        spans + 1, 0, 0.0, 0.0,
@@ -2564,11 +2604,22 @@ int main(void)
                 if (check(au != NULL && po != NULL,
                           "[37f] AUTO or POLY refused a holed profile")) {
                     int fa = 0, fp = 0;
+                    const double va = occt_shape_volume(au);
                     occt_shape_counts(au, &fa, NULL, NULL);
                     occt_shape_counts(po, &fp, NULL, NULL);
-                    check(occt_shape_volume(au) == occt_shape_volume(po)
-                          && fa == fp,
-                          "[37f] AUTO smoothed a holed profile");
+                    printf("[37f] holed AUTO f=%d vol=%.6f | POLY f=%d "
+                           "vol=%.6f (analytic %.6f) %s\n", fa, va, fp,
+                           occt_shape_volume(po), ann * kL37 * kCos37,
+                           occt_shape_valid(au) ? "valid" : "INVALID");
+                    check(fa == 2 * seg + 2,
+                          "[37f] AUTO did not smooth a holed profile");
+                    check(fp > fa,
+                          "[37f] POLY is no longer the mitered polyline path");
+                    check(near_rel(va, ann * kL37 * kCos37, 1e-4),
+                          "[37f] the smoothed tube is not the analytic "
+                          "annulus");
+                    check(occt_shape_valid(au),
+                          "[37f] the smoothed tube is invalid");
                 }
                 if (au) occt_free_shape(au);
                 if (po) occt_free_shape(po);
@@ -2745,6 +2796,2068 @@ int main(void)
                     occt_free_shape(a);
                 }
             }
+        }
+    }
+
+
+    /* [39] v27 — A HOLED PROFILE IS ASSEMBLED, NOT SUBTRACTED.
+     *
+     * finish_pipe removed every hole with a BRepAlgoAPI_Cut from v15 to v26.
+     * That boolean is what forced a holed profile back onto the v23 polyline
+     * spine (its cost is 99.7 % of a smooth-spine holed sweep, S14 §4.1), and
+     * therefore what kept a holed profile failing at 1200 segments long after
+     * v24 fixed the unholed one. v27 sweeps each wire to its lateral shell,
+     * caps both ends with a planar face carrying the holes as inner
+     * boundaries, sews and makes a solid.
+     *
+     * The assembly is a SPECIAL operation where the boolean was a GENERAL one:
+     * it assumes each hole is strictly inside the outer boundary and that the
+     * holes are pairwise disjoint. Nothing checked that before, because
+     * nothing needed it to. profile_holes_are_separate now does, and when it
+     * says no the v26 boolean runs unchanged. Arms (c) and (d) below are that
+     * guard, and they are the reason S14 handed this over rather than
+     * committing it.
+     *
+     * Every pin here is ARITHMETIC or a DIFFERENTIAL taken in this run. A
+     * regular n-gon of circumradius R has area 0.5*n*R^2*sin(2*pi/n), and a
+     * straight sweep of a constant section is area x length; where the path
+     * bends, the claim is against occt_cut of the same two sweeps, which is
+     * the operation v26 used and is built here through a different entry
+     * point.
+     */
+    {
+        const double I39[12] = {1,0,0,0, 0,1,0,0, 0,0,1,0};
+        const int seg = 24;
+        const double s39 = sin(2.0 * M_PI / seg);
+        const double L39 = 40.0;
+        const double sp39[6] = {0,0,0, 0,0,40};
+        double path39[3 * 17];
+        int i, k;
+        /* area of a regular 24-gon of circumradius R */
+#define A39(R) (0.5 * seg * (R) * (R) * s39)
+        for (i = 0; i <= 8; ++i) {
+            const double t = (double)i / 8.0, a = t * M_PI / 2.0;
+            path39[3*i+0] = 60.0 * sin(a) * 0.3;
+            path39[3*i+1] = 60.0 * (1.0 - cos(a)) * 0.3;
+            path39[3*i+2] = t * 60.0;
+        }
+
+        /* ---- (a) TWO and THREE holes: k inner wires per cap ----
+         * S14 §12.3 risk 4, "mechanical, untested". */
+        {
+            double xyb[4 * 24 * 3];
+            const int lc3[] = {24, 24, 24};
+            const int lc4[] = {24, 24, 24, 24};
+            double want;
+            occt_shape *t;
+            /* two r=1.5 holes at (+-3, 0) */
+            for (i = 0; i < seg; ++i) {
+                const double a = 2.0 * M_PI * i / seg;
+                xyb[3*i+0] = 6.0 * cos(a);
+                xyb[3*i+1] = 6.0 * sin(a);
+                xyb[3*i+2] = 0.0;
+                xyb[3*(seg+i)+0] = -3.0 + 1.5 * cos(a);
+                xyb[3*(seg+i)+1] = 1.5 * sin(a);
+                xyb[3*(seg+i)+2] = 0.0;
+                xyb[3*(2*seg+i)+0] = 3.0 + 1.5 * cos(a);
+                xyb[3*(2*seg+i)+1] = 1.5 * sin(a);
+                xyb[3*(2*seg+i)+2] = 0.0;
+            }
+            want = (A39(6.0) - 2.0 * A39(1.5)) * L39;
+            t = occt_sweep_profile_ex(xyb, lc3, 3, I39, sp39, 2, 0, 0.0, 0.0,
+                                      OCCT_SWEEP_PATH_AUTO);
+            if (check(t != NULL, "[39a] two holes refused")) {
+                const double v = occt_shape_volume(t);
+                printf("[39a] 2 holes, straight: vol=%.9f (analytic %.9f) %s\n",
+                       v, want, occt_shape_valid(t) ? "valid" : "INVALID");
+                check(near_rel(v, want, 1e-9),
+                      "[39a] a two-holed sweep is not analytic");
+                check(occt_shape_valid(t), "[39a] the two-holed sweep is "
+                                           "invalid");
+                occt_free_shape(t);
+            }
+            /* three r=1.2 holes at radius 3, 120 degrees apart */
+            for (k = 0; k < 3; ++k) {
+                const double cx = 3.0 * cos(2.0 * M_PI * k / 3.0);
+                const double cy = 3.0 * sin(2.0 * M_PI * k / 3.0);
+                for (i = 0; i < seg; ++i) {
+                    const double a = 2.0 * M_PI * i / seg;
+                    xyb[3*((k+1)*seg+i)+0] = cx + 1.2 * cos(a);
+                    xyb[3*((k+1)*seg+i)+1] = cy + 1.2 * sin(a);
+                    xyb[3*((k+1)*seg+i)+2] = 0.0;
+                }
+            }
+            want = (A39(6.0) - 3.0 * A39(1.2)) * L39;
+            t = occt_sweep_profile_ex(xyb, lc4, 4, I39, sp39, 2, 0, 0.0, 0.0,
+                                      OCCT_SWEEP_PATH_AUTO);
+            if (check(t != NULL, "[39a] three holes refused")) {
+                const double v = occt_shape_volume(t);
+                printf("[39a] 3 holes, straight: vol=%.9f (analytic %.9f) %s\n",
+                       v, want, occt_shape_valid(t) ? "valid" : "INVALID");
+                check(near_rel(v, want, 1e-9),
+                      "[39a] a three-holed sweep is not analytic");
+                check(occt_shape_valid(t), "[39a] the three-holed sweep is "
+                                           "invalid");
+                occt_free_shape(t);
+            }
+            /* and on the bending path, where the pin is the differential */
+            t = occt_sweep_profile_ex(xyb, lc4, 4, I39, path39, 9, 0, 0.0, 0.0,
+                                      OCCT_SWEEP_PATH_POLY);
+            if (check(t != NULL, "[39a] three holes refused on an arc")) {
+                const int lc1[] = {24};
+                occt_shape *bo = occt_sweep_profile_ex(xyb, lc1, 1, I39,
+                                                       path39, 9, 0, 0.0, 0.0,
+                                                       OCCT_SWEEP_PATH_POLY);
+                double w = bo ? occt_shape_volume(bo) : -1.0;
+                for (k = 0; k < 3 && bo; ++k) {
+                    occt_shape *hi = occt_sweep_profile_ex(
+                        xyb + 3 * (k + 1) * seg, lc1, 1, I39, path39, 9, 0,
+                        0.0, 0.0, OCCT_SWEEP_PATH_POLY);
+                    if (!hi) { w = -1.0; break; }
+                    w -= occt_shape_volume(hi);
+                    occt_free_shape(hi);
+                }
+                if (bo) occt_free_shape(bo);
+                if (check(w > 0.0, "[39a] a component sweep refused")) {
+                    const double v = occt_shape_volume(t);
+                    printf("[39a] 3 holes, tilted arc: vol=%.9f "
+                           "outer-holes=%.9f (%+.3e) %s\n", v, w,
+                           (v - w) / w,
+                           occt_shape_valid(t) ? "valid" : "INVALID");
+                    check(near_rel(v, w, 1e-9),
+                          "[39a] three holes are not placed like their body");
+                    check(occt_shape_valid(t), "[39a] the arc three-holed "
+                                               "sweep is invalid");
+                }
+                occt_free_shape(t);
+            }
+        }
+
+        /* ---- (b) TAPER: both end sections scale, and the caps still match ----
+         * S14 §12.3 risk 3, "I believe the caps still match, and I did not
+         * test it".
+         *
+         * finish_pipe gives the outer wire and every hole the SAME
+         * Law_Linear(0 -> 1, 1 -> 1+k), applied about the section's own
+         * location frame — one station on the spine, shared by both wires. So
+         * at every station the two sections are ONE homothety of the profile
+         * about a common centre, which is what keeps the hole inside the body
+         * and the two end sections coplanar. The annular area at station t is
+         * (A_out - A_in) * s(t)^2, so on a straight path
+         *   V = (A_out - A_in) * L * integral[0,1] (1+kt)^2 dt
+         *     = (A_out - A_in) * L * (1 + k + k^2/3).
+         * Cross-check on the unholed law: [37g] measures 6766.447913 ->
+         * 7375.699522, a ratio of 1.0900399 against the 1.0900401 below. */
+        {
+            const double tap = 5.0;
+            const double kk = tan(tap * M_PI / 180.0);
+            const double f = 1.0 + kk + kk * kk / 3.0;
+            const double want = (A39(6.0) - A39(3.0)) * L39 * f;
+            const int lc2[] = {24, 24};
+            double xyb[2 * 24 * 3];
+            int pm;
+            occt_shape *t;
+            for (i = 0; i < seg; ++i) {
+                const double a = 2.0 * M_PI * i / seg;
+                xyb[3*i+0] = 6.0 * cos(a);
+                xyb[3*i+1] = 6.0 * sin(a);
+                xyb[3*i+2] = 0.0;
+                xyb[3*(seg+i)+0] = 3.0 * cos(a);
+                xyb[3*(seg+i)+1] = 3.0 * sin(a);
+                xyb[3*(seg+i)+2] = 0.0;
+            }
+            t = occt_sweep_profile_ex(xyb, lc2, 2, I39, sp39, 2, 0, tap, 0.0,
+                                      OCCT_SWEEP_PATH_AUTO);
+            if (check(t != NULL, "[39b] a tapered tube refused")) {
+                const double v = occt_shape_volume(t);
+                printf("[39b] tapered tube, straight: vol=%.9f "
+                       "(analytic %.9f) %s\n", v, want,
+                       occt_shape_valid(t) ? "valid" : "INVALID");
+                check(near_rel(v, want, 1e-9),
+                      "[39b] a tapered tube is not analytic");
+                check(occt_shape_valid(t), "[39b] the tapered tube is invalid");
+                occt_free_shape(t);
+            }
+            /* Both spines on the bending path, each against the BOOLEAN the
+             * assembly replaced — occt_cut of the same two sweeps, the same
+             * OCCT operation on the same operands, reached through a different
+             * entry point in this run.
+             *
+             * NOT against vol(outer) - vol(hole), which is what [37f] uses and
+             * what the first version of this arm used. That subtraction is a
+             * valid pin only while both operands are valid solids, and ON THE
+             * POLYLINE SPINE WITH A TAPER THEY ARE NOT — see the note below.
+             *
+             * A TAPERED SWEEP ALONG A SPINE OF MORE THAN ONE EDGE PRODUCES AN
+             * INVALID SOLID, and it has nothing to do with holes. Measured
+             * against the v26 shim, in the same run, on the SINGLE-LOOP sweep:
+             * a 24-gon tapered 5 deg over the 8-span polyline arc gives
+             * 10 476.381185581, INVALID, in BOTH v26 and v27, every digit the
+             * same. A drawn 90-degree L corner does it too — 8 555.054342,
+             * INVALID, under plain AUTO, which is a shape a user can draw. A
+             * one-edge spine (straight, or a smoothed run) is valid. Recorded
+             * in perf/findings/S15-holes.md §4.3 and CROSS-SESSION; NOT fixed
+             * here, because it is a second defect and it gets its own
+             * pre-registration.
+             *
+             * So this arm asserts what it can honestly assert: the tube is the
+             * cut, exactly, and the tube is valid EXACTLY WHEN the unholed
+             * sweep it is made from is. The assembly is not allowed to be
+             * worse than its own ingredients; it is not asked to be better. */
+            for (pm = 0; pm < 2; ++pm) {
+                const int mode = pm ? OCCT_SWEEP_PATH_SMOOTH
+                                    : OCCT_SWEEP_PATH_POLY;
+                const int lc1[] = {24};
+                occt_shape *tu = occt_sweep_profile_ex(xyb, lc2, 2, I39,
+                                                       path39, 9, 0, tap, 0.0,
+                                                       mode);
+                occt_shape *bo = occt_sweep_profile_ex(xyb, lc1, 1, I39,
+                                                       path39, 9, 0, tap, 0.0,
+                                                       mode);
+                occt_shape *hi = occt_sweep_profile_ex(xyb + 3 * seg, lc1, 1,
+                                                       I39, path39, 9, 0, tap,
+                                                       0.0, mode);
+                occt_shape *ref = (bo && hi) ? occt_cut(bo, hi) : NULL;
+                if (check(tu != NULL && ref != NULL,
+                          "[39b] a tapered sweep refused on the arc path")) {
+                    const double v = occt_shape_volume(tu);
+                    const double w = occt_shape_volume(ref);
+                    printf("[39b] tapered tube, tilted arc, %s: vol=%.9f "
+                           "cut(outer,hole)=%.9f (%+.3e%s) tube %s / unholed "
+                           "%s\n", pm ? "SMOOTH" : "POLY", v, w, (v - w) / w,
+                           v == w ? ", EXACT" : "",
+                           occt_shape_valid(tu) ? "valid" : "INVALID",
+                           occt_shape_valid(bo) ? "valid" : "INVALID");
+                    check(near_rel(v, w, 1e-9),
+                          "[39b] a tapered hole is not placed like its body");
+                    check(occt_shape_valid(tu) == occt_shape_valid(bo),
+                          "[39b] the tapered tube is worse than its own "
+                          "unholed sweep");
+                }
+                if (tu) occt_free_shape(tu);
+                if (bo) occt_free_shape(bo);
+                if (hi) occt_free_shape(hi);
+                if (ref) occt_free_shape(ref);
+            }
+        }
+
+        /* ---- (g) THE ASSEMBLY IS THE SUBTRACTION, on a contained hole ----
+         *
+         * [37f] already asserts that a tube equals its outer sweep MINUS its
+         * hole sweep, by volume arithmetic. That is the right pin for v26's
+         * defect and it is not quite the right pin for v27's claim: v27 says
+         * the assembled solid IS the solid the boolean produced, so the
+         * comparison should be against the boolean, not against a subtraction
+         * of two numbers.
+         *
+         * Measured on the machine this was developed on, in one run, against
+         * the v26 shim built from the parent commit: taper 0 / POLY gives
+         * 5 031.442236788 and 386 faces in BOTH; taper 0 / SMOOTH gives
+         * 5 031.037365496 and 50 faces in BOTH — the same doubles, not the
+         * same ten figures. The assertion here is 1e-9 rather than == because
+         * two different OCCT operations agreeing bit for bit is an observation
+         * about one toolchain and not a property anyone promised; whether it
+         * WAS exact is printed, so a platform where it stops being exact says
+         * so instead of going quietly red. */
+        {
+            const int lc2[] = {24, 24};
+            const int lc1[] = {24};
+            double xyb[2 * 24 * 3];
+            int pm;
+            for (i = 0; i < seg; ++i) {
+                const double a = 2.0 * M_PI * i / seg;
+                xyb[3*i+0] = 6.0 * cos(a);
+                xyb[3*i+1] = 6.0 * sin(a);
+                xyb[3*i+2] = 0.0;
+                xyb[3*(seg+i)+0] = 3.0 * cos(a);
+                xyb[3*(seg+i)+1] = 3.0 * sin(a);
+                xyb[3*(seg+i)+2] = 0.0;
+            }
+            for (pm = 0; pm < 2; ++pm) {
+                const int mode = pm ? OCCT_SWEEP_PATH_SMOOTH
+                                    : OCCT_SWEEP_PATH_POLY;
+                occt_shape *tu = occt_sweep_profile_ex(xyb, lc2, 2, I39,
+                                                       path39, 9, 0, 0.0, 0.0,
+                                                       mode);
+                occt_shape *bo = occt_sweep_profile_ex(xyb, lc1, 1, I39,
+                                                       path39, 9, 0, 0.0, 0.0,
+                                                       mode);
+                occt_shape *hi = occt_sweep_profile_ex(xyb + 3 * seg, lc1, 1,
+                                                       I39, path39, 9, 0, 0.0,
+                                                       0.0, mode);
+                occt_shape *ref = (bo && hi) ? occt_cut(bo, hi) : NULL;
+                if (check(tu != NULL && ref != NULL,
+                          "[39g] a contained hole refused")) {
+                    int fa = 0, fr = 0;
+                    const double v = occt_shape_volume(tu);
+                    const double w = occt_shape_volume(ref);
+                    occt_shape_counts(tu, &fa, NULL, NULL);
+                    occt_shape_counts(ref, &fr, NULL, NULL);
+                    printf("[39g] assembled vs boolean, %s: vol=%.9f vs "
+                           "%.9f (%+.3e%s) f=%d vs %d %s\n",
+                           pm ? "SMOOTH" : "POLY", v, w, (v - w) / w,
+                           v == w ? ", EXACT" : "", fa, fr,
+                           occt_shape_valid(tu) ? "valid" : "INVALID");
+                    check(near_rel(v, w, 1e-9),
+                          "[39g] the assembly is not the subtraction");
+                    check(fa == fr,
+                          "[39g] the assembly has a different topology from "
+                          "the subtraction");
+                    check(occt_shape_valid(tu),
+                          "[39g] the assembled tube is invalid");
+                }
+                if (tu) occt_free_shape(tu);
+                if (bo) occt_free_shape(bo);
+                if (hi) occt_free_shape(hi);
+                if (ref) occt_free_shape(ref);
+            }
+        }
+
+        /* ---- (c) A HOLE THAT POKES OUT — the guard, and the fallback ----
+         *
+         * THIS IS THE ARM THE WHOLE GUARD EXISTS FOR. An r=2 hole centred at
+         * (5.5, 0) reaches 7.5 from the origin against an outer circumradius
+         * of 6, so it straddles the wall. The assembly would put an inner wire
+         * on the cap that leaves the cap; the subtraction removes material
+         * outside the body as well and is right. profile_holes_are_separate
+         * must refuse, finish_pipe must run the v26 boolean, and the answer
+         * must be the boolean's.
+         *
+         * The comparison operand is occt_cut of the same two sweeps — the same
+         * OCCT operation on the same operands, reached through a different
+         * entry point in the same run. It is a differential, not a recorded
+         * number, and it is the one that would catch a guard that let this
+         * through. */
+        {
+            const int lc2[] = {24, 24};
+            const int lc1[] = {24};
+            double xyb[2 * 24 * 3];
+            int orient;
+            for (i = 0; i < seg; ++i) {
+                const double a = 2.0 * M_PI * i / seg;
+                xyb[3*i+0] = 6.0 * cos(a);
+                xyb[3*i+1] = 6.0 * sin(a);
+                xyb[3*i+2] = 0.0;
+                xyb[3*(seg+i)+0] = 5.5 + 2.0 * cos(a);
+                xyb[3*(seg+i)+1] = 2.0 * sin(a);
+                xyb[3*(seg+i)+2] = 0.0;
+            }
+            /* POLY on all three, and the reason is worth having in writing:
+             * the TUBE is AUTO, but the guard refuses this profile, so AUTO
+             * falls back to POLY for it — deliberately, so the boolean does
+             * not land on the spine that makes it 80x slower. A single-loop
+             * reference sweep asked for AUTO would be SMOOTHED, and the arm
+             * would then compare two different spines. It did, on the first
+             * run, and orientation 0 came out 1.1 % apart while orientation 1
+             * agreed to 4e-10 — because "Fixed" gives A x rise whatever the
+             * path does in XY, so it cannot see a spine change. Naming the
+             * mode on all three is what makes this a differential. */
+            for (orient = 0; orient <= 1; ++orient) {
+                occt_shape *t = occt_sweep_profile_ex(xyb, lc2, 2, I39, path39,
+                                                      9, orient, 0.0, 0.0,
+                                                      OCCT_SWEEP_PATH_AUTO);
+                occt_shape *bo = occt_sweep_profile_ex(xyb, lc1, 1, I39,
+                                                       path39, 9, orient, 0.0,
+                                                       0.0,
+                                                       OCCT_SWEEP_PATH_POLY);
+                occt_shape *hi = occt_sweep_profile_ex(xyb + 3 * seg, lc1, 1,
+                                                       I39, path39, 9, orient,
+                                                       0.0, 0.0,
+                                                       OCCT_SWEEP_PATH_POLY);
+                occt_shape *ref = (bo && hi) ? occt_cut(bo, hi) : NULL;
+                if (check(t != NULL && ref != NULL,
+                          "[39c] a poking hole refused")) {
+                    const double v = occt_shape_volume(t);
+                    const double w = occt_shape_volume(ref);
+                    printf("[39c] hole poking outside, orientation %d: "
+                           "vol=%.9f  cut(outer,hole)=%.9f (%+.3e) %s\n",
+                           orient, v, w, (v - w) / w,
+                           occt_shape_valid(t) ? "valid" : "INVALID");
+                    check(near_rel(v, w, 1e-9),
+                          "[39c] a poking hole did not fall back to the "
+                          "boolean");
+                    check(occt_shape_valid(t),
+                          "[39c] the poking-hole sweep is invalid");
+                }
+                if (t) occt_free_shape(t);
+                if (bo) occt_free_shape(bo);
+                if (hi) occt_free_shape(hi);
+                if (ref) occt_free_shape(ref);
+            }
+        }
+
+        /* ---- (d) TWO HOLES THAT OVERLAP — the guard's other half ----
+         *
+         * Two r=2 holes 3 apart both sit inside the outer boundary, so the
+         * containment half of the guard says yes to each of them. Their
+         * boundaries cross each other, and an assembly would put two
+         * overlapping inner wires on one cap. The pairwise half must refuse,
+         * and the answer must be the two cuts. */
+        {
+            const int lc3[] = {24, 24, 24};
+            const int lc1[] = {24};
+            double xyb[3 * 24 * 3];
+            occt_shape *t, *bo, *h1, *h2, *r1, *ref;
+            for (i = 0; i < seg; ++i) {
+                const double a = 2.0 * M_PI * i / seg;
+                xyb[3*i+0] = 6.0 * cos(a);
+                xyb[3*i+1] = 6.0 * sin(a);
+                xyb[3*i+2] = 0.0;
+                xyb[3*(seg+i)+0] = -1.5 + 2.0 * cos(a);
+                xyb[3*(seg+i)+1] = 2.0 * sin(a);
+                xyb[3*(seg+i)+2] = 0.0;
+                xyb[3*(2*seg+i)+0] = 1.5 + 2.0 * cos(a);
+                xyb[3*(2*seg+i)+1] = 2.0 * sin(a);
+                xyb[3*(2*seg+i)+2] = 0.0;
+            }
+            t = occt_sweep_profile_ex(xyb, lc3, 3, I39, sp39, 2, 0, 0.0, 0.0,
+                                      OCCT_SWEEP_PATH_AUTO);
+            bo = occt_sweep_profile_ex(xyb, lc1, 1, I39, sp39, 2, 0, 0.0, 0.0,
+                                       OCCT_SWEEP_PATH_AUTO);
+            h1 = occt_sweep_profile_ex(xyb + 3 * seg, lc1, 1, I39, sp39, 2, 0,
+                                       0.0, 0.0, OCCT_SWEEP_PATH_AUTO);
+            h2 = occt_sweep_profile_ex(xyb + 6 * seg, lc1, 1, I39, sp39, 2, 0,
+                                       0.0, 0.0, OCCT_SWEEP_PATH_AUTO);
+            r1 = (bo && h1) ? occt_cut(bo, h1) : NULL;
+            ref = (r1 && h2) ? occt_cut(r1, h2) : NULL;
+            if (check(t != NULL && ref != NULL,
+                      "[39d] two overlapping holes refused")) {
+                const double v = occt_shape_volume(t);
+                const double w = occt_shape_volume(ref);
+                printf("[39d] two OVERLAPPING holes: vol=%.9f "
+                       "cut(cut(outer,h1),h2)=%.9f (%+.3e) %s\n", v, w,
+                       (v - w) / w, occt_shape_valid(t) ? "valid" : "INVALID");
+                check(near_rel(v, w, 1e-9),
+                      "[39d] overlapping holes did not fall back to the "
+                      "boolean");
+                check(occt_shape_valid(t),
+                      "[39d] the overlapping-hole sweep is invalid");
+            }
+            if (t) occt_free_shape(t);
+            if (bo) occt_free_shape(bo);
+            if (h1) occt_free_shape(h1);
+            if (h2) occt_free_shape(h2);
+            if (r1) occt_free_shape(r1);
+            if (ref) occt_free_shape(ref);
+        }
+
+        /* ---- (e) A HOLED COIL — finish_pipe's OTHER caller ----
+         *
+         * occt_coil_profile shares finish_pipe, so it takes the assembly for
+         * free. S14's P16 pinned this at 5562.133035056 with 50 faces; that
+         * constant is NOT what is checked here, because a recorded double pins
+         * a machine. What is checked is what P16 actually claimed: the holed
+         * coil equals its own outer-minus-hole, which the boolean already
+         * satisfied exactly and the assembly must too. */
+        {
+            const int lc2[] = {24, 24};
+            const int lc1[] = {24};
+            double xyb[2 * 24 * 3];
+            occt_shape *cu, *bo, *hi;
+            for (i = 0; i < seg; ++i) {
+                const double a = 2.0 * M_PI * i / seg;
+                xyb[3*i+0] = 18.0 + 6.0 * cos(a);
+                xyb[3*i+1] = 6.0 * sin(a);
+                xyb[3*i+2] = 0.0;
+                xyb[3*(seg+i)+0] = 18.0 + 3.0 * cos(a);
+                xyb[3*(seg+i)+1] = 3.0 * sin(a);
+                xyb[3*(seg+i)+2] = 0.0;
+            }
+            cu = occt_coil_profile(xyb, lc2, 2, I39, 0,0,0, 0,1,0, 0.25, 60.0,
+                                   0.0, 0, 0, 0);
+            bo = occt_coil_profile(xyb, lc1, 1, I39, 0,0,0, 0,1,0, 0.25, 60.0,
+                                   0.0, 0, 0, 0);
+            hi = occt_coil_profile(xyb + 3 * seg, lc1, 1, I39, 0,0,0, 0,1,0,
+                                   0.25, 60.0, 0.0, 0, 0, 0);
+            if (check(cu != NULL && bo != NULL && hi != NULL,
+                      "[39e] a holed coil refused")) {
+                int f = 0;
+                const double v = occt_shape_volume(cu);
+                const double w = occt_shape_volume(bo) - occt_shape_volume(hi);
+                occt_shape_counts(cu, &f, NULL, NULL);
+                printf("[39e] holed coil: vol=%.9f outer-hole=%.9f (%+.3e) "
+                       "f=%d %s\n", v, w, (v - w) / w, f,
+                       occt_shape_valid(cu) ? "valid" : "INVALID");
+                check(near_rel(v, w, 1e-9),
+                      "[39e] a coil's hole is not placed like its body");
+                check(f == 2 * seg + 2, "[39e] the holed coil is not one "
+                                        "smooth run");
+                check(occt_shape_valid(cu), "[39e] the holed coil is invalid");
+            }
+            if (cu) occt_free_shape(cu);
+            if (bo) occt_free_shape(bo);
+            if (hi) occt_free_shape(hi);
+        }
+
+        /* ---- (h) A PROFILE MADE OF ARCS — the guard's flattening ----
+         *
+         * Every fixture above is a polygon, and for a polygon the containment
+         * test is exact. A bulge is not: profile_holes_are_separate flattens
+         * each loop at 2 degrees per sub-chord and carries the largest sagitta
+         * it discarded, because a polygon through points ON an arc can sit up
+         * to that sagitta on the WRONG SIDE of it. Both arms below are about
+         * the arcs and neither would notice a chord-only guard being wrong —
+         * except that a chord-only guard cannot even represent the outer loop
+         * here, which is the point of using a TWO-POINT loop.
+         *
+         * A 2-point loop with bulge 1 at both vertices is two semicircles: a
+         * TRUE circle of radius 5, whose area is exactly 25*pi. That makes the
+         * first arm analytic on a profile the flattening has to get right.
+         *
+         * THE SIGN OF THAT FLATTENING WAS WRONG WHEN FIRST WRITTEN and a
+         * fixture like this is what found it — the guard called a hole OUTSIDE
+         * the profile "safely inside", which is the exact failure the guard
+         * exists to prevent. See flatten_loop's comment for the arithmetic.
+         */
+        {
+            const int lcA[] = {2, 24};
+            const int lcB[] = {2, 4};
+            const int lc1[] = {2};
+            const int lcs[] = {4};
+            double A[2 * 3 + 24 * 3];
+            double B[2 * 3 + 4 * 3];
+            double want;
+            occt_shape *t, *bo, *hi, *ref;
+            A[0] = -5.0; A[1] = 0.0; A[2] = 1.0;
+            A[3] =  5.0; A[4] = 0.0; A[5] = 1.0;
+            for (i = 0; i < seg; ++i) {
+                const double a = 2.0 * M_PI * i / seg;
+                A[6 + 3*i] = cos(a);
+                A[7 + 3*i] = sin(a);
+                A[8 + 3*i] = 0.0;
+            }
+            want = (M_PI * 25.0 - A39(1.0)) * L39;
+            t = occt_sweep_profile_ex(A, lcA, 2, I39, sp39, 2, 0, 0.0, 0.0,
+                                      OCCT_SWEEP_PATH_AUTO);
+            if (check(t != NULL, "[39h] an arc profile with a hole refused")) {
+                const double v = occt_shape_volume(t);
+                printf("[39h] TRUE circle r=5 with a 24-gon r=1 hole: "
+                       "vol=%.9f (analytic %.9f, %+.2e) %s\n", v, want,
+                       (v - want) / want,
+                       occt_shape_valid(t) ? "valid" : "INVALID");
+                check(near_rel(v, want, 1e-9),
+                      "[39h] an arc profile's tube is not analytic");
+                check(occt_shape_valid(t), "[39h] the arc tube is invalid");
+                occt_free_shape(t);
+            }
+
+            /* and a hole STRADDLING that circle: 4.5 to 5.5 in x, so half of
+             * it is outside a boundary that exists only as an arc. The guard
+             * must refuse and the boolean must answer. `o - h` is printed
+             * beside it because it does NOT agree — which is what proves the
+             * hole really straddles rather than merely sitting near the wall. */
+            B[0] = -5.0; B[1] = 0.0; B[2] = 1.0;
+            B[3] =  5.0; B[4] = 0.0; B[5] = 1.0;
+            B[6]  = 4.5; B[7]  = -0.5; B[8]  = 0.0;
+            B[9]  = 5.5; B[10] = -0.5; B[11] = 0.0;
+            B[12] = 5.5; B[13] =  0.5; B[14] = 0.0;
+            B[15] = 4.5; B[16] =  0.5; B[17] = 0.0;
+            t  = occt_sweep_profile_ex(B, lcB, 2, I39, sp39, 2, 0, 0.0, 0.0,
+                                       OCCT_SWEEP_PATH_AUTO);
+            bo = occt_sweep_profile_ex(B, lc1, 1, I39, sp39, 2, 0, 0.0, 0.0,
+                                       OCCT_SWEEP_PATH_AUTO);
+            hi = occt_sweep_profile_ex(B + 6, lcs, 1, I39, sp39, 2, 0, 0.0,
+                                       0.0, OCCT_SWEEP_PATH_AUTO);
+            ref = (bo && hi) ? occt_cut(bo, hi) : NULL;
+            if (check(t != NULL && ref != NULL,
+                      "[39h] a straddling hole refused")) {
+                const double v = occt_shape_volume(t);
+                const double w = occt_shape_volume(ref);
+                const double d = occt_shape_volume(bo) - occt_shape_volume(hi);
+                printf("[39h] hole STRADDLING an arc wall: vol=%.9f "
+                       "cut(outer,hole)=%.9f (%+.3e)  outer-hole=%.9f %s\n",
+                       v, w, (v - w) / w, d,
+                       occt_shape_valid(t) ? "valid" : "INVALID");
+                check(near_rel(v, w, 1e-9),
+                      "[39h] a hole straddling an ARC wall was not refused");
+                check(!near_rel(d, w, 1e-6),
+                      "[39h] the straddling fixture does not actually "
+                      "straddle");
+                check(occt_shape_valid(t),
+                      "[39h] the straddled tube is invalid");
+            }
+            if (t) occt_free_shape(t);
+            if (bo) occt_free_shape(bo);
+            if (hi) occt_free_shape(hi);
+            if (ref) occt_free_shape(ref);
+        }
+
+        /* ---- (f) THE BAR: 1200 segments, with a hole, on the sampled arc ----
+         *
+         * This is the rung the whole session exists for. The device capture of
+         * 2026-08-24 failed at 1200 segments WITHOUT a hole after 231 s; v24
+         * fixed that one and [37d] pins it. A holed profile got none of it,
+         * because AUTO was forced back to POLY. Measured on the machine this
+         * was developed on (perf/findings/S15-holes.md §2.2 and §2.4): the v26
+         * route FAILS after 490 407 ms with "BRep_API: command not done", and
+         * the v27 assembly builds in 7 952.7 ms and is valid.
+         *
+         * There is NO differential arm here and there cannot be: v26 produces
+         * nothing at this size, so there is nothing to be equivalent to. The
+         * check is arithmetic instead, exactly as [37d]'s comment says for the
+         * same reason. The tolerance is 1e-4 rather than 1e-9 because an
+         * interpolated spine is not the sampled polyline: [37d] measures that
+         * gap as 4.1e-6 unholed and §2.2 measures it as 4.24e-6 holed.
+         *
+         * IT IS THE MOST EXPENSIVE ARM IN THIS FILE, and most of that is the
+         * two lines at the bottom rather than the sweep: 8.0 s to build,
+         * 16.8 s for occt_shape_volume and 8.8 s for occt_shape_valid over
+         * 2 402 B-spline faces. §2.4 has the split. Both are kept — a solid
+         * that builds and is not valid would be the worst outcome available
+         * here, and the volume is the only thing that says it is the right
+         * solid. */
+        {
+            const int n = 1200, spans = 16;
+            const int lcb[] = {1200, 1200};
+            static double xyb[2 * 1200 * 3];
+            double pathb[3 * 17];
+            double ann, want;
+            occt_shape *t;
+            for (i = 0; i < n; ++i) {
+                const double a = 2.0 * M_PI * i / n;
+                xyb[3*i+0] = 6.0 * cos(a);
+                xyb[3*i+1] = 6.0 * sin(a);
+                xyb[3*i+2] = 0.0;
+                xyb[3*(n+i)+0] = 3.0 * cos(a);
+                xyb[3*(n+i)+1] = 3.0 * sin(a);
+                xyb[3*(n+i)+2] = 0.0;
+            }
+            for (i = 0; i <= spans; ++i) {
+                const double t2 = (double)i / spans, a = t2 * M_PI / 2.0;
+                pathb[3*i+0] = 60.0 * sin(a) * 0.3;
+                pathb[3*i+1] = 60.0 * (1.0 - cos(a)) * 0.3;
+                pathb[3*i+2] = t2 * 60.0;
+            }
+            /* (A_out - A_in) x 60: the 60 is exact, because
+             * hypot(18, 120/pi) * pi/2 * (120/pi) / hypot(18, 120/pi) = 60. */
+            ann = 0.5 * n * (36.0 - 9.0) * sin(2.0 * M_PI / n);
+            want = ann * 60.0;
+            t = occt_sweep_profile_ex(xyb, lcb, 2, I39, pathb, spans + 1, 0,
+                                      0.0, 0.0, OCCT_SWEEP_PATH_AUTO);
+            if (check(t != NULL, "[39f] 1200 segments WITH A HOLE still does "
+                                 "not build")) {
+                int f = 0;
+                const double v = occt_shape_volume(t);
+                occt_shape_counts(t, &f, NULL, NULL);
+                printf("[39f] 1200 seg x 16 spans, HOLED: f=%d vol=%.6f "
+                       "(analytic %.6f) %s — v26 FAILED here after 490 s\n",
+                       f, v, want, occt_shape_valid(t) ? "valid" : "INVALID");
+                check(f == 2 * n + 2,
+                      "[39f] the 1200-segment holed sweep is not one smooth "
+                      "run");
+                check(near_rel(v, want, 1e-4),
+                      "[39f] the 1200-segment holed volume is not analytic");
+                check(occt_shape_valid(t),
+                      "[39f] the 1200-segment holed solid is invalid");
+                occt_free_shape(t);
+            }
+        }
+#undef A39
+    }
+
+    /* ====================================================================
+     * [40] S16 — THE STRAIGHT AUDIT.
+     *
+     * S14 fixed three defects in the sweep and closed with a question it
+     * could not answer: "I do not know what else in this shim is only ever
+     * exercised straight." The inventory in perf/findings/S16-straight-audit.md
+     * answers it by reading every call site above: EIGHT direction / axis /
+     * placement parameters have never been passed anything but their trivial
+     * value, and three of those are reachable from the UI.
+     *
+     * These scenarios bend each one, once, on purpose.
+     *
+     * The instrument, where no closed form exists, is RIGID EQUIVARIANCE:
+     * for any op taking a direction, an axis or a placement,
+     *
+     *     op(R . inputs)  ==  R . op(inputs)
+     *
+     * and volume is invariant under R, so equality of the two volumes is a
+     * necessary condition that needs no analytic formula for the shape and no
+     * recorded golden (OPTIMIZATION_PLAN_2.md section 1.4). It fails exactly
+     * when the code has an axis baked in that the caller thinks is a
+     * parameter — which is the defect class S14 found.
+     *
+     * Where a closed form DOES exist it is preferred, and for a revolve there
+     * is a good one: PAPPUS's second theorem, V = 2*pi*d*A, with d the
+     * distance from the profile's centroid to the axis. It stays exact as the
+     * axis is bent, which is precisely what a revolve audit needs.
+     * ==================================================================== */
+    {
+        /* One rigid motion, used by every equivariance check below: 37 degrees
+         * about the normalised axis (1,2,3)/sqrt(14), then a translation.
+         * Rodrigues, composed in plain double arithmetic on purpose — the
+         * suite's ONLY rotation until now was {0,-1,0, 1,0,0, 0,0,1}, whose
+         * entries are exactly 0 and +-1, so trsf_from_mat34's orthonormality
+         * guard has never seen a matrix that is merely NEARLY orthonormal.
+         * That is the whole population the app actually sends. */
+        const double aL = sqrt(14.0);
+        const double ux = 1.0 / aL, uy = 2.0 / aL, uz = 3.0 / aL;
+        const double th = 37.0 * M_PI / 180.0;
+        const double ct = cos(th), st = sin(th), vt = 1.0 - ct;
+        double R[12];
+        R[0] = ct + ux*ux*vt;      R[1] = ux*uy*vt - uz*st;  R[2]  = ux*uz*vt + uy*st;
+        R[4] = uy*ux*vt + uz*st;   R[5] = ct + uy*uy*vt;     R[6]  = uy*uz*vt - ux*st;
+        R[8] = uz*ux*vt - uy*st;   R[9] = uz*uy*vt + ux*st;  R[10] = ct + uz*uz*vt;
+        R[3] = 11.0; R[7] = -7.0; R[11] = 3.0;
+
+        /* ---- [40a] P5 — occt_transform ACCEPTS a real rotation ---------- */
+        {
+            /* The guard is an ABSOLUTE tol of 1e-9 on the column dot products
+             * and on det-1. Measure the residual here rather than assuming it:
+             * if a hand-composed Rodrigues matrix already eats a decade of
+             * that budget, a longer composition chain in Dart would trip it,
+             * and the guard would be a latent refusal of legal input. */
+            double worst = 0.0;
+            int i, j;
+            double det;
+            for (i = 0; i < 3; ++i) {
+                for (j = i; j < 3; ++j) {
+                    const double d = R[0+i]*R[0+j] + R[4+i]*R[4+j] + R[8+i]*R[8+j];
+                    const double e = fabs(d - (i == j ? 1.0 : 0.0));
+                    if (e > worst) worst = e;
+                }
+            }
+            det = R[0]*(R[5]*R[10] - R[6]*R[9])
+                - R[1]*(R[4]*R[10] - R[6]*R[8])
+                + R[2]*(R[4]*R[9]  - R[5]*R[8]);
+            printf("[40a] Rodrigues residual: orthonormality %.3e, |det-1| "
+                   "%.3e (guard is 1e-9)\n", worst, fabs(det - 1.0));
+            check(worst < 1e-12 && fabs(det - 1.0) < 1e-12,
+                  "[40a] a hand-composed rotation is not orthonormal to 1e-12 "
+                  "— the 1e-9 guard has less headroom than it looks");
+
+            occt_shape *b = occt_make_box(10, 20, 30);
+            occt_shape *rb = b ? occt_transform(b, R) : NULL;
+            if (check(rb != NULL,
+                      "[40a] occt_transform REFUSED a genuine rotation")) {
+                check(near_rel(occt_shape_volume(rb), 6000.0, 1e-12),
+                      "[40a] a rotation changed the volume");
+                check(occt_shape_valid(rb), "[40a] rotated box invalid");
+                /* Round trip: R inverse is R transposed, translation undone. */
+                double Ri[12];
+                Ri[0]=R[0]; Ri[1]=R[4]; Ri[2]=R[8];
+                Ri[4]=R[1]; Ri[5]=R[5]; Ri[6]=R[9];
+                Ri[8]=R[2]; Ri[9]=R[6]; Ri[10]=R[10];
+                Ri[3]  = -(Ri[0]*R[3] + Ri[1]*R[7] + Ri[2]*R[11]);
+                Ri[7]  = -(Ri[4]*R[3] + Ri[5]*R[7] + Ri[6]*R[11]);
+                Ri[11] = -(Ri[8]*R[3] + Ri[9]*R[7] + Ri[10]*R[11]);
+                occt_shape *back = occt_transform(rb, Ri);
+                if (check(back != NULL, "[40a] inverse transform failed")) {
+                    double bb[6];
+                    if (occt_bbox(back, bb)) {
+                        /* 1e-6 absolute, NOT 1e-9: occt_bbox is
+                         * BRepBndLib::Add, which inflates the box by the
+                         * shape's own tolerance. Every box this file measures
+                         * comes back about 1e-7 too big in each direction, and
+                         * the existing fixtures only hide it because they
+                         * compare RELATIVELY against values of order 10. At
+                         * 1e-9 absolute the round trip "fails" by exactly that
+                         * gap, which is OCCT reporting a bound, not a
+                         * transform losing precision — the residual measured
+                         * one line above is 4e-17. */
+                        printf("[40a] round trip bbox [%.9f %.9f %.9f]-"
+                               "[%.9f %.9f %.9f] (occt_bbox carries the shape "
+                               "tolerance, ~1e-7, as a gap)\n",
+                               bb[0], bb[1], bb[2], bb[3], bb[4], bb[5]);
+                        check(fabs(bb[0]) < 1e-6 && fabs(bb[1]) < 1e-6 &&
+                              fabs(bb[2]) < 1e-6 &&
+                              fabs(bb[3] - 10.0) < 1e-6 &&
+                              fabs(bb[4] - 20.0) < 1e-6 &&
+                              fabs(bb[5] - 30.0) < 1e-6,
+                              "[40a] R-inverse(R(box)) is not the box");
+                    }
+                }
+                occt_free_shape(back);
+            }
+            occt_free_shape(rb);
+            occt_free_shape(b);
+        }
+
+        /* ---- [40b] P3 — REVOLVE about an oblique, off-origin axis ------- */
+        {
+            /* [20]'s rectangle, x in [5,10], y in [0,3]: A = 15, centroid
+             * (7.5, 1.5). Every one of [20]'s five calls passes the axis
+             * through (0,0) along (0,1). Bend it: through (-4,1) along
+             * (3,4)/5. Signed side of every vertex is negative (-7.8, -11.8,
+             * -10.0, -6.0) so the profile does not straddle the axis.
+             *
+             * Pappus: d = |dhat x (c - p)| = |0.6*0.5 - 0.8*11.5| = 8.9,
+             * V = 2*pi*8.9*15. */
+            const double P[] = {
+                5.0, 0.0, 0.0,  10.0, 0.0, 0.0,  10.0, 3.0, 0.0,  5.0, 3.0, 0.0,
+            };
+            const int lc[] = {4};
+            const double want = 2.0 * M_PI * 8.9 * 15.0;
+            occt_shape *s = occt_revolve_profile(P, lc, 1, -4.0, 1.0,
+                                                 0.6, 0.8, 360.0);
+            if (check(s != NULL,
+                      "[40b] revolve about an oblique axis returned NULL")) {
+                const double v = occt_shape_volume(s);
+                printf("[40b] oblique-axis revolve %.6f (Pappus %.6f)\n",
+                       v, want);
+                check(near_rel(v, want, 1e-6),
+                      "[40b] oblique revolve misses Pappus");
+                check(occt_shape_valid(s), "[40b] oblique revolve invalid");
+                occt_free_shape(s);
+            }
+            /* Same axis line, direction REVERSED. A full turn about a line is
+             * the same solid whichever way the line points; if MakeRevol's
+             * orientation followed the axis sense, one of the two would come
+             * back inside out and nothing in this shim would notice — the
+             * mirror path measures its volume and repairs it, the revolve path
+             * does not. */
+            occt_shape *r2 = occt_revolve_profile(P, lc, 1, -4.0, 1.0,
+                                                  -0.6, -0.8, 360.0);
+            if (check(r2 != NULL, "[40b] reversed-axis revolve returned NULL")) {
+                const double v = occt_shape_volume(r2);
+                printf("[40b] reversed-axis revolve %.6f (want %.6f)\n",
+                       v, want);
+                check(near_rel(v, want, 1e-6),
+                      "[40b] reversing the axis direction changed the solid");
+                check(occt_shape_valid(r2),
+                      "[40b] reversed-axis revolve invalid");
+                occt_free_shape(r2);
+            }
+            /* A PARTIAL turn about an oblique axis: still exactly the
+             * fraction, because a revolve of angle a is a*A*r/(2*pi) ... i.e.
+             * Pappus scaled. 90 degrees is a quarter. */
+            occt_shape *q = occt_revolve_profile(P, lc, 1, -4.0, 1.0,
+                                                 0.6, 0.8, 90.0);
+            if (check(q != NULL, "[40b] partial oblique revolve NULL")) {
+                check(near_rel(occt_shape_volume(q), want / 4.0, 1e-6),
+                      "[40b] a quarter turn is not a quarter of the material");
+                occt_free_shape(q);
+            }
+        }
+
+        /* ---- [40c] P4 — a HOLE revolved about the SAME oblique axis ----- */
+        {
+            /* S14 item 2 was "a hole placed against a different frame from its
+             * body". The revolve is the shim's other hole-cutting op, so it is
+             * where the same defect would hide. Pappus applied twice:
+             * outer x in [5,15], y in [0,6]  -> A=60, centroid (10,3)
+             * hole  x in [8,12], y in [2,4]  -> A=8,  centroid (10,3)
+             * about the SAME oblique axis through (-4,1) along (3,4)/5.
+             * d_outer: |0.6*(3-1) - 0.8*(10+4)| = |1.2 - 11.2| = 10.0
+             * d_hole : identical, 10.0 (same centroid)
+             * V = 2*pi*10*(60 - 8) = 2*pi*520.
+             * The two centroids coincide deliberately: if the hole were
+             * revolved about a DIFFERENT axis its Pappus radius would change
+             * and the volume would miss, which is the whole point. */
+            const double P[] = {
+                5.0, 0.0, 0.0,  15.0, 0.0, 0.0,  15.0, 6.0, 0.0,  5.0, 6.0, 0.0,
+                8.0, 2.0, 0.0,  12.0, 2.0, 0.0,  12.0, 4.0, 0.0,  8.0, 4.0, 0.0,
+            };
+            const int lc[] = {4, 4};
+            const double want = 2.0 * M_PI * 10.0 * (60.0 - 8.0);
+            occt_shape *s = occt_revolve_profile(P, lc, 2, -4.0, 1.0,
+                                                 0.6, 0.8, 360.0);
+            if (check(s != NULL, "[40c] holed oblique revolve returned NULL")) {
+                const double v = occt_shape_volume(s);
+                printf("[40c] holed oblique revolve %.6f (Pappus %.6f)\n",
+                       v, want);
+                check(near_rel(v, want, 1e-6),
+                      "[40c] the hole is not on the body's own axis");
+                check(occt_shape_valid(s), "[40c] holed oblique revolve invalid");
+                occt_free_shape(s);
+            }
+        }
+
+        /* ---- [40d] R1 — the COIL's `clockwise` flag (S17: FIXED) -------- */
+        {
+            /* [32]'s fixture verbatim, which is the ONLY coil fixture in the
+             * suite and passes clockwise = 0 in all four of its calls. The
+             * flag is a checkbox in the app (app_state.dart:7277) and no test
+             * had ever set it, which is how it stayed wrong for nine months.
+             *
+             * S16 recorded the defect here and pinned it; S17 (shim v28)
+             * repaired it and this scenario now asserts the GROUND TRUTH.
+             *
+             * The helix is a straight line in the cylinder's (u,v) space.
+             * ElSLib::CylinderD0 fixes what (u,v) mean —
+             *     P(u,v) = Loc + R cos u . XDir + R sin u . YDir + v . ZDir
+             * — and gp_Ax3(P,N,Vx) makes YDir = N x XDir, so the frame is
+             * right-handed: u turns counterclockwise about the axis and v
+             * advances along it. (du>0, dv>0) is right-handed; the LEFT-handed
+             * helix is (du<0, dv>0). The flag used to negate BOTH components,
+             * which is antiparallel to (1, slope) — the same line in (u,v),
+             * the same point set, the SAME right-handed helix run backwards
+             * and hanging below the profile.
+             *
+             * Volume can see none of this: the helix length, and so the
+             * material, is identical for all four sign pairs. Two things can.
+             *
+             * 1. THE RISE. The fixed clockwise coil is the exact mirror image
+             *    of the counterclockwise one through the plane y = 0 (u -> -u
+             *    negates y and fixes z, and the starting section lies in the
+             *    XZ plane, which that mirror fixes). A mirror is an isometry,
+             *    so the two coils must share their z extent to the last bit —
+             *    not merely "land near 0 and 50".
+             *
+             * 2. THE HANDEDNESS, which needs a ray. Cast +Z up the line
+             *    x = 0, y = 20, which passes through the helix point at
+             *    azimuth u = pi/2. Material crosses wherever u = pi/2 mod 2pi:
+             *      ccw, u in [0, 10pi]:   u = pi/2 + 2pi k  -> z = 2.5 + 10k
+             *      cw,  u in [-10pi, 0]:  u = pi/2 - 2pi m  -> z = 7.5 + 10m'
+             *    Five 2 mm passes each, interleaved at HALF A TURN — 5 mm —
+             *    which is what "opposite handedness, same rise" means and what
+             *    no bounding box and no volume can report. Before the fix the
+             *    clockwise crossings were at z = -7.5, -17.5, ... */
+            const double P[] = {19, -1, 0,  21, -1, 0,  21, 1, 0,  19, 1, 0};
+            const int lc[] = {4};
+            const double m[12] = {1,0,0,0, 0,0,-1,0, 0,1,0,0};
+            const double turn = sqrt(pow(2.0 * M_PI * 20.0, 2) + 100.0);
+            const double want = 4.0 * 5.0 * turn;
+            occt_shape *ccw = occt_coil_profile(P, lc, 1, m, 0,0,0, 0,0,1,
+                                                5.0, 50.0, 0.0, 0, 0, 0);
+            occt_shape *cw  = occt_coil_profile(P, lc, 1, m, 0,0,0, 0,0,1,
+                                                5.0, 50.0, 0.0, 1, 0, 0);
+            if (check(ccw != NULL && cw != NULL,
+                      "[40d] a coil returned NULL")) {
+                double b0[6], b1[6];
+                const double v0 = occt_shape_volume(ccw);
+                const double v1 = occt_shape_volume(cw);
+                occt_bbox(ccw, b0);
+                occt_bbox(cw, b1);
+                printf("[40d] ccw vol %.4f z[%.4f,%.4f] | cw vol %.4f "
+                       "z[%.4f,%.4f] (rise asked for: 50)\n",
+                       v0, b0[2], b0[5], v1, b1[2], b1[5]);
+                check(near_rel(v0, want, 2e-2), "[40d] ccw coil volume far off");
+                check(near_rel(v1, want, 2e-2), "[40d] cw coil volume far off");
+                check(near_rel(v1, v0, 1e-9),
+                      "[40d] handedness must not change how much material "
+                      "there is");
+                check(occt_shape_valid(cw), "[40d] clockwise coil invalid");
+
+                /* GROUND TRUTH 1 — THE RISE. The clockwise coil is the mirror
+                 * image of the counterclockwise one, so its z extent is the
+                 * SAME, both ends, to the last bit. Before the fix these were
+                 * negated: z[-50.9969, 0.9968] against z[-0.9968, 50.9969]. */
+                check(near_rel(b1[2], b0[2], 1e-9) &&
+                      near_rel(b1[5], b0[5], 1e-9),
+                      "[40d] the clockwise coil does not RISE like the "
+                      "counterclockwise one — if its z range is negated, "
+                      "`clockwise` is negating the climb as well as the "
+                      "winding (S16 P1, repaired in v28)");
+                check(b1[5] > 45.0 && b1[2] < 5.0,
+                      "[40d] the clockwise coil must span roughly z[0,50]");
+
+                /* GROUND TRUTH 2 — THE HANDEDNESS, by ray. See the header
+                 * comment: the two coils cross the azimuth-90 line half a turn
+                 * apart. This is the check that says the winding reversed, and
+                 * it is the only instrument in the suite that can. */
+                {
+                    double h0[16], h1[16];
+                    const int n0 = occt_ray_hits(ccw, 0.0, 20.0, -10.0,
+                                                 0.0, 0.0, 1.0, h0, 16);
+                    const int n1 = occt_ray_hits(cw, 0.0, 20.0, -10.0,
+                                                 0.0, 0.0, 1.0, h1, 16);
+                    printf("[40d] azimuth-90 ray: ccw %d hits, cw %d hits\n",
+                           n0, n1);
+                    if (check(n0 == 10 && n1 == 10,
+                              "[40d] the azimuth-90 ray must cross five 2 mm "
+                              "passes of each coil")) {
+                        int k;
+                        int ok = 1;
+                        for (k = 0; k < 5; ++k) {
+                            /* Midpoint of each entry/exit pair. The ray runs
+                             * through the section's centre and the section is
+                             * centrally symmetric, so the midpoint IS the
+                             * helix crossing; the 5e-2 is for the tube's
+                             * curvature across a 2 mm chord and nothing
+                             * else. */
+                            const double m0 =
+                                0.5 * (h0[2 * k] + h0[2 * k + 1]) - 10.0;
+                            const double m1 =
+                                0.5 * (h1[2 * k] + h1[2 * k + 1]) - 10.0;
+                            printf("[40d]   pass %d: ccw z %.4f (want %.1f) | "
+                                   "cw z %.4f (want %.1f)\n",
+                                   k, m0, 2.5 + 10.0 * k, m1,
+                                   7.5 + 10.0 * k);
+                            if (fabs(m0 - (2.5 + 10.0 * k)) > 5e-2) ok = 0;
+                            if (fabs(m1 - (7.5 + 10.0 * k)) > 5e-2) ok = 0;
+                        }
+                        check(ok,
+                              "[40d] the two coils do not interleave half a "
+                              "turn apart — the clockwise coil has the same "
+                              "handedness as the counterclockwise one");
+                    }
+                }
+            }
+            occt_free_shape(ccw);
+            occt_free_shape(cw);
+        }
+
+        /* ---- [40e] P2 — the COIL about an oblique axis (equivariance) --- */
+        {
+            /* Rotate the axis AND the profile frame by the same R. The coil is
+             * then the rigid image of the +Z coil, so its volume must be
+             * identical to the last bit. If the helix frame were built against
+             * a baked-in +Z the two would part company. */
+            const double P[] = {19, -1, 0,  21, -1, 0,  21, 1, 0,  19, 1, 0};
+            const int lc[] = {4};
+            const double m[12] = {1,0,0,0, 0,0,-1,0, 0,1,0,0};
+            /* R * m, as 3x4 row-major composition. */
+            double rm[12];
+            int r, c;
+            for (r = 0; r < 3; ++r) {
+                for (c = 0; c < 3; ++c)
+                    rm[4*r+c] = R[4*r+0]*m[c] + R[4*r+1]*m[4+c]
+                              + R[4*r+2]*m[8+c];
+                rm[4*r+3] = R[4*r+0]*m[3] + R[4*r+1]*m[7] + R[4*r+2]*m[11]
+                          + R[4*r+3];
+            }
+            /* R applied to the axis point (0,0,0) and direction (0,0,1). */
+            const double apx = R[3], apy = R[7], apz = R[11];
+            const double adx = R[2], ady = R[6], adz = R[10];
+            occt_shape *base = occt_coil_profile(P, lc, 1, m, 0,0,0, 0,0,1,
+                                                 5.0, 50.0, 0.0, 0, 0, 0);
+            occt_shape *rot  = occt_coil_profile(P, lc, 1, rm,
+                                                 apx, apy, apz,
+                                                 adx, ady, adz,
+                                                 5.0, 50.0, 0.0, 0, 0, 0);
+            if (check(base != NULL && rot != NULL,
+                      "[40e] the coil refused an oblique axis")) {
+                const double v0 = occt_shape_volume(base);
+                const double v1 = occt_shape_volume(rot);
+                printf("[40e] coil equivariance: +Z %.9f, oblique %.9f, "
+                       "rel diff %.3e\n", v0, v1, fabs(v1 - v0) / v0);
+                check(near_rel(v1, v0, 1e-9),
+                      "[40e] the coil is not equivariant — an axis is baked in");
+                check(occt_shape_valid(rot), "[40e] oblique coil invalid");
+            }
+            occt_free_shape(base);
+            occt_free_shape(rot);
+        }
+
+        /* ---- [40f] P6 — MIRROR about an oblique plane ------------------- */
+        {
+            /* [13b] varies the plane's POINT and never its NORMAL: (1,0,0) in
+             * all four calls. Bend the normal to (1,1,0)/sqrt(2).
+             *
+             * The fuse is the real test, not the volume. A reflection turns a
+             * solid inside out and OCCT's booleans read orientation, so a
+             * silently un-repaired mirror passes a volume check and then CUTS
+             * where it should ADD. That is what the repair exists for. */
+            occt_shape *b = occt_make_box(10, 20, 30);
+            const double pl[6] = {0, 0, 0, 0.70710678118654752440, 0.70710678118654752440, 0};
+            occt_shape *mir = b ? occt_mirror(b, pl) : NULL;
+            if (check(mir != NULL, "[40f] oblique mirror returned NULL")) {
+                check(near_rel(occt_shape_volume(mir), 6000.0, 1e-9),
+                      "[40f] an oblique mirror changed the volume");
+                check(occt_shape_valid(mir), "[40f] oblique mirror invalid");
+                occt_shape *both = occt_fuse(b, mir);
+                if (check(both != NULL,
+                          "[40f] fuse(original, oblique mirror) failed")) {
+                    const double v = occt_shape_volume(both);
+                    printf("[40f] oblique mirror fuse volume %.6f (two "
+                           "DISJOINT halves of 6000 — see the overlapping "
+                           "pair below for the test with teeth)\n", v);
+                    check(v > 6000.0 + 1e-6,
+                          "[40f] the mirrored half added nothing — the "
+                          "reflection is probably inside out");
+                    occt_free_shape(both);
+                }
+                occt_free_shape(mir);
+            }
+            /* The fuse above is weaker than it looks: reflecting [0,10]x
+             * [0,20] about the plane through the ORIGIN with normal
+             * (1,1,0)/sqrt(2) sends (x,y) to (-y,-x), so the image is
+             * DISJOINT from the original and touches it only at a corner —
+             * 6000 + 6000 with nothing to subtract. [13b] has the same
+             * weakness. Move the plane so the halves genuinely OVERLAP and the
+             * booleans acquire teeth.
+             *
+             * Plane through (7,0,0), same normal: (x,y) -> (7-y, 7-x), so the
+             * image is the box x in [-13,7], y in [-3,7], z in [0,30]. The
+             * overlap is 7 x 7 x 30 = 1470, hence
+             *   fuse = 6000 + 6000 - 1470 = 10530
+             *   cut  = 6000 - 1470         =  4530
+             * and the CUT is the sharp one: an inside-out tool removes the
+             * complement of what it should, which no volume near 4530 can
+             * survive. */
+            {
+                const double po[6] = {7, 0, 0,
+                                      0.70710678118654752440,
+                                      0.70710678118654752440, 0};
+                occt_shape *mo = b ? occt_mirror(b, po) : NULL;
+                if (check(mo != NULL, "[40f] overlapping oblique mirror NULL")) {
+                    occt_shape *fu = occt_fuse(b, mo);
+                    occt_shape *cu = occt_cut(b, mo);
+                    if (check(fu != NULL && cu != NULL,
+                              "[40f] boolean against an oblique mirror failed")) {
+                        printf("[40f] overlapping oblique mirror: fuse %.6f "
+                               "(want 10530), cut %.6f (want 4530)\n",
+                               occt_shape_volume(fu), occt_shape_volume(cu));
+                        check(near_rel(occt_shape_volume(fu), 10530.0, 1e-9),
+                              "[40f] the fused halves are not 12000 minus the "
+                              "1470 they share");
+                        check(near_rel(occt_shape_volume(cu), 4530.0, 1e-9),
+                              "[40f] cutting with the mirrored half removed the "
+                              "wrong material — the reflection is inside out");
+                        check(occt_shape_valid(fu) && occt_shape_valid(cu),
+                              "[40f] a boolean against the oblique mirror is "
+                              "invalid");
+                    }
+                    occt_free_shape(fu);
+                    occt_free_shape(cu);
+                    occt_free_shape(mo);
+                }
+            }
+            /* The normal is documented as normalised here. Nothing has ever
+             * passed one that was not already unit. */
+            const double pl3[6] = {0, 0, 0, 3.0, 3.0, 0};
+            occt_shape *m3 = b ? occt_mirror(b, pl3) : NULL;
+            if (check(m3 != NULL, "[40f] un-normalised normal was refused")) {
+                double b1[6], b2[6];
+                occt_shape *m1 = occt_mirror(b, pl);
+                if (m1 != NULL && occt_bbox(m1, b1) && occt_bbox(m3, b2)) {
+                    int k, same = 1;
+                    for (k = 0; k < 6; ++k)
+                        if (!near_rel(b1[k], b2[k], 1e-9) &&
+                            fabs(b1[k] - b2[k]) > 1e-9)
+                            same = 0;
+                    check(same,
+                          "[40f] scaling the plane normal changed the mirror");
+                }
+                occt_free_shape(m1);
+                occt_free_shape(m3);
+            }
+            occt_free_shape(b);
+        }
+
+        /* ---- [40g] P7 — a BOOLEAN with a ROTATED operand ---------------- */
+        {
+            /* Every boolean in this suite separates its operands by an
+             * axis-aligned TRANSLATION. Not one has ever had a rotated
+             * operand. These are thin wrappers over BRepAlgoAPI_* and compose
+             * no frame of their own, so this is expected to be the honest
+             * "checked and it is fine" entry — which is worth having, because
+             * the next person should not have to re-check it.
+             *
+             * Equivariance: cut a rotated bar out of a cube, then do the same
+             * with everything rotated bodily by R. The volumes must agree. */
+            occt_shape *cube = occt_make_box(20, 20, 20);
+            occt_shape *bar0 = occt_make_box(6, 6, 60);
+            /* 30 deg about Z, then place it leaning through the cube. */
+            const double c30 = cos(30.0 * M_PI / 180.0);
+            const double s30 = sin(30.0 * M_PI / 180.0);
+            const double T[12] = { c30, -s30, 0, 7.0,
+                                   s30,  c30, 0, 6.0,
+                                   0,    0,   1, -20.0 };
+            occt_shape *bar = bar0 ? occt_transform(bar0, T) : NULL;
+            occt_shape *cut = (cube && bar) ? occt_cut(cube, bar) : NULL;
+            if (check(cut != NULL, "[40g] cut with a rotated tool returned NULL")) {
+                const double v0 = occt_shape_volume(cut);
+                /* the same operation, everything premultiplied by R */
+                double RT[12], Rc[12];
+                int r, c;
+                for (r = 0; r < 3; ++r) {
+                    for (c = 0; c < 3; ++c)
+                        RT[4*r+c] = R[4*r+0]*T[c] + R[4*r+1]*T[4+c]
+                                  + R[4*r+2]*T[8+c];
+                    RT[4*r+3] = R[4*r+0]*T[3] + R[4*r+1]*T[7] + R[4*r+2]*T[11]
+                              + R[4*r+3];
+                }
+                memcpy(Rc, R, sizeof(Rc));
+                occt_shape *cubeR = occt_transform(cube, Rc);
+                occt_shape *barR = bar0 ? occt_transform(bar0, RT) : NULL;
+                occt_shape *cutR = (cubeR && barR) ? occt_cut(cubeR, barR) : NULL;
+                if (check(cutR != NULL, "[40g] the rotated-frame cut failed")) {
+                    const double v1 = occt_shape_volume(cutR);
+                    printf("[40g] boolean equivariance: %.9f vs %.9f, rel diff "
+                           "%.3e\n", v0, v1, fabs(v1 - v0) / v0);
+                    check(near_rel(v1, v0, 1e-6),
+                          "[40g] the boolean is not equivariant under a rigid "
+                          "motion");
+                    check(occt_shape_valid(cutR), "[40g] rotated-frame cut invalid");
+                }
+                check(occt_shape_valid(cut), "[40g] rotated-tool cut invalid");
+                occt_free_shape(cutR);
+                occt_free_shape(barR);
+                occt_free_shape(cubeR);
+            }
+            occt_free_shape(cut);
+            occt_free_shape(bar);
+            occt_free_shape(bar0);
+            occt_free_shape(cube);
+        }
+
+        /* ---- [40h] P8 — LOFT with ROTATED section placements ------------ */
+        {
+            /* [31]'s three calls pass IDENTITY rotation in every section
+             * matrix; only the translation moves. In the app a section matrix
+             * is frame.mat34(0), which is a real rotation the moment two
+             * sections sit on different work planes.
+             *
+             * Equivariance first (exact), then a genuinely tilted section
+             * (no closed form, so a bracket rather than a number). */
+            const double S[] = {
+                0, 0, 0,  10, 0, 0,  10, 10, 0,  0, 10, 0,
+                0, 0, 0,  10, 0, 0,  10, 10, 0,  0, 10, 0,
+            };
+            const int lc[] = {4, 4};
+            const double mats[24] = {
+                1,0,0,0, 0,1,0,0, 0,0,1,0,
+                1,0,0,0, 0,1,0,0, 0,0,1,25,
+            };
+            double rmats[24];
+            int s, r, c;
+            for (s = 0; s < 2; ++s) {
+                const double *m = mats + 12 * s;
+                double *o = rmats + 12 * s;
+                for (r = 0; r < 3; ++r) {
+                    for (c = 0; c < 3; ++c)
+                        o[4*r+c] = R[4*r+0]*m[c] + R[4*r+1]*m[4+c]
+                                 + R[4*r+2]*m[8+c];
+                    o[4*r+3] = R[4*r+0]*m[3] + R[4*r+1]*m[7] + R[4*r+2]*m[11]
+                             + R[4*r+3];
+                }
+            }
+            occt_shape *lo = occt_loft_sections(S, lc, rmats, 2, 1, 1, 0);
+            if (check(lo != NULL,
+                      "[40h] loft with rotated section matrices returned NULL")) {
+                const double v = occt_shape_volume(lo);
+                printf("[40h] rotated-frame loft %.9f (want 2500)\n", v);
+                check(near_rel(v, 2500.0, 1e-9),
+                      "[40h] the loft is not equivariant — a section frame is "
+                      "composed against a baked-in axis");
+                check(occt_shape_valid(lo), "[40h] rotated-frame loft invalid");
+                occt_free_shape(lo);
+            }
+            /* A section TILTED relative to its neighbour: 20 degrees about X
+             * on the top section only. No closed form, so the claim is a
+             * bracket — it must build, be valid, and hold more material than
+             * the prism whose height is the closest approach of the two
+             * sections. Registered as a weak claim on purpose (S16 P8). */
+            {
+                const double c20 = cos(20.0 * M_PI / 180.0);
+                const double s20 = sin(20.0 * M_PI / 180.0);
+                double tm[24];
+                memcpy(tm, mats, sizeof(tm));
+                tm[12+0]=1; tm[12+1]=0;    tm[12+2]=0;     tm[12+3]=0;
+                tm[16+0]=0; tm[16+1]=c20;  tm[16+2]=-s20;  tm[16+3]=0;
+                tm[20+0]=0; tm[20+1]=s20;  tm[20+2]=c20;   tm[20+3]=25;
+                occt_shape *tl = occt_loft_sections(S, lc, tm, 2, 1, 1, 0);
+                if (check(tl != NULL, "[40h] tilted-section loft returned NULL")) {
+                    const double v = occt_shape_volume(tl);
+                    /* closest approach of the tilted top section to z=0 is
+                     * 25 - 10*sin(20deg) = 21.580, so V > 100 * 21.580 */
+                    const double lo_b = 100.0 * (25.0 - 10.0 * s20);
+                    const double hi_b = 100.0 * (25.0 + 10.0 * s20);
+                    printf("[40h] tilted-section loft %.6f (bracket %.6f .. "
+                           "%.6f)\n", v, lo_b, hi_b);
+                    check(v > lo_b && v < hi_b,
+                          "[40h] the tilted loft is outside its bracket");
+                    check(occt_shape_valid(tl), "[40h] tilted loft invalid");
+                    occt_free_shape(tl);
+                }
+            }
+        }
+
+        /* ---- [40i] R2 — MOVE FACES, OBLIQUE delta (S17: FIXED) ---------- */
+        {
+            /* [34] moves the top face by (0,0,5): exactly along its own
+             * outward normal, which was the ONE case the header claimed to be
+             * exact. Bend the delta to (5,0,5).
+             *
+             * S16 recorded the defect here and pinned it; S17 (shim v28)
+             * repaired it and this scenario now asserts the GROUND TRUTH.
+             *
+             * Before v28 the face was swept along the WHOLE delta, so the
+             * prism LEANED and the union carried an unsupported overhang on
+             * one side and a re-entrant notch on the other. Since v28 each
+             * face is swept along the delta's component on its OWN NORMAL: the
+             * neighbouring walls stay put, so a planar face's outline is still
+             * the intersection of its moved plane with those walls, and the
+             * tangential part of the delta is carried onto the face's own
+             * plane — unobservable, which is what the loop's own skip has said
+             * about a wholly tangential delta since M217.
+             *
+             * NEITHER instrument the suite owned can see any of this. Volume:
+             * a leaning prism has volume A*|delta.n| = 400*5 = 2000, exactly
+             * the perpendicular answer, and shearing the top face is
+             * Cavalieri-neutral, so every reading gives 10000.
+             * BRepCheck_Analyzer: the union was a perfectly valid solid. Three
+             * things can, and this scenario asserts all three.
+             *
+             * NOTE, because it contradicts what S16 wrote here: S16 named the
+             * fixed answer as "the walls follow the face", ray exit at
+             * z = 25*(2/5) = 10. It is 25. Walls-follow contradicts the skip
+             * in the loop (a purely tangential move would shear the box rather
+             * than do nothing), it moves surfaces the caller never selected,
+             * and it is the operation part_model.dart:3321 records the repo as
+             * deliberately not shipping. perf/findings/S17-oblique.md
+             * section 0.2 argues it out. The DEFECT S16 found is real either
+             * way: 22 is nobody's answer. */
+            occt_shape *box = occt_make_box(20, 20, 20);
+            int top = -1;
+            if (box != NULL) {
+                occt_mesh *m = occt_mesh_create(box, 0.5, 0.5);
+                if (m != NULL) {
+                    const int nf = occt_mesh_face_count(m);
+                    const int fc = (nf > 0 ? nf : 1);
+                    int *fids = (int *)malloc(sizeof(int) * fc);
+                    double *fi = (double *)malloc(sizeof(double) * 15 * fc);
+                    if (fids && fi && occt_mesh_face_ids(m, fids) &&
+                        occt_mesh_face_infos(m, fi)) {
+                        int i;
+                        for (i = 0; i < nf; ++i) {
+                            /* planar, +Z outward normal, sitting at z = 20 —
+                             * the same three tests [34] uses, and the same
+                             * 15-double stride (the record is 15 wide; the
+                             * header's list ends at [14]). */
+                            if ((int)(fi[15 * i] + 0.5) == 0 &&
+                                fi[15 * i + 6] > 0.9 &&
+                                fi[15 * i + 3] > 19.5) {
+                                top = fids[i];
+                                break;
+                            }
+                        }
+                    }
+                    free(fids);
+                    free(fi);
+                    occt_free_mesh(m);
+                }
+            }
+            if (check(top > 0, "[40i] could not find the top face")) {
+                const int ids[1] = {top};
+                occt_shape *ob = occt_move_faces(box, ids, 1, 5.0, 0.0, 5.0);
+                occt_shape *pp = occt_move_faces(box, ids, 1, 0.0, 0.0, 5.0);
+                if (check(ob != NULL && pp != NULL,
+                          "[40i] an oblique move was neither refused nor built")) {
+                    double hits[8], bo[6], bp[6];
+                    const double v = occt_shape_volume(ob);
+                    const int n = occt_ray_hits(ob, 2.0, 10.0, -10.0,
+                                                0.0, 0.0, 1.0, hits, 8);
+                    occt_bbox(ob, bo);
+                    occt_bbox(pp, bp);
+                    printf("[40i] oblique move volume %.6f (perpendicular move "
+                           "gives 10000 too), valid=%d, x-max %.4f, ray x=2 "
+                           "hits=%d", v, occt_shape_valid(ob), bo[3], n);
+                    if (n > 0) {
+                        int k;
+                        for (k = 0; k < n; ++k)
+                            printf(" %.4f", hits[k] - 10.0);
+                    }
+                    printf(" (the moved plane says 25; the old leaning prism "
+                           "said 22 and reached x = 25)\n");
+                    check(near_rel(v, 10000.0, 1e-6),
+                          "[40i] volume is not the swept-slab answer");
+                    check(occt_shape_valid(ob),
+                          "[40i] the oblique move is invalid");
+
+                    /* GROUND TRUTH 1 — THE RAY. The slab now spans z in
+                     * [20,25] across the whole face, so the exit above x = 2 is
+                     * 25 exactly. It was 22. */
+                    if (check(n >= 2, "[40i] the ray missed the moved body")) {
+                        const double exit_z = hits[n - 1] - 10.0;
+                        check(fabs(exit_z - 25.0) < 1e-6,
+                              "[40i] the oblique move still LEANS — an exit at "
+                              "22 means the prism is being swept along the "
+                              "whole delta again (S16 P9, repaired in v28)");
+                    }
+
+                    /* GROUND TRUTH 2 — THE BOUNDING BOX, which is the cheapest
+                     * witness this defect ever had and which nobody looked at.
+                     * The leaning prism carried material out to x = 25; the
+                     * projected one cannot leave the face's own footprint. */
+                    /* 1e-6, not 1e-9, and the reason is the instrument
+                     * rather than the geometry: occt_bbox returns Bnd_Box::Get
+                     * on a box BRepBndLib::Add has inflated by the shape's
+                     * tolerance, so every extent is out by exactly 1e-7 —
+                     * measured here, -1e-07 and 20.0000001 on a plain
+                     * occt_make_box(20,20,20). An ABSOLUTE bbox comparison
+                     * cannot be tighter than that gap. It costs nothing: the
+                     * two readings this discriminates are 20 and 25. (The
+                     * bbox-to-bbox comparison further down stays at 1e-9,
+                     * because both sides carry the same gap.) */
+                    check(fabs(bo[3] - 20.0) < 1e-6 &&
+                          fabs(bo[0]) < 1e-6 && fabs(bo[5] - 25.0) < 1e-6,
+                          "[40i] the moved body is not [0,20]x[0,20]x[0,25] — "
+                          "an x-max of 25 is the overhang the lean produced");
+
+                    /* GROUND TRUTH 3 — THE EQUIVALENCE, which IS the claim.
+                     * The tangential component is unobservable, so an oblique
+                     * move and its normal component must return the SAME
+                     * solid. Asserted as a test rather than as a comment. */
+                    check(near_rel(v, occt_shape_volume(pp), 1e-9),
+                          "[40i] oblique and perpendicular moves disagree on "
+                          "volume");
+                    {
+                        int j;
+                        int same = 1;
+                        for (j = 0; j < 6; ++j)
+                            if (fabs(bo[j] - bp[j]) > 1e-9) same = 0;
+                        check(same,
+                              "[40i] an oblique move and its normal component "
+                              "must return the same solid — the tangential "
+                              "part of a planar face's delta is carried onto "
+                              "its own plane");
+                    }
+                    {
+                        /* Two rays rather than one, so the agreement is about
+                         * the whole face and not about the one abscissa the
+                         * lean happened to spare. */
+                        double ho[8], hp[8];
+                        const double xs[2] = {2.0, 18.0};
+                        int j;
+                        for (j = 0; j < 2; ++j) {
+                            const int no = occt_ray_hits(ob, xs[j], 10.0, -10.0,
+                                                         0.0, 0.0, 1.0, ho, 8);
+                            const int np = occt_ray_hits(pp, xs[j], 10.0, -10.0,
+                                                         0.0, 0.0, 1.0, hp, 8);
+                            if (check(no >= 2 && no == np,
+                                      "[40i] the two moves give different hit "
+                                      "counts")) {
+                                printf("[40i]   x=%.0f: oblique exits %.6f, "
+                                       "perpendicular exits %.6f\n", xs[j],
+                                       ho[no - 1] - 10.0, hp[np - 1] - 10.0);
+                                check(fabs(ho[no - 1] - hp[np - 1]) < 1e-9,
+                                      "[40i] the two moves put the top face in "
+                                      "different places");
+                            }
+                        }
+                    }
+                }
+                occt_free_shape(ob);
+                occt_free_shape(pp);
+
+                /* GROUND TRUTH 4 — CONTINUITY AT ZERO, the sharpest form of
+                 * the defect and the reason it is a defect rather than a
+                 * scoping question about tapered neighbours.
+                 *
+                 * A wholly tangential move is skipped and returns the body
+                 * untouched — that has been true and deliberate since M217.
+                 * Before v28, tipping the delta by one micron grew a 5 mm
+                 * overhang: (5,0,0) gave x-max 20 and (5,0,0.001) gave x-max
+                 * 25. A 5 mm jump in the answer for a 0.001 mm change in the
+                 * input. Since v28 both are 20 and the volume moves by 0.4. */
+                {
+                    occt_shape *flat = occt_move_faces(box, ids, 1,
+                                                       5.0, 0.0, 0.0);
+                    occt_shape *tip = occt_move_faces(box, ids, 1,
+                                                      5.0, 0.0, 0.001);
+                    if (check(flat != NULL && tip != NULL,
+                              "[40i] the continuity probe was refused")) {
+                        double bf[6], bt[6];
+                        occt_bbox(flat, bf);
+                        occt_bbox(tip, bt);
+                        printf("[40i] continuity: (5,0,0) vol %.6f x-max %.4f | "
+                               "(5,0,0.001) vol %.6f x-max %.4f\n",
+                               occt_shape_volume(flat), bf[3],
+                               occt_shape_volume(tip), bt[3]);
+                        check(near_rel(occt_shape_volume(flat), 8000.0, 1e-9) &&
+                              fabs(bf[3] - 20.0) < 1e-6, /* the 1e-7 gap */
+                              "[40i] a wholly tangential move must change "
+                              "nothing");
+                        check(fabs(bt[3] - 20.0) < 1e-6,
+                              "[40i] a 0.001 mm tip of the delta grew a 5 mm "
+                              "overhang — the tangential component is being "
+                              "swept again");
+                        check(near_rel(occt_shape_volume(tip), 8000.4, 1e-6),
+                              "[40i] the tipped move is not the 0.001 mm slab");
+                    }
+                    occt_free_shape(flat);
+                    occt_free_shape(tip);
+                }
+            }
+            occt_free_shape(box);
+        }
+
+        /* ---- [40j] R3 — the chamfer's angle guard (S17: FIXED) ---------- */
+        {
+            /* THE TRAP THIS SCENARIO WALKED INTO FIRST, recorded because the
+             * next person will walk into it too: occt_shape_edge_info's
+             * field [10] is acos(n1 . n2), the angle between the two OUTWARD
+             * NORMALS, not the interior dihedral. They coincide at a cube
+             * edge — 90 either way — which is why every fixture above reads
+             * naturally and why the distinction has never mattered. Away from
+             * 90 they are supplements: interior theta = 180 - info[10].
+             *
+             * S16 recorded the defect here and pinned it; S17 (shim v28)
+             * repaired it and this scenario now asserts the GROUND TRUTH.
+             *
+             * The guard used to be
+             *     modes[i] == 2 && angle_deg[i] >= 90.0   ->  refused
+             * with the angle measured FROM THE REFERENCE FACE. OCCT's own
+             * plane/plane chamfer gives the real rule
+             * (ChFiKPart_ComputeData_ChAsymPlnPln.cxx):
+             *     dis2 = Dis / (cosP + sinP / Tan(Angle))
+             *          = d1 . sin(alpha) / sin(alpha + theta)
+             * where cosP is the dot product of the two into-face directions,
+             * i.e. the cosine of the interior dihedral. dis2 diverges at
+             * alpha + theta = 180 and goes negative past it, so the admissible
+             * range is alpha < 180 - theta — which is alpha < 90 ONLY when
+             * theta = 90, and 180 - theta is field [10] itself.
+             *
+             * An EQUILATERAL triangular prism has theta = 60 at every vertical
+             * edge (info[10] = 120), so alpha may legally reach 120. The three
+             * asks below are 100 and 110 — both refused before v28, both legal
+             * — and 125, which is past the bound and must still be refused. */
+            const double P[] = {0.0, 0.0, 0.0,  30.0, 0.0, 0.0,
+                                15.0, 25.9807621135331594, 0.0};
+            const int lc[] = {3};
+            /* _arcs, not the plain form: occt_extrude_profile takes TWO
+             * doubles per vertex and occt_extrude_profile_arcs takes THREE
+             * (x, y, bulge). Feeding the triples to the plain form makes it
+             * read every third number as the next x, which came back as
+             * "outer loop is degenerate" rather than as a wrong solid — the
+             * one good thing about that mistake. */
+            occt_shape *wedge = occt_extrude_profile_arcs(P, lc, 1, 20.0, 0.0);
+            int e60 = -1;
+            if (check(wedge != NULL, "[40j] wedge prism returned NULL")) {
+                const int ne = occt_shape_edge_count(wedge);
+                int i;
+                for (i = 1; i <= ne && e60 < 0; ++i) {
+                    double info[12] = {0};
+                    if (!occt_shape_edge_info(wedge, i, info)) continue;
+                    if (info[0] != 1.0) continue;
+                    if (fabs(fabs(info[6]) - 1.0) > 1e-9) continue;
+                    if (fabs(info[10] - 120.0) > 1e-6) continue; /* theta = 60 */
+                    e60 = i;
+                }
+                printf("[40j] wedge volume %.6f (want %.6f), 60-degree edge "
+                       "index %d\n", occt_shape_volume(wedge),
+                       25.9807621135331594 * 30.0 / 2.0 * 20.0, e60);
+                check(near_rel(occt_shape_volume(wedge),
+                               25.9807621135331594 * 30.0 / 2.0 * 20.0, 1e-9),
+                      "[40j] the wedge prism is not area x height");
+                check(e60 > 0,
+                      "[40j] an equilateral prism must have a 60-degree "
+                      "dihedral edge (info[10] = 120)");
+            }
+            if (e60 > 0) {
+                const int ids[1] = {e60};
+                const int m2[1] = {2};
+                const int m1[1] = {1};
+                const double d[1] = {2.0};
+                const double base = 25.9807621135331594 * 30.0 / 2.0 * 20.0;
+                /* alpha = 80: inside the OLD guard AND geometrically legal, so
+                 * it is the control that says mode 2 works on this edge at all
+                 * and that nothing about the pre-v28 accepted range moved. */
+                const double a80[1] = {80.0};
+                const double a100[1] = {100.0};
+                const double a110[1] = {110.0};
+                const double a125[1] = {125.0};
+                occt_shape *ok80 =
+                    occt_chamfer_edges(wedge, ids, m2, d, NULL, a80, 1);
+                occt_shape *ok100 =
+                    occt_chamfer_edges(wedge, ids, m2, d, NULL, a100, 1);
+                occt_shape *ok110 =
+                    occt_chamfer_edges(wedge, ids, m2, d, NULL, a110, 1);
+                occt_shape *ref125 =
+                    occt_chamfer_edges(wedge, ids, m2, d, NULL, a125, 1);
+                /* Copied, not aliased: occt_last_error() returns its own
+                 * static buffer and any later failing call rewrites it. */
+                char why125[256];
+                snprintf(why125, sizeof(why125), "%s",
+                         ref125 ? "" : occt_last_error());
+                /* The SAME chamfer as alpha = 100, spelled as two distances.
+                 * Sine rule in triangle OAB: OA = d1 opposite angle B,
+                 * OB = d2 opposite angle A, so d2 = d1 sin(100) / sin(20). */
+                const double d2v[1] = {2.0 * sin(100.0 * M_PI / 180.0) /
+                                             sin(20.0 * M_PI / 180.0)};
+                occt_shape *eq =
+                    occt_chamfer_edges(wedge, ids, m1, d, d2v, NULL, 1);
+                printf("[40j] theta=60 edge (bound 120): mode2 alpha=80 -> %s | "
+                       "alpha=100 -> %s | alpha=110 -> %s | alpha=125 -> %s | "
+                       "mode1 (d1=2, d2=%.6f) -> %s\n",
+                       ok80 ? "built" : "refused",
+                       ok100 ? "built" : "REFUSED",
+                       ok110 ? "built" : "REFUSED",
+                       ref125 ? "BUILT" : "refused",
+                       d2v[0], eq ? "built" : "refused");
+                check(ok80 != NULL,
+                      "[40j] mode 2 must work on a 60-degree edge at all");
+
+                /* GROUND TRUTH 1 — the angles the old guard refused for no
+                 * geometric reason now BUILD. This is the check the scenario
+                 * exists for; before v28 it asserted the refusal. */
+                check(ok100 != NULL,
+                      "[40j] alpha=100 on a 60-degree edge is legal "
+                      "(bound 120) and must build — if it is refused the "
+                      "hardcoded 90 is back (S16 P10, repaired in v28)");
+                check(ok110 != NULL,
+                      "[40j] alpha=110 on a 60-degree edge is legal too");
+
+                /* GROUND TRUTH 2 — and the bound is a BOUND. 125 is past
+                 * 180-theta, where OCCT's own dis2 would be -18.797431, and it
+                 * must be refused BY THE GUARD, which the message proves: a
+                 * NULL alone could just as well be OCCT failing. */
+                check(ref125 == NULL,
+                      "[40j] alpha=125 is past the 120 bound and must be "
+                      "refused — the guard was relaxed, not corrected");
+                check(strstr(why125, "120") != NULL,
+                      "[40j] the refusal at alpha=125 does not name this "
+                      "edge's own bound, so it is not the corrected guard "
+                      "talking");
+
+                /* GROUND TRUTH 3 — the two spellings of one chamfer AGREE.
+                 * S16 could only print this divergence: mode 1 built and
+                 * removed 99.744831 while mode 2 refused the identical cut.
+                 * Both build now, and they must remove the same material to
+                 * 1e-9 — which is a far stronger statement than either one
+                 * matching the analytic number alone. */
+                if (check(eq != NULL,
+                          "[40j] the two-distance spelling of the SAME chamfer "
+                          "was refused")) {
+                    /* Removed cross-section is triangle OAB:
+                     * 1/2 * d1 * d2 * sin(theta), times the 20 mm length. */
+                    const double cut = 0.5 * 2.0 * d2v[0] *
+                                       sin(60.0 * M_PI / 180.0) * 20.0;
+                    const double got = base - occt_shape_volume(eq);
+                    printf("[40j] mode1 removed %.6f (analytic %.6f)\n",
+                           got, cut);
+                    check(near_rel(got, cut, 1e-6),
+                          "[40j] the two-distance chamfer is not the triangle "
+                          "1/2 d1 d2 sin(theta)");
+                    check(occt_shape_valid(eq), "[40j] that chamfer is invalid");
+                    if (ok100 != NULL) {
+                        const double g2 = base - occt_shape_volume(ok100);
+                        printf("[40j] mode2 alpha=100 removed %.6f — the same "
+                               "chamfer, the spelling that used to be "
+                               "REFUSED\n", g2);
+                        check(near_rel(g2, got, 1e-9),
+                              "[40j] the two spellings of one chamfer no "
+                              "longer agree");
+                    }
+                }
+                if (ok110 != NULL) {
+                    /* d2 = 2 sin(110)/sin(170) = 10.822948 */
+                    const double d110 = 2.0 * sin(110.0 * M_PI / 180.0) /
+                                              sin(170.0 * M_PI / 180.0);
+                    const double want110 = 0.5 * 2.0 * d110 *
+                                           sin(60.0 * M_PI / 180.0) * 20.0;
+                    const double got110 = base - occt_shape_volume(ok110);
+                    printf("[40j] mode2 alpha=110 removed %.6f (analytic "
+                           "%.6f)\n", got110, want110);
+                    check(near_rel(got110, want110, 1e-6),
+                          "[40j] alpha=110 does not remove the analytic "
+                          "wedge");
+                    check(occt_shape_valid(ok110),
+                          "[40j] the alpha=110 chamfer is invalid");
+                }
+                occt_free_shape(ok80);
+                occt_free_shape(ok100);
+                occt_free_shape(ok110);
+                occt_free_shape(ref125);
+                occt_free_shape(eq);
+            }
+            occt_free_shape(wedge);
+        }
+
+        /* ---- [40k] P11 — FILLET a 135-degree edge ----------------------- */
+        {
+            /* Every fillet fixture above is on a 20-cube's vertical edge:
+             * dihedral exactly 90, tangent exactly +-Z, both faces
+             * axis-aligned planes. Chamfer the cube first to make a
+             * 135-degree edge, then round THAT.
+             *
+             * For an interior dihedral theta, a constant round of radius r
+             * removes r^2 * (cot(theta/2) - (pi - theta)/2) per unit length.
+             * At theta = 90 that is r^2 (1 - pi/4), which is exactly what [21]
+             * asserts. At theta = 135 with r = 2 it is
+             * 4 (cot 67.5 - pi/8) = 0.08605805 per mm, and the edge runs the
+             * full 20 mm height with no run-out at either end, so the removal
+             * is a genuine prism: 1.72116. Same 1e-6 as [21] — there is no
+             * reason a 135-degree edge should be looser, and a slack
+             * tolerance would make the prediction unfalsifiable. */
+            occt_shape *box = occt_make_box(20, 20, 20);
+            int vertical = -1;
+            int i;
+            const int ne = box ? occt_shape_edge_count(box) : 0;
+            for (i = 1; i <= ne && vertical < 0; ++i) {
+                double info[12] = {0};
+                if (!occt_shape_edge_info(box, i, info)) continue;
+                if (info[0] != 1.0) continue;
+                if (fabs(fabs(info[6]) - 1.0) > 1e-9) continue;
+                vertical = i;
+            }
+            occt_shape *ch = NULL;
+            if (vertical > 0) {
+                const int ids[1] = {vertical};
+                const int modes[1] = {0};
+                const double d1[1] = {4.0};
+                ch = occt_chamfer_edges(box, ids, modes, d1, NULL, NULL, 1);
+            }
+            if (check(ch != NULL, "[40k] setup chamfer failed")) {
+                const double chv = occt_shape_volume(ch);
+                int e135 = -1;
+                const int nc = occt_shape_edge_count(ch);
+                int n135 = 0;
+                for (i = 1; i <= nc; ++i) {
+                    double info[12] = {0};
+                    if (!occt_shape_edge_info(ch, i, info)) continue;
+                    if (info[0] != 1.0) continue;
+                    if (fabs(fabs(info[6]) - 1.0) > 1e-9) continue;
+                    /* interior theta = 180 - info[10]; 135 <-> info[10] = 45 */
+                    if (fabs(info[10] - 45.0) > 1e-6) continue;
+                    if (e135 < 0) e135 = i;
+                    ++n135;
+                }
+                printf("[40k] 135-degree edges on the chamfered cube: %d\n",
+                       n135);
+                check(n135 == 2,
+                      "[40k] a 45-degree chamfer must leave two 135-degree "
+                      "edges");
+                if (e135 > 0) {
+                    const int ids[1] = {e135};
+                    const double r[1] = {2.0};
+                    occt_shape *f = occt_fillet_edges(ch, ids, r, NULL, 1);
+                    if (check(f != NULL,
+                              "[40k] fillet REFUSED a 135-degree edge")) {
+                        const double removed = chv - occt_shape_volume(f);
+                        const double want =
+                            4.0 * (1.0 / tan(67.5 * M_PI / 180.0) - M_PI / 8.0)
+                            * 20.0;
+                        printf("[40k] 135-degree fillet removed %.9f "
+                               "(analytic %.9f)\n", removed, want);
+                        check(near_rel(removed, want, 1e-6),
+                              "[40k] a fillet on a non-90-degree edge does not "
+                              "remove the analytic corner");
+                        check(occt_shape_valid(f),
+                              "[40k] 135-degree fillet invalid");
+                        occt_free_shape(f);
+                    }
+                }
+                occt_free_shape(ch);
+            }
+
+            /* ---- [40l] P12 — CHAMFER MODE 1, which nothing has ever called */
+            if (vertical > 0) {
+                /* modes[i] == 1 has NO fixture anywhere in this file and `d2`
+                 * is NULL at every call site. */
+                const int ids0[1] = {vertical};
+                const int m1[1] = {1};
+                const double dA[1] = {4.0}, dB[1] = {2.0};
+                const double dC[1] = {2.0}, dD[1] = {4.0};
+                occt_shape *c42 =
+                    occt_chamfer_edges(box, ids0, m1, dA, dB, NULL, 1);
+                occt_shape *c24 =
+                    occt_chamfer_edges(box, ids0, m1, dC, dD, NULL, 1);
+                if (check(c42 != NULL && c24 != NULL,
+                          "[40l] two-distance chamfer (mode 1) failed — it has "
+                          "never had a fixture")) {
+                    check(near_rel(occt_shape_volume(c42), 7920.0, 1e-9),
+                          "[40l] mode 1 does not remove d1*d2/2 * length");
+                    check(near_rel(occt_shape_volume(c24), 7920.0, 1e-9),
+                          "[40l] the swapped pair removes a different amount");
+                    check(occt_shape_valid(c42) && occt_shape_valid(c24),
+                          "[40l] a two-distance chamfer is invalid");
+                    /* Neither the volume nor the RESULT's bbox can tell the two
+                     * orderings apart — a chamfer cuts a corner off, so the
+                     * solid still spans [0,20]^3 either way. The bbox of the
+                     * CUT-AWAY WEDGE can, and it needs no knowledge of which
+                     * face OCCT's ancestor map picked as the reference:
+                     * swapping the distances TRANSPOSES two of its extents.
+                     * A test that had to name the reference face would be
+                     * pinning OCCT's map order, not the shim's behaviour. */
+                    occt_shape *w42 = occt_cut(box, c42);
+                    occt_shape *w24 = occt_cut(box, c24);
+                    double b42[6], b24[6];
+                    if (check(w42 && w24 && occt_bbox(w42, b42) &&
+                              occt_bbox(w24, b24),
+                              "[40l] could not isolate the wedges")) {
+                        double e42[3], e24[3];
+                        int k, differ = 0;
+                        double sorted[3];
+                        for (k = 0; k < 3; ++k) {
+                            e42[k] = b42[3+k] - b42[k];
+                            e24[k] = b24[3+k] - b24[k];
+                            if (fabs(e42[k] - e24[k]) > 1e-6)
+                                differ = 1;
+                        }
+                        for (k = 0; k < 3; ++k) sorted[k] = e42[k];
+                        for (k = 0; k < 2; ++k) {
+                            int j2;
+                            for (j2 = k + 1; j2 < 3; ++j2)
+                                if (sorted[j2] < sorted[k]) {
+                                    const double t2 = sorted[k];
+                                    sorted[k] = sorted[j2];
+                                    sorted[j2] = t2;
+                                }
+                        }
+                        printf("[40l] wedge extents 4/2 (%.4f %.4f %.4f) vs "
+                               "2/4 (%.4f %.4f %.4f)\n",
+                               e42[0], e42[1], e42[2],
+                               e24[0], e24[1], e24[2]);
+                        check(near_rel(sorted[0], 2.0, 1e-6) &&
+                              near_rel(sorted[1], 4.0, 1e-6) &&
+                              near_rel(sorted[2], 20.0, 1e-6),
+                              "[40l] the wedge is not d1 x d2 x length");
+                        check(differ,
+                              "[40l] swapping d1 and d2 changed nothing — the "
+                              "two distances are not landing on the two "
+                              "different faces");
+                    }
+                    occt_free_shape(w42);
+                    occt_free_shape(w24);
+                }
+                occt_free_shape(c42);
+                occt_free_shape(c24);
+            }
+            occt_free_shape(box);
+        }
+
+        /* ---- [41a] R3 — the OBTUSE half of the chamfer guard ------------ */
+        {
+            /* S16 derived this half and did not measure it, and said so. It is
+             * the direction nobody expects: away from 90 the old guard was not
+             * merely too strict, it was too PERMISSIVE on the other side.
+             *
+             * On a 135-degree edge the admissible range is alpha < 45. The old
+             * `>= 90` guard therefore ACCEPTED alpha = 60 and handed OCCT
+             *     dis2 = d1 sin(60)/sin(195) = 2 * 0.866025 / -0.258819
+             *          = -6.692130
+             * a negative distance. The user got whatever OCCT does with that
+             * instead of the guard's own sentence. Since v28 the guard refuses
+             * it and names 45.
+             *
+             * [40k]'s construction, reused: a 20-cube's vertical edge chamfered
+             * at d1 = 4, mode 0, leaves two edges with info[10] = 45 (interior
+             * 135), each running the full 20 mm with no run-out. Base volume
+             * 8000 - 1/2*4*4*20 = 7840 exactly. */
+            occt_shape *box = occt_make_box(20, 20, 20);
+            int vertical = -1;
+            int i;
+            const int ne = box ? occt_shape_edge_count(box) : 0;
+            for (i = 1; i <= ne && vertical < 0; ++i) {
+                double info[12] = {0};
+                if (!occt_shape_edge_info(box, i, info)) continue;
+                if (info[0] != 1.0) continue;
+                if (fabs(fabs(info[6]) - 1.0) > 1e-9) continue;
+                vertical = i;
+            }
+            occt_shape *ch = NULL;
+            if (vertical > 0) {
+                const int ids[1] = {vertical};
+                const int modes[1] = {0};
+                const double dd[1] = {4.0};
+                ch = occt_chamfer_edges(box, ids, modes, dd, NULL, NULL, 1);
+            }
+            if (check(ch != NULL, "[41a] setup chamfer failed")) {
+                const double chv = occt_shape_volume(ch);
+                int e135 = -1;
+                const int nc = occt_shape_edge_count(ch);
+                for (i = 1; i <= nc && e135 < 0; ++i) {
+                    double info[12] = {0};
+                    if (!occt_shape_edge_info(ch, i, info)) continue;
+                    if (info[0] != 1.0) continue;
+                    if (fabs(fabs(info[6]) - 1.0) > 1e-9) continue;
+                    if (fabs(info[10] - 45.0) > 1e-6) continue;
+                    e135 = i;
+                }
+                check(near_rel(chv, 7840.0, 1e-9),
+                      "[41a] the setup chamfer is not 8000 - 160");
+                if (check(e135 > 0,
+                          "[41a] no 135-degree edge on the chamfered cube")) {
+                    const int ids[1] = {e135};
+                    const int m2[1] = {2};
+                    const double dd[1] = {2.0};
+                    const double a30[1] = {30.0};
+                    const double a60[1] = {60.0};
+                    occt_shape *ok30 =
+                        occt_chamfer_edges(ch, ids, m2, dd, NULL, a30, 1);
+                    occt_shape *ref60 =
+                        occt_chamfer_edges(ch, ids, m2, dd, NULL, a60, 1);
+                    /* Copied, not aliased — see [40j]. */
+                    char why60[256];
+                    snprintf(why60, sizeof(why60), "%s",
+                             ref60 ? "" : occt_last_error());
+                    printf("[41a] theta=135 edge (bound 45): mode2 alpha=30 -> "
+                           "%s | alpha=60 -> %s (%s)\n",
+                           ok30 ? "built" : "REFUSED",
+                           ref60 ? "BUILT" : "refused",
+                           ref60 ? "" : why60);
+                    /* The control: inside the edge's own bound, so it builds
+                     * and removes the analytic wedge. d2 = 2 sin(30)/sin(165)
+                     * = 3.863703, removed = 1/2 * 2 * 3.863703 * sin(135) * 20
+                     * = 54.641016. */
+                    if (check(ok30 != NULL,
+                              "[41a] alpha=30 is inside the 45 bound and must "
+                              "build")) {
+                        const double d2v = 2.0 * sin(30.0 * M_PI / 180.0) /
+                                                 sin(165.0 * M_PI / 180.0);
+                        const double want = 0.5 * 2.0 * d2v *
+                                            sin(135.0 * M_PI / 180.0) * 20.0;
+                        const double got = chv - occt_shape_volume(ok30);
+                        printf("[41a] alpha=30 removed %.6f (analytic %.6f, "
+                               "d2 = %.6f)\n", got, want, d2v);
+                        check(near_rel(got, want, 1e-6),
+                              "[41a] a mode-2 chamfer on a 135-degree edge "
+                              "does not remove 1/2 d1 d2 sin(theta) L");
+                        check(occt_shape_valid(ok30),
+                              "[41a] the 135-degree chamfer is invalid");
+                    }
+                    /* THE HALF S16 DERIVED AND DID NOT MEASURE. */
+                    check(ref60 == NULL,
+                          "[41a] alpha=60 on a 135-degree edge is past the 45 "
+                          "bound (OCCT's own d2 would be -6.692130) and must "
+                          "be refused — before v28 the guard let it through "
+                          "because 60 < 90");
+                    check(strstr(why60, "45") != NULL,
+                          "[41a] the refusal does not name this edge's bound, "
+                          "so it is the old hardcoded guard, not the edge's");
+                    occt_free_shape(ok30);
+                    occt_free_shape(ref60);
+                }
+                occt_free_shape(ch);
+            }
+            occt_free_shape(box);
+        }
+
+        /* ---- [41b] R3 — one formula, three dihedrals -------------------- */
+        {
+            /* What makes 180-theta THE bound and not merely a looser number:
+             * the same closed form predicts the material removed at three
+             * different dihedrals, and it is OCCT's own
+             * (ChFiKPart_ComputeData_ChAsymPlnPln.cxx), not one fitted here.
+             *
+             *     d2      = d1 sin(alpha) / sin(alpha + theta)
+             *     removed = 1/2 d1 d2 sin(theta) L
+             *
+             * theta = 90 is the case the old guard was tuned for and the only
+             * one any fixture had ever exercised; 60 and 135 are checked in
+             * [40j] and [41a] against their own geometry. Here all three are
+             * asserted against ONE expression, so a future edit that fixes one
+             * dihedral by special-casing it fails this. */
+            const double thetas[3] = {90.0, 60.0, 135.0};
+            const double alphas[3] = {45.0, 100.0, 30.0};
+            const double d2s[3] = {2.0, 5.758770483143634, 3.863703305156273};
+            int t;
+            int ok = 1;
+            for (t = 0; t < 3; ++t) {
+                const double th = thetas[t] * M_PI / 180.0;
+                const double al = alphas[t] * M_PI / 180.0;
+                const double got = 2.0 * sin(al) / sin(al + th);
+                printf("[41b] theta=%.0f alpha=%.0f: d2 = %.9f (want %.9f)\n",
+                       thetas[t], alphas[t], got, d2s[t]);
+                if (!near_rel(got, d2s[t], 1e-12)) ok = 0;
+                /* And the same number by OCCT's spelling of it, which is where
+                 * the bound comes from: dis2 = Dis/(cosP + sinP/tan(alpha)). */
+                if (!near_rel(2.0 / (cos(th) + sin(th) / tan(al)), d2s[t],
+                              1e-12))
+                    ok = 0;
+                /* Past the bound the same expression goes negative, which is
+                 * the whole reason the bound exists. */
+                {
+                    const double past = (180.0 - thetas[t] + 5.0) * M_PI / 180.0;
+                    if (!(2.0 * sin(past) / sin(past + th) < 0.0)) ok = 0;
+                }
+            }
+            check(ok,
+                  "[41b] the law of sines and OCCT's dis2 expression disagree, "
+                  "or d2 does not go negative past 180 - theta — the guard's "
+                  "bound rests on both being the same thing");
+        }
+
+        /* ---- [41c] R3 — the 90-degree case did not move ----------------- */
+        {
+            /* A regression pin, not a discovery. Every chamfer fixture in this
+             * file before [40j] is on a cube edge, where info[10] = 90 and the
+             * new bound and the old literal coincide. If v28 disturbed those,
+             * the fix traded one defect for a wider one. So: on a cube edge
+             * alpha = 45 builds and removes the symmetric wedge (d2 = d1),
+             * alpha = 80 builds, and alpha = 90 is still refused — the same
+             * three answers the hardcoded guard gave.
+             *
+             * AND A LIMIT THE BOUND IS NOT, registered here because S17
+             * predicted alpha = 89.9 would build and it does not. The guard's
+             * bound is where the chamfer DEGENERATES (d2 -> infinity as
+             * alpha -> 180 - theta), which is not the same thing as where it
+             * FITS: at alpha = 85 on this 20 mm cube edge d2 is already
+             * 22.8601, wider than the face, and at 89.9 it is 1145.9144. Those
+             * are refused by blend_edges_subset's size retry with its own
+             * message — "no distance in this size range builds on these
+             * edges" — and NOT by the angle guard, which is exactly the
+             * distinction this scenario now asserts. So relaxing the guard on
+             * an acute edge does not mean every angle below the new bound
+             * builds; it means the angle is no longer what stops it. */
+            occt_shape *box = occt_make_box(20, 20, 20);
+            int vertical = -1;
+            int i;
+            const int ne = box ? occt_shape_edge_count(box) : 0;
+            for (i = 1; i <= ne && vertical < 0; ++i) {
+                double info[12] = {0};
+                if (!occt_shape_edge_info(box, i, info)) continue;
+                if (info[0] != 1.0) continue;
+                if (fabs(fabs(info[6]) - 1.0) > 1e-9) continue;
+                if (fabs(info[10] - 90.0) > 1e-9) continue;
+                vertical = i;
+            }
+            if (check(vertical > 0, "[41c] no 90-degree cube edge")) {
+                const int ids[1] = {vertical};
+                const int m2[1] = {2};
+                const double dd[1] = {2.0};
+                const double a45[1] = {45.0};
+                const double a80[1] = {80.0};
+                const double a85[1] = {85.0};
+                const double a90[1] = {90.0};
+                occt_shape *c45 =
+                    occt_chamfer_edges(box, ids, m2, dd, NULL, a45, 1);
+                occt_shape *c80 =
+                    occt_chamfer_edges(box, ids, m2, dd, NULL, a80, 1);
+                occt_shape *r85 =
+                    occt_chamfer_edges(box, ids, m2, dd, NULL, a85, 1);
+                /* COPY the message, do not keep the pointer: occt_last_error()
+                 * hands back its own static buffer, so the alpha=90 call below
+                 * would otherwise rewrite what why85 points at. */
+                char why85[256];
+                char why90[256];
+                occt_shape *r90;
+                snprintf(why85, sizeof(why85), "%s",
+                         r85 ? "" : occt_last_error());
+                r90 = occt_chamfer_edges(box, ids, m2, dd, NULL, a90, 1);
+                snprintf(why90, sizeof(why90), "%s",
+                         r90 ? "" : occt_last_error());
+                printf("[41c] theta=90 edge (bound 90): alpha=45 -> %s | "
+                       "alpha=80 (d2=11.3426) -> %s | alpha=85 (d2=22.8601) -> "
+                       "%s | alpha=90 -> %s\n",
+                       c45 ? "built" : "REFUSED",
+                       c80 ? "built" : "REFUSED",
+                       r85 ? "BUILT" : "refused",
+                       r90 ? "BUILT" : "refused");
+                if (check(c45 != NULL,
+                          "[41c] the ordinary 45-degree cube chamfer stopped "
+                          "building")) {
+                    /* d2 = 2 sin45/sin135 = 2: the symmetric wedge, removing
+                     * 1/2 * 2 * 2 * sin(90) * 20 = 40. */
+                    const double got = 8000.0 - occt_shape_volume(c45);
+                    printf("[41c] alpha=45 removed %.6f (analytic 40)\n", got);
+                    check(near_rel(got, 40.0, 1e-6),
+                          "[41c] the 45-degree cube chamfer is not the "
+                          "symmetric wedge");
+                }
+                check(c80 != NULL,
+                      "[41c] alpha=80 is inside the 90 bound and fits the "
+                      "face, so it must build exactly as it did before v28");
+                check(r90 == NULL,
+                      "[41c] alpha=90 on a perpendicular edge must still be "
+                      "refused — the bound is 180-theta = 90 here, and the "
+                      "comparison is >=, exactly as before v28");
+                check(strstr(why90, "90") != NULL,
+                      "[41c] the refusal at alpha=90 does not name the bound");
+                /* THE TWO LIMITS ARE DIFFERENT LIMITS. alpha=85 is inside the
+                 * angle bound and still refused, by the SIZE retry and with
+                 * its own message. If this ever comes back as the angle
+                 * guard's message, the guard has started refusing things it
+                 * has no business judging. */
+                check(r85 == NULL,
+                      "[41c] alpha=85 puts d2 at 22.86 on a 20 mm face and "
+                      "cannot build");
+                check(strstr(why85, "size range") != NULL &&
+                      strstr(why85, "angle") == NULL,
+                      "[41c] alpha=85 was refused by the ANGLE guard — the "
+                      "guard's bound is where the chamfer degenerates, not "
+                      "where it stops fitting the face");
+                occt_free_shape(c45);
+                occt_free_shape(c80);
+                occt_free_shape(r85);
+                occt_free_shape(r90);
+            }
+            occt_free_shape(box);
         }
     }
 

@@ -48,7 +48,11 @@ import 'theme.dart';
 /// the occurrence, because a subassembly's parts each sit somewhere inside
 /// it: reading the occurrence's own placement would put every part of a
 /// subassembly at the subassembly's origin, stacked.
-typedef AssemblyPiece = (String, AssemblyOccurrence, Quat, Vec3, KernelSolid);
+///
+/// M248 — the transform is a [Placement], which can be a REFLECTION. On the
+/// native side that is a negative scale on the holder Entity plus a reversed
+/// index winding; see [solidPayload]'s `mirror`.
+typedef AssemblyPiece = (String, AssemblyOccurrence, Placement, KernelSolid);
 
 /// Everything the assembly draws, in occurrence order.
 ///
@@ -58,8 +62,8 @@ typedef AssemblyPiece = (String, AssemblyOccurrence, Quat, Vec3, KernelSolid);
 List<AssemblyPiece> assemblyPieces(AssemblyModel a) => [
       for (final o in a.occurrences)
         if (o.visible)
-          for (final (path, r, t, s) in o.worldSolids)
-            ('${o.id}/$path', o, r, t, s),
+          for (final (path, at, s) in o.worldSolids)
+            ('${o.id}/$path', o, at, s),
     ];
 
 /// The tint a component is drawn in, as a packed ARGB, or [kNoTint] for the
@@ -81,7 +85,7 @@ int assemblyTint(AssemblyModel a, AssemblyOccurrence o, {String? hoverId}) {
 /// Mesh revisions currently on screen, so the next push can omit the buffers
 /// of everything that did not change. Mirrors `sceneRevs` on the part side.
 Map<String, int> assemblySceneRevs(AssemblyModel a) => {
-      for (final (id, _, _, _, s) in assemblyPieces(a))
+      for (final (id, _, _, s) in assemblyPieces(a))
         id: identityHashCode(s.mesh),
     };
 
@@ -97,12 +101,13 @@ Map<String, dynamic> buildAssemblyScenePayload(
 }) =>
     {
       'solids': [
-        for (final (id, o, r, t, s) in assemblyPieces(a))
+        for (final (id, o, at, s) in assemblyPieces(a))
           solidPayload(
             id,
             s,
-            at: t,
-            rot: r,
+            at: at.at,
+            rot: at.rot,
+            mirror: at.reflect,
             tint: assemblyTint(a, o, hoverId: hoverId),
             includeGeometry: knownRevs?[id] != identityHashCode(s.mesh),
           ),
@@ -125,11 +130,15 @@ Map<String, dynamic> buildAssemblyOverlaysPayload(AssemblyModel a,
         {String? hoverId}) =>
     {
       'placements': [
-        for (final (id, o, r, t, _) in assemblyPieces(a))
+        for (final (id, o, at, _) in assemblyPieces(a))
           {
             'id': id,
-            'at': [t.x, t.y, t.z],
-            'rot': [r.x, r.y, r.z, r.w],
+            'at': [at.at.x, at.at.y, at.at.z],
+            'rot': [at.rot.x, at.rot.y, at.rot.z, at.rot.w],
+            // M248 — nothing about the mirror here, and that is the point of
+            // reflecting the buffers rather than scaling the holder: a
+            // mirrored component's placement IS a rigid transform, so a drag
+            // stays the transform write per frame this push exists to be.
             'tint': assemblyTint(a, o, hoverId: hoverId),
           },
       ],
@@ -230,11 +239,16 @@ String assemblySceneSignature(AssemblyModel a) {
       ..write(';');
   }
   sb.write(';s:');
-  for (final (id, _, _, _, s) in assemblyPieces(a)) {
+  for (final (id, _, at, s) in assemblyPieces(a)) {
     sb
       ..write(id)
       ..write('=')
       ..write(identityHashCode(s.mesh))
+      // M248 — the HANDEDNESS is in the heavy signature, unlike the placement
+      // beside it, because it is not something the renderer can apply to a
+      // mesh it already holds: a mirrored solid travels with its triangle
+      // winding reversed. Mirroring a component has to re-upload it.
+      ..write(at.mirrored ? '*' : '')
       ..write(';');
   }
   return sb.toString();

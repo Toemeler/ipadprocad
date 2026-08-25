@@ -18,5 +18,6 @@ backend/occt/install-host/
 backend/occt/build-occt-host/
 backend/occt/build*/
 build-bench/
+build-occt-shim/
 build-backend/
 bench-out/

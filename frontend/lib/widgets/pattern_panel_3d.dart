@@ -20,9 +20,28 @@
 // picking geometry. Which input a pick feeds is the ACTIVE selector (blue
 // outline), exactly as in Inventor and exactly as the 2D pattern dialog
 // already works; AppState routes the taps.
+//
+// M248 — and it serves the ASSEMBLY's Pattern Component and Mirror Component
+// as well, on an [AsmPatternSession]. Almost nothing here knows: the counts,
+// the distributions, the irregular rows, the flips, the midplanes, the origin
+// quick-picks and the OK/Cancel behaviour are the same objects and the same
+// AppState methods, which route on the session's type. What DOES differ is
+// named in one place each and is exactly three things —
+//
+//   * INPUT GEOMETRY is components, not features or a solid. The chips list
+//     occurrence ids; there is no Pattern-a-solid mode, because an assembly
+//     has no bodies of its own.
+//   * THE PICKED INPUTS ARE REFERENCES that move with their component (see
+//     asm_pattern.dart), so the label and the clear button read and write the
+//     AsmRef rather than the resolved AxisRef beside it.
+//   * A WARNING LINE, because the preview is the real pattern: shrinking a
+//     count destroys elements and the relationships on them, and the panel
+//     says how many while Cancel can still put them back.
 import 'package:flutter/material.dart';
 
 import '../app_state.dart';
+import '../asm_constraints.dart';
+import '../asm_pattern.dart';
 import '../part_model.dart';
 import '../theme.dart';
 import 'dialog_dock.dart';
@@ -59,6 +78,10 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
   String? _syncedFor;
 
   PartPatternSession get sess => widget.app.patternSession!;
+
+  /// The open session when it belongs to an ASSEMBLY, else null. Every
+  /// difference in this file is behind one of these.
+  AsmPatternSession? get asm => widget.app.asmPatternSession;
 
   @override
   void dispose() {
@@ -196,9 +219,24 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
   Widget _inputGeometry(PartPatternSession s) {
     final app = widget.app;
     final n = s.features.length;
+    final a = asm;
     return panelSection(L.of(context).secInputGeometry, _inputOpen,
         () => setState(() => _inputOpen = !_inputOpen), [
-      if (s.patternSolid)
+      // M248 — an assembly patterns COMPONENTS. The same list and the same
+      // chips; what changes is the noun, where the taps come from (the
+      // graphics window, never a feature browser) and that there is no
+      // solid mode to switch to.
+      if (a != null)
+        panelRow(
+            L.of(context).lblComponent,
+            _pickButton(
+                label: n == 0
+                    ? L.of(context).lblSelectComponents
+                    : L.of(context).lblNComponents(n),
+                active: s.active == PatternField.features,
+                hint: L.of(context).hintTapComponentIn3d,
+                onTap: () => app.patternPick(PatternField.features)))
+      else if (s.patternSolid)
         panelRow(
             L.of(context).lblSolid,
             _pickButton(
@@ -219,7 +257,8 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
                 // body in which one extrusion's faces are no longer its own.
                 hint: L.of(context).hintTapFeaturesInBrowser,
                 onTap: () => app.patternPick(PatternField.features))),
-      if (!s.patternSolid && s.features.isNotEmpty)
+      if (asm != null) ..._associativeRows(asm!),
+      if ((asm != null || !s.patternSolid) && s.features.isNotEmpty)
         Padding(
           padding: const EdgeInsets.only(bottom: 6),
           child: Row(children: [
@@ -239,6 +278,44 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
           ]),
         ),
     ]);
+  }
+
+  /// Inventor's Associative tab, as a row rather than a tab: the pattern
+  /// follows a FEATURE pattern inside a component.
+  ///
+  /// Listed off the LIVE models, so a hole pattern added in the part's own tab
+  /// appears here the moment you look — which is the same liveness that makes
+  /// the bolts follow it afterwards (M245).
+  List<Widget> _associativeRows(AsmPatternSession s) {
+    if (s.mode == PatternKind.mirror) return const [];
+    final drivers = widget.app.asmPatternDrivers();
+    if (drivers.isEmpty && s.driver == null) return const [];
+    final cur = s.driver;
+    return [
+      panelRow(
+          L.of(context).lblFeaturePattern,
+          Row(children: [
+            Expanded(
+              child: _smallButton(
+                  cur == null
+                      ? L.of(context).lblOwnSpacing
+                      : '${cur.$1} · ${cur.$2}',
+                  cur != null,
+                  () {
+                    // One button cycling the list, not a menu: an assembly
+                    // holds a handful of feature patterns and a menu widget
+                    // here would be the panel's first.
+                    if (drivers.isEmpty) return;
+                    final i = cur == null
+                        ? -1
+                        : drivers.indexWhere(
+                            (d) => d.$1 == cur.$1 && d.$2 == cur.$2);
+                    widget.app.asmPatternSetDriver(
+                        i + 1 >= drivers.length ? null : drivers[i + 1]);
+                  }),
+            ),
+          ])),
+    ];
   }
 
   List<Widget> _middleSections(PartPatternSession s) => switch (s.mode) {
@@ -397,7 +474,17 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
       {required bool first}) {
     final app = widget.app;
     final field = first ? PatternField.dirA : PatternField.dirB;
-    final ref = first ? s.dirA : s.dirB;
+    final a = asm;
+    // M248 — for an assembly the picked input is the REFERENCE; dirA/dirB
+    // beside it are the resolved cache the arithmetic reads (asm_pattern.dart,
+    // section B), and clearing one of those would leave the reference behind
+    // to fill it in again on the next regeneration.
+    final asmRef = a == null ? null : (first ? a.refDirA : a.refDirB);
+    final ref = a != null
+        ? (asmRef == null
+            ? null
+            : AxisRef(0, 0, 0, 1, 0, 0, asmRef.label))
+        : (first ? s.dirA : s.dirB);
     final open = first ? _aOpen : _bOpen;
     final count = first ? _countA : _countB;
     final dist = first ? _distA : _distB;
@@ -425,7 +512,15 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
                       onClear: (ref == null && path == null)
                           ? null
                           : () => _changed(() {
-                                if (first) {
+                                if (a != null) {
+                                  if (first) {
+                                    a.refDirA = null;
+                                    s.dirA = null;
+                                  } else {
+                                    a.refDirB = null;
+                                    s.dirB = null;
+                                  }
+                                } else if (first) {
                                   s.dirA = null;
                                   s.pathA = null;
                                   s.startPickedA = false;
@@ -649,17 +744,28 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
   /// Mirror plane section.
   Widget _mirrorSection(PartPatternSession s) {
     final app = widget.app;
+    final a = asm;
+    final label = a != null ? a.refPlane?.label : s.plane?.label;
+    final picked = a != null ? a.refPlane != null : s.plane != null;
     return panelSection(
         L.of(context).lblMirrorPlane, _aOpen, () => setState(() => _aOpen = !_aOpen), [
       panelRow(
           L.of(context).lblPlaneField,
           _pickButton(
-              label: s.plane?.label ?? L.of(context).lblMirrorPlane,
+              label: label ?? L.of(context).lblMirrorPlane,
               active: s.active == PatternField.plane,
               hint: L.of(context).hintTapFaceOrPlane,
               onTap: () => app.patternPick(PatternField.plane),
-              onClear:
-                  s.plane == null ? null : () => _changed(() => s.plane = null))),
+              onClear: !picked
+                  ? null
+                  : () => _changed(() {
+                        if (a != null) {
+                          a.refPlane = null;
+                          s.plane = null;
+                        } else {
+                          s.plane = null;
+                        }
+                      }))),
       // Inventor's three origin-plane shortcuts, right in the dialog.
       panelRow(
           '',
@@ -668,7 +774,7 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
               Expanded(
                 child: _smallButton(
                     '${key.toUpperCase()} Plane',
-                    s.plane?.label == '${key.toUpperCase()} Plane',
+                    label == '${key.toUpperCase()} Plane',
                     () => _pickOriginPlane(key)),
               ),
               if (key != 'xy') const SizedBox(width: 3),
@@ -677,7 +783,26 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
     ]);
   }
 
-  Widget _outputGeometry(PartPatternSession s) => panelSection(
+  /// Inventor's Output Geometry. A PART's: Creation Method decides whether a
+  /// termination is re-resolved where each copy lands, and Remove Original
+  /// deletes half a solid. Neither exists for a component — a copy of a
+  /// component is the same component — so an assembly shows the warning line
+  /// in its place.
+  Widget _outputGeometry(PartPatternSession s) {
+    final a = asm;
+    if (a != null) {
+      final dropped = widget.app.asmPatternDroppedRelationships();
+      if (dropped == 0) return const SizedBox.shrink();
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
+        child: Text(L.of(context).msgRelationshipsDropped(dropped),
+            style: ts(11.5, T.warnText)),
+      );
+    }
+    return _partOutputGeometry(s);
+  }
+
+  Widget _partOutputGeometry(PartPatternSession s) => panelSection(
           L.of(context).secOutputGeometry, _outOpen, () => setState(() => _outOpen = !_outOpen), [
         panelRow(
             L.of(context).lblCreationMethod,
@@ -713,21 +838,30 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
           _railButton(Icons.blur_circular, L.of(context).patCircular,
               s.mode == PatternKind.circular,
               () => widget.app.switchPattern(PatternKind.circular)),
-          _railButton(Icons.scatter_plot, L.of(context).patSketchDriven,
-              s.mode == PatternKind.sketchDriven,
-              () => widget.app.switchPattern(PatternKind.sketchDriven)),
+          // M248 — Sketch Driven is a PART command. An assembly has no
+          // sketches of its own, and driving one from a sketch inside a
+          // component needs that sketch picked THROUGH the occurrence, which
+          // is a different feature nothing offers. Left out rather than shown
+          // dead, because the rail's other entries all work.
+          if (asm == null)
+            _railButton(Icons.scatter_plot, L.of(context).patSketchDriven,
+                s.mode == PatternKind.sketchDriven,
+                () => widget.app.switchPattern(PatternKind.sketchDriven)),
           _railButton(Icons.flip, L.of(context).patMirror, s.mode == PatternKind.mirror,
               () => widget.app.switchPattern(PatternKind.mirror)),
-          Container(
-              height: 1,
-              width: 22,
-              margin: const EdgeInsets.symmetric(vertical: 5),
-              color: T.panelSep),
-          // Inventor's two Input Geometry modes.
-          _railButton(Icons.category_outlined, L.of(context).lblPatternFeatures,
-              !s.patternSolid, () => widget.app.patternSetSolidMode(false)),
-          _railButton(Icons.view_in_ar, L.of(context).lblPatternSolid, s.patternSolid,
-              () => widget.app.patternSetSolidMode(true)),
+          // Inventor's two Input Geometry modes — a PART's. An assembly has no
+          // bodies, so there is no solid to pattern and no switch to draw.
+          if (asm == null) ...[
+            Container(
+                height: 1,
+                width: 22,
+                margin: const EdgeInsets.symmetric(vertical: 5),
+                color: T.panelSep),
+            _railButton(Icons.category_outlined, L.of(context).lblPatternFeatures,
+                !s.patternSolid, () => widget.app.patternSetSolidMode(false)),
+            _railButton(Icons.view_in_ar, L.of(context).lblPatternSolid,
+                s.patternSolid, () => widget.app.patternSetSolidMode(true)),
+          ],
         ]),
       );
 
@@ -759,11 +893,18 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
   /// run along.
   Widget _axisQuickRow(PatternField field) {
     final s = sess;
-    final current = switch (field) {
-      PatternField.dirA => s.dirA,
-      PatternField.dirB => s.dirB,
-      _ => s.axis,
-    };
+    final a = asm;
+    final label = a != null
+        ? switch (field) {
+            PatternField.dirA => a.refDirA?.label,
+            PatternField.dirB => a.refDirB?.label,
+            _ => a.refAxis?.label,
+          }
+        : switch (field) {
+            PatternField.dirA => s.dirA?.label,
+            PatternField.dirB => s.dirB?.label,
+            _ => s.axis?.label,
+          };
     return Row(children: [
       Expanded(
         child: _smallButton(
@@ -774,7 +915,7 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
         SizedBox(
           width: 30,
           child: _smallButton(k.toUpperCase(),
-              current?.label == '${k.toUpperCase()} Axis',
+              label == '${k.toUpperCase()} Axis',
               () => _pickOriginAxis(field, k)),
         ),
       ],

@@ -320,6 +320,15 @@ class PrototypeApp extends StatelessWidget {
                                               child: ViewportAssembly(app: app)),
                                           if (app.constraintSession != null)
                                             ConstraintDialog(app: app),
+                                          // M248 — Pattern Component and
+                                          // Mirror Component, in the PART's
+                                          // panel with an assembly session in
+                                          // it. Modeless and over the viewport
+                                          // for the same reason Place
+                                          // Constraint is: it collects its
+                                          // seeds and its plane by pointing.
+                                          if (app.asmPatternSession != null)
+                                            PatternPanel3D(app: app),
                                           // M247 — an assembly has work
                                           // planes now, and an offset or an
                                           // angle plane carries the one number

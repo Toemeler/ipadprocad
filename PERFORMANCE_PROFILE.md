@@ -3282,6 +3282,125 @@ question — §19.
 
 ---
 
+## 19. Round three — the sweep closed, and the blind spot it exposed
+
+Three sessions. §18.4 and §18.5 record S14's diagnosis and its first two
+rounds; this section adds what S15 and S16 measured on top of it, and Lane C's
+independent confirmation of all of it.
+
+**Provenance warning, and it is the important one.** Everything in §19 is a
+DESKTOP measurement — Lane C or a session's own harness. §13.3 binds: relative
+costs, exponents, allocation and structural change may be read from it;
+absolute milliseconds may not be read as iPad milliseconds. **No device has yet
+run a v27 kernel.** The capture that settles this section has not been taken.
+
+### 19.1 Lane C, independently, on the whole sweep chain
+
+Published runner, one process, the v23 path kept alive beside the v24 one as
+its own control:
+
+| op | k | 95 % CI | R² |
+| --- | ---: | --- | ---: |
+| `sweep.segments` (v24, smooth spine) | **1.160** | [1.023, 1.297] | 0.9964 |
+| `sweep.legacy` (v23, mitered polyline) | **2.052** | [1.329, 2.775] | 0.9687 |
+| `allEdgesBulk` (S2 + S6, the round-two work) | **1.052** | [1.034, 1.069] | 0.9999 |
+
+At 128 segments the two sweep paths are **236.7 ms against 3 858.1 ms — 16.3×**
+— and the face counts are **130 against 4 224**, a 32.5-fold difference that is
+the whole mechanism visible in one number: v23 mitered every one of the
+sampled arc's joints and v24 has no joints to miter.
+
+`allEdgesBulk` at 1.052 is the round-two result holding under everything round
+three did to the shim.
+
+### 19.2 S15 — a holed profile is assembled, not subtracted (v27)
+
+`finish_pipe` removed every hole with a `BRepAlgoAPI_Cut` from v15 to v26. That
+boolean is what kept a holed profile pinned to the v23 polyline spine long
+after v24 had fixed the unholed one, because against a curved spine the cut is
+between general swept surfaces rather than planes. v27 sweeps each wire to its
+lateral shell, caps both ends with a planar face carrying the holes as inner
+boundaries, sews, and makes a solid.
+
+| | |
+| --- | --- |
+| 1200-segment ring, r=3 hole, 16-span sampled arc, **v26** | nothing, after **490 407.2 ms** — `BRep_API: command not done` |
+| the same, **v27** | **2 402 faces, valid.** Construction **7 952.7 ms**; volume 5 089.335272 against an analytic 5 089.356844 (**4.24e-6**) |
+
+The 7 952.7 ms is CONSTRUCTION — sweep, caps, sew, unify — on a machine S15
+measures at 2.9× slower than S14's, so on the order of 2.8 s there. It is the
+right number to quote because it is what the shipped path pays: `finish_pipe`
+does not call `BRepCheck_Analyzer`. S15's probe additionally spent 25 595.6 ms
+verifying (volume 16 778.5, validity 8 817.1), which is where the staged
+measurement's 33 548.3 ms total comes from and which no caller pays.
+
+**That split is itself a finding, and it refuted S15's own prediction.** P2
+registered that the validity check would be ≥ 20× the unholed one and the
+largest stage; it is 10.7× and `volume` is larger. **Verification is 76.3 % of
+the staged total** — checking a large swept solid costs more than building
+one — which is worth knowing before anyone adds a validity guard to this path.
+
+**The assembly is not an approximation of the boolean; it is the boolean's own
+answer.** Measured against `occt_cut` of the same two sweeps, in one run:
+**3.6e-16 (POLY) and 1.8e-16 (SMOOTH), with identical face counts** (386/386
+and 50/50). Two and three holes come out analytic to the digit; overlapping
+holes fall back to the boolean and match a double cut exactly.
+
+The containment guard — the one thing that made this a proposal rather than a
+commit, because a boolean is general and an assembly is not — is derived rather
+than tuned and costs **1.52 ms** at 1200 × 1200.
+
+**A correction to §18, and the reason the label mattered.** §18's account of
+S14 carried its inference that a 25-minute prototype stall lay in verification
+rather than construction. S15 could not reproduce a stall of any kind: the
+whole operation, both sweeps, both caps, sew, unify, volume AND validity check,
+is 33.5 s. S14 had labelled that claim an inference rather than a finding,
+which is exactly why an hour spent checking it was the right hour. Recorded as
+an unreproduced measurement, not as a refutation of S14's work.
+
+### 19.3 S16 — the audit, and what it says about this whole document
+
+S14 closed with a question: *"I do not know what else in this shim is only ever
+exercised straight."* Every one of its three defects was exact on a straight
+two-point path, which is what every fixture and every capture in §1–§17 had
+used.
+
+**Eight parameters had never been passed anything but their trivial value.
+Three are wrong away from it. Nine other operations are equivariant to between
+1e-15 and exact.**
+
+| defect | reachable from the UI |
+| --- | --- |
+| `occt_coil_profile`'s `clockwise` descends instead of reversing handedness | yes |
+| `occt_move_faces` leans on an oblique delta | yes |
+| `occt_chamfer_edges`' `angle_deg >= 90` guard assumes a perpendicular edge | yes |
+
+None is fixed as of this writing; all three are routed.
+
+**What this means for §1–§17 is worth stating plainly rather than leaving
+implicit.** This document measured the application extensively and found real
+things, but its fixtures were overwhelmingly axis-aligned. Three defects lived
+under that for nine months and three device captures. The instrument S16 used
+where no closed form exists is **rigid equivariance** — `op(R·x) == R·op(x)`,
+with volume invariant under `R` — which needs no analytic formula and no
+recorded golden, and it is the cheapest general check this project has found.
+
+`perf/findings/S16-straight-audit.md` §1.4 is the map: "is this operation
+tested away from the axis?", answered per entry point, with three honest
+**still untested** rows (`loft`'s `closed`, the coil's `taper_deg`,
+`chamfer_ex`'s out-parameters).
+
+### 19.4 What round three did not close
+
+| | |
+| --- | --- |
+| A path whose joints exceed 5.625° | still mitered, still cubic. 512 segments on a 3-corner path was 79 s on the round-two device capture. Those joints are geometry somebody drew, and mitering them is correct — nothing here makes a drawn corner cheap. |
+| A tapered sweep on a multi-edge spine | produces an INVALID solid. Found by S15, registered, deliberately not bundled into a merge about holes. |
+| S16's three defects | routed, unfixed |
+| Everything in §19 | desktop-only. The v27 device capture has not been taken. |
+
+---
+
 ## 16. Complete data appendix
 
 Sections 1–15 are analysis: they select, rank and interpret. Selection is

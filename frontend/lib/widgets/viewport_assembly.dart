@@ -153,11 +153,12 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
     if (sig != _lastSceneSig) {
       _lastSceneSig = sig;
       final pushed = <String>[];
-      for (final (id, _, _, t, sol) in assemblyPieces(a)) {
+      for (final (id, _, at, sol) in assemblyPieces(a)) {
         logMeshConvention(id, sol.mesh);
-        pushed.add('$id @ ${t.x.toStringAsFixed(2)},'
-            '${t.y.toStringAsFixed(2)},'
-            '${t.z.toStringAsFixed(2)}: '
+        pushed.add('$id @ ${at.at.x.toStringAsFixed(2)},'
+            '${at.at.y.toStringAsFixed(2)},'
+            '${at.at.z.toStringAsFixed(2)}'
+            '${at.mirrored ? " mirrored" : ""}: '
             'tris=${sol.mesh.indices.length ~/ 3} '
             'verts=${sol.mesh.positions.length ~/ 3} '
             'rev=${identityHashCode(sol.mesh)}');
@@ -192,7 +193,7 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
     final seen = <KernelSolid>{};
     for (final o in a.occurrences) {
       if (!o.visible) continue;
-      for (final (_, _, _, s) in o.localSolids) {
+      for (final (_, _, s) in o.localSolids) {
         if (seen.add(s)) yield s;
       }
     }
@@ -378,6 +379,21 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
               // a user can have meant. The two can never both be armed —
               // openConstraint and the work-feature commands cancel each
               // other — so the order between them is style, not behaviour.
+              // M248 — and the same again for Pattern / Mirror Component,
+              // ahead of the grab for the reason above: a tap meant for the
+              // seed selector must not drag the component instead. The three
+              // commands cancel one another, so the order between them is
+              // style rather than behaviour.
+              if (app.asmPatternPicking &&
+                  app.patternSession?.active != PatternField.none) {
+                final pick = pickAsmRef(a, cam, e.localPosition);
+                if (pick == null) {
+                  app.toast(L.of(context).hintAsmPickGeometry);
+                } else if (app.asmPatternPick(pick)) {
+                  return;
+                }
+                return;
+              }
               if (app.asmPickWorkGeometry) {
                 final pick = pickAsmRef(a, cam, e.localPosition);
                 if (pick != null) {
@@ -517,7 +533,10 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
                 // While Place Constraint collects, hovering pre-highlights the
                 // GEOMETRY under the pointer rather than the component: what
                 // the next tap would select is the thing worth showing.
-                if (app.constraintPicking || app.asmPickWorkGeometry) {
+                if (app.constraintPicking ||
+                    app.asmPickWorkGeometry ||
+                    (app.asmPatternPicking &&
+                        app.patternSession?.active != PatternField.none)) {
                   final p = pickAsmRef(a, cam, e.localPosition);
                   final g = p == null ? null : app.markFor(a, p.ref);
                   // Compare the REFERENCE, not the mark: markFor builds a
@@ -695,11 +714,11 @@ AssemblyOccurrence? pickOccurrence(AssemblyModel a, Cam3 cam, Offset px) {
   var bestDepth = double.negativeInfinity;
   for (final o in a.occurrences) {
     if (!o.visible) continue;
-    for (final (_, pr, pt, s) in o.worldSolids) {
+    for (final (_, pp, s) in o.worldSolids) {
       // M246 — the camera is placed per PIECE. A subassembly's parts each sit
       // somewhere inside it, so one camera for the whole component would
       // hit-test them all at the subassembly's origin.
-      final sc = placedCam(cam, pr, pt);
+      final sc = placedCam(cam, pp);
       final m = s.mesh;
       for (var t = 0; t + 2 < m.indices.length; t += 3) {
         final i0 = m.indices[t] * 3,
@@ -722,6 +741,10 @@ AssemblyOccurrence? pickOccurrence(AssemblyModel a, Cam3 cam, Offset px) {
         // PLACED camera's direction, because the normal is in the piece's own
         // space and a turned component would otherwise be tested against the
         // world's idea of "toward the viewer".
+        //
+        // M248 — UNCHANGED on a mirrored component. The winding reverses in
+        // WORLD space and this test is in the piece's own, where the mesh is
+        // untouched; see placedCam. A sign here selects the far side.
         if (n.length < 1e-12 || n.normalized().dot(sc.dir) >= 0) continue;
         final pa = sc.project(w0), pb = sc.project(w1), pc = sc.project(w2);
         final d = (pb.dx - pa.dx) * (pc.dy - pa.dy) -
@@ -741,7 +764,7 @@ AssemblyOccurrence? pickOccurrence(AssemblyModel a, Cam3 cam, Offset px) {
         final depth = (sc.depth(w0) * (1 - u - v) +
                 sc.depth(w1) * u +
                 sc.depth(w2) * v) +
-            cam.depth(pt);
+            cam.depth(pp.at);
         if (depth > bestDepth) {
           bestDepth = depth;
           best = o;
@@ -911,7 +934,7 @@ class _AssemblyPainter extends CustomPainter {
       cam,
       [
         for (final o in visible)
-          PlacedComponent([for (final (_, r, t, s) in o.worldSolids) (r, t, s)])
+          PlacedComponent([for (final (_, at, s) in o.worldSolids) (at, s)])
       ],
       selected: indexOf(asm.selected),
       hovered: indexOf(hover),

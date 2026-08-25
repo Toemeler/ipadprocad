@@ -112,17 +112,17 @@ AsmPick? _pickEdgeOn(AssemblyOccurrence o, Cam3 cam, Offset px) {
   // parts each sit somewhere inside it, so a single camera for the whole
   // component would hit-test them all at the subassembly's origin.
   AsmPick? best;
-  for (final (_, r, t, solid) in o.worldSolids) {
-    final p = _pickEdgeOnPiece(o, r, t, solid, cam, px);
+  for (final (_, at, solid) in o.worldSolids) {
+    final p = _pickEdgeOnPiece(o, at, solid, cam, px);
     if (p != null && (best == null || p.depth > best.depth)) best = p;
   }
   return best;
 }
 
-AsmPick? _pickEdgeOnPiece(AssemblyOccurrence o, Quat r, Vec3 t,
+AsmPick? _pickEdgeOnPiece(AssemblyOccurrence o, Placement at,
     KernelSolid solid, Cam3 cam, Offset px) {
-  final sc = placedCam(cam, r, t);
-  final base = cam.depth(t);
+  final sc = placedCam(cam, at);
+  final base = cam.depth(at.at);
   final hit = pickEdge(
     [solid.mesh],
     sc.project,
@@ -141,14 +141,14 @@ AsmPick? _pickEdgeOnPiece(AssemblyOccurrence o, Quat r, Vec3 t,
   );
   if (hit == null) return null;
   final m = solid.mesh;
-  final world = r.rotate(hit.point) + t;
+  final world = at.apply(hit.point);
   final depth = cam.depth(world) + kAsmEdgeBias;
   // The analytic curve records are in the PIECE's mesh frame; a constraint
   // reference lives in the COMPONENT's. Identity for a part, and for a
   // subassembly the step that turns an inner part's circle into something the
   // parent can insert a bolt into.
-  Vec3 up(Vec3 v) => o.toLocal(r.rotate(v) + t);
-  Vec3 upDir(Vec3 v) => o.dirToLocal(r.rotate(v));
+  Vec3 up(Vec3 v) => o.toLocal(at.apply(v));
+  Vec3 upDir(Vec3 v) => o.dirToLocal(at.applyDir(v));
   final ci = hit.displayEdge * 16;
   if (ci >= 0 && ci + 16 <= m.edgeCurves.length) {
     final c = m.edgeCurves;
@@ -211,14 +211,13 @@ AsmPick? _pickFaceOn(AssemblyOccurrence o, Cam3 cam, Offset px) {
   // The transform of the winning piece, so the answer can be brought into the
   // COMPONENT's frame — which is where a constraint reference lives, and for
   // a subassembly is not the piece's frame.
-  var bestRot = Quat.identity;
-  var bestAt = Vec3.zero;
-  // `pr`/`pt` rather than `r`/`t`: the triangle loop below already owns `t`,
-  // and shadowing it silently assigned a triangle INDEX as a translation.
-  for (final (_, pr, pt, s) in o.worldSolids) {
+  var bestPlace = Placement.identity;
+  // `pp` rather than `p`: the triangle loop below already owns `t`, and
+  // shadowing it silently assigned a triangle INDEX as a translation.
+  for (final (_, pp, s) in o.worldSolids) {
     // M246 — per PIECE: see _pickEdgeOn.
-    final sc = placedCam(cam, pr, pt);
-    final base = cam.depth(pt);
+    final sc = placedCam(cam, pp);
+    final base = cam.depth(pp.at);
     final m = s.mesh;
     if (m.triFaces.length * 3 != m.indices.length || m.faceInfos.isEmpty) {
       continue; // no face identity on this mesh: nothing to report
@@ -236,7 +235,9 @@ AsmPick? _pickFaceOn(AssemblyOccurrence o, Cam3 cam, Offset px) {
       final w1 = Vec3(m.positions[i1], m.positions[i1 + 1], m.positions[i1 + 2]);
       final w2 = Vec3(m.positions[i2], m.positions[i2 + 1], m.positions[i2 + 2]);
       final n = (w1 - w0).cross(w2 - w0);
-      // Camera-facing only, the renderer's rule — see the file header.
+      // Camera-facing only, the renderer's rule — see the file header. M248:
+      // UNCHANGED on a mirrored component, and see placedCam for why — the
+      // winding reverses in world space, and this loop is in the piece's own.
       if (n.length < 1e-12 || n.normalized().dot(sc.dir) >= 0) continue;
       final a = sc.project(w0), b = sc.project(w1), c = sc.project(w2);
       final den = (b.dy - c.dy) * (a.dx - c.dx) + (c.dx - b.dx) * (a.dy - c.dy);
@@ -260,8 +261,7 @@ AsmPick? _pickFaceOn(AssemblyOccurrence o, Cam3 cam, Offset px) {
       bestHit = local;
       bestMesh = m;
       bestFace = fid;
-      bestRot = pr;
-      bestAt = pt;
+      bestPlace = pp;
     }
   }
   final info = bestInfo;
@@ -270,11 +270,16 @@ AsmPick? _pickFaceOn(AssemblyOccurrence o, Cam3 cam, Offset px) {
   // Into the COMPONENT's frame. For a part the piece transform is the
   // identity and these are no-ops; for a subassembly they are what turns a
   // face of an inner part into geometry the parent can constrain.
-  Vec3 up(Vec3 v) => o.toLocal(bestRot.rotate(v) + bestAt);
-  Vec3 upDir(Vec3 v) => o.dirToLocal(bestRot.rotate(v));
+  //
+  // M248 — a face RECORD's normal is stored, not derived from the winding, so
+  // it lifts through the reflection unchanged: an orthogonal map carries an
+  // outward normal to an outward normal. It is only the triangle test above
+  // that needed a sign.
+  Vec3 up(Vec3 v) => o.toLocal(bestPlace.apply(v));
+  Vec3 upDir(Vec3 v) => o.dirToLocal(bestPlace.applyDir(v));
   final at = up(Vec3(info[1], info[2], info[3]));
   final dir = upDir(Vec3(info[4], info[5], info[6]));
-  final world = bestRot.rotate(bestHit) + bestAt;
+  final world = bestPlace.apply(bestHit);
   if (dir.length < 1e-9 && type != kFacePlane) return null;
   // What the face itself occupies, which is what the highlight has to match.
   final (rawMid, span) = _faceSpan(bestMesh!, bestFace);

@@ -559,6 +559,13 @@ void main() {
     // M242 (SPEC CHANGE) — Constrain is built now, so the name and the list
     // below both move by exactly one entry.
     //
+    // M248 (SPEC CHANGE) — and so do Pattern, Mirror and Copy. All three are
+    // built: Pattern and Mirror open the part's pattern panel with an assembly
+    // session in it, and Copy places another occurrence of the selected
+    // component as it sits. The drawn-and-disabled list loses all three, and
+    // "Pattern" — which covers the panel TITLE as well as the command — is now
+    // tappable exactly once, since a panel title never was.
+    //
     // M247 (SPEC CHANGE) — and so do Plane, Axis and Point. Two things move
     // with them:
     //
@@ -619,6 +626,16 @@ void main() {
         expect(tappable(on), greaterThan(0),
             reason: 'M247 — "$on" builds an assembly work feature');
       }
+      for (final on in const ['Mirror', 'Copy']) {
+        expect(tappable(on), greaterThan(0),
+            reason: 'M248 — "$on" is built');
+      }
+      // 'Pattern' is on screen twice — the panel title and the command — and
+      // exactly ONE of them is tappable, which is the stronger assertion than
+      // either count alone: the command works and the title is still a label.
+      expect(tappable('Pattern'), 1,
+          reason: 'M248 — the command is wired; the panel title is not a '
+              'button and never was');
       for (final off in const [
         'Create',
         'Free Move',
@@ -627,11 +644,6 @@ void main() {
         'Show',
         'Show Sick',
         'Hide All',
-        // 'Pattern' covers the panel TITLE as well as the command; neither is
-        // tappable, so counting both is the stronger assertion.
-        'Pattern',
-        'Mirror',
-        'Copy',
       ]) {
         expect(tappable(off), 0,
             reason: '"$off" is not built and must not be tappable');

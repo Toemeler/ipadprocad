@@ -1885,6 +1885,42 @@ abstract class AppL10n {
   /// **'Zielkörper wählen — in 3D oder im Browser antippen.'**
   String get msgSelectTargetBody;
 
+  /// M248 — die Anordnung im Baugruppen-Menüband, ohne platzierte Komponente.
+  ///
+  /// In de, this message translates to:
+  /// **'{kind} braucht eine Komponente zum Kopieren — zuerst eine platzieren.'**
+  String msgPatternNeedsComponent(String kind);
+
+  /// M248 — die Vorschau setzt die Anordnung wirklich; eine kleinere Anzahl löscht Elemente und deren Beziehungen.
+  ///
+  /// In de, this message translates to:
+  /// **'{n, plural, =1{1 Beziehung wurde mit den entfallenen Elementen gelöscht — Abbrechen stellt sie wieder her.} other{{n} Beziehungen wurden mit den entfallenen Elementen gelöscht — Abbrechen stellt sie wieder her.}}'**
+  String msgRelationshipsDropped(int n);
+
+  /// M248 — der Aufruf, wenn die Auswahl für die Ausgangskomponenten scharf ist.
+  ///
+  /// In de, this message translates to:
+  /// **'Komponente zum Anordnen antippen.'**
+  String get msgTapComponentToPattern;
+
+  /// M248 — eine Anordnung ihrer eigenen Ausgabe wäre ein Zyklus.
+  ///
+  /// In de, this message translates to:
+  /// **'Ein Anordnungselement kann nicht angeordnet werden — die Ausgangskomponente wählen.'**
+  String get msgCannotPatternAnElement;
+
+  /// M248 — Kopieren wirkt auf die aktuelle Auswahl.
+  ///
+  /// In de, this message translates to:
+  /// **'Komponente zum Kopieren wählen.'**
+  String get msgSelectComponentToCopy;
+
+  /// M248 — die Kopie wäre eine gewöhnliche Komponente, die nur wie ein Element aussieht.
+  ///
+  /// In de, this message translates to:
+  /// **'Ein Anordnungselement kann nicht kopiert werden — die Ausgangskomponente kopieren oder die Anzahl ändern.'**
+  String get msgCannotCopyAnElement;
+
   /// No description provided for @msgPatternNeedsFeature.
   ///
   /// In de, this message translates to:
@@ -4519,6 +4555,42 @@ abstract class AppL10n {
   /// **'Volumenkörper wählen'**
   String get lblSelectSolid;
 
+  /// M248 — die Eingabegeometrie der Baugruppen-Anordnung.
+  ///
+  /// In de, this message translates to:
+  /// **'Komponente'**
+  String get lblComponent;
+
+  /// M248 — Platzhalter der Komponentenauswahl.
+  ///
+  /// In de, this message translates to:
+  /// **'Komponenten wählen'**
+  String get lblSelectComponents;
+
+  /// M248 — wie viele Komponenten angeordnet werden.
+  ///
+  /// In de, this message translates to:
+  /// **'{n, plural, =1{1 Komponente} other{{n} Komponenten}}'**
+  String lblNComponents(int n);
+
+  /// M248 — der Hinweis am Auswahlfeld für Komponenten.
+  ///
+  /// In de, this message translates to:
+  /// **'Komponente in 3D antippen…'**
+  String get hintTapComponentIn3d;
+
+  /// M248 — die assoziative Anordnung folgt einer Anordnung im Bauteil.
+  ///
+  /// In de, this message translates to:
+  /// **'Element-Anordnung'**
+  String get lblFeaturePattern;
+
+  /// M248 — keine treibende Element-Anordnung: die Anordnung rechnet selbst.
+  ///
+  /// In de, this message translates to:
+  /// **'Eigene Abstände'**
+  String get lblOwnSpacing;
+
   /// No description provided for @lblFeature.
   ///
   /// In de, this message translates to:
@@ -5070,6 +5142,18 @@ abstract class AppL10n {
   /// In de, this message translates to:
   /// **'Der Winkel muss zwischen 0 und 90 Grad liegen.'**
   String get valAngle0to90;
+
+  /// M248 — die Baugruppen-Anordnung ohne Ausgangskomponente.
+  ///
+  /// In de, this message translates to:
+  /// **'Mindestens eine Komponente zum Anordnen wählen.'**
+  String get valSelectOneComponent;
+
+  /// M248 — eine assoziative Anordnung, deren Bauteil-Anordnung gelöscht wurde.
+  ///
+  /// In de, this message translates to:
+  /// **'Die treibende Element-Anordnung ist nicht mehr da.'**
+  String get valDrivingFeatureGone;
 
   /// No description provided for @valSelectOneFeature.
   ///

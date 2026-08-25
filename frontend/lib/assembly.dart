@@ -46,6 +46,7 @@
 import 'dart:math' as math;
 
 import 'asm_constraints.dart';
+import 'asm_pattern.dart';
 import 'asm_work_features.dart';
 import 'doc_file.dart' show kAssemblyDocKind;
 import 'part_model.dart';
@@ -107,6 +108,45 @@ class AssemblyOccurrence {
   /// else has to remember which comes first.
   Quat rot;
 
+  /// M248 — the component is MIRRORED, and the mirror is local to THIS
+  /// assembly.
+  ///
+  /// Inventor makes a chiral part by writing a second part document. This does
+  /// not, and the two rules that forbid it are the whole design of the
+  /// milestone: every instance is an ordinary occurrence of the SAME part
+  /// document, so it keeps M245's live link and an edit to the part reaches
+  /// the mirrored copy too; and the handedness belongs to the OCCURRENCE, so
+  /// nothing outside this .pas file learns that a mirror was ever taken.
+  ///
+  /// Stored as the unit normal of the reflection plane in the SOURCE part's
+  /// own frame, through the source's own origin — see [Placement], which is
+  /// where the arithmetic and the winding rule live. Null for every component
+  /// that has not been mirrored, which is all of them until Mirror Component
+  /// is used.
+  Vec3? reflect;
+
+  /// M248 — the PATTERN that placed this occurrence, or null for one the user
+  /// placed themselves.
+  ///
+  /// The back-reference, and the only thing about a pattern element that is
+  /// not an ordinary component: it is what lets the pattern find its own work
+  /// again on the next regeneration, what nests the row under the pattern in
+  /// the browser, and what tells the solver this body is DRIVEN rather than
+  /// free. See asm_pattern.dart, section A.
+  String? patternOf;
+
+  /// Which of the pattern's seeds this is a copy of.
+  String? patternSeed;
+
+  /// Inventor's occurrence number within the pattern, counting the seed as 1.
+  ///
+  /// The element's IDENTITY, and stable on purpose: element 3 stays element 3
+  /// across an edit to the count, which is what keeps its id and therefore its
+  /// relationships. See asm_pattern.dart, section D.
+  int? patternElement;
+
+  bool get isPatternElement => patternOf != null;
+
   /// Inventor grounds the FIRST component of an assembly, so the assembly has
   /// something to be built against. A grounded occurrence cannot be dragged.
   bool grounded;
@@ -135,6 +175,10 @@ class AssemblyOccurrence {
     this.sourceKind = 'part',
     Vec3? offset,
     Quat? rot,
+    this.reflect,
+    this.patternOf,
+    this.patternSeed,
+    this.patternElement,
     this.grounded = false,
     this.visible = true,
     this.part,
@@ -142,12 +186,26 @@ class AssemblyOccurrence {
   })  : offset = offset ?? Vec3.zero,
         rot = rot ?? Quat.identity;
 
+  /// M248 — the placement, as the ONE value that can also be a reflection.
+  ///
+  /// (rot, offset) alone cannot: see [Placement]. Everything that places this
+  /// component reads it from here, so a mirrored component cannot be handled
+  /// by one consumer and quietly ignored by the next.
+  Placement get placement => Placement(rot, offset, reflect);
+
+  bool get mirrored => reflect != null;
+
   /// The world position of a point given in the SOURCE PART's coordinates.
-  Vec3 toWorld(Vec3 local) => rot.rotate(local) + offset;
+  Vec3 toWorld(Vec3 local) => placement.apply(local);
 
   /// The world direction of a direction given in the source part's
   /// coordinates. No translation — a direction has no position.
-  Vec3 dirToWorld(Vec3 local) => rot.rotate(local);
+  ///
+  /// Right for a STORED outward normal on a mirrored component too, because a
+  /// reflection is orthogonal. The case that is not is a normal crossed from
+  /// TRANSFORMED vertices — see [Placement] for where that bites and where it
+  /// deliberately does not.
+  Vec3 dirToWorld(Vec3 local) => placement.applyDir(local);
 
   /// The inverse of [toWorld]: a world point in the source part's coordinates.
   ///
@@ -156,9 +214,9 @@ class AssemblyOccurrence {
   /// reference would stop pointing at that face the moment the component
   /// moved — which is the whole difference between a constraint and a
   /// one-off snap.
-  Vec3 toLocal(Vec3 world) => rot.unrotate(world - offset);
+  Vec3 toLocal(Vec3 world) => placement.unapply(world);
 
-  Vec3 dirToLocal(Vec3 world) => rot.unrotate(world);
+  Vec3 dirToLocal(Vec3 world) => placement.unapplyDir(world);
 
   /// Everything this occurrence draws, in ITS OWN coordinates: a path that
   /// names the piece, the rigid transform that places it inside the
@@ -181,12 +239,18 @@ class AssemblyOccurrence {
   /// The PATH is what keeps ids unique down the tree: "Extrusion1" for a part,
   /// "Gearbox:1/Extrusion1" one level down. The renderer keys its entity cache
   /// on it, and two occurrences of one subassembly carry the same inner names.
-  Iterable<(String, Quat, Vec3, KernelSolid)> get localSolids sync* {
+  ///
+  /// M248 — the inner transform is a [Placement] rather than a (Quat, Vec3)
+  /// pair, because a MIRRORED subassembly reflects everything inside it and
+  /// the old `(child.rot * r)` cannot say so. The composition below is the one
+  /// place that arithmetic happens; see [Placement.operator *] for why two
+  /// reflections come back out as a rotation.
+  Iterable<(String, Placement, KernelSolid)> get localSolids sync* {
     final p = part;
     if (p != null) {
       for (final f in p.features) {
         if (f.visible && f.solid != null && !f.consumedByJoin && !f.rolledBack) {
-          yield (f.name, Quat.identity, Vec3.zero, f.solid!);
+          yield (f.name, Placement.identity, f.solid!);
         }
       }
       return;
@@ -195,19 +259,18 @@ class AssemblyOccurrence {
     if (a == null) return;
     for (final child in a.occurrences) {
       if (!child.visible) continue;
-      for (final (path, r, t, solid) in child.localSolids) {
-        // world_of_this_component = child_transform * inner_transform
-        yield ('${child.id}/$path', (child.rot * r).normalized(),
-            child.toWorld(t), solid);
+      for (final (path, inner, solid) in child.localSolids) {
+        // this_component = child_placement * inner_placement
+        yield ('${child.id}/$path', child.placement * inner, solid);
       }
     }
   }
 
   /// [localSolids] placed in WORLD coordinates, which is what every painter,
   /// picker and payload actually wants.
-  Iterable<(String, Quat, Vec3, KernelSolid)> get worldSolids sync* {
-    for (final (path, r, t, solid) in localSolids) {
-      yield (path, (rot * r).normalized(), toWorld(t), solid);
+  Iterable<(String, Placement, KernelSolid)> get worldSolids sync* {
+    for (final (path, inner, solid) in localSolids) {
+      yield (path, placement * inner, solid);
     }
   }
 
@@ -225,6 +288,17 @@ class AssemblyOccurrence {
         // Omitted when there is none, so a document written before M242 and
         // one written after are byte-identical for an unrotated component.
         if (!rot.isIdentity) 'rot': rot.toJson(),
+        // M248 — likewise: only a MIRRORED component carries a plane normal,
+        // so an assembly that has never seen Mirror Component writes exactly
+        // the bytes it wrote before.
+        if (reflect != null) 'mir': [reflect!.x, reflect!.y, reflect!.z],
+        // M248 — written only for a pattern ELEMENT, so an assembly that has
+        // never been patterned is byte-identical to one saved before patterns
+        // existed. Saved rather than re-derived on load because the id has to
+        // survive: it is what the element's relationships name.
+        if (patternOf != null) 'pat': patternOf,
+        if (patternSeed != null) 'patSeed': patternSeed,
+        if (patternElement != null) 'patEl': patternElement,
         'grounded': grounded,
         'visible': visible,
       };
@@ -240,9 +314,27 @@ class AssemblyOccurrence {
       sourceKind: j['kind'] == kAssemblyDocKind ? kAssemblyDocKind : 'part',
       offset: Vec3(n('x'), n('y'), n('z')),
       rot: Quat.fromJson(j['rot']),
+      reflect: _reflectFrom(j['mir']),
+      patternOf: j['pat'] as String?,
+      patternSeed: j['patSeed'] as String?,
+      patternElement: (j['patEl'] as num?)?.toInt(),
       grounded: j['grounded'] == true,
       visible: j['visible'] != false,
     );
+  }
+
+  /// The stored mirror normal, re-normalised.
+  ///
+  /// A hand-edited file can carry a zero or a non-unit vector, and a
+  /// reflection built from either is not a reflection: the zero vector leaves
+  /// [Placement.flip] the identity (a silently un-mirrored component) and a
+  /// long one scales the geometry. Both are refused here rather than
+  /// discovered as a component drawn at twice its size.
+  static Vec3? _reflectFrom(Object? j) {
+    if (j is! List || j.length < 3) return null;
+    double n(int i) => (j[i] as num?)?.toDouble() ?? 0;
+    final v = Vec3(n(0), n(1), n(2));
+    return v.length < 1e-9 ? null : v.normalized();
   }
 
   /// Drops the reference and NOTHING ELSE.
@@ -286,6 +378,38 @@ class AssemblyModel {
   final List<AsmWorkPlane> workPlanes = [];
   final List<AsmWorkAxis> workAxes = [];
   final List<AsmWorkPoint> workPoints = [];
+
+  /// M248 — the assembly's PATTERNS, in creation order.
+  ///
+  /// They hold no geometry: their elements are ordinary entries in
+  /// [occurrences], placed by [regenerateAsmPatterns] after every solve. See
+  /// asm_pattern.dart for why that is the shape, and why an element is driven
+  /// rather than solved.
+  final List<AsmPattern> patterns = [];
+
+  AsmPattern? patternNamed(String name) {
+    for (final p in patterns) {
+      if (p.name == name) return p;
+    }
+    return null;
+  }
+
+  /// The elements of [pattern], in element order — what the browser nests
+  /// under a pattern row.
+  List<AssemblyOccurrence> elementsOf(String pattern) => [
+        for (final o in occurrences)
+          if (o.patternOf == pattern) o
+      ]..sort((x, y) => (x.patternElement ?? 0).compareTo(y.patternElement ?? 0));
+
+  /// A fresh pattern name, counting the way every other feature does.
+  String nextPatternName(PatternKind mode) {
+    final base = patternTypeLabel(mode);
+    var n = 1;
+    while (patterns.any((p) => p.name == '$base$n')) {
+      n++;
+    }
+    return '$base$n';
+  }
 
   /// The next free work-feature `seq`, shared across all three lists so a
   /// plane, an axis and a point never collide on a browser row id.
@@ -384,6 +508,10 @@ class AssemblyModel {
       sourceKind: o.sourceKind,
       offset: o.offset,
       rot: o.rot,
+      reflect: o.reflect,
+      patternOf: o.patternOf,
+      patternSeed: o.patternSeed,
+      patternElement: o.patternElement,
       grounded: o.grounded,
       visible: o.visible,
       part: o.part,
@@ -418,6 +546,11 @@ class AssemblyModel {
     // component last was. Anything built ON that plane goes too, which is why
     // this loops until nothing more falls.
     _dropWorkFeaturesTouching({o.id});
+    // M248 — a pattern whose last seed has gone cannot place anything, and a
+    // pattern input built on the departed component cannot be re-derived. Its
+    // elements go with it, through this same method, so their relationships
+    // are cleaned up on the ordinary path rather than a second one.
+    _dropPatternsTouching(o.id);
     if (selectedConstraint != null &&
         !constraints.contains(selectedConstraint)) {
       selectedConstraint = null;
@@ -458,6 +591,45 @@ class AssemblyModel {
     if (selectedConstraint != null &&
         !constraints.contains(selectedConstraint)) {
       selectedConstraint = null;
+    }
+  }
+
+  /// Drops every pattern left with no seed, or whose inputs named [gone].
+  ///
+  /// Recursive through [remove] rather than iterative, because removing a
+  /// pattern removes its elements and an element can itself be the seed of a
+  /// later pattern — which is refused when it is CREATED, but a document read
+  /// from disk has to survive one anyway.
+  void _dropPatternsTouching(String gone) {
+    for (final p in [...patterns]) {
+      final inputsGone = [p.refDirA, p.refDirB, p.refAxis, p.refPlane]
+          .any((r) => r != null && r.occurrence == gone);
+      final seedsLeft =
+          p.seeds.where((id) => id != gone && byId(id) != null).length;
+      final driverGone = p.driver != null && p.driver!.$1 == gone;
+      if (!inputsGone && !driverGone && seedsLeft > 0) {
+        p.sources.remove(gone);
+        continue;
+      }
+      patterns.remove(p);
+      for (final e in elementsOf(p.name)) {
+        remove(e);
+      }
+    }
+  }
+
+  /// M248 — deletes one pattern, and every element it placed.
+  ///
+  /// Inventor's own rule, and the reason a pattern element has no Delete of
+  /// its own: the elements belong to the pattern, so removing one of them is
+  /// SUPPRESSING it (see [AsmPattern.suppressed]) and removing all of them is
+  /// deleting the pattern.
+  void removePattern(String name) {
+    final p = patternNamed(name);
+    if (p == null) return;
+    patterns.remove(p);
+    for (final e in elementsOf(name)) {
+      remove(e);
     }
   }
 
@@ -502,6 +674,10 @@ class AssemblyModel {
           'workAxes': [for (final x in workAxes) x.toJson()],
         if (workPoints.isNotEmpty)
           'workPoints': [for (final p in workPoints) p.toJson()],
+        // M248 — same rule: an assembly with no patterns writes exactly the
+        // bytes it wrote before they existed.
+        if (patterns.isNotEmpty)
+          'patterns': [for (final p in patterns) p.toJson()],
       };
 
   /// Reads [j] into this model. Occurrences come back WITHOUT their geometry —
@@ -566,6 +742,17 @@ class AssemblyModel {
       final f = AsmWorkPoint.fromJson(p.cast<String, dynamic>());
       if (f != null) workPoints.add(f);
     }
+    patterns.clear();
+    for (final p in (j['patterns'] as List? ?? const [])) {
+      if (p is! Map) continue;
+      final f = AsmPattern.fromJson(p.cast<String, dynamic>());
+      // A pattern whose seeds are not in this document is dropped, for the
+      // reason a constraint is: there is nothing to place its elements from,
+      // and it can only have come from a file edited by hand.
+      if (f == null) continue;
+      if (!f.seeds.any((id) => byId(id) != null)) continue;
+      patterns.add(f);
+    }
     // A work feature whose component is not in this document is dropped for
     // the same reason a constraint is: there is nothing to re-derive it
     // against, and it can only have come from a file edited by hand.
@@ -591,6 +778,7 @@ class AssemblyModel {
     workPlanes.clear();
     workAxes.clear();
     workPoints.clear();
+    patterns.clear();
     selected = null;
     selectedConstraint = null;
   }
@@ -631,7 +819,7 @@ List<PlacedComponent> placedComponents(AssemblyModel a) => [
       for (final o in a.occurrences)
         if (o.visible)
           PlacedComponent([
-            for (final (_, r, t, s) in o.worldSolids) (r, t, s),
+            for (final (_, at, s) in o.worldSolids) (at, s),
           ])
     ];
 
@@ -684,14 +872,14 @@ AsmGeom worldGeomOf(AssemblyModel a, AsmRef r) {
 /// M246 — one walk, because a piece now carries its OWN transform inside its
 /// component (a subassembly's parts are not at its origin) and composing that
 /// with the component's in two separate loops is two chances to get it wrong.
-(Vec3, Vec3)? _boundsOf(List<(String, Quat, Vec3, KernelSolid)> pieces) {
+(Vec3, Vec3)? _boundsOf(List<(String, Placement, KernelSolid)> pieces) {
   var minX = double.infinity, minY = double.infinity, minZ = double.infinity;
   var maxX = -double.infinity, maxY = -double.infinity, maxZ = -double.infinity;
   var any = false;
-  for (final (_, r, t, s) in pieces) {
+  for (final (_, at, s) in pieces) {
     final pos = s.mesh.positions;
     for (var i = 0; i + 2 < pos.length; i += 3) {
-      final w = r.rotate(Vec3(pos[i], pos[i + 1], pos[i + 2])) + t;
+      final w = at.apply(Vec3(pos[i], pos[i + 1], pos[i + 2]));
       if (!w.x.isFinite || !w.y.isFinite || !w.z.isFinite) continue;
       any = true;
       if (w.x < minX) minX = w.x;

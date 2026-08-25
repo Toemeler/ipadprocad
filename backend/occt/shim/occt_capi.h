@@ -459,6 +459,31 @@ occt_shape *occt_fillet_edges(const occt_shape *shape, const int *edge_ids,
  * toggle swaps by exchanging d1/d2 (mode 1) or sending 90-angle (mode 2).
  * `d2` and `angle_deg` may be NULL when no edge uses the corresponding mode.
  * NULL on failure.
+ *
+ * v28 (S17) — mode 2's admissible range is THE EDGE'S, not a literal 90:
+ *
+ *     0 < angle_deg[i] < 180 - theta
+ *
+ * where theta is the edge's interior dihedral. That bound is the angle between
+ * the edge's two OUTWARD normals, i.e. exactly `occt_shape_edge_info` field
+ * [10], so a caller can compute what will be accepted before asking. It equals
+ * the pre-v28 90 if and only if the edge is perpendicular, which every fixture
+ * in this repo happened to be. Past the bound OCCT's own second distance,
+ * d1.sin(alpha)/sin(alpha+theta), diverges and then goes negative.
+ *
+ * So since v28 an acute edge accepts angles the shim used to refuse (a
+ * 60-degree edge reaches 120), and an obtuse edge refuses angles it used to
+ * pass to OCCT (a 135-degree edge stops at 45, where OCCT was previously being
+ * handed a negative distance and failing on its own). An edge whose bound
+ * cannot be measured — not exactly two faces, or normals that will not
+ * evaluate — keeps the 90 rule.
+ *
+ * KNOWN, NOT FIXED HERE: Dart's "Flip" sends 90-angle for mode 2, which is the
+ * same hardcoded perpendicular assumption one layer up (the flipped angle is
+ * 180-theta-angle). On a non-perpendicular edge that now produces a clear
+ * refusal from this guard instead of a wrong chamfer or an OCCT failure.
+ * part_model.dart is not this session's to change; see
+ * perf/findings/S17-oblique.md section 5.1.
  */
 occt_shape *occt_chamfer_edges(const occt_shape *shape, const int *edge_ids,
                                const int *modes, const double *d1,
@@ -713,9 +738,34 @@ occt_shape *occt_delete_faces(const occt_shape *shape, const int *ids, int n,
  * swept volume — fuse when the delta runs along that face's OUTWARD normal,
  * cut when it runs against it, decided per face so a mixed selection still
  * does the right thing on each. Faces moved parallel to themselves are
- * skipped (they change nothing). Exact whenever the neighbouring walls are
- * parallel to the motion, i.e. every prismatic part; see the .cpp for what
- * differs on a tapered neighbour. NULL on failure.
+ * skipped (they change nothing).
+ *
+ * v28 (S17): each face is swept along the component of the delta ALONG ITS OWN
+ * NORMAL, not along the whole delta. The neighbouring walls stay where they
+ * are, so a planar face's new outline is still the intersection of its moved
+ * plane with those walls, and the tangential part of the delta is carried onto
+ * the face's own plane — unobservable, exactly as the skip above already says
+ * for a wholly tangential delta. Two consequences worth testing for:
+ *
+ *   1. an OBLIQUE delta now returns the same solid as its normal component
+ *      alone. Before v28 it swept a LEANING prism, whose union with the body
+ *      carried an unsupported overhang on one side and a re-entrant notch on
+ *      the other; a 20-cube's top face moved by (5,0,5) kept material out to
+ *      x = 25, and the volume was 10 000 either way, so nothing in the suite
+ *      could see it;
+ *   2. the result is continuous in the delta. Before v28, moving that face by
+ *      (5,0,0) changed nothing while (5,0,0.001) grew a 5 mm overhang.
+ *
+ * So it is now exact for every delta on a PLANAR face, which is what the
+ * pre-v28 "exact whenever the neighbouring walls are parallel to the motion"
+ * was scoping around. On a CURVED face the outward normal is sampled at the
+ * mid-parameter point and prism-and-fuse remains an approximation of unstated
+ * quality — that case was never right and v28 does not make it so.
+ *
+ * NOT this operation: moving a face and letting its neighbouring WALLS tilt to
+ * follow it. That slides surfaces the caller did not select; it is the same
+ * class of work as Direct > Rotate, which this app deliberately does not ship
+ * (see DirectEditFeature in part_model.dart). NULL on failure.
  */
 occt_shape *occt_move_faces(const occt_shape *shape, const int *ids, int n,
                             double dx, double dy, double dz);

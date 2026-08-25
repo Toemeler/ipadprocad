@@ -20,6 +20,7 @@ import 'package:native_menu/native_menu.dart';
 import '../app_state.dart';
 import '../asm_constraints.dart';
 import '../l10n/cad_terms.dart';
+import '../asm_pattern.dart';
 import '../assembly.dart';
 import '../menus.dart';
 import '../log.dart';
@@ -1253,9 +1254,17 @@ class _ModelBrowserState extends State<ModelBrowser> {
                 ],
                 // The placed components. Inventor lists them below Origin,
                 // in the order they were placed.
-                if (asm != null)
+                if (asm != null) ...[
                   for (final o in asm.occurrences)
-                    ..._componentRows(app, asm, o, indent: 8, path: ''),
+                    // M248 — a pattern ELEMENT is listed under its pattern,
+                    // not beside the components. Inventor's tree, and the
+                    // reason the pattern node exists: a row per element at the
+                    // top level buries the assembly.
+                    if (!o.isPatternElement)
+                      ..._componentRows(app, asm, o, indent: 8, path: ''),
+                  for (final p in asm.patterns)
+                    ..._patternRows(app, asm, p, indent: 8),
+                ],
                 // A part shows its child sketches and features instead of
                 // layers; the open child sketch falls through to the 2D tree.
                 if (part != null && app.activeChild == null) ...[
@@ -1412,6 +1421,45 @@ class _ModelBrowserState extends State<ModelBrowser> {
             ..._componentRows(app, sub, child,
                 indent: indent + 22, path: '$key/'),
       ],
+    ];
+  }
+
+  /// M248 — one pattern, and its elements when it is disclosed.
+  ///
+  /// The elements go through [_componentRows] unchanged, because that is what
+  /// they are: ordinary occurrences with their own eye and their own
+  /// relationships. Only the parent row is new — and its EYE is the pattern's
+  /// suppression set rather than a visibility flag, which is Inventor's own
+  /// verb for an element and the reason an element has no Delete.
+  List<Widget> _patternRows(
+      AppState app, AssemblyModel asm, AsmPattern p, {required double indent}) {
+    final key = 'pat:${p.name}';
+    final open = _compOpen.contains(key);
+    final els = asm.elementsOf(p.name);
+    final row = _row(
+      indent: indent,
+      exp: els.isEmpty ? ' ' : (open ? '−' : '+'),
+      icon: asmPatternIcon,
+      label: p.name,
+      onTap: () {
+        if (els.isEmpty) return;
+        setState(() {
+          if (!_compOpen.remove(key)) _compOpen.add(key);
+        });
+      },
+      // A pattern whose last regeneration failed keeps its row and says why:
+      // it is the row the user has to reach to repair it.
+      trailing: p.error == null
+          ? null
+          : Tooltip(
+              message: p.error!,
+              child: SvgPicture.string(asmSickIcon, width: 11, height: 11)),
+    );
+    return [
+      row,
+      if (open)
+        for (final e in els)
+          ..._componentRows(app, asm, e, indent: indent + 22, path: ''),
     ];
   }
 
