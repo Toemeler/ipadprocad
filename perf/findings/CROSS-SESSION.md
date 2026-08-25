@@ -4172,3 +4172,91 @@ read from source, but the shim was not executed on it. That is one smoke
 scenario's worth of work and it belongs to whoever next owns the shim — S19's
 brief does not include it, and it should not be inferred from this entry that
 it was measured.
+
+---
+
+## 2026-08-25 — INTEGRATOR — correcting my own entry above: I allocated v29 twice, and the two sessions now share a branch
+
+**Needs:** S19 and S20, before their first commit.
+
+Appended rather than edited, because this file is append-only and that binds the
+integrator exactly as it binds a session.
+
+### The error: I did the thing I had just written an entry warning about
+
+My entry above says S18's work takes **v29** at merge and that the next free
+number is **v30**. The brief I wrote in the same sitting — `S19-BRIEF-validity.md`
+— handed **v29** to S19.
+
+So the entry that identified the fourth identifier collision, and concluded that
+the fix "is not care — both sessions were careful — it is allocating from a list
+that records who holds what", **allocated the same number twice in its own
+follow-up.** That is the fifth collision and the only one caught before any code
+was written, which is the only thing to be said in its favour.
+
+It is also the sharpest evidence yet for the rule, because a list existed and I
+still got it wrong by writing the brief and the entry as two separate acts. The
+list has to be the single place the number is taken from, not a thing that is
+also written down.
+
+**The allocation, now stated once and deterministically:**
+
+| number | holder | state |
+| --- | --- | --- |
+| v28 | S17 | merged, is the tip of `claude/perf-opt2` |
+| **v29** | **S18** | complete on `claude/s18-corners-taper-j2cqqo`, unmerged, renumbering from its own colliding v27 |
+| **v30** | **S19**, if it adds ABI surface | briefed |
+| v31 | next free | — |
+
+Scenarios: `[39]` S15, `[40]` S16, `[41]` S17, `[42]` S18, **`[43]` S19**. S20
+takes none — it touches no C or C++.
+
+**S18 keeps the lower number even though it is the later merge, and the reason
+is worth recording:** its work is finished, so its number can be fixed today and
+never move again. S19's is conditional — its brief says v30 *if* it adds ABI
+surface, and it may not. Allocating the certain one low and the conditional one
+high is the ordering that cannot drift. Chronology of merge is the wrong basis
+because nobody can know it in advance, and that unknowability is precisely what
+produced the first four collisions.
+
+`S19-BRIEF-validity.md` is corrected to v30 and says why in the brief itself, so
+a session reading only the brief cannot reconstruct the wrong number from the
+file's `return 28`.
+
+### Both sessions now work directly on `claude/perf-opt2`
+
+Changed at the owner's direction, and it is a real change of régime rather than a
+detail: `OPTIMIZATION_PLAN_2.md` §3 assumed a session branch per session with a
+merge at the end, and every rule about conflicts was written for that shape.
+
+What actually carries the load now:
+
+* **File ownership stops being administrative.** Disjoint file sets are the only
+  reason two sessions can commit to one branch at all. S19 owns `backend/**`;
+  S20 owns the chamfer path in `part_model.dart`, `occt_engine.dart` and new
+  `frontend/test/` files. §0.6 — *found a defect in another session's area, write
+  it down, do not fix it* — is now load-bearing rather than polite.
+* **§0.2 is the rule that matters most.** No force-push, no rebase, no
+  `checkout -B`. A rejected non-fast-forward push is the branch protecting the
+  other session's work, not an obstacle; forcing past one is the one action here
+  that destroys work irrecoverably. This project has already had exactly one such
+  rejection and it was lucky.
+* **`CROSS-SESSION.md` will conflict, on purpose, and has one legal resolution:**
+  keep both blocks in chronological order, never drop or rewrite an entry you did
+  not write. Both briefs now say so explicitly.
+* **The branch must stay green between pushes**, which it never had to be on a
+  session branch. A red commit here blocks the other session rather than only its
+  author.
+
+**What this does NOT change, and I checked rather than assumed:** the device
+capture is safe. `build-477` and `build-478` are **tags** at `2f2a308`, and a tag
+does not move when the branch it was cut from advances. Neither session can
+contaminate the capture no matter what it commits. The corollary is the one to
+keep straight when arm B is read: **neither session's work will be in that
+capture**, which is correct — it is adjudicated on desktop, Lane C and the host
+suites, and a later capture picks it up.
+
+Both briefs carry a "You are sharing `claude/perf-opt2`" section stating all of
+the above. Neither session had pushed anything when this was written —
+`origin/claude/perf-opt2` was still at `2f2a308` with `occt_shim_version()`
+returning 28 — so the corrected number reaches them before their first commit.

@@ -1,7 +1,9 @@
 # Brief — Session 20: the Dart side has never been audited away from its trivial values
 
-**Branch from `2f2a308`** (= `claude/perf-opt2` = tag `build-477`/`build-478`).
-Develop on the branch the harness assigns you. Do not push anywhere else.
+**Work directly on `claude/perf-opt2`** (currently `2f2a308`, = tag
+`build-477`/`build-478`). **Another session is committing to the same branch at
+the same time** — read "You are sharing `claude/perf-opt2`" at the bottom of
+this brief before your first push, not after your first rejected one.
 
 **Identifiers: you are allocated none, deliberately.** You take **no shim
 version** and **no smoke scenario**, because you touch no C or C++. If you
@@ -132,3 +134,93 @@ against a non-CI SDK has already cost this project a red build. CI runs Flutter
 **3.47.1**.
 
 **Anything you find outside this scope: write it down, do not fix it.**
+
+---
+
+## You are sharing `claude/perf-opt2` with the other session
+
+Both sessions commit **directly to `claude/perf-opt2`**, at the same time. There
+is no session branch to hide in and no merge at the end where someone else
+reconciles you. Read this part twice.
+
+**This works only because your file sets are disjoint.** File ownership stops
+being administrative here and becomes the thing that makes concurrent commits
+survivable — git can merge two sessions that never touch the same file, and
+cannot merge two that do. S19 owns `backend/**`. S20 owns the chamfer path in
+`frontend/lib/part_model.dart`, `frontend/lib/ffi/occt_engine.dart` and new
+files under `frontend/test/`. **Found something wrong in the other session's
+area? Write it down, do not fix it** (`OPTIMIZATION_PLAN_2.md` §0.6). A patch
+into their files is how a shared branch turns into a lost afternoon.
+
+**Never force-push. Never rebase. Never `checkout -B`.** This is §0.2 of the
+prime directive and it exists because those three delete other people's work
+irrecoverably, while a merge conflict never does. A rejected non-fast-forward
+push is **not an obstacle — it is the branch protecting the other session**. The
+fix is always to fetch and merge, never `--force` and never `--force-with-lease`.
+This has already happened once on this project: a branch cut from a stale
+`origin/claude/perf-opt2` was three commits behind and the push was rejected,
+which was lucky, because forcing would have discarded them.
+
+**So, every time, before you branch and before you push:**
+
+```
+git fetch origin '+refs/heads/*:refs/remotes/origin/*'
+```
+
+A plain `git fetch` after pushing with a refspec leaves remote-tracking refs
+stale, and stale refs are how the above happened.
+
+**Pull before every push, and expect to do it more than once.** Merge, never
+rebase.
+
+**Commit small and push often.** On a private branch, holding 800 lines back for
+a day costs nobody anything. Here it makes the other session's merge worse every
+hour you wait.
+
+**Keep the branch green.** On your own branch you can be red for an afternoon.
+Here a broken commit blocks the other session, so run your checks *before you
+push*, not before you ask for a merge. For S19 that includes
+`gcc -fsyntax-only -I backend/occt/shim backend/occt/tests/smoke_occt.c`, which
+takes one second and has already caught a missing brace and an unterminated
+comment.
+
+### The one file you will both touch, and its resolution is not a judgement call
+
+`perf/findings/CROSS-SESSION.md` is **append-only**, you will both append to it,
+and it **will** conflict. The resolution is fixed:
+
+> **Keep BOTH blocks, in chronological order.** Never drop, edit, reorder or
+> rewrite an entry you did not write — including to "tidy" it.
+
+That is exactly how the integrator resolved the same conflict on the S6 merge,
+and it is the only resolution this file admits. Your own findings file is yours
+alone and nobody else writes to it.
+
+### Three things neither of you may do, whatever your work seems to need
+
+* **Do not re-record `perf/baseline.json`** (§0.3). It is the shared reference
+  every regression check runs against.
+* **Do not edit `PERFORMANCE_PROFILE.md`** (§0.4). Write to your findings file;
+  it is folded in once, at integration.
+* **Do not touch `frontend/lib/perf*.dart`.** It is the frozen measurement
+  apparatus and changing it silently changes what every past number meant.
+
+### Two things about timing you should know rather than discover
+
+**The device capture cannot be contaminated by you, and you should not work
+around it.** `build-477` and `build-478` are **tags** at `2f2a308`; the branch
+moving underneath them does not move a tag. So commit freely. The corollary is
+the part to keep straight: **your work will not be in that capture**, and that
+is correct and expected — it is adjudicated on desktop, on Lane C, and on the
+host test suites, and a later capture picks it up.
+
+**S18 may land on this branch mid-session.** It is complete on
+`claude/s18-corners-taper-j2cqqo`, touches `backend/occt/shim/**`,
+`backend/occt/tests/**` and `backend/bench/**`, and is waiting on one owner
+decision. If it merges while you are working, treat it as any other merge — and
+S19 in particular should expect it, since it lands in your files. **After any
+merge that reports "zero conflicts", check three things anyway:** brace balance,
+duplicate top-level declarations, and that every private identifier called still
+has a definition. Two merges on this project reported clean and contained
+neither — one carried a duplicated top-level function, the other a call left on
+a name that main had renamed.
