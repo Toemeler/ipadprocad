@@ -481,7 +481,20 @@ normal gate that coarse facets can never satisfy.
 | | before | after |
 |---|---|---|
 | plate with a filleted boss | 31 planes, 6 cylinders, 4 faceted, shell open | **9 faces of 9**, R=10.5000 r=1.5000, closed, +0.000% |
+| the same at a coarser mesh | 324 planes, blend in triangles | **18 faces of 18**, closed, +0.001% |
 | plate sweep, 216 tessellations | 87 bad | **17 bad** — and every one of the 17 is now a closed solid within 0.25% of the mesh, 12 of them at an angular deflection of 51°, which is a seven-sided circle |
+
+One more, small and worth stating because it is the difference between a
+blend ring and a pile of triangles: a face whose *boundary* will not close used
+to lose its **surface** as well. On a coarse mesh a neighbouring patch leaves a
+nick in a rim and one loop of three fails to build; the recognised torus then
+went back to triangles along with it. A periodic surface does not need its
+boundary to be trimmed — the mesh's own uv extent does it — so that is the
+fallback now, and `FaceWithinPatch` still sends anything that overreaches to
+triangles as before. Dropping the failed loop instead is *not* an option and
+was measured: an inner rim left out is a hole not cut, the face covers it, and
+the volume came back 194% high. That one change took a coarse filleted plate
+from 324 planes to its 18 real faces.
 
 The suite is 132 assertions and covers all of it: a plain torus at two
 tessellations; the coarse plate — the shape of the file that started this —

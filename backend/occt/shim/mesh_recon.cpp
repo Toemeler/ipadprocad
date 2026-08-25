@@ -3962,6 +3962,17 @@ bool BuildAnalyticFace(BuildCtx &ctx, const Mesh &m, const Patch &patch,
         if (!ok || !mw.IsDone()) {
             MR_TRACE("      face %d: wire of %d chains failed\n", self,
                      (int)chains.size());
+            /* A boundary that will not close is not a reason to throw the
+             * SURFACE away — but nor may the loop simply be dropped, because
+             * an inner rim left out is a hole not cut and the face then
+             * covers it (measured: +194% volume, and no solid). On a periodic
+             * surface the mesh's own uv extent trims it honestly instead,
+             * which is how a recognised blend ring stays a blend ring when a
+             * neighbouring patch leaves a nick in its edge. FaceWithinPatch
+             * has the last word on anything that overreaches, and sends it to
+             * triangles as before. */
+            if (surf->IsUPeriodic() || surf->IsVPeriodic())
+                return BuildParametricFace(ctx, m, patch, surf, out);
             return false;
         }
         wires.push_back(mw.Wire());
