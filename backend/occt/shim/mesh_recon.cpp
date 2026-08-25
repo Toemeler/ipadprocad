@@ -2,6 +2,7 @@
 #include "mesh_recon.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -1158,6 +1159,23 @@ bool SeedTorus(const std::vector<V3> &pts, const std::vector<V3> &nrm,
  * keeps a flat face a PLANE instead of a sphere of radius 10^6. */
 #ifdef MESHRECON_TRACE
 #define MR_TRACE(...) std::fprintf(stderr, __VA_ARGS__)
+/* Wall-clock at each stage boundary, so a model that takes twenty seconds can
+ * say which pass took them. */
+static std::chrono::steady_clock::time_point mrPrev;
+#define MR_STAGE(name)                                                        \
+    do {                                                                      \
+        static std::chrono::steady_clock::time_point mrLast;                  \
+        const auto mrNow = std::chrono::steady_clock::now();                  \
+        if (std::string(name) == "start")                                     \
+            std::fprintf(stderr, "  [stage] --- start ---\n");                \
+        else                                                                  \
+            std::fprintf(                                                     \
+                stderr, "  [stage] %-28s %8.1f ms\n", name,                   \
+                std::chrono::duration<double, std::milli>(mrNow - mrPrev)      \
+                    .count());                                                \
+        (void)mrLast;                                                         \
+        mrPrev = mrNow;                                                       \
+    } while (0)
 /* Compiled in only for the development harness; see backend/occt/tests. */
 const char *KindName(SurfKind k)
 {
@@ -1178,6 +1196,7 @@ const char *KindName(SurfKind k)
 }
 #else
 #define MR_TRACE(...) ((void)0)
+#define MR_STAGE(name) ((void)0)
 #endif
 
 /* Mean |cos| a candidate surface's normals must reach to be believed. About
@@ -2499,8 +2518,83 @@ const double kMergeNormalGate = 0.99;
  * The tolerance gate is what keeps this safe: a merge only happens when ONE
  * primitive describes both patches to within the same tolerance every other
  * stage uses, so two perpendicular faces of a box are never candidates. */
+/* Which smooth runs are FREEFORM rather than prismatic.
+ *
+ * Asked once per run, not once per piece, because the splitter always
+ * succeeds: a quad of a quad-meshed surface is exactly planar, so a plane
+ * through it has no residual at all and passes every per-piece test there is —
+ * correctly, since two triangles really is a box's face. On a 2676-triangle
+ * organic shell that produced 129 invented planes and 3 spheres, none of which
+ * exists.
+ *
+ * What separates them is the run. A prismatic run is ACCOUNTED FOR: its pieces
+ * are faces and they cover it. A freeform run is not — most of it fits nothing
+ * and what does fit is facet-sized. A plate's side band, four fillets and four
+ * walls, is covered to the last triangle and is never touched.
+ *
+ * It is worth knowing EARLY as well as late. Everything downstream of
+ * segmentation — merging pairs, refining boundaries, building faces — is
+ * per-patch work on a run that is about to be thrown away whole, and on an
+ * organic model that is nearly all of the time the conversion takes: 3.5
+ * seconds of merging on a 3480-triangle blob, against 0.4 for the faceted
+ * build that is the eventual answer. */
+void FreeformRuns(const std::vector<Patch> &patches, const Mesh &m, double tol,
+                  std::unordered_set<int> &freeform)
+{
+    freeform.clear();
+    std::unordered_map<int, int> cutInto;
+    for (const Patch &pa : patches)
+        cutInto[pa.origin]++;
+    std::unordered_map<int, std::pair<int, int>> cover; /* kept, total */
+    std::unordered_map<int, std::vector<int>> keptSizes;
+    for (const Patch &pa : patches) {
+        if (pa.origin < 0)
+            continue;
+        std::pair<int, int> &c = cover[pa.origin];
+        c.second += static_cast<int>(pa.tris.size());
+        const bool frag = cutInto[pa.origin] > 1;
+        if (pa.fit.kind != kNone && Identifiable(pa, m, tol, frag)) {
+            c.first += static_cast<int>(pa.tris.size());
+            keptSizes[pa.origin].push_back(static_cast<int>(pa.tris.size()));
+        }
+    }
+    for (std::unordered_map<int, std::pair<int, int>>::iterator it =
+             cover.begin();
+         it != cover.end(); ++it) {
+        const int kept = it->second.first, total = it->second.second;
+        if (total < kFreeformMinRun || kept * 2 >= total)
+            continue;
+        std::vector<int> &sz = keptSizes[it->first];
+        if (sz.empty()) {
+            freeform.insert(it->first);
+            continue;
+        }
+        /* Barely accounted for at all: freeform whatever the pieces look like.
+         * A run that is 98% triangles is not a set of faces with a few gaps,
+         * and the two or three surfaces standing in it are worth less than the
+         * seams they cost. */
+        if (kept * kFreeformCoverDenom < total) {
+            freeform.insert(it->first);
+            continue;
+        }
+        std::sort(sz.begin(), sz.end());
+        if (sz[sz.size() / 2] < kFreeformPieceTriangles)
+            freeform.insert(it->first);
+    }
+    MR_TRACE("  [freeform] %d of %d runs\n", (int)freeform.size(),
+             (int)cover.size());
+    for (std::unordered_map<int, std::pair<int, int>>::iterator it =
+             cover.begin();
+         it != cover.end(); ++it)
+        MR_TRACE("     run %d: kept %d of %d in %d pieces%s\n", it->first,
+                 it->second.first, it->second.second,
+                 (int)keptSizes[it->first].size(),
+                 freeform.count(it->first) ? "  FREEFORM" : "");
+}
+
 void MergeRegions(const Mesh &m, std::vector<Patch> &patches, double tol,
-                  double scale, int maxPasses)
+                  double scale, int maxPasses,
+                  const std::unordered_set<int> &skipOrigins)
 {
     PatchData pd;
     for (int pass = 0; pass < maxPasses; ++pass) {
@@ -2576,6 +2670,11 @@ void MergeRegions(const Mesh &m, std::vector<Patch> &patches, double tol,
                 patches[a].origin != patches[b].origin) {
                 continue;
             }
+            /* And nothing at all inside a run already judged freeform: every
+             * pair there costs a full five-kind fit and every one of them
+             * fails. */
+            if (skipOrigins.find(patches[a].origin) != skipOrigins.end())
+                continue;
             uni.clear();
             uni.reserve(patches[a].tris.size() + patches[b].tris.size());
             uni.insert(uni.end(), patches[a].tris.begin(),
@@ -4478,8 +4577,11 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
     std::vector<int> patchOf;
     int rawPatches = 0;
     std::vector<Patch> patches;
+    std::unordered_set<int> freeform;
     try {
+        MR_STAGE("start");
         SmoothPatches(m, prm.sharp_deg, patchOf, rawPatches);
+        MR_STAGE("smooth patches");
         std::vector<std::vector<int>> byPatch(rawPatches);
         for (int t = 0; t < m.triCount(); ++t)
             byPatch[patchOf[t]].push_back(t);
@@ -4494,9 +4596,18 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
             SplitPatch(m, byPatch[i], tol, scale, prm.min_patch_triangles, i, 0,
                        patches);
         }
-        MergeRegions(m, patches, tol, scale, 8);
+        MR_STAGE("split");
+        FreeformRuns(patches, m, tol, freeform);
+        for (Patch &pa : patches)
+            if (freeform.find(pa.origin) != freeform.end())
+                pa.fit = Fit();
+        MR_STAGE("freeform runs");
+        MergeRegions(m, patches, tol, scale, 8, freeform);
+        MR_STAGE("merge");
         RefineBoundaries(m, patches, tol, scale, 6);
+        MR_STAGE("refine boundaries");
         Regularise(patches, m, prm, tol, scale);
+        MR_STAGE("regularise");
     } catch (const std::bad_alloc &) {
         err = "the mesh is too large to segment";
         return TopoDS_Shape();
@@ -4542,62 +4653,13 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
             pa.fit = Fit();
     }
 
-    /* Is a whole smooth run PRISMATIC, or is it freeform?
-     *
-     * The question has to be asked once per smooth run, not once per piece,
-     * because the splitter always succeeds. On a smooth organic shell it
-     * carves out little planes that are EXACT — a quad of a quad-meshed
-     * surface is exactly planar, so a plane through it has no residual at all
-     * — and each one passes every per-piece test there is. Measured on a
-     * 1286-triangle ellipsoid: 74 such planes, none of which exists.
-     *
-     * What gives them away is the run they came from. A prismatic run is
-     * ACCOUNTED FOR: its pieces are faces and they cover it. A freeform run is
-     * not — most of it fits nothing, and what does fit is facet-sized. When
-     * both are true the pieces are tessellation, not geometry, and the whole
-     * run goes to triangles together. A plate's side band, four corner fillets
-     * and four walls, is covered to the last triangle and is untouched. */
+    /* And again after merging, which changes what is explained. */
     {
-        std::unordered_map<int, std::pair<int, int>> cover; /* kept, total */
-        std::unordered_map<int, std::vector<int>> keptSizes;
-        for (const Patch &pa : patches) {
-            if (pa.origin < 0)
-                continue;
-            std::pair<int, int> &c = cover[pa.origin];
-            c.second += static_cast<int>(pa.tris.size());
-            if (pa.fit.kind != kNone) {
-                c.first += static_cast<int>(pa.tris.size());
-                keptSizes[pa.origin].push_back(
-                    static_cast<int>(pa.tris.size()));
-            }
-        }
-        std::unordered_set<int> freeform;
-        for (std::unordered_map<int, std::pair<int, int>>::iterator it =
-                 cover.begin();
-             it != cover.end(); ++it) {
-            const int kept = it->second.first, total = it->second.second;
-            if (total < kFreeformMinRun || kept * 2 >= total)
-                continue;
-            std::vector<int> &sz = keptSizes[it->first];
-            if (sz.empty())
-                continue;
-            /* Barely accounted for at all: freeform whatever the pieces look
-             * like. A run that is 98% triangles is not a set of faces with a
-             * few gaps, and the two or three surfaces standing in it are worth
-             * less than the seams they cost. */
-            if (kept * kFreeformCoverDenom < total) {
-                freeform.insert(it->first);
-                continue;
-            }
-            std::sort(sz.begin(), sz.end());
-            if (sz[sz.size() / 2] < kFreeformPieceTriangles)
-                freeform.insert(it->first);
-        }
-        if (!freeform.empty()) {
-            for (Patch &pa : patches)
-                if (freeform.find(pa.origin) != freeform.end())
-                    pa.fit = Fit();
-        }
+        std::unordered_set<int> again;
+        FreeformRuns(patches, m, tol, again);
+        for (Patch &pa : patches)
+            if (again.find(pa.origin) != again.end())
+                pa.fit = Fit();
     }
 
     /* A tiny face alone in a sea of triangles is worth less than the triangles.
@@ -4623,21 +4685,32 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
                 if (pa.fit.kind == kNone ||
                     static_cast<int>(pa.tris.size()) >= kFreeformPieceTriangles)
                     continue;
-                bool anyFittedNeighbour = false;
+                /* How much of its BOUNDARY faces triangles.
+                 *
+                 * "Has a fitted neighbour" is not enough: two one-triangle
+                 * runs side by side are each other's fitted neighbour and both
+                 * survive on that alone, which is how a lumpy blob kept
+                 * twenty-six "faces" that are its own facets. Nor is "has a
+                 * big fitted neighbour" — a box is six faces of two triangles
+                 * and every neighbour of every one of them is just as small.
+                 * What separates them is what lies along the edges: a box face
+                 * meets faces on all four sides, a facet adrift in an organic
+                 * shell meets triangles on most of its own. */
+                int outward = 0, toTriangles = 0;
                 for (int t : pa.tris) {
-                    for (int k = 0; k < 3 && !anyFittedNeighbour; ++k) {
+                    for (int k = 0; k < 3; ++k) {
                         const int o = m.adj[t * 3 + k];
                         if (o < 0)
                             continue;
                         const int j = owner[o];
-                        if (j >= 0 && j != static_cast<int>(i) &&
-                            patches[j].fit.kind != kNone)
-                            anyFittedNeighbour = true;
+                        if (j < 0 || j == static_cast<int>(i))
+                            continue;
+                        outward++;
+                        if (patches[j].fit.kind == kNone)
+                            toTriangles++;
                     }
-                    if (anyFittedNeighbour)
-                        break;
                 }
-                if (!anyFittedNeighbour) {
+                if (outward > 0 && toTriangles * 2 > outward) {
                     pa.fit = Fit();
                     again = true;
                 }
@@ -4681,10 +4754,12 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
             }
             if (!alt.IsNull()) {
                 rep = fr;
+                MR_STAGE("faceted (nothing recognised)");
                 return alt;
             }
         }
     }
+    MR_STAGE("patch verdicts");
 
     std::vector<Handle(Geom_Surface)> surfs(patches.size());
     double rmsNum = 0, rmsDen = 0;
@@ -4778,8 +4853,10 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
         err = buf;
         return TopoDS_Shape();
     }
+    MR_STAGE("build faces");
     for (const std::vector<int> &tris : deferred)
         EmitFacetedShared(ctx, m, tris, faces);
+    MR_STAGE("emit faceted");
 
     rep.analytic_edges = ctx.analytic;
     rep.approximated_edges = ctx.approximated;
