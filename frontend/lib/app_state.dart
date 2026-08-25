@@ -4527,6 +4527,23 @@ class AppState extends ChangeNotifier {
     ];
   }
 
+  /// M247 — what the ASSEMBLY command that is currently collecting has taken,
+  /// ready to draw.
+  ///
+  /// One list for both commands because at most one of them is ever armed:
+  /// openConstraint and the work-feature commands cancel each other, for the
+  /// same reason the three work-feature commands cancel each other. The
+  /// viewport therefore draws "the current selection" rather than having to
+  /// know which command made it.
+  List<AsmMark> get asmMarkers {
+    final a = currentAssembly;
+    if (a == null) return const [];
+    if (asmPickWorkGeometry) {
+      return [for (final r in _asmWfPicks) markFor(a, r)];
+    }
+    return constraintMarkers;
+  }
+
   /// One stored reference, ready to draw.
   ///
   /// The size comes from the COMPONENT the reference is on, not from the
@@ -5889,8 +5906,7 @@ class AppState extends ChangeNotifier {
     final w = selectedWorkPlane, from = _wpDragFrom;
     if (w == null || from == null || !deltaMm.isFinite) return;
     if (!w.setOffset(from + deltaMm)) return;
-    final p = currentPart;
-    if (p != null) p.dirty = true;
+    currentPart?.dirty = true;
     notifyListeners(); // the scene signature carries the position (M165)
   }
 
@@ -5927,14 +5943,12 @@ class AppState extends ChangeNotifier {
 
   /// M229 — the angle twin of [setWorkPlaneOffset].
   bool setWorkPlaneAngle(WorkPlane wp, double deg) {
-    final p = currentPart;
-    if (p == null || !wp.angleEditable) return false;
+    if (currentAssembly == null && currentPart == null) return false;
+    if (!wp.angleEditable) return false;
     if (!wp.setAngle(deg)) return false;
     workPlaneAngle = deg; // the next one starts from what you last used
-    p.dirty = true;
     Log.i('part', 'work plane "${wp.name}" -> ${wp.def}');
-    if (curTab != null) savePart(curTab!);
-    notifyListeners();
+    _workFeatureTouched();
     return true;
   }
 
@@ -5949,8 +5963,11 @@ class AppState extends ChangeNotifier {
     // in (the field passes the plane's own unit).
     final ok = w.kind == WorkPlaneKind.angle ? w.setAngle(mm) : w.setOffset(mm);
     if (!ok) return;
-    final p = currentPart;
-    if (p != null) p.dirty = true;
+    // M247 — no save and no bump on a live scrub: this fires per frame, and
+    // an assembly work plane's frame is in the scene signature already, so
+    // the device sees the move without the heavy push being forced. The save
+    // comes when the scrub commits.
+    currentPart?.dirty = true;
     notifyListeners();
   }
 
@@ -5963,10 +5980,7 @@ class AppState extends ChangeNotifier {
     if (w == null || !w.offsetEditable) return;
     final v = (w.offset ?? 0) + steps * (coarse ? 1.0 : 0.1);
     if (!w.setOffset(v)) return;
-    final p = currentPart;
-    if (p != null) p.dirty = true;
-    if (curTab != null) savePart(curTab!);
-    notifyListeners();
+    _workFeatureTouched();
   }
 
   /// Esc: put the plane back where the drag started and close the field.
@@ -6181,14 +6195,15 @@ class AppState extends ChangeNotifier {
   /// existed nothing ever assigned it, so every offset plane in every saved
   /// document sits exactly 10 mm from its base.
   bool setWorkPlaneOffset(WorkPlane wp, double d) {
-    final p = currentPart;
-    if (p == null || !wp.offsetEditable) return false;
+    // M247 — the owner is whichever document is open. These four value paths
+    // bailed on `currentPart == null`, which in an assembly meant the field
+    // accepted a number and wrote nothing at all.
+    if (currentAssembly == null && currentPart == null) return false;
+    if (!wp.offsetEditable) return false;
     if (!wp.setOffset(d)) return false;
     workPlaneOffset = d; // the next new plane starts from what you last used
-    p.dirty = true;
     Log.i('part', 'work plane "${wp.name}" -> ${wp.def}');
-    if (curTab != null) savePart(curTab!);
-    notifyListeners();
+    _workFeatureTouched();
     return true;
   }
 

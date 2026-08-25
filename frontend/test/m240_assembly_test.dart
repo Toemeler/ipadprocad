@@ -557,15 +557,24 @@ void main() {
     });
 
     // M242 (SPEC CHANGE) — Constrain is built now, so the name and the list
-    // below both move by exactly one entry. Everything else on the tab is
-    // still drawn-and-disabled, which is what the rest of this test still
-    // pins.
-    testWidgets('every command is drawn; Place and Constrain are enabled',
+    // below both move by exactly one entry.
+    //
+    // M247 (SPEC CHANGE) — and so do Plane, Axis and Point. Two things move
+    // with them:
+    //
+    //   * UCS leaves the panel. It is unbuilt in BOTH modes, and the part
+    //     ribbon has always kept it behind the panel's ▼ where _OverRow draws
+    //     it dimmed (M216's rule). Now that the other three are real, the
+    //     assembly panel is the part panel, ▼ and all — so 'UCS' is no longer
+    //     on screen until that menu is opened, and this test says so rather
+    //     than pinning a layout that no longer exists.
+    //   * the three that are built are TAPPABLE, and the drawn-and-disabled
+    //     list loses them.
+    testWidgets('every command is drawn; the built ones are enabled',
         (t) async {
       L.set(kEn);
       resetFlyoutCacheForTest();
       await pumpAssemblyRibbon(t, assemblyApp());
-      // Twelve commands, all on screen — the point of the tab at this stage.
       for (final b in const [
         'Place',
         'Create',
@@ -581,12 +590,14 @@ void main() {
         'Plane',
         'Axis',
         'Point',
-        'UCS',
       ]) {
         expect(find.text(b), findsOneWidget, reason: 'button "$b"');
       }
       expect(find.text('Pattern'), findsNWidgets(2),
           reason: 'the Pattern command inside the Pattern panel');
+      // M247 — behind the ▼, exactly as in the part ribbon.
+      expect(find.text('UCS'), findsNothing,
+          reason: 'UCS is unbuilt in both modes and lives in the overflow');
 
       // "Enabled" is a property of the widget tree, not of the colour: a
       // disabled command's GestureDetector carries no onTap, so nothing can
@@ -604,6 +615,10 @@ void main() {
       expect(tappable('Place'), greaterThan(0), reason: 'Place is the one');
       expect(tappable('Constrain'), greaterThan(0),
           reason: 'M242 — Place Constraint opens from here');
+      for (final on in const ['Plane', 'Axis', 'Point']) {
+        expect(tappable(on), greaterThan(0),
+            reason: 'M247 — "$on" builds an assembly work feature');
+      }
       for (final off in const [
         'Create',
         'Free Move',
@@ -617,10 +632,6 @@ void main() {
         'Pattern',
         'Mirror',
         'Copy',
-        'Plane',
-        'Axis',
-        'Point',
-        'UCS',
       ]) {
         expect(tappable(off), 0,
             reason: '"$off" is not built and must not be tappable');

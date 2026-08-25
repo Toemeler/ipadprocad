@@ -14,6 +14,7 @@ import 'package:native_menu/native_menu.dart';
 
 import '../app_state.dart';
 import '../asm_constraints.dart';
+import '../asm_work_features.dart';
 import '../assembly.dart';
 import '../part_model.dart';
 import '../l10n/l.dart';
@@ -235,6 +236,90 @@ List<GlassRow> buildBrowserRows(
   ];
 }
 
+/// The work-feature rows of a document, paired with the `seq` the caller
+/// interleaves them by.
+///
+/// M247 — the lists are parameters because an ASSEMBLY has the same three, and
+/// a row that looked different depending on which document it was in would be
+/// the fork this milestone is avoiding. The glyphs, the eye, the selection and
+/// the menus are one implementation.
+///
+/// [inAssembly] changes exactly two things, and each because the command
+/// behind it does not exist there: an assembly has no sketches to start on a
+/// work plane, and an assembly work AXIS is re-derived after every solve, so a
+/// stored flip would be undone by the next drag (see AppState.flipWorkAxis).
+List<(int, GlassRow)> workFeatureRows(
+  AppState app, {
+  required List<WorkPlane> planes,
+  required List<WorkAxis> axes,
+  required List<WorkPoint> points,
+  bool inAssembly = false,
+  int depth = 1,
+}) =>
+    <(int, GlassRow)>[
+      for (final w in planes)
+        (
+          w.seq,
+          GlassRow(
+            id: '$kIdWorkPlane${w.seq}',
+            label: w.name,
+            symbol: 'squareshape.dashed.squareshape',
+            // M247 — red when the last re-solve could not place it: a work
+            // feature whose input has gone parallel, or whose component has
+            // left the document, is exactly as sick as an unmet constraint
+            // and is marked the way one is.
+            tint: workFeatureError(w) != null ? 'red' : 'blue',
+            depth: depth,
+            hasEye: true,
+            eyeOn: w.visible,
+            dim: !w.visible,
+            selected: app.selectedWorkPlane?.seq == w.seq,
+            menu: _workPlaneMenu(app, w, inAssembly: inAssembly),
+          )
+        ),
+      for (final a in axes)
+        (
+          a.seq,
+          GlassRow(
+            id: '$kIdWorkAxis${a.seq}',
+            label: a.name,
+            symbol: 'line.diagonal',
+            tint: workFeatureError(a) != null ? 'red' : 'blue',
+            depth: depth,
+            hasEye: true,
+            eyeOn: a.visible,
+            dim: !a.visible,
+            selected: app.selectedWorkAxis?.seq == a.seq,
+            menu: _workAxisMenu(a, inAssembly: inAssembly),
+          )
+        ),
+      for (final pt in points)
+        (
+          pt.seq,
+          GlassRow(
+            id: '$kIdWorkPoint${pt.seq}',
+            label: pt.name,
+            symbol: pt.grounded ? 'pin.fill' : 'smallcircle.filled.circle',
+            tint: workFeatureError(pt) != null ? 'red' : 'blue',
+            depth: depth,
+            hasEye: true,
+            eyeOn: pt.visible,
+            dim: !pt.visible,
+            selected: app.selectedWorkPoint?.seq == pt.seq,
+            menu: _workPointMenu(pt),
+          )
+        ),
+    ]..sort((a, b) => a.$1.compareTo(b.$1));
+
+/// Why [f] could not be re-derived, or null. A PART's work features are baked
+/// and can never be in error, so only the assembly subclasses answer.
+String? workFeatureError(Object f) => switch (f) {
+      AsmWorkPlane w => w.error,
+      AsmWorkAxis a => a.error,
+      AsmWorkPoint p => p.error,
+      _ => null,
+    };
+
 List<GlassRow> _buildRows(
   AppState app, {
   required Set<String> expanded,
@@ -312,6 +397,18 @@ List<GlassRow> _buildRows(
     }
     for (final o in asm.occurrences) {
       _componentRows(rows, asm, o, expanded, depth: 1, path: '');
+    }
+    // M247 — the assembly's OWN work features, below the components and in
+    // creation order. Beside them rather than under one of them, because that
+    // is what they are: a work plane mating two components belongs to neither,
+    // and Inventor lists an assembly's work features at the component level
+    // for the same reason.
+    for (final (_, row) in workFeatureRows(app,
+        planes: asm.workPlanes,
+        axes: asm.workAxes,
+        points: asm.workPoints,
+        inAssembly: true)) {
+      rows.add(row);
     }
     return rows;
   }
@@ -394,56 +491,10 @@ List<GlassRow> _buildRows(
     // were three separate emitters for about ten minutes, which put every
     // axis after every plane regardless of when either was made — the exact
     // "block of things grouped by type" layout M169 removed for planes.
-    final work = <(int, GlassRow)>[
-      for (final w in part.workPlanes)
-        (
-          w.seq,
-          GlassRow(
-            id: '$kIdWorkPlane${w.seq}',
-            label: w.name,
-            symbol: 'squareshape.dashed.squareshape',
-            tint: 'blue',
-            depth: 1,
-            hasEye: true,
-            eyeOn: w.visible,
-            dim: !w.visible,
-            selected: app.selectedWorkPlane?.seq == w.seq,
-            menu: _workPlaneMenu(app, w),
-          )
-        ),
-      for (final a in part.workAxes)
-        (
-          a.seq,
-          GlassRow(
-            id: '$kIdWorkAxis${a.seq}',
-            label: a.name,
-            symbol: 'line.diagonal',
-            tint: 'blue',
-            depth: 1,
-            hasEye: true,
-            eyeOn: a.visible,
-            dim: !a.visible,
-            selected: app.selectedWorkAxis?.seq == a.seq,
-            menu: _workAxisMenu(a),
-          )
-        ),
-      for (final pt in part.workPoints)
-        (
-          pt.seq,
-          GlassRow(
-            id: '$kIdWorkPoint${pt.seq}',
-            label: pt.name,
-            symbol: pt.grounded ? 'pin.fill' : 'smallcircle.filled.circle',
-            tint: 'blue',
-            depth: 1,
-            hasEye: true,
-            eyeOn: pt.visible,
-            dim: !pt.visible,
-            selected: app.selectedWorkPoint?.seq == pt.seq,
-            menu: _workPointMenu(pt),
-          )
-        ),
-    ]..sort((a, b) => a.$1.compareTo(b.$1));
+    final work = workFeatureRows(app,
+        planes: part.workPlanes,
+        axes: part.workAxes,
+        points: part.workPoints);
     var nextPlane = 0;
     void planesBefore(int seq) {
       while (nextPlane < work.length && work[nextPlane].$1 < seq) {
@@ -674,15 +725,25 @@ List<List<GlassMenuItem>> _featureMenu(PartFeature f) => [
 /// M169 — Inventor's work-plane context menu. Only the entries that DO
 /// something appear: "Edit Offset" is meaningless on a midplane, which has no
 /// base to measure from, so it is omitted rather than shown dead (M157).
-List<List<GlassMenuItem>> _workPlaneMenu(AppState app, WorkPlane w) => [
+List<List<GlassMenuItem>> _workPlaneMenu(AppState app, WorkPlane w,
+        {bool inAssembly = false}) =>
+    [
       [
         // M181 — FIRST, as in Inventor. This is the route that cannot miss:
         // "Start 2D Sketch" then a tap in the viewport has to beat a solid
         // face and the origin planes the command itself switched on, and
         // failing that race is what "I still can't sketch on a work plane"
         // has been every time. Naming the plane leaves nothing to hit.
-        GlassMenuItem(
-            id: 'wpSketch', title: t.ctxCreateSketch, symbol: 'square.on.square'),
+        //
+        // M247 — absent in an assembly, where there is nothing to sketch: an
+        // .pas holds components and relationships, and a sketch would have to
+        // belong to a part. Offering it would be a menu entry that could only
+        // ever fail.
+        if (!inAssembly)
+          GlassMenuItem(
+              id: 'wpSketch',
+              title: t.ctxCreateSketch,
+              symbol: 'square.on.square'),
         if (w.offsetEditable)
           GlassMenuItem(
               id: 'wpOffset', title: t.ctxEditOffset, symbol: 'ruler'),
@@ -703,7 +764,9 @@ List<List<GlassMenuItem>> _workPlaneMenu(AppState app, WorkPlane w) => [
 /// M215 — a work axis's row menu. No "Edit": unlike a work plane's offset
 /// there is no single number behind an axis to change, so offering an editor
 /// that could only re-open the pick flow would be a button that lies.
-List<List<GlassMenuItem>> _workAxisMenu(WorkAxis a) => [
+List<List<GlassMenuItem>> _workAxisMenu(WorkAxis a,
+        {bool inAssembly = false}) =>
+    [
       [
         GlassMenuItem(
             id: 'waVis',
@@ -712,10 +775,17 @@ List<List<GlassMenuItem>> _workAxisMenu(WorkAxis a) => [
         // The axis carries a SIGN that revolve and pattern directions inherit
         // (see WorkAxis.flip), and re-picking two points in the other order to
         // change it would be absurd.
-        GlassMenuItem(
-            id: 'waFlip',
-            title: t.ctxFlipDirection,
-            symbol: 'arrow.up.arrow.down'),
+        //
+        // M247 — not offered in an assembly. There the axis is RE-DERIVED from
+        // its picks after every solve, and the solver hands back the sign the
+        // method chose, so a flip would survive exactly until the next drag.
+        // A command that silently undoes itself is worse than one that is not
+        // there.
+        if (!inAssembly)
+          GlassMenuItem(
+              id: 'waFlip',
+              title: t.ctxFlipDirection,
+              symbol: 'arrow.up.arrow.down'),
       ],
       [
         GlassMenuItem(

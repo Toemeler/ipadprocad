@@ -621,29 +621,32 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
       app.currentAssembly?.constraintNamed(
           rowId.substring(kIdConstraint.length));
 
-  WorkAxis? _workAxis(PartModel? part, String rowId) {
-    final seq = int.tryParse(rowId.substring(kIdWorkAxis.length));
-    if (part == null || seq == null) return null;
-    for (final a in part.workAxes) {
-      if (a.seq == seq) return a;
-    }
-    return null;
-  }
+  // M247 — a work-feature row id names a `seq` in the OPEN DOCUMENT, and an
+  // assembly has the same three lists a part does. Looking in the assembly
+  // first rather than adding three more branches to every caller: the row ids,
+  // the eye, the menus and the selection are identical, and only where the
+  // list lives differs. `part` is still a parameter because these are called
+  // from paths that have already resolved it.
+  WorkAxis? _workAxis(PartModel? part, String rowId) =>
+      _bySeq<WorkAxis>(rowId, kIdWorkAxis,
+          app.currentAssembly?.workAxes, part?.workAxes, (a) => a.seq);
 
-  WorkPoint? _workPoint(PartModel? part, String rowId) {
-    final seq = int.tryParse(rowId.substring(kIdWorkPoint.length));
-    if (part == null || seq == null) return null;
-    for (final pt in part.workPoints) {
-      if (pt.seq == seq) return pt;
-    }
-    return null;
-  }
+  WorkPoint? _workPoint(PartModel? part, String rowId) =>
+      _bySeq<WorkPoint>(rowId, kIdWorkPoint,
+          app.currentAssembly?.workPoints, part?.workPoints, (p) => p.seq);
 
-  WorkPlane? _workPlane(PartModel? part, String rowId) {
-    final seq = int.tryParse(rowId.substring(kIdWorkPlane.length));
-    if (part == null || seq == null) return null;
-    for (final w in part.workPlanes) {
-      if (w.seq == seq) return w;
+  WorkPlane? _workPlane(PartModel? part, String rowId) =>
+      _bySeq<WorkPlane>(rowId, kIdWorkPlane,
+          app.currentAssembly?.workPlanes, part?.workPlanes, (w) => w.seq);
+
+  T? _bySeq<T>(String rowId, String prefix, List<T>? asm, List<T>? part,
+      int Function(T) seqOf) {
+    final seq = int.tryParse(rowId.substring(prefix.length));
+    if (seq == null) return null;
+    for (final list in [asm, part]) {
+      for (final f in list ?? const []) {
+        if (seqOf(f) == seq) return f;
+      }
     }
     return null;
   }
