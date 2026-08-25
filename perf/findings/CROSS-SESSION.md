@@ -3837,3 +3837,82 @@ honest **still untested** rows (`loft`'s `closed`, the coil's `taper_deg`,
 2. **A tapered sweep along a spine of more than one edge produces an INVALID
    solid** — S15 found it, registered it, and correctly did not bundle it into
    a merge about holes.
+
+### S17 — the three defects are fixed, and one of the three ground truths was wrong
+
+**All three of S16's defects are repaired in shim v28, each in one commit that
+reverts on its own** (verified by actually reverting each of the three), and
+each of S16's pinning fixtures now asserts ground truth instead of printing a
+divergence. `occt_smoke` PASS and `occt_mesh_recon_test` 86/0 on real OCCT
+7.9.3 built here. S16's §1.4 table now reads **correct** in those three rows.
+
+| | mechanism, from source | what a caller sees |
+| --- | --- | --- |
+| coil `clockwise` | `ElSLib::CylinderD0` fixes what `(u,v)` mean; `gp_Ax3(P,N,Vx)` makes `YDir = N × XDir`, so the frame is right-handed and the left-handed helix is `(du<0, dv>0)`. Negating both components was the same helix run backwards | the coil **rises** and is the mirror of the ccw one. **Volume is identical either way** — no volume check could ever have caught this, before or after |
+| `occt_move_faces` | the loop **skipped** a fully-tangential delta as a no-op and then swept the tangential part of a partly-tangential one. `BRepSweep_Prism` translates by the whole vector | the bbox x-max goes 25 → 20 and a ray 22 → 25. **Volume 10 000 and `valid` both ways** |
+| chamfer `angle_deg` | `ChFiKPart_MakeChAsym` computes `dis2 = Dis/(cosP + sinP/tan α)`, which is the law of sines with apex θ. So the bound is `α < 180° − θ` exactly — and that is `edge_info` field [10] | acute edges accept more, **obtuse edges accept less**, perpendicular edges bit-identical |
+
+**The thing to carry forward is that I did not adopt S16's ground truth for the
+oblique face move.** S16 §5.2 named the right answer as "the walls follow the
+face", ray exit 10. S17 says 25 — the face's plane moved by the normal
+component, walls unchanged — because the walls-follow reading contradicts the
+skip already sitting in that loop (a purely tangential move would shear the box
+rather than do nothing), because it moves surfaces the caller never selected,
+and because it is the class of work `part_model.dart:3321` records the repo as
+deliberately not shipping. **S16's defect stands either way: 22 was nobody's
+answer.** S16 §7.1 had already said it could not establish which reading was
+Inventor's and called it the integrator's call; S17 did not resolve that
+question either, and says so in its §7.1 — it decided the case from this
+repository's own commitments instead. If someone later shows Inventor tilts the
+walls, the conclusion is that this operation is *not Inventor's Move* and should
+be renamed, not that v28 is wrong.
+
+**A prediction was refuted and the refutation was worth more than the fixture.**
+S17 predicted α = 89.9 would build on a cube edge, being inside the 90 bound.
+It does not: `d2 = d1 sin α / sin(α+θ)` **diverges** as α approaches the bound,
+so d2 is 1145.9 mm on a 20 mm face. **The guard's bound is where the chamfer
+degenerates; it is not where the chamfer stops fitting.** Those are two
+different limits and the second one was already correctly enforced elsewhere.
+This *bounds* defect 3's severity downward: relaxing the guard does not mean
+every angle below the new bound builds, only that the angle is no longer what
+stops it.
+
+**Two things found in passing, both routed:**
+
+1. **`part_model.dart:3707` has the same hardcoded 90.** Chamfer "Flip" sends
+   `90.0 - angleDeg` for mode 2, where the flipped angle is `180 - θ - α`. It
+   is defect 3 one layer up. Dart is frozen for S17, and the consequence of v28
+   is that this now produces a **clear refusal naming the edge's real bound**
+   instead of a wrong chamfer — the bug got loud, which is the right order.
+2. **`occt_move_faces` on a non-planar face is still ill-posed**, before v28 and
+   after. `face_outward` samples the mid-parameter normal; projecting onto one
+   representative normal of a cylinder is as arbitrary as sweeping the whole
+   delta was. Untouched, untested, unclaimed, and now said so in the header.
+
+**`occt_shim_version()` is 28**, taken by the session that owns
+`backend/occt/shim/**`, allocated by the brief rather than read off the file —
+and `occt_version()`'s human-readable string now **asks** that function instead
+of repeating it. It had drifted again (v27 against ABI 28, in S17's own first
+green run), exactly as its own comment warned it had at v21/22/23. That drift
+was caught by the differential, not by reading.
+
+**The differential, because it is the cheapest thing here and nobody had done
+it:** the pre-S17 tree was built and run on the same machine against the same
+OCCT, and its smoke output diffed against the new one. Every line outside the
+three converted fixtures and the three new ones is **identical**. No golden, no
+recollection, two binaries, one afternoon — and it is what surfaced the version
+string. Worth doing on every shim change; it costs one `git archive` and one
+build.
+
+**Scenario numbers: [41a]–[41c] are S17's**, allocated with the brief.
+`analyze` delta is **structurally zero** — the diff contains no `.dart` file at
+all — which is stated rather than measured, Flutter being absent from this
+environment.
+
+**A note on this file, not on the work:** the "Routed, not fixed — four items"
+list immediately above says four and stops at two. Items 3 and 4 are not
+anywhere in this file. I have not guessed at them or renumbered the header —
+S16's text is left as committed — but whoever schedules next should know that
+two routed items may have been lost, and that S17 closed item 1 of the two that
+survived. Item 2, S15's invalid tapered sweep along a multi-edge spine, is
+still open and is not S17's.

@@ -113,7 +113,7 @@ face".
 stated semantics is `(delta·n)·n`.** One line, `occt_capi.cpp:4666`
 (pre-fix `1966`).
 
-**This is where I part company with S16, and it matters.** §5.2 and [40i] name
+**This is where I part company with S16, and it matters.** S16 §5.2 and [40i] name
 the correct answer as "the walls follow the face", ray exit at
 `z = 25·(2/5) = 10`. I claim the correct answer is **25** — the face's plane
 moved by the normal component, walls unchanged — and that 10 is a *different
@@ -144,7 +144,7 @@ to Inventor either; I am appealing to the shim's own two lines, which
 contradict each other, and choosing the side that the surviving line and the
 Dart model already commit to. **The defect S16 found is real — the leaning
 prism is nobody's answer. Its proposed ground truth is the one I am not
-adopting, and §5.2 below says so at the top rather than in a footnote.**
+adopting, and S16 §5.2 is cited by name wherever this file relies on it.**
 
 ### 0.3 The chamfer guard — OCCT's plane/plane chamfer prints the admissible range
 
@@ -386,3 +386,292 @@ smoke test than from a device.
 
 `analyze` delta is **structurally zero**: the diff touches no Dart file. Stated,
 not measured — Flutter is not installed in this environment (§7).
+
+---
+
+## 2. RESULTS
+
+Everything below is from `backend/occt/build/occt_smoke`, built against real
+OCCT **7.9.3** from the pinned submodule (`a016080`) on this machine, in one
+run. `occt_smoke` reports **PASS** and `occt_mesh_recon_test` **86 passed, 0
+failed**.
+
+| | Prediction | Verdict | The number that settled it |
+| --- | --- | --- | --- |
+| R1 | the coil rises and reverses handedness | **HELD, every number** | `cw z[-0.9968, 50.9969]` = `ccw z[-0.9968, 50.9969]`; azimuth-90 crossings `ccw 2.5/12.5/22.5/32.5/42.5`, `cw 7.5/17.5/27.5/37.5/47.5` — every one on its predicted value |
+| R2 | the oblique move is the moved plane | **HELD** | ray exit **25.000000** at both `x = 2` and `x = 18`; bbox x-max **20**; oblique ≡ perpendicular on volume, all six extents and both rays |
+| R2c | continuity at `δ = 0` | **HELD** | `(5,0,0)` → 8000.000000, x-max 20; `(5,0,0.001)` → 8000.400000, x-max 20 |
+| R3a | θ=60: α=100 and 110 build | **HELD** | removed **99.744831** and **187.458963**, both analytic |
+| R3b | the two spellings agree | **HELD** | mode 2 α=100 and mode 1 (d1=2, d2=5.758770) both remove **99.744831**, to 1e-9 |
+| R3c | θ=60: α=125 still refused, naming 120 | **HELD** | refused; message names 120 |
+| R3d | θ=135: α=30 builds, α=60 now refused | **HELD** | removed **54.641016** (analytic 54.641016); α=60 refused, message names 45 |
+| R3e | one formula, three dihedrals | **HELD** | d2 = 2.000000000 / 5.758770483 / 3.863703305, law of sines and OCCT's expression agreeing to 1e-12 |
+| R3f | θ=90: α=89.9 builds | **REFUTED — and the refutation is a finding** | α=89.9 puts d2 at **1145.9144** on a 20 mm face. §2.2 |
+| R5 | nothing else moves | **HELD, measured not assumed** | §2.1 |
+
+### 2.1 The differential, which is the whole proof
+
+`OPTIMIZATION_PLAN_2.md` §1.4 forbids recorded goldens, so R5 is not "the
+numbers look like last time". The pre-S17 tree (`9f34312`) was **built and run
+on this machine, against this OCCT install, in this session** — old shim, old
+fixtures — and its smoke output diffed against the new one:
+
+```
+$ diff <(grep -v '^\[40d\]\|^\[40i\]\|^\[40j\]\|^\[41' smoke-old.log) \
+       <(grep -v '^\[40d\]\|^\[40i\]\|^\[40j\]\|^\[41' smoke-final.log)
+$ echo $?
+0
+```
+
+**Every line of smoke output outside the three converted fixtures and the three
+new ones is identical, including the version banner.** Not a golden, not a
+recollection: two binaries, one machine, one afternoon. The first run of this
+diff returned one line — `shim v27 … (shim ABI v28)` — which is how the version
+string's drift was found (§4).
+
+### 2.2 The prediction that was wrong, and why it is worth more than the fixture it broke
+
+R3 predicted α = 89.9 would build on a cube edge, since 89.9 < 90. It does not:
+
+```
+alpha=60.0 d2=3.4641   -> built
+alpha=80.0 d2=11.3426  -> built
+alpha=85.0 d2=22.8601  -> REFUSED
+    err: no distance in this size range builds on these edges
+         (too large for the faces meeting at the edge?)
+alpha=89.9 d2=1145.9144 -> REFUSED  (same message)
+```
+
+**The guard's bound and the fits-on-the-face limit are different limits, and
+the guard only owns the first.** `d2 = d1·sin α / sin(α+θ)` *diverges* as α
+approaches `180° − θ`, so the buildable range is strictly inside the admissible
+one, and the outer part is refused by `blend_edges_subset`'s size retry with
+its own, already-correct message. [41c] now asserts that distinction — α = 85
+refused with the **size** message and not the angle one — which is a better
+scenario than the one predicted.
+
+It also **bounds the severity of defect 3**, in the direction that makes it
+smaller: relaxing the guard on an acute edge does not mean every angle below
+the new bound builds. It means the angle is no longer what stops it.
+
+### 2.3 Defect 1 — the coil, repaired
+
+One line. `gp_Dir2d d2(clockwise != 0 ? -1.0 : 1.0, slope)`.
+
+```
+[40d] ccw vol 2521.2203 z[-0.9968,50.9969] | cw vol 2521.2203 z[-0.9968,50.9969]
+[40d] azimuth-90 ray: ccw 10 hits, cw 10 hits
+[40d]   pass 0: ccw z 2.5000 (want 2.5) | cw z 7.5000 (want 7.5)
+[40d]   pass 4: ccw z 42.5000 (want 42.5) | cw z 47.5000 (want 47.5)
+```
+
+The z ranges are now **the same two doubles**, which is what a mirror image
+must give. The ray is the part no previous instrument in this repo could have
+produced: the two coils' material interleaves at exactly half a turn, 5 mm,
+which is what "opposite handedness, same rise" means. Volume is 2521.2203 for
+both, before and after, and always was — the helix length does not care which
+way it winds, which is why nine months of volume checks were blind to this.
+
+`finish_pipe` was not touched. The brief's stop-and-write-it-up condition did
+not fire.
+
+### 2.4 Defect 2 — the oblique face move, repaired
+
+One vector. `MakePrism(f, gp_Vec(outward) * along)`.
+
+```
+[40i] oblique move volume 10000.000000, valid=1, x-max 20.0000,
+      ray x=2 hits=2 0.0000 25.0000
+[40i]   x=2:  oblique exits 25.000000, perpendicular exits 25.000000
+[40i]   x=18: oblique exits 25.000000, perpendicular exits 25.000000
+[40i] continuity: (5,0,0) vol 8000.000000 x-max 20.0000 |
+                  (5,0,0.001) vol 8000.400000 x-max 20.0000
+```
+
+Volume is 10 000 and the solid valid **both before and after** — that is the
+point, and the fixture says so out loud rather than resting on it. What moved:
+the ray exit from 22 to 25, and the bounding box's x-max from 25 to 20. The
+overhang is gone.
+
+The equivalence is the ground truth stated as a test: an oblique move and its
+normal component now return the same solid on volume, on all six extents, and
+on two rays. And the continuity probe is the sentence I would put to anyone who
+thinks the old behaviour was defensible: **a 5 mm change in the answer for a
+0.001 mm change in the input.**
+
+### 2.5 Defect 3 — the chamfer guard, repaired
+
+`angle_deg[i] >= limit`, where `limit` is the edge's own turn angle.
+
+```
+[40j] theta=60 edge (bound 120): alpha=80 -> built | alpha=100 -> built |
+      alpha=110 -> built | alpha=125 -> refused | mode1 (d2=5.758770) -> built
+[40j] mode1 removed 99.744831 (analytic 99.744831)
+[40j] mode2 alpha=100 removed 99.744831 — the same chamfer, the spelling that
+      used to be REFUSED
+[41a] theta=135 edge (bound 45): alpha=30 -> built | alpha=60 -> refused
+      (chamfer angle must be in (0, 45) deg on this edge: its faces meet at
+       135 deg …)
+[41a] alpha=30 removed 54.641016 (analytic 54.641016, d2 = 3.863703)
+```
+
+The strongest line in this session's output is the third one. S16 could only
+*print* that divergence, because one of the two spellings of that chamfer was
+refused; now both build and remove **the same 99.744831**, to 1e-9. Two
+spellings of one chamfer, agreeing.
+
+[41a] is the half S16 derived and did not measure, and it comes out as derived:
+on a 135° edge the old guard passed α = 60 through to OCCT, which would have
+been handed `dis2 = −6.692130`. It is now refused by the guard, naming 45.
+
+---
+
+## 3. What a caller sees differently — `occt_shim_version()` 27 → 28
+
+The note in `occt_capi.cpp` is the normative version; this is the summary.
+
+| | What changed | What can see it | What cannot |
+| --- | --- | --- | --- |
+| coil `clockwise = 1` | rises by `height` and is left-handed, instead of descending to `[-height, 0]` right-handed | the bounding box; a ray at a fixed azimuth | **volume — identical to the last bit, before and after** |
+| `occt_move_faces`, oblique delta | returns the same solid as the delta's normal component; no overhang, no notch | the bounding box (x-max 25 → 20); a ray (22 → 25) | **volume (10 000 both ways) and `BRepCheck_Analyzer` (valid both ways)** |
+| `occt_chamfer_edges` mode 2 | accepts `0 < angle < 180° − θ` = `edge_info[10]`, instead of `< 90` | whether the call is refused, and the message | a solid that was already building — **every perpendicular edge is bit-identical** |
+
+The third cuts **both ways** and a caller should know which half it depends on:
+an acute edge now accepts angles that used to be refused, and an **obtuse** edge
+now refuses angles that used to be passed to OCCT and to fail there. If your
+part is prismatic and every chamfered edge is square, nothing changes at all.
+
+---
+
+## 4. What I changed that was not one of the three
+
+`occt_version()`'s string now **asks** `occt_shim_version()` instead of
+repeating it. The comment there already recorded that it had said `"v21"` while
+the number went 22, 23 — and it had drifted again: this session's first green
+run printed `Prototype OCCT shim v27 (OCCT 7.9.3) (shim ABI v28)`, and the
+differential in §2.1 is what surfaced it, since it was the one line that
+differed. "Kept in step" is a promise a literal cannot make. The CI link
+check's grep marker `"Prototype OCCT shim"` is still a single literal, which is
+all it needs.
+
+This is inside `backend/occt/shim/**` and it is three lines. I would not have
+gone looking for it; the differential handed it to me.
+
+---
+
+## 5. Findings I am routing rather than fixing
+
+### 5.1 Dart's chamfer "Flip" has the same hardcoded 90
+
+`part_model.dart:3707`:
+
+```dart
+2 => (distance1, 0.0, flip ? 90.0 - angleDeg : angleDeg),
+```
+
+Flip swaps which face the chamfer is measured from, so the flipped angle is the
+triangle's **third** angle, `180° − θ − α`. `90 − α` is that only when θ = 90.
+It is the identical defect to §0.3, one layer up, and it follows directly from
+the same triangle — I would not have looked for it if the header had not
+mentioned Flip while I was reading the reference-face paragraph.
+
+**Not mine.** The brief freezes the Dart side and the delta is meant to be
+structurally zero. Consequence of v28, which is an improvement and should be
+said plainly: on a non-perpendicular edge a flipped mode-2 chamfer now draws a
+**clear refusal from the shim's guard** — naming the edge's real bound —
+instead of a wrong chamfer or a bare OCCT failure. So the Dart bug is now
+loud rather than silent, which is the right order to fix things in.
+
+### 5.2 `occt_move_faces` on a non-planar face is still ill-posed
+
+Stated in R2 before the fix and unchanged by it. `face_outward` samples the
+mid-parameter normal; projecting an oblique delta onto one representative
+normal of a cylinder is exactly as arbitrary as sweeping the whole delta was.
+I did not fix it, test it, or claim it, and both the header and the `.cpp` now
+say so where a reader will hit them. It is a real empty region on S16's map
+that S16 did not name because it was auditing directions, not face types.
+
+---
+
+## 6. What I deliberately did not do
+
+* **Did not touch `finish_pipe`.** The coil fix is in the spine's `(u,v)`
+  direction, upstream of `BRepOffsetAPI_MakePipeShell`. The brief's
+  stop-and-write-it-up condition for shared infrastructure never fired.
+* **Did not touch any Dart file**, including the Flip bug above.
+* **Did not implement the walls-follow face move.** §0.2 argues it is a
+  different operation; §7.1 is my honest residual doubt about that.
+* **Did not close S16's three "still untested" rows** (`closed`, `taper_deg`,
+  `out_dropped`/`out_scale`). They are outside the three defects and the brief
+  said those three and only those three.
+* **Did not add a planarity guard to `occt_move_faces`** (§5.2). It would be a
+  fourth behaviour change nobody asked for.
+
+---
+
+## 7. What I am unsure of
+
+1. **Whether 25 is right and 10 is wrong — the one that matters.** §0.2 makes
+   three arguments and I believe all three, but they are arguments from *this
+   repository's* commitments — the skip already in the loop, the Dart model's
+   refusal to ship surface-sliding, and the well-definedness of the projection
+   — and not from a reference implementation. I have no Inventor here, exactly
+   as S16 did not. If someone establishes that Inventor's Direct > Move tilts
+   the neighbouring walls, then the right answer is that this app's
+   `occt_move_faces` is a *different operation from Inventor's* and should
+   probably be renamed, **not** that v28 is wrong: the leaning prism would
+   still be nobody's answer, and the projection is still what the loop's own
+   skip commits it to. That is the strongest form in which I can state my
+   confidence, and it is deliberately weaker than "this is what a CAD system
+   does".
+2. **The severity of defect 2 is still latent, and I did not re-check it.**
+   S16 established that `setFaceEditValue` has no caller and the UI does not
+   yet offer a free direction. I took that at face value rather than
+   re-deriving it. If S16 was wrong about that, defect 2 was shipping.
+3. **Whether the fallback in the chamfer guard is the right fallback.** An edge
+   whose bound cannot be measured keeps the historical 90. That is the
+   conservative choice and it preserves today's behaviour exactly, but I could
+   not construct a case that takes it — every edge in every fixture has two
+   faces and evaluable normals. **It is therefore untested code**, and the one
+   piece of this session's diff I cannot show working. A tangent-face edge
+   (`deg <= 1e-9`) is the case I expect would take it, and I did not build one.
+4. **Whether `edge_info[10]` and the chamfer bound stay the same number.** They
+   are computed by the same helper at the same arc-length midpoint *today*,
+   which is why I wrote it that way. But they are two call sites, not one
+   function, and nothing tests that they agree — [40j] and [41a] select their
+   edges by `info[10]` and then rely on the guard computing the same thing, so
+   a divergence would show up as a mysterious refusal rather than as a clear
+   failure. A test that asserts `limit == info[10]` directly would cost five
+   lines and I did not write it.
+5. **Curved edges.** Every edge in every fixture here is straight, so the
+   dihedral is constant along it. On a curved edge θ varies and the guard
+   measures it at one point — the arc-length midpoint. An angle legal at the
+   midpoint and illegal at one end would pass the guard and fail in OCCT. This
+   is the same shape of assumption `edge_info[10]` has always made and I did
+   not widen it, but the guard now *acts* on that number where before it only
+   reported it, which raises the stakes.
+6. **The Dart side is unverified in this environment.** Flutter is not
+   installed here, so `flutter analyze` and `flutter test` could not be run.
+   The diff touches **no `.dart` file at all** (`git diff --name-only`: five
+   files, three C/C++, two Markdown), so the analyze delta is **structurally
+   zero rather than measured zero**. I would rather say that than claim a green
+   I did not see — the same words S16 used, for the same reason.
+
+---
+
+## 8. Definition of done
+
+| | |
+| --- | --- |
+| Mechanism named for each of the three, from source | **§0.1** `ElSLib::CylinderD0` + `gp_Ax3.hxx:83`; **§0.2** the loop's own skip vs `BRepSweep_Prism.cxx:34,128`; **§0.3** `ChFiKPart_ComputeData_ChAsymPlnPln.cxx:115` |
+| Predictions committed before the code | `a9d7ddd` (§0–§1), before the first line of the fix. One was **refuted** — §2.2 — and the refutation is recorded, not quietly dropped |
+| Each fixture converted to assert ground truth | **[40d] [40i] [40j]**, plus **[41a] [41b] [41c]** new. Each would now fail if its defect returned |
+| `occt_smoke` on real OCCT 7.9.3 | **PASS**, built from the pinned submodule `a016080` on this machine |
+| `gcc -fsyntax-only -I backend/occt/shim backend/occt/tests/smoke_occt.c` | run before every commit that touched `smoke_occt.c`, and again before the push. It never caught anything, which is the point of a check that costs one second — and note it checks the C fixture only, not the C++ shim, so it is a brace guard and not a build |
+| `occt_mesh_recon_test` | **86 passed, 0 failed** |
+| `python3 -m unittest discover -s ci` | **52 tests, OK** |
+| Differential, old against new, no golden | **§2.1** — pre-S17 tree built and run here; every line outside the six fixtures identical |
+| One commit per defect, independently revertible | **verified by actually reverting each one** — all three apply cleanly on their own |
+| `occt_shim_version()` | **27 → 28**, its own commit, with what a caller learns in §3 and in the source note |
+| `analyze` delta | **structurally zero — no `.dart` file in the diff.** Stated, not measured; Flutter is absent here (§7.6) |
+| S16's inventory table | three rows now read **correct**, with the disagreement carried forward rather than erased |

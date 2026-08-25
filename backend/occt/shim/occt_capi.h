@@ -483,7 +483,7 @@ occt_shape *occt_fillet_edges(const occt_shape *shape, const int *edge_ids,
  * 180-theta-angle). On a non-perpendicular edge that now produces a clear
  * refusal from this guard instead of a wrong chamfer or an OCCT failure.
  * part_model.dart is not this session's to change; see
- * perf/findings/S17-oblique.md section 5.4.
+ * perf/findings/S17-oblique.md section 5.1.
  */
 occt_shape *occt_chamfer_edges(const occt_shape *shape, const int *edge_ids,
                                const int *modes, const double *d1,
