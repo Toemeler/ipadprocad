@@ -2,6 +2,7 @@
 #include "mesh_recon.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -28,6 +29,7 @@
 #include <GProp_GProps.hxx>
 #include <Geom_BSplineCurve.hxx>
 #include <Geom_ConicalSurface.hxx>
+#include <Geom_Circle.hxx>
 #include <Geom_CylindricalSurface.hxx>
 #include <Geom_Plane.hxx>
 #include <Geom_SphericalSurface.hxx>
@@ -978,70 +980,174 @@ bool SeedCone(const std::vector<V3> &pts, const std::vector<V3> &nrm, double *q)
     return true;
 }
 
-/* A torus's normal lines all meet the SPINE circle, so the closest approach of
- * two nearby normal lines lands on it. Fit a plane to those meeting points and
- * the plane's normal is the axis; fit a circle in it and that is R. */
+/* Fits a circle to points already known to be near-coplanar, in that plane.
+ *
+ * Algebraic (Kasa) form: |x|^2 = 2 x.c + k, which is linear in (c, k). Exact
+ * for points on a circle, and these are — they are tube centres. */
+bool CircleInPlane(const std::vector<V3> &s, const V3 &a, V3 &centre,
+                   double &radius)
+{
+    if (s.size() < 3)
+        return false;
+    V3 u = Cross(a, V3(0, 0, 1));
+    if (Norm(u) < 1e-6)
+        u = Cross(a, V3(1, 0, 0));
+    u = Unit(u);
+    const V3 v = Unit(Cross(a, u));
+    V3 o;
+    Centroid(s, o);
+    double A[9] = {0}, b[3] = {0};
+    for (const V3 &x : s) {
+        const V3 d = x - o;
+        const double du = Dot(d, u), dv = Dot(d, v);
+        const double row[3] = {2 * du, 2 * dv, 1};
+        const double rhs = du * du + dv * dv;
+        for (int i = 0; i < 3; ++i) {
+            b[i] += row[i] * rhs;
+            for (int j = 0; j < 3; ++j)
+                A[i * 3 + j] += row[i] * row[j];
+        }
+    }
+    if (!SolveLin(A, b, 3))
+        return false;
+    const double rr = b[2] + b[0] * b[0] + b[1] * b[1];
+    if (!(rr > 0))
+        return false;
+    radius = std::sqrt(rr);
+    centre = o + u * b[0] + v * b[1];
+    /* Put the centre in the plane the points lie in. */
+    double off = 0;
+    for (const V3 &x : s)
+        off += Dot(x - centre, a);
+    centre = centre + a * (off / static_cast<double>(s.size()));
+    return true;
+}
+
+/* Fits a torus by searching for its MINOR radius.
+ *
+ * The old seed paired each point's normal with one a stride away and
+ * intersected the two lines. On a cylinder or a cone that recovers the axis,
+ * which is why it was written that way — but on a torus a normal line does not
+ * meet the axis, it meets the SPINE, the circle of tube centres. Two normals a
+ * step apart along a meridian meet on the spine; two a step apart around the
+ * spine meet near the axis instead, a long way off. Averaging the two kinds
+ * gave a torus of major radius 16.1 and minor 16.1-not-6 where the truth was
+ * 20 and 6, at a residual of 4.6 mm on a mesh with no noise in it at all. A
+ * plain torus was therefore never recognised once, at any tessellation, and a
+ * fillet ring — which is the only torus most parts contain — came back as
+ * several hundred planes.
+ *
+ * The structure that IS reliable: every point of a torus lies exactly its
+ * minor radius from the spine, along its own normal. So for the true r, the
+ * points p - r n collapse onto a circle, and for any other r they do not.
+ * That makes r a one-dimensional search with a sharp, well-behaved minimum:
+ * scan it, take the sign of n that works (outward on a boss, inward in a
+ * blend), and read the axis, centre and major radius off the circle. */
 bool SeedTorus(const std::vector<V3> &pts, const std::vector<V3> &nrm,
                double *q)
 {
     const size_t n = pts.size();
     if (n < 12 || nrm.size() != n)
         return false;
-    std::vector<V3> spine;
-    spine.reserve(n);
-    /* Pair each point with one a stride away, so the two normals are far
-     * enough apart to intersect well but still on the same tube. */
-    const size_t stride = std::max<size_t>(1, n / 16);
-    for (size_t i = 0; i + stride < n; ++i) {
-        const V3 &p1 = pts[i];
-        const V3 &d1 = nrm[i];
-        const V3 &p2 = pts[i + stride];
-        const V3 &d2 = nrm[i + stride];
-        const double d1d2 = Dot(d1, d2);
-        const double den = 1 - d1d2 * d1d2;
-        if (den < 1e-4)
-            continue; /* near-parallel: no usable intersection */
-        const V3 w = p1 - p2;
-        const double t1 = (d1d2 * Dot(w, d2) - Dot(w, d1)) / den;
-        const double t2 = (Dot(w, d2) - d1d2 * Dot(w, d1)) / den;
-        spine.push_back((p1 + d1 * t1 + (p2 + d2 * t2)) * 0.5);
+    /* Bounded work per call: this runs inside the RANSAC trial loop. */
+    std::vector<V3> p, d;
+    const size_t stride = std::max<size_t>(1, n / 400);
+    for (size_t i = 0; i < n; i += stride) {
+        p.push_back(pts[i]);
+        d.push_back(nrm[i]);
     }
-    if (spine.size() < 8)
+    const size_t m = p.size();
+    if (m < 12)
         return false;
-    double pl[4];
-    if (!SeedPlane(spine, pl))
+    V3 c0;
+    Centroid(p, c0);
+    double ext = 0;
+    for (const V3 &x : p)
+        ext = std::max(ext, Norm(x - c0));
+    if (!(ext > 0))
         return false;
-    const V3 a = Unit(V3(pl[0], pl[1], pl[2]));
-    V3 c;
-    Centroid(spine, c);
-    /* Project the spine points into the plane and take the mean radius. */
-    double R = 0;
-    for (const V3 &s : spine) {
-        const V3 v = s - c;
-        R += Norm(v - a * Dot(v, a));
+
+    std::vector<V3> spine(m);
+    double out[8];
+    /* How far from a circle the tube centres fall for this minor radius. */
+    auto residual = [&](double r, int sgn, double *keep) -> double {
+        for (size_t i = 0; i < m; ++i)
+            spine[i] = p[i] + d[i] * (sgn * r);
+        double pl[4];
+        if (!SeedPlane(spine, pl))
+            return 1e300;
+        const V3 a = Unit(V3(pl[0], pl[1], pl[2]));
+        V3 c;
+        double R = 0;
+        if (!CircleInPlane(spine, a, c, R))
+            return 1e300;
+        if (!(R > r))
+            return 1e300; /* r >= R is a self-intersecting torus, not a part */
+        double ss = 0;
+        for (const V3 &x : spine) {
+            const V3 v = x - c;
+            const double u = Dot(v, a);
+            const double w = Norm(v - a * u) - R;
+            ss += u * u + w * w;
+        }
+        if (keep) {
+            keep[0] = c.x;
+            keep[1] = c.y;
+            keep[2] = c.z;
+            keep[3] = a.x;
+            keep[4] = a.y;
+            keep[5] = a.z;
+            keep[6] = R;
+            keep[7] = r;
+        }
+        return std::sqrt(ss / static_cast<double>(m));
+    };
+
+    const double lo = ext * 0.004, hi = ext * 2.0;
+    const int steps = 56;
+    double bestR = -1, bestScore = 1e300;
+    int bestSign = 1;
+    for (int sgn = -1; sgn <= 1; sgn += 2) {
+        for (int i = 0; i <= steps; ++i) {
+            const double r =
+                lo * std::pow(hi / lo, i / static_cast<double>(steps));
+            const double sc = residual(r, sgn, nullptr);
+            if (sc < bestScore) {
+                bestScore = sc;
+                bestR = r;
+                bestSign = sgn;
+            }
+        }
     }
-    R /= spine.size();
-    if (!(R > 0))
+    if (!(bestR > 0) || bestScore > 1e299)
         return false;
-    /* Minor radius: mean distance from the points to the spine circle. */
-    double r = 0;
-    for (const V3 &p : pts) {
-        const V3 v = p - c;
-        const double u = Dot(v, a);
-        const double w = Norm(v - a * u) - R;
-        r += std::sqrt(w * w + u * u);
+    /* Golden-section down to a fraction of the step the scan used. */
+    const double ratio = std::pow(hi / lo, 1.0 / steps);
+    double a0 = bestR / ratio, b0 = bestR * ratio;
+    const double gr = 0.6180339887498949;
+    double x1 = b0 - gr * (b0 - a0), x2 = a0 + gr * (b0 - a0);
+    double f1 = residual(x1, bestSign, nullptr);
+    double f2 = residual(x2, bestSign, nullptr);
+    for (int it = 0; it < 32 && b0 - a0 > bestR * 1e-6; ++it) {
+        if (f1 < f2) {
+            b0 = x2;
+            x2 = x1;
+            f2 = f1;
+            x1 = b0 - gr * (b0 - a0);
+            f1 = residual(x1, bestSign, nullptr);
+        } else {
+            a0 = x1;
+            x1 = x2;
+            f1 = f2;
+            x2 = a0 + gr * (b0 - a0);
+            f2 = residual(x2, bestSign, nullptr);
+        }
     }
-    r /= n;
-    if (!(r > 0) || r >= R * 4)
+    const double rFinal = 0.5 * (a0 + b0);
+    if (residual(rFinal, bestSign, out) > 1e299)
         return false;
-    q[0] = c.x;
-    q[1] = c.y;
-    q[2] = c.z;
-    q[3] = a.x;
-    q[4] = a.y;
-    q[5] = a.z;
-    q[6] = R;
-    q[7] = r;
+    for (int i = 0; i < 8; ++i)
+        q[i] = out[i];
     return true;
 }
 
@@ -1053,6 +1159,23 @@ bool SeedTorus(const std::vector<V3> &pts, const std::vector<V3> &nrm,
  * keeps a flat face a PLANE instead of a sphere of radius 10^6. */
 #ifdef MESHRECON_TRACE
 #define MR_TRACE(...) std::fprintf(stderr, __VA_ARGS__)
+/* Wall-clock at each stage boundary, so a model that takes twenty seconds can
+ * say which pass took them. */
+static std::chrono::steady_clock::time_point mrPrev;
+#define MR_STAGE(name)                                                        \
+    do {                                                                      \
+        static std::chrono::steady_clock::time_point mrLast;                  \
+        const auto mrNow = std::chrono::steady_clock::now();                  \
+        if (std::string(name) == "start")                                     \
+            std::fprintf(stderr, "  [stage] --- start ---\n");                \
+        else                                                                  \
+            std::fprintf(                                                     \
+                stderr, "  [stage] %-28s %8.1f ms\n", name,                   \
+                std::chrono::duration<double, std::milli>(mrNow - mrPrev)      \
+                    .count());                                                \
+        (void)mrLast;                                                         \
+        mrPrev = mrNow;                                                       \
+    } while (0)
 /* Compiled in only for the development harness; see backend/occt/tests. */
 const char *KindName(SurfKind k)
 {
@@ -1073,6 +1196,7 @@ const char *KindName(SurfKind k)
 }
 #else
 #define MR_TRACE(...) ((void)0)
+#define MR_STAGE(name) ((void)0)
 #endif
 
 /* Mean |cos| a candidate surface's normals must reach to be believed. About
@@ -1108,12 +1232,33 @@ const int kMaxCreaseDepth = 4;
 /* RANSAC budget. Bounded on purpose: this runs only on patches that fitted
  * nothing, and being thorough on a pathological patch at the cost of being
  * slow on every model is not a trade worth making. */
-const int kRansacTrials = 48;        /* candidates proposed per round */
-const int kRansacRounds = 32;        /* surfaces extracted per patch */
-const int kRansacSeedTriangles = 40; /* neighbourhood a candidate is fitted to */
-const int kRansacMinPatch = 24;      /* below this, growing is fine */
-const int kRansacMinSupport = 10;    /* triangles a winner must explain */
+const int kRansacRounds = 32;   /* surfaces extracted per patch */
+const int kRansacMinPatch = 10; /* below this, growing is fine */
+const int kRansacMinSupport = 6;/* triangles a winner must explain */
 const double kRansacNormalGate = 0.90;
+
+/* HOW BIG a neighbourhood a candidate is fitted to — and the reason this is a
+ * ladder rather than a number.
+ *
+ * A sample that straddles two surfaces fits neither, so it proposes nothing.
+ * A fixed forty-triangle seed is therefore not "more evidence", it is a
+ * commitment to features at least forty triangles wide: on a 60 mm plate whose
+ * corner fillets are twelve facets each, every one of the forty-eight trials
+ * on the side band drew a sample containing wall AND fillet, every fit failed,
+ * and RANSAC returned nothing at all — measured, 56 triangles in, 0 surfaces
+ * out. The fillets then went to triangles, which is what "the radiuses are not
+ * radiuses" looks like from the outside.
+ *
+ * Classical RANSAC avoids this by sampling MINIMALLY — three points for a
+ * plane — precisely so a sample cannot span a boundary. But a minimal sample
+ * off a coarse mesh also fits a sphere the size of a house through any four
+ * facets. So sample at several scales and let support decide: the small seeds
+ * find the small features, the large seeds are stable on the large ones, and a
+ * proposal that describes nothing real claims nothing and loses. */
+const int kRansacSeedLadder[] = {4, 6, 10, 18, 30, 48};
+const int kRansacLadderSteps =
+    (int)(sizeof(kRansacSeedLadder) / sizeof(kRansacSeedLadder[0]));
+const int kRansacTrialsPerSize = 12; /* candidates per rung, per round */
 
 /* A residual this far below tolerance is not "within tolerance", it is the
  * surface the mesh was made from. */
@@ -1129,6 +1274,20 @@ const int kMinTrustTriangles = 6;
 /* How much of the tolerance a surface may use up and still be believed to be
  * THE surface rather than one that happens to pass nearby. */
 const double kTrustRmsFraction = 0.15;
+
+/* How far off a facet's interior a fitted surface may bow, as a fraction of
+ * that facet's own size. A surface the mesh was tessellated from bows by the
+ * chord height, which is quadratic in facet size and therefore small: measured
+ * on a 12-segment cylinder, under a hundredth of the facet. A quarter of the
+ * facet is not a tessellation of anything. */
+const double kCentroidFacetFraction = 0.25;
+
+/* When a smooth run is judged freeform rather than prismatic: it has to be big
+ * enough for the judgement to mean anything, less than half of it accounted
+ * for by surfaces, and those surfaces facet-sized. */
+const int kFreeformMinRun = 60;
+const int kFreeformPieceTriangles = 8;
+const int kFreeformCoverDenom = 8; /* under an eighth explained: freeform */
 
 /* How far round its own surface a patch must reach before the radius it
  * fitted means anything. Twenty-five degrees of arc; below that a wide range
@@ -1168,12 +1327,83 @@ const int kShatterFloorTriangles = 200;
  * bounding-box diagonal. */
 const double kMaxRadiusFactor = 4.0;
 
+/* How much of a surface a sample actually goes ROUND, in radians.
+ *
+ * A radius is only knowable from a sample that turns far enough about it.
+ * Twenty degrees of a cylinder is an arc that a thousand different radii pass
+ * through within tolerance, and the one a fitter picks off it is noise. The
+ * same is true of a sphere's cap and of a torus's spine. A plane has no radius
+ * to pin down, so it is always fully covered. */
+double SurfaceCoverage(SurfKind k, const double *q, const std::vector<V3> &pts)
+{
+    if (k == kPlane)
+        return 2.0 * M_PI;
+    if (pts.size() < 3)
+        return 0;
+    if (k == kSphere) {
+        const V3 c(q[0], q[1], q[2]);
+        V3 mean;
+        for (const V3 &x : pts)
+            mean += Unit(x - c);
+        if (Norm(mean) < 1e-12)
+            return 2.0 * M_PI; /* points all round it: a whole sphere */
+        mean = Unit(mean);
+        /* The RANGE of colatitude, not its maximum.
+         *
+         * On a genuine cap the mean direction is inside it, so the range runs
+         * from zero and the two are the same number. On a thin RING they are
+         * not: the mean points at the pole the ring encircles, every point is
+         * the same distance from it, and a cap-angle test reads the ring's
+         * latitude — wide — where its actual extent is a few degrees. That
+         * matters because one row of a surface of revolution lies EXACTLY on
+         * a sphere centred on its axis: a boss's fillet ring came back as a
+         * stack of concentric spherical bands, each with a residual of zero,
+         * because nothing asked whether the sample had any width. */
+        double lo = M_PI, hi = 0;
+        for (const V3 &x : pts) {
+            const double t =
+                std::acos(std::max(-1.0, std::min(1.0, Dot(Unit(x - c), mean))));
+            lo = std::min(lo, t);
+            hi = std::max(hi, t);
+        }
+        return (hi - lo) * 2.0;
+    }
+    /* Cylinder, cone and torus all turn about an axis. */
+    const V3 c(q[0], q[1], q[2]);
+    const V3 ax = Unit(V3(q[3], q[4], q[5]));
+    if (!(Norm(ax) > 0.5))
+        return 0;
+    V3 u = Cross(ax, V3(0, 0, 1));
+    if (Norm(u) < 1e-6)
+        u = Cross(ax, V3(1, 0, 0));
+    u = Unit(u);
+    const V3 v = Unit(Cross(ax, u));
+    std::vector<double> ang;
+    ang.reserve(pts.size());
+    for (const V3 &x : pts) {
+        const V3 d = (x - c) - ax * Dot(x - c, ax);
+        if (Norm(d) < 1e-12)
+            continue;
+        ang.push_back(std::atan2(Dot(d, v), Dot(d, u)));
+    }
+    if (ang.size() < 3)
+        return 0;
+    std::sort(ang.begin(), ang.end());
+    /* The sweep is a full turn minus the widest gap between samples. */
+    double gap = ang.front() + 2.0 * M_PI - ang.back();
+    for (size_t i = 1; i < ang.size(); ++i)
+        gap = std::max(gap, ang[i] - ang[i - 1]);
+    return 2.0 * M_PI - gap;
+}
+
 Fit FitPatch(const PatchData &d, double tol, double scale)
 {
     const std::vector<V3> &pts = d.pts;
     Fit best;
     Fit chosen;
     bool have = false;
+    bool chosenPinned = false;
+    bool chosenExact = false;
     const SurfKind order[5] = {kPlane, kSphere, kCylinder, kCone, kTorus};
     for (int i = 0; i < 5; ++i) {
         const SurfKind k = order[i];
@@ -1247,16 +1477,50 @@ Fit FitPatch(const PatchData &d, double tol, double scale)
              * 0.999. The slack keeps a genuinely flat face a PLANE rather than
              * a sphere of radius ten thousand, which is what the old rule was
              * protecting and is still worth protecting. */
-            if (!have || agree > chosen.agree + kAgreeSlack) {
+            /* And PREFER a kind this sample can pin down. Six triangles off
+             * a coarse corner fillet fit a sphere marginally better than the
+             * cylinder they came from — the normals barely separate them —
+             * but they go 90 degrees round the cylinder and only a few
+             * degrees round the sphere, so only one of the two is knowable
+             * from this sample. Taking the sphere meant the fillet was
+             * rejected for want of coverage and went to triangles, when the
+             * cylinder standing right beside it was exact and complete. */
+            const bool pinned = SurfaceCoverage(k, q, pts) >= kMinSweepRad;
+            /* And an EXACT fit outranks agreement, because agreement cannot
+             * see the difference and the residual can.
+             *
+             * Two rows of a boss's fillet ring: the sphere fitted them at
+             * 0.0377, the cone at 0.0350 and the torus at 0.0000030 — the true
+             * R=10.5, r=1.5, to seven figures. Their normal agreements were
+             * 0.985, 0.987 and 0.987. At three decimal places the normals
+             * cannot separate a surface that is right from one that is merely
+             * near, so the sphere kept it by being asked first, and a fillet
+             * ring came back as a stack of concentric spherical bands. The
+             * residual separates them by a factor of twelve thousand.
+             *
+             * A tessellation puts its vertices ON the surface they came from,
+             * so "exact" is not a matter of degree here: it is the difference
+             * between the surface the part was built from and one that passes
+             * nearby. On a noisy mesh nothing is exact, every candidate lands
+             * in the same tier, and this is the agreement rule again. */
+            const bool exact = rms <= tol * kExactFitFraction;
+            const bool better =
+                !have || (pinned && !chosenPinned) ||
+                (pinned == chosenPinned && exact && !chosenExact) ||
+                (pinned == chosenPinned && exact == chosenExact &&
+                 agree > chosen.agree + kAgreeSlack);
+            if (better) {
                 chosen.kind = k;
                 std::memcpy(chosen.q, q, sizeof(q));
                 chosen.rms = rms;
                 chosen.agree = agree;
+                chosenPinned = pinned;
+                chosenExact = exact;
                 have = true;
             }
             /* Nothing later can beat this by more than the slack, so stop —
              * which is the common case (a flat face, first kind tried). */
-            if (chosen.agree >= kAgreeCertain)
+            if (chosenPinned && chosenExact && chosen.agree >= kAgreeCertain)
                 return chosen;
             continue;
         }
@@ -1375,7 +1639,35 @@ void SmoothPatches(const Mesh &m, double sharpDeg, std::vector<int> &patchOf,
  * a fit whose normals are off by about half a facet is as good as this mesh
  * can be, and one that is off by four times that is describing something else.
  */
-bool Identifiable(const Patch &p, const Mesh &m, double tol)
+/* How far a surface strays from a facet's INTERIOR, against what that facet's
+ * size allows.
+ *
+ * Three vertices pin a fit; the surface between them is then free, and a
+ * surface with enough parameters uses that freedom. Returns the worst
+ * deviation at the centroid and the three edge midpoints — the points furthest
+ * from the vertices — and sets `bar` to what a real tessellation of this facet
+ * would show there, which is the chord height: quadratic in facet size and so
+ * far below the facet itself that the two never come close. */
+double FacetBulge(SurfKind k, const double *q, const Mesh &m, int t,
+                  double &bar)
+{
+    const V3 &a = m.pos[m.tri[t * 3]];
+    const V3 &b = m.pos[m.tri[t * 3 + 1]];
+    const V3 &c = m.pos[m.tri[t * 3 + 2]];
+    const V3 probe[4] = {V3((a.x + b.x + c.x) / 3, (a.y + b.y + c.y) / 3,
+                            (a.z + b.z + c.z) / 3),
+                         V3((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2),
+                         V3((b.x + c.x) / 2, (b.y + c.y) / 2, (b.z + c.z) / 2),
+                         V3((c.x + a.x) / 2, (c.y + a.y) / 2, (c.z + a.z) / 2)};
+    double worst = 0;
+    for (int i = 0; i < 4; ++i)
+        worst = std::max(worst, std::fabs(SurfDist(k, q, probe[i])));
+    bar = std::max(std::max(Norm(b - a), Norm(c - b)), Norm(a - c)) *
+          kCentroidFacetFraction;
+    return worst;
+}
+
+bool Identifiable(const Patch &p, const Mesh &m, double tol, bool fragment)
 {
     if (p.fit.kind == kNone)
         return false;
@@ -1389,6 +1681,19 @@ bool Identifiable(const Patch &p, const Mesh &m, double tol)
      * cylinders came back at 0.000, and the twenty "spheres" the fitter
      * invented on the shell at 0.05 to 0.16. Nothing lands in between. */
     if (p.fit.rms > tol * kTrustRmsFraction)
+        return false;
+    /* And a FRAGMENT is held to the exact bar instead.
+     *
+     * A patch that is a whole smooth run has a witness: the mesh's own sharp
+     * edges bound it, and the model is saying "this is one face". A patch the
+     * splitter carved out of a bigger one has no witness at all — the splitter
+     * will always find something, and on a smooth organic shell it finds
+     * hundreds of little planes that each sit inside the ordinary residual bar
+     * and none of which exist. Measured on a 2676-triangle ellipsoidal shell:
+     * 129 invented planes and 3 spheres, every one of them under 0.15 of
+     * tolerance, and every one of them gone at 0.02 — while the four real
+     * drilled holes in the same shell fit at 0.00000 and stay. */
+    if (fragment && p.fit.rms > tol * kExactFitFraction)
         return false;
     /* A plane is pinned down exactly by three points, so the sample-size floor
      * is for the CURVED kinds only — a box face is two triangles and perfectly
@@ -1435,6 +1740,33 @@ bool Identifiable(const Patch &p, const Mesh &m, double tol)
     if (p.fit.kind == kPlane)
         return true;
 
+    /* Does the surface pass through the mesh's FACES, or only its vertices?
+     *
+     * Everything above is measured at vertices, and a surface with enough
+     * freedom can thread every vertex of a patch and still bulge through the
+     * middle of it. That is not a hypothetical: a 12 mm corner fillet plus two
+     * triangles of the wall beside it was fitted EXACTLY — residual 0.00000 at
+     * every vertex — by a torus of major radius 25 mm about the part's own
+     * vertical axis, which bows 11.2 mm out through the facets in between. Its
+     * trimmed face added three hundred percent to the model's volume.
+     *
+     * A facet is a chord of the surface it came off, so the surface stands off
+     * its interior by the chord height, which is quadratic in facet size and
+     * tiny: 0.05 mm on the real fillets in that same model, against 11.2 for
+     * the torus. Sampling the centroid and the three edge midpoints — the
+     * points furthest from the vertices that pinned the fit — separates the
+     * two by two orders of magnitude, so the bar can be loose and still
+     * decisive. */
+    {
+        const int stride2 = std::max<int>(1, (int)p.tris.size() / 256);
+        for (size_t i = 0; i < p.tris.size(); i += stride2) {
+            double bar = 0;
+            if (FacetBulge(p.fit.kind, p.fit.q, m, p.tris[i], bar) >
+                std::max(bar, tol))
+                return false;
+        }
+    }
+
     /* Sample the patch's corners — a few hundred is ample to establish a
      * quarter turn, and a patch can hold thousands. */
     std::vector<V3> pts;
@@ -1444,49 +1776,9 @@ bool Identifiable(const Patch &p, const Mesh &m, double tol)
             pts.push_back(m.pos[m.tri[p.tris[i] * 3 + k]]);
     if (pts.size() < 3)
         return false;
-
-    const double *q = p.fit.q;
-    if (p.fit.kind == kSphere) {
-        /* How wide a cap of the sphere the patch covers. */
-        const V3 c(q[0], q[1], q[2]);
-        V3 mean;
-        for (const V3 &x : pts)
-            mean += Unit(x - c);
-        if (Norm(mean) < 1e-12)
-            return true; /* points all round it: a whole sphere */
-        mean = Unit(mean);
-        double worst = 1.0;
-        for (const V3 &x : pts)
-            worst = std::min(worst, Dot(Unit(x - c), mean));
-        return std::acos(std::max(-1.0, worst)) * 2.0 >= kMinSweepRad;
-    }
-
-    /* Cylinder, cone and torus all turn about an axis. */
-    const V3 c(q[0], q[1], q[2]);
-    const V3 ax = Unit(V3(q[3], q[4], q[5]));
-    if (!(Norm(ax) > 0.5))
+    if (SurfaceCoverage(p.fit.kind, p.fit.q, pts) < kMinSweepRad)
         return false;
-    V3 u = Cross(ax, V3(0, 0, 1));
-    if (Norm(u) < 1e-6)
-        u = Cross(ax, V3(1, 0, 0));
-    u = Unit(u);
-    const V3 v = Unit(Cross(ax, u));
-    std::vector<double> ang;
-    ang.reserve(pts.size());
-    for (const V3 &x : pts) {
-        const V3 d = (x - c) - ax * Dot(x - c, ax);
-        if (Norm(d) < 1e-12)
-            continue;
-        ang.push_back(std::atan2(Dot(d, v), Dot(d, u)));
-    }
-    if (ang.size() < 3)
-        return false;
-    std::sort(ang.begin(), ang.end());
-    /* The sweep is a full turn minus the widest gap between samples. */
-    double gap = ang.front() + 2.0 * M_PI - ang.back();
-    for (size_t i = 1; i < ang.size(); ++i)
-        gap = std::max(gap, ang[i] - ang[i - 1]);
-    return (2.0 * M_PI - gap) >= kMinSweepRad;
+    return true;
 }
 
 /* Cuts a patch at its own sharpest internal crease, if it has one.
@@ -1761,6 +2053,43 @@ void SplitByFit(const Mesh &m, const std::vector<int> &tris, double tol,
  *
  * Deterministic on purpose — the generator is seeded from the patch — because
  * a converter whose output depends on the weather cannot be tested. */
+/* Which of two RANSAC proposals describes the part better.
+ *
+ * Support alone is the obvious score and it is wrong, because a surface with
+ * one more degree of freedom can always reach a little further. Measured on a
+ * 60 mm plate with four r=5 corner fillets: three came back as cylinders with
+ * 32 triangles and a residual of EXACTLY zero, and the fourth as a torus with
+ * 34 — the same fillet plus two triangles of the wall it is tangent to, held
+ * together by a major radius of 15 mm that exists nowhere in the part. Two
+ * extra triangles bought it the round, and the trimmed torus that came out of
+ * it added forty-two percent to the model's volume.
+ *
+ * The residual is what separates them, and it separates them completely. A
+ * tessellation puts its vertices ON the surface they came from, so a proposal
+ * that is really that surface fits it to zero while a proposal that is merely
+ * near it does not. So: an exact candidate beats an inexact one no matter how
+ * much more the inexact one claims; among equals, more support wins; and on a
+ * genuine tie the simpler primitive does, since kind order runs plane, sphere,
+ * cylinder, cone, torus. On a noisy scan nothing is exact, everything lands in
+ * the lower tier, and this is support-first again, as it was. */
+bool BeatsCandidate(size_t nA, double rmsA, SurfKind kA, size_t nB, double rmsB,
+                    SurfKind kB, double tol)
+{
+    if (nA == 0)
+        return false;
+    if (nB == 0)
+        return true;
+    const bool exA = rmsA <= tol * kExactFitFraction;
+    const bool exB = rmsB <= tol * kExactFitFraction;
+    if (exA != exB)
+        return exA;
+    if (nA != nB)
+        return nA > nB;
+    if (std::fabs(rmsA - rmsB) > tol * 1e-3)
+        return rmsA < rmsB;
+    return kA < kB;
+}
+
 void SplitByRansac(const Mesh &m, const std::vector<int> &tris, double tol,
                    double scale, int minTris, int origin,
                    std::vector<Patch> &out, std::vector<int> &leftover)
@@ -1788,10 +2117,16 @@ void SplitByRansac(const Mesh &m, const std::vector<int> &tris, double tol,
     PatchData pd;
     std::vector<int> seedRegion, stack, inliers, best;
     Fit bestFit;
+    double bestRms = 1e300;
+    int bestStart = -1;
+    const int trials = kRansacLadderSteps * kRansacTrialsPerSize;
     for (int round = 0; round < kRansacRounds && remaining >= minTris; ++round) {
         best.clear();
         bestFit = Fit();
-        for (int trial = 0; trial < kRansacTrials; ++trial) {
+        bestRms = 1e300;
+        bestStart = -1;
+        for (int trial = 0; trial < trials; ++trial) {
+            const int want = kRansacSeedLadder[trial % kRansacLadderSteps];
             int start = -1;
             for (int a = 0; a < 8 && start < 0; ++a) {
                 const int c = (int)(next() % (unsigned)n);
@@ -1804,8 +2139,7 @@ void SplitByRansac(const Mesh &m, const std::vector<int> &tris, double tol,
             stack.assign(1, start);
             std::unordered_map<int, char> inSeed;
             inSeed.emplace(tris[start], 1);
-            while (!stack.empty() &&
-                   (int)seedRegion.size() < kRansacSeedTriangles) {
+            while (!stack.empty() && (int)seedRegion.size() < want) {
                 const int i = stack.back();
                 stack.pop_back();
                 seedRegion.push_back(tris[i]);
@@ -1833,6 +2167,8 @@ void SplitByRansac(const Mesh &m, const std::vector<int> &tris, double tol,
              * cylinder must not claim the identical hole on the far side of
              * the part. */
             inliers.clear();
+            double ss = 0;
+            int sn2 = 0;
             std::unordered_map<int, char> mark;
             stack.assign(1, start);
             mark.emplace(tris[start], 1);
@@ -1841,10 +2177,13 @@ void SplitByRansac(const Mesh &m, const std::vector<int> &tris, double tol,
                 stack.pop_back();
                 const int t = tris[i];
                 bool ok = true;
+                double d2 = 0;
                 for (int k = 0; k < 3 && ok; ++k) {
                     const V3 &p = m.pos[m.tri[t * 3 + k]];
-                    if (std::fabs(SurfDist(f.kind, f.q, p)) > tol)
+                    const double dd = SurfDist(f.kind, f.q, p);
+                    if (std::fabs(dd) > tol)
                         ok = false;
+                    d2 += dd * dd;
                 }
                 if (ok) {
                     const V3 sn = SurfNormal(f.kind, f.q, m.pos[m.tri[t * 3]],
@@ -1853,9 +2192,23 @@ void SplitByRansac(const Mesh &m, const std::vector<int> &tris, double tol,
                         std::fabs(Dot(sn, m.tnorm[t])) < kRansacNormalGate)
                         ok = false;
                 }
+                /* And it must pass through the facet, not merely its corners.
+                 * A torus threaded exactly through every vertex of a wall,
+                 * a corner fillet and the next wall bulges 12.5 mm out
+                 * through the middle of them; on vertices alone it was an
+                 * exact fit claiming 22 triangles, and it beat the true
+                 * cylinder claiming 8. */
+                if (ok) {
+                    double bar = 0;
+                    if (FacetBulge(f.kind, f.q, m, t, bar) >
+                        std::max(bar, tol))
+                        ok = false;
+                }
                 if (!ok)
                     continue;
                 inliers.push_back(i);
+                ss += d2;
+                sn2 += 3;
                 for (int k = 0; k < 3; ++k) {
                     const int o = m.adj[t * 3 + k];
                     if (o < 0)
@@ -1869,13 +2222,68 @@ void SplitByRansac(const Mesh &m, const std::vector<int> &tris, double tol,
                     stack.push_back(it->second);
                 }
             }
-            if ((int)inliers.size() > (int)best.size()) {
+            const double candRms = sn2 ? std::sqrt(ss / sn2) : 1e300;
+            if (BeatsCandidate(inliers.size(), candRms, f.kind, best.size(),
+                               bestRms, bestFit.kind, tol)) {
                 best = inliers;
                 bestFit = f;
+                bestRms = candRms;
+                bestStart = start;
             }
         }
         if ((int)best.size() < std::max(minTris, kRansacMinSupport))
             break;
+
+        /* TIGHTEN the claim.
+         *
+         * Claiming at tolerance is right for the surface being proposed and
+         * too generous at a TANGENCY, where the neighbouring face hugs the
+         * proposal for a strip sqrt(2 r tol) wide — 1.2 mm where an r=5 fillet
+         * meets its wall. Those triangles pass the distance test and the
+         * normal test (at the tangent line the two surfaces share a normal),
+         * so the fillet arrives at the refit carrying two triangles of flat
+         * wall, no longer fits a cylinder, and comes back as a torus bent
+         * around an axis that exists nowhere in the part.
+         *
+         * When the winner is EXACT it is one of the surfaces this mesh was
+         * tessellated from, and then every triangle that truly belongs to it
+         * lies ON it. Re-claim at that standard and the tangent strip drops
+         * away, while nothing that really is the surface moves. */
+        if (bestStart >= 0 && bestRms <= tol * kExactFitFraction) {
+            const double tight =
+                std::max(tol * kExactFitFraction, scale * 1e-6);
+            std::vector<int> tightened;
+            std::unordered_map<int, char> mark2;
+            stack.assign(1, bestStart);
+            mark2.emplace(tris[bestStart], 1);
+            while (!stack.empty()) {
+                const int i = stack.back();
+                stack.pop_back();
+                const int t = tris[i];
+                bool ok = true;
+                for (int k = 0; k < 3 && ok; ++k)
+                    if (std::fabs(SurfDist(bestFit.kind, bestFit.q,
+                                           m.pos[m.tri[t * 3 + k]])) > tight)
+                        ok = false;
+                if (!ok)
+                    continue;
+                tightened.push_back(i);
+                for (int k = 0; k < 3; ++k) {
+                    const int o = m.adj[t * 3 + k];
+                    if (o < 0)
+                        continue;
+                    auto it = local.find(o);
+                    if (it == local.end() || taken[it->second])
+                        continue;
+                    if (mark2.find(o) != mark2.end())
+                        continue;
+                    mark2.emplace(o, 1);
+                    stack.push_back(it->second);
+                }
+            }
+            if ((int)tightened.size() >= std::max(minTris, kRansacMinSupport))
+                best.swap(tightened);
+        }
 
         /* Refit on everything it claimed, and keep it only if it still holds. */
         std::vector<int> claimed;
@@ -1887,8 +2295,23 @@ void SplitByRansac(const Mesh &m, const std::vector<int> &tris, double tol,
         pa.tris = claimed;
         pa.origin = origin;
         pa.fit = FitPatch(pd, tol, scale);
-        if (pa.fit.kind == kNone || pa.fit.rms > tol * kTrustRmsFraction ||
-            !Identifiable(pa, m, tol))
+        /* EXACT, not merely within tolerance.
+         *
+         * RANSAC is being asked to find a surface inside a patch that fitted
+         * nothing, and it will always find something: four triangles of an
+         * organic shell fit a plane, six fit a sphere, and with a small enough
+         * seed it can propose one anywhere. Held to the ordinary residual bar
+         * it carved a smooth 2676-triangle shell into 129 invented planes and
+         * three spheres — the "179 surfaces that met nowhere" failure, back
+         * again from the other end.
+         *
+         * A tessellation puts its vertices ON the surface it came from, so a
+         * surface that is really there is recovered to zero and one that is
+         * merely nearby is not. That is the whole difference between a
+         * downloaded CAD model, where this pass should find every fillet, and
+         * an organic one, where it should find nothing at all. */
+        if (pa.fit.kind == kNone || pa.fit.rms > tol * kExactFitFraction ||
+            !Identifiable(pa, m, tol, true))
             break;
         out.push_back(pa);
         for (int i : best) {
@@ -2095,8 +2518,83 @@ const double kMergeNormalGate = 0.99;
  * The tolerance gate is what keeps this safe: a merge only happens when ONE
  * primitive describes both patches to within the same tolerance every other
  * stage uses, so two perpendicular faces of a box are never candidates. */
+/* Which smooth runs are FREEFORM rather than prismatic.
+ *
+ * Asked once per run, not once per piece, because the splitter always
+ * succeeds: a quad of a quad-meshed surface is exactly planar, so a plane
+ * through it has no residual at all and passes every per-piece test there is —
+ * correctly, since two triangles really is a box's face. On a 2676-triangle
+ * organic shell that produced 129 invented planes and 3 spheres, none of which
+ * exists.
+ *
+ * What separates them is the run. A prismatic run is ACCOUNTED FOR: its pieces
+ * are faces and they cover it. A freeform run is not — most of it fits nothing
+ * and what does fit is facet-sized. A plate's side band, four fillets and four
+ * walls, is covered to the last triangle and is never touched.
+ *
+ * It is worth knowing EARLY as well as late. Everything downstream of
+ * segmentation — merging pairs, refining boundaries, building faces — is
+ * per-patch work on a run that is about to be thrown away whole, and on an
+ * organic model that is nearly all of the time the conversion takes: 3.5
+ * seconds of merging on a 3480-triangle blob, against 0.4 for the faceted
+ * build that is the eventual answer. */
+void FreeformRuns(const std::vector<Patch> &patches, const Mesh &m, double tol,
+                  std::unordered_set<int> &freeform)
+{
+    freeform.clear();
+    std::unordered_map<int, int> cutInto;
+    for (const Patch &pa : patches)
+        cutInto[pa.origin]++;
+    std::unordered_map<int, std::pair<int, int>> cover; /* kept, total */
+    std::unordered_map<int, std::vector<int>> keptSizes;
+    for (const Patch &pa : patches) {
+        if (pa.origin < 0)
+            continue;
+        std::pair<int, int> &c = cover[pa.origin];
+        c.second += static_cast<int>(pa.tris.size());
+        const bool frag = cutInto[pa.origin] > 1;
+        if (pa.fit.kind != kNone && Identifiable(pa, m, tol, frag)) {
+            c.first += static_cast<int>(pa.tris.size());
+            keptSizes[pa.origin].push_back(static_cast<int>(pa.tris.size()));
+        }
+    }
+    for (std::unordered_map<int, std::pair<int, int>>::iterator it =
+             cover.begin();
+         it != cover.end(); ++it) {
+        const int kept = it->second.first, total = it->second.second;
+        if (total < kFreeformMinRun || kept * 2 >= total)
+            continue;
+        std::vector<int> &sz = keptSizes[it->first];
+        if (sz.empty()) {
+            freeform.insert(it->first);
+            continue;
+        }
+        /* Barely accounted for at all: freeform whatever the pieces look like.
+         * A run that is 98% triangles is not a set of faces with a few gaps,
+         * and the two or three surfaces standing in it are worth less than the
+         * seams they cost. */
+        if (kept * kFreeformCoverDenom < total) {
+            freeform.insert(it->first);
+            continue;
+        }
+        std::sort(sz.begin(), sz.end());
+        if (sz[sz.size() / 2] < kFreeformPieceTriangles)
+            freeform.insert(it->first);
+    }
+    MR_TRACE("  [freeform] %d of %d runs\n", (int)freeform.size(),
+             (int)cover.size());
+    for (std::unordered_map<int, std::pair<int, int>>::iterator it =
+             cover.begin();
+         it != cover.end(); ++it)
+        MR_TRACE("     run %d: kept %d of %d in %d pieces%s\n", it->first,
+                 it->second.first, it->second.second,
+                 (int)keptSizes[it->first].size(),
+                 freeform.count(it->first) ? "  FREEFORM" : "");
+}
+
 void MergeRegions(const Mesh &m, std::vector<Patch> &patches, double tol,
-                  double scale, int maxPasses)
+                  double scale, int maxPasses,
+                  const std::unordered_set<int> &skipOrigins)
 {
     PatchData pd;
     for (int pass = 0; pass < maxPasses; ++pass) {
@@ -2172,6 +2670,11 @@ void MergeRegions(const Mesh &m, std::vector<Patch> &patches, double tol,
                 patches[a].origin != patches[b].origin) {
                 continue;
             }
+            /* And nothing at all inside a run already judged freeform: every
+             * pair there costs a full five-kind fit and every one of them
+             * fails. */
+            if (skipOrigins.find(patches[a].origin) != skipOrigins.end())
+                continue;
             uni.clear();
             uni.reserve(patches[a].tris.size() + patches[b].tris.size());
             uni.insert(uni.end(), patches[a].tris.begin(),
@@ -2180,6 +2683,13 @@ void MergeRegions(const Mesh &m, std::vector<Patch> &patches, double tol,
                        patches[b].tris.end());
             PatchPoints(m, uni, pd, 4000);
             const Fit f = FitPatch(pd, tol, scale);
+            MR_TRACE("  merge? %d(%s,%d) + %d(%s,%d) -> %s rms %.5f agree "
+                     "%.4f (tol %.5f)\n",
+                     a, KindName(patches[a].fit.kind),
+                     (int)patches[a].tris.size(), b,
+                     KindName(patches[b].fit.kind),
+                     (int)patches[b].tris.size(), KindName(f.kind), f.rms,
+                     f.agree, tol);
             if (f.kind == kNone || f.rms > tol)
                 continue;
             /* Merging is never obligatory, so it should only happen on strong
@@ -2190,8 +2700,59 @@ void MergeRegions(const Mesh &m, std::vector<Patch> &patches, double tol,
              * Demanding that the merged surface also POINT the way the mesh
              * does, and much more strictly than the first-pass classifier
              * does, is what tells a real shared surface from a coincidence. */
-            if (f.agree < kMergeNormalGate)
+            /* An EXACT merged fit is believed on its residual instead.
+             *
+             * The normal gate is a proxy for "is this really one surface", and
+             * it is the right proxy when the fit is approximate. When the fit
+             * is exact it is the weaker evidence of the two, and it says no to
+             * things that are plainly true: two adjacent rows of a boss's
+             * fillet ring merged into a torus at residual 0.0000000 — the
+             * fillet, exactly — with mean normal agreement 0.9872, and were
+             * kept apart by a bar of 0.99. Their coarse facet normals cannot
+             * agree better than that; the surface underneath them is still the
+             * torus. The facet test below is what keeps this honest. */
+            const bool mergedExact = f.rms <= tol * kExactFitFraction;
+            if (!mergedExact && f.agree < kMergeNormalGate)
                 continue;
+            /* Merging two surfaces that were each already RECOGNISED must not
+             * make the fit worse than either of them was.
+             *
+             * The pass exists to reunite one surface that the splitter cut in
+             * two, and there the union fits exactly, because both halves did.
+             * When it instead joins two DIFFERENT surfaces the union fits only
+             * loosely — and loosely is still inside tolerance, which is why
+             * the residual gate alone let it through. Measured: an r=5 corner
+             * fillet (32 triangles, cylinder, residual zero) merged with the
+             * two triangles of the flat wall it is tangent to (plane, residual
+             * zero) and came back as a torus at 0.0102, wrapped around a major
+             * radius of 15 mm that is nowhere in the part; trimmed, it added
+             * 42% to the model's volume. Neither half was improved by the
+             * merge, and that is exactly what the test should say.
+             *
+             * A patch that fitted NOTHING has nothing to lose, so the repair
+             * case this pass was written for is untouched. */
+            /* And the merged surface must pass through the FACETS of both,
+             * not merely their vertices — the same test the fitter and RANSAC
+             * apply, and for the same reason: this is where a torus threaded
+             * through a fillet and the flat wall beside it gives itself away. */
+            {
+                bool bulges = false;
+                const int st = std::max<int>(1, (int)uni.size() / 256);
+                for (size_t i = 0; i < uni.size() && !bulges; i += st) {
+                    double bar = 0;
+                    if (FacetBulge(f.kind, f.q, m, uni[i], bar) >
+                        std::max(bar, tol))
+                        bulges = true;
+                }
+                if (bulges)
+                    continue;
+            }
+            if (patches[a].fit.kind != kNone && patches[b].fit.kind != kNone) {
+                const double worse =
+                    std::max(patches[a].fit.rms, patches[b].fit.rms);
+                if (f.rms > std::max(worse, tol * kExactFitFraction))
+                    continue;
+            }
             patches[a].tris.swap(uni);
             patches[a].fit = f;
             patches[a].origin = patches[b].origin;
@@ -2735,12 +3296,96 @@ bool IntersectablePair(const Handle(Geom_Surface) & s1,
  * This is the whole quality argument for the prismatic path: a hole's rim
  * comes out a real gp_Circ, so a fillet on it later has a circle to roll along
  * and a STEP export carries a circle rather than a 200-segment spline. */
+/* The circle where a fillet TOUCHES what it blends into.
+ *
+ * A fillet meets its neighbours tangentially — that is what a fillet is — and
+ * a tangential contact is the one case a general surface intersector cannot
+ * do: the two surfaces do not cross, they graze, and the system is singular
+ * exactly along the answer. GeomAPI_IntSS returns nothing, the edge falls back
+ * to the polyline through the mesh vertices, and the fillet's own face keeps
+ * the true circle. Measured on a boss fillet ring: the torus side carried a
+ * circle of circumference 65.973 and the plate top an inscribed polygon of
+ * 64.529, half a millimetre apart at the middle of every segment, and the
+ * shell stayed open along that one seam — 2 free edges out of 45.
+ *
+ * But a fillet's contacts are not general intersections at all, they are
+ * known: a torus is touched by the plane perpendicular to its axis at exactly
+ * its minor radius, in the circle of its MAJOR radius; and by the coaxial
+ * cylinder of radius R+r or R-r, in the circle of that radius. Both are
+ * closed-form, both are exact, and both are checked against the chain before
+ * being believed. */
+Handle(Geom_Curve) TangentContact(const Handle(Geom_Surface) & s1,
+                                  const Handle(Geom_Surface) & s2, double tol)
+{
+    Handle(Geom_ToroidalSurface) tor =
+        Handle(Geom_ToroidalSurface)::DownCast(s1);
+    Handle(Geom_Surface) other = s2;
+    if (tor.IsNull()) {
+        tor = Handle(Geom_ToroidalSurface)::DownCast(s2);
+        other = s1;
+    }
+    if (tor.IsNull())
+        return nullptr;
+    const gp_Pnt c = tor->Position().Location();
+    const gp_Dir d = tor->Position().Direction();
+    const double R = tor->MajorRadius(), r = tor->MinorRadius();
+    const double cosPar = 1.0 - 1e-7;
+
+    if (Handle(Geom_Plane) pl = Handle(Geom_Plane)::DownCast(other)) {
+        if (std::fabs(pl->Position().Direction().Dot(d)) < cosPar)
+            return nullptr;
+        const double h =
+            gp_Vec(c, pl->Position().Location()).Dot(gp_Vec(d));
+        if (std::fabs(std::fabs(h) - r) > tol)
+            return nullptr;
+        return new Geom_Circle(gp_Ax2(c.Translated(gp_Vec(d) * h), d), R);
+    }
+    if (Handle(Geom_CylindricalSurface) cy =
+            Handle(Geom_CylindricalSurface)::DownCast(other)) {
+        if (std::fabs(cy->Position().Direction().Dot(d)) < cosPar)
+            return nullptr;
+        /* The same axis LINE, not merely the same direction. */
+        const gp_Vec off(c, cy->Position().Location());
+        const double along = off.Dot(gp_Vec(d));
+        const double perp2 = off.SquareMagnitude() - along * along;
+        if (perp2 > tol * tol)
+            return nullptr;
+        const double cr = cy->Radius();
+        double want = 0;
+        if (std::fabs(cr - (R + r)) <= tol)
+            want = R + r;
+        else if (R > r && std::fabs(cr - (R - r)) <= tol)
+            want = R - r;
+        else
+            return nullptr;
+        return new Geom_Circle(gp_Ax2(c, d), want);
+    }
+    return nullptr;
+}
+
 Handle(Geom_Curve) IntersectionCurve(const Handle(Geom_Surface) & s1,
                                      const Handle(Geom_Surface) & s2,
                                      const std::vector<gp_Pnt> &pts, double tol)
 {
     if (s1.IsNull() || s2.IsNull())
         return nullptr;
+    /* A grazing contact first: the intersector cannot find it and it has a
+     * closed form. Believed only if the chain really is on it. */
+    if (Handle(Geom_Curve) t = TangentContact(s1, s2, tol)) {
+        bool on = true;
+        try {
+            for (size_t k = 0; k < pts.size() && on;
+                 k += std::max<size_t>(1, pts.size() / 6)) {
+                GeomAPI_ProjectPointOnCurve pp(pts[k], t);
+                if (pp.NbPoints() < 1 || pp.LowerDistance() > tol * 3)
+                    on = false;
+            }
+        } catch (const Standard_Failure &) {
+            on = false;
+        }
+        if (on)
+            return t;
+    }
     if (!IntersectablePair(s1, s2, tol))
         return nullptr;
     /* And the chain has to be ON both surfaces before it is worth asking where
@@ -3330,6 +3975,9 @@ bool BuildAnalyticFace(BuildCtx &ctx, const Mesh &m, const Patch &patch,
     }
     if (allClosed && (surf->IsUPeriodic() || surf->IsVPeriodic())) {
         const UvExtent e = MeasureUv(m, patch.tris, surf);
+        MR_TRACE("      closed loops: uv ok=%d u[%.3f %.3f]%s v[%.3f %.3f]%s\n",
+                 (int)e.ok, e.u1, e.u2, e.uFull ? " FULL" : "", e.v1, e.v2,
+                 e.vFull ? " FULL" : "");
         if (e.ok && (e.uFull || e.vFull)) {
             if (BuildParametricFace(ctx, m, patch, surf, out))
                 return true;
@@ -3413,6 +4061,17 @@ bool BuildAnalyticFace(BuildCtx &ctx, const Mesh &m, const Patch &patch,
         if (!ok || !mw.IsDone()) {
             MR_TRACE("      face %d: wire of %d chains failed\n", self,
                      (int)chains.size());
+            /* A boundary that will not close is not a reason to throw the
+             * SURFACE away — but nor may the loop simply be dropped, because
+             * an inner rim left out is a hole not cut and the face then
+             * covers it (measured: +194% volume, and no solid). On a periodic
+             * surface the mesh's own uv extent trims it honestly instead,
+             * which is how a recognised blend ring stays a blend ring when a
+             * neighbouring patch leaves a nick in its edge. FaceWithinPatch
+             * has the last word on anything that overreaches, and sends it to
+             * triangles as before. */
+            if (surf->IsUPeriodic() || surf->IsVPeriodic())
+                return BuildParametricFace(ctx, m, patch, surf, out);
             return false;
         }
         wires.push_back(mw.Wire());
@@ -3918,8 +4577,11 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
     std::vector<int> patchOf;
     int rawPatches = 0;
     std::vector<Patch> patches;
+    std::unordered_set<int> freeform;
     try {
+        MR_STAGE("start");
         SmoothPatches(m, prm.sharp_deg, patchOf, rawPatches);
+        MR_STAGE("smooth patches");
         std::vector<std::vector<int>> byPatch(rawPatches);
         for (int t = 0; t < m.triCount(); ++t)
             byPatch[patchOf[t]].push_back(t);
@@ -3934,9 +4596,18 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
             SplitPatch(m, byPatch[i], tol, scale, prm.min_patch_triangles, i, 0,
                        patches);
         }
-        MergeRegions(m, patches, tol, scale, 8);
+        MR_STAGE("split");
+        FreeformRuns(patches, m, tol, freeform);
+        for (Patch &pa : patches)
+            if (freeform.find(pa.origin) != freeform.end())
+                pa.fit = Fit();
+        MR_STAGE("freeform runs");
+        MergeRegions(m, patches, tol, scale, 8, freeform);
+        MR_STAGE("merge");
         RefineBoundaries(m, patches, tol, scale, 6);
+        MR_STAGE("refine boundaries");
         Regularise(patches, m, prm, tol, scale);
+        MR_STAGE("regularise");
     } catch (const std::bad_alloc &) {
         err = "the mesh is too large to segment";
         return TopoDS_Shape();
@@ -3965,10 +4636,130 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
      * do not go to triangles INDIVIDUALLY — which is the whole difference
      * between a model whose holes are still circles and one that was thrown
      * away wholesale because its shell happened to be organic. */
-    for (Patch &pa : patches) {
-        if (pa.fit.kind != kNone && !Identifiable(pa, m, tol))
+    std::unordered_map<int, int> cutInto;
+    for (const Patch &pa : patches)
+        cutInto[pa.origin]++;
+    for (size_t pi = 0; pi < patches.size(); ++pi) {
+        Patch &pa = patches[pi];
+        const bool frag = pa.origin < 0 || cutInto[pa.origin] > 1;
+        const bool keep =
+            pa.fit.kind != kNone && Identifiable(pa, m, tol, frag);
+        MR_TRACE("  patch %3d origin %3d %5d tri  %-8s rms %.5f agree %.4f  "
+                 "%s%s\n",
+                 (int)pi, pa.origin, (int)pa.tris.size(),
+                 KindName(pa.fit.kind), pa.fit.rms, pa.fit.agree,
+                 keep ? "KEEP" : "drop", frag ? " (fragment)" : "");
+        if (!keep)
             pa.fit = Fit();
     }
+
+    /* And again after merging, which changes what is explained. */
+    {
+        std::unordered_set<int> again;
+        FreeformRuns(patches, m, tol, again);
+        for (Patch &pa : patches)
+            if (again.find(pa.origin) != again.end())
+                pa.fit = Fit();
+    }
+
+    /* A tiny face alone in a sea of triangles is worth less than the triangles.
+     *
+     * A squashed ellipsoid throws off single facets whose three neighbours are
+     * all across a sharp edge, so each becomes a smooth run of ONE triangle
+     * that fits its own plane exactly. Nothing above rejects them and nothing
+     * should: two triangles really is a box's face. What settles it is the
+     * company they keep. A face among faces shares its edges with faces; a
+     * face among triangles has to be stitched to a triangle strip along every
+     * side, which is where a hybrid shell leaves its open seams — and here it
+     * buys nothing at all, because the fitted plane IS the triangle. So let it
+     * be the triangle. */
+    {
+        std::vector<int> owner(m.triCount(), -1);
+        for (size_t i = 0; i < patches.size(); ++i)
+            for (int t : patches[i].tris)
+                owner[t] = static_cast<int>(i);
+        for (int pass = 0; pass < 3; ++pass) {
+            bool again = false;
+            for (size_t i = 0; i < patches.size(); ++i) {
+                Patch &pa = patches[i];
+                if (pa.fit.kind == kNone ||
+                    static_cast<int>(pa.tris.size()) >= kFreeformPieceTriangles)
+                    continue;
+                /* How much of its BOUNDARY faces triangles.
+                 *
+                 * "Has a fitted neighbour" is not enough: two one-triangle
+                 * runs side by side are each other's fitted neighbour and both
+                 * survive on that alone, which is how a lumpy blob kept
+                 * twenty-six "faces" that are its own facets. Nor is "has a
+                 * big fitted neighbour" — a box is six faces of two triangles
+                 * and every neighbour of every one of them is just as small.
+                 * What separates them is what lies along the edges: a box face
+                 * meets faces on all four sides, a facet adrift in an organic
+                 * shell meets triangles on most of its own. */
+                int outward = 0, toTriangles = 0;
+                for (int t : pa.tris) {
+                    for (int k = 0; k < 3; ++k) {
+                        const int o = m.adj[t * 3 + k];
+                        if (o < 0)
+                            continue;
+                        const int j = owner[o];
+                        if (j < 0 || j == static_cast<int>(i))
+                            continue;
+                        outward++;
+                        if (patches[j].fit.kind == kNone)
+                            toTriangles++;
+                    }
+                }
+                if (outward > 0 && toTriangles * 2 > outward) {
+                    pa.fit = Fit();
+                    again = true;
+                }
+            }
+            if (!again)
+                break;
+        }
+    }
+
+    /* Nothing at all was recognised: then this is a mesh, and it should be
+     * built as one piece rather than as a mosaic of faceted patches. The
+     * difference is not cosmetic — each faceted patch is emitted with its own
+     * vertices, so 183 of them meet along seams that sewing has to rediscover,
+     * and a squashed ellipsoid came back 0.02% light where one faceted shell
+     * reproduces the mesh's volume exactly. */
+    {
+        bool anyFit = false;
+        for (const Patch &pa : patches)
+            if (pa.fit.kind != kNone) {
+                anyFit = true;
+                break;
+            }
+        if (!anyFit && m.triCount() <= prm.max_faceted_triangles) {
+            Report fr;
+            ClearReport(fr);
+            fr.triangles_in = rep.triangles_in;
+            fr.vertices_in = rep.vertices_in;
+            fr.triangles_used = rep.triangles_used;
+            fr.vertices_welded = rep.vertices_welded;
+            fr.non_manifold_edges = rep.non_manifold_edges;
+            fr.boundary_edges = rep.boundary_edges;
+            fr.flipped_triangles = rep.flipped_triangles;
+            fr.diagonal = rep.diagonal;
+            fr.patches = rep.patches;
+            TopoDS_Shape alt;
+            try {
+                alt = BuildFaceted(m, tol, fr);
+            } catch (const Standard_Failure &) {
+            } catch (const std::exception &) {
+            } catch (...) {
+            }
+            if (!alt.IsNull()) {
+                rep = fr;
+                MR_STAGE("faceted (nothing recognised)");
+                return alt;
+            }
+        }
+    }
+    MR_STAGE("patch verdicts");
 
     std::vector<Handle(Geom_Surface)> surfs(patches.size());
     double rmsNum = 0, rmsDen = 0;
@@ -4062,8 +4853,10 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
         err = buf;
         return TopoDS_Shape();
     }
+    MR_STAGE("build faces");
     for (const std::vector<int> &tris : deferred)
         EmitFacetedShared(ctx, m, tris, faces);
+    MR_STAGE("emit faceted");
 
     rep.analytic_edges = ctx.analytic;
     rep.approximated_edges = ctx.approximated;

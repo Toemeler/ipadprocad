@@ -225,6 +225,10 @@ struct RunOpts {
     int sweep_fixed_spans = 16;    /* the path for the segments ladder */
     int sweep_fixed_segments = 128; /* the profile for the spans ladder */
     int sweep_legacy_max = 128;     /* above this the v23 arm is skipped */
+    /* v27 (S15): above this the HOLED arm is skipped. 256 costs a few seconds
+     * on a per-push job and is well past the point where v26 stopped being
+     * affordable at all; --sweep-holed-max moves it for anyone climbing. */
+    int sweep_holed_max = 256;
 };
 
 /* Below this, one sample is mostly clock noise: steady_clock resolves to
@@ -954,6 +958,37 @@ static occt_shape *sweepOnce(int segments, int spans, double *ms,
     return s;
 }
 
+/* v27 (S15): THE SAME LADDER WITH A HOLE IN IT.
+ *
+ * Lane C had no holed sweep scenario at all, which is how a holed profile
+ * stayed on the v23 mitered spine — and stayed FAILING at 1200 segments —
+ * through v24, v25 and v26 without the gate that runs on every push noticing.
+ * The operation this rung measures is the one v27 changed; a rung that only
+ * ever sweeps a single loop cannot see it regress.
+ *
+ * Same profile and same path as sweepOnce, plus a concentric r=3 hole, so the
+ * two ladders differ in exactly one thing and their ratio is the price of a
+ * hole. It is deliberately SHORT — the holed ladder stops well below the
+ * unholed one — because a per-push job should not carry the biggest rung of a
+ * second ladder to learn what the first one already says about scaling. */
+static occt_shape *holedSweepOnce(int segments, int spans, double *ms,
+                                  int path_mode = OCCT_SWEEP_PATH_AUTO)
+{
+    std::vector<double> prof = bench::arcRingXYB(segments, 6.0);
+    const std::vector<double> hole = bench::arcRingXYB(segments, 3.0);
+    prof.insert(prof.end(), hole.begin(), hole.end());
+    const std::vector<double> path = bench::arcPathXYZ(spans + 1, 60.0);
+    const int counts[2] = {segments, segments};
+    const auto t0 = std::chrono::steady_clock::now();
+    occt_shape *s =
+        occt_sweep_profile_ex(prof.data(), counts, 2, kIdentity34, path.data(),
+                              spans + 1, 0, 0.0, 0.0, path_mode);
+    const auto t1 = std::chrono::steady_clock::now();
+    if (ms)
+        *ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+    return s;
+}
+
 /* The CONTROL, and it needs no new entry point: occt_coil_profile sweeps the
  * same kind of section along an EXACT HELIX — one analytic edge, no joints,
  * and it does not set a transition mode at all. Placing its axis 18 units from
@@ -985,11 +1020,13 @@ static occt_shape *coilOnce(int segments, double *ms)
 static void sweepRung(const RunOpts &opts, const char *op, const char *axis,
                       double x, int segments, int spans, const char *note,
                       bool coil = false,
-                      int path_mode = OCCT_SWEEP_PATH_AUTO)
+                      int path_mode = OCCT_SWEEP_PATH_AUTO,
+                      bool holed = false)
 {
     const auto build = [&](double *ms) {
-        return coil ? coilOnce(segments, ms)
-                    : sweepOnce(segments, spans, ms, path_mode);
+        return coil   ? coilOnce(segments, ms)
+               : holed ? holedSweepOnce(segments, spans, ms, path_mode)
+                       : sweepOnce(segments, spans, ms, path_mode);
     };
     double probe_ms = 0.0;
     occt_shape *first = build(&probe_ms);
@@ -1190,6 +1227,24 @@ static void runSweepLadders(const RunOpts &opts)
         sweepRung(opts, "sweep.segments", "segments", n, n,
                   opts.sweep_fixed_spans,
                   "occt_sweep_profile against profile segment count");
+
+    /* Ladder 1b (v27) — the same ladder WITH A HOLE.
+     *
+     * Capped by --sweep-holed-max, which defaults well below the unholed
+     * ladder's top rung: this is a witness that the operation still works and
+     * still scales, not a second full climb. Until v27 every rung of it above
+     * 128 segments was minutes and the top one did not finish at all. */
+    std::printf("\n  -- sweep.holed (an r=3 hole in the same ring, capped at "
+                "%d segments) --\n", opts.sweep_holed_max);
+    for (int n : opts.sweep_sizes) {
+        if (n > opts.sweep_holed_max)
+            continue;
+        sweepRung(opts, "sweep.holed", "segments", n, n,
+                  opts.sweep_fixed_spans,
+                  "occt_sweep_profile with one hole — v27 assembles it, v26 "
+                  "cut it out with a boolean",
+                  false, OCCT_SWEEP_PATH_AUTO, true);
+    }
 
     /*
      * The LEGACY arm — old against new, one run, one machine, which is what
@@ -1700,6 +1755,9 @@ static void usage()
         "  --sweep-legacy-max N  highest segment rung the v23 (POLY) arm is\n"
         "                    run at (default 128). v23 costs 447 s at 512 and\n"
         "                    FAILS at 1200 on the machine this was written on\n"
+        "  --sweep-holed-max N  highest segment rung the HOLED arm is run\n"
+        "                    at (default 256). Before v27 that arm was minutes\n"
+        "                    a rung and did not finish at 1200 at all\n"
         "  --no-sweep         skip the sweep ladders entirely\n"
         "  --help\n");
 }
@@ -1780,6 +1838,8 @@ int main(int argc, char **argv)
             opts.sweep_fixed_spans = std::atoi(next("--sweep-path"));
         else if (a == "--sweep-legacy-max")
             opts.sweep_legacy_max = std::atoi(next("--sweep-legacy-max"));
+        else if (a == "--sweep-holed-max")
+            opts.sweep_holed_max = std::atoi(next("--sweep-holed-max"));
         else if (a == "--no-sweep")
             opts.sweep = false;
         else if (a == "--quick") {
@@ -1899,8 +1959,8 @@ int main(int argc, char **argv)
      * function is not a power law, and a k drawn through a 1-span rung with no
      * corners and a 16-span rung with fifteen describes nothing. Read the
      * rungs, not the exponent. */
-    for (const char *op : {"sweep.segments", "sweep.legacy", "sweep.coil",
-                           "sweep.ph.build", "sweep.ph.unify",
+    for (const char *op : {"sweep.segments", "sweep.holed", "sweep.legacy",
+                           "sweep.coil", "sweep.ph.build", "sweep.ph.unify",
                            "sweep.ph.total"}) {
         FitRow r;
         r.op = op;
