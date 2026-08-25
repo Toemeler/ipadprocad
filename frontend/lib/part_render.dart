@@ -294,22 +294,15 @@ class SceneSolid {
 /// every component into ONE depth space, which is what lets a single
 /// [SceneOccluders] hide one component behind another — and lets the shaded
 /// triangles of the whole assembly go through one sort.
-///
-/// M248 — [mirrored] says the camera it is being projected through is a
-/// MIRRORED component's, and it inverts the front test below. A reflection
-/// reverses triangle winding, so cross(p1−p0, p2−p0) points INTO the solid;
-/// left alone, a mirrored component draws its back faces and reads as
-/// inside-out — visible as shading that lights the wrong side and a silhouette
-/// that is right, which is exactly the defect that survives a small render.
 SceneSolid buildSceneSolid(KernelSolid solid, Cam3 cam,
-        {bool preview = false, double depthBias = 0, bool mirrored = false}) =>
+        {bool preview = false, double depthBias = 0}) =>
     Perf.span(
         'render.buildSceneSolid',
         () => _buildSceneSolidInner(solid, cam,
-            preview: preview, depthBias: depthBias, mirrored: mirrored));
+            preview: preview, depthBias: depthBias));
 
 SceneSolid _buildSceneSolidInner(KernelSolid solid, Cam3 cam,
-    {bool preview = false, double depthBias = 0, bool mirrored = false}) {
+    {bool preview = false, double depthBias = 0}) {
   final m = solid.mesh;
   final light = solidLight(cam);
   final tris = <SceneTri>[];
@@ -336,8 +329,7 @@ SceneSolid _buildSceneSolidInner(KernelSolid solid, Cam3 cam,
     // direction — the camera looks along dir, so a face we see points back
     // toward it (n·dir < 0). Backfaces (n·dir > 0) are kept with front=false
     // only for silhouette detection.
-    final front =
-        mirrored ? n.normalized().dot(cam.dir) > 0 : n.normalized().dot(cam.dir) < 0;
+    final front = n.normalized().dot(cam.dir) < 0;
     tris.add(SceneTri(
         cam.project(w0),
         cam.project(w1),
@@ -979,8 +971,8 @@ class PlacedComponent {
   ///
   /// M248 — a [Placement] rather than a (rotation, translation) pair, because
   /// a MIRRORED component is not a rigid transform and a quaternion cannot
-  /// hold one. Everything the painter needs to treat it differently is on
-  /// that value; see [Placement.windingNormal].
+  /// hold one. The painter needs nothing else: [placedCam] takes the whole
+  /// value, and says there why the front-face test is unaffected.
   final List<(Placement, KernelSolid)> pieces;
 }
 
@@ -1008,9 +1000,25 @@ class PlacedComponent {
 ///
 /// and [Placement.unapplyDir] is exactly S·Rᵀ. The camera comes back with a
 /// LEFT-handed basis, which project, depth and projectVec are all indifferent
-/// to. What is NOT indifferent is the front-face test that runs against
-/// [Cam3.dir] in the component's own space — the winding reversed too. See
-/// [buildSceneSolid]'s `mirrored`.
+/// to.
+///
+/// AND SO IS THE FRONT-FACE TEST, which is worth writing down because it is
+/// the opposite of what the milestone expected. A reflection does reverse
+/// triangle winding — but only in WORLD space. Every consumer on this path
+/// works in the component's OWN space (the whole point of a placed camera) and
+/// there the mesh is untouched: cross(p1−p0, p2−p0) is still the outward
+/// normal. The map carries an outward normal to an outward normal, because it
+/// is orthogonal, so
+///
+///     (R·S·n)·dir < 0   ⟺   n·(S·Rᵀ·dir) < 0   ⟺   n·cam.dir < 0
+///
+/// and buildSceneSolid, pickOccurrence and asm_pick._pickFaceOn all keep the
+/// test they had. Adding a sign here is not harmless: it selects the BACK
+/// faces of a mirrored component, which draws with the right silhouette and
+/// the wrong shading — found by rendering one, not by any unit test.
+///
+/// The one path where the winding trap IS real is RealityKit's, because the
+/// GPU transforms the vertices before it culls. See [solidPayload].
 Cam3 placedCam(Cam3 cam, Placement at) => Cam3.basis(
       dir: at.unapplyDir(cam.dir),
       s: at.unapplyDir(cam.s),
@@ -1069,12 +1077,7 @@ SceneOccluders? paintAssemblySolids(
   for (var i = 0; i < placed.length; i++) {
     for (final (at, s) in placed[i].pieces) {
       final sc = placedCam(cam, at);
-      scenes.add((
-        i,
-        sc,
-        buildSceneSolid(s, sc,
-            depthBias: cam.depth(at.at), mirrored: at.mirrored)
-      ));
+      scenes.add((i, sc, buildSceneSolid(s, sc, depthBias: cam.depth(at.at))));
     }
   }
   if (scenes.isEmpty) return null;

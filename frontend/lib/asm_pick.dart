@@ -235,16 +235,10 @@ AsmPick? _pickFaceOn(AssemblyOccurrence o, Cam3 cam, Offset px) {
       final w1 = Vec3(m.positions[i1], m.positions[i1 + 1], m.positions[i1 + 2]);
       final w2 = Vec3(m.positions[i2], m.positions[i2 + 1], m.positions[i2 + 2]);
       final n = (w1 - w0).cross(w2 - w0);
-      // Camera-facing only, the renderer's rule — see the file header.
-      //
-      // M248 — and on a MIRRORED component the winding runs the other way, so
-      // this normal points into the solid and the test flips with it. Without
-      // that a mirrored component answers with the face on its far side: the
-      // pick would land on geometry the user cannot see, which reads as a tap
-      // that selected the wrong thing rather than as a rendering bug.
-      if (n.length < 1e-12) continue;
-      final faces = n.normalized().dot(sc.dir);
-      if (pp.mirrored ? faces <= 0 : faces >= 0) continue;
+      // Camera-facing only, the renderer's rule — see the file header. M248:
+      // UNCHANGED on a mirrored component, and see placedCam for why — the
+      // winding reverses in world space, and this loop is in the piece's own.
+      if (n.length < 1e-12 || n.normalized().dot(sc.dir) >= 0) continue;
       final a = sc.project(w0), b = sc.project(w1), c = sc.project(w2);
       final den = (b.dy - c.dy) * (a.dx - c.dx) + (c.dx - b.dx) * (a.dy - c.dy);
       if (den.abs() < 1e-9) continue;

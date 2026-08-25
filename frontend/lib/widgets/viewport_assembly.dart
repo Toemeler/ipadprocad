@@ -742,13 +742,10 @@ AssemblyOccurrence? pickOccurrence(AssemblyModel a, Cam3 cam, Offset px) {
         // space and a turned component would otherwise be tested against the
         // world's idea of "toward the viewer".
         //
-        // M248 — a MIRRORED component reverses that winding, so its facing
-        // test reverses with it. Without this the drag grabs whatever is on
-        // the far side of a mirrored component, which looks like the pick
-        // going through it.
-        if (n.length < 1e-12) continue;
-        final faces = n.normalized().dot(sc.dir);
-        if (pp.mirrored ? faces <= 0 : faces >= 0) continue;
+        // M248 — UNCHANGED on a mirrored component. The winding reverses in
+        // WORLD space and this test is in the piece's own, where the mesh is
+        // untouched; see placedCam. A sign here selects the far side.
+        if (n.length < 1e-12 || n.normalized().dot(sc.dir) >= 0) continue;
         final pa = sc.project(w0), pb = sc.project(w1), pc = sc.project(w2);
         final d = (pb.dx - pa.dx) * (pc.dy - pa.dy) -
             (pc.dx - pa.dx) * (pb.dy - pa.dy);

@@ -189,23 +189,14 @@ void main() {
       // Orthogonal: lengths and angles survive.
       expect(p.applyDir(a).length, closeTo(1, 1e-12));
       expect(p.applyDir(a).dot(p.applyDir(b)).abs(), lessThan(1e-12));
-      // But the cross product comes out the OTHER WAY. This is the whole
-      // defect: a normal derived from the winding points into the solid.
+      // But the cross product comes out the OTHER WAY, and the emphasis is
+      // the whole of the milestone's winding trap: it is cross-AFTER-mapping
+      // that reverses. Mapping the local cross product is still the outward
+      // normal, because an orthogonal map carries outward to outward.
       final crossThenMap = p.applyDir(a.cross(b));
       final mapThenCross = p.applyDir(a).cross(p.applyDir(b));
       expect(crossThenMap.dot(mapThenCross), lessThan(0),
           reason: 'det = -1: cross(Sa, Sb) = -S cross(a, b)');
-      // And [windingNormal] is the one place that sign is put back.
-      final fixed = p.windingNormal(a.cross(b));
-      expect(fixed.dot(mapThenCross), greaterThan(0));
-    });
-
-    test('a rigid placement leaves windingNormal alone', () {
-      final p = Placement(Quat.axisAngle(const Vec3(0, 1, 0), 0.3),
-          const Vec3(1, 1, 1));
-      const v = Vec3(0, 0, 1);
-      final a = p.windingNormal(v), b = p.applyDir(v);
-      expect((a - b).length, lessThan(1e-12));
     });
 
     test('two reflections compose back into a ROTATION', () {
@@ -274,8 +265,7 @@ void main() {
       final out = <int>{};
       for (final (_, at, s) in o.worldSolids) {
         final sc = placedCam(cam, at);
-        final scene =
-            buildSceneSolid(s, sc, depthBias: cam.depth(at.at), mirrored: at.mirrored);
+        final scene = buildSceneSolid(s, sc, depthBias: cam.depth(at.at));
         for (var i = 0; i < scene.tris.length; i++) {
           if (scene.tris[i].front) out.add(i);
         }
@@ -283,20 +273,26 @@ void main() {
       return out;
     }
 
-    /// Every triangle whose WORLD outward normal actually faces [cam],
-    /// computed the long way round: the mesh point transformed, then crossed.
+    /// Every triangle a viewer would actually see, computed from the mesh's
+    /// STORED outward normals rather than from any winding at all.
+    ///
+    /// This is the reference the renderer has to agree with, and it is chosen
+    /// for being independent of the thing under test: a reflection is
+    /// orthogonal, so it carries a stored outward normal to a stored outward
+    /// normal, and no sign is involved anywhere in it. It is also what the
+    /// SHADING reads — which is what gave the defect away on screen when an
+    /// earlier draft of this file used transformed-vertex cross products as
+    /// the reference, got the sign wrong there, and "confirmed" a renderer
+    /// that was drawing back faces.
     Set<int> facingTris(AssemblyOccurrence o, Cam3 cam) {
       final out = <int>{};
       for (final (_, at, s) in o.worldSolids) {
         final m = s.mesh;
         for (var t = 0; t + 2 < m.indices.length; t += 3) {
-          Vec3 v(int k) {
-            final i = m.indices[t + k] * 3;
-            return at.apply(
-                Vec3(m.positions[i], m.positions[i + 1], m.positions[i + 2]));
-          }
-
-          final n = (v(1) - v(0)).cross(v(2) - v(0));
+          final i = m.indices[t] * 3;
+          if (i + 2 >= m.normals.length) continue;
+          final n = at.applyDir(
+              Vec3(m.normals[i], m.normals[i + 1], m.normals[i + 2]));
           if (n.length < 1e-12) continue;
           if (n.normalized().dot(cam.dir) < 0) out.add(t ~/ 3);
         }
@@ -309,19 +305,49 @@ void main() {
       final plain = occ('Bracket:1', const Vec3(-30, 0, 0));
       final mirrored = occ('Bracket:2', const Vec3(30, 0, 0))
         ..reflect = const Vec3(1, 0, 0);
-      // The control: without a mirror the two agree trivially.
+      // The control: without a mirror the two agree.
       expect(frontTris(plain, cam), facingTris(plain, cam));
-      // The claim. Note facingTris transforms the VERTICES and crosses after,
-      // so it is right by construction whatever the handedness — it is the
-      // renderer's shortcut (cross in local space, test against the placed
-      // camera) that needed the sign.
+      // The claim: they agree on a mirrored component too, with the test
+      // UNCHANGED. See placedCam — the winding reverses in world space and the
+      // renderer works in the component's own, so the two never meet.
       expect(frontTris(mirrored, cam), facingTris(mirrored, cam),
-          reason: 'a mirrored component drawn with the un-flipped test shows '
-              'its back faces: silhouette right, shading wrong');
+          reason: 'a sign here selects the BACK faces of a mirrored '
+              'component: right silhouette, wrong shading');
       expect(frontTris(mirrored, cam), isNotEmpty);
       expect(frontTris(mirrored, cam).length,
           lessThan(mirrored.part!.features.first.solid!.mesh.indices.length ~/ 3),
           reason: 'not ALL of them either — that would be no culling at all');
+    });
+
+    test('a mirrored component is lit like its original, not like its inside',
+        () {
+      // The SHADING is what actually gave the defect away, so it is what this
+      // pins: the average brightness of a mirrored component's visible faces
+      // has to be in the same range as its original's. Drawing back faces
+      // instead lights normals that point away from the light and the whole
+      // component goes dark — obvious in a render, invisible to a test that
+      // only counts triangles.
+      final cam = frontCam();
+      double meanShade(AssemblyOccurrence o) {
+        var sum = 0.0;
+        var n = 0;
+        for (final (_, at, s) in o.worldSolids) {
+          final sc = placedCam(cam, at);
+          for (final tri in buildSceneSolid(s, sc).tris) {
+            if (!tri.front) continue;
+            sum += (tri.sa + tri.sb + tri.sc) / 3;
+            n++;
+          }
+        }
+        return n == 0 ? 0 : sum / n;
+      }
+
+      final plain = occ('Bracket:1', const Vec3(-30, 0, 0));
+      final mirrored = occ('Bracket:2', const Vec3(30, 0, 0))
+        ..reflect = const Vec3(1, 0, 0);
+      expect((meanShade(mirrored) - meanShade(plain)).abs(), lessThan(0.12),
+          reason: 'a mirror is the same solid seen the other way round; it '
+              'must not come out a different brightness');
     });
 
     test('the picker finds a mirrored component where it is drawn', () {

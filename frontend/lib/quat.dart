@@ -179,14 +179,19 @@ class Quat {
 ///
 /// because S_n·R = R·S_(Rᵀn) for any rotation R — see AppState.mirrorComponent.
 ///
-/// THE ONE THING EVERY CONSUMER MUST ASK. An orthogonal map carries a stored
-/// outward normal correctly ([applyDir] is right for a face record), but it
-/// REVERSES TRIANGLE WINDING, so a normal computed as cross(p1−p0, p2−p0)
-/// comes out pointing INTO the solid. Untreated, a mirrored component renders
-/// inside-out and picks its back faces — the defect that looks nearly right
-/// in a small render. [windingNormal] is the one place that sign is decided,
-/// and buildSceneSolid, pickOccurrence and asm_pick all ask it rather than
-/// each carrying their own `mirrored ? -1 : 1`.
+/// WINDING, and where it does and does not bite. An orthogonal map carries a
+/// stored outward normal correctly — [applyDir] is right for a face record —
+/// but it REVERSES TRIANGLE WINDING, so a normal computed as
+/// cross(p1−p0, p2−p0) OF THE TRANSFORMED VERTICES points into the solid.
+///
+/// The emphasis is the whole of it. Every CPU consumer in this tree works in
+/// the source's own space against a placed camera (see part_render.placedCam),
+/// where the mesh is untouched and the test is unchanged; putting a sign in
+/// one of them selects the BACK faces of a mirrored component, which draws
+/// with the right silhouette and the wrong shading. That was tried, and only
+/// rendering one found it. The path where the trap is real is RealityKit's,
+/// because the GPU transforms the vertices before it culls — see
+/// reality_payload.solidPayload, which is where the reversal is done.
 class Placement {
   const Placement(this.rot, this.at, [this.reflect]);
 
@@ -215,9 +220,11 @@ class Placement {
 
   /// A direction of the source. No translation — a direction has no position.
   ///
-  /// Correct for a STORED outward normal (a face record's), because a
-  /// reflection is orthogonal and maps outward normals to outward normals.
-  /// NOT correct for one derived from the winding — see [windingNormal].
+  /// Correct for a STORED outward normal (a face record's), and correct for a
+  /// cross product taken in the SOURCE's own frame: a reflection is
+  /// orthogonal, so it maps outward normals to outward normals either way.
+  /// What reverses is a cross product of already-transformed vertices — see
+  /// the winding note above.
   Vec3 applyDir(Vec3 local) => rot.rotate(flip(local));
 
   /// The inverse of [apply].
@@ -225,19 +232,6 @@ class Placement {
 
   /// The inverse of [applyDir].
   Vec3 unapplyDir(Vec3 world) => flip(rot.unrotate(world));
-
-  /// The outward normal of a facet whose local normal was derived from the
-  /// TRIANGLE WINDING, as cross(p1 − p0, p2 − p0).
-  ///
-  /// cross(S·a, S·b) = det(S)·S·cross(a, b), and det(S) = −1 for a
-  /// reflection: the winding runs the other way round and the normal it
-  /// yields points inward. Negating it here is what keeps the renderer's
-  /// front test (n·dir < 0) and every picker's facing test meaning the same
-  /// thing on a mirrored component as on any other.
-  Vec3 windingNormal(Vec3 localCross) {
-    final n = applyDir(localCross);
-    return reflect == null ? n : n * -1;
-  }
 
   /// `a * b` applies b FIRST, then a — the order [Quat.operator *] composes
   /// in, and the order matrices do.

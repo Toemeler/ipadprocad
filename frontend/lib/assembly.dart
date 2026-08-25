@@ -202,9 +202,9 @@ class AssemblyOccurrence {
   /// coordinates. No translation — a direction has no position.
   ///
   /// Right for a STORED outward normal on a mirrored component too, because a
-  /// reflection is orthogonal. A normal derived from the triangle WINDING is
-  /// the case that is not — [Placement.windingNormal] is where that sign is
-  /// decided.
+  /// reflection is orthogonal. The case that is not is a normal crossed from
+  /// TRANSFORMED vertices — see [Placement] for where that bites and where it
+  /// deliberately does not.
   Vec3 dirToWorld(Vec3 local) => placement.applyDir(local);
 
   /// The inverse of [toWorld]: a world point in the source part's coordinates.
