@@ -1363,6 +1363,18 @@ const double kMeshPrecisionFrac = 1.0e-6;
  * of radii pass through the same points within tolerance. */
 const double kMinSweepRad = 25.0 * M_PI / 180.0;
 
+/* The same question of a patch with no witness but the fit itself: see the
+ * "shallow" test in Identifiable. Every real feature on a drawn part sweeps a
+ * quarter turn or more — a fillet, a hole, a blend ring — so this costs
+ * nothing that exists. */
+const double kMinSweepFragmentRad = 45.0 * M_PI / 180.0;
+
+/* How big a patch may be and still be dissolved into its neighbours when it
+ * explains nothing. A handful of facets in the seam between two features is
+ * what this is for; a large region that fits nothing is a real freeform region
+ * and belongs in the faceted shell whole. */
+const int kDissolveMaxTriangles = 16;
+
 /* How many facet steps of normal disagreement a fit may have and still be
  * describing THIS surface. Half a step is what a perfect fit costs on a
  * tessellation; four times that is something else. */
@@ -1916,7 +1928,8 @@ double AgreementAllowed(const Patch &p, const Mesh &m)
     return std::max(facet * kAgreeFacetFactor, kAgreeFloorRad);
 }
 
-bool Identifiable(const Patch &p, const Mesh &m, double tol, bool fragment)
+bool Identifiable(const Patch &p, const Mesh &m, double tol, bool fragment,
+                  bool verdict = false)
 {
     WHY("ok");
     if (p.fit.kind == kNone)
@@ -1997,8 +2010,27 @@ bool Identifiable(const Patch &p, const Mesh &m, double tol, bool fragment)
             pts.push_back(m.pos[m.tri[p.tris[i] * 3 + k]]);
     if (pts.size() < 3)
         return WHY("nopoints"), false;
-    if (SurfaceCoverage(p.fit.kind, p.fit.q, pts) < kMinSweepRad)
+    /* And a FRAGMENT has to sweep further before its curve is believed.
+     *
+     * A patch that is a whole smooth run has the mesh's own sharp edges as its
+     * witness — the model is saying "this is one face" — and a quarter turn of
+     * it is plenty. A patch the splitter carved out of a bigger one has no
+     * witness, and a shallow arc is where an invented surface hides: the lower
+     * band of the user's top edge is six facets thirteen millimetres long, and
+     * a cylinder of radius 31 threads every one of their vertices to a
+     * five-thousandth of a millimetre. It sweeps 26 degrees. The r=1 fillet it
+     * is actually part of sweeps ninety. */
+    const double sweep = SurfaceCoverage(p.fit.kind, p.fit.q, pts);
+    if (sweep < kMinSweepRad)
         return WHY("sweep"), false;
+    /* Only when the verdict is final. Inside the splitter and the merge this
+     * same routine is asked whether a candidate is worth pursuing, and a
+     * shallow arc there is a perfectly good reason to keep looking rather than
+     * to stop — asked the strict question in those places instead, the whole
+     * segmentation of the user's part changed and it came back 129 faces and
+     * an open shell. */
+    if (verdict && fragment && sweep < kMinSweepFragmentRad)
+        return WHY("shallow"), false;
     return true;
 }
 
@@ -4969,6 +5001,115 @@ void AlignSurfaceSeam(const Handle(Geom_Surface) & surf, const Mesh &m,
     }
 }
 
+/* Gives away the triangles of a patch that explains nothing.
+ *
+ * A patch left without a surface goes to the faceted shell, and where it sits
+ * among patches that DO have surfaces that is usually the wrong home for it.
+ * The lower band of the user's top edge is the case: the splitter could not cut
+ * it at x = ±5, so the straight fillet and the two corner blends arrive as one
+ * patch of six facets, and the only surface fitting all six at once is a
+ * cylinder of radius 31 that exists nowhere on the part. Refused — a fragment
+ * has to sweep further than 26 degrees to be believed — the six would become
+ * six little planes.
+ *
+ * Their neighbours know what they are. Two of them lie exactly on the r=1
+ * fillet above; the other four lie exactly on the R=4 corner blends. So ask,
+ * triangle by triangle: does an adjacent patch's surface pass through this
+ * one's corners and predict its normal? Then it belongs there. What nobody can
+ * explain stays where it is and goes to triangles, as it should.
+ *
+ * Only OUT of patches with no surface and only INTO patches that have one, so
+ * an organic model — where nothing has a surface — is untouched. */
+void DissolveUnexplained(const Mesh &m, std::vector<Patch> &patches, double tol,
+                         double scale)
+{
+    const double exactBar = tol * kExactFitFraction;
+    const double h = std::max(scale * 1e-5, 1e-9);
+    std::vector<int> own(m.triCount(), -1);
+    std::vector<double> allowed(patches.size(), 0.0);
+    for (size_t i = 0; i < patches.size(); ++i) {
+        for (int t : patches[i].tris)
+            own[t] = static_cast<int>(i);
+        if (patches[i].fit.kind != kNone)
+            allowed[i] = AgreementAllowed(patches[i], m);
+    }
+
+    bool moved = true;
+    for (int pass = 0; pass < 3 && moved; ++pass) {
+        moved = false;
+        for (size_t i = 0; i < patches.size(); ++i) {
+            if (patches[i].fit.kind != kNone || patches[i].tris.empty())
+                continue;
+            if (static_cast<int>(patches[i].tris.size()) >
+                kDissolveMaxTriangles)
+                continue;
+            std::vector<int> stay;
+            stay.reserve(patches[i].tris.size());
+            const size_t had = patches[i].tris.size();
+            for (int t : patches[i].tris) {
+                int best = -1;
+                double bestErr = 1e300;
+                for (int k = 0; k < 3; ++k) {
+                    const int o = m.adj[t * 3 + k];
+                    if (o < 0)
+                        continue;
+                    const int j = own[o];
+                    if (j < 0 || j == static_cast<int>(i) ||
+                        patches[j].fit.kind == kNone)
+                        continue;
+                    /* Same smooth run only, for the reason MergeRegions and
+                     * RefineBoundaries have it: a sharp edge is a real
+                     * boundary and nothing across one belongs here. */
+                    if (patches[j].origin < 0 ||
+                        patches[j].origin != patches[i].origin)
+                        continue;
+                    const Fit &f = patches[j].fit;
+                    double worst = 0;
+                    V3 c;
+                    for (int q = 0; q < 3; ++q) {
+                        const V3 &pnt = m.pos[m.tri[t * 3 + q]];
+                        c += pnt;
+                        worst = std::max(
+                            worst, std::fabs(SurfDist(f.kind, f.q, pnt)));
+                    }
+                    if (worst > exactBar)
+                        continue;
+                    const V3 sn = SurfNormal(f.kind, f.q, c * (1.0 / 3.0), h);
+                    if (Norm(sn) < 0.5)
+                        continue;
+                    const double ang = std::acos(std::max(
+                        -1.0, std::min(1.0, std::fabs(Dot(sn, m.tnorm[t])))));
+                    if (ang > allowed[j])
+                        continue;
+                    if (worst < bestErr) {
+                        bestErr = worst;
+                        best = j;
+                    }
+                }
+                if (best < 0) {
+                    stay.push_back(t);
+                    continue;
+                }
+                patches[best].tris.push_back(t);
+                own[t] = best;
+                moved = true;
+            }
+            if (stay.size() != had) {
+                MR_TRACE("  patch %3d dissolved: %d of %d triangles taken by "
+                         "neighbours\n",
+                         (int)i, (int)(had - stay.size()), (int)had);
+                patches[i].tris.swap(stay);
+            }
+        }
+    }
+    std::vector<Patch> keep;
+    keep.reserve(patches.size());
+    for (Patch &pa : patches)
+        if (!pa.tris.empty())
+            keep.push_back(std::move(pa));
+    patches.swap(keep);
+}
+
 /* Cuts in half every patch that wraps the whole way round.
  *
  * A patch that closes on itself — a hole's barrel, the ring of a boss blend —
@@ -6059,7 +6200,7 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
         Patch &pa = patches[pi];
         const bool frag = pa.origin < 0 || cutInto[pa.origin] > 1;
         const bool keep =
-            pa.fit.kind != kNone && Identifiable(pa, m, tol, frag);
+            pa.fit.kind != kNone && Identifiable(pa, m, tol, frag, true);
         MR_TRACE("  patch %3d origin %3d %5d tri  %-8s rms %.5f agree %.4f  "
                  "%s%s\n",
                  (int)pi, pa.origin, (int)pa.tris.size(),
@@ -6207,6 +6348,16 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
                 return alt;
             }
         }
+    }
+    /* A patch with no surface among patches that have one usually belongs to
+     * them; see DissolveUnexplained. */
+    {
+        DissolveUnexplained(m, patches, tol, scale);
+        patchOf.assign(m.triCount(), -1);
+        for (size_t i = 0; i < patches.size(); ++i)
+            for (int t : patches[i].tris)
+                patchOf[t] = static_cast<int>(i);
+        rep.patches = static_cast<int>(patches.size());
     }
     MR_STAGE("patch verdicts");
 
