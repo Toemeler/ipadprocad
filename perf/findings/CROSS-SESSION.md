@@ -3916,3 +3916,83 @@ S16's text is left as committed — but whoever schedules next should know that
 two routed items may have been lost, and that S17 closed item 1 of the two that
 survived. Item 2, S15's invalid tapered sweep along a multi-edge spine, is
 still open and is not S17's.
+
+### S20 — the Dart layer's own trivial-value audit, and Flip never swapped anything
+
+**The generalisation first, because it is the deliverable and because it went
+the other way.** S16 asked the C ABI "has this parameter ever been passed
+anything but its trivial value?" and found eight that had not. Asked of
+`frontend/lib`, the answer is mostly **yes** — and that is the interesting
+result, not a disappointment. `m131b` asserts the coil's `clockwise`, the
+loft's `ruled` and `closedLoop`, the sweep's `orientation` and `taperDeg` all
+reaching the kernel at a bent value. **The Dart binding was passing values the
+shim had never been given**, which is precisely why S16's coil defect was a
+live bug a user could hit by ticking a box rather than a theoretical one.
+`S20-dart-trivial.md` §1 is the 24-row inventory; six rows are trivial, one is
+inert, three are honest "still untested".
+
+Where the hypothesis holds, it holds hard, and it is the chamfer.
+
+**S17 §5.1 is closed, and it was half the defect.** S17 routed
+`part_model.dart:3707`'s `90.0 - angleDeg`: the flipped mode-2 angle is the
+chamfer triangle's third angle, `D - angleDeg`, where D is `dihedralDeg` —
+field [10], the angle between the OUTWARD normals, and also the shim's own v28
+bound. Fixed, in its own commit, bit-identical on a square edge because
+`D - angleDeg` with `D = 90.0` *is* the expression `90.0 - angleDeg`.
+
+**The half S17 did not see: it does not swap the faces on ANY edge, square
+ones included.** Sending the third angle while leaving `distance1` on the
+reference face is not a mirror. On a square edge, 2 mm at 30 deg cuts
+`(2.000, 1.155)`; the old flip cut `(2.000, 3.464)` — bigger, not mirrored.
+The mirror needs the law of sines on the distance too,
+`d' = d1 sin(alpha)/sin(D - alpha)`, and then the pair comes back exactly
+reversed. Second commit, separately revertible on purpose.
+
+**And on a non-square edge at 45 deg the Flip button did nothing at all.**
+`90 - 45 = 45`, so on a 120 deg edge a flipped 45 deg chamfer sent the
+*unflipped arguments* — a dead control whose deadness depended on the shape of
+the part. Nobody predicted that; the table found it.
+
+| | what it sent | what it cut |
+| --- | --- | --- |
+| square edge, 2 mm @ 30 deg, flipped | old `(2.000, 60)` | `(2.000, 3.464)` — bigger than the original |
+| same, now | `(1.155, 60)` | `(1.155, 2.000)` — the original pair reversed |
+| 120 deg edge, 2 mm @ 45 deg, flipped | old `(2.000, 45)` | **identical to unflipped — the button did nothing** |
+| 120 deg edge, 2 mm @ 30 deg, flipped | old `(2.000, 60)` | **refused: 60 is that edge's bound** (v28 doing its job) |
+
+**The design decision the brief asked to be registered, and how.**
+`kernelParams` was a getter with no edge returning one scalar triple, and a
+chamfer may span edges of different dihedral, so there is no single right
+answer. It is now `kernelParamsFor(dihedralDeg)`, and the no-argument form is
+**removed rather than defaulted to 90** — a defaulted 90 is the defect. The
+whole `PartKernel.chamferEdges` signature went per edge with it; the FFI
+binding underneath (`OcctShape.chamferEdges`) has been per edge since v12 and
+`OcctPartKernel` was collapsing to it with `List.filled`. No new surface, just
+surface that had been discarded.
+
+**Two live-looking dead controls, routed not fixed.**
+
+1. **`ChamferFeature.edgeChain`** is serialised, is in `ownSig()`, defaults to
+   `true`, is read by no compute path, and cannot be toggled — `setEdgeFeature`'s
+   `edgeChain:` has no caller. `BRepFilletAPI_MakeChamfer` does not propagate
+   along tangencies, so the stored `true` is the value that is wrong, and every
+   saved part will change shape the day someone wires the toggle up.
+2. **Direct Move / Size / Scale are inert from the ribbon.** `setFaceEditValue`
+   has no caller anywhere in `frontend/`, so the delta is always (0,0,0) and
+   the factor always 1. This **closes S17 §7.2 in S16's favour and for a
+   stronger reason than S16 gave**: there is not merely no oblique direction,
+   there is no direction at all, so shim v28's defect 2 was never shipping.
+
+**On measurement, which is the one thing every recent session had to hedge.**
+S16 and S17 both wrote "structurally zero, not measured" because Flutter was
+absent. It is not absent if you fetch it: **Flutter 3.47.1 — the version CI
+runs — installed here, `flutter analyze` clean of new issues and `flutter test`
+green at 2564.** Defect 2's revert was verified by actually reverting it (green
+at 2560). Any session touching Dart from now on can measure instead of
+asserting; it costs one download.
+
+**`occt_shim_version()` stays at 28** and no `[42x]` scenario is claimed — this
+session adds no C ABI surface and touches no C file. One consequence: the
+"KNOWN, NOT FIXED HERE" paragraph above `occt_chamfer_edges` in `occt_capi.h`
+is now stale and still points at S17 §5.1. **Needs:** whoever next owns
+`backend/occt/shim/**`.
