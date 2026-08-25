@@ -126,6 +126,7 @@
 #include <GeomAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepTools.hxx>
+#include <BRepTools_WireExplorer.hxx>
 #include <Geom_Surface.hxx>
 #include <GCPnts_AbscissaPoint.hxx>
 #include <TopoDS_Edge.hxx>
@@ -202,7 +203,7 @@ extern "C" const char *occt_version(void)
         /* Kept in step with occt_shim_version() below. It had said "v21"
          * since v21 while the number went 22, 23 — a string nobody reads
          * against a number three releases ahead of it. */
-        std::snprintf(buf, sizeof(buf), "Prototype OCCT shim v26 (OCCT %s)",
+        std::snprintf(buf, sizeof(buf), "Prototype OCCT shim v27 (OCCT %s)",
                       OCC_VERSION_COMPLETE);
     }
     return buf;
@@ -274,7 +275,37 @@ extern "C" const char *occt_version(void)
  * Orientations 0 and 1 move; orientation 2 and occt_coil_profile do not, since
  * they were already passing True. Test for >= 26 if a holed sweep's volume has
  * to be right. */
-extern "C" int occt_shim_version(void) { return 26; }
+/* v27 (S18, round three): a TAPERED sweep across a DRAWN corner is refused
+ * instead of returned wrong.
+ *
+ * occt_sweep_profile has, since taper existed, handed back a solid whose two
+ * halves pass through each other whenever a non-zero taper met a joint OCCT
+ * treats as a corner. OCCT reports success: BRepFill_TrimShellCorner cannot
+ * trim a corner between two shells swept from a CHANGING section, and
+ * BRepFill_Sweep::PerformCorner answers a failed trim with "Nothing is
+ * touched" — leaving in place the extension it added before trying, which is
+ * EvalExtrapol() = 2*max|section box|*tan(alpha/2) + 100*tol3d and is visible
+ * in the result's bounding box. On smoke [30]'s L path with a 10x10 square and
+ * a 10 degree taper: 11 136.303683 where the analytic answer is 6 973.080573,
+ * ten faces instead of eight, BRepCheck_Analyzer INVALID, and the bbox 22.0252
+ * outside the path — which is EvalExtrapol to five figures.
+ *
+ * All three OCCT transition modes were measured and none of them produces a
+ * valid tapered corner, so this is not a mode choice (S18-corners.md §2.3).
+ *
+ * NOTHING THAT BUILT CORRECTLY STOPS BUILDING. The refusal boundary is OCCT's
+ * own angmin deadband, 1.0e-2 rad = 0.5730 deg — the angle below which
+ * PerformCorner says "This is not a corner", extends nothing, and the tapered
+ * sweep is valid. A taper along any SINGLE-EDGE spine is untouched: a straight
+ * path, occt_coil_profile's helix, and — because v24 interpolates it — an arc
+ * or circle the application's own sampler produced. Only taper + a corner
+ * somebody drew is refused.
+ *
+ * A caller that must know whether a tapered cornered sweep will FAIL LOUDLY
+ * rather than return a self-intersecting solid tests for >= 27. A caller that
+ * cannot handle the refusal has the same escape it always had: sweep without
+ * the taper, or hand the shim a path whose corners are below the deadband. */
+extern "C" int occt_shim_version(void) { return 27; }
 
 extern "C" const char *occt_last_error(void) { return g_err; }
 
@@ -3755,6 +3786,97 @@ static bool spine_from_points(const double *pts, int n, const char *who,
                                 nullptr);
 }
 
+/* ---- v27: the joint a TAPERED sweep may not cross -------------------------
+ *
+ * OCCT cannot mitre a corner between two shells swept from a CHANGING section,
+ * and it does not say so. Measured on smoke [30]'s L path with a 10x10 square
+ * (perf/findings/S18-corners.md §2):
+ *
+ *   joint  taper   faces  volume        BRepCheck   bbox xmin
+ *   90.0     0.0     8    6000.000000   valid        0.0000
+ *   90.0    10.0    10   11136.303683   INVALID    -22.0252
+ *   15.0     0.1    10    7299.701628   INVALID     -0.6848
+ *
+ * The mechanism, read from BRepFill_Sweep.cxx and then confirmed by the
+ * bounding box to five figures. Before mitring a corner, BRepFill_Sweep
+ * EXTENDS both adjacent surfaces past the vertex by EvalExtrapol():
+ *
+ *     R      = 2 * max|section bounding box| at the joint
+ *     Extrap = R * tan(alpha/2) + 100 * myTol3d
+ *
+ * and then trims them back with BRepFill_TrimShellCorner. With an evolving
+ * section that trim FAILS, and PerformCorner's response to a failed trim is
+ *
+ *     else if ((TheTransition == BRepFill_Right) || aTrim.HasSection())
+ *       return Standard_True;   // Nothing is touched
+ *
+ * — it returns SUCCESS with the extensions left in place. So MakePipeShell
+ * reports IsDone(), MakeSolid() succeeds, and the caller is handed two shells
+ * passing through each other. The extension survives into the result and is
+ * measurable: at 90 degrees the section's box at the joint is 10*1.100758 per
+ * side, so Extrap = 2*11.00758*tan(45 deg) + 0.01 = 22.0252 — which is the
+ * -22.0252 in the bbox above, to every digit printed.
+ *
+ * It is not a RightCorner problem. All three of OCCT's transition modes were
+ * measured on the same fixture and none of them produces a valid tapered
+ * corner (§2.3): RoundCorner is invalid at 13 faces, and Transformed is the
+ * wrong shape whether or not it happens to be valid.
+ *
+ * So this is refused rather than returned. The shim already refuses twist for
+ * exactly this reason — "a sweep that quietly did not twist is a wrong part,
+ * and the user has no way to see that from the result" — and a solid whose two
+ * halves interpenetrate is a wrong part by a wider margin.
+ *
+ * The predicate is OCCT'S OWN, not a number chosen here. PerformCorner treats
+ * a joint as a corner when T1.Angle(T2) >= angmin, and
+ * BRepOffsetAPI_MakePipeShell hard-codes angmin = 1.0e-2 rad = 0.5730 deg.
+ * Below it OCCT says "This is not a corner", never extends anything, and the
+ * tapered sweep is VALID — measured at 0.4 deg, 9 faces, valid. So the refusal
+ * boundary is the deadband, and nothing that builds correctly today stops
+ * building.
+ *
+ * What still works, and it is most of the cases: a taper along ANY single-edge
+ * spine — a straight path, a coil, and an arc the caller's sampler produced,
+ * because v24 gives that one an interpolated spine with no joints left. Only a
+ * corner somebody DREW plus a taper is refused. */
+static const double kPipeShellAngMin = 1.0e-2;
+
+/* The largest angle between consecutive EDGES of a spine wire, in radians —
+ * measured the way BRepFill_Sweep::PerformCorner measures it, from the tangent
+ * at the end of one edge and the tangent at the start of the next, with each
+ * edge's orientation respected. Returns 0 for a wire of one edge. */
+static double spine_max_joint_rad(const TopoDS_Wire &spine)
+{
+    double worst = 0.0;
+    gp_Vec prev;
+    bool have_prev = false;
+    for (BRepTools_WireExplorer ex(spine); ex.More(); ex.Next()) {
+        const TopoDS_Edge &e = ex.Current();
+        if (BRep_Tool::Degenerated(e))
+            continue;
+        BRepAdaptor_Curve c(e);
+        const bool rev = e.Orientation() == TopAbs_REVERSED;
+        gp_Pnt p;
+        gp_Vec tf, tl;
+        c.D1(rev ? c.LastParameter() : c.FirstParameter(), p, tf);
+        c.D1(rev ? c.FirstParameter() : c.LastParameter(), p, tl);
+        if (rev) {
+            tf.Reverse();
+            tl.Reverse();
+        }
+        if (tf.Magnitude() < gp::Resolution() || tl.Magnitude() < gp::Resolution())
+            continue;
+        if (have_prev) {
+            const double a = prev.Angle(tf);
+            if (a > worst)
+                worst = a;
+        }
+        prev = tl;
+        have_prev = true;
+    }
+    return worst;
+}
+
 /* Runs a MakePipeShell that has already been given its mode and profile, and
  * returns the solid. Shared by sweep and coil. */
 static occt_shape *finish_pipe(BRepOffsetAPI_MakePipeShell &mk,
@@ -3897,6 +4019,24 @@ extern "C" occt_shape *occt_sweep_profile_ex(const double *xyb,
     if (!spine_from_points_ex(path_pts, npath, effective_mode,
                               "occt_sweep_profile", spine, &smoothed))
         return nullptr;
+
+    /* v27 — see spine_max_joint_rad above. A taper across a joint OCCT will
+     * treat as a corner comes back as two shells passing through each other,
+     * and OCCT reports success. Refused, with the joint named so the caller
+     * can say which corner. */
+    if (taper_deg != 0.0) {
+        const double joint = spine_max_joint_rad(spine);
+        if (joint >= kPipeShellAngMin) {
+            char msg[192];
+            std::snprintf(msg, sizeof msg,
+                          "a tapered sweep cannot cross a %.3f deg corner "
+                          "(OCCT leaves it untrimmed); taper a straight or "
+                          "smooth path, or drop the taper",
+                          joint * 180.0 / M_PI);
+            set_err("occt_sweep_profile", msg);
+            return nullptr;
+        }
+    }
 
     BRepOffsetAPI_MakePipeShell mk(spine);
     /* A path with a SHARP corner (an L, the common case for a swept bar) fails

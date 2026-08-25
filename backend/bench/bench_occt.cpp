@@ -1311,6 +1311,225 @@ static void runSweepLadders(const RunOpts &opts)
 }
 
 /* ------------------------------------------------------------------------ */
+/* S18 — the DRAWN corner                                                     */
+/* ------------------------------------------------------------------------ */
+/*
+ * Lane C had no corner axis: sweep.segments, sweep.legacy and sweep.spans all
+ * vary the SAMPLED arc, which v24 made cheap. A joint somebody drew is what is
+ * left, and this is its ladder.
+ *
+ * Two things are measured here and they are not the same thing:
+ *   - correctness: the two closed forms of S18-corners.md 1.1 against the
+ *     kernel, on the analytic square fixture. These are pins, not timings; a
+ *     disagreement is a refuted derivation.
+ *   - cost: an N-segment ring over a 3-corner drawn path, which is the shape
+ *     of the device's 79-second rung.
+ */
+
+static void cornerRow(const char *tag, double thetaDeg,
+                      const std::vector<double> &legs,
+                      const std::vector<double> &turn, double w)
+{
+    const double wantM = bench::cornerMiterVolume(legs, turn, w);
+    const double wantT = bench::cornerTransformedVolume(legs, turn, w);
+    const bench::CornerRun m =
+        bench::cornerReplica(legs, turn, w, bench::Corner::RightCorner, 1.0e-2);
+    const bench::CornerRun t =
+        bench::cornerReplica(legs, turn, w, bench::Corner::Transformed, 1.0e-2);
+    auto rel = [](double got, double want) {
+        const double d = std::fabs(want) > 1e-12 ? std::fabs(want) : 1.0;
+        return (got - want) / d;
+    };
+    std::printf("  %-10s th=%9.4f | mitre %13.6f (I) %13.6f %+9.2e %-7s"
+                " | trans %13.6f (II) %13.6f %+9.2e %-7s\n",
+                tag, thetaDeg, m.ok ? m.volume : 0.0, wantM,
+                m.ok ? rel(m.volume, wantM) : 0.0,
+                m.ok ? (m.valid ? "valid" : "INVALID") : "FAILED",
+                t.ok ? t.volume : 0.0, wantT,
+                t.ok ? rel(t.volume, wantT) : 0.0,
+                t.ok ? (t.valid ? "valid" : "INVALID") : "FAILED");
+    std::fflush(stdout);
+}
+
+static void runCornerLadders(const RunOpts &opts)
+{
+    if (!opts.sweep)
+        return;
+
+    const double w = 10.0;
+    const double A = bench::cornerSectionArea(w);
+    const double ct = bench::cornerSectionTurnOffset(w);
+
+    std::printf("\n[drawn corner] fixture: smoke [30]'s %gx%g square on an "
+                "L path, joint angle as the axis\n", w, w);
+    std::printf("  A = %g, centroid offset along the turn c_t = %g\n", A, ct);
+
+    /* P1 + P2 — the two closed forms against the kernel. */
+    std::printf("\n  -- corner.closedform : (I) A*L - 2*A*c_t*tan(t/2) and "
+                "(II) A*L1 + A*L2*cos t --\n");
+    const std::vector<double> legs{40.0, 30.0};
+    for (double th : {0.5, 2.0, 5.625, 15.0, 19.4712206, 45.0, 90.0})
+        cornerRow("L(40,30)", th, legs, std::vector<double>{th}, w);
+
+    /* P3 — is Transformed's error the corner, or a fraction of it that shrinks?
+     * The denominator is the corner's own first-order effect A*c_t*theta. */
+    std::printf("\n  -- corner.errshare : |V_trans - V_mitre| as a fraction of "
+                "the corner's own effect A*c_t*theta --\n");
+    std::printf("  (OCCT's own angmin deadband is 1.0e-2 rad = %.4f deg; "
+                "below it RightCorner does not mitre either)\n",
+                1.0e-2 * 180.0 / M_PI);
+    for (double th : {0.4, 0.5, 0.6, 1.0, 2.0, 5.625, 15.0}) {
+        const std::vector<double> turn{th};
+        const bench::CornerRun m = bench::cornerReplica(
+            legs, turn, w, bench::Corner::RightCorner, 1.0e-2);
+        const bench::CornerRun t = bench::cornerReplica(
+            legs, turn, w, bench::Corner::Transformed, 1.0e-2);
+        if (!m.ok || !t.ok) {
+            std::printf("  th=%8.4f  one of the two did not build\n", th);
+            continue;
+        }
+        const double wedge = A * ct * th * M_PI / 180.0;
+        std::printf("  th=%8.4f  V_trans-V_mitre=%+12.6f  A*c_t*th=%11.6f  "
+                    "share=%6.3f  %-8s %s / %s\n",
+                    th, t.volume - m.volume, wedge,
+                    std::fabs(t.volume - m.volume) / wedge,
+                    th * M_PI / 180.0 > 1.0e-2 ? "mitred" : "DEADBAND",
+                    m.valid ? "valid" : "INVALID",
+                    t.valid ? "valid" : "INVALID");
+        std::fflush(stdout);
+    }
+
+    /* P4 — the crossover, bisected on the MEASURED difference, at three second
+     * leg lengths. (III) says asin(2*c_t/L2) and contains nothing about the
+     * corner treatment. */
+    std::printf("\n  -- corner.crossover : where V_trans - V_mitre changes "
+                "sign, measured, against asin(2*c_t/L2) --\n");
+    for (double L2 : {15.0, 30.0, 60.0}) {
+        const double want = std::asin(2.0 * ct / L2) * 180.0 / M_PI;
+        const double got =
+            bench::cornerCrossoverDeg(40.0, L2, w, 1.0, 89.0, 0.001, 1.0e-2);
+        if (got < 0.0)
+            std::printf("  L2=%5.1f  predicted %8.4f deg  measured: no sign "
+                        "change bracketed in [0.25, 89]\n", L2, want);
+        else
+            std::printf("  L2=%5.1f  predicted %8.4f deg  measured %8.4f deg  "
+                        "delta %+.4f deg\n", L2, want, got, got - want);
+        std::fflush(stdout);
+    }
+
+    /* P5 — two joints, same sense. Does Transformed's tilt compound? */
+    std::printf("\n  -- corner.staircase : 3 legs, 2 joints of 15 deg, the "
+                "same way --\n");
+    {
+        const std::vector<double> l3{40.0, 30.0, 30.0};
+        const std::vector<double> t3{15.0, 15.0};
+        const double th = 15.0 * M_PI / 180.0;
+        const double compounding =
+            A * (40.0 + 30.0 * std::cos(th) + 30.0 * std::cos(2.0 * th));
+        const double perJoint =
+            A * (40.0 + 30.0 * std::cos(th) + 30.0 * std::cos(th));
+        const bench::CornerRun m =
+            bench::cornerReplica(l3, t3, w, bench::Corner::RightCorner, 1.0e-2);
+        const bench::CornerRun t =
+            bench::cornerReplica(l3, t3, w, bench::Corner::Transformed, 1.0e-2);
+        std::printf("  mitre       %14.6f  (I) %14.6f  %s\n",
+                    m.ok ? m.volume : 0.0,
+                    bench::cornerMiterVolume(l3, t3, w),
+                    m.ok ? (m.valid ? "valid" : "INVALID") : "FAILED");
+        std::printf("  transformed %14.6f  compounding %14.6f  per-joint "
+                    "%14.6f  %s\n",
+                    t.ok ? t.volume : 0.0, compounding, perJoint,
+                    t.ok ? (t.valid ? "valid" : "INVALID") : "FAILED");
+        std::fflush(stdout);
+    }
+
+    /* P6 — S14 2.8's identity. A ring CENTRED on the spine has c_t = 0, so by
+     * (I) the mitre has no wedge at any span count and the volume should be the
+     * section's area times the path's RISE. Both candidate forms are printed
+     * against the measurement rather than one of them being asserted. */
+    std::printf("\n  -- corner.cavalieri : S14 2.8's identity, A*dz against "
+                "A*L_poly*cos(tilt) --\n");
+    {
+        const int n = 128;
+        const double R = 6.0;
+        const double Aring = 0.5 * n * R * R * std::sin(2.0 * M_PI / n);
+        /* The helix rises 60 over an arc length of 66.328259, and its pitch
+         * angle is constant, so cos(tilt) = 60/66.328259 exactly. */
+        const double cosTilt = 60.0 / 66.328259;
+        for (int spans : {2, 4, 16}) {
+            const bench::SweepPhases r =
+                bench::sweepReplica(n, spans, bench::Corner::RightCorner,
+                                    bench::Spine::Polyline, true, 1.0e-2);
+            const std::vector<double> p = bench::arcPathXYZ(spans + 1, 60.0);
+            double lpoly = 0.0;
+            for (int i = 0; i < spans; ++i) {
+                const double dx = p[3 * (i + 1)] - p[3 * i];
+                const double dy = p[3 * (i + 1) + 1] - p[3 * i + 1];
+                const double dz = p[3 * (i + 1) + 2] - p[3 * i + 2];
+                lpoly += std::sqrt(dx * dx + dy * dy + dz * dz);
+            }
+            const double dz = p[3 * spans + 2] - p[2];
+            const double vdz = Aring * dz;
+            const double vlp = Aring * lpoly * cosTilt;
+            std::printf("  spans=%-3d measured %14.6f | A*dz %14.6f %+9.2e | "
+                        "A*L_poly*cos %14.6f %+9.2e | L_poly %.6f\n",
+                        spans, r.ok ? r.volume : 0.0, vdz,
+                        r.ok ? (r.volume - vdz) / vdz : 0.0, vlp,
+                        r.ok ? (r.volume - vlp) / vlp : 0.0, lpoly);
+            std::fflush(stdout);
+        }
+    }
+
+    /* The COST ladder — the thing the bar is about. An N-segment ring over a
+     * path with three drawn 90-degree corners, which is the shape of the
+     * device's 512-segment / 79-second rung. */
+    std::printf("\n  -- sweep.corners : an N-segment ring over a path with 3 "
+                "DRAWN 90 deg corners --\n");
+    for (int n : opts.sweep_sizes) {
+        const std::vector<double> l4{30.0, 25.0, 25.0, 30.0};
+        const std::vector<double> t4{90.0, 90.0, 90.0};
+        std::vector<double> total;
+        bench::CornerRun last;
+        double spent = 0.0;
+        for (int i = 0; i < opts.reps; ++i) {
+            last = bench::cornerReplica(l4, t4, 6.0,
+                                        bench::Corner::RightCorner, 1.0e-2, n);
+            total.push_back(last.ms);
+            spent += last.ms;
+            if (!last.ok || (spent > opts.budget_ms && i >= 1))
+                break;
+        }
+        Measured m;
+        m.op = "sweep.corners";
+        m.axis = "segments";
+        m.x = n;
+        m.ok = last.ok;
+        m.t = bench::summarise(total);
+        m.faces = last.faces;
+        m.profile_pts = n;
+        m.rss_peak_mb = peakRssMb();
+        char buf[400];
+        if (!last.ok) {
+            std::snprintf(buf, sizeof buf,
+                          "3 drawn 90 deg corners - FAILED after %.1f ms: %s",
+                          last.ms, last.err.c_str());
+            std::printf("  %-22s x=%-10d  *** FAILED *** after %.1f ms : %s\n",
+                        m.op.c_str(), n, last.ms, last.err.c_str());
+            std::fflush(stdout);
+            m.note = buf;
+            g_results.push_back(std::move(m));
+            continue;
+        }
+        std::snprintf(buf, sizeof buf,
+                      "3 drawn 90 deg corners - %d faces, spine edges %d, "
+                      "volume %.6f, %s",
+                      last.faces, last.spineEdges, last.volume,
+                      last.valid ? "valid" : "INVALID");
+        record(std::move(m), buf);
+    }
+}
+
+/* ------------------------------------------------------------------------ */
 /* Fits and the calibration verdict                                          */
 /* ------------------------------------------------------------------------ */
 
@@ -1838,6 +2057,7 @@ int main(int argc, char **argv)
     runLadder(opts);
     runFilletSweeps(opts);
     runSweepLadders(opts);
+    runCornerLadders(opts);
 
     /*
      * End-to-end check on the allocation counters, and it is not the same

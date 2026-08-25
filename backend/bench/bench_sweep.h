@@ -73,6 +73,70 @@ double pathMaxCornerDeg(const std::vector<double> &xyz);
 SweepPhases sweepReplica(int segments, int spans, Corner corner, Spine spine,
                          bool unify, double angminRad);
 
+/* ---- S18: the DRAWN corner -------------------------------------------------
+ *
+ * Everything above sweeps a ring along a SAMPLED arc, which is the fixture the
+ * device capture uses and the one v24 made cheap. A joint somebody DREW is a
+ * different fixture and S14 never gave it a ladder: it is smoke scenario [30]'s
+ * L-path — a 10x10 square, up then across — and its joint angle is the axis
+ * that matters.
+ *
+ * `cornerReplica` builds exactly that, with the joint angle, the leg lengths
+ * and the number of joints as parameters, through the same BRepFill_PipeShell
+ * the rest of this file drives. RightCorner + angminRad = 1e-2 is the shipped
+ * shim; BRepFill_Modified is the lever S14 measured at 17.5x and did not pull.
+ *
+ * The two closed forms below are DERIVED in perf/findings/S18-corners.md §1.1
+ * from OCCT's own two transform functions, not fitted to a measurement. They
+ * are what the replica is checked against, so a run that disagrees with them
+ * is a result and not a tolerance to widen. */
+
+/* The square section every corner fixture uses: [0,w] x [0,w] in the z = 0
+ * plane, so area = w*w and the centroid's offset ALONG THE TURN is w/2. */
+double cornerSectionArea(double w);
+double cornerSectionTurnOffset(double w);
+
+struct CornerRun {
+    double ms = 0.0;
+    bool ok = false;
+    std::string err;
+    /* only meaningful when ok */
+    int faces = 0;
+    int spineEdges = 0;
+    double volume = 0.0;
+    bool valid = false;
+};
+
+/* legs[i] is the i-th straight run; turnDeg[i] the joint between legs i and
+ * i+1, so turnDeg is one shorter than legs. Every turn is in the XZ plane and
+ * in the same sense, which is what makes the compounding of P5 visible. */
+/* ringSegments <= 0 selects the analytic square section above. A positive
+ * value sweeps arcRing(ringSegments, w) instead — a regular polygon CENTRED on
+ * the spine, which has c_t = 0 and therefore no mitre wedge at all, and is
+ * there for the COST ladder rather than for the closed forms. */
+CornerRun cornerReplica(const std::vector<double> &legs,
+                        const std::vector<double> &turnDeg, double w,
+                        Corner corner, double angminRad,
+                        int ringSegments = 0);
+
+/* (I): A*sum(legs) - 2*A*c_t*sum(tan(theta_i/2)) — the mitre, which cuts each
+ * joint at its bisector plane. */
+double cornerMiterVolume(const std::vector<double> &legs,
+                         const std::vector<double> &turnDeg, double w);
+
+/* (II): A*sum(legs[i]*cos(phi_i)) with phi_i the ACCUMULATED turn before leg i
+ * — Transformed, which never reorients the section at all, so leg i is an
+ * oblique prism tilted by everything the path has turned so far. */
+double cornerTransformedVolume(const std::vector<double> &legs,
+                               const std::vector<double> &turnDeg, double w);
+
+/* The joint angle at which the two closed forms cross, by bisection on the
+ * MEASURED volumes rather than on the formulae — so that (III)'s
+ * asin(2*c_t/L2) is checked against the kernel and not against itself.
+ * Returns a negative number if no sign change was bracketed. */
+double cornerCrossoverDeg(double L1, double L2, double w, double loDeg,
+                          double hiDeg, double tolDeg, double angminRad);
+
 } // namespace bench
 
 #endif /* BENCH_SWEEP_H */

@@ -5,6 +5,7 @@
 
 #include <chrono>
 #include <cmath>
+#include <limits>
 
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
@@ -216,6 +217,191 @@ SweepPhases sweepReplica(int segments, int spans, Corner corner, Spine spine,
     }
     ph.total = msBetween(t0, clk::now());
     return ph;
+}
+
+/* ---- S18: the DRAWN corner ------------------------------------------------ */
+
+double cornerSectionArea(double w)
+{
+    return w * w;
+}
+
+double cornerSectionTurnOffset(double w)
+{
+    /* The square is [0,w] x [0,w] in its own plane and the turn is toward +X,
+     * so what the mitre integral needs is the centroid's x, which is w/2.
+     * It is NOT zero, and that is the whole reason a mitred corner changes the
+     * volume at all — see the c_t = 0 remark under (I). */
+    return 0.5 * w;
+}
+
+namespace {
+
+/* The spine of a drawn corner: start at the origin heading +Z, walk each leg,
+ * and turn by turnDeg[i] toward +X between legs. Returns the points. */
+std::vector<gp_Pnt> cornerSpinePoints(const std::vector<double> &legs,
+                                      const std::vector<double> &turnDeg)
+{
+    std::vector<gp_Pnt> p;
+    p.reserve(legs.size() + 1);
+    double x = 0.0, z = 0.0, phi = 0.0;
+    p.emplace_back(0.0, 0.0, 0.0);
+    for (size_t i = 0; i < legs.size(); ++i) {
+        x += legs[i] * std::sin(phi);
+        z += legs[i] * std::cos(phi);
+        p.emplace_back(x, 0.0, z);
+        if (i < turnDeg.size())
+            phi += turnDeg[i] * M_PI / 180.0;
+    }
+    return p;
+}
+
+} // namespace
+
+double cornerMiterVolume(const std::vector<double> &legs,
+                         const std::vector<double> &turnDeg, double w)
+{
+    const double A = cornerSectionArea(w);
+    const double ct = cornerSectionTurnOffset(w);
+    double len = 0.0;
+    for (double l : legs)
+        len += l;
+    double wedge = 0.0;
+    for (double t : turnDeg)
+        wedge += std::tan(0.5 * t * M_PI / 180.0);
+    return A * len - 2.0 * A * ct * wedge;
+}
+
+double cornerTransformedVolume(const std::vector<double> &legs,
+                               const std::vector<double> &turnDeg, double w)
+{
+    const double A = cornerSectionArea(w);
+    double v = 0.0, phi = 0.0;
+    for (size_t i = 0; i < legs.size(); ++i) {
+        v += A * legs[i] * std::cos(phi);
+        if (i < turnDeg.size())
+            phi += turnDeg[i] * M_PI / 180.0;
+    }
+    return v;
+}
+
+CornerRun cornerReplica(const std::vector<double> &legs,
+                        const std::vector<double> &turnDeg, double w,
+                        Corner corner, double angminRad, int ringSegments)
+{
+    CornerRun r;
+    const auto t0 = clk::now();
+    try {
+        /* The section, exactly as occt_sweep_profile's arc_loop_wire builds it
+         * from zero-bulge (x, y) pairs under an identity placement. */
+        BRepBuilderAPI_MakePolygon mp;
+        if (ringSegments > 0) {
+            const std::vector<double> ring = arcRingXYB(ringSegments, w);
+            for (int i = 0; i < ringSegments; ++i)
+                mp.Add(gp_Pnt(ring[3 * i], ring[3 * i + 1], ring[3 * i + 2]));
+        } else {
+            mp.Add(gp_Pnt(0.0, 0.0, 0.0));
+            mp.Add(gp_Pnt(w, 0.0, 0.0));
+            mp.Add(gp_Pnt(w, w, 0.0));
+            mp.Add(gp_Pnt(0.0, w, 0.0));
+        }
+        mp.Close();
+        const TopoDS_Wire outer = mp.Wire();
+
+        const std::vector<gp_Pnt> pts = cornerSpinePoints(legs, turnDeg);
+        BRepBuilderAPI_MakePolygon sp;
+        for (const gp_Pnt &q : pts)
+            sp.Add(q);
+        const TopoDS_Wire spineWire = sp.Wire();
+
+        Handle(BRepFill_PipeShell) mk = new BRepFill_PipeShell(spineWire);
+        mk->SetTolerance(1.0e-4, 1.0e-4, 1.0e-2);
+        mk->SetTransition(corner == Corner::RightCorner   ? BRepFill_Right
+                          : corner == Corner::Transformed ? BRepFill_Modified
+                                                          : BRepFill_Round,
+                          angminRad, 6.0);
+        mk->Set(Standard_True); /* Frenet, as orientation 0 does */
+        mk->Add(outer, Standard_False, Standard_False);
+        if (!mk->Build()) {
+            r.err = "Build() returned false";
+            r.ms = msBetween(t0, clk::now());
+            return r;
+        }
+        if (!mk->MakeSolid()) {
+            r.err = "MakeSolid() returned false";
+            r.ms = msBetween(t0, clk::now());
+            return r;
+        }
+        /* UnifySameDomain, because the shim runs it and S14 measured it at
+         * 2 ms in 7 260 — it is in the pipeline, it is not the cost, and
+         * leaving it out would make the face counts incomparable. */
+        ShapeUpgrade_UnifySameDomain uni(mk->Shape(), Standard_True,
+                                         Standard_True, Standard_False);
+        uni.Build();
+        const TopoDS_Shape out = uni.Shape();
+        r.ms = msBetween(t0, clk::now());
+        r.faces = countSub(out, TopAbs_FACE);
+        r.spineEdges = countSub(spineWire, TopAbs_EDGE);
+        GProp_GProps g;
+        BRepGProp::VolumeProperties(out, g);
+        r.volume = g.Mass();
+        r.valid = BRepCheck_Analyzer(out).IsValid() == Standard_True;
+        r.ok = true;
+        return r;
+    } catch (const Standard_Failure &f) {
+        r.err = std::string("Standard_Failure: ") + f.GetMessageString();
+    } catch (const std::exception &e) {
+        r.err = std::string("std::exception: ") + e.what();
+    } catch (...) {
+        r.err = "non-standard exception";
+    }
+    r.ms = msBetween(t0, clk::now());
+    return r;
+}
+
+double cornerCrossoverDeg(double L1, double L2, double w, double loDeg,
+                          double hiDeg, double tolDeg, double angminRad)
+{
+    const std::vector<double> legs{L1, L2};
+    /* f(theta) = measured Transformed - measured RightCorner. Positive below
+     * the crossover, negative above it — that is (III)'s claim and bisecting
+     * the MEASURED difference is what tests it. */
+    auto f = [&](double th) -> double {
+        const std::vector<double> turn{th};
+        const CornerRun a = cornerReplica(legs, turn, w, Corner::Transformed,
+                                          angminRad);
+        const CornerRun b = cornerReplica(legs, turn, w, Corner::RightCorner,
+                                          angminRad);
+        if (!a.ok || !b.ok)
+            return std::numeric_limits<double>::quiet_NaN();
+        return a.volume - b.volume;
+    };
+    double flo = f(loDeg), fhi = f(hiDeg);
+    /* An EXACT zero at a bracket end is not a bracket, and it is what the
+     * first attempt at this measurement hit: below OCCT's angmin deadband of
+     * 1.0e-2 rad = 0.5730 deg, BRepFill_Sweep::PerformCorner declares "this is
+     * not a corner" and RightCorner stops mitring, so the two modes agree to
+     * the last bit and the difference is 0.0, not a sign. Bracketing there
+     * reports no crossover however plainly the crossover exists above it. The
+     * caller must start above the deadband; this refuses rather than
+     * pretending. */
+    if (!(flo == flo) || !(fhi == fhi) || flo == 0.0 || fhi == 0.0
+        || (flo > 0.0) == (fhi > 0.0))
+        return -1.0;
+    while (hiDeg - loDeg > tolDeg) {
+        const double mid = 0.5 * (loDeg + hiDeg);
+        const double fm = f(mid);
+        if (!(fm == fm))
+            return -1.0;
+        if ((fm > 0.0) == (flo > 0.0)) {
+            loDeg = mid;
+            flo = fm;
+        } else {
+            hiDeg = mid;
+            fhi = fm;
+        }
+    }
+    return 0.5 * (loDeg + hiDeg);
 }
 
 } // namespace bench

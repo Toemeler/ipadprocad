@@ -2748,6 +2748,372 @@ int main(void)
         }
     }
 
+    /* [42] v26 THE DRAWN CORNER, ANALYTICALLY.
+     *
+     * S14 §2.6 left one lever unpulled: BRepBuilderAPI_Transformed is 17.5x
+     * faster than the shipped RightCorner on a polyline spine, and nobody
+     * could say which of the two is right at a SHALLOW joint, because the two
+     * converge without agreeing. perf/findings/S18-corners.md §1 answers that
+     * by deriving both closed forms out of OCCT's own transform functions
+     * instead of reading five measured rows, and this scenario pins the half
+     * of the derivation that the shipped ABI can reach.
+     *
+     * The fixture is scenario [30]'s L-path with the joint angle as a
+     * parameter: a wxw square at (t, 0) in the z=0 plane, swept up L1 along
+     * +Z and then L2 in a direction turned by theta toward +X.
+     *
+     * BRepFill_LocationLaw::TransformInCompatibleLaw sets, at each joint, a
+     * rotation about the frame's LOCAL OZ — and GeomFill_CurveAndTrihedron
+     * builds that frame as SetCols(Normal, BiNormal, Tangent), so local OZ IS
+     * the tangent. A rotation about the tangent cannot move the tangent, so
+     * the section stays perpendicular to whichever leg it is on; and
+     * BRepFill_Sweep::PerformCorner then cuts at "an axis supported by the
+     * bissectrice", NormalOfBisPlane = T1 + T2. Integrating the section over
+     * the two half-open prisms that leaves:
+     *
+     *     V = A*(L1 + L2) - 2*A*c_t*tan(theta/2)                       (I)
+     *
+     * with A the section's area and c_t its centroid's offset ALONG THE TURN.
+     * Every number below is computed from that formula in this file, from the
+     * fixture's own w, t, L1, L2 and theta. It is not a recorded golden — the
+     * lesson OPTIMIZATION_PLAN_2.md §1.4 paid for — and it is not a fit: (I)
+     * reproduces all five rows S14 published, at angles this test does not
+     * even use.
+     *
+     * Three arms, and the second and third are the ones that make it a test of
+     * the DERIVATION rather than of one number:
+     *   (a) the wedge against theta, at the centroid offset [30] happens to
+     *       have;
+     *   (b) c_t = 0 removes the wedge ENTIRELY, at any angle — a section
+     *       centred on its own spine sweeps A*L exactly however sharp the
+     *       corner is, which is the structural claim (I) makes and the one a
+     *       volume-only check of (a) could never see;
+     *   (c) the wedge is LINEAR in c_t — treble the offset, treble the wedge.
+     * and (d) two joints add two wedges.
+     *
+     * EVERY ARM DECLARES OCCT_SWEEP_PATH_POLY, and that is not incidental: a
+     * joint at or below 5.625 deg is SMOOTHED by v24's AUTO into a B-spline
+     * run with no joint left to mitre, so at 2 and 5.625 deg AUTO is not
+     * building a mitred corner and (I) has nothing to say about it. A corner
+     * somebody DREW is POLY by definition; the arm below prints both so the
+     * difference is visible rather than assumed.
+     */
+    {
+        const double L1 = 40.0, L2 = 30.0, w = 10.0;
+        const double A = w * w;
+        const double I3[12] = {1,0,0,0, 0,1,0,0, 0,0,1,0};
+        const int lc1[] = {4};
+        const double thetas[] = {2.0, 5.625, 15.0, 45.0, 90.0};
+
+        /* (a) the wedge against theta, square at x in [0,w] so c_t = w/2. */
+        for (int i = 0; i < 5; ++i) {
+            const double th = thetas[i] * M_PI / 180.0;
+            const double sq[] = {0,0,0,  w,0,0,  w,w,0,  0,w,0};
+            const double path[] = {0, 0, 0,
+                                   0, 0, L1,
+                                   L2 * sin(th), 0, L1 + L2 * cos(th)};
+            const double want = A * (L1 + L2) - 2.0 * A * (w / 2.0)
+                                * tan(th / 2.0);
+            occt_shape *s = occt_sweep_profile_ex(sq, lc1, 1, I3, path, 3, 0,
+                                                  0.0, 0.0,
+                                                  OCCT_SWEEP_PATH_POLY);
+            if (check(s != NULL, "[42] the L sweep returned NULL")) {
+                const double v = occt_shape_volume(s);
+                printf("[42a] joint %7.3f deg: volume %.6f (analytic %.6f, "
+                       "rel %+.2e) %s\n", thetas[i], v, want,
+                       (v - want) / want,
+                       occt_shape_valid(s) ? "valid" : "INVALID");
+                check(near_rel(v, want, 1e-6),
+                      "[42a] the mitred corner is not A*L - 2*A*c_t*tan(t/2)");
+                check(occt_shape_valid(s), "[42a] the mitred L sweep is "
+                                           "invalid");
+                occt_free_shape(s);
+            }
+        }
+
+        /* the same two shallow joints through AUTO, printed and not asserted:
+         * AUTO smooths them, so its answer is a smooth sweep's and the mitre
+         * formula does not apply. This is [37c]'s threshold seen from the
+         * other side, and it is why every arm here declares POLY. */
+        for (int i = 0; i < 2; ++i) {
+            const double th = thetas[i] * M_PI / 180.0;
+            const double sq[] = {0,0,0,  w,0,0,  w,w,0,  0,w,0};
+            const double path[] = {0, 0, 0,
+                                   0, 0, L1,
+                                   L2 * sin(th), 0, L1 + L2 * cos(th)};
+            occt_shape *a = occt_sweep_profile_ex(sq, lc1, 1, I3, path, 3, 0,
+                                                  0.0, 0.0,
+                                                  OCCT_SWEEP_PATH_AUTO);
+            occt_shape *p = occt_sweep_profile_ex(sq, lc1, 1, I3, path, 3, 0,
+                                                  0.0, 0.0,
+                                                  OCCT_SWEEP_PATH_POLY);
+            if (a != NULL && p != NULL) {
+                int fa = 0, fp = 0;
+                occt_shape_counts(a, &fa, NULL, NULL);
+                occt_shape_counts(p, &fp, NULL, NULL);
+                printf("[42a] joint %7.3f deg: AUTO %.6f (%d faces, smoothed) "
+                       "vs POLY %.6f (%d faces, mitred)\n", thetas[i],
+                       occt_shape_volume(a), fa, occt_shape_volume(p), fp);
+                check(fp > fa, "[42a] POLY must keep the joint AUTO smooths");
+            }
+            if (a) occt_free_shape(a);
+            if (p) occt_free_shape(p);
+        }
+
+        /* (b) c_t = 0: a section centred on the spine has NO wedge, at any
+         * angle. This is the claim that makes (I) a derivation rather than a
+         * curve through five points — and it is a HARDER pin than (a), since
+         * the answer is A*L to every digit whatever the corner does. */
+        for (int i = 0; i < 5; ++i) {
+            const double th = thetas[i] * M_PI / 180.0;
+            const double sq[] = {-w/2,-w/2,0,  w/2,-w/2,0,
+                                  w/2, w/2,0, -w/2, w/2,0};
+            const double path[] = {0, 0, 0,
+                                   0, 0, L1,
+                                   L2 * sin(th), 0, L1 + L2 * cos(th)};
+            const double want = A * (L1 + L2);
+            occt_shape *s = occt_sweep_profile_ex(sq, lc1, 1, I3, path, 3, 0,
+                                                  0.0, 0.0,
+                                                  OCCT_SWEEP_PATH_POLY);
+            if (check(s != NULL, "[42] the centred L sweep returned NULL")) {
+                const double v = occt_shape_volume(s);
+                printf("[42b] joint %7.3f deg, section CENTRED: volume %.6f "
+                       "(analytic %.6f, rel %+.2e) %s\n", thetas[i], v, want,
+                       (v - want) / want,
+                       occt_shape_valid(s) ? "valid" : "INVALID");
+                check(near_rel(v, want, 1e-6),
+                      "[42b] a centred section must sweep A*L at every joint");
+                check(occt_shape_valid(s),
+                      "[42b] the centred L sweep is invalid");
+                occt_free_shape(s);
+            }
+        }
+
+        /* (c) the wedge is linear in the centroid's offset. Same 90 degree
+         * joint, the square slid along the turn direction: c_t = t + w/2. */
+        {
+            const double th = M_PI / 2.0;
+            const double offs[] = {-w / 2.0, 0.0, w / 2.0, w};
+            for (int i = 0; i < 4; ++i) {
+                const double t = offs[i], ct = t + w / 2.0;
+                const double sq[] = {t,0,0,  t+w,0,0,  t+w,w,0,  t,w,0};
+                const double path[] = {0, 0, 0,
+                                       0, 0, L1,
+                                       L2 * sin(th), 0, L1 + L2 * cos(th)};
+                const double want = A * (L1 + L2)
+                                    - 2.0 * A * ct * tan(th / 2.0);
+                occt_shape *s = occt_sweep_profile_ex(sq, lc1, 1, I3, path,
+                                                      3, 0, 0.0, 0.0,
+                                                      OCCT_SWEEP_PATH_POLY);
+                if (check(s != NULL, "[42] the offset L sweep returned NULL")) {
+                    const double v = occt_shape_volume(s);
+                    printf("[42c] c_t %6.2f at 90 deg: volume %.6f (analytic "
+                           "%.6f, rel %+.2e) %s\n", ct, v, want,
+                           (v - want) / want,
+                           occt_shape_valid(s) ? "valid" : "INVALID");
+                    check(near_rel(v, want, 1e-6),
+                          "[42c] the wedge is not linear in the centroid "
+                          "offset");
+                    check(occt_shape_valid(s),
+                          "[42c] the offset L sweep is invalid");
+                    occt_free_shape(s);
+                }
+            }
+        }
+
+        /* (d) two joints, same sense: two wedges, and the second one is
+         * measured in the second leg's own frame — which is the same c_t,
+         * because the section is parallel-transported through the first. */
+        {
+            const double th = 15.0 * M_PI / 180.0;
+            const double L3 = 30.0;
+            const double sq[] = {0,0,0,  w,0,0,  w,w,0,  0,w,0};
+            const double x2 = L2 * sin(th), z2 = L1 + L2 * cos(th);
+            const double path[] = {0, 0, 0,
+                                   0, 0, L1,
+                                   x2, 0, z2,
+                                   x2 + L3 * sin(2.0 * th), 0,
+                                   z2 + L3 * cos(2.0 * th)};
+            const double want = A * (L1 + L2 + L3)
+                                - 2.0 * A * (w / 2.0) * 2.0 * tan(th / 2.0);
+            occt_shape *s = occt_sweep_profile_ex(sq, lc1, 1, I3, path, 4, 0,
+                                                  0.0, 0.0,
+                                                  OCCT_SWEEP_PATH_POLY);
+            if (check(s != NULL, "[42] the staircase returned NULL")) {
+                const double v = occt_shape_volume(s);
+                printf("[42d] two 15 deg joints: volume %.6f (analytic %.6f, "
+                       "rel %+.2e) %s\n", v, want, (v - want) / want,
+                       occt_shape_valid(s) ? "valid" : "INVALID");
+                check(near_rel(v, want, 1e-6),
+                      "[42d] two joints do not add two wedges");
+                check(occt_shape_valid(s), "[42d] the staircase is invalid");
+                occt_free_shape(s);
+            }
+        }
+    }
+
+
+    /* [42e] v27 THE TAPERED CORNER, WHICH USED TO BE A WRONG PART.
+     *
+     * A non-zero taper across a joint OCCT treats as a corner came back as two
+     * shells passing through each other, and OCCT reported success — see the
+     * v27 note in occt_capi.cpp for the mechanism and
+     * perf/findings/S18-corners.md §2 for the measurements. It is now refused.
+     *
+     * What this pins, in order of what it would cost to get wrong:
+     *   (i)  the taper itself is still EXACT on a spine with no corner, and
+     *        the analytic value is a frustum integral computed here:
+     *          V = A * L * (1 + k + k^2/3),  k = tan(taper)
+     *        because Law_Linear scales the section's POLES about the section's
+     *        own origin, which the fixture puts on the spine;
+     *   (ii) a spine of MORE THAN ONE EDGE is not the trigger — two and three
+     *        COLLINEAR edges give the same solid to the last digit, so the
+     *        law is distributed across spine edges correctly (BRepFill_Sweep
+     *        calls Sweep.SetDomain per edge, by arc length) and "more than one
+     *        edge" was the wrong diagnosis;
+     *   (iii) the refusal boundary is OCCT'S OWN angmin deadband, 0.5730 deg:
+     *        0.4 deg still builds and is valid, 0.6 deg is refused. Nothing
+     *        that produced a correct solid stops producing one;
+     *   (iv) and the SAME path without the taper is untouched, which is what
+     *        makes this a taper fix and not a corner fix.
+     */
+    {
+        const double w = 10.0, A = w * w, L = 40.0;
+        const double k = tan(10.0 * M_PI / 180.0);
+        const double sq[] = {0,0,0,  w,0,0,  w,w,0,  0,w,0};
+        const int lc1[] = {4};
+        const double I3[12] = {1,0,0,0, 0,1,0,0, 0,0,1,0};
+        const double frustum = A * L * (1.0 + k + k * k / 3.0);
+
+        /* (i) one spine edge — the analytic frustum. */
+        {
+            const double path[] = {0,0,0, 0,0,L};
+            occt_shape *s = occt_sweep_profile(sq, lc1, 1, I3, path, 2, 0,
+                                               10.0, 0.0);
+            if (check(s != NULL, "[42e] the tapered straight sweep failed")) {
+                const double v = occt_shape_volume(s);
+                printf("[42e] taper 10 deg, 1 spine edge: volume %.6f "
+                       "(analytic A*L*(1+k+k^2/3) = %.6f, rel %+.2e) %s\n",
+                       v, frustum, (v - frustum) / frustum,
+                       occt_shape_valid(s) ? "valid" : "INVALID");
+                check(near_rel(v, frustum, 1e-9),
+                      "[42e] a tapered prism is not the frustum integral");
+                check(occt_shape_valid(s),
+                      "[42e] the tapered straight sweep is invalid");
+                occt_free_shape(s);
+            }
+        }
+        /* (ii) two and three COLLINEAR edges — same answer, so the number of
+         * spine edges is not the trigger. */
+        {
+            const double p2[] = {0,0,0, 0,0,10, 0,0,L};
+            const double p3[] = {0,0,0, 0,0,10, 0,0,25, 0,0,L};
+            occt_shape *a = occt_sweep_profile(sq, lc1, 1, I3, p2, 3, 0,
+                                               10.0, 0.0);
+            occt_shape *b = occt_sweep_profile(sq, lc1, 1, I3, p3, 4, 0,
+                                               10.0, 0.0);
+            if (check(a != NULL && b != NULL,
+                      "[42e] a collinear multi-edge tapered sweep failed")) {
+                const double va = occt_shape_volume(a);
+                const double vb = occt_shape_volume(b);
+                printf("[42e] taper 10 deg, 2 edges: %.6f  3 edges: %.6f  "
+                       "(1 edge: %.6f) %s / %s\n", va, vb, frustum,
+                       occt_shape_valid(a) ? "valid" : "INVALID",
+                       occt_shape_valid(b) ? "valid" : "INVALID");
+                check(near_rel(va, frustum, 1e-9) && near_rel(vb, frustum, 1e-9),
+                      "[42e] a collinear spine split into edges moved the "
+                      "taper");
+                check(occt_shape_valid(a) && occt_shape_valid(b),
+                      "[42e] a collinear multi-edge tapered sweep is invalid");
+            }
+            if (a) occt_free_shape(a);
+            if (b) occt_free_shape(b);
+        }
+        /* (iii) the boundary is the deadband. POLY, so the shim's own 5.625
+         * deg smoothing threshold cannot smooth these joints away and the
+         * comparison is really about the corner. */
+        {
+            const double L2 = 30.0;
+            const double lo = 0.4 * M_PI / 180.0, hi = 0.6 * M_PI / 180.0;
+            const double plo[] = {0,0,0, 0,0,L,
+                                  L2*sin(lo), 0, L + L2*cos(lo)};
+            const double phi[] = {0,0,0, 0,0,L,
+                                  L2*sin(hi), 0, L + L2*cos(hi)};
+            occt_shape *below = occt_sweep_profile_ex(sq, lc1, 1, I3, plo, 3,
+                                                      0, 10.0, 0.0,
+                                                      OCCT_SWEEP_PATH_POLY);
+            if (check(below != NULL,
+                      "[42e] a taper BELOW the deadband must still build")) {
+                printf("[42e] taper 10 deg across a 0.400 deg joint (below "
+                       "OCCT's 0.5730 deg angmin): volume %.6f %s\n",
+                       occt_shape_volume(below),
+                       occt_shape_valid(below) ? "valid" : "INVALID");
+                check(occt_shape_valid(below),
+                      "[42e] the sub-deadband tapered joint is invalid");
+                occt_free_shape(below);
+            }
+            occt_shape *above = occt_sweep_profile_ex(sq, lc1, 1, I3, phi, 3,
+                                                      0, 10.0, 0.0,
+                                                      OCCT_SWEEP_PATH_POLY);
+            printf("[42e] taper 10 deg across a 0.600 deg joint (above it): "
+                   "%s\n", above ? "BUILT" : occt_last_error());
+            check(above == NULL,
+                  "[42e] a taper across a mitred corner must be refused, not "
+                  "returned");
+            if (above) occt_free_shape(above);
+        }
+        /* the two angles the defect was measured at, both refused now */
+        {
+            const double L2 = 30.0;
+            const double angs[] = {15.0, 90.0};
+            for (int i = 0; i < 2; ++i) {
+                const double t = angs[i] * M_PI / 180.0;
+                const double path[] = {0,0,0, 0,0,L,
+                                       L2*sin(t), 0, L + L2*cos(t)};
+                occt_shape *s = occt_sweep_profile(sq, lc1, 1, I3, path, 3, 0,
+                                                   10.0, 0.0);
+                check(s == NULL,
+                      "[42e] a tapered drawn corner must be refused");
+                if (s) occt_free_shape(s);
+                /* (iv) and the SAME path with no taper is untouched — the
+                 * analytic mitre of [42a], to the last bit. */
+                occt_shape *u = occt_sweep_profile(sq, lc1, 1, I3, path, 3, 0,
+                                                   0.0, 0.0);
+                if (check(u != NULL, "[42e] the untapered corner stopped "
+                                     "building")) {
+                    const double want = A * (L + L2)
+                                        - 2.0 * A * (w / 2.0) * tan(t / 2.0);
+                    printf("[42e] the SAME %5.1f deg corner without taper: "
+                           "volume %.6f (analytic %.6f) %s\n", angs[i],
+                           occt_shape_volume(u), want,
+                           occt_shape_valid(u) ? "valid" : "INVALID");
+                    check(near_rel(occt_shape_volume(u), want, 1e-6),
+                          "[42e] the untapered corner moved");
+                    check(occt_shape_valid(u),
+                          "[42e] the untapered corner is invalid");
+                    occt_free_shape(u);
+                }
+            }
+        }
+        /* the coil sweeps its section along ONE analytic helix edge, so it has
+         * no joint to refuse and its taper is untouched. A regression here
+         * would mean the refusal reached a caller it has no business in. */
+        {
+            const double CP[] = {19,-1,0,  21,-1,0,  21,1,0,  19,1,0};
+            const double m[12] = {1,0,0,0, 0,0,-1,0, 0,1,0,0};
+            occt_shape *co = occt_coil_profile(CP, lc1, 1, m, 0,0,0, 0,0,1,
+                                               2.0, 20.0, 10.0, 0, 0, 0);
+            if (check(co != NULL, "[42e] a TAPERED coil must still build")) {
+                printf("[42e] tapered coil: volume %.6f %s\n",
+                       occt_shape_volume(co),
+                       occt_shape_valid(co) ? "valid" : "INVALID");
+                check(occt_shape_valid(co), "[42e] the tapered coil is "
+                                            "invalid");
+                occt_free_shape(co);
+            }
+        }
+    }
+
     if (g_failures == 0) {
         printf("OCCT SMOKE: PASS\n");
         return 0;
