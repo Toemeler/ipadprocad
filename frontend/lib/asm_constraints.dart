@@ -39,6 +39,7 @@
 import 'dart:math' as math;
 
 import 'part_model.dart';
+import 'work_features.dart' show WorkRefSource;
 
 /// What a selection reduced to. Mirrors the part side's WorkRef, which turns
 /// a tap into "a point, a line or a plane" — but stored rather than consumed,
@@ -58,20 +59,21 @@ enum AsmGeomKind {
 
 /// One piece of geometry, in whichever frame the holder says.
 class AsmGeom {
-  const AsmGeom(this.kind, this.at, this.dir, {this.radius = 0});
+  const AsmGeom(this.kind, this.at, this.dir, {this.radius = 0, this.source});
 
-  const AsmGeom.plane(Vec3 at, Vec3 n)
+  const AsmGeom.plane(Vec3 at, Vec3 n, {this.source = WorkRefSource.plane})
       : kind = AsmGeomKind.plane,
         this.at = at,
         dir = n,
         radius = 0;
 
-  const AsmGeom.axis(Vec3 at, Vec3 d, {this.radius = 0})
+  const AsmGeom.axis(Vec3 at, Vec3 d,
+      {this.radius = 0, this.source = WorkRefSource.axis})
       : kind = AsmGeomKind.axis,
         this.at = at,
         dir = d;
 
-  const AsmGeom.point(Vec3 at)
+  const AsmGeom.point(Vec3 at, {this.source = WorkRefSource.vertex})
       : kind = AsmGeomKind.point,
         this.at = at,
         dir = Vec3.zero,
@@ -90,6 +92,24 @@ class AsmGeom {
   /// treating it as a zero-radius cylinder.
   final double radius;
 
+  /// M247 — WHAT the pick was, not merely what it reduces to.
+  ///
+  /// [kind] is the reduction a CONSTRAINT needs, and it is deliberately
+  /// lossy: a circular edge, a cylindrical face and a straight edge are all
+  /// [AsmGeomKind.axis], because Insert and Mate treat them alike. A WORK
+  /// FEATURE cannot: "Through Center of Circular Edge" must refuse a
+  /// cylinder, "Center Point of Sphere" must refuse a plane, and a tangent
+  /// plane needs to know it is holding a cylinder. So the pick's own kind
+  /// travels alongside the reduction.
+  ///
+  /// Reusing [WorkRefSource] rather than declaring a second enum: this class
+  /// already says it mirrors WorkRef, and two enums for one fact is two
+  /// chances for them to disagree.
+  ///
+  /// Null on a reference written before M247 — a document, not a defect. See
+  /// `asm_work_features.workRefOf` for the per-kind fallback that reads one.
+  final WorkRefSource? source;
+
   bool get isPlane => kind == AsmGeomKind.plane;
   bool get isAxis => kind == AsmGeomKind.axis;
   bool get isPoint => kind == AsmGeomKind.point;
@@ -102,6 +122,9 @@ class AsmGeom {
         'at': [at.x, at.y, at.z],
         'dir': [dir.x, dir.y, dir.z],
         if (radius != 0) 'r': radius,
+        // M247 — omitted when there is none, so a constraint written before
+        // this existed and one written after are byte-identical.
+        if (source != null) 'src': source!.name,
       };
 
   static AsmGeom? fromJson(Object? j) {
@@ -117,14 +140,17 @@ class AsmGeom {
         .firstOrNull;
     if (k == null) return null;
     return AsmGeom(k, v(j['at']), v(j['dir']),
-        radius: (j['r'] as num?)?.toDouble() ?? 0);
+        radius: (j['r'] as num?)?.toDouble() ?? 0,
+        source: WorkRefSource.values
+            .where((e) => e.name == j['src'])
+            .firstOrNull);
   }
 }
 
 /// One selection: which component, and what on it.
 class AsmRef {
   const AsmRef(this.occurrence, this.geom, this.label,
-      {this.anchor = Vec3.zero, this.extent = 0});
+      {this.anchor = Vec3.zero, this.extent = 0, this.feature});
 
   /// The occurrence id ("Bracket:1"). The ASSEMBLY's origin geometry — its
   /// own planes and axes — uses [kAssemblyOrigin], because a constraint to
@@ -171,7 +197,28 @@ class AsmRef {
   /// the highlight stops meaning "this one".
   final double extent;
 
+  /// M247 — the ASSEMBLY WORK FEATURE this names, e.g. `wp:3`, or null.
+  ///
+  /// The assembly's own work planes, axes and points sit under
+  /// [kAssemblyOrigin] like its origin geometry, and are unlike it in one way
+  /// that matters: they MOVE. An assembly work plane is re-solved from its
+  /// inputs after every solve (see asm_work_features.dart), so a reference
+  /// that baked its frame the way an origin reference does would be naming
+  /// where the plane used to be — the exact failure [geom]'s local frame
+  /// exists to prevent for components.
+  ///
+  /// So the id travels instead of the geometry, and [worldGeomOf] resolves it
+  /// against the model on every read. [geom] is still filled in with the
+  /// frame at pick time: it is what a document opened with the feature
+  /// missing falls back to, and what keeps every reader that has no
+  /// AssemblyModel to hand working unchanged.
+  final String? feature;
+
   bool get isAssemblyOrigin => occurrence == kAssemblyOrigin;
+
+  /// True when this names an assembly work feature rather than a component or
+  /// the assembly's fixed origin.
+  bool get isWorkFeature => feature != null;
 
   Map<String, dynamic> toJson() => {
         'occ': occurrence,
@@ -179,6 +226,7 @@ class AsmRef {
         'label': label,
         'at': [anchor.x, anchor.y, anchor.z],
         if (extent > 0) 'ext': extent,
+        if (feature != null) 'wf': feature,
       };
 
   static AsmRef? fromJson(Object? j) {
@@ -195,7 +243,8 @@ class AsmRef {
             ? Vec3((a[0] as num?)?.toDouble() ?? 0,
                 (a[1] as num?)?.toDouble() ?? 0, (a[2] as num?)?.toDouble() ?? 0)
             : g.at,
-        extent: (j['ext'] as num?)?.toDouble() ?? 0);
+        extent: (j['ext'] as num?)?.toDouble() ?? 0,
+        feature: j['wf'] as String?);
   }
 }
 

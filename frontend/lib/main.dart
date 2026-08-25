@@ -303,9 +303,12 @@ class PrototypeApp extends StatelessWidget {
                                   // and it is checked first because it is the
                                   // simplest to state: an assembly document
                                   // has no part and no sketch open inside it,
-                                  // so none of the part branch's overlays
-                                  // (extrude, hole, pattern, work plane) can
-                                  // apply to it.
+                                  // so none of the part branch's feature
+                                  // dialogues (extrude, hole, pattern) can
+                                  // apply to it. M247 — the work plane field
+                                  // is the exception, and it is here rather
+                                  // than shared because an assembly's Stack
+                                  // is its own.
                                   child: app.currentAssembly != null
                                       // M242 — the assembly gained a floating
                                       // panel of its own, so the viewport is
@@ -317,6 +320,16 @@ class PrototypeApp extends StatelessWidget {
                                               child: ViewportAssembly(app: app)),
                                           if (app.constraintSession != null)
                                             ConstraintDialog(app: app),
+                                          // M247 — an assembly has work
+                                          // planes now, and an offset or an
+                                          // angle plane carries the one number
+                                          // this field edits. The part branch
+                                          // below has mounted it since M169;
+                                          // without it here the field opened
+                                          // on a new assembly plane and never
+                                          // appeared, so the number could be
+                                          // set once and never corrected.
+                                          WorkPlaneOffsetField(app: app),
                                         ])
                                       : app.currentPart != null
                                       ? Stack(children: [

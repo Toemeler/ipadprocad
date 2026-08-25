@@ -136,6 +136,11 @@ Map<String, dynamic> buildAssemblyOverlaysPayload(AssemblyModel a,
       'planes': [
         for (final key in kPlaneKeys)
           {'key': key, 'visible': a.vis[key] == true, 'hot': false},
+        // M247 — a work plane's eye has to reach the device on the light push
+        // as well, or toggling one would wait for whatever next moved the
+        // scene signature.
+        for (final w in a.workPlanes)
+          {'key': w.id, 'visible': w.visible, 'hot': false},
       ],
       'axes': [
         for (final (key, _) in kAssemblyAxes)
@@ -155,6 +160,21 @@ List<Map<String, dynamic>> assemblyPlanePayloads(AssemblyModel a) => [
       for (final key in kPlaneKeys)
         planePayload(key, planeFrame(key), assemblyPlaneRect(a, key),
             visible: a.vis[key] == true, hot: false),
+      // M247 — the assembly's own work planes ride the SAME list, exactly as a
+      // part's do in _planePayloads (M165). A work plane is a filled quad that
+      // has to be depth-tested against the components, which is a thing the
+      // screen-space HUD cannot do and the RealityKit scene already does — so
+      // this is the one of the three work features that goes through the
+      // payload, and the axes and points stay on the HUD.
+      //
+      // Sized by planeRectInBounds against the assembly's padded extent, which
+      // is the very function the origin planes above go through: a work plane
+      // frames the model the way they do rather than being a fixed square, and
+      // the picker hit-tests the same rectangle.
+      for (final w in a.workPlanes)
+        planePayload(w.id, w.frame,
+            planeRectInBounds(assemblyOriginExtent(a), w.frame),
+            visible: w.visible, hot: false),
     ];
 
 List<Map<String, dynamic>> assemblyAxisPayloads(AssemblyModel a) => [
@@ -184,6 +204,30 @@ String assemblySceneSignature(AssemblyModel a) {
     ..write(';vis:');
   for (final k in const ['yz', 'xz', 'xy', 'x', 'y', 'z', 'cp']) {
     sb.write(a.vis[k] == true ? '1' : '0');
+  }
+  // M247 — the work planes' GEOMETRY is in the heavy push, and unlike a
+  // component's it is not expressible as a placement the renderer can apply
+  // itself: a re-solve changes the quad's corners. So the frame goes in the
+  // signature, and a work feature that moves rebuilds the plane meshes and
+  // nothing else. (gen already covers a feature being created or deleted.)
+  sb.write(';wp:');
+  for (final w in a.workPlanes) {
+    final f = w.frame;
+    sb
+      ..write(w.id)
+      ..write(w.visible ? '=' : '-')
+      ..write(f.origin.x.toStringAsFixed(3))
+      ..write(',')
+      ..write(f.origin.y.toStringAsFixed(3))
+      ..write(',')
+      ..write(f.origin.z.toStringAsFixed(3))
+      ..write(',')
+      ..write(f.n.x.toStringAsFixed(4))
+      ..write(',')
+      ..write(f.n.y.toStringAsFixed(4))
+      ..write(',')
+      ..write(f.n.z.toStringAsFixed(4))
+      ..write(';');
   }
   sb.write(';s:');
   for (final (id, _, _, _, s) in assemblyPieces(a)) {

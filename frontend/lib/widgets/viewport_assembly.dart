@@ -66,7 +66,8 @@ import '../theme.dart';
 import 'bottom_tabbar.dart';
 import 'native_browser_host.dart';
 import 'ribbon_chrome.dart';
-import 'viewport3d.dart' show ViewCube, TriadPainter;
+import 'viewport3d.dart'
+    show ViewCube, TriadPainter, paintWorkAxesAndPoints;
 
 /// Palette reads, not constants — same rule as viewport3d.dart: a `final`
 /// would freeze whichever scheme happened to be active when it was first read.
@@ -326,7 +327,7 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
                       )
                     : CustomPaint(
                         painter: _AssemblyPainter(
-                            a, _hover, app.constraintMarkers, _hoverGeom),
+                            a, _hover, app.asmMarkers, _hoverGeom, app),
                         size: Size.infinite,
                       ),
               ),
@@ -339,7 +340,7 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
                   child: IgnorePointer(
                     child: CustomPaint(
                       painter: _MissingPartPainter(
-                          a, app.constraintMarkers, _hoverGeom),
+                          a, app.asmMarkers, _hoverGeom, app),
                       size: Size.infinite,
                     ),
                   ),
@@ -368,6 +369,22 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
               // everywhere else in this app; it must not grab a component.
               if (e.kind == PointerDeviceKind.mouse &&
                   e.buttons != kPrimaryMouseButton) {
+                return;
+              }
+              // M247 — while a WORK FEATURE command is collecting, a tap is
+              // a pick. Checked before the constraint branch and before the
+              // grab for the same reason that one is: arming a command and
+              // then having the tap move a component instead is not something
+              // a user can have meant. The two can never both be armed —
+              // openConstraint and the work-feature commands cancel each
+              // other — so the order between them is style, not behaviour.
+              if (app.asmPickWorkGeometry) {
+                final pick = pickAsmRef(a, cam, e.localPosition);
+                if (pick != null) {
+                  app.asmWorkFeaturePick(pick);
+                } else {
+                  app.toast(L.of(context).hintAsmPickGeometry);
+                }
                 return;
               }
               // M242 — while Place Constraint is collecting, a tap is a
@@ -500,7 +517,7 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
                 // While Place Constraint collects, hovering pre-highlights the
                 // GEOMETRY under the pointer rather than the component: what
                 // the next tap would select is the thing worth showing.
-                if (app.constraintPicking) {
+                if (app.constraintPicking || app.asmPickWorkGeometry) {
                   final p = pickAsmRef(a, cam, e.localPosition);
                   final g = p == null ? null : app.markFor(a, p.ref);
                   // Compare the REFERENCE, not the mark: markFor builds a
@@ -776,12 +793,28 @@ class _MissingPartPainter extends CustomPainter {
   /// off it — the same split paintMissingComponents already lives on.
   final List<AsmMark> marks;
   final AsmMark? hoverGeom;
-  _MissingPartPainter(this.asm, this.marks, this.hoverGeom);
+
+  /// M247 — for the work axis / work point selection colour. The features
+  /// themselves are the assembly's; which one is SELECTED is session state.
+  final AppState app;
+  _MissingPartPainter(this.asm, this.marks, this.hoverGeom, this.app);
 
   @override
   void paint(Canvas canvas, Size size) {
     final cam = Cam3(asm.camera, size);
     paintMissingComponents(canvas, cam, asm);
+    // M247 — work axes and points are pure HUD, so they are drawn from BOTH
+    // painters. Exactly the split paintMissingComponents lives on, and the
+    // one paintWorkFeatures documents on the part side: drawn only in the
+    // scene painter they would be visible on the host and invisible on the
+    // iPad, where RealityKit owns the scene. (Work PLANES do NOT come through
+    // here — they are filled quads that must be depth-tested against the
+    // components, so they ride the scene payload; see assemblyPlanePayloads.)
+    paintWorkAxesAndPoints(canvas, cam,
+        axes: asm.workAxes,
+        points: asm.workPoints,
+        bounds: assemblyContentBounds(asm),
+        app: app);
     paintConstraintMarks(canvas, cam, marks, hoverGeom);
   }
 
@@ -852,7 +885,10 @@ class _AssemblyPainter extends CustomPainter {
   /// M242 — Place Constraint's collected and hovered geometry.
   final List<AsmMark> marks;
   final AsmMark? hoverGeom;
-  _AssemblyPainter(this.asm, this.hover, this.marks, this.hoverGeom);
+
+  /// See [_MissingPartPainter.app].
+  final AppState app;
+  _AssemblyPainter(this.asm, this.hover, this.marks, this.hoverGeom, this.app);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -907,6 +943,40 @@ class _AssemblyPainter extends CustomPainter {
           extra: occ?.edgeMargin ?? 0);
     }
 
+    // ---- work planes (M247) ----
+    //
+    // With the origin planes and through the same two helpers, for the reason
+    // M151 gives on the part side: a work plane has to frame the model exactly
+    // as an origin plane does, and one drawn by its own code is one that can
+    // drift from the rectangle the picker hit-tests (planeRectInBounds is what
+    // both read). Occluded, so a plane passes THROUGH a component rather than
+    // floating on it.
+    for (final w in asm.workPlanes) {
+      if (!w.visible) continue;
+      final f = w.frame;
+      final (uMin, uMax, vMin, vMax) =
+          planeRectInBounds(assemblyOriginExtent(asm), f);
+      final c0 = f.toWorld(Offset(uMin, vMin));
+      final c1 = f.toWorld(Offset(uMax, vMin));
+      final c2 = f.toWorld(Offset(uMax, vMax));
+      final c3 = f.toWorld(Offset(uMin, vMax));
+      final sel = identical(app.selectedWorkPlane, w);
+      drawOccludedQuadFill(canvas, cam, c0, c1, c2, c3,
+          (sel ? kEdgeAccent : _orange).withValues(alpha: sel ? 0.42 : 0.22),
+          occ: occ);
+      drawOccludedPolyline(
+          canvas,
+          cam,
+          [c0, c1, c2, c3],
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = sel ? 2 : 1
+            ..color = sel ? kEdgeAccent : _orangeEdge,
+          occ: occ,
+          close: true,
+          extra: occ?.edgeMargin ?? 0);
+    }
+
     // ---- axes + centre point ----
     for (final (key, dir) in const [
       ('x', Vec3(1, 0, 0)),
@@ -930,6 +1000,13 @@ class _AssemblyPainter extends CustomPainter {
     }
 
     paintMissingComponents(canvas, cam, asm);
+    // M247 — see _MissingPartPainter.paint: the HUD half of the work features,
+    // drawn from here as well so the host renderer says what the device says.
+    paintWorkAxesAndPoints(canvas, cam,
+        axes: asm.workAxes,
+        points: asm.workPoints,
+        bounds: assemblyContentBounds(asm),
+        app: app);
     paintConstraintMarks(canvas, cam, marks, hoverGeom);
   }
 
