@@ -1014,6 +1014,127 @@ int main()
         }
     }
 
+    // ---- 15. a torus, which nothing in this suite had ever asked for -----
+    {
+        std::printf("== a plain torus R=20 r=6 ==\n");
+        for (double defl : {0.4, 0.1}) {
+            TopoDS_Shape src = BRepPrimAPI_MakeTorus(20., 6.).Shape();
+            meshrecon::Report r;
+            TopoDS_Shape out = Run(src, defl, r);
+            report(r);
+            chk("built something", !out.IsNull());
+            if (out.IsNull())
+                continue;
+            Counts c = FaceKinds(out);
+            /* The old seed paired each normal with one a stride away and
+             * intersected the lines. That finds a cylinder's axis; on a torus
+             * a normal meets the SPINE, not the axis, so half the samples
+             * landed in the wrong place and the fit came back R=16.1 r=16.1
+             * against a truth of 20 and 6, at a residual of 4.6 mm on a mesh
+             * with no noise in it. A torus was therefore never once
+             * recognised, and every fillet ring — the only torus most parts
+             * contain — came back as several hundred planes. */
+            chk("one toroidal face", c.tor == 1 && c.total == 1,
+                std::to_string(c.tor) + " tori of " +
+                    std::to_string(c.total) + " faces");
+            chk("closed solid", r.closed == 1);
+            for (TopExp_Explorer ex(out, TopAbs_FACE); ex.More(); ex.Next()) {
+                BRepAdaptor_Surface sa(TopoDS::Face(ex.Current()));
+                if (sa.GetType() != GeomAbs_Torus)
+                    continue;
+                chk("with its true radii",
+                    std::fabs(sa.Torus().MajorRadius() - 20.) < 1e-3 &&
+                        std::fabs(sa.Torus().MinorRadius() - 6.) < 1e-3,
+                    std::to_string(sa.Torus().MajorRadius()) + " / " +
+                        std::to_string(sa.Torus().MinorRadius()));
+            }
+        }
+    }
+    // ---- 16. the plate a download actually looks like ---------------------
+    {
+        /* Rounded corners, a raised boss, five holes, and coarse enough that
+         * its circles are twelve-sided — which is what came back from the
+         * user's file with its corners in flat bands and its holes as prisms.
+         *
+         * Two things had to be true for this to work and neither was. RANSAC
+         * fitted every candidate to a fixed forty-triangle neighbourhood, so
+         * on a part whose fillets are twelve facets each every sample spanned
+         * a fillet AND the wall it is tangent to, every fit failed, and the
+         * side band came back with nothing found in it at all. And a merge
+         * only had to stay within tolerance, so a fillet that HAD been found
+         * was then fused with two triangles of that wall into a torus bent
+         * round an axis that is nowhere in the part, which added 42% to the
+         * model's volume. */
+        std::printf("== coarse plate: rounded corners, boss, five holes ==\n");
+        TopoDS_Shape box = BRepPrimAPI_MakeBox(60., 40., 6.).Shape();
+        BRepFilletAPI_MakeFillet fil(box);
+        TopTools_IndexedMapOfShape edges;
+        TopExp::MapShapes(box, TopAbs_EDGE, edges);
+        for (int i = 1; i <= edges.Extent(); ++i) {
+            const TopoDS_Edge e = TopoDS::Edge(edges(i));
+            gp_Pnt a = BRep_Tool::Pnt(TopExp::FirstVertex(e));
+            gp_Pnt b = BRep_Tool::Pnt(TopExp::LastVertex(e));
+            if (std::fabs(a.X() - b.X()) < 1e-7 &&
+                std::fabs(a.Y() - b.Y()) < 1e-7)
+                fil.Add(5., e); /* the four vertical corners */
+        }
+        TopoDS_Shape src = fil.Shape();
+        src = BRepAlgoAPI_Fuse(
+                  src, BRepPrimAPI_MakeCylinder(
+                           gp_Ax2(gp_Pnt(30., 20., 6.), gp_Dir(0, 0, 1)), 9.,
+                           4.)
+                           .Shape())
+                  .Shape();
+        const double hx[5] = {30., 10., 50., 10., 50.};
+        const double hy[5] = {20., 8., 8., 32., 32.};
+        const double hr[5] = {4.5, 2.2, 2.2, 2.2, 2.2};
+        for (int i = 0; i < 5; ++i)
+            src = BRepAlgoAPI_Cut(
+                      src,
+                      BRepPrimAPI_MakeCylinder(
+                          gp_Ax2(gp_Pnt(hx[i], hy[i], -1.), gp_Dir(0, 0, 1)),
+                          hr[i], 20.)
+                          .Shape())
+                      .Shape();
+        meshrecon::Report r;
+        TopoDS_Shape out = Run(src, 0.25, r);
+        report(r);
+        chk("built something", !out.IsNull());
+        if (!out.IsNull()) {
+            Counts c = FaceKinds(out);
+            chk("closed solid", r.closed == 1);
+            chk("nothing went to triangles", r.faceted_patches == 0,
+                std::to_string(r.faceted_patches) + " faceted");
+            /* 7 planes: top, bottom, four walls, boss top.
+             * 10 cylinders: four corner fillets, five holes, the boss. */
+            chk("7 planes and 10 cylinders, and nothing else",
+                c.planes == 7 && c.cyl == 10 && c.total == 17,
+                std::to_string(c.planes) + "pl " + std::to_string(c.cyl) +
+                    "cy of " + std::to_string(c.total));
+            std::vector<double> radii;
+            for (TopExp_Explorer ex(out, TopAbs_FACE); ex.More(); ex.Next()) {
+                BRepAdaptor_Surface sa(TopoDS::Face(ex.Current()));
+                if (sa.GetType() == GeomAbs_Cylinder)
+                    radii.push_back(sa.Cylinder().Radius());
+            }
+            std::sort(radii.begin(), radii.end());
+            const double want[10] = {2.2, 2.2, 2.2, 2.2, 4.5,
+                                     5.0, 5.0, 5.0, 5.0, 9.0};
+            bool exact = radii.size() == 10;
+            std::string got;
+            for (size_t i = 0; i < radii.size(); ++i) {
+                got += std::to_string(radii[i]) + " ";
+                if (i < 10 && std::fabs(radii[i] - want[i]) > 1e-4)
+                    exact = false;
+            }
+            chk("every radius exact: four fillets, five holes, the boss",
+                exact, got);
+            const double v = Volume(out);
+            chk("volume", std::fabs(v - g_meshVolume) / g_meshVolume < 1e-3,
+                std::to_string(v) + " mesh " + std::to_string(g_meshVolume));
+        }
+    }
+
     std::printf("\n%s  (%d passed, %d failed)\n",
                 fails == 0 ? "ALL PASSED" : "FAILURES", passes, fails);
     return fails == 0 ? 0 : 1;

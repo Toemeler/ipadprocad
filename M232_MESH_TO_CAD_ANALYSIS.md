@@ -19,7 +19,7 @@ kernel that was already here.
 | `PartKernel.meshToBrep` | the seam the app talks to, so `AppState` never touches the FFI directly and the test fakes can decline it in one line |
 | `AppState.importMeshIntoPart` | Open accepts `.stl`, `.obj`, `.3mf`; the body lands in the feature tree and is filletable, booleanable and STEP-exportable like any other |
 | 22 ARB keys, German + English | every sentence the feature can say. `mesh_io.dart` throws a `MeshFailure` code, never prose — a reader has no business holding UI text (M234) |
-| `backend/occt/tests/mesh_recon_test.cpp` | 105 assertions: build a solid with OCCT, tessellate it, throw the B-Rep away, reconstruct from triangles alone, compare topology and volume. Run by CI |
+| `backend/occt/tests/mesh_recon_test.cpp` | 119 assertions: build a solid with OCCT, tessellate it, throw the B-Rep away, reconstruct from triangles alone, compare topology and volume. Run by CI |
 | `frontend/test/m232_mesh_import_test.dart` | 28 tests over the readers, the limits, the Open decision and the import wiring |
 
 ### What it actually does
@@ -325,6 +325,119 @@ whose output depends on the weather cannot be tested.
 Every taper from 6° to 63°: disc, barrel, cone. It costs nothing on models that
 already fitted — it only runs on a patch that fitted nothing — and 2.24 M
 triangles still convert in 4.1 s.
+
+### Fillets, and the four ways a part loses them
+
+The screenshots that came back next showed a rounded plate whose corners were
+flat bands, whose holes were prisms with a wedge missing, and whose top face
+was cracked. To have anything to measure, the part was rebuilt synthetically —
+60×40×6 plate, r=5 corner fillets, a raised boss, five holes — and swept
+through 216 tessellations: six deflections × six angular deflections × six
+variants (plain, boss-base fillet, r=12 corners, thin plate, square corners,
+countersunk holes), each one converted to a **float32 triangle soup** the way
+an STL stores it. A row counts as bad if it does not close, leaves triangles,
+fails a face, or moves the volume by more than half a percent.
+
+**87 of 216 were bad. Four separate causes, each found by measurement, each
+fixed; 27 remain.**
+
+**1. RANSAC could not see a feature smaller than its own sample.** Candidates
+were fitted to a fixed forty-triangle neighbourhood grown from the seed. On a
+part whose corner fillets are twelve facets each, every one of the 48 trials on
+the side band drew a sample spanning a fillet *and* the wall it is tangent to;
+every fit failed; RANSAC returned **0 surfaces from 56 triangles** and the
+fillets went to triangles. That is what "the radiuses are not radiuses" is.
+Classical RANSAC samples *minimally* — three points for a plane — precisely so
+a sample cannot straddle a boundary, but a minimal sample off a coarse mesh
+also fits a sphere the size of a house. So the seed is now a **ladder**,
+{4, 6, 10, 18, 30, 48}, twelve trials per rung: small seeds find small features,
+large seeds are stable on large ones, and support decides. The side band went
+from 0 surfaces to 4, and the plate from *31 planes, 6 cylinders and 8 faceted
+patches* to **exactly its 17 faces — 7 planes and 10 cylinders, radii 5.0000,
+5.0000, 5.0000, 5.0000, 2.2000 ×4, 4.5000, 9.0000, closed, volume 0.00% off.**
+
+**2. Nothing anywhere asked whether a surface passes through the mesh's FACES.**
+Every test — residual, normal agreement, sweep — is measured at vertices, and a
+surface with enough parameters threads every vertex of a patch and then bulges
+out through the middle of it. Measured: a 12 mm corner fillet plus two
+triangles of its wall, fitted by a torus of major radius 25 mm about the part's
+own axis, residual **0.00000 at every vertex** — and **11.2 mm** off at the
+facet centroids, where the real fillets of the same model sit at 0.051 mm.
+Trimmed, that face added **306%** to the model's volume. A facet is a chord of
+the surface it came off, so the stand-off at its interior is the chord height —
+quadratic in facet size, and two orders of magnitude below it. Sampling the
+centroid and the three edge midpoints against a bar of a quarter of the facet
+separates the two every time, and the test now runs in all three places a
+surface is chosen: the RANSAC inlier test, the merge, and identifiability.
+
+**3. A merge only had to stay within tolerance.** `MergeRegions` exists to
+reunite one surface the splitter cut in two — and there the union fits exactly,
+because both halves did. Joining two *different* surfaces fits only loosely,
+and loosely is still inside tolerance: an r=5 fillet (32 triangles, cylinder,
+residual zero) merged with the two triangles of the wall beside it (plane,
+residual zero) and came back as a torus at 0.0102 bent round a 15 mm axis that
+is nowhere in the part, **+42% volume**. A merge of two recognised surfaces now
+has to be no worse than the worse of them.
+
+**4. The torus fitter had never once worked.** No test in the suite had ever
+asked for a torus. Given a *perfect, noise-free* torus of R=20 r=6 it returned
+**R=16.1, r=16.1, residual 4.6 mm** — and a plain torus therefore came back as
+**2473 planes**, a boss-base fillet ring as several hundred. The seed paired
+each normal with one a stride away and intersected the lines, which is how you
+find a *cylinder's* axis; on a torus a normal line meets the **spine**, the
+circle of tube centres, and only for neighbours along a meridian — neighbours
+around the spine meet near the axis instead, a long way off. Half the samples
+were in the wrong place. What is reliable is that every point of a torus lies
+its minor radius from the spine *along its own normal*, so for the true r the
+points `p − r·n` collapse onto a circle and for any other r they do not. That
+makes r a one-dimensional search with a sharp minimum: scan it, take the sign
+that works (outward on a boss, inward in a blend), read the axis, centre and
+major radius off the circle.
+
+| | before | after |
+|---|---|---|
+| plain torus R=20 r=6 | 2473 planes, 0 tori | **1 torus, R=20.0000 r=6.0000**, closed, volume 0.000% |
+| boss fillet ring r=1.5 | 486–3528 planes | **R=10.5000 r=1.5000**, 9 faces from 9 |
+| boss fillet ring r=3.0 | 133–951 planes | **R=12.0000 r=3.0000**, at every tessellation |
+
+Making tori findable then made them *too* findable — the sweep went briefly to
+143 of 216 — which is the whole reason 2 and 3 above are written the way they
+are. An eight-parameter surface will always reach a little further than a
+seven-parameter one; what stops it is not a smaller tolerance but being asked
+whether it describes the facets.
+
+### And the mirror image: a smooth run is not a hundred little planes
+
+The same sweep exposed the opposite failure. A quad of a quad-meshed surface is
+*exactly* planar, so a plane through it has no residual at all and passes every
+per-piece test there is — correctly, since two triangles really is a box's
+face. On a 2676-triangle organic shell the splitter carved out **129 such
+planes and 3 spheres**, none of which exists.
+
+No local test separates them, because locally they are the same thing. What
+separates them is the run they came from, so the question is now asked once per
+smooth run rather than once per piece: a prismatic run is **accounted for** —
+its pieces are faces and they cover it — while a freeform run is not, and what
+does fit in it is facet-sized. When less than half a run is explained and the
+explanations are facet-sized, the whole run goes to triangles together. A
+plate's side band, four fillets and four walls, is covered to the last triangle
+and is untouched. Two smaller rules fell out of the same measurement: a face
+carved out of a bigger patch has no witness the way a whole smooth run does, so
+it is held to the exact bar rather than the ordinary one; and a fitted face
+whose neighbours are *all* triangles buys nothing — the plane IS the triangle —
+while costing a seam, so it becomes the triangle.
+
+| | before | after |
+|---|---|---|
+| ellipsoid, 1286 tri | 74 planes + 1 cone invented | **0**, one faceted shell, volume exact to 1e-6 |
+| curved shell, 4 drilled holes | 129 planes + 3 spheres | **0 spheres**, the four holes still exactly 2, 3, 4, 5 |
+| plate sweep, 216 tessellations | 87 bad | **27 bad** |
+
+The suite is 119 assertions and covers both new failures: a plain torus at two
+tessellations, and the coarse plate — the shape of the file that started this —
+which must come back as exactly 7 planes and 10 cylinders with every radius
+right to four decimals. 600 fuzzed STL round-trips, 0 failures; 2.24 M
+triangles still convert in 3.6 s at 1.6 µs each.
 
 ---
 
