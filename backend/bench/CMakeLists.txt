@@ -126,3 +126,19 @@ if(BENCH_HOLE_PROBE)
                           ${CMAKE_DL_LIBS})
     target_include_directories(hole_probe PRIVATE ${OpenCASCADE_INCLUDE_DIR})
 endif()
+
+# ---------------------------------------------------------------------------
+# S19 — the validity probe. NOT a Lane C scenario, for the same reason the S15
+# probe is not: it checks a 1024-segment solid four different ways and runs a
+# 405-configuration census, and Lane C runs on every push and gates on its
+# exponents. It answers the question S18 §5.2 routed to the integrator — what a
+# BRepCheck_Analyzer gate in finish_pipe would cost, and what it would start
+# refusing. See perf/findings/S19-validity.md §1.
+# ---------------------------------------------------------------------------
+option(BENCH_VALID_PROBE "Build the S19 validity probe" OFF)
+if(BENCH_VALID_PROBE)
+    add_executable(valid_probe valid_probe.cpp)
+    target_link_libraries(valid_probe PRIVATE occt_capi Threads::Threads
+                          ${CMAKE_DL_LIBS})
+    target_include_directories(valid_probe PRIVATE ${OpenCASCADE_INCLUDE_DIR})
+endif()
