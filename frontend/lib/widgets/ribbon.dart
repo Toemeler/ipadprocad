@@ -988,6 +988,27 @@ class _RibbonState extends State<Ribbon> {
                 ]
               ]),
         );
+    // M248 — small rows that are BUILT and can LIGHT UP, for the Pattern
+    // panel. [_partRibbon.colActive], in the file that needs it; the two
+    // cannot be shared for the same reason [wfCol] below cannot.
+    Widget asmCol(List<(String, String, VoidCallback, bool)> rows,
+            {double leftPad = 8}) =>
+        Padding(
+          padding: EdgeInsets.only(left: leftPad),
+          child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (var i = 0; i < rows.length; i++) ...[
+                  if (i > 0) const SizedBox(height: 2),
+                  _SmallRow(
+                      icon: rows[i].$1,
+                      label: rows[i].$2,
+                      onTap: rows[i].$3,
+                      active: rows[i].$4),
+                ]
+              ]),
+        );
     // M247 — small rows that are BUILT, each with the drop chip its flyout
     // needs. The part ribbon's `col` in every respect but the file it is
     // written in; it cannot simply be shared because both are closures over
@@ -1078,14 +1099,46 @@ class _RibbonState extends State<Ribbon> {
           ]),
         ),
         // ---- Pattern: Pattern / Mirror / Copy ------------------------------
+        //
+        // M248 — all three WIRED, and Pattern and Mirror open the PART's
+        // pattern panel with an assembly session in it. Inventor draws
+        // Pattern Component and Mirror Components as two dialogs; here they
+        // are the two modes of one panel that already serves four commands,
+        // for the reason PatternPanel3D states about serving four: the chrome,
+        // the seed list, the counts, the distributions, the irregular rows and
+        // the OK/Cancel behaviour are identical, and a second panel would be a
+        // second place to keep them in step.
+        //
+        // Pattern opens on Rectangular, Inventor's most-used. Circular and
+        // the Associative flavour are reached through the panel's own RAIL,
+        // which is where Inventor puts them too — its Pattern Component
+        // dialog is one dialog with three tabs, not three ribbon buttons —
+        // and switching there keeps the seeds already picked. Each button
+        // lights while its command is open, the way every other one does.
         _panel(
           label: t.panelPattern,
-          arrow: true,
-          child: offCol([
-            (PT['rect']!, t.btnPatternComponent),
-            (PT['mirror']!, t.btnMirror),
-            (AS['copy']!, t.btnCopy),
-          ], leftPad: 2),
+          arrow: false,
+          child: Row(children: [
+            asmCol([
+              (
+                PT['rect']!,
+                t.btnPatternComponent,
+                () => app.openAsmPattern(PatternKind.rectangular),
+                app.asmPatternSession?.mode == PatternKind.rectangular
+              ),
+              (
+                PT['mirror']!,
+                t.btnMirror,
+                () => app.openAsmPattern(PatternKind.mirror),
+                app.asmPatternSession?.mode == PatternKind.mirror
+              ),
+              // Copy is a one-shot on the SELECTION, not a panel: it places
+              // another occurrence of the selected component as it sits. See
+              // AppState.copySelectedComponent for why it is not Inventor's
+              // (which writes new part documents, and rule 1 forbids that).
+              (AS['copy']!, t.btnCopy, app.copySelectedComponent, false),
+            ], leftPad: 2),
+          ]),
         ),
         // ---- Work Features: the part ribbon's panel, on this document ------
         //

@@ -1142,8 +1142,20 @@ class AppL10nDe extends AppL10n {
   }
 
   @override
-  String get msgTapComponentToPattern =>
-      'Komponente antippen, die angeordnet werden soll.';
+  String msgRelationshipsDropped(int n) {
+    String _temp0 = intl.Intl.pluralLogic(
+      n,
+      locale: localeName,
+      other:
+          '$n Beziehungen wurden mit den entfallenen Elementen gelöscht — Abbrechen stellt sie wieder her.',
+      one:
+          '1 Beziehung wurde mit den entfallenen Elementen gelöscht — Abbrechen stellt sie wieder her.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get msgTapComponentToPattern => 'Komponente zum Anordnen antippen.';
 
   @override
   String get msgCannotPatternAnElement =>
@@ -2751,6 +2763,32 @@ class AppL10nDe extends AppL10n {
 
   @override
   String get lblSelectSolid => 'Volumenkörper wählen';
+
+  @override
+  String get lblComponent => 'Komponente';
+
+  @override
+  String get lblSelectComponents => 'Komponenten wählen';
+
+  @override
+  String lblNComponents(int n) {
+    String _temp0 = intl.Intl.pluralLogic(
+      n,
+      locale: localeName,
+      other: '$n Komponenten',
+      one: '1 Komponente',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get hintTapComponentIn3d => 'Komponente in 3D antippen…';
+
+  @override
+  String get lblFeaturePattern => 'Element-Anordnung';
+
+  @override
+  String get lblOwnSpacing => 'Eigene Abstände';
 
   @override
   String get lblFeature => 'Element';

@@ -379,6 +379,21 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
               // a user can have meant. The two can never both be armed —
               // openConstraint and the work-feature commands cancel each
               // other — so the order between them is style, not behaviour.
+              // M248 — and the same again for Pattern / Mirror Component,
+              // ahead of the grab for the reason above: a tap meant for the
+              // seed selector must not drag the component instead. The three
+              // commands cancel one another, so the order between them is
+              // style rather than behaviour.
+              if (app.asmPatternPicking &&
+                  app.patternSession?.active != PatternField.none) {
+                final pick = pickAsmRef(a, cam, e.localPosition);
+                if (pick == null) {
+                  app.toast(L.of(context).hintAsmPickGeometry);
+                } else if (app.asmPatternPick(pick)) {
+                  return;
+                }
+                return;
+              }
               if (app.asmPickWorkGeometry) {
                 final pick = pickAsmRef(a, cam, e.localPosition);
                 if (pick != null) {
@@ -518,7 +533,10 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
                 // While Place Constraint collects, hovering pre-highlights the
                 // GEOMETRY under the pointer rather than the component: what
                 // the next tap would select is the thing worth showing.
-                if (app.constraintPicking || app.asmPickWorkGeometry) {
+                if (app.constraintPicking ||
+                    app.asmPickWorkGeometry ||
+                    (app.asmPatternPicking &&
+                        app.patternSession?.active != PatternField.none)) {
                   final p = pickAsmRef(a, cam, e.localPosition);
                   final g = p == null ? null : app.markFor(a, p.ref);
                   // Compare the REFERENCE, not the mark: markFor builds a

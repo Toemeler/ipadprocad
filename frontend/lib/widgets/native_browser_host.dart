@@ -468,6 +468,20 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
       }
       return;
     }
+    // M248 — tapping a PATTERN discloses it; tapping a disclosed one opens
+    // its panel. The same stand-in for a double-click the relationship row
+    // below uses, and for the same reason: this tree reports single taps.
+    if (id.startsWith(kIdAsmPattern)) {
+      final p = app.currentAssembly?.patternNamed(
+          id.substring(kIdAsmPattern.length));
+      if (p == null) return;
+      if (_expanded.contains(id)) {
+        app.openAsmPattern(p.mode, p);
+      } else {
+        setState(() => _expanded.add(id));
+      }
+      return;
+    }
     // M242 — tapping a relationship SELECTS it; tapping the selected one
     // again OPENS it. There is no double-click on this tree (it is a UIKit
     // list reporting single taps), so "tap the selected one again" is the
@@ -663,6 +677,30 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
           break;
         case 'cpDelete':
           app.deleteOccurrence(o);
+          break;
+        // M248 — a pattern ELEMENT has only this one verb: it belongs to the
+        // pattern, so switching it off is the pattern's suppression set and
+        // there is nothing here that could delete it.
+        case 'elSuppress':
+          final p = app.currentAssembly?.patternNamed(o.patternOf ?? '');
+          if (p != null) {
+            app.asmPatternSuppressElement(
+                p, o.patternElement ?? 0, o.visible);
+          }
+          break;
+      }
+      return;
+    }
+    if (id.startsWith(kIdAsmPattern)) {
+      final name = id.substring(kIdAsmPattern.length);
+      final p = app.currentAssembly?.patternNamed(name);
+      if (p == null) return;
+      switch (item) {
+        case 'patEdit':
+          app.openAsmPattern(p.mode, p);
+          break;
+        case 'patDelete':
+          app.deleteAsmPattern(name);
           break;
       }
       return;

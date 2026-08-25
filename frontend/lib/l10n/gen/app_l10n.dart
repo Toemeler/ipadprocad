@@ -1891,10 +1891,16 @@ abstract class AppL10n {
   /// **'{kind} braucht eine Komponente zum Kopieren — zuerst eine platzieren.'**
   String msgPatternNeedsComponent(String kind);
 
+  /// M248 — die Vorschau setzt die Anordnung wirklich; eine kleinere Anzahl löscht Elemente und deren Beziehungen.
+  ///
+  /// In de, this message translates to:
+  /// **'{n, plural, =1{1 Beziehung wurde mit den entfallenen Elementen gelöscht — Abbrechen stellt sie wieder her.} other{{n} Beziehungen wurden mit den entfallenen Elementen gelöscht — Abbrechen stellt sie wieder her.}}'**
+  String msgRelationshipsDropped(int n);
+
   /// M248 — der Aufruf, wenn die Auswahl für die Ausgangskomponenten scharf ist.
   ///
   /// In de, this message translates to:
-  /// **'Komponente antippen, die angeordnet werden soll.'**
+  /// **'Komponente zum Anordnen antippen.'**
   String get msgTapComponentToPattern;
 
   /// M248 — eine Anordnung ihrer eigenen Ausgabe wäre ein Zyklus.
@@ -4548,6 +4554,42 @@ abstract class AppL10n {
   /// In de, this message translates to:
   /// **'Volumenkörper wählen'**
   String get lblSelectSolid;
+
+  /// M248 — die Eingabegeometrie der Baugruppen-Anordnung.
+  ///
+  /// In de, this message translates to:
+  /// **'Komponente'**
+  String get lblComponent;
+
+  /// M248 — Platzhalter der Komponentenauswahl.
+  ///
+  /// In de, this message translates to:
+  /// **'Komponenten wählen'**
+  String get lblSelectComponents;
+
+  /// M248 — wie viele Komponenten angeordnet werden.
+  ///
+  /// In de, this message translates to:
+  /// **'{n, plural, =1{1 Komponente} other{{n} Komponenten}}'**
+  String lblNComponents(int n);
+
+  /// M248 — der Hinweis am Auswahlfeld für Komponenten.
+  ///
+  /// In de, this message translates to:
+  /// **'Komponente in 3D antippen…'**
+  String get hintTapComponentIn3d;
+
+  /// M248 — die assoziative Anordnung folgt einer Anordnung im Bauteil.
+  ///
+  /// In de, this message translates to:
+  /// **'Element-Anordnung'**
+  String get lblFeaturePattern;
+
+  /// M248 — keine treibende Element-Anordnung: die Anordnung rechnet selbst.
+  ///
+  /// In de, this message translates to:
+  /// **'Eigene Abstände'**
+  String get lblOwnSpacing;
 
   /// No description provided for @lblFeature.
   ///

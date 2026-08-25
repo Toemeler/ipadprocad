@@ -8084,6 +8084,13 @@ class AppState extends ChangeNotifier {
   void switchPattern(PatternKind kind) {
     final old = patternSession;
     if (old == null || old.mode == kind) return;
+    // M248 — the assembly's rail carries the SAME promise (switch command,
+    // keep what has been picked) over a different set of inputs, so it is its
+    // own path rather than a branch inside this one.
+    if (old is AsmPatternSession) {
+      _switchAsmPattern(old, kind);
+      return;
+    }
     final s = PartPatternSession(kind, editing: null);
     s.patternSolid = old.patternSolid;
     s.features
@@ -8111,6 +8118,14 @@ class AppState extends ChangeNotifier {
   void cancelPattern() {
     final s = patternSession;
     if (s == null) return;
+    // M248 — an assembly session has a LIVE preview to take away and possibly
+    // relationships to put back, so it cancels through its own path. Routed
+    // here rather than at every caller: the panel's ✕, its Cancel button, Esc
+    // and every command that closes a sibling all come through this one.
+    if (s is AsmPatternSession) {
+      cancelAsmPattern();
+      return;
+    }
     s.disposePreview();
     patternSession = null;
     notifyListeners();
@@ -8119,6 +8134,11 @@ class AppState extends ChangeNotifier {
   /// The panel mutates the session directly (counts, flips, the active
   /// selector) and calls this to re-preview and repaint.
   void patternChanged() {
+    if (patternSession is AsmPatternSession) {
+      _updateAsmPatternPreview();
+      notifyListeners();
+      return;
+    }
     _updatePatternPreview();
     notifyListeners();
   }
@@ -8129,9 +8149,14 @@ class AppState extends ChangeNotifier {
     final s = patternSession;
     if (s == null) return;
     s.active = s.active == field ? PatternField.none : field;
+    final asm = s is AsmPatternSession;
     switch (s.active) {
       case PatternField.features:
-        toast(L.current.msgSelectFeatures);
+        // The same selector, a different noun: an assembly patterns
+        // COMPONENTS, and the part's prompt would send the user looking for a
+        // feature browser this document does not have.
+        toast(asm ? L.current.msgTapComponentToPattern
+            : L.current.msgSelectFeatures);
       case PatternField.dirA:
       case PatternField.dirB:
         toast(L.current.msgTapStraightOrCircularEdge);
@@ -8280,6 +8305,15 @@ class AppState extends ChangeNotifier {
       toast(L.current.msgEdgeNoDirection);
       return;
     }
+    // M248 — the panel's three origin-axis shortcuts reach an assembly session
+    // through here as well, so the quick row needs no branch of its own. What
+    // is stored is a REFERENCE to the assembly's own origin, which is exactly
+    // as fixed as a part's and is therefore the one AsmRef that never moves.
+    if (s is AsmPatternSession) {
+      _asmPatternAxisPicked(s, AsmRef(kAssemblyOrigin,
+          AsmGeom.axis(point, dir, source: WorkRefSource.axis), label));
+      return;
+    }
     final ref = AxisRef(point.x, point.y, point.z, dir.x, dir.y, dir.z, label);
     switch (s.active) {
       case PatternField.dirA:
@@ -8403,6 +8437,15 @@ class AppState extends ChangeNotifier {
     final s = patternSession;
     if (s == null || s.active != PatternField.plane) return;
     if (normal.length < 1e-9) return;
+    if (s is AsmPatternSession) {
+      s.refPlane = AsmRef(
+          kAssemblyOrigin, AsmGeom.plane(point, normal), label,
+          anchor: point);
+      s.active = PatternField.none;
+      _updateAsmPatternPreview();
+      notifyListeners();
+      return;
+    }
     s.plane =
         PlaneRef(point.x, point.y, point.z, normal.x, normal.y, normal.z, label);
     s.active = PatternField.none;
@@ -8647,6 +8690,7 @@ class AppState extends ChangeNotifier {
 
   Future<bool> applyPattern() async {
     final s = patternSession;
+    if (s is AsmPatternSession) return applyAsmPattern();
     final p = currentPart;
     if (s == null || p == null) return false;
     final (f, err) = _patternSessionFeature();
@@ -8815,6 +8859,53 @@ class AppState extends ChangeNotifier {
     _updateAsmPatternPreview();
     notifyListeners();
     return true;
+  }
+
+  void _asmPatternAxisPicked(AsmPatternSession s, AsmRef r) {
+    switch (s.active) {
+      case PatternField.dirA:
+        s.refDirA = r;
+      case PatternField.dirB:
+        s.refDirB = r;
+      case PatternField.axis:
+        s.refAxis = r;
+      default:
+        return;
+    }
+    s.active = PatternField.none;
+    _updateAsmPatternPreview();
+    notifyListeners();
+  }
+
+  /// The assembly rail: switch command WITHOUT losing what has been picked.
+  ///
+  /// The seeds carry over, because they mean the same thing in all three; and
+  /// a direction and a rotation axis are both "a line you picked", so those
+  /// carry too. The mirror plane is neither, and keeping it would have the
+  /// panel saying two different things about where the copies go — Inventor's
+  /// own reason for the rail's rules, and the part [switchPattern]'s.
+  void _switchAsmPattern(AsmPatternSession old, PatternKind kind) {
+    final a = currentAssembly;
+    if (a == null || !kAsmPatternKinds.contains(kind)) return;
+    final s = AsmPatternSession(kind);
+    s.name = old.name;
+    s.restore = old.restore;
+    s.constraintsBefore.addAll(old.constraintsBefore);
+    s.features
+      ..clear()
+      ..addAll(old.features);
+    s.compute = old.compute;
+    s.driver = kind == PatternKind.mirror ? null : old.driver;
+    s.refDirA = old.refDirA ?? old.refAxis;
+    s.refAxis = old.refAxis ?? old.refDirA;
+    s.refDirB = old.refDirB;
+    s.refPlane = old.refPlane;
+    s.active = old.features.isEmpty
+        ? PatternField.features
+        : PatternField.none;
+    patternSession = s;
+    _updateAsmPatternPreview();
+    notifyListeners();
   }
 
   /// Inventor's Associative tab: the pattern follows a FEATURE pattern inside

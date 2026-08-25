@@ -506,6 +506,12 @@ const componentCubeIcon =
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M8 1.5L14 5v6L8 14.5L2 11V5z" fill="#8C939A" stroke="#4d5257" stroke-width=".8"/><path d="M2 5l6 3.5L14 5M8 8.5v6" stroke="#4d5257" stroke-width=".8" fill="none"/></svg>';
 const groundedPinIcon =
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M8 2v7" stroke="#E59B63" stroke-width="1.6"/><path d="M3.5 9h9M5 12h6" stroke="#E59B63" stroke-width="1.4"/><circle cx="8" cy="2.6" r="1.8" fill="#E59B63"/></svg>';
+/// M248 — a PATTERN row in the assembly browser, and the folder its elements
+/// nest under. Three cubes on a grid: the seed picked out in blue, the two
+/// copies in steel, which is what the row actually holds.
+const asmPatternIcon =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M3.4 1.6L6.2 3.2v3.2L3.4 8 .6 6.4V3.2z" fill="#3D9BE9" stroke="#1d5c8a" stroke-width=".7"/><path d="M12.6 1.6l2.8 1.6v3.2L12.6 8 9.8 6.4V3.2z" fill="#8C939A" stroke="#4d5257" stroke-width=".7"/><path d="M3.4 8.6l2.8 1.6v3.2L3.4 15 .6 13.4v-3.2z" fill="#8C939A" stroke="#4d5257" stroke-width=".7"/><path d="M9.8 10.4h5M12.3 8v5" stroke="#C4C9CE" stroke-width="1.1"/></svg>';
+
 const relationshipsIcon =
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="4" cy="4.5" r="2.4" fill="none" stroke="#C4C9CE" stroke-width="1.2"/><circle cx="12" cy="11.5" r="2.4" fill="none" stroke="#C4C9CE" stroke-width="1.2"/><path d="M5.7 6.2l4.6 3.6" stroke="#3D9BE9" stroke-width="1.3"/></svg>';
 const representationsIcon =

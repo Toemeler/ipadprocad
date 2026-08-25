@@ -1127,6 +1127,19 @@ class AppL10nEn extends AppL10n {
   }
 
   @override
+  String msgRelationshipsDropped(int n) {
+    String _temp0 = intl.Intl.pluralLogic(
+      n,
+      locale: localeName,
+      other:
+          '$n relationships went with the elements that were removed — Cancel puts them back.',
+      one:
+          '1 relationship went with the elements that were removed — Cancel puts it back.',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get msgTapComponentToPattern => 'Tap the component to pattern.';
 
   @override
@@ -2714,6 +2727,32 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get lblSelectSolid => 'Select Solid';
+
+  @override
+  String get lblComponent => 'Component';
+
+  @override
+  String get lblSelectComponents => 'Select components';
+
+  @override
+  String lblNComponents(int n) {
+    String _temp0 = intl.Intl.pluralLogic(
+      n,
+      locale: localeName,
+      other: '$n Components',
+      one: '1 Component',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get hintTapComponentIn3d => 'Tap the component in 3D…';
+
+  @override
+  String get lblFeaturePattern => 'Feature Pattern';
+
+  @override
+  String get lblOwnSpacing => 'Own spacing';
 
   @override
   String get lblFeature => 'Feature';
