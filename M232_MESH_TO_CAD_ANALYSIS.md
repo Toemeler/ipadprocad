@@ -19,7 +19,7 @@ kernel that was already here.
 | `PartKernel.meshToBrep` | the seam the app talks to, so `AppState` never touches the FFI directly and the test fakes can decline it in one line |
 | `AppState.importMeshIntoPart` | Open accepts `.stl`, `.obj`, `.3mf`; the body lands in the feature tree and is filletable, booleanable and STEP-exportable like any other |
 | 22 ARB keys, German + English | every sentence the feature can say. `mesh_io.dart` throws a `MeshFailure` code, never prose — a reader has no business holding UI text (M234) |
-| `backend/occt/tests/mesh_recon_test.cpp` | 119 assertions: build a solid with OCCT, tessellate it, throw the B-Rep away, reconstruct from triangles alone, compare topology and volume. Run by CI |
+| `backend/occt/tests/mesh_recon_test.cpp` | 132 assertions: build a solid with OCCT, tessellate it, throw the B-Rep away, reconstruct from triangles alone, compare topology and volume. Run by CI |
 | `frontend/test/m232_mesh_import_test.dart` | 28 tests over the readers, the limits, the Open decision and the import wiring |
 
 ### What it actually does
@@ -431,13 +431,65 @@ while costing a seam, so it becomes the triangle.
 |---|---|---|
 | ellipsoid, 1286 tri | 74 planes + 1 cone invented | **0**, one faceted shell, volume exact to 1e-6 |
 | curved shell, 4 drilled holes | 129 planes + 3 spheres | **0 spheres**, the four holes still exactly 2, 3, 4, 5 |
-| plate sweep, 216 tessellations | 87 bad | **27 bad** |
+| plate sweep, 216 tessellations | 87 bad | 27 bad, and then 17 — see below |
 
-The suite is 119 assertions and covers both new failures: a plain torus at two
-tessellations, and the coarse plate — the shape of the file that started this —
+### The tangency a surface intersector cannot find, and the fit no normal can see
+
+Three more, each found the same way, and all three about **fillets** — which is
+not a coincidence, because a fillet is *defined* by touching its neighbours
+rather than crossing them, and touching is the degenerate case of everything.
+
+**A grazing contact has no intersection to compute.** A boss's blend ring is a
+torus that touches the plate top and the boss side tangentially; the surfaces
+do not cross, so the system is singular exactly along the answer and
+`GeomAPI_IntSS` returns nothing. The edge then fell back to the polyline
+through the mesh vertices, while the torus's own face kept the true circle:
+measured, one boundary of circumference 65.973 against another of 64.529, half
+a millimetre apart at the middle of every segment, and the shell stayed open
+along that seam — **2 free edges of 45**. But a fillet's contacts are not
+general intersections at all, they are known in closed form: a torus is touched
+by the plane perpendicular to its axis at exactly its minor radius, in the
+circle of its *major* radius, and by the coaxial cylinder of radius R±r in the
+circle of that radius. Both are checked against the chain before being
+believed. The plate closed, at 18 faces of 18, volume +0.001%.
+
+**Normal agreement cannot see a fit that is right.** Two adjacent rows of that
+same blend ring: the sphere fitted them at 0.0377, the cone at 0.0350, the
+torus at **0.0000030** — the true R=10.5, r=1.5 to seven figures. Their normal
+agreements were 0.985, 0.987 and 0.987. At three decimal places the normals
+cannot separate a surface that is *right* from one that is merely near, so the
+sphere kept it by being asked first. The residual separates them by a factor of
+twelve thousand, and on a tessellation of a CAD model it is not a matter of
+degree — the vertices lie **on** the surface they came from or they do not. So
+an exact fit now outranks agreement outright, and agreement decides only among
+equals. On a noisy mesh nothing is exact, every candidate lands in the same
+tier, and this is the old rule again.
+
+**One row of a surface of revolution lies exactly on a sphere — and on a cone.**
+That is a real degeneracy, not a bug: every constant-latitude circle of a torus
+is also a circle of some sphere centred on its axis, and of some cone about it.
+So a fillet ring came back as a stack of concentric bands, each with residual
+zero, each passing every test. What no ring can pass is a test of its own
+*width*: the sphere's coverage was measured as a cap angle, which on a ring
+reads its **latitude** — wide — where its actual extent is a few degrees. Take
+the range of colatitude rather than its maximum and a genuine cap is unchanged
+(its mean direction is inside it, so the range runs from zero) while a ring
+collapses to its true thinness. The rows then merge back into the torus they
+came from — once the merge is also allowed to believe an exact residual over a
+normal gate that coarse facets can never satisfy.
+
+| | before | after |
+|---|---|---|
+| plate with a filleted boss | 31 planes, 6 cylinders, 4 faceted, shell open | **9 faces of 9**, R=10.5000 r=1.5000, closed, +0.000% |
+| plate sweep, 216 tessellations | 87 bad | **17 bad** — and every one of the 17 is now a closed solid within 0.25% of the mesh, 12 of them at an angular deflection of 51°, which is a seven-sided circle |
+
+The suite is 132 assertions and covers all of it: a plain torus at two
+tessellations; the coarse plate — the shape of the file that started this —
 which must come back as exactly 7 planes and 10 cylinders with every radius
-right to four decimals. 600 fuzzed STL round-trips, 0 failures; 2.24 M
-triangles still convert in 3.6 s at 1.6 µs each.
+right to four decimals; and the same plate with a blend ring at its boss, which
+must come back as 9 faces of 9 with the torus at R=10.5000 and r=1.5000. 600
+fuzzed STL round-trips, 0 failures; 2.24 M triangles still convert in 3.5 s at
+1.6 µs each.
 
 ---
 

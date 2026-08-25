@@ -28,6 +28,7 @@
 #include <GProp_GProps.hxx>
 #include <Geom_BSplineCurve.hxx>
 #include <Geom_ConicalSurface.hxx>
+#include <Geom_Circle.hxx>
 #include <Geom_CylindricalSurface.hxx>
 #include <Geom_Plane.hxx>
 #include <Geom_SphericalSurface.hxx>
@@ -1328,10 +1329,25 @@ double SurfaceCoverage(SurfKind k, const double *q, const std::vector<V3> &pts)
         if (Norm(mean) < 1e-12)
             return 2.0 * M_PI; /* points all round it: a whole sphere */
         mean = Unit(mean);
-        double worst = 1.0;
-        for (const V3 &x : pts)
-            worst = std::min(worst, Dot(Unit(x - c), mean));
-        return std::acos(std::max(-1.0, worst)) * 2.0;
+        /* The RANGE of colatitude, not its maximum.
+         *
+         * On a genuine cap the mean direction is inside it, so the range runs
+         * from zero and the two are the same number. On a thin RING they are
+         * not: the mean points at the pole the ring encircles, every point is
+         * the same distance from it, and a cap-angle test reads the ring's
+         * latitude — wide — where its actual extent is a few degrees. That
+         * matters because one row of a surface of revolution lies EXACTLY on
+         * a sphere centred on its axis: a boss's fillet ring came back as a
+         * stack of concentric spherical bands, each with a residual of zero,
+         * because nothing asked whether the sample had any width. */
+        double lo = M_PI, hi = 0;
+        for (const V3 &x : pts) {
+            const double t =
+                std::acos(std::max(-1.0, std::min(1.0, Dot(Unit(x - c), mean))));
+            lo = std::min(lo, t);
+            hi = std::max(hi, t);
+        }
+        return (hi - lo) * 2.0;
     }
     /* Cylinder, cone and torus all turn about an axis. */
     const V3 c(q[0], q[1], q[2]);
@@ -1368,6 +1384,7 @@ Fit FitPatch(const PatchData &d, double tol, double scale)
     Fit chosen;
     bool have = false;
     bool chosenPinned = false;
+    bool chosenExact = false;
     const SurfKind order[5] = {kPlane, kSphere, kCylinder, kCone, kTorus};
     for (int i = 0; i < 5; ++i) {
         const SurfKind k = order[i];
@@ -1450,20 +1467,41 @@ Fit FitPatch(const PatchData &d, double tol, double scale)
              * rejected for want of coverage and went to triangles, when the
              * cylinder standing right beside it was exact and complete. */
             const bool pinned = SurfaceCoverage(k, q, pts) >= kMinSweepRad;
-            const bool better = !have || (pinned && !chosenPinned) ||
-                                (pinned == chosenPinned &&
-                                 agree > chosen.agree + kAgreeSlack);
+            /* And an EXACT fit outranks agreement, because agreement cannot
+             * see the difference and the residual can.
+             *
+             * Two rows of a boss's fillet ring: the sphere fitted them at
+             * 0.0377, the cone at 0.0350 and the torus at 0.0000030 — the true
+             * R=10.5, r=1.5, to seven figures. Their normal agreements were
+             * 0.985, 0.987 and 0.987. At three decimal places the normals
+             * cannot separate a surface that is right from one that is merely
+             * near, so the sphere kept it by being asked first, and a fillet
+             * ring came back as a stack of concentric spherical bands. The
+             * residual separates them by a factor of twelve thousand.
+             *
+             * A tessellation puts its vertices ON the surface they came from,
+             * so "exact" is not a matter of degree here: it is the difference
+             * between the surface the part was built from and one that passes
+             * nearby. On a noisy mesh nothing is exact, every candidate lands
+             * in the same tier, and this is the agreement rule again. */
+            const bool exact = rms <= tol * kExactFitFraction;
+            const bool better =
+                !have || (pinned && !chosenPinned) ||
+                (pinned == chosenPinned && exact && !chosenExact) ||
+                (pinned == chosenPinned && exact == chosenExact &&
+                 agree > chosen.agree + kAgreeSlack);
             if (better) {
                 chosen.kind = k;
                 std::memcpy(chosen.q, q, sizeof(q));
                 chosen.rms = rms;
                 chosen.agree = agree;
                 chosenPinned = pinned;
+                chosenExact = exact;
                 have = true;
             }
             /* Nothing later can beat this by more than the slack, so stop —
              * which is the common case (a flat face, first kind tried). */
-            if (chosenPinned && chosen.agree >= kAgreeCertain)
+            if (chosenPinned && chosenExact && chosen.agree >= kAgreeCertain)
                 return chosen;
             continue;
         }
@@ -2546,6 +2584,13 @@ void MergeRegions(const Mesh &m, std::vector<Patch> &patches, double tol,
                        patches[b].tris.end());
             PatchPoints(m, uni, pd, 4000);
             const Fit f = FitPatch(pd, tol, scale);
+            MR_TRACE("  merge? %d(%s,%d) + %d(%s,%d) -> %s rms %.5f agree "
+                     "%.4f (tol %.5f)\n",
+                     a, KindName(patches[a].fit.kind),
+                     (int)patches[a].tris.size(), b,
+                     KindName(patches[b].fit.kind),
+                     (int)patches[b].tris.size(), KindName(f.kind), f.rms,
+                     f.agree, tol);
             if (f.kind == kNone || f.rms > tol)
                 continue;
             /* Merging is never obligatory, so it should only happen on strong
@@ -2556,7 +2601,19 @@ void MergeRegions(const Mesh &m, std::vector<Patch> &patches, double tol,
              * Demanding that the merged surface also POINT the way the mesh
              * does, and much more strictly than the first-pass classifier
              * does, is what tells a real shared surface from a coincidence. */
-            if (f.agree < kMergeNormalGate)
+            /* An EXACT merged fit is believed on its residual instead.
+             *
+             * The normal gate is a proxy for "is this really one surface", and
+             * it is the right proxy when the fit is approximate. When the fit
+             * is exact it is the weaker evidence of the two, and it says no to
+             * things that are plainly true: two adjacent rows of a boss's
+             * fillet ring merged into a torus at residual 0.0000000 — the
+             * fillet, exactly — with mean normal agreement 0.9872, and were
+             * kept apart by a bar of 0.99. Their coarse facet normals cannot
+             * agree better than that; the surface underneath them is still the
+             * torus. The facet test below is what keeps this honest. */
+            const bool mergedExact = f.rms <= tol * kExactFitFraction;
+            if (!mergedExact && f.agree < kMergeNormalGate)
                 continue;
             /* Merging two surfaces that were each already RECOGNISED must not
              * make the fit worse than either of them was.
@@ -3140,12 +3197,96 @@ bool IntersectablePair(const Handle(Geom_Surface) & s1,
  * This is the whole quality argument for the prismatic path: a hole's rim
  * comes out a real gp_Circ, so a fillet on it later has a circle to roll along
  * and a STEP export carries a circle rather than a 200-segment spline. */
+/* The circle where a fillet TOUCHES what it blends into.
+ *
+ * A fillet meets its neighbours tangentially — that is what a fillet is — and
+ * a tangential contact is the one case a general surface intersector cannot
+ * do: the two surfaces do not cross, they graze, and the system is singular
+ * exactly along the answer. GeomAPI_IntSS returns nothing, the edge falls back
+ * to the polyline through the mesh vertices, and the fillet's own face keeps
+ * the true circle. Measured on a boss fillet ring: the torus side carried a
+ * circle of circumference 65.973 and the plate top an inscribed polygon of
+ * 64.529, half a millimetre apart at the middle of every segment, and the
+ * shell stayed open along that one seam — 2 free edges out of 45.
+ *
+ * But a fillet's contacts are not general intersections at all, they are
+ * known: a torus is touched by the plane perpendicular to its axis at exactly
+ * its minor radius, in the circle of its MAJOR radius; and by the coaxial
+ * cylinder of radius R+r or R-r, in the circle of that radius. Both are
+ * closed-form, both are exact, and both are checked against the chain before
+ * being believed. */
+Handle(Geom_Curve) TangentContact(const Handle(Geom_Surface) & s1,
+                                  const Handle(Geom_Surface) & s2, double tol)
+{
+    Handle(Geom_ToroidalSurface) tor =
+        Handle(Geom_ToroidalSurface)::DownCast(s1);
+    Handle(Geom_Surface) other = s2;
+    if (tor.IsNull()) {
+        tor = Handle(Geom_ToroidalSurface)::DownCast(s2);
+        other = s1;
+    }
+    if (tor.IsNull())
+        return nullptr;
+    const gp_Pnt c = tor->Position().Location();
+    const gp_Dir d = tor->Position().Direction();
+    const double R = tor->MajorRadius(), r = tor->MinorRadius();
+    const double cosPar = 1.0 - 1e-7;
+
+    if (Handle(Geom_Plane) pl = Handle(Geom_Plane)::DownCast(other)) {
+        if (std::fabs(pl->Position().Direction().Dot(d)) < cosPar)
+            return nullptr;
+        const double h =
+            gp_Vec(c, pl->Position().Location()).Dot(gp_Vec(d));
+        if (std::fabs(std::fabs(h) - r) > tol)
+            return nullptr;
+        return new Geom_Circle(gp_Ax2(c.Translated(gp_Vec(d) * h), d), R);
+    }
+    if (Handle(Geom_CylindricalSurface) cy =
+            Handle(Geom_CylindricalSurface)::DownCast(other)) {
+        if (std::fabs(cy->Position().Direction().Dot(d)) < cosPar)
+            return nullptr;
+        /* The same axis LINE, not merely the same direction. */
+        const gp_Vec off(c, cy->Position().Location());
+        const double along = off.Dot(gp_Vec(d));
+        const double perp2 = off.SquareMagnitude() - along * along;
+        if (perp2 > tol * tol)
+            return nullptr;
+        const double cr = cy->Radius();
+        double want = 0;
+        if (std::fabs(cr - (R + r)) <= tol)
+            want = R + r;
+        else if (R > r && std::fabs(cr - (R - r)) <= tol)
+            want = R - r;
+        else
+            return nullptr;
+        return new Geom_Circle(gp_Ax2(c, d), want);
+    }
+    return nullptr;
+}
+
 Handle(Geom_Curve) IntersectionCurve(const Handle(Geom_Surface) & s1,
                                      const Handle(Geom_Surface) & s2,
                                      const std::vector<gp_Pnt> &pts, double tol)
 {
     if (s1.IsNull() || s2.IsNull())
         return nullptr;
+    /* A grazing contact first: the intersector cannot find it and it has a
+     * closed form. Believed only if the chain really is on it. */
+    if (Handle(Geom_Curve) t = TangentContact(s1, s2, tol)) {
+        bool on = true;
+        try {
+            for (size_t k = 0; k < pts.size() && on;
+                 k += std::max<size_t>(1, pts.size() / 6)) {
+                GeomAPI_ProjectPointOnCurve pp(pts[k], t);
+                if (pp.NbPoints() < 1 || pp.LowerDistance() > tol * 3)
+                    on = false;
+            }
+        } catch (const Standard_Failure &) {
+            on = false;
+        }
+        if (on)
+            return t;
+    }
     if (!IntersectablePair(s1, s2, tol))
         return nullptr;
     /* And the chain has to be ON both surfaces before it is worth asking where
@@ -4376,9 +4517,17 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
     std::unordered_map<int, int> cutInto;
     for (const Patch &pa : patches)
         cutInto[pa.origin]++;
-    for (Patch &pa : patches) {
+    for (size_t pi = 0; pi < patches.size(); ++pi) {
+        Patch &pa = patches[pi];
         const bool frag = pa.origin < 0 || cutInto[pa.origin] > 1;
-        if (pa.fit.kind != kNone && !Identifiable(pa, m, tol, frag))
+        const bool keep =
+            pa.fit.kind != kNone && Identifiable(pa, m, tol, frag);
+        MR_TRACE("  patch %3d origin %3d %5d tri  %-8s rms %.5f agree %.4f  "
+                 "%s%s\n",
+                 (int)pi, pa.origin, (int)pa.tris.size(),
+                 KindName(pa.fit.kind), pa.fit.rms, pa.fit.agree,
+                 keep ? "KEEP" : "drop", frag ? " (fragment)" : "");
+        if (!keep)
             pa.fit = Fit();
     }
 

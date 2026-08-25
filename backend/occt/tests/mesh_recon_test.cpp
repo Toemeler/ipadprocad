@@ -1135,6 +1135,74 @@ int main()
         }
     }
 
+    // ---- 17. the same plate with a FILLET where the boss meets it ---------
+    {
+        /* The blend ring is a torus, and it touches the plate top and the boss
+         * side TANGENTIALLY — which is what a fillet is, and the one case a
+         * surface intersector cannot do: the two surfaces graze rather than
+         * cross and the system is singular along the answer. GeomAPI_IntSS
+         * returned nothing, the plate's inner wire fell back to the inscribed
+         * polygon while the torus kept its true circle, and the shell stayed
+         * open along that one seam: 2 free edges of 45, half a millimetre
+         * apart. A fillet's contacts are not general intersections though —
+         * they are the circle of the torus's major radius, in closed form. */
+        std::printf("== plate with a filleted boss: a real torus ring ==\n");
+        TopoDS_Shape s0 = BRepPrimAPI_MakeBox(60., 40., 6.).Shape();
+        s0 = BRepAlgoAPI_Fuse(
+                 s0, BRepPrimAPI_MakeCylinder(
+                         gp_Ax2(gp_Pnt(30., 20., 6.), gp_Dir(0, 0, 1)), 9., 4.)
+                         .Shape())
+                 .Shape();
+        BRepFilletAPI_MakeFillet bf(s0);
+        TopTools_IndexedMapOfShape be;
+        TopExp::MapShapes(s0, TopAbs_EDGE, be);
+        for (int i = 1; i <= be.Extent(); ++i) {
+            const TopoDS_Edge e = TopoDS::Edge(be(i));
+            gp_Pnt a = BRep_Tool::Pnt(TopExp::FirstVertex(e));
+            if (std::fabs(a.Z() - 6.) < 1e-7 &&
+                std::fabs(std::hypot(a.X() - 30., a.Y() - 20.) - 9.) < 1e-6)
+                bf.Add(1.5, e);
+        }
+        TopoDS_Shape src;
+        try {
+            src = bf.Shape();
+        } catch (const Standard_Failure &) {
+        }
+        chk("the reference fillet built", !src.IsNull());
+        if (!src.IsNull()) {
+            for (double defl : {0.1, 0.03}) {
+                meshrecon::Report r;
+                TopoDS_Shape out = Run(src, defl, r);
+                report(r);
+                chk("built something", !out.IsNull());
+                if (out.IsNull())
+                    continue;
+                Counts c = FaceKinds(out);
+                chk("closed solid", r.closed == 1);
+                chk("the blend is one torus", c.tor == 1,
+                    std::to_string(c.tor) + " tori");
+                chk("and nothing went to triangles", r.faceted_patches == 0,
+                    std::to_string(r.faceted_patches) + " faceted");
+                for (TopExp_Explorer ex(out, TopAbs_FACE); ex.More();
+                     ex.Next()) {
+                    BRepAdaptor_Surface sa(TopoDS::Face(ex.Current()));
+                    if (sa.GetType() != GeomAbs_Torus)
+                        continue;
+                    /* Boss radius 9 plus fillet 1.5: the spine sits at 10.5. */
+                    chk("with the blend's true radii",
+                        std::fabs(sa.Torus().MajorRadius() - 10.5) < 1e-3 &&
+                            std::fabs(sa.Torus().MinorRadius() - 1.5) < 1e-3,
+                        std::to_string(sa.Torus().MajorRadius()) + " / " +
+                            std::to_string(sa.Torus().MinorRadius()));
+                }
+                chk("volume",
+                    std::fabs(Volume(out) - g_meshVolume) / g_meshVolume < 1e-3,
+                    std::to_string(Volume(out)) + " mesh " +
+                        std::to_string(g_meshVolume));
+            }
+        }
+    }
+
     std::printf("\n%s  (%d passed, %d failed)\n",
                 fails == 0 ? "ALL PASSED" : "FAILURES", passes, fails);
     return fails == 0 ? 0 : 1;
