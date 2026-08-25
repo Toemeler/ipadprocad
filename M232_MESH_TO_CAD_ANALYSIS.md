@@ -242,24 +242,36 @@ has new edges: 719 of 3379 edges belonged to a single face after Perform, and
 29 of 3030 without it. `ShapeFix_Edge::FixAddPCurve` adds the pcurve to the
 edge that is already there.
 
-**What is still open, and exactly why.** A hybrid shell — fitted faces beside
-triangles — comes out with 29 of its 3030 edges belonging to one face only, and
-so is not a solid. The cause is now pinned rather than guessed: a hole through
-a faceted region is a CLOSED TUBE, and a closed tube has no open boundary to
-build a wire from, so it takes the parametric path — `MakeFace(surf, u1, u2,
-v1, v2)`. That face's rims are **exact circles at constant v**. The triangles
-around it have the mesh's rim POLYGON. One is inscribed in the other, and they
-differ by the sagitta — 0.07 mm on a 2 mm hole at twelve segments. Sewing
-closes most of them and not all.
+**What is still open, and what has been ruled out.** A hybrid shell — fitted
+faces beside triangles — comes out with 29 of its 3030 edges belonging to one
+face only, and so is not a solid.
 
-Two ways out, neither free:
+Most of that gap is already closed and it is worth recording how, because the
+cause was not where it looked. Both sides of a seam now take the SAME
+`TopoDS_Edge` objects from one pool, and what kept undoing it was
+`ShapeFix_Face::Perform`: it heals a face by **making a new one**, and the new
+one has new edges. 719 of 3379 edges belonged to a single face after Perform,
+and 29 of 3030 without it. `ShapeFix_Edge::FixAddPCurve` adds the pcurve to the
+edge that is already there.
 
-- **Split each tube at a seam** into two half-faces, so both have real open
-  boundaries built from the shared mesh edges. Closes exactly; costs "one hole
-  is one face", which is worth something to whoever edits it afterwards.
-- **Trim the tube with the rim polylines**, keeping one face per hole. Right
-  answer, more work: a periodic face wants a seam edge, and the wire has to be
-  assembled with it.
+The remaining 29 are NOT yet diagnosed, and one plausible theory has been tried
+and disproved, which is worth writing down so it is not tried again:
+
+> *Theory: a hole through a faceted region is a closed tube, a closed tube has
+> no open boundary, so it takes the parametric path and its rims come out as
+> exact circles against the triangles' rim polygon.*
+
+Measured: **false.** Those holes never take the parametric path. Each rim
+borders several faceted patches, so it arrives as several chains rather than
+one closed chain, and the ordinary wire path builds it from real mesh edges.
+Splitting such tubes in half was implemented anyway to test the theory — it
+fires, produces eight half-cylinders instead of four cylinders, and the shell
+*still* does not close. Reverted.
+
+What is known: no edge is used more than twice (so nothing is duplicated); the
+open ones are owned by single-triangle faces and by the hole cylinders,
+clustered around the holes; sewing takes 29 to 26 and a five-times looser
+sewing tolerance changes nothing.
 
 Where the shell does not close the fitted result is kept anyway — recognition
 is what was asked for — unless nothing at all was recognised, in which case the
