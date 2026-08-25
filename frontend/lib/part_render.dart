@@ -294,15 +294,22 @@ class SceneSolid {
 /// every component into ONE depth space, which is what lets a single
 /// [SceneOccluders] hide one component behind another — and lets the shaded
 /// triangles of the whole assembly go through one sort.
+///
+/// M248 — [mirrored] says the camera it is being projected through is a
+/// MIRRORED component's, and it inverts the front test below. A reflection
+/// reverses triangle winding, so cross(p1−p0, p2−p0) points INTO the solid;
+/// left alone, a mirrored component draws its back faces and reads as
+/// inside-out — visible as shading that lights the wrong side and a silhouette
+/// that is right, which is exactly the defect that survives a small render.
 SceneSolid buildSceneSolid(KernelSolid solid, Cam3 cam,
-        {bool preview = false, double depthBias = 0}) =>
+        {bool preview = false, double depthBias = 0, bool mirrored = false}) =>
     Perf.span(
         'render.buildSceneSolid',
         () => _buildSceneSolidInner(solid, cam,
-            preview: preview, depthBias: depthBias));
+            preview: preview, depthBias: depthBias, mirrored: mirrored));
 
 SceneSolid _buildSceneSolidInner(KernelSolid solid, Cam3 cam,
-    {bool preview = false, double depthBias = 0}) {
+    {bool preview = false, double depthBias = 0, bool mirrored = false}) {
   final m = solid.mesh;
   final light = solidLight(cam);
   final tris = <SceneTri>[];
@@ -329,7 +336,8 @@ SceneSolid _buildSceneSolidInner(KernelSolid solid, Cam3 cam,
     // direction — the camera looks along dir, so a face we see points back
     // toward it (n·dir < 0). Backfaces (n·dir > 0) are kept with front=false
     // only for silhouette detection.
-    final front = n.normalized().dot(cam.dir) < 0;
+    final front =
+        mirrored ? n.normalized().dot(cam.dir) > 0 : n.normalized().dot(cam.dir) < 0;
     tris.add(SceneTri(
         cam.project(w0),
         cam.project(w1),
@@ -967,8 +975,13 @@ void paintPartSolids(
 class PlacedComponent {
   const PlacedComponent(this.pieces);
 
-  /// (rotation, translation, solid), already composed into world space.
-  final List<(Quat, Vec3, KernelSolid)> pieces;
+  /// (placement, solid), already composed into world space.
+  ///
+  /// M248 — a [Placement] rather than a (rotation, translation) pair, because
+  /// a MIRRORED component is not a rigid transform and a quaternion cannot
+  /// hold one. Everything the painter needs to treat it differently is on
+  /// that value; see [Placement.windingNormal].
+  final List<(Placement, KernelSolid)> pieces;
 }
 
 /// [cam] as seen by geometry that has been moved by the rigid transform
@@ -987,18 +1000,30 @@ class PlacedComponent {
 /// way and its pan shifted — no mesh is copied, exactly as before. The view
 /// direction turns with the basis too, which is what keeps the front-face test
 /// inside buildSceneSolid correct in the component's own space.
-Cam3 placedCam(Cam3 cam, Quat rot, Vec3 t) => Cam3.basis(
-      dir: rot.unrotate(cam.dir),
-      s: rot.unrotate(cam.s),
-      u: rot.unrotate(cam.u),
+/// M248 — and the identity survives a REFLECTION unchanged, which is the one
+/// piece of luck in this milestone. project uses the basis only through dot
+/// products, so
+///
+///     project(R·S·l + t) = (l·(S·Rᵀ·s) − (ox − t·s)) / k
+///
+/// and [Placement.unapplyDir] is exactly S·Rᵀ. The camera comes back with a
+/// LEFT-handed basis, which project, depth and projectVec are all indifferent
+/// to. What is NOT indifferent is the front-face test that runs against
+/// [Cam3.dir] in the component's own space — the winding reversed too. See
+/// [buildSceneSolid]'s `mirrored`.
+Cam3 placedCam(Cam3 cam, Placement at) => Cam3.basis(
+      dir: at.unapplyDir(cam.dir),
+      s: at.unapplyDir(cam.s),
+      u: at.unapplyDir(cam.u),
       halfH: cam.halfH,
-      ox: cam.ox - t.dot(cam.s),
-      oy: cam.oy - t.dot(cam.u),
+      ox: cam.ox - at.at.dot(cam.s),
+      oy: cam.oy - at.at.dot(cam.u),
       size: cam.size,
     );
 
 /// [placedCam] for a component that has only been moved, not turned.
-Cam3 shiftedCam(Cam3 cam, Vec3 t) => placedCam(cam, Quat.identity, t);
+Cam3 shiftedCam(Cam3 cam, Vec3 t) =>
+    placedCam(cam, Placement(Quat.identity, t));
 
 /// Draws every component of an assembly, and hands back the occluder it built
 /// so the caller can draw origin planes and axes THROUGH the model the way the
@@ -1042,9 +1067,14 @@ SceneOccluders? paintAssemblySolids(
   // all at the subassembly's own origin, stacked.
   final scenes = <(int, Cam3, SceneSolid)>[];
   for (var i = 0; i < placed.length; i++) {
-    for (final (r, t, s) in placed[i].pieces) {
-      final sc = placedCam(cam, r, t);
-      scenes.add((i, sc, buildSceneSolid(s, sc, depthBias: cam.depth(t))));
+    for (final (at, s) in placed[i].pieces) {
+      final sc = placedCam(cam, at);
+      scenes.add((
+        i,
+        sc,
+        buildSceneSolid(s, sc,
+            depthBias: cam.depth(at.at), mirrored: at.mirrored)
+      ));
     }
   }
   if (scenes.isEmpty) return null;
@@ -1126,10 +1156,10 @@ void fitAssemblyView(PartCamera cam, List<PlacedComponent> placed, Size size) {
 void Function(void Function(Vec3)) _walkPlaced(List<PlacedComponent> placed) =>
     (add) {
       for (final c in placed) {
-        for (final (r, t, sol) in c.pieces) {
+        for (final (at, sol) in c.pieces) {
           final pos = sol.mesh.positions;
           for (var i = 0; i + 2 < pos.length; i += 3) {
-            add(r.rotate(Vec3(pos[i], pos[i + 1], pos[i + 2])) + t);
+            add(at.apply(Vec3(pos[i], pos[i + 1], pos[i + 2])));
           }
         }
       }

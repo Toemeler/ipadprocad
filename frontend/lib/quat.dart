@@ -150,3 +150,135 @@ class Quat {
   @override
   String toString() => 'Quat($w, $x, $y, $z)';
 }
+
+/// M248 — a placement that MAY REVERSE HANDEDNESS.
+///
+/// Everything placed in an assembly used to be a (rotation, translation) pair,
+/// and every consumer was entitled to assume a proper rotation. Mirror
+/// Component breaks that assumption and nothing else does: a reflection has
+/// determinant −1, and a quaternion — four numbers on the unit sphere — cannot
+/// hold one however it is normalised.
+///
+/// THE SHAPE, and why this one. The reflection is applied FIRST, in the
+/// source's own frame:
+///
+///     world = rot.rotate(flip(local)) + at
+///
+/// so [rot] stays a proper rotation, the quaternion algebra, the slerp and the
+/// solver's exponential map are untouched, and the sign lives in exactly one
+/// place. [reflect] is the unit normal of the reflection plane THROUGH THE
+/// SOURCE'S OWN ORIGIN, which is all a handedness flip needs — where the
+/// mirror plane sat in the world is already spent, in [at].
+///
+/// That works out unusually well for the caller that creates one. Mirroring a
+/// component across the world plane (p0, n) gives
+///
+///     rot' = rot          (unchanged!)
+///     at'  = reflect_(p0,n)(at)
+///     reflect' = rot.unrotate(n)
+///
+/// because S_n·R = R·S_(Rᵀn) for any rotation R — see AppState.mirrorComponent.
+///
+/// THE ONE THING EVERY CONSUMER MUST ASK. An orthogonal map carries a stored
+/// outward normal correctly ([applyDir] is right for a face record), but it
+/// REVERSES TRIANGLE WINDING, so a normal computed as cross(p1−p0, p2−p0)
+/// comes out pointing INTO the solid. Untreated, a mirrored component renders
+/// inside-out and picks its back faces — the defect that looks nearly right
+/// in a small render. [windingNormal] is the one place that sign is decided,
+/// and buildSceneSolid, pickOccurrence and asm_pick all ask it rather than
+/// each carrying their own `mirrored ? -1 : 1`.
+class Placement {
+  const Placement(this.rot, this.at, [this.reflect]);
+
+  static const identity = Placement(Quat.identity, Vec3.zero);
+
+  final Quat rot;
+  final Vec3 at;
+
+  /// Unit normal of the reflection plane, in the SOURCE's own frame and
+  /// through its own origin. Null for an ordinary rigid placement, which is
+  /// every placement in the app except a mirrored component.
+  final Vec3? reflect;
+
+  bool get mirrored => reflect != null;
+
+  /// [v] reflected in the source's own frame — the identity when there is no
+  /// reflection, and an involution when there is (which is what lets
+  /// [unapply] undo [apply] without a second stored normal).
+  Vec3 flip(Vec3 v) {
+    final m = reflect;
+    return m == null ? v : v - m * (2 * v.dot(m));
+  }
+
+  /// A point of the source, in the frame this placement places it into.
+  Vec3 apply(Vec3 local) => rot.rotate(flip(local)) + at;
+
+  /// A direction of the source. No translation — a direction has no position.
+  ///
+  /// Correct for a STORED outward normal (a face record's), because a
+  /// reflection is orthogonal and maps outward normals to outward normals.
+  /// NOT correct for one derived from the winding — see [windingNormal].
+  Vec3 applyDir(Vec3 local) => rot.rotate(flip(local));
+
+  /// The inverse of [apply].
+  Vec3 unapply(Vec3 world) => flip(rot.unrotate(world - at));
+
+  /// The inverse of [applyDir].
+  Vec3 unapplyDir(Vec3 world) => flip(rot.unrotate(world));
+
+  /// The outward normal of a facet whose local normal was derived from the
+  /// TRIANGLE WINDING, as cross(p1 − p0, p2 − p0).
+  ///
+  /// cross(S·a, S·b) = det(S)·S·cross(a, b), and det(S) = −1 for a
+  /// reflection: the winding runs the other way round and the normal it
+  /// yields points inward. Negating it here is what keeps the renderer's
+  /// front test (n·dir < 0) and every picker's facing test meaning the same
+  /// thing on a mirrored component as on any other.
+  Vec3 windingNormal(Vec3 localCross) {
+    final n = applyDir(localCross);
+    return reflect == null ? n : n * -1;
+  }
+
+  /// `a * b` applies b FIRST, then a — the order [Quat.operator *] composes
+  /// in, and the order matrices do.
+  ///
+  /// The reflection bookkeeping is the whole reason this is not two lines.
+  /// Writing S_m for the reflection with unit normal m,
+  ///
+  ///     R1·S_m1·R2·S_m2 = R1·R2·S_(R2⁻¹m1)·S_m2
+  ///
+  /// using S_m·R = R·S_(R⁻¹m). So an outer reflection travels INWARD through
+  /// the inner rotation, and two reflections then annihilate into a rotation:
+  /// S_a·S_b is the rotation whose quaternion is the pure product a·b. That
+  /// last line is what makes mirroring a mirrored subassembly come back
+  /// right-handed instead of accumulating a second flag nothing reads.
+  Placement operator *(Placement inner) {
+    final m1 = reflect, m2 = inner.reflect;
+    final at2 = apply(inner.at);
+    if (m1 == null) {
+      return Placement((rot * inner.rot).normalized(), at2, m2);
+    }
+    // The outer reflection, expressed in the inner rotation's source frame.
+    final a = inner.rot.unrotate(m1).normalized();
+    if (m2 == null) {
+      return Placement((rot * inner.rot).normalized(), at2, a);
+    }
+    return Placement(
+        (rot * inner.rot * _reflectionPair(a, m2)).normalized(), at2);
+  }
+
+  /// The rotation that two reflections compose to: S_a·S_b.
+  ///
+  /// A reflection in the unit normal n is v ↦ n·v·n in the quaternion
+  /// algebra, so S_a(S_b(v)) = (ab)·v·(ba) = q·v·q* with q = ab — the pure
+  /// quaternion product, which is (−a·b, a×b). Two coincident planes give
+  /// (−1, 0) — the identity rotation, since q and −q are the same rotation.
+  static Quat _reflectionPair(Vec3 a, Vec3 b) {
+    final c = a.cross(b);
+    return Quat(-a.dot(b), c.x, c.y, c.z).normalized();
+  }
+
+  @override
+  String toString() =>
+      'Placement($rot, $at${reflect == null ? '' : ', mirror $reflect'})';
+}

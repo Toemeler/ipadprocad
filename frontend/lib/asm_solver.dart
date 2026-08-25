@@ -430,20 +430,28 @@ class _Ctx {
   _Ctx withoutDrag() => _Ctx(bodies, constraints, rides, null, cols);
 
   /// The body's pose with [x]'s increment applied, without baking it.
-  (Quat, Vec3) _pose(_Body b, List<double> x) {
-    if (!b.free || b.col < 0) return (b.r, b.t);
+  ///
+  /// M248 — a [Placement], because a MIRRORED component's pose is not a rigid
+  /// transform. The six columns are unchanged: a mirrored body still has six
+  /// degrees of freedom, and the reflection is a fixed property of the
+  /// occurrence that the increment never touches. What it does change is the
+  /// GEOMETRY the residuals see — a mirrored face's normal and a mirrored
+  /// hole's axis come through reflected, which is what makes a mate to a
+  /// mirrored bracket mean the face you are looking at.
+  Placement _pose(_Body b, List<double> x) {
+    if (!b.free || b.col < 0) return Placement(b.r, b.t, b.occ.reflect);
     final dt = Vec3(x[b.col], x[b.col + 1], x[b.col + 2]);
     final dw = Vec3(x[b.col + 3], x[b.col + 4], x[b.col + 5]);
     final ang = dw.length;
     final rr = ang < 1e-15 ? b.r : (Quat.axisAngle(dw, ang) * b.r);
-    return (rr, b.t + dt);
+    return Placement(rr, b.t + dt, b.occ.reflect);
   }
 
   void bake(List<double> x) {
     for (final b in bodies.values) {
-      final (r, t) = _pose(b, x);
-      b.r = r.normalized();
-      b.t = t;
+      final p = _pose(b, x);
+      b.r = p.rot.normalized();
+      b.t = p.at;
     }
   }
 
@@ -452,11 +460,11 @@ class _Ctx {
     if (ref.isAssemblyOrigin) return ref.geom;
     final b = bodies[ref.occurrence];
     if (b == null) return ref.geom;
-    final (r, t) = _pose(b, x);
+    final p = _pose(b, x);
     return AsmGeom(
       ref.geom.kind,
-      r.rotate(ref.geom.at) + t,
-      r.rotate(ref.geom.dir),
+      p.apply(ref.geom.at),
+      p.applyDir(ref.geom.dir),
       radius: ref.geom.radius,
     );
   }
@@ -471,8 +479,7 @@ class _Ctx {
     if (d != null) {
       final b = bodies[d.occurrence];
       if (b != null && b.free) {
-        final (r, t) = _pose(b, x);
-        final p = r.rotate(d.gripLocal) + t;
+        final p = _pose(b, x).apply(d.gripLocal);
         out.add((p.x - d.target.x) * kDragWeight);
         out.add((p.y - d.target.y) * kDragWeight);
         out.add((p.z - d.target.z) * kDragWeight);
@@ -724,8 +731,8 @@ class _Ctx {
     final face = b == null
         ? ride
         : () {
-            final (r, t) = _pose(b, x);
-            return AsmGeom(ride.kind, r.rotate(ride.at) + t, r.rotate(ride.dir),
+            final p = _pose(b, x);
+            return AsmGeom(ride.kind, p.apply(ride.at), p.applyDir(ride.dir),
                 radius: ride.radius);
           }();
     // Only the DISTANCE equation: the follower must stay in contact and is
@@ -805,10 +812,11 @@ Map<String, AsmGeom> _chooseTransitionalFaces(
       out[c.name] = c.b.geom;
       continue;
     }
+    final movingPlace = Placement(mover.r, mover.t, mover.occ.reflect);
     final movingWorld = AsmGeom(
       c.a.geom.kind,
-      mover.r.rotate(c.a.geom.at) + mover.t,
-      mover.r.rotate(c.a.geom.dir),
+      movingPlace.apply(c.a.geom.at),
+      movingPlace.applyDir(c.a.geom.dir),
       radius: c.a.geom.radius,
     );
     AsmGeom bestLocal = c.b.geom;
@@ -855,12 +863,17 @@ double _contactError(AsmGeom moving, AsmGeom face) {
 /// else works on [AsmGeom]s that a pick already reduced.
 List<AsmGeom> localFacesOf(AssemblyOccurrence o) {
   final out = <AsmGeom>[];
-  for (final (_, r, t, s) in o.localSolids) {
+  for (final (_, at, s) in o.localSolids) {
     // M246 — a subassembly's parts sit inside it, so a face record has to be
     // lifted by the piece's own transform before it means anything in the
     // component's frame. Identity for a part.
-    Vec3 up(Vec3 v) => r.rotate(v) + t;
-    Vec3 upDir(Vec3 v) => r.rotate(v);
+    //
+    // M248 — and that transform can now be a REFLECTION (a mirrored
+    // subassembly). A face record's normal is stored rather than derived from
+    // the winding, so applyDir carries it correctly; nothing else here
+    // changes.
+    Vec3 up(Vec3 v) => at.apply(v);
+    Vec3 upDir(Vec3 v) => at.applyDir(v);
     final info = s.mesh.faceInfos;
     final n = info.length ~/ 15;
     for (var f = 0; f < n; f++) {

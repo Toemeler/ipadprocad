@@ -153,11 +153,12 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
     if (sig != _lastSceneSig) {
       _lastSceneSig = sig;
       final pushed = <String>[];
-      for (final (id, _, _, t, sol) in assemblyPieces(a)) {
+      for (final (id, _, at, sol) in assemblyPieces(a)) {
         logMeshConvention(id, sol.mesh);
-        pushed.add('$id @ ${t.x.toStringAsFixed(2)},'
-            '${t.y.toStringAsFixed(2)},'
-            '${t.z.toStringAsFixed(2)}: '
+        pushed.add('$id @ ${at.at.x.toStringAsFixed(2)},'
+            '${at.at.y.toStringAsFixed(2)},'
+            '${at.at.z.toStringAsFixed(2)}'
+            '${at.mirrored ? " mirrored" : ""}: '
             'tris=${sol.mesh.indices.length ~/ 3} '
             'verts=${sol.mesh.positions.length ~/ 3} '
             'rev=${identityHashCode(sol.mesh)}');
@@ -192,7 +193,7 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
     final seen = <KernelSolid>{};
     for (final o in a.occurrences) {
       if (!o.visible) continue;
-      for (final (_, _, _, s) in o.localSolids) {
+      for (final (_, _, s) in o.localSolids) {
         if (seen.add(s)) yield s;
       }
     }
@@ -695,11 +696,11 @@ AssemblyOccurrence? pickOccurrence(AssemblyModel a, Cam3 cam, Offset px) {
   var bestDepth = double.negativeInfinity;
   for (final o in a.occurrences) {
     if (!o.visible) continue;
-    for (final (_, pr, pt, s) in o.worldSolids) {
+    for (final (_, pp, s) in o.worldSolids) {
       // M246 — the camera is placed per PIECE. A subassembly's parts each sit
       // somewhere inside it, so one camera for the whole component would
       // hit-test them all at the subassembly's origin.
-      final sc = placedCam(cam, pr, pt);
+      final sc = placedCam(cam, pp);
       final m = s.mesh;
       for (var t = 0; t + 2 < m.indices.length; t += 3) {
         final i0 = m.indices[t] * 3,
@@ -722,7 +723,14 @@ AssemblyOccurrence? pickOccurrence(AssemblyModel a, Cam3 cam, Offset px) {
         // PLACED camera's direction, because the normal is in the piece's own
         // space and a turned component would otherwise be tested against the
         // world's idea of "toward the viewer".
-        if (n.length < 1e-12 || n.normalized().dot(sc.dir) >= 0) continue;
+        //
+        // M248 — a MIRRORED component reverses that winding, so its facing
+        // test reverses with it. Without this the drag grabs whatever is on
+        // the far side of a mirrored component, which looks like the pick
+        // going through it.
+        if (n.length < 1e-12) continue;
+        final faces = n.normalized().dot(sc.dir);
+        if (pp.mirrored ? faces <= 0 : faces >= 0) continue;
         final pa = sc.project(w0), pb = sc.project(w1), pc = sc.project(w2);
         final d = (pb.dx - pa.dx) * (pc.dy - pa.dy) -
             (pc.dx - pa.dx) * (pb.dy - pa.dy);
@@ -741,7 +749,7 @@ AssemblyOccurrence? pickOccurrence(AssemblyModel a, Cam3 cam, Offset px) {
         final depth = (sc.depth(w0) * (1 - u - v) +
                 sc.depth(w1) * u +
                 sc.depth(w2) * v) +
-            cam.depth(pt);
+            cam.depth(pp.at);
         if (depth > bestDepth) {
           bestDepth = depth;
           best = o;
@@ -911,7 +919,7 @@ class _AssemblyPainter extends CustomPainter {
       cam,
       [
         for (final o in visible)
-          PlacedComponent([for (final (_, r, t, s) in o.worldSolids) (r, t, s)])
+          PlacedComponent([for (final (_, at, s) in o.worldSolids) (at, s)])
       ],
       selected: indexOf(asm.selected),
       hovered: indexOf(hover),

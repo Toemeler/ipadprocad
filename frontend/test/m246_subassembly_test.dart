@@ -121,8 +121,8 @@ void main() {
       final pieces = o.localSolids.toList();
       expect(pieces, hasLength(1));
       expect(pieces.single.$1, 'Extrusion1');
-      expect(pieces.single.$2.isIdentity, isTrue);
-      expect(pieces.single.$3.length, lessThan(1e-12),
+      expect(pieces.single.$2.rot.isIdentity, isTrue);
+      expect(pieces.single.$2.at.length, lessThan(1e-12),
           reason: 'a feature is in the part\'s own space, by definition');
     });
 
@@ -139,13 +139,13 @@ void main() {
           ['A:1/Extrusion1', 'B:1/Extrusion1']);
       // The inner placement survives: B is still 30 mm along, INSIDE the
       // subassembly, before the subassembly's own placement applies.
-      expect(pieces[0].$3.x, closeTo(0, 1e-9));
-      expect(pieces[1].$3.x, closeTo(30, 1e-9));
+      expect(pieces[0].$2.at.x, closeTo(0, 1e-9));
+      expect(pieces[1].$2.at.x, closeTo(30, 1e-9));
 
       // And in the world it is 100 + 30.
       final world = o.worldSolids.toList();
-      expect(world[0].$3.x, closeTo(100, 1e-9));
-      expect(world[1].$3.x, closeTo(130, 1e-9));
+      expect(world[0].$2.at.x, closeTo(100, 1e-9));
+      expect(world[1].$2.at.x, closeTo(130, 1e-9));
     });
 
     test('a TURNED subassembly turns what is inside it', () {
@@ -157,12 +157,12 @@ void main() {
         ..occurrences.add(part('B:1', const Vec3(30, 0, 0)));
       final o = nest('Gear:1', sub, const Vec3(0, 0, 5), rot: quarter);
 
-      final (_, r, t, _) = o.worldSolids.single;
-      expect(t.x, closeTo(0, 1e-9));
-      expect(t.y, closeTo(30, 1e-9), reason: '+X inside became +Y outside');
-      expect(t.z, closeTo(5, 1e-9));
+      final (_, at, _) = o.worldSolids.single;
+      expect(at.at.x, closeTo(0, 1e-9));
+      expect(at.at.y, closeTo(30, 1e-9), reason: '+X inside became +Y outside');
+      expect(at.at.z, closeTo(5, 1e-9));
       // The composed rotation takes the inner part's +X to +Y too.
-      final tip = r.rotate(const Vec3(1, 0, 0));
+      final tip = at.applyDir(const Vec3(1, 0, 0));
       expect(tip.y, closeTo(1, 1e-9));
       expect(tip.x.abs(), lessThan(1e-9));
     });
@@ -177,7 +177,7 @@ void main() {
       final piece = o.worldSolids.single;
       expect(piece.$1, 'Inner:1/A:1/Extrusion1',
           reason: 'the path names the whole chain');
-      expect(piece.$3.x, closeTo(111, 1e-9));
+      expect(piece.$2.at.x, closeTo(111, 1e-9));
     });
 
     test('a hidden component inside a subassembly draws nothing', () {
@@ -213,7 +213,7 @@ void main() {
       final placed = placedComponents(nested());
       expect(placed, hasLength(1), reason: 'one component...');
       expect(placed.single.pieces, hasLength(2), reason: '...of two pieces');
-      final xs = placed.single.pieces.map((p) => p.$2.x).toList()..sort();
+      final xs = placed.single.pieces.map((p) => p.$1.at.x).toList()..sort();
       expect(xs[0], closeTo(200, 1e-9));
       expect(xs[1], closeTo(240, 1e-9));
     });
@@ -224,7 +224,7 @@ void main() {
       final pieces = assemblyPieces(a);
       expect(pieces.map((p) => p.$1),
           ['Gear:1/A:1/Extrusion1', 'Gear:1/B:1/Extrusion1']);
-      expect(pieces[1].$4.x, closeTo(240, 1e-9));
+      expect(pieces[1].$3.at.x, closeTo(240, 1e-9));
       // Two occurrences of ONE subassembly must not collide on the id.
       a.occurrences.add(nest('Gear:2', a.occurrences.first.sub!,
           const Vec3(-200, 0, 0)));

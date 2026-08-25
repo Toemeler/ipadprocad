@@ -4315,7 +4315,7 @@ class AppState extends ChangeNotifier {
     final png = _pngFile(name);
     try {
       final pieces = [
-        for (final (id, _, r, t, s) in assemblyPieces(a)) (id, s, r, t)
+        for (final (id, _, at, s) in assemblyPieces(a)) (id, s, at)
       ];
       if (pieces.isEmpty) {
         if (png.existsSync()) png.deleteSync();
