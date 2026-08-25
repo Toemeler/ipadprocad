@@ -4410,8 +4410,20 @@ TopoDS_Edge ChainEdge(BuildCtx &ctx, const Chain &c, int self,
                          * refused for distances of one micron, and every one of
                          * those rims fell back to a polyline through the very
                          * same points. Say what the uncertainty really is, and
-                         * never more than the tolerance the whole conversion
-                         * runs at. */
+                         * never more than the MESH's own precision.
+                         *
+                         * Not more, measured: letting the bound reach a
+                         * twentieth of tolerance takes exact edges on the
+                         * user's part from 45 to 117 and the volume error from
+                         * +0.21% to +0.05%, and seven FACES then fail to build
+                         * — wires whose arcs are each exact and no longer meet
+                         * — so the part arrives as 257 faces instead of 72.
+                         * The refusals it would have bought are chain
+                         * endpoints one to four thousandths of a millimetre
+                         * off an intersection curve: corners where three
+                         * fitted surfaces do not quite agree. Forcing the edge
+                         * through one only moves the disagreement into the
+                         * wire. */
                         if (std::fabs(u2 - u1) > 1e-12) {
                             const TopoDS_Vertex va =
                                 VertexAt(ctx, c.verts.front());
