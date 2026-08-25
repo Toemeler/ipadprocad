@@ -1229,6 +1229,10 @@ const double kMinCreaseAngle = 2.0 * M_PI / 180.0;
 /* A patch with more creases than this is not a pair of surfaces, it is noise. */
 const int kMaxCreaseDepth = 4;
 
+/* How many times the splitter may hand its own leftover back to itself. Each
+ * round is strictly smaller, so this only bounds the pathological case. */
+const int kMaxSplitDepth = 6;
+
 /* RANSAC budget. Bounded on purpose: this runs only on patches that fitted
  * nothing, and being thorough on a pathological patch at the cost of being
  * slow on every model is not a trade worth making. */
@@ -1482,6 +1486,24 @@ Fit FitPatch(const PatchData &d, double tol, double scale)
             (k == kTorus && (q[6] > rMax || q[7] > rMax))) {
             continue;
         }
+        /* And a radius BELOW tolerance is not a feature either: the mesh
+         * cannot hold a curve finer than the tolerance it is being read at,
+         * so such a fit is a sliver, not a surface. On the user's part six
+         * "cylinders" of radius 0.01 mm came out of the slivers where the
+         * small holes meet a step — each one a face of area 0.06 mm², and
+         * between them twenty-four open edges that stopped the shell being a
+         * solid. */
+        if ((k == kCylinder && q[6] < tol) || (k == kSphere && q[3] < tol) ||
+            (k == kTorus && q[7] < tol)) {
+            continue;
+        }
+        /* A torus whose tube is nearly as wide as the ring it follows has no
+         * ring left: its inner circle closes up, the surface touches itself on
+         * the axis, and whatever face is built on it is not the shape the
+         * triangles came from. R=5.19 against r=4.86 appeared on the user's
+         * part and took seventeen percent off its volume. */
+        if (k == kTorus && q[6] < q[7] + tol)
+            continue;
         /* A surface that passes through the points but faces the wrong way is
          * not the surface those points came off. See NormalAgreement. */
         const double agree = NormalAgreement(k, q, d.spos, d.snrm, scale);
@@ -2201,8 +2223,9 @@ void SplitByFit(const Mesh &m, const std::vector<int> &tris, double tol,
  * genuine tie the simpler primitive does, since kind order runs plane, sphere,
  * cylinder, cone, torus. On a noisy scan nothing is exact, everything lands in
  * the lower tier, and this is support-first again, as it was. */
-bool BeatsCandidate(size_t nA, double rmsA, SurfKind kA, size_t nB, double rmsB,
-                    SurfKind kB, double tol)
+bool BeatsCandidate(size_t nA, double rmsA, double seedA, SurfKind kA,
+                    size_t nB, double rmsB, double seedB, SurfKind kB,
+                    double tol)
 {
     if (nA == 0)
         return false;
@@ -2212,6 +2235,21 @@ bool BeatsCandidate(size_t nA, double rmsA, SurfKind kA, size_t nB, double rmsB,
     const bool exB = rmsB <= tol * kExactFitFraction;
     if (exA != exB)
         return exA;
+    /* Then whether the SEED itself was exact.
+     *
+     * A claim made at tolerance is fuzzy at a tangency, so two proposals can
+     * claim the same triangles and look equally inexact while only one of them
+     * started from a surface that is really in the mesh. That distinction is
+     * everything, because the tight re-claim that rescues a fuzzy claim is
+     * made around the seed: measured on the user's part, a cylinder seeded at
+     * residual zero on the r=1 fillet along its long edge lost the round to
+     * one seeded at 0.0013 with the same support, and the re-claim around
+     * THAT found nothing at all — 41 triangles down to none — so the fillet
+     * went to triangles at both ends of the part. */
+    const bool sA = seedA <= tol * kExactFitFraction;
+    const bool sB = seedB <= tol * kExactFitFraction;
+    if (sA != sB)
+        return sA;
     if (nA != nB)
         return nA > nB;
     if (std::fabs(rmsA - rmsB) > tol * 1e-3)
@@ -2251,20 +2289,29 @@ void SplitByRansac(const Mesh &m, const std::vector<int> &tris, double tol,
     double bestRms = 1e300;
     int bestStart = -1;
     const int trials = kRansacLadderSteps * kRansacTrialsPerSize;
+    std::vector<int> pool;
     for (int round = 0; round < kRansacRounds && remaining >= minTris; ++round) {
+        pool.clear();
+        for (int i = 0; i < n; ++i)
+            if (!taken[i] && !barred[i])
+                pool.push_back(i);
         best.clear();
         bestFit = Fit();
         bestRms = 1e300;
         bestStart = -1;
         for (int trial = 0; trial < trials; ++trial) {
             const int want = kRansacSeedLadder[trial % kRansacLadderSteps];
-            int start = -1;
-            for (int a = 0; a < 16 && start < 0; ++a) {
-                const int c = (int)(next() % (unsigned)n);
-                if (!taken[c] && !barred[c])
-                    start = c;
-            }
-            if (start < 0)
+            /* Draw the seed from what is actually LEFT.
+             *
+             * Rejection sampling over the whole patch looks harmless and is
+             * not: by the twentieth round nine tenths of the triangles are
+             * taken, sixteen draws miss, and most trials never propose
+             * anything at all. The last surfaces of a part are exactly the
+             * ones extracted late, so this is where it costs. */
+            if (pool.empty())
+                break;
+            const int start = pool[next() % (unsigned)pool.size()];
+            if (taken[start] || barred[start])
                 continue;
             seedRegion.clear();
             stack.assign(1, start);
@@ -2364,8 +2411,9 @@ void SplitByRansac(const Mesh &m, const std::vector<int> &tris, double tol,
              * floor is evidence; it should not be on the ballot. */
             if ((int)inliers.size() < std::max(minTris, kRansacMinSupport))
                 continue;
-            if (BeatsCandidate(inliers.size(), candRms, f.kind, best.size(),
-                               bestRms, bestFit.kind, tol)) {
+            if (BeatsCandidate(inliers.size(), candRms, f.rms, f.kind,
+                               best.size(), bestRms, bestFit.rms, bestFit.kind,
+                               tol)) {
                 best = inliers;
                 bestFit = f;
                 bestRms = candRms;
@@ -2542,6 +2590,11 @@ void SplitByRansac(const Mesh &m, const std::vector<int> &tris, double tol,
                 break;
             continue;
         }
+        MR_TRACE("        -> KEEP %s %d tri rms %.6f q=[%.3f %.3f %.3f | "
+                 "%.3f %.3f %.3f | %.4f %.4f]\n",
+                 KindName(pa.fit.kind), (int)pa.tris.size(), pa.fit.rms,
+                 pa.fit.q[0], pa.fit.q[1], pa.fit.q[2], pa.fit.q[3],
+                 pa.fit.q[4], pa.fit.q[5], pa.fit.q[6], pa.fit.q[7]);
         out.push_back(pa);
         for (int i : best) {
             taken[i] = 1;
@@ -2670,9 +2723,24 @@ void SplitPatch(const Mesh &m, const std::vector<int> &tris, double tol,
     if (rest.empty())
         return;
     if (rest.size() < tris.size()) {
-        /* Something was recognised; the remainder is a smaller problem and
-         * gets the same treatment, but without recursing on RANSAC again. */
-        SplitByFit(m, rest, tol, scale, minTris, origin, out);
+        /* Something was recognised, so the remainder is a strictly smaller
+         * problem — and worth the same treatment rather than a straight fall
+         * to region growing. RANSAC's seeds are drawn from what is left, so on
+         * a smaller set they land where the work is: on the user's part the
+         * leftover after the first pass is the fillet along one long edge plus
+         * the place where the blend ring round the boss runs into it, and
+         * growing simply merged the two again. The depth guard is what stops
+         * this recursing on a patch that is not shrinking. */
+        if (depth < kMaxSplitDepth)
+            /* Past the crease stage on purpose. What RANSAC leaves is not a
+             * smooth run any more, so cutting it at creases is arbitrary — on
+             * the user's part it sliced the leftover fillet band into its own
+             * facet rows, 3, 10, 10, 10, 7, 2, ... , and each row is too small
+             * to say anything. Let RANSAC have the smaller set instead. */
+            SplitPatch(m, rest, tol, scale, minTris, origin,
+                       std::max(depth + 1, kMaxCreaseDepth), out);
+        else
+            SplitByFit(m, rest, tol, scale, minTris, origin, out);
         if (out.size() == before)
             out.push_back(pa);
         return;
