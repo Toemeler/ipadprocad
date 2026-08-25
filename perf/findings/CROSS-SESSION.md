@@ -3641,3 +3641,199 @@ everything. If your lock file moves, check your SDK before you check your code.
 **`HARNESS: NOT VALIDATED` on `edgeInfo1` again**, on code v27 does not touch —
 the run-to-run instrument variance S14 §5.4 measured at a spread of 0.118
 against a device interval 0.040 wide. `LANE C: PASS`.
+
+---
+
+## S16-1 — three defects found by an audit, none of them fixed. **Needs:** integrator
+
+**From:** S16 (`claude/perf-opt3-straight-audit`, branched from
+`claude/perf-opt2`)
+**Full write-up:** `perf/findings/S16-straight-audit.md`
+
+S14 closed with a question about its own work: "I do not know what else in this
+shim is only ever exercised straight." S16 is that audit. **Eight
+direction/axis/placement parameters in the C ABI had never been passed anything
+but their trivial value.** Twelve predictions were registered at `ed46cc6`
+before any fixture existed; all twelve are adjudicated against real OCCT 7.9.3
+in `b66de73` and after. **Three defects, nine clean.**
+
+`occt_smoke` is **PASS** and `occt_shim_version()` is **unchanged at 26** — this
+session added no ABI surface, only fixtures. Nothing in `backend/occt/shim/**`
+was touched.
+
+**The three, in severity order. All are behaviour changes, so all are yours.**
+
+1. **`occt_coil_profile`: the `clockwise` flag makes the coil DESCEND instead of
+   reversing its handedness.** `gp_Dir2d d2(cw ? -1.0 : 1.0, cw ? -slope : slope)`
+   negates *both* components, which is the same right-handed helix run backwards
+   and downwards; a left-handed one needs opposite signs. Measured on [32]'s own
+   fixture: `z[-50.997, 0.997]` where `clockwise = 0` gives `z[-0.997, 50.997]`,
+   **with the volume identical to ten significant figures** — no volume check
+   could ever have caught it. `coilClockwise` is a UI checkbox
+   (`app_state.dart:7277`) that no test in the repository has ever set to true.
+   **A user who ticks it gets a wrong part, silently.** The repair looks like one
+   line — `gp_Dir2d d2(clockwise ? -1.0 : 1.0, slope)` — and it is upstream of
+   `finish_pipe`, so it does not touch S15's work. Pinned by scenario **[40d]**,
+   which asserts the *defect* and prints a `*** DEFECT ***` banner, so a fix
+   trips the test rather than passing unnoticed.
+
+2. **`occt_move_faces` leans on an oblique delta.** The face is swept along the
+   whole delta and the prism fused, so an oblique move unions a *leaning* prism —
+   an unsupported overhang on one side, a re-entrant notch on the other — instead
+   of the walls following the face. **Volume and `BRepCheck_Analyzer` are both
+   blind to it**: the volume is exactly the perpendicular answer (10 000 on the
+   20-cube fixture) and the solid is valid. A ray at `x = 2` exits at **22**
+   where a moved-face reading gives 10. *Latent today*: `setFaceEditValue` has
+   no caller, so no panel offers a free direction yet — but `DirectEditFeature`'s
+   own doc says `DirectOp.move` "takes a free direction", and the file format
+   stores `[dx, dy, dz]`. **It ships the day that panel is wired.** Two
+   defensible repairs and the choice is a behaviour decision: refuse an oblique
+   delta with a clear message, or decompose it and move the face properly.
+   Pinned by **[40i]**, same discipline.
+
+3. **`occt_chamfer_edges`' `angle_deg >= 90` guard assumes a perpendicular
+   edge.** The admissible range is `α < 180° − θ`, which is `α < 90°` only when
+   `θ = 90°`. Measured on a 60° edge: `α = 80` builds, `α = 100` is **refused**,
+   and *the identical chamfer spelled as mode 1* builds and removes exactly the
+   analytic 99.744831. So two spellings of one chamfer, one refused for no
+   geometric reason. Least serious of the three — the user sees an error, not a
+   bad solid — and the cheapest to fix, since `occt_shape_edge_info` field [10]
+   already computes the dihedral the guard needs. Scenario **[40j]**.
+
+**What was fine, so nobody re-checks it:** the revolve is fully general in its
+axis *including its holes* (the control for S14's item 2 — that defect is not
+here); the coil's axis handling is general (equivariant to 6.7e-15); the boolean
+ops are equivariant to 1.25e-16 with a rotated operand; the loft is exactly
+equivariant with rotated section matrices; `occt_transform` has six orders of
+headroom on its rigidity guard (residual 4.16e-17 against a 1e-9 tolerance);
+mirror is correct about an oblique plane, proved by a cut rather than a fuse;
+fillets are correct on a 135° edge to nine places; and chamfer mode 1 — which
+had **no fixture anywhere in the suite** — works and distinguishes its two
+distances. §1.4 of the findings is the table to read.
+
+**One instrument note that is nobody's defect but somebody's trap:**
+`occt_bbox` is `BRepBndLib::Add`, which inflates the box by the shape tolerance,
+about **1e-7 in every direction**. Every existing bbox assertion hides it by
+comparing relatively against values of order 10. A caller reading it as an exact
+bound — fit-to-view, clearance, "does this fit in the print volume" — is reading
+a value systematically 2e-7 too large per extent, and the header does not say so.
+
+**Not verified here:** Flutter is not installed in this environment, so
+`flutter analyze` and `flutter test` were not run. The diff is two files —
+`backend/occt/tests/smoke_occt.c` and `perf/findings/S16-straight-audit.md` —
+and touches no Dart at all, so the delta is structurally zero rather than
+measured zero. Stated rather than claimed.
+
+## S16-2 — for S15: the audit did NOT enter the sweep path
+
+**From:** S16. **For:** S15 (`claude/perf-opt3-holes`)
+
+Deliberately, per the brief: sweeps are yours. `occt_sweep_profile` and
+`occt_sweep_profile_ex` are excluded in §1.2 of my findings with that reason,
+and scenarios [30], [37] and [38] are untouched. **My audit found nothing in the
+sweep path because it did not look — that is an empty region on the map, not a
+clearance.**
+
+Two things that touch your ground and neither of which is a request:
+
+* The coil defect above lives in `occt_coil_profile`'s helix construction,
+  **before** the `finish_pipe` call, so a repair there does not collide with
+  what you are changing. I have not made that repair.
+* `occt_coil_profile`'s `taper_deg` is **0 in every call in the suite**, and it
+  is the parameter that selects `SetLaw` over `Add` on the `MakePipeShell` —
+  i.e. it changes which `finish_pipe` entry path runs. If your work moves
+  anything about how a law is applied, that branch has no fixture behind it.
+  Listed in §1.4 as a still-untested row.
+
+My only file in `backend/occt/**` is `tests/smoke_occt.c`, and within it only
+scenario [40], appended after [38]. If we conflict there it will be at the
+insertion point and both sides keep.
+
+---
+
+## 2026-08-25 — INTEGRATOR — S15 and S16 both land, and the number collided a THIRD time
+
+**Needs:** nobody for the merges. Three defects and one taper defect are routed
+at the bottom.
+
+### The collision, because it is now a pattern rather than an accident
+
+S15 and S16 ran in parallel and **both claimed smoke scenario `[39]`**, right
+down to the same sub-labels `[39a]`–`[39h]`. Neither did anything wrong: each
+read the file, saw 38 as the highest, and took the next one.
+
+This is the **third** time in this project:
+
+| | what collided | resolved |
+| --- | --- | --- |
+| v17 | two sessions, `occt_mirror` and `occt_export_step_named` | next free number |
+| v21 | two *lineages*, `occt_shape_edges_info` and `occt_brep_from_mesh` | → v23 |
+| **[39]** | two parallel sessions, in `smoke_occt.c` | S15 keeps 39, S16 → **40a–40l** |
+
+The shim already carries the rule and the reasoning ("a version that means
+different things in two binaries is worse than a gap in the sequence"). The
+smoke test's scenario numbers are the same kind of identifier and had no such
+rule. **The lesson that generalises: any monotonically-allocated identifier is
+a collision waiting to happen the moment two sessions run at once, and the fix
+is not care — both sessions were careful — it is allocating from a list that
+records who holds what.** Whoever schedules the next parallel round should hand
+out scenario numbers with the briefs, as ownership of files is already handed
+out.
+
+Only labels moved in S16's work. No fixture, assertion or number changed, and
+`S16-straight-audit.md` carries a note at the top saying so.
+
+### S15 — the holed sweep, and a refutation of S14 that improves it
+
+The bar is met: a 1200-segment ring with an r=3 hole on a sampled arc builds in
+**2 402 faces, valid, 5 089.335272 against an analytic 5 089.356844 (4.24e-6)**,
+where v26 returned nothing after 490 407 ms.
+
+Ten predictions, ten adjudicated. The assembly equals the subtraction it
+replaces at **1.8e-16 to 3.6e-16 with the same face count** — which is the
+answer to the risk I accepted when I green-lit this: it is not "close enough to
+a boolean", it is the boolean's own answer by a different route.
+
+The containment guard — the one thing that made this a proposal rather than a
+commit — is derived, costs **1.52 ms** at 1200 × 1200, and hands a poking hole
+back to the v26 boolean, which then matches exactly.
+
+**Two things I want on the record above the speed.** S15 could not reproduce
+S14's 25-minute stall *at all* — the whole operation is 33.5 s — so S14's
+inference that the cost was verification rather than construction is refuted,
+and it was refuted precisely because S14 labelled it an inference instead of a
+finding. That label did its job an entire session later. And S15's own
+containment guard was wrong on first writing, caught by a fixture it says it
+nearly did not write.
+
+### S16 — the audit answered its question, and the hypothesis held
+
+**Eight parameters had never been passed anything but their trivial value.
+Three were wrong away from it; nine other operations are equivariant to between
+1e-15 and exact.**
+
+| defect | |
+| --- | --- |
+| `occt_coil_profile`'s `clockwise` | descends instead of reversing handedness — a flag nothing had ever set |
+| `occt_move_faces` on an oblique delta | returns a solid that is not the moved face |
+| `occt_chamfer_edges`' `angle_deg >= 90` guard | assumes a perpendicular edge; wrong on a 60° one |
+
+**Three of the eight are reachable from the UI.** None is fixed, and that is
+correct: I told it to record, finish the sweep, and decide afterwards, because
+an audit that becomes a bug-fix on the third entry point stops being an audit.
+`occt_shim_version` stays at 26 for that session — it added no ABI surface —
+and `occt_smoke` passes, because the twelve fixtures pin *current* behaviour
+with the divergence printed rather than asserting ground truth and going red.
+
+The deliverable I actually wanted is §1.4: a table that answers "is this
+operation tested away from the axis?" for every entry point, including three
+honest **still untested** rows (`loft`'s `closed`, the coil's `taper_deg`,
+`chamfer_ex`'s out-parameters).
+
+### Routed, not fixed — four items for whoever schedules next
+
+1. S16's three defects above. The chamfer guard is the cheapest and the
+   `clockwise` flag is the one a user can hit by ticking a box.
+2. **A tapered sweep along a spine of more than one edge produces an INVALID
+   solid** — S15 found it, registered it, and correctly did not bundle it into
+   a merge about holes.
