@@ -1487,7 +1487,11 @@ static void runCornerLadders(const RunOpts &opts)
                 "DRAWN 90 deg corners --\n");
     for (int n : opts.sweep_sizes) {
         const std::vector<double> l4{30.0, 25.0, 25.0, 30.0};
-        const std::vector<double> t4{90.0, 90.0, 90.0};
+        /* ALTERNATING turns. Three 90 deg turns the same way close a rectangle
+         * and the tube runs back through its own first leg — a self-crossing
+         * fixture whose volume GProp double-counts and whose invalidity
+         * BRepCheck_Analyzer does not look for. A staircase does not fold. */
+        const std::vector<double> t4{90.0, -90.0, 90.0};
         std::vector<double> total;
         bench::CornerRun last;
         double spent = 0.0;
@@ -2120,6 +2124,7 @@ int main(int argc, char **argv)
      * corners and a 16-span rung with fifteen describes nothing. Read the
      * rungs, not the exponent. */
     for (const char *op : {"sweep.segments", "sweep.legacy", "sweep.coil",
+                           "sweep.corners",
                            "sweep.ph.build", "sweep.ph.unify",
                            "sweep.ph.total"}) {
         FitRow r;
