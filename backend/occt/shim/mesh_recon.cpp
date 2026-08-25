@@ -3592,7 +3592,16 @@ void Consolidate(std::vector<Patch> &patches, const Mesh &m, const Params &prm,
             PatchPoints(m, pg.tris, pd, 4000);
             const double mine = FitRms(kCylinder, q2, pd.pts);
             /* Only where the group's answer is at least as good on this
-             * patch's own triangles as the patch's private one. */
+             * patch's own triangles as the patch's private one — and then the
+             * evidence behind it is the group's, not this patch's five facets.
+             *
+             * (Handing every member the group's evidence regardless was tried
+             * and measured: it recovers two more segments of the user's long
+             * edge and costs the shell — those segments are five-facet slivers
+             * whose faces will not sew to the one-triangle planes beside them,
+             * and the part came back an open shell at -0.20% instead of a
+             * closed solid at +0.21%. A body that closes is worth more than
+             * two faces that do not.) */
             if (mine <= std::max(pg.fit.rms, tol * kExactFitFraction)) {
                 std::memcpy(pg.fit.q, q2, sizeof(q2));
                 pg.fit.rms = mine;
