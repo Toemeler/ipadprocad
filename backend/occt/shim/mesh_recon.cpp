@@ -2508,9 +2508,6 @@ void SplitByRansac(const Mesh &m, const std::vector<int> &tris, double tol,
             if ((int)tightened.size() >= std::max(minTris, kRansacMinSupport))
                 best.swap(tightened);
         };
-        if (bestRms <= tol * kExactFitFraction)
-            tighten(bestFit.kind, bestFit.q);
-
         /* Refit on everything it claimed, and keep it only if it still holds. */
         std::vector<int> claimed;
         claimed.reserve(best.size());
@@ -2536,39 +2533,39 @@ void SplitByRansac(const Mesh &m, const std::vector<int> &tris, double tol,
          * merely nearby is not. That is the whole difference between a
          * downloaded CAD model, where this pass should find every fillet, and
          * an organic one, where it should find nothing at all. */
-        if (pa.fit.kind == kNone || pa.fit.rms > tol * kExactFitFraction ||
-            !Identifiable(pa, m, tol, true)) {
-            /* Before giving up on this seed, re-claim TIGHTLY and refit.
-             *
-             * A claim made at tolerance is a claim made five hundred times
-             * looser than a tessellated model's own vertices, so on a narrow
-             * blend it runs straight past the point where the blend stops
-             * being a cylinder and becomes a torus, and the mixture fits
-             * nothing. The seed itself was fitted to a handful of triangles
-             * and is usually a real local surface — measured on the user's
-             * part, thirteen rounds in a row proposed one and had its claim
-             * spoiled this way — so re-claim around the SEED at the mesh's own
-             * precision, and failing that around the refit. */
-            for (int attempt = 0; attempt < 2; ++attempt) {
-                const double *q = attempt == 0 ? bestFit.q : pa.fit.q;
-                const SurfKind kind = attempt == 0 ? bestFit.kind : pa.fit.kind;
-                if (kind == kNone)
-                    continue;
-                const size_t was = best.size();
-                tighten(kind, q);
-                if (best.size() == was)
-                    continue;
-                claimed.clear();
-                for (int i : best)
-                    claimed.push_back(tris[i]);
-                PatchPoints(m, claimed, pd, 4000);
-                pa.tris = claimed;
-                pa.fit = FitPatch(pd, tol, scale);
-                if (pa.fit.kind != kNone &&
-                    pa.fit.rms <= tol * kExactFitFraction &&
-                    Identifiable(pa, m, tol, true))
-                    break;
-            }
+        /* Re-claim at the mesh's OWN precision when the refit is not exact.
+         *
+         * A claim made at tolerance is fuzzy at a TANGENCY: the neighbouring
+         * face hugs the proposal for a strip sqrt(2 r tol) wide — 1.2 mm where
+         * an r=5 fillet meets its wall — and those triangles pass both the
+         * distance and the normal test, so the fillet arrives at the refit
+         * carrying flat wall and comes back as a torus bent round an axis that
+         * exists nowhere in the part. A surface the mesh was tessellated from
+         * is met by its own vertices exactly, so re-claiming at that standard
+         * drops the strip and moves nothing that really is the surface.
+         *
+         * Around the SEED first, because the seed is usually a real local
+         * surface — measured on the user's part, thirteen rounds in a row
+         * proposed one and had its claim spoiled this way — and around the
+         * refit second, in case the seed itself was the poorer of the two. */
+        for (int attempt = 0; attempt < 2; ++attempt) {
+            if (pa.fit.kind != kNone &&
+                pa.fit.rms <= tol * kExactFitFraction)
+                break;
+            const double *q = attempt == 0 ? bestFit.q : pa.fit.q;
+            const SurfKind kind = attempt == 0 ? bestFit.kind : pa.fit.kind;
+            if (kind == kNone)
+                continue;
+            const size_t was = best.size();
+            tighten(kind, q);
+            if (best.size() == was)
+                continue;
+            claimed.clear();
+            for (int i : best)
+                claimed.push_back(tris[i]);
+            PatchPoints(m, claimed, pd, 4000);
+            pa.tris = claimed;
+            pa.fit = FitPatch(pd, tol, scale);
         }
         if (pa.fit.kind == kNone || pa.fit.rms > tol * kExactFitFraction ||
             !Identifiable(pa, m, tol, true)) {
