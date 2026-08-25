@@ -208,11 +208,16 @@ extern "C" const char *occt_version(void)
     /* Keep the grep marker "Prototype OCCT shim" a single literal. */
     static char buf[128] = "";
     if (!buf[0]) {
-        /* Kept in step with occt_shim_version() below. It had said "v21"
-         * since v21 while the number went 22, 23 — a string nobody reads
-         * against a number three releases ahead of it. */
-        std::snprintf(buf, sizeof(buf), "Prototype OCCT shim v27 (OCCT %s)",
-                      OCC_VERSION_COMPLETE);
+        /* v28 (S17): ASKS occt_shim_version() instead of repeating it.
+         *
+         * The note this replaces said it was "kept in step with
+         * occt_shim_version() below", having said "v21" while the number went
+         * 22, 23 — and it had drifted again by v27/v28, because "kept in step"
+         * is a promise a literal cannot make. Now it cannot drift: there is one
+         * number and the string reads it. The grep marker "Prototype OCCT shim"
+         * stays a single literal, which is all the CI link check needs. */
+        std::snprintf(buf, sizeof(buf), "Prototype OCCT shim v%d (OCCT %s)",
+                      occt_shim_version(), OCC_VERSION_COMPLETE);
     }
     return buf;
 }
@@ -316,7 +321,51 @@ extern "C" const char *occt_version(void)
  *
  * Taken by the session that owns backend/occt/shim/**, per the v17 and
  * v21/v23 collision notes above. */
-extern "C" int occt_shim_version(void) { return 27; }
+/* v28 (S17): the three defects S16's audit found away from the trivial value,
+ * repaired. All three are BEHAVIOUR changes on inputs no test had ever sent,
+ * which is why nine months of green did not catch them. Each has its mechanism
+ * at its own site and in perf/findings/S17-oblique.md section 0; this is what
+ * a caller learns by testing for >= 28.
+ *
+ *  1. occt_coil_profile's `clockwise` reverses the WINDING and no longer the
+ *     climb. It used to negate both components of the helix's (u,v) direction,
+ *     which is the same right-handed helix run backwards: a coil that DESCENDED
+ *     to z in [-height, 0] with its handedness unchanged. It now rises by
+ *     `height` and is the mirror image of the counterclockwise coil. Volume is
+ *     unchanged to the last bit either way — the helix length is the same — so
+ *     a caller who needs to know cannot ask the volume; test the version, or
+ *     the bounding box.
+ *
+ *  2. occt_move_faces sweeps each face along the component of the delta on its
+ *     OWN NORMAL, not along the whole delta. An oblique delta used to sweep a
+ *     LEANING prism, whose union carried an overhang on one side and a
+ *     re-entrant notch on the other; it now returns the same solid as the
+ *     delta's normal component alone. A 20-cube's top face moved by (5,0,5) is
+ *     volume 10 000 and valid BOTH ways — the discriminators are the bounding
+ *     box (x-max was 25, is 20) and a ray (the exit above x = 2 was 22, is 25).
+ *     A caller who was relying on the lean was relying on an overhang; a caller
+ *     who only ever moved along the normal sees nothing change.
+ *
+ *  3. occt_chamfer_edges mode 2 accepts 0 < angle_deg < 180 - theta, the edge's
+ *     own admissible range, where it used to accept 0 < angle_deg < 90. The
+ *     bound is the angle between the edge's two outward normals, which is
+ *     occt_shape_edge_info field [10], so a caller can compute what will be
+ *     accepted. This cuts BOTH ways and a caller should know which it is
+ *     relying on: an acute edge now accepts angles that used to be refused (a
+ *     60-degree edge reaches 120), and an OBTUSE edge now refuses angles that
+ *     used to be passed to OCCT and to fail there (a 135-degree edge stops at
+ *     45). An edge whose bound cannot be measured keeps the 90 rule, so every
+ *     perpendicular edge — which is every chamfer fixture before [40j] — is
+ *     bit-identical.
+ *
+ * Not in v28, found while establishing (3) and routed rather than fixed:
+ * part_model.dart's Flip sends 90 - angle for mode 2, the same hardcoded
+ * perpendicular assumption one layer up. Dart is not this session's.
+ *
+ * Taken by the session that owns backend/occt/shim/**, per the collision notes
+ * above; the brief allocated it rather than leaving it to be read off the
+ * file, this project having had three identifier collisions already. */
+extern "C" int occt_shim_version(void) { return 28; }
 
 extern "C" const char *occt_last_error(void) { return g_err; }
 
