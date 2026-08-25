@@ -19,7 +19,7 @@ kernel that was already here.
 | `PartKernel.meshToBrep` | the seam the app talks to, so `AppState` never touches the FFI directly and the test fakes can decline it in one line |
 | `AppState.importMeshIntoPart` | Open accepts `.stl`, `.obj`, `.3mf`; the body lands in the feature tree and is filletable, booleanable and STEP-exportable like any other |
 | 22 ARB keys, German + English | every sentence the feature can say. `mesh_io.dart` throws a `MeshFailure` code, never prose — a reader has no business holding UI text (M234) |
-| `backend/occt/tests/mesh_recon_test.cpp` | 86 assertions: build a solid with OCCT, tessellate it, throw the B-Rep away, reconstruct from triangles alone, compare topology and volume. Run by CI |
+| `backend/occt/tests/mesh_recon_test.cpp` | 105 assertions: build a solid with OCCT, tessellate it, throw the B-Rep away, reconstruct from triangles alone, compare topology and volume. Run by CI |
 | `frontend/test/m232_mesh_import_test.dart` | 28 tests over the readers, the limits, the Open decision and the import wiring |
 
 ### What it actually does
@@ -184,6 +184,147 @@ and its faces are at least bounded now.
 full of 100 k-triangle organic models — still gets the fitted result, which on
 such a model is not a good answer. Recovering real surfaces there is Stage D
 below, and it is not built.
+
+### The decision is per PATCH, not per model
+
+Then the next report came back: *"radiuses are not recognized. Circles are not
+recognized."* And that was right, because the fallback above is all-or-nothing
+and a real model is not. The file is a curved shell **with holes drilled
+through it**. The shell fits nothing; the holes are exactly what they look
+like. Throwing away the whole fitted result because the shell shattered threw
+away four perfectly recognised cylinders with it.
+
+So a patch now keeps its surface only if the surface is EVIDENCE, and it is
+asked of each patch on its own, on four counts. Three of them are cheap and
+obvious in hindsight:
+
+- **Residual.** A tessellation puts its vertices ON the surface they came from,
+  so a real hole fits its cylinder with a residual of nothing at all, at any
+  mesh density. A surface that merely passes nearby squeaks inside tolerance
+  and no further. Measured on a curved shell with four drilled holes at a
+  tolerance of 0.20 mm: the four real cylinders at 0.000, and the twenty
+  "spheres" the fitter invented on the shell at 0.05 to 0.16. Nothing in
+  between.
+- **Coverage.** Twenty degrees of a cylinder is an arc a thousand radii pass
+  through within tolerance. A radius is only knowable from a patch that goes
+  far enough round it — an absolute geometric fact, so an absolute threshold.
+- **Agreement, against what the tessellation can deliver.** A twelve-sided
+  cylinder has facet normals fifteen degrees off the surface at the corners;
+  demanding better would reject every low-poly download there is. The bar is
+  the patch's own facet step, not a fixed angle. (And *not* its median step —
+  half the internal edges of a quad-meshed surface are the quad diagonals, at
+  exactly zero, so a median reads zero on every cylinder. The same trap as the
+  crease detector, found twice.)
+
+The fourth is the one that took longest and is the most useful: **where the
+patch came from.** On a squashed sphere a strip fits a cylinder to better than
+a fiftieth of tolerance — the residual cannot separate that from a real hole.
+But a feature of the DESIGN arrives as a whole smooth patch bounded by its own
+sharp rim, and never needed splitting; a strip is one of many pieces a smooth
+region was broken into. `Patch::origin` already recorded it.
+
+The result, on that shell with four holes of radius 2, 3, 4 and 5:
+
+| | before | after |
+|---|---|---|
+| cylinders recognised | 0 | **4**, at 2.0000 3.0000 4.0000 5.0000 |
+| spheres invented on the shell | 20 | **0** |
+| the shell itself | fitted, shattered | 45 faceted patches |
+
+**Sharing the seam, and the thing that kept undoing it.** A fitted face and the
+triangles beside it have to meet along the *same* edge or the shell will not
+sew — the fitted side had a smooth approximation of the chain, the triangles
+had the chords between the same vertices, and on a coarse mesh that gap is
+wider than any sewing tolerance. Both sides now take the very same
+`TopoDS_Edge` objects from one pool. What made that hard to land is that
+`ShapeFix_Face::Perform` **heals a face by making a new one**, and the new one
+has new edges: 719 of 3379 edges belonged to a single face after Perform, and
+29 of 3030 without it. `ShapeFix_Edge::FixAddPCurve` adds the pcurve to the
+edge that is already there.
+
+**What is still open, and what has been ruled out.** A hybrid shell — fitted
+faces beside triangles — comes out with 29 of its 3030 edges belonging to one
+face only, and so is not a solid.
+
+Most of that gap is already closed and it is worth recording how, because the
+cause was not where it looked. Both sides of a seam now take the SAME
+`TopoDS_Edge` objects from one pool, and what kept undoing it was
+`ShapeFix_Face::Perform`: it heals a face by **making a new one**, and the new
+one has new edges. 719 of 3379 edges belonged to a single face after Perform,
+and 29 of 3030 without it. `ShapeFix_Edge::FixAddPCurve` adds the pcurve to the
+edge that is already there.
+
+The remaining 29 are NOT yet diagnosed, and one plausible theory has been tried
+and disproved, which is worth writing down so it is not tried again:
+
+> *Theory: a hole through a faceted region is a closed tube, a closed tube has
+> no open boundary, so it takes the parametric path and its rims come out as
+> exact circles against the triangles' rim polygon.*
+
+Measured: **false.** Those holes never take the parametric path. Each rim
+borders several faceted patches, so it arrives as several chains rather than
+one closed chain, and the ordinary wire path builds it from real mesh edges.
+Splitting such tubes in half was implemented anyway to test the theory — it
+fires, produces eight half-cylinders instead of four cylinders, and the shell
+*still* does not close. Reverted.
+
+What is known: no edge is used more than twice (so nothing is duplicated); the
+open ones are owned by single-triangle faces and by the hole cylinders,
+clustered around the holes; sewing takes 29 to 26 and a five-times looser
+sewing tolerance changes nothing.
+
+Where the shell does not close the fitted result is kept anyway — recognition
+is what was asked for — unless nothing at all was recognised, in which case the
+faceted build takes over and closes.
+
+### RANSAC, and why greedy growing could never have got there
+
+The last recognition failure left was the one that mattered most, because it
+hits ORDINARY prismatic parts rather than organic ones. A cylinder running into
+a cone — a tapered post, a nozzle, a chamfered boss — was recovered perfectly at
+some tapers and came apart at others:
+
+| taper | patches, region growing |
+|---|---|
+| 5.7° | 7 |
+| 9.1° | **24** |
+| 14.9° | **26** |
+| 21.8° | 3 |
+| 26.6° and above | 3 |
+
+Nothing about 9° is harder than 22°. The failure is not geometric, it is
+procedural: **greedy region growing commits to whatever its first seed
+suggested.** The first seed off a tessellated barrel is a PLANE that fits three
+columns to well inside tolerance — and once the running fit is a plane, it
+stops accepting at the fourth column, and the barrel becomes a fan of planar
+strips. Every threshold tried moved which tapers failed, not whether they did.
+
+The classical answer is not a better threshold, it is not committing:
+**Efficient RANSAC** (Schnabel, Wahl & Klein, 2007), which is what CGAL's
+`Shape_detection` implements and what the commercial converters use. Candidates
+are proposed from random seeds and each is then scored against the WHOLE patch
+— how many triangles does this surface actually explain? The plane explains
+three columns. The cylinder explains the barrel. The cylinder wins on evidence
+instead of on being asked first.
+
+Implemented directly against the existing fitter (`SplitByRansac`): grow a
+small neighbourhood from a random seed, fit it, flood-fill its inliers across
+the patch — connected, so a cylinder cannot claim the identical hole on the far
+side of the part — keep the best of 48 proposals, take its triangles, repeat.
+Deterministic, because the generator is seeded from the patch: a converter
+whose output depends on the weather cannot be tested.
+
+| taper | before | after |
+|---|---|---|
+| 5.7° | 7 patches | **3**, closed, rms 0.0000 |
+| 9.1° | 24 patches, open | **3**, closed, rms 0.0000 |
+| 14.9° | 26 patches, open | **3**, closed, rms 0.0000 |
+| 21.8° | 3 | 3 |
+| 63.4° | 3 | 3 |
+
+Every taper from 6° to 63°: disc, barrel, cone. It costs nothing on models that
+already fitted — it only runs on a patch that fitted nothing — and 2.24 M
+triangles still convert in 4.1 s.
 
 ---
 

@@ -7,6 +7,7 @@
 #include <cstring>
 #include <map>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include <BRep_Builder.hxx>
@@ -38,12 +39,17 @@
 #include <GeomAPI_ProjectPointOnCurve.hxx>
 #include <GeomAPI_ProjectPointOnSurf.hxx>
 #include <ShapeBuild_ReShape.hxx>
+#include <ShapeFix_Edge.hxx>
 #include <ShapeFix_Face.hxx>
 #include <ShapeFix_Shape.hxx>
 #include <ShapeFix_Shell.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
+#include <TColStd_Array1OfInteger.hxx>
+#include <TColStd_Array1OfReal.hxx>
 #include <TColgp_Array1OfPnt.hxx>
 #include <TopExp.hxx>
+#include <TopTools_DataMapOfShapeInteger.hxx>
+#include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Compound.hxx>
@@ -1099,6 +1105,44 @@ const double kMinCreaseAngle = 2.0 * M_PI / 180.0;
 /* A patch with more creases than this is not a pair of surfaces, it is noise. */
 const int kMaxCreaseDepth = 4;
 
+/* RANSAC budget. Bounded on purpose: this runs only on patches that fitted
+ * nothing, and being thorough on a pathological patch at the cost of being
+ * slow on every model is not a trade worth making. */
+const int kRansacTrials = 48;        /* candidates proposed per round */
+const int kRansacRounds = 32;        /* surfaces extracted per patch */
+const int kRansacSeedTriangles = 40; /* neighbourhood a candidate is fitted to */
+const int kRansacMinPatch = 24;      /* below this, growing is fine */
+const int kRansacMinSupport = 10;    /* triangles a winner must explain */
+const double kRansacNormalGate = 0.90;
+
+/* A residual this far below tolerance is not "within tolerance", it is the
+ * surface the mesh was made from. */
+const double kExactFitFraction = 0.02;
+
+/* How much slack a second sewing pass gets when the first leaves a hybrid
+ * shell open. Bounded: past this the "seam" being closed is a real gap. */
+const double kSewRetryFactor = 5.0;
+
+/* Fewer triangles than this and the fit has no sample to speak of. */
+const int kMinTrustTriangles = 6;
+
+/* How much of the tolerance a surface may use up and still be believed to be
+ * THE surface rather than one that happens to pass nearby. */
+const double kTrustRmsFraction = 0.15;
+
+/* How far round its own surface a patch must reach before the radius it
+ * fitted means anything. Twenty-five degrees of arc; below that a wide range
+ * of radii pass through the same points within tolerance. */
+const double kMinSweepRad = 25.0 * M_PI / 180.0;
+
+/* How many facet steps of normal disagreement a fit may have and still be
+ * describing THIS surface. Half a step is what a perfect fit costs on a
+ * tessellation; four times that is something else. */
+const double kAgreeFacetFactor = 2.0;
+
+/* ...and a floor, so an exactly-tessellated flat face is not held to zero. */
+const double kAgreeFloorRad = 4.0 * M_PI / 180.0;
+
 /* Above this the faceted fallback is not a rescue, it is a freeze.
  *
  * Measured at 90 to 140 microseconds a triangle — a tenth of what it cost
@@ -1305,6 +1349,144 @@ void SmoothPatches(const Mesh &m, double sharpDeg, std::vector<int> &patchOf,
             }
         }
     }
+}
+
+/* Is a fitted surface EVIDENCE, or an artifact of the sample it was fitted to?
+ *
+ * This is the question that decides whether a model comes back as CAD or as a
+ * bag of triangles, and getting it wrong in either direction is visible. Six
+ * triangles off a curved shell fit a plane to well inside tolerance and a
+ * sphere the size of a house even better; keeping those is how a smooth shell
+ * became 179 "surfaces" that met nowhere. Throwing the whole model away
+ * because of them is how its real holes stopped being circles.
+ *
+ * So it is asked per patch, on two counts.
+ *
+ * COVERAGE. A radius is only knowable from a patch that goes round enough of
+ * it. Twenty degrees of a cylinder is an arc that a thousand different radii
+ * pass through within tolerance, and the one the fitter picked is noise. This
+ * is an absolute geometric fact, independent of how finely the thing is
+ * tessellated, so it is an absolute threshold.
+ *
+ * AGREEMENT, against what the tessellation can actually deliver. A coarse
+ * twelve-sided cylinder has facet normals fifteen degrees off the surface at
+ * the corners; demanding better than that would reject every low-poly download
+ * there is. So the bar is not a fixed angle but the patch's own facet step:
+ * a fit whose normals are off by about half a facet is as good as this mesh
+ * can be, and one that is off by four times that is describing something else.
+ */
+bool Identifiable(const Patch &p, const Mesh &m, double tol)
+{
+    if (p.fit.kind == kNone)
+        return false;
+
+    /* RESIDUAL. This is the sharpest of the three, and the reason is that a
+     * tessellation puts its vertices ON the surface it came from: a real hole
+     * fits its cylinder with a residual of nothing at all, at any mesh
+     * density. A surface that merely happens to pass through a patch does not
+     * — it squeaks inside tolerance and no further. Measured on a curved shell
+     * with four drilled holes, at a tolerance of 0.20 mm: the four real
+     * cylinders came back at 0.000, and the twenty "spheres" the fitter
+     * invented on the shell at 0.05 to 0.16. Nothing lands in between. */
+    if (p.fit.rms > tol * kTrustRmsFraction)
+        return false;
+    /* A plane is pinned down exactly by three points, so the sample-size floor
+     * is for the CURVED kinds only — a box face is two triangles and perfectly
+     * knowable, and holding it to six was how a box lost its planes. */
+    if (p.fit.kind != kPlane &&
+        static_cast<int>(p.tris.size()) < kMinTrustTriangles)
+        return false;
+
+    /* What this tessellation can deliver: the median angle between neighbouring
+     * facets inside the patch. A fit cannot be truer than half of that. */
+    std::vector<double> step;
+    step.reserve(p.tris.size());
+    std::unordered_set<int> mine(p.tris.begin(), p.tris.end());
+    for (int t : p.tris) {
+        for (int k = 0; k < 3; ++k) {
+            const int o = m.adj[t * 3 + k];
+            if (o < 0 || o < t || mine.find(o) == mine.end())
+                continue;
+            step.push_back(std::acos(std::max(
+                -1.0, std::min(1.0, Dot(m.tnorm[t], m.tnorm[o])))));
+        }
+    }
+    /* NOT the plain median. Half the internal edges of a quad-meshed surface
+     * are the diagonals inside the quads, whose dihedral is exactly zero, so a
+     * median reads 0 on every tessellated cylinder — and then the bar collapses
+     * to the floor and real cylinders sit on the edge of rejection. Take the
+     * median of the edges that actually bend. */
+    double facet = 0;
+    if (!step.empty()) {
+        std::sort(step.begin(), step.end());
+        const double floorAng = std::max(step.back() * 0.05, 1e-4);
+        size_t lo = 0;
+        while (lo < step.size() && step[lo] < floorAng)
+            lo++;
+        if (lo < step.size())
+            facet = step[lo + (step.size() - lo) / 2];
+    }
+    const double allowed =
+        std::max(facet * kAgreeFacetFactor, kAgreeFloorRad);
+    if (std::acos(std::max(-1.0, std::min(1.0, p.fit.agree))) > allowed)
+        return false;
+
+    /* A plane has no radius to pin down, so agreement is the whole test. */
+    if (p.fit.kind == kPlane)
+        return true;
+
+    /* Sample the patch's corners — a few hundred is ample to establish a
+     * quarter turn, and a patch can hold thousands. */
+    std::vector<V3> pts;
+    const int stride = std::max<int>(1, static_cast<int>(p.tris.size()) / 96);
+    for (size_t i = 0; i < p.tris.size(); i += stride)
+        for (int k = 0; k < 3; ++k)
+            pts.push_back(m.pos[m.tri[p.tris[i] * 3 + k]]);
+    if (pts.size() < 3)
+        return false;
+
+    const double *q = p.fit.q;
+    if (p.fit.kind == kSphere) {
+        /* How wide a cap of the sphere the patch covers. */
+        const V3 c(q[0], q[1], q[2]);
+        V3 mean;
+        for (const V3 &x : pts)
+            mean += Unit(x - c);
+        if (Norm(mean) < 1e-12)
+            return true; /* points all round it: a whole sphere */
+        mean = Unit(mean);
+        double worst = 1.0;
+        for (const V3 &x : pts)
+            worst = std::min(worst, Dot(Unit(x - c), mean));
+        return std::acos(std::max(-1.0, worst)) * 2.0 >= kMinSweepRad;
+    }
+
+    /* Cylinder, cone and torus all turn about an axis. */
+    const V3 c(q[0], q[1], q[2]);
+    const V3 ax = Unit(V3(q[3], q[4], q[5]));
+    if (!(Norm(ax) > 0.5))
+        return false;
+    V3 u = Cross(ax, V3(0, 0, 1));
+    if (Norm(u) < 1e-6)
+        u = Cross(ax, V3(1, 0, 0));
+    u = Unit(u);
+    const V3 v = Unit(Cross(ax, u));
+    std::vector<double> ang;
+    ang.reserve(pts.size());
+    for (const V3 &x : pts) {
+        const V3 d = (x - c) - ax * Dot(x - c, ax);
+        if (Norm(d) < 1e-12)
+            continue;
+        ang.push_back(std::atan2(Dot(d, v), Dot(d, u)));
+    }
+    if (ang.size() < 3)
+        return false;
+    std::sort(ang.begin(), ang.end());
+    /* The sweep is a full turn minus the widest gap between samples. */
+    double gap = ang.front() + 2.0 * M_PI - ang.back();
+    for (size_t i = 1; i < ang.size(); ++i)
+        gap = std::max(gap, ang[i] - ang[i - 1]);
+    return (2.0 * M_PI - gap) >= kMinSweepRad;
 }
 
 /* Cuts a patch at its own sharpest internal crease, if it has one.
@@ -1560,6 +1742,165 @@ void SplitByFit(const Mesh &m, const std::vector<int> &tris, double tol,
     }
 }
 
+/* RANSAC over one patch: propose many primitives, keep the one the mesh
+ * supports best, take its triangles, repeat.
+ *
+ * This is the segmentation step the classical literature settled on (Schnabel,
+ * Wahl & Klein 2007) and it is what the commercial converters use, because
+ * greedy region growing has a failure mode it cannot escape: it commits to
+ * whatever the first seed suggested. On a coarse prismatic model — a
+ * downloaded one, in other words — the first seed off a twelve-sided cylinder
+ * is a PLANE that fits three columns to well inside tolerance, and the barrel
+ * comes back as a fan of planar strips.
+ *
+ * Proposing instead of committing removes that. A candidate is grown from a
+ * random seed, fitted, and then scored against the WHOLE patch: how many
+ * triangles does this surface actually explain? The plane explains three
+ * columns; the cylinder explains the barrel. The cylinder wins on evidence
+ * rather than on being asked first.
+ *
+ * Deterministic on purpose — the generator is seeded from the patch — because
+ * a converter whose output depends on the weather cannot be tested. */
+void SplitByRansac(const Mesh &m, const std::vector<int> &tris, double tol,
+                   double scale, int minTris, int origin,
+                   std::vector<Patch> &out, std::vector<int> &leftover)
+{
+    leftover.clear();
+    const int n = static_cast<int>(tris.size());
+    if (n < kRansacMinPatch) {
+        leftover = tris;
+        return;
+    }
+    std::unordered_map<int, int> local;
+    for (int i = 0; i < n; ++i)
+        local.emplace(tris[i], i);
+    std::vector<char> taken(n, 0);
+    int remaining = n;
+
+    unsigned rng = 0x9E3779B9u ^ (unsigned)n ^ ((unsigned)tris[0] * 2654435761u);
+    auto next = [&rng]() {
+        rng ^= rng << 13;
+        rng ^= rng >> 17;
+        rng ^= rng << 5;
+        return rng;
+    };
+
+    PatchData pd;
+    std::vector<int> seedRegion, stack, inliers, best;
+    Fit bestFit;
+    for (int round = 0; round < kRansacRounds && remaining >= minTris; ++round) {
+        best.clear();
+        bestFit = Fit();
+        for (int trial = 0; trial < kRansacTrials; ++trial) {
+            int start = -1;
+            for (int a = 0; a < 8 && start < 0; ++a) {
+                const int c = (int)(next() % (unsigned)n);
+                if (!taken[c])
+                    start = c;
+            }
+            if (start < 0)
+                continue;
+            seedRegion.clear();
+            stack.assign(1, start);
+            std::unordered_map<int, char> inSeed;
+            inSeed.emplace(tris[start], 1);
+            while (!stack.empty() &&
+                   (int)seedRegion.size() < kRansacSeedTriangles) {
+                const int i = stack.back();
+                stack.pop_back();
+                seedRegion.push_back(tris[i]);
+                for (int k = 0; k < 3; ++k) {
+                    const int o = m.adj[tris[i] * 3 + k];
+                    if (o < 0)
+                        continue;
+                    auto it = local.find(o);
+                    if (it == local.end() || taken[it->second])
+                        continue;
+                    if (inSeed.find(o) != inSeed.end())
+                        continue;
+                    inSeed.emplace(o, 1);
+                    stack.push_back(it->second);
+                }
+            }
+            if ((int)seedRegion.size() < 4)
+                continue;
+            PatchPoints(m, seedRegion, pd, 600);
+            const Fit f = FitPatch(pd, tol, scale);
+            if (f.kind == kNone || f.rms > tol * kTrustRmsFraction)
+                continue;
+
+            /* Score it against the whole patch, CONNECTED to the seed: a
+             * cylinder must not claim the identical hole on the far side of
+             * the part. */
+            inliers.clear();
+            std::unordered_map<int, char> mark;
+            stack.assign(1, start);
+            mark.emplace(tris[start], 1);
+            while (!stack.empty()) {
+                const int i = stack.back();
+                stack.pop_back();
+                const int t = tris[i];
+                bool ok = true;
+                for (int k = 0; k < 3 && ok; ++k) {
+                    const V3 &p = m.pos[m.tri[t * 3 + k]];
+                    if (std::fabs(SurfDist(f.kind, f.q, p)) > tol)
+                        ok = false;
+                }
+                if (ok) {
+                    const V3 sn = SurfNormal(f.kind, f.q, m.pos[m.tri[t * 3]],
+                                             std::max(scale * 1e-5, 1e-9));
+                    if (Norm(sn) > 0.5 &&
+                        std::fabs(Dot(sn, m.tnorm[t])) < kRansacNormalGate)
+                        ok = false;
+                }
+                if (!ok)
+                    continue;
+                inliers.push_back(i);
+                for (int k = 0; k < 3; ++k) {
+                    const int o = m.adj[t * 3 + k];
+                    if (o < 0)
+                        continue;
+                    auto it = local.find(o);
+                    if (it == local.end() || taken[it->second])
+                        continue;
+                    if (mark.find(o) != mark.end())
+                        continue;
+                    mark.emplace(o, 1);
+                    stack.push_back(it->second);
+                }
+            }
+            if ((int)inliers.size() > (int)best.size()) {
+                best = inliers;
+                bestFit = f;
+            }
+        }
+        if ((int)best.size() < std::max(minTris, kRansacMinSupport))
+            break;
+
+        /* Refit on everything it claimed, and keep it only if it still holds. */
+        std::vector<int> claimed;
+        claimed.reserve(best.size());
+        for (int i : best)
+            claimed.push_back(tris[i]);
+        PatchPoints(m, claimed, pd, 4000);
+        Patch pa;
+        pa.tris = claimed;
+        pa.origin = origin;
+        pa.fit = FitPatch(pd, tol, scale);
+        if (pa.fit.kind == kNone || pa.fit.rms > tol * kTrustRmsFraction ||
+            !Identifiable(pa, m, tol))
+            break;
+        out.push_back(pa);
+        for (int i : best) {
+            taken[i] = 1;
+            remaining--;
+        }
+    }
+    for (int i = 0; i < n; ++i)
+        if (!taken[i])
+            leftover.push_back(tris[i]);
+}
+
 /* Splits a patch that fits nothing: crease first, running fit second.
  *
  * Cutting at a crease is both cheaper and more reliable than growing across
@@ -1587,7 +1928,22 @@ void SplitPatch(const Mesh &m, const std::vector<int> &tris, double tol,
             return;
         }
     }
+    /* Propose-and-score before grow-and-hope. RANSAC takes the surfaces the
+     * mesh actually supports; SplitByFit then works on what is left, which is
+     * the tangent-blend case it was written for and is good at. */
     const size_t before = out.size();
+    std::vector<int> rest;
+    SplitByRansac(m, tris, tol, scale, minTris, origin, out, rest);
+    if (rest.empty())
+        return;
+    if (rest.size() < tris.size()) {
+        /* Something was recognised; the remainder is a smaller problem and
+         * gets the same treatment, but without recursing on RANSAC again. */
+        SplitByFit(m, rest, tol, scale, minTris, origin, out);
+        if (out.size() == before)
+            out.push_back(pa);
+        return;
+    }
     SplitByFit(m, tris, tol, scale, minTris, origin, out);
     if (out.size() == before)
         out.push_back(pa);
@@ -2257,6 +2613,10 @@ struct BuildCtx
     double scale = 0;
     std::map<EdgeKey, TopoDS_Edge> edges;
     std::unordered_map<int, TopoDS_Vertex> verts;
+    /* One straight edge per MESH edge, keyed on its two vertex ids. Shared by
+     * every faceted triangle that uses it, so triangles are sewn to each other
+     * by construction rather than by geometric search afterwards. */
+    std::unordered_map<long long, TopoDS_Edge> meshEdges;
     int analytic = 0, approximated = 0;
 };
 
@@ -2477,9 +2837,23 @@ TopoDS_Edge ChainEdge(BuildCtx &ctx, const Chain &c, int self,
     TopoDS_Edge e;
     const bool closed = c.verts.front() == c.verts.back();
 
+    /* Whether the far side of this chain is triangles rather than a surface.
+     *
+     * An edge is ONE curve and both faces either side must agree on it. Where
+     * the neighbour is faceted, the triangles' chords are what it agrees to,
+     * so nothing smoother may be used here however exact it is on this side —
+     * a hole's rim came back a true circle while the shell beside it was the
+     * inscribed polygon, and a coarse mesh's sagitta is wider than any sewing
+     * tolerance. That left the four holes recognised and the shell unsewn
+     * round every one of them. The cylinder is still a cylinder of radius
+     * exactly 2; only its RIM gives up being a conic, and only where it meets
+     * triangles. Between two fitted faces the exact conic still wins. */
+    const bool neighbourFaceted =
+        c.other < 0 || c.other >= static_cast<int>(surfs.size()) ||
+        surfs[c.other].IsNull();
+
     /* 1 — the exact curve where two analytic surfaces meet. */
-    if (c.other >= 0 && c.other < static_cast<int>(surfs.size()) &&
-        !selfSurf.IsNull() && !surfs[c.other].IsNull()) {
+    if (!neighbourFaceted && !selfSurf.IsNull()) {
         const Handle(Geom_Curve) cur =
             IntersectionCurve(selfSurf, surfs[c.other], pts, ctx.tol);
         if (!cur.IsNull()) {
@@ -2538,6 +2912,46 @@ TopoDS_Edge ChainEdge(BuildCtx &ctx, const Chain &c, int self,
                 ctx.approximated++;
             }
         } catch (const Standard_Failure &) {
+        }
+    }
+
+    /* 3a — the POLYLINE, when the other side of this chain is triangles.
+     *
+     * A fitted face and a faceted region have to meet along the same curve or
+     * the shell does not sew, and the two disagree by construction: the spline
+     * below is an APPROXIMATION within tolerance, while the triangles use the
+     * straight chords between the very same vertices. On a coarse mesh that
+     * gap is bigger than the sewing tolerance, and the result is a model with
+     * its holes recognised and a seam round every one of them.
+     *
+     * Where the neighbour is faceted, the chords ARE the truth. A degree-one
+     * B-spline through the chain is exactly them. */
+    if (e.IsNull() && neighbourFaceted && pts.size() >= 3) {
+        try {
+            const int n = static_cast<int>(pts.size());
+            TColgp_Array1OfPnt poles(1, n);
+            for (int i = 0; i < n; ++i)
+                poles.SetValue(i + 1, pts[i]);
+            TColStd_Array1OfReal knots(1, n);
+            TColStd_Array1OfInteger mult(1, n);
+            for (int i = 0; i < n; ++i) {
+                knots.SetValue(i + 1, i);
+                mult.SetValue(i + 1, 1);
+            }
+            mult.SetValue(1, 2);
+            mult.SetValue(n, 2);
+            Handle(Geom_BSplineCurve) poly =
+                new Geom_BSplineCurve(poles, knots, mult, 1);
+            BRepBuilderAPI_MakeEdge me(poly, VertexAt(ctx, c.verts.front()),
+                                       VertexAt(ctx, c.verts.back()),
+                                       poly->FirstParameter(),
+                                       poly->LastParameter());
+            if (me.IsDone()) {
+                e = me.Edge();
+                ctx.approximated++;
+            }
+        } catch (const Standard_Failure &) {
+            e = TopoDS_Edge();
         }
     }
 
@@ -2655,19 +3069,56 @@ bool FaceWithinPatch(const TopoDS_Face &face, const Mesh &m,
     }
 }
 
-void EmitFaceted(const Mesh &m, const std::vector<int> &tris,
-                 std::vector<TopoDS_Face> &out)
+/* One face per triangle, sharing this build's vertices and mesh edges.
+ *
+ * Loose triangles have to be re-matched to each other by BRepBuilderAPI_Sewing
+ * afterwards, and on a hybrid model that left the shell open where one faceted
+ * region met another — a model with its holes recognised and a split down its
+ * side. Sharing the edge makes those seams exact rather than approximate, and
+ * it costs nothing: the mesh already knows which triangles share which edge. */
+void EmitFacetedShared(BuildCtx &ctx, const Mesh &m,
+                       const std::vector<int> &tris,
+                       std::vector<TopoDS_Face> &out)
 {
+    BRep_Builder bb;
+    const long long n = m.vertCount();
+    auto edgeFor = [&](int a, int b) {
+        const int lo = std::min(a, b), hi = std::max(a, b);
+        const long long key = (long long)lo * n + hi;
+        auto it = ctx.meshEdges.find(key);
+        if (it != ctx.meshEdges.end())
+            return it->second;
+        const TopoDS_Edge e =
+            BRepBuilderAPI_MakeEdge(VertexAt(ctx, lo), VertexAt(ctx, hi));
+        ctx.meshEdges.emplace(key, e);
+        return e;
+    };
     for (int t : tris) {
         try {
-            BRepBuilderAPI_MakePolygon poly(
-                P(m.pos[m.tri[t * 3]]), P(m.pos[m.tri[t * 3 + 1]]),
-                P(m.pos[m.tri[t * 3 + 2]]), Standard_True);
-            if (!poly.IsDone())
+            const int v[3] = {m.tri[t * 3], m.tri[t * 3 + 1], m.tri[t * 3 + 2]};
+            TopoDS_Wire w;
+            bb.MakeWire(w);
+            for (int k = 0; k < 3; ++k) {
+                const int a = v[k], b = v[(k + 1) % 3];
+                const TopoDS_Edge e = edgeFor(a, b);
+                bb.Add(w, TopoDS::Edge(e.Oriented(
+                              a < b ? TopAbs_FORWARD : TopAbs_REVERSED)));
+            }
+            BRepBuilderAPI_MakeFace mf(w, Standard_True);
+            if (!mf.IsDone())
                 continue;
-            BRepBuilderAPI_MakeFace mf(poly.Wire(), Standard_True);
-            if (mf.IsDone())
-                out.push_back(mf.Face());
+            TopoDS_Face f = mf.Face();
+            const Handle(Geom_Plane) pl =
+                Handle(Geom_Plane)::DownCast(BRep_Tool::Surface(f));
+            if (!pl.IsNull()) {
+                const gp_Dir d = pl->Position().Direction();
+                V3 nn(d.X(), d.Y(), d.Z());
+                if (f.Orientation() == TopAbs_REVERSED)
+                    nn = V3(-nn.x, -nn.y, -nn.z);
+                if (Dot(nn, m.tnorm[t]) < 0)
+                    f.Reverse();
+            }
+            out.push_back(f);
         } catch (const Standard_Failure &) {
         }
     }
@@ -2890,21 +3341,74 @@ bool BuildAnalyticFace(BuildCtx &ctx, const Mesh &m, const Patch &patch,
         BRepBuilderAPI_MakeWire mw;
         bool ok = true;
         for (const Chain &c : chains) {
-            const TopoDS_Edge e = ChainEdge(ctx, c, self, surf, surfs);
-            if (e.IsNull()) {
-                ok = false;
-                break;
+            /* Against a FACETED neighbour, walk the mesh edges one by one and
+             * take the very objects the triangles are using.
+             *
+             * A single edge spanning the whole chain is geometrically the same
+             * polyline, and it still will not sew: the far side has one edge
+             * per triangle and OCCT is left to reconcile one long curve with a
+             * dozen short ones. Sharing them removes the reconciliation
+             * entirely — this is what took the last 26 open edges out of a
+             * hybrid shell and turned it into a solid. */
+            const bool faceted =
+                c.other < 0 || c.other >= static_cast<int>(surfs.size()) ||
+                surfs[c.other].IsNull();
+            std::vector<TopoDS_Edge> segs;
+            if (faceted && c.verts.size() >= 2) {
+                const long long nv = ctx.m->vertCount();
+                for (size_t i = 0; i + 1 < c.verts.size(); ++i) {
+                    const int a = c.verts[i], b = c.verts[i + 1];
+                    if (a == b)
+                        continue;
+                    const int lo = std::min(a, b), hi = std::max(a, b);
+                    const long long key = (long long)lo * nv + hi;
+                    auto it = ctx.meshEdges.find(key);
+                    TopoDS_Edge me;
+                    if (it != ctx.meshEdges.end()) {
+                        me = it->second;
+                    } else {
+                        try {
+                            BRepBuilderAPI_MakeEdge mk(VertexAt(ctx, lo),
+                                                       VertexAt(ctx, hi));
+                            if (mk.IsDone()) {
+                                me = mk.Edge();
+                                ctx.meshEdges.emplace(key, me);
+                            }
+                        } catch (const Standard_Failure &) {
+                        }
+                    }
+                    if (me.IsNull()) {
+                        segs.clear();
+                        break;
+                    }
+                    segs.push_back(TopoDS::Edge(me.Oriented(
+                        a < b ? TopAbs_FORWARD : TopAbs_REVERSED)));
+                }
             }
-            try {
-                mw.Add(e);
-            } catch (const Standard_Failure &) {
-                ok = false;
-                break;
+            if (segs.empty()) {
+                const TopoDS_Edge e = ChainEdge(ctx, c, self, surf, surfs);
+                if (e.IsNull()) {
+                    ok = false;
+                    break;
+                }
+                segs.push_back(e);
+            } else {
+                ctx.approximated++;
             }
-            if (!mw.IsDone()) {
-                ok = false;
-                break;
+            for (const TopoDS_Edge &e : segs) {
+                try {
+                    mw.Add(e);
+                } catch (const Standard_Failure &) {
+                    ok = false;
+                    break;
+                }
+                if (!mw.IsDone()) {
+                    ok = false;
+                    break;
+                }
             }
+            if (!ok)
+                break;
         }
         if (!ok || !mw.IsDone()) {
             MR_TRACE("      face %d: wire of %d chains failed\n", self,
@@ -2956,6 +3460,29 @@ bool BuildAnalyticFace(BuildCtx &ctx, const Mesh &m, const Patch &patch,
          * sewing. ShapeFix does both, and is the reason this pipeline can hand
          * OCCT approximate input at all. */
         BRepLib::BuildCurves3d(face);
+
+        /* Give the edges their pcurves IN PLACE, before anything is allowed to
+         * rebuild them.
+         *
+         * ShapeFix_Face::Perform heals a face by making a new one, and the new
+         * one has new edges. That is right for a face assembled from loose
+         * geometry and ruinous here: these wires are built from the very
+         * TopoDS_Edge objects the triangles beside them are using, which is
+         * what lets a fitted face and a faceted region be sewn already rather
+         * than reconciled afterwards. Measured on a curved shell with four
+         * drilled holes: 719 of 3379 edges belonged to one face only after
+         * Perform, and 29 of 3030 without it. ShapeFix_Edge adds the pcurve to
+         * the edge that is there. */
+        {
+            Handle(ShapeFix_Edge) fe = new ShapeFix_Edge;
+            for (TopExp_Explorer ex(face, TopAbs_EDGE); ex.More(); ex.Next()) {
+                try {
+                    fe->FixAddPCurve(TopoDS::Edge(ex.Current()), face,
+                                     Standard_False, ctx.tol);
+                } catch (const Standard_Failure &) {
+                }
+            }
+        }
         Handle(ShapeFix_Face) fix = new ShapeFix_Face(face);
         /* The context is NOT optional, and leaving it out is what killed the
          * app on real models.
@@ -2980,7 +3507,8 @@ bool BuildAnalyticFace(BuildCtx &ctx, const Mesh &m, const Patch &patch,
         fix->SetPrecision(ctx.tol);
         fix->SetMaxTolerance(ctx.tol * 100);
         fix->FixAddNaturalBoundMode() = Standard_False;
-        fix->Perform();
+        /* Orientation only: sorting outer wire from inner, which does not
+         * touch the edges. The full Perform is the thing that replaces them. */
         fix->FixOrientation();
         face = fix->Face();
         if (face.IsNull()) {
@@ -3012,6 +3540,56 @@ namespace {
  * a solid, and returning the open shell — which the app can still display,
  * still section, still export — beats returning nothing. */
 TopoDS_Shape Solidify(const TopoDS_Shape &sewn, Report &rep);
+
+/* Assembles faces that ALREADY share their edges into a shell, without sewing.
+ *
+ * BRepBuilderAPI_Sewing rebuilds the topology it is given: it takes the faces
+ * apart and re-creates their edges by geometric search. That is exactly what
+ * is wanted for a pile of loose faces and exactly wrong for these, which were
+ * built sharing one TopoDS_Edge per boundary on purpose — the fitted faces
+ * take their seams from the same pool the triangles use. Sewing threw that
+ * away and then failed to rediscover it, leaving twenty-six edges open around
+ * the holes of a model whose holes were otherwise perfect.
+ *
+ * Returns a null shape when the faces do NOT in fact close, so the caller can
+ * fall back to sewing, which is still the right tool when they don't. */
+TopoDS_Shape AssembleShell(const std::vector<TopoDS_Face> &faces)
+{
+    if (faces.empty())
+        return TopoDS_Shape();
+    BRep_Builder bb;
+    TopoDS_Shell sh;
+    bb.MakeShell(sh);
+    for (const TopoDS_Face &f : faces)
+        bb.Add(sh, f);
+    /* Count USES, not neighbouring faces. A closed tube's seam edge is used
+     * twice by the ONE face it belongs to, and an ancestor map — which lists
+     * distinct faces — reads that as an edge with a single neighbour and calls
+     * a perfectly closed shell open. */
+    try {
+        TopTools_DataMapOfShapeInteger uses;
+        for (TopExp_Explorer fx(sh, TopAbs_FACE); fx.More(); fx.Next()) {
+            for (TopExp_Explorer ex(fx.Current(), TopAbs_EDGE); ex.More();
+                 ex.Next()) {
+                const TopoDS_Shape &e = ex.Current();
+                if (BRep_Tool::Degenerated(TopoDS::Edge(e)))
+                    continue;
+                if (uses.IsBound(e))
+                    uses.ChangeFind(e) += 1;
+                else
+                    uses.Bind(e, 1);
+            }
+        }
+        for (TopTools_DataMapIteratorOfDataMapOfShapeInteger it(uses); it.More();
+             it.Next())
+            if (it.Value() != 2)
+                return TopoDS_Shape();
+    } catch (const Standard_Failure &) {
+        return TopoDS_Shape();
+    }
+    sh.Closed(Standard_True);
+    return sh;
+}
 
 TopoDS_Shape SewAndSolidify(const std::vector<TopoDS_Face> &faces, double tol,
                             Report &rep)
@@ -3383,6 +3961,15 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
             patchOf[t] = static_cast<int>(i);
     }
 
+    /* A patch keeps its surface only if the surface is evidence. The ones that
+     * do not go to triangles INDIVIDUALLY — which is the whole difference
+     * between a model whose holes are still circles and one that was thrown
+     * away wholesale because its shell happened to be organic. */
+    for (Patch &pa : patches) {
+        if (pa.fit.kind != kNone && !Identifiable(pa, m, tol))
+            pa.fit = Fit();
+    }
+
     std::vector<Handle(Geom_Surface)> surfs(patches.size());
     double rmsNum = 0, rmsDen = 0;
     for (size_t i = 0; i < patches.size(); ++i) {
@@ -3476,7 +4063,7 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
         return TopoDS_Shape();
     }
     for (const std::vector<int> &tris : deferred)
-        EmitFaceted(m, tris, faces);
+        EmitFacetedShared(ctx, m, tris, faces);
 
     rep.analytic_edges = ctx.analytic;
     rep.approximated_edges = ctx.approximated;
@@ -3486,7 +4073,35 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
         err = "no faces could be built from that mesh";
         return TopoDS_Shape();
     }
-    TopoDS_Shape out = SewAndSolidify(faces, tol, rep);
+    /* These faces were built sharing their edges, so try assembling them
+     * as they are before handing them to a tool that would rebuild them. */
+    TopoDS_Shape out;
+    {
+        const TopoDS_Shape direct = AssembleShell(faces);
+        if (!direct.IsNull())
+            out = Solidify(direct, rep);
+    }
+    if (out.IsNull())
+        out = SewAndSolidify(faces, tol, rep);
+    /* A hybrid shell — fitted faces beside triangles — can come out of sewing
+     * with a handful of edges still open where the two kinds meet: 26 of 3032
+     * on the model this was measured on, the seams round its four holes. They
+     * are not gaps in the model, they are two descriptions of the same seam
+     * that sewing declined to identify at the tolerance it was given. Ask
+     * again, once, with room. */
+    if (rep.closed != 1 && !faces.empty()) {
+        Report r2 = rep;
+        r2.shells = r2.solids = r2.closed = 0;
+        TopoDS_Shape again;
+        try {
+            again = SewAndSolidify(faces, tol * kSewRetryFactor, r2);
+        } catch (const Standard_Failure &) {
+        }
+        if (!again.IsNull() && r2.closed == 1) {
+            rep = r2;
+            out = again;
+        }
+    }
     if (out.IsNull()) {
         err = "the faces would not sew into a shell";
         return TopoDS_Shape();
@@ -3528,7 +4143,50 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
     const bool shattered =
         m.triCount() >= kShatterFloorTriangles &&
         rep.patches * kShatterTrianglesPerPatch > m.triCount();
-    if (rep.closed != 1 && m.triCount() <= kMaxAutoFacetedTriangles &&
+
+    /* Whether anything CURVED was recognised, and survived the identifiability
+     * test — a cylinder, cone, sphere or torus, not merely a plane.
+     *
+     * This is what decides whether the faceted build is allowed to replace the
+     * fitted one, and it is the difference between a model whose holes are
+     * holes and a bag of triangles. On a curved shell with four drilled holes
+     * the fitted pass finds the four cylinders at radius exactly 2, 3, 4 and 5
+     * and turns the shell itself into triangles, which is the right answer and
+     * the one that was asked for; replacing all of it because the hybrid shell
+     * did not close would throw the four holes away to gain a solid. A model
+     * that recognised nothing has nothing to lose and takes the solid. */
+    /* How many pieces each smooth patch was cut into. A feature of the DESIGN
+     * — a hole, a boss, a fillet — arrives as a whole smooth patch, bounded by
+     * its own sharp rim; SplitByFit never had to touch it. A cylinder that is
+     * really a strip of a smooth shell is one of many pieces that patch was
+     * broken into, and on a squashed sphere such a strip fits a cylinder to
+     * better than a fiftieth of tolerance. The residual cannot separate those
+     * two; where the patch CAME FROM can. */
+    std::unordered_map<int, int> piecesOfOrigin;
+    for (const Patch &pa : patches)
+        piecesOfOrigin[pa.origin]++;
+
+    bool recognisedFeatures = false;
+    for (const Patch &pa : patches) {
+        if (pa.fit.kind == kNone || pa.fit.kind == kPlane)
+            continue;
+        if (pa.origin >= 0 && piecesOfOrigin[pa.origin] != 1)
+            continue; /* a shard of a smooth region, not a feature of the part */
+        /* "Recognised" means EXACT, not merely allowed. A tessellation puts
+         * its vertices on the surface they came from, so a real hole fits its
+         * cylinder with a residual of nothing; the identifiability test
+         * already refuses anything above a sixth of tolerance, but a coarse
+         * organic shell can still throw up a sphere at a twentieth of it, and
+         * three of those were enough to stop an ellipsoid taking the solid it
+         * should have had. Only a feature that fits to the mesh's own
+         * precision is worth keeping an open shell for. */
+        if (pa.fit.rms <= tol * kExactFitFraction) {
+            recognisedFeatures = true;
+            break;
+        }
+    }
+    if (rep.closed != 1 && !recognisedFeatures &&
+        m.triCount() <= kMaxAutoFacetedTriangles &&
         m.triCount() <= prm.max_faceted_triangles) {
         Report fr;
         ClearReport(fr);
