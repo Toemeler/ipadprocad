@@ -15,8 +15,10 @@
 //     clear of it, and a grounded one refuses to move.
 //   * THE RIBBON. Five panels, Inventor's order, and which commands are
 //     ENABLED — the claim of the milestone, so it is asserted rather than
-//     described. M240 shipped with one (Place); M242 built Constrain, so it
-//     is two now and the rest are still drawn-and-disabled.
+//     described. M240 shipped with one (Place); M242 built Constrain, M247 the
+//     three work features, M248 Pattern/Mirror/Copy, and M250 Create, Free
+//     Move and Free Rotate. Joint and the three Show commands are what is
+//     still drawn-and-disabled.
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -566,6 +568,14 @@ void main() {
     // "Pattern" — which covers the panel TITLE as well as the command — is now
     // tappable exactly once, since a panel title never was.
     //
+    // M250 (SPEC CHANGE) — and so do Create, Free Move and Free Rotate. All
+    // three are built: Create Component writes a new part document, places it
+    // on the plane you pick and opens it for editing with the assembly still
+    // around it; Free Move and Free Rotate are Inventor's Position commands,
+    // which move a component WITHOUT the solver — the relationships are
+    // overridden until the next update takes it back. The drawn-and-disabled
+    // list is down to Joint and the three Show commands.
+    //
     // M247 (SPEC CHANGE) — and so do Plane, Axis and Point. Two things move
     // with them:
     //
@@ -630,6 +640,10 @@ void main() {
         expect(tappable(on), greaterThan(0),
             reason: 'M248 — "$on" is built');
       }
+      for (final on in const ['Create', 'Free Move', 'Free Rotate']) {
+        expect(tappable(on), greaterThan(0),
+            reason: 'M250 — "$on" is built');
+      }
       // 'Pattern' is on screen twice — the panel title and the command — and
       // exactly ONE of them is tappable, which is the stronger assertion than
       // either count alone: the command works and the title is still a label.
@@ -637,9 +651,6 @@ void main() {
           reason: 'M248 — the command is wired; the panel title is not a '
               'button and never was');
       for (final off in const [
-        'Create',
-        'Free Move',
-        'Free Rotate',
         'Joint',
         'Show',
         'Show Sick',
