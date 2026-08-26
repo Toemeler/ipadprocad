@@ -9338,6 +9338,18 @@ Es existiert wegen M75: drei Runden Performance-Arbeit gingen in die falsche
 Schicht, weil der `perf:`-Logkanal nur den Remesh abdeckt und ein Log keine
 Framezeit waehrend eines Drags zeigen kann.
 
+> **M268 — das Overlay ist ENTFERNT.** `widgets/perf_overlay.dart` gibt es
+> nicht mehr: eine dauerhaft eingeblendete Debug-Anzeige ueber der Zeichnung
+> einer App, die ausgeliefert wird. Die Messung selbst ist NICHT weg. Die
+> Framezeiten kamen ohnehin nie aus dem Overlay, sondern aus
+> `Perf.attachToBinding()` (M210) — `frame.total/build/raster`, fps und
+> Jank-Rate stehen unveraendert in jedem Report. Die fuenf Dokument-Gauges
+> (`features`, `solids`, `triangles`, `sketchEntities`, `sketchProjections`)
+> sind nach `perf_document.dart` gezogen und werden von `Perf.report()`
+> GEZOGEN statt beim Zeichnen gesetzt: sie kosten jetzt einen Durchlauf pro
+> Snapshot statt fuenf pro Sekunde, und sie stehen zum ersten Mal auch dann
+> im Bundle, wenn niemand hingesehen hat.
+
 analyze 0 errors, **472 Tests gruen** (16 in m76_project_3d_test.dart).
 
 ## M78 (GEPLANT) — Skizzenmodus muss die LEBENDE 3D-Szene behalten

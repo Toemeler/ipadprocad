@@ -385,6 +385,50 @@ class Perf {
     gauges[name] = value;
   }
 
+  /// Gauges that are cheaper to ANSWER than to maintain.
+  ///
+  /// M268 — most gauges are set where the number is produced, which costs
+  /// nothing because the producer already has it. A few are the opposite:
+  /// "how many triangles are on screen" is a walk over every feature and every
+  /// mesh, and nothing in the app computes it for its own sake. Those used to
+  /// be pushed by the on-screen performance overlay, which meant the numbers
+  /// existed only while a debug readout was visible and were recomputed five
+  /// times a second so a 9 pt label could be redrawn — an instrument billing
+  /// the app for being watched, which is the failure mode the header of this
+  /// file warns about.
+  ///
+  /// A source is PULLED instead, from [report], so the walk happens exactly as
+  /// often as a snapshot is written (the periodic flush, and any capture) and
+  /// never because something is being displayed.
+  static final List<Map<String, int> Function()> _gaugeSources = [];
+
+  /// Registers a [source]. Idempotent per identical closure instance, which is
+  /// what stops a hot restart or a second app shell from double-registering.
+  static void addGaugeSource(Map<String, int> Function() source) {
+    if (_gaugeSources.contains(source)) return;
+    _gaugeSources.add(source);
+  }
+
+  static void removeGaugeSource(Map<String, int> Function() source) {
+    _gaugeSources.remove(source);
+  }
+
+  /// Asks every source and folds the answers into [gauges].
+  ///
+  /// Individually wrapped: a source that throws must cost its own numbers and
+  /// nothing else — the report it is part of is often the only evidence of
+  /// whatever made it throw.
+  static void pullGauges() {
+    if (_broken) return;
+    for (final s in _gaugeSources) {
+      try {
+        gauges.addAll(s());
+      } catch (e) {
+        Log.w('perf', 'gauge source failed: $e');
+      }
+    }
+  }
+
   /// Counts an event (cache hit, rebuild, ...) without a duration.
   ///
   /// Counters live in their OWN table. They used to be recorded as a 0 ms
@@ -480,6 +524,10 @@ class Perf {
   static void report() {
     if (!ready) return;
     if (_stats.isEmpty && totalFrames == 0) return;
+    // BEFORE the buffer is built, so the GAUGES line below — and the JSON
+    // snapshot a capture takes straight after — describe the app as it is
+    // now rather than as it last happened to be observed.
+    pullGauges();
     final b = StringBuffer()
       ..writeln('--- ${DateTime.now().toIso8601String()} ---');
     // Self-diagnosis. Spans recording but zero frames means the timings
@@ -552,6 +600,10 @@ class Perf {
   /// on the iPad; this is for `perf/baseline.json` and for the CI regression
   /// gate, which cannot parse a column layout that shifts when a name grows.
   static Map<String, dynamic> jsonSnapshot() {
+    // Same reason as in [report], and not merely because that usually ran
+    // first: it returns early when nothing has been measured yet, and a
+    // snapshot taken on that path would carry a stale gauge table.
+    pullGauges();
     _sampleMemory();
     return {
       'at': DateTime.now().toIso8601String(),
@@ -699,6 +751,10 @@ class Perf {
     _stats.clear();
     _pool.clear();
     gauges.clear();
+    // M268 — sources too. One left registered by an earlier test would keep
+    // answering from that test's AppState, which is exactly the kind of
+    // cross-test leak the rest of this hook exists to prevent.
+    _gaugeSources.clear();
     counters.clear();
     notes.clear();
     native.clear();
