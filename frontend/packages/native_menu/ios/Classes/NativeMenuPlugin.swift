@@ -50,6 +50,17 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
         let groups: [[Item]]
     }
 
+    /// M261 — the scope separator, which must stay identical to
+    /// `NativeMenu._sep` in native_menu.dart. Every other native surface only
+    /// ECHOES a target id Dart built; the Settings sheet is the first one that
+    /// has to construct one, so the constant lives on both sides now.
+    static let sep = "\u{0001}"
+
+    /// The row id the sheet reports when it CLOSES — by the Done button or by
+    /// a swipe. Dart needs to know, or it goes on believing the sheet is up
+    /// and pushes updates at a view that is gone.
+    static let settingsClosed = "__closed__"
+
     private let channel: FlutterMethodChannel
     private var targets: [Target] = []
     private var interaction: UIContextMenuInteraction?
@@ -225,6 +236,45 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
             if !present(sheet, anchor: NativeMenuPlugin.parseRect(args["anchor"])) {
                 reply(nil)
             }
+
+        // M261 — the app's Settings, as a real grouped table. See
+        // SettingsSheet.swift for why it is UIKit and not Flutter.
+        //
+        // `show` returns whether it is on screen, so Dart can fall back to its
+        // own dialog rather than believing a sheet opened that did not. Row
+        // taps come back through the SAME `selected` callback every other
+        // native surface uses, under the `settings` scope, so there is one
+        // inbound path and not two.
+        case "showSettings":
+            let ok = SettingsSheet.shared.show(
+                title: args["title"] as? String ?? "",
+                doneLabel: args["doneLabel"] as? String ?? "Done",
+                sections: SettingsSheet.parse(args["sections"]),
+                present: { [weak self] vc in self?.presentModal(vc) ?? false },
+                onSelect: { [weak self] section, row in
+                    self?.channel.invokeMethod("selected", arguments: [
+                        "target": "settings\(NativeMenuPlugin.sep)\(section)",
+                        "item": row,
+                    ])
+                },
+                onClose: { [weak self] in
+                    self?.channel.invokeMethod("selected", arguments: [
+                        "target": "settings\(NativeMenuPlugin.sep)\(NativeMenuPlugin.settingsClosed)",
+                        "item": NativeMenuPlugin.settingsClosed,
+                    ])
+                })
+            result(ok)
+
+        case "updateSettings":
+            SettingsSheet.shared.update(
+                title: args["title"] as? String ?? "",
+                doneLabel: args["doneLabel"] as? String ?? "Done",
+                sections: SettingsSheet.parse(args["sections"]))
+            result(SettingsSheet.shared.isPresented)
+
+        case "dismissSettings":
+            SettingsSheet.shared.dismiss()
+            result(true)
 
         case "share":
             guard let path = args["path"] as? String,

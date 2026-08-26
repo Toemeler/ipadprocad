@@ -50,20 +50,17 @@ void main() {
       // M177 — one verb. It is not "Import STEP / DXF" any more, because it
       // also opens the app's own documents from anywhere on the iPad; which
       // of those happens follows from the file the user picks.
-      // M236 (SPEC CHANGE) — the appearance switch joined the language row
-      // for the same reason the language row is here at all: it belongs to
-      // the app rather than to a document, and this is the app's only menu.
       // M240 (SPEC CHANGE) — 'asm' joined the two create actions, ahead of
       // Open and for the same reason Open comes after them: the three ways to
       // START a document belong together, and Open is a way to GET one that
       // already exists.
+      // M261 (SPEC CHANGE) — and the language and appearance rows LEFT. They
+      // were here because the "+" was the only menu the app itself owned;
+      // there is a Settings screen now, and "+" is back to meaning one thing.
       expect(items.map((i) => i.id).toList(),
-          ['2d', '3d', 'asm', 'import', kLanguageMenuId, kAppearanceMenuId],
+          ['2d', '3d', 'asm', 'import'],
           reason: 'ids must match the showMenu fallback values');
-      // M234 — the language row joined them, LAST and in its own right: it is
-      // not a way to get a document, it is the one app-level setting, and the
-      // gallery's "+" is the only menu the app itself owns.
-      expect(items.take(4).map((i) => i.title).toList(),
+      expect(items.map((i) => i.title).toList(),
           ['New 2D Sketch', 'New 3D Part', 'New Assembly', 'Open…']);
       // Neither entry is destructive (no red styling on a create action).
       expect(items.every((i) => !i.destructive), isTrue);

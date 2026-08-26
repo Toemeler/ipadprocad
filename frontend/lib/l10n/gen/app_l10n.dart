@@ -103,17 +103,95 @@ abstract class AppL10n {
   /// **'Deutsch'**
   String get languageName;
 
-  /// Eintrag im "+"-Menue der Galerie. Zeigt die Sprache, in die er umschaltet — der Eintrag ist eine Aktion, keine Statuszeile.
+  /// Titel des Einstellungsblatts.
   ///
   /// In de, this message translates to:
-  /// **'Sprache: Deutsch'**
-  String get languageMenuItem;
+  /// **'Einstellungen'**
+  String get settingsTitle;
 
-  /// Eintrag im "+"-Menue der Galerie. Nennt das Schema, auf das er umschaltet — wie die Sprachzeile eine Aktion, keine Statuszeile.
+  /// Beschriftung der Zahnrad-Taste in der Galerie (nur fuer VoiceOver).
   ///
   /// In de, this message translates to:
-  /// **'Darstellung: {scheme}'**
-  String appearanceMenuItem(String scheme);
+  /// **'Einstellungen'**
+  String get settingsButton;
+
+  /// Schliesst das Einstellungsblatt. iOS-Standardwort.
+  ///
+  /// In de, this message translates to:
+  /// **'Fertig'**
+  String get settingsDone;
+
+  /// Abschnittstitel: hell, dunkel oder wie das iPad.
+  ///
+  /// In de, this message translates to:
+  /// **'Darstellung'**
+  String get settingsAppearance;
+
+  /// Fusszeile unter der Darstellung.
+  ///
+  /// In de, this message translates to:
+  /// **'„System“ folgt der Einstellung des iPads.'**
+  String get settingsAppearanceFooter;
+
+  /// Abschnittstitel der Sprachwahl.
+  ///
+  /// In de, this message translates to:
+  /// **'Sprache'**
+  String get settingsLanguage;
+
+  /// Abschnittstitel: Fehler melden, Protokoll teilen.
+  ///
+  /// In de, this message translates to:
+  /// **'Diagnose'**
+  String get settingsDiagnostics;
+
+  /// Oeffnet den Fehlerbericht mit Beschreibung und Modellzustand.
+  ///
+  /// In de, this message translates to:
+  /// **'Problem melden'**
+  String get settingsReportProblem;
+
+  /// Teilt die Protokolldatei ueber das iOS-Teilen-Blatt.
+  ///
+  /// In de, this message translates to:
+  /// **'Protokoll teilen'**
+  String get settingsShareLog;
+
+  /// Fusszeile der Diagnose: sagt, was mitgeschickt wird.
+  ///
+  /// In de, this message translates to:
+  /// **'Ein Bericht enthaelt das offene Dokument und das Protokoll dieser Sitzung.'**
+  String get settingsDiagnosticsFooter;
+
+  /// Abschnittstitel mit Version und Kernen.
+  ///
+  /// In de, this message translates to:
+  /// **'Über'**
+  String get settingsAbout;
+
+  /// Zeile: der Build, aus dem die App gebaut wurde.
+  ///
+  /// In de, this message translates to:
+  /// **'Version'**
+  String get settingsBuild;
+
+  /// Zeile: die OCCT-Version.
+  ///
+  /// In de, this message translates to:
+  /// **'3D-Kern'**
+  String get settingsKernel3d;
+
+  /// Zeile: die QCAD-Version.
+  ///
+  /// In de, this message translates to:
+  /// **'2D-Kern'**
+  String get settingsKernel2d;
+
+  /// Zeile: iPadOS-Version.
+  ///
+  /// In de, this message translates to:
+  /// **'System'**
+  String get settingsSystem;
 
   /// Darstellung folgt der iPad-Einstellung.
   ///

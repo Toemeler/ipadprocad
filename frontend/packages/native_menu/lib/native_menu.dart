@@ -130,6 +130,15 @@ class NativeMenu {
   /// this a disposing widget would wipe a freshly-mounted widget's targets —
   /// and those two change over in an unspecified order.
   static const String kGallery = 'gallery';
+
+  /// M261 — the scope the Settings sheet reports its taps under. Its "target"
+  /// is the SECTION id and its "item" is the row id, so one handler receives
+  /// (section, row) and can switch on the pair.
+  static const String kSettings = 'settings';
+
+  /// The row id that means "the sheet closed", by Done or by a swipe down.
+  /// Must stay identical to `NativeMenuPlugin.settingsClosed`.
+  static const String kSettingsClosed = '__closed__';
   static const String kLayers = 'layers';
   static const String _sep = '\u0001';
 
@@ -223,6 +232,50 @@ class NativeMenu {
       }
     });
     await _invoke<bool>('setTargets', {'targets': all});
+  }
+
+  /// M261 — present the app's Settings as a real UIKit grouped table.
+  ///
+  /// [sections] is the whole screen, rebuilt from Dart state on every change:
+  /// this sheet holds no state of its own, which is what lets a language
+  /// switch relabel it under the user's finger. See SettingsSheet.swift.
+  ///
+  /// Returns false when there is no iOS sheet — off iOS, or when UIKit had
+  /// nothing to present from — so the caller can fall back rather than
+  /// believing a screen opened that did not.
+  static Future<bool> showSettings({
+    required String title,
+    required String doneLabel,
+    required List<Map<String, Object?>> sections,
+  }) async {
+    if (!isSupported) return false;
+    return await _invoke<bool>('showSettings', {
+          'title': title,
+          'doneLabel': doneLabel,
+          'sections': sections,
+        }) ??
+        false;
+  }
+
+  /// Redraw an open Settings sheet in place. False when none is up.
+  static Future<bool> updateSettings({
+    required String title,
+    required String doneLabel,
+    required List<Map<String, Object?>> sections,
+  }) async {
+    if (!isSupported) return false;
+    return await _invoke<bool>('updateSettings', {
+          'title': title,
+          'doneLabel': doneLabel,
+          'sections': sections,
+        }) ??
+        false;
+  }
+
+  /// Close it from Dart (nothing does today; the user closes it).
+  static Future<void> dismissSettings() async {
+    if (!isSupported) return;
+    await _invoke<bool>('dismissSettings', const {});
   }
 
   /// Native single-field alert. Returns null when cancelled.

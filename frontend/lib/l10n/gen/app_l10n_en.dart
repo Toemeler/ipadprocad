@@ -12,12 +12,51 @@ class AppL10nEn extends AppL10n {
   String get languageName => 'English';
 
   @override
-  String get languageMenuItem => 'Language: English';
+  String get settingsTitle => 'Settings';
 
   @override
-  String appearanceMenuItem(String scheme) {
-    return 'Appearance: $scheme';
-  }
+  String get settingsButton => 'Settings';
+
+  @override
+  String get settingsDone => 'Done';
+
+  @override
+  String get settingsAppearance => 'Appearance';
+
+  @override
+  String get settingsAppearanceFooter =>
+      '“System” follows your iPad’s setting.';
+
+  @override
+  String get settingsLanguage => 'Language';
+
+  @override
+  String get settingsDiagnostics => 'Diagnostics';
+
+  @override
+  String get settingsReportProblem => 'Report a Problem';
+
+  @override
+  String get settingsShareLog => 'Share the Log';
+
+  @override
+  String get settingsDiagnosticsFooter =>
+      'A report includes the open document and this session’s log.';
+
+  @override
+  String get settingsAbout => 'About';
+
+  @override
+  String get settingsBuild => 'Version';
+
+  @override
+  String get settingsKernel3d => '3D Kernel';
+
+  @override
+  String get settingsKernel2d => '2D Kernel';
+
+  @override
+  String get settingsSystem => 'System';
 
   @override
   String get appearanceSystem => 'System';

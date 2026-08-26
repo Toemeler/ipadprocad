@@ -28,6 +28,7 @@ import '../log.dart';
 import '../svg_icons.dart';
 import '../theme.dart';
 import 'native_prompts.dart';
+import 'settings_sheet.dart';
 
 // Card sizing: previews are rendered 380x240 (see _writePreview), so the cards
 // keep that landscape aspect. We aim for a comfortable, touch-friendly width
@@ -88,54 +89,17 @@ List<NativeMenuItem> newDocMenuItems(AppL10n t) => [
       // opens in place, a STEP or DXF is converted. Which one happens follows
       // from the file, not from a menu the user has to get right first.
       NativeMenuItem(id: 'import', title: t.openEllipsis, symbol: 'folder'),
-      // M234 — the language switch.
+      // M261 — and NOTHING ELSE. Language (M234) and Appearance (M236) used to
+      // sit here, each noting that the "+" was "the app's only menu that
+      // belongs to the APP rather than to a document". That was true of the
+      // menus that existed, and it was still the wrong shelf: "+" is a verb,
+      // and it means "make me a new document". Two preferences behind a create
+      // button is where people stop looking for them.
       //
-      // It lives in the "+" menu because that is the app's only menu that
-      // belongs to the APP rather than to a document: the gallery is the front
-      // page, and this is the one control on it that is not about drawing.
-      //
-      // The entry names the language it switches TO, never the one that is
-      // on. A row reading "Deutsch" while the app is already German is a
-      // status line, and people tap status lines expecting something to
-      // happen. `kLanguageMenuId` is matched against, never the title.
-      NativeMenuItem(
-          id: kLanguageMenuId,
-          title: L.otherStrings.languageMenuItem,
-          symbol: 'globe'),
-      // M236 — the appearance switch, on the same shelf and for the same
-      // reason: it belongs to the APP, not to a document. Like the language
-      // row it names the scheme it switches TO, never the one that is on, and
-      // `kAppearanceMenuId` is what code matches on.
-      NativeMenuItem(
-          id: kAppearanceMenuId,
-          title: t.appearanceMenuItem(appearanceName(t, nextThemeMode())),
-          symbol: 'circle.lefthalf.filled'),
+      // They are in Settings now, reached by the gear beside this button. What
+      // is left in here is four ways to get a document — which is one idea,
+      // and the whole of what the "+" is for.
     ];
-
-/// The id the language row comes back as. A constant, because the row's
-/// TITLE changes with the language and must never be what code matches on.
-const String kLanguageMenuId = 'lang';
-
-/// The id the appearance row comes back as. Same rule as [kLanguageMenuId].
-const String kAppearanceMenuId = 'appearance';
-
-/// System -> Light -> Dark -> System.
-///
-/// A cycle rather than a submenu because there are three states and the row
-/// already SAYS where the next tap goes; a submenu would cost a second tap to
-/// tell the user what one tap already tells them.
-AppThemeMode nextThemeMode() {
-  const order = [AppThemeMode.system, AppThemeMode.light, AppThemeMode.dark];
-  return order[(order.indexOf(T.mode) + 1) % order.length];
-}
-
-/// The user-visible name of a scheme. In the ARB, like every other string —
-/// [Palette.name] is 'Chalk'/'Ember', which are internal names.
-String appearanceName(AppL10n t, AppThemeMode m) => switch (m) {
-      AppThemeMode.system => t.appearanceSystem,
-      AppThemeMode.light => t.appearanceLight,
-      AppThemeMode.dark => t.appearanceDark,
-    };
 
 class HomeView extends StatefulWidget {
   final AppState app;
@@ -262,6 +226,11 @@ class _HomeViewState extends State<HomeView> {
     await app.createNamedSketch(name);
   }
 
+  /// M261 — Settings. A real UIKit form sheet on the iPad; a Flutter dialog
+  /// with the same sections everywhere else. [SettingsSheet.show] decides
+  /// which, and refuses to stack a second one.
+  Future<void> _showSettings() => SettingsSheet.show(context, widget.app);
+
   /// The "+" offers both document kinds. On iOS this is a REAL UIKit action
   /// sheet (native_menu), anchored to the button — the same native surface the
   /// gallery cards already use. Off iOS (and if the plugin is somehow absent) a
@@ -323,29 +292,6 @@ class _HomeViewState extends State<HomeView> {
               Text(t.openEllipsis, style: ts(12.5, T.text)),
             ]),
           ),
-          // M234 — the same language row the native sheet carries, so the
-          // switch is reachable off iOS and in the host test suite too.
-          PopupMenuItem(
-            value: kLanguageMenuId,
-            height: 40,
-            child: Row(children: [
-              Icon(Icons.language, size: 18, color: T.text),
-              const SizedBox(width: 10),
-              Text(L.otherStrings.languageMenuItem, style: ts(12.5, T.text)),
-            ]),
-          ),
-          // M236 — the same appearance row the native sheet carries, so the
-          // switch is reachable off iOS and in the host test suite too.
-          PopupMenuItem(
-            value: kAppearanceMenuId,
-            height: 40,
-            child: Row(children: [
-              Icon(Icons.contrast, size: 18, color: T.text),
-              const SizedBox(width: 10),
-              Text(t.appearanceMenuItem(appearanceName(t, nextThemeMode())),
-                  style: ts(12.5, T.text)),
-            ]),
-          ),
         ],
       );
     }
@@ -358,14 +304,6 @@ class _HomeViewState extends State<HomeView> {
       await _promptNewAssembly();
     } else if (choice == 'import') {
       await _importDocument();
-    } else if (choice == kLanguageMenuId) {
-      // Applies on the next frame and is written to the settings file on the
-      // way out; nothing is rebuilt, nothing is lost. See L.set.
-      L.set(L.other);
-    } else if (choice == kAppearanceMenuId) {
-      // Same shape: the notifier repaints the tree, the choice lands in the
-      // same settings.json. See T.set.
-      T.set(nextThemeMode());
     }
   }
 
@@ -514,6 +452,7 @@ class _HomeViewState extends State<HomeView> {
   @override
   Widget build(BuildContext context) {
     final app = widget.app;
+    final t = L.of(context);
     // The gallery contents can change without HomeView being rebuilt from
     // scratch (rename, delete, duplicate), so re-measure after every build.
     _schedulePush();
@@ -524,11 +463,29 @@ class _HomeViewState extends State<HomeView> {
         // The "CAD" title is gone: the gallery IS the app's front page, a big
         // word above it only ate a card row. Padding is tightened to match,
         // since the header no longer has to make room for 32px type.
+        // M261 — two buttons, two jobs, and the gap between them says which
+        // is which. LEFT is the app (its appearance, its language, its
+        // version); RIGHT is the document you are about to make. Settings on
+        // the leading edge is where Shortcuts, Photos and Files put the
+        // app-level control, and it is the half of the header that was empty.
         Padding(
           padding: const EdgeInsets.fromLTRB(_kPad, 12, _kPad, 10),
-          child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-            _PlusButton(key: _plusKey, onTap: _showNewMenu),
-          ]),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              _RoundButton(
+                icon: Icons.settings_outlined,
+                semanticLabel: t.settingsButton,
+                onTap: _showSettings,
+              ),
+              _RoundButton(
+                key: _plusKey,
+                icon: Icons.add,
+                semanticLabel: t.galleryNew2dSketch,
+                onTap: _showNewMenu,
+              ),
+            ],
+          ),
         ),
         Expanded(
           child: app.saved.isEmpty
@@ -604,14 +561,27 @@ class _Grid extends StatelessWidget {
   }
 }
 
-class _PlusButton extends StatefulWidget {
+/// One of the gallery header's two round buttons.
+///
+/// M261 — was `_PlusButton`, which drew the only one there was. There are two
+/// now and they are the same object: same size, same plate, same hover, so the
+/// header reads as a pair rather than as a button and something else that
+/// happens to be round.
+class _RoundButton extends StatefulWidget {
+  final IconData icon;
+  final String semanticLabel;
   final VoidCallback onTap;
-  const _PlusButton({super.key, required this.onTap});
+  const _RoundButton({
+    super.key,
+    required this.icon,
+    required this.semanticLabel,
+    required this.onTap,
+  });
   @override
-  State<_PlusButton> createState() => _PlusButtonState();
+  State<_RoundButton> createState() => _RoundButtonState();
 }
 
-class _PlusButtonState extends State<_PlusButton> {
+class _RoundButtonState extends State<_RoundButton> {
   bool _h = false;
   @override
   Widget build(BuildContext context) {
@@ -619,21 +589,28 @@ class _PlusButtonState extends State<_PlusButton> {
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _h = true),
       onExit: (_) => setState(() => _h = false),
-      child: GestureDetector(
-        onTap: widget.onTap,
-        behavior: HitTestBehavior.opaque,
-        child: Container(
-          width: 46,
-          height: 46,
-          decoration: BoxDecoration(
-            color: _h ? T.galleryActionBgHover : T.galleryActionBg,
-            shape: BoxShape.circle,
-            border: Border.all(color: T.cardBorder),
-            boxShadow: [
-              BoxShadow(color: T.cardShadow, blurRadius: 8, offset: const Offset(0, 2)),
-            ],
+      child: Semantics(
+        button: true,
+        label: widget.semanticLabel,
+        child: GestureDetector(
+          onTap: widget.onTap,
+          behavior: HitTestBehavior.opaque,
+          child: Container(
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(
+              color: _h ? T.galleryActionBgHover : T.galleryActionBg,
+              shape: BoxShape.circle,
+              border: Border.all(color: T.cardBorder),
+              boxShadow: [
+                BoxShadow(
+                    color: T.cardShadow,
+                    blurRadius: 8,
+                    offset: const Offset(0, 2)),
+              ],
+            ),
+            child: Icon(widget.icon, color: T.text, size: 24),
           ),
-          child: Icon(Icons.add, color: T.text, size: 24),
         ),
       ),
     );
