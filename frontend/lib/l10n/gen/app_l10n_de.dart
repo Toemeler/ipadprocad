@@ -839,6 +839,9 @@ class AppL10nDe extends AppL10n {
   String get msgMeshUnreadable => 'Diese Datei ließ sich nicht lesen.';
 
   @override
+  String get msgMeshConvertTitle => 'Netz wird umgewandelt';
+
+  @override
   String get msgMeshNoGeometry =>
       'Diese Datei enthält keine brauchbare Geometrie.';
 

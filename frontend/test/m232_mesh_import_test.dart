@@ -26,6 +26,8 @@ import 'package:prototype/app_state.dart';
 import 'package:prototype/doc_ref.dart';
 import 'package:prototype/ffi/occt_engine.dart';
 import 'package:prototype/l10n/l.dart';
+import 'package:flutter/services.dart';
+import 'package:native_menu/native_busy.dart';
 import 'package:prototype/mesh_io.dart';
 
 /// A unit cube as 12 triangles, corner at the origin, side [s].
@@ -619,6 +621,67 @@ void main() {
       } finally {
         src.deleteSync(recursive: true);
       }
+    });
+  });
+
+  // M259 — the busy card. The conversion is a native call the Dart isolate
+  // waits inside, so no Flutter frame is produced while it runs and a Flutter
+  // progress bar would be a still picture of one. The card is UIKit's, on the
+  // platform thread, which stays idle throughout. What can be pinned on a host
+  // is the protocol: that it goes up before the work and comes down after, and
+  // that a host WITHOUT the plugin is not harmed by either.
+  group('the busy card', () {
+    const ch = MethodChannel('prototype/native_menu');
+    final calls = <MethodCall>[];
+
+    setUpAll(TestWidgetsFlutterBinding.ensureInitialized);
+
+    void mock() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(ch, (MethodCall c) async {
+        calls.add(c);
+        return null;
+      });
+    }
+
+    setUp(() {
+      calls.clear();
+      NativeBusy.resetForTest();
+    });
+    tearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(ch, null);
+      NativeBusy.resetForTest();
+    });
+
+    test('goes up with what it is waiting for, and comes down again', () async {
+      mock();
+      await NativeBusy.show('Converting mesh', '59740 triangles');
+      expect(NativeBusy.isShowing, isTrue);
+      expect(calls.single.method, 'busyShow');
+      expect((calls.single.arguments as Map)['title'], 'Converting mesh');
+      expect((calls.single.arguments as Map)['detail'], '59740 triangles');
+
+      await NativeBusy.hide();
+      expect(NativeBusy.isShowing, isFalse);
+      expect(calls.map((c) => c.method), ['busyShow', 'busyHide']);
+    });
+
+    test('hiding one that was never shown says nothing', () async {
+      mock();
+      await NativeBusy.hide();
+      expect(calls, isEmpty,
+          reason: 'an unpaired hide would tear down a card another caller put '
+              'up');
+    });
+
+    test('a host without the plugin is unharmed', () async {
+      // No mock handler: the channel throws MissingPluginException, which is
+      // exactly the situation on every host test and every desktop build.
+      await NativeBusy.show('t', 'd');
+      expect(NativeBusy.isShowing, isFalse,
+          reason: 'nothing was put up, so nothing may be taken down later');
+      await NativeBusy.hide();
     });
   });
 

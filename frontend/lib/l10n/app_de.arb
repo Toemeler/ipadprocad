@@ -749,6 +749,7 @@
     "description": "Zwischen Auswahl und Lesen verschwunden — bei iCloud-Dateien keine Seltenheit."
   },
   "msgMeshUnreadable": "Diese Datei ließ sich nicht lesen.",
+  "msgMeshConvertTitle": "Netz wird umgewandelt",
   "@msgMeshUnreadable": {
     "description": "Rechte, ein nicht geladener iCloud-Platzhalter. Der OS-Grund geht ins Log, nicht in die Meldung."
   },

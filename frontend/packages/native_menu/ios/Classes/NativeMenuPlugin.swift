@@ -106,6 +106,19 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
         // can each take a snapshot whenever they need one. See PerfProbe.
         case "perfProbe":
             result(PerfProbe.snapshot())
+
+        // M259 — the busy card. Shown around a native call the Dart isolate
+        // waits inside, where a Flutter progress bar would be a still picture.
+        // See BusyOverlay.
+        case "busyShow":
+            BusyOverlay.shared.show(
+                title: args["title"] as? String ?? "",
+                detail: args["detail"] as? String ?? "")
+            result(nil)
+
+        case "busyHide":
+            BusyOverlay.shared.hide()
+            result(nil)
         // M237 — the Flutter palette, pushed into UIKit. Every glass surface
         // bound through AppearanceBinder switches with it, so the material and
         // the Flutter text on top of it always come from the same scheme.

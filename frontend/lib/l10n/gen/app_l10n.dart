@@ -1549,6 +1549,12 @@ abstract class AppL10n {
   /// **'Diese Datei ließ sich nicht lesen.'**
   String get msgMeshUnreadable;
 
+  /// Title of the native busy card while a mesh is being converted.
+  ///
+  /// In en, this message translates to:
+  /// **'Converting mesh'**
+  String get msgMeshConvertTitle;
+
   /// Formal in Ordnung, aber ohne Dreiecke: ein STL nur aus entarteten Facetten, ein OBJ ohne f-Zeilen.
   ///
   /// In de, this message translates to:

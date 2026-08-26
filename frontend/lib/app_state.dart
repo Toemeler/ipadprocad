@@ -8,6 +8,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:native_menu/native_busy.dart' show NativeBusy;
 import 'package:native_menu/native_menu.dart' show NativeMenu;
 import 'package:path_provider/path_provider.dart';
 import 'package:reality_view/reality_view.dart' show RealityThumbnailer;
@@ -17478,28 +17479,37 @@ class AppState extends ChangeNotifier {
                 '${soup.droppedTriangles} dropped' : ''}');
 
     // The kernel is single-threaded by contract, so the conversion happens on
-    // the UI thread and the app is frozen for the duration — under a second
-    // for a typical model, several for a big one. Put the notice up and give
-    // the engine a frame's worth of the event loop to paint it, so the freeze
-    // has an explanation on screen instead of looking like a hang.
+    // the DART isolate and no Flutter frame is produced until it returns —
+    // under a second for a typical model, half a minute for a big one. A
+    // Flutter progress bar would freeze on its first frame and read as a hang,
+    // so the card is drawn by UIKit on the platform thread, which stays idle
+    // throughout and keeps animating. See NativeBusy / BusyOverlay.swift.
     //
-    // One frame period rather than Duration.zero: a zero delay yields to the
-    // event loop but need not include a vsync tick, and 16 ms against seconds
-    // of work is not a cost worth optimising. Awaiting SchedulerBinding's real
-    // endOfFrame would be the precise primitive and is deliberately not used —
-    // it needs an initialised binding, which the host tests that reach this
-    // code do not have.
+    // Awaited on purpose: the reply arrives only once the platform thread has
+    // put the card up, which is what makes it exist BEFORE the blocking call
+    // rather than after it. On a host without the plugin this is a no-op and
+    // the toast is still the notice.
     toast(L.current.msgMeshConverting(soup.triangleCount));
-    await Future<void>.delayed(const Duration(milliseconds: 16));
+    await NativeBusy.show(L.current.msgMeshConvertTitle,
+        L.current.msgMeshConverting(soup.triangleCount));
 
-    Log.milestone('import',
-        'mesh: >> kernel convert (rss ${Log.rssMb() ?? -1} MB)');
-    final res = partKernel.meshToBrep(soup.vertices, soup.triangles);
-    Log.milestone('import',
-        'mesh: << kernel convert (rss ${Log.rssMb() ?? -1} MB)');
+    final MeshImportOutcome res;
+    try {
+      Log.milestone('import',
+          'mesh: >> kernel convert (rss ${Log.rssMb() ?? -1} MB)');
+      res = partKernel.meshToBrep(soup.vertices, soup.triangles);
+      Log.milestone('import',
+          'mesh: << kernel convert (rss ${Log.rssMb() ?? -1} MB)');
+    } catch (_) {
+      // The card must not outlive the work under any exit, including one the
+      // kernel throws.
+      await NativeBusy.hide();
+      rethrow;
+    }
     Log.milestone('import', res.report.describe());
     final solid = res.solid;
     if (solid == null) {
+      await NativeBusy.hide();
       toast(_meshConvertFailure(res));
       return 0;
     }
@@ -17522,6 +17532,9 @@ class AppState extends ChangeNotifier {
     } catch (e) {
       Log.w('import', 'could not stash the converted body: $e');
     }
+    // Everything that blocks the isolate is done: the conversion and the STEP
+    // write, which is another native call and on a big model not a fast one.
+    await NativeBusy.hide();
     if (rel == null) {
       // Without a file on disk the body would come back empty on reopen, and
       // geometry that vanishes without explanation is the worse failure.

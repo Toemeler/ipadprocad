@@ -830,6 +830,9 @@ class AppL10nEn extends AppL10n {
   String get msgMeshUnreadable => 'That file could not be read.';
 
   @override
+  String get msgMeshConvertTitle => 'Converting mesh';
+
+  @override
   String get msgMeshNoGeometry => 'That file contains no usable geometry.';
 
   @override

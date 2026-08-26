@@ -242,6 +242,7 @@
   "msgMeshEmpty": "That file is empty.",
   "msgMeshMissing": "That file no longer exists.",
   "msgMeshUnreadable": "That file could not be read.",
+  "msgMeshConvertTitle": "Converting mesh",
   "msgMeshNoGeometry": "That file contains no usable geometry.",
   "msgMeshTruncated": "That file is damaged — a record stops part-way through.",
   "msgMeshBadIndex": "That file is damaged — a face names vertex {index}, which is not in it.",
