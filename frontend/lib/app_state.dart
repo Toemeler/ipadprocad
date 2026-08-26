@@ -799,6 +799,48 @@ class CreateComponentSession {
   bool picking = false;
 }
 
+/// M255 — the live state of Inventor's MAKE PART dialog.
+///
+/// WHAT INVENTOR'S HOLDS (Make Part, from a solid body's context menu in a
+/// multi-body part). Researched the same way M250's was and with the same
+/// caveat: help.autodesk.com is blocked from this network, so the field list
+/// comes from search summaries and the LAYOUT is inferred, not transcribed.
+///
+///     Solid Body               which bodies go into the new part
+///     New Part Name            the file name of the part being made
+///     Template                 which .ipt template to build it from
+///     New File Location        which folder to write it to
+///     Insert in target assembly / Target Assembly Name
+///                              the assembly the new part is placed into
+///     BOM Structure            Normal / Phantom / Reference / Purchased
+///
+/// WHAT THIS ONE HOLDS. The body is not a row here because the command was
+/// STARTED on one — it is the row you long-pressed, and re-choosing it inside
+/// the dialog would be asking a question that has already been answered.
+/// Template, New File Location and BOM Structure are absent for exactly the
+/// reasons the Create Component section sets out at length: one part kind, one
+/// gallery, no BOM, and a disabled row for a concept the app does not have is
+/// worse than no row.
+///
+/// That leaves the two that are real, and both are names the user types:
+/// [partName] and [assemblyName].
+class MakePartSession {
+  MakePartSession(this.body, this.partName, this.assemblyName);
+
+  /// The solid body in the CURRENT part this was started on. Not editable —
+  /// see above.
+  final String body;
+
+  /// Inventor's "New Part Name". Must be free across the whole gallery.
+  String partName;
+
+  /// Inventor's target assembly. May name an assembly that already EXISTS, and
+  /// that is the point: decomposing a multi-body part means running this once
+  /// per body into the SAME assembly, which is how Inventor's Make Components
+  /// does all of them at once.
+  String assemblyName;
+}
+
 /// M250 — which component of which assembly the open part tab is standing in
 /// for.
 ///
@@ -3660,7 +3702,22 @@ class AppState extends ChangeNotifier {
       final shared = _componentModels.remove(name);
       parts[name] = shared ?? await _loadPartModel(name);
     }
+    // M255 — a derived body reads ANOTHER document, which may be loaded by
+    // nothing at all: unlike a component, it is not placed anywhere. This is
+    // the same loop the assemblies use — _placedSources() counts a derive
+    // origin as something the session needs — so it loads the origin, and the
+    // origin's own origin up the chain, and links everything when it lands.
+    //
+    // Guarded rather than unconditional: opening a part with no derived body
+    // in the session must not grow an await and a directory scan.
+    if (_loadedDeriveFeatures().any((f) => _sourceModel(f.sourceDoc) == null)) {
+      await _loadPlacedSources();
+    }
     linkOccurrences();
+    // The load above ran the fold before this model was reachable, so a
+    // derived body in it failed with "the origin is not loaded". Everything is
+    // reachable now; read it.
+    refreshDerived();
     // M237 — the still inside this document may predate the transparent
     // format, in which case its gallery card is a charcoal rectangle on a
     // cream shelf. The model is loaded and the kernel is warm right here, so
@@ -3798,6 +3855,20 @@ class AppState extends ChangeNotifier {
   }
 
   Future<bool> savePart(String name) async {
+    // M255 — the LIVE half of Make Part.
+    //
+    // Every path that changes a part rebuilds it and then saves it, so this is
+    // the one funnel where "a part's geometry just moved" is true of every
+    // edit in the app, with nothing to remember at twenty call sites. Run
+    // BEFORE the await so the derived body is current in the same frame the
+    // edit lands in — the origin's own fold has already run by the time
+    // anything asks to be saved.
+    //
+    // It does NOT notify: this is called from inside methods that are about to
+    // notify anyway, and a second notify from in here would fire during their
+    // own listeners. The rebuilt bodies are new mesh objects, so the frame
+    // that follows draws them (assemblySceneSignature hashes mesh identity).
+    refreshDerived();
     final sw = Stopwatch()..start();
     try {
       return await _savePartInner(name);
@@ -4032,6 +4103,10 @@ class AppState extends ChangeNotifier {
     // that no longer exists anywhere.
     _componentModels.remove(name)?.dispose();
     linkOccurrences();
+    // M255 — and every part DERIVED from it goes sick NOW, naming the body it
+    // can no longer read, rather than going on drawing the copy it happens to
+    // be holding until something else asks it to rebuild.
+    refreshDerived();
     _deleteDocFile(name);
     await refreshSaved();
     notifyListeners();
@@ -4062,6 +4137,10 @@ class AppState extends ChangeNotifier {
     final moved = _componentModels.remove(from);
     if (moved != null) _componentModels[target] = moved;
     await _renameSourceInAssemblies(from, target);
+    // M255 — and every part DERIVED from it, in memory and on disk. Same
+    // reason, one level down: a derived body names its origin by document
+    // name too.
+    await _renameSourceInDerivedParts(from, target);
     linkOccurrences();
     if (wasOpen) {
       await openPart(target);
@@ -4069,6 +4148,12 @@ class AppState extends ChangeNotifier {
       openTabs.insert(math.min(tabIndex, openTabs.length), target);
       if (!wasCurrent) curTab = openTabs.isNotEmpty ? openTabs.last : null;
     }
+    // M255 — LAST, after the links have been re-pointed and the renamed
+    // document is back. A derived body read a model that was disposed halfway
+    // through this, so it is sick at this point and correct one line later; a
+    // refresh anywhere earlier would be refreshing into the middle of the
+    // rename.
+    refreshDerived();
     await refreshSaved();
     notifyListeners();
     return true;
@@ -4174,6 +4259,10 @@ class AppState extends ChangeNotifier {
     // now if nothing holds it yet. Awaited: a component with no geometry
     // draws as a missing part, and one frame of that is a flicker.
     await _loadPlacedSources();
+    // M255 — and a DERIVED component may have been placed here while its
+    // origin was edited in a part tab since. Same reason it is awaited above:
+    // the assembly must not draw one frame of yesterday's body.
+    refreshDerived();
     if (!openTabs.contains(name)) openTabs.add(name);
     if (curTab != name) {
       selectedBody = null; // a selection belongs to ONE part
@@ -4282,7 +4371,43 @@ class AppState extends ChangeNotifier {
     for (final a in assemblies.values) {
       walk(a, {a.name});
     }
+    // M255 — and every part a LOADED part is DERIVED from.
+    //
+    // This set is what decides which shared models are loaded and which are
+    // freed, and until Make Part existed an assembly was the only thing that
+    // could reach across documents. A derived body reaches exactly as far: it
+    // reads the origin's geometry on every rebuild, so freeing the origin
+    // because "nothing places it" would blank the derived part instead.
+    //
+    // Re-read on every call rather than cached, exactly like the walk above,
+    // because [_loadPlacedSources] loops on it: a derived part loaded in one
+    // pass contributes ITS origin to the next, so a chain of derivations
+    // resolves without anything having to know how long it is.
+    for (final f in _loadedDeriveFeatures()) {
+      if (f.sourceDoc.isNotEmpty) out.add(f.sourceDoc);
+    }
     return out;
+  }
+
+  /// Every part model this session holds — open in a tab, or shared by an
+  /// assembly / a derived part. One place, so the three walks below cannot
+  /// disagree about what "loaded" means.
+  Iterable<PartModel> get _loadedParts sync* {
+    yield* parts.values;
+    for (final e in _componentModels.entries) {
+      // A document open in a tab lives in `parts`; the shared map may still
+      // hold the same object mid-transfer, and yielding it twice would
+      // rebuild it twice.
+      if (!parts.containsKey(e.key)) yield e.value;
+    }
+  }
+
+  Iterable<DeriveFeature> _loadedDeriveFeatures() sync* {
+    for (final p in _loadedParts) {
+      for (final f in p.features) {
+        if (f is DeriveFeature) yield f;
+      }
+    }
   }
 
   /// Points every occurrence of every open assembly at the current model for
@@ -4315,6 +4440,15 @@ class AppState extends ChangeNotifier {
       }
     }
 
+    // M255 — a DERIVED body is pointed at its origin here for the same
+    // reason, and by the same argument: assigning a reference is cheap, so it
+    // happens at every point where a model can have moved rather than being
+    // reasoned about case by case. Null when the origin is not loaded (or is
+    // gone), which the feature reports honestly instead of drawing what it
+    // last saw.
+    for (final f in _loadedDeriveFeatures()) {
+      f.source = _sourceModel(f.sourceDoc);
+    }
     for (final a in assemblies.values) {
       link(a, {a.name});
       // M247 — the geometry a work feature was built from has just been
@@ -4325,6 +4459,51 @@ class AppState extends ChangeNotifier {
       // inputs, so every point where the inputs can have changed re-runs it.
       _resolveAsmWorkFeatures(a);
     }
+  }
+
+  /// M255 — re-reads every derived body in the session, and says how many
+  /// parts actually changed.
+  ///
+  /// The counterpart to [linkOccurrences]: that one says WHERE the origin is,
+  /// this one goes and reads it. Separate on purpose — linking is a reference
+  /// assignment and is called everywhere; this runs the kernel and is called
+  /// at the three moments a stale derived body could be SEEN (a part tab
+  /// opening, an assembly tab opening, and an edit to any part).
+  ///
+  /// Cheap when nothing moved. The fold's build signature carries the origin
+  /// body's identity ([DeriveFeature.sourceKey]), so an unchanged origin makes
+  /// every feature here a cache hit and no B-Rep is copied.
+  int refreshDerived() {
+    final changed = <String>{};
+    // To a FIXED POINT, because a derived part can itself be derived from —
+    // Make Part run on a derived body is a chain, and Inventor allows it. The
+    // walk below is in map order, not dependency order, so a single pass can
+    // read a link that the same pass is about to change; the next pass sees
+    // it. Bounded so that a document hand-edited into a cycle stops rather
+    // than spins, and cheap because a pass that changes nothing is entirely
+    // cache hits.
+    for (var pass = 0; pass < 8; pass++) {
+      var moved = 0;
+      for (final p in _loadedParts.toList()) {
+        final derived = [for (final f in p.features) if (f is DeriveFeature) f];
+        if (derived.isEmpty) continue;
+        final before = [for (final f in derived) identityHashCode(f.solid)];
+        // M182 — projections only after a SUCCESSFUL recompute, exactly as
+        // every other rebuild in this file does it.
+        if (recomputeAllFeatures(p, partKernel)) _syncSolidProjections(p);
+        for (var i = 0; i < derived.length; i++) {
+          if (identityHashCode(derived[i].solid) == before[i]) continue;
+          moved++;
+          changed.add(p.name);
+          break;
+        }
+      }
+      if (moved == 0) break;
+    }
+    if (changed.isNotEmpty) {
+      Log.i('part', 'derived bodies re-read: ${changed.join(", ")}');
+    }
+    return changed.length;
   }
 
   /// Loads whatever the open assemblies place and is not loaded yet, then
@@ -4439,14 +4618,28 @@ class AppState extends ChangeNotifier {
   /// not ours to free — it lives in `parts` / `assemblies` and these maps do
   /// not hold it.
   void _evictUnplacedSources() {
-    final want = _placedSources();
-    for (final name in _componentModels.keys.toList()) {
-      if (want.contains(name)) continue;
-      _componentModels.remove(name)?.dispose();
-    }
-    for (final name in _componentAssemblies.keys.toList()) {
-      if (want.contains(name)) continue;
-      _componentAssemblies.remove(name)?.dispose();
+    // M255 — to a FIXED POINT, because the wanted set shrinks as it goes: a
+    // derived part keeps its origin loaded (see _placedSources), so freeing
+    // the derived part is what makes the origin free-able. One pass would
+    // leave the origin behind until the next assembly happened to close,
+    // which for a session that never closes another one is for ever.
+    //
+    // Bounded by the number of loaded documents — each pass frees at least
+    // one or stops.
+    for (var pass = 0; pass < 32; pass++) {
+      final want = _placedSources();
+      var freed = 0;
+      for (final name in _componentModels.keys.toList()) {
+        if (want.contains(name)) continue;
+        _componentModels.remove(name)?.dispose();
+        freed++;
+      }
+      for (final name in _componentAssemblies.keys.toList()) {
+        if (want.contains(name)) continue;
+        _componentAssemblies.remove(name)?.dispose();
+        freed++;
+      }
+      if (freed == 0) return;
     }
   }
 
@@ -8646,6 +8839,13 @@ class AppState extends ChangeNotifier {
       // the feature was reachable to build and unreachable to change, which is
       // the half-built state this file logs about below.
       openHole(f);
+    } else if (f is DeriveFeature) {
+      // M255 — Inventor's "Open Base Component". There is nothing in a derived
+      // body to edit HERE: it has no numbers of its own, and everything that
+      // decides its shape is a feature of the origin. So Edit means what it
+      // can only mean — go to where the shape is actually made.
+      toast(L.current.msgDerivedEditOrigin(f.sourceDoc));
+      unawaited(openDocument(f.sourceDoc));
     } else {
       // Revolve still has no panel; opening the extrude one instead would let
       // the user change a value that belongs to a different feature.
@@ -8773,6 +8973,7 @@ class AppState extends ChangeNotifier {
   /// right when it was the only 3D session and has been quietly wrong since
   /// M136 added the second.
   void cancel3DCommands() {
+    cancelMakePart(); // M255
     cancelExtrude();
     cancelEdgeFeature();
     cancelPattern();
@@ -13085,6 +13286,267 @@ class AppState extends ChangeNotifier {
     if (curTab != null) savePart(curTab!);
     notifyListeners();
     return victims.length;
+  }
+
+  // ---- M255: MAKE PART ----------------------------------------------------
+  //
+  // Inventor's Make Part, off a solid body's browser menu in a multi-body
+  // part: the body becomes a part DOCUMENT of its own, that document is placed
+  // in an assembly, and the whole thing stays LINKED to the body it came out
+  // of — edit the origin and the part follows, for ever, with nothing to press.
+  //
+  // The link is [DeriveFeature], and what it stores is a REFERENCE (which
+  // document, which body) rather than geometry. That is the whole design, and
+  // it is M245's rule one level down: "a component IS its part" was the
+  // milestone that stopped an assembly drawing a photograph of a part, and a
+  // part made from a body has exactly the same way to go wrong. A copy is
+  // silent, it looks right on the day it is made, and the document on screen
+  // becomes a lie the first time anyone touches the original.
+  //
+  // WHERE THE NEW PART LANDS. At the IDENTITY, which is worth stating because
+  // it does not look like a decision: the derived body is expressed in the
+  // origin's own coordinates, so an untransformed placement puts it exactly
+  // where it sat in the part it came from. Run the command once per body into
+  // the same assembly and the assembly reproduces the multi-body part, piece
+  // for piece, in place — which is what Inventor's Make Components does to a
+  // whole part in one go, and the reason the target assembly may name one that
+  // already exists.
+  //
+  // WHAT IT DOES NOT DO. It does not remove the body from the origin. Inventor
+  // does not either, and the reason is worth keeping: the origin is the master
+  // model — the thing every derived part is a view of — and a command that
+  // emptied it would be destroying the only copy of the design intent to
+  // produce a document that is defined in terms of it.
+
+  MakePartSession? makePartSession;
+
+  /// The assembly the last Make Part went into, so the second body of a part
+  /// defaults to the assembly the first one made.
+  ///
+  /// Decomposing a multi-body part is this command run once per body, and
+  /// having to retype the assembly name every time — getting it wrong once and
+  /// ending up with Assembly1 and Assembly2 — is the whole difference between
+  /// a workflow and a chore.
+  String? _lastMakePartTarget;
+
+  /// Opens the dialog on [bodyName]. A toggle, like every other command
+  /// button (M210).
+  void openMakePart(String bodyName) {
+    final p = currentPart;
+    if (p == null) return;
+    if (makePartSession != null) {
+      final same = makePartSession!.body == bodyName;
+      cancelMakePart();
+      // Long-pressing a DIFFERENT body re-opens on that one rather than
+      // leaving the user with a closed dialog and no idea why.
+      if (same) return;
+    }
+    if (!p.features.any((f) => f.bodyName == bodyName)) return;
+    cancel3DCommands(); // M230 — one armed command at a time
+    makePartSession = MakePartSession(
+        bodyName, suggestedDerivedPartName(bodyName), suggestedMakePartTarget());
+    notifyListeners();
+  }
+
+  void cancelMakePart() {
+    if (makePartSession == null) return;
+    makePartSession = null;
+    notifyListeners();
+  }
+
+  /// Inventor's default New Part Name: the BODY's own name.
+  ///
+  /// Which is why renaming a body to what the part should be called is the
+  /// step before Make Part in every Inventor workflow — the dialog then opens
+  /// with the right answer already in it. A collision with something already
+  /// in the gallery is numbered rather than refused, so the dialog never opens
+  /// on a name that cannot be accepted.
+  String suggestedDerivedPartName(String bodyName) {
+    final base = bodyName.trim();
+    if (base.isEmpty) return suggestedPartName();
+    if (!docNameExists(base)) return base;
+    var n = 2;
+    while (docNameExists('$base$n')) {
+      n++;
+    }
+    return '$base$n';
+  }
+
+  /// The assembly the dialog opens on: the one the last Make Part went into
+  /// while it still exists, and a fresh name otherwise.
+  String suggestedMakePartTarget() {
+    final last = _lastMakePartTarget;
+    if (last != null && isAssemblyName(last)) return last;
+    return suggestedAssemblyName();
+  }
+
+  /// The dialog's OK. Makes the part, places it, and opens the assembly.
+  ///
+  /// Both names are validated BEFORE anything is created, for the reason
+  /// [beginCreateComponentPick] gives about its own: a name rejected halfway
+  /// through leaves the user with a half-finished command and the field they
+  /// would fix it in already gone.
+  Future<bool> makePart() async {
+    final s = makePartSession;
+    final origin = currentPart;
+    if (s == null || origin == null) return false;
+    final partName = s.partName.trim();
+    final asmName = s.assemblyName.trim();
+    final originName = origin.name;
+
+    final badPart = validateSketchName(partName);
+    if (badPart != null) {
+      toast(badPart);
+      return false;
+    }
+    if (docNameExists(partName)) {
+      toast(L.current.msgNameTaken(partName));
+      return false;
+    }
+    final badAsm = validateSketchName(asmName);
+    if (badAsm != null) {
+      toast(badAsm);
+      return false;
+    }
+    // An EXISTING assembly is the target, not a collision — that is how a
+    // second body joins the first one. A name taken by a part or a sketch is
+    // still a collision.
+    final reuse = isAssemblyName(asmName);
+    if (!reuse && docNameExists(asmName)) {
+      toast(L.current.msgNameTaken(asmName));
+      return false;
+    }
+    if (!origin.features.any((f) => f.bodyName == s.body)) {
+      toast(L.current.msgMakePartNoBody(s.body));
+      return false;
+    }
+
+    // 1. The document, holding ONE feature: the link. Not opened — the user is
+    //    going to the assembly, and a part tab appearing on the way there is a
+    //    document they did not ask to edit.
+    if (!await createNamedPart(partName, open: false)) {
+      toast(L.current.msgNameTaken(partName));
+      return false;
+    }
+    final made = parts[partName];
+    if (made == null) return false;
+    final link = DeriveFeature(
+      // Inventor names the derived node after the document it came out of,
+      // and so does this: the browser row in the new part reads "Bracket", not
+      // "Feature1", so what it is derived FROM is the first thing you see.
+      // [_renameSourceInDerivedParts] keeps it true across a rename.
+      name: originName,
+      bodyName: 'Solid1',
+      sourceDoc: originName,
+      sourceBody: s.body,
+    )..seq = made.nextSeq();
+    // The link, attached here rather than waited for from linkOccurrences:
+    // the recompute below is what gives the new document its geometry, and it
+    // is what the preview written by savePart draws.
+    link.source = origin;
+    made.appendFeature(link);
+    made.claimBodyName(link.bodyName);
+    if (recomputeAllFeatures(made, partKernel)) _syncSolidProjections(made);
+    if (link.computeError != null) {
+      Log.w('part',
+          'derived "$partName" did not build: ${link.computeError}');
+    }
+    await savePart(partName);
+    // M245's invariant: a document NOT open in a tab lives in the shared map.
+    // createNamedPart had to put it in `parts` so it could be built before
+    // anything pointed at it; the assembly points at it from here on.
+    final model = parts.remove(partName);
+    if (model != null) _componentModels[partName] = model;
+
+    // 2. The assembly — the one that was named, made if it is not there yet.
+    if (reuse) {
+      await openAssembly(asmName);
+    } else if (!await createNamedAssembly(asmName)) {
+      // The part is made and is in the gallery, so nothing is lost: the user
+      // can place it by hand. Deleting it here would throw away a name they
+      // chose because a second document could not be created.
+      toast(L.current.msgNameTaken(asmName));
+      makePartSession = null;
+      notifyListeners();
+      return false;
+    }
+    final a = currentAssembly;
+    if (a == null) return false;
+    final wasEmpty = a.isEmpty;
+
+    // 3. The component, at the identity — see the note at the head of this
+    //    section for why that is the placement and not "clear of everything".
+    final occ = await placeComponent(partName, at: Placement.identity);
+    if (occ == null) {
+      // placeComponent has already said why.
+      makePartSession = null;
+      notifyListeners();
+      return false;
+    }
+    // An aimed placement does not reframe (see placeComponent), which is right
+    // when it lands beside components already on screen and wrong for the
+    // FIRST one in a new assembly — that would open on an empty view with the
+    // part somewhere off the edge of it.
+    if (wasEmpty) a.needsFit = true;
+    _lastMakePartTarget = asmName;
+    makePartSession = null;
+    toast(L.current.msgMadePart(partName, originName));
+    notifyListeners();
+    unawaited(saveAssembly(asmName));
+    return true;
+  }
+
+  /// M255 — follows a part RENAME into every part DERIVED from it.
+  ///
+  /// The part-side twin of [_renameSourceInAssemblies], and it exists for the
+  /// same reason: a derived body names its origin by DOCUMENT name, so without
+  /// this a rename would break every part made from it — each one falling back
+  /// to "the origin is not loaded", which is the honest report of a link that
+  /// should never have been broken in the first place.
+  ///
+  /// Loaded models are re-pointed in memory; the ones on disk are rewritten,
+  /// because a link that only survives while both documents happen to be open
+  /// is not a link.
+  Future<void> _renameSourceInDerivedParts(String from, String to) async {
+    for (final p in _loadedParts.toList()) {
+      var touched = false;
+      for (final f in p.features) {
+        if (f is! DeriveFeature || f.sourceDoc != from) continue;
+        f.sourceDoc = to;
+        // The row was named after the origin when it was made. Keep it true —
+        // a node reading "Bracket" in a session where nothing is called
+        // Bracket any more is worse than no name at all.
+        if (f.name == from) f.name = to;
+        touched = true;
+      }
+      if (touched) {
+        p.dirty = true;
+        unawaited(savePart(p.name));
+      }
+    }
+    for (final name in library.keys.toList()) {
+      if (library[name]?.isPart != true) continue;
+      if (_sourceModel(name) != null) continue; // handled above, in memory
+      try {
+        _ensureStaged(name);
+        final f = _partJson(name);
+        if (!f.existsSync()) continue;
+        final j = jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
+        var touched = false;
+        for (final e in (j['features'] as List? ?? const [])) {
+          if (e is! Map) continue;
+          if (e['kind'] != 'derive' || e['srcDoc'] != from) continue;
+          e['srcDoc'] = to;
+          if (e['name'] == from) e['name'] = to;
+          touched = true;
+        }
+        if (!touched) continue;
+        f.writeAsStringSync(jsonEncode(j));
+        _commitStage(name, 'part');
+      } catch (e, st) {
+        Log.e('part', 'could not re-point derived "$name" after a rename', e, st);
+      }
+    }
   }
 
   // ---- M133: picking a termination FACE for the "To" extent -------------

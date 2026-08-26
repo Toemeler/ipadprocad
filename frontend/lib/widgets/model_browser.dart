@@ -135,6 +135,15 @@ class _ModelBrowserState extends State<ModelBrowser> {
             id: 'bdRename', title: L.of(context).rename, symbol: 'pencil'),
       ],
       [
+        // M255 — Inventor's Make Part, in its own section: the two above
+        // change how this body LOOKS, this one creates two documents and
+        // navigates away from the one you are in.
+        NativeMenuItem(
+            id: 'bdMakePart',
+            title: L.of(context).ctxMakePart,
+            symbol: 'shippingbox'),
+      ],
+      [
         NativeMenuItem(
             id: 'bdDelete',
             title: L.of(context).ctxDeleteBody,
@@ -466,6 +475,9 @@ class _ModelBrowserState extends State<ModelBrowser> {
           break;
         case 'bdRename':
           _promptRenameBody(name);
+          break;
+        case 'bdMakePart':
+          app.openMakePart(name); // M255
           break;
         case 'bdDelete':
           _confirmDeleteBody(name);
@@ -1762,7 +1774,12 @@ class _ModelBrowserState extends State<ModelBrowser> {
     final row = _row(
       indent: 8,
       exp: canExpand ? (open ? '-' : '+') : ' ',
-      icon: broken ? endOfSketchIcon : partCubeIcon,
+      // M255 — a DERIVED body is a link to another document, and the row says
+      // so: it is the one feature in the tree whose shape is decided
+      // somewhere else.
+      icon: broken
+          ? endOfSketchIcon
+          : (f is DeriveFeature ? derivedCubeIcon : partCubeIcon),
       label: f.name,
       // While the pattern panel is picking features, a SINGLE tap picks this
       // one — the same rule the native browser follows.

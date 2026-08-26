@@ -745,7 +745,12 @@ List<GlassRow> _buildRows(
           label: f.name,
           symbol: f.computeError != null
               ? 'exclamationmark.triangle'
-              : (pat == null ? 'cube' : _patternSymbol(pat.mode)),
+              // M255 — a DERIVED body is a link to another document, and the
+              // row says so: it is the one feature in the tree whose shape is
+              // decided somewhere else.
+              : f is DeriveFeature
+                  ? 'link'
+                  : (pat == null ? 'cube' : _patternSymbol(pat.mode)),
           tint: f.computeError != null ? 'red' : null,
           depth: 1,
           hasEye: true,
@@ -904,6 +909,13 @@ List<List<GlassMenuItem>> _bodyMenu(AppState app, bool on) => [
             title: on ? t.hide : t.ctxShow,
             symbol: on ? 'eye.slash' : 'eye'),
         GlassMenuItem(id: 'bdRename', title: t.rename, symbol: 'pencil'),
+      ],
+      [
+        // M255 — Inventor's Make Part, and its own section: the two above
+        // change how this body LOOKS, this one creates two documents and
+        // navigates away from the one you are in.
+        GlassMenuItem(
+            id: 'bdMakePart', title: t.ctxMakePart, symbol: 'shippingbox'),
       ],
       [
         GlassMenuItem(

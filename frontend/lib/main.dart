@@ -40,6 +40,7 @@ import 'widgets/drive_dialog.dart';
 import 'widgets/joint_dialog.dart';
 import 'widgets/split_dialog.dart';
 import 'widgets/hole_dialog.dart';
+import 'widgets/make_part_dialog.dart';
 import 'widgets/work_plane_offset_field.dart';
 
 void main() {
@@ -411,6 +412,14 @@ class PrototypeApp extends StatelessWidget {
                                           // M228 — Split.
                                           if (app.splitSession != null)
                                             SplitDialog(app: app),
+                                          // M255 — Make Part. Over the
+                                          // viewport like its siblings; it
+                                          // takes nothing from the viewport
+                                          // (the body was chosen by the
+                                          // long-press that opened it), so it
+                                          // stays up until OK or Cancel.
+                                          if (app.makePartSession != null)
+                                            MakePartDialog(app: app),
                                           // M169 — the work plane's dynamic
                                           // offset input. Anchored over the
                                           // viewport, never modal: the plane
