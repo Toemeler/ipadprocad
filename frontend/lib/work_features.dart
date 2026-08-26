@@ -32,10 +32,31 @@
 //   Center Point of Torus                  a torus face
 //   Center Point of Sphere                 a sphere face
 //
-// The two LEGACY entries are the ones people actually use, and they are the
+// Work Plane has thirteen (M258, re-checked against the Autodesk help):
+//   Plane (legacy)                         inferred, as above
+//   Offset from Plane                      a planar face, DRAGGED to a distance
+//   Midplane between Two Planes            two PARALLEL planes or planar faces
+//   Parallel to Plane through Point        a plane and a point, either order
+//   Three Points                           three points
+//   Two Coplanar Edges                     two coplanar edges, axes or lines
+//   Normal to Axis through Point           an axis and a point
+//   Angle to Plane around Edge             a plane and an edge in it, + an angle
+//   Midplane of Torus                      a torus face
+//   Normal to Curve at Point               a curve and a point on it
+//   Tangent to Surface through Point       a cylinder and a point, + the SIDE
+//   Tangent to Surface through Edge        a cylinder and an edge, + the SIDE
+//   Tangent to Surface and Parallel to
+//     Plane                                a cylinder and a plane, + the SIDE
+//
+// The three LEGACY entries are the ones people actually use, and they are the
 // reason this file is built the way it is: the command does not ask which
 // method you want, it works it out from what you touched. The named entries
 // exist for the cases where a pick is ambiguous and you have to say.
+//
+// Offset is the odd one in that list and worth naming here: its second input
+// is not a pick at all, it is the DISTANCE you drag the plane to. That is why
+// the legacy Plane command is half gesture and half inference — see
+// [_autoPlane], and viewport3d's pointer-down, which owns the other half.
 //
 // ---------------------------------------------------------------------------
 // Honest scope note
@@ -1014,6 +1035,16 @@ String _mm(double v) {
 
 /// Inventor's Work Plane creation methods that run on picks alone.
 enum WorkPlaneMethod {
+  /// M258 — the LEGACY entry, the twin of [WorkAxisMethod.auto] and
+  /// [WorkPointMethod.auto]: the command does not ask which method you want,
+  /// it works it out from what you touched. See [_autoPlane].
+  ///
+  /// This is the one the ribbon's plain "Plane" button runs, and until M258 it
+  /// did not exist — that button armed Offset and nothing else, so a tap on a
+  /// face (rather than a drag) cancelled the command outright and the
+  /// commonest thing in Inventor, "two parallel faces give the midplane",
+  /// could only be reached by choosing Midplane from the flyout first.
+  auto,
   parallelToPlaneThroughPoint,
   threePoints,
   twoCoplanarEdges,
@@ -1031,6 +1062,8 @@ enum WorkPlaneMethod {
 
 String workPlaneMethodLabel(WorkPlaneMethod m) {
   switch (m) {
+    case WorkPlaneMethod.auto:
+      return 'Plane';
     case WorkPlaneMethod.parallelToPlaneThroughPoint:
       return 'Parallel to Plane through Point';
     case WorkPlaneMethod.threePoints:
@@ -1056,6 +1089,11 @@ String workPlaneMethodLabel(WorkPlaneMethod m) {
 
 int workPlaneArity(WorkPlaneMethod m) {
   switch (m) {
+    // 0, exactly as the auto axis and auto point are: it commits as soon as
+    // the picks so far determine an answer, and how many that takes depends
+    // on what they were.
+    case WorkPlaneMethod.auto:
+      return 0;
     case WorkPlaneMethod.midplaneOfTorus:
     case WorkPlaneMethod.normalToCurveAtPoint:
       return 1;
@@ -1074,6 +1112,13 @@ int workPlaneArity(WorkPlaneMethod m) {
 
 String workPlanePrompt(WorkPlaneMethod m, int have) {
   switch (m) {
+    // M258 — the prompt is the only place the auto command can TEACH what it
+    // can do, so each step names the gestures that are live right now rather
+    // than saying "pick something".
+    case WorkPlaneMethod.auto:
+      return have == 0
+          ? _t.wfPlaneDragOrPickSecond
+          : _t.wfPlaneSecondParallelEdgeOrPoint;
     case WorkPlaneMethod.midplaneOfTorus:
       return _t.wfPickTorusFace;
     case WorkPlaneMethod.parallelToPlaneThroughPoint:
@@ -1122,7 +1167,17 @@ class WorkPlaneSolution {
   final Vec3 at;
   final Vec3 n;
   final String def;
-  const WorkPlaneSolution(this.at, this.n, this.def);
+
+  /// M258 — which method [WorkPlaneMethod.auto] resolved these picks to.
+  ///
+  /// Null from every NAMED method, where the caller already knows what it
+  /// asked for. The auto command does not, and it matters: a plane built by
+  /// the angle inference has a re-typable number behind it and one built by
+  /// the midplane inference does not, and that is what decides the
+  /// [WorkPlaneKind] it is filed under.
+  final WorkPlaneMethod? via;
+
+  const WorkPlaneSolution(this.at, this.n, this.def, {this.via});
 }
 
 /// Feeds the ordered pick list [refs] to [m], exactly as [solveWorkAxis] does.
@@ -1135,6 +1190,9 @@ WorkAttempt<WorkPlaneSolution> solveWorkPlane(
     WorkPlaneMethod m, List<WorkRef> refs, {double angleDeg = 45}) {
   if (refs.isEmpty) return WorkAttempt.more(workPlanePrompt(m, 0));
   switch (m) {
+    case WorkPlaneMethod.auto:
+      return _autoPlane(refs, angleDeg);
+
     case WorkPlaneMethod.midplaneOfTorus:
       {
         final r = refs.first;
@@ -1285,6 +1343,181 @@ WorkAttempt<WorkPlaneSolution> solveWorkPlane(
         return _tangentThroughPoint(cyl, other);
       }
   }
+}
+
+// ---------------------------------------------------------------------------
+// M258 — plane inference
+// ---------------------------------------------------------------------------
+
+/// The legacy "Plane" command: commit as soon as the picks determine an
+/// answer. The third of the trio, after [_autoAxis] and [_autoPoint].
+///
+/// WHY IT DID NOT EXIST, and what that cost. Axes and points have had their
+/// legacy entry since M215; the plane's generic ribbon button armed Offset
+/// instead. Offset takes exactly one plane and reads its distance from a
+/// DRAG, so a plain tap on a face had nothing to do and cancelled the whole
+/// command with a "drag away to set the offset" toast. The device report this
+/// was built from (2026-08-26) is one tap, that toast, a re-arm from the
+/// ribbon and then a drag — which is the user discovering, one gesture at a
+/// time, that the command only spoke one sentence.
+///
+/// THE GESTURE STAYS. A press-and-drag on a face still means Offset and never
+/// reaches this function: the viewport owns that, and dragging is by far the
+/// commonest way to make a plane. What this adds is the other half — a TAP is
+/// a pick, and the picks decide.
+///
+/// PRIORITY, and its consequences. A pick is not "a face", it is the set of
+/// primitives it can stand in for (see [WorkRef]), so most pairs satisfy more
+/// than one method and the order below is the answer, not a formality:
+///
+///   * PLANE beats everything a pick also carries. Two parallel planes are
+///     the midplane — the case this milestone exists for — and two crossing
+///     planes are refused rather than being quietly re-read as some other
+///     method that happens to fit.
+///   * An EDGE beats its own midpoint. A plane and a straight edge are "Angle
+///     to Plane around Edge" and not "Parallel to Plane through Point", even
+///     though [WorkRef.line] offers that midpoint. Pick a VERTEX for the
+///     parallel plane: a vertex carries a point and nothing else, so it can
+///     only ever mean one thing.
+///   * A TORUS answers alone, exactly as a circular edge answers alone for
+///     the auto axis.
+///
+/// The consequence is deliberate and matches Inventor: the generic command
+/// cannot build every method, and the named flyout entries are what those are
+/// for. Three Points is reachable here (three vertices are unambiguous); the
+/// three Tangent to Surface methods are NOT, because they need the side of the
+/// cylinder you clicked as well as the picks, and guessing a side is how a
+/// plane lands on the far side of the part.
+WorkAttempt<WorkPlaneSolution> _autoPlane(List<WorkRef> refs, double angleDeg) {
+  final first = refs.first;
+  if (refs.length == 1) {
+    // A torus is the one face that names a plane by itself.
+    if (first.source == WorkRefSource.torus && first.hasLine) {
+      final def = 'Midplane of ${first.label}';
+      return WorkAttempt.ok(
+          WorkPlaneSolution(first.point!, first.lineDir!, def,
+              via: WorkPlaneMethod.midplaneOfTorus),
+          def);
+    }
+    if (first.hasPlane) {
+      return WorkAttempt.more(_t.wfPlaneSecondParallelEdgeOrPoint);
+    }
+    if (first.hasLine) return WorkAttempt.more(_t.wfPlaneSecondCoplanarOrPoint);
+    if (first.hasPoint) return WorkAttempt.more(_t.wfPlaneTwoMorePoints);
+    return WorkAttempt.no(_t.wfCannotDefinePlane(first.label));
+  }
+
+  final second = refs[1];
+
+  // Two planes. The MIDPLANE, which is the whole reason this command exists:
+  // "wenn ich klicke und ein anderes face anklicke soll es direkt inbetween
+  // eine ebene machen".
+  if (first.hasPlane && second.hasPlane) {
+    if (!planesParallel(first.planeNormal!, second.planeNormal!)) {
+      return WorkAttempt.no(_t.msgNotParallel);
+    }
+    final def = 'Midplane between ${first.label} and ${second.label}';
+    return WorkAttempt.ok(
+        WorkPlaneSolution(
+            _midPointBetween(first, second), first.planeNormal!, def,
+            via: WorkPlaneMethod.auto),
+        def);
+  }
+
+  // A plane and a straight edge lying in it: the angle plane. Before the
+  // point cases, per the priority note — an edge means the edge.
+  if (first.hasPlane && second.hasLine && !second.hasPlane) {
+    return _anglePlane(first, second, angleDeg);
+  }
+  if (first.hasLine && !first.hasPlane && second.hasPlane) {
+    return _anglePlane(second, first, angleDeg);
+  }
+
+  // A plane and a bare point: parallel through it, either order.
+  if (first.hasPlane && _isBarePoint(second)) {
+    return _parallelThrough(first, second);
+  }
+  if (_isBarePoint(first) && second.hasPlane) {
+    return _parallelThrough(second, first);
+  }
+
+  // Two lines that share a plane.
+  if (first.hasLine && second.hasLine && !(first.hasPlane && second.hasPlane)) {
+    return _coplanarEdgePlane(first, second);
+  }
+
+  // A line and a bare point: the plane the line pierces at right angles.
+  if (first.hasLine && _isBarePoint(second)) {
+    return _normalToLineAt(first, second);
+  }
+  if (_isBarePoint(first) && second.hasLine) {
+    return _normalToLineAt(second, first);
+  }
+
+  // Points all the way down: three of them make a plane, two do not yet.
+  if (_isBarePoint(first) && _isBarePoint(second)) {
+    if (refs.length < 3) return WorkAttempt.more(_t.wfPickThirdPoint);
+    if (!_isBarePoint(refs[2])) {
+      return WorkAttempt.no(_t.wfNoPoint(refs[2].label));
+    }
+    return _viaNamed(
+        WorkPlaneMethod.threePoints, [refs[0], refs[1], refs[2]]);
+  }
+  return WorkAttempt.no(_t.wfNoPlaneFromTwo(first.label, second.label));
+}
+
+/// Hands [refs] to the NAMED method [m] and stamps [WorkPlaneSolution.via]
+/// on whatever comes back.
+///
+/// Delegation rather than a second implementation, which is the whole reason
+/// the auto command is cheap to trust: every inference above resolves to a
+/// solver that M223/M224/M229/M231 already built and already pinned with
+/// tests, including its refusals. The inference decides WHICH method the picks
+/// mean; it never decides what that method computes.
+WorkAttempt<WorkPlaneSolution> _viaNamed(
+    WorkPlaneMethod m, List<WorkRef> refs, {double angleDeg = 45}) {
+  final r = solveWorkPlane(m, refs, angleDeg: angleDeg);
+  final s = r.solution;
+  if (r.outcome != WorkPickOutcome.complete || s == null) return r;
+  return WorkAttempt.ok(
+      WorkPlaneSolution(s.at, s.n, s.def, via: m), s.def);
+}
+
+/// Ordered the way each named method reads its picks: the plane first, then
+/// the edge / point that qualifies it. The auto command accepts either tap
+/// order and normalises here, so "face then vertex" and "vertex then face"
+/// are the same plane rather than one of them being a refusal.
+WorkAttempt<WorkPlaneSolution> _anglePlane(
+        WorkRef plane, WorkRef edge, double deg) =>
+    _viaNamed(WorkPlaneMethod.angleToPlaneAroundEdge, [plane, edge],
+        angleDeg: deg);
+
+WorkAttempt<WorkPlaneSolution> _parallelThrough(WorkRef plane, WorkRef pt) =>
+    _viaNamed(WorkPlaneMethod.parallelToPlaneThroughPoint, [plane, pt]);
+
+WorkAttempt<WorkPlaneSolution> _coplanarEdgePlane(WorkRef a, WorkRef b) =>
+    _viaNamed(WorkPlaneMethod.twoCoplanarEdges, [a, b]);
+
+WorkAttempt<WorkPlaneSolution> _normalToLineAt(WorkRef line, WorkRef pt) =>
+    _viaNamed(WorkPlaneMethod.normalToAxisThroughPoint, [line, pt]);
+
+
+/// A pick that can ONLY be a point — a vertex, a sketch point, a work point.
+///
+/// The discriminator the priority note turns on: an edge and a circle both
+/// carry a point too, and letting those satisfy the point cases is what would
+/// make "tap a face, tap an edge" mean two different things depending on
+/// geometry the user cannot see.
+bool _isBarePoint(WorkRef r) => r.hasPoint && !r.hasLine && !r.hasPlane;
+
+/// A point midway between two PARALLEL planes, on the shared normal.
+///
+/// Both planes' own points projected onto that normal, averaged, and put back
+/// — the same arithmetic [midPlaneFrame] does for the named Midplane command,
+/// which is the one this has to agree with to the last digit.
+Vec3 _midPointBetween(WorkRef a, WorkRef b) {
+  final n = a.planeNormal!;
+  return n * ((a.planeAt!.dot(n) + b.planeAt!.dot(n)) / 2);
 }
 
 // ---------------------------------------------------------------------------

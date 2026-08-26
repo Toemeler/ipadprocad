@@ -1591,6 +1591,29 @@
   "wfPickParallelLine": "Linie wählen, zu der parallel gebaut wird.",
   "wfPickFirstPoint": "Ersten Punkt wählen.",
   "wfPickSecondPoint": "Zweiten Punkt wählen.",
+  "wfPlaneDragOrPickSecond": "Fläche oder Ebene wählen — ziehen ergibt einen Versatz, eine zweite parallele Fläche die Mittelebene.",
+  "wfPlaneSecondParallelEdgeOrPoint": "Parallele Fläche für die Mittelebene wählen, Kante zum Abwinkeln oder Eckpunkt für eine parallele Ebene — oder ziehen für einen Versatz.",
+  "wfPlaneSecondCoplanarOrPoint": "Zweite komplanare Kante wählen, oder einen Eckpunkt für die Normalebene.",
+  "wfPlaneTwoMorePoints": "Zwei weitere Punkte für die Ebene wählen.",
+  "wfCannotDefinePlane": "{ref} kann keine Ebene festlegen.",
+  "@wfCannotDefinePlane": {
+    "placeholders": {
+      "ref": {
+        "type": "String"
+      }
+    }
+  },
+  "wfNoPlaneFromTwo": "{a} und {b} legen keine Ebene fest.",
+  "@wfNoPlaneFromTwo": {
+    "placeholders": {
+      "a": {
+        "type": "String"
+      },
+      "b": {
+        "type": "String"
+      }
+    }
+  },
   "wfPickThirdPoint": "Dritten Punkt wählen.",
   "wfPickFirstPlane": "Erste Ebene oder planare Fläche wählen.",
   "wfPickSecondNonParallelPlane": "Zweite, nicht parallele Ebene oder Fläche wählen.",

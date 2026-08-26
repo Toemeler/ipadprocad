@@ -5246,6 +5246,17 @@ class SketchFaceSel {
     return inPlane + 2.0 * scale * rel + 0.05 * along.abs();
   }
 
+  /// True when a face scoring [s] is close enough to BE this face.
+  ///
+  /// Tolerance scales with the face's own size — a 200 mm plate may drift
+  /// further than a 2 mm pad before it stops being the same face.
+  ///
+  /// Separate from [bestMatch] since M257, which scores faces across SEVERAL
+  /// bodies to ask which body owns this one: that caller has to apply the same
+  /// tolerance, and a second copy of this line is a second opinion waiting to
+  /// drift from the first.
+  bool accepts(double s) => s <= 0.5 * (math.sqrt(math.max(area, 1e-9)) + 1.0);
+
   /// The live face this selection now refers to, or null when it is gone.
   FaceRec? bestMatch(List<FaceRec> faces) {
     FaceRec? best;
@@ -5258,10 +5269,7 @@ class SketchFaceSel {
       }
     }
     if (best == null) return null;
-    // Tolerance scales with the face's own size — a 200 mm plate may drift
-    // further than a 2 mm pad before it stops being the same face.
-    final tol = 0.5 * (math.sqrt(math.max(area, 1e-9)) + 1.0);
-    return bestScore <= tol ? best : null;
+    return accepts(bestScore) ? best : null;
   }
 
   /// How far the matched face has moved ALONG its normal since the last
@@ -9277,6 +9285,40 @@ bool _bodyHasEarlierFeature(PartModel part, PartFeature f) {
 /// [recomputeAllFeatures], exactly one feature per body is non-consumed). Null
 /// when the body has no computed solid. Used to resolve the target a live
 /// boolean preview operates against.
+/// M257 — the body whose face [cs] was drawn on, or null when nothing says.
+///
+/// A sketch-on-face already knows WHICH face, by fingerprint: M153 put
+/// [ChildSketch.faceRef] there so the sketch could follow that face when the
+/// feature under it changes height. The same fingerprint answers a question
+/// nothing had been asking it — which BODY that face belongs to — and that is
+/// the body a feature built from this sketch is almost always aimed at.
+///
+/// Scored across every body rather than matched within one, because the whole
+/// point is to tell the bodies apart; the tolerance is [SketchFaceSel.accepts],
+/// the same one [SketchFaceSel.bestMatch] applies to its own winner.
+///
+/// Null for an origin-plane sketch, for a sketch from before M153, and when
+/// the face is on no body at all. All three mean "no opinion", and a caller
+/// keeps whatever default it had rather than being handed a guess.
+String? bodyOfFaceSketch(PartModel part, ChildSketch cs) {
+  final ref = cs.faceRef;
+  if (ref == null) return null;
+  String? best;
+  var bestScore = double.infinity;
+  for (final name in part.bodyNames) {
+    final sol = currentBodySolid(part, name);
+    if (sol == null) continue;
+    for (final f in planarFaceRecs(sol.mesh)) {
+      final s = ref.score(f);
+      if (s < bestScore) {
+        bestScore = s;
+        best = name;
+      }
+    }
+  }
+  return best != null && ref.accepts(bestScore) ? best : null;
+}
+
 KernelSolid? currentBodySolid(PartModel part, String bodyName) {
   KernelSolid? found;
   for (final f in part.features) {

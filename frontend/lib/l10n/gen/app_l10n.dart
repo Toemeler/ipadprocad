@@ -3403,6 +3403,42 @@ abstract class AppL10n {
   /// **'Zweiten Punkt wählen.'**
   String get wfPickSecondPoint;
 
+  /// No description provided for @wfPlaneDragOrPickSecond.
+  ///
+  /// In de, this message translates to:
+  /// **'Fläche oder Ebene wählen — ziehen ergibt einen Versatz, eine zweite parallele Fläche die Mittelebene.'**
+  String get wfPlaneDragOrPickSecond;
+
+  /// No description provided for @wfPlaneSecondParallelEdgeOrPoint.
+  ///
+  /// In de, this message translates to:
+  /// **'Parallele Fläche für die Mittelebene wählen, Kante zum Abwinkeln oder Eckpunkt für eine parallele Ebene — oder ziehen für einen Versatz.'**
+  String get wfPlaneSecondParallelEdgeOrPoint;
+
+  /// No description provided for @wfPlaneSecondCoplanarOrPoint.
+  ///
+  /// In de, this message translates to:
+  /// **'Zweite komplanare Kante wählen, oder einen Eckpunkt für die Normalebene.'**
+  String get wfPlaneSecondCoplanarOrPoint;
+
+  /// No description provided for @wfPlaneTwoMorePoints.
+  ///
+  /// In de, this message translates to:
+  /// **'Zwei weitere Punkte für die Ebene wählen.'**
+  String get wfPlaneTwoMorePoints;
+
+  /// No description provided for @wfCannotDefinePlane.
+  ///
+  /// In de, this message translates to:
+  /// **'{ref} kann keine Ebene festlegen.'**
+  String wfCannotDefinePlane(String ref);
+
+  /// No description provided for @wfNoPlaneFromTwo.
+  ///
+  /// In de, this message translates to:
+  /// **'{a} und {b} legen keine Ebene fest.'**
+  String wfNoPlaneFromTwo(String a, String b);
+
   /// No description provided for @wfPickThirdPoint.
   ///
   /// In de, this message translates to:

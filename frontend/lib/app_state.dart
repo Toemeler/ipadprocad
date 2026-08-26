@@ -1265,6 +1265,47 @@ class CombineSession {
   bool keepTool = false;
 }
 
+/// M256 — the Output boolean a feature's geometry asks for.
+///
+/// [current] is the boolean in force; [inside] is the fraction of the
+/// feature's own solid that lies INSIDE the body it is aimed at, 0..1.
+/// Returns the boolean to switch to, or null to leave it where it is.
+///
+/// Requested from the device: "es soll immer zuerst hinzufügen ausgewählt
+/// sein. aber wenn ich in die extrusion umkehre soll automatisch auf wegnehmen
+/// geschaltet werden wenn ein Grossteil der extrusion im gleichen teil wäre.
+/// ich will es immer noch umschalten können aber es soll intelligent
+/// funktionieren." Join is still where every feature starts; this is what
+/// notices that the extrusion has been turned around into the body it sits on.
+///
+/// TWO THRESHOLDS, NOT ONE. A single 0.5 would flip back and forth while a
+/// distance is dragged through it, and a control that changes under the finger
+/// twice a second is worse than one that never changes at all. Leaving Join
+/// takes 0.6 and coming back takes 0.4: a dead band that a real gesture —
+/// reversing the direction, or pushing a distance in past the far wall —
+/// crosses once and decisively.
+///
+/// ONLY JOIN AND CUT TAKE PART. Nothing about where the material sits implies
+/// "keep only the overlap" or "start a second body", so Intersect and New
+/// Solid are never suggested and never overruled.
+///
+/// THE CASE IT DELIBERATELY DOES NOT CATCH: a cut typed with a big overshoot.
+/// A hole driven 20 mm into a 5 mm plate is only a quarter buried, and by the
+/// measure asked for — "wenn ein Grossteil der extrusion im gleichen teil
+/// wäre" — a quarter is not a Grossteil. Volume alone cannot tell that tool
+/// from a boss standing off a recessed face, because both read as "mostly
+/// outside"; separating them needs a ray from the sketch plane, which is a
+/// kernel call this deliberately does not make. Through All and a matched
+/// distance — what that hole is usually drawn with — both come out near 1 and
+/// switch. The overshoot stays one tap, which is the tap the user asked to
+/// keep.
+String? suggestedOutput(String current, double inside) {
+  if (!inside.isFinite) return null;
+  if (current == 'join' && inside >= 0.6) return 'cut';
+  if (current == 'cut' && inside <= 0.4) return 'join';
+  return null;
+}
+
 class ExtrudeSession {
   /// 'extrude' | 'revolve' | 'sweep' | 'loft' | 'coil'.
   ///
@@ -1322,6 +1363,29 @@ class ExtrudeSession {
   bool iMate = false, matchShape = true;
   // Inventor Output boolean: 'join' | 'cut' | 'intersect' | 'new'.
   String output = 'join';
+
+  /// M256 — set the moment the user touches the Output control.
+  ///
+  /// See [outputIsTheirs]: the suggestion is a starting point, never an
+  /// argument with the user.
+  bool outputLocked = false;
+
+  /// True while [output] is nobody's business but the user's — they have
+  /// chosen it by hand, or the feature being EDITED already carries one that
+  /// they chose when they made it.
+  ///
+  /// One getter rather than a flag set in five openers: revolve, sweep, loft
+  /// and coil each have their own edit branch, and a rule that has to be
+  /// remembered in each of them is a rule the sixth one will miss.
+  bool get outputIsTheirs => outputLocked || editing != null;
+
+  /// M257 — set the moment the user picks a target body by hand.
+  bool bodyLocked = false;
+
+  /// True while [bodyName] is nobody's business but the user's. Same rule and
+  /// the same reason as [outputIsTheirs]: an existing feature's target is a
+  /// decision already made, and a pick is an argument this code does not have.
+  bool get bodyIsTheirs => bodyLocked || editing != null;
 
   /// M132 — Inventor's Extents. Distance uses [exprA]; the other three
   /// resolve against the body at recompute time.
@@ -7723,7 +7787,8 @@ class AppState extends ChangeNotifier {
   /// created yet — Inventor shows the plane following your finger and only
   /// commits when you let go, so a mis-grab costs nothing.
   void beginWorkPlaneCreate(PlaneFrame base, String label) {
-    if (workPlaneArm != WorkPlaneKind.offset) return;
+    // M258 — Offset, or the generic Plane command, which keeps the same drag.
+    if (workPlaneArm != WorkPlaneKind.offset && !workPlaneAutoArmed) return;
     wpCreateBase = base;
     wpCreateLabel = label;
     wpCreateOffset = 0;
@@ -7749,6 +7814,20 @@ class AppState extends ChangeNotifier {
     wpCreateBase = null;
     if (base == null) return;
     if (d.abs() < 1e-6) {
+      // M258 — under the generic Plane command a press that never moved is a
+      // TAP, and a tap is the first (or second) pick of an inferred method.
+      // Leave the command armed and let the viewport's tap handler turn the
+      // same contact into a WorkRef; cancelling here is what made the plane
+      // tool answer a tap with "drag away to set the offset" and nothing
+      // else, which is the report this milestone came from.
+      //
+      // Order-independent on purpose: the Listener's pointer-up and the
+      // GestureDetector's tap can arrive either way round, and neither
+      // outcome depends on which won.
+      if (workPlaneAutoArmed) {
+        notifyListeners();
+        return;
+      }
       cancelWorkPlane();
       toast(L.current.msgDragAwayToSetOffset);
       return;
@@ -7856,6 +7935,11 @@ class AppState extends ChangeNotifier {
     _wpPicks.clear();
     _wpNames.clear();
     _planesAutoShown = false;
+    // M258 — and the work-feature arming, because the generic Plane command
+    // can reach this through the offset DRAG rather than through
+    // [_commitConstructedWorkPlane]. Without it the command would stay armed
+    // with a stale half-selection after making a plane.
+    _finishWorkFeature(p);
     toast(L.current.msgNameColonDef(wp.name, def));
     Log.i('part', 'work plane "${wp.name}" — $def');
     if (curTab != null) savePart(curTab!);
@@ -8083,6 +8167,14 @@ class AppState extends ChangeNotifier {
   /// PICK path, which is what actually matters, costs nothing.
   WorkPlaneMethod? workPlaneMethodArm;
 
+  /// M258 — the generic Plane command is armed, the one that INFERS its
+  /// method from the picks ([WorkPlaneMethod.auto]).
+  ///
+  /// It is the only work-feature command that also owns a GESTURE: a press and
+  /// drag on a face is an offset plane and never reaches the inference, while
+  /// a tap is a pick that does. Both halves are checked against this.
+  bool get workPlaneAutoArmed => workPlaneMethodArm == WorkPlaneMethod.auto;
+
   /// Picks collected so far for the armed command.
   final List<WorkRef> _wfPicks = [];
 
@@ -8279,6 +8371,12 @@ class AppState extends ChangeNotifier {
   /// the log line and the save are one implementation.
   void _commitConstructedWorkPlane(PartModel p, WorkPlaneSolution s,
       [WorkPlaneMethod? method, List<WorkRef> picks = const []]) {
+    // M258 — under the generic Plane command the METHOD the caller armed is
+    // `auto`, which says nothing about what to file the result under. The
+    // inference reports what it resolved to; read that instead, so an angle
+    // plane reached by tapping a face and an edge keeps its editable number
+    // exactly as one reached from the named flyout entry does.
+    method = s.via ?? method;
     // M229 — an ANGLE plane keeps what it was made from, so the one number it
     // has stays editable. Every other method bakes, and says so: there is
     // nothing to re-type on a plane through three points.
@@ -8539,6 +8637,17 @@ class AppState extends ChangeNotifier {
 
   void _commitAsmWorkPlane(AssemblyModel a, WorkPlaneSolution s,
       WorkPlaneKind? kind, WorkPlaneMethod? method) {
+    // M258 — the part side's rule, for the same reason: the Work Features
+    // flyout is shared with this ribbon (see _assemblyRibbon), so its "Plane"
+    // entry arms the inferring command here too and `auto` says nothing about
+    // what to file the result under. Read what the inference RESOLVED to.
+    //
+    // Storing the resolved method also makes the re-solve steadier than the
+    // pick list it came from: an assembly work plane is parametric and
+    // re-derived on every solve, and a named method cannot change its mind
+    // half way through a drag. The midplane is the one that stays `auto`,
+    // because it has no named method to resolve to.
+    method = s.via ?? method;
     final w = AsmWorkPlane(
       _freeWorkName('Work Plane', {for (final x in a.workPlanes) x.name}),
       a.nextWorkSeq(),
@@ -11212,29 +11321,45 @@ class AppState extends ChangeNotifier {
         ..exprTaper = edit.exprTaper
         ..bodyName = edit.bodyName
         ..iMate = edit.iMate
-        ..matchShape = edit.matchShape;
+        ..matchShape = edit.matchShape
+        // M256 — the feature's OWN Output and Extents.
+        //
+        // Extrude was the one opener that dropped them. Revolve has restored
+        // `output` since M137 and sweep/loft/coil since M131b; here the
+        // session kept its constructed defaults, so re-opening a Cut Through
+        // All came up reading "Join, Distance" and OK turned the cut into a
+        // join 5 mm long. The panel has to show what the feature IS — and
+        // M256's suggestion, which reads `output` to decide whether to move
+        // it, would otherwise have been reasoning about a default nobody
+        // chose.
+        ..output = edit.output
+        ..extent = edit.extent
+        ..extentFace = edit.extentFace;
       for (final x in edit.profiles) {
         s.profiles.add(ProfileSel(x.ax, x.ay, x.area));
       }
     } else {
+      // The sketch the command was started FROM, if there was one: that is the
+      // profile the user is looking at. Only with no sketch open does "the
+      // newest one" remain the best guess.
+      //
+      // M257 — resolved BEFORE the target body, because it is what decides it.
+      final cs = (wasOpen == null ? null : p.sketchByName(wasOpen)) ??
+          p.childSketches.last;
+      s.sketchName = cs.model.name;
       // Inventor: Join merges into an EXISTING body, so default the target to
-      // one — the newest. Handing out a fresh "SolidN+1" here (as before) meant
-      // Join never matched anything and silently behaved like New Solid unless
-      // the user retyped the existing name by hand.
+      // one. Handing out a fresh "SolidN+1" here (as before M101) meant Join
+      // never matched anything and silently behaved like New Solid unless the
+      // user retyped the existing name by hand.
       final bodies = p.bodyNames;
       if (bodies.isEmpty) {
         s.output = 'new'; // nothing to join to yet: this is the base feature
         s.bodyName = 'Solid${p.solidN + 1}';
       } else {
         s.output = 'join';
-        s.bodyName = bodies.last;
+        s.bodyName = bodies.last; // the newest, unless the sketch says better
+        _retargetBodyForSketch(s);
       }
-      // The sketch the command was started FROM, if there was one: that is the
-      // profile the user is looking at. Only with no sketch open does "the
-      // newest one" remain the best guess.
-      final cs = (wasOpen == null ? null : p.sketchByName(wasOpen)) ??
-          p.childSketches.last;
-      s.sketchName = cs.model.name;
       final regs = sessionRegions(cs);
       if (regs.length == 1) {
         final ip = regionAnchor(regs.first);
@@ -11265,6 +11390,11 @@ class AppState extends ChangeNotifier {
     }
     s.autoPicked = false;
     s.sketchName = sketchName;
+    // M257 — the profile decides which sketch this feature belongs to, and the
+    // sketch decides which body. Applying the rule at open and not here would
+    // be the half-intelligence that is worse than none: right until you pick a
+    // profile, then quietly wrong.
+    _retargetBodyForSketch(s);
     // M221 — the region's own anchor, not its outer loop's: for a ring the
     // loop's interior point is the middle of the hole, which is also the disc's
     // anchor, so "is this one already selected?" answered yes for the OTHER
@@ -11350,6 +11480,13 @@ class AppState extends ChangeNotifier {
       // Leaving "To" clears the face: keeping a stale termination face around
       // would silently reapply it if the user came back to To later.
       if (extent != FeatureExtent.toFace) s.extentFace = null;
+    }
+    if (output != null) {
+      // M256 — touching the Output control at all ENDS the automatic one, even
+      // when it names the boolean already in force: tapping Join on a feature
+      // the suggestion has just moved to Cut is the clearest statement of
+      // intent there is, and it must stick.
+      s.outputLocked = true;
     }
     if (output != null && output != s.output) {
       s.output = output;
@@ -11611,6 +11748,102 @@ class AppState extends ChangeNotifier {
     return base != null;
   }
 
+  /// M257 — point the session at the body its sketch was drawn ON.
+  ///
+  /// The target defaulted to the NEWEST body, which is right whenever there is
+  /// one body and a coin flip whenever there are several. The M253 bundle has
+  /// what that costs, twice in one session:
+  ///
+  ///     notice: Zielkörper wählen — in 3D oder im Browser antippen.
+  ///     (preview) body=Solid1 op=cut
+  ///     kernel: cut(a: vol=15557.2693, ...) removed NOTHING
+  ///     (preview) body=Solid3 op=cut
+  ///     extrude: target body picked: Solid3
+  ///
+  /// The sketch was on a face of Solid3 the whole time. Nothing was asking it.
+  ///
+  /// It also makes M256 correct more often, not just faster: a boolean aimed
+  /// at the wrong body reads an overlap against the wrong material, so the
+  /// Output it suggests is an answer to a question nobody asked.
+  void _retargetBodyForSketch(ExtrudeSession s) {
+    // 'new' has no target to be wrong about — it is naming a body, not
+    // choosing one.
+    if (s.bodyIsTheirs || s.output == 'new') return;
+    final p = currentPart;
+    final name = s.sketchName;
+    if (p == null || name == null) return;
+    final cs = p.sketchByName(name);
+    if (cs == null) return;
+    final owner = bodyOfFaceSketch(p, cs);
+    if (owner == null || owner == s.bodyName) return;
+    Log.i(
+        'extrude',
+        '${s.kind}: target body ${s.bodyName} -> $owner, '
+            'the sketch is drawn on its face');
+    s.bodyName = owner;
+  }
+
+  /// Guard: the Output suggestion rebuilds the preview once at the boolean it
+  /// chose, and that rebuild must not suggest again. One switch per change —
+  /// without this, a fake or a kernel whose two booleans disagree could sit
+  /// here flipping Join and Cut forever.
+  bool _outputSwitching = false;
+
+  /// The fraction of [tool] that lies INSIDE [base], read off the boolean that
+  /// has already been run — so the suggestion costs no kernel work at all:
+  ///
+  ///     join:  |a ∪ b| = |a| + |b| − |a ∩ b|   ⇒  |a ∩ b| = |a| + |b| − |a ∪ b|
+  ///     cut:   |a \ b| = |a| − |a ∩ b|         ⇒  |a ∩ b| = |a| − |a \ b|
+  ///
+  /// Doing it any other way means a third boolean per keystroke on a body the
+  /// user is already waiting for; this way the answer is arithmetic on three
+  /// numbers the preview computed anyway.
+  ///
+  /// Null when the numbers cannot answer: a tool with no volume, a boolean
+  /// that produced something whose volume is not a number.
+  static double? _insideFraction(
+      String output, KernelSolid base, KernelSolid tool, KernelSolid combined) {
+    final vb = base.volume, vt = tool.volume, vc = combined.volume;
+    if (!(vt > 1e-9) || !vb.isFinite || !vc.isFinite) return null;
+    final double overlap;
+    if (output == 'join') {
+      overlap = vb + vt - vc;
+    } else if (output == 'cut') {
+      overlap = vb - vc;
+    } else {
+      return null; // intersect and new take no part — see suggestedOutput
+    }
+    final frac = overlap / vt;
+    if (!frac.isFinite) return null;
+    // Clamped by hand rather than through num.clamp, whose static type is num
+    // and not double. A boolean that came back a hair heavier than its inputs
+    // is rounding, not a reading worth acting on the far side of.
+    if (frac < 0.0) return 0.0;
+    if (frac > 1.0) return 1.0;
+    return frac;
+  }
+
+  /// [suggestedOutput] against the live session, or null to leave it alone.
+  ///
+  /// A switch is LOGGED, with the reading behind it. This is a control moving
+  /// on its own, and the next report that says "it went to Cut and I did not
+  /// want it" has to be answerable from the bundle rather than by guessing at
+  /// a fraction nobody can see.
+  String? _suggestOutputFor(ExtrudeSession s, KernelSolid base,
+      KernelSolid tool, KernelSolid combined) {
+    if (s.outputIsTheirs || _outputSwitching) return null;
+    final inside = _insideFraction(s.output, base, tool, combined);
+    if (inside == null) return null;
+    final want = suggestedOutput(s.output, inside);
+    if (want != null) {
+      Log.i(
+          'extrude',
+          '${s.kind}: output ${s.output} -> $want, '
+              '${(inside * 100).round()}% of the tool lies inside the body');
+    }
+    return want;
+  }
+
   void _updateExtrudePreview() {
     final s = extrudeSession;
     final p = currentPart;
@@ -11644,6 +11877,22 @@ class AppState extends ChangeNotifier {
     if (s.output != 'new' && base != null && f.solid != null) {
       final combined = combineSolids(partKernel, s.output, base, f.solid!);
       if (combined != null) {
+        // M256 — let the geometry choose between Join and Cut, unless the
+        // user already has. The switch rebuilds the preview ONCE at the new
+        // boolean, because the picture has to be the answer, not the question.
+        final want = _suggestOutputFor(s, base, f.solid!, combined);
+        if (want != null) {
+          s.output = want;
+          f.disposeSolid();
+          combined.dispose();
+          _outputSwitching = true;
+          try {
+            _updateExtrudePreview();
+          } finally {
+            _outputSwitching = false;
+          }
+          return;
+        }
         f.disposeSolid(); // drop the throwaway prism
         s.preview = combined;
         s.previewReplacesBody = bodyName;
@@ -11902,6 +12151,12 @@ class AppState extends ChangeNotifier {
       cancelPickBody();
     } else if (extrudeSession != null) {
       cancelExtrude(); // notifies for itself now (M210)
+    } else if (pickWorkGeometry) {
+      // M258 — Esc had no branch for the work-feature commands at all, so an
+      // armed Axis, Point or (now) Plane could only be put down by tapping
+      // its ribbon entry again. Ahead of [pickPlane] because the two are
+      // never both set and this one is the newer arming.
+      cancelWorkFeature();
     } else if (pickPlane) {
       cancelPlanePick();
     } else if (selectedBody != null) {
@@ -13879,6 +14134,9 @@ class AppState extends ChangeNotifier {
     pickingBody = false;
     hoverBody = null;
     _hoverBodyRestore = null; // this pick IS the new target
+    // M257 — and it ENDS the automatic one. Same rule as M256's Output lock:
+    // the suggestion is where you start, never an argument with the user.
+    s.bodyLocked = true;
     if (s.output == 'new') s.output = 'join';
     s.bodyName = name;
     Log.i('extrude', 'target body picked: $name');
