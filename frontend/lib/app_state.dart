@@ -7787,7 +7787,8 @@ class AppState extends ChangeNotifier {
   /// created yet — Inventor shows the plane following your finger and only
   /// commits when you let go, so a mis-grab costs nothing.
   void beginWorkPlaneCreate(PlaneFrame base, String label) {
-    if (workPlaneArm != WorkPlaneKind.offset) return;
+    // M258 — Offset, or the generic Plane command, which keeps the same drag.
+    if (workPlaneArm != WorkPlaneKind.offset && !workPlaneAutoArmed) return;
     wpCreateBase = base;
     wpCreateLabel = label;
     wpCreateOffset = 0;
@@ -7813,6 +7814,20 @@ class AppState extends ChangeNotifier {
     wpCreateBase = null;
     if (base == null) return;
     if (d.abs() < 1e-6) {
+      // M258 — under the generic Plane command a press that never moved is a
+      // TAP, and a tap is the first (or second) pick of an inferred method.
+      // Leave the command armed and let the viewport's tap handler turn the
+      // same contact into a WorkRef; cancelling here is what made the plane
+      // tool answer a tap with "drag away to set the offset" and nothing
+      // else, which is the report this milestone came from.
+      //
+      // Order-independent on purpose: the Listener's pointer-up and the
+      // GestureDetector's tap can arrive either way round, and neither
+      // outcome depends on which won.
+      if (workPlaneAutoArmed) {
+        notifyListeners();
+        return;
+      }
       cancelWorkPlane();
       toast(L.current.msgDragAwayToSetOffset);
       return;
@@ -7920,6 +7935,11 @@ class AppState extends ChangeNotifier {
     _wpPicks.clear();
     _wpNames.clear();
     _planesAutoShown = false;
+    // M258 — and the work-feature arming, because the generic Plane command
+    // can reach this through the offset DRAG rather than through
+    // [_commitConstructedWorkPlane]. Without it the command would stay armed
+    // with a stale half-selection after making a plane.
+    _finishWorkFeature(p);
     toast(L.current.msgNameColonDef(wp.name, def));
     Log.i('part', 'work plane "${wp.name}" — $def');
     if (curTab != null) savePart(curTab!);
@@ -8147,6 +8167,14 @@ class AppState extends ChangeNotifier {
   /// PICK path, which is what actually matters, costs nothing.
   WorkPlaneMethod? workPlaneMethodArm;
 
+  /// M258 — the generic Plane command is armed, the one that INFERS its
+  /// method from the picks ([WorkPlaneMethod.auto]).
+  ///
+  /// It is the only work-feature command that also owns a GESTURE: a press and
+  /// drag on a face is an offset plane and never reaches the inference, while
+  /// a tap is a pick that does. Both halves are checked against this.
+  bool get workPlaneAutoArmed => workPlaneMethodArm == WorkPlaneMethod.auto;
+
   /// Picks collected so far for the armed command.
   final List<WorkRef> _wfPicks = [];
 
@@ -8343,6 +8371,12 @@ class AppState extends ChangeNotifier {
   /// the log line and the save are one implementation.
   void _commitConstructedWorkPlane(PartModel p, WorkPlaneSolution s,
       [WorkPlaneMethod? method, List<WorkRef> picks = const []]) {
+    // M258 — under the generic Plane command the METHOD the caller armed is
+    // `auto`, which says nothing about what to file the result under. The
+    // inference reports what it resolved to; read that instead, so an angle
+    // plane reached by tapping a face and an edge keeps its editable number
+    // exactly as one reached from the named flyout entry does.
+    method = s.via ?? method;
     // M229 — an ANGLE plane keeps what it was made from, so the one number it
     // has stays editable. Every other method bakes, and says so: there is
     // nothing to re-type on a plane through three points.
@@ -8603,6 +8637,17 @@ class AppState extends ChangeNotifier {
 
   void _commitAsmWorkPlane(AssemblyModel a, WorkPlaneSolution s,
       WorkPlaneKind? kind, WorkPlaneMethod? method) {
+    // M258 — the part side's rule, for the same reason: the Work Features
+    // flyout is shared with this ribbon (see _assemblyRibbon), so its "Plane"
+    // entry arms the inferring command here too and `auto` says nothing about
+    // what to file the result under. Read what the inference RESOLVED to.
+    //
+    // Storing the resolved method also makes the re-solve steadier than the
+    // pick list it came from: an assembly work plane is parametric and
+    // re-derived on every solve, and a named method cannot change its mind
+    // half way through a drag. The midplane is the one that stays `auto`,
+    // because it has no named method to resolve to.
+    method = s.via ?? method;
     final w = AsmWorkPlane(
       _freeWorkName('Work Plane', {for (final x in a.workPlanes) x.name}),
       a.nextWorkSeq(),
@@ -12106,6 +12151,12 @@ class AppState extends ChangeNotifier {
       cancelPickBody();
     } else if (extrudeSession != null) {
       cancelExtrude(); // notifies for itself now (M210)
+    } else if (pickWorkGeometry) {
+      // M258 — Esc had no branch for the work-feature commands at all, so an
+      // armed Axis, Point or (now) Plane could only be put down by tapping
+      // its ribbon entry again. Ahead of [pickPlane] because the two are
+      // never both set and this one is the newer arming.
+      cancelWorkFeature();
     } else if (pickPlane) {
       cancelPlanePick();
     } else if (selectedBody != null) {

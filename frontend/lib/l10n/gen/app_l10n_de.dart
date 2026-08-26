@@ -2076,6 +2076,32 @@ class AppL10nDe extends AppL10n {
   String get wfPickSecondPoint => 'Zweiten Punkt wählen.';
 
   @override
+  String get wfPlaneDragOrPickSecond =>
+      'Fläche oder Ebene wählen — ziehen ergibt einen Versatz, eine zweite parallele Fläche die Mittelebene.';
+
+  @override
+  String get wfPlaneSecondParallelEdgeOrPoint =>
+      'Parallele Fläche für die Mittelebene wählen, Kante zum Abwinkeln oder Eckpunkt für eine parallele Ebene — oder ziehen für einen Versatz.';
+
+  @override
+  String get wfPlaneSecondCoplanarOrPoint =>
+      'Zweite komplanare Kante wählen, oder einen Eckpunkt für die Normalebene.';
+
+  @override
+  String get wfPlaneTwoMorePoints =>
+      'Zwei weitere Punkte für die Ebene wählen.';
+
+  @override
+  String wfCannotDefinePlane(String ref) {
+    return '$ref kann keine Ebene festlegen.';
+  }
+
+  @override
+  String wfNoPlaneFromTwo(String a, String b) {
+    return '$a und $b legen keine Ebene fest.';
+  }
+
+  @override
   String get wfPickThirdPoint => 'Dritten Punkt wählen.';
 
   @override

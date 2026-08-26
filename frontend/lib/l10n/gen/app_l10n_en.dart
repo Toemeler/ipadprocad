@@ -2042,6 +2042,31 @@ class AppL10nEn extends AppL10n {
   String get wfPickSecondPoint => 'Select the second point.';
 
   @override
+  String get wfPlaneDragOrPickSecond =>
+      'Select a face or plane — drag it for an offset, or pick a second parallel face for the midplane.';
+
+  @override
+  String get wfPlaneSecondParallelEdgeOrPoint =>
+      'Select a parallel face for the midplane, an edge to angle around, or a vertex for a parallel plane — or drag for an offset.';
+
+  @override
+  String get wfPlaneSecondCoplanarOrPoint =>
+      'Select a second coplanar edge, or a vertex for the normal plane.';
+
+  @override
+  String get wfPlaneTwoMorePoints => 'Select two more points for the plane.';
+
+  @override
+  String wfCannotDefinePlane(String ref) {
+    return '$ref cannot define a plane.';
+  }
+
+  @override
+  String wfNoPlaneFromTwo(String a, String b) {
+    return '$a and $b do not define a plane.';
+  }
+
+  @override
   String get wfPickThirdPoint => 'Select the third point.';
 
   @override

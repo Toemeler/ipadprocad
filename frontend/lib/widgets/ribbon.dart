@@ -267,10 +267,17 @@ class _RibbonState extends State<Ribbon> {
               switch (it.icon) {
                 // M157 — the generic "Plane" is Inventor's most-used entry and
                 // fell through to nothing, as did a tap on the button BODY
-                // (onDefault was an empty closure). Both now start the offset
-                // flow, which is the plane you get in Inventor by picking one
-                // face — the overwhelmingly common case.
+                // (onDefault was an empty closure).
+                //
+                // M258 — and it is no longer Offset in disguise. Offset is one
+                // of the things the generic entry can produce, not the only
+                // one: it now arms the INFERRING command, which reads a drag
+                // as an offset and a second parallel face as the midplane,
+                // the way Inventor's Plane button does. `offset` keeps the
+                // narrow command for anyone who wants exactly that.
                 case 'plane':
+                  widget.app.startWorkPlaneMethod(WorkPlaneMethod.auto);
+                  break;
                 case 'offset':
                   widget.app.startWorkPlane(WorkPlaneKind.offset);
                   break;
@@ -919,8 +926,14 @@ class _RibbonState extends State<Ribbon> {
                 onFly: toggleFly,
                 // M157 — was an empty closure, so tapping the button did
                 // nothing at all and the tool looked broken.
+                //
+                // M258 — and it runs the LEGACY method now, which is what the
+                // Axis and Point buttons beside it have done since M215: pick
+                // geometry and it works out what you meant. The flyout keeps
+                // the named entries for the picks that are genuinely
+                // ambiguous.
                 onDefault: () =>
-                    widget.app.startWorkPlane(WorkPlaneKind.offset)),
+                    widget.app.startWorkPlaneMethod(WorkPlaneMethod.auto)),
             col([
               // M215 — the two that are built. Tapping the row runs the
               // LEGACY method (Inventor's plain "Axis" / "Point"), which is

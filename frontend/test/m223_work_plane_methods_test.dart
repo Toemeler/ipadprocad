@@ -221,7 +221,11 @@ void main() {
     test('every method has Inventor’s own label and a sane arity', () {
       for (final m in WorkPlaneMethod.values) {
         expect(workPlaneMethodLabel(m), isNotEmpty);
-        expect(workPlaneArity(m), inInclusiveRange(1, 3));
+        // M258 — [WorkPlaneMethod.auto] is scored 0 deliberately: the legacy
+        // entry has no fixed number of picks, it commits when they determine
+        // an answer. Same rule as workAxisArity/workPointArity.
+        expect(workPlaneArity(m),
+            m == WorkPlaneMethod.auto ? 0 : inInclusiveRange(1, 3));
         expect(workPlanePrompt(m, 0), isNotEmpty);
       }
       expect(workPlaneMethodLabel(WorkPlaneMethod.threePoints), 'Three Points');

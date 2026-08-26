@@ -286,17 +286,30 @@ void _curveTests() {
     });
 
     test('every one of the thirteen flyout entries now leads somewhere', () {
-      // The Plane flyout has thirteen entries. TEN of them are these methods;
-      // the other three are "Plane" and "Offset from Plane" (both the offset
-      // flow, M151/M157) and "Midplane between Two Planes" — those two keep
-      // their own flow because they are not pick-only: one is a drag with a
-      // live distance and an editable base, the other collects PlaneFrames.
-      expect(WorkPlaneMethod.values.length, 10,
+      // The Plane flyout has thirteen entries. TEN of them are the pick-only
+      // methods; the other three are "Plane", "Offset from Plane" and
+      // "Midplane between Two Planes". Offset and Midplane keep their own flow
+      // because they are not pick-only: one is a drag with a live distance and
+      // an editable base, the other collects PlaneFrames.
+      //
+      // M258 — and "Plane" became a method of its own, the LEGACY entry that
+      // infers which of the others the picks mean. So eleven values, ten of
+      // which are the named methods.
+      expect(WorkPlaneMethod.values.length, 11,
           reason: 'offset and midplane are WorkPlaneKind, not a method');
+      expect(
+          WorkPlaneMethod.values
+              .where((m) => m != WorkPlaneMethod.auto)
+              .length,
+          10);
       for (final m in WorkPlaneMethod.values) {
         expect(workPlaneMethodLabel(m), isNotEmpty);
         expect(workPlanePrompt(m, 0), isNotEmpty);
-        expect(workPlaneArity(m), inInclusiveRange(1, 3));
+        // The legacy entry has NO fixed arity — it commits as soon as the
+        // picks determine an answer, exactly as the auto axis and auto point
+        // do, so it is the one value scored 0 on purpose.
+        expect(workPlaneArity(m),
+            m == WorkPlaneMethod.auto ? 0 : inInclusiveRange(1, 3));
       }
     });
 

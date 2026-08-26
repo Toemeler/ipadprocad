@@ -148,6 +148,9 @@ class _Viewport3DState extends State<Viewport3D>
     }
     if (k == LogicalKeyboardKey.escape) {
       if (widget.app.pickPlane ||
+          // M258 — ...and an armed work-feature command, which Esc could not
+          // reach either. escape3D knows what to do with it.
+          widget.app.pickWorkGeometry ||
           widget.app.extrudeSession != null ||
           widget.app.edgeSession != null ||
           // M212 — Esc must reach the pattern panel too: it is a 3D command
@@ -540,7 +543,14 @@ class _Viewport3DState extends State<Viewport3D>
               // a face starts DRAGGING a new one off it. Nothing is created
               // until you let go, so a mis-grab costs nothing, and the offset
               // is set by the gesture instead of defaulting to 10 mm.
-              if (app.workPlaneArm == WorkPlaneKind.offset) {
+              //
+              // M258 — and the GENERIC Plane command keeps that gesture. It
+              // is the half of the command that a drag means; a tap falls
+              // through to _tap, where it becomes a pick for the inference
+              // (see AppState.commitWorkPlaneCreate, which no longer cancels
+              // on a press that never moved).
+              if (app.workPlaneArm == WorkPlaneKind.offset ||
+                  app.workPlaneAutoArmed) {
                 final (base, label) = _planeOrFaceAt(cam, e.localPosition, p);
                 if (base != null) {
                   _wpNewBase = base;
@@ -1177,7 +1187,16 @@ class _Viewport3DState extends State<Viewport3D>
           hit?.$1, (hit != null && hit.$2.usable) ? hit.$2.displayEdge : -1);
     }
     (KernelSolid, int)? hf;
-    if (app.pickPlane && region == null) {
+    // M258 — while a WORK-FEATURE command is collecting as well, not just the
+    // Offset/Midplane flow. The generic Plane button used to arm Offset, which
+    // set [AppState.pickPlane] and lit the face under the pointer; now it arms
+    // the inferring command, and a pick command that does not show you what
+    // you are about to pick is the same tool with the lights off.
+    //
+    // Planar faces only, which is what _pickSolidFace answers by default: it
+    // is the right set for a plane, and the one pick it misses (a torus) is
+    // still perfectly pickable, just not pre-lit.
+    if ((app.pickPlane || app.pickWorkGeometry) && region == null) {
       final pick = _pickSolidFace(cam, px);
       if (pick != null && pick.$2 >= 0) {
         final planeD = hit == null
@@ -2084,7 +2103,17 @@ class _Viewport3DState extends State<Viewport3D>
     }
     // A hovered sketch curve is selectable in plain 3D. Shift/ctrl extends the
     // set, a plain tap replaces it, a tap on empty space clears it.
-    if (!app.pickPlane && app.extrudeSession == null) {
+    //
+    // M258 — but NOT while a work-feature command is collecting. This branch
+    // returns when it takes a curve, so it was swallowing the tap before the
+    // work-feature pick below could see it, and a sketch LINE is a perfectly
+    // good axis for a plane to be normal to (it is exactly what
+    // [WorkRef.line] is for). The guard reads `pickPlane` because the Offset
+    // and Midplane flows set that; the legacy Axis, Point and Plane commands
+    // set [AppState.pickWorkGeometry] instead and were never covered.
+    if (!app.pickPlane &&
+        !app.pickWorkGeometry &&
+        app.extrudeSession == null) {
       final sk = _pickSketchCurve(cam, px);
       if (sk != null) {
         setState(() {

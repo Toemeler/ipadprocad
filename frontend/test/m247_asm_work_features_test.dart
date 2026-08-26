@@ -21,6 +21,7 @@
 //     document is open, and every one of Inventor's methods is reachable.
 //   * THE DOCUMENT. Saved, read back, and cleaned up when a component goes.
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' show Size;
 
@@ -436,6 +437,40 @@ void main() {
       final live = worldGeomOf(a, pick.ref);
       expect(live.at.z, closeTo(w.frame.origin.z, 1e-6));
       expect(live.at.z, closeTo(80, 1e-6));
+    });
+
+    test('M258 — the shared flyout arms the INFERRING Plane here too', () {
+      // The Work Features flyout is the part ribbon's, reused (see
+      // _assemblyRibbon), so its generic "Plane" entry reaches an assembly.
+      // Two taps on the box's two Z faces are the midplane, exactly as they
+      // are in a part — the geometry is one implementation, delegated to.
+      final o = occ('Bracket:1', Vec3.zero);
+      final app = asmApp('ipc_m258_asm_auto', [o]);
+      final a = app.currentAssembly!;
+      final cam = frontCam();
+      app.startWorkPlaneMethod(WorkPlaneMethod.auto);
+      expect(app.asmPickWorkGeometry, isTrue);
+
+      // The +Z face, then the -Z face from behind. The box is +/-10 mm, so
+      // the answer is z = 0 whatever the kernel's own reference points were.
+      tapAt(app, a, cam, Vec3.zero);
+      expect(a.workPlanes, isEmpty, reason: 'one face is not a plane yet');
+      final back = Cam3(
+          PartCamera(az: math.pi, pol: 1.5707963267948966, halfH: 60),
+          const Size(800, 600));
+      tapAt(app, a, back, Vec3.zero);
+
+      expect(a.workPlanes, hasLength(1));
+      final w = a.workPlanes.single;
+      expect(w.frame.origin.z, closeTo(0, 1e-6));
+      expect(w.frame.n.cross(const Vec3(0, 0, 1)).length, lessThan(1e-9));
+      expect(w.def, contains('Midplane between'));
+      // And it is PARAMETRIC, which is what an assembly work plane is for:
+      // move the component and the midplane follows.
+      o.offset = const Vec3(0, 0, 30);
+      resolveAsmWorkFeatures(a);
+      expect(w.error, isNull);
+      expect(w.frame.origin.z, closeTo(30, 1e-6));
     });
 
     test('a hidden one is not offered — only what is drawn can be picked', () {
