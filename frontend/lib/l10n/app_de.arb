@@ -805,6 +805,9 @@
   },
   "msgMeshUnreadable": "Diese Datei ließ sich nicht lesen.",
   "msgMeshConvertTitle": "Netz wird umgewandelt",
+  "@msgMeshConvertTitle": {
+    "description": "Titel der nativen Fortschrittskarte, waehrend ein Netz umgewandelt wird."
+  },
   "@msgMeshUnreadable": {
     "description": "Rechte, ein nicht geladener iCloud-Platzhalter. Der OS-Grund geht ins Log, nicht in die Meldung."
   },
