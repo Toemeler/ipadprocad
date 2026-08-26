@@ -111,7 +111,21 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
 
     /// One toggle, one curve. Dart's settle timer waits on this, so the two
     /// numbers have to agree — see `_kMorph` in native_browser_host.dart.
+    ///
+    /// M263 — and it is an EASE, not a spring. The first cut of this used
+    /// `usingSpringWithDamping: 0.9` on the panel's width, which overshoots by
+    /// a couple of percent: retracting, the glass edge dipped past the glyph
+    /// column and came back. On a bouncing button that reads as life; on the
+    /// straight edge of a panel it reads as a mis-set constraint. Apple's
+    /// guidance for this is "quick, precise animations that combine brevity
+    /// and precision" — a spring is for something you are dragging, and a
+    /// chevron tap is not direct manipulation.
     static let morph: TimeInterval = 0.28
+
+    /// Every animation in the morph runs on these, so the panel moves as one
+    /// object rather than as three properties that happen to start together.
+    static let morphCurve: UIView.AnimationOptions =
+        [.curveEaseInOut, .beginFromCurrentState, .allowUserInteraction]
 
     /// The card's width, ABSOLUTE, and told to us rather than taken from the
     /// container.
@@ -254,10 +268,24 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
             ev.isHidden = !on
             return
         }
+        // M263 — THE PLATE MORPHS, IT DOES NOT DISSOLVE.
+        //
+        // "The glass does not just fade — it physically morphs from one shape
+        // to another, MAINTAINING THE TRANSLUCENT MATERIAL throughout the
+        // animation." The first cut faded alpha over the same 280 ms the plate
+        // was contracting in, so the material was three-quarters gone before
+        // the shape had arrived: what you saw was a panel evaporating, not one
+        // changing shape.
+        //
+        // The fade is pushed to the ends instead, and the shape change owns
+        // the middle. Retracting, the plate contracts at full strength and
+        // only lets go once it has reached the glyph column (M199 — retracted,
+        // there is no plate). Opening, it arrives first and grows with the
+        // panel, so the material is under the rows the whole way out.
+        let d = GlassBrowserView.morph
         UIView.animate(
-            withDuration: GlassBrowserView.morph, delay: 0,
-            options: [.beginFromCurrentState, .curveEaseInOut,
-                      .allowUserInteraction],
+            withDuration: d * 0.45, delay: on ? 0 : d * 0.55,
+            options: GlassBrowserView.morphCurve,
             animations: { ev.alpha = on ? 1 : 0 },
             completion: { _ in
                 // Only if nothing has changed its mind in the meantime: a
@@ -285,8 +313,7 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
         guard !first else { return container.layoutIfNeeded() }
         UIView.animate(
             withDuration: GlassBrowserView.morph, delay: 0,
-            usingSpringWithDamping: 0.9, initialSpringVelocity: 0,
-            options: [.beginFromCurrentState, .allowUserInteraction],
+            options: GlassBrowserView.morphCurve,
             animations: { self.container.layoutIfNeeded() })
     }
 
@@ -535,7 +562,27 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
                 accessories.append(.customView(configuration: .init(
                     customView: b, placement: .trailing(displayed: .always))))
             }
-            cell.accessories = accessories
+            // M264 — THE BOXES FLEW UP ON EVERY TAB SWITCH.
+            //
+            // "the boxes of the elements seem to fly up every time i switch
+            // tab". The boxes are these: the +/- accessory M129 puts at the
+            // leading edge, and the eye at the trailing one.
+            //
+            // UICollectionViewListCell ANIMATES an accessory change on a cell
+            // that is already configured, and a reloaded list does not hand
+            // out fresh cells — it hands out cells from the reuse pool, still
+            // carrying the last document's accessories. So switching tabs is
+            // an accessory swap on a live cell, which UIKit obligingly
+            // animates in from nothing, one per row. It has been doing that
+            // since M129; it takes a second document to notice.
+            //
+            // The content configuration above is deliberately NOT wrapped:
+            // during a retract (M263) that IS the animation — the glyph moving
+            // from its indentation to the column. Only the accessories are
+            // silenced, and they are the right thing to silence, because they
+            // exist in one state and not the other and have nowhere to move
+            // from.
+            UIView.performWithoutAnimation { cell.accessories = accessories }
         }
 
         dataSource = UICollectionViewDiffableDataSource<Int, String>(
@@ -618,53 +665,58 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
             sawRows = true
         }
 
-        let reload = {
-            self.rows = list
-            self.byId = Dictionary(uniqueKeysWithValues: list.map { ($0.id, $0) })
+        // M263 — the rows are the SAME ROWS, so they have to stay the same
+        // rows. See morphRows below.
+        let sameItems = rows.map(\.id) == list.map(\.id)
+        self.rows = list
+        byId = Dictionary(uniqueKeysWithValues: list.map { ($0.id, $0) })
+
+        if morphing && sameItems {
+            morphRows()
+        } else {
             var snap = NSDiffableDataSourceSnapshot<Int, String>()
             snap.appendSections([0])
             snap.appendItems(list.map(\.id))
-            self.dataSource.applySnapshotUsingReloadData(snap)
+            dataSource.applySnapshotUsingReloadData(snap)
         }
-        if morphing { morphRows(reload) } else { reload() }
         pushMetrics()
     }
 
-    /// Cross-fades the old rows into the new ones while the list contracts.
+    /// M263 — RECONFIGURE, DO NOT RELOAD.
     ///
-    /// A snapshot VIEW rather than `UIView.transition(with:)`: the transition
-    /// form re-snapshots after the animation block and a diffable reload has
-    /// not necessarily laid its cells out by then, so what it captures is a
-    /// half-built list. Lifting the old pixels off first is deterministic —
-    /// they are already on screen — and it leaves the live collection
-    /// untouched underneath, which matters because M204's whole complaint was
-    /// a panel you could see but not press.
+    /// The first cut of the morph lifted the old rows off as a snapshot view
+    /// and cross-faded them against the new ones. That is a dissolve, and a
+    /// dissolve is the opposite of a morph: for 280 ms there were TWO copies
+    /// of every glyph on screen, at two different x, both half-transparent,
+    /// sliding apart. Which is exactly what "looks weird" looks like.
     ///
-    /// The live view's alpha animates from 0, but its MODEL alpha is 1 for the
-    /// whole animation, and hit testing reads the model value. The rows are
-    /// pressable from the first frame of the morph.
-    private func morphRows(_ reload: () -> Void) {
-        let ghost = collection.snapshotView(afterScreenUpdates: false)
-        if let ghost {
-            ghost.frame = collection.frame
-            ghost.isUserInteractionEnabled = false
-            container.addSubview(ghost)
-        }
-        reload()
-        collection.alpha = 0
-        // Outgoing rows travel the way the panel is going: in toward the glyph
-        // column on the way closed, out of it on the way open.
-        let dx: CGFloat = retracted ? -14 : 14
-        UIView.animate(
-            withDuration: GlassBrowserView.morph, delay: 0,
-            usingSpringWithDamping: 0.9, initialSpringVelocity: 0,
-            options: [.beginFromCurrentState, .allowUserInteraction],
-            animations: {
-                self.collection.alpha = 1
-                ghost?.alpha = 0
-                ghost?.transform = CGAffineTransform(translationX: dx, y: 0)
-            },
-            completion: { _ in ghost?.removeFromSuperview() })
+    /// The mistake was reaching for a transition at all. Retracting does not
+    /// replace the tree, it restates it — same rows, same ids, same glyphs,
+    /// minus the labels and the indentation. A morph is continuity of
+    /// identity: the thing that exists in both states MOVES, and only what is
+    /// unique to one state fades. Here that means one glyph per row travelling
+    /// from its indented position to the column, and nothing else.
+    ///
+    /// `reconfigureItems` is what buys that. It re-runs the cell registration
+    /// against the EXISTING cell rather than dequeuing a new one — "choose to
+    /// reconfigure items instead of reloading items unless you have an
+    /// explicit need to replace the existing cell" — so the views that draw
+    /// the row are the same objects before and after. Whatever else happens,
+    /// there is only ever one copy of each glyph on screen, which is the fault
+    /// being fixed.
+    ///
+    /// `animatingDifferences: true`, and NOT wrapped in a `UIView.animate`
+    /// block: passing false makes the data source apply the update inside
+    /// `performWithoutAnimation`, which would cancel the very block it was
+    /// nested in. UIKit's own batch update is the animation here.
+    ///
+    /// Only when the row SET is unchanged. A morph that coincides with a
+    /// feature being added has rows to insert, and an insertion animation has
+    /// nothing to gain from this one.
+    private func morphRows() {
+        var snap = dataSource.snapshot()
+        snap.reconfigureItems(snap.itemIdentifiers)
+        dataSource.apply(snap, animatingDifferences: true)
     }
 
     /// M244 — where the rows actually are, so the retract handle can stand

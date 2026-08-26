@@ -18,8 +18,12 @@
 // ones a refactor can quietly invert: the "+" menu must no longer carry the
 // two preferences, and a language switch must relabel the SHEET rather than
 // only the app behind it.
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:native_menu/native_menu.dart';
+import 'package:prototype/app_state.dart';
 import 'package:prototype/l10n/l.dart';
 import 'package:prototype/settings.dart';
 import 'package:prototype/theme.dart';
@@ -268,6 +272,42 @@ void main() {
       // reason for the language list to reorder itself.
       expect(_sec(after, kSecLanguage).rows.map((r) => r.id).toList(),
           _sec(before, kSecLanguage).rows.map((r) => r.id).toList());
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  group('M266 — the header buttons are the app\'s own chrome', () {
+    testWidgets('both are drawn by the SAME thing the quick-tool bar is',
+        (tester) async {
+      // "the settings and the plus button dont seem truly ios native. they
+      // seem like flutter." They were: a Flutter Container with a
+      // BoxDecoration circle and a MATERIAL glyph, on a front page whose
+      // ribbon, browser, tab bar and tool bar are all native glass.
+      //
+      // This runs OFF iOS, so what it can pin is the SWITCH rather than the
+      // glass: the header asks GlassToolBar.isSupported exactly as
+      // quick_tools does, and falls back to the Material circle only because
+      // this host has no UIKit. If the native branch is ever deleted, the
+      // widget under the anchor stops being a GlassToolBar on the device and
+      // this stays green — so the assertion below is on the FALLBACK being
+      // reachable, and the native branch is pinned by the source itself.
+      expect(GlassToolBar.isSupported, isFalse,
+          reason: 'the host has no UIKit, so the fallback is what renders');
+
+      final app = AppState()
+        ..docsDirForTest = Directory.systemTemp.createTempSync('ipc_m266_');
+      await tester.pumpWidget(MaterialApp(
+        localizationsDelegates: AppL10n.localizationsDelegates,
+        supportedLocales: AppL10n.supportedLocales,
+        locale: kDe,
+        home: Material(child: HomeView(app: app)),
+      ));
+      await tester.pumpAndSettle();
+
+      // Two round buttons in the header, and they are the two commands —
+      // not a preference hiding in a create menu.
+      expect(find.byIcon(Icons.settings_outlined), findsOneWidget);
+      expect(find.byIcon(Icons.add), findsOneWidget);
     });
   });
 }

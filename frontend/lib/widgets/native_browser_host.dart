@@ -200,13 +200,12 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
       _publishWidth();
     });
     _morphTimer?.cancel();
-    // Clear of the curve, not merely past it. The panel's width animates on a
-    // SPRING (damping 0.9), and a spring's stated duration is when it is
-    // essentially there, not when it has stopped — there is a small tail after
-    // it. The resize has to land on a still panel, so the margin covers the
-    // tail rather than the nominal end. 120 ms of the card standing wider than
-    // it needs to costs nothing; a resize landing on a moving panel is M204.
-    _morphTimer = Timer(_kMorph + const Duration(milliseconds: 120), () {
+    // Clear of the curve. M263 took the spring off the panel's width — a
+    // spring's stated duration is when it is essentially there rather than
+    // when it has stopped, and the margin had to cover that tail. An ease
+    // lands exactly on time, so 60 ms is enough, and the card stops standing
+    // wider than it needs to for a fifth of a second after it has arrived.
+    _morphTimer = Timer(_kMorph + const Duration(milliseconds: 60), () {
       if (!mounted) return;
       setState(() {
         _morphing = false;
