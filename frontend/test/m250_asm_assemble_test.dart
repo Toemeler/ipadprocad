@@ -598,6 +598,57 @@ void main() {
   });
 
   // -------------------------------------------------------------------------
+  //
+  // M249 landed beside this milestone and added three more armed commands to
+  // the Assemble tab. Six of them now wait for a tap in the same viewport, and
+  // there is no central registry of them — each disarms its siblings at its own
+  // entry point. That is the arrangement this group exists to hold: it is
+  // exactly the kind of thing two parallel milestones each get right on their
+  // own side and neither on the other's.
+  group('one armed assembly command at a time', () {
+    AppState armed(String tag) =>
+        asmApp(tag, [occ('Base:1', Vec3.zero), occ('Lid:1', const Vec3(0, 0, 20))]);
+
+    test('Show disarms Free Move and Create Component', () {
+      final app = armed('ipc_m250_x_show');
+      app.startFreeMove();
+      app.showRelationships();
+      expect(app.asmPositionMode, isNull);
+
+      app.openCreateComponent();
+      app.showRelationships();
+      expect(app.createComponentSession, isNull);
+    });
+
+    test('Place Joint disarms them too', () {
+      final app = armed('ipc_m250_x_joint');
+      app.startFreeRotate();
+      app.openJoint();
+      expect(app.asmPositionMode, isNull);
+      expect(app.constraintSession, isNotNull);
+    });
+
+    test('Free Move disarms an armed Show', () {
+      final app = armed('ipc_m250_x_free');
+      app.currentAssembly!.selected = null;
+      app.showRelationships();
+      expect(app.showRelationshipsPicking, isTrue);
+      app.startFreeMove();
+      expect(app.showRelationshipsPicking, isFalse,
+          reason: 'two commands waiting for one tap is a coin toss');
+    });
+
+    test('Create Component disarms an armed Show', () {
+      final app = armed('ipc_m250_x_create');
+      app.currentAssembly!.selected = null;
+      app.showRelationships();
+      app.openCreateComponent();
+      expect(app.showRelationshipsPicking, isFalse);
+      expect(app.createComponentSession, isNotNull);
+    });
+  });
+
+  // -------------------------------------------------------------------------
   group('view representations', () {
     AppState twoUp(String tag) => asmApp(tag, [
           occ('Base:1', Vec3.zero, grounded: true),

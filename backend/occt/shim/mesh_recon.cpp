@@ -5,7 +5,9 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <string>
 #include <map>
 #include <unordered_map>
 #include <unordered_set>
@@ -26,12 +28,15 @@
 #include <BRepGProp.hxx>
 #include <BRepLib.hxx>
 #include <BRepTools.hxx>
+#include <ElSLib.hxx>
 #include <GProp_GProps.hxx>
 #include <Geom_BSplineCurve.hxx>
 #include <Geom_ConicalSurface.hxx>
 #include <Geom_Circle.hxx>
 #include <Geom_CylindricalSurface.hxx>
+#include <Geom_ElementarySurface.hxx>
 #include <Geom_Plane.hxx>
+#include <Geom_RectangularTrimmedSurface.hxx>
 #include <Geom_SphericalSurface.hxx>
 #include <Geom_Surface.hxx>
 #include <Geom_TrimmedCurve.hxx>
@@ -703,12 +708,45 @@ double FitRms(SurfKind k, const double *q, const std::vector<V3> &pts)
  * eight parameters is forty derivatives to get right and to keep right, and
  * the fit runs once per patch, not per frame. The damping is what makes it
  * survive a bad seed, which on a downloaded mesh it will regularly get. */
+/* Slides a cylinder's axis POINT to the middle of its own data.
+ *
+ * A cylinder has five degrees of freedom described by seven numbers, and one
+ * of the two spare ones is where the point sits along the axis. Nothing about
+ * the surface changes when it slides — but everything about the ARITHMETIC
+ * does. A fitter that finds its axis point a hundred and forty millimetres up
+ * the line from the eighteen millimetres of fillet it is describing has a
+ * lever that long: turn the direction by half a thousandth of a radian, which
+ * is what snapping it to the Y axis does, and the axis line moves nearly a
+ * tenth of a millimetre where the data actually is. That is how three of the
+ * four segments of the user's rounded edge lost their fit to a snap that was
+ * supposed to be a rounding of the last decimal.
+ *
+ * Put the point where the surface is and the lever is gone. */
+void RecentreAxis(SurfKind k, double *q, const std::vector<V3> &pts)
+{
+    if (k != kCylinder || pts.empty())
+        return;
+    const V3 ax = Unit(V3(q[3], q[4], q[5]));
+    if (Norm(ax) < 0.5)
+        return;
+    V3 c;
+    for (const V3 &p : pts)
+        c += p;
+    c = c * (1.0 / static_cast<double>(pts.size()));
+    const double along = (c.x - q[0]) * ax.x + (c.y - q[1]) * ax.y +
+                         (c.z - q[2]) * ax.z;
+    q[0] += ax.x * along;
+    q[1] += ax.y * along;
+    q[2] += ax.z * along;
+}
+
 void RefineFit(SurfKind k, double *q, const std::vector<V3> &pts, double scale,
                const bool *freeMask = nullptr)
 {
     const int n = ParamCount(k);
     if (n == 0 || pts.size() < static_cast<size_t>(n))
         return;
+    RecentreAxis(k, q, pts);
     const double h = std::max(scale * 1e-6, 1e-12);
     double lambda = 1e-6;
     double best = FitRms(k, q, pts);
@@ -1229,6 +1267,10 @@ const double kMinCreaseAngle = 2.0 * M_PI / 180.0;
 /* A patch with more creases than this is not a pair of surfaces, it is noise. */
 const int kMaxCreaseDepth = 4;
 
+/* How many times the splitter may hand its own leftover back to itself. Each
+ * round is strictly smaller, so this only bounds the pathological case. */
+const int kMaxSplitDepth = 6;
+
 /* RANSAC budget. Bounded on purpose: this runs only on patches that fitted
  * nothing, and being thorough on a pathological patch at the cost of being
  * slow on every model is not a trade worth making. */
@@ -1321,6 +1363,18 @@ const double kMeshPrecisionFrac = 1.0e-6;
  * of radii pass through the same points within tolerance. */
 const double kMinSweepRad = 25.0 * M_PI / 180.0;
 
+/* The same question of a patch with no witness but the fit itself: see the
+ * "shallow" test in Identifiable. Every real feature on a drawn part sweeps a
+ * quarter turn or more — a fillet, a hole, a blend ring — so this costs
+ * nothing that exists. */
+const double kMinSweepFragmentRad = 45.0 * M_PI / 180.0;
+
+/* How big a patch may be and still be dissolved into its neighbours when it
+ * explains nothing. A handful of facets in the seam between two features is
+ * what this is for; a large region that fits nothing is a real freeform region
+ * and belongs in the faceted shell whole. */
+const int kDissolveMaxTriangles = 16;
+
 /* How many facet steps of normal disagreement a fit may have and still be
  * describing THIS surface. Half a step is what a perfect fit costs on a
  * tessellation; four times that is something else. */
@@ -1328,6 +1382,25 @@ const double kAgreeFacetFactor = 2.0;
 
 /* ...and a floor, so an exactly-tessellated flat face is not held to zero. */
 const double kAgreeFloorRad = 4.0 * M_PI / 180.0;
+
+/* How much of a patch may disagree with its own surface before the surface is
+ * the thing in doubt rather than the strays. A third is generous: the case
+ * this exists for is ten facets in seventy-three. */
+const double kTrimKeepFraction = 0.5;
+
+/* How far past the middle of the pack a triangle has to be before the surface
+ * disowns it, and how many times to drop and refit. The strays bias the very
+ * fit that finds them, so one pass is not enough; six is far more than any
+ * measured case has needed. */
+const double kTrimDistFactor = 3.0;
+const int kTrimRounds = 6;
+
+/* How much more of a periodic surface a face may cover than its own triangles
+ * do before it is the wrong side of its own boundary. A correct face exceeds
+ * the mesh by a facet; a face on the wrong side exceeds it several times
+ * over. */
+const double kUvSpanSlack = 1.5;
+
 
 /* Above this the faceted fallback is not a rescue, it is a freeze.
  *
@@ -1482,6 +1555,24 @@ Fit FitPatch(const PatchData &d, double tol, double scale)
             (k == kTorus && (q[6] > rMax || q[7] > rMax))) {
             continue;
         }
+        /* And a radius BELOW tolerance is not a feature either: the mesh
+         * cannot hold a curve finer than the tolerance it is being read at,
+         * so such a fit is a sliver, not a surface. On the user's part six
+         * "cylinders" of radius 0.01 mm came out of the slivers where the
+         * small holes meet a step — each one a face of area 0.06 mm², and
+         * between them twenty-four open edges that stopped the shell being a
+         * solid. */
+        if ((k == kCylinder && q[6] < tol) || (k == kSphere && q[3] < tol) ||
+            (k == kTorus && q[7] < tol)) {
+            continue;
+        }
+        /* A torus whose tube is nearly as wide as the ring it follows has no
+         * ring left: its inner circle closes up, the surface touches itself on
+         * the axis, and whatever face is built on it is not the shape the
+         * triangles came from. R=5.19 against r=4.86 appeared on the user's
+         * part and took seventeen percent off its volume. */
+        if (k == kTorus && q[6] < q[7] + tol)
+            continue;
         /* A surface that passes through the points but faces the wrong way is
          * not the surface those points came off. See NormalAgreement. */
         const double agree = NormalAgreement(k, q, d.spos, d.snrm, scale);
@@ -1565,6 +1656,11 @@ struct Patch
      * patches back together if they started as one, which is what keeps a
      * merge from ever crossing a sharp edge. */
     int origin = -1;
+    /* How many triangles stand behind this surface, counting the other
+     * patches that Consolidate found to be pieces of the SAME one. A five-
+     * facet scrap of a fillet is not slender evidence when thirty-six facets
+     * along the same edge measured the same cylinder. 0 means "just my own". */
+    int evidence = 0;
 };
 
 void PatchPoints(const Mesh &m, const std::vector<int> &tris, PatchData &d,
@@ -1795,7 +1891,45 @@ const char *g_why = "ok";
 #define WHY(x) ((void)0)
 #endif
 
-bool Identifiable(const Patch &p, const Mesh &m, double tol, bool fragment)
+/* How far a normal may be from the surface's, on THIS tessellation.
+ *
+ * What the mesh can deliver: the median angle between neighbouring facets
+ * inside the patch. A fit cannot be truer than half of that.
+ *
+ * NOT the plain median. Half the internal edges of a quad-meshed surface are
+ * the diagonals inside the quads, whose dihedral is exactly zero, so a median
+ * reads 0 on every tessellated cylinder — and then the bar collapses to the
+ * floor and real cylinders sit on the edge of rejection. Take the median of
+ * the edges that actually bend. */
+double AgreementAllowed(const Patch &p, const Mesh &m)
+{
+    std::vector<double> step;
+    step.reserve(p.tris.size());
+    std::unordered_set<int> mine(p.tris.begin(), p.tris.end());
+    for (int t : p.tris) {
+        for (int k = 0; k < 3; ++k) {
+            const int o = m.adj[t * 3 + k];
+            if (o < 0 || o < t || mine.find(o) == mine.end())
+                continue;
+            step.push_back(std::acos(std::max(
+                -1.0, std::min(1.0, Dot(m.tnorm[t], m.tnorm[o])))));
+        }
+    }
+    double facet = 0;
+    if (!step.empty()) {
+        std::sort(step.begin(), step.end());
+        const double floorAng = std::max(step.back() * 0.05, 1e-4);
+        size_t lo = 0;
+        while (lo < step.size() && step[lo] < floorAng)
+            lo++;
+        if (lo < step.size())
+            facet = step[lo + (step.size() - lo) / 2];
+    }
+    return std::max(facet * kAgreeFacetFactor, kAgreeFloorRad);
+}
+
+bool Identifiable(const Patch &p, const Mesh &m, double tol, bool fragment,
+                  bool verdict = false)
 {
     WHY("ok");
     if (p.fit.kind == kNone)
@@ -1828,40 +1962,11 @@ bool Identifiable(const Patch &p, const Mesh &m, double tol, bool fragment)
      * is for the CURVED kinds only — a box face is two triangles and perfectly
      * knowable, and holding it to six was how a box lost its planes. */
     if (p.fit.kind != kPlane &&
-        static_cast<int>(p.tris.size()) < kMinTrustTriangles)
+        std::max(static_cast<int>(p.tris.size()), p.evidence) <
+            kMinTrustTriangles)
         return WHY("tootiny"), false;
 
-    /* What this tessellation can deliver: the median angle between neighbouring
-     * facets inside the patch. A fit cannot be truer than half of that. */
-    std::vector<double> step;
-    step.reserve(p.tris.size());
-    std::unordered_set<int> mine(p.tris.begin(), p.tris.end());
-    for (int t : p.tris) {
-        for (int k = 0; k < 3; ++k) {
-            const int o = m.adj[t * 3 + k];
-            if (o < 0 || o < t || mine.find(o) == mine.end())
-                continue;
-            step.push_back(std::acos(std::max(
-                -1.0, std::min(1.0, Dot(m.tnorm[t], m.tnorm[o])))));
-        }
-    }
-    /* NOT the plain median. Half the internal edges of a quad-meshed surface
-     * are the diagonals inside the quads, whose dihedral is exactly zero, so a
-     * median reads 0 on every tessellated cylinder — and then the bar collapses
-     * to the floor and real cylinders sit on the edge of rejection. Take the
-     * median of the edges that actually bend. */
-    double facet = 0;
-    if (!step.empty()) {
-        std::sort(step.begin(), step.end());
-        const double floorAng = std::max(step.back() * 0.05, 1e-4);
-        size_t lo = 0;
-        while (lo < step.size() && step[lo] < floorAng)
-            lo++;
-        if (lo < step.size())
-            facet = step[lo + (step.size() - lo) / 2];
-    }
-    const double allowed =
-        std::max(facet * kAgreeFacetFactor, kAgreeFloorRad);
+    const double allowed = AgreementAllowed(p, m);
     if (std::acos(std::max(-1.0, std::min(1.0, p.fit.agree))) > allowed)
         return WHY("agree"), false;
 
@@ -1905,8 +2010,27 @@ bool Identifiable(const Patch &p, const Mesh &m, double tol, bool fragment)
             pts.push_back(m.pos[m.tri[p.tris[i] * 3 + k]]);
     if (pts.size() < 3)
         return WHY("nopoints"), false;
-    if (SurfaceCoverage(p.fit.kind, p.fit.q, pts) < kMinSweepRad)
+    /* And a FRAGMENT has to sweep further before its curve is believed.
+     *
+     * A patch that is a whole smooth run has the mesh's own sharp edges as its
+     * witness — the model is saying "this is one face" — and a quarter turn of
+     * it is plenty. A patch the splitter carved out of a bigger one has no
+     * witness, and a shallow arc is where an invented surface hides: the lower
+     * band of the user's top edge is six facets thirteen millimetres long, and
+     * a cylinder of radius 31 threads every one of their vertices to a
+     * five-thousandth of a millimetre. It sweeps 26 degrees. The r=1 fillet it
+     * is actually part of sweeps ninety. */
+    const double sweep = SurfaceCoverage(p.fit.kind, p.fit.q, pts);
+    if (sweep < kMinSweepRad)
         return WHY("sweep"), false;
+    /* Only when the verdict is final. Inside the splitter and the merge this
+     * same routine is asked whether a candidate is worth pursuing, and a
+     * shallow arc there is a perfectly good reason to keep looking rather than
+     * to stop — asked the strict question in those places instead, the whole
+     * segmentation of the user's part changed and it came back 129 faces and
+     * an open shell. */
+    if (verdict && fragment && sweep < kMinSweepFragmentRad)
+        return WHY("shallow"), false;
     return true;
 }
 
@@ -2201,8 +2325,9 @@ void SplitByFit(const Mesh &m, const std::vector<int> &tris, double tol,
  * genuine tie the simpler primitive does, since kind order runs plane, sphere,
  * cylinder, cone, torus. On a noisy scan nothing is exact, everything lands in
  * the lower tier, and this is support-first again, as it was. */
-bool BeatsCandidate(size_t nA, double rmsA, SurfKind kA, size_t nB, double rmsB,
-                    SurfKind kB, double tol)
+bool BeatsCandidate(size_t nA, double rmsA, double seedA, SurfKind kA,
+                    size_t nB, double rmsB, double seedB, SurfKind kB,
+                    double tol)
 {
     if (nA == 0)
         return false;
@@ -2212,6 +2337,21 @@ bool BeatsCandidate(size_t nA, double rmsA, SurfKind kA, size_t nB, double rmsB,
     const bool exB = rmsB <= tol * kExactFitFraction;
     if (exA != exB)
         return exA;
+    /* Then whether the SEED itself was exact.
+     *
+     * A claim made at tolerance is fuzzy at a tangency, so two proposals can
+     * claim the same triangles and look equally inexact while only one of them
+     * started from a surface that is really in the mesh. That distinction is
+     * everything, because the tight re-claim that rescues a fuzzy claim is
+     * made around the seed: measured on the user's part, a cylinder seeded at
+     * residual zero on the r=1 fillet along its long edge lost the round to
+     * one seeded at 0.0013 with the same support, and the re-claim around
+     * THAT found nothing at all — 41 triangles down to none — so the fillet
+     * went to triangles at both ends of the part. */
+    const bool sA = seedA <= tol * kExactFitFraction;
+    const bool sB = seedB <= tol * kExactFitFraction;
+    if (sA != sB)
+        return sA;
     if (nA != nB)
         return nA > nB;
     if (std::fabs(rmsA - rmsB) > tol * 1e-3)
@@ -2251,20 +2391,29 @@ void SplitByRansac(const Mesh &m, const std::vector<int> &tris, double tol,
     double bestRms = 1e300;
     int bestStart = -1;
     const int trials = kRansacLadderSteps * kRansacTrialsPerSize;
+    std::vector<int> pool;
     for (int round = 0; round < kRansacRounds && remaining >= minTris; ++round) {
+        pool.clear();
+        for (int i = 0; i < n; ++i)
+            if (!taken[i] && !barred[i])
+                pool.push_back(i);
         best.clear();
         bestFit = Fit();
         bestRms = 1e300;
         bestStart = -1;
         for (int trial = 0; trial < trials; ++trial) {
             const int want = kRansacSeedLadder[trial % kRansacLadderSteps];
-            int start = -1;
-            for (int a = 0; a < 16 && start < 0; ++a) {
-                const int c = (int)(next() % (unsigned)n);
-                if (!taken[c] && !barred[c])
-                    start = c;
-            }
-            if (start < 0)
+            /* Draw the seed from what is actually LEFT.
+             *
+             * Rejection sampling over the whole patch looks harmless and is
+             * not: by the twentieth round nine tenths of the triangles are
+             * taken, sixteen draws miss, and most trials never propose
+             * anything at all. The last surfaces of a part are exactly the
+             * ones extracted late, so this is where it costs. */
+            if (pool.empty())
+                break;
+            const int start = pool[next() % (unsigned)pool.size()];
+            if (taken[start] || barred[start])
                 continue;
             seedRegion.clear();
             stack.assign(1, start);
@@ -2364,8 +2513,9 @@ void SplitByRansac(const Mesh &m, const std::vector<int> &tris, double tol,
              * floor is evidence; it should not be on the ballot. */
             if ((int)inliers.size() < std::max(minTris, kRansacMinSupport))
                 continue;
-            if (BeatsCandidate(inliers.size(), candRms, f.kind, best.size(),
-                               bestRms, bestFit.kind, tol)) {
+            if (BeatsCandidate(inliers.size(), candRms, f.rms, f.kind,
+                               best.size(), bestRms, bestFit.rms, bestFit.kind,
+                               tol)) {
                 best = inliers;
                 bestFit = f;
                 bestRms = candRms;
@@ -2460,9 +2610,6 @@ void SplitByRansac(const Mesh &m, const std::vector<int> &tris, double tol,
             if ((int)tightened.size() >= std::max(minTris, kRansacMinSupport))
                 best.swap(tightened);
         };
-        if (bestRms <= tol * kExactFitFraction)
-            tighten(bestFit.kind, bestFit.q);
-
         /* Refit on everything it claimed, and keep it only if it still holds. */
         std::vector<int> claimed;
         claimed.reserve(best.size());
@@ -2488,39 +2635,39 @@ void SplitByRansac(const Mesh &m, const std::vector<int> &tris, double tol,
          * merely nearby is not. That is the whole difference between a
          * downloaded CAD model, where this pass should find every fillet, and
          * an organic one, where it should find nothing at all. */
-        if (pa.fit.kind == kNone || pa.fit.rms > tol * kExactFitFraction ||
-            !Identifiable(pa, m, tol, true)) {
-            /* Before giving up on this seed, re-claim TIGHTLY and refit.
-             *
-             * A claim made at tolerance is a claim made five hundred times
-             * looser than a tessellated model's own vertices, so on a narrow
-             * blend it runs straight past the point where the blend stops
-             * being a cylinder and becomes a torus, and the mixture fits
-             * nothing. The seed itself was fitted to a handful of triangles
-             * and is usually a real local surface — measured on the user's
-             * part, thirteen rounds in a row proposed one and had its claim
-             * spoiled this way — so re-claim around the SEED at the mesh's own
-             * precision, and failing that around the refit. */
-            for (int attempt = 0; attempt < 2; ++attempt) {
-                const double *q = attempt == 0 ? bestFit.q : pa.fit.q;
-                const SurfKind kind = attempt == 0 ? bestFit.kind : pa.fit.kind;
-                if (kind == kNone)
-                    continue;
-                const size_t was = best.size();
-                tighten(kind, q);
-                if (best.size() == was)
-                    continue;
-                claimed.clear();
-                for (int i : best)
-                    claimed.push_back(tris[i]);
-                PatchPoints(m, claimed, pd, 4000);
-                pa.tris = claimed;
-                pa.fit = FitPatch(pd, tol, scale);
-                if (pa.fit.kind != kNone &&
-                    pa.fit.rms <= tol * kExactFitFraction &&
-                    Identifiable(pa, m, tol, true))
-                    break;
-            }
+        /* Re-claim at the mesh's OWN precision when the refit is not exact.
+         *
+         * A claim made at tolerance is fuzzy at a TANGENCY: the neighbouring
+         * face hugs the proposal for a strip sqrt(2 r tol) wide — 1.2 mm where
+         * an r=5 fillet meets its wall — and those triangles pass both the
+         * distance and the normal test, so the fillet arrives at the refit
+         * carrying flat wall and comes back as a torus bent round an axis that
+         * exists nowhere in the part. A surface the mesh was tessellated from
+         * is met by its own vertices exactly, so re-claiming at that standard
+         * drops the strip and moves nothing that really is the surface.
+         *
+         * Around the SEED first, because the seed is usually a real local
+         * surface — measured on the user's part, thirteen rounds in a row
+         * proposed one and had its claim spoiled this way — and around the
+         * refit second, in case the seed itself was the poorer of the two. */
+        for (int attempt = 0; attempt < 2; ++attempt) {
+            if (pa.fit.kind != kNone &&
+                pa.fit.rms <= tol * kExactFitFraction)
+                break;
+            const double *q = attempt == 0 ? bestFit.q : pa.fit.q;
+            const SurfKind kind = attempt == 0 ? bestFit.kind : pa.fit.kind;
+            if (kind == kNone)
+                continue;
+            const size_t was = best.size();
+            tighten(kind, q);
+            if (best.size() == was)
+                continue;
+            claimed.clear();
+            for (int i : best)
+                claimed.push_back(tris[i]);
+            PatchPoints(m, claimed, pd, 4000);
+            pa.tris = claimed;
+            pa.fit = FitPatch(pd, tol, scale);
         }
         if (pa.fit.kind == kNone || pa.fit.rms > tol * kExactFitFraction ||
             !Identifiable(pa, m, tol, true)) {
@@ -2542,6 +2689,11 @@ void SplitByRansac(const Mesh &m, const std::vector<int> &tris, double tol,
                 break;
             continue;
         }
+        MR_TRACE("        -> KEEP %s %d tri rms %.6f q=[%.3f %.3f %.3f | "
+                 "%.3f %.3f %.3f | %.4f %.4f]\n",
+                 KindName(pa.fit.kind), (int)pa.tris.size(), pa.fit.rms,
+                 pa.fit.q[0], pa.fit.q[1], pa.fit.q[2], pa.fit.q[3],
+                 pa.fit.q[4], pa.fit.q[5], pa.fit.q[6], pa.fit.q[7]);
         out.push_back(pa);
         for (int i : best) {
             taken[i] = 1;
@@ -2670,9 +2822,24 @@ void SplitPatch(const Mesh &m, const std::vector<int> &tris, double tol,
     if (rest.empty())
         return;
     if (rest.size() < tris.size()) {
-        /* Something was recognised; the remainder is a smaller problem and
-         * gets the same treatment, but without recursing on RANSAC again. */
-        SplitByFit(m, rest, tol, scale, minTris, origin, out);
+        /* Something was recognised, so the remainder is a strictly smaller
+         * problem — and worth the same treatment rather than a straight fall
+         * to region growing. RANSAC's seeds are drawn from what is left, so on
+         * a smaller set they land where the work is: on the user's part the
+         * leftover after the first pass is the fillet along one long edge plus
+         * the place where the blend ring round the boss runs into it, and
+         * growing simply merged the two again. The depth guard is what stops
+         * this recursing on a patch that is not shrinking. */
+        if (depth < kMaxSplitDepth)
+            /* Past the crease stage on purpose. What RANSAC leaves is not a
+             * smooth run any more, so cutting it at creases is arbitrary — on
+             * the user's part it sliced the leftover fillet band into its own
+             * facet rows, 3, 10, 10, 10, 7, 2, ... , and each row is too small
+             * to say anything. Let RANSAC have the smaller set instead. */
+            SplitPatch(m, rest, tol, scale, minTris, origin,
+                       std::max(depth + 1, kMaxCreaseDepth), out);
+        else
+            SplitByFit(m, rest, tol, scale, minTris, origin, out);
         if (out.size() == before)
             out.push_back(pa);
         return;
@@ -2703,6 +2870,199 @@ const double kBoundaryAngleWeight = 0.5;
  * alone cannot answer at a tangency — both are zero there — so the direction
  * the surface goes has to carry the decision, which is why the score mixes the
  * two. */
+/* A surface explains the triangles whose normals it predicts and whose points
+ * it passes through. The rest are not its, however close they happen to lie.
+ *
+ * Two of the three defects the user could see in the rebuilt part were this
+ * one thing, twice.
+ *
+ * The 5 mm hole has four radial slits cut through the lower half of its wall,
+ * and wall and slits arrive as one patch because the slits are too narrow for
+ * the splitter to find a better cut. The cylinder fitted to that patch is
+ * exactly right — radius 2.5010 where the part was drawn at 2.5. It was thrown
+ * away all the same, on normals: the ten slit-wall facets stand at up to
+ * seventy degrees to the barrel they are cut into and they drag the mean past
+ * the bar. The hole then came out as thirty little planes.
+ *
+ * The long edge is rounded at r = 1, and where the boss's blend ring runs over
+ * it there is a short stretch belonging to neither. Those few facets sit in
+ * the fillet's patch and pull its axis half a tenth of a millimetre out of
+ * true — inside tolerance, nowhere near exact, and rejected for it. Three of
+ * the four segments of that edge came back as triangles.
+ *
+ * In both cases the evidence was never mixed, only summed. Per triangle it
+ * separates cleanly: on the hole, a median of 3.9 degrees, three quarters
+ * under fifteen, and ten outliers above thirty. So cut where the evidence
+ * says. The triangles the surface accounts for stay with it; the ones it does
+ * not go back through the splitter as a patch of their own, where the slit
+ * walls are recognised as the planes they are and the transition strip becomes
+ * its own small face.
+ *
+ * Iterated, because the strays bias the very fit used to find them: drop the
+ * worst, fit again, and repeat while the surface keeps getting better. And
+ * only ever when the strays are a MINORITY — if half a patch disagrees, the
+ * surface is the thing in doubt and trimming it to fit would be inventing
+ * evidence rather than reading it. */
+void TrimStrays(const Mesh &m, std::vector<Patch> &patches, double tol,
+                double scale, int minTris)
+{
+    const size_t n0 = patches.size();
+    std::vector<Patch> extra;
+    std::vector<int> local(m.triCount(), -1);
+    const double h = std::max(scale * 1e-5, 1e-9);
+    const double exactBar = tol * kExactFitFraction;
+    PatchData pd;
+
+    for (size_t i = 0; i < n0; ++i) {
+        Patch &pa = patches[i];
+        if (pa.fit.kind == kNone ||
+            static_cast<int>(pa.tris.size()) < kMinTrustTriangles)
+            continue;
+        const double allowedAng = AgreementAllowed(pa, m);
+        const bool badAng =
+            std::acos(std::max(-1.0, std::min(1.0, pa.fit.agree))) > allowedAng;
+        const bool badRms = pa.fit.rms > exactBar;
+        if (!badAng && !badRms)
+            continue; /* the surface already answers for everything it has */
+
+        const std::vector<int> tris = pa.tris;
+        const size_t floorCount = std::max<size_t>(
+            kMinTrustTriangles,
+            static_cast<size_t>(tris.size() * kTrimKeepFraction));
+        std::vector<char> keep(tris.size(), 1);
+        Fit cur = pa.fit;
+        size_t nKeep = tris.size();
+        bool clean = false;
+
+        for (int round = 0; round < kTrimRounds; ++round) {
+            std::vector<double> dist(tris.size(), 0.0), ang(tris.size(), 0.0);
+            std::vector<double> live;
+            live.reserve(nKeep);
+            for (size_t k = 0; k < tris.size(); ++k) {
+                if (!keep[k])
+                    continue;
+                const int t = tris[k];
+                V3 c;
+                double w = 0;
+                for (int j = 0; j < 3; ++j) {
+                    const V3 &q = m.pos[m.tri[t * 3 + j]];
+                    c += q;
+                    w = std::max(w, std::fabs(SurfDist(cur.kind, cur.q, q)));
+                }
+                dist[k] = w;
+                const V3 sn = SurfNormal(cur.kind, cur.q, c * (1.0 / 3.0), h);
+                ang[k] = (Norm(sn) > 0.5)
+                             ? std::acos(std::max(
+                                   -1.0,
+                                   std::min(1.0, std::fabs(
+                                                     Dot(sn, m.tnorm[t])))))
+                             : M_PI;
+                live.push_back(w);
+            }
+            std::sort(live.begin(), live.end());
+            const double med = live.empty() ? 0.0 : live[live.size() / 2];
+            const double distBar = std::max(exactBar, med * kTrimDistFactor);
+
+            size_t strays = 0;
+            double keptArea = 0, strayArea = 0;
+            std::vector<char> next = keep;
+            for (size_t k = 0; k < tris.size(); ++k) {
+                if (!keep[k])
+                    continue;
+                if (ang[k] > allowedAng || dist[k] > distBar) {
+                    next[k] = 0;
+                    strays++;
+                    strayArea += m.tarea[tris[k]];
+                } else {
+                    keptArea += m.tarea[tris[k]];
+                }
+            }
+            if (strays == 0) {
+                clean = (cur.rms <= exactBar &&
+                         std::acos(std::max(
+                             -1.0, std::min(1.0, cur.agree))) <= allowedAng);
+                break;
+            }
+            if (nKeep - strays < floorCount)
+                break; /* too much of it disagrees to call the rest the truth */
+            (void)keptArea;
+            (void)strayArea;
+            keep.swap(next);
+            nKeep -= strays;
+
+            std::vector<int> liveTris;
+            liveTris.reserve(nKeep);
+            for (size_t k = 0; k < tris.size(); ++k)
+                if (keep[k])
+                    liveTris.push_back(tris[k]);
+            PatchPoints(m, liveTris, pd, 4000);
+            const Fit f = FitPatch(pd, tol, scale);
+            if (f.kind == kNone)
+                break;
+            cur = f;
+            if (cur.rms <= exactBar &&
+                std::acos(std::max(-1.0, std::min(1.0, cur.agree))) <=
+                    allowedAng) {
+                clean = true;
+                break;
+            }
+        }
+        if (!clean || nKeep == tris.size())
+            continue;
+
+        /* Connected pieces, so that no face comes out in two halves. */
+        for (size_t k = 0; k < tris.size(); ++k)
+            local[tris[k]] = static_cast<int>(k);
+        std::vector<int> comp(tris.size(), -1), stack;
+        int nComp = 0;
+        for (size_t k = 0; k < tris.size(); ++k) {
+            if (comp[k] >= 0)
+                continue;
+            stack.assign(1, static_cast<int>(k));
+            comp[k] = nComp;
+            while (!stack.empty()) {
+                const int at = stack.back();
+                stack.pop_back();
+                for (int j = 0; j < 3; ++j) {
+                    const int o = m.adj[tris[at] * 3 + j];
+                    if (o < 0)
+                        continue;
+                    const int li = local[o];
+                    if (li < 0 || comp[li] >= 0 || keep[li] != keep[at])
+                        continue;
+                    comp[li] = nComp;
+                    stack.push_back(li);
+                }
+            }
+            nComp++;
+        }
+        for (int t : tris)
+            local[t] = -1;
+        if (nComp < 2)
+            continue;
+
+        std::vector<std::vector<int>> pieces(nComp);
+        for (size_t k = 0; k < tris.size(); ++k)
+            pieces[comp[k]].push_back(tris[k]);
+        /* Every piece goes back through the splitter, the kept ones included:
+         * a barrel with its slit walls taken out may still be two barrels. */
+        std::vector<Patch> made;
+        for (const std::vector<int> &piece : pieces)
+            SplitPatch(m, piece, tol, scale, minTris, pa.origin, 0, made);
+        if (made.empty())
+            continue;
+        MR_TRACE("  patch %3d trimmed: %d tri -> %d kept, %d pieces -> %d "
+                 "patches (rms %.5f -> %.5f)\n",
+                 (int)i, (int)tris.size(), (int)nKeep, nComp, (int)made.size(),
+                 pa.fit.rms, cur.rms);
+        patches[i] = made[0];
+        for (size_t k = 1; k < made.size(); ++k)
+            extra.push_back(made[k]);
+    }
+    for (Patch &e : extra)
+        patches.push_back(e);
+}
+
 void RefineBoundaries(const Mesh &m, std::vector<Patch> &patches, double tol,
                       double scale, int passes)
 {
@@ -3142,6 +3502,149 @@ bool SnapDirection(V3 &d, const std::vector<V3> &agreed, double cosTol)
  * operation — a boolean, a fillet, a STEP export someone opens in Inventor —
  * is worse for that. This pass is what makes the output look like a part
  * somebody modelled rather than a part somebody measured. */
+/* Pieces of ONE surface, fitted together.
+ *
+ * A fillet along an edge is not interrupted because a boss blend crosses it —
+ * it is one cylinder, cut into four faces by what runs over it. Fitted apart,
+ * each of those four sees a fraction of the evidence: the user's part has its
+ * long edge rounded at r = 1 about the line x = -9, z = -1, and the four
+ * fragments put that axis at z = -0.948, -0.983, -0.958 and -0.940 — every one
+ * of them inside tolerance, not one of them exact, and three of the four were
+ * thrown out for it. The +x edge, whose fragments happened to land closer,
+ * survived. Two rounded edges where there should be one is what that looks
+ * like on screen.
+ *
+ * Nothing about the evidence was weak; it was only divided. Surfaces that
+ * agree on direction, on radius and on where their axis LIES are one surface,
+ * so fit them as one and give every piece the answer. A piece then also stands
+ * on the whole group's triangles rather than its own five, which is the other
+ * half of why the small ones were being lost. */
+void Consolidate(std::vector<Patch> &patches, const Mesh &m, const Params &prm,
+                 double tol, double scale)
+{
+    if (!(prm.snap_radius_frac > 0) || !(prm.snap_deg > 0))
+        return;
+    const double rTol = scale * prm.snap_radius_frac;
+    const double cosTol = std::cos(prm.snap_deg * M_PI / 180.0);
+
+    std::vector<int> cyl;
+    for (size_t i = 0; i < patches.size(); ++i)
+        if (patches[i].fit.kind == kCylinder)
+            cyl.push_back(static_cast<int>(i));
+
+    std::vector<char> done(cyl.size(), 0);
+    PatchData pd;
+    for (size_t a = 0; a < cyl.size(); ++a) {
+        if (done[a])
+            continue;
+        const Fit &fa = patches[cyl[a]].fit;
+        const V3 axA = Unit(V3(fa.q[3], fa.q[4], fa.q[5]));
+        const V3 ptA(fa.q[0], fa.q[1], fa.q[2]);
+        std::vector<int> group(1, cyl[a]);
+        done[a] = 1;
+        for (size_t b = a + 1; b < cyl.size(); ++b) {
+            if (done[b])
+                continue;
+            const Fit &fb = patches[cyl[b]].fit;
+            const V3 axB = Unit(V3(fb.q[3], fb.q[4], fb.q[5]));
+            if (std::fabs(Dot(axA, axB)) < cosTol)
+                continue;
+            if (std::fabs(fb.q[6] - fa.q[6]) > rTol)
+                continue;
+            /* The same axis LINE, not merely a parallel one: four holes drilled
+             * on the same bolt circle share a direction and a radius and are
+             * four different holes. */
+            const V3 off(fb.q[0] - ptA.x, fb.q[1] - ptA.y, fb.q[2] - ptA.z);
+            const double along = Dot(off, axA);
+            const double perp2 =
+                Dot(off, off) - along * along;
+            if (perp2 > rTol * rTol)
+                continue;
+            group.push_back(cyl[b]);
+            done[b] = 1;
+        }
+        if (group.size() < 2)
+            continue;
+
+        /* One fit over everything the group has seen. */
+        std::vector<int> all;
+        for (int g : group)
+            all.insert(all.end(), patches[g].tris.begin(),
+                       patches[g].tris.end());
+        PatchPoints(m, all, pd, 8000);
+        /* Start from whichever member already explains the whole group best,
+         * not from whichever happens to be first. */
+        double q2[8];
+        double joint = 1e300;
+        for (int g : group) {
+            const double r = FitRms(kCylinder, patches[g].fit.q, pd.pts);
+            if (r < joint) {
+                joint = r;
+                std::memcpy(q2, patches[g].fit.q, sizeof(q2));
+            }
+        }
+        /* Slide the axis POINT to the group's centroid before refining. A
+         * cylinder has five degrees of freedom described by seven numbers, and
+         * one of the two spare ones is the point's position along the axis:
+         * left where it was, a hundred and forty millimetres up the line from
+         * anything it describes, the refiner has a nearly-null direction to
+         * wander in and it does — the first attempt at this came back with the
+         * radius moved from 0.9998 to 0.9726 and the residual ten times
+         * worse. */
+        {
+            V3 c;
+            Centroid(pd.pts, c);
+            const V3 ax = Unit(V3(q2[3], q2[4], q2[5]));
+            const V3 off(c.x - q2[0], c.y - q2[1], c.z - q2[2]);
+            const double along = Dot(off, ax);
+            q2[0] += ax.x * along;
+            q2[1] += ax.y * along;
+            q2[2] += ax.z * along;
+        }
+        {
+            double q3[8];
+            std::memcpy(q3, q2, sizeof(q3));
+            bool freeMask[8];
+            for (int k = 0; k < 8; ++k)
+                freeMask[k] = true;
+            RefineFit(kCylinder, q3, pd.pts, scale, freeMask);
+            Renormalise(kCylinder, q3);
+            const double refined = FitRms(kCylinder, q3, pd.pts);
+            if (refined < joint) {
+                std::memcpy(q2, q3, sizeof(q2));
+                joint = refined;
+            }
+        }
+        const int ev = static_cast<int>(all.size());
+        MR_TRACE("  consolidate %d cylinders r=%.4f: joint rms %.5f over %d "
+                 "tri\n",
+                 (int)group.size(), q2[6], joint, ev);
+        for (int g : group) {
+            Patch &pg = patches[g];
+            PatchPoints(m, pg.tris, pd, 4000);
+            const double mine = FitRms(kCylinder, q2, pd.pts);
+            /* Only where the group's answer is at least as good on this
+             * patch's own triangles as the patch's private one — and then the
+             * evidence behind it is the group's, not this patch's five facets.
+             *
+             * (Handing every member the group's evidence regardless was tried
+             * and measured: it recovers two more segments of the user's long
+             * edge and costs the shell — those segments are five-facet slivers
+             * whose faces will not sew to the one-triangle planes beside them,
+             * and the part came back an open shell at -0.20% instead of a
+             * closed solid at +0.21%. A body that closes is worth more than
+             * two faces that do not.) */
+            if (mine <= std::max(pg.fit.rms, tol * kExactFitFraction)) {
+                std::memcpy(pg.fit.q, q2, sizeof(q2));
+                pg.fit.rms = mine;
+                pg.fit.agree = NormalAgreement(kCylinder, q2, pd.spos, pd.snrm,
+                                               scale);
+                pg.evidence = ev;
+            }
+        }
+    }
+}
+
 void Regularise(std::vector<Patch> &patches, const Mesh &m, const Params &prm,
                 double tol, double scale)
 {
@@ -3189,9 +3692,34 @@ void Regularise(std::vector<Patch> &patches, const Mesh &m, const Params &prm,
         freeMask[dirOff] = freeMask[dirOff + 1] = freeMask[dirOff + 2] = false;
         double q2[8];
         std::memcpy(q2, f.q, sizeof(q2));
+        /* Before turning the axis, put the point it turns ABOUT where the
+         * surface is — see RecentreAxis. Afterwards is too late: the line has
+         * already swung away from the data. */
+        q2[dirOff] = before.x;
+        q2[dirOff + 1] = before.y;
+        q2[dirOff + 2] = before.z;
+        RecentreAxis(f.kind, q2, pd.pts);
+        q2[dirOff] = d.x;
+        q2[dirOff + 1] = d.y;
+        q2[dirOff + 2] = d.z;
         RefineFit(f.kind, q2, pd.pts, scale, freeMask);
         const double rms = FitRms(f.kind, q2, pd.pts);
-        if (rms <= std::max(tol, f.rms * 1.5)) {
+        /* A snap may not cost the fit its EXACTNESS.
+         *
+         * "Still inside tolerance" is the wrong bar, because tolerance is not
+         * what this surface will be judged by afterwards: Identifiable holds a
+         * fragment to a fiftieth of it, on the argument that a tessellation
+         * puts its vertices ON the surface they came from. So a snap that
+         * takes a residual from 0.00000 to 0.0149 passes here and is rejected
+         * fifty lines later — and that is precisely what happened to three of
+         * the four segments of the user's long-edge fillet. Each was an exact
+         * cylinder of radius 0.9998; snapping its axis to Y moved the axis two
+         * hundredths of a millimetre in z without re-settling the position
+         * properly, and all three came back as triangles. Two rounded edges
+         * drawn on top of each other is what that looks like on screen.
+         *
+         * Hold the snap to the bar the surface will actually face. */
+        if (rms <= std::max(f.rms * 1.5, tol * kExactFitFraction)) {
             std::memcpy(f.q, q2, sizeof(q2));
             f.rms = rms;
         } else {
@@ -3254,7 +3782,10 @@ void Regularise(std::vector<Patch> &patches, const Mesh &m, const Params &prm,
             std::memcpy(q2, f.q, sizeof(q2));
             RefineFit(f.kind, q2, pd.pts, scale, freeMask);
             const double rms = FitRms(f.kind, q2, pd.pts);
-            if (rms <= std::max(tol, f.rms * 1.5)) {
+            /* Same bar as the direction snap above: agreeing on a radius is
+             * worth having, but not at the price of the exactness that is the
+             * evidence the radius is real. */
+            if (rms <= std::max(f.rms * 1.5, tol * kExactFitFraction)) {
                 std::memcpy(f.q, q2, sizeof(q2));
                 f.rms = rms;
             } else {
@@ -3721,7 +4252,7 @@ Handle(Geom_Curve) IntersectionCurve(const Handle(Geom_Surface) & s1,
             return t;
     }
     if (!IntersectablePair(s1, s2, tol))
-        return nullptr;
+        return MR_TRACE("          isect: pair rejected\n"), nullptr;
     /* And the chain has to be ON both surfaces before it is worth asking where
      * they meet: if it is not, whatever curve comes back is not this edge, and
      * the check costs a handful of projections against an intersection that can
@@ -3732,11 +4263,19 @@ Handle(Geom_Curve) IntersectionCurve(const Handle(Geom_Surface) & s1,
             GeomAPI_ProjectPointOnSurf p1(pts[k], s1);
             if (!p1.IsDone() || p1.NbPoints() < 1 ||
                 p1.LowerDistance() > tol * 3)
-                return nullptr;
+                return MR_TRACE("          isect: chain off s1 by %.6f "
+                                "(tol*3 %.6f)\n",
+                                p1.NbPoints() ? p1.LowerDistance() : -1.0,
+                                tol * 3),
+                       nullptr;
             GeomAPI_ProjectPointOnSurf p2(pts[k], s2);
             if (!p2.IsDone() || p2.NbPoints() < 1 ||
                 p2.LowerDistance() > tol * 3)
-                return nullptr;
+                return MR_TRACE("          isect: chain off s2 by %.6f "
+                                "(tol*3 %.6f)\n",
+                                p2.NbPoints() ? p2.LowerDistance() : -1.0,
+                                tol * 3),
+                       nullptr;
         }
     } catch (const Standard_Failure &) {
         return nullptr;
@@ -3744,7 +4283,10 @@ Handle(Geom_Curve) IntersectionCurve(const Handle(Geom_Surface) & s1,
     try {
         GeomAPI_IntSS iss(s1, s2, tol * 0.1);
         if (!iss.IsDone() || iss.NbLines() < 1)
-            return nullptr;
+            return MR_TRACE("          isect: IntSS done=%d lines=%d\n",
+                            (int)iss.IsDone(),
+                            iss.IsDone() ? iss.NbLines() : -1),
+                   nullptr;
         Handle(Geom_Curve) best;
         double bestErr = 1e300;
         for (int i = 1; i <= iss.NbLines(); ++i) {
@@ -3791,7 +4333,9 @@ Handle(Geom_Curve) IntersectionCurve(const Handle(Geom_Surface) & s1,
             }
         }
         if (best.IsNull() || bestErr > tol * 3)
-            return nullptr;
+            return MR_TRACE("          isect: best err %.6f > tol*3 %.6f\n",
+                            bestErr, tol * 3),
+                   nullptr;
         return best;
     } catch (const Standard_Failure &) {
         return nullptr;
@@ -3851,25 +4395,148 @@ TopoDS_Edge ChainEdge(BuildCtx &ctx, const Chain &c, int self,
                             /* Go round the way the chain actually goes: check a
                              * midpoint rather than assuming the short arc. */
                             const double per = cur->Period();
+                            while (u2 <= u1)
+                                u2 += per;
+                            while (u2 - u1 > per)
+                                u2 -= per;
                             GeomAPI_ProjectPointOnCurve pm(pts[pts.size() / 2],
                                                            cur);
                             if (pm.NbPoints() > 0) {
                                 double um = pm.LowerDistanceParameter();
-                                while (u2 < u1)
-                                    u2 += per;
-                                while (um < u1)
+                                while (um <= u1)
                                     um += per;
+                                while (um - u1 > per)
+                                    um -= per;
                                 if (um > u2)
                                     u2 -= per; /* the other way round */
                             }
                         }
+                        /* Which END is at which parameter matters.
+                         *
+                         * MakeEdge is told a first vertex and a first
+                         * parameter and checks that they are the same point;
+                         * sorting the two parameters and keeping the vertices
+                         * in chain order tells it the opposite of the truth
+                         * whenever the chain runs the DECREASING way along the
+                         * curve, which is half of them. It then refuses to
+                         * build, the exact conic is dropped, and the rim of
+                         * every second hole came back a polyline through the
+                         * mesh points — 5 exact edges in the user's part where
+                         * there should be sixty. Hand them over the way round
+                         * they actually are: the edge is the same arc either
+                         * way, and the wire orients it. */
+                        /* The vertex has to admit how well it knows where
+                         * it is.
+                         *
+                         * MakeEdge is handed a vertex and a parameter and
+                         * refuses the pair unless the two agree to within the
+                         * VERTEX's tolerance, which a freshly built vertex sets
+                         * at Precision::Confusion — a ten-millionth of a
+                         * millimetre. A mesh vertex is nothing like that
+                         * certain: it arrives as a 32-bit float and the curve
+                         * it is being placed on is a least-squares fit through
+                         * several hundred of its neighbours, so a micron of
+                         * disagreement is normal and honest. Left at the
+                         * default it is fatal instead: eighty-eight of the
+                         * ninety-six exact trims in the user's part were
+                         * refused for distances of one micron, and every one of
+                         * those rims fell back to a polyline through the very
+                         * same points. Say what the uncertainty really is, and
+                         * never more than the MESH's own precision.
+                         *
+                         * Not more, measured: letting the bound reach a
+                         * twentieth of tolerance takes exact edges on the
+                         * user's part from 45 to 117 and the volume error from
+                         * +0.21% to +0.05%, and seven FACES then fail to build
+                         * — wires whose arcs are each exact and no longer meet
+                         * — so the part arrives as 257 faces instead of 72.
+                         * The refusals it would have bought are chain
+                         * endpoints one to four thousandths of a millimetre
+                         * off an intersection curve: corners where three
+                         * fitted surfaces do not quite agree. Forcing the edge
+                         * through one only moves the disagreement into the
+                         * wire. */
                         if (std::fabs(u2 - u1) > 1e-12) {
-                            BRepBuilderAPI_MakeEdge me(
-                                cur, VertexAt(ctx, c.verts.front()),
-                                VertexAt(ctx, c.verts.back()), std::min(u1, u2),
-                                std::max(u1, u2));
-                            if (me.IsDone())
-                                e = me.Edge();
+                            const TopoDS_Vertex va =
+                                VertexAt(ctx, c.verts.front());
+                            const TopoDS_Vertex vb =
+                                VertexAt(ctx, c.verts.back());
+                            BRep_Builder bb;
+                            /* Bounded by what a MESH knows, not by what the
+                             * conversion tolerates. A vertex allowed the full
+                             * reconstruction tolerance is a vertex that can
+                             * swallow its neighbours: sewing merges anything
+                             * inside it and ShapeFix is licensed to grow it a
+                             * hundredfold, which on the user's part reached
+                             * 2.7 mm — wider than the slits — and took a fifth
+                             * of the model's volume with it. The float the
+                             * vertex arrived as is good to about a millionth
+                             * of the model, and that is the whole of the
+                             * doubt it is entitled to. */
+                            const double vmax = std::max(
+                                ctx.scale * kMeshPrecisionFrac, 1e-9);
+                            bb.UpdateVertex(
+                                va,
+                                std::min(p1.LowerDistance() * 2.0 + 1e-9, vmax));
+                            bb.UpdateVertex(
+                                vb,
+                                std::min(p2.LowerDistance() * 2.0 + 1e-9, vmax));
+                            const double lo = std::min(u1, u2);
+                            const double hi = std::max(u1, u2);
+                            /* And the arc has to be the one the chain walks.
+                             *
+                             * Two points on a circle name two arcs, and the
+                             * parameters alone do not say which. Taking the
+                             * wrong one puts a face's boundary right round the
+                             * far side of its own cylinder: on a filleted
+                             * block it cost a third of the volume and left the
+                             * solid invalid. The chain's own interior points
+                             * settle it — they lie on the arc that belongs to
+                             * this edge and nowhere near the other. */
+                            bool follows = true;
+                            for (size_t k = 1; k + 1 < pts.size() && follows;
+                                 ++k) {
+                                GeomAPI_ProjectPointOnCurve pp(pts[k], cur);
+                                if (pp.NbPoints() < 1 ||
+                                    pp.LowerDistance() > ctx.tol) {
+                                    follows = false;
+                                    break;
+                                }
+                                double up = pp.LowerDistanceParameter();
+                                if (cur->IsPeriodic()) {
+                                    const double per = cur->Period();
+                                    while (up < lo - 1e-9)
+                                        up += per;
+                                    while (up > lo + per + 1e-9)
+                                        up -= per;
+                                }
+                                if (up < lo - 1e-6 || up > hi + 1e-6)
+                                    follows = false;
+                            }
+                            if (!follows) {
+                                MR_TRACE("          trim: the arc does not "
+                                         "follow the chain\n");
+                            } else if (u1 < u2) {
+                                BRepBuilderAPI_MakeEdge me(cur, va, vb, u1, u2);
+                                if (me.IsDone())
+                                    e = me.Edge();
+                                else
+                                    MR_TRACE("          trim fwd err=%d d "
+                                             "%.7f/%.7f vmax %.7f\n",
+                                             (int)me.Error(),
+                                             p1.LowerDistance(),
+                                             p2.LowerDistance(), vmax);
+                            } else {
+                                BRepBuilderAPI_MakeEdge me(cur, vb, va, u2, u1);
+                                if (me.IsDone())
+                                    e = me.Edge();
+                                else
+                                    MR_TRACE("          trim rev err=%d d "
+                                             "%.7f/%.7f vmax %.7f\n",
+                                             (int)me.Error(),
+                                             p1.LowerDistance(),
+                                             p2.LowerDistance(), vmax);
+                            }
                         }
                     }
                 }
@@ -4232,6 +4899,415 @@ UvExtent MeasureUv(const Mesh &m, const std::vector<int> &tris,
     return e;
 }
 
+/* Where a point sits in an elementary surface's own parameters.
+ *
+ * Closed form rather than GeomAPI_ProjectPointOnSurf, because the split below
+ * asks it once per triangle rather than once per patch. */
+bool ElementaryUv(const Handle(Geom_Surface) & s, const gp_Pnt &p, double &u,
+                  double &v)
+{
+    if (Handle(Geom_CylindricalSurface) x =
+            Handle(Geom_CylindricalSurface)::DownCast(s)) {
+        ElSLib::Parameters(x->Cylinder(), p, u, v);
+        return true;
+    }
+    if (Handle(Geom_ConicalSurface) x =
+            Handle(Geom_ConicalSurface)::DownCast(s)) {
+        ElSLib::Parameters(x->Cone(), p, u, v);
+        return true;
+    }
+    if (Handle(Geom_SphericalSurface) x =
+            Handle(Geom_SphericalSurface)::DownCast(s)) {
+        ElSLib::Parameters(x->Sphere(), p, u, v);
+        return true;
+    }
+    if (Handle(Geom_ToroidalSurface) x =
+            Handle(Geom_ToroidalSurface)::DownCast(s)) {
+        ElSLib::Parameters(x->Torus(), p, u, v);
+        return true;
+    }
+    if (Handle(Geom_Plane) x = Handle(Geom_Plane)::DownCast(s)) {
+        ElSLib::Parameters(x->Pln(), p, u, v);
+        return true;
+    }
+    return false;
+}
+
+/* Turns the surface's own seam out of the patch's way.
+ *
+ * Every periodic surface has one meridian where its u parameter restarts, and
+ * a face is not allowed to straddle it: a wire that runs from u = 6.2 to
+ * u = 0.1 is, in the only language MakeFace speaks, a wire that runs the long
+ * way round the other side. Where the seam falls is arbitrary — it is wherever
+ * the fitter's arithmetic happened to leave the surface's X axis — so a fillet
+ * on one corner of a part builds and the identical fillet on the next corner
+ * comes back inside out.
+ *
+ * The patch says where it may go. Sort the patch's own u values and the widest
+ * empty run between them is the ground the patch does not stand on; put the
+ * seam in the middle of it and no wire of this face can ever cross it. This is
+ * re-parametrisation, not movement: the same points in the same places, read
+ * from a different zero. */
+void AlignSurfaceSeam(const Handle(Geom_Surface) & surf, const Mesh &m,
+                      const std::vector<int> &tris)
+{
+    Handle(Geom_ElementarySurface) es =
+        Handle(Geom_ElementarySurface)::DownCast(surf);
+    if (es.IsNull() || surf->IsUPeriodic() == Standard_False || tris.empty())
+        return;
+    Standard_Real nu1, nu2, nv1, nv2;
+    surf->Bounds(nu1, nu2, nv1, nv2);
+    const double per = nu2 - nu1;
+    if (!(per > 0))
+        return;
+
+    std::vector<double> us;
+    const size_t step = std::max<size_t>(1, tris.size() / 400);
+    for (size_t i = 0; i < tris.size(); i += step) {
+        for (int k = 0; k < 3; ++k) {
+            double u = 0, v = 0;
+            if (ElementaryUv(surf, P(m.pos[m.tri[tris[i] * 3 + k]]), u, v))
+                us.push_back(u);
+        }
+    }
+    if (us.size() < 3)
+        return;
+    std::sort(us.begin(), us.end());
+    double gap = us.front() + per - us.back();
+    double mid = us.back() + gap * 0.5;
+    for (size_t i = 1; i < us.size(); ++i) {
+        const double g = us[i] - us[i - 1];
+        if (g > gap) {
+            gap = g;
+            mid = us[i - 1] + g * 0.5;
+        }
+    }
+    /* No gap at all: the patch really does go the whole way round and there is
+     * nowhere to put the seam. SplitFullWraps has already seen to those. */
+    if (gap < per * 1e-4)
+        return;
+    try {
+        const gp_Ax3 pos = es->Position();
+        const gp_Vec vx(pos.XDirection());
+        const gp_Vec vy(pos.YDirection());
+        const gp_Vec nx = vx * std::cos(mid) + vy * std::sin(mid);
+        if (nx.Magnitude() < 1e-12)
+            return;
+        gp_Ax3 np(pos.Location(), pos.Direction(), gp_Dir(nx));
+        if (np.Direct() != pos.Direct())
+            np.YReverse();
+        es->SetPosition(np);
+    } catch (const Standard_Failure &) {
+    }
+}
+
+/* Gives away the triangles of a patch that explains nothing.
+ *
+ * A patch left without a surface goes to the faceted shell, and where it sits
+ * among patches that DO have surfaces that is usually the wrong home for it.
+ * The lower band of the user's top edge is the case: the splitter could not cut
+ * it at x = ±5, so the straight fillet and the two corner blends arrive as one
+ * patch of six facets, and the only surface fitting all six at once is a
+ * cylinder of radius 31 that exists nowhere on the part. Refused — a fragment
+ * has to sweep further than 26 degrees to be believed — the six would become
+ * six little planes.
+ *
+ * Their neighbours know what they are. Two of them lie exactly on the r=1
+ * fillet above; the other four lie exactly on the R=4 corner blends. So ask,
+ * triangle by triangle: does an adjacent patch's surface pass through this
+ * one's corners and predict its normal? Then it belongs there. What nobody can
+ * explain stays where it is and goes to triangles, as it should.
+ *
+ * Only OUT of patches with no surface and only INTO patches that have one, so
+ * an organic model — where nothing has a surface — is untouched. */
+void DissolveUnexplained(const Mesh &m, std::vector<Patch> &patches, double tol,
+                         double scale)
+{
+    const double exactBar = tol * kExactFitFraction;
+    const double h = std::max(scale * 1e-5, 1e-9);
+    std::vector<int> own(m.triCount(), -1);
+    std::vector<double> allowed(patches.size(), 0.0);
+    for (size_t i = 0; i < patches.size(); ++i) {
+        for (int t : patches[i].tris)
+            own[t] = static_cast<int>(i);
+        if (patches[i].fit.kind != kNone)
+            allowed[i] = AgreementAllowed(patches[i], m);
+    }
+
+    bool moved = true;
+    for (int pass = 0; pass < 3 && moved; ++pass) {
+        moved = false;
+        for (size_t i = 0; i < patches.size(); ++i) {
+            if (patches[i].fit.kind != kNone || patches[i].tris.empty())
+                continue;
+            if (static_cast<int>(patches[i].tris.size()) >
+                kDissolveMaxTriangles)
+                continue;
+            std::vector<int> stay;
+            stay.reserve(patches[i].tris.size());
+            const size_t had = patches[i].tris.size();
+            for (int t : patches[i].tris) {
+                int best = -1;
+                double bestErr = 1e300;
+                for (int k = 0; k < 3; ++k) {
+                    const int o = m.adj[t * 3 + k];
+                    if (o < 0)
+                        continue;
+                    const int j = own[o];
+                    if (j < 0 || j == static_cast<int>(i) ||
+                        patches[j].fit.kind == kNone)
+                        continue;
+                    /* Same smooth run only, for the reason MergeRegions and
+                     * RefineBoundaries have it: a sharp edge is a real
+                     * boundary and nothing across one belongs here. */
+                    if (patches[j].origin < 0 ||
+                        patches[j].origin != patches[i].origin)
+                        continue;
+                    const Fit &f = patches[j].fit;
+                    double worst = 0;
+                    V3 c;
+                    for (int q = 0; q < 3; ++q) {
+                        const V3 &pnt = m.pos[m.tri[t * 3 + q]];
+                        c += pnt;
+                        worst = std::max(
+                            worst, std::fabs(SurfDist(f.kind, f.q, pnt)));
+                    }
+                    if (worst > exactBar)
+                        continue;
+                    const V3 sn = SurfNormal(f.kind, f.q, c * (1.0 / 3.0), h);
+                    if (Norm(sn) < 0.5)
+                        continue;
+                    const double ang = std::acos(std::max(
+                        -1.0, std::min(1.0, std::fabs(Dot(sn, m.tnorm[t])))));
+                    if (ang > allowed[j])
+                        continue;
+                    if (worst < bestErr) {
+                        bestErr = worst;
+                        best = j;
+                    }
+                }
+                if (best < 0) {
+                    stay.push_back(t);
+                    continue;
+                }
+                patches[best].tris.push_back(t);
+                own[t] = best;
+                moved = true;
+            }
+            if (stay.size() != had) {
+                MR_TRACE("  patch %3d dissolved: %d of %d triangles taken by "
+                         "neighbours\n",
+                         (int)i, (int)(had - stay.size()), (int)had);
+                patches[i].tris.swap(stay);
+            }
+        }
+    }
+    std::vector<Patch> keep;
+    keep.reserve(patches.size());
+    for (Patch &pa : patches)
+        if (!pa.tris.empty())
+            keep.push_back(std::move(pa));
+    patches.swap(keep);
+}
+
+/* Cuts in half every patch that wraps the whole way round.
+ *
+ * A patch that closes on itself — a hole's barrel, the ring of a boss blend —
+ * has no seam in the mesh, so there is no boundary to build a wire from and
+ * the only way to build it at all is from the surface's own parameter
+ * rectangle. That rescue works, and it costs the shell: a parametrically
+ * trimmed face's rim is the surface's exact circle, while the face beside it
+ * ends on the chain of mesh edges, and the two are only ever as close as the
+ * tessellation is fine. Nobody shares an edge, sewing is left to reconcile
+ * them by distance, and round a coarse hole it cannot. Measured on the user's
+ * part: twenty-two of the twenty-six edges that stopped the shell closing were
+ * on one of these faces or on its neighbour, and every one of the nine
+ * parametric faces in the model had a neighbour among them.
+ *
+ * So do not let the case arise. Cut the patch along a meridian and both halves
+ * are ordinary trimmed faces whose every edge is a chain the neighbour sees
+ * too, including the cut itself, which both halves walk. Two half-barrels are
+ * a perfectly good B-Rep — most kernels write a drilled hole exactly that way
+ * — and what is lost, one face where there were two, is put back at the end by
+ * UnifySameDomain, which merges faces on a common surface and knows how to
+ * build the seam that we could not.
+ *
+ * A patch with NO boundary at all — a whole sphere, a whole torus — is left
+ * alone: there is no wire to be had there under any cut, and having no
+ * neighbours it has nothing to disagree with either. */
+void SplitFullWraps(const Mesh &m, std::vector<Patch> &patches,
+                    std::vector<int> &patchOf, int &splitCount)
+{
+    const size_t n0 = patches.size();
+    std::vector<int> local(m.triCount(), -1);
+    std::vector<int> comp, stack;
+    for (size_t i = 0; i < n0; ++i) {
+        if (patches[i].fit.kind == kNone || patches[i].fit.kind == kPlane)
+            continue;
+        if (patches[i].tris.size() < 4)
+            continue;
+        const Handle(Geom_Surface) surf = MakeSurface(patches[i].fit);
+        if (surf.IsNull())
+            continue;
+        const bool uPer = surf->IsUPeriodic() != Standard_False;
+        const bool vPer = surf->IsVPeriodic() != Standard_False;
+        if (!uPer && !vPer)
+            continue;
+        /* Not a torus or a sphere. Cutting a singly-periodic surface leaves
+         * halves that an ordinary wire bounds unambiguously — a half barrel is
+         * a half barrel. Cutting a DOUBLY periodic one does not: the wire
+         * round a band of a torus bounds that band and equally the whole rest
+         * of the tube, and MakeFace answers by the surface's parametrisation
+         * rather than by the mesh. Measured on the user's part, the blend ring
+         * round the boss came back as everything except itself — the tube
+         * curling up over the top of the model, a flap standing a millimetre
+         * proud of it from every angle. Left whole, the same ring is trimmed
+         * from the mesh's own uv extent and is exactly right. */
+        if (uPer && vPer)
+            continue;
+
+        bool hasBoundary = false;
+        for (int t : patches[i].tris) {
+            for (int k = 0; k < 3; ++k) {
+                const int o = m.adj[t * 3 + k];
+                if (o < 0 || patchOf[o] != static_cast<int>(i)) {
+                    hasBoundary = true;
+                    break;
+                }
+            }
+            if (hasBoundary)
+                break;
+        }
+        if (!hasBoundary)
+            continue;
+
+        const UvExtent e = MeasureUv(m, patches[i].tris, surf);
+        if (!e.ok)
+            continue;
+        const bool inU = uPer && e.uFull;
+        const bool inV = !inU && vPer && e.vFull;
+        if (!inU && !inV)
+            continue;
+
+        /* Only where the rim cannot be sewn WHOLE.
+         *
+         * A patch that closes on itself is trimmed from its own parameters,
+         * and its rim is then the surface's exact circle while the face beside
+         * it ends on that face's own edge. Those two sew, because both are the
+         * same conic to the last decimal — that is what the exact-arc work in
+         * ChainEdge bought, and it is why a plain hole, a cone and a blend
+         * ring can each stay ONE face.
+         *
+         * It holds only while each boundary loop is a single closed chain, so
+         * that rim and chain are the same curve end to end. The user's 5 mm
+         * hole has four slits cut through the lower half of its wall: its
+         * lower boundary is a dozen open chains, no one of them is the rim,
+         * and the exact circle has nothing to be sewn to. That patch is cut in
+         * half instead, and each half is an ordinary trimmed face bounded by
+         * chains its neighbours share. Two half-barrels are a perfectly good
+         * B-Rep — most kernels write a drilled hole exactly that way. */
+        bool rimsAreWhole = true;
+        {
+            std::vector<std::vector<Chain>> loops;
+            PatchChains(m, patches[i].tris, patchOf, static_cast<int>(i),
+                        loops);
+            for (const std::vector<Chain> &cs : loops) {
+                if (cs.size() != 1 ||
+                    cs[0].verts.front() != cs[0].verts.back()) {
+                    rimsAreWhole = false;
+                    break;
+                }
+            }
+            MR_TRACE("  patch %3d full wrap: %d loops ->%s\n", (int)i,
+                     (int)loops.size(), rimsAreWhole ? " share" : " SPLIT");
+        }
+        if (rimsAreWhole)
+            continue;
+
+        Standard_Real nu1, nu2, nv1, nv2;
+        surf->Bounds(nu1, nu2, nv1, nv2);
+        const double lo = inU ? nu1 : nv1;
+        const double per = inU ? (nu2 - nu1) : (nv2 - nv1);
+        if (!(per > 0))
+            continue;
+
+        /* Which side of the cut each triangle falls on, by its centroid. */
+        const std::vector<int> tris = patches[i].tris;
+        std::vector<int> side(tris.size(), 0);
+        bool ok = true;
+        for (size_t k = 0; k < tris.size() && ok; ++k) {
+            const int t = tris[k];
+            V3 c;
+            for (int j = 0; j < 3; ++j)
+                c += m.pos[m.tri[t * 3 + j]];
+            c = c * (1.0 / 3.0);
+            double u = 0, w = 0;
+            if (!ElementaryUv(surf, P(c), u, w)) {
+                ok = false;
+                break;
+            }
+            double a = (inU ? u : w) - lo;
+            a -= std::floor(a / per) * per;
+            side[k] = (a < per * 0.5) ? 0 : 1;
+        }
+        if (!ok)
+            continue;
+
+        /* Each half in its own right: a cut can leave more than two connected
+         * pieces and every piece has to be one face. */
+        for (size_t k = 0; k < tris.size(); ++k)
+            local[tris[k]] = static_cast<int>(k);
+        comp.assign(tris.size(), -1);
+        int nComp = 0;
+        for (size_t k = 0; k < tris.size(); ++k) {
+            if (comp[k] >= 0)
+                continue;
+            stack.clear();
+            stack.push_back(static_cast<int>(k));
+            comp[k] = nComp;
+            while (!stack.empty()) {
+                const int at = stack.back();
+                stack.pop_back();
+                const int t = tris[at];
+                for (int j = 0; j < 3; ++j) {
+                    const int o = m.adj[t * 3 + j];
+                    if (o < 0)
+                        continue;
+                    const int li = local[o];
+                    if (li < 0 || comp[li] >= 0 || side[li] != side[at])
+                        continue;
+                    comp[li] = nComp;
+                    stack.push_back(li);
+                }
+            }
+            nComp++;
+        }
+        for (int t : tris)
+            local[t] = -1;
+        if (nComp < 2)
+            continue;
+
+        std::vector<std::vector<int>> pieces(nComp);
+        for (size_t k = 0; k < tris.size(); ++k)
+            pieces[comp[k]].push_back(tris[k]);
+        patches[i].tris = pieces[0];
+        for (int c = 1; c < nComp; ++c) {
+            Patch np;
+            np.tris = pieces[c];
+            np.fit = patches[i].fit;
+            np.origin = patches[i].origin;
+            patches.push_back(np);
+        }
+        splitCount++;
+        MR_TRACE("  patch %3d wraps fully in %s: cut into %d\n", (int)i,
+                 inU ? "u" : "v", nComp);
+    }
+    patchOf.assign(m.triCount(), -1);
+    for (size_t i = 0; i < patches.size(); ++i)
+        for (int t : patches[i].tris)
+            patchOf[t] = static_cast<int>(i);
+}
+
 /* Builds the face straight from parameter bounds.
  *
  * The path for a patch that wraps the whole way round a periodic surface — a
@@ -4377,18 +5453,83 @@ bool BuildAnalyticFace(BuildCtx &ctx, const Mesh &m, const Patch &patch,
                     ok = false;
                     break;
                 }
-                segs.push_back(e);
+                /* Which way round to walk it.
+                 *
+                 * A wire has a direction and the face is what lies to its
+                 * LEFT, so the loop has to run the way the chains do — they
+                 * were walked in the winding of the triangles that own them,
+                 * which is anticlockwise about the patch's own normal. The
+                 * EDGE, though, points whichever way its curve happens to be
+                 * parametrised, and the two faces either side of it need it
+                 * the opposite way from each other in any case. Left to
+                 * MakeWire, a loop that starts on a backwards edge runs
+                 * backwards entire, and the face comes out as everything
+                 * OUTSIDE its own boundary: negative area, invalid, and on a
+                 * filleted block a third of the volume gone with the top cap.
+                 * It showed up only when the cap's four arcs became exact
+                 * conics, because a polyline had happened to be parametrised
+                 * the other way.
+                 *
+                 * The chain says which end is the start. */
+                TopAbs_Orientation how = TopAbs_FORWARD;
+                try {
+                    TopoDS_Vertex ev1, ev2;
+                    TopExp::Vertices(e, ev1, ev2);
+                    if (!ev1.IsNull() && !ev2.IsNull()) {
+                        const gp_Pnt a = BRep_Tool::Pnt(ev1);
+                        const gp_Pnt b = BRep_Tool::Pnt(ev2);
+                        const gp_Pnt f = P(m.pos[c.verts.front()]);
+                        const gp_Pnt l = P(m.pos[c.verts.back()]);
+                        if (a.Distance(f) + b.Distance(l) >
+                            a.Distance(l) + b.Distance(f))
+                            how = TopAbs_REVERSED;
+                        else if (c.verts.front() == c.verts.back() &&
+                                 c.verts.size() > 2) {
+                            /* A closed rim: both ends are the same point, so
+                             * the endpoints say nothing. Ask the tangent — at
+                             * the parameter where the chain actually starts,
+                             * not at the curve's own origin, which for a
+                             * circle is wherever the intersector left it. */
+                            Standard_Real p1, p2;
+                            Handle(Geom_Curve) cu =
+                                BRep_Tool::Curve(e, p1, p2);
+                            if (!cu.IsNull()) {
+                                GeomAPI_ProjectPointOnCurve pp0(
+                                    P(m.pos[c.verts[0]]), cu);
+                                if (pp0.NbPoints() > 0) {
+                                    gp_Pnt pp;
+                                    gp_Vec d1;
+                                    cu->D1(pp0.LowerDistanceParameter(), pp,
+                                           d1);
+                                    const V3 go =
+                                        m.pos[c.verts[1]] - m.pos[c.verts[0]];
+                                    if (d1.X() * go.x + d1.Y() * go.y +
+                                            d1.Z() * go.z <
+                                        0)
+                                        how = TopAbs_REVERSED;
+                                }
+                            }
+                        }
+                    }
+                } catch (const Standard_Failure &) {
+                }
+                segs.push_back(TopoDS::Edge(e.Oriented(how)));
             } else {
                 ctx.approximated++;
             }
             for (const TopoDS_Edge &e : segs) {
                 try {
                     mw.Add(e);
-                } catch (const Standard_Failure &) {
+                } catch (const Standard_Failure &f) {
+                    MR_TRACE("        wire: Add threw (%s)\n",
+                             f.GetMessageString() ? f.GetMessageString()
+                                                  : "?");
                     ok = false;
                     break;
                 }
                 if (!mw.IsDone()) {
+                    MR_TRACE("        wire: Add refused, err=%d\n",
+                             (int)mw.Error());
                     ok = false;
                     break;
                 }
@@ -4427,6 +5568,22 @@ bool BuildAnalyticFace(BuildCtx &ctx, const Mesh &m, const Patch &patch,
                       BRepGProp::LinearProperties(b, gb);
                       return ga.Mass() > gb.Mass();
                   });
+        /* On a periodic surface a closed wire does not say which side of
+         * itself the face is on, and MakeFace decides by the surface's own
+         * parametrisation rather than by the mesh.
+         *
+         * The blend ring round the user's boss is the case: a band of the
+         * torus a millimetre thick, correctly bounded, built as everything
+         * BUT that band — the rest of the tube, curling up over the top of
+         * the part. Its tessellation then had nowhere sane to go and came out
+         * as a flap standing a millimetre proud of the model, which is the
+         * "weird artifact" visible from every angle.
+         *
+         * The mesh knows the answer: MeasureUv reads the band's extent off the
+         * triangles. So build it, ask what it covers, and if that is not what
+         * the triangles cover, take the wire the other way round. */
+        const bool periodic = surf->IsUPeriodic() || surf->IsVPeriodic();
+
         BRepBuilderAPI_MakeFace mf(surf, wires[0], Standard_False);
         if (!mf.IsDone()) {
             MR_TRACE("      face %d: MakeFace(outer of %d wires) failed\n",
@@ -4434,6 +5591,9 @@ bool BuildAnalyticFace(BuildCtx &ctx, const Mesh &m, const Patch &patch,
             return false;
         }
         TopoDS_Face face = mf.Face();
+        const Handle(Geom_Surface) carrier = surf;
+        (void)periodic;
+
         /* Inner wires go on TOPOLOGICALLY, not through MakeFace::Add.
          *
          * MakeFace::Add classifies each new wire as outer or inner, and to do
@@ -4445,7 +5605,7 @@ bool BuildAnalyticFace(BuildCtx &ctx, const Mesh &m, const Patch &patch,
          * perfectly and the part still arrived as 281 faces.
          *
          * ShapeFix_Face below builds the pcurves and then sorts outer from
-          * inner itself, which is the order these two steps must go in. */
+         * inner itself, which is the order these two steps must go in. */
         {
             BRep_Builder bb;
             for (size_t i = 1; i < wires.size(); ++i)
@@ -4513,7 +5673,7 @@ bool BuildAnalyticFace(BuildCtx &ctx, const Mesh &m, const Patch &patch,
             return false;
         }
 
-        OrientFaceLikeMesh(face, surf, m, patch.tris);
+        OrientFaceLikeMesh(face, carrier, m, patch.tris);
         out.push_back(face);
         return true;
     } catch (const Standard_Failure &f) {
@@ -4538,6 +5698,49 @@ namespace {
  * still section, still export — beats returning nothing. */
 TopoDS_Shape Solidify(const TopoDS_Shape &sewn, Report &rep);
 
+/* Is this shell closed, by the DEFINITION rather than by the flag?
+ *
+ * A shell is closed when every edge in it is used exactly twice — count USES,
+ * not neighbouring faces, because a tube's seam edge is used twice by the one
+ * face it belongs to and an ancestor map reads that as a single neighbour.
+ * Degenerate edges (a cone's apex, a sphere's poles) are not boundary at all
+ * and are not counted.
+ *
+ * The flag is asked first everywhere it is set correctly; this exists because
+ * BRepBuilderAPI_Sewing does not always set it. A cone fused on a cylinder,
+ * where the two meet along one full circle that each face uses once, sews into
+ * a perfectly closed shell that reports itself open — and the pipeline then
+ * threw a three-face reconstruction away for five hundred triangles. */
+bool ShellIsClosed(const TopoDS_Shape &sh)
+{
+    try {
+        TopTools_DataMapOfShapeInteger uses;
+        bool any = false;
+        for (TopExp_Explorer fx(sh, TopAbs_FACE); fx.More(); fx.Next()) {
+            for (TopExp_Explorer ex(fx.Current(), TopAbs_EDGE); ex.More();
+                 ex.Next()) {
+                const TopoDS_Shape &e = ex.Current();
+                if (BRep_Tool::Degenerated(TopoDS::Edge(e)))
+                    continue;
+                any = true;
+                if (uses.IsBound(e))
+                    uses.ChangeFind(e) += 1;
+                else
+                    uses.Bind(e, 1);
+            }
+        }
+        if (!any)
+            return false;
+        for (TopTools_DataMapIteratorOfDataMapOfShapeInteger it(uses);
+             it.More(); it.Next())
+            if (it.Value() != 2)
+                return false;
+    } catch (const Standard_Failure &) {
+        return false;
+    }
+    return true;
+}
+
 /* Assembles faces that ALREADY share their edges into a shell, without sewing.
  *
  * BRepBuilderAPI_Sewing rebuilds the topology it is given: it takes the faces
@@ -4559,31 +5762,8 @@ TopoDS_Shape AssembleShell(const std::vector<TopoDS_Face> &faces)
     bb.MakeShell(sh);
     for (const TopoDS_Face &f : faces)
         bb.Add(sh, f);
-    /* Count USES, not neighbouring faces. A closed tube's seam edge is used
-     * twice by the ONE face it belongs to, and an ancestor map — which lists
-     * distinct faces — reads that as an edge with a single neighbour and calls
-     * a perfectly closed shell open. */
-    try {
-        TopTools_DataMapOfShapeInteger uses;
-        for (TopExp_Explorer fx(sh, TopAbs_FACE); fx.More(); fx.Next()) {
-            for (TopExp_Explorer ex(fx.Current(), TopAbs_EDGE); ex.More();
-                 ex.Next()) {
-                const TopoDS_Shape &e = ex.Current();
-                if (BRep_Tool::Degenerated(TopoDS::Edge(e)))
-                    continue;
-                if (uses.IsBound(e))
-                    uses.ChangeFind(e) += 1;
-                else
-                    uses.Bind(e, 1);
-            }
-        }
-        for (TopTools_DataMapIteratorOfDataMapOfShapeInteger it(uses); it.More();
-             it.Next())
-            if (it.Value() != 2)
-                return TopoDS_Shape();
-    } catch (const Standard_Failure &) {
+    if (!ShellIsClosed(sh))
         return TopoDS_Shape();
-    }
     sh.Closed(Standard_True);
     return sh;
 }
@@ -4680,8 +5860,10 @@ TopoDS_Shape Solidify(const TopoDS_Shape &sewn, Report &rep)
     std::vector<TopoDS_Solid> solids;
     std::vector<TopoDS_Shape> open;
     for (TopExp_Explorer ex(sewn, TopAbs_SHELL); ex.More(); ex.Next()) {
-        const TopoDS_Shell sh = TopoDS::Shell(ex.Current());
+        TopoDS_Shell sh = TopoDS::Shell(ex.Current());
         rep.shells++;
+        if (!sh.Closed() && ShellIsClosed(sh))
+            sh.Closed(Standard_True);
         if (sh.Closed()) {
             try {
                 BRepBuilderAPI_MakeSolid ms(sh);
@@ -4963,10 +6145,26 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
         MR_STAGE("freeform runs");
         MergeRegions(m, patches, tol, scale, 8, freeform);
         MR_STAGE("merge");
+        TrimStrays(m, patches, tol, scale, prm.min_patch_triangles);
+        MR_STAGE("trim strays");
         RefineBoundaries(m, patches, tol, scale, 6);
         MR_STAGE("refine boundaries");
         Regularise(patches, m, prm, tol, scale);
         MR_STAGE("regularise");
+        /* Again, now that boundaries have settled and directions have been
+         * snapped: a patch can be clean when it is first cut and gain a stray
+         * from the neighbour it was refined against. */
+        TrimStrays(m, patches, tol, scale, prm.min_patch_triangles);
+        MR_STAGE("trim strays (2)");
+        /* And merge again. Trimming makes new neighbours — the lower band of
+         * the user's top-edge fillet was a six-facet strip that a cylinder of
+         * radius 31 threads exactly, sitting right beside the r=1 cylinder
+         * that actually explains it. Nothing about the strip alone refutes the
+         * big cylinder; the company it keeps does. */
+        MergeRegions(m, patches, tol, scale, 4, freeform);
+        MR_STAGE("merge (2)");
+        Consolidate(patches, m, prm, tol, scale);
+        MR_STAGE("consolidate");
     } catch (const std::bad_alloc &) {
         err = "the mesh is too large to segment";
         return TopoDS_Shape();
@@ -5002,12 +6200,28 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
         Patch &pa = patches[pi];
         const bool frag = pa.origin < 0 || cutInto[pa.origin] > 1;
         const bool keep =
-            pa.fit.kind != kNone && Identifiable(pa, m, tol, frag);
+            pa.fit.kind != kNone && Identifiable(pa, m, tol, frag, true);
         MR_TRACE("  patch %3d origin %3d %5d tri  %-8s rms %.5f agree %.4f  "
                  "%s%s\n",
                  (int)pi, pa.origin, (int)pa.tris.size(),
                  KindName(pa.fit.kind), pa.fit.rms, pa.fit.agree,
-                 keep ? "KEEP" : "drop", frag ? " (fragment)" : "");
+                 keep ? "KEEP" : g_why, frag ? " (fragment)" : "");
+        {
+            V3 lo(1e300, 1e300, 1e300), hi(-1e300, -1e300, -1e300);
+            for (int t : pa.tris)
+                for (int k = 0; k < 3; ++k) {
+                    const V3 &q = m.pos[m.tri[t * 3 + k]];
+                    lo = V3(std::min(lo.x, q.x), std::min(lo.y, q.y),
+                            std::min(lo.z, q.z));
+                    hi = V3(std::max(hi.x, q.x), std::max(hi.y, q.y),
+                            std::max(hi.z, q.z));
+                }
+            MR_TRACE("       box(%6.2f %6.2f %6.2f)-(%6.2f %6.2f %6.2f) "
+                     "q[%.3f %.3f %.3f | %.3f %.3f %.3f | %.4f %.4f]\n",
+                     lo.x, lo.y, lo.z, hi.x, hi.y, hi.z, pa.fit.q[0],
+                     pa.fit.q[1], pa.fit.q[2], pa.fit.q[3], pa.fit.q[4],
+                     pa.fit.q[5], pa.fit.q[6], pa.fit.q[7]);
+        }
         if (!keep)
             pa.fit = Fit();
     }
@@ -5135,7 +6349,22 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
             }
         }
     }
+    /* A patch with no surface among patches that have one usually belongs to
+     * them; see DissolveUnexplained. */
+    {
+        DissolveUnexplained(m, patches, tol, scale);
+        patchOf.assign(m.triCount(), -1);
+        for (size_t i = 0; i < patches.size(); ++i)
+            for (int t : patches[i].tris)
+                patchOf[t] = static_cast<int>(i);
+        rep.patches = static_cast<int>(patches.size());
+    }
     MR_STAGE("patch verdicts");
+
+    /* The count of RECOGNISED surfaces, taken before anything is cut: two
+     * halves of a barrel are one surface however many faces carry them. */
+    const size_t recognisedPatches = patches.size();
+
 #ifdef MESHRECON_TRACE
     /* One line per triangle: which patch, which smooth run, what kind was
      * kept. The development harness renders the mesh from this, which is the
@@ -5158,152 +6387,217 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
     }
 #endif
 
-    std::vector<Handle(Geom_Surface)> surfs(patches.size());
-    double rmsNum = 0, rmsDen = 0;
-    for (size_t i = 0; i < patches.size(); ++i) {
-        surfs[i] = MakeSurface(patches[i].fit);
-        if (surfs[i].IsNull())
-            continue;
-        double area = 0;
-        for (int t : patches[i].tris)
-            area += m.tarea[t];
-        rmsNum += patches[i].fit.rms * area;
-        rmsDen += area;
-        switch (patches[i].fit.kind) {
-        case kPlane:
-            rep.planes++;
-            break;
-        case kCylinder:
-            rep.cylinders++;
-            break;
-        case kCone:
-            rep.cones++;
-            break;
-        case kSphere:
-            rep.spheres++;
-            break;
-        case kTorus:
-            rep.tori++;
-            break;
-        default:
-            break;
-        }
-    }
-    rep.fit_rms = rmsDen > 0 ? rmsNum / rmsDen : 0;
-
-    BuildCtx ctx;
-    ctx.m = &m;
-    ctx.tol = tol;
-    ctx.scale = scale;
-
-    int facetedTriangles = 0;
-    std::vector<std::vector<int>> deferred;
-    for (size_t i = 0; i < patches.size(); ++i) {
-        bool built = false;
-        const size_t before = faces.size();
-        if (!surfs[i].IsNull()) {
-            try {
-                built =
-                    BuildAnalyticFace(ctx, m, patches[i], static_cast<int>(i),
-                                      patchOf, surfs, faces);
-            } catch (const Standard_Failure &) {
-                built = false;
-            } catch (const std::exception &) {
-                built = false;
-            } catch (...) {
-                /* One patch that will not build goes faceted. It never stops
-                 * the conversion, and it must never leave this loop. */
-                built = false;
+    /* Everything from surfaces to a sewn solid, so that it can be run twice.
+     *
+     * The first attempt keeps every recognised surface as ONE face, which is
+     * what the part was drawn as and what a user wants to select and edit. A
+     * patch that closes on itself is then trimmed from its own parameters and
+     * its rim has to be sewn to its neighbour's by distance rather than by
+     * identity — which the exact conics make good enough almost always, and
+     * not always: where a rim is divided among several neighbours there is
+     * nothing for the whole circle to be identified with, and the shell comes
+     * out open.
+     *
+     * So try it whole; and only if that does not close, cut those patches in
+     * half and try again, where every edge is shared by construction. The
+     * model pays the extra face only where it must. */
+    auto assemble = [&](const std::vector<Patch> &patches,
+                        const std::vector<int> &patchOf, Report &rep,
+                        std::string &err) -> TopoDS_Shape {
+        std::vector<TopoDS_Face> faces;
+        std::vector<Handle(Geom_Surface)> surfs(patches.size());
+        double rmsNum = 0, rmsDen = 0;
+        for (size_t i = 0; i < patches.size(); ++i) {
+            surfs[i] = MakeSurface(patches[i].fit);
+            if (surfs[i].IsNull())
+                continue;
+            AlignSurfaceSeam(surfs[i], m, patches[i].tris);
+            double area = 0;
+            for (int t : patches[i].tris)
+                area += m.tarea[t];
+            rmsNum += patches[i].fit.rms * area;
+            rmsDen += area;
+            if (i >= recognisedPatches)
+                continue; /* the far half of a cut barrel is the same surface */
+            switch (patches[i].fit.kind) {
+            case kPlane:
+                rep.planes++;
+                break;
+            case kCylinder:
+                rep.cylinders++;
+                break;
+            case kCone:
+                rep.cones++;
+                break;
+            case kSphere:
+                rep.spheres++;
+                break;
+            case kTorus:
+                rep.tori++;
+                break;
+            default:
+                break;
             }
         }
-        if (built) {
-            /* Checked HERE rather than inside the builder because the analytic
-             * path can also hand off to the parametric one, and a face that
-             * escaped its patch is worthless whichever built it. */
-            for (size_t k = before; k < faces.size(); ++k) {
-                if (!FaceWithinPatch(faces[k], m, patches[i].tris, tol)) {
+        rep.fit_rms = rmsDen > 0 ? rmsNum / rmsDen : 0;
+
+        BuildCtx ctx;
+        ctx.m = &m;
+        ctx.tol = tol;
+        ctx.scale = scale;
+
+        int facetedTriangles = 0;
+        std::vector<std::vector<int>> deferred;
+        for (size_t i = 0; i < patches.size(); ++i) {
+            bool built = false;
+            const size_t before = faces.size();
+            if (!surfs[i].IsNull()) {
+                try {
+                    built =
+                        BuildAnalyticFace(ctx, m, patches[i], static_cast<int>(i),
+                                          patchOf, surfs, faces);
+                } catch (const Standard_Failure &) {
                     built = false;
-                    break;
+                } catch (const std::exception &) {
+                    built = false;
+                } catch (...) {
+                    /* One patch that will not build goes faceted. It never stops
+                     * the conversion, and it must never leave this loop. */
+                    built = false;
                 }
             }
-            if (!built)
+            if (built) {
+                /* Checked HERE rather than inside the builder because the analytic
+                 * path can also hand off to the parametric one, and a face that
+                 * escaped its patch is worthless whichever built it. */
+                for (size_t k = before; k < faces.size(); ++k) {
+                    if (!FaceWithinPatch(faces[k], m, patches[i].tris, tol)) {
+                        built = false;
+                        break;
+                    }
+                }
+                if (!built)
+                    faces.resize(before);
+            }
+            if (built) {
+                rep.faces_built++;
+            } else {
                 faces.resize(before);
+                if (!surfs[i].IsNull())
+                    rep.faces_failed++;
+                rep.faceted_patches++;
+                facetedTriangles += static_cast<int>(patches[i].tris.size());
+                deferred.push_back(patches[i].tris);
+            }
         }
-        if (built) {
-            rep.faces_built++;
-        } else {
-            faces.resize(before);
-            if (!surfs[i].IsNull())
-                rep.faces_failed++;
-            rep.faceted_patches++;
-            facetedTriangles += static_cast<int>(patches[i].tris.size());
-            deferred.push_back(patches[i].tris);
+
+        if (facetedTriangles > prm.max_faceted_triangles) {
+            char buf[224];
+            std::snprintf(buf, sizeof(buf),
+                          "only %d of %d patches became surfaces; the remaining "
+                          "%d triangles are too many to keep face-by-face",
+                          rep.faces_built, rep.patches, facetedTriangles);
+            err = buf;
+            return TopoDS_Shape();
         }
-    }
+        MR_STAGE("build faces");
+        for (const std::vector<int> &tris : deferred)
+            EmitFacetedShared(ctx, m, tris, faces);
+        MR_STAGE("emit faceted");
 
-    if (facetedTriangles > prm.max_faceted_triangles) {
-        char buf[224];
-        std::snprintf(buf, sizeof(buf),
-                      "only %d of %d patches became surfaces; the remaining "
-                      "%d triangles are too many to keep face-by-face",
-                      rep.faces_built, rep.patches, facetedTriangles);
-        err = buf;
-        return TopoDS_Shape();
-    }
-    MR_STAGE("build faces");
-    for (const std::vector<int> &tris : deferred)
-        EmitFacetedShared(ctx, m, tris, faces);
-    MR_STAGE("emit faceted");
+        rep.analytic_edges = ctx.analytic;
+        rep.approximated_edges = ctx.approximated;
+        rep.freeform = 0;
 
-    rep.analytic_edges = ctx.analytic;
-    rep.approximated_edges = ctx.approximated;
-    rep.freeform = 0;
+        if (faces.empty()) {
+            err = "no faces could be built from that mesh";
+            return TopoDS_Shape();
+        }
+        /* These faces were built sharing their edges, so try assembling them
+         * as they are before handing them to a tool that would rebuild them. */
+        TopoDS_Shape out;
+        {
+            const TopoDS_Shape direct = AssembleShell(faces);
+            if (!direct.IsNull())
+                out = Solidify(direct, rep);
+        }
+        if (out.IsNull())
+            out = SewAndSolidify(faces, tol, rep);
+        /* A hybrid shell — fitted faces beside triangles — can come out of sewing
+         * with a handful of edges still open where the two kinds meet: 26 of 3032
+         * on the model this was measured on, the seams round its four holes. They
+         * are not gaps in the model, they are two descriptions of the same seam
+         * that sewing declined to identify at the tolerance it was given. Ask
+         * again, once, with room. */
+        if (rep.closed != 1 && !faces.empty()) {
+            Report r2 = rep;
+            r2.shells = r2.solids = r2.closed = 0;
+            TopoDS_Shape again;
+            try {
+                again = SewAndSolidify(faces, tol * kSewRetryFactor, r2);
+            } catch (const Standard_Failure &) {
+            }
+            if (!again.IsNull() && r2.closed == 1) {
+                rep = r2;
+                out = again;
+            }
+        }
+        return out;
+    };
 
-    if (faces.empty()) {
-        err = "no faces could be built from that mesh";
-        return TopoDS_Shape();
-    }
-    /* These faces were built sharing their edges, so try assembling them
-     * as they are before handing them to a tool that would rebuild them. */
-    TopoDS_Shape out;
-    {
-        const TopoDS_Shape direct = AssembleShell(faces);
-        if (!direct.IsNull())
-            out = Solidify(direct, rep);
-    }
-    if (out.IsNull())
-        out = SewAndSolidify(faces, tol, rep);
-    /* A hybrid shell — fitted faces beside triangles — can come out of sewing
-     * with a handful of edges still open where the two kinds meet: 26 of 3032
-     * on the model this was measured on, the seams round its four holes. They
-     * are not gaps in the model, they are two descriptions of the same seam
-     * that sewing declined to identify at the tolerance it was given. Ask
-     * again, once, with room. */
-    if (rep.closed != 1 && !faces.empty()) {
-        Report r2 = rep;
-        r2.shells = r2.solids = r2.closed = 0;
-        TopoDS_Shape again;
+    std::string err1 = err;
+    Report rep1 = rep;
+    TopoDS_Shape out = assemble(patches, patchOf, rep1, err1);
+    MR_TRACE("  whole: null=%d closed=%d shells=%d built=%d failed=%d "
+             "faceted=%d\n",
+             (int)out.IsNull(), rep1.closed, rep1.shells, rep1.faces_built,
+             rep1.faces_failed, rep1.faceted_patches);
+    if (!out.IsNull() && rep1.closed == 1) {
+        rep = rep1;
+    } else {
+        /* Did not close whole: cut the wrapping patches and try once more. */
+        std::vector<Patch> cut = patches;
+        std::vector<int> cutOf = patchOf;
+        int nsplit = 0;
         try {
-            again = SewAndSolidify(faces, tol * kSewRetryFactor, r2);
+            SplitFullWraps(m, cut, cutOf, nsplit);
         } catch (const Standard_Failure &) {
         }
-        if (!again.IsNull() && r2.closed == 1) {
-            rep = r2;
-            out = again;
+        MR_STAGE("split full wraps");
+        bool tookSecond = false;
+        if (nsplit > 0) {
+            Report rep2 = rep;
+            std::string err2 = err;
+            TopoDS_Shape alt = assemble(cut, cutOf, rep2, err2);
+            if (!alt.IsNull() && (rep2.closed == 1 || out.IsNull())) {
+                out = alt;
+                rep = rep2;
+                err = err2;
+                tookSecond = true;
+            }
+        }
+        if (!tookSecond) {
+            rep = rep1;
+            err = err1;
         }
     }
     if (out.IsNull()) {
-        err = "the faces would not sew into a shell";
+        if (err.empty())
+            err = "the faces would not sew into a shell";
         return TopoDS_Shape();
     }
-    try {
-        ShapeUpgrade_UnifySameDomain uni(out, Standard_True, Standard_True,
-                                         Standard_False);
-        uni.Build();
-        if (!uni.Shape().IsNull())
-            out = uni.Shape();
-    } catch (const Standard_Failure &) {
-    }
+    /* A hole comes out as two half-barrels, and stays that way.
+     *
+     * SplitFullWraps cuts a patch that closes on itself in half so that every
+     * edge of it can be shared with the faces around it, and a B-Rep of two
+     * half-barrels is a perfectly good body — most kernels write a drilled
+     * hole exactly that way. Rejoining them into one seamed face is a nicety,
+     * ShapeUpgrade_UnifySameDomain is the tool for it, and it cannot be
+     * trusted with the job: asked to merge the two halves of the user's 5 mm
+     * hole it returned a face BRepCheck rejects, and on the same part one
+     * revision later it ran for ten minutes on eighty faces without
+     * finishing. A body that is right and arrives is worth more than one that
+     * is tidier and may not. */
 
     /* A shell that will not close is not a body, and an ORGANIC model produces
      * exactly that.
@@ -5375,7 +6669,12 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
             break;
         }
     }
-    if (rep.closed != 1 && !recognisedFeatures &&
+#ifdef MESHRECON_TRACE
+    const bool noFallback = std::getenv("MR_NOFALLBACK") != nullptr;
+#else
+    const bool noFallback = false;
+#endif
+    if (rep.closed != 1 && !recognisedFeatures && !noFallback &&
         m.triCount() <= kMaxAutoFacetedTriangles &&
         m.triCount() <= prm.max_faceted_triangles) {
         Report fr;

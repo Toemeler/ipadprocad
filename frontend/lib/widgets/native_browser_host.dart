@@ -510,7 +510,11 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
       final c = _constraint(id);
       if (c == null) return;
       if (identical(app.currentAssembly?.selectedConstraint, c)) {
-        app.openConstraint(edit: c);
+        if (c.isJoint) {
+          app.openJoint(edit: c);
+        } else {
+          app.openConstraint(edit: c);
+        }
       } else {
         app.selectConstraint(c);
       }
@@ -759,7 +763,17 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
       if (c == null) return;
       switch (item) {
         case 'relEdit':
-          app.openConstraint(edit: c);
+          // M249 — a joint edits in the Joint dialog. See the same branch in
+          // model_browser: which panel opens is decided by what the
+          // relationship is, not by which tree the row was tapped in.
+          if (c.isJoint) {
+            app.openJoint(edit: c);
+          } else {
+            app.openConstraint(edit: c);
+          }
+          break;
+        case 'relDrive':
+          app.openDrive(c);
           break;
         case 'relSuppress':
           app.toggleConstraintSuppressed(c);

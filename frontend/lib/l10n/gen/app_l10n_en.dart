@@ -3453,6 +3453,131 @@ class AppL10nEn extends AppL10n {
   }
 
   @override
+  String get dlgPlaceJoint => 'Place Joint';
+
+  @override
+  String get grpAsmConnect => 'Connect';
+
+  @override
+  String get lblAsmGap => 'Gap';
+
+  @override
+  String get jtAutomatic => 'Automatic';
+
+  @override
+  String get jtRigid => 'Rigid';
+
+  @override
+  String get jtRotational => 'Rotational';
+
+  @override
+  String get jtSlider => 'Slider';
+
+  @override
+  String get jtCylindrical => 'Cylindrical';
+
+  @override
+  String get jtPlanar => 'Planar';
+
+  @override
+  String get jtBall => 'Ball';
+
+  @override
+  String hintAsmJointAuto(String type) {
+    return 'Automatic: $type';
+  }
+
+  @override
+  String hintAsmJointDof(int n) {
+    String _temp0 = intl.Intl.pluralLogic(
+      n,
+      locale: localeName,
+      other: '$n degrees of freedom left',
+      one: 'One degree of freedom left',
+      zero: 'No degrees of freedom left',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get msgAsmJointNeedsDirections => 'This joint needs two directions.';
+
+  @override
+  String get hintAsmShowPickComponent =>
+      'Select the component whose relationships to show.';
+
+  @override
+  String msgAsmNoRelationships(String name) {
+    return '“$name” has no relationships.';
+  }
+
+  @override
+  String get msgAsmNoSickRelationships => 'All relationships are healthy.';
+
+  @override
+  String get dlgDrive => 'Drive Constraint';
+
+  @override
+  String get ctxDrive => 'Drive';
+
+  @override
+  String get lblDriveStart => 'Start';
+
+  @override
+  String get lblDriveEnd => 'End';
+
+  @override
+  String get lblDrivePause => 'Pause Delay';
+
+  @override
+  String get grpDriveIncrement => 'Increment';
+
+  @override
+  String get optDriveAmount => 'Amount of value';
+
+  @override
+  String get optDriveSteps => 'Total number of steps';
+
+  @override
+  String get grpDriveRepetitions => 'Repetitions';
+
+  @override
+  String get optDriveOnce => 'Start/End';
+
+  @override
+  String get optDriveBoth => 'Start/End/Start';
+
+  @override
+  String get lblDriveCycles => 'Cycles';
+
+  @override
+  String get cbDriveAdaptivity => 'Drive Adaptivity';
+
+  @override
+  String get cbDriveCollision => 'Collision Detection';
+
+  @override
+  String get hintDriveUnavailable => 'Not available in this app.';
+
+  @override
+  String get msgAsmCannotDrive => 'This relationship cannot be driven.';
+
+  @override
+  String get tipDrivePlay => 'Play';
+
+  @override
+  String get tipDriveReverse => 'Reverse';
+
+  @override
+  String get tipDrivePause => 'Pause';
+
+  @override
+  String get tipDriveToStart => 'To Start';
+
+  @override
+  String get tipDriveToEnd => 'To End';
+
+  @override
   String get hintAsmFreeMove =>
       'Drag a component — its relationships are overridden.';
 

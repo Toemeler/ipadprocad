@@ -1036,6 +1036,31 @@ class _RibbonState extends State<Ribbon> {
                 ]
               ]),
         );
+    // M249 — small rows whose callback may be NULL, which is a third state
+    // neither [offCol] nor [asmCol] can say: those two mean "not built" and
+    // "built", and Show Sick is built and unavailable — Inventor greys it out
+    // when every relationship is healthy. A row drawn disabled for that reason
+    // has to look exactly like one drawn disabled for the other, or the ribbon
+    // would be teaching two meanings for one appearance.
+    Widget maybeCol(List<(String, String, VoidCallback?, bool)> rows,
+            {double leftPad = 8}) =>
+        Padding(
+          padding: EdgeInsets.only(left: leftPad),
+          child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (var i = 0; i < rows.length; i++) ...[
+                  if (i > 0) const SizedBox(height: 2),
+                  _SmallRow(
+                      icon: rows[i].$1,
+                      label: rows[i].$2,
+                      enabled: rows[i].$3 != null,
+                      onTap: rows[i].$3,
+                      active: rows[i].$4),
+                ]
+              ]),
+        );
     // M247 — small rows that are BUILT, each with the drop chip its flyout
     // needs. The part ribbon's `col` in every respect but the file it is
     // written in; it cannot simply be shared because both are closures over
@@ -1127,11 +1152,18 @@ class _RibbonState extends State<Ribbon> {
           label: t.panelRelationships,
           arrow: true,
           child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            // M249 — Joint is WIRED. Inventor's own claim for it is that ONE
+            // pick pair replaces the two or three constraints you would
+            // otherwise place by hand, and the dialog it opens is the modeless
+            // sibling of Place Constraint's: it collects its two origins from
+            // the viewport through the same session (see
+            // ConstraintSession.jointType).
             _BigWide(
                 width: 52,
                 icon: AS['joint']!,
                 label: t.btnJoint,
-                enabled: false),
+                onTap: () => app.openJoint(),
+                active: app.constraintSession?.isJoint == true),
             // M242 — Constrain is WIRED. It opens Inventor's modeless Place
             // Constraint panel, which then collects its selections from the
             // viewport; the button stays lit for as long as the panel is up,
@@ -1142,10 +1174,35 @@ class _RibbonState extends State<Ribbon> {
                 label: t.btnConstrain,
                 onTap: () => app.openConstraint(),
                 active: app.constraintSession != null),
-            offCol([
-              (AS['show']!, t.btnShowRelationships),
-              (AS['showsick']!, t.btnShowSick),
-              (AS['hideall']!, t.btnHideAll),
+            // M249 — the three relationship-visibility rows, wired. They
+            // control whether the constraint GLYPHS are drawn in the viewport
+            // (paintRelationshipGlyphs), which is the thing that had to exist
+            // before the commands could mean anything.
+            //
+            // Show LIGHTS while it is waiting for a component, because
+            // Inventor's is modal in exactly that way ("click Show, then
+            // select the component"); the other two are one-shots and never
+            // light. Show Sick is DISABLED when nothing is sick, which is
+            // Inventor's own rule — "the command is not available if all
+            // relationships are healthy" — and the one place in this ribbon
+            // where a command's enablement depends on the document rather than
+            // on whether it has been built.
+            maybeCol([
+              (
+                AS['show']!,
+                t.btnShowRelationships,
+                app.showRelationships,
+                app.showRelationshipsPicking
+              ),
+              (
+                AS['showsick']!,
+                t.btnShowSick,
+                app.currentAssembly?.hasSickRelationships == true
+                    ? app.showSickRelationships
+                    : null,
+                false
+              ),
+              (AS['hideall']!, t.btnHideAll, app.hideAllRelationships, false),
             ]),
           ]),
         ),

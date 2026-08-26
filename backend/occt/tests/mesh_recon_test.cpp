@@ -794,10 +794,20 @@ int main()
                 if (sa.GetType() == GeomAbs_Cylinder)
                     radii.push_back(sa.Cylinder().Radius());
             }
+            /* DISTINCT radii, not faces. A hole whose rim is divided among
+             * several neighbours cannot be sewn as one barrel, so the builder
+             * cuts it in half and each hole arrives as two faces on the same
+             * cylinder — which is what most kernels write for a drilled hole
+             * anyway. What is being asked here is whether the four holes were
+             * measured right, and that is a question about radii. */
             std::sort(radii.begin(), radii.end());
-            bool exact = radii.size() == 4;
-            for (size_t i = 0; i < radii.size() && exact; ++i)
-                exact = std::fabs(radii[i] - rad[i]) < 1e-4;
+            std::vector<double> uniq;
+            for (double x : radii)
+                if (uniq.empty() || std::fabs(x - uniq.back()) > 1e-4)
+                    uniq.push_back(x);
+            bool exact = uniq.size() == 4;
+            for (size_t i = 0; i < uniq.size() && exact; ++i)
+                exact = std::fabs(uniq[i] - rad[i]) < 1e-4;
             std::string got;
             for (double x : radii)
                 got += std::to_string(x) + " ";
