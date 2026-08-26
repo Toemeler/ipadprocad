@@ -1223,6 +1223,47 @@ class CombineSession {
   bool keepTool = false;
 }
 
+/// M256 — the Output boolean a feature's geometry asks for.
+///
+/// [current] is the boolean in force; [inside] is the fraction of the
+/// feature's own solid that lies INSIDE the body it is aimed at, 0..1.
+/// Returns the boolean to switch to, or null to leave it where it is.
+///
+/// Requested from the device: "es soll immer zuerst hinzufügen ausgewählt
+/// sein. aber wenn ich in die extrusion umkehre soll automatisch auf wegnehmen
+/// geschaltet werden wenn ein Grossteil der extrusion im gleichen teil wäre.
+/// ich will es immer noch umschalten können aber es soll intelligent
+/// funktionieren." Join is still where every feature starts; this is what
+/// notices that the extrusion has been turned around into the body it sits on.
+///
+/// TWO THRESHOLDS, NOT ONE. A single 0.5 would flip back and forth while a
+/// distance is dragged through it, and a control that changes under the finger
+/// twice a second is worse than one that never changes at all. Leaving Join
+/// takes 0.6 and coming back takes 0.4: a dead band that a real gesture —
+/// reversing the direction, or pushing a distance in past the far wall —
+/// crosses once and decisively.
+///
+/// ONLY JOIN AND CUT TAKE PART. Nothing about where the material sits implies
+/// "keep only the overlap" or "start a second body", so Intersect and New
+/// Solid are never suggested and never overruled.
+///
+/// THE CASE IT DELIBERATELY DOES NOT CATCH: a cut typed with a big overshoot.
+/// A hole driven 20 mm into a 5 mm plate is only a quarter buried, and by the
+/// measure asked for — "wenn ein Grossteil der extrusion im gleichen teil
+/// wäre" — a quarter is not a Grossteil. Volume alone cannot tell that tool
+/// from a boss standing off a recessed face, because both read as "mostly
+/// outside"; separating them needs a ray from the sketch plane, which is a
+/// kernel call this deliberately does not make. Through All and a matched
+/// distance — what that hole is usually drawn with — both come out near 1 and
+/// switch. The overshoot stays one tap, which is the tap the user asked to
+/// keep.
+String? suggestedOutput(String current, double inside) {
+  if (!inside.isFinite) return null;
+  if (current == 'join' && inside >= 0.6) return 'cut';
+  if (current == 'cut' && inside <= 0.4) return 'join';
+  return null;
+}
+
 class ExtrudeSession {
   /// 'extrude' | 'revolve' | 'sweep' | 'loft' | 'coil'.
   ///
@@ -1280,6 +1321,21 @@ class ExtrudeSession {
   bool iMate = false, matchShape = true;
   // Inventor Output boolean: 'join' | 'cut' | 'intersect' | 'new'.
   String output = 'join';
+
+  /// M256 — set the moment the user touches the Output control.
+  ///
+  /// See [outputIsTheirs]: the suggestion is a starting point, never an
+  /// argument with the user.
+  bool outputLocked = false;
+
+  /// True while [output] is nobody's business but the user's — they have
+  /// chosen it by hand, or the feature being EDITED already carries one that
+  /// they chose when they made it.
+  ///
+  /// One getter rather than a flag set in five openers: revolve, sweep, loft
+  /// and coil each have their own edit branch, and a rule that has to be
+  /// remembered in each of them is a rule the sixth one will miss.
+  bool get outputIsTheirs => outputLocked || editing != null;
 
   /// M132 — Inventor's Extents. Distance uses [exprA]; the other three
   /// resolve against the body at recompute time.
@@ -11011,7 +11067,20 @@ class AppState extends ChangeNotifier {
         ..exprTaper = edit.exprTaper
         ..bodyName = edit.bodyName
         ..iMate = edit.iMate
-        ..matchShape = edit.matchShape;
+        ..matchShape = edit.matchShape
+        // M256 — the feature's OWN Output and Extents.
+        //
+        // Extrude was the one opener that dropped them. Revolve has restored
+        // `output` since M137 and sweep/loft/coil since M131b; here the
+        // session kept its constructed defaults, so re-opening a Cut Through
+        // All came up reading "Join, Distance" and OK turned the cut into a
+        // join 5 mm long. The panel has to show what the feature IS — and
+        // M256's suggestion, which reads `output` to decide whether to move
+        // it, would otherwise have been reasoning about a default nobody
+        // chose.
+        ..output = edit.output
+        ..extent = edit.extent
+        ..extentFace = edit.extentFace;
       for (final x in edit.profiles) {
         s.profiles.add(ProfileSel(x.ax, x.ay, x.area));
       }
@@ -11149,6 +11218,13 @@ class AppState extends ChangeNotifier {
       // Leaving "To" clears the face: keeping a stale termination face around
       // would silently reapply it if the user came back to To later.
       if (extent != FeatureExtent.toFace) s.extentFace = null;
+    }
+    if (output != null) {
+      // M256 — touching the Output control at all ENDS the automatic one, even
+      // when it names the boolean already in force: tapping Join on a feature
+      // the suggestion has just moved to Cut is the clearest statement of
+      // intent there is, and it must stick.
+      s.outputLocked = true;
     }
     if (output != null && output != s.output) {
       s.output = output;
@@ -11410,6 +11486,67 @@ class AppState extends ChangeNotifier {
     return base != null;
   }
 
+  /// Guard: the Output suggestion rebuilds the preview once at the boolean it
+  /// chose, and that rebuild must not suggest again. One switch per change —
+  /// without this, a fake or a kernel whose two booleans disagree could sit
+  /// here flipping Join and Cut forever.
+  bool _outputSwitching = false;
+
+  /// The fraction of [tool] that lies INSIDE [base], read off the boolean that
+  /// has already been run — so the suggestion costs no kernel work at all:
+  ///
+  ///     join:  |a ∪ b| = |a| + |b| − |a ∩ b|   ⇒  |a ∩ b| = |a| + |b| − |a ∪ b|
+  ///     cut:   |a \ b| = |a| − |a ∩ b|         ⇒  |a ∩ b| = |a| − |a \ b|
+  ///
+  /// Doing it any other way means a third boolean per keystroke on a body the
+  /// user is already waiting for; this way the answer is arithmetic on three
+  /// numbers the preview computed anyway.
+  ///
+  /// Null when the numbers cannot answer: a tool with no volume, a boolean
+  /// that produced something whose volume is not a number.
+  static double? _insideFraction(
+      String output, KernelSolid base, KernelSolid tool, KernelSolid combined) {
+    final vb = base.volume, vt = tool.volume, vc = combined.volume;
+    if (!(vt > 1e-9) || !vb.isFinite || !vc.isFinite) return null;
+    final double overlap;
+    if (output == 'join') {
+      overlap = vb + vt - vc;
+    } else if (output == 'cut') {
+      overlap = vb - vc;
+    } else {
+      return null; // intersect and new take no part — see suggestedOutput
+    }
+    final frac = overlap / vt;
+    if (!frac.isFinite) return null;
+    // Clamped by hand rather than through num.clamp, whose static type is num
+    // and not double. A boolean that came back a hair heavier than its inputs
+    // is rounding, not a reading worth acting on the far side of.
+    if (frac < 0.0) return 0.0;
+    if (frac > 1.0) return 1.0;
+    return frac;
+  }
+
+  /// [suggestedOutput] against the live session, or null to leave it alone.
+  ///
+  /// A switch is LOGGED, with the reading behind it. This is a control moving
+  /// on its own, and the next report that says "it went to Cut and I did not
+  /// want it" has to be answerable from the bundle rather than by guessing at
+  /// a fraction nobody can see.
+  String? _suggestOutputFor(ExtrudeSession s, KernelSolid base,
+      KernelSolid tool, KernelSolid combined) {
+    if (s.outputIsTheirs || _outputSwitching) return null;
+    final inside = _insideFraction(s.output, base, tool, combined);
+    if (inside == null) return null;
+    final want = suggestedOutput(s.output, inside);
+    if (want != null) {
+      Log.i(
+          'extrude',
+          '${s.kind}: output ${s.output} -> $want, '
+              '${(inside * 100).round()}% of the tool lies inside the body');
+    }
+    return want;
+  }
+
   void _updateExtrudePreview() {
     final s = extrudeSession;
     final p = currentPart;
@@ -11443,6 +11580,22 @@ class AppState extends ChangeNotifier {
     if (s.output != 'new' && base != null && f.solid != null) {
       final combined = combineSolids(partKernel, s.output, base, f.solid!);
       if (combined != null) {
+        // M256 — let the geometry choose between Join and Cut, unless the
+        // user already has. The switch rebuilds the preview ONCE at the new
+        // boolean, because the picture has to be the answer, not the question.
+        final want = _suggestOutputFor(s, base, f.solid!, combined);
+        if (want != null) {
+          s.output = want;
+          f.disposeSolid();
+          combined.dispose();
+          _outputSwitching = true;
+          try {
+            _updateExtrudePreview();
+          } finally {
+            _outputSwitching = false;
+          }
+          return;
+        }
         f.disposeSolid(); // drop the throwaway prism
         s.preview = combined;
         s.previewReplacesBody = bodyName;
