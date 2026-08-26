@@ -250,6 +250,7 @@ struct Mesh
     std::vector<int> tri;      /* 3 per triangle */
     std::vector<V3> tnorm;     /* per triangle, unit */
     std::vector<double> tarea; /* per triangle */
+    double area = 0;           /* their sum: the model's whole surface */
     /* adj[t*3+k] is the triangle across the k-th edge of triangle t — the
      * edge (tri[t*3+k], tri[t*3+(k+1)%3]) — or -1 at a boundary or at a
      * non-manifold edge. */
@@ -379,6 +380,7 @@ bool BuildMesh(const double *xyz, int nv, const int *tri, int nt,
         const V3 n = Cross(m.pos[m.tri[t * 3 + 1]] - m.pos[m.tri[t * 3]],
                            m.pos[m.tri[t * 3 + 2]] - m.pos[m.tri[t * 3]]);
         m.tarea[t] = Norm(n) * 0.5;
+        m.area += m.tarea[t];
         m.tnorm[t] = Unit(n);
     }
     return true;
@@ -1960,10 +1962,37 @@ bool Identifiable(const Patch &p, const Mesh &m, double tol, bool fragment,
         return WHY("notexact"), false;
     /* A plane is pinned down exactly by three points, so the sample-size floor
      * is for the CURVED kinds only — a box face is two triangles and perfectly
-     * knowable, and holding it to six was how a box lost its planes. */
-    if (p.fit.kind != kPlane &&
-        std::max(static_cast<int>(p.tris.size()), p.evidence) <
-            kMinTrustTriangles)
+     * knowable, and holding it to six was how a box lost its planes.
+     *
+     * That exemption assumes the mesh is WITNESSING the plane, and a whole
+     * smooth run does: the model's own sharp edges bound it, so two triangles
+     * of a box face are plenty, and so are the seven flat strips a cylinder
+     * comes back as when it is tessellated at fifty degrees a step — those
+     * really are planes, and this must not take them.
+     *
+     * A FRAGMENT has no such witness. Three points are ALWAYS coplanar, so an
+     * exact residual says nothing whatever about a piece of one or two facets
+     * that the splitter carved out of a bigger run and that is also a
+     * thousandth of the part's surface, and the residual test above cannot
+     * reject it. Measured on the user's part: where the boss blend crosses the
+     * top-edge fillet, six such pieces — nine triangles between them — each
+     * became a face of its own, and every one is a visible crease across what
+     * should be a smooth rounded edge. */
+    bool floorApplies = p.fit.kind != kPlane;
+    if (!floorApplies && fragment) {
+        /* ...and how small is small enough to be nothing? The same fraction of
+         * the model's surface that decides whether a scrap of a face is worth
+         * less than its own triangles. A plate's end wall is two triangles and
+         * a fragment of the rim's run — and thirty square millimetres, one and
+         * a half percent of the part: a face. The pieces left at the crossing
+         * are one and two triangles and a fifth of a square millimetre. */
+        double a = 0;
+        for (int t : p.tris)
+            a += m.tarea[t];
+        floorApplies = a <= m.area * kScrapAreaFraction;
+    }
+    if (floorApplies && std::max(static_cast<int>(p.tris.size()),
+                                 p.evidence) < kMinTrustTriangles)
         return WHY("tootiny"), false;
 
     const double allowed = AgreementAllowed(p, m);
@@ -3645,6 +3674,163 @@ void Consolidate(std::vector<Patch> &patches, const Mesh &m, const Params &prm,
     }
 }
 
+/* Two patches of one smooth run whose surfaces this mesh cannot tell apart.
+ *
+ * The splitter grows greedily, so a long fillet comes out as several pieces,
+ * and a piece that straddles the fillet and the transition leaving it fits a
+ * cylinder tilted a few degrees off the fillet's own axis — exactly, on its
+ * own seven facets, and wrong. Nothing about that piece alone refutes it: its
+ * residual is zero because the surface was fitted to it. What refutes it is
+ * the forty millimetres of the same fillet on either side, measured at
+ * radius 0.9998 about an axis that does not tilt.
+ *
+ * Refitting the union is NOT the answer, and this is why the pass is separate
+ * from MergeRegions: the union is the fillet PLUS the transition, and fitting
+ * it drags the radius of a forty-millimetre edge from 1.0000 to 0.9524 to
+ * accommodate a strip three millimetres long. Measured on the user's part.
+ *
+ * So do not refit. Ask instead whether the better-witnessed of the two
+ * surfaces already describes the other's triangles to within the tolerance the
+ * whole pipeline works to, pointing the way the mesh does; if it does, the two
+ * are one surface as far as this mesh can say, and the one with the evidence
+ * keeps its numbers and takes the triangles. The user's top edge goes from
+ * three faces with a four-degree kink between them to one, and its radius
+ * stays the radius it was drawn with. */
+void AdoptStronger(const Mesh &m, std::vector<Patch> &patches, double tol,
+                   double scale)
+{
+    const double h = std::max(scale * 1e-5, 1e-9);
+    const double exactBar = tol * kExactFitFraction;
+    auto weight = [](const Patch &p) {
+        return std::max(static_cast<int>(p.tris.size()), p.evidence);
+    };
+
+    for (int pass = 0; pass < 6; ++pass) {
+        std::vector<int> own(m.triCount(), -1);
+        for (size_t i = 0; i < patches.size(); ++i)
+            for (int t : patches[i].tris)
+                own[t] = static_cast<int>(i);
+        std::vector<std::pair<int, int>> pairs;
+        for (int t = 0; t < m.triCount(); ++t) {
+            const int a = own[t];
+            if (a < 0)
+                continue;
+            for (int k = 0; k < 3; ++k) {
+                const int o = m.adj[t * 3 + k];
+                if (o < 0)
+                    continue;
+                const int b = own[o];
+                if (b < 0 || b == a)
+                    continue;
+                pairs.emplace_back(std::min(a, b), std::max(a, b));
+            }
+        }
+        std::sort(pairs.begin(), pairs.end());
+        pairs.erase(std::unique(pairs.begin(), pairs.end()), pairs.end());
+
+        std::vector<double> allowed(patches.size(), -1.0);
+        auto allowanceOf = [&](int i) {
+            if (allowed[i] < 0)
+                allowed[i] = AgreementAllowed(patches[i], m);
+            return allowed[i];
+        };
+        /* Does A's surface account for every triangle B has? */
+        auto explains = [&](int ai, int bi) {
+            const Fit &f = patches[ai].fit;
+            const double allow = allowanceOf(ai);
+            for (int t : patches[bi].tris) {
+                V3 c;
+                for (int q = 0; q < 3; ++q) {
+                    const V3 &p = m.pos[m.tri[t * 3 + q]];
+                    c += p;
+                    if (std::fabs(SurfDist(f.kind, f.q, p)) > tol)
+                        return false;
+                }
+                const V3 sn = SurfNormal(f.kind, f.q, c * (1.0 / 3.0), h);
+                if (Norm(sn) < 0.5)
+                    return false;
+                const double ang = std::acos(std::max(
+                    -1.0, std::min(1.0, std::fabs(Dot(sn, m.tnorm[t])))));
+                if (ang > allow)
+                    return false;
+            }
+            return true;
+        };
+
+        bool changed = false;
+        std::vector<char> gone(patches.size(), 0);
+        for (const std::pair<int, int> &pr : pairs) {
+            if (gone[pr.first] || gone[pr.second])
+                continue;
+            const Patch &p0 = patches[pr.first];
+            const Patch &p1 = patches[pr.second];
+            if (p0.fit.kind == kNone || p0.fit.kind != p1.fit.kind)
+                continue;
+            /* Same smooth run only, as everywhere else: a sharp edge is a real
+             * boundary and nothing across one is the same surface. */
+            if (p0.origin < 0 || p0.origin != p1.origin)
+                continue;
+            int a = pr.first, b = pr.second;
+            if (weight(p1) > weight(p0))
+                std::swap(a, b);
+            if (weight(patches[a]) <= weight(patches[b]))
+                continue; /* nothing to choose between them */
+            /* The stronger surface must not be the LOOSER one: adopting it
+             * would trade an exact surface for an approximate one, which is
+             * the opposite of what this is for. */
+            if (patches[a].fit.rms >
+                std::max(patches[b].fit.rms, exactBar))
+                continue;
+            if (!explains(a, b))
+                continue;
+            /* And only where there is a disagreement to settle.
+             *
+             * When A explains B EXACTLY, B is simply a piece of A that the
+             * splitter cut off: the two carry the same surface, their faces
+             * meet along it seamlessly, and putting them together changes
+             * nothing anyone can see. It does change the topology, and badly —
+             * five exact segments of the user's centre hole, joined, wrap the
+             * whole way round, and a full wrap has no boundary to build a face
+             * from, so the radial slits cut through it disappeared and the
+             * part came back five percent light.
+             *
+             * The case this pass is for is the other one: A explains B to
+             * within tolerance but NOT exactly, which is what it looks like
+             * when B's own surface has been pulled off true by triangles that
+             * belong to neither. */
+            {
+                PatchData bd;
+                PatchPoints(m, patches[b].tris, bd, 4000);
+                if (FitRms(patches[a].fit.kind, patches[a].fit.q, bd.pts) <=
+                    exactBar)
+                    continue;
+            }
+            MR_TRACE("  patch %3d (%s, %d tri) adopts %3d (%d tri): one "
+                     "surface\n",
+                     a, KindName(patches[a].fit.kind),
+                     (int)patches[a].tris.size(), b,
+                     (int)patches[b].tris.size());
+            patches[a].tris.insert(patches[a].tris.end(),
+                                   patches[b].tris.begin(),
+                                   patches[b].tris.end());
+            patches[a].evidence =
+                std::max(patches[a].evidence,
+                         static_cast<int>(patches[a].tris.size()));
+            patches[b].tris.clear();
+            gone[b] = 1;
+            changed = true;
+        }
+        std::vector<Patch> keep;
+        keep.reserve(patches.size());
+        for (Patch &p : patches)
+            if (!p.tris.empty())
+                keep.push_back(std::move(p));
+        patches.swap(keep);
+        if (!changed)
+            return;
+    }
+}
+
 void Regularise(std::vector<Patch> &patches, const Mesh &m, const Params &prm,
                 double tol, double scale)
 {
@@ -4349,6 +4535,9 @@ TopoDS_Edge ChainEdge(BuildCtx &ctx, const Chain &c, int self,
 {
     const EdgeKey key = KeyFor(c, self);
     auto it = ctx.edges.find(key);
+    MR_TRACE("        chain key(%d %d %d %d %d) self %d other %d verts %d %s\n",
+             key.p1, key.p2, key.v1, key.v2, key.vm, self, c.other,
+             (int)c.verts.size(), it != ctx.edges.end() ? "HIT" : "new");
     if (it != ctx.edges.end())
         return it->second;
 
@@ -5034,71 +5223,152 @@ void DissolveUnexplained(const Mesh &m, std::vector<Patch> &patches, double tol,
             allowed[i] = AgreementAllowed(patches[i], m);
     }
 
-    bool moved = true;
-    for (int pass = 0; pass < 3 && moved; ++pass) {
-        moved = false;
-        for (size_t i = 0; i < patches.size(); ++i) {
-            if (patches[i].fit.kind != kNone || patches[i].tris.empty())
-                continue;
-            if (static_cast<int>(patches[i].tris.size()) >
-                kDissolveMaxTriangles)
-                continue;
-            std::vector<int> stay;
-            stay.reserve(patches[i].tris.size());
-            const size_t had = patches[i].tris.size();
-            for (int t : patches[i].tris) {
-                int best = -1;
-                double bestErr = 1e300;
-                for (int k = 0; k < 3; ++k) {
-                    const int o = m.adj[t * 3 + k];
-                    if (o < 0)
-                        continue;
-                    const int j = own[o];
-                    if (j < 0 || j == static_cast<int>(i) ||
-                        patches[j].fit.kind == kNone)
-                        continue;
-                    /* Same smooth run only, for the reason MergeRegions and
-                     * RefineBoundaries have it: a sharp edge is a real
-                     * boundary and nothing across one belongs here. */
-                    if (patches[j].origin < 0 ||
-                        patches[j].origin != patches[i].origin)
-                        continue;
-                    const Fit &f = patches[j].fit;
-                    double worst = 0;
-                    V3 c;
-                    for (int q = 0; q < 3; ++q) {
-                        const V3 &pnt = m.pos[m.tri[t * 3 + q]];
-                        c += pnt;
-                        worst = std::max(
-                            worst, std::fabs(SurfDist(f.kind, f.q, pnt)));
-                    }
-                    if (worst > exactBar)
-                        continue;
-                    const V3 sn = SurfNormal(f.kind, f.q, c * (1.0 / 3.0), h);
-                    if (Norm(sn) < 0.5)
-                        continue;
-                    const double ang = std::acos(std::max(
-                        -1.0, std::min(1.0, std::fabs(Dot(sn, m.tnorm[t])))));
-                    if (ang > allowed[j])
-                        continue;
-                    if (worst < bestErr) {
-                        bestErr = worst;
-                        best = j;
-                    }
-                }
-                if (best < 0) {
-                    stay.push_back(t);
-                    continue;
-                }
-                patches[best].tris.push_back(t);
-                own[t] = best;
-                moved = true;
+    /* Which recognised surfaces touch each mesh vertex.
+     *
+     * This is the map that says whether a corner is a JUNCTION — a point where
+     * faces meet — and it is built from the surfaces only, because a patch
+     * that fits nothing witnesses nothing. */
+    std::vector<std::vector<int>> touch(m.pos.size());
+    for (size_t i = 0; i < patches.size(); ++i) {
+        if (patches[i].fit.kind == kNone)
+            continue;
+        for (int t : patches[i].tris) {
+            for (int k = 0; k < 3; ++k) {
+                std::vector<int> &tv = touch[m.tri[t * 3 + k]];
+                if (tv.empty() || tv.back() != static_cast<int>(i))
+                    tv.push_back(static_cast<int>(i));
             }
-            if (stay.size() != had) {
-                MR_TRACE("  patch %3d dissolved: %d of %d triangles taken by "
-                         "neighbours\n",
-                         (int)i, (int)(had - stay.size()), (int)had);
-                patches[i].tris.swap(stay);
+        }
+    }
+    auto junction = [&](int v, int notJ) {
+        for (int k : touch[v]) {
+            if (k == notJ)
+                continue;
+            const Fit &f = patches[k].fit;
+            if (f.kind != kNone &&
+                std::fabs(SurfDist(f.kind, f.q, m.pos[v])) <= exactBar)
+                return true;
+        }
+        return false;
+    };
+
+    /* Two tiers, tightest first.
+     *
+     * TIER 1 is the exact bar, and it is the one that matters for a fragment
+     * of a real surface: a tessellation puts its vertices ON the surface they
+     * came from, so a stray of a hole's barrel rejoins the barrel and nothing
+     * else does.
+     *
+     * TIER 2 is the model tolerance, and it is for the transition that is not
+     * a surface at all. Where the boss blend crosses the top-edge fillet, the
+     * ball that rolls along the edge is rolling on the blend rather than on
+     * the flat, so the part has a strip there that is neither the torus nor
+     * the cylinder: taken together it fits a cylinder of radius 0.93 at thirty
+     * times the exact bar, and taken apart it is a dozen loose facets in the
+     * middle of a rounded edge — which is the one defect a user actually sees.
+     * At tolerance the fillet explains all of it but ONE corner.
+     *
+     * That corner is allowed to be further off, and only that kind of corner:
+     * one that lies EXACTLY on another recognised surface is a point where
+     * surfaces meet, a vertex of the model, and no single face is required to
+     * pass through it — the builder gives it a vertex tolerance and both faces
+     * end there. On the user's part it is the one point of the boss blend's
+     * tangency circle that reaches the edge: 0.141 mm off the r=1 cylinder and
+     * 0.000 off the torus it belongs to. */
+    for (int tier = 0; tier < 2; ++tier) {
+        const double bar = tier == 0 ? exactBar : tol;
+        bool moved = true;
+        for (int pass = 0; pass < 3 && moved; ++pass) {
+            moved = false;
+            for (size_t i = 0; i < patches.size(); ++i) {
+                if (patches[i].fit.kind != kNone || patches[i].tris.empty())
+                    continue;
+                if (static_cast<int>(patches[i].tris.size()) >
+                    kDissolveMaxTriangles)
+                    continue;
+                std::vector<int> stay;
+                stay.reserve(patches[i].tris.size());
+                const size_t had = patches[i].tris.size();
+                for (int t : patches[i].tris) {
+                    int best = -1;
+                    double bestErr = 1e300;
+                    for (int k = 0; k < 3; ++k) {
+                        const int o = m.adj[t * 3 + k];
+                        if (o < 0)
+                            continue;
+                        const int j = own[o];
+                        if (j < 0 || j == static_cast<int>(i) ||
+                            patches[j].fit.kind == kNone)
+                            continue;
+                        /* Same smooth run only, for the reason MergeRegions
+                         * and RefineBoundaries have it: a sharp edge is a real
+                         * boundary and nothing across one belongs here. */
+                        if (patches[j].origin < 0 ||
+                            patches[j].origin != patches[i].origin)
+                            continue;
+                        const Fit &f = patches[j].fit;
+                        double worst = 0;
+                        V3 c;
+                        bool over = false;
+                        for (int q = 0; q < 3; ++q) {
+                            const int vi = m.tri[t * 3 + q];
+                            const V3 &pnt = m.pos[vi];
+                            c += pnt;
+                            const double d =
+                                std::fabs(SurfDist(f.kind, f.q, pnt));
+                            worst = std::max(worst, d);
+                            if (d > bar && !(tier == 1 && junction(vi, j)))
+                                over = true;
+                        }
+                        if (over)
+                            continue;
+                        const V3 sn =
+                            SurfNormal(f.kind, f.q, c * (1.0 / 3.0), h);
+                        if (Norm(sn) < 0.5)
+                            continue;
+                        const double cosA = std::max(
+                            -1.0, std::min(1.0, std::fabs(Dot(sn,
+                                                              m.tnorm[t]))));
+                        if (std::acos(cosA) > allowed[j])
+                            continue;
+                        /* Which neighbour, when more than one will have it.
+                         *
+                         * Tier 1 goes by residual, because there the surface is
+                         * exact and the residual is what says so. Tier 2 has no
+                         * exact answer to find — every candidate is inside
+                         * tolerance by construction — so what tells which
+                         * surface the strip is leaving is the way it FACES, and
+                         * the score is the one RefineBoundaries uses. On the
+                         * user's part the triangle at the apex of the crossing
+                         * is 0.113 from the boss blend and 0.141 from the edge
+                         * fillet, and it is the fillet's: six degrees off its
+                         * normal against eleven off the blend's. Given to the
+                         * blend instead, the blend's rim closes into a whole
+                         * circle and the flat top beside it, whose rim is two
+                         * arcs, has nothing to sew to. */
+                        const double sc =
+                            tier == 0 ? worst
+                                      : worst + scale * kBoundaryAngleWeight *
+                                                    (1.0 - cosA);
+                        if (sc < bestErr) {
+                            bestErr = sc;
+                            best = j;
+                        }
+                    }
+                    if (best < 0) {
+                        stay.push_back(t);
+                        continue;
+                    }
+                    patches[best].tris.push_back(t);
+                    own[t] = best;
+                    moved = true;
+                }
+                if (stay.size() != had) {
+                    MR_TRACE("  patch %3d dissolved (tier %d): %d of %d "
+                             "triangles taken by neighbours\n",
+                             (int)i, tier, (int)(had - stay.size()), (int)had);
+                    patches[i].tris.swap(stay);
+                }
             }
         }
     }
@@ -6165,6 +6435,55 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
         MR_STAGE("merge (2)");
         Consolidate(patches, m, prm, tol, scale);
         MR_STAGE("consolidate");
+        /* And where two pieces of one run turn out to be one surface, let the
+         * better-witnessed one have it — without refitting, which is the whole
+         * point. See AdoptStronger. */
+        AdoptStronger(m, patches, tol, scale);
+        MR_STAGE("adopt stronger");
+        /* No triangle is left out.
+         *
+         * The splitter can finish having placed a triangle in no piece at all,
+         * and a triangle in no patch is a triangle in no FACE: a hole in the
+         * shell exactly its own size and shape. One such facet sat at the
+         * crossing of the boss blend and the top edge of the user's part and
+         * left three free edges around it. Sweep the leftovers up by smooth
+         * run and connected piece, so that at worst they arrive as facets and
+         * at best DissolveUnexplained hands them to the surface they came
+         * from. */
+        {
+            std::vector<int> own(m.triCount(), -1);
+            for (size_t i = 0; i < patches.size(); ++i)
+                for (int t : patches[i].tris)
+                    own[t] = static_cast<int>(i);
+            std::vector<char> seen(m.triCount(), 0);
+            std::vector<int> stack;
+            int swept = 0;
+            for (int s = 0; s < m.triCount(); ++s) {
+                if (own[s] >= 0 || seen[s])
+                    continue;
+                Patch pa;
+                pa.origin = patchOf[s];
+                seen[s] = 1;
+                stack.assign(1, s);
+                while (!stack.empty()) {
+                    const int t = stack.back();
+                    stack.pop_back();
+                    pa.tris.push_back(t);
+                    swept++;
+                    for (int k = 0; k < 3; ++k) {
+                        const int o = m.adj[t * 3 + k];
+                        if (o >= 0 && own[o] < 0 && !seen[o] &&
+                            patchOf[o] == patchOf[t]) {
+                            seen[o] = 1;
+                            stack.push_back(o);
+                        }
+                    }
+                }
+                patches.push_back(pa);
+            }
+            if (swept)
+                MR_TRACE("  %d loose triangles swept into patches\n", swept);
+        }
     } catch (const std::bad_alloc &) {
         err = "the mesh is too large to segment";
         return TopoDS_Shape();
@@ -6466,6 +6785,7 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
                     built = false;
                 }
             }
+            const bool madeIt = built;
             if (built) {
                 /* Checked HERE rather than inside the builder because the analytic
                  * path can also hand off to the parametric one, and a face that
@@ -6479,6 +6799,11 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
                 if (!built)
                     faces.resize(before);
             }
+            if (!built && !surfs[i].IsNull())
+                MR_TRACE("      patch %3d NOT BUILT (%s, %d tri): %s\n", (int)i,
+                         KindName(patches[i].fit.kind),
+                         (int)patches[i].tris.size(),
+                         madeIt ? "face escaped its patch" : "builder failed");
             if (built) {
                 rep.faces_built++;
             } else {
@@ -6569,6 +6894,11 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
             Report rep2 = rep;
             std::string err2 = err;
             TopoDS_Shape alt = assemble(cut, cutOf, rep2, err2);
+            MR_TRACE("  split: null=%d closed=%d shells=%d built=%d failed=%d "
+                     "faceted=%d\n",
+                     (int)alt.IsNull(), rep2.closed, rep2.shells,
+                     rep2.faces_built, rep2.faces_failed,
+                     rep2.faceted_patches);
             if (!alt.IsNull() && (rep2.closed == 1 || out.IsNull())) {
                 out = alt;
                 rep = rep2;
