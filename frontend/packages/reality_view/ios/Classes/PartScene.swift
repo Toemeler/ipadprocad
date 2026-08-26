@@ -251,7 +251,7 @@ enum OutlineBuilder {
     /// under a pixel at a hairline.
     static func tube(_ pts: [SIMD3<Float>], color: UIColor,
                      style: OutlineStyle,
-                     weight: Float = Stroke.line) -> Entity? {
+                     weight: Float = Stroke.line) -> ModelEntity? {
         return TubeBuilder.polyline(pts, radius: style.halfWidth(weight),
                                     material: Materials.unlit(color))
     }
@@ -533,7 +533,7 @@ struct SolidGeom {
 final class PlaneEntity {
     let entity = Entity()
     private var fill: ModelEntity?
-    private var outline: Entity?
+    private var outline: ModelEntity?
     private let corners: [SIMD3<Float>]
     /// Plane normal — used to lift the plane toward the camera when a solid
     /// face happens to be EXACTLY coplanar with it (origin plane through a
@@ -610,11 +610,33 @@ final class PlaneEntity {
         }
     }
 
+    /// Hot / not hot is a COLOUR, so it swaps materials on the entities that
+    /// are already there.
+    ///
+    /// M254 — reported as "die planes sehen weird aus. sie sollten einfach
+    /// transparent sein und nicht so flackern wie jetzt manchmal", with all
+    /// three origin planes up in plane-pick mode. setHot arrives on EVERY
+    /// pointer move, and it used to rebuild both meshes: a finger crossing the
+    /// planes flips which one is hot, and each flip destroyed and re-uploaded
+    /// a quad and a 16-sided swept tube, twice, per frame. The header of this
+    /// class has said since M83 that rebuilding here "is pure churn"; the
+    /// cached `hot` only skipped the case where nothing changed, which is not
+    /// the case that hurts. M241 made exactly this move for a solid's tint —
+    /// see PartRenderer.applyTint — for exactly this reason.
+    private func applyColors() {
+        fill?.model?.materials = [
+            Materials.unlitTransparent(hot ? Colors.green : Colors.orange,
+                                       hot ? 0.42 : 0.28)
+        ]
+        outline?.model?.materials = [
+            Materials.unlit(hot ? Colors.greenBright : Colors.orangeEdge)
+        ]
+    }
+
     func setHot(_ h: Bool) {
         guard h != hot else { return }
         hot = h
-        buildFill()
-        buildOutline()
+        applyColors()
     }
 
     /// Re-stroke the border for a new zoom.
@@ -659,6 +681,9 @@ final class AxisEntity {
     private var visible = true
     /// Same story as PlaneEntity.style: this was a fixed 0.06 mm tube.
     private var style: OutlineStyle
+    /// The drawn tube, kept so a hover can recolour it without rebuilding it
+    /// (M254 — see PlaneEntity.applyColors).
+    private var tube: ModelEntity?
 
     init?(payload a: [String: Any], style s: OutlineStyle) {
         style = s
@@ -674,18 +699,26 @@ final class AxisEntity {
     }
 
     private func build() {
-        for c in entity.children.map({ $0 }) { c.removeFromParent() }
+        tube?.removeFromParent()
+        tube = nil
         let color = hot ? Colors.green : Colors.orange
         if let t = OutlineBuilder.tube([dir * lo, dir * hi], color: color,
                                        style: style) {
+            tube = t
             entity.addChild(t)
         }
+    }
+
+    private func applyColors() {
+        tube?.model?.materials = [
+            Materials.unlit(hot ? Colors.green : Colors.orange)
+        ]
     }
 
     func setHot(_ h: Bool) {
         guard h != hot else { return }
         hot = h
-        build()
+        applyColors()
     }
 
     /// Re-stroke for a new zoom. Width only, same as PlaneEntity.setStyle.
@@ -856,15 +889,19 @@ enum TubeBuilder {
     private static let sides = 16
 
     static func polyline(_ pts: [SIMD3<Float>], radius: Float,
-                         material: RealityKit.Material) -> Entity? {
+                         material: RealityKit.Material) -> ModelEntity? {
         guard pts.count >= 2 else { return nil }
         var segs = [(SIMD3<Float>, SIMD3<Float>)]()
         for i in 0..<(pts.count - 1) { segs.append((pts[i], pts[i + 1])) }
         return segments(segs, radius: radius, material: material)
     }
 
+    /// M254 — returns the CONCRETE ModelEntity it has always built, rather
+    /// than an Entity. A caller that keeps one of these to recolour it needs
+    /// its model component, and a downcast at every such site would be three
+    /// chances to get the same fact wrong.
     static func segments(_ segs: [(SIMD3<Float>, SIMD3<Float>)], radius: Float,
-                         material: RealityKit.Material) -> Entity? {
+                         material: RealityKit.Material) -> ModelEntity? {
         var positions = [SIMD3<Float>]()
         var normals = [SIMD3<Float>]()
         var indices = [UInt32]()

@@ -7326,6 +7326,40 @@ class AppState extends ChangeNotifier {
       identical(selectedWorkPlane, w) &&
       w.offsetEditable;
 
+  /// Arm [w] for editing: select it AND open its value field.
+  ///
+  /// M254 — "wenn ich im context menu versatz bearbeiten klicke passiert
+  /// nichts". The menu handler did this inline, as [selectWorkPlane] followed
+  /// by `workPlaneOffsetEditing = true`, and that cannot work: the flag is a
+  /// plain field and does not notify, and [selectWorkPlane] RETURNS EARLY when
+  /// the plane is already selected — which it always is, because tapping the
+  /// row is how you reach its menu. The log has it twice in a row:
+  ///
+  ///     browser: tap  wp:6            (selects; editing false)
+  ///     browser: menu wp:6 -> wpOffset (flag true; nobody rebuilds)
+  ///
+  /// M252 is what made it matter — before it, tapping the row opened the field
+  /// too, so the menu never had to work on its own.
+  void editWorkPlaneValue(WorkPlane w) {
+    selectedWorkPlane = w;
+    _wpDragFrom = null;
+    workPlaneOffsetEditing = w.valueEditable;
+    // A midplane has no single number behind it. Saying so beats opening a
+    // field on nothing, and beats the silence this method exists to end.
+    if (!w.valueEditable) toast(L.current.msgPlaneHasNoOffset(w.name));
+    notifyListeners();
+  }
+
+  /// Tapping a work plane's row selects it; tapping it AGAIN clears it.
+  ///
+  /// M254 — "ausserdem ist die work plane im Modell browser immer
+  /// gehighlighted". Nothing ever cleared the selection. [selectWorkPlane]
+  /// early-returns on the plane already selected, so a second tap could not
+  /// undo the first, and no other path ever passed null. A body row has
+  /// toggled since M97; this is the same gesture on the same kind of row.
+  void toggleWorkPlaneSelected(WorkPlane w) =>
+      selectWorkPlane(identical(selectedWorkPlane, w) ? null : w);
+
   void selectWorkPlane(WorkPlane? w) {
     if (identical(selectedWorkPlane, w)) return;
     selectedWorkPlane = w;

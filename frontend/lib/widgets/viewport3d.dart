@@ -2070,6 +2070,18 @@ class _Viewport3DState extends State<Viewport3D>
       app.holePointPicked(hit.$1, hit.$2);
       return;
     }
+    // M254 — a tap that is NOT on a work plane clears the work-plane
+    // selection, the other half of "die work plane im Modell browser [ist]
+    // immer gehighlighted". Pointer-down selects the plane you touch; nothing
+    // ever un-selected it, so the row stayed lit for the rest of the session.
+    // Here and not on pointer-down, because a DRAG that happens to start on
+    // empty space is an orbit and must not change the selection.
+    if (!app.pickPlane &&
+        app.extrudeSession == null &&
+        app.selectedWorkPlane != null &&
+        _workPlaneAt(cam, px, p) == null) {
+      app.selectWorkPlane(null);
+    }
     // A hovered sketch curve is selectable in plain 3D. Shift/ctrl extends the
     // set, a plain tap replaces it, a tap on empty space clears it.
     if (!app.pickPlane && app.extrudeSession == null) {
@@ -2590,15 +2602,11 @@ class _ScenePainter extends CustomPainter {
           close: true,
           extra: occ?.edgeMargin ?? 0);
       if (hot) {
-        // corner rings + centre dot + name label lying on the plane
+        // M254 — corner DOTS (not rings), centre dot, name label lying on the
+        // plane. Same marker as the iOS overlay painter draws, and it has to
+        // stay the same marker: the two viewports draw the same chrome.
         for (final c in corners) {
-          canvas.drawCircle(
-              cam.project(c),
-              6,
-              Paint()
-                ..style = PaintingStyle.stroke
-                ..strokeWidth = 2
-                ..color = _greenBright);
+          canvas.drawCircle(cam.project(c), 4, Paint()..color = _greenBright);
         }
         canvas.drawCircle(cam.project(Vec3.zero), 4,
             Paint()..color = T.dofArrow);
@@ -2637,13 +2645,7 @@ class _ScenePainter extends CustomPainter {
             ..color = hot ? _green : _orange);
       if (hot) {
         for (final p in [a, b]) {
-          canvas.drawCircle(
-              p,
-              6,
-              Paint()
-                ..style = PaintingStyle.stroke
-                ..strokeWidth = 2
-                ..color = _greenBright);
+          canvas.drawCircle(p, 4, Paint()..color = _greenBright);
         }
       }
     }
@@ -2791,6 +2793,12 @@ class _OverlayPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2
       ..color = _greenBright;
+    // M254 — the corner and end markers are DOTS. Reported: "die punkte an den
+    // ecken der plane sollten punkte sein nicht kreise". They were stroked
+    // rings, and a ring reads as a thing with a hole in it, where what these
+    // mark is a point. [ring] stays for the centre-point hover, which really
+    // is a ring drawn AROUND a dot that already exists.
+    final dot = Paint()..color = _greenBright;
 
     // ---- hovered origin plane: corner rings + centre dot + name label ----
     if (hover != null && kPlaneKeys.contains(hover)) {
@@ -2805,7 +2813,7 @@ class _OverlayPainter extends CustomPainter {
         f.toWorld(Offset(uMin, vMax)),
       ];
       for (final c in corners) {
-        canvas.drawCircle(cam.project(c), 6, ring);
+        canvas.drawCircle(cam.project(c), 4, dot);
       }
       canvas.drawCircle(
           cam.project(Vec3.zero), 4, Paint()..color = T.dofArrow);
@@ -2837,7 +2845,7 @@ class _OverlayPainter extends CustomPainter {
         cam.project(e.$2 * al),
         cam.project(e.$2 * ah),
       ]) {
-        canvas.drawCircle(p, 6, ring);
+        canvas.drawCircle(p, 4, dot);
       }
     }
 

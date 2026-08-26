@@ -545,7 +545,10 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
     // Offset"), which is the one place the user asked for it to live.
     if (id.startsWith(kIdWorkPlane)) {
       final w = _workPlane(part, id);
-      if (w != null) app.selectWorkPlane(w);
+      // M254 — and tapping it again CLEARS it, like a body row. Without that
+      // there was no gesture anywhere that deselected a plane, so the row
+      // stayed lit for the rest of the session.
+      if (w != null) app.toggleWorkPlaneSelected(w);
       return;
     }
     // M215 — tapping a work axis or point SELECTS it, the way a work plane
@@ -881,8 +884,9 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
           app.startSketchOnWorkPlane(w);
           break;
         case 'wpOffset':
-          app.selectWorkPlane(w);
-          app.workPlaneOffsetEditing = true;
+          // M254 — one call that also NOTIFIES. See editWorkPlaneValue for
+          // why the two lines this replaces could not open the field.
+          app.editWorkPlaneValue(w);
           break;
         case 'wpVis':
           app.toggleWorkPlaneVisible(w);
