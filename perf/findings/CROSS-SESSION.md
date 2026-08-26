@@ -4468,3 +4468,102 @@ session adds no C ABI surface and touches no C file. One consequence: the
 "KNOWN, NOT FIXED HERE" paragraph above `occt_chamfer_edges` in `occt_capi.h`
 is now stale and still points at S17 §5.1. **Needs:** whoever next owns
 `backend/occt/shim/**`.
+
+---
+
+## 2026-08-26 — INTEGRATOR — S19 and S20 both land; the numbering, restated; and what I verified rather than read
+
+**Needs:** the owner, for two decisions named at the bottom. The merges need
+nobody.
+
+**Merged into `claude/perf-opt2`:** `claude/finish-pipe-validation-blnp1n` (S19)
+and `claude/dart-chamfer-trivial-audit-892ne1` (S20), plus my own handover
+entries. Both sessions worked on the branch the harness assigned rather than on
+`perf-opt2` directly, as S18 did before them — so the shared-branch régime the
+briefs described never actually came into force, and the merge is the ordinary
+kind.
+
+### The numbering, because S19's entry contains a sentence that would cause the fifth collision
+
+S19 records, correctly from where it stood, that it did not take the number it
+was handed and that **"29 is free."** It is not.
+
+**v29 is S18's**, reserved when S18 was found to have taken a colliding v27 —
+it branched one commit before S15's v27 and S17's v28 landed, and its own
+`occt_shim_version()` still returns 27 against a tree that returns 28. S18 is
+still unmerged and its renumber is still pending, so nothing in any tree shows
+29 as taken, which is exactly why it needed writing down rather than reading off.
+
+**Neither S19 nor S20 took a shim version, and both said so loudly.** That is
+the right behaviour and it is worth naming: S19 was handed a number, found it
+had no ABI to attach it to, and gave it back rather than booking it — *"a number
+booked against no ABI would be a fourth kind"* of collision. S20 the same. The
+allocation now stands as:
+
+| number | holder | state |
+| --- | --- | --- |
+| v28 | S17 | merged; the tip, and unchanged by either session |
+| **v29** | **S18** | complete, unmerged, renumbering from its colliding v27 |
+| **v30** | free | returned by S19 unused |
+
+Scenarios: `[39]` S15, `[40]` S16, `[41]` S17, `[42]` S18, **`[43]` S19**
+(four arms, merged). S20 took none. **Next free: `[44]`.**
+
+### What I checked myself, rather than accepting a summary table
+
+Per the standing method on this branch. Every one of these is a load-bearing
+claim in a session's own entry.
+
+| claim | check | result |
+| --- | --- | --- |
+| S19 touched no shim | its five commits, by name | `backend/bench/**`, `backend/occt/tests/**`, findings only — holds |
+| S19: the shim already ships this gate since v11 | read `blend_result_ok`, `occt_capi.cpp` | ends in `BRepCheck_Analyzer(out).IsValid() == Standard_True` — holds |
+| S19: `occt_shape_valid` is bound in Dart and never called on a build result | `occt_engine.dart` — bound at the `_ValidN` lookup, surfaced as the `valid` getter | holds |
+| S19: the patched OCCT was reverted | `git ls-tree` on the submodule | pinned at `a016080b`, clean — holds |
+| S20: `setFaceEditValue` has no caller | `git grep` across `frontend/` | one hit, its own definition — holds |
+| S20: `setEdgeFeature`'s `edgeChain:` has no caller | `git grep` | the method has six callers and **not one passes `edgeChain`** — holds, and is more precise than "no caller" |
+| S20: the no-arg `kernelParams` is gone | `git grep` on the merged tree | zero surviving callers; every one goes through `kernelParamsFor` — holds |
+| both: frozen apparatus untouched | `git diff 2f2a308..HEAD` on `perf/baseline.json`, `PERFORMANCE_PROFILE.md`, `frontend/lib/perf*.dart` | empty — holds |
+
+Post-merge, the three checks trap 3 exists for: brace guard clean, no duplicate
+top-level declarations in `smoke_occt.c`, no private identifier called without a
+definition. `python3 -m unittest discover -s ci` — 52 tests, OK.
+
+`flutter analyze` and `flutter test` **NOT RUN** here — no Flutter SDK in this
+container. **S20 reports that this hedge was never necessary:** it installed
+3.47.1, the version CI runs, and reports `analyze` clean and `test` green at
+2564, with defect 2's revert verified by actually reverting it. I cannot confirm
+that from here and am not implying I did. If it holds, it retires a caveat S16,
+S17, S18, S19 and two integrator entries all carried, and the next Dart session
+should measure rather than argue.
+
+### One thing I would put back to S20, and it is small
+
+S20's reasoning for removing the no-argument `kernelParams` is that *"a defaulted
+90 is the defect"*, and that is right. `kernelArgsFor` then falls back to
+`e?.dihedralDeg ?? 90.0` when the edge is missing from the live map. S20
+documents it as unreachable — the ids came out of `resolveEdges` against that
+same list — and the reasoning is sound. It is still the one silent path back to
+the exact expression the session removed, and this project has been bitten
+before by a guard that was right until its invariant was not (S15 §4.4). Not a
+defect, not a blocker; recorded so that if the invariant ever breaks, this is
+where to look.
+
+### Two decisions I have NOT taken, and will not take alone
+
+Both are behaviour changes, and §1.2 plus four integrator rulings say those are
+the human's call. Both are ready to execute.
+
+1. **The validity gate in `finish_pipe`.** S19 priced it and enumerated it:
+   **136 of 405 producible configurations would begin to fail, and none fails
+   today** — one of them returning a *negative* volume, −933.602882, inside-out,
+   through the shipped entry point. Cost is under 10 % everywhere except the
+   holed 1200-segment sweep, where it is 63.8 % with the cheap topology-only
+   check that S19 measured catching 136 of 136.
+2. **S18's merge**, which ships its own refusal of a tapered sweep across a
+   drawn corner. S19 has since made that case wider rather than narrower: a
+   taper across **any** mitred joint fails, 126 of its 136 rows.
+
+They are the same decision wearing two hats — *does this application refuse to
+build a solid it currently builds wrongly?* — and answering one should probably
+answer the other.
