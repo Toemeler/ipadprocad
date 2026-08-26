@@ -1330,6 +1330,32 @@ const int kFeatureGapBins = 6; /* degrees of empty histogram that make a gap */
  * shell open. Bounded: past this the "seam" being closed is a real gap. */
 const double kSewRetryFactor = 5.0;
 
+/* ---- Ties decide the model -------------------------------------------
+ *
+ * Every ordering in this file must be a TOTAL order, and the reason is not
+ * tidiness.
+ *
+ * std::sort is not stable, and where a comparator says two elements are
+ * equal the order it leaves them in is the standard library's business.
+ * libstdc++ and libc++ do not agree — and this converter is compiled against
+ * libstdc++ for the development harness and libc++ for the device. A
+ * tessellated part is FULL of exact ties: a twelve-sided hole is twenty-four
+ * triangles of identical area and identical bend, and the order they are
+ * sorted into is the order the splitter seeds from. Different seeds, different
+ * patches, different part.
+ *
+ * Measured on the user's part, same 1138 triangles, same code: the harness
+ * came back 20 planes, 18 cylinders, 1 faceted patch and 50 faces; the iPad
+ * came back 19, 17, 2 and 47 — the centre hole a polygon on one and a cylinder
+ * on the other. Every number this file has ever been tuned against was
+ * measured on a segmentation the user was not getting.
+ *
+ * So: no comparator may return false both ways for two different elements.
+ * Break the tie on something intrinsic — the triangle's index, the patch's
+ * index, the order the wire was built in — never on where the element happens
+ * to sit in a hash table.
+ * ---------------------------------------------------------------------- */
+
 /* Fewer triangles than this and the fit has no sample to speak of. */
 const int kMinTrustTriangles = 6;
 
@@ -1663,6 +1689,10 @@ struct Patch
      * facet scrap of a fillet is not slender evidence when thirty-six facets
      * along the same edge measured the same cylinder. 0 means "just my own". */
     int evidence = 0;
+    /* A surface that failed the verdict ONLY for being too small a sample,
+     * kept aside while the dissolve decides whether the neighbours want the
+     * triangles. See DissolveUnexplained's closing pass. */
+    Fit shelved;
 };
 
 void PatchPoints(const Mesh &m, const std::vector<int> &tris, PatchData &d,
@@ -1917,6 +1947,23 @@ double AgreementAllowed(const Patch &p, const Mesh &m)
                 -1.0, std::min(1.0, Dot(m.tnorm[t], m.tnorm[o])))));
         }
     }
+    /* The MEAN of the edges that bend, not their median.
+     *
+     * What this bar is compared against is a MEAN: the fit's agreement is the
+     * average |cos| over every sampled corner of the patch, so a patch whose
+     * facets are half narrow and half wide gets an average pulled up by the
+     * wide ones. A median answers a different question — it reads the narrow
+     * half and calls that the tessellation.
+     *
+     * Where the facets are all one size the two are the same number and
+     * nothing changes: the plate's counterbores are 27-degree steps all the
+     * way round and read 27 either way. Where they are not, the median is
+     * simply the wrong statistic. The user's centre hole is tessellated at
+     * thirty-four different azimuths because the four counterbores run tangent
+     * to it and force extra vertices in: its steps run from 3 degrees to 28,
+     * the median reads 8 and set a bar of 16, and the barrel's honest average
+     * disagreement of 18 was rejected against it — a five-millimetre hole came
+     * back as a polygon of loose facets. The mean reads 10 and sets 20. */
     double facet = 0;
     if (!step.empty()) {
         std::sort(step.begin(), step.end());
@@ -1924,14 +1971,18 @@ double AgreementAllowed(const Patch &p, const Mesh &m)
         size_t lo = 0;
         while (lo < step.size() && step[lo] < floorAng)
             lo++;
-        if (lo < step.size())
-            facet = step[lo + (step.size() - lo) / 2];
+        if (lo < step.size()) {
+            double sum = 0;
+            for (size_t i = lo; i < step.size(); ++i)
+                sum += step[i];
+            facet = sum / static_cast<double>(step.size() - lo);
+        }
     }
     return std::max(facet * kAgreeFacetFactor, kAgreeFloorRad);
 }
 
 bool Identifiable(const Patch &p, const Mesh &m, double tol, bool fragment,
-                  bool verdict = false)
+                  bool verdict = false, bool *tooSmallOnly = nullptr)
 {
     WHY("ok");
     if (p.fit.kind == kNone)
@@ -1991,17 +2042,28 @@ bool Identifiable(const Patch &p, const Mesh &m, double tol, bool fragment,
             a += m.tarea[t];
         floorApplies = a <= m.area * kScrapAreaFraction;
     }
-    if (floorApplies && std::max(static_cast<int>(p.tris.size()),
-                                 p.evidence) < kMinTrustTriangles)
-        return WHY("tootiny"), false;
+    const bool tooSmall =
+        floorApplies &&
+        std::max(static_cast<int>(p.tris.size()), p.evidence) <
+            kMinTrustTriangles;
 
     const double allowed = AgreementAllowed(p, m);
     if (std::acos(std::max(-1.0, std::min(1.0, p.fit.agree))) > allowed)
         return WHY("agree"), false;
 
-    /* A plane has no radius to pin down, so agreement is the whole test. */
-    if (p.fit.kind == kPlane)
+    /* A plane has no radius to pin down, so agreement is the whole test —
+     * so a plane that reaches here and fails only the sample-size floor has
+     * failed NOTHING about the surface itself, and the caller is told so. */
+    if (p.fit.kind == kPlane) {
+        if (tooSmall) {
+            if (tooSmallOnly)
+                *tooSmallOnly = true;
+            return WHY("tootiny"), false;
+        }
         return true;
+    }
+    if (tooSmall)
+        return WHY("tootiny"), false;
 
     /* Does the surface pass through the mesh's FACES, or only its vertices?
      *
@@ -2221,10 +2283,25 @@ void SplitByFit(const Mesh &m, const std::vector<int> &tris, double tol,
     std::vector<int> byArea(tris.size());
     for (size_t i = 0; i < tris.size(); ++i)
         byArea[i] = static_cast<int>(i);
+    /* Flattest first, then largest — and QUANTISED, not compared against a
+     * threshold.
+     *
+     * "Equal if within 1e-4" is not an ordering at all: a can tie b and b tie
+     * c while a and c are a fifth of a milliradian apart, and std::sort is
+     * entitled to do anything at all with a comparator like that, up to
+     * running off the end of the array. Rounding to the same grid says the
+     * same thing about which bends count as equal and says it transitively.
+     * Then area, then the triangle's own index, so the order is total. */
+    std::vector<long long> bendBin(tris.size());
+    for (size_t i = 0; i < tris.size(); ++i)
+        bendBin[i] = static_cast<long long>(std::llround(bend[i] * 1e4));
     std::sort(byArea.begin(), byArea.end(), [&](int a, int b) {
-        if (std::fabs(bend[a] - bend[b]) > 1e-4)
-            return bend[a] < bend[b];
-        return m.tarea[tris[a]] > m.tarea[tris[b]];
+        if (bendBin[a] != bendBin[b])
+            return bendBin[a] < bendBin[b];
+        if (m.tarea[tris[a]] != m.tarea[tris[b]])
+            return m.tarea[tris[a]] > m.tarea[tris[b]];
+        /* And a TOTAL order, always. See "Ties decide the model". */
+        return tris[a] < tris[b];
     });
 
     std::vector<int> region, frontier;
@@ -3367,7 +3444,9 @@ void MergeRegions(const Mesh &m, std::vector<Patch> &patches, double tol,
                                            patches[x.second].tris.size());
                 const size_t sy = std::min(patches[y.first].tris.size(),
                                            patches[y.second].tris.size());
-                return sx < sy;
+                if (sx != sy)
+                    return sx < sy;
+                return x < y; /* a TOTAL order; see "Ties decide the model" */
             });
 
         std::vector<int> mergedInto(n, -1);
@@ -3846,7 +3925,9 @@ void Regularise(std::vector<Patch> &patches, const Mesh &m, const Params &prm,
             order.push_back(static_cast<int>(i));
     }
     std::sort(order.begin(), order.end(), [&](int a, int b) {
-        return patches[a].tris.size() > patches[b].tris.size();
+        if (patches[a].tris.size() != patches[b].tris.size())
+            return patches[a].tris.size() > patches[b].tris.size();
+        return a < b; /* a TOTAL order; see "Ties decide the model" */
     });
 
     std::vector<V3> agreed;
@@ -4082,13 +4163,17 @@ void PatchChains(const Mesh &m, const std::vector<int> &tris,
     std::unordered_map<int, size_t> cursor;
     size_t consumed = 0;
     while (consumed < total) {
-        /* Start at any vertex with an unused outgoing edge. */
+        /* Start at the LOWEST-numbered vertex with an unused outgoing edge.
+         * Not "any": an unordered_map's order is its implementation's, and the
+         * two the app is built with do not agree. See "Ties decide the
+         * model". */
         int start = -1;
-        for (auto &e : outgoing) {
-            if (cursor[e.first] < e.second.size()) {
-                start = e.first;
-                break;
-            }
+        for (std::unordered_map<int, std::vector<BE>>::iterator it =
+                 outgoing.begin();
+             it != outgoing.end(); ++it) {
+            if (cursor[it->first] < it->second.size() &&
+                (start < 0 || it->first < start))
+                start = it->first;
         }
         if (start < 0)
             break;
@@ -5372,6 +5457,28 @@ void DissolveUnexplained(const Mesh &m, std::vector<Patch> &patches, double tol,
             }
         }
     }
+    /* What nobody wanted keeps the plane it fitted.
+     *
+     * Size alone cannot tell a two-facet scrap from a small real face, and on
+     * the user's part it gets it exactly backwards: the slit walls cut through
+     * the centre hole are four facets and a fortieth of a square millimetre,
+     * while the strips at the crossing of two fillets are one facet and half a
+     * square millimetre. What separates them is not how big they are but what
+     * stands next to them. The crossing strip lies along the fillet beside it
+     * and the fillet takes it. A slit wall stands at right angles to
+     * everything it touches and no neighbour will have it — which is the mesh
+     * saying it is a face. Give it back its plane, which sews to its
+     * neighbours as a face and would not as loose triangles. */
+    for (Patch &pa : patches) {
+        if (pa.fit.kind == kNone && pa.shelved.kind != kNone &&
+            !pa.tris.empty()) {
+            MR_TRACE("  patch restored: %d triangles no neighbour would take\n",
+                     (int)pa.tris.size());
+            pa.fit = pa.shelved;
+        }
+        pa.shelved = Fit();
+    }
+
     std::vector<Patch> keep;
     keep.reserve(patches.size());
     for (Patch &pa : patches)
@@ -5830,14 +5937,23 @@ bool BuildAnalyticFace(BuildCtx &ctx, const Mesh &m, const Patch &patch,
 
     try {
         /* Largest wire first: BRepBuilderAPI_MakeFace takes the first as the
-         * outer boundary and the rest as holes. */
-        std::sort(wires.begin(), wires.end(),
-                  [](const TopoDS_Wire &a, const TopoDS_Wire &b) {
-                      GProp_GProps ga, gb;
-                      BRepGProp::LinearProperties(a, ga);
-                      BRepGProp::LinearProperties(b, gb);
-                      return ga.Mass() > gb.Mass();
-                  });
+         * outer boundary and the rest as holes. Measured once, and the order
+         * settled on the ORDER THE WIRES WERE BUILT IN when two are the same
+         * length — see "Ties decide the model". */
+        {
+            std::vector<std::pair<double, int>> byLen(wires.size());
+            for (size_t i = 0; i < wires.size(); ++i) {
+                GProp_GProps g;
+                BRepGProp::LinearProperties(wires[i], g);
+                byLen[i] = std::make_pair(-g.Mass(), static_cast<int>(i));
+            }
+            std::sort(byLen.begin(), byLen.end());
+            std::vector<TopoDS_Wire> sorted;
+            sorted.reserve(wires.size());
+            for (const std::pair<double, int> &kv : byLen)
+                sorted.push_back(wires[kv.second]);
+            wires.swap(sorted);
+        }
         /* On a periodic surface a closed wire does not say which side of
          * itself the face is on, and MakeFace decides by the surface's own
          * parametrisation rather than by the mesh.
@@ -6518,12 +6634,20 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
     for (size_t pi = 0; pi < patches.size(); ++pi) {
         Patch &pa = patches[pi];
         const bool frag = pa.origin < 0 || cutInto[pa.origin] > 1;
-        const bool keep =
-            pa.fit.kind != kNone && Identifiable(pa, m, tol, frag, true);
-        MR_TRACE("  patch %3d origin %3d %5d tri  %-8s rms %.5f agree %.4f  "
-                 "%s%s\n",
+        bool tooSmallOnly = false;
+        const bool keep = pa.fit.kind != kNone &&
+                          Identifiable(pa, m, tol, frag, true, &tooSmallOnly);
+        /* Keep the surface aside rather than throwing it away: the dissolve
+         * below is a better judge of a two-facet plane than its size is. */
+        if (!keep && tooSmallOnly)
+            pa.shelved = pa.fit;
+        MR_TRACE("  patch %3d origin %3d %5d tri  %-8s rms %.5f agree %.4f "
+                 "(%.1f deg, allowed %.1f)  %s%s\n",
                  (int)pi, pa.origin, (int)pa.tris.size(),
                  KindName(pa.fit.kind), pa.fit.rms, pa.fit.agree,
+                 std::acos(std::max(-1.0, std::min(1.0, pa.fit.agree))) *
+                     180.0 / M_PI,
+                 AgreementAllowed(pa, m) * 180.0 / M_PI,
                  keep ? "KEEP" : g_why, frag ? " (fragment)" : "");
         {
             V3 lo(1e300, 1e300, 1e300), hi(-1e300, -1e300, -1e300);
