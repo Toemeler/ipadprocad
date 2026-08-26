@@ -15,6 +15,7 @@ once, at integration (plan §8).
 | `S9-drift.md` | Sketch drag drift (round 2) | `solver.dart`, `endGripDrag` + warm start |
 | `S10-memory.md` | Memory + the soak (round 2) | `perf_scenarios_stress.dart`, `perf_scenarios_soak.dart` (new) |
 | `S11-sweep.md` | Sweep + loop detection (round 2) | the sweep feature path and loop detection in `part_model.dart`, `perf_scenarios_profile.dart` (new) |
+| `S20-dart-trivial.md` | The Dart side's own trivial-value audit | the CHAMFER path in `frontend/lib/part_model.dart` (`ChamferFeature`, `PartKernel`/`OcctPartKernel.chamferEdges` and their call sites) — no shim, no scenario, no shim version |
 
 Round two's other sessions, per `OPTIMIZATION_PLAN_2.md` §2, write to
 `S6-shim2.md` (the shim again) and `S7-profiler.md` (the sampling profiler,

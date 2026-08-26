@@ -42,7 +42,9 @@ class FilletRecorder implements PartKernel {
   List<double>? lastRadii2;
   int chamfers = 0;
   int? lastMode;
-  double? lastD1, lastD2, lastAngle;
+  // S20 — per edge, like the kernel interface itself. A chamfer feature may
+  // span edges of different dihedral, so there is no single angle to record.
+  List<double>? lastD1s, lastD2s, lastAngles;
 
   @override
   KernelSolid? filletEdges(KernelSolid base, List<int> edgeIds,
@@ -55,13 +57,14 @@ class FilletRecorder implements PartKernel {
 
   @override
   KernelSolid? chamferEdges(KernelSolid base, List<int> edgeIds, int mode,
-      double d1, double d2, double angleDeg, {BlendReport? report}) {
+      List<double> d1, List<double> d2, List<double> anglesDeg,
+      {BlendReport? report}) {
     chamfers++;
     lastIds = List.of(edgeIds);
     lastMode = mode;
-    lastD1 = d1;
-    lastD2 = d2;
-    lastAngle = angleDeg;
+    lastD1s = List.of(d1);
+    lastD2s = List.of(d2);
+    lastAngles = List.of(anglesDeg);
     return _stub();
   }
 
@@ -133,16 +136,19 @@ void main() {
         angleDeg: 30,
         flip: flip);
 
+    const square = 90.0;
+
     test('equal distance ignores the second distance and the angle', () {
-      expect(c(0).kernelParams, (2.0, 0.0, 0.0));
+      expect(c(0).kernelParamsFor(square), (2.0, 0.0, 0.0));
     });
 
     test('flip swaps the two distances', () {
-      expect(c(1, flip: true).kernelParams, (5.0, 2.0, 0.0));
+      expect(c(1, flip: true).kernelParamsFor(square), (5.0, 2.0, 0.0));
     });
 
-    test('flip takes the complementary angle', () {
-      expect(c(2, flip: true).kernelParams, (2.0, 0.0, 60.0));
+    test('flip sends the third angle of the chamfer triangle', () {
+      expect(c(2, flip: true).kernelParamsFor(square).$3, closeTo(60, 1e-12));
+      expect(c(2, flip: true).kernelParamsFor(120).$3, closeTo(90, 1e-12));
     });
   });
 
@@ -626,7 +632,7 @@ void main() {
       app.setEdgeFeature(mode: 0, exprD1: '3 mm');
       final k = app.partKernel as FilletRecorder;
       expect(k.lastMode, 0);
-      expect(k.lastD1, 3.0);
+      expect(k.lastD1s, [3.0]);
     });
 
     test('changing the distance rebuilds the preview', () async {
@@ -646,11 +652,11 @@ void main() {
       app.setEdgeFeature(mode: 1, exprD1: '2 mm', exprD2: '5 mm');
       final k = app.partKernel as FilletRecorder;
       expect(k.lastMode, 1);
-      expect(k.lastD1, 2.0);
-      expect(k.lastD2, 5.0);
+      expect(k.lastD1s, [2.0]);
+      expect(k.lastD2s, [5.0]);
       app.setEdgeFeature(flip: true);
-      expect(k.lastD1, 5.0, reason: 'Flip swaps the two faces');
-      expect(k.lastD2, 2.0);
+      expect(k.lastD1s, [5.0], reason: 'Flip swaps the two faces');
+      expect(k.lastD2s, [2.0]);
     });
 
     test('distance-and-angle mode sends the angle', () async {
@@ -660,9 +666,12 @@ void main() {
       app.setEdgeFeature(mode: 2, exprD1: '2 mm', exprAngle: '30 deg');
       final k = app.partKernel as FilletRecorder;
       expect(k.lastMode, 2);
-      expect(k.lastAngle, 30.0);
+      expect(k.lastAngles, [30.0]);
       app.setEdgeFeature(flip: true);
-      expect(k.lastAngle, 60.0, reason: 'Flip takes the complement');
+      // The recorder's edges all report dihedralDeg 90, so the flipped angle
+      // is 90 - 30. On an edge that is not square it would not be.
+      expect(k.lastAngles, [60.0], reason: "Flip sends the triangle's third "
+          'angle, D - angle, and D is 90 here');
     });
 
     test('untapping the last edge drops the chamfer preview', () async {

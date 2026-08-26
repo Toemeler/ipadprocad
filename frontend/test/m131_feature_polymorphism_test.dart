@@ -5,6 +5,7 @@
 // NOT cover: anything that needs the linked OCCT kernel (the actual revolve,
 // the actual fillet). Those are gated by the shim smoke test [20]-[23] and,
 // after that, by the device.
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -157,7 +158,7 @@ void main() {
     });
   });
 
-  group('ChamferFeature.kernelParams', () {
+  group('ChamferFeature.kernelParamsFor', () {
     ChamferFeature c(int mode, {bool flip = false}) => ChamferFeature(
         name: 'Chamfer1',
         bodyName: 'Solid1',
@@ -168,19 +169,153 @@ void main() {
         angleDeg: 30,
         flip: flip);
 
+    // S20 — every one of these is asked ON AN EDGE now, because Flip's mode-2
+    // answer depends on the edge's dihedral. `square` is what every edge in
+    // every fixture in this repository has always been, and is the value the
+    // old no-argument getter assumed without saying so.
+    const square = 90.0;
+
     test('equal distance ignores d2 and the angle', () {
-      expect(c(0).kernelParams, (2.0, 0.0, 0.0));
+      expect(c(0).kernelParamsFor(square), (2.0, 0.0, 0.0));
     });
 
     test('two distances, and flip swaps which face gets which', () {
-      expect(c(1).kernelParams, (2.0, 5.0, 0.0));
-      expect(c(1, flip: true).kernelParams, (5.0, 2.0, 0.0));
+      expect(c(1).kernelParamsFor(square), (2.0, 5.0, 0.0));
+      expect(c(1, flip: true).kernelParamsFor(square), (5.0, 2.0, 0.0));
     });
 
-    test('distance and angle, flip takes the complement', () {
-      expect(c(2).kernelParams, (2.0, 0.0, 30.0));
-      expect(c(2, flip: true).kernelParams, (2.0, 0.0, 60.0),
-          reason: 'the other face sees 90 - angle');
+    test('distance and angle, unflipped, sends what was typed', () {
+      expect(c(2).kernelParamsFor(square), (2.0, 0.0, 30.0));
+    });
+
+    test('flip sends the triangle\'s THIRD angle, not the complement of 90',
+        () {
+      // D - angle. On a square edge that is 90 - 30, which is why the literal
+      // 90 survived; on an edge whose faces meet at 120 deg (D = 60) it is 30.
+      expect(c(2, flip: true).kernelParamsFor(square).$3, closeTo(60, 1e-12));
+      expect(c(2, flip: true).kernelParamsFor(120).$3, closeTo(90, 1e-12),
+          reason: 'a 60 deg edge admits up to 120, and 120 - 30 is 90');
+      expect(c(2, flip: true).kernelParamsFor(60).$3, closeTo(30, 1e-12),
+          reason: 'a 120 deg edge admits up to 60, and 60 - 30 is 30');
+    });
+
+    // S20 — the instrument, and the reason this file needs no golden.
+    //
+    // The two distances a mode-2 chamfer actually cuts on the two adjacent
+    // faces, from OCCT's own arithmetic as the shim transcribes it
+    // (occt_capi.cpp, above edge_chamfer_angle_limit):
+    //
+    //     dis2 = d1 . sin(alpha) / sin(alpha + theta),  theta = 180 - D
+    //
+    // and sin(alpha + theta) = sin(D - alpha). This is derived from the C
+    // side, NOT from the Dart under test, so comparing the two in one run on
+    // one machine is a differential check and not a recorded constant.
+    (double, double) faces(double d, double alpha, double dihedral) {
+      const rad = math.pi / 180.0;
+      return (d, d * math.sin(alpha * rad) / math.sin((dihedral - alpha) * rad));
+    }
+
+    test('Flip SWAPS THE FACES: the two cut distances come back reversed', () {
+      for (final d in [45.0, 60.0, 90.0, 120.0, 150.0]) {
+        for (final alpha in [d * 0.2, d * 0.4, d * 0.5, d * 0.75]) {
+          final plain = ChamferFeature(
+              name: 'C',
+              bodyName: 'S',
+              edges: const [],
+              mode: 2,
+              distance1: 2,
+              angleDeg: alpha);
+          final flipped = ChamferFeature(
+              name: 'C',
+              bodyName: 'S',
+              edges: const [],
+              mode: 2,
+              distance1: 2,
+              angleDeg: alpha,
+              flip: true);
+          final (pd, _, pa) = plain.kernelParamsFor(d);
+          final (fd, _, fa) = flipped.kernelParamsFor(d);
+          final want = faces(pd, pa, d);
+          final got = faces(fd, fa, d);
+          final where = 'D=$d alpha=$alpha';
+          expect(got.$1, closeTo(want.$2, 1e-9), reason: where);
+          expect(got.$2, closeTo(want.$1, 1e-9), reason: where);
+        }
+      }
+    });
+
+    test('a symmetric chamfer is its own mirror, so Flip does nothing to it',
+        () {
+      // alpha = D/2. On a square edge that is the panel's own default of 45,
+      // which is exactly why the version of this that never moved the distance
+      // survived: at the default it is right.
+      for (final d in [45.0, 90.0, 120.0]) {
+        final f = ChamferFeature(
+            name: 'C',
+            bodyName: 'S',
+            edges: const [],
+            mode: 2,
+            distance1: 2,
+            angleDeg: d / 2,
+            flip: true);
+        final (fd, _, fa) = f.kernelParamsFor(d);
+        expect(fd, closeTo(2.0, 1e-12), reason: 'D=$d');
+        expect(fa, closeTo(d / 2, 1e-12), reason: 'D=$d');
+      }
+    });
+
+    test('flipping twice is the identity', () {
+      // The involution the old angle-only form also had; kept as a regression
+      // pin, not offered as evidence for the change.
+      const d = 120.0;
+      final once = c(2, flip: true).kernelParamsFor(d);
+      final twice = ChamferFeature(
+          name: 'C',
+          bodyName: 'S',
+          edges: const [],
+          mode: 2,
+          distance1: once.$1,
+          angleDeg: once.$3,
+          flip: true).kernelParamsFor(d);
+      expect(twice.$1, closeTo(2.0, 1e-9));
+      expect(twice.$3, closeTo(30.0, 1e-9));
+    });
+
+    test('on a square edge the flipped distance is d1 * tan(angle)', () {
+      // The arithmetic S20 pre-registered: 2 mm at 30 deg cuts (2, 1.1547),
+      // and its mirror is (1.1547, 2). The old code sent 2 mm unchanged and
+      // cut 3.4641 off the far face — bigger than the original, not mirrored.
+      final (fd, _, fa) = c(2, flip: true).kernelParamsFor(90);
+      expect(fd, closeTo(2 * math.tan(30 * math.pi / 180), 1e-12));
+      expect(fd, closeTo(1.1547005383792515, 1e-12));
+      expect(fa, closeTo(60, 1e-12));
+    });
+
+    test('an unmeasurable or tangent edge keeps the historical 90', () {
+      // The shim does the same: edge_chamfer_angle_limit refuses a tangent
+      // edge and its caller keeps 90. The two layers must not disagree about
+      // which angles an edge admits.
+      expect(c(2, flip: true).kernelParamsFor(0).$3, closeTo(60, 1e-12));
+    });
+
+    test('flip never leaves the range the shim v28 guard admits', () {
+      // angle' = D - angle is in (0, D) exactly when angle is. 90 - angle is
+      // not: on a 135 deg edge (D = 45) a legal 40 deg flips to 50, refused.
+      for (final d in [45.0, 60.0, 90.0, 120.0, 170.0]) {
+        for (final a in [1.0, d / 4, d / 2, d * 0.9]) {
+          final f = ChamferFeature(
+              name: 'C',
+              bodyName: 'S',
+              edges: const [],
+              mode: 2,
+              distance1: 2,
+              angleDeg: a,
+              flip: true);
+          final got = f.kernelParamsFor(d).$3;
+          expect(got, greaterThan(0), reason: 'D=$d angle=$a');
+          expect(got, lessThan(d), reason: 'D=$d angle=$a');
+        }
+      }
     });
   });
 

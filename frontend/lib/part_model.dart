@@ -3697,16 +3697,122 @@ class ChamferFeature extends BodyModifyFeature {
   @override
   String get typeLabel => 'Chamfer';
 
-  /// Distances as the shim wants them, with Flip already applied. Flip is a
-  /// pure presentation swap for mode 1 and the complementary angle for
-  /// mode 2, so the kernel never needs to know the toggle exists.
-  (double, double, double) get kernelParams => switch (mode) {
+  /// Distances and angle as the shim wants them **for one edge**, with Flip
+  /// already applied, so the kernel never needs to know the toggle exists.
+  ///
+  /// [dihedralDeg] is that edge's [OcctEdgeInfo.dihedralDeg] — the angle
+  /// between its two faces' OUTWARD normals, `occt_shape_edge_info` field
+  /// [10]. Call it D. The interior angle the MATERIAL makes at the edge is
+  /// `theta = 180 - D`, and the two are equal only on a square edge, which is
+  /// the whole trap this signature exists to close. D is also, since shim
+  /// v28, exactly the admissible range for a mode-2 angle: `0 < angle < D`.
+  ///
+  /// S20 — WHY THIS TAKES AN EDGE when three of its four cases do not use one.
+  /// It used to be a no-argument getter, and a getter cannot answer for Flip
+  /// on mode 2: the flipped arguments depend on D (see [_flippedFor]), one
+  /// chamfer feature may carry edges that meet at different angles, and there
+  /// is therefore no single triple to return. The no-argument form is gone
+  /// rather than defaulted to 90, because a defaulted 90 is the defect.
+  (double, double, double) kernelParamsFor(double dihedralDeg) =>
+      switch (mode) {
         1 => flip
             ? (distance2, distance1, 0.0)
             : (distance1, distance2, 0.0),
-        2 => (distance1, 0.0, flip ? 90.0 - angleDeg : angleDeg),
+        2 => flip ? _flippedFor(dihedralDeg) : (distance1, 0.0, angleDeg),
         _ => (distance1, 0.0, 0.0),
       };
+
+  /// Mode 2 with Flip on: the SAME chamfer, re-expressed against the face the
+  /// shim measures from.
+  ///
+  /// `occt_chamfer_edges` has no reference-face parameter — it always measures
+  /// from the first face in OCCT's ancestor map (`occt_capi.h`) — so Flip
+  /// cannot be passed through as a flag. It has to be turned into arguments
+  /// against that fixed face.
+  ///
+  /// The chamfer, the two faces and the edge bound a triangle: apex
+  /// `theta = 180 - D` at the edge, [angleDeg] where the chamfer meets the
+  /// reference face, and a third angle `180 - theta - angleDeg`, which is
+  /// `D - angleDeg`. The law of sines then gives the distance:
+  ///
+  ///     angle' = D - angleDeg
+  ///     d'     = distance1 * sin(angleDeg) / sin(angle')
+  ///
+  /// which is OCCT's own `dis2 = d1 sin(alpha) / sin(alpha + theta)` read the
+  /// other way round, since `sin(alpha + theta) = sin(D - alpha)`.
+  ///
+  /// S20 — THE DISTANCE MOVES TOO, and until this it did not. Flip is
+  /// documented on the field above as swapping which face [distance1] is
+  /// measured on, the button says Swap Faces, mode 1 already does exactly
+  /// that (`(distance2, distance1)` is the mirror chamfer), and Inventor's
+  /// Distance-and-Angle method picks the face the distance belongs to. Sending
+  /// the third angle alone keeps [distance1] on the reference face, so it does
+  /// not swap anything: on a square edge with `distance1 = 2, angleDeg = 30`
+  /// the unflipped chamfer cuts (2.000, 1.155) off the two faces and the old
+  /// flip cut (2.000, 3.464) — bigger, not mirrored. With the distance moved
+  /// it cuts (1.155, 2.000), the original pair reversed, which is what
+  /// swapping the faces means. m131 asserts that reversal directly.
+  ///
+  /// Two more properties, both asserted: it is an INVOLUTION — flipping twice
+  /// returns `(distance1, angleDeg)` — and `angle'` is in `(0, D)` exactly
+  /// when [angleDeg] is, so a flip never turns a chamfer the shim's v28 guard
+  /// accepts into one it refuses.
+  ///
+  /// On a square edge this is `(distance1 * tan(angleDeg), 90 - angleDeg)`,
+  /// and at the panel's default 45 deg it is the IDENTITY — a symmetric
+  /// chamfer is its own mirror. That is why `(distance1, 90 - angleDeg)`
+  /// survived: it is right at the default, on the only kind of edge any
+  /// fixture here has ever built.
+  (double, double, double) _flippedFor(double dihedralDeg) {
+    // The shim's own fallback for an edge whose bound cannot be measured is
+    // the historical 90 (`edge_chamfer_angle_limit` returns false and the
+    // caller keeps 90), and a tangent edge reports 0. Mirroring it here is
+    // what stops the two layers disagreeing about which angles an edge admits.
+    final d = dihedralDeg > 1e-9 ? dihedralDeg : 90.0;
+    final a = d - angleDeg;
+    // Outside the admissible range there is no triangle and no swap to make.
+    // This is reachable only when [angleDeg] is already out of range for this
+    // edge with Flip OFF, so the chamfer was never going to build. Send the
+    // non-positive angle and let the shim refuse: it says "must be greater
+    // than 0 deg" rather than naming the edge's bound, which is the vaguer of
+    // its two sentences, and that is the price of failing CLOSED here.
+    // Passing [angleDeg] through would draw the better message, but if this
+    // layer's D and the shim's limit ever disagreed it would build the
+    // UNFLIPPED chamfer while Flip is on — a wrong solid that looks right,
+    // which this file trades a worse error message for every time.
+    if (!(a > 0) || !(angleDeg > 0)) return (distance1, 0.0, a);
+    const rad = math.pi / 180.0;
+    return (
+      distance1 * math.sin(angleDeg * rad) / math.sin(a * rad),
+      0.0,
+      a,
+    );
+  }
+
+  /// The three PER-EDGE argument lists for [edgeIds], read against [live] —
+  /// what [PartKernel.chamferEdges] takes. Each is parallel to [edgeIds]; the
+  /// two the mode does not use come back empty, which is how the FFI layer
+  /// says "no edge uses that mode".
+  ///
+  /// An id that is not in [live] cannot happen on the paths that call this
+  /// (the ids came out of `resolveEdges` against that same list), and is given
+  /// the shim's 90 fallback rather than a guess if it ever does.
+  (List<double>, List<double>, List<double>) kernelArgsFor(
+      List<int> edgeIds, List<OcctEdgeInfo> live) {
+    final byIndex = {for (final e in live) e.index: e};
+    final d1 = <double>[];
+    final d2 = <double>[];
+    final ang = <double>[];
+    for (final id in edgeIds) {
+      final e = byIndex[id];
+      final (a, b, c) = kernelParamsFor(e?.dihedralDeg ?? 90.0);
+      d1.add(a);
+      d2.add(b);
+      ang.add(c);
+    }
+    return (d1, mode == 1 ? d2 : const <double>[],
+        mode == 2 ? ang : const <double>[]);
+  }
 
   @override
   String ownSig() => 'ch|$mode,$distance1,$distance2,$angleDeg,$flip,'
@@ -6183,8 +6289,18 @@ abstract class PartKernel {
   /// Chamfer on [edgeIds] with Inventor method [mode] (0 equal distance,
   /// 1 two distances, 2 distance and angle). Returns a NEW solid.
   /// [report] carries the same after-the-fact truth as on [filletEdges].
+  ///
+  /// S20 — [d1] is PER EDGE and parallel to [edgeIds], and so are [d2] and
+  /// [anglesDeg] where the mode uses them; the two the mode does not use are
+  /// empty. Per edge and not per feature because a flipped distance-and-angle
+  /// chamfer has to be re-expressed against each edge's own dihedral (see
+  /// [ChamferFeature.kernelParamsFor]) and one feature may span edges that
+  /// meet at different angles. The FFI binding below has been per edge since
+  /// v12; what changed is that this interface stopped collapsing to a scalar
+  /// on the way down to it.
   KernelSolid? chamferEdges(KernelSolid base, List<int> edgeIds, int mode,
-          double d1, double d2, double angleDeg, {BlendReport? report}) =>
+          List<double> d1, List<double> d2, List<double> anglesDeg,
+          {BlendReport? report}) =>
       null;
 
   // ---- M217: Delete Face and Direct Edit --------------------------------
@@ -6705,7 +6821,8 @@ class OcctPartKernel implements PartKernel {
 
   @override
   KernelSolid? chamferEdges(KernelSolid base, List<int> edgeIds, int mode,
-      double d1, double d2, double angleDeg, {BlendReport? report}) {
+      List<double> d1, List<double> d2, List<double> anglesDeg,
+      {BlendReport? report}) {
     final ffi = _ffi;
     if (ffi == null) {
       _err = 'no 3D kernel linked (occt_* symbols missing)';
@@ -6716,15 +6833,24 @@ class OcctPartKernel implements PartKernel {
       _err = 'chamfer needs a kernel-backed solid';
       return null;
     }
-    final n = edgeIds.length;
+    if (d1.length != edgeIds.length) {
+      // Not reachable from the feature path — kernelArgsFor builds all three
+      // lists in one loop over the same ids — but the FFI wrapper answers a
+      // length mismatch with a bare null, and a bare null here would surface
+      // as an empty computeError.
+      _err = 'chamfer got ${d1.length} distances for ${edgeIds.length} edges';
+      return null;
+    }
+    // The mode is still per feature: Inventor's Method is one radio group for
+    // the whole chamfer, and only the sizes vary by edge.
     return _wrapOwned(
         ffi,
         shape.chamferEdges(
           edgeIds,
-          List<int>.filled(n, mode),
-          List<double>.filled(n, d1),
-          d2: mode == 1 ? List<double>.filled(n, d2) : const [],
-          angleDeg: mode == 2 ? List<double>.filled(n, angleDeg) : const [],
+          List<int>.filled(edgeIds.length, mode),
+          d1,
+          d2: d2,
+          angleDeg: anglesDeg,
           report: report,
         ));
   }
@@ -8070,8 +8196,11 @@ bool _recomputeBodyModify(
     out = kernel.filletEdges(base, ids, radii,
         radii2: radii2, report: report);
   } else if (f is ChamferFeature) {
-    final (d1, d2, ang) = f.kernelParams;
-    sizeLabel = 'd=$d1 mm';
+    // S20 — read against `live`, the same list the ids were resolved from, so
+    // each edge's own dihedral decides what a flipped distance-and-angle
+    // chamfer sends for it.
+    final (d1, d2, ang) = f.kernelArgsFor(ids, live);
+    sizeLabel = 'd=${d1.isEmpty ? "?" : d1.first} mm';
     out = kernel.chamferEdges(base, ids, f.mode, d1, d2, ang, report: report);
   }
   if (out == null) {
@@ -8257,7 +8386,7 @@ KernelSolid? applyBlendOccurrence(PartKernel kernel, KernelSolid body,
     return kernel.filletEdges(body, ids, radii, radii2: radii2);
   }
   if (moved is ChamferFeature) {
-    final (d1, d2, ang) = moved.kernelParams;
+    final (d1, d2, ang) = moved.kernelArgsFor(ids, live);
     return kernel.chamferEdges(body, ids, moved.mode, d1, d2, ang);
   }
   return null;
