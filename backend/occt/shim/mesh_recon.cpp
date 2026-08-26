@@ -5208,6 +5208,64 @@ bool FaceWithinPatch(const TopoDS_Face &face, const Mesh &m,
     }
 }
 
+/* Does the face FOLD THROUGH ITSELF?
+ *
+ * FaceWithinPatch asks whether the face covers the right REGION, and it
+ * answers from bounding boxes — which is exactly the question a folded face
+ * slips past. A wire that crosses itself on the surface encloses a region
+ * that doubles back through itself, and every box of it is still the patch's
+ * box, because the box of a face with no triangulation yet is the box of its
+ * EDGES and the edges are where they should be. What is wrong is between
+ * them. On the user's broom holder two tori invented over the embossed logo
+ * do this: patch box (0.31 22.56 -3.09)-(6.15 23.04 2.71), and the face
+ * reaches y 19.6 — three and a half millimetres of flap standing out of an
+ * engraving half a millimetre deep.
+ *
+ * BRepCheck is the authority and names both halves of it — SelfIntersectingWire
+ * on the wire, UnorientableShape on the face — but only with its geometric
+ * controls on, and on raw faces whose edges have not been through
+ * SameParameter yet that costs twenty times the whole conversion. So it is
+ * asked about hardly any faces.
+ *
+ * AREA is what decides who it is asked about, and it is the right screen
+ * because a fold covers its own region TWICE. A face otherwise covers what
+ * its triangles cover, a little more: the triangles are chords, so they
+ * always fall short of the surface, by an amount quadratic in facet size.
+ * Measured, that shortfall is tiny — nothing above 1.05 anywhere in the 216
+ * tessellations of the plate sweep, 1.051 on the user's bracket, 1.129 on the
+ * broom holder — while the two flaps stand at 2.91 and 5.31.
+ *
+ * A screen is not a verdict, which matters: a face trimmed by the surface's
+ * own parameter rectangle rather than by a wire legitimately overshoots, and
+ * the four hole barrels through the curved shell in the test suite reach 2.92
+ * that way. They are sound, BRepCheck says so, and they are kept. */
+const double kFaceAreaScreen = 1.5;
+
+bool FaceIsSound(const TopoDS_Face &face, const Mesh &m,
+                 const std::vector<int> &tris)
+{
+    double patchArea = 0;
+    for (int t : tris)
+        patchArea += m.tarea[t];
+    if (!(patchArea > 0))
+        return true;
+    try {
+        GProp_GProps g;
+        BRepGProp::SurfaceProperties(face, g);
+        if (g.Mass() <= patchArea * kFaceAreaScreen)
+            return true;
+    } catch (const Standard_Failure &) {
+        return true; /* no measurement is not evidence of a fold */
+    }
+    try {
+        return BRepCheck_Analyzer(face).IsValid() == Standard_True;
+    } catch (const Standard_Failure &) {
+        return false;
+    } catch (...) {
+        return false;
+    }
+}
+
 /* One face per triangle, sharing this build's vertices and mesh edges.
  *
  * Loose triangles have to be re-matched to each other by BRepBuilderAPI_Sewing
@@ -7150,7 +7208,8 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
                     built = false;
                 }
             }
-            const bool madeIt = built;
+            /* Read only by the trace below. */
+            [[maybe_unused]] const char *why = "builder failed";
             if (built) {
                 /* Checked HERE rather than inside the builder because the analytic
                  * path can also hand off to the parametric one, and a face that
@@ -7158,6 +7217,12 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
                 for (size_t k = before; k < faces.size(); ++k) {
                     if (!FaceWithinPatch(faces[k], m, patches[i].tris, tol)) {
                         built = false;
+                        why = "face escaped its patch";
+                        break;
+                    }
+                    if (!FaceIsSound(faces[k], m, patches[i].tris)) {
+                        built = false;
+                        why = "face folds through itself";
                         break;
                     }
                 }
@@ -7167,8 +7232,7 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
             if (!built && !surfs[i].IsNull())
                 MR_TRACE("      patch %3d NOT BUILT (%s, %d tri): %s\n", (int)i,
                          KindName(patches[i].fit.kind),
-                         (int)patches[i].tris.size(),
-                         madeIt ? "face escaped its patch" : "builder failed");
+                         (int)patches[i].tris.size(), why);
             if (built) {
                 rep.faces_built++;
             } else {
