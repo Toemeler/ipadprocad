@@ -4861,6 +4861,227 @@ int main(void)
         }
     }
 
+    /* ====================================================================
+     * [43] S19 — THE CORNER IS THE WHOLE STORY, AND IT HAS A LAW.
+     *
+     * perf/findings/S19-validity.md's census: 405 producible sweep
+     * configurations, NOTHING refused, and 136 of them come back INVALID.
+     * Every single one is on a spine with a mitred joint; the three jointless
+     * paths — straight, and the two `spine_from_points_ex` interpolates into
+     * one B-spline edge — are clean 135 for 135.
+     *
+     * HOW THESE ASSERTIONS ARE WRITTEN, AND WHY. `finish_pipe` does not check
+     * its result today, so the invalid rows below are returned as solids.
+     * Whether it SHOULD check is the integrator's decision (S18 §5.2) and this
+     * session did not take it. So the defect rows assert the weaker and more
+     * durable thing:
+     *
+     *     the call must not hand back a solid that it CLAIMS is valid
+     *
+     * — i.e. NULL is fine, and INVALID is fine, and "valid" is not. That stays
+     * green whichever way the gate decision goes, and goes red only if the
+     * kernel starts calling these shapes sound.
+     *
+     * [43a] the S18 §5.1 fixture, and its controls. Both volumes are exact
+     *       constants of the fixture and both are checked: the centred
+     *       section is Cavalieri's A*dz = 6000 to the last bit whatever the
+     *       path does in XY (S18 §3.5), and the off-centre one is not.
+     * [43b] the discriminator is the section's TILT to the tangent, and the
+     *       shipped ABI can turn it off: orientation 2 passes
+     *       WithCorrection = Standard_True, which OCCT documents as "the
+     *       section is rotated to be orthogonal to the spine's tangent", and
+     *       the SAME fixture is then valid. So is orientation 1.
+     * [43c] (S19-1): d * (sin(tilt) + tan(joint/2)) = L, where d = c + w is
+     *       the section's reach toward the turn. Checked at 0.85 and 1.15 of
+     *       the predicted offset on a fixture that is NOT the helix — a planar
+     *       polygonal arc, where leg, joint and tilt move independently.
+     * [43d] the corner is necessary: the same off-centre, tilted section over
+     *       a STRAIGHT path is valid and analytic, and over the same points
+     *       taken as a SMOOTHED spine is valid too.
+     * ==================================================================== */
+    {
+        const double I43[12] = {1,0,0,0, 0,1,0,0, 0,0,1,0};
+        const int lc43[] = {4};
+        double helix43[3 * 17];
+        int i;
+        for (i = 0; i <= 16; ++i) {
+            const double tt = (double)i / 16.0, a = tt * M_PI / 2.0;
+            helix43[3*i+0] = 60.0 * sin(a) * 0.3;
+            helix43[3*i+1] = 60.0 * (1.0 - cos(a)) * 0.3;
+            helix43[3*i+2] = tt * 60.0;
+        }
+
+        /* ---- [43a] the fixture, and the control that is exact ---- */
+        {
+            /* [-5,5]^2 — centred on the spine. */
+            const double cen[12] = {-5,-5,0,  5,-5,0,  5,5,0,  -5,5,0};
+            /* [0,10]^2 — the corner sits on the spine. */
+            const double off[12] = { 0, 0,0, 10, 0,0, 10,10,0,   0,10,0};
+            occt_shape *a = occt_sweep_profile_ex(cen, lc43, 1, I43, helix43,
+                                                  17, 0, 0.0, 0.0,
+                                                  OCCT_SWEEP_PATH_POLY);
+            occt_shape *b = occt_sweep_profile_ex(off, lc43, 1, I43, helix43,
+                                                  17, 0, 0.0, 0.0,
+                                                  OCCT_SWEEP_PATH_POLY);
+            if (check(a != NULL, "[43a] the centred section was refused")) {
+                int f = 0;
+                const double v = occt_shape_volume(a);
+                occt_shape_counts(a, &f, NULL, NULL);
+                printf("[43a] centred [-5,5]^2, 16-leg POLY helix: f=%d "
+                       "vol=%.9f (Cavalieri A*dz = 6000) %s\n", f, v,
+                       occt_shape_valid(a) ? "valid" : "INVALID");
+                check(f == 66, "[43a] the centred sweep is not 64 lateral "
+                               "faces and two caps");
+                check(near_rel(v, 6000.0, 1e-9),
+                      "[43a] the centred sweep is not A*dz");
+                check(occt_shape_valid(a),
+                      "[43a] the CENTRED sweep is invalid — the control this "
+                      "whole scenario rests on has moved");
+                occt_free_shape(a);
+            }
+            if (b == NULL) {
+                printf("[43a] off-centre [0,10]^2: refused (%s)\n",
+                       occt_last_error());
+            } else {
+                int f = 0;
+                const double v = occt_shape_volume(b);
+                occt_shape_counts(b, &f, NULL, NULL);
+                printf("[43a] off-centre [0,10]^2, same path: f=%d vol=%.9f "
+                       "%s — S19 §4.1, S18 §5.1\n", f, v,
+                       occt_shape_valid(b) ? "valid" : "INVALID");
+                check(!occt_shape_valid(b),
+                      "[43a] the off-centre sweep now reports VALID. It used "
+                      "to come back with a NotConnected shell (S19 §4.1); if "
+                      "the kernel really did fix it, this pin and "
+                      "perf/findings/S19-validity.md §4 both need rereading");
+                occt_free_shape(b);
+            }
+        }
+
+        /* ---- [43b] the tilt is the discriminator, on the shipped ABI ---- */
+        {
+            const double off[12] = {0,0,0, 10,0,0, 10,10,0, 0,10,0};
+            /* orientation 2 is the ONLY difference: it passes
+             * WithCorrection = Standard_True, which rotates the section
+             * orthogonal to the tangent. Orientation 1 sidesteps the tilt a
+             * different way, by keeping every section parallel. */
+            int orient;
+            for (orient = 1; orient <= 2; ++orient) {
+                occt_shape *t = occt_sweep_profile_ex(off, lc43, 1, I43,
+                                                      helix43, 17, orient, 0.0,
+                                                      0.0,
+                                                      OCCT_SWEEP_PATH_POLY);
+                if (check(t != NULL,
+                          "[43b] a tilt-corrected orientation was refused")) {
+                    printf("[43b] off-centre [0,10]^2, orientation %d: "
+                           "vol=%.9f %s\n", orient, occt_shape_volume(t),
+                           occt_shape_valid(t) ? "valid" : "INVALID");
+                    check(occt_shape_valid(t),
+                          "[43b] removing the section's tilt no longer "
+                          "rescues the off-centre sweep — S19 §4.4's control "
+                          "has gone, and the diagnosis with it");
+                    occt_free_shape(t);
+                }
+            }
+        }
+
+        /* ---- [43c] (S19-1), on a fixture that is not the helix ---- */
+        {
+            /* A PLANAR polygonal arc: `legs` legs of length L, each turning
+             * `joint` degrees the same way, the first one tilted `tilt` from
+             * +Z. The section lies in the XY plane, so `tilt` IS the angle
+             * between the section and the plane normal to the tangent. */
+            const double L43 = 20.0, joint43 = 5.0, tilt43 = 25.0, w43 = 5.0;
+            const double k43 = sin(tilt43 * M_PI / 180.0)
+                             + tan(joint43 * M_PI / 360.0);
+            const double cstar = L43 / k43 - w43;
+            double arc[3 * 7];
+            double xx = 0.0, zz = 0.0, dir = tilt43 * M_PI / 180.0;
+            int leg;
+            arc[0] = arc[1] = arc[2] = 0.0;
+            for (leg = 1; leg <= 6; ++leg) {
+                if (leg > 1)
+                    dir += joint43 * M_PI / 180.0;
+                xx += L43 * sin(dir);
+                zz += L43 * cos(dir);
+                arc[3*leg+0] = xx;
+                arc[3*leg+1] = 0.0;
+                arc[3*leg+2] = zz;
+            }
+            printf("[43c] (S19-1): leg %.4f joint %.4f tilt %.4f -> the "
+                   "boundary is at c = %.4f\n", L43, joint43, tilt43, cstar);
+            check(cstar > 1.0,
+                  "[43c] the fixture no longer brackets the boundary");
+            for (i = 0; i < 2; ++i) {
+                const double c = (i == 0 ? 0.85 : 1.15) * cstar;
+                const double sq[12] = {c - w43, -w43, 0,  c + w43, -w43, 0,
+                                       c + w43,  w43, 0,  c - w43,  w43, 0};
+                occt_shape *t = occt_sweep_profile_ex(sq, lc43, 1, I43, arc, 7,
+                                                      0, 0.0, 0.0,
+                                                      OCCT_SWEEP_PATH_POLY);
+                const int ok = (t != NULL) && occt_shape_valid(t);
+                printf("[43c] c = %.4f (%s the boundary): %s\n", c,
+                       i == 0 ? "below" : "above",
+                       t == NULL ? "refused" : (ok ? "valid" : "INVALID"));
+                if (i == 0)
+                    check(ok, "[43c] (S19-1) predicts VALID at 0.85 of the "
+                              "boundary and the sweep is not");
+                else
+                    check(!ok, "[43c] (S19-1) predicts INVALID at 1.15 of the "
+                               "boundary and the sweep is valid — the law in "
+                               "S19 §4.5 no longer describes this kernel");
+                occt_free_shape(t);
+            }
+        }
+
+        /* ---- [43d] no joint, no defect ---- */
+        {
+            const double off[12] = {0,0,0, 10,0,0, 10,10,0, 0,10,0};
+            /* The SAME off-centre section, tilted the same way relative to a
+             * straight path that runs where the helix's first leg runs. */
+            const double sp[6] = {0,0,0,
+                                  helix43[3*16+0], helix43[3*16+1],
+                                  helix43[3*16+2]};
+            const double len = sqrt(sp[3]*sp[3] + sp[4]*sp[4] + sp[5]*sp[5]);
+            occt_shape *t = occt_sweep_profile_ex(off, lc43, 1, I43, sp, 2, 0,
+                                                  0.0, 0.0,
+                                                  OCCT_SWEEP_PATH_POLY);
+            if (check(t != NULL, "[43d] the straight sweep was refused")) {
+                /* One leg, no joint: the volume is the area times the
+                 * projection of the leg on the section's normal, which is
+                 * Cavalieri again and needs no corner term at all. */
+                const double v = occt_shape_volume(t);
+                printf("[43d] off-centre [0,10]^2, ONE straight leg of %.6f: "
+                       "vol=%.9f (A*dz = %.9f) %s\n", len, v, 100.0 * sp[5],
+                       occt_shape_valid(t) ? "valid" : "INVALID");
+                check(near_rel(v, 100.0 * sp[5], 1e-9),
+                      "[43d] a jointless sweep of an off-centre section is "
+                      "not A*dz");
+                check(occt_shape_valid(t),
+                      "[43d] a jointless sweep of the off-centre section is "
+                      "invalid — the census's cleanest result has moved");
+                occt_free_shape(t);
+            }
+            /* And the same 17 points, SMOOTHED into one B-spline edge. */
+            t = occt_sweep_profile_ex(off, lc43, 1, I43, helix43, 17, 0, 0.0,
+                                      0.0, OCCT_SWEEP_PATH_SMOOTH);
+            if (check(t != NULL, "[43d] the smoothed sweep was refused")) {
+                int f = 0;
+                occt_shape_counts(t, &f, NULL, NULL);
+                printf("[43d] off-centre [0,10]^2, SMOOTH spine: f=%d "
+                       "vol=%.9f %s\n", f, occt_shape_volume(t),
+                       occt_shape_valid(t) ? "valid" : "INVALID");
+                check(f == 6, "[43d] the smoothed spine is not one run of "
+                              "four lateral faces and two caps");
+                check(occt_shape_valid(t),
+                      "[43d] the smoothed sweep of the off-centre section is "
+                      "invalid — AUTO and SMOOTH were the census's escape "
+                      "hatch and it has closed");
+                occt_free_shape(t);
+            }
+        }
+    }
+
     if (g_failures == 0) {
         printf("OCCT SMOKE: PASS\n");
         return 0;

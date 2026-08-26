@@ -774,3 +774,209 @@ defect is OCCT's. What (S19-1) does NOT account for is the volume EXPLOSION
 below the deadband in §4.3 — 39 368 against 6 000 at spans = 128. Nothing is
 extended there and nothing is trimmed, so it is a third behaviour rather than
 this one continued, and it is recorded and not chased.
+
+---
+
+## 5. What this session ships, and what it does not
+
+### 5.1 No shim change. **v29 was handed out and is NOT taken.**
+
+The brief allocated shim version v29. Nothing in `backend/occt/shim/**` is
+touched, `occt_shim_version()` still returns 28, and **v29 remains free for
+whoever needs it next.** This project has had three version collisions
+(`occt_capi.cpp`'s v17, v21/v23 and the 2026-08-23 note); a number recorded as
+"taken by S19" when no ABI moved would be a fourth kind of confusion. It is
+written here so the next session can take 29 without wondering.
+
+Three reasons the shim did not move:
+
+1. **The gate is the integrator's decision.** S18 §5.2 routed it and this
+   session is the evidence for it, as §1.4 registered.
+2. **The lever I expected to be able to offer does not exist.** P3 predicted
+   that exposing a cheap `GeomControls = false` check would let a caller gate
+   affordably. It is 1.20× cheaper, on the same exponent — a knob with no
+   benefit is worse than no knob.
+3. **The app can already do it.** `occt_shape_valid` is bound in Dart
+   (`ffi/occt_engine.dart:1138`) and surfaced as `OcctShape.valid`
+   (`:477`). Nothing about a sweep needs a new ABI to be checked; what is
+   missing is a call site, and Dart is not this session's.
+
+### 5.2 Scenario [43], which is what ships
+
+Four arms in `backend/occt/tests/smoke_occt.c`, all green on OCCT 7.9.3:
+
+```
+[43a] centred [-5,5]^2, 16-leg POLY helix: f=66 vol=6000.000000000 valid
+[43a] off-centre [0,10]^2, same path: f=66 vol=6553.070935589 INVALID
+[43b] off-centre [0,10]^2, orientation 1: vol=6000.000000000 valid
+[43b] off-centre [0,10]^2, orientation 2: vol=6585.530028906 valid
+[43c] (S19-1): leg 20.0000 joint 5.0000 tilt 25.0000 -> the boundary is at c = 37.8928
+[43c] c = 32.2088 (below the boundary): valid
+[43c] c = 43.5767 (above the boundary): INVALID
+[43d] off-centre [0,10]^2, ONE straight leg of 65.176683: vol=6000.000000000 valid
+[43d] off-centre [0,10]^2, SMOOTH spine: f=6 vol=5990.169232965 valid
+```
+
+The defect rows assert **"must not come back claiming to be valid"** rather
+than "must be invalid", so the scenario stays green whichever way the gate
+decision goes and goes red only if the kernel starts calling these shapes
+sound. [43c] runs (S19-1) on a planar polygonal arc rather than the helix, so
+it is a test of the LAW and not a second copy of the fixture.
+
+---
+
+## 6. Defects found and NOT fixed
+
+1. **A third of the producible sweep configuration space returns an invalid
+   solid and nothing refuses it** (§3). 136 of 405. Every one is on a mitred
+   joint. **The integrator's call, and it is the same call S18 routed, now with
+   the list attached.**
+2. **A holed profile swept round a 90° corner with a negative taper returns a
+   solid of volume −933.602882** — inside-out, past `has_solid_material`, out
+   through `finish_pipe`. Same class as (1) but worth its own line: this is not
+   a slightly-wrong part, it is a part whose inside is outside.
+3. **The 1218-segment field profile does not build over a drawn 16-leg polyline
+   path at all** — `occt_sweep_profile: BRep_API: command not done`, after
+   ~40 s. So does 256 segments over 64 legs. That is a CLEAN failure (NULL +
+   `last_error`), so it is correct behaviour and not a defect in the same
+   sense; it is recorded because S11's field capture is a 1218-segment profile
+   and S14/S15 established that the SMOOTH path builds it. **The regime that
+   does not build is the DRAWN one.**
+4. **Below OCCT's `angMin` deadband the same fixture's volume goes to 39 368
+   against a correct 6 000** (§4.3). Nothing is extended and nothing is trimmed
+   there, so it is a third behaviour and (S19-1) does not describe it.
+   **Recorded, not chased.**
+5. **`OcctShape.valid` is bound in Dart and never called on a build result.**
+   Its only non-boot caller in the tree is unrelated. Dart is not this
+   session's; routed rather than fixed.
+
+## 7. Things I deliberately did not do
+
+* **No gate.** §1.4 registered that no gate would ship from this session and
+  none did.
+* **No shim change at all**, so every existing call is bit-identical by
+  construction. `git diff --stat` against this branch's start (`0e67671`) is
+  five files: `backend/bench/CMakeLists.txt`, `backend/bench/valid_probe.cpp`,
+  `backend/occt/tests/smoke_occt.c`, `perf/findings/CROSS-SESSION.md` and this
+  one. Nothing under `backend/occt/shim/**`, and no `.dart` anywhere.
+* **No `perf/baseline.json`, no `PERFORMANCE_PROFILE.md`, no Dart.**
+* **`CALIBRATION.txt` is not re-recorded**, per the integrator's 2026-08-21
+  ruling that S14 records it.
+* **The OCCT submodule is not edited.** §4.6's instrumentation was applied,
+  measured, reverted with `git checkout` inside the submodule, and the toolkit
+  rebuilt from pristine sources and reinstalled. `git submodule status` shows
+  `a016080bf6738d6aeae020badee4e888ad1540a5` with no `+`, and `occt_smoke` was
+  re-run on the restored kernel.
+
+## 8. What I am unsure of
+
+In order of what it would cost to be wrong.
+
+1. **Whether (S19-1) is the boundary or a very good fit to it.** It held on 7 of
+   7 out-of-sample rows including three half-widths it was never fitted
+   against, and both of its terms are quantities with a geometric meaning
+   rather than fitted coefficients. But it was FOUND in the data. The
+   derivation in §4.5 is a reading of the two terms after the fact, not a
+   derivation from OCCT's source, and I did not find the line in
+   `MakeFacesSec` that computes either quantity.
+2. **Whether the invalid set is ever an interval.** §4.5's joint = 10° scan
+   found it is not — invalid from 4 to 40, valid from 42 to 50, invalid again
+   from 52 — and every other ladder in this session assumed monotonicity
+   without checking. The bisected boundaries are therefore FIRST transitions
+   only where the region happens to be an interval, and I verified that only
+   for the one row where the bisection disagreed with (S19-1).
+3. **The census's coverage.** §3.3 says what it is not. A rotated `mat34` is
+   the gap I would close first: every placement here is a translation, and S16
+   §1.4's whole finding was that parameters only ever exercised at their
+   trivial value are where defects live.
+4. **Whether 33.6 % means anything about the field.** It is the fraction of a
+   grid I chose, not of anything users do. A user who never drafts a sweep and
+   never draws a polyline path meets none of it; the S11 field capture's user
+   drew a 1218-segment profile, which is finding 6.3's regime. The honest
+   statement is the structural one — **every defect is on a mitred joint** —
+   and not the percentage.
+5. **Whether P2's exponent means anything.** Three rungs, because the fourth
+   does not build. 0.783 with three points is a direction, not a number.
+6. **Everything about time on a device**, as always. Desktop milliseconds on a
+   shared four-core container; `backend/bench/README.md` §"What these numbers
+   may and may not be used for" says why, and this session's absolute
+   milliseconds are worth less than its ratios.
+
+## 9. Handover
+
+### 9.1 The gate decision, with the evidence attached
+
+S18 asked the integrator to decide whether `finish_pipe` should check its
+result. Here is what the decision is between.
+
+**What it costs.** Between 1.0 % and 45 % of the operation it gates on every
+sweep measured except one; **123.3 % on the holed 1200-segment sweep**, which is
+S15 §2.2's shape and the field's own profile size. Parallel halves that
+(66.0 %). On small shapes the percentage is large and the absolute is under a
+millisecond. The shim has shipped the identical call in `blend_result_ok` since
+v11.
+
+**What it would refuse.** 136 of 405 producible configurations (§3), of which
+126 involve a taper across a mitred joint — a class S18's v27 already refuses
+where the joint is a drawn corner, though the census shows the class is wider
+than that. The remaining 10 are the §5.1 family and the orientation-1
+degeneracy.
+
+**What it would catch.** All of them, with `GeomControls` either way (§2.4).
+
+**The third option, which is not a gate.** Every defect in the census is on a
+mitred joint, and the two families have closed forms: taper ≠ 0 with any spine
+joint above `angMin`, and (S19-1). Both are computable from the inputs, before
+building, in microseconds. A shim that refused on the predicate would cost
+nothing and would need no BRepCheck at all — but it would be REFUSING on a law
+this session found empirically, and §8.1 is why I would not ship that on the
+strength of one session's fit.
+
+**What I would do, stated as an opinion and labelled as one.** Gate on
+`BRepCheck_Analyzer`, in `finish_pipe`, with `GeomControls = Standard_False`
+and `theIsParallel = Standard_True` — the cheapest ask that catches 136 of 136
+— and make the failure a clean NULL with a message that names the corner. The
+cost is 63.8 % on the one holed shape and under 10 % everywhere else. I did not
+ship it because it is not mine to ship, and because a third of the
+configuration space starting to fail is a product decision and not a kernel
+one.
+
+### 9.2 For whoever picks up the sweep next
+
+* **(S19-1) is the cheapest sweep diagnostic there is** and it needs no kernel
+  call: `d·(sin φ + tan θ/2)` against `L`, per joint, on the inputs.
+* **A centred section is safe and exactly `A·dz`** whatever the path does, in
+  every corner mode — S18 §8.3 said this and every valid row here confirms it.
+  The corollary is the useful half: **it is the OFFSET that costs, and only
+  when the section is also tilted.**
+* **The face count is not the corner diagnostic here** that S18 §8.3 found it
+  to be for the taper. Every helix row in §4.3 has exactly `4·spans + 2` faces,
+  valid and invalid alike.
+* **`BRepCheck_Analyzer`'s per-subshape statuses are worth reading** — the bool
+  throws away `NotConnected` vs `NotClosed` vs `IntersectingWires`, and the
+  three mean different things about what OCCT did. `valid_probe.cpp`'s
+  `diagnose()` is forty lines and reads both the context-free and the
+  contextual status lists; reading only the first misses
+  `IntersectingWires` entirely.
+* **`backend/bench/valid_probe.cpp --help`** lists eleven arms; `--census` is the
+  one to re-run after any change to the sweep path.
+
+### 9.3 Definition of done
+
+| | |
+| --- | --- |
+| Predictions committed BEFORE the instrument | `0bfff18` (P1–P9) and `0f9d55f` (P10), both before `valid_probe.cpp` existed and while OCCT was still compiling |
+| `occt_smoke` on real OCCT 7.9.3 | **OCCT SMOKE: PASS**, including new scenario [43] and all four of its arms |
+| `occt_mesh_recon_test` | **ALL PASSED (132 passed, 0 failed)** |
+| `python3 -m unittest discover -s ci` | **52 tests, OK** |
+| `bench_stats_test` | **BENCH STATS: PASS** |
+| Probe self-check | **0 shim/probe validity disagreements**, on every arm, several thousand shapes |
+| Submodule | `a016080bf6738d6aeae020badee4e888ad1540a5`, clean; smoke re-run on the restored kernel |
+| `gcc -fsyntax-only` on the smoke, `g++ -fsyntax-only` on the probe | run before every commit |
+| `flutter analyze` / `flutter test` delta | **not runnable: no Flutter SDK in this container.** No Dart file was touched — `git diff --stat 0e67671..` is five files — `backend/bench/CMakeLists.txt`, `backend/bench/valid_probe.cpp`, `backend/occt/tests/smoke_occt.c`, `perf/findings/CROSS-SESSION.md` and this one — so the delta is zero by construction. That is an argument, not a measurement, and it is recorded as an argument, exactly as S18 §8.4 recorded the same one |
+
+The OCCT install used for everything above was built from the pinned `V7_9_3`
+submodule with `backend/occt/VENDOR.md`'s exact configure line, Release.
+Nothing is mocked: every shape came out of `occt_sweep_profile_ex`, and the
+`--attribute` replica of `finish_pipe`'s four steps reproduces the shipped
+call's faces and volume on all seven of its cases.

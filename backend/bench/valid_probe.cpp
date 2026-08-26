@@ -8,14 +8,20 @@
  *
  *   --cost      what a gate would cost, as a function of the two things the
  *               shape's size is made of (profile segments, path legs), across
- *               the four ways BRepCheck_Analyzer can be asked;
+ *               the four ways BRepCheck_Analyzer can be asked; `--s15` is the
+ *               same question on S15 §2.2's own anchor row, and `--precedent`
+ *               is what the gate the shim ALREADY ships costs;
  *   --catch     whether the CHEAP ways of asking catch the defects that are
  *               known to exist — a gate that is cheap and blind is not a gate;
  *   --census    which producible sweep configurations are invalid TODAY, i.e.
  *               exactly the list of parts that would stop building the day a
  *               gate lands;
  *   --offcentre S18 §5.1: an off-centre section going INVALID on a many-jointed
- *               path with no taper, which S18 recorded and did not chase.
+ *               path with no taper, which S18 recorded and did not chase, and
+ *               then `--attribute`, `--factorial`, `--accumulate`,
+ *               `--boundary` and `--law`, which are the chase.
+ *
+ * `--help`, or any unrecognised arm, lists all eleven.
  *
  * IT IS NOT A REPLICA. Every shape it checks comes out of the SHIPPED
  * `occt_sweep_profile_ex`, so what is being timed and classified is the
@@ -1500,9 +1506,29 @@ int main(int argc, char **argv)
         else if (arm == "--s15")
             armS15(reps);
         else {
-            std::printf("usage: valid_probe --cost [reps] | --catch | "
-                        "--census | --offcentre | --precedent [reps] | "
-                        "--attribute | --factorial\n");
+            std::printf(
+                "usage: valid_probe <arm> [reps]\n"
+                "  --cost [reps]       the two ladders: check cost in profile "
+                "segments and in path legs, four ways\n"
+                "  --s15 [reps]        S15 2.2's anchor row rebuilt and asked "
+                "four ways\n"
+                "  --precedent [reps]  what the gate blend_result_ok ALREADY "
+                "ships costs, by shape size\n"
+                "  --catch             whether the topology-only check sees "
+                "the known defects\n"
+                "  --census            405 producible configurations, "
+                "classified and diagnosed\n"
+                "  --offcentre         S18 5.1: reproduction, the deadband, "
+                "and the offset/leg/turn ladders\n"
+                "  --attribute         which of finish_pipe's four steps "
+                "loses it (replica, agreement printed)\n"
+                "  --factorial         tilt against offset, separated\n"
+                "  --accumulate        turns that add up against turns that "
+                "cancel\n"
+                "  --boundary          bisect for the offset boundary over "
+                "leg, joint, tilt and leg count\n"
+                "  --law               (S19-1) tested where it was not "
+                "fitted, plus the non-interval scan\n");
             return 2;
         }
     } catch (const Standard_Failure &e) {
