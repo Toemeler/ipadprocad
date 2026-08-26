@@ -1479,10 +1479,12 @@ class _ModelBrowserState extends State<ModelBrowser> {
       // Tap once to select, again to open — the same stand-in for a
       // double-click the native tree uses, since neither has one.
       onTap: () {
-        if (selected) {
-          app.openConstraint(edit: c);
-        } else {
+        if (!selected) {
           app.selectConstraint(c);
+        } else if (c.isJoint) {
+          app.openJoint(edit: c);
+        } else {
+          app.openConstraint(edit: c);
         }
       },
       // A SICK constraint is marked rather than described: the badge is the
@@ -1528,6 +1530,15 @@ class _ModelBrowserState extends State<ModelBrowser> {
       position: RelativeRect.fromLTRB(at.left + 40, at.top + 80, at.right, at.bottom),
       items: [
         PopupMenuItem(value: 'edit', height: 36, child: Text(t.edit, style: ts(12.5, T.text))),
+        // M249 — Inventor's own entry point for Drive: "the Drive dialog box
+        // opens when you right-click a relationship in the browser and select
+        // Drive". Only on the relationships that HAVE something to sweep —
+        // Symmetry and Transitional carry no value and no shaft.
+        if (canDriveConstraint(c))
+          PopupMenuItem(
+              value: 'drive',
+              height: 36,
+              child: Text(t.ctxDrive, style: ts(12.5, T.text))),
         PopupMenuItem(
             value: 'suppress',
             height: 36,
@@ -1542,7 +1553,16 @@ class _ModelBrowserState extends State<ModelBrowser> {
     if (!mounted) return;
     switch (pick) {
       case 'edit':
-        app.openConstraint(edit: c);
+        // M249 — a joint edits in the Joint dialog, a constraint in Place
+        // Constraint. One row, one verb, two panels: which one is decided by
+        // what the relationship IS, never by which folder it was reached from.
+        if (c.isJoint) {
+          app.openJoint(edit: c);
+        } else {
+          app.openConstraint(edit: c);
+        }
+      case 'drive':
+        app.openDrive(c);
       case 'suppress':
         app.toggleConstraintSuppressed(c);
       case 'delete':

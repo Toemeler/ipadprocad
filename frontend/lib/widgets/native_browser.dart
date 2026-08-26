@@ -254,6 +254,13 @@ GlassRow _constraintRow(AssemblyModel asm, AsmConstraint c,
 List<List<GlassMenuItem>> _constraintMenu(AsmConstraint c) => [
       [
         GlassMenuItem(id: 'relEdit', title: t.edit, symbol: 'slider.horizontal.3'),
+        // M249 — Drive, on the row Inventor puts it on. Symmetry and
+        // Transitional carry no value and no shaft to turn, so the entry is
+        // absent rather than present and inert; a context menu has no disabled
+        // state on this tree, and an entry that did nothing would be worse
+        // than one that is not offered.
+        if (canDriveConstraint(c))
+          GlassMenuItem(id: 'relDrive', title: t.ctxDrive, symbol: 'play.circle'),
         GlassMenuItem(
             id: 'relSuppress',
             title: c.suppressed ? t.ctxUnsuppress : t.ctxSuppress,

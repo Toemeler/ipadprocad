@@ -425,6 +425,31 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
                 }
                 return;
               }
+              // M249 — Show Relationships is armed and waiting for a
+              // COMPONENT. Ahead of the grab, for the reason every armed
+              // command above is: a tap meant to name the component whose
+              // glyphs to draw must not drag it instead.
+              //
+              // LAST among the armed commands, though, and that is the part
+              // worth stating. The three above are modeless DIALOGS and cancel
+              // one another, so their order is style; Show is a ribbon toggle
+              // that nothing cancels, so an armed Show checked first would
+              // quietly swallow every tap meant for a dialog opened after it.
+              // Checked here it can only ever take a tap that would otherwise
+              // have grabbed a component.
+              //
+              // It also names a whole component rather than a face, so it goes
+              // through pickOccurrence — the one armed command here that does.
+              if (app.showRelationshipsPicking) {
+                final occ = pickOccurrence(a, cam, e.localPosition);
+                if (occ != null) {
+                  app.selectOccurrence(occ);
+                  app.showRelationshipsOf(occ.id);
+                } else {
+                  app.toast(L.of(context).hintAsmShowPickComponent);
+                }
+                return;
+              }
               // Grab a component. The pick happens on DOWN, not on the first
               // move, so the selection highlight appears the moment you touch
               // it — that is the feedback that says "this is what will move".
@@ -838,6 +863,9 @@ class _MissingPartPainter extends CustomPainter {
         points: asm.workPoints,
         bounds: assemblyContentBounds(asm),
         app: app);
+    // M249 — the relationship glyphs are HUD too, and so are drawn from both
+    // painters for the reason the line above is.
+    paintRelationshipGlyphs(canvas, cam, asm);
     paintConstraintMarks(canvas, cam, marks, hoverGeom);
   }
 
@@ -887,6 +915,210 @@ void paintConstraintMarks(
   if (hover != null) draw(hover, kEdgeAccent, 1.6);
   for (final m in marks) {
     draw(m, T.accent, 2.2);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// M249 — relationship glyphs
+// ---------------------------------------------------------------------------
+
+/// Half the width of a glyph badge, in logical pixels.
+///
+/// Screen space, not world: a relationship is an annotation on the model and
+/// not a part of it, so it has to stay legible at any zoom — exactly as the
+/// missing-component marker and the origin centre point already do.
+const double kRelGlyphRadius = 9.0;
+
+/// What Show / Show Sick put on screen: a badge at each end of every shown
+/// relationship, joined by a dashed leader.
+///
+/// Called from BOTH painters, and that is the point of it being top-level. On
+/// iOS RealityKit owns the scene and [_AssemblyPainter] never runs, so a glyph
+/// drawn only there would be perfectly visible on the host and invisible on
+/// the device — the trap paintMissingComponents and paintWorkAxesAndPoints are
+/// each already written around.
+///
+/// Anchored on [AsmRef.anchor], like every other assembly annotation since
+/// M244: the geometry's own point is wherever the kernel put it, so a badge
+/// drawn there lands in mid-air beside the part rather than on the face the
+/// relationship is about.
+///
+/// Un-occluded, for [paintConstraintMarks]'s reason: a glyph you cannot see
+/// because the other component is in front of it is a glyph that cannot tell
+/// you why the two are stuck together, which is the only reason to draw one.
+void paintRelationshipGlyphs(Canvas canvas, Cam3 cam, AssemblyModel asm) {
+  final shown = asm.visibleRelationships;
+  if (shown.isEmpty) return;
+  for (final c in shown) {
+    final refs = [c.a, c.b, if (c.c != null) c.c!];
+    final pts = [
+      for (final r in refs) cam.project(worldAnchorOf(asm, r)),
+    ];
+    // Sick is said in RED and said twice — the leader and both badges — for
+    // the reason the browser's badge exists: "this one could not be met" has
+    // to be findable by looking at the model, which is what Show Sick is for.
+    final color = c.isSick ? T.err : T.accent;
+    for (var i = 1; i < pts.length; i++) {
+      _dashedLeader(canvas, pts[i - 1], pts[i], color);
+    }
+    for (final p in pts) {
+      _relGlyphBadge(canvas, p, c.kind, color);
+    }
+  }
+}
+
+/// The leader between the two ends of one relationship.
+///
+/// Dashed, and drawn short of both badges so it does not run under them: a
+/// solid line between two marks reads as geometry, and there is no edge there.
+void _dashedLeader(Canvas canvas, Offset a, Offset b, Color color) {
+  final d = b - a;
+  final len = d.distance;
+  // Two badges plus a gap: below that the leader would be all badge and no
+  // line, and the two marks already say they belong together by touching.
+  if (len < 2 * kRelGlyphRadius + 6) return;
+  final u = d / len;
+  final from = a + u * (kRelGlyphRadius + 1);
+  final to = b - u * (kRelGlyphRadius + 1);
+  final paint = Paint()
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 1.1
+    ..color = color.withValues(alpha: 0.75);
+  const dash = 4.0, gap = 3.0;
+  var t = 0.0;
+  final span = (to - from).distance;
+  while (t < span) {
+    final e = math.min(t + dash, span);
+    canvas.drawLine(from + u * t, from + u * e, paint);
+    t = e + gap;
+  }
+}
+
+/// One badge: the rounded plate, and the mark that says which relationship.
+void _relGlyphBadge(Canvas canvas, Offset at, AsmKind kind, Color color) {
+  const r = kRelGlyphRadius;
+  final box = Rect.fromCircle(center: at, radius: r);
+  final rrect = RRect.fromRectAndRadius(box, const Radius.circular(3));
+  canvas.drawRRect(rrect, Paint()..color = T.panel.withValues(alpha: 0.92));
+  canvas.drawRRect(
+      rrect,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.2
+        ..color = color);
+  final ink = Paint()
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 1.2
+    ..strokeCap = StrokeCap.round
+    ..color = color;
+  final (lines, circles) = _relGlyphMark(kind);
+  // The mark is authored in a unit box and scaled here, so every glyph in the
+  // family is drawn at one weight and one size however the badge is sized.
+  const s = r * 0.62;
+  for (final poly in lines) {
+    for (var i = 1; i < poly.length; i++) {
+      canvas.drawLine(at + poly[i - 1] * s, at + poly[i] * s, ink);
+    }
+  }
+  for (final (c, rad) in circles) {
+    canvas.drawCircle(at + c * s, rad * s, ink);
+  }
+}
+
+/// The mark for one relationship kind: polylines and circles in a unit box.
+///
+/// Drawn rather than looked up in [AC], because the ribbon's icons are SVG and
+/// a CustomPainter cannot rasterise one inside `paint()` — flutter_svg's decode
+/// is asynchronous, and a glyph that appeared a frame late would flicker on
+/// every drag. These are the same pictures reduced to what survives at 11 pt:
+/// the shape that distinguishes the kind, and nothing else.
+(List<List<Offset>>, List<(Offset, double)>) _relGlyphMark(AsmKind kind) {
+  const nl = <List<Offset>>[];
+  const nc = <(Offset, double)>[];
+  switch (kind) {
+    // Mate / Flush: two faces meeting.
+    case AsmKind.mate:
+      return ([
+        [Offset(-0.9, -1), Offset(-0.9, 1)],
+        [Offset(0.9, -1), Offset(0.9, 1)],
+        [Offset(-0.35, 0), Offset(0.35, 0)],
+      ], nc);
+    // Angle: two edges and the corner between them.
+    case AsmKind.angle:
+      return ([
+        [Offset(-1, 0.9), Offset(1, 0.9)],
+        [Offset(-1, 0.9), Offset(0.7, -0.9)],
+      ], nc);
+    // Tangent: the round face resting on the flat one.
+    case AsmKind.tangent:
+      return ([
+        [Offset(-1, 0.9), Offset(1, 0.9)]
+      ], [
+        (const Offset(0, -0.1), 1.0)
+      ]);
+    // Insert: the bore, with the shaft down it.
+    case AsmKind.insert:
+      return ([
+        [Offset(0, -1.1), Offset(0, 1.1)]
+      ], [
+        (Offset.zero, 0.85)
+      ]);
+    case AsmKind.symmetry:
+      return ([
+        [Offset(0, -1.1), Offset(0, 1.1)],
+        [Offset(-1, -0.5), Offset(-1, 0.5)],
+        [Offset(1, -0.5), Offset(1, 0.5)],
+      ], nc);
+    // The two motion kinds: a driving wheel and a driven one.
+    case AsmKind.rotation:
+    case AsmKind.rotationTranslation:
+      return (nl, [
+        (const Offset(-0.5, 0), 0.6),
+        (const Offset(0.6, 0), 0.45),
+      ]);
+    // Transitional: the follower riding the cam's face.
+    case AsmKind.transitional:
+      return ([
+        [Offset(-1.1, 0.6), Offset(-0.3, -0.4), Offset(0.6, 0.6)]
+      ], [
+        (const Offset(-0.3, -0.9), 0.4)
+      ]);
+    // ---- M249: the joints, each drawn as the freedom it LEAVES -------------
+    //
+    // Which is what a glyph on the model is for: the browser row already says
+    // "Rotational:1", and what the picture can add is what the component can
+    // still do. A cross is nothing, a circle is a turn, a bar is a slide.
+    case AsmKind.jointRigid:
+      return ([
+        [Offset(-0.9, -0.9), Offset(0.9, 0.9)],
+        [Offset(0.9, -0.9), Offset(-0.9, 0.9)],
+      ], nc);
+    case AsmKind.jointRotational:
+      return (nl, [
+        (Offset.zero, 0.95),
+        (Offset.zero, 0.18),
+      ]);
+    case AsmKind.jointSlider:
+      return ([
+        [Offset(-1.1, 0), Offset(1.1, 0)],
+        [Offset(-0.5, -0.5), Offset(0.5, -0.5)],
+      ], nc);
+    case AsmKind.jointCylindrical:
+      return ([
+        [Offset(-1.1, 0.8), Offset(1.1, 0.8)]
+      ], [
+        (const Offset(0, -0.2), 0.7)
+      ]);
+    case AsmKind.jointPlanar:
+      return ([
+        [Offset(-1.1, 0.7), Offset(1.1, 0.7)],
+        [Offset(-0.6, -0.7), Offset(0.6, -0.7), Offset(1.0, 0.2)],
+      ], nc);
+    case AsmKind.jointBall:
+      return (nl, [
+        (Offset.zero, 0.95),
+        (Offset.zero, 0.5),
+      ]);
   }
 }
 
@@ -1030,6 +1262,8 @@ class _AssemblyPainter extends CustomPainter {
         points: asm.workPoints,
         bounds: assemblyContentBounds(asm),
         app: app);
+    // M249 — see _MissingPartPainter.paint.
+    paintRelationshipGlyphs(canvas, cam, asm);
     paintConstraintMarks(canvas, cam, marks, hoverGeom);
   }
 

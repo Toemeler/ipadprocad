@@ -577,6 +577,17 @@ void main() {
     //     than pinning a layout that no longer exists.
     //   * the three that are built are TAPPABLE, and the drawn-and-disabled
     //     list loses them.
+    //
+    // M249 (SPEC CHANGE) — Joint, Show and Hide All are built, so the
+    // drawn-and-disabled list keeps only Create, Free Move and Free Rotate.
+    //
+    // SHOW SICK stays in it, and it is the one entry there for a NEW reason:
+    // it is built and unavailable. Inventor's own rule — "the command is not
+    // available if all relationships are healthy" — and this fixture has no
+    // relationships at all, so the row must draw exactly as an unbuilt one
+    // does. The test below says so on both sides: untappable here, and
+    // tappable the moment a constraint goes sick (see "Show Sick lights up
+    // only when something is sick").
     testWidgets('every command is drawn; the built ones are enabled',
         (t) async {
       L.set(kEn);
@@ -630,6 +641,10 @@ void main() {
         expect(tappable(on), greaterThan(0),
             reason: 'M248 — "$on" is built');
       }
+      for (final on in const ['Joint', 'Show', 'Hide All']) {
+        expect(tappable(on), greaterThan(0),
+            reason: 'M249 — "$on" is built');
+      }
       // 'Pattern' is on screen twice — the panel title and the command — and
       // exactly ONE of them is tappable, which is the stronger assertion than
       // either count alone: the command works and the title is still a label.
@@ -640,14 +655,15 @@ void main() {
         'Create',
         'Free Move',
         'Free Rotate',
-        'Joint',
-        'Show',
-        'Show Sick',
-        'Hide All',
       ]) {
         expect(tappable(off), 0,
             reason: '"$off" is not built and must not be tappable');
       }
+      // M249 — built, and unavailable because nothing is sick. Drawn exactly
+      // as an unbuilt command is, which is what Inventor does with it.
+      expect(tappable('Show Sick'), 0,
+          reason: 'M249 — Show Sick is greyed while every relationship is '
+              'healthy, and this assembly has none at all');
     });
 
     testWidgets('it renders in German too', (t) async {
