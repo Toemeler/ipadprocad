@@ -69,7 +69,14 @@ occt_shape *occt_fuse(const occt_shape *a, const occt_shape *b);
 /* v5 — Boolean cut (difference a \ b): the material of `a` with the material
  * of `b` removed (Inventor's Cut). Inputs stay owned by the caller and remain
  * valid; the result is a NEW shape. NULL on failure (an empty result — b fully
- * swallows a — is reported as failure, not a null shape). */
+ * swallows a — is reported as failure, not a null shape).
+ *
+ * v29 — a cut that removes NOTHING is retried once at a fuzzy tolerance, and
+ * the retry is kept only if it removes something no larger than the tool. That
+ * is what makes a tool TANGENT to a face of `a` — a counterbore against a bore
+ * — actually cut, where before it could return the plugs still embedded in the
+ * result and so a shape weighing exactly what `a` did. A tool that genuinely
+ * misses `a` still returns `a`'s material unchanged, as it always has. */
 occt_shape *occt_cut(const occt_shape *a, const occt_shape *b);
 
 /* v5 — Boolean common (intersection a ∩ b): only the material shared by both

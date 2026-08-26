@@ -365,7 +365,25 @@ extern "C" const char *occt_version(void)
  * Taken by the session that owns backend/occt/shim/**, per the collision notes
  * above; the brief allocated it rather than leaving it to be read off the
  * file, this project having had three identifier collisions already. */
-extern "C" int occt_shim_version(void) { return 28; }
+/* v29: occt_cut retries a boolean that removed NOTHING at a fuzzy tolerance.
+ *
+ * BEHAVIOUR CHANGE, and it is worth knowing which way. Before v29 a cut whose
+ * arguments only TOUCH — a counterbore tangent to a bore, the reported case —
+ * could come back reporting success with the removed plugs still inside the
+ * result, so the shape weighed exactly what it did before the cut and its mesh
+ * was not watertight. It now removes the material. A caller that was reading
+ * the volume to decide whether a cut had done anything will start seeing a
+ * DIFFERENT number on such a model, and the right one.
+ *
+ * Nothing else moves. The first attempt is still the plain
+ * BRepAlgoAPI_Cut(a, b) at OCCT's own tolerance, and the retry is entered only
+ * when that removed nothing at all and taken only when it removes something no
+ * larger than the tool — so every cut that already worked is bit-identical,
+ * and a tool that genuinely misses its body still yields the body unchanged.
+ *
+ * Taken by the session that owns backend/occt/shim/**, per the collision notes
+ * above. */
+extern "C" int occt_shim_version(void) { return 29; }
 
 extern "C" const char *occt_last_error(void) { return g_err; }
 
@@ -761,6 +779,74 @@ static bool has_solid_material(const TopoDS_Shape &s)
     return false;
 }
 
+/* ---- v29: a cut that survives a TANGENCY -------------------------------- */
+
+/* Declared here, defined with the v16 blend guards further down — the same
+ * move, and for the same reason, that the v20 section makes further down: the
+ * boolean needs exactly the question that function already answers (what does
+ * this shape weigh, and is that a number at all), and a second copy of
+ * BRepGProp would be two answers to it. */
+static double solid_volume(const TopoDS_Shape &s);
+
+/* Fuzzy value for a RETRIED boolean.
+ *
+ * OCCT intersects at the arguments' own tolerance, and a TANGENCY gives it
+ * nothing to find: two cylinders that touch along a line, rather than crossing,
+ * are the case BOPAlgo is documented to be fragile on, and the remedy OCCT
+ * offers for it is to intersect at a deliberately coarser tolerance instead.
+ *
+ * The value comes from the model's own size rather than a constant, so a 5 mm
+ * part and a 5 m one get the same relative slack. 1e-5 of the pair's bounding
+ * diagonal is far below any feature anyone draws (0.5 micron on a 50 mm part)
+ * and far above the tolerance the surfaces carry. Floored at ten times OCCT's
+ * confusion so it always means something, and capped at 0.01 mm so that on a
+ * very large model it can still never swallow a real wall. */
+static double boolean_fuzzy(const TopoDS_Shape &a, const TopoDS_Shape &b)
+{
+    Bnd_Box box;
+    BRepBndLib::Add(a, box);
+    BRepBndLib::Add(b, box);
+    if (box.IsVoid())
+        return 0.0;
+    double xa, ya, za, xb, yb, zb;
+    box.Get(xa, ya, za, xb, yb, zb);
+    const double dx = xb - xa, dy = yb - ya, dz = zb - za;
+    const double diag = std::sqrt(dx * dx + dy * dy + dz * dz);
+    if (!std::isfinite(diag) || diag <= 0.0)
+        return 0.0;
+    double f = 1.0e-5 * diag;
+    const double floorF = Precision::Confusion() * 10.0;
+    if (f < floorF)
+        f = floorF;
+    if (f > 1.0e-2)
+        f = 1.0e-2;
+    return f;
+}
+
+/* a \ b at [fuzzy], or a null shape when the boolean did not complete.
+ *
+ * The two-argument BRepAlgoAPI_Cut constructor builds immediately and there is
+ * no way to set a fuzzy value on it, so the retry has to go through the
+ * arguments/tools form. `fuzzy <= 0` leaves OCCT's own tolerance in place,
+ * which is exactly what that constructor does — so the FIRST attempt below is
+ * still bit-for-bit the pre-v29 call. */
+static TopoDS_Shape cut_at(const TopoDS_Shape &a, const TopoDS_Shape &b,
+                           double fuzzy)
+{
+    BRepAlgoAPI_Cut op;
+    TopTools_ListOfShape args, tools;
+    args.Append(a);
+    tools.Append(b);
+    op.SetArguments(args);
+    op.SetTools(tools);
+    if (fuzzy > 0.0)
+        op.SetFuzzyValue(fuzzy);
+    op.Build();
+    if (!op.IsDone())
+        return TopoDS_Shape();
+    return op.Shape();
+}
+
 extern "C" occt_shape *occt_cut(const occt_shape *a, const occt_shape *b)
 {
     OCCT_TRY("occt_cut")
@@ -768,12 +854,63 @@ extern "C" occt_shape *occt_cut(const occt_shape *a, const occt_shape *b)
         set_err("occt_cut", "null operand");
         return nullptr;
     }
-    BRepAlgoAPI_Cut cut(a->s, b->s);
-    if (!cut.IsDone()) {
+    TopoDS_Shape r = cut_at(a->s, b->s, 0.0);
+    if (r.IsNull()) {
         set_err("occt_cut", "boolean cut did not complete");
         return nullptr;
     }
-    const TopoDS_Shape r = cut.Shape();
+    /* v29 — A CUT THAT KEPT WHAT IT REMOVED.
+     *
+     * Reported from the device: a Ø6 counterbore sunk 18 mm into a sleeve, on
+     * three bosses, "irgendwie funktionierte es nicht und das Loch ist nicht
+     * da". The cut reported success and the body came back with the SAME
+     * volume to the last digit — 10182.8966 before and after — while its face
+     * count went 7 -> 27 and its mesh stopped being watertight (1555 free
+     * edges). Equal to the last digit is the tell: the counterbore geometry
+     * was all there (shortened Ø3.7 walls, Ø6 walls 18 mm long, annular
+     * floors), and so were the three plugs it had cut out. BRepGProp adds the
+     * solids of a compound, so (a\b) + b weighs exactly a.
+     *
+     * What is special about that model and not about the through-holes drilled
+     * a minute earlier in the same sketch, with the same tool direction, into
+     * the same body: the counterbore is EXACTLY TANGENT to the sleeve's bore.
+     * The sketch says so in as many words — a tangent constraint between the
+     * Ø6 circle and the Ø10 bore, centres 8 apart, 8 = 5 + 3 — so the tool's
+     * wall touches the body's bore along a line and never crosses it. That is
+     * the tangency BOPAlgo is fragile on, and the fix OCCT offers for it is a
+     * fuzzy value.
+     *
+     * So: the plain cut runs first and unchanged, and only a result that
+     * removed NOTHING is retried at boolean_fuzzy(). A tool that genuinely
+     * misses the body — which happens on every extrude preview before the
+     * target is picked — removes nothing on the retry too, and pays one
+     * boolean for the privilege. The retry is taken only when it removes
+     * something, and only when what it removed is not wildly more than the
+     * tool holds: a cut cannot take out more material than its tool contains,
+     * and half again as much is far past any slack a half-micron fuzzy can
+     * explain and squarely in "the fuzzy ate a wall". Short of that the plain
+     * result stands, so this can subtract from no answer that was already
+     * right.
+     *
+     * Not addressed here, and seen in the same log on the same pair:
+     * occt_fuse came back with a shape that could not be tessellated. It is
+     * the same tangency and would take the same treatment, but there is no
+     * fixture for it in tests/smoke_occt.c and this change is the reported
+     * one. */
+    const double v0 = solid_volume(a->s);
+    const double v1 = solid_volume(r);
+    const double eps = (v0 > 0.0) ? 1.0e-9 * v0 : 0.0;
+    if (v0 > 0.0 && !(v1 > 0.0 && v1 < v0 - eps)) {
+        const double fuzzy = boolean_fuzzy(a->s, b->s);
+        const double tool = solid_volume(b->s);
+        if (fuzzy > 0.0) {
+            const TopoDS_Shape r2 = cut_at(a->s, b->s, fuzzy);
+            const double v2 = r2.IsNull() ? -1.0 : solid_volume(r2);
+            if (v2 > 0.0 && v2 < v0 - eps && has_solid_material(r2) &&
+                (tool <= 0.0 || v0 - v2 <= 1.5 * tool))
+                r = r2;
+        }
+    }
     if (!has_solid_material(r)) {
         set_err("occt_cut", "cut removed all material (empty result)");
         return nullptr;
