@@ -568,7 +568,7 @@ final class GlassTabBarView: NSObject, FlutterPlatformView {
     /// the bar is the only reason to open the bar.
     private func setEngaged(_ on: Bool) {
         guard on else { return }
-        sleep()
+        rest()
     }
 
     @objc private func onHover(_ g: UIHoverGestureRecognizer) {
@@ -580,14 +580,18 @@ final class GlassTabBarView: NSObject, FlutterPlatformView {
         idle?.invalidate()
         idle = Timer.scheduledTimer(
             withTimeInterval: GlassTabBarView.idleFold, repeats: false
-        ) { [weak self] _ in self?.sleep() }
+        ) { [weak self] _ in self?.rest() }
         guard !awake else { return }
         awake = true
         applyFold(animated: true)
     }
 
     /// Back to the document you are in.
-    private func sleep() {
+    ///
+    /// Named `rest` rather than `sleep` so it cannot be read as — or resolved
+    /// against — Darwin's `sleep(_:)`. Arity separates them and the compiler is
+    /// never confused; a person reading `sleep()` in a UIKit file might be.
+    private func rest() {
         idle?.invalidate()
         idle = nil
         guard awake else { return }
