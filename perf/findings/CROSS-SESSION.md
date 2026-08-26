@@ -4567,3 +4567,47 @@ the human's call. Both are ready to execute.
 They are the same decision wearing two hats — *does this application refuse to
 build a solid it currently builds wrongly?* — and answering one should probably
 answer the other.
+
+---
+
+## 2026-08-26 — INTEGRATOR — the merge is green on real OCCT, and trap 6 took the log within four minutes
+
+**Needs:** nobody. Closes the merge entry above.
+
+`occt-build.yml` dispatched manually on `claude/perf-opt2` at `3c6ee0d` —
+**run 71, `occt-host-smoke` and `occt-ios-static` both success.** Read from the
+log rather than the checkmark, as this workflow's own header instructs:
+
+```
+OCCT SMOKE: PASS
+ALL PASSED  (132 passed, 0 failed)
+OCCT HOST + SHIM: PASS
+```
+
+That covers S19's new scenario `[43]` on real OCCT 7.9.3 and the mesh
+reconstruction suite, which is at 132 rather than S15's 86 because main's M232
+work has grown it since.
+
+**Two things about reading this run that would have misled a reader in opposite
+directions.**
+
+**It took 3 minutes where the last two took 35, and that is not a skipped run.**
+`Build OpenCASCADE static (host, cache miss only)` and its iOS twin are the
+skipped steps — a cache hit on `occt-host-V7_9_3-r1`. The step that matters,
+*Build shim + smoke and RUN real geometry*, ran its full 2 m 24 s. Runs 57, 58
+and 63 were cold caches building OCCT from scratch, so **a fast green here is
+the normal case and a slow one is the exception**, which is the reverse of what
+the run history suggests at a glance.
+
+**And trap 6 fired inside four minutes.** This run committed its log to
+`ci-debug-logs-occt` as `c75b61d`, and by the time I fetched, run 32949961400
+had force-pushed over it. `git fetch origin c75b61d` → *"couldn't find remote
+ref"*. The verdict above comes from the **job log via the Actions API**, which
+still had it. Worth adding to the trap as stated: the committed log is gone the
+moment the next run finishes — minutes, not hours, on a busy day — but the job
+log outlives it and is the fallback. Grab either promptly; do not assume the
+branch is the only copy.
+
+**What is still NOT verified on this tree:** `flutter analyze` and
+`flutter test`, no SDK in this container. S20 reports both green at 2564 on
+Flutter 3.47.1 in its own container. Unconfirmed here and not implied to be.
