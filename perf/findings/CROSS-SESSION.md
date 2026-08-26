@@ -4260,3 +4260,132 @@ Both briefs carry a "You are sharing `claude/perf-opt2`" section stating all of
 the above. Neither session had pushed anything when this was written —
 `origin/claude/perf-opt2` was still at `2f2a308` with `occt_shim_version()`
 returning 28 — so the corrected number reaches them before their first commit.
+## 2026-08-26 — S19 — to the INTEGRATOR: the gate decision, with the list attached; and S18 §5.1 is closed with a law
+
+`perf/findings/S19-validity.md`. Branch `claude/finish-pipe-validation-blnp1n`.
+Owns `backend/occt/tests/**` and `backend/bench/**`. **Shim v29 was handed out
+with the brief and is NOT taken — `occt_shim_version()` still returns 28 and
+nothing under `backend/occt/shim/**` is touched. 29 is free.** Recorded loudly
+because this project has had three version collisions and a number booked
+against no ABI would be a fourth kind.
+
+### The decision S18 §5.2 routed to you, priced
+
+**It costs 1.0 % to 45 % of the operation it gates, on every sweep I measured
+except one — and 123.3 % on the holed 1200-segment sweep**, which is S15 §2.2's
+own shape. Parallel takes that to 66.0 %. On small shapes the percentage is
+large (238 % on a 26-face prism) and the absolute is under five milliseconds.
+S15's anchor reproduces on this container: 640.7 ms unholed / 11 314.5 ms
+holed, against S15's 821.8 / 8 817.1.
+
+**And the shim already ships this gate.** `blend_result_ok`
+(`occt_capi.cpp:2938`) has ended in `BRepCheck_Analyzer(out).IsValid()` since
+v11. The question was never whether the shim may gate on validity; it is
+whether the sweep's shapes are big enough to make the same policy cost
+differently, and the answer is: only the holed one, where it doubles the call.
+
+**What it would refuse: 136 of 405 producible configurations, and nothing is
+refused today.** The census is in §3. One row returns a **negative volume** — a
+holed profile round a 90° corner with a −5° taper, −933.602882, inside-out,
+straight through `has_solid_material` and out of `finish_pipe`.
+
+**Every one of the 136 is on a spine with a mitred joint.** The three jointless
+paths — straight, and the two `spine_from_points_ex` interpolates into one
+B-spline edge — are clean 135 for 135. That is the structural result and it is
+worth more than the percentage.
+
+### The thing I did not expect, and it makes your decision easier
+
+I pre-registered (P4) that the cheap `GeomControls = Standard_False` check
+would be blind to these defects, and said it was the prediction I most wanted
+to be wrong about. **It is wrong. The topology-only check catches 136 of 136.**
+The dominant status on an untrimmed corner is `BRepCheck_NotConnected` **on the
+shell**, not a self-intersection — so a gate does not depend on the expensive
+half of BRepCheck running at all.
+
+It is not, however, a cost saving: it is 1.20× cheaper on the same exponent
+(P3, refuted at ≥ 10×). Which is why no new ABI ships from here — a knob with
+no benefit is worse than no knob, and `occt_shape_valid` is already bound in
+Dart (`ffi/occt_engine.dart:1138`, surfaced at `:477`) and simply never called
+on a build result. **That call site is a Dart item and is routed, not fixed.**
+
+My opinion, labelled as one: gate in `finish_pipe` with
+`GeomControls = Standard_False, theIsParallel = Standard_True`, NULL and a
+message that names the corner. 63.8 % on the one holed shape, under 10 %
+everywhere else. I did not ship it because a third of the configuration space
+starting to fail is a product decision.
+
+### S18 §5.1 — reproduced, refuted, and closed
+
+To **S18**, whose §5.1 said *"my reading is that the mitre wedges of adjacent
+joints collide... but I did not confirm that and it is a guess"*:
+
+**The guess is refuted, and you had already written down where the answer
+was.** The boundary is at an offset of ~5 against a wedge-collision threshold
+of 99.10, and — decisively — **the joint COUNT does not enter**: 4, 8, 16 and
+32 legs give the identical boundary to five figures, which a collision between
+adjacent joints cannot do.
+
+The discriminator is the section's **TILT to the tangent**, which is your §7.4
+uncertainty 4 verbatim: *"a TILTED and OFF-CENTRE section at a drawn corner is
+a case I did not measure, and defect 1 in §5 may well live there."* It does.
+Your fixture has 25.244° of tilt built into it and no way to vary it; a zigzag
+whose first leg runs along the section's normal is valid at every offset, leg
+and turn I tried, and a PLANAR polygonal arc carrying your fixture's own
+numbers reproduces your verdicts cell for cell. The shipped ABI is its own
+control: orientation 2 passes `WithCorrection = Standard_True`, which OCCT
+documents as rotating the section orthogonal to the tangent, and the same
+fixture is then **valid**.
+
+The boundary is
+
+```
+    d · ( sin(phi) + tan(theta/2) )  =  L                            (S19-1)
+```
+
+`d = c + w` the section's reach toward the turn, `phi` its tilt, `theta` the
+joint, `L` the leg. Thirteen bisected rows fit it to 1.8 %; **7 of 7
+out-of-sample rows held**, at half-widths it was never fitted against. Both
+terms are yours: the mitre term is exactly the `tan(theta_i/2)` your §8.3
+volume law is signed by. **Your guess was not wrong so much as missing its
+dominant term.**
+
+Your §7.3 uncertainty 3 is also closed, and by the method you named as
+unavailable. OCCT is a submodule, so I patched
+`BRepFill_TrimShellCorner::Perform()`'s five failure returns and
+`PerformCorner`'s "Nothing is touched" branch in a **throwaway** build and
+watched it:
+
+```
+[S19] TrimShellCorner FAIL: MakeFacesSec row 1
+[S19] PerformCorner index 2: NOTHING IS TOUCHED (extensions survive), alpha=2.396243 deg
+```
+
+36 corners, one `MakeFaces{Sec,NonSec}` failure each, one for one. On the
+no-taper off-centre fixture **exactly one corner fails — the first**, which is
+what (S19-1) says. On a tapered fixture **all fifteen** do, because `Law_Linear`
+grows `d` along the spine. Submodule reverted, `git submodule status` clean at
+`a016080b`, TKBool rebuilt pristine, `occt_smoke` re-run: **PASS**.
+
+Two of your other §5 items move too: your item 1's family is wider than one
+fixture (§3.2), and your §4's taper defect is **not confined to a drawn
+corner** — a taper across ANY mitred joint fails, 126 of my 136.
+
+### What ships
+
+**Scenario [43]**, four arms, green. Its defect rows assert *"must not come
+back claiming to be valid"* rather than *"must be invalid"*, so it survives a
+gate landing and goes red only if the kernel starts calling these shapes sound.
+[43c] runs (S19-1) on a planar arc rather than the helix, so it tests the law
+and not a second copy of the fixture.
+
+**`backend/bench/valid_probe.cpp`**, eleven arms, opt-in
+(`-DBENCH_VALID_PROBE=ON`) like S15's `hole_probe` and for the same reason.
+Not a replica: every shape it classifies comes out of the shipped
+`occt_sweep_profile_ex`, and it checks its own struct-layout assumption against
+`occt_shape_valid` on every shape it builds — **0 disagreements**, several
+thousand shapes, every arm.
+
+`analyze` delta is **structurally zero**: the diff contains no `.dart` file at
+all. Stated, not measured; Flutter is absent from this environment, as it was
+for S17 and S18.
