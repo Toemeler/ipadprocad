@@ -882,7 +882,7 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
 /// interaction, and it should not need a device to check.
 AssemblyOccurrence? pickOccurrence(AssemblyModel a, Cam3 cam, Offset px) {
   AssemblyOccurrence? best;
-  var bestDepth = double.negativeInfinity;
+  var bestDepth = double.infinity;
   for (final o in a.occurrences) {
     if (!o.visible) continue;
     for (final (_, pp, s) in o.worldSolids) {
@@ -907,16 +907,22 @@ AssemblyOccurrence? pickOccurrence(AssemblyModel a, Cam3 cam, Offset px) {
         final w2 =
             Vec3(m.positions[i2], m.positions[i2 + 1], m.positions[i2 + 2]);
         final n = (w1 - w0).cross(w2 - w0);
-        // Camera-facing only, same convention as the part viewport's body
-        // pick: a back face is never the thing you pointed at. Against the
-        // PLACED camera's direction, because the normal is in the piece's own
-        // space and a turned component would otherwise be tested against the
-        // world's idea of "toward the viewer".
+        // Camera-facing only, the same convention as the part viewport's body
+        // pick (_pickSolidAny): the winding normal is the OUTWARD one and the
+        // camera sits at +dir, so a face you can see has n.dir > 0. Against
+        // the PLACED camera's direction, because the normal is in the piece's
+        // own space and a turned component would otherwise be tested against
+        // the world's idea of "toward the viewer".
+        //
+        // This read `>= 0` until the device report of 2026-08-26 — the same
+        // inversion asm_pick's file header now sets out at length. It kept
+        // only the faces hidden behind the component, so a tap answered with
+        // whichever component's BACK the pointer happened to be over.
         //
         // M248 — UNCHANGED on a mirrored component. The winding reverses in
         // WORLD space and this test is in the piece's own, where the mesh is
         // untouched; see placedCam. A sign here selects the far side.
-        if (n.length < 1e-12 || n.normalized().dot(sc.dir) >= 0) continue;
+        if (n.length < 1e-12 || !sc.facesCamera(n)) continue;
         final pa = sc.project(w0), pb = sc.project(w1), pc = sc.project(w2);
         final d = (pb.dx - pa.dx) * (pc.dy - pa.dy) -
             (pc.dx - pa.dx) * (pb.dy - pa.dy);
@@ -928,15 +934,15 @@ AssemblyOccurrence? pickOccurrence(AssemblyModel a, Cam3 cam, Offset px) {
                 (px.dx - pa.dx) * (pb.dy - pa.dy)) /
             d;
         if (u < -1e-6 || v < -1e-6 || u + v > 1 + 1e-6) continue;
-        // NEARER the camera is a LARGER depth (Cam3.depth), and the depth of
-        // the placed point is the piece-local one plus the piece's own
-        // placement — the placed camera moves the PROJECTION, not the view
-        // axis.
+        // NEARER the camera is a SMALLER depth (Cam3.depth is w.(-dir) and
+        // the camera sits at +dir), and the depth of the placed point is the
+        // piece-local one plus the piece's own placement — the placed camera
+        // moves the PROJECTION, not the view axis.
         final depth = (sc.depth(w0) * (1 - u - v) +
                 sc.depth(w1) * u +
                 sc.depth(w2) * v) +
             cam.depth(pp.at);
-        if (depth > bestDepth) {
+        if (depth < bestDepth) {
           bestDepth = depth;
           best = o;
         }

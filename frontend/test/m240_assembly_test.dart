@@ -319,19 +319,25 @@ void main() {
     test('the NEARER of two stacked components wins', () {
       final a = AssemblyModel('A');
       // Two boxes on the view axis, one behind the other. WHICH of the two is
-      // nearer is asserted through Cam3.depth rather than by naming a sign:
-      // the renderer's convention (larger depth = nearer, the rule
-      // buildSceneSolid and the painter's sort both run on) is the one the
-      // pick has to agree with, and hard-coding +Z here would only pin my
-      // reading of it.
+      // nearer is DERIVED, not named: the eye sits at +dir (Cam3), so of two
+      // points the nearer is the one further along dir. That fact is pinned
+      // just below from the camera's own basis, so this test cannot drift
+      // with a doc comment the way the pick itself once did — it read
+      // "larger depth = nearer" and answered with the far box for a year.
       a.occurrences.add(placed('A:1', const Vec3(0, 0, -30)));
       a.occurrences.add(placed('B:1', const Vec3(0, 0, 30)));
       final cam = frontCam();
-      final nearer = cam.depth(const Vec3(0, 0, -30)) >
-              cam.depth(const Vec3(0, 0, 30))
+      expect((cam.s.cross(cam.u) - cam.dir).length, lessThan(1e-9),
+          reason: 'screen right x screen up == dir, so dir points at the eye');
+      final nearer = const Vec3(0, 0, -30).dot(cam.dir) >
+              const Vec3(0, 0, 30).dot(cam.dir)
           ? 'A:1'
           : 'B:1';
+      expect(nearer, 'B:1', reason: 'front view: +Z is toward the viewer');
       expect(pickOccurrence(a, cam, cam.project(Vec3.zero))?.id, nearer);
+      // And the depth the pick sorts on agrees: nearer is SMALLER.
+      expect(cam.depth(const Vec3(0, 0, 30)),
+          lessThan(cam.depth(const Vec3(0, 0, -30))));
     });
   });
 

@@ -579,6 +579,14 @@ const inPlaceReturnIcon =
 // Part model-browser tree icons (15px rows) + the "+" menu glyphs
 const partCubeIcon =
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M8 1.5L14 5v6L8 14.5L2 11V5z" fill="#8C939A" stroke="#4d5257" stroke-width=".8"/><path d="M2 5l6 3.5L14 5M8 8.5v6" stroke="#4d5257" stroke-width=".8" fill="none"/></svg>';
+// M255 — a DERIVED body (Make Part). The grey part cube with the SAME two-node
+// link badge sharedSketchCubeIcon carries, for the same reason it carries it:
+// the row still has to read as what it is at a glance, and the badge already
+// means "this one is published to / read from somewhere else" in this icon
+// language. Inventor marks a derived node with its own glyph; the artwork is
+// not documented publicly, so this is our badge rather than a guess at theirs.
+const derivedCubeIcon =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M8 1.5L14 5v6L8 14.5L2 11V5z" fill="#8C939A" stroke="#4d5257" stroke-width=".8"/><path d="M2 5l6 3.5L14 5M8 8.5v6" stroke="#4d5257" stroke-width=".8" fill="none"/><circle cx="13" cy="12.6" r="3.1" fill="#E8C63F" stroke="#8a7318" stroke-width=".7"/><path d="M11.7 12.6a.85.85 0 0 1 .85-.85h.5M14.3 12.6a.85.85 0 0 0-.85-.85h-.5M11.7 12.6a.85.85 0 0 0 .85.85h.5M14.3 12.6a.85.85 0 0 1-.85.85h-.5" stroke="#5c4c10" stroke-width=".75" fill="none" stroke-linecap="round"/></svg>';
 const planeIcon =
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M3 5.4 L10 3.4 L13 10.6 L6 12.6 Z" fill="#9aa8bd" fill-opacity=".32" stroke="#7f8a9c" stroke-width="1"/></svg>';
 const zAxisIcon =

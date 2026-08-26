@@ -163,7 +163,12 @@ AppState asmApp(String tag, List<AssemblyOccurrence> os) {
   return app;
 }
 
-/// Looking down +Z from the -Z side, 120 mm across.
+/// The front view: the eye on the +Z side looking down -Z, 120 mm across.
+///
+/// `dir` is (0,0,1) here, and dir points AT the eye — see [Cam3]. So the face
+/// a pick must answer with is the +Z one, and +Z is the nearer of two stacked
+/// components. (This said "from the -Z side" while the assembly pickers were
+/// inverted; the two errors were the same error.)
 Cam3 frontCam([Size size = const Size(800, 600)]) =>
     Cam3(PartCamera(az: 0, pol: 1.5707963267948966, halfH: 60), size);
 
@@ -175,6 +180,46 @@ final en = L.stringsFor(kEn);
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => L.set(kDe));
+
+  // -------------------------------------------------------------------------
+  // Where the camera is, pinned from the camera itself. Every pick in the app
+  // resolves "which of the surfaces under the finger did you mean" with these
+  // two facts, and the assembly pickers had both of them backwards until the
+  // device report of 2026-08-26 ("the preview is often on the backside of the
+  // part face not the face the pointer is on"). Asserting them off Cam3's own
+  // basis is what makes that unrepeatable: a doc comment can be wrong, and
+  // this one was, but s x u == dir is arithmetic.
+  group('the camera sits at +dir', () {
+    test('screen right x screen up is dir, so dir points at the eye', () {
+      for (final c in [
+        PartCamera(az: 0, pol: 1.5707963267948966, halfH: 60),
+        PartCamera(az: 0.9, pol: 0.7, halfH: 12),
+        PartCamera(az: -2.2, pol: 2.4, halfH: 300, roll: 0.4),
+      ]) {
+        final cam = Cam3(c, const Size(800, 600));
+        expect((cam.s.cross(cam.u) - cam.dir).length, lessThan(1e-9),
+            reason: 'az=${c.az} pol=${c.pol} roll=${c.roll}');
+      }
+    });
+
+    test('facesCamera agrees with that, and depth gets smaller toward it',
+        () {
+      final cam = frontCam();
+      // The eye is on the +Z side, so the +Z face of anything is the one you
+      // can see and the -Z face is the one you cannot.
+      expect(cam.facesCamera(const Vec3(0, 0, 1)), isTrue);
+      expect(cam.facesCamera(const Vec3(0, 0, -1)), isFalse);
+      // Edge-on is not visible either — a silhouette face is not a face you
+      // can point at.
+      expect(cam.facesCamera(const Vec3(1, 0, 0)), isFalse);
+      // Length is irrelevant: the pickers hand over un-normalised winding
+      // normals.
+      expect(cam.facesCamera(const Vec3(0, 0, 1e-6)), isTrue);
+      // And nearer is SMALLER, which is the sense every picker sorts on.
+      expect(cam.depth(const Vec3(0, 0, 10)),
+          lessThan(cam.depth(const Vec3(0, 0, -10))));
+    });
+  });
 
   // -------------------------------------------------------------------------
   group('picking a reference', () {
@@ -203,8 +248,10 @@ void main() {
 
     test('a ROTATED component reports the same local face and a turned '
         'world one', () {
-      // A quarter turn about Y takes the box's -Z face to face -X in world.
-      // The stored geometry must not notice; the world form must.
+      // A quarter turn about Y takes the box's -X face round to face +Z in
+      // world, so that is the one the pick has to answer with — which is a
+      // statement about the CAMERA and not about the box. The stored geometry
+      // must not notice the turn; the world form must.
       final turned = Quat.axisAngle(const Vec3(0, 1, 0), 1.5707963267948966);
       final o = occ('Bracket:1', Vec3.zero, rot: turned);
       final a = AssemblyModel('A')..occurrences.add(o);
@@ -247,19 +294,61 @@ void main() {
     });
 
     test('a component in FRONT wins over one behind it', () {
-      // Which of the two is nearer is asked of Cam3.depth rather than
-      // asserted by sign, the rule m240's own stacked-pick test set: the
-      // renderer's convention is the one picking has to agree with.
+      // Which of the two is nearer is DERIVED from where the eye is — at
+      // +dir, pinned here off the camera's own basis — rather than read out
+      // of a doc comment. This test used to ask Cam3.depth which was nearer
+      // and Cam3.depth said the wrong thing, so it passed while the pick
+      // handed back the box behind.
       final a = AssemblyModel('A')
         ..occurrences.add(occ('A:1', const Vec3(0, 0, -30)))
         ..occurrences.add(occ('B:1', const Vec3(0, 0, 30)));
       final cam = frontCam();
-      final nearer =
-          cam.depth(const Vec3(0, 0, -30)) > cam.depth(const Vec3(0, 0, 30))
-              ? 'A:1'
-              : 'B:1';
+      expect((cam.s.cross(cam.u) - cam.dir).length, lessThan(1e-9),
+          reason: 'screen right x screen up == dir, so dir points at the eye');
+      final nearer = const Vec3(0, 0, -30).dot(cam.dir) >
+              const Vec3(0, 0, 30).dot(cam.dir)
+          ? 'A:1'
+          : 'B:1';
+      expect(nearer, 'B:1', reason: 'front view: +Z is toward the viewer');
       expect(pickAsmRef(a, cam, cam.project(Vec3.zero))?.ref.occurrence,
           nearer);
+    });
+
+    test('the face that answers is the one FACING the camera, not the one '
+        'behind the part', () {
+      // The device report this group's fix came from: "when i need to select
+      // a face for a constraint the preview is often on the backside of the
+      // part face not the face the pointer is on". A box centred on the
+      // origin offers the pointer two faces on the view axis, +Z and -Z, and
+      // only one of them is on the side the user is looking at.
+      final o = occ('Bracket:1', Vec3.zero);
+      final a = AssemblyModel('A')..occurrences.add(o);
+      final cam = frontCam();
+      final pick = pickAsmRef(a, cam, cam.project(Vec3.zero))!;
+      expect(pick.ref.geom.isPlane, isTrue);
+      // Its normal points at the eye...
+      expect(cam.facesCamera(pick.ref.geom.dir), isTrue,
+          reason: 'a face whose normal points away is one you cannot see');
+      expect((pick.ref.geom.dir - const Vec3(0, 0, 1)).length, lessThan(1e-9));
+      // ...and the highlight is anchored on the near side of the box, not
+      // 20 mm through it.
+      expect(pick.ref.anchor.z, closeTo(10, 1e-9));
+      expect(pick.hit.z, closeTo(10, 1e-9));
+    });
+
+    test('turning the camera round turns the answer round with it', () {
+      // The same box from the other side has to give the other face. A pick
+      // that hard-codes a side passes the test above and fails this one.
+      final o = occ('Bracket:1', Vec3.zero);
+      final a = AssemblyModel('A')..occurrences.add(o);
+      final back = Cam3(
+          PartCamera(az: math.pi, pol: 1.5707963267948966, halfH: 60),
+          const Size(800, 600));
+      expect(back.dir.z, closeTo(-1, 1e-9));
+      final pick = pickAsmRef(a, back, back.project(Vec3.zero))!;
+      expect(back.facesCamera(pick.ref.geom.dir), isTrue);
+      expect((pick.ref.geom.dir - const Vec3(0, 0, -1)).length, lessThan(1e-9));
+      expect(pick.ref.anchor.z, closeTo(-10, 1e-9));
     });
 
     test('a tap on nothing is null, not the nearest thing on screen', () {

@@ -537,14 +537,18 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
       return;
     }
     // M169 — tapping a work plane SELECTS it, the way Inventor does: the
-    // plane highlights in 3D and its offset field opens, so the value is
-    // immediately editable without hunting for a menu.
+    // plane highlights in 3D so you can see which row is which.
+    //
+    // M252 — and nothing more. It used to open the offset field as well, which
+    // made a set plane editable — and draggable in the viewport — by touching
+    // its row. Editing is what the row's long-press menu is for ("Edit
+    // Offset"), which is the one place the user asked for it to live.
     if (id.startsWith(kIdWorkPlane)) {
       final w = _workPlane(part, id);
-      if (w != null) {
-        app.selectWorkPlane(w);
-        if (w.offsetEditable) app.workPlaneOffsetEditing = true;
-      }
+      // M254 — and tapping it again CLEARS it, like a body row. Without that
+      // there was no gesture anywhere that deselected a plane, so the row
+      // stayed lit for the rest of the session.
+      if (w != null) app.toggleWorkPlaneSelected(w);
       return;
     }
     // M215 — tapping a work axis or point SELECTS it, the way a work plane
@@ -831,6 +835,9 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
               confirmLabel: L.of(context).rename);
           if (r != null && r.trim().isNotEmpty) app.renameBody(name, r.trim());
           break;
+        case 'bdMakePart':
+          app.openMakePart(name); // M255
+          break;
         case 'bdDelete':
           app.deleteBody(name);
           break;
@@ -880,8 +887,9 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
           app.startSketchOnWorkPlane(w);
           break;
         case 'wpOffset':
-          app.selectWorkPlane(w);
-          app.workPlaneOffsetEditing = true;
+          // M254 — one call that also NOTIFIES. See editWorkPlaneValue for
+          // why the two lines this replaces could not open the field.
+          app.editWorkPlaneValue(w);
           break;
         case 'wpVis':
           app.toggleWorkPlaneVisible(w);

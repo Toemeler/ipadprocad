@@ -2117,6 +2117,8 @@ abstract class PartFeature {
         return CombineFeature.fromJson(j);
       case 'split':
         return SplitFeature.fromJson(j);
+      case 'derive':
+        return DeriveFeature.fromJson(j);
       default:
         return null;
     }
@@ -2279,6 +2281,115 @@ class CombineFeature extends PartFeature {
     f.readBaseJson(j);
     return f;
   }
+}
+
+/// M255 — a DERIVED body: this part's geometry IS another part's solid body.
+///
+/// Inventor's Make Part, and the reason the new document is not a copy. The
+/// feature stores WHERE the geometry comes from — a part document and a body
+/// inside it — and nothing else. Every rebuild re-reads the source, so the
+/// derived part is not a snapshot that drifts: it is the same body, seen from
+/// a second document.
+///
+/// This is M245's rule ("a component IS its part") applied one level down. The
+/// same sentence was true of an assembly component and was not true of a body
+/// until now, and the failure mode is identical: a copy is silent, and the
+/// document on screen is a lie the moment the original moves.
+///
+/// The LINK is [source] — the very [PartModel] the origin document is edited
+/// through, handed over by AppState. It is deliberately NOT resolved from
+/// inside this file: part_model.dart does not know that other documents
+/// exist, and a global registry reachable from the fold is exactly the kind of
+/// ambient state that makes two open parts able to read each other's geometry
+/// by accident. Null means the origin has not been loaded (or is gone), and
+/// the feature then fails honestly rather than drawing the last thing it saw
+/// — the same contract every other feature in this file keeps.
+class DeriveFeature extends PartFeature {
+  /// The origin part DOCUMENT's name, and the body inside it. Both are
+  /// serialised; the model behind them is not, because a model is a runtime
+  /// object and the document is what a link has to survive as.
+  String sourceDoc;
+  String sourceBody;
+
+  /// The origin's live model, attached by AppState. Never serialised, never
+  /// owned: this part must not dispose geometry the origin is still drawing,
+  /// which is why the rebuild COPIES rather than pointing at the source solid.
+  PartModel? source;
+
+  DeriveFeature({
+    required super.name,
+    required super.bodyName,
+    required this.sourceDoc,
+    required this.sourceBody,
+    super.visible,
+  }) : super(output: 'new');
+
+  @override
+  String get kind => 'derive';
+  @override
+  String get typeLabel => 'Derived';
+
+  /// It brings its own volume, exactly like a base extrusion does. A derived
+  /// body is always the FIRST thing on its chain (output 'new'), so anything
+  /// the user builds on top of it — a hole, a fillet — folds into it in the
+  /// ordinary way and is theirs, not the origin's.
+  @override
+  bool get modifiesBody => false;
+
+  /// What the origin's body looks like RIGHT NOW, as a string that changes
+  /// when it does.
+  ///
+  /// The identity of the [KernelSolid] is the whole trick: a rebuild of the
+  /// origin makes a new one, and a re-tessellation (which the viewport does on
+  /// every zoom, in place, through [KernelSolid.refine]) does not. Hashing the
+  /// MESH instead would have rebuilt this part every time the camera moved.
+  /// The volume rides along so that a recycled hash cannot pass for the same
+  /// body.
+  String get sourceKey {
+    final s = source == null ? null : bodySolid(source!, sourceBody);
+    return s == null ? 'gone' : '${identityHashCode(s)}/${s.volume}';
+  }
+
+  @override
+  String ownSig() => 'dv|$sourceDoc|$sourceBody|$sourceKey';
+
+  @override
+  Map<String, dynamic> toJson() => {
+        ...baseJson(),
+        'srcDoc': sourceDoc,
+        'srcBody': sourceBody,
+      };
+
+  static DeriveFeature fromJson(Map<String, dynamic> j) {
+    final f = DeriveFeature(
+      name: j['name'] as String? ?? 'Derived',
+      bodyName: j['body'] as String? ?? 'Solid1',
+      sourceDoc: j['srcDoc'] as String? ?? '',
+      sourceBody: j['srcBody'] as String? ?? '',
+      visible: j['visible'] as bool? ?? true,
+    );
+    f.readBaseJson(j);
+    return f;
+  }
+}
+
+/// The committed solid of [bodyName] in [part] — the one the viewport draws.
+///
+/// A body is a CHAIN of features and only the last of them holds the folded
+/// result; the ones before it are marked [PartFeature.consumedByJoin] as the
+/// fold swallows them. So this is "the last feature of that body that still
+/// stands on its own", which is the same rule [visibleSolids] applies, minus
+/// the visibility: whether the origin has switched a body OFF in its own
+/// browser is a display decision of that document and must not decide whether
+/// a second document can be built from it.
+KernelSolid? bodySolid(PartModel part, String bodyName) {
+  KernelSolid? out;
+  for (final f in part.features) {
+    if (f.bodyName != bodyName) continue;
+    if (f.rolledBack || f.consumedByJoin || f.solid == null) continue;
+    out = f.solid;
+  }
+  return out;
 }
 
 /// M226 — Inventor's four hole shapes.
@@ -7111,6 +7222,9 @@ bool _recomputeFeature(PartModel part, PartFeature f, PartKernel kernel,
   if (f is HoleFeature) return _recomputeHole(part, f, kernel, base);
   if (f is CombineFeature) return _recomputeCombine(part, f, kernel, base);
   if (f is SplitFeature) return _recomputeSplit(part, f, kernel, base);
+  // M255 — a derived body is READ, not built. It has no sketch, no profile
+  // and no numbers of its own; every input it has lives in another document.
+  if (f is DeriveFeature) return _recomputeDerive(f, kernel);
   if (f is ExtrudeFeature) return _recomputeExtrude(part, f, kernel, base, at);
   if (f is RevolveFeature) return _recomputeRevolve(part, f, kernel, base, at);
   if (f is LoftFeature) return _recomputeLoft(part, f, kernel);
@@ -7839,6 +7953,40 @@ bool _recomputeCombine(
   return true;
 }
 
+/// M255 — reads the origin's body and hands this part a COPY of it.
+///
+/// A copy, not the solid itself, and the reason is ownership: every feature in
+/// this file disposes the [KernelSolid] it holds ([PartFeature.disposeSolid]),
+/// so pointing two features in two documents at one B-Rep would free it under
+/// whichever of them is still drawing. The identity placement is the same copy
+/// idiom the pattern fold uses when every occurrence is suppressed.
+///
+/// Both failures are LOUD, per M182: an origin that is not loaded and an
+/// origin whose body is gone leave the feature sick with its reason, rather
+/// than leaving yesterday's geometry on screen under today's name.
+bool _recomputeDerive(DeriveFeature f, PartKernel kernel) {
+  final src = f.source;
+  if (src == null) {
+    f.computeError = 'the origin part "${f.sourceDoc}" is not loaded';
+    return false;
+  }
+  final solid = bodySolid(src, f.sourceBody);
+  if (solid == null) {
+    f.computeError =
+        'body "${f.sourceBody}" is not built in "${f.sourceDoc}" any more';
+    return false;
+  }
+  final copy = kernel.placeSolid(solid, translationMat34(Vec3.zero));
+  if (copy == null) {
+    f.computeError = kernel.lastError.isEmpty
+        ? 'the origin body could not be copied'
+        : kernel.lastError;
+    return false;
+  }
+  f.solid = copy;
+  return true;
+}
+
 /// The counterbore / spotface pocket or the countersink cone, as ONE tool for
 /// every placement.
 (KernelSolid?, String?) _holeMouthTool(HoleFeature f, List<Offset> centres,
@@ -8348,6 +8496,13 @@ bool _recomputePattern(
       // folded solid (which holds the whole body at its own position) or
       // re-anchor its profile selections behind its back.
       final clone = PartFeature.fromJson(src.toJson());
+      // M255 — a derived body's LINK is a runtime object, so it does not
+      // survive toJson: the clone would come back orphaned and refuse to
+      // build with "the origin is not loaded". Hand the origin over, and
+      // patterning a derived body works like patterning any other.
+      if (clone is DeriveFeature && src is DeriveFeature) {
+        clone.source = src.source;
+      }
       if (clone == null || !recomputeFeature(part, clone, kernel, base: base)) {
         f.computeError = clone?.computeError ??
             'the patterned feature "$name" could not be rebuilt';
@@ -8795,7 +8950,14 @@ String featureInputSig(PartModel part, PartFeature f) {
   // prepends, so there is nothing further to hash here.
   final names = f.sketchNames;
   if (names.isEmpty) {
-    b.write(f.modifiesBody ? 'BODY' : 'MISSING');
+    // M255 — a derived body has no sketch BY DESIGN, and 'MISSING' would read
+    // as one that was lost. Its whole input is the origin, and [ownSig] above
+    // already carries the key that moves when the origin does.
+    b.write(f is DeriveFeature
+        ? 'LINK'
+        : f.modifiesBody
+            ? 'BODY'
+            : 'MISSING');
     return b.toString();
   }
   // More than one for a sweep (profile + path) and a loft (one per section).

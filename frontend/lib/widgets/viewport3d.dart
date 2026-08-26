@@ -563,10 +563,24 @@ class _Viewport3DState extends State<Viewport3D>
                   app.patternSession == null) {
                 final w = _workPlaneAt(cam, e.localPosition, p);
                 if (w != null) {
-                  _wpDrag = w;
-                  _wpDown = e.localPosition;
-                  _wpMoved = false;
+                  // Tapping a plane still SELECTS it — that is only a
+                  // highlight, and it is how the browser row lights up too.
                   app.selectWorkPlane(w);
+                  // M252 — but only the plane currently being EDITED can be
+                  // grabbed. Every plane used to be draggable forever, so a
+                  // plane stayed movable long after its OK, and a one-finger
+                  // orbit that happened to start on one moved the plane
+                  // instead of the view (`_wpDrag != null` also suppresses
+                  // orbit and the general pick, further down this file).
+                  // Arming is now explicit: "Edit Offset" on the row's
+                  // long-press menu in the model browser, or the drag that
+                  // created the plane, and it ends when the value is
+                  // committed. See AppState.workPlaneDraggable.
+                  if (app.workPlaneDraggable(w)) {
+                    _wpDrag = w;
+                    _wpDown = e.localPosition;
+                    _wpMoved = false;
+                  }
                 }
               }
               if (e.kind == PointerDeviceKind.mouse &&
@@ -670,14 +684,12 @@ class _Viewport3DState extends State<Viewport3D>
                 return;
               }
               if (_wpDrag != null) {
-                if (_wpMoved) {
-                  app.endWorkPlaneDrag();
-                } else {
-                  // A TAP, not a drag: select and open the field, so the value
-                  // is editable without hunting for a menu.
-                  final w = _wpDrag!;
-                  if (w.offsetEditable) app.workPlaneOffsetEditing = true;
-                }
+                // A tap that never moved needs nothing: the pointer only got
+                // here because this plane is already the one being edited, so
+                // its field is already open. (It used to OPEN the field on a
+                // tap, which is what made every plane editable by touching
+                // it — M252.)
+                if (_wpMoved) app.endWorkPlaneDrag();
                 _wpDrag = null;
                 _wpMoved = false;
               }
@@ -751,9 +763,11 @@ class _Viewport3DState extends State<Viewport3D>
               }),
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
-                // M170 — a tap consumed by a work plane is handled in the
-                // Listener (select + open the field); running the general pick
-                // as well would fight it.
+                // M170 — a tap consumed by a work-plane DRAG is handled in
+                // the Listener; running the general pick as well would fight
+                // it. M252 — that is now only ever the plane being edited, so
+                // a tap on any other plane falls through to the pick, which is
+                // what makes orbiting off a plane work again.
                 onTapUp: (d) {
                   if (_wpDrag != null) return;
                   // M218 — the long press already consumed this contact: it
@@ -1363,7 +1377,7 @@ class _Viewport3DState extends State<Viewport3D>
             Vec3(m.positions[i2], m.positions[i2 + 1], m.positions[i2 + 2]);
         final n = (w1 - w0).cross(w2 - w0);
         // Camera-facing only, same convention as _pickSolidFace (n·dir > 0).
-        if (n.length < 1e-12 || n.normalized().dot(cam.dir) <= 0) continue;
+        if (n.length < 1e-12 || !cam.facesCamera(n)) continue;
         // Barycentric test in SCREEN space: cheap and independent of the
         // surface type, which is the whole point here.
         final a = cam.project(w0), b = cam.project(w1), c = cam.project(w2);
@@ -1564,7 +1578,7 @@ class _Viewport3DState extends State<Viewport3D>
         final n = (w1 - w0).cross(w2 - w0);
         // Front faces only — see _pickSolidFace for why n·dir > 0 is the
         // visible side.
-        if (n.length < 1e-12 || n.normalized().dot(cam.dir) <= 0) continue;
+        if (n.length < 1e-12 || !cam.facesCamera(n)) continue;
         final a = cam.project(w0), b = cam.project(w1), c = cam.project(w2);
         final den =
             (b.dy - c.dy) * (a.dx - c.dx) + (c.dx - b.dx) * (a.dy - c.dy);
@@ -1636,7 +1650,7 @@ class _Viewport3DState extends State<Viewport3D>
       final w2 =
           Vec3(m.positions[i2], m.positions[i2 + 1], m.positions[i2 + 2]);
       final n = (w1 - w0).cross(w2 - w0);
-      if (n.length < 1e-12 || n.normalized().dot(cam.dir) <= 0) continue;
+      if (n.length < 1e-12 || !cam.facesCamera(n)) continue;
       final a = cam.project(w0), b = cam.project(w1), c = cam.project(w2);
       final den = (b.dy - c.dy) * (a.dx - c.dx) + (c.dx - b.dx) * (a.dy - c.dy);
       if (den.abs() < 1e-9) continue;
@@ -1737,7 +1751,7 @@ class _Viewport3DState extends State<Viewport3D>
         // behind the solid, and picking missed entirely near the silhouette
         // where no back face lies under the cursor. The ViewCube uses the
         // n·dir > 0 form and has always worked.
-        if (n.length < 1e-12 || n.normalized().dot(cam.dir) <= 0) continue;
+        if (n.length < 1e-12 || !cam.facesCamera(n)) continue;
         final nn = n.normalized();
         var faceId = -1;
         if (v4) {
@@ -2055,6 +2069,18 @@ class _Viewport3DState extends State<Viewport3D>
       }
       app.holePointPicked(hit.$1, hit.$2);
       return;
+    }
+    // M254 — a tap that is NOT on a work plane clears the work-plane
+    // selection, the other half of "die work plane im Modell browser [ist]
+    // immer gehighlighted". Pointer-down selects the plane you touch; nothing
+    // ever un-selected it, so the row stayed lit for the rest of the session.
+    // Here and not on pointer-down, because a DRAG that happens to start on
+    // empty space is an orbit and must not change the selection.
+    if (!app.pickPlane &&
+        app.extrudeSession == null &&
+        app.selectedWorkPlane != null &&
+        _workPlaneAt(cam, px, p) == null) {
+      app.selectWorkPlane(null);
     }
     // A hovered sketch curve is selectable in plain 3D. Shift/ctrl extends the
     // set, a plain tap replaces it, a tap on empty space clears it.
@@ -2576,15 +2602,11 @@ class _ScenePainter extends CustomPainter {
           close: true,
           extra: occ?.edgeMargin ?? 0);
       if (hot) {
-        // corner rings + centre dot + name label lying on the plane
+        // M254 — corner DOTS (not rings), centre dot, name label lying on the
+        // plane. Same marker as the iOS overlay painter draws, and it has to
+        // stay the same marker: the two viewports draw the same chrome.
         for (final c in corners) {
-          canvas.drawCircle(
-              cam.project(c),
-              6,
-              Paint()
-                ..style = PaintingStyle.stroke
-                ..strokeWidth = 2
-                ..color = _greenBright);
+          canvas.drawCircle(cam.project(c), 4, Paint()..color = _greenBright);
         }
         canvas.drawCircle(cam.project(Vec3.zero), 4,
             Paint()..color = T.dofArrow);
@@ -2623,13 +2645,7 @@ class _ScenePainter extends CustomPainter {
             ..color = hot ? _green : _orange);
       if (hot) {
         for (final p in [a, b]) {
-          canvas.drawCircle(
-              p,
-              6,
-              Paint()
-                ..style = PaintingStyle.stroke
-                ..strokeWidth = 2
-                ..color = _greenBright);
+          canvas.drawCircle(p, 4, Paint()..color = _greenBright);
         }
       }
     }
@@ -2777,6 +2793,12 @@ class _OverlayPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2
       ..color = _greenBright;
+    // M254 — the corner and end markers are DOTS. Reported: "die punkte an den
+    // ecken der plane sollten punkte sein nicht kreise". They were stroked
+    // rings, and a ring reads as a thing with a hole in it, where what these
+    // mark is a point. [ring] stays for the centre-point hover, which really
+    // is a ring drawn AROUND a dot that already exists.
+    final dot = Paint()..color = _greenBright;
 
     // ---- hovered origin plane: corner rings + centre dot + name label ----
     if (hover != null && kPlaneKeys.contains(hover)) {
@@ -2791,7 +2813,7 @@ class _OverlayPainter extends CustomPainter {
         f.toWorld(Offset(uMin, vMax)),
       ];
       for (final c in corners) {
-        canvas.drawCircle(cam.project(c), 6, ring);
+        canvas.drawCircle(cam.project(c), 4, dot);
       }
       canvas.drawCircle(
           cam.project(Vec3.zero), 4, Paint()..color = T.dofArrow);
@@ -2823,7 +2845,7 @@ class _OverlayPainter extends CustomPainter {
         cam.project(e.$2 * al),
         cam.project(e.$2 * ah),
       ]) {
-        canvas.drawCircle(p, 6, ring);
+        canvas.drawCircle(p, 4, dot);
       }
     }
 

@@ -3665,4 +3665,36 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get ctxEditInPlace => 'Edit in Place';
+
+  @override
+  String get ctxMakePart => 'Make Part';
+
+  @override
+  String get dlgMakePart => 'Make Part';
+
+  @override
+  String get lblNewPartName => 'New Part Name';
+
+  @override
+  String get lblTargetAssembly => 'Target Assembly';
+
+  @override
+  String hintMakePartLink(String name) {
+    return 'Stays linked to “$name”.';
+  }
+
+  @override
+  String msgMadePart(String part, String origin) {
+    return '“$part” made from “$origin” and linked to it.';
+  }
+
+  @override
+  String msgMakePartNoBody(String name) {
+    return '“$name” is not built any more.';
+  }
+
+  @override
+  String msgDerivedEditOrigin(String name) {
+    return 'A derived body — opening “$name”.';
+  }
 }

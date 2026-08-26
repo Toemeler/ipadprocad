@@ -3712,4 +3712,36 @@ class AppL10nDe extends AppL10n {
 
   @override
   String get ctxEditInPlace => 'Vor Ort bearbeiten';
+
+  @override
+  String get ctxMakePart => 'Bauteil erstellen';
+
+  @override
+  String get dlgMakePart => 'Bauteil erstellen';
+
+  @override
+  String get lblNewPartName => 'Name des neuen Bauteils';
+
+  @override
+  String get lblTargetAssembly => 'Zielbaugruppe';
+
+  @override
+  String hintMakePartLink(String name) {
+    return 'Bleibt mit „$name“ verknüpft.';
+  }
+
+  @override
+  String msgMadePart(String part, String origin) {
+    return '„$part“ aus „$origin“ erstellt und damit verknüpft.';
+  }
+
+  @override
+  String msgMakePartNoBody(String name) {
+    return '„$name“ ist nicht mehr gebaut.';
+  }
+
+  @override
+  String msgDerivedEditOrigin(String name) {
+    return 'Abgeleiteter Körper — „$name“ wird geöffnet.';
+  }
 }

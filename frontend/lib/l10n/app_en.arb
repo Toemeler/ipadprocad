@@ -1019,5 +1019,13 @@
   "btnReturn": "Return",
   "panelReturn": "Finish",
   "hintInPlaceEditing": "Editing “{part}” in “{assembly}”.",
-  "ctxEditInPlace": "Edit in Place"
+  "ctxEditInPlace": "Edit in Place",
+  "ctxMakePart": "Make Part",
+  "dlgMakePart": "Make Part",
+  "lblNewPartName": "New Part Name",
+  "lblTargetAssembly": "Target Assembly",
+  "hintMakePartLink": "Stays linked to “{name}”.",
+  "msgMadePart": "“{part}” made from “{origin}” and linked to it.",
+  "msgMakePartNoBody": "“{name}” is not built any more.",
+  "msgDerivedEditOrigin": "A derived body — opening “{name}”."
 }

@@ -95,6 +95,21 @@
  *        analytic formula and no recorded golden — and it fails exactly when
  *        the code has an axis baked in that the caller thinks is a parameter.
  *
+ * v29 scenario:
+ *   [42] a cut whose tool is TANGENT to a face of the body. The reported
+ *        model, reduced: a sleeve (Ø32 outside, Ø10 bore, 20 tall) with a Ø6
+ *        counterbore sunk 18 mm at radius 8 from the axis — 8 = 5 + 3, so the
+ *        counterbore's wall touches the bore's wall along a LINE and never
+ *        crosses it. On the device this cut reported success and gave back a
+ *        body of exactly the volume it started with, because the plug it had
+ *        cut out was still in the result; the hole was not there. The
+ *        assertion is analytic and needs no golden: the counterbore lies
+ *        wholly in material, so the volume removed is pi*3^2*18 to
+ *        tessellation-free precision, and the result must be one valid solid.
+ *        The control is [42b], the SAME counterbore moved 0.5 mm outwards so
+ *        it clears the bore — that one always worked, and pins that the fix
+ *        is about the tangency and not about counterbores.
+ *
  * Output contract for CI (read the log, not the checkmark — HANDOFF rule):
  *   prints "OCCT SMOKE: PASS" on success, "OCCT SMOKE: FAIL (...)" otherwise,
  *   and exits non-zero on any failure.
@@ -4859,6 +4874,79 @@ int main(void)
             }
             occt_free_shape(box);
         }
+    }
+
+    /* [42] v29 — A CUT WHOSE TOOL IS TANGENT TO THE BODY.
+     *
+     * Base: a sleeve, Ø32 outside, Ø10 bore, 20 tall. Tool: a Ø6 cylinder
+     * whose axis sits 8 from the sleeve's axis and which runs 18 deep from the
+     * top face. 8 = 5 + 3 exactly, so the tool's wall and the bore's wall touch
+     * along one line for the whole 18 mm and cross nowhere — the tangency the
+     * device report was made of.
+     *
+     * The tool lies WHOLLY inside material (its footprint spans radius 5 to 11,
+     * and the sleeve is solid from 5 to 16), so the answer needs no golden:
+     * the cut removes the tool's own volume, pi*3^2*18, and no more.
+     *
+     * Before v29 this came back reporting success with the plug still in it,
+     * i.e. volume UNCHANGED — which is why the check below is written as a
+     * removal and not as an inequality. */
+    {
+        const double kPi = 3.14159265358979323846;
+        occt_shape *outer = occt_make_cylinder(0, 0, 0, 16, 20);
+        /* the bore, overshooting both ends so it cuts clean through */
+        occt_shape *bore = occt_make_cylinder(0, 0, -5, 5, 30);
+        occt_shape *sleeve = (outer && bore) ? occt_cut(outer, bore) : NULL;
+        const double vSleeve = kPi * (16.0 * 16.0 - 5.0 * 5.0) * 20.0;
+        if (check(sleeve != NULL, "[42] sleeve returned NULL")) {
+            check(near_rel(occt_shape_volume(sleeve), vSleeve, 1e-6),
+                  "[42] sleeve volume wrong — the fixture, not the fix");
+        }
+        /* TANGENT: centre at 8 = bore radius 5 + tool radius 3. It floors at
+         * z=2, 2 short of the far end, and OVERSHOOTS the top face by 5 — a
+         * tool cap coplanar with a body cap is a fragile boolean in its own
+         * right (resolveExtrudeSpan pads Through All for exactly that reason),
+         * and the one degeneracy under test here is the tangency. So the
+         * material removed is still the 18 mm that lie inside the sleeve. */
+        occt_shape *cb = occt_make_cylinder(8, 0, 2, 3, 23);
+        occt_shape *bored = (sleeve && cb) ? occt_cut(sleeve, cb) : NULL;
+        const double vBore = kPi * 3.0 * 3.0 * 18.0;
+        if (check(bored != NULL, "[42] tangent cut returned NULL")) {
+            const double v = occt_shape_volume(bored);
+            occt_shape *parts[8] = {0};
+            int nf = 0, ns = 0, i = 0;
+            occt_shape_counts(bored, &nf, NULL, NULL);
+            ns = occt_split_solids(bored, parts, 8);
+            for (i = 0; i < ns; ++i)
+                occt_free_shape(parts[i]);
+            printf("[42] tangent cut volume %.6f (removed %.6f, want %.6f) "
+                   "faces %d solids %d\n",
+                   v, vSleeve - v, vBore, nf, ns);
+            check(near_rel(vSleeve - v, vBore, 1e-4),
+                  "[42] the tangent counterbore removed the wrong amount — "
+                  "removing NOTHING is the pre-v29 failure, and it means the "
+                  "cut handed back the plug it had taken out");
+            check(occt_shape_valid(bored), "[42] tangent cut result invalid");
+            check(ns == 1,
+                  "[42] a counterbore cannot split a sleeve in two — more than "
+                  "one solid here is the plug riding along in the result");
+        }
+        /* [42b] THE CONTROL: the same counterbore moved 0.5 mm outwards, so
+         * it clears the bore instead of touching it. This case always worked;
+         * it is here so a red [42] cannot be read as "cuts are broken". */
+        occt_shape *clear = occt_make_cylinder(8.5, 0, 2, 3, 23);
+        occt_shape *bored2 = (sleeve && clear) ? occt_cut(sleeve, clear) : NULL;
+        if (check(bored2 != NULL, "[42b] clearing cut returned NULL")) {
+            const double v = occt_shape_volume(bored2);
+            printf("[42b] clearing cut removed %.6f (want %.6f)\n",
+                   vSleeve - v, vBore);
+            check(near_rel(vSleeve - v, vBore, 1e-4),
+                  "[42b] a counterbore that does NOT touch the bore removed "
+                  "the wrong amount");
+        }
+        occt_free_shape(bored2); occt_free_shape(clear);
+        occt_free_shape(bored); occt_free_shape(cb);
+        occt_free_shape(sleeve); occt_free_shape(bore); occt_free_shape(outer);
     }
 
     if (g_failures == 0) {

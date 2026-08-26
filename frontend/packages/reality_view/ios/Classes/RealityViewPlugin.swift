@@ -131,12 +131,12 @@ final class RealityThumbRenderer: NSObject {
         window.insertSubview(host, at: 0)
 
         // CAMERA FIRST, THEN SCENE — deliberately the reverse of the live
-        // viewport's order. `setScene` latches `edgeBuildHalfH = cam.halfH` and
-        // sizes the edge tubes for THAT zoom; a fresh renderer still holds the
-        // default halfH, so pushing the scene first would build the outlines
-        // for the wrong zoom and only re-tube once the ratio drifts past
-        // 1.8x/0.55x — which never happens here, because there is exactly one
-        // frame. Reversed, the tubes are right the first time.
+        // viewport's order. `setScene` latches the stroke every outline is
+        // built at from the camera it currently holds; a fresh renderer still
+        // holds the default halfH, so pushing the scene first would build the
+        // outlines for the wrong zoom and only re-stroke on the next camera
+        // move — which never comes, because there is exactly one frame.
+        // Reversed, the outlines are right the first time.
         renderer.setCamera(camera)
         renderer.setScene(scene)
 

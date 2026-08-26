@@ -183,9 +183,15 @@ final class PartRenderer: NSObject {
     /// buffers for solids that did not change, which is what keeps dragging an
     /// extrude distance smooth on a part with several bodies.
     private var solidRev: [String: Int] = [:]
-    /// halfH the edge tubes were built for; rebuilt when the zoom drifts far
-    /// enough that their on-screen weight would change noticeably.
-    private var edgeBuildHalfH: Double = 0
+    /// The stroke every outline in the scene was last BUILT at (M251).
+    ///
+    /// Outlines are geometry, so their world width is baked in at build time;
+    /// this is what that width was, and comparing it against what the current
+    /// camera wants is the whole rebuild decision. It replaces `edgeBuildHalfH`
+    /// — a zoom-only latch that let the on-screen weight swing 1.8x either way
+    /// before it did anything, and that the planes and axes never consulted at
+    /// all. mmPerPoint 0 means "nothing built yet".
+    private var builtStyle = OutlineStyle(mmPerPoint: 0, viewDir: nil)
     /// Last highlight actually built, so hovering the same face does not
     /// regenerate its submesh every frame.
     private var builtHighlight: (String, Int)?
@@ -194,6 +200,9 @@ final class PartRenderer: NSObject {
     /// near/far range. Starts at the origin-plane extent (±10 mm diagonal).
     private var sceneRadius: Float = 15
     private var previewEntity: Entity?
+    /// Geometry of the preview body, kept for the same reason solidCache is:
+    /// its outline has to be re-stroked when the camera moves.
+    private var previewGeom: SolidGeom?
     private var highlightEntity: ModelEntity?
 
     /// M127 — one overlay entity for every accented edge, built from raw
@@ -301,16 +310,13 @@ final class PartRenderer: NSObject {
 
     func setCamera(_ a: [String: Any]) {
         cam.update(from: a)
-        if edgeBuildHalfH > 0 {
-            let ratio = cam.halfH / edgeBuildHalfH
-            if ratio > 1.8 || ratio < 0.55 { rebuildEdgesForZoom() }
-        }
+        // The outline rebuild used to be decided here, on the zoom alone, and
+        // only once it had drifted past 1.8x / 0.55x. placeCamera owns it now
+        // (refreshOutlines), because zoom and orbit are the same question and
+        // every kind of line has to answer it together.
         placeCamera()
     }
 
-    /// Re-tube the cached solids at the current zoom. Edge tubes have a fixed
-    /// WORLD radius, so without this they thin to nothing when zooming in and
-    /// turn into bars when zooming out.
     /// Master switch for the outline ribbons (M70-M72).
     ///
     /// On build 8fb292f these rendered NOTHING on device: the triangle
@@ -321,23 +327,91 @@ final class PartRenderer: NSObject {
     /// orientation-independent and swings under 2% in width.
     private static let useRibbons = true
 
-    /// View direction the outline ribbons were last built for.
-    private var ribbonDir: SIMD3<Float> = .init(0, 0, 1)
-
-    /// View direction to build outlines for, or nil to use the tube.
-    private var outlineDir: SIMD3<Float>? {
-        Self.useRibbons ? ribbonDir : nil
+    /// World length of one logical POINT at the current zoom.
+    ///
+    /// The viewport shows 2*halfH millimetres over `bounds.height` points, so
+    /// this is the conversion every line weight in the scene goes through —
+    /// and the reason a stroke asked for in points keeps the same on-screen
+    /// weight at every zoom and on every screen size. The fallback covers the
+    /// window before the view has been laid out (a ~1000 pt viewport), which
+    /// is only ever the very first frame.
+    private var mmPerPoint: Float {
+        let h = Float(arView.bounds.height)
+        guard h > 1 else { return Float(cam.halfH) * 2e-3 }
+        return Float(cam.halfH) * 2 / h
     }
 
-    /// Ribbons are only correct while they face the camera, so they have to be
-    /// rebuilt when the view turns. Doing that every frame would cost more
-    /// than the tube ever did, so it happens behind an angular threshold:
-    /// cos(3 deg). Below that the error in apparent width is under 0.2%.
-    private func rebuildEdgesIfTurned(_ dir: SIMD3<Float>) {
-        if !Self.useRibbons { return } // tubes are orientation-independent
-        if simd_dot(dir, ribbonDir) > 0.99863 { return } // cos(3 deg)
-        ribbonDir = dir
-        rebuildEdgesForZoom() // re-aims the sketch ribbons too
+    /// The stroke the camera wants RIGHT NOW, whatever was last built.
+    private var wantedStyle: OutlineStyle {
+        OutlineStyle(mmPerPoint: mmPerPoint,
+                     viewDir: Self.useRibbons ? cam.dir : nil)
+    }
+
+    /// How far the camera may move before every outline is rebuilt.
+    ///
+    /// WIDTH — 5%. An outline is built at one world width, so its on-screen
+    /// weight drifts by exactly the zoom ratio since it was built. The old
+    /// latch allowed 1.8x and 0.55x, i.e. a hairline that rendered anywhere
+    /// between 0.55 pt and 1.8 pt depending on where the last rebuild happened
+    /// to fall — visibly too thick or too thin, and never the same twice.
+    ///
+    /// 5% of a 1 pt line is 0.1 px on a 2x screen, which nothing can see, and
+    /// it costs about 14 rebuilds across a 2x pinch — the same order as the
+    /// facing threshold below already costs on an orbit drag, and that has
+    /// shipped since M70. Tightening it further buys nothing visible and pays
+    /// for it linearly.
+    ///
+    /// FACING — cos(3 deg), unchanged: a ribbon is only exactly the right
+    /// width while it faces the camera, and 3 degrees off costs 0.14%.
+    private static let widthTolerance: Float = 1.05
+    private static let facingTolerance: Float = 0.99863
+
+    /// Rebuild every outline when the camera has moved far enough for it to
+    /// show. One decision for edges, sketch curves, plane borders and axes
+    /// together — they are the same kind of line, so they must never be built
+    /// at two different answers to the same question.
+    private func refreshOutlines() {
+        let want = wantedStyle
+        guard needsRestroke(want) else { return }
+        rebuildOutlines(want)
+    }
+
+    private func needsRestroke(_ want: OutlineStyle) -> Bool {
+        guard builtStyle.mmPerPoint > 0 else { return true }
+        let ratio = want.mmPerPoint / builtStyle.mmPerPoint
+        if ratio > Self.widthTolerance || ratio < 1 / Self.widthTolerance {
+            return true
+        }
+        if let a = want.viewDir, let b = builtStyle.viewDir,
+           simd_dot(a, b) < Self.facingTolerance {
+            return true
+        }
+        return false
+    }
+
+    /// Re-stroke everything at [style]. The solid edges and sketch curves are
+    /// what this costs — the plane borders (four segments each) and the axes
+    /// (one) are rounding error next to them.
+    private func rebuildOutlines(_ style: OutlineStyle) {
+        builtStyle = style
+        for (id, geom) in solidCache {
+            guard let holder = solidEntities[id] else { continue }
+            solidEdges[id]?.removeFromParent()
+            solidEdges[id] = nil
+            if let e = geom.edgeEntity(style: style) {
+                holder.addChild(e)
+                solidEdges[id] = e
+            }
+        }
+        rebuildSketchRibbons()
+        rebuildPreviewEdge()
+        for (_, pe) in planeEntities { pe.setStyle(style) }
+        for (_, ae) in axisEntities { ae.setStyle(style) }
+        applyCenterPointScale()
+        // The accent ribbon is camera-facing too, so it must be re-aimed with
+        // everything else. Dropping the key forces the next overlay push to
+        // rebuild it at the new width and view direction.
+        builtEdgeAccentKey = ""
     }
 
     /// Re-aims the sketch ribbons at the current view. Needed on BOTH orbit
@@ -351,25 +425,6 @@ final class PartRenderer: NSObject {
         let sel = accentSelected
         rebuildSketches(sketchCache) // clears sketchAccent
         applySketchAccents(hover: hover, selected: sel)
-    }
-
-    private func rebuildEdgesForZoom() {
-        let r = edgeRadius
-        for (id, geom) in solidCache {
-            guard let holder = solidEntities[id] else { continue }
-            solidEdges[id]?.removeFromParent()
-            solidEdges[id] = nil
-            if let e = geom.edgeEntity(radius: r, viewDir: outlineDir) {
-                holder.addChild(e)
-                solidEdges[id] = e
-            }
-        }
-        rebuildSketchRibbons()
-        // The accent ribbon is camera-facing too, so it must be re-aimed with
-        // everything else. Dropping the key forces the next overlay push to
-        // rebuild it at the new width and view direction.
-        builtEdgeAccentKey = ""
-        edgeBuildHalfH = cam.halfH
     }
 
     private func placeCamera() {
@@ -434,7 +489,7 @@ final class PartRenderer: NSObject {
         // solid face — "the work plane / sketch is in front", like Inventor.
         let bias = max(Float(cam.halfH) * 5e-4, 1e-6)
         for (_, pe) in planeEntities { pe.applyBias(camDir: dir, eps: bias) }
-        rebuildEdgesIfTurned(dir)
+        refreshOutlines()
         for e in edgeEntities { e.position = dir * bias }
         // A sketch drawn ON a solid face is EXACTLY coplanar with it, so it
         // needs a lift comfortably past the depth resolution or it z-fights
@@ -471,7 +526,11 @@ final class PartRenderer: NSObject {
 
     func setScene(_ a: [String: Any]) {
         sceneRadius = 15 // origin planes span ±10 mm (diagonal ≈ 14.1)
-        edgeBuildHalfH = cam.halfH
+        // Latch the stroke for the whole rebuild BEFORE any of it runs: every
+        // builder below reads builtStyle, so a scene comes out at one line
+        // weight and one facing rather than at whatever each call site
+        // recomputed. placeCamera at the end then finds nothing to restroke.
+        builtStyle = wantedStyle
         // Phase by phase, for the same reason the 2D painter is: knowing a
         // scene rebuild cost 40 ms is not actionable, knowing that 36 of them
         // were mesh upload in rebuildSolids is.
@@ -626,7 +685,7 @@ final class PartRenderer: NSObject {
             }
             sceneRadius = max(sceneRadius, geom.boundingRadius + simd_length(at))
             let shaded = geom.shadedEntity(material: material)
-            let edges = geom.edgeEntity(radius: edgeRadius, viewDir: outlineDir)
+            let edges = geom.edgeEntity(style: builtStyle)
             let holder = Entity()
             holder.position = at
             holder.orientation = rot
@@ -694,7 +753,8 @@ final class PartRenderer: NSObject {
         for (_, e) in planeEntities { e.entity.removeFromParent() }
         planeEntities.removeAll()
         for p in planes {
-            guard let key = p["key"] as? String, let e = PlaneEntity(payload: p) else { continue }
+            guard let key = p["key"] as? String,
+                  let e = PlaneEntity(payload: p, style: builtStyle) else { continue }
             root.addChild(e.entity)
             planeEntities[key] = e
         }
@@ -704,7 +764,8 @@ final class PartRenderer: NSObject {
         for (_, e) in axisEntities { e.entity.removeFromParent() }
         axisEntities.removeAll()
         for ax in axes {
-            guard let key = ax["key"] as? String, let e = AxisEntity(payload: ax) else { continue }
+            guard let key = ax["key"] as? String,
+                  let e = AxisEntity(payload: ax, style: builtStyle) else { continue }
             root.addChild(e.entity)
             axisEntities[key] = e
         }
@@ -717,12 +778,28 @@ final class PartRenderer: NSObject {
         cpState = (vis, hotNow)
         cpEntity?.removeFromParent(); cpEntity = nil
         guard vis else { return }
-        let hot = hotNow
+        cpHot = hotNow
+        // UNIT sphere, sized by the entity's SCALE rather than by the mesh.
+        // The marker had a fixed 0.5 mm radius and so had the same defect the
+        // plane borders did — a boulder zoomed in, invisible zoomed out — but
+        // unlike a border it is a sphere centred on the origin, so a scale
+        // holds it exactly at its point size with no mesh work at all.
         let e = ModelEntity(
-            mesh: .generateSphere(radius: hot ? 0.6 : 0.5),
-            materials: [Materials.unlit(hot ? Colors.green : Colors.orange)])
+            mesh: .generateSphere(radius: 1),
+            materials: [Materials.unlit(hotNow ? Colors.green : Colors.orange)])
         cpEntity = e
         root.addChild(e)
+        applyCenterPointScale()
+    }
+
+    /// Hot state of the centre-point marker, so its size can be re-applied on
+    /// a zoom without rebuilding it.
+    private var cpHot = false
+
+    private func applyCenterPointScale() {
+        guard let e = cpEntity else { return }
+        let d = cpHot ? Stroke.centerPointHot : Stroke.centerPoint
+        e.scale = .init(repeating: builtStyle.halfWidth(d))
     }
 
     /// Last sketch payload, kept so the ribbons can be re-aimed when the view
@@ -757,18 +834,8 @@ final class PartRenderer: NSObject {
                         alpha: CGFloat((argb >> 24) & 0xFF) / 255.0)
                 }
                 sketchTones.append(tone)
-                var made: Entity?
-                if #available(iOS 15.0, *), let v = outlineDir,
-                   let m = RibbonBuilder.mesh([pts], halfWidth: sketchRadius,
-                                              viewDir: v) {
-                    made = ModelEntity(
-                        mesh: m, materials: [Materials.unlitSoft(tone)])
-                } else {
-                    made = TubeBuilder.polyline(
-                        pts, radius: sketchRadius,
-                        material: Materials.unlit(tone))
-                }
-                if let e = made {
+                if let e = OutlineBuilder.polyline(pts, color: tone,
+                                                   style: builtStyle) {
                     sketchRoot.addChild(e)
                     sketchEntities.append((e, n, i < keys.count ? keys[i] : ""))
                 }
@@ -777,28 +844,14 @@ final class PartRenderer: NSObject {
         root.addChild(sketchRoot)
     }
 
-    /// Edge/sketch tube radius tied to the zoom, so lines keep a roughly
-    /// constant on-screen weight instead of vanishing when zoomed in.
-    private var edgeRadius: Float { max(Float(cam.halfH) * 1.2e-3, 1e-6) }
-
-    /// Sketch curves at the SAME on-screen weight as the 2D sketcher (M95).
-    ///
-    /// This used to be 2.8e-3 * halfH — a fixed multiple of the world height,
-    /// chosen to read "distinctly heavier" than the B-Rep edges. In points
-    /// that works out at roughly 2.8e-3 * viewHeight, about 4 pt on an iPad,
-    /// against the 1 pt stroke Viewport2D uses. Reported as "the sketch lines
-    /// in 3D are too thick; they should be the same thickness as in 2D".
-    ///
-    /// Derived from the view instead of guessed: the viewport spans
-    /// 2 * halfH millimetres over `bounds.height` points, so one point is
-    /// halfH / bounds.height millimetres, and a tube of that RADIUS is one
-    /// point across — the 2D stroke width. The floor keeps it from collapsing
-    /// to nothing before the view has been laid out.
-    private var sketchRadius: Float {
-        let h = Float(arView.bounds.height)
-        guard h > 1 else { return max(Float(cam.halfH) * 1.2e-3, 2e-6) }
-        return max(Float(cam.halfH) / h, 2e-6)
-    }
+    // M95's finding is now the rule for every line rather than for sketch
+    // curves alone: a stroke is stated in POINTS and converted through
+    // `mmPerPoint`, because "the sketch lines in 3D are too thick; they should
+    // be the same thickness as in 2D" is only answerable in the unit the 2D
+    // sketcher strokes in. `edgeRadius` and `sketchRadius` stood here and are
+    // gone — one was a fixed multiple of the world height, which is a
+    // different weight on every screen size. See Stroke and OutlineStyle in
+    // PartScene.swift.
 
     /// Outward lift of a sketch off the face it was drawn on. Must exceed the
     /// depth resolution at the current zoom (see highlightEps).
@@ -812,16 +865,31 @@ final class PartRenderer: NSObject {
     private func rebuildPreview(_ p: [String: Any]?) {
         previewEntity?.removeFromParent(); previewEntity = nil
         previewEdge = nil
+        previewGeom = nil
         guard let p = p, let geom = SolidGeom(payload: p) else { return }
         sceneRadius = max(sceneRadius, geom.boundingRadius)
         let holder = Entity()
         holder.addChild(geom.shadedEntity(material: Materials.preview()))
-        if let edges = geom.edgeEntity(color: Colors.previewEdge, radius: edgeRadius) {
+        previewGeom = geom
+        previewEntity = holder
+        rebuildPreviewEdge()
+        root.addChild(holder)
+    }
+
+    /// Re-stroke the preview body's outline. It was the one outline nothing
+    /// ever rebuilt: a fillet or extrude preview kept the width it was born
+    /// with however far you zoomed afterwards, and it was built as a TUBE
+    /// while every other outline on screen was a ribbon — so the preview's
+    /// edges never quite matched the edges of the part around it.
+    private func rebuildPreviewEdge() {
+        guard let geom = previewGeom, let holder = previewEntity else { return }
+        previewEdge?.removeFromParent()
+        previewEdge = nil
+        if let edges = geom.edgeEntity(color: Colors.previewEdge,
+                                       style: builtStyle) {
             holder.addChild(edges)
             previewEdge = edges
         }
-        previewEntity = holder
-        root.addChild(holder)
     }
 
     // Blue prehighlight of the hovered planar face: a submesh of just that
@@ -855,12 +923,13 @@ final class PartRenderer: NSObject {
         edgeAccentEntity?.removeFromParent()
         edgeAccentEntity = nil
         builtEdgeAccentKey = key
-        guard !lines.isEmpty, let v = outlineDir else { return }
+        guard !lines.isEmpty, let v = builtStyle.viewDir else { return }
         // Clearly wider than the base outline: the two ribbons are coplanar by
         // construction, so a depth nudge alone still leaves them z-fighting.
         let lifted = lines.map { $0.map { $0 + cam.dir * highlightEps } }
-        guard let mesh = RibbonBuilder.mesh(lifted, halfWidth: edgeRadius * 2.2,
-                                           viewDir: v) else { return }
+        guard let mesh = RibbonBuilder.mesh(
+            lifted, halfWidth: builtStyle.halfWidth(Stroke.accent),
+            viewDir: v) else { return }
         let e = ModelEntity(mesh: mesh,
                             materials: [Materials.unlitSoft(Colors.highlight)])
         edgeAccentEntity = e
