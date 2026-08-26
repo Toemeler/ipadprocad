@@ -42,6 +42,17 @@
 #include <vector>
 
 #include <BRepBndLib.hxx>
+#include <BRepBuilderAPI_MakePolygon.hxx>
+#include <BRepBuilderAPI_TransitionMode.hxx>
+#include <BRepGProp.hxx>
+#include <BRepOffsetAPI_MakePipeShell.hxx>
+#include <GProp_GProps.hxx>
+#include <Law_Linear.hxx>
+#include <ShapeUpgrade_UnifySameDomain.hxx>
+#include <TopoDS_Wire.hxx>
+#include <gp_Ax2.hxx>
+#include <gp_Dir.hxx>
+#include <gp_Pnt.hxx>
 #include <BRepCheck_Analyzer.hxx>
 #include <BRepCheck_ListOfStatus.hxx>
 #include <BRepCheck_Result.hxx>
@@ -197,27 +208,38 @@ void collect(const BRepCheck_Analyzer &an, const TopoDS_Shape &s,
                                              TopAbs_SHELL,  TopAbs_SOLID};
     for (const TopAbs_ShapeEnum k : kinds) {
         for (TopExp_Explorer e(s, k); e.More(); e.Next()) {
-            const Handle(BRepCheck_Result) &res = an.Result(e.Current());
+            Handle(BRepCheck_Result) res = an.Result(e.Current());
             if (res.IsNull())
                 continue;
-            /* InitContextIterator/Status walks the statuses recorded for this
-             * subshape in each context it appears in; the context-free list is
-             * the one Status() returns before any iteration. */
-            for (BRepCheck_ListIteratorOfListOfStatus it(res->Status());
-                 it.More(); it.Next()) {
-                const BRepCheck_Status st = it.Value();
-                if (st == BRepCheck_NoError)
-                    continue;
-                bool found = false;
-                for (Complaint &c : out) {
-                    if (c.kind == k && c.status == st) {
-                        ++c.count;
-                        found = true;
-                        break;
+            /* TWO lists, and reading only the first is how a check like
+             * BRepCheck_IntersectingWires goes missing: Status() is what was
+             * recorded for the subshape on its own, and the contextual
+             * statuses — an edge as seen from each face that carries it, a
+             * wire as seen from its face — are behind InitContextIterator.
+             * The geometric controls this session is about live almost
+             * entirely in the second list. */
+            std::vector<const BRepCheck_ListOfStatus *> lists;
+            lists.push_back(&res->Status());
+            for (res->InitContextIterator(); res->MoreShapeInContext();
+                 res->NextShapeInContext())
+                lists.push_back(&res->StatusOnShape());
+            for (const BRepCheck_ListOfStatus *ls : lists) {
+                for (BRepCheck_ListIteratorOfListOfStatus it(*ls); it.More();
+                     it.Next()) {
+                    const BRepCheck_Status st = it.Value();
+                    if (st == BRepCheck_NoError)
+                        continue;
+                    bool found = false;
+                    for (Complaint &c : out) {
+                        if (c.kind == k && c.status == st) {
+                            ++c.count;
+                            found = true;
+                            break;
+                        }
                     }
+                    if (!found)
+                        out.push_back({k, st, 1});
                 }
-                if (!found)
-                    out.push_back({k, st, 1});
             }
         }
     }
@@ -556,6 +578,228 @@ void armCost(int reps)
     std::printf("\nshim/probe validity disagreements: %d\n", g_mismatch);
 }
 
+/* ---- stage attribution -------------------------------------------------- */
+
+/* `finish_pipe` is four steps, and "the sweep is invalid" does not say which.
+ *
+ * This rebuilds those four steps out of the same OCCT classes, in the same
+ * order, with the same settings — BRepOffsetAPI_MakePipeShell with
+ * RightCorner, the caller's trihedron and correction, MakeSolid, then
+ * ShapeUpgrade_UnifySameDomain(shape, True, True, False), which is the shim's
+ * OWN last line and not OCCT's sweep at all — and asks BRepCheck_Analyzer
+ * after each one.
+ *
+ * It is a replica and it is worth exactly what its agreement with the original
+ * is worth, so it PRINTS that agreement: the final volume and verdict here
+ * against `occt_sweep_profile_ex`'s on the identical inputs, in the same run.
+ * Read nothing else in this arm unless those two lines match. */
+struct StageRun
+{
+    bool builtShell = false;
+    bool madeSolid = false;
+    bool validAfterSolid = false;
+    bool validAfterUnify = false;
+    int facesAfterSolid = 0;
+    int facesAfterUnify = 0;
+    double volAfterSolid = 0.0;
+    double volAfterUnify = 0.0;
+    std::string diagAfterSolid, diagAfterUnify;
+};
+
+StageRun stages(const std::vector<double> &loop,
+                const std::vector<double> &path, int orientation,
+                double taperDeg)
+{
+    StageRun r;
+    /* placed_profile_wires with every bulge zero and an identity placement is
+     * this polygon; the volume agreement printed below is what checks it. */
+    BRepBuilderAPI_MakePolygon mp;
+    for (size_t i = 0; i + 2 < loop.size(); i += 3)
+        mp.Add(gp_Pnt(loop[i], loop[i + 1], loop[i + 2]));
+    mp.Close();
+    const TopoDS_Wire outer = mp.Wire();
+
+    /* OCCT_SWEEP_PATH_POLY is BRepBuilderAPI_MakePolygon over the points. */
+    BRepBuilderAPI_MakePolygon sp;
+    for (size_t i = 0; i + 2 < path.size(); i += 3)
+        sp.Add(gp_Pnt(path[i], path[i + 1], path[i + 2]));
+    const TopoDS_Wire spine = sp.Wire();
+
+    BRepOffsetAPI_MakePipeShell mk(spine);
+    mk.SetTransitionMode(BRepBuilderAPI_RightCorner);
+    if (orientation == 1)
+        mk.SetMode(gp_Ax2(gp::Origin(), gp_Dir(0, 0, 1), gp_Dir(1, 0, 0)));
+    else
+        mk.SetMode(Standard_True); /* POLY is never `smoothed` */
+    const Standard_Boolean correct =
+        orientation == 2 ? Standard_True : Standard_False;
+    if (taperDeg != 0.0) {
+        const double k = std::tan(taperDeg * M_PI / 180.0);
+        Handle(Law_Linear) law = new Law_Linear();
+        law->Set(0.0, 1.0, 1.0, 1.0 + k);
+        mk.SetLaw(outer, law, Standard_False, correct);
+    } else {
+        mk.Add(outer, Standard_False, correct);
+    }
+    mk.Build();
+    if (!mk.IsDone())
+        return r;
+    r.builtShell = true;
+    if (!mk.MakeSolid())
+        return r;
+    r.madeSolid = true;
+    const TopoDS_Shape body = mk.Shape();
+    r.facesAfterSolid = countSub(body, TopAbs_FACE);
+    GProp_GProps g1;
+    BRepGProp::VolumeProperties(body, g1);
+    r.volAfterSolid = g1.Mass();
+    r.validAfterSolid =
+        BRepCheck_Analyzer(body).IsValid() == Standard_True;
+    r.diagAfterSolid = r.validAfterSolid ? "" : diagnose(body, Standard_True);
+
+    ShapeUpgrade_UnifySameDomain uni(body, Standard_True, Standard_True,
+                                     Standard_False);
+    uni.Build();
+    const TopoDS_Shape fin = uni.Shape();
+    r.facesAfterUnify = countSub(fin, TopAbs_FACE);
+    GProp_GProps g2;
+    BRepGProp::VolumeProperties(fin, g2);
+    r.volAfterUnify = g2.Mass();
+    r.validAfterUnify = BRepCheck_Analyzer(fin).IsValid() == Standard_True;
+    r.diagAfterUnify = r.validAfterUnify ? "" : diagnose(fin, Standard_True);
+    return r;
+}
+
+void armAttribute()
+{
+    std::printf("=== S19 --attribute: which of finish_pipe's steps loses "
+                "it ===\n\n");
+    struct Case
+    {
+        const char *what;
+        double off;   /* square lower-left corner */
+        int spans;
+        int orient;
+        double taper;
+    };
+    const Case cases[] = {
+        {"centred, helix16, or0, no taper", -5.0, 16, 0, 0.0},
+        {"c_t=7.07, helix16, or0, no taper", 0.0, 16, 0, 0.0},
+        {"c_t=7.07, helix16, or1 FIXED, no taper", 0.0, 16, 1, 0.0},
+        {"c_t=7.07, helix16, or2, no taper", 0.0, 16, 2, 0.0},
+        {"c_t=7.07, helix4, or0, no taper", 0.0, 4, 0, 0.0},
+        {"centred, helix16, or0, taper +5", -5.0, 16, 0, 5.0},
+        {"centred, helix16, or1 FIXED, taper +5", -5.0, 16, 1, 5.0},
+    };
+    for (const Case &c : cases) {
+        const std::vector<double> loop = squareXYB(c.off, c.off, 10);
+        const std::vector<double> path = helixPath(c.spans + 1);
+        const StageRun r = stages(loop, path, c.orient, c.taper);
+        std::printf("%-42s\n", c.what);
+        if (!r.builtShell) {
+            std::printf("    MakePipeShell: NOT DONE\n");
+            continue;
+        }
+        if (!r.madeSolid) {
+            std::printf("    MakeSolid: FAILED\n");
+            continue;
+        }
+        std::printf("    after MakeSolid : faces %4d  vol %14.6f  %-8s %s\n",
+                    r.facesAfterSolid, r.volAfterSolid,
+                    r.validAfterSolid ? "valid" : "INVALID",
+                    r.diagAfterSolid.c_str());
+        std::printf("    after Unify     : faces %4d  vol %14.6f  %-8s %s\n",
+                    r.facesAfterUnify, r.volAfterUnify,
+                    r.validAfterUnify ? "valid" : "INVALID",
+                    r.diagAfterUnify.c_str());
+        /* The agreement line: the shipped call, same inputs, same run. */
+        Built b;
+        build(b, {loop}, path, c.orient, c.taper, 1);
+        if (!b.ok) {
+            std::printf("    shipped shim    : REFUSED %s\n", b.err.c_str());
+        } else {
+            const bool v = shimAgrees(b);
+            std::printf("    shipped shim    : faces %4d  vol %14.6f  %-8s "
+                        "%s\n",
+                        b.faces, occt_shape_volume(b.sh),
+                        v ? "valid" : "INVALID",
+                        (b.faces == r.facesAfterUnify &&
+                         std::fabs(occt_shape_volume(b.sh) - r.volAfterUnify) <
+                             1e-6 * std::fabs(r.volAfterUnify + 1.0))
+                            ? "<- replica AGREES"
+                            : "<- REPLICA DISAGREES, read nothing here");
+        }
+        std::fflush(stdout);
+    }
+    std::printf("\nshim/probe validity disagreements: %d\n", g_mismatch);
+}
+
+/* The gate the shim ALREADY has.
+ *
+ * `blend_result_ok` (occt_capi.cpp:2938) is a validity gate on a build result,
+ * shipped, and it ends in exactly the call this session is costing:
+ * `BRepCheck_Analyzer(out).IsValid()`. It exists because an invalid blend made
+ * the mesher emit sixty thousand triangles for a twenty-face solid. So the
+ * policy question S18 routed to the integrator is not "should the shim ever
+ * gate on validity" — it already does — but "does the sweep's shape SIZE make
+ * the same policy cost something different". This arm is that comparison, and
+ * it is the only calibration in this file that is a shipped number rather than
+ * a probe number. */
+void armPrecedent(int reps)
+{
+    std::printf("=== S19 --precedent: what the gate the shim ALREADY has "
+                "costs ===\n\n");
+    std::printf("%-46s %7s %10s %10s %9s\n", "shape", "faces", "build",
+                "full check", "share");
+
+    struct Case
+    {
+        const char *what;
+        int n;      /* profile segments */
+        int spans;  /* path legs; 0 = extrude instead of sweep */
+        int mode;
+    };
+    const Case cases[] = {
+        {"20-cube (blend_result_ok's own scale)", 4, 0, 0},
+        {"24-gon prism, extruded", 24, 0, 0},
+        {"24-gon x 16-leg helix sweep", 24, 16, 1},
+        {"256-gon x 16-leg helix sweep", 256, 16, 1},
+        {"1218-gon x 16-leg helix sweep (the field)", 1218, 16, 1},
+    };
+    for (const Case &c : cases) {
+        occt_shape *sh = nullptr;
+        double buildMs = 0.0;
+        const clk::time_point t0 = clk::now();
+        if (c.spans == 0) {
+            const std::vector<double> loop =
+                c.n == 4 ? squareXYB(-10, -10, 20) : ringXYB(c.n, 6.0);
+            const int lc = static_cast<int>(loop.size() / 3);
+            sh = occt_extrude_profile_arcs(loop.data(), &lc, 1, 20.0, 0.0);
+        } else {
+            const std::vector<double> loop = ringXYB(c.n, 6.0);
+            const int lc = static_cast<int>(loop.size() / 3);
+            const std::vector<double> path = helixPath(c.spans + 1);
+            sh = occt_sweep_profile_ex(loop.data(), &lc, 1, kIdentity,
+                                       path.data(),
+                                       static_cast<int>(path.size() / 3), 0,
+                                       0.0, 0.0, c.mode);
+        }
+        buildMs = ms(t0, clk::now());
+        if (!sh) {
+            std::printf("%-46s  BUILD FAILED: %s\n", c.what, occt_last_error());
+            continue;
+        }
+        double full = 1e18;
+        for (int i = 0; i < reps; ++i)
+            full = std::min(full, ask(sh->s, kAsks[0]).msec);
+        std::printf("%-46s %7d %10.2f %10.2f %8.1f%%\n", c.what,
+                    countSub(sh->s, TopAbs_FACE), buildMs, full,
+                    100.0 * full / buildMs);
+        std::fflush(stdout);
+        occt_free_shape(sh);
+    }
+}
+
 /* One census row: build it, classify it, say what is wrong with it. */
 struct Row
 {
@@ -765,6 +1009,390 @@ void armOffcentre()
     std::printf("\nshim/probe validity disagreements: %d\n", g_mismatch);
 }
 
+/* A zigzag whose FIRST LEG is tilted `tiltDeg` away from +Z, in the XZ plane.
+ *
+ * The section is placed by the identity matrix, so it lies in the XY plane and
+ * its normal is +Z. `tiltDeg` is therefore exactly the angle between the
+ * section's plane and the plane the spine's first tangent is normal to — the
+ * quantity `Add(..., WithCorrection = Standard_True)` removes by rotating the
+ * section, and the quantity the helix fixture has 25.24 degrees of and cannot
+ * vary. Legs, turn angle and section offset are unchanged by it, so this is
+ * the fixture in which tilt and offset move independently. */
+std::vector<double> tiltedZigzag(int legs, double L, double turnDeg,
+                                 double tiltDeg, bool alternate = true)
+{
+    std::vector<double> out{0, 0, 0};
+    double x = 0, z = 0;
+    double dir = tiltDeg * M_PI / 180.0; /* angle from +Z toward +X */
+    for (int i = 0; i < legs; ++i) {
+        if (i > 0)
+            dir += (alternate && (i % 2) ? -1.0 : 1.0) * turnDeg * M_PI / 180.0;
+        x += L * std::sin(dir);
+        z += L * std::cos(dir);
+        out.push_back(x);
+        out.push_back(0.0);
+        out.push_back(z);
+    }
+    return out;
+}
+
+/* The same map for a path whose joints all turn the SAME way — a planar
+ * polygonal ARC rather than a zigzag. Everything else is identical: same legs,
+ * same joint angle, same section, same plane. The only thing that moves is
+ * whether the turning accumulates. */
+void armAccumulate()
+{
+    std::printf("=== S19 --accumulate: turns that add up, against turns that "
+                "cancel ===\n\n");
+    const double offs[] = {0.0, 5.0, 7.071, 10.0, 15.0, 21.2, 40.0};
+    for (const bool alt : {true, false}) {
+        std::printf("--- 6 legs of 20, joint 5 deg, %s\n",
+                    alt ? "ALTERNATING (zigzag)"
+                        : "SAME DIRECTION (polygonal arc)");
+        std::printf("%8s", "tilt\\c_t");
+        for (const double o : offs)
+            std::printf(" %7.3f", o);
+        std::printf("\n");
+        for (const double tilt : {0.0, 10.0, 25.24, 45.0}) {
+            std::printf("%8.2f", tilt);
+            for (const double o : offs) {
+                const Row r = classify(
+                    "", {squareXYB(o - 5.0, -5.0, 10)},
+                    tiltedZigzag(6, 20.0, 5.0, tilt, alt), 0, 0.0, 1, false);
+                std::printf(" %7s",
+                            !r.built ? "refused" : (r.full ? "." : "INVAL"));
+                std::fflush(stdout);
+            }
+            std::printf("\n");
+        }
+        std::printf("\n");
+    }
+
+    /* And the helix's own numbers, for the joint count and leg it actually
+     * has: 15 joints of 2.3962 deg over legs of 4.1452, a section tilted
+     * 25.244 deg — but PLANAR, so the only thing left that differs from the
+     * shipped helix fixture is that the helix is not planar at all. */
+    std::printf("--- the helix's own parameters, made planar: 15 joints of "
+                "2.3962 deg, leg 4.1452, tilt 25.244\n");
+    std::printf("%8s", "c_t");
+    for (const double o : offs)
+        std::printf(" %7.3f", o);
+    std::printf("\n%8s", "planar");
+    for (const double o : offs) {
+        const Row r =
+            classify("", {squareXYB(o - 5.0, -5.0, 10)},
+                     tiltedZigzag(16, 4.1452, 2.3962, 25.244, false), 0, 0.0, 1,
+                     false);
+        std::printf(" %7s", !r.built ? "refused" : (r.full ? "." : "INVAL"));
+        std::fflush(stdout);
+    }
+    std::printf("\n%8s", "helix");
+    for (const double o : offs) {
+        const Row r = classify("", {squareXYB(o - 5.0, -5.0, 10)}, helixPath(17),
+                               0, 0.0, 1, false);
+        std::printf(" %7s", !r.built ? "refused" : (r.full ? "." : "INVAL"));
+        std::fflush(stdout);
+    }
+    std::printf("\n\nshim/probe validity disagreements: %d\n", g_mismatch);
+}
+
+/* The 2x2 the whole diagnosis turns on, opened out into a map: validity over
+ * (tilt of the section to the tangent) x (offset of the section from the
+ * spine), at a fixed leg and a fixed turn, on a fixture where neither of those
+ * two is confounded with anything else. */
+void armFactorial()
+{
+    std::printf("=== S19 --factorial: tilt against offset, separated ===\n\n");
+    std::printf("zigzag, 6 legs of 20, turn 5 deg, 10x10 square offset in the "
+                "TURN PLANE (x)\n");
+    std::printf("rows are the tilt of the first leg away from the section's "
+                "normal; columns the offset\n\n");
+    const double offs[] = {0.0, 2.0, 5.0, 7.071, 10.0, 15.0, 21.2, 40.0};
+    std::printf("%8s", "tilt\\c_t");
+    for (const double o : offs)
+        std::printf(" %7.3f", o);
+    std::printf("\n");
+    for (const double tilt : {0.0, 5.0, 10.0, 15.0, 20.0, 25.24, 30.0, 45.0,
+                              60.0}) {
+        std::printf("%8.2f", tilt);
+        for (const double o : offs) {
+            /* offset in the TURN PLANE: the square's centroid at x = o. */
+            const Row r =
+                classify("", {squareXYB(o - 5.0, -5.0, 10)},
+                         tiltedZigzag(6, 20.0, 5.0, tilt), 0, 0.0, 1, false);
+            std::printf(" %7s", !r.built ? "refused" : (r.full ? "." : "INVAL"));
+            std::fflush(stdout);
+        }
+        std::printf("\n");
+    }
+    std::printf("\nthe same map with the offset OUT of the turn plane (y)\n");
+    std::printf("%8s", "tilt\\c_t");
+    for (const double o : offs)
+        std::printf(" %7.3f", o);
+    std::printf("\n");
+    for (const double tilt : {0.0, 10.0, 25.24, 45.0}) {
+        std::printf("%8.2f", tilt);
+        for (const double o : offs) {
+            const Row r =
+                classify("", {squareXYB(-5.0, o - 5.0, 10)},
+                         tiltedZigzag(6, 20.0, 5.0, tilt), 0, 0.0, 1, false);
+            std::printf(" %7s", !r.built ? "refused" : (r.full ? "." : "INVAL"));
+            std::fflush(stdout);
+        }
+        std::printf("\n");
+    }
+
+    /* And the control that says it is the tilt and not something else about
+     * the helix: the SAME shipped call, same fixture, with
+     * WithCorrection = Standard_True — which is what orientation 2 passes, and
+     * which OCCT documents as "the section is rotated to be orthogonal to the
+     * spine's tangent". If tilt is the discriminator, orientation 2 is valid
+     * exactly where orientation 0 is not. */
+    std::printf("\n--- the control: orientation 0 (tilt kept) against "
+                "orientation 2 (tilt removed)\n");
+    std::printf("%-44s %-10s %-10s\n", "fixture", "or0", "or2");
+    struct C
+    {
+        const char *what;
+        double tilt;
+        double off;
+    };
+    for (const C &c : {C{"tilt 25.24, c_t 0", 25.24, 0.0},
+                       C{"tilt 25.24, c_t 7.071", 25.24, 7.071},
+                       C{"tilt 25.24, c_t 21.2", 25.24, 21.2},
+                       C{"tilt 0, c_t 21.2", 0.0, 21.2},
+                       C{"tilt 45, c_t 7.071", 45.0, 7.071}}) {
+        const std::vector<double> path = tiltedZigzag(6, 20.0, 5.0, c.tilt);
+        const std::vector<double> loop = squareXYB(c.off - 5.0, -5.0, 10);
+        const Row a = classify("", {loop}, path, 0, 0.0, 1, false);
+        const Row b = classify("", {loop}, path, 2, 0.0, 1, false);
+        std::printf("%-44s %-10s %-10s\n", c.what,
+                    !a.built ? "refused" : (a.full ? "valid" : "INVALID"),
+                    !b.built ? "refused" : (b.full ? "valid" : "INVALID"));
+        std::fflush(stdout);
+    }
+    std::printf("\nshim/probe validity disagreements: %d\n", g_mismatch);
+}
+
+/* The boundary, found rather than guessed.
+ *
+ * Both tables above agree that tilt and offset are each NECESSARY — every
+ * tilt = 0 row is valid at every offset, and every offset = 0 column is valid
+ * at every tilt — so the question left is where the boundary in the offset
+ * sits and what it is a function of. This bisects for it: for each
+ * (legs, L, joint, tilt) it finds the smallest offset that comes out INVALID,
+ * to 1e-3, and prints the candidate ratios alongside so the law can be read
+ * off rather than fitted.
+ *
+ * The fixture is the PLANAR polygonal arc, because --accumulate showed it
+ * reproduces the helix's verdicts row for row at the helix's own parameters,
+ * and it is the one in which every parameter moves independently. */
+bool invalidAt(int legs, double L, double joint, double tilt, double c)
+{
+    const Row r = classify("", {squareXYB(c - 5.0, -5.0, 10)},
+                           tiltedZigzag(legs, L, joint, tilt, false), 0, 0.0, 1,
+                           false);
+    return r.built && !r.full;
+}
+
+void armBoundary()
+{
+    std::printf("=== S19 --boundary: where the offset stops being safe ===\n\n");
+    std::printf("%5s %8s %8s %8s %10s %10s %10s %10s\n", "legs", "leg", "joint",
+                "tilt", "c*", "c*/L", "c*sin(t)/L", "c*tan(j/2)");
+    struct Cfg
+    {
+        int legs;
+        double L;
+        double joint;
+        double tilt;
+    };
+    const Cfg cfgs[] = {
+        /* the helix's own parameters, and each one moved on its own */
+        {16, 4.1452, 2.3962, 25.244},
+        {16, 4.1452, 2.3962, 10.0},
+        {16, 4.1452, 2.3962, 45.0},
+        {16, 4.1452, 2.3962, 60.0},
+        {16, 8.2904, 2.3962, 25.244},
+        {16, 16.5808, 2.3962, 25.244},
+        {16, 2.0726, 2.3962, 25.244},
+        {16, 4.1452, 1.0, 25.244},
+        {16, 4.1452, 5.0, 25.244},
+        {16, 4.1452, 10.0, 25.244},
+        {4, 4.1452, 2.3962, 25.244},
+        {8, 4.1452, 2.3962, 25.244},
+        {32, 4.1452, 2.3962, 25.244},
+        {6, 20.0, 5.0, 25.24},
+        {6, 20.0, 5.0, 45.0},
+        {16, 20.0, 5.0, 25.24},
+    };
+    for (const Cfg &c : cfgs) {
+        /* bracket first: the ladder is monotone in practice, and the bracket
+         * is checked rather than assumed — a hi that is valid is reported as
+         * "none below 200" instead of being bisected into nonsense. */
+        double lo = 0.0, hi = 200.0;
+        if (!invalidAt(c.legs, c.L, c.joint, c.tilt, hi)) {
+            std::printf("%5d %8.4f %8.4f %8.3f %10s\n", c.legs, c.L, c.joint,
+                        c.tilt, "none<=200");
+            std::fflush(stdout);
+            continue;
+        }
+        if (invalidAt(c.legs, c.L, c.joint, c.tilt, lo)) {
+            std::printf("%5d %8.4f %8.4f %8.3f %10s\n", c.legs, c.L, c.joint,
+                        c.tilt, "0 already");
+            std::fflush(stdout);
+            continue;
+        }
+        for (int i = 0; i < 18; ++i) {
+            const double mid = 0.5 * (lo + hi);
+            if (invalidAt(c.legs, c.L, c.joint, c.tilt, mid))
+                hi = mid;
+            else
+                lo = mid;
+        }
+        const double cs = 0.5 * (lo + hi);
+        std::printf("%5d %8.4f %8.4f %8.3f %10.4f %10.4f %10.4f %10.4f\n",
+                    c.legs, c.L, c.joint, c.tilt, cs, cs / c.L,
+                    cs * std::sin(c.tilt * M_PI / 180.0) / c.L,
+                    cs * std::tan(c.joint * M_PI / 360.0));
+        std::fflush(stdout);
+    }
+    std::printf("\nshim/probe validity disagreements: %d\n", g_mismatch);
+}
+
+/* The law, stated and then tested where it was not fitted.
+ *
+ * --boundary's ten rows are fitted by
+ *
+ *     d* * ( sin(phi) + tan(theta/2) )  =  L                          (S19-1)
+ *
+ * with d = c + w the section's furthest REACH from the spine in the direction
+ * of the turn, phi the angle between the section's plane and the plane the
+ * spine's tangent is normal to, theta the joint angle and L the leg. Read as
+ * geometry: the tilt pushes that far edge d*sin(phi) downstream before the leg
+ * even starts, the mitre at the far end eats d*tan(theta/2) of it — S18 §8.3's
+ * own quantity, the one its volume law is signed by — and when the two together
+ * reach L, that edge has no leg left to sweep along.
+ *
+ * The half-width w was never varied while (S19-1) was being found: every row
+ * behind it used the same 10x10 square. So w is where it is tested. */
+void armLaw()
+{
+    std::printf("=== S19 --law: (c + w)(sin(tilt) + tan(joint/2)) = L, "
+                "tested where it was not fitted ===\n\n");
+    std::printf("%6s %8s %8s %8s %9s %9s %9s %9s\n", "w", "leg", "joint",
+                "tilt", "c* pred", "0.9 c*", "1.1 c*", "verdict");
+    struct Cfg
+    {
+        double w;
+        double L;
+        double joint;
+        double tilt;
+    };
+    const Cfg cfgs[] = {
+        {2.0, 4.1452, 2.3962, 25.244},  {2.0, 20.0, 5.0, 25.244},
+        {10.0, 4.1452, 2.3962, 25.244}, {10.0, 20.0, 5.0, 25.244},
+        {10.0, 40.0, 3.0, 15.0},        {1.0, 10.0, 2.0, 30.0},
+        {5.0, 30.0, 1.5, 20.0},         {7.5, 12.0, 4.0, 35.0},
+    };
+    int held = 0, total = 0;
+    for (const Cfg &c : cfgs) {
+        const double k = std::sin(c.tilt * M_PI / 180.0) +
+                         std::tan(c.joint * M_PI / 360.0);
+        const double cstar = c.L / k - c.w;
+        if (cstar <= 0.0) {
+            std::printf("%6.1f %8.4f %8.4f %8.3f %9.4f  (predicted invalid at "
+                        "every offset)\n",
+                        c.w, c.L, c.joint, c.tilt, cstar);
+            continue;
+        }
+        const double below = 0.9 * cstar, above = 1.1 * cstar;
+        auto run = [&](double cc) {
+            return classify("", {squareXYB(cc - c.w, -c.w, 2.0 * c.w)},
+                            tiltedZigzag(16, c.L, c.joint, c.tilt, false), 0,
+                            0.0, 1, false);
+        };
+        const Row lo = run(below), hi = run(above);
+        const bool ok = lo.built && lo.full && hi.built && !hi.full;
+        ++total;
+        held += ok ? 1 : 0;
+        std::printf("%6.1f %8.4f %8.4f %8.3f %9.4f %9s %9s  %s\n", c.w, c.L,
+                    c.joint, c.tilt, cstar,
+                    !lo.built ? "refused" : (lo.full ? "valid" : "INVALID"),
+                    !hi.built ? "refused" : (hi.full ? "valid" : "INVALID"),
+                    ok ? "HELD" : "**FAILED**");
+        std::fflush(stdout);
+    }
+    std::printf("\n(S19-1) held on %d of %d out-of-sample rows\n", held, total);
+
+    /* The one --boundary row that did not fit: joint 10 deg. (S19-1) puts its
+     * boundary at c = 3.07 and the bisection reported 51.8, which can only
+     * happen if the region is not an interval. Scanned rather than bisected. */
+    std::printf("\n--- the joint = 10 deg row, scanned instead of bisected\n");
+    const double k10 = std::sin(25.244 * M_PI / 180.0) +
+                       std::tan(10.0 * M_PI / 360.0);
+    std::printf("(S19-1) predicts the first transition at c = %.4f\n",
+                4.1452 / k10 - 5.0);
+    std::printf("%8s %9s\n", "c", "verdict");
+    for (double c = 0.0; c <= 60.0; c += 2.0) {
+        const Row r = classify("", {squareXYB(c - 5.0, -5.0, 10)},
+                               tiltedZigzag(16, 4.1452, 10.0, 25.244, false), 0,
+                               0.0, 1, false);
+        std::printf("%8.2f %9s\n", c,
+                    !r.built ? "refused" : (r.full ? "valid" : "INVALID"));
+        std::fflush(stdout);
+    }
+    std::printf("\nshim/probe validity disagreements: %d\n", g_mismatch);
+}
+
+/* The one published number this whole question is anchored to.
+ *
+ * S15 §2.2 measured `valid` at 8 817.1 ms on the 2 402-face holed sweep and
+ * 821.8 ms on the 1 202-face unholed control, and that pair is what makes a
+ * gate look expensive. It is also the ONLY regime in which the check's cost is
+ * dominated by the quadratic cap-wire term, because it is the only one whose
+ * cap wires have 1 200 edges. So it is rebuilt here, through the shipped call,
+ * and asked all four ways — the same fixture, on this machine, in this run. */
+void armS15(int reps)
+{
+    std::printf("=== S19 --s15: S15 2.2's anchor row, asked four ways ===\n\n");
+    std::printf("%-34s %7s %10s %10s %10s %10s %10s\n", "shape", "faces",
+                "build", "full", "full-par", "topo", "topo-par");
+    struct Case
+    {
+        const char *what;
+        bool holed;
+    };
+    for (const Case &c : {Case{"1200-gon, 16-span arc, AUTO", false},
+                          Case{"1200-gon + 1200-gon hole, AUTO", true}}) {
+        const std::vector<double> outer = ringXYB(1200, 6.0);
+        const std::vector<double> hole = ringXYB(1200, 3.0);
+        std::vector<std::vector<double>> loops{outer};
+        if (c.holed)
+            loops.push_back(hole);
+        Built b;
+        build(b, loops, helixPath(17), 0, 0.0, 0 /* AUTO */);
+        if (!b.ok) {
+            std::printf("%-34s  BUILD FAILED: %s\n", c.what, b.err.c_str());
+            continue;
+        }
+        const bool v = shimAgrees(b);
+        double best[4] = {1e18, 1e18, 1e18, 1e18};
+        for (int r = 0; r < reps; ++r)
+            for (int a = 0; a < 4; ++a)
+                best[a] = std::min(best[a], ask(b.shape(), kAsks[a]).msec);
+        std::printf("%-34s %7d %10.1f %10.1f %10.1f %10.1f %10.1f  %s\n",
+                    c.what, b.faces, b.buildMs, best[0], best[1], best[2],
+                    best[3], v ? "valid" : "INVALID");
+        std::printf("%-34s %7s %10s %9.1f%% %9.1f%% %9.1f%% %9.1f%%\n",
+                    "   as a share of the build", "", "",
+                    100 * best[0] / b.buildMs, 100 * best[1] / b.buildMs,
+                    100 * best[2] / b.buildMs, 100 * best[3] / b.buildMs);
+        std::fflush(stdout);
+    }
+    std::printf("\nshim/probe validity disagreements: %d\n", g_mismatch);
+}
+
 void armCensus()
 {
     std::printf("=== S19 --census: which producible sweeps are invalid "
@@ -857,9 +1485,24 @@ int main(int argc, char **argv)
             armCensus();
         else if (arm == "--offcentre")
             armOffcentre();
+        else if (arm == "--precedent")
+            armPrecedent(reps);
+        else if (arm == "--attribute")
+            armAttribute();
+        else if (arm == "--factorial")
+            armFactorial();
+        else if (arm == "--accumulate")
+            armAccumulate();
+        else if (arm == "--boundary")
+            armBoundary();
+        else if (arm == "--law")
+            armLaw();
+        else if (arm == "--s15")
+            armS15(reps);
         else {
             std::printf("usage: valid_probe --cost [reps] | --catch | "
-                        "--census | --offcentre\n");
+                        "--census | --offcentre | --precedent [reps] | "
+                        "--attribute | --factorial\n");
             return 2;
         }
     } catch (const Standard_Failure &e) {
