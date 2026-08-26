@@ -993,28 +993,19 @@ class _RibbonState extends State<Ribbon> {
   // there.
   Widget _assemblyRibbon(AppState app) {
     final t = L.of(context);
-    // Small rows that are NOT built, and take no callback at all — which is
-    // the point: an unbuilt command cannot be given one by accident. The
-    // built small rows go through [asmCol] below.
+    // M249 + M250 — `offCol`, the helper that drew small rows for commands
+    // that were NOT built, is gone: it had exactly two callers and the two
+    // milestones emptied it from opposite ends. M249 wired the Relationships
+    // panel's Show / Show Sick / Hide All, M250 wired the Position panel's
+    // Free Move and Free Rotate, and this tab now has no drawn-and-disabled
+    // small row at all.
     //
-    // M250 — Free Move and Free Rotate left this list, so what is still in it
-    // is the Relationships panel's three Show commands.
-    Widget offCol(List<(String, String)> rows, {double leftPad = 8}) => Padding(
-          padding: EdgeInsets.only(left: leftPad),
-          child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                for (var i = 0; i < rows.length; i++) ...[
-                  if (i > 0) const SizedBox(height: 2),
-                  _SmallRow(
-                      icon: rows[i].$1,
-                      label: rows[i].$2,
-                      enabled: false,
-                      onTap: null),
-                ]
-              ]),
-        );
+    // Not kept "in case one comes back", because one should not: M216's rule
+    // is that an unbuilt command goes behind the panel's ▼, where _OverRow
+    // draws it dimmed and untappable, rather than taking permanent width in
+    // the panel. UCS is the tab's only unbuilt command and that is where it
+    // lives.
+    //
     // M248 — small rows that are BUILT and can LIGHT UP, for the Pattern
     // panel. [_partRibbon.colActive], in the file that needs it; the two
     // cannot be shared for the same reason [wfCol] below cannot.
@@ -2044,6 +2035,14 @@ class _BigWide extends StatelessWidget {
   /// be. Inventor itself draws these greyed rather than hidden (Free Move,
   /// Free Rotate and Show Sick are greyed in an empty assembly), so the third
   /// state is Inventor's own, not an excuse: dimmed, no hover, no tap, no lie.
+  ///
+  /// M249 + M250 — and as of those two, NOTHING passes it any more: every big
+  /// button on the assembly tab is built. The analyzer says so, and it is
+  /// worth reading as the milestone report it is rather than as dead weight.
+  /// Kept, because the state it draws is still the right answer for a command
+  /// that is built and momentarily UNAVAILABLE — which Show Sick now is, and
+  /// which it expresses through a null onTap in a small row instead. The next
+  /// big button in that position should use this rather than reinvent it.
   final bool enabled;
   const _BigWide(
       {required this.width,
