@@ -537,14 +537,15 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
       return;
     }
     // M169 — tapping a work plane SELECTS it, the way Inventor does: the
-    // plane highlights in 3D and its offset field opens, so the value is
-    // immediately editable without hunting for a menu.
+    // plane highlights in 3D so you can see which row is which.
+    //
+    // M252 — and nothing more. It used to open the offset field as well, which
+    // made a set plane editable — and draggable in the viewport — by touching
+    // its row. Editing is what the row's long-press menu is for ("Edit
+    // Offset"), which is the one place the user asked for it to live.
     if (id.startsWith(kIdWorkPlane)) {
       final w = _workPlane(part, id);
-      if (w != null) {
-        app.selectWorkPlane(w);
-        if (w.offsetEditable) app.workPlaneOffsetEditing = true;
-      }
+      if (w != null) app.selectWorkPlane(w);
       return;
     }
     // M215 — tapping a work axis or point SELECTS it, the way a work plane

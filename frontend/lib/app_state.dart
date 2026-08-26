@@ -7305,6 +7305,27 @@ class AppState extends ChangeNotifier {
   /// the drag is always measured from a fixed base rather than accumulating.
   double? _wpDragFrom;
 
+  /// True while [w] may be moved by dragging it in the 3D viewport.
+  ///
+  /// M252 — a committed work plane is SET. Until now any plane was draggable
+  /// for as long as it existed: pointer-down on one in the viewport armed a
+  /// drag and a tap on one opened its offset field, so pressing OK settled
+  /// nothing, and a one-finger orbit that started on a plane moved the plane
+  /// instead of the view. Reported as "the plane is set but still when i drag
+  /// it goes directly into edit mode ... it should be really set as soon as i
+  /// press ok. only editable by longpressing in the Modell browser".
+  ///
+  /// So arming is explicit now, and there are exactly two ways in: "Edit
+  /// Offset" on the plane's long-press menu in the model browser, and the
+  /// drag that CREATES a plane (which has not been OK'd yet — see
+  /// [commitWorkPlaneCreate]). Both leave the offset field open on this
+  /// plane, which is the same state this asks about, and committing or
+  /// cancelling the value closes it and sets the plane again.
+  bool workPlaneDraggable(WorkPlane w) =>
+      workPlaneOffsetEditing &&
+      identical(selectedWorkPlane, w) &&
+      w.offsetEditable;
+
   void selectWorkPlane(WorkPlane? w) {
     if (identical(selectedWorkPlane, w)) return;
     selectedWorkPlane = w;

@@ -563,10 +563,24 @@ class _Viewport3DState extends State<Viewport3D>
                   app.patternSession == null) {
                 final w = _workPlaneAt(cam, e.localPosition, p);
                 if (w != null) {
-                  _wpDrag = w;
-                  _wpDown = e.localPosition;
-                  _wpMoved = false;
+                  // Tapping a plane still SELECTS it — that is only a
+                  // highlight, and it is how the browser row lights up too.
                   app.selectWorkPlane(w);
+                  // M252 — but only the plane currently being EDITED can be
+                  // grabbed. Every plane used to be draggable forever, so a
+                  // plane stayed movable long after its OK, and a one-finger
+                  // orbit that happened to start on one moved the plane
+                  // instead of the view (`_wpDrag != null` also suppresses
+                  // orbit and the general pick, further down this file).
+                  // Arming is now explicit: "Edit Offset" on the row's
+                  // long-press menu in the model browser, or the drag that
+                  // created the plane, and it ends when the value is
+                  // committed. See AppState.workPlaneDraggable.
+                  if (app.workPlaneDraggable(w)) {
+                    _wpDrag = w;
+                    _wpDown = e.localPosition;
+                    _wpMoved = false;
+                  }
                 }
               }
               if (e.kind == PointerDeviceKind.mouse &&
@@ -670,14 +684,12 @@ class _Viewport3DState extends State<Viewport3D>
                 return;
               }
               if (_wpDrag != null) {
-                if (_wpMoved) {
-                  app.endWorkPlaneDrag();
-                } else {
-                  // A TAP, not a drag: select and open the field, so the value
-                  // is editable without hunting for a menu.
-                  final w = _wpDrag!;
-                  if (w.offsetEditable) app.workPlaneOffsetEditing = true;
-                }
+                // A tap that never moved needs nothing: the pointer only got
+                // here because this plane is already the one being edited, so
+                // its field is already open. (It used to OPEN the field on a
+                // tap, which is what made every plane editable by touching
+                // it — M252.)
+                if (_wpMoved) app.endWorkPlaneDrag();
                 _wpDrag = null;
                 _wpMoved = false;
               }
@@ -751,9 +763,11 @@ class _Viewport3DState extends State<Viewport3D>
               }),
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
-                // M170 — a tap consumed by a work plane is handled in the
-                // Listener (select + open the field); running the general pick
-                // as well would fight it.
+                // M170 — a tap consumed by a work-plane DRAG is handled in
+                // the Listener; running the general pick as well would fight
+                // it. M252 — that is now only ever the plane being edited, so
+                // a tap on any other plane falls through to the pick, which is
+                // what makes orbiting off a plane work again.
                 onTapUp: (d) {
                   if (_wpDrag != null) return;
                   // M218 — the long press already consumed this contact: it
