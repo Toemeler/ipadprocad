@@ -1330,6 +1330,31 @@ const int kFeatureGapBins = 6; /* degrees of empty histogram that make a gap */
  * shell open. Bounded: past this the "seam" being closed is a real gap. */
 const double kSewRetryFactor = 5.0;
 
+/* When a facet's own normal stops being evidence and becomes rounding noise.
+ *
+ * A triangle only reports a surface direction if it has a shape. Take one
+ * whose three vertices are nearly collinear: the odd vertex sits h off the
+ * line through the other two, and moving it by e tips the normal by about
+ * e/h. Once h is a small fraction of the facet's own length, the normal says
+ * more about where the tessellator rounded that vertex than about the part.
+ *
+ * Meshers emit these constantly — a cap where one fillet crosses another, a
+ * needle along a trimmed boundary — and nearly all of them are harmless,
+ * because they sit INSIDE a smooth run and the run's fit outvotes them. The
+ * one that is not harmless is the sliver whose noisy normal happens to differ
+ * from all three neighbours by more than the feature angle: that makes it a
+ * smooth run of ONE triangle, which is a face of its own, and it cuts the
+ * surface it lies on into two pieces that nothing downstream puts back
+ * together. On the user's bracket exactly one triangle does this, and it costs
+ * two visible defects at once — a 0.13 mm shard standing proud between the
+ * boss blend and the top-edge fillet, and that fillet arriving as two
+ * cylinders that overlap each other by 1.9 mm across the shard.
+ *
+ * A fortieth is deliberately deep into degenerate territory. Thin facets that
+ * mean something are common (a chamfer tessellated in one row is 1:10 and its
+ * normal is exact); 1:25 and worse is a tessellator artefact. */
+const double kSliverAspect = 0.04; /* height on the longest edge, over it */
+
 /* ---- Ties decide the model -------------------------------------------
  *
  * Every ordering in this file must be a TOTAL order, and the reason is not
@@ -1829,6 +1854,39 @@ double FeatureAngleDeg(const Mesh &m, double fallback)
                     std::min(kFeatureAngleMaxDeg, at + 0.0));
 }
 
+/* The triangle's height on its longest edge, over that edge — 0.87 for an
+ * equilateral one, 0 for three collinear points. See kSliverAspect. */
+double FacetAspect(const Mesh &m, int t)
+{
+    double lmax = 0;
+    for (int k = 0; k < 3; ++k) {
+        const V3 &a = m.pos[m.tri[t * 3 + k]];
+        const V3 &b = m.pos[m.tri[t * 3 + (k + 1) % 3]];
+        lmax = std::max(lmax, Norm(b - a));
+    }
+    if (lmax <= 0)
+        return 0;
+    return 2.0 * m.tarea[t] / (lmax * lmax);
+}
+
+/* Which of t's three edges is the longest. Ties go to the lowest index, so
+ * this is a total order — see "Ties decide the model". */
+int LongestEdge(const Mesh &m, int t)
+{
+    int best = 0;
+    double blen = -1;
+    for (int k = 0; k < 3; ++k) {
+        const V3 &a = m.pos[m.tri[t * 3 + k]];
+        const V3 &b = m.pos[m.tri[t * 3 + (k + 1) % 3]];
+        const double l = Norm(b - a);
+        if (l > blen) {
+            blen = l;
+            best = k;
+        }
+    }
+    return best;
+}
+
 /* Groups triangles into patches bounded by sharp edges — the cheap, correct
  * first cut. A model that came from CAD (which is most of what gets
  * downloaded) is already almost segmented this way: a cylinder's barrel is one
@@ -1862,6 +1920,63 @@ void SmoothPatches(const Mesh &m, double sharpDeg, std::vector<int> &patchOf,
             }
         }
     }
+
+    /* A run of ONE sliver is not a face, it is a tessellation artefact.
+     *
+     * Its normal is noise (kSliverAspect), so the sharp edges that isolated it
+     * are noise too, and leaving it alone leaves a shard AND a surface cut in
+     * two. Give it to the neighbour across its LONGEST edge: a sliver's long
+     * edges run ALONG the surface it belongs to and its short one is the
+     * degenerate direction, so the long edge is the most surface it shares
+     * with anybody.
+     *
+     * Only lone runs. A sliver with a smooth neighbour is already inside a run
+     * and needs nothing; and a sliver lying exactly along a real CAD edge —
+     * meshers put them there too — keeps that edge, because it can only ever
+     * be handed to one side of it, never bridge across. */
+    std::vector<int> runSize(patchCount, 0);
+    for (int t = 0; t < nt; ++t)
+        runSize[patchOf[t]]++;
+    std::vector<int> uf(patchCount);
+    for (int i = 0; i < patchCount; ++i)
+        uf[i] = i;
+    auto find = [&uf](int a) {
+        while (uf[a] != a)
+            a = uf[a] = uf[uf[a]];
+        return a;
+    };
+    int folded = 0;
+    for (int t = 0; t < nt; ++t) {
+        if (runSize[patchOf[t]] != 1)
+            continue;
+        if (FacetAspect(m, t) >= kSliverAspect)
+            continue;
+        const int o = m.adj[t * 3 + LongestEdge(m, t)];
+        if (o < 0)
+            continue;
+        const int a = find(patchOf[t]), b = find(patchOf[o]);
+        if (a == b)
+            continue;
+        /* The surviving id is the smaller one, so the result does not depend
+         * on which of the two was visited first. */
+        uf[std::max(a, b)] = std::min(a, b);
+        ++folded;
+    }
+    if (folded == 0)
+        return;
+    MR_TRACE("  smooth: %d lone sliver%s folded into a neighbour\n", folded,
+             folded == 1 ? "" : "s");
+
+    /* Renumber to stay dense: everything downstream indexes by patch id. */
+    std::vector<int> remap(patchCount, -1);
+    int next = 0;
+    for (int t = 0; t < nt; ++t) {
+        const int r = find(patchOf[t]);
+        if (remap[r] < 0)
+            remap[r] = next++;
+        patchOf[t] = remap[r];
+    }
+    patchCount = next;
 }
 
 /* Is a fitted surface EVIDENCE, or an artifact of the sample it was fitted to?
@@ -3852,8 +3967,26 @@ void AdoptStronger(const Mesh &m, std::vector<Patch> &patches, double tol,
             int a = pr.first, b = pr.second;
             if (weight(p1) > weight(p0))
                 std::swap(a, b);
-            if (weight(patches[a]) <= weight(patches[b]))
-                continue; /* nothing to choose between them */
+            /* Equal weight is not a reason to leave two faces on one surface.
+             *
+             * It is the signature of ONE region the splitter cut in two, which
+             * is the case this pass exists for. What "nothing to choose
+             * between them" should mean is that either would do — so ask
+             * whether they are interchangeable: if each one's surface accounts
+             * for the other's triangles, adopting in either direction costs
+             * nothing and saves a seam, and if they are not the same surface
+             * the one-way test below already says no.
+             *
+             * On the user's bracket the top-edge fillet on one side arrives as
+             * two halves of one 30-triangle region carrying byte-identical
+             * cylinders, because the boss blend crossing it pulls a few
+             * vertices off true in the middle. Left apart they are two faces
+             * on one surface that overlap for 1.9 mm across the crossing —
+             * two rounded edges drawn over each other, which is what the user
+             * sees. The other side of the same part is one face, and the only
+             * difference is which way this tie fell. */
+            if (weight(patches[a]) <= weight(patches[b]) && !explains(b, a))
+                continue;
             /* The stronger surface must not be the LOOSER one: adopting it
              * would trade an exact surface for an approximate one, which is
              * the opposite of what this is for. */
@@ -5500,7 +5633,28 @@ void DissolveUnexplained(const Mesh &m, std::vector<Patch> &patches, double tol,
                         const double cosA = std::max(
                             -1.0, std::min(1.0, std::fabs(Dot(sn,
                                                               m.tnorm[t]))));
-                        if (std::acos(cosA) > allowed[j])
+                        /* One sliver on its own has no direction to offer.
+                         *
+                         * A patch of several thin facets still has a shape,
+                         * and the slit walls below depend on being judged by
+                         * it. A patch that is a SINGLE sliver has nothing but
+                         * a normal set by where the tessellator rounded one
+                         * near-collinear vertex — see kSliverAspect — so that
+                         * normal must neither veto a neighbour nor choose
+                         * between two. Its vertices still have to lie on the
+                         * surface; that is the test above, and it is the only
+                         * evidence such a patch has.
+                         *
+                         * Left in, the shard at the crossing of the boss blend
+                         * and the top-edge fillet stays: two of its corners
+                         * are on that fillet to within a thousandth of a
+                         * millimetre and its noise normal stands 58 degrees
+                         * off it. It is also a notch in the middle of the
+                         * fillet's boundary, and the fillet face cannot be
+                         * built around it. */
+                        const bool lone = patches[i].tris.size() == 1 &&
+                                          FacetAspect(m, t) < kSliverAspect;
+                        if (!lone && std::acos(cosA) > allowed[j])
                             continue;
                         /* Which neighbour, when more than one will have it.
                          *
@@ -5518,9 +5672,10 @@ void DissolveUnexplained(const Mesh &m, std::vector<Patch> &patches, double tol,
                          * circle and the flat top beside it, whose rim is two
                          * arcs, has nothing to sew to. */
                         const double sc =
-                            tier == 0 ? worst
-                                      : worst + scale * kBoundaryAngleWeight *
-                                                    (1.0 - cosA);
+                            (tier == 0 || lone)
+                                ? worst
+                                : worst + scale * kBoundaryAngleWeight *
+                                              (1.0 - cosA);
                         if (sc < bestErr) {
                             bestErr = sc;
                             best = j;
