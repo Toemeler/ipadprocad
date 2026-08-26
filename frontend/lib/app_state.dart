@@ -1379,6 +1379,14 @@ class ExtrudeSession {
   /// remembered in each of them is a rule the sixth one will miss.
   bool get outputIsTheirs => outputLocked || editing != null;
 
+  /// M257 — set the moment the user picks a target body by hand.
+  bool bodyLocked = false;
+
+  /// True while [bodyName] is nobody's business but the user's. Same rule and
+  /// the same reason as [outputIsTheirs]: an existing feature's target is a
+  /// decision already made, and a pick is an argument this code does not have.
+  bool get bodyIsTheirs => bodyLocked || editing != null;
+
   /// M132 — Inventor's Extents. Distance uses [exprA]; the other three
   /// resolve against the body at recompute time.
   FeatureExtent extent = FeatureExtent.distance;
@@ -11286,24 +11294,27 @@ class AppState extends ChangeNotifier {
         s.profiles.add(ProfileSel(x.ax, x.ay, x.area));
       }
     } else {
+      // The sketch the command was started FROM, if there was one: that is the
+      // profile the user is looking at. Only with no sketch open does "the
+      // newest one" remain the best guess.
+      //
+      // M257 — resolved BEFORE the target body, because it is what decides it.
+      final cs = (wasOpen == null ? null : p.sketchByName(wasOpen)) ??
+          p.childSketches.last;
+      s.sketchName = cs.model.name;
       // Inventor: Join merges into an EXISTING body, so default the target to
-      // one — the newest. Handing out a fresh "SolidN+1" here (as before) meant
-      // Join never matched anything and silently behaved like New Solid unless
-      // the user retyped the existing name by hand.
+      // one. Handing out a fresh "SolidN+1" here (as before M101) meant Join
+      // never matched anything and silently behaved like New Solid unless the
+      // user retyped the existing name by hand.
       final bodies = p.bodyNames;
       if (bodies.isEmpty) {
         s.output = 'new'; // nothing to join to yet: this is the base feature
         s.bodyName = 'Solid${p.solidN + 1}';
       } else {
         s.output = 'join';
-        s.bodyName = bodies.last;
+        s.bodyName = bodies.last; // the newest, unless the sketch says better
+        _retargetBodyForSketch(s);
       }
-      // The sketch the command was started FROM, if there was one: that is the
-      // profile the user is looking at. Only with no sketch open does "the
-      // newest one" remain the best guess.
-      final cs = (wasOpen == null ? null : p.sketchByName(wasOpen)) ??
-          p.childSketches.last;
-      s.sketchName = cs.model.name;
       final regs = sessionRegions(cs);
       if (regs.length == 1) {
         final ip = regionAnchor(regs.first);
@@ -11334,6 +11345,11 @@ class AppState extends ChangeNotifier {
     }
     s.autoPicked = false;
     s.sketchName = sketchName;
+    // M257 — the profile decides which sketch this feature belongs to, and the
+    // sketch decides which body. Applying the rule at open and not here would
+    // be the half-intelligence that is worse than none: right until you pick a
+    // profile, then quietly wrong.
+    _retargetBodyForSketch(s);
     // M221 — the region's own anchor, not its outer loop's: for a ring the
     // loop's interior point is the middle of the hole, which is also the disc's
     // anchor, so "is this one already selected?" answered yes for the OTHER
@@ -11685,6 +11701,41 @@ class AppState extends ChangeNotifier {
     if (s == null) return false;
     final (base, _) = _extrudeBooleanTarget(s);
     return base != null;
+  }
+
+  /// M257 — point the session at the body its sketch was drawn ON.
+  ///
+  /// The target defaulted to the NEWEST body, which is right whenever there is
+  /// one body and a coin flip whenever there are several. The M253 bundle has
+  /// what that costs, twice in one session:
+  ///
+  ///     notice: Zielkörper wählen — in 3D oder im Browser antippen.
+  ///     (preview) body=Solid1 op=cut
+  ///     kernel: cut(a: vol=15557.2693, ...) removed NOTHING
+  ///     (preview) body=Solid3 op=cut
+  ///     extrude: target body picked: Solid3
+  ///
+  /// The sketch was on a face of Solid3 the whole time. Nothing was asking it.
+  ///
+  /// It also makes M256 correct more often, not just faster: a boolean aimed
+  /// at the wrong body reads an overlap against the wrong material, so the
+  /// Output it suggests is an answer to a question nobody asked.
+  void _retargetBodyForSketch(ExtrudeSession s) {
+    // 'new' has no target to be wrong about — it is naming a body, not
+    // choosing one.
+    if (s.bodyIsTheirs || s.output == 'new') return;
+    final p = currentPart;
+    final name = s.sketchName;
+    if (p == null || name == null) return;
+    final cs = p.sketchByName(name);
+    if (cs == null) return;
+    final owner = bodyOfFaceSketch(p, cs);
+    if (owner == null || owner == s.bodyName) return;
+    Log.i(
+        'extrude',
+        '${s.kind}: target body ${s.bodyName} -> $owner, '
+            'the sketch is drawn on its face');
+    s.bodyName = owner;
   }
 
   /// Guard: the Output suggestion rebuilds the preview once at the boolean it
@@ -14032,6 +14083,9 @@ class AppState extends ChangeNotifier {
     pickingBody = false;
     hoverBody = null;
     _hoverBodyRestore = null; // this pick IS the new target
+    // M257 — and it ENDS the automatic one. Same rule as M256's Output lock:
+    // the suggestion is where you start, never an argument with the user.
+    s.bodyLocked = true;
     if (s.output == 'new') s.output = 'join';
     s.bodyName = name;
     Log.i('extrude', 'target body picked: $name');
