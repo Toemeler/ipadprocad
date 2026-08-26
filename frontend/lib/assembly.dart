@@ -47,6 +47,7 @@ import 'dart:math' as math;
 
 import 'asm_constraints.dart';
 import 'asm_pattern.dart';
+import 'asm_reps.dart';
 import 'asm_work_features.dart';
 import 'doc_file.dart' show kAssemblyDocKind;
 import 'part_model.dart';
@@ -387,6 +388,92 @@ class AssemblyModel {
   /// rather than solved.
   final List<AsmPattern> patterns = [];
 
+  /// M250 — the assembly's VIEW REPRESENTATIONS, in creation order.
+  ///
+  /// Empty on a document that has never saved one, [kDefaultViewRep] included:
+  /// Default is the LIVE display state until something makes it necessary to
+  /// write it down, which is the moment you activate a different rep and need
+  /// a way back. See [leaveViewRep]. That is also what keeps a .pas file that
+  /// has never used representations byte-identical to one written before they
+  /// existed.
+  final List<AsmViewRep> viewReps = [];
+
+  /// The representation currently applied. Always a name, never null — the
+  /// document is always looking at SOMETHING, and before anything is saved
+  /// that something is [kDefaultViewRep].
+  String activeViewRep = kDefaultViewRep;
+
+  AsmViewRep? viewRepNamed(String name) {
+    for (final r in viewReps) {
+      if (r.name == name) return r;
+    }
+    return null;
+  }
+
+  /// Every representation this document offers, Default first.
+  ///
+  /// Default is listed whether or not it has been captured, because it is
+  /// always somewhere to go back TO; the stored ones follow in creation order,
+  /// which is the order Inventor's browser lists them in.
+  List<String> get viewRepNames => [
+        kDefaultViewRep,
+        for (final r in viewReps)
+          if (!r.isDefault) r.name,
+      ];
+
+  /// Reads the document's current display state into [rep].
+  ///
+  /// A PATTERN ELEMENT is deliberately left out of the visibility census. Its
+  /// `visible` flag is not the user's eye — it is the pattern's suppression
+  /// set, rewritten by [regenerateAsmPatterns] after every solve — so a
+  /// representation that captured it would either be overwritten a moment
+  /// later or, worse, put it back and quietly un-suppress the pattern. What a
+  /// pattern suppresses belongs to the pattern.
+  void captureViewRep(AsmViewRep rep) => rep.capture(
+        occurrences: [
+          for (final o in occurrences)
+            if (!o.isPatternElement) (o.id, o.visible)
+        ],
+        originVis: vis,
+        camera: camera,
+      );
+
+  /// Applies [rep] to the document: component visibility, the origin
+  /// scaffolding and the camera.
+  void applyViewRep(AsmViewRep rep) {
+    for (final o in occurrences) {
+      if (o.isPatternElement) continue; // the pattern's, not the rep's
+      o.visible = rep.visible(o.id);
+    }
+    for (final e in rep.origin.entries) {
+      if (vis.containsKey(e.key)) vis[e.key] = e.value;
+    }
+    rep.applyCamera(camera);
+  }
+
+  /// M250 — leaving [activeViewRep], on the way to another one.
+  ///
+  /// Inventor writes the current display state back into an UNLOCKED
+  /// representation when you leave it, which is the whole reason Lock exists.
+  /// It is also what makes Default worth having: work in Default, activate a
+  /// saved rep to check something, come back, and the view you were working in
+  /// is still there. Without this, "go back to Default" would restore whatever
+  /// Default happened to hold the day it was first written, and the command
+  /// would read as broken.
+  ///
+  /// Default is CREATED here rather than up front, so a document that never
+  /// touches representations never grows the entry.
+  void leaveViewRep() {
+    var rep = viewRepNamed(activeViewRep);
+    if (rep == null) {
+      if (activeViewRep != kDefaultViewRep) return; // a rep that was deleted
+      rep = AsmViewRep(name: kDefaultViewRep);
+      viewReps.insert(0, rep);
+    }
+    if (rep.locked) return;
+    captureViewRep(rep);
+  }
+
   AsmPattern? patternNamed(String name) {
     for (final p in patterns) {
       if (p.name == name) return p;
@@ -551,6 +638,14 @@ class AssemblyModel {
     // elements go with it, through this same method, so their relationships
     // are cleaned up on the ordinary path rather than a second one.
     _dropPatternsTouching(o.id);
+    // M250 — and any VIEW REPRESENTATION that was hiding it. An entry for an
+    // id that is gone would be harmless if ids were never reused, and they
+    // are: nextOccurrenceId hands "Bracket:1" straight back out after the
+    // first Bracket:1 is deleted, so a stale entry would place a component
+    // that arrives invisible for a reason no browser row could explain.
+    for (final r in viewReps) {
+      r.hidden.remove(o.id);
+    }
     if (selectedConstraint != null &&
         !constraints.contains(selectedConstraint)) {
       selectedConstraint = null;
@@ -678,6 +773,14 @@ class AssemblyModel {
         // bytes it wrote before they existed.
         if (patterns.isNotEmpty)
           'patterns': [for (final p in patterns) p.toJson()],
+        // M250 — and again: an assembly that has never saved a view
+        // representation writes exactly the bytes it wrote before they
+        // existed. `viewRep` rides with the list rather than on its own,
+        // because a name with no list behind it is always Default.
+        if (viewReps.isNotEmpty) ...{
+          'viewReps': [for (final r in viewReps) r.toJson()],
+          'viewRep': activeViewRep,
+        },
       };
 
   /// Reads [j] into this model. Occurrences come back WITHOUT their geometry —
@@ -753,6 +856,25 @@ class AssemblyModel {
       if (!f.seeds.any((id) => byId(id) != null)) continue;
       patterns.add(f);
     }
+    viewReps.clear();
+    activeViewRep = kDefaultViewRep;
+    for (final r in (j['viewReps'] as List? ?? const [])) {
+      if (r is! Map) continue;
+      final rep = AsmViewRep.fromJson(r);
+      // A duplicate name would give the browser two rows that cannot be told
+      // apart and an Activate that picks whichever came first. Only a
+      // hand-edited file can produce one.
+      if (rep == null || viewRepNamed(rep.name) != null) continue;
+      viewReps.add(rep);
+    }
+    final active = j['viewRep'];
+    // A name that no longer has a representation behind it falls back to
+    // Default rather than leaving the browser with nothing ticked: the
+    // document IS looking at something, and Default is what that something is.
+    if (active is String &&
+        (active == kDefaultViewRep || viewRepNamed(active) != null)) {
+      activeViewRep = active;
+    }
     // A work feature whose component is not in this document is dropped for
     // the same reason a constraint is: there is nothing to re-derive it
     // against, and it can only have come from a file edited by hand.
@@ -779,6 +901,8 @@ class AssemblyModel {
     workAxes.clear();
     workPoints.clear();
     patterns.clear();
+    viewReps.clear();
+    activeViewRep = kDefaultViewRep;
     selected = null;
     selectedConstraint = null;
   }
@@ -822,6 +946,45 @@ List<PlacedComponent> placedComponents(AssemblyModel a) => [
             for (final (_, at, s) in o.worldSolids) (at, s),
           ])
     ];
+
+/// M250 — everything the assembly draws AROUND [occ], expressed in [occ]'s
+/// OWN frame. The CONTEXT of an edit in place.
+///
+/// Inventor's Create Component drops you into the new part with the rest of
+/// the assembly still on screen, and that is the whole of what "in the context
+/// of the assembly" means here (see AppState.enterInPlaceEdit for the scope
+/// note). The part viewport works in the PART's coordinates — its camera, its
+/// origin planes, its sketch frames are all the part's — so the surrounding
+/// components have to be brought into that frame rather than handed over in
+/// world coordinates. A component placed 200 mm along +X, drawn unconverted,
+/// is simply off the edge of the screen.
+///
+/// The transform is one line and it is the whole file's rule read backwards:
+///
+///     in_part = edited.placement⁻¹ · other.placement · inner
+///
+/// [Placement.inverse] is what makes the first factor exist for a MIRRORED
+/// component too. Note what is deliberately NOT done: no mesh is copied and no
+/// vertex is transformed, exactly as everywhere else here — the placement
+/// travels and the renderer applies it (part_render.placedCam on the CPU
+/// painter, a holder Entity on RealityKit).
+///
+/// [occ] itself is excluded: it is the part being edited and the part viewport
+/// already draws it, from its own model, with all its features and previews.
+/// Drawing it twice would double every edge and z-fight the preview.
+List<(String, Placement, KernelSolid)> inPlaceContext(
+    AssemblyModel a, AssemblyOccurrence occ) {
+  final into = occ.placement.inverse;
+  return [
+    for (final o in a.occurrences)
+      if (o.visible && !identical(o, occ))
+        // M246 — per PIECE, not per component: a subassembly's parts each sit
+        // somewhere inside it, and one transform for the whole component
+        // would stack them all at its origin.
+        for (final (path, at, s) in o.worldSolids)
+          ('${o.id}/$path', into * at, s),
+  ];
+}
 
 /// M242 — a stored reference's geometry in WORLD coordinates, right now.
 ///

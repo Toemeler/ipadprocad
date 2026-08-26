@@ -3498,4 +3498,92 @@ class AppL10nDe extends AppL10n {
   String msgAsmWouldNest(String name) {
     return '„$name“ enthält diese Baugruppe bereits.';
   }
+
+  @override
+  String get hintAsmFreeMove =>
+      'Komponente ziehen — Beziehungen werden dabei übergangen.';
+
+  @override
+  String get hintAsmFreeRotate => 'Komponente wählen und am Drehsymbol ziehen.';
+
+  @override
+  String msgAsmFreePositioned(String name) {
+    return '„$name“ steht außerhalb seiner Beziehungen — die nächste Aktualisierung setzt es zurück.';
+  }
+
+  @override
+  String msgNameTaken(String name) {
+    return 'Ein Dokument namens „$name“ existiert bereits.';
+  }
+
+  @override
+  String get hintAsmCreatePickPlane =>
+      'Ebene oder planare Fläche zum Skizzieren wählen.';
+
+  @override
+  String msgAsmEditSubInPlace(String name) {
+    return '„$name“ ist eine Unterbaugruppe — nicht vor Ort editierbar.';
+  }
+
+  @override
+  String msgAsmViewRepLocked(String name) {
+    return '„$name“ ist gesperrt.';
+  }
+
+  @override
+  String get nodeViewReps => 'Ansicht';
+
+  @override
+  String get nodePositionalReps => 'Position';
+
+  @override
+  String get nodeLodReps => 'Detailgenauigkeit';
+
+  @override
+  String get ctxNewViewRep => 'Neue Darstellung';
+
+  @override
+  String get ctxActivateViewRep => 'Aktivieren';
+
+  @override
+  String get ctxUpdateViewRep => 'Aktualisieren';
+
+  @override
+  String get ctxLockViewRep => 'Sperren';
+
+  @override
+  String get ctxUnlockViewRep => 'Entsperren';
+
+  @override
+  String get ctxDeleteViewRep => 'Darstellung löschen';
+
+  @override
+  String get dlgRenameViewRep => 'Darstellung umbenennen';
+
+  @override
+  String get phViewRepName => 'Name der Darstellung';
+
+  @override
+  String get dlgCreateComponent => 'Komponente vor Ort erstellen';
+
+  @override
+  String get lblComponentName => 'Name der neuen Komponente';
+
+  @override
+  String get chkConstrainSketchPlane =>
+      'Skizzenebene an gewählte Fläche binden';
+
+  @override
+  String get btnReturn => 'Zurück';
+
+  @override
+  String get panelReturn => 'Beenden';
+
+  @override
+  String hintInPlaceEditing(String part, String assembly) {
+    return '„$part“ wird in „$assembly“ bearbeitet.';
+  }
+
+  @override
+  String get ctxEditInPlace => 'Vor Ort bearbeiten';
 }

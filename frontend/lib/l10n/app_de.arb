@@ -2877,5 +2877,137 @@
         "type": "String"
       }
     }
+  },
+  "hintAsmFreeMove": "Komponente ziehen — Beziehungen werden dabei übergangen.",
+  "@hintAsmFreeMove": {
+    "description": "Hinweis beim Start von Frei bewegen. Inventor uebergeht die Beziehungen voruebergehend."
+  },
+  "hintAsmFreeRotate": "Komponente wählen und am Drehsymbol ziehen.",
+  "@hintAsmFreeRotate": {
+    "description": "Hinweis beim Start von Frei drehen."
+  },
+  "msgAsmFreePositioned": "„{name}“ steht außerhalb seiner Beziehungen — die nächste Aktualisierung setzt es zurück.",
+  "@msgAsmFreePositioned": {
+    "description": "Meldung nach Frei bewegen/Frei drehen an einer Komponente mit Beziehungen.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgNameTaken": "Ein Dokument namens „{name}“ existiert bereits.",
+  "@msgNameTaken": {
+    "description": "Meldung: der gewaehlte Name ist in der Galerie schon vergeben.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hintAsmCreatePickPlane": "Ebene oder planare Fläche zum Skizzieren wählen.",
+  "@hintAsmCreatePickPlane": {
+    "description": "Aufforderung von Komponente erstellen: die Skizzenebene waehlen."
+  },
+  "msgAsmEditSubInPlace": "„{name}“ ist eine Unterbaugruppe — nicht vor Ort editierbar.",
+  "@msgAsmEditSubInPlace": {
+    "description": "Meldung: vor Ort bearbeiten gibt es nur fuer Bauteile.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgAsmViewRepLocked": "„{name}“ ist gesperrt.",
+  "@msgAsmViewRepLocked": {
+    "description": "Meldung: eine gesperrte Darstellung wird nicht aktualisiert.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "nodeViewReps": "Ansicht",
+  "@nodeViewReps": {
+    "description": "Browserknoten unter Darstellungen. Inventor DE: \"Ansicht\".",
+    "x-maxChars": 18
+  },
+  "nodePositionalReps": "Position",
+  "@nodePositionalReps": {
+    "description": "Browserknoten unter Darstellungen, ausgegraut. Inventor DE: \"Position\".",
+    "x-maxChars": 18
+  },
+  "nodeLodReps": "Detailgenauigkeit",
+  "@nodeLodReps": {
+    "description": "Browserknoten unter Darstellungen, ausgegraut. Inventor DE: \"Detailgenauigkeit\".",
+    "x-maxChars": 20
+  },
+  "ctxNewViewRep": "Neue Darstellung",
+  "@ctxNewViewRep": {
+    "description": "Kontextmenue am Knoten Ansicht."
+  },
+  "ctxActivateViewRep": "Aktivieren",
+  "@ctxActivateViewRep": {
+    "description": "Kontextmenue an einer Ansichtsdarstellung."
+  },
+  "ctxUpdateViewRep": "Aktualisieren",
+  "@ctxUpdateViewRep": {
+    "description": "Kontextmenue: den aktuellen Anzeigezustand in die Darstellung schreiben."
+  },
+  "ctxLockViewRep": "Sperren",
+  "@ctxLockViewRep": {
+    "description": "Kontextmenue: die Darstellung vor dem Rueckschreiben schuetzen."
+  },
+  "ctxUnlockViewRep": "Entsperren",
+  "@ctxUnlockViewRep": {
+    "description": "Kontextmenue: die Sperre wieder aufheben."
+  },
+  "ctxDeleteViewRep": "Darstellung löschen",
+  "@ctxDeleteViewRep": {
+    "description": "Kontextmenue an einer Ansichtsdarstellung."
+  },
+  "dlgRenameViewRep": "Darstellung umbenennen",
+  "@dlgRenameViewRep": {
+    "description": "Titel des Umbenennen-Dialogs."
+  },
+  "phViewRepName": "Name der Darstellung",
+  "@phViewRepName": {
+    "description": "Platzhalter im Umbenennen-Dialog."
+  },
+  "dlgCreateComponent": "Komponente vor Ort erstellen",
+  "@dlgCreateComponent": {
+    "description": "Titel des Dialogs. Inventor DE: \"Komponente vor Ort erstellen\"."
+  },
+  "lblComponentName": "Name der neuen Komponente",
+  "@lblComponentName": {
+    "description": "Feldbeschriftung. Inventor DE: \"Name der neuen Komponente\"."
+  },
+  "chkConstrainSketchPlane": "Skizzenebene an gewählte Fläche binden",
+  "@chkConstrainSketchPlane": {
+    "description": "Kontrollkaestchen. Inventor DE: \"Skizzenebene an gewaehlte Flaeche oder Ebene abhaengig machen\"; hier gekuerzt, damit der Dialog schmal bleibt."
+  },
+  "btnReturn": "Zurück",
+  "@btnReturn": {
+    "description": "Ribbon: aus der Bearbeitung vor Ort zurueck in die Baugruppe. Inventor DE: \"Zurueck\".",
+    "x-maxChars": 12
+  },
+  "panelReturn": "Beenden",
+  "@panelReturn": {
+    "description": "Ribbon-Gruppe um den Zurueck-Knopf. Inventor DE: \"Beenden\"."
+  },
+  "hintInPlaceEditing": "„{part}“ wird in „{assembly}“ bearbeitet.",
+  "@hintInPlaceEditing": {
+    "description": "Hinweis beim Betreten der Bearbeitung vor Ort.",
+    "placeholders": {
+      "part": {
+        "type": "String"
+      },
+      "assembly": {
+        "type": "String"
+      }
+    }
+  },
+  "ctxEditInPlace": "Vor Ort bearbeiten",
+  "@ctxEditInPlace": {
+    "description": "Kontextmenue an einer Komponente. Inventor DE: \"Bearbeiten\"."
   }
 }

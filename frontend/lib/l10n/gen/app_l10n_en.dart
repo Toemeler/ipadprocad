@@ -3451,4 +3451,93 @@ class AppL10nEn extends AppL10n {
   String msgAsmWouldNest(String name) {
     return '“$name” already contains this assembly.';
   }
+
+  @override
+  String get hintAsmFreeMove =>
+      'Drag a component — its relationships are overridden.';
+
+  @override
+  String get hintAsmFreeRotate =>
+      'Select a component, then drag the rotate symbol.';
+
+  @override
+  String msgAsmFreePositioned(String name) {
+    return '“$name” is outside its relationships — the next update puts it back.';
+  }
+
+  @override
+  String msgNameTaken(String name) {
+    return 'A document named “$name” already exists.';
+  }
+
+  @override
+  String get hintAsmCreatePickPlane =>
+      'Select a plane or planar face to sketch on.';
+
+  @override
+  String msgAsmEditSubInPlace(String name) {
+    return '“$name” is a subassembly — it cannot be edited in place.';
+  }
+
+  @override
+  String msgAsmViewRepLocked(String name) {
+    return '“$name” is locked.';
+  }
+
+  @override
+  String get nodeViewReps => 'View';
+
+  @override
+  String get nodePositionalReps => 'Position';
+
+  @override
+  String get nodeLodReps => 'Level of Detail';
+
+  @override
+  String get ctxNewViewRep => 'New Representation';
+
+  @override
+  String get ctxActivateViewRep => 'Activate';
+
+  @override
+  String get ctxUpdateViewRep => 'Update';
+
+  @override
+  String get ctxLockViewRep => 'Lock';
+
+  @override
+  String get ctxUnlockViewRep => 'Unlock';
+
+  @override
+  String get ctxDeleteViewRep => 'Delete Representation';
+
+  @override
+  String get dlgRenameViewRep => 'Rename Representation';
+
+  @override
+  String get phViewRepName => 'Representation name';
+
+  @override
+  String get dlgCreateComponent => 'Create In-Place Component';
+
+  @override
+  String get lblComponentName => 'New Component Name';
+
+  @override
+  String get chkConstrainSketchPlane =>
+      'Constrain sketch plane to the selected face';
+
+  @override
+  String get btnReturn => 'Return';
+
+  @override
+  String get panelReturn => 'Finish';
+
+  @override
+  String hintInPlaceEditing(String part, String assembly) {
+    return 'Editing “$part” in “$assembly”.';
+  }
+
+  @override
+  String get ctxEditInPlace => 'Edit in Place';
 }

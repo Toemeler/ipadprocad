@@ -5844,6 +5844,156 @@ abstract class AppL10n {
   /// In de, this message translates to:
   /// **'„{name}“ enthält diese Baugruppe bereits.'**
   String msgAsmWouldNest(String name);
+
+  /// Hinweis beim Start von Frei bewegen. Inventor uebergeht die Beziehungen voruebergehend.
+  ///
+  /// In de, this message translates to:
+  /// **'Komponente ziehen — Beziehungen werden dabei übergangen.'**
+  String get hintAsmFreeMove;
+
+  /// Hinweis beim Start von Frei drehen.
+  ///
+  /// In de, this message translates to:
+  /// **'Komponente wählen und am Drehsymbol ziehen.'**
+  String get hintAsmFreeRotate;
+
+  /// Meldung nach Frei bewegen/Frei drehen an einer Komponente mit Beziehungen.
+  ///
+  /// In de, this message translates to:
+  /// **'„{name}“ steht außerhalb seiner Beziehungen — die nächste Aktualisierung setzt es zurück.'**
+  String msgAsmFreePositioned(String name);
+
+  /// Meldung: der gewaehlte Name ist in der Galerie schon vergeben.
+  ///
+  /// In de, this message translates to:
+  /// **'Ein Dokument namens „{name}“ existiert bereits.'**
+  String msgNameTaken(String name);
+
+  /// Aufforderung von Komponente erstellen: die Skizzenebene waehlen.
+  ///
+  /// In de, this message translates to:
+  /// **'Ebene oder planare Fläche zum Skizzieren wählen.'**
+  String get hintAsmCreatePickPlane;
+
+  /// Meldung: vor Ort bearbeiten gibt es nur fuer Bauteile.
+  ///
+  /// In de, this message translates to:
+  /// **'„{name}“ ist eine Unterbaugruppe — nicht vor Ort editierbar.'**
+  String msgAsmEditSubInPlace(String name);
+
+  /// Meldung: eine gesperrte Darstellung wird nicht aktualisiert.
+  ///
+  /// In de, this message translates to:
+  /// **'„{name}“ ist gesperrt.'**
+  String msgAsmViewRepLocked(String name);
+
+  /// Browserknoten unter Darstellungen. Inventor DE: "Ansicht".
+  ///
+  /// In de, this message translates to:
+  /// **'Ansicht'**
+  String get nodeViewReps;
+
+  /// Browserknoten unter Darstellungen, ausgegraut. Inventor DE: "Position".
+  ///
+  /// In de, this message translates to:
+  /// **'Position'**
+  String get nodePositionalReps;
+
+  /// Browserknoten unter Darstellungen, ausgegraut. Inventor DE: "Detailgenauigkeit".
+  ///
+  /// In de, this message translates to:
+  /// **'Detailgenauigkeit'**
+  String get nodeLodReps;
+
+  /// Kontextmenue am Knoten Ansicht.
+  ///
+  /// In de, this message translates to:
+  /// **'Neue Darstellung'**
+  String get ctxNewViewRep;
+
+  /// Kontextmenue an einer Ansichtsdarstellung.
+  ///
+  /// In de, this message translates to:
+  /// **'Aktivieren'**
+  String get ctxActivateViewRep;
+
+  /// Kontextmenue: den aktuellen Anzeigezustand in die Darstellung schreiben.
+  ///
+  /// In de, this message translates to:
+  /// **'Aktualisieren'**
+  String get ctxUpdateViewRep;
+
+  /// Kontextmenue: die Darstellung vor dem Rueckschreiben schuetzen.
+  ///
+  /// In de, this message translates to:
+  /// **'Sperren'**
+  String get ctxLockViewRep;
+
+  /// Kontextmenue: die Sperre wieder aufheben.
+  ///
+  /// In de, this message translates to:
+  /// **'Entsperren'**
+  String get ctxUnlockViewRep;
+
+  /// Kontextmenue an einer Ansichtsdarstellung.
+  ///
+  /// In de, this message translates to:
+  /// **'Darstellung löschen'**
+  String get ctxDeleteViewRep;
+
+  /// Titel des Umbenennen-Dialogs.
+  ///
+  /// In de, this message translates to:
+  /// **'Darstellung umbenennen'**
+  String get dlgRenameViewRep;
+
+  /// Platzhalter im Umbenennen-Dialog.
+  ///
+  /// In de, this message translates to:
+  /// **'Name der Darstellung'**
+  String get phViewRepName;
+
+  /// Titel des Dialogs. Inventor DE: "Komponente vor Ort erstellen".
+  ///
+  /// In de, this message translates to:
+  /// **'Komponente vor Ort erstellen'**
+  String get dlgCreateComponent;
+
+  /// Feldbeschriftung. Inventor DE: "Name der neuen Komponente".
+  ///
+  /// In de, this message translates to:
+  /// **'Name der neuen Komponente'**
+  String get lblComponentName;
+
+  /// Kontrollkaestchen. Inventor DE: "Skizzenebene an gewaehlte Flaeche oder Ebene abhaengig machen"; hier gekuerzt, damit der Dialog schmal bleibt.
+  ///
+  /// In de, this message translates to:
+  /// **'Skizzenebene an gewählte Fläche binden'**
+  String get chkConstrainSketchPlane;
+
+  /// Ribbon: aus der Bearbeitung vor Ort zurueck in die Baugruppe. Inventor DE: "Zurueck".
+  ///
+  /// In de, this message translates to:
+  /// **'Zurück'**
+  String get btnReturn;
+
+  /// Ribbon-Gruppe um den Zurueck-Knopf. Inventor DE: "Beenden".
+  ///
+  /// In de, this message translates to:
+  /// **'Beenden'**
+  String get panelReturn;
+
+  /// Hinweis beim Betreten der Bearbeitung vor Ort.
+  ///
+  /// In de, this message translates to:
+  /// **'„{part}“ wird in „{assembly}“ bearbeitet.'**
+  String hintInPlaceEditing(String part, String assembly);
+
+  /// Kontextmenue an einer Komponente. Inventor DE: "Bearbeiten".
+  ///
+  /// In de, this message translates to:
+  /// **'Vor Ort bearbeiten'**
+  String get ctxEditInPlace;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {
