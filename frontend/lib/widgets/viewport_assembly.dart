@@ -844,16 +844,22 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
   Vec3 _onDragPlane(Cam3 cam, Offset px) =>
       cam.unprojectOnCamPlane(px) - cam.dir * _dragDepth;
 
-  void _orbit(AssemblyModel a, Offset d) =>
-      a.camera.orbitScreen(-d.dx * 0.01, -d.dy * 0.01);
+  // M260 — the three camera moves report to the engagement latch, so the
+  // bottom bar folds out of the way here exactly as it does in a part.
+  void _orbit(AssemblyModel a, Offset d) {
+    widget.app.engageView();
+    a.camera.orbitScreen(-d.dx * 0.01, -d.dy * 0.01);
+  }
 
   void _pan(AssemblyModel a, Offset d, Size size) {
+    widget.app.engageView();
     final wpp = (2 * a.camera.halfH) / size.height;
     a.camera.ox -= d.dx * wpp;
     a.camera.oy += d.dy * wpp;
   }
 
   void _zoomAt(AssemblyModel a, Cam3 cam, Offset px, double factor) {
+    widget.app.engageView();
     final aspect = cam.aspect;
     final nx = (px.dx / cam.size.width) * 2 - 1;
     final ny = -((px.dy / cam.size.height) * 2 - 1);

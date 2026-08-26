@@ -67,6 +67,10 @@ class BottomTabBar extends StatelessWidget {
         height: kNativeHeight,
         child: GlassTabBar(
           tabs: buildTabs(app),
+          // M260 — folds to the open document while the model is under a
+          // finger. The bar is the only chrome the viewport runs underneath,
+          // so it is the only chrome that has to get out of the way.
+          engaged: app.viewEngaged,
           // M205 — a native bar's tap arrives over a method channel, past
           // any Flutter barrier a menu put up. Switching documents while a
           // ribbon flyout is open still counts as clicking elsewhere.

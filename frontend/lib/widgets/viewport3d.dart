@@ -148,7 +148,7 @@ class _Viewport3DState extends State<Viewport3D>
     }
     if (k == LogicalKeyboardKey.escape) {
       if (widget.app.pickPlane ||
-          // M258 — ...and an armed work-feature command, which Esc could not
+          // M260 — ...and an armed work-feature command, which Esc could not
           // reach either. escape3D knows what to do with it.
           widget.app.pickWorkGeometry ||
           widget.app.extrudeSession != null ||
@@ -544,7 +544,7 @@ class _Viewport3DState extends State<Viewport3D>
               // until you let go, so a mis-grab costs nothing, and the offset
               // is set by the gesture instead of defaulting to 10 mm.
               //
-              // M258 — and the GENERIC Plane command keeps that gesture. It
+              // M260 — and the GENERIC Plane command keeps that gesture. It
               // is the half of the command that a drag means; a tap falls
               // through to _tap, where it becomes a pick for the inference
               // (see AppState.commitWorkPlaneCreate, which no longer cancels
@@ -672,9 +672,7 @@ class _Viewport3DState extends State<Viewport3D>
                 _mmbLast = e.localPosition;
                 setState(() {
                   if (_mmbPan) {
-                    final wpp = (2 * p.camera.halfH) / size.height;
-                    p.camera.ox -= d.dx * wpp;
-                    p.camera.oy += d.dy * wpp;
+                    _pan(p, d, size);
                   } else {
                     _orbit(p, d);
                   }
@@ -738,9 +736,7 @@ class _Viewport3DState extends State<Viewport3D>
                 _tpLastPan = e.pan;
                 if (d == Offset.zero) return;
                 if (HardwareKeyboard.instance.isShiftPressed) {
-                  final wpp = (2 * p.camera.halfH) / size.height;
-                  p.camera.ox -= d.dx * wpp;
-                  p.camera.oy += d.dy * wpp;
+                  _pan(p, d, size);
                 } else {
                   _orbit(p, d);
                 }
@@ -798,10 +794,7 @@ class _Viewport3DState extends State<Viewport3D>
                       final f = (_scaleStartH / d.scale) / p.camera.halfH;
                       _zoomAt(p, Cam3(p.camera, size), d.localFocalPoint, f);
                     }
-                    final mv = d.localFocalPoint - _mmbLast;
-                    final wpp = (2 * p.camera.halfH) / size.height;
-                    p.camera.ox -= mv.dx * wpp;
-                    p.camera.oy += mv.dy * wpp;
+                    _pan(p, d.localFocalPoint - _mmbLast, size);
                   } else if (!_mmb &&
                       _wpDrag == null &&
                       // M218 — and NOT under an open sketch menu. Same trap
@@ -909,10 +902,23 @@ class _Viewport3DState extends State<Viewport3D>
     // camera move, ten per frame is an input-coalescing problem, and only the
     // count can tell those apart.
     Perf.count('3d.orbit.events');
+    widget.app.engageView();
     p.camera.orbitScreen(-d.dx * 0.01, -d.dy * 0.01);
   }
 
+  /// M260 — PAN, once. The same four lines stood inline at the middle-button
+  /// drag, the shift-trackpad drag and the two-finger drag; folding them here
+  /// gives the engagement latch a single place to sit, which is the whole
+  /// reason it was worth doing.
+  void _pan(PartModel p, Offset d, Size size) {
+    widget.app.engageView();
+    final wpp = (2 * p.camera.halfH) / size.height;
+    p.camera.ox -= d.dx * wpp;
+    p.camera.oy += d.dy * wpp;
+  }
+
   void _zoomAt(PartModel p, Cam3 cam, Offset px, double factor) {
+    widget.app.engageView();
     final a = cam.aspect;
     final nx = (px.dx / cam.size.width) * 2 - 1;
     final ny = -((px.dy / cam.size.height) * 2 - 1);
@@ -1187,7 +1193,7 @@ class _Viewport3DState extends State<Viewport3D>
           hit?.$1, (hit != null && hit.$2.usable) ? hit.$2.displayEdge : -1);
     }
     (KernelSolid, int)? hf;
-    // M258 — while a WORK-FEATURE command is collecting as well, not just the
+    // M260 — while a WORK-FEATURE command is collecting as well, not just the
     // Offset/Midplane flow. The generic Plane button used to arm Offset, which
     // set [AppState.pickPlane] and lit the face under the pointer; now it arms
     // the inferring command, and a pick command that does not show you what
@@ -2104,7 +2110,7 @@ class _Viewport3DState extends State<Viewport3D>
     // A hovered sketch curve is selectable in plain 3D. Shift/ctrl extends the
     // set, a plain tap replaces it, a tap on empty space clears it.
     //
-    // M258 — but NOT while a work-feature command is collecting. This branch
+    // M260 — but NOT while a work-feature command is collecting. This branch
     // returns when it takes a curve, so it was swallowing the tap before the
     // work-feature pick below could see it, and a sketch LINE is a perfectly
     // good axis for a plane to be normal to (it is exactly what

@@ -85,6 +85,73 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
     /// behind them is just something else covering the drawing.
     private var glassView: UIVisualEffectView?
 
+    // ---- M262: THE MORPH ---------------------------------------------------
+    //
+    // M204 took the retract animation away, and it was right to: the card is a
+    // UiKitView, resizing one is an ASYNC round trip to the platform-view
+    // controller, and animating its width fires that trip on every frame of
+    // the curve. A dozen resizes in flight, the last to land wins whether or
+    // not it was the last sent, and Flutter goes on painting the texture at
+    // the widget's size — so you saw icons where the touch interceptor no
+    // longer was. "when its retracted i cant use the icons."
+    //
+    // The animation comes back on the other side of that boundary. Dart still
+    // resizes the platform view EXACTLY ONCE per toggle — it holds the card at
+    // its wide size for the length of the morph and settles afterwards, so the
+    // resize always lands on a still panel with nothing in flight. What moves
+    // is everything INSIDE these bounds, which is UIKit's own layer and costs
+    // no round trip at all: the glass plate and the list contract to the glyph
+    // column while the wide rows dissolve into the narrow ones.
+    //
+    // Collapsing, the bounds are still wide while the content shrinks, and the
+    // shrink to 56 pt afterwards is invisible because nothing is drawn out
+    // there any more. Expanding, the bounds are wide from the first frame and
+    // the content grows into them. Either way the seam falls where there is
+    // nothing to see.
+
+    /// One toggle, one curve. Dart's settle timer waits on this, so the two
+    /// numbers have to agree — see `_kMorph` in native_browser_host.dart.
+    static let morph: TimeInterval = 0.28
+
+    /// The card's width, ABSOLUTE, and told to us rather than taken from the
+    /// container.
+    ///
+    /// This is the part that has to be got right. The container is the
+    /// platform view, and its bounds change on Flutter's schedule: an async
+    /// round trip that lands a frame or two after the toggle, and — opening —
+    /// AFTER this animation has already started. Pinning the content to the
+    /// container's trailing edge would therefore animate toward the OLD width
+    /// and then be snapped to the new one by the layout pass that follows the
+    /// resize, which is a jump wearing an animation's clothes.
+    ///
+    /// So Dart sends the number. It owns `_kWide` and `_kNarrow` already, the
+    /// value arrives in the same turn as the rows it belongs with, and neither
+    /// side keeps a copy of the other's geometry.
+    private var glassWidth: NSLayoutConstraint!
+    private var listWidth: NSLayoutConstraint!
+
+    /// Wide, until Dart says otherwise on the first push — `_kWide` less this
+    /// view's own insets. Only ever seen if a card is built and never told its
+    /// width, which the force-push on create rules out.
+    static let defaultContentWidth: CGFloat = 250
+
+    /// True while the rows are the glyph-only set.
+    private var retracted = false
+    /// What the last `setGlass` asked for, so a completion block cannot hide a
+    /// plate that a second toggle has already brought back.
+    private var glassOn = true
+
+    // The FIRST value on each channel is the panel's starting state, not a
+    // change to it, and it is applied without animation. Dart force-pushes all
+    // three when the view is created; without these the card would open on
+    // screen by playing its retract animation at whoever just launched the
+    // app. One flag per channel rather than one shared: they arrive as three
+    // separate calls, so a single flag set by the first would only un-prime
+    // the other two.
+    private var sawRows = false
+    private var sawGlass = false
+    private var sawCard = false
+
     init(frame: CGRect, viewId: Int64, messenger: FlutterBinaryMessenger) {
         channel = FlutterMethodChannel(
             name: "prototype/glass_browser/\(viewId)", binaryMessenger: messenger)
@@ -113,7 +180,11 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
                 result(nil)
             case "setGlass":
                 let on = (call.arguments as? NSNumber)?.boolValue ?? true
-                self.glassView?.isHidden = !on
+                self.setGlass(on)
+                result(nil)
+            case "setCard":
+                let w = (call.arguments as? NSNumber)?.doubleValue ?? 0
+                self.setCard(CGFloat(w))
                 result(nil)
             default:
                 result(FlutterMethodNotImplemented)
@@ -160,12 +231,63 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
         NSLayoutConstraint.activate([
             ev.leadingAnchor.constraint(
                 equalTo: container.leadingAnchor, constant: i.left),
-            ev.trailingAnchor.constraint(
-                equalTo: container.trailingAnchor, constant: -i.right),
             ev.topAnchor.constraint(equalTo: container.topAnchor, constant: i.top),
             ev.bottomAnchor.constraint(
                 equalTo: container.bottomAnchor, constant: -i.bottom),
         ])
+        // M262 — the plate's trailing edge is the thing that morphs.
+        glassWidth = ev.widthAnchor.constraint(
+            equalToConstant: GlassBrowserView.defaultContentWidth)
+        glassWidth.isActive = true
+    }
+
+    /// M199's switch, M262's animation: the plate fades as it contracts, so it
+    /// dissolves INTO the glyph column rather than blinking out from behind
+    /// it.
+    private func setGlass(_ on: Bool) {
+        guard let ev = glassView else { return }
+        glassOn = on
+        if on { ev.isHidden = false }
+        guard sawGlass else {
+            sawGlass = true
+            ev.alpha = on ? 1 : 0
+            ev.isHidden = !on
+            return
+        }
+        UIView.animate(
+            withDuration: GlassBrowserView.morph, delay: 0,
+            options: [.beginFromCurrentState, .curveEaseInOut,
+                      .allowUserInteraction],
+            animations: { ev.alpha = on ? 1 : 0 },
+            completion: { _ in
+                // Only if nothing has changed its mind in the meantime: a
+                // second toggle inside 280 ms would otherwise be undone by
+                // the first one's completion.
+                if self.glassOn == on { ev.isHidden = !on }
+            })
+    }
+
+    /// M262 — the panel's width, animated. [w] is the CARD's width as Dart
+    /// draws it; the insets are ours, so we take them off here rather than
+    /// making Dart keep a copy of them.
+    ///
+    /// Spring rather than a plain ease: the panel is an object being pushed
+    /// aside and pulled back, and a linear contraction reads as a window being
+    /// resized by a script.
+    private func setCard(_ w: CGFloat) {
+        let i = GlassBrowserView.inset
+        let inner = max(0, w - i.left - i.right)
+        let first = !sawCard
+        sawCard = true
+        guard inner != listWidth.constant else { return }
+        glassWidth.constant = inner
+        listWidth.constant = inner
+        guard !first else { return container.layoutIfNeeded() }
+        UIView.animate(
+            withDuration: GlassBrowserView.morph, delay: 0,
+            usingSpringWithDamping: 0.9, initialSpringVelocity: 0,
+            options: [.beginFromCurrentState, .allowUserInteraction],
+            animations: { self.container.layoutIfNeeded() })
     }
 
     // -- list ----------------------------------------------------------------
@@ -267,13 +389,20 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
         NSLayoutConstraint.activate([
             collection.leadingAnchor.constraint(
                 equalTo: container.leadingAnchor, constant: ci.left),
-            collection.trailingAnchor.constraint(
-                equalTo: container.trailingAnchor, constant: -ci.right),
             collection.topAnchor.constraint(
                 equalTo: container.topAnchor, constant: ci.top),
             collection.bottomAnchor.constraint(
                 equalTo: container.bottomAnchor, constant: -ci.bottom),
         ])
+        // M262 — the list contracts with the plate, and it has to: a retracted
+        // row's selection highlight is a CHIP inset 6 pt from either edge
+        // (M243), so laid out in a still-wide cell it is a bar across the
+        // card — the exact "invisible background bar" M243 exists to have got
+        // rid of. Narrowing the list is what keeps the chip a chip for the
+        // 280 ms the container is still wide.
+        listWidth = collection.widthAnchor.constraint(
+            equalToConstant: GlassBrowserView.defaultContentWidth)
+        listWidth.isActive = true
         collection.delegate = self
         collection.allowsSelection = true
 
@@ -473,13 +602,69 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
     }
 
     private func apply(_ list: [BrowserRow]) {
-        rows = list
-        byId = Dictionary(uniqueKeysWithValues: list.map { ($0.id, $0) })
-        var snap = NSDiffableDataSourceSnapshot<Int, String>()
-        snap.appendSections([0])
-        snap.appendItems(list.map(\.id))
-        dataSource.applySnapshotUsingReloadData(snap)
+        // M262 — is this the retract, or just a model change?
+        //
+        // Read off the payload rather than asked for over a third channel
+        // call: Dart sends the glyph-only row set when the card retracts and
+        // the labelled one when it opens, so the answer is already here and
+        // cannot arrive out of step with the rows it describes. Every row, not
+        // the first: a single unlabelled row in a labelled tree is a row with
+        // no name, not a retracted panel.
+        let empty = list.isEmpty
+        let nowRetracted = !empty && list.allSatisfy { $0.label.isEmpty }
+        let morphing = sawRows && !empty && nowRetracted != retracted
+        if !empty {
+            retracted = nowRetracted
+            sawRows = true
+        }
+
+        let reload = {
+            self.rows = list
+            self.byId = Dictionary(uniqueKeysWithValues: list.map { ($0.id, $0) })
+            var snap = NSDiffableDataSourceSnapshot<Int, String>()
+            snap.appendSections([0])
+            snap.appendItems(list.map(\.id))
+            self.dataSource.applySnapshotUsingReloadData(snap)
+        }
+        if morphing { morphRows(reload) } else { reload() }
         pushMetrics()
+    }
+
+    /// Cross-fades the old rows into the new ones while the list contracts.
+    ///
+    /// A snapshot VIEW rather than `UIView.transition(with:)`: the transition
+    /// form re-snapshots after the animation block and a diffable reload has
+    /// not necessarily laid its cells out by then, so what it captures is a
+    /// half-built list. Lifting the old pixels off first is deterministic —
+    /// they are already on screen — and it leaves the live collection
+    /// untouched underneath, which matters because M204's whole complaint was
+    /// a panel you could see but not press.
+    ///
+    /// The live view's alpha animates from 0, but its MODEL alpha is 1 for the
+    /// whole animation, and hit testing reads the model value. The rows are
+    /// pressable from the first frame of the morph.
+    private func morphRows(_ reload: () -> Void) {
+        let ghost = collection.snapshotView(afterScreenUpdates: false)
+        if let ghost {
+            ghost.frame = collection.frame
+            ghost.isUserInteractionEnabled = false
+            container.addSubview(ghost)
+        }
+        reload()
+        collection.alpha = 0
+        // Outgoing rows travel the way the panel is going: in toward the glyph
+        // column on the way closed, out of it on the way open.
+        let dx: CGFloat = retracted ? -14 : 14
+        UIView.animate(
+            withDuration: GlassBrowserView.morph, delay: 0,
+            usingSpringWithDamping: 0.9, initialSpringVelocity: 0,
+            options: [.beginFromCurrentState, .allowUserInteraction],
+            animations: {
+                self.collection.alpha = 1
+                ghost?.alpha = 0
+                ghost?.transform = CGAffineTransform(translationX: dx, y: 0)
+            },
+            completion: { _ in ghost?.removeFromSuperview() })
     }
 
     /// M244 — where the rows actually are, so the retract handle can stand

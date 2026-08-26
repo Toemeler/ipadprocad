@@ -4,11 +4,6 @@
   "@languageName": {
     "description": "Name dieser Sprache, in dieser Sprache geschrieben. Erscheint im Sprachumschalter."
   },
-  "languageMenuItem": "Sprache: Deutsch",
-  "@languageMenuItem": {
-    "description": "Eintrag im \"+\"-Menue der Galerie. Zeigt die Sprache, in die er umschaltet — der Eintrag ist eine Aktion, keine Statuszeile."
-  },
-  "appearanceMenuItem": "Darstellung: {scheme}",
   "@appearanceMenuItem": {
     "description": "Eintrag im \"+\"-Menue der Galerie. Nennt das Schema, auf das er umschaltet — wie die Sprachzeile eine Aktion, keine Statuszeile.",
     "placeholders": {
@@ -16,6 +11,66 @@
         "type": "String"
       }
     }
+  },
+  "settingsTitle": "Einstellungen",
+  "@settingsTitle": {
+    "description": "Titel des Einstellungsblatts."
+  },
+  "settingsButton": "Einstellungen",
+  "@settingsButton": {
+    "description": "Beschriftung der Zahnrad-Taste in der Galerie (nur fuer VoiceOver)."
+  },
+  "settingsDone": "Fertig",
+  "@settingsDone": {
+    "description": "Schliesst das Einstellungsblatt. iOS-Standardwort."
+  },
+  "settingsAppearance": "Darstellung",
+  "@settingsAppearance": {
+    "description": "Abschnittstitel: hell, dunkel oder wie das iPad."
+  },
+  "settingsAppearanceFooter": "„System“ folgt der Einstellung des iPads.",
+  "@settingsAppearanceFooter": {
+    "description": "Fusszeile unter der Darstellung."
+  },
+  "settingsLanguage": "Sprache",
+  "@settingsLanguage": {
+    "description": "Abschnittstitel der Sprachwahl."
+  },
+  "settingsDiagnostics": "Diagnose",
+  "@settingsDiagnostics": {
+    "description": "Abschnittstitel: Fehler melden, Protokoll teilen."
+  },
+  "settingsReportProblem": "Problem melden",
+  "@settingsReportProblem": {
+    "description": "Oeffnet den Fehlerbericht mit Beschreibung und Modellzustand."
+  },
+  "settingsShareLog": "Protokoll teilen",
+  "@settingsShareLog": {
+    "description": "Teilt die Protokolldatei ueber das iOS-Teilen-Blatt."
+  },
+  "settingsDiagnosticsFooter": "Ein Bericht enthaelt das offene Dokument und das Protokoll dieser Sitzung.",
+  "@settingsDiagnosticsFooter": {
+    "description": "Fusszeile der Diagnose: sagt, was mitgeschickt wird."
+  },
+  "settingsAbout": "Über",
+  "@settingsAbout": {
+    "description": "Abschnittstitel mit Version und Kernen."
+  },
+  "settingsBuild": "Version",
+  "@settingsBuild": {
+    "description": "Zeile: der Build, aus dem die App gebaut wurde."
+  },
+  "settingsKernel3d": "3D-Kern",
+  "@settingsKernel3d": {
+    "description": "Zeile: die OCCT-Version."
+  },
+  "settingsKernel2d": "2D-Kern",
+  "@settingsKernel2d": {
+    "description": "Zeile: die QCAD-Version."
+  },
+  "settingsSystem": "System",
+  "@settingsSystem": {
+    "description": "Zeile: iPadOS-Version."
   },
   "appearanceSystem": "System",
   "@appearanceSystem": {
@@ -750,6 +805,9 @@
   },
   "msgMeshUnreadable": "Diese Datei ließ sich nicht lesen.",
   "msgMeshConvertTitle": "Netz wird umgewandelt",
+  "@msgMeshConvertTitle": {
+    "description": "Titel der nativen Fortschrittskarte, waehrend ein Netz umgewandelt wird."
+  },
   "@msgMeshUnreadable": {
     "description": "Rechte, ein nicht geladener iCloud-Platzhalter. Der OS-Grund geht ins Log, nicht in die Meldung."
   },

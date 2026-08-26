@@ -17,8 +17,49 @@
 // and every touch inside the bar. Same split as the browser, for the same
 // reason: two gesture systems negotiating over one strip is how this project
 // lost four milestones to the End of Part drag.
+//
+// ── M260 — THE BAR IS THREE OBJECTS, AND IT GETS OUT OF THE WAY ────────────
+//
+// The report was "liquid glass is too much" — and the material was not the
+// problem. One glass slab running the width of an iPad is too much; the same
+// glass cut into three small objects is what iOS 26 actually ships. Reading
+// what Apple settled on made that concrete:
+//
+//   * The tab bar stopped being a full-width strip. It is a floating capsule,
+//     inset from the page, sized to its contents.
+//   * Search LEFT the row and became its own circular island beside the bar.
+//     Apple deliberately broke one strip into two objects.
+//   * `tabViewBottomAccessory` made that official: a second capsule that rides
+//     above the bar or in line with it.
+//   * And the bar MINIMISES while a view scrolls, returning when it stops.
+//     Chrome is expected to yield to the content it sits on top of.
+//
+// So the bar is now:
+//
+//     ( ⌂ )  ( cube Halter · cube Bracket ✕ · … )            ( ☰ )
+//      home            documents                              all
+//
+// three separate glass groups, each rounded to its own height. Home is a
+// button, not a list entry, and it never scrolls away. The documents ride in
+// their own capsule, content-sized rather than stretched — a capsule stretched
+// to the window is the slab again. The island on the right is the escape
+// hatch: every open document in one menu, always reachable.
+//
+// The fourth point is [engaged]. A CAD viewport never scrolls, so the gesture
+// that means "get out of my way" is the one that actually covers the model: a
+// finger orbiting, panning or zooming it. While that holds, the documents
+// capsule folds down to the open file and the rest of the bar stays put. Dart
+// owns the latch (AppState.engageView) because Dart owns the gestures; the
+// linger before it unfolds is over there too.
 import Flutter
 import UIKit
+
+/// M260 — the app's two accents, as UIKit sees them. `T.accent` on the Dart
+/// side: Ember's teal and Chalk's darker one.
+private enum Accent {
+    static let ember = UIColor(red: 0.184, green: 0.663, blue: 0.635, alpha: 1)
+    static let chalk = UIColor(red: 0.059, green: 0.416, blue: 0.439, alpha: 1)
+}
 
 struct TabItem {
     let id: String
@@ -39,9 +80,46 @@ struct TabItem {
     }
 }
 
+/// M260 — one glass object of the bar, rounded to its own height.
+///
+/// Same material and the same iOS 26 / iOS 15 split as before; what changed is
+/// that there are three of these instead of one view spanning the whole strip.
+/// The radius is taken in `layoutSubviews` rather than set once, because a
+/// capsule whose radius was guessed at build time is wrong after the first
+/// rotation or Dynamic Type change.
+@available(iOS 15.0, *)
+final class GlassGroup: UIVisualEffectView {
+    init() {
+        let effect: UIVisualEffect
+        if #available(iOS 26.0, *) {
+            let glass = UIGlassEffect()
+            glass.isInteractive = false
+            effect = glass
+        } else {
+            effect = UIBlurEffect(style: .systemMaterial)
+        }
+        super.init(effect: effect)
+        translatesAutoresizingMaskIntoConstraints = false
+        layer.cornerCurve = .continuous
+        clipsToBounds = true
+    }
+
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        layer.cornerRadius = bounds.height / 2
+    }
+}
+
 @available(iOS 15.0, *)
 final class GlassTabBarView: NSObject, FlutterPlatformView {
     private let container = UIView()
+
+    private let home = GlassGroup()
+    private let docs = GlassGroup()
+    private let island = GlassGroup()
+
     private let scroll = UIScrollView()
     private let row = UIStackView()
     private let channel: FlutterMethodChannel
@@ -50,7 +128,51 @@ final class GlassTabBarView: NSObject, FlutterPlatformView {
     /// panels — ribbon, browser, tab bar — float on one shared edge (M150:
     /// 28 -> 14).
     static let inset = UIEdgeInsets(top: 0, left: 14, bottom: 8, right: 14)
-    static let radius: CGFloat = 18
+
+    /// Height of every group, and so the diameter of the two circles. 44 pt is
+    /// Apple's touch minimum and the bar's own 52 pt height less the 8 pt it
+    /// floats above the screen edge.
+    static let groupH: CGFloat = 44
+    /// Between groups. Half the outer inset, so the split reads as one object
+    /// broken up rather than three unrelated ones.
+    static let gap: CGFloat = 8
+    /// Inside the documents capsule, around the row of chips.
+    static let rowPad: CGFloat = 5
+
+    /// M260 — the app's accent, the same teal the planes and the selected
+    /// edges use. Was `systemBlue`, which belonged to no palette in this app
+    /// and said nothing: the accent means "this is the thing you are working
+    /// on" everywhere else, and now it means that here too.
+    ///
+    /// Dynamic rather than one constant because M236 gave the app two
+    /// palettes; AppearanceBinder pins the trait, so this resolves to the one
+    /// Dart says is active.
+    static let accent = UIColor { t in
+        t.userInterfaceStyle == .light ? Accent.chalk : Accent.ember
+    }
+
+    /// The same accent as a chip fill.
+    ///
+    /// Built inside the provider, not as `accent.withAlphaComponent(_:)`:
+    /// asking a dynamic colour for a new alpha RESOLVES it against whatever
+    /// trait is current at the call and returns a static colour, which would
+    /// then be the wrong palette for the rest of the session after a scheme
+    /// switch. M237 exists because that class of staleness is hard to see.
+    static let accentFill = UIColor { t in
+        (t.userInterfaceStyle == .light ? Accent.chalk : Accent.ember)
+            .withAlphaComponent(0.30)
+    }
+
+    /// Trailing cap on the documents capsule. Exactly one is active: the bar
+    /// stops at the island when there is one, at the screen inset when there
+    /// is not.
+    private var capToIsland: NSLayoutConstraint!
+    private var capToEdge: NSLayoutConstraint!
+
+    private var items: [TabItem] = []
+    /// The document chips, in row order, paired with whether each is current.
+    private var docViews: [(view: UIView, selected: Bool)] = []
+    private var engaged = false
 
     init(frame: CGRect, viewId: Int64, messenger: FlutterBinaryMessenger) {
         channel = FlutterMethodChannel(
@@ -70,8 +192,9 @@ final class GlassTabBarView: NSObject, FlutterPlatformView {
         // explicit, and it follows a scheme change.
         AppearanceBinder.shared.bind(container)
 
-        buildGlass()
+        buildGroups()
         buildRow()
+        buildIsland()
 
         channel.setMethodCallHandler { [weak self] call, result in
             guard let self else { return result(nil) }
@@ -79,6 +202,10 @@ final class GlassTabBarView: NSObject, FlutterPlatformView {
             case "setTabs":
                 let list = (call.arguments as? [[String: Any]]) ?? []
                 self.apply(list.compactMap(TabItem.init))
+                result(nil)
+            case "setEngaged":
+                let a = (call.arguments as? [String: Any]) ?? [:]
+                self.setEngaged((a["engaged"] as? NSNumber)?.boolValue ?? false)
                 result(nil)
             default:
                 result(FlutterMethodNotImplemented)
@@ -90,82 +217,201 @@ final class GlassTabBarView: NSObject, FlutterPlatformView {
 
     // MARK: - Chrome
 
-    private func buildGlass() {
-        let effect: UIVisualEffect
-        if #available(iOS 26.0, *) {
-            let glass = UIGlassEffect()
-            glass.isInteractive = false
-            effect = glass
-        } else {
-            effect = UIBlurEffect(style: .systemMaterial)
-        }
-        let ev = UIVisualEffectView(effect: effect)
-        ev.translatesAutoresizingMaskIntoConstraints = false
-        ev.isUserInteractionEnabled = false
-        ev.layer.cornerRadius = GlassTabBarView.radius
-        ev.layer.cornerCurve = .continuous
-        ev.clipsToBounds = true
-        container.addSubview(ev)
+    private func buildGroups() {
+        container.addSubview(home)
+        container.addSubview(docs)
+        container.addSubview(island)
+
         let i = GlassTabBarView.inset
+        let h = GlassTabBarView.groupH
+        let gap = GlassTabBarView.gap
         NSLayoutConstraint.activate([
-            ev.leadingAnchor.constraint(
+            home.leadingAnchor.constraint(
                 equalTo: container.leadingAnchor, constant: i.left),
-            ev.trailingAnchor.constraint(
-                equalTo: container.trailingAnchor, constant: -i.right),
-            ev.topAnchor.constraint(equalTo: container.topAnchor, constant: i.top),
-            ev.bottomAnchor.constraint(
+            home.bottomAnchor.constraint(
                 equalTo: container.bottomAnchor, constant: -i.bottom),
+            home.widthAnchor.constraint(equalToConstant: h),
+            home.heightAnchor.constraint(equalToConstant: h),
+
+            docs.leadingAnchor.constraint(
+                equalTo: home.trailingAnchor, constant: gap),
+            docs.bottomAnchor.constraint(
+                equalTo: container.bottomAnchor, constant: -i.bottom),
+            docs.heightAnchor.constraint(equalToConstant: h),
+
+            island.trailingAnchor.constraint(
+                equalTo: container.trailingAnchor, constant: -i.right),
+            island.bottomAnchor.constraint(
+                equalTo: container.bottomAnchor, constant: -i.bottom),
+            island.widthAnchor.constraint(equalToConstant: h),
+            island.heightAnchor.constraint(equalToConstant: h),
         ])
+
+        capToIsland = docs.trailingAnchor.constraint(
+            lessThanOrEqualTo: island.leadingAnchor, constant: -gap)
+        capToEdge = docs.trailingAnchor.constraint(
+            lessThanOrEqualTo: container.trailingAnchor, constant: -i.right)
+        capToIsland.isActive = true
     }
 
     private func buildRow() {
         // Horizontal scrolling, because a CAD session ends up with more open
         // documents than fit and a tab that cannot be reached is a lost file.
+        // The island is the other half of that promise: what scrolls out of
+        // sight is still one tap away.
         scroll.translatesAutoresizingMaskIntoConstraints = false
         scroll.backgroundColor = .clear
         scroll.showsHorizontalScrollIndicator = false
         scroll.alwaysBounceHorizontal = true
         scroll.clipsToBounds = true
-        scroll.layer.cornerRadius = GlassTabBarView.radius
-        scroll.layer.cornerCurve = .continuous
-        container.addSubview(scroll)
+        docs.contentView.addSubview(scroll)
 
         row.axis = .horizontal
         row.alignment = .center
-        row.spacing = 6
+        row.spacing = 4
         row.translatesAutoresizingMaskIntoConstraints = false
         scroll.addSubview(row)
 
-        let i = GlassTabBarView.inset
+        let pad = GlassTabBarView.rowPad
+        // The capsule takes its width FROM the row, up to the cap set in
+        // buildGroups. Near-required, so the only thing that can beat it is
+        // running out of screen — a scroll view has no intrinsic width of its
+        // own and the group would otherwise be ambiguous.
+        let fit = docs.widthAnchor.constraint(
+            equalTo: row.widthAnchor, constant: 2 * pad)
+        fit.priority = UILayoutPriority(999)
+
         NSLayoutConstraint.activate([
-            scroll.leadingAnchor.constraint(
-                equalTo: container.leadingAnchor, constant: i.left),
-            scroll.trailingAnchor.constraint(
-                equalTo: container.trailingAnchor, constant: -i.right),
-            scroll.topAnchor.constraint(
-                equalTo: container.topAnchor, constant: i.top),
-            scroll.bottomAnchor.constraint(
-                equalTo: container.bottomAnchor, constant: -i.bottom),
+            scroll.leadingAnchor.constraint(equalTo: docs.contentView.leadingAnchor),
+            scroll.trailingAnchor.constraint(equalTo: docs.contentView.trailingAnchor),
+            scroll.topAnchor.constraint(equalTo: docs.contentView.topAnchor),
+            scroll.bottomAnchor.constraint(equalTo: docs.contentView.bottomAnchor),
             row.leadingAnchor.constraint(
-                equalTo: scroll.contentLayoutGuide.leadingAnchor, constant: 8),
+                equalTo: scroll.contentLayoutGuide.leadingAnchor, constant: pad),
             row.trailingAnchor.constraint(
-                equalTo: scroll.contentLayoutGuide.trailingAnchor, constant: -8),
+                equalTo: scroll.contentLayoutGuide.trailingAnchor, constant: -pad),
             row.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor),
             row.bottomAnchor.constraint(
                 equalTo: scroll.contentLayoutGuide.bottomAnchor),
             row.heightAnchor.constraint(
                 equalTo: scroll.frameLayoutGuide.heightAnchor),
+            fit,
         ])
+    }
+
+    private func buildIsland() {
+        var c = UIButton.Configuration.plain()
+        c.image = UIImage(systemName: "list.bullet")
+        c.preferredSymbolConfigurationForImage =
+            UIImage.SymbolConfiguration(pointSize: 14, weight: .regular)
+        c.baseForegroundColor = .secondaryLabel
+        c.contentInsets = .zero
+
+        // Deliberately NOT a GlassButton. M205's recovery fires an action for
+        // a press UIKit cancelled, and a menu button has no action to fire —
+        // `showsMenuAsPrimaryAction` presents on touch-DOWN, so the cancel
+        // that recovery exists to catch cannot happen here.
+        let b = UIButton(type: .system)
+        b.configuration = c
+        b.showsMenuAsPrimaryAction = true
+        b.isPointerInteractionEnabled = true
+        b.translatesAutoresizingMaskIntoConstraints = false
+        // Built when it opens, not when the tabs change: the menu has to show
+        // the documents as they are at the moment of the press.
+        let deferred: [UIMenuElement] = [
+            UIDeferredMenuElement.uncached { [weak self] done in
+                done(self?.documentActions() ?? [])
+            }
+        ]
+        b.menu = UIMenu(title: "", children: deferred)
+        island.contentView.addSubview(b)
+        NSLayoutConstraint.activate([
+            b.leadingAnchor.constraint(equalTo: island.contentView.leadingAnchor),
+            b.trailingAnchor.constraint(equalTo: island.contentView.trailingAnchor),
+            b.topAnchor.constraint(equalTo: island.contentView.topAnchor),
+            b.bottomAnchor.constraint(equalTo: island.contentView.bottomAnchor),
+        ])
+    }
+
+    /// Every open document, current one checked. This is what makes the fold
+    /// safe: with the row collapsed to one chip, this menu is how you reach
+    /// the rest, and it does not care whether they scrolled off the end.
+    private func documentActions() -> [UIMenuElement] {
+        let actions: [UIAction] = items.filter { $0.closable }.map { t in
+            UIAction(
+                title: t.label,
+                image: UIImage(systemName: t.symbol),
+                state: t.selected ? .on : .off
+            ) { [weak self] _ in
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                self?.channel.invokeMethod("tap", arguments: ["id": t.id])
+            }
+        }
+        return actions
     }
 
     // MARK: - Model
 
     private func apply(_ tabs: [TabItem]) {
+        items = tabs
+
+        home.contentView.subviews.forEach { $0.removeFromSuperview() }
+        if let h = tabs.first(where: { !$0.closable }) {
+            let b = makeHome(h)
+            home.contentView.addSubview(b)
+            NSLayoutConstraint.activate([
+                b.leadingAnchor.constraint(equalTo: home.contentView.leadingAnchor),
+                b.trailingAnchor.constraint(equalTo: home.contentView.trailingAnchor),
+                b.topAnchor.constraint(equalTo: home.contentView.topAnchor),
+                b.bottomAnchor.constraint(equalTo: home.contentView.bottomAnchor),
+            ])
+        }
+        home.isHidden = !tabs.contains(where: { !$0.closable })
+
         row.arrangedSubviews.forEach {
             row.removeArrangedSubview($0)
             $0.removeFromSuperview()
         }
-        for t in tabs { row.addArrangedSubview(makeTab(t)) }
+        docViews = []
+        for t in tabs where t.closable {
+            let v = makeTab(t)
+            row.addArrangedSubview(v)
+            docViews.append((v, t.selected))
+        }
+
+        // No documents open: no capsule and no island to list them in. The
+        // Home circle alone is the whole bar, which is the truth of that
+        // state and much quieter than an empty pill.
+        let empty = docViews.isEmpty
+        docs.isHidden = empty
+        island.isHidden = empty
+        capToIsland.isActive = !empty
+        capToEdge.isActive = empty
+
+        applyFold(animated: false)
+    }
+
+    /// Home is a button, not a row entry — so it keeps its circle whatever
+    /// happens to the documents, and it carries the accent when it is the
+    /// place you are. A tinted glyph rather than a tinted circle: the group
+    /// is already a shape, and tinting both would be saying it twice.
+    private func makeHome(_ t: TabItem) -> UIButton {
+        var c = UIButton.Configuration.plain()
+        c.image = UIImage(systemName: t.symbol)
+        c.preferredSymbolConfigurationForImage =
+            UIImage.SymbolConfiguration(pointSize: 15, weight: .regular)
+        c.contentInsets = .zero
+        c.baseForegroundColor = t.selected
+            ? GlassTabBarView.accent : .secondaryLabel
+
+        let b = GlassButton(configuration: c)
+        b.translatesAutoresizingMaskIntoConstraints = false
+        b.isPointerInteractionEnabled = true
+        b.onTap = { [weak self] in
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            self?.channel.invokeMethod("tap", arguments: ["id": t.id])
+        }
+        return b
     }
 
     private func makeTab(_ t: TabItem) -> UIView {
@@ -186,7 +432,7 @@ final class GlassTabBarView: NSObject, FlutterPlatformView {
             top: 4, leading: 10, bottom: 4, trailing: t.closable ? 2 : 10)
         c.baseForegroundColor = t.selected ? .label : .secondaryLabel
         c.background.backgroundColor = t.selected
-            ? UIColor.systemBlue.withAlphaComponent(0.30)
+            ? GlassTabBarView.accentFill
             : .clear
 
         // M205 — GlassButton recovers a press that the scroll view or the
@@ -220,8 +466,7 @@ final class GlassTabBarView: NSObject, FlutterPlatformView {
         // The capsule belongs to the PAIR, so the close button sits inside the
         // selected tint rather than floating next to it.
         let wrap = UIView()
-        wrap.backgroundColor = t.selected
-            ? UIColor.systemBlue.withAlphaComponent(0.30) : .clear
+        wrap.backgroundColor = t.selected ? GlassTabBarView.accentFill : .clear
         wrap.layer.cornerCurve = .continuous
         b.configuration?.background.backgroundColor = .clear
 
@@ -242,6 +487,44 @@ final class GlassTabBarView: NSObject, FlutterPlatformView {
         wrap.layer.cornerRadius = wrap.bounds.height / 2
         wrap.autoresizingMask = []
         return CapsuleWrap(wrap)
+    }
+
+    // MARK: - Fold
+
+    /// M260 — the model is under a finger. Fold, or come back.
+    private func setEngaged(_ on: Bool) {
+        guard on != engaged else { return }
+        engaged = on
+        applyFold(animated: true)
+    }
+
+    /// Hides every document chip but the current one while [engaged].
+    ///
+    /// `isHidden` on an arranged subview rather than rebuilding the row: the
+    /// stack view animates the collapse for free, the scroll offset survives,
+    /// and the chips that come back are the same objects with the same
+    /// gesture state. Rebuilding twice per orbit would be the M149 mistake
+    /// again, one layer down.
+    ///
+    /// Nothing folds unless a document is actually current — otherwise the
+    /// capsule would collapse to nothing and reappear as a stub, which reads
+    /// as a glitch rather than as chrome getting out of the way.
+    private func applyFold(animated: Bool) {
+        let fold = engaged && docViews.contains(where: { $0.selected })
+        let step = {
+            for d in self.docViews {
+                let hide = fold && !d.selected
+                if d.view.isHidden != hide { d.view.isHidden = hide }
+                d.view.alpha = hide ? 0 : 1
+            }
+            self.container.layoutIfNeeded()
+        }
+        guard animated else { return step() }
+        UIView.animate(
+            withDuration: 0.24, delay: 0,
+            usingSpringWithDamping: 0.92, initialSpringVelocity: 0,
+            options: [.beginFromCurrentState, .allowUserInteraction],
+            animations: step)
     }
 
     /// Keeps the capsule radius correct across rotation and Dynamic Type.

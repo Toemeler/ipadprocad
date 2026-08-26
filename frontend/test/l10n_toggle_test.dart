@@ -9,6 +9,8 @@ import 'package:prototype/ffi/qcad_engine.dart' show kDefaultLayer;
 import 'package:prototype/l10n/fmt.dart';
 import 'package:prototype/l10n/l.dart';
 import 'package:prototype/l10n/locale_store.dart';
+import 'package:prototype/settings.dart';
+import 'package:prototype/theme.dart';
 import 'package:prototype/widgets/home_view.dart';
 import 'package:prototype/widgets/ribbon.dart';
 
@@ -23,6 +25,11 @@ Widget wrap(Widget child) => ValueListenableBuilder<Locale>(
         home: Scaffold(body: SizedBox.expand(child: child)),
       ),
     );
+
+/// M261 — the About facts, which this file does not test and must not let
+/// vary: it is about the LANGUAGE of the screen, not its version numbers.
+const SettingsInfo _info = SettingsInfo(
+    build: 'test', kernel3d: '-', kernel2d: '-', system: '-');
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -124,26 +131,35 @@ void main() {
   });
 
   group('the menu carries it', () {
-    test('the "+" menu offers the OTHER language, by a stable id', () {
-      final de = newDocMenuItems(lookupAppL10n(kDe));
-      // M236 (SPEC CHANGE) — the appearance row joined the language row on
-      // the app-level shelf, after it. The language row is therefore no
-      // longer `last`; it is matched by id, which is what it was always for.
-      // M240 (SPEC CHANGE) — and 'asm' joined the two document kinds, in
-      // front of Open: the three ways to START a document sit together, and
-      // Open is the fourth way to GET one.
-      expect(de.map((i) => i.id).toList(),
-          ['2d', '3d', 'asm', 'import', kLanguageMenuId, kAppearanceMenuId]);
-      expect(de.firstWhere((i) => i.id == kLanguageMenuId).title,
-          'Language: English',
-          reason: 'while German is on, the row offers English');
+    test('the SETTINGS screen offers both languages, each named in itself',
+        () {
+      // M261 (SPEC CHANGE) — the language row is not in the "+" menu any
+      // more; it is a section of Settings, and it lists every shipped
+      // language rather than toggling to "the other one". That changes what
+      // the label has to say: a two-item toggle names the language it
+      // switches TO, a list names each language IN ITSELF, so the row you
+      // need is readable even when the app is in a language you cannot read.
+      final de = buildSettings(lookupAppL10n(kDe),
+          mode: AppThemeMode.system, locale: kDe, info: _info);
+      final lang = de.firstWhere((s) => s.id == kSecLanguage);
+      expect(lang.rows.map((r) => r.id).toList(), ['de', 'en']);
+      expect(lang.rows.map((r) => r.title).toList(), ['Deutsch', 'English']);
+      expect(lang.rows.firstWhere((r) => r.id == 'de').selected, isTrue);
+      expect(lang.rows.firstWhere((r) => r.id == 'en').selected, isFalse);
 
-      L.set(kEn);
-      final en = newDocMenuItems(lookupAppL10n(kEn));
-      expect(en.map((i) => i.id), contains(kLanguageMenuId),
-          reason: 'the id never changes');
-      expect(en.firstWhere((i) => i.id == kLanguageMenuId).title,
-          'Sprache: Deutsch');
+      // The names do NOT translate — only the tick moves.
+      final en = buildSettings(lookupAppL10n(kEn),
+          mode: AppThemeMode.system, locale: kEn, info: _info);
+      final lang2 = en.firstWhere((s) => s.id == kSecLanguage);
+      expect(lang2.rows.map((r) => r.title).toList(), ['Deutsch', 'English']);
+      expect(lang2.rows.firstWhere((r) => r.id == 'en').selected, isTrue);
+    });
+
+    test('and the "+" menu is four ways to get a document, and nothing else',
+        () {
+      expect(newDocMenuItems(lookupAppL10n(kDe)).map((i) => i.id).toList(),
+          ['2d', '3d', 'asm', 'import'],
+          reason: 'M261 — "+" is a verb; a preference is not a document');
     });
 
     test('the create rows are localised too', () {
