@@ -3390,7 +3390,54 @@ tested away from the axis?", answered per entry point, with three honest
 **still untested** rows (`loft`'s `closed`, the coil's `taper_deg`,
 `chamfer_ex`'s out-parameters).
 
-### 19.4 What round three did not close
+### 19.4 S17 — the three defects repaired (v28)
+
+S16 recorded three defects and deliberately did not fix them, on the integrator's
+instruction that an audit which becomes a bug-fix on its third entry point stops
+being an audit. S17 repaired all three, **each in one commit that reverts on its
+own** — verified by actually reverting each — and converted S16's three pinning
+fixtures from printing a divergence to asserting ground truth, so each would now
+fail if the defect returned. `occt_smoke` PASS and `occt_mesh_recon_test` 86/0 on
+real OCCT 7.9.3. S16 §1.4 reads *correct* in those three rows.
+
+| defect | mechanism | what a caller sees |
+| --- | --- | --- |
+| coil `clockwise` | `gp_Ax3(P,N,Vx)` makes `YDir = N × XDir`, so the frame is right-handed and the left-handed helix is `(du<0, dv>0)`. Negating both components was the same helix run backwards | the coil **rises** and is the mirror of the ccw one. **Volume is identical either way** — no volume check could ever have caught this |
+| `occt_move_faces` | the loop **skipped** a fully-tangential delta as a no-op and then swept the tangential part of a partly-tangential one; `BRepSweep_Prism` translates by the whole vector | bbox x-max 25 → 20, ray exit 22 → 25. **Volume 10 000 and `valid` both ways** |
+| chamfer `angle_deg` | `ChFiKPart_MakeChAsym` computes `dis2 = Dis/(cosP + sinP/tan α)` — the law of sines with apex θ — so the bound is `α < 180° − θ`, which is `edge_info` field [10] | acute edges accept more, **obtuse edges accept less**, perpendicular edges bit-identical |
+
+**Two of the three are invisible to a volume check**, which is the finding that
+outlives the fixes: the coil's is volume-identical and the face move's is volume-
+*and*-validity-identical. A test suite built on volumes would have passed all
+three forever.
+
+**A refuted prediction that bounded the third defect downward.** S17 predicted
+α = 89.9° would build on a cube edge, being inside the 90 bound. It does not:
+`d2 = d1·sin α / sin(α+θ)` **diverges** as α approaches the bound, giving 1145.9 mm
+on a 20 mm face. **The guard's bound is where the chamfer degenerates, not where
+it stops fitting** — two different limits, and the second was already enforced
+elsewhere. Relaxing the guard does not mean every angle below the new bound
+builds; only that the angle is no longer what stops it.
+
+**S17 did not adopt S16's ground truth for the oblique face move**, and the
+disagreement is on the record in both files: S16 §5.2 named ray exit 10 (the
+walls follow the face), S17 says 25 (the face's plane moves by the normal
+component, walls unchanged), on the grounds that the walls-follow reading
+contradicts the skip already in that loop, moves surfaces the caller never
+selected, and is the class of work `part_model.dart` records the repo as
+deliberately not shipping. **The defect stands either way — 22 was nobody's
+answer.** If someone later shows Inventor tilts the walls, the conclusion is
+that this operation is not Inventor's Move and should be renamed, not that v28
+is wrong.
+
+**The cheapest instrument in this section, and nobody had used it.** S17 built
+the pre-change tree and the post-change tree on the same machine against the
+same OCCT and diffed the smoke output. Every line outside the three converted
+fixtures and the three new ones is identical. No golden, no recollection, two
+binaries, one afternoon — and it is what surfaced `occt_version()`'s string
+having drifted to v27 against ABI 28, which reading the file had missed.
+
+### 19.5 What round three did not close
 
 | | |
 | --- | --- |
@@ -3398,6 +3445,257 @@ tested away from the axis?", answered per entry point, with three honest
 | A tapered sweep on a multi-edge spine | produces an INVALID solid. Found by S15, registered, deliberately not bundled into a merge about holes. |
 | S16's three defects | routed, unfixed |
 | Everything in §19 | desktop-only. The v27 device capture has not been taken. |
+
+> **Amended, 2026-08-26.** Left exactly as round three committed it, because it
+> is the record of what round three knew. Three of its four rows have since
+> moved and §20 carries the detail: **S16's three defects are repaired** in v28
+> (§19.4). **The 5.625° row's second sentence is wrong about its own fixture** —
+> the device ladder's path is `arcPath`, a coarse sampler, not geometry anybody
+> drew (§20.4). **The tapered-spine row is wider than stated**: a taper across
+> *any* mitred joint fails, not only a multi-edge spine (§20.2). The fourth row
+> stands and has grown: v27, v28, v29 and everything in §20 are desktop-only.
+
+---
+
+## 20. Round four — the corner derived, the gate priced, the Dart layer audited
+
+Three sessions: S18 (the drawn corner and the taper), S19 (the validity gate and
+S18's off-centre defect), S20 (the Dart layer's own trivial-value audit). S19 and
+S20 are merged; **S18 is complete and unmerged**, pending one owner decision
+(§20.5).
+
+**Provenance, and it has not changed since §19.** Everything here is a DESKTOP
+measurement — Lane C, or a session's own harness on a shared container. §13.3
+binds: exponents, ratios, allocation and structural change may be read from it;
+absolute milliseconds may not be read as iPad milliseconds. **No device has run
+a v24, v27, v28 or v29 kernel.** The capture that settles §18.4 onward has still
+not been taken.
+
+### 20.1 S18 — a drawn corner is genuinely expensive, and now there is a derivation saying why
+
+S14 §2.6 measured a `Transformed` lever at **17.5×** and refused to pull it,
+because it is wrong at a sharp joint. S14's five-row table showed the two
+treatments converging as the joint shallowed, which read like an approximation
+whose error vanishes. **It is not one.**
+
+S18 derived both corner treatments in closed form and reproduced S14's table with
+nothing fitted. `Transformed` **never rotates the section at all**, supplies
+**none** of the corner's first-order effect at any angle, and its error
+**compounds** down the spine. The convergence in S14's table is the corner
+vanishing, not the two treatments agreeing. The crossover is
+**`asin(2·c_t/L2)`** — 19.47° for that fixture — and it is a property of the
+section's centroid and the second leg's length, not a constant.
+
+So the lever is closed by derivation rather than by measurement, and the answer
+is that it cannot be pulled. **A drawn corner is genuinely expensive, not
+accidentally expensive.**
+
+**An analytic pin worth more than the result.** S14 §2.8 found an unexplained
+volume identity and could not derive it, labelling it an inference. It is
+Cavalieri: for any sweep of a section **centred on its spine**, a mitred corner's
+volume correction is `2·A·c_t·tan(θ/2)`, which is **zero when `c_t = 0`** — at
+any joint angle and any sampling density. What is left is
+
+```
+V = A · dz
+```
+
+reproduced to 4e−16 / −9.4e−16 / −1.4e−14 at 2, 4 and 16 spans, where S14's own
+form is off in the fifth figure once the polyline's true length is used. The
+general signed law is `V = A·L − 2·A·c_t·Σ tan(θ_i/2)`; a turn *away* from the
+centroid **adds** volume. **Any sweep test should reach for `A·dz` first.**
+
+S18 also diagnosed the taper defect §19.5 lists, and its fix refuses the tapered
+drawn corner rather than building it wrong — which is the decision in §20.5.
+
+### 20.2 S19 — the gate, priced and enumerated; and S18's guess replaced by a law
+
+`finish_pipe` has never called `BRepCheck_Analyzer`. That is how three defects
+stayed invisible for nine months, and S18 routed the question of gating it as
+explicitly not a session's to answer.
+
+**The census — the number that decides it.** 405 configurations (9 paths × 5
+sections × 3 orientations × 3 tapers):
+
+| | |
+| --- | ---: |
+| configurations refused **today** | **0** |
+| configurations that build an **INVALID** solid | **136** (33.6 % of what built) |
+| the same, restricted to paths **with a mitred joint** | **136 of 270 — 50.4 %** |
+| the same, on the three **jointless** paths | **0 of 135** |
+
+**Every invalid configuration is on a spine with a mitred joint**, and the three
+jointless paths — straight, and the two `spine_from_points_ex` interpolates into
+one B-spline edge — are clean 135 for 135. That structural result is worth more
+than the percentage: it says the defect class has one cause, not many.
+
+One row returns a **negative volume**: a holed ring on a 90° L with −5° taper,
+**−933.602882**, inside-out, past `has_solid_material` and out of the shipped
+entry point with no error.
+
+**What the gate costs.** 1.0 %–45 % of the operation it gates on every sweep
+measured except one; **123.3 % on the holed 1200-segment sweep** (66.0 %
+parallel), which is §19.2's own shape. On small shapes the percentage is large
+and the absolute is under 5 ms — 238 % on a 26-face prism. S15's anchor
+reproduces on S19's container: 640.7 ms unholed / 11 314.5 ms holed against
+S15's 821.8 / 8 817.1.
+
+**And the shim already ships this policy.** `blend_result_ok` has ended in
+`BRepCheck_Analyzer(out).IsValid()` since **v11**. The question was never whether
+the shim may gate on validity — it is whether the sweep's shapes are big enough
+to make the same policy cost differently, and only the holed one is.
+
+**A prediction refuted in the useful direction.** S19 pre-registered that the
+cheap `GeomControls = Standard_False` check would be blind to these defects and
+said it was the prediction it most wanted to be wrong about. **It is wrong: the
+topology-only check catches 136 of 136**, because the dominant status on an
+untrimmed corner is `BRepCheck_NotConnected` **on the shell**, not a
+self-intersection. A gate therefore does not need the expensive half of
+BRepCheck. It is *not* a cost saving — 1.20× on the same exponent, against a
+≥ 10× criterion — which is why S19 shipped **no new ABI**: a knob with no benefit
+is worse than no knob.
+
+**S18 §5.1 refuted and replaced by a law.** S18 recorded, as an explicit guess,
+that adjacent mitre wedges collide once the section reaches far enough outside
+the path's curvature. **The joint *count* does not enter at all** — 4, 8, 16 and
+32 legs give the identical boundary to five figures, which colliding neighbours
+cannot do. The discriminator is the section's **tilt to the tangent**, which is
+S18's own §7.4 uncertainty verbatim. The boundary is
+
+```
+d · ( sin φ + tan(θ/2) ) = L                                    (S19-1)
+```
+
+with `d` the section's reach toward the turn, `φ` its tilt, `θ` the joint, `L`
+the leg. Thirteen bisected rows fit it to 1.8 %, and **7 of 7 out-of-sample rows
+held** at half-widths it was never fitted against. S18's guess is the `φ = 0`
+special case. Both terms are S18's own: the mitre term is exactly the
+`tan(θ_i/2)` its volume law is signed by.
+
+**And S18's §7.3 uncertainty closed by the method S18 named as unavailable.** OCCT
+is a submodule, so S19 patched `BRepFill_TrimShellCorner::Perform()`'s five
+failure returns and `PerformCorner`'s "Nothing is touched" branch in a
+**throwaway** build and watched them fire — 36 corners, one `MakeFaces{Sec,NonSec}`
+failure each, one for one. On the untapered off-centre fixture exactly one corner
+fails, the first, which is what (S19-1) predicts; on a tapered fixture all fifteen
+do, because `Law_Linear` grows `d` along the spine. Submodule reverted, pin clean
+at `a016080b`, `occt_smoke` re-run PASS.
+
+**S18's taper defect is wider than §19.5 states:** a taper across **any** mitred
+joint fails — 126 of the 136 — not only a spine of more than one edge.
+
+### 20.3 S20 — the Dart audit inverted the hypothesis, and Flip was worse than S17 thought
+
+S16 asked the C ABI *"has this parameter ever been passed anything but its
+trivial value?"* and found eight that had not, three of them wrong away from it.
+**Asked of `frontend/lib`, the answer is mostly yes** — the coil's `clockwise`,
+the loft's `ruled` and `closedLoop`, the sweep's `orientation` and `taperDeg` all
+reach the kernel at bent values. 24 rows: six trivial, one inert, three honest
+*still untested*.
+
+**That inversion is the result, not a disappointment.** The Dart binding was
+passing values the shim had never been given, which is precisely why S16's coil
+defect was a live bug a user could hit by ticking a box rather than a theoretical
+one. The two layers had different blind spots, and only auditing both finds that.
+
+**Where the hypothesis held, it held hard.** S17 §5.1 routed
+`part_model.dart`'s `90.0 - angleDeg` for a flipped mode-2 chamfer; the flipped
+angle is the triangle's third angle, `D − angleDeg`, with `D` the dihedral —
+field [10], and the shim's own v28 bound. **That was half the defect.**
+
+| | what it sent | what it cut |
+| --- | --- | --- |
+| square edge, 2 mm @ 30°, flipped, **old** | `(2.000, 60)` | `(2.000, 3.464)` — **bigger** than the original, not mirrored |
+| the same, **now** | `(1.155, 60)` | `(1.155, 2.000)` — the original pair reversed |
+| 120° edge, 2 mm @ 45°, flipped, **old** | `(2.000, 45)` | **identical to unflipped — the button did nothing** |
+| 120° edge, 2 mm @ 30°, flipped, **old** | `(2.000, 60)` | **refused: 60 is that edge's bound** — v28 doing its job |
+
+Sending the third angle while leaving `distance1` on the reference face is not a
+mirror; the mirror needs the law of sines on the distance too,
+`d' = d1·sin α / sin(D − α)`. And on a non-square edge at 45°, `90 − 45 = 45`
+sent the *unflipped* arguments — **a dead control whose deadness depended on the
+shape of the part.** Nobody predicted that row; the table found it.
+
+`kernelParams` was a getter with no edge returning one scalar, and a chamfer may
+span edges of different dihedral. It is now `kernelParamsFor(dihedralDeg)`, and
+**the no-argument form is removed rather than defaulted to 90** — a defaulted 90
+is the defect. The FFI binding underneath has been per-edge since v12; the Dart
+layer was collapsing to it with `List.filled`.
+
+**Two live-looking dead controls, routed:**
+
+* **`ChamferFeature.edgeChain`** is serialised, is in `ownSig()`, defaults to
+  `true`, and no caller of `setEdgeFeature` passes it. `BRepFilletAPI_MakeChamfer`
+  does not propagate along tangencies, so **the stored `true` is the wrong
+  value**, and every saved part changes shape the day someone wires the toggle up.
+* **Direct Move / Size / Scale are inert from the ribbon** — `setFaceEditValue`
+  has no caller anywhere in `frontend/`. **This corrects §19.3 and the S16
+  ruling**, both of which list `occt_move_faces` as reachable from the UI: there
+  is not merely no oblique direction, there is no direction at all, so v28's
+  defect 2 was never shipping. It closes S17 §7.2 in S16's favour, for a stronger
+  reason than S16 gave.
+
+**And a caveat retired.** S16, S17, S18, S19 and two integrator entries all wrote
+"structurally zero, not measured" because Flutter was absent. S20 reports it is
+not absent, merely not preinstalled: **3.47.1, the version CI runs, installed in
+the session container**, `analyze` clean of new issues and `test` green at 2564,
+with the second defect's revert verified by actually reverting it. Any session
+touching Dart can now measure instead of asserting.
+
+### 20.4 What arm B will measure — pre-registered before the capture exists
+
+§19.5's 5.625° row says the 79 s rung is *"geometry somebody drew, and mitering
+it is correct."* **The second half is wrong about that fixture**, and the error
+would invert how the next capture reads.
+
+The device ladder is `occt.sweepProfile([arcRing(segments, 6)], identityMat34(),
+arcPath(spans + 1, 60))`. `arcPath` samples a parametric quarter-turn at
+`spans + 1` points — a **sampler**, not a drawn vertex, but a *coarse* one, and
+not the `sketchCurve` sampler `kSampledJointDeg = 360/64 = 5.625°` was derived
+from. Computed from the fixture against AUTO's threshold:
+
+| spans | joints | max joint | AUTO does | round two (v23) |
+| ---: | ---: | ---: | --- | ---: |
+| 1 | 0 | — | nothing to miter | 94 ms |
+| **4** | 3 | **9.4905°** | **MITERS** | **79 306 ms** |
+| 16 | 15 | 2.3962° | **SMOOTHS** | 132 093 ms |
+| 64 | 63 | 0.5994° | **SMOOTHS** | 69 501 ms, **FAILED** |
+
+**Prediction: the ladder changes shape rather than speeding up uniformly.**
+spans = 4 stays near 79 s — it is above the threshold, AUTO miters it, and §20.1
+derives why that cost cannot be removed; spans = 16 collapses by roughly the
+16.3× measured between the mitered and smoothed paths; spans = 64 builds where it
+previously failed.
+
+**The absence of that split is the interesting outcome.** All four unchanged
+means AUTO is not reaching this call path on device and none of the sweep work is
+being exercised — which no desktop measurement could reveal. All four collapsing
+means the threshold is not doing what its derivation says. Without this written
+down first, a 4-span rung still at 79 s reads as "v24 did nothing", when it is
+the one rung that is *correctly* still mitered.
+
+This also answers S18 §7.2, which could not identify the device fixture from
+where it stood: it has **no hole, 3 joints of 9.49°, legs of about 15.5**, against
+S18's own **drawn 90°** L. Both are "3 corners"; 9.49° and 90° is the whole
+difference. Nothing in S18's derivation depends on it — that section is ratios and
+volumes throughout — but its comparison to the device number does.
+
+*Derived from the threshold and the fixture, both read from source. The shim was
+**not** executed on those values; that is one smoke scenario's work and nobody
+has done it.*
+
+### 20.5 What round four did not close
+
+| | |
+| --- | --- |
+| **The validity gate** | priced and enumerated (§20.2), **not shipped**. 136 of 405 configurations would begin to fail and none fails today. A behaviour change, and the owner's call under §1.2. |
+| **S18's merge** | complete, unmerged. Shipping it refuses a tapered sweep across a drawn corner that currently returns a solid — an invalid one. The same decision as the row above, wearing a second hat. |
+| `ChamferFeature.edgeChain` | stores the value that is wrong, on every saved part, behind a toggle nothing can set (§20.3) |
+| Direct Move / Size / Scale | inert from the ribbon; the feature exists in the kernel and has no caller (§20.3) |
+| `occt_capi.h`'s "KNOWN, NOT FIXED HERE" note | stale — still points at S17 §5.1, which S20 closed |
+| `occt_shape_valid` | bound in Dart, never called on a build result |
+| S16's three *still untested* rows | `loft`'s `closed`, the coil's `taper_deg`, `chamfer_ex`'s out-parameters — unchanged |
+| Everything in §20 | desktop-only. No device has run v24, v27, v28 or v29. |
 
 ---
 
