@@ -6216,6 +6216,54 @@ abstract class AppL10n {
   /// In de, this message translates to:
   /// **'Vor Ort bearbeiten'**
   String get ctxEditInPlace;
+
+  /// M255 — Kontextmenue an einem Volumenkoerper im Browser. Inventor DE: "Bauteil erstellen".
+  ///
+  /// In de, this message translates to:
+  /// **'Bauteil erstellen'**
+  String get ctxMakePart;
+
+  /// M255 — Titel des Dialogs. Gleiche Woerter wie der Menuepunkt, damit erkennbar ist, was sich geoeffnet hat.
+  ///
+  /// In de, this message translates to:
+  /// **'Bauteil erstellen'**
+  String get dlgMakePart;
+
+  /// M255 — Feldbeschriftung. Inventor DE: "Name des neuen Bauteils".
+  ///
+  /// In de, this message translates to:
+  /// **'Name des neuen Bauteils'**
+  String get lblNewPartName;
+
+  /// M255 — Feldbeschriftung. Inventor DE: "Zielbaugruppe". Darf eine vorhandene Baugruppe benennen.
+  ///
+  /// In de, this message translates to:
+  /// **'Zielbaugruppe'**
+  String get lblTargetAssembly;
+
+  /// M255 — Zeile unter den Feldern. Das Versprechen des Befehls steht dort, wo entschieden wird.
+  ///
+  /// In de, this message translates to:
+  /// **'Bleibt mit „{name}“ verknüpft.'**
+  String hintMakePartLink(String name);
+
+  /// M255 — Bestaetigung, nachdem das Bauteil in der Baugruppe liegt.
+  ///
+  /// In de, this message translates to:
+  /// **'„{part}“ aus „{origin}“ erstellt und damit verknüpft.'**
+  String msgMadePart(String part, String origin);
+
+  /// M255 — der Koerper ist zwischen Menue und OK verschwunden.
+  ///
+  /// In de, this message translates to:
+  /// **'„{name}“ ist nicht mehr gebaut.'**
+  String msgMakePartNoBody(String name);
+
+  /// M255 — Bearbeiten an einem abgeleiteten Koerper. Inventor DE: "Basiskomponente oeffnen".
+  ///
+  /// In de, this message translates to:
+  /// **'Abgeleiteter Körper — „{name}“ wird geöffnet.'**
+  String msgDerivedEditOrigin(String name);
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

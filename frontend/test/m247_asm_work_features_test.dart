@@ -155,14 +155,17 @@ AppState asmApp(String tag, List<AssemblyOccurrence> os) {
   return app;
 }
 
-/// Looking down +Z from the -Z side, 120 mm across — so the box's -Z face is
-/// the one under the middle of the screen.
+/// The front view: the eye on the +Z side looking down -Z, 120 mm across — so
+/// the box's +Z face is the one under the middle of the screen. `dir` points
+/// AT the eye (see Cam3), which is what makes it the +Z one and not the far
+/// face behind it.
 Cam3 frontCam([Size size = const Size(800, 600)]) =>
     Cam3(PartCamera(az: 0, pol: 1.5707963267948966, halfH: 60), size);
 
-/// A reference to [o]'s -Z FACE, exactly as the picker stores one: the plane's
-/// own point 250 mm off the face (facedBox lies the way OCCT lies) and the
-/// anchor on it.
+/// A reference to [o]'s -Z FACE, in the shape the picker stores one: the
+/// plane's own point 250 mm off the face (facedBox lies the way OCCT lies) and
+/// the anchor on it. The far face on purpose — these are tests of the RE-SOLVE,
+/// and a stored reference does not care which side it was picked from.
 AsmRef faceRef(AssemblyOccurrence o) => AsmRef(
     o.id, const AsmGeom.plane(Vec3(0, -250, -10), Vec3(0, 0, -1)), 'Face',
     anchor: const Vec3(0, 0, -10), extent: 10);
@@ -198,16 +201,17 @@ void main() {
       final w = a.workPlanes.first;
       final before = w.frame.origin;
 
-      // The picked face is the box's -Z face at local z = -10, so an offset of
-      // +10 along its OUTWARD normal puts the plane at world z = -20.
-      expect(before.z, closeTo(-20, 1e-6));
+      // The picked face is the box's +Z face — the one facing the eye — at
+      // local z = +10, so an offset of +10 along its OUTWARD normal puts the
+      // plane at world z = +20.
+      expect(before.z, closeTo(20, 1e-6));
 
       // Now move the component 50 mm along +Z and re-derive. A baked frame
-      // would still be at z = -20; this one is not.
+      // would still be at z = 20; this one is not.
       o.offset = const Vec3(40, 0, 50);
       resolveAsmWorkFeatures(a);
       expect(w.error, isNull);
-      expect(w.frame.origin.z, closeTo(30, 1e-6),
+      expect(w.frame.origin.z, closeTo(70, 1e-6),
           reason: 'the plane travels with the face it was built from');
       expect((w.frame.origin - before).length, closeTo(50, 1e-6));
     });
@@ -220,13 +224,13 @@ void main() {
       app.startWorkPlane(WorkPlaneKind.offset);
       tapAt(app, a, cam, Vec3.zero);
       final w = a.workPlanes.single;
-      expect((w.frame.n - const Vec3(0, 0, -1)).length, lessThan(1e-6));
+      expect((w.frame.n - const Vec3(0, 0, 1)).length, lessThan(1e-6));
 
-      // A quarter turn about Y takes -Z to -X.
+      // A quarter turn about Y takes +Z to +X.
       o.rot = Quat.axisAngle(const Vec3(0, 1, 0), 1.5707963267948966);
       resolveAsmWorkFeatures(a);
-      expect((w.frame.n - const Vec3(-1, 0, 0)).length, lessThan(1e-6),
-          reason: 'a baked normal would still point along -Z');
+      expect((w.frame.n - const Vec3(1, 0, 0)).length, lessThan(1e-6),
+          reason: 'a baked normal would still point along +Z');
     });
 
     test('solving the assembly re-derives them — the one funnel', () {
@@ -238,11 +242,11 @@ void main() {
       final w = a.workPlanes.single;
       o.offset = const Vec3(0, 0, 25);
       // Nothing has asked for a re-solve yet, so the plane is still stale...
-      expect(w.frame.origin.z, closeTo(-20, 1e-6));
+      expect(w.frame.origin.z, closeTo(20, 1e-6));
       // ...and the solve is what fixes it, which is the point: every command
       // that can move a component goes through it.
       app.solveCurrentAssembly();
-      expect(w.frame.origin.z, closeTo(5, 1e-6));
+      expect(w.frame.origin.z, closeTo(45, 1e-6));
     });
 
     test('a work AXIS and a work POINT follow too', () {
@@ -294,7 +298,7 @@ void main() {
       app.startWorkPlane(WorkPlaneKind.offset);
       tapAt(app, a, frontCam(), Vec3.zero);
       final origin = a.workPlanes.single.frame.origin;
-      // facedBox's -Z face records its point at y = -250. Anything that used
+      // facedBox's +Z face records its point at y = +250. Anything that used
       // the record point lands there; the anchor is on the face.
       expect(origin.y.abs(), lessThan(11),
           reason: 'the frame origin must sit on the picked face (M244)');
@@ -316,7 +320,7 @@ void main() {
       final w = a.workPlanes.single;
       // The plane passes through the origin with the face's normal.
       expect(w.frame.origin.length, lessThan(1e-6));
-      expect((w.frame.n - const Vec3(0, 0, -1)).length, lessThan(1e-6));
+      expect((w.frame.n - const Vec3(0, 0, 1)).length, lessThan(1e-6));
     });
   });
 
@@ -417,8 +421,8 @@ void main() {
       tapAt(app, a, cam, Vec3.zero);
       final w = a.workPlanes.single;
 
-      // It sits at z = -20, NEARER the camera than the box's -Z face at -10,
-      // so a tap in the middle lands on it.
+      // It sits at z = +20, NEARER the camera (which is on the +Z side) than
+      // the box's +Z face at +10, so a tap in the middle lands on it.
       final pick = pickAsmRef(a, cam, cam.project(w.frame.origin));
       expect(pick, isNotNull);
       expect(pick!.ref.feature, w.id,
@@ -431,7 +435,7 @@ void main() {
       resolveAsmWorkFeatures(a);
       final live = worldGeomOf(a, pick.ref);
       expect(live.at.z, closeTo(w.frame.origin.z, 1e-6));
-      expect(live.at.z, closeTo(40, 1e-6));
+      expect(live.at.z, closeTo(80, 1e-6));
     });
 
     test('a hidden one is not offered — only what is drawn can be picked', () {
@@ -460,13 +464,13 @@ void main() {
       expect(a.workPlanes, hasLength(2));
       final second = a.workPlanes.last;
       expect(second.refs.single.feature, first.id);
-      expect(second.frame.origin.z, closeTo(-30, 1e-6));
+      expect(second.frame.origin.z, closeTo(30, 1e-6));
       // ...and the chain re-derives in one pass, because creation order is
       // dependency order.
       a.occurrences.single.offset = const Vec3(0, 0, 100);
       resolveAsmWorkFeatures(a);
-      expect(first.frame.origin.z, closeTo(80, 1e-6));
-      expect(second.frame.origin.z, closeTo(70, 1e-6));
+      expect(first.frame.origin.z, closeTo(120, 1e-6));
+      expect(second.frame.origin.z, closeTo(130, 1e-6));
     });
   });
 
@@ -636,7 +640,9 @@ void main() {
       expect(a.workPlanes, hasLength(1));
       final w = a.workPlanes.single;
       final was = w.frame.origin;
-      expect(was.z, closeTo(10, 1e-6), reason: 'halfway between -10 and 30');
+      expect(was.z, closeTo(30, 1e-6),
+          reason: 'halfway between the two picked faces, +10 and +50 — the '
+              'faces on the side the camera is on');
 
       b.rot = Quat.axisAngle(const Vec3(1, 0, 0), 0.5);
       resolveAsmWorkFeatures(a);
@@ -650,7 +656,7 @@ void main() {
       b.rot = Quat.identity;
       resolveAsmWorkFeatures(a);
       expect(w.error, isNull);
-      expect(w.frame.origin.z, closeTo(10, 1e-6));
+      expect(w.frame.origin.z, closeTo(30, 1e-6));
     });
 
     test('the browser lists them, with an eye and a selection', () {

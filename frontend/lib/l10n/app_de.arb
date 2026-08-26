@@ -3172,5 +3172,60 @@
   "ctxEditInPlace": "Vor Ort bearbeiten",
   "@ctxEditInPlace": {
     "description": "Kontextmenue an einer Komponente. Inventor DE: \"Bearbeiten\"."
+  },
+  "ctxMakePart": "Bauteil erstellen",
+  "@ctxMakePart": {
+    "description": "M255 — Kontextmenue an einem Volumenkoerper im Browser. Inventor DE: \"Bauteil erstellen\"."
+  },
+  "dlgMakePart": "Bauteil erstellen",
+  "@dlgMakePart": {
+    "description": "M255 — Titel des Dialogs. Gleiche Woerter wie der Menuepunkt, damit erkennbar ist, was sich geoeffnet hat."
+  },
+  "lblNewPartName": "Name des neuen Bauteils",
+  "@lblNewPartName": {
+    "description": "M255 — Feldbeschriftung. Inventor DE: \"Name des neuen Bauteils\"."
+  },
+  "lblTargetAssembly": "Zielbaugruppe",
+  "@lblTargetAssembly": {
+    "description": "M255 — Feldbeschriftung. Inventor DE: \"Zielbaugruppe\". Darf eine vorhandene Baugruppe benennen."
+  },
+  "hintMakePartLink": "Bleibt mit „{name}“ verknüpft.",
+  "@hintMakePartLink": {
+    "description": "M255 — Zeile unter den Feldern. Das Versprechen des Befehls steht dort, wo entschieden wird.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgMadePart": "„{part}“ aus „{origin}“ erstellt und damit verknüpft.",
+  "@msgMadePart": {
+    "description": "M255 — Bestaetigung, nachdem das Bauteil in der Baugruppe liegt.",
+    "placeholders": {
+      "part": {
+        "type": "String"
+      },
+      "origin": {
+        "type": "String"
+      }
+    }
+  },
+  "msgMakePartNoBody": "„{name}“ ist nicht mehr gebaut.",
+  "@msgMakePartNoBody": {
+    "description": "M255 — der Koerper ist zwischen Menue und OK verschwunden.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgDerivedEditOrigin": "Abgeleiteter Körper — „{name}“ wird geöffnet.",
+  "@msgDerivedEditOrigin": {
+    "description": "M255 — Bearbeiten an einem abgeleiteten Koerper. Inventor DE: \"Basiskomponente oeffnen\".",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
   }
 }

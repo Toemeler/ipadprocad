@@ -29,12 +29,38 @@
 // what makes Insert reachable, since Insert is created by picking two
 // circular edges.
 //
-// Depth convention, stated once because two contradictory ones exist in this
-// tree: the RENDERER's. Cam3.depth is w.(-dir), so LARGER is nearer, and a
-// face is visible when its outward normal has n.dir < 0. paintPartSolids,
-// buildSceneSolid and pickOccurrence all run on that rule and so does this.
-// part_pick.PickBest uses the opposite (smaller = nearer), which is why the
-// edge pass below hands it a NEGATED depth function.
+// DEPTH AND FACING, stated once because this file had them BACKWARDS and the
+// bug that made was "the preview is often on the backside of the part, not the
+// face the pointer is on" (device report 2026-08-26). Two contradictory
+// conventions exist in this tree; only one of them is the camera's.
+//
+// The camera sits at +dir and looks along -dir. That is not a matter of taste:
+//   * Cam3's own basis says so. project maps a world point through s (screen
+//     right) and u (screen up), and s x u == dir — so dir points OUT of the
+//     screen, at the viewer.
+//   * RealityKit, which is what actually draws on the device, places the eye
+//     at `center + dir * dist` looking back at center (RealityPartView
+//     .placeCamera). It is the picture the user is pointing at.
+//   * viewport3d._pickSolidFace records the DEVICE MEASUREMENT that settled
+//     it (build 2648d2e): the winding normal is the outward one, so a visible
+//     face has n.dir > 0. The ViewCube has always used that form.
+//
+// Two consequences, and both of them are load-bearing here:
+//
+//   * A face is VISIBLE when its outward normal has n.dir > 0. Culling the
+//     other sign keeps exactly the faces the user cannot see.
+//   * Cam3.depth is w.(-dir), so SMALLER is nearer. A "keep the largest"
+//     comparison hands back the farthest thing under the finger.
+//
+// part_pick.PickBest already keeps the smallest, so the edge pass below hands
+// it cam depth unchanged, and every bias that means "nearer" SUBTRACTS.
+//
+// paintPartSolids and buildSceneSolid still run the opposite rule. They are
+// the host-only Flutter painter — RealityKit owns the scene on the device, so
+// they draw nothing the user of this file is pointing at — and they are
+// internally consistent with it (their cull, their light and their occluder
+// all agree with each other). Do not take them as the convention: take the
+// three sources above, which are the camera the picture came from.
 import 'dart:math' as math;
 import 'dart:ui';
 
@@ -62,7 +88,7 @@ class AsmPick {
   /// travels with the pick rather than being derived twice.
   final AsmGeom world;
 
-  /// Cam3.depth of the touched point. LARGER is nearer — see the file header.
+  /// Cam3.depth of the touched point. SMALLER is nearer — see the file header.
   final double depth;
 
   /// The world point actually under the finger.
@@ -77,6 +103,8 @@ class AsmPick {
 /// face and the two report the same depth, so the face's larger hit area
 /// would take every tap and Insert would be unreachable by pointing at the
 /// hole you want the bolt in.
+///
+/// SUBTRACTED from a depth, never added: smaller is nearer (file header).
 const double kAsmEdgeBias = 0.6;
 
 /// What the user pointed at, or null.
@@ -84,7 +112,7 @@ AsmPick? pickAsmRef(AssemblyModel a, Cam3 cam, Offset px) {
   AsmPick? best;
   void offer(AsmPick? p) {
     if (p == null) return;
-    if (best == null || p.depth > best!.depth) best = p;
+    if (best == null || p.depth < best!.depth) best = p;
   }
 
   for (final o in a.occurrences) {
@@ -114,7 +142,7 @@ AsmPick? _pickEdgeOn(AssemblyOccurrence o, Cam3 cam, Offset px) {
   AsmPick? best;
   for (final (_, at, solid) in o.worldSolids) {
     final p = _pickEdgeOnPiece(o, at, solid, cam, px);
-    if (p != null && (best == null || p.depth > best.depth)) best = p;
+    if (p != null && (best == null || p.depth < best.depth)) best = p;
   }
   return best;
 }
@@ -126,12 +154,13 @@ AsmPick? _pickEdgeOnPiece(AssemblyOccurrence o, Placement at,
   final hit = pickEdge(
     [solid.mesh],
     sc.project,
-    // NEGATED: PickBest keeps the SMALLEST depth, and this file's convention
-    // is that the largest is nearest. sc.depth is measured from the piece's
-    // own origin, so the placement's own depth is added back to put every
-    // piece into one depth space (the rule buildSceneSolid's depthBias
-    // states).
-    (w) => -(sc.depth(w) + base),
+    // Handed over UNCHANGED. PickBest keeps the smallest depth and smaller is
+    // nearer (file header), so the two already agree — this used to be
+    // negated, which made every edge pick answer with the farthest edge under
+    // the finger. sc.depth is measured from the piece's own origin, so the
+    // placement's own depth is added back to put every piece into one depth
+    // space (the rule buildSceneSolid's depthBias states).
+    (w) => sc.depth(w) + base,
     px,
     // A component's edges are for pointing at, not for filleting: an edge
     // with no topological id is still a perfectly good circle to insert a
@@ -142,7 +171,7 @@ AsmPick? _pickEdgeOnPiece(AssemblyOccurrence o, Placement at,
   if (hit == null) return null;
   final m = solid.mesh;
   final world = at.apply(hit.point);
-  final depth = cam.depth(world) + kAsmEdgeBias;
+  final depth = cam.depth(world) - kAsmEdgeBias;
   // The analytic curve records are in the PIECE's mesh frame; a constraint
   // reference lives in the COMPONENT's. Identity for a part, and for a
   // subassembly the step that turns an inner part's circle into something the
@@ -204,7 +233,7 @@ AsmPick? _pickEdgeOnPiece(AssemblyOccurrence o, Placement at,
 /// a constraint can act on.
 AsmPick? _pickFaceOn(AssemblyOccurrence o, Cam3 cam, Offset px) {
   List<double>? bestInfo;
-  var bestDepth = double.negativeInfinity;
+  var bestDepth = double.infinity;
   var bestHit = Vec3.zero;
   OcctMeshData? bestMesh;
   var bestFace = -1;
@@ -235,10 +264,17 @@ AsmPick? _pickFaceOn(AssemblyOccurrence o, Cam3 cam, Offset px) {
       final w1 = Vec3(m.positions[i1], m.positions[i1 + 1], m.positions[i1 + 2]);
       final w2 = Vec3(m.positions[i2], m.positions[i2 + 1], m.positions[i2 + 2]);
       final n = (w1 - w0).cross(w2 - w0);
-      // Camera-facing only, the renderer's rule — see the file header. M248:
-      // UNCHANGED on a mirrored component, and see placedCam for why — the
-      // winding reverses in world space, and this loop is in the piece's own.
-      if (n.length < 1e-12 || n.normalized().dot(sc.dir) >= 0) continue;
+      // CAMERA-FACING ONLY: the winding normal is the outward one and the
+      // camera sits at +dir (file header). This test used to read the other
+      // sign, and that single character is the whole of "the preview is on
+      // the backside of the part": it kept precisely the faces hidden behind
+      // the model and threw away the one the pointer was on. Said through
+      // [Cam3.facesCamera] now, so the sign is written down once.
+      //
+      // M248: UNCHANGED on a mirrored component, and see placedCam for why —
+      // the winding reverses in world space, and this loop is in the piece's
+      // own, which is the space `sc` is in.
+      if (n.length < 1e-12 || !sc.facesCamera(n)) continue;
       final a = sc.project(w0), b = sc.project(w1), c = sc.project(w2);
       final den = (b.dy - c.dy) * (a.dx - c.dx) + (c.dx - b.dx) * (a.dy - c.dy);
       if (den.abs() < 1e-9) continue;
@@ -252,8 +288,11 @@ AsmPick? _pickFaceOn(AssemblyOccurrence o, Cam3 cam, Offset px) {
       const e = -1e-6;
       if (l0 < e || l1 < e || l2 < e) continue;
       final local = w0 * l0 + w1 * l1 + w2 * l2;
+      // One depth space for every piece: the placed camera moves the
+      // PROJECTION, not the view axis, so the piece's own depth is added back.
+      // Smaller is nearer, so the frontmost triangle is the smallest.
       final d = sc.depth(local) + base;
-      if (d <= bestDepth) continue;
+      if (d >= bestDepth) continue;
       final fid = m.triFaces[t ~/ 3];
       if (fid < 0 || 15 * fid + 15 > m.faceInfos.length) continue;
       bestDepth = d;
@@ -413,7 +452,7 @@ AsmPick? _pickOriginOf(AssemblyModel a, Cam3 cam, Offset px) {
   AsmPick? best;
   void offer(AsmPick? p) {
     if (p == null) return;
-    if (best == null || p.depth > best!.depth) best = p;
+    if (best == null || p.depth < best!.depth) best = p;
   }
 
   for (final key in kPlaneKeys) {
@@ -449,8 +488,8 @@ AsmPick? _pickOriginOf(AssemblyModel a, Cam3 cam, Offset px) {
             anchor: hit),
         AsmGeom.axis(Vec3.zero, dir),
         // Nearer than a plane through it, so an axis lying in a visible
-        // origin plane can still be taken.
-        cam.depth(hit) + kAsmEdgeBias,
+        // origin plane can still be taken. Nearer means SMALLER.
+        cam.depth(hit) - kAsmEdgeBias,
         hit));
   }
   if (a.vis['cp'] == true &&
@@ -458,7 +497,7 @@ AsmPick? _pickOriginOf(AssemblyModel a, Cam3 cam, Offset px) {
     offer(AsmPick(
         const AsmRef(kAssemblyOrigin, AsmGeom.point(Vec3.zero), 'Center Point'),
         const AsmGeom.point(Vec3.zero),
-        cam.depth(Vec3.zero) + 2 * kAsmEdgeBias,
+        cam.depth(Vec3.zero) - 2 * kAsmEdgeBias,
         Vec3.zero));
   }
   offer(_pickWorkFeatureOf(a, cam, px));
@@ -485,7 +524,7 @@ AsmPick? _pickWorkFeatureOf(AssemblyModel a, Cam3 cam, Offset px) {
   AsmPick? best;
   void offer(AsmPick? p) {
     if (p == null) return;
-    if (best == null || p.depth > best!.depth) best = p;
+    if (best == null || p.depth < best!.depth) best = p;
   }
 
   AsmPick pick(AsmGeom g, String label, String id, double depth, Vec3 hit) =>
@@ -511,15 +550,16 @@ AsmPick? _pickWorkFeatureOf(AssemblyModel a, Cam3 cam, Offset px) {
     if (d2 > kAsmOriginTolerancePx * kAsmOriginTolerancePx) continue;
     final hit = e0 + (e1 - e0) * t;
     // Nearer than a plane through it, exactly as an origin axis is: an axis
-    // lying in a visible work plane still has to be takeable.
+    // lying in a visible work plane still has to be takeable. Nearer is
+    // SMALLER.
     offer(pick(AsmGeom.axis(x.at, x.dir), x.name, x.id,
-        cam.depth(hit) + kAsmEdgeBias, hit));
+        cam.depth(hit) - kAsmEdgeBias, hit));
   }
   for (final p in a.workPoints) {
     if (!p.visible) continue;
     if ((cam.project(p.at) - px).distance > kAsmOriginTolerancePx) continue;
     offer(pick(AsmGeom.point(p.at), p.name, p.id,
-        cam.depth(p.at) + 2 * kAsmEdgeBias, p.at));
+        cam.depth(p.at) - 2 * kAsmEdgeBias, p.at));
   }
   return best;
 }

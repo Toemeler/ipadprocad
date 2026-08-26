@@ -835,6 +835,9 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
               confirmLabel: L.of(context).rename);
           if (r != null && r.trim().isNotEmpty) app.renameBody(name, r.trim());
           break;
+        case 'bdMakePart':
+          app.openMakePart(name); // M255
+          break;
         case 'bdDelete':
           app.deleteBody(name);
           break;
