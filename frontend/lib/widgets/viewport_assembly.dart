@@ -113,6 +113,23 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
   /// focal point while the camera moves under it, and both are wrong.
   final Set<int> _down = {};
 
+  // ---- M250: the FREE ROTATE gesture ----
+  //
+  // Inventor's 3D rotate glyph, and the four things it can be grabbed by. The
+  // behaviour is the Autodesk help's, verbatim:
+  //
+  //     the top or bottom handle, dragged vertically   -> horizontal axis
+  //     the left or right handle, dragged horizontally -> vertical axis
+  //     anywhere inside the sphere                     -> any direction
+  //     the rim                                        -> planar to the screen
+  //
+  // The axes are the CAMERA's, not the world's or the component's: "the
+  // horizontal axis" means the one across the screen, which is what makes the
+  // gesture read as turning the thing you can see rather than as arithmetic on
+  // a coordinate system. cam.s, cam.u and cam.dir are exactly those three.
+  _RotGrab? _rotGrab;
+  Offset _rotLast = Offset.zero;
+
   /// The occurrence under the pointer, for the hover cursor and the hover tint.
   AssemblyOccurrence? _hover;
 
@@ -363,6 +380,7 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
               }
               // A second finger turns this into a navigation gesture.
               if (_down.length > 1) {
+                _endTurn(app);
                 _endDrag();
                 return;
               }
@@ -401,6 +419,36 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
                 } else {
                   app.toast(L.of(context).hintAsmPickGeometry);
                 }
+                return;
+              }
+              // M250 — Create Component is collecting the SKETCH PLANE. Ahead
+              // of the grab for the reason every branch above is: a tap meant
+              // to choose a face must not drag the component out from under
+              // the command that is about to build on it.
+              if (app.asmCreatePicking) {
+                final pick = pickAsmRef(a, cam, e.localPosition);
+                if (pick == null) {
+                  app.toast(L.of(context).hintAsmCreatePickPlane);
+                } else {
+                  unawaited(app.createComponentOn(pick));
+                }
+                return;
+              }
+              // M250 — FREE ROTATE. The glyph owns the pointer when the
+              // pointer is on it; a tap that misses it is an ordinary
+              // selection, so a different component can still be chosen to
+              // turn. No component DRAG while the command is armed: Free
+              // Rotate rotates, and Free Move is the button next to it.
+              if (app.asmPositionMode == AsmPositionMode.rotate) {
+                final grab = _rotGrabAt(app, cam, e.localPosition);
+                if (grab != null) {
+                  _rotGrab = grab;
+                  _rotLast = e.localPosition;
+                  app.beginOccurrenceTurn(app.freeRotateTarget!);
+                  return;
+                }
+                final hit = pickOccurrence(a, cam, e.localPosition);
+                app.selectOccurrence(hit);
                 return;
               }
               // M242 — while Place Constraint is collecting, a tap is a
@@ -454,6 +502,11 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
               }
             },
             onPointerMove: (e) {
+              if (_rotGrab != null) {
+                _turn(app, cam, e.localPosition);
+                _rotLast = e.localPosition;
+                return; // the rotation owns this pointer
+              }
               final d = _drag;
               if (d != null) {
                 if (!_dragMoved &&
@@ -486,11 +539,13 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
             onPointerUp: (e) {
               _mmb = false;
               _down.remove(e.pointer);
+              _endTurn(app);
               _endDrag();
             },
             onPointerCancel: (e) {
               _mmb = false;
               _down.remove(e.pointer);
+              _endTurn(app);
               _endDrag();
             },
             // Trackpad gestures arrive as PointerPanZoom, never as extra
@@ -535,6 +590,7 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
                 // the next tap would select is the thing worth showing.
                 if (app.constraintPicking ||
                     app.asmPickWorkGeometry ||
+                    app.asmCreatePicking ||
                     (app.asmPatternPicking &&
                         app.patternSession?.active != PatternField.none)) {
                   final p = pickAsmRef(a, cam, e.localPosition);
@@ -591,6 +647,10 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
                       // component would orbit the camera at the same time.
                       // Exactly the trap M170 documented for work planes.
                       _drag == null &&
+                      // M250 — and not while one is being TURNED, which lives
+                      // in the same raw Listener and would otherwise spin the
+                      // component and the camera together.
+                      _rotGrab == null &&
                       _dragKind == PointerDeviceKind.touch) {
                     // One finger orbits ON TOUCH only. A single trackpad or
                     // mouse drag is a pick and must not move the view.
@@ -652,6 +712,92 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
           ),
       ]);
     });
+  }
+
+  /// M250 — which part of the rotate glyph [px] is on, or null when it is not
+  /// on the glyph at all.
+  ///
+  /// The bands are in fractions of the glyph's own screen radius, so they hold
+  /// at any zoom, and the outer one runs a little PAST the rim: a rim you can
+  /// only hit exactly is a rim nobody hits on a touch screen.
+  _RotGrab? _rotGrabAt(AppState app, Cam3 cam, Offset px) {
+    final g = rotateGlyphScreen(app, cam);
+    if (g == null) return null;
+    final (c, r) = g;
+    final d = (px - c).distance;
+    if (d > r * 1.18) return null;
+    if (d < r * 0.78) return _RotGrab.free;
+    // On the rim. Which of the four handles, if any: within 32 degrees of
+    // straight up/down is a handle, and everything else on the rim is the
+    // planar-to-screen ring.
+    final ang = math.atan2(-(px.dy - c.dy), px.dx - c.dx);
+    const near = math.pi * 32 / 180;
+    double away(double target) {
+      var t = (ang - target).abs() % (2 * math.pi);
+      if (t > math.pi) t = 2 * math.pi - t;
+      return t;
+    }
+
+    if (away(math.pi / 2) < near || away(-math.pi / 2) < near) {
+      return _RotGrab.screenHorizontal;
+    }
+    if (away(0) < near || away(math.pi) < near) {
+      return _RotGrab.screenVertical;
+    }
+    return _RotGrab.screenPlanar;
+  }
+
+  /// One frame of the rotate gesture.
+  ///
+  /// [_kTurnPerPixel] is the orbit's own sensitivity, so turning a component
+  /// and turning the camera feel like the same gesture — which they very
+  /// nearly are, and a component that spun twice as fast as the view would
+  /// read as a different control.
+  void _turn(AppState app, Cam3 cam, Offset px) {
+    final d = px - _rotLast;
+    switch (_rotGrab!) {
+      // Dragging DOWN tips the top of the component toward the viewer.
+      // {s, u, dir} is right-handed and the camera sits on the +dir side, so
+      // a positive turn about s carries u toward dir — toward you.
+      case _RotGrab.screenHorizontal:
+        app.turnOccurrenceBy(cam.s, d.dy * _kTurnPerPixel);
+      // Dragging RIGHT carries the face you are looking at to the right:
+      // u x dir = s, so a positive turn about u moves dir toward s.
+      case _RotGrab.screenVertical:
+        app.turnOccurrenceBy(cam.u, d.dx * _kTurnPerPixel);
+      case _RotGrab.free:
+        final len = d.distance;
+        if (len < 1e-6) return;
+        // The trackball: one rotation about the screen axis perpendicular to
+        // the drag, which is the two handle cases composed. orbitScreen does
+        // it as yaw-then-pitch; one axis is the same thing to first order and
+        // does not need two solves per frame.
+        app.turnOccurrenceBy(
+            cam.u * d.dx + cam.s * d.dy, len * _kTurnPerPixel);
+      case _RotGrab.screenPlanar:
+        final g = rotateGlyphScreen(app, cam);
+        if (g == null) return;
+        final (c, _) = g;
+        // The angle SWEPT around the centre. Screen y grows downward, so it is
+        // negated to give an ordinary counter-clockwise-positive angle — and
+        // counter-clockwise on screen is a positive turn about dir, which
+        // points at the viewer.
+        double ang(Offset p) => math.atan2(-(p.dy - c.dy), p.dx - c.dx);
+        var delta = ang(px) - ang(_rotLast);
+        // Across the ±pi seam the raw difference is nearly a full turn the
+        // wrong way, which would flip the component every time the pointer
+        // crossed due west.
+        if (delta > math.pi) delta -= 2 * math.pi;
+        if (delta < -math.pi) delta += 2 * math.pi;
+        app.turnOccurrenceBy(cam.dir, delta);
+    }
+  }
+
+  /// Ends the rotate gesture, persisting the placement once.
+  void _endTurn(AppState app) {
+    if (_rotGrab == null) return;
+    _rotGrab = null;
+    app.endOccurrenceTurn();
   }
 
   /// Ends a component drag, persisting the new placement only if the component
@@ -807,6 +953,101 @@ void paintMissingComponents(Canvas canvas, Cam3 cam, AssemblyModel asm) {
   }
 }
 
+/// M250 — which part of the Free Rotate glyph a gesture grabbed.
+///
+/// Named for the SCREEN axis each one turns about, because that is what the
+/// user is choosing: "the horizontal axis" is the one lying across the screen,
+/// whichever way the model happens to be facing.
+enum _RotGrab {
+  /// The top or bottom handle: turns about the screen's horizontal axis.
+  screenHorizontal,
+
+  /// The left or right handle: turns about the screen's vertical axis.
+  screenVertical,
+
+  /// Anywhere inside the sphere: turns in any direction.
+  free,
+
+  /// The rim: turns in the plane of the screen.
+  screenPlanar,
+}
+
+/// Radians per pixel of drag, for the Free Rotate gesture.
+///
+/// The same number [_ViewportAssemblyState._orbit] turns the CAMERA by, so the
+/// two gestures feel like one control. A component that spun at a different
+/// rate from the view would read as a different kind of thing entirely.
+const double _kTurnPerPixel = 0.01;
+
+/// M250 — where the Free Rotate glyph is on screen, and how big: (centre,
+/// radius) in pixels, or null when Free Rotate is not armed on anything.
+///
+/// ONE definition, read by the painter and by the hit test. Two would be two
+/// chances for the glyph to be drawn somewhere it cannot be grabbed — the
+/// exact class of defect asm_pick.dart's header opens by naming.
+///
+/// The radius is measured by projecting a world offset along the camera's own
+/// right vector, so it tracks the zoom exactly; the floor keeps a small
+/// component's glyph big enough to have four distinguishable handles on it.
+(Offset, double)? rotateGlyphScreen(AppState app, Cam3 cam) {
+  final g = app.freeRotateGlyph;
+  if (g == null) return null;
+  final (centre, r) = g;
+  final c = cam.project(centre);
+  final edge = cam.project(centre + cam.s * r);
+  return (c, math.max(34.0, (edge - c).distance * 1.25));
+}
+
+/// Draws Inventor's 3D rotate glyph on the component Free Rotate is armed on.
+///
+/// Pure HUD in screen space, so it is drawn from BOTH painters — the same
+/// split paintMissingComponents and paintWorkAxesAndPoints live on, and for
+/// the same reason: drawn only in the CPU scene painter it would be visible on
+/// the host and invisible on the iPad, where RealityKit owns the scene.
+///
+/// Un-occluded, deliberately. A handle you cannot see because the component
+/// you are about to turn is in front of it is a handle you cannot aim at, and
+/// the whole glyph is an instrument rather than geometry.
+void paintRotateGlyph(Canvas canvas, Cam3 cam, AppState app) {
+  final g = rotateGlyphScreen(app, cam);
+  if (g == null) return;
+  final (c, r) = g;
+  final rim = Paint()
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 1.6
+    ..color = kEdgeAccent.withValues(alpha: 0.9);
+  // The sphere: the rim, and two ellipses across it that read as its equator
+  // and meridian. Inventor draws a shaded ball; two arcs say the same thing at
+  // a tenth of the cost and do not fight the model behind them.
+  canvas.drawCircle(c, r, rim);
+  final faint = Paint()
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 1
+    ..color = kEdgeAccent.withValues(alpha: 0.35);
+  canvas.drawOval(Rect.fromCenter(center: c, width: r * 2, height: r * 0.7),
+      faint);
+  canvas.drawOval(Rect.fromCenter(center: c, width: r * 0.7, height: r * 2),
+      faint);
+  // The four handles, at the compass points of the rim — which is exactly
+  // where the hit test looks for them.
+  final knob = Paint()..color = kEdgeAccent;
+  for (final o in [
+    Offset(0, -r),
+    Offset(0, r),
+    Offset(-r, 0),
+    Offset(r, 0),
+  ]) {
+    canvas.drawCircle(c + o, 4.5, knob);
+    canvas.drawCircle(
+        c + o,
+        4.5,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1
+          ..color = T.viewport);
+  }
+}
+
 /// The iOS overlay: RealityKit draws the scene, this draws what is pure HUD.
 class _MissingPartPainter extends CustomPainter {
   final AssemblyModel asm;
@@ -839,6 +1080,9 @@ class _MissingPartPainter extends CustomPainter {
         bounds: assemblyContentBounds(asm),
         app: app);
     paintConstraintMarks(canvas, cam, marks, hoverGeom);
+    // M250 — the Free Rotate glyph is HUD too, and comes through here for the
+    // same reason the work axes do.
+    paintRotateGlyph(canvas, cam, app);
   }
 
   @override
@@ -1031,6 +1275,9 @@ class _AssemblyPainter extends CustomPainter {
         bounds: assemblyContentBounds(asm),
         app: app);
     paintConstraintMarks(canvas, cam, marks, hoverGeom);
+    // M250 — and the Free Rotate glyph, so the host renderer says what the
+    // device says.
+    paintRotateGlyph(canvas, cam, app);
   }
 
   @override
