@@ -1,0 +1,104 @@
+Flutter 3.47.1 • channel stable • https://github.com/flutter/flutter.git
+Framework • revision 6655482ec0 (7 days ago) • 2026-08-19 10:07:23 -0700
+Engine • hash 11d79658c444477b06513d32b52c8c4ccb7276b0 (revision 5d53178869) (7 days ago) • 2026-08-18 23:36:01.000Z
+Tools • Dart 3.13.1 • DevTools 2.60.0
+Recreating project ....
+  ios/Runner.xcworkspace/contents.xcworkspacedata (created)
+  ios/Runner.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist (created)
+  ios/Runner.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings (created)
+  ios/RunnerTests/RunnerTests.swift (created)
+  ios/Runner/Info.plist (created)
+  ios/Runner/Runner-Bridging-Header.h (created)
+  ios/Runner/Assets.xcassets/LaunchImage.imageset/LaunchImage@2x.png (created)
+  ios/Runner/Assets.xcassets/LaunchImage.imageset/README.md (created)
+  ios/Runner/Assets.xcassets/LaunchImage.imageset/Contents.json (created)
+  ios/Runner/Assets.xcassets/LaunchImage.imageset/LaunchImage@3x.png (created)
+  ios/Runner/Assets.xcassets/LaunchImage.imageset/LaunchImage.png (created)
+  ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-29x29@1x.png (created)
+  ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-20x20@3x.png (created)
+  ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-29x29@2x.png (created)
+  ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-60x60@3x.png (created)
+  ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-83.5x83.5@2x.png (created)
+  ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-1024x1024@1x.png (created)
+  ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-40x40@2x.png (created)
+  ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-40x40@1x.png (created)
+  ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-76x76@1x.png (created)
+  ios/Runner/Assets.xcassets/AppIcon.appiconset/Contents.json (created)
+  ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-76x76@2x.png (created)
+  ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-40x40@3x.png (created)
+  ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-29x29@3x.png (created)
+  ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-20x20@2x.png (created)
+  ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-60x60@2x.png (created)
+  ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-20x20@1x.png (created)
+  ios/Runner/Base.lproj/LaunchScreen.storyboard (created)
+  ios/Runner/Base.lproj/Main.storyboard (created)
+  ios/Runner/AppDelegate.swift (created)
+  ios/Runner/SceneDelegate.swift (created)
+  ios/Runner.xcodeproj/project.xcworkspace/contents.xcworkspacedata (created)
+  ios/Runner.xcodeproj/project.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist (created)
+  ios/Runner.xcodeproj/project.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings (created)
+  ios/Runner.xcodeproj/project.pbxproj (created)
+  ios/Runner.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme (created)
+  ios/Flutter/Debug.xcconfig (created)
+  ios/Flutter/Release.xcconfig (created)
+  ios/Flutter/AppFrameworkInfo.plist (created)
+  ios/.gitignore (created)
+  prototype.iml (created)
+  README.md (created)
+  analysis_options.yaml (created)
+  .idea/runConfigurations/main_dart.xml (created)
+  .idea/libraries/Dart_SDK.xml (created)
+  .idea/libraries/KotlinJavaRuntime.xml (created)
+  .idea/modules.xml (created)
+  .idea/workspace.xml (created)
+  test/widget_test.dart (created)
+Resolving dependencies...
+Downloading packages...
+Got dependencies.
+Wrote 49 files.
+
+All done!
+You can find general documentation for Flutter at: https://docs.flutter.dev/
+Detailed API documentation is available at: https://api.flutter.dev/
+If you prefer video documentation, consider: https://www.youtube.com/c/flutterdev
+
+In order to run your application, type:
+
+  $ flutter run
+
+Your application code is in ./lib/main.dart.
+
+Resolving dependencies...
+Downloading packages...
+  code_assets 1.2.1 (2.0.0 available)
+  file_picker 8.3.7 (12.1.1 available)
+  flutter_lints 3.0.2 (6.0.0 available)
+  hooks 2.0.2 (2.2.0 available)
+  lints 3.0.0 (6.1.0 available)
+  material_color_utilities 0.13.0 (0.13.1 available)
+  meta 1.18.3 (1.19.0 available)
+  objective_c 9.5.0 (9.6.0 available)
+  record_use 0.6.0 (1.1.1 available)
+  test_api 0.7.12 (0.7.13 available)
+  vector_math 2.4.0 (2.4.2 available)
+  win32 5.15.0 (6.4.0 available)
+Got dependencies!
+12 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+Xcode is fetching Swift Package Manager dependencies. This may take several minutes...
+  Fetching from https://github.com/zhangao0086/DKImagePickerController...     
+  Fetching from https://github.com/zhangao0086/DKCamera...      
+  Fetching from https://github.com/zhangao0086/DKPhotoGallery...     
+  Fetching from https://github.com/kirualex/SwiftyGif.git...     
+  Fetching from https://github.com/SDWebImage/SDWebImage...     
+  Fetching from https://github.com/TimOliver/TOCropViewController...     
+Building com.prototype.prototype for simulator (ios)...
+Updating minimum iOS deployment target to 15.0.
+Upgrading project.pbxproj
+Upgrading AppFrameworkInfo.plist
+Upgrading Podfile
+The following plugins do not support Swift Package Manager for ios:
+  - native_menu
+  - reality_view
+This will become an error in a future version of Flutter. Please contact the plugin maintainers to request Swift Package Manager adoption.
+Running pod install...                                           1,996ms

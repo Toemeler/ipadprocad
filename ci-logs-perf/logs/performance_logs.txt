@@ -1,0 +1,219 @@
+
+================ PERF SESSION 2026-08-26T09:34:51.768191 build=3c6ee0d ================
+# ms columns are: last / avg / p95 / worst   (n = calls)
+--- 2026-08-26T09:34:58.708108 ---
+  WARNING  no frame timings — Perf.attachToBinding() did not run or failed. Spans below are valid; frame.* is missing.
+  MEMORY  rss=499.1MB peak=499.1MB
+  SUBSYSTEMS (by total time, share of 0s wall clock)
+  step.state.getApplicationDocumentsDirectory (platform channel) n=     1   2409.0 / 2409.0 / 2409.0 / 2409.0 ms  tot=2.41s 0.0%
+  step.main.WidgetsFlutterBinding.ensureInitialized n=     1    425.9 /  425.9 /  425.9 /  425.9 ms  tot=0.43s 0.0%
+  step.state.Engine.create (backend probe) n=     1    195.1 /  195.1 /  195.1 /  195.1 ms  tot=0.20s 0.0%
+  step.state.occt smoke      n=     1    123.0 /  123.0 /  123.0 /  123.0 ms  tot=0.12s 0.0%
+  step.ffi.qcad_document_new() n=     1     72.2 /   72.2 /   72.2 /   72.2 ms  tot=0.07s 0.0%
+  step.ffi.symbol lookup + qcad_init() n=     1     59.7 /   59.7 /   59.7 /   59.7 ms  tot=0.06s 0.0%
+  step.state.refreshSaved    n=     1     49.7 /   49.7 /   49.7 /   49.7 ms  tot=0.05s 0.0%
+  step.main.T.followPlatform n=     1     42.6 /   42.6 /   42.6 /   42.6 ms  tot=0.04s 0.0%
+  step.main.runApp           n=     1     30.9 /   30.9 /   30.9 /   30.9 ms  tot=0.03s 0.0%
+  ffi.occt.makeBox           n=     1     24.2 /   24.2 /   24.2 /   24.2 ms  tot=0.02s 0.0%
+  step.ffi.probe entity_ids/geometry round-trip n=     1     17.2 /   17.2 /   17.2 /   17.2 ms  tot=0.02s 0.0%
+  ffi.qcad.allGeometry       n=     2      1.2 /    8.3 /   15.4 /   15.4 ms  tot=0.02s 0.0%
+  step.ffi.probe qcad_add_line() n=     1     14.4 /   14.4 /   14.4 /   14.4 ms  tot=0.01s 0.0%
+  step.main.AppState()       n=     1     12.5 /   12.5 /   12.5 /   12.5 ms  tot=0.01s 0.0%
+  ffi.qcad.addLine           n=     2      0.7 /    6.0 /   11.3 /   11.3 ms  tot=0.01s 0.0%
+  step.main.hide system UI (fire-and-forget) n=     1      7.8 /    7.8 /    7.8 /    7.8 ms  tot=0.01s 0.0%
+  step.main.setPreferredOrientations (fire-and-forget) n=     1      7.3 /    7.3 /    7.3 /    7.3 ms  tot=0.01s 0.0%
+  step.state.migrateLegacyDocuments n=     1      6.9 /    6.9 /    6.9 /    6.9 ms  tot=0.01s 0.0%
+  step.state.Engine.create (smoke) n=     1      6.3 /    6.3 /    6.3 /    6.3 ms  tot=0.01s 0.0%
+  step.state.reacquireExternals n=     1      4.7 /    4.7 /    4.7 /    4.7 ms  tot=0.00s 0.0%
+  step.state.loadRemembered  n=     1      4.4 /    4.4 /    4.4 /    4.4 ms  tot=0.00s 0.0%
+  step.ffi.probe qcad_document_free() n=     1      4.3 /    4.3 /    4.3 /    4.3 ms  tot=0.00s 0.0%
+  ffi.qcad.addCircle         n=     1      3.7 /    3.7 /    3.7 /    3.7 ms  tot=0.00s 0.0%
+  step.ffi.qcad_version()    n=     1      2.8 /    2.8 /    2.8 /    2.8 ms  tot=0.00s 0.0%
+  step.ffi.DynamicLibrary.process() n=     1      0.5 /    0.5 /    0.5 /    0.5 ms  tot=0.00s 0.0%
+  MEMORY  rssMB=499  rssMaxMB=499  rssPeakMB=499
+  COUNTERS  ffi.qcad.allGeometry.entities=3
+--- 2026-08-26T09:35:02.887104 ---
+  FRAMES  n=1  fps=0.6  jank(>33ms)=1 (100.0%)
+  frame.total                n=     1   1778.5 / 1778.5 / 1778.5 / 1778.5 ms
+  frame.build(dart)          n=     1    283.3 /  283.3 /  283.3 /  283.3 ms
+  frame.raster(gpu)          n=     1    724.7 /  724.7 /  724.7 /  724.7 ms
+  MEMORY  rss=338.0MB peak=501.5MB
+  SUBSYSTEMS (by total time, share of 4s wall clock)
+  launch.toFirstFrame        n=     1  11006.6 /11006.6 /11006.6 /11006.6 ms  tot=11.01s 263.3%
+  step.state.getApplicationDocumentsDirectory (platform channel) n=     1   2409.0 / 2409.0 / 2409.0 / 2409.0 ms  tot=2.41s 57.6%
+  step.main.WidgetsFlutterBinding.ensureInitialized n=     1    425.9 /  425.9 /  425.9 /  425.9 ms  tot=0.43s 10.2%
+  step.state.Engine.create (backend probe) n=     1    195.1 /  195.1 /  195.1 /  195.1 ms  tot=0.20s 4.7%
+  step.state.occt smoke      n=     1    123.0 /  123.0 /  123.0 /  123.0 ms  tot=0.12s 2.9%
+  step.ffi.qcad_document_new() n=     1     72.2 /   72.2 /   72.2 /   72.2 ms  tot=0.07s 1.7%
+  step.ffi.symbol lookup + qcad_init() n=     1     59.7 /   59.7 /   59.7 /   59.7 ms  tot=0.06s 1.4%
+  step.state.refreshSaved    n=     1     49.7 /   49.7 /   49.7 /   49.7 ms  tot=0.05s 1.2%
+  step.main.T.followPlatform n=     1     42.6 /   42.6 /   42.6 /   42.6 ms  tot=0.04s 1.0%
+  step.main.runApp           n=     1     30.9 /   30.9 /   30.9 /   30.9 ms  tot=0.03s 0.7%
+  ffi.occt.makeBox           n=     1     24.2 /   24.2 /   24.2 /   24.2 ms  tot=0.02s 0.6%
+  step.ffi.probe entity_ids/geometry round-trip n=     1     17.2 /   17.2 /   17.2 /   17.2 ms  tot=0.02s 0.4%
+  ffi.qcad.allGeometry       n=     2      1.2 /    8.3 /   15.4 /   15.4 ms  tot=0.02s 0.4%
+  step.ffi.probe qcad_add_line() n=     1     14.4 /   14.4 /   14.4 /   14.4 ms  tot=0.01s 0.3%
+  step.main.AppState()       n=     1     12.5 /   12.5 /   12.5 /   12.5 ms  tot=0.01s 0.3%
+  ffi.qcad.addLine           n=     2      0.7 /    6.0 /   11.3 /   11.3 ms  tot=0.01s 0.3%
+  tabbar.sig                 n=     1     10.7 /   10.7 /   10.7 /   10.7 ms  tot=0.01s 0.3%
+  step.main.hide system UI (fire-and-forget) n=     1      7.8 /    7.8 /    7.8 /    7.8 ms  tot=0.01s 0.2%
+  step.main.setPreferredOrientations (fire-and-forget) n=     1      7.3 /    7.3 /    7.3 /    7.3 ms  tot=0.01s 0.2%
+  step.state.migrateLegacyDocuments n=     1      6.9 /    6.9 /    6.9 /    6.9 ms  tot=0.01s 0.2%
+  step.state.Engine.create (smoke) n=     1      6.3 /    6.3 /    6.3 /    6.3 ms  tot=0.01s 0.2%
+  step.state.reacquireExternals n=     1      4.7 /    4.7 /    4.7 /    4.7 ms  tot=0.00s 0.1%
+  step.state.loadRemembered  n=     1      4.4 /    4.4 /    4.4 /    4.4 ms  tot=0.00s 0.1%
+  step.ffi.probe qcad_document_free() n=     1      4.3 /    4.3 /    4.3 /    4.3 ms  tot=0.00s 0.1%
+  ffi.qcad.addCircle         n=     1      3.7 /    3.7 /    3.7 /    3.7 ms  tot=0.00s 0.1%
+  step.ffi.qcad_version()    n=     1      2.8 /    2.8 /    2.8 /    2.8 ms  tot=0.00s 0.1%
+  toolbar.sig                n=     1      1.8 /    1.8 /    1.8 /    1.8 ms  tot=0.00s 0.0%
+  step.ffi.DynamicLibrary.process() n=     1      0.5 /    0.5 /    0.5 /    0.5 ms  tot=0.00s 0.0%
+  MEMORY  rssMB=337  rssMaxMB=501  rssPeakMB=499
+  COUNTERS  ffi.qcad.allGeometry.entities=3  tabbar.rows.miss=1  tabbar.setTabs.calls=1  toolbar.rows.miss=1  toolbar.setItems.calls=1
+--- 2026-08-26T09:35:06.778676 ---
+  FRAMES  n=4  fps=1.9  jank(>33ms)=4 (100.0%)
+  frame.total                n=     4     39.1 /  534.7 / 1778.5 / 1778.5 ms
+  frame.build(dart)          n=     4     14.9 /  145.0 /  283.3 /  283.3 ms
+  frame.raster(gpu)          n=     4      8.1 /  189.5 /  724.7 /  724.7 ms
+  MEMORY  rss=262.1MB peak=501.5MB
+  SUBSYSTEMS (by total time, share of 8s wall clock)
+  launch.toFirstFrame        n=     1  11006.6 /11006.6 /11006.6 /11006.6 ms  tot=11.01s 136.3%
+  step.state.getApplicationDocumentsDirectory (platform channel) n=     1   2409.0 / 2409.0 / 2409.0 / 2409.0 ms  tot=2.41s 29.8%
+  step.main.WidgetsFlutterBinding.ensureInitialized n=     1    425.9 /  425.9 /  425.9 /  425.9 ms  tot=0.43s 5.3%
+  step.state.Engine.create (backend probe) n=     1    195.1 /  195.1 /  195.1 /  195.1 ms  tot=0.20s 2.4%
+  step.state.occt smoke      n=     1    123.0 /  123.0 /  123.0 /  123.0 ms  tot=0.12s 1.5%
+  step.ffi.qcad_document_new() n=     1     72.2 /   72.2 /   72.2 /   72.2 ms  tot=0.07s 0.9%
+  step.ffi.symbol lookup + qcad_init() n=     1     59.7 /   59.7 /   59.7 /   59.7 ms  tot=0.06s 0.7%
+  step.state.refreshSaved    n=     1     49.7 /   49.7 /   49.7 /   49.7 ms  tot=0.05s 0.6%
+  step.main.T.followPlatform n=     1     42.6 /   42.6 /   42.6 /   42.6 ms  tot=0.04s 0.5%
+  step.main.runApp           n=     1     30.9 /   30.9 /   30.9 /   30.9 ms  tot=0.03s 0.4%
+  ffi.occt.makeBox           n=     1     24.2 /   24.2 /   24.2 /   24.2 ms  tot=0.02s 0.3%
+  step.ffi.probe entity_ids/geometry round-trip n=     1     17.2 /   17.2 /   17.2 /   17.2 ms  tot=0.02s 0.2%
+  ffi.qcad.allGeometry       n=     2      1.2 /    8.3 /   15.4 /   15.4 ms  tot=0.02s 0.2%
+  step.ffi.probe qcad_add_line() n=     1     14.4 /   14.4 /   14.4 /   14.4 ms  tot=0.01s 0.2%
+  step.main.AppState()       n=     1     12.5 /   12.5 /   12.5 /   12.5 ms  tot=0.01s 0.2%
+  ffi.qcad.addLine           n=     2      0.7 /    6.0 /   11.3 /   11.3 ms  tot=0.01s 0.1%
+  tabbar.sig                 n=     1     10.7 /   10.7 /   10.7 /   10.7 ms  tot=0.01s 0.1%
+  step.main.hide system UI (fire-and-forget) n=     1      7.8 /    7.8 /    7.8 /    7.8 ms  tot=0.01s 0.1%
+  step.main.setPreferredOrientations (fire-and-forget) n=     1      7.3 /    7.3 /    7.3 /    7.3 ms  tot=0.01s 0.1%
+  step.state.migrateLegacyDocuments n=     1      6.9 /    6.9 /    6.9 /    6.9 ms  tot=0.01s 0.1%
+  step.state.Engine.create (smoke) n=     1      6.3 /    6.3 /    6.3 /    6.3 ms  tot=0.01s 0.1%
+  step.state.reacquireExternals n=     1      4.7 /    4.7 /    4.7 /    4.7 ms  tot=0.00s 0.1%
+  step.state.loadRemembered  n=     1      4.4 /    4.4 /    4.4 /    4.4 ms  tot=0.00s 0.1%
+  step.ffi.probe qcad_document_free() n=     1      4.3 /    4.3 /    4.3 /    4.3 ms  tot=0.00s 0.1%
+  ffi.qcad.addCircle         n=     1      3.7 /    3.7 /    3.7 /    3.7 ms  tot=0.00s 0.0%
+  step.ffi.qcad_version()    n=     1      2.8 /    2.8 /    2.8 /    2.8 ms  tot=0.00s 0.0%
+  toolbar.sig                n=     1      1.8 /    1.8 /    1.8 /    1.8 ms  tot=0.00s 0.0%
+  step.ffi.DynamicLibrary.process() n=     1      0.5 /    0.5 /    0.5 /    0.5 ms  tot=0.00s 0.0%
+  MEMORY  rssMB=262  rssMaxMB=501  rssPeakMB=499
+  COUNTERS  ffi.qcad.allGeometry.entities=3  tabbar.rows.miss=1  tabbar.setTabs.calls=1  toolbar.rows.miss=1  toolbar.setItems.calls=1
+--- 2026-08-26T09:35:11.777736 ---
+  FRAMES  n=4  fps=1.9  jank(>33ms)=4 (100.0%)
+  frame.total                n=     4     39.1 /  534.7 / 1778.5 / 1778.5 ms
+  frame.build(dart)          n=     4     14.9 /  145.0 /  283.3 /  283.3 ms
+  frame.raster(gpu)          n=     4      8.1 /  189.5 /  724.7 /  724.7 ms
+  MEMORY  rss=249.9MB peak=501.5MB
+  SUBSYSTEMS (by total time, share of 13s wall clock)
+  launch.toFirstFrame        n=     1  11006.6 /11006.6 /11006.6 /11006.6 ms  tot=11.01s 84.2%
+  step.state.getApplicationDocumentsDirectory (platform channel) n=     1   2409.0 / 2409.0 / 2409.0 / 2409.0 ms  tot=2.41s 18.4%
+  step.main.WidgetsFlutterBinding.ensureInitialized n=     1    425.9 /  425.9 /  425.9 /  425.9 ms  tot=0.43s 3.3%
+  step.state.Engine.create (backend probe) n=     1    195.1 /  195.1 /  195.1 /  195.1 ms  tot=0.20s 1.5%
+  step.state.occt smoke      n=     1    123.0 /  123.0 /  123.0 /  123.0 ms  tot=0.12s 0.9%
+  step.ffi.qcad_document_new() n=     1     72.2 /   72.2 /   72.2 /   72.2 ms  tot=0.07s 0.6%
+  step.ffi.symbol lookup + qcad_init() n=     1     59.7 /   59.7 /   59.7 /   59.7 ms  tot=0.06s 0.5%
+  step.state.refreshSaved    n=     1     49.7 /   49.7 /   49.7 /   49.7 ms  tot=0.05s 0.4%
+  step.main.T.followPlatform n=     1     42.6 /   42.6 /   42.6 /   42.6 ms  tot=0.04s 0.3%
+  step.main.runApp           n=     1     30.9 /   30.9 /   30.9 /   30.9 ms  tot=0.03s 0.2%
+  ffi.occt.makeBox           n=     1     24.2 /   24.2 /   24.2 /   24.2 ms  tot=0.02s 0.2%
+  step.ffi.probe entity_ids/geometry round-trip n=     1     17.2 /   17.2 /   17.2 /   17.2 ms  tot=0.02s 0.1%
+  ffi.qcad.allGeometry       n=     2      1.2 /    8.3 /   15.4 /   15.4 ms  tot=0.02s 0.1%
+  step.ffi.probe qcad_add_line() n=     1     14.4 /   14.4 /   14.4 /   14.4 ms  tot=0.01s 0.1%
+  step.main.AppState()       n=     1     12.5 /   12.5 /   12.5 /   12.5 ms  tot=0.01s 0.1%
+  ffi.qcad.addLine           n=     2      0.7 /    6.0 /   11.3 /   11.3 ms  tot=0.01s 0.1%
+  tabbar.sig                 n=     1     10.7 /   10.7 /   10.7 /   10.7 ms  tot=0.01s 0.1%
+  step.main.hide system UI (fire-and-forget) n=     1      7.8 /    7.8 /    7.8 /    7.8 ms  tot=0.01s 0.1%
+  step.main.setPreferredOrientations (fire-and-forget) n=     1      7.3 /    7.3 /    7.3 /    7.3 ms  tot=0.01s 0.1%
+  step.state.migrateLegacyDocuments n=     1      6.9 /    6.9 /    6.9 /    6.9 ms  tot=0.01s 0.1%
+  step.state.Engine.create (smoke) n=     1      6.3 /    6.3 /    6.3 /    6.3 ms  tot=0.01s 0.0%
+  step.state.reacquireExternals n=     1      4.7 /    4.7 /    4.7 /    4.7 ms  tot=0.00s 0.0%
+  step.state.loadRemembered  n=     1      4.4 /    4.4 /    4.4 /    4.4 ms  tot=0.00s 0.0%
+  step.ffi.probe qcad_document_free() n=     1      4.3 /    4.3 /    4.3 /    4.3 ms  tot=0.00s 0.0%
+  ffi.qcad.addCircle         n=     1      3.7 /    3.7 /    3.7 /    3.7 ms  tot=0.00s 0.0%
+  step.ffi.qcad_version()    n=     1      2.8 /    2.8 /    2.8 /    2.8 ms  tot=0.00s 0.0%
+  toolbar.sig                n=     1      1.8 /    1.8 /    1.8 /    1.8 ms  tot=0.00s 0.0%
+  step.ffi.DynamicLibrary.process() n=     1      0.5 /    0.5 /    0.5 /    0.5 ms  tot=0.00s 0.0%
+  MEMORY  rssMB=250  rssMaxMB=501  rssPeakMB=499
+  COUNTERS  ffi.qcad.allGeometry.entities=3  tabbar.rows.miss=1  tabbar.setTabs.calls=1  toolbar.rows.miss=1  toolbar.setItems.calls=1
+--- 2026-08-26T09:35:16.776768 ---
+  FRAMES  n=4  fps=1.9  jank(>33ms)=4 (100.0%)
+  frame.total                n=     4     39.1 /  534.7 / 1778.5 / 1778.5 ms
+  frame.build(dart)          n=     4     14.9 /  145.0 /  283.3 /  283.3 ms
+  frame.raster(gpu)          n=     4      8.1 /  189.5 /  724.7 /  724.7 ms
+  MEMORY  rss=229.0MB peak=501.5MB
+  SUBSYSTEMS (by total time, share of 18s wall clock)
+  launch.toFirstFrame        n=     1  11006.6 /11006.6 /11006.6 /11006.6 ms  tot=11.01s 60.9%
+  step.state.getApplicationDocumentsDirectory (platform channel) n=     1   2409.0 / 2409.0 / 2409.0 / 2409.0 ms  tot=2.41s 13.3%
+  step.main.WidgetsFlutterBinding.ensureInitialized n=     1    425.9 /  425.9 /  425.9 /  425.9 ms  tot=0.43s 2.4%
+  step.state.Engine.create (backend probe) n=     1    195.1 /  195.1 /  195.1 /  195.1 ms  tot=0.20s 1.1%
+  step.state.occt smoke      n=     1    123.0 /  123.0 /  123.0 /  123.0 ms  tot=0.12s 0.7%
+  step.ffi.qcad_document_new() n=     1     72.2 /   72.2 /   72.2 /   72.2 ms  tot=0.07s 0.4%
+  step.ffi.symbol lookup + qcad_init() n=     1     59.7 /   59.7 /   59.7 /   59.7 ms  tot=0.06s 0.3%
+  step.state.refreshSaved    n=     1     49.7 /   49.7 /   49.7 /   49.7 ms  tot=0.05s 0.3%
+  step.main.T.followPlatform n=     1     42.6 /   42.6 /   42.6 /   42.6 ms  tot=0.04s 0.2%
+  step.main.runApp           n=     1     30.9 /   30.9 /   30.9 /   30.9 ms  tot=0.03s 0.2%
+  ffi.occt.makeBox           n=     1     24.2 /   24.2 /   24.2 /   24.2 ms  tot=0.02s 0.1%
+  step.ffi.probe entity_ids/geometry round-trip n=     1     17.2 /   17.2 /   17.2 /   17.2 ms  tot=0.02s 0.1%
+  ffi.qcad.allGeometry       n=     2      1.2 /    8.3 /   15.4 /   15.4 ms  tot=0.02s 0.1%
+  step.ffi.probe qcad_add_line() n=     1     14.4 /   14.4 /   14.4 /   14.4 ms  tot=0.01s 0.1%
+  step.main.AppState()       n=     1     12.5 /   12.5 /   12.5 /   12.5 ms  tot=0.01s 0.1%
+  ffi.qcad.addLine           n=     2      0.7 /    6.0 /   11.3 /   11.3 ms  tot=0.01s 0.1%
+  tabbar.sig                 n=     1     10.7 /   10.7 /   10.7 /   10.7 ms  tot=0.01s 0.1%
+  step.main.hide system UI (fire-and-forget) n=     1      7.8 /    7.8 /    7.8 /    7.8 ms  tot=0.01s 0.0%
+  step.main.setPreferredOrientations (fire-and-forget) n=     1      7.3 /    7.3 /    7.3 /    7.3 ms  tot=0.01s 0.0%
+  step.state.migrateLegacyDocuments n=     1      6.9 /    6.9 /    6.9 /    6.9 ms  tot=0.01s 0.0%
+  step.state.Engine.create (smoke) n=     1      6.3 /    6.3 /    6.3 /    6.3 ms  tot=0.01s 0.0%
+  step.state.reacquireExternals n=     1      4.7 /    4.7 /    4.7 /    4.7 ms  tot=0.00s 0.0%
+  step.state.loadRemembered  n=     1      4.4 /    4.4 /    4.4 /    4.4 ms  tot=0.00s 0.0%
+  step.ffi.probe qcad_document_free() n=     1      4.3 /    4.3 /    4.3 /    4.3 ms  tot=0.00s 0.0%
+  ffi.qcad.addCircle         n=     1      3.7 /    3.7 /    3.7 /    3.7 ms  tot=0.00s 0.0%
+  step.ffi.qcad_version()    n=     1      2.8 /    2.8 /    2.8 /    2.8 ms  tot=0.00s 0.0%
+  toolbar.sig                n=     1      1.8 /    1.8 /    1.8 /    1.8 ms  tot=0.00s 0.0%
+  step.ffi.DynamicLibrary.process() n=     1      0.5 /    0.5 /    0.5 /    0.5 ms  tot=0.00s 0.0%
+  MEMORY  rssMB=229  rssMaxMB=501  rssPeakMB=499
+  COUNTERS  ffi.qcad.allGeometry.entities=3  tabbar.rows.miss=1  tabbar.setTabs.calls=1  toolbar.rows.miss=1  toolbar.setItems.calls=1
+--- 2026-08-26T09:35:21.776483 ---
+  FRAMES  n=4  fps=1.9  jank(>33ms)=4 (100.0%)
+  frame.total                n=     4     39.1 /  534.7 / 1778.5 / 1778.5 ms
+  frame.build(dart)          n=     4     14.9 /  145.0 /  283.3 /  283.3 ms
+  frame.raster(gpu)          n=     4      8.1 /  189.5 /  724.7 /  724.7 ms
+  MEMORY  rss=198.4MB peak=501.5MB
+  SUBSYSTEMS (by total time, share of 23s wall clock)
+  launch.toFirstFrame        n=     1  11006.6 /11006.6 /11006.6 /11006.6 ms  tot=11.01s 47.7%
+  step.state.getApplicationDocumentsDirectory (platform channel) n=     1   2409.0 / 2409.0 / 2409.0 / 2409.0 ms  tot=2.41s 10.4%
+  step.main.WidgetsFlutterBinding.ensureInitialized n=     1    425.9 /  425.9 /  425.9 /  425.9 ms  tot=0.43s 1.8%
+  step.state.Engine.create (backend probe) n=     1    195.1 /  195.1 /  195.1 /  195.1 ms  tot=0.20s 0.8%
+  step.state.occt smoke      n=     1    123.0 /  123.0 /  123.0 /  123.0 ms  tot=0.12s 0.5%
+  step.ffi.qcad_document_new() n=     1     72.2 /   72.2 /   72.2 /   72.2 ms  tot=0.07s 0.3%
+  step.ffi.symbol lookup + qcad_init() n=     1     59.7 /   59.7 /   59.7 /   59.7 ms  tot=0.06s 0.3%
+  step.state.refreshSaved    n=     1     49.7 /   49.7 /   49.7 /   49.7 ms  tot=0.05s 0.2%
+  step.main.T.followPlatform n=     1     42.6 /   42.6 /   42.6 /   42.6 ms  tot=0.04s 0.2%
+  step.main.runApp           n=     1     30.9 /   30.9 /   30.9 /   30.9 ms  tot=0.03s 0.1%
+  ffi.occt.makeBox           n=     1     24.2 /   24.2 /   24.2 /   24.2 ms  tot=0.02s 0.1%
+  step.ffi.probe entity_ids/geometry round-trip n=     1     17.2 /   17.2 /   17.2 /   17.2 ms  tot=0.02s 0.1%
+  ffi.qcad.allGeometry       n=     2      1.2 /    8.3 /   15.4 /   15.4 ms  tot=0.02s 0.1%
+  step.ffi.probe qcad_add_line() n=     1     14.4 /   14.4 /   14.4 /   14.4 ms  tot=0.01s 0.1%
+  step.main.AppState()       n=     1     12.5 /   12.5 /   12.5 /   12.5 ms  tot=0.01s 0.1%
+  ffi.qcad.addLine           n=     2      0.7 /    6.0 /   11.3 /   11.3 ms  tot=0.01s 0.1%
+  tabbar.sig                 n=     1     10.7 /   10.7 /   10.7 /   10.7 ms  tot=0.01s 0.0%
+  step.main.hide system UI (fire-and-forget) n=     1      7.8 /    7.8 /    7.8 /    7.8 ms  tot=0.01s 0.0%
+  step.main.setPreferredOrientations (fire-and-forget) n=     1      7.3 /    7.3 /    7.3 /    7.3 ms  tot=0.01s 0.0%
+  step.state.migrateLegacyDocuments n=     1      6.9 /    6.9 /    6.9 /    6.9 ms  tot=0.01s 0.0%
+  step.state.Engine.create (smoke) n=     1      6.3 /    6.3 /    6.3 /    6.3 ms  tot=0.01s 0.0%
+  step.state.reacquireExternals n=     1      4.7 /    4.7 /    4.7 /    4.7 ms  tot=0.00s 0.0%
+  step.state.loadRemembered  n=     1      4.4 /    4.4 /    4.4 /    4.4 ms  tot=0.00s 0.0%
+  step.ffi.probe qcad_document_free() n=     1      4.3 /    4.3 /    4.3 /    4.3 ms  tot=0.00s 0.0%
+  ffi.qcad.addCircle         n=     1      3.7 /    3.7 /    3.7 /    3.7 ms  tot=0.00s 0.0%
+  step.ffi.qcad_version()    n=     1      2.8 /    2.8 /    2.8 /    2.8 ms  tot=0.00s 0.0%
+  toolbar.sig                n=     1      1.8 /    1.8 /    1.8 /    1.8 ms  tot=0.00s 0.0%
+  step.ffi.DynamicLibrary.process() n=     1      0.5 /    0.5 /    0.5 /    0.5 ms  tot=0.00s 0.0%
+  MEMORY  rssMB=198  rssMaxMB=501  rssPeakMB=499
+  COUNTERS  ffi.qcad.allGeometry.entities=3  tabbar.rows.miss=1  tabbar.setTabs.calls=1  toolbar.rows.miss=1  toolbar.setItems.calls=1

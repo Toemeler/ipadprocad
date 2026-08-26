@@ -1,0 +1,656 @@
+Analyzing frontend...                                           
+
+   info • The import of 'package:flutter/foundation.dart' is unnecessary because all of the used elements are also provided by the import of 'package:flutter/material.dart'. Try removing the import directive • lib/app_state.dart:9:8 • unnecessary_import
+   info • Statements in an if should be enclosed in a block. Try wrapping the statement in a block • lib/app_state.dart:1273:7 • curly_braces_in_flow_control_structures
+   info • Statements in an if should be enclosed in a block. Try wrapping the statement in a block • lib/app_state.dart:1274:31 • curly_braces_in_flow_control_structures
+   info • Statements in an if should be enclosed in a block. Try wrapping the statement in a block • lib/app_state.dart:2515:13 • curly_braces_in_flow_control_structures
+warning • The operand can't be 'null', so the condition is always 'true'. Remove the condition • lib/app_state.dart:9980:14 • unnecessary_null_comparison
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/app_state.dart:12835:17 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/app_state.dart:12838:17 • prefer_const_constructors
+   info • Statements in an if should be enclosed in a block. Try wrapping the statement in a block • lib/app_state.dart:14875:41 • curly_braces_in_flow_control_structures
+   info • The variable name 'Dia' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/app_state.dart:16230:9 • non_constant_identifier_names
+   info • The variable name 'SW' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/app_state.dart:16236:9 • non_constant_identifier_names
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/asm_constraints.dart:66:9 • unnecessary_this
+   info • Use an initializing formal to assign a parameter to a field. Try using an initialing formal ('this.at') to initialize the field • lib/asm_constraints.dart:66:9 • prefer_initializing_formals
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/asm_constraints.dart:73:9 • unnecessary_this
+   info • Use an initializing formal to assign a parameter to a field. Try using an initialing formal ('this.at') to initialize the field • lib/asm_constraints.dart:73:9 • prefer_initializing_formals
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/asm_constraints.dart:78:9 • unnecessary_this
+   info • Use an initializing formal to assign a parameter to a field. Try using an initialing formal ('this.at') to initialize the field • lib/asm_constraints.dart:78:9 • prefer_initializing_formals
+   info • Parameters ''name', 'mode', and 'sources'' could be super parameters. Trying converting ''name', 'mode', and 'sources'' to super parameters • lib/asm_pattern.dart:138:3 • use_super_parameters
+   info • Parameters ''name', 'seq', 'kind', 'def', 'frame', 'visible', 'offset', and 'angle'' could be super parameters. Trying converting ''name', 'seq', 'kind', 'def', 'frame', 'visible', 'offset', and 'angle'' to super parameters • lib/asm_work_features.dart:81:3 • use_super_parameters
+   info • Use 'const' for final variables initialized to a constant value. Try replacing 'final' with 'const' • lib/bezier.dart:123:5 • prefer_const_declarations
+warning • The operand can't be 'null', so the condition is always 'true'. Remove the condition • lib/diag.dart:52:17 • unnecessary_null_comparison
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/ffi/occt_engine.dart:1638:14 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/ffi/occt_engine.dart:1643:14 • prefer_const_constructors
+   info • Statements in a for should be enclosed in a block. Try wrapping the statement in a block • lib/ffi/slvs_ffi.dart:205:41 • curly_braces_in_flow_control_structures
+   info • Statements in a for should be enclosed in a block. Try wrapping the statement in a block • lib/ffi/slvs_ffi.dart:206:41 • curly_braces_in_flow_control_structures
+   info • Statements in a for should be enclosed in a block. Try wrapping the statement in a block • lib/ffi/slvs_ffi.dart:228:41 • curly_braces_in_flow_control_structures
+   info • Statements in a for should be enclosed in a block. Try wrapping the statement in a block • lib/ffi/slvs_ffi.dart:234:41 • curly_braces_in_flow_control_structures
+warning • The value of the local variable 'r' isn't used. Try removing the variable or using it • lib/gear.dart:310:9 • unused_local_variable
+warning • Unused import: 'widgets/model_browser.dart'. Try removing the import directive • lib/main.dart:23:8 • unused_import
+   info • The type name '_3mfObject' isn't an UpperCamelCase identifier. Try changing the name to follow the UpperCamelCase style • lib/mesh_io.dart:484:7 • camel_case_types
+warning • The value of the local variable 'c' isn't used. Try removing the variable or using it • lib/modify.dart:83:13 • unused_local_variable
+   info • Statements in an if should be enclosed in a block. Try wrapping the statement in a block • lib/part_model.dart:3534:22 • curly_braces_in_flow_control_structures
+warning • Unnecessary cast. Try removing the cast • lib/part_model.dart:8103:15 • unnecessary_cast
+   info • 'red' is deprecated and shouldn't be used. Use (*.r * 255.0).round().clamp(0, 255). Try replacing the use of the deprecated member with the replacement • lib/part_render.dart:653:23 • deprecated_member_use
+   info • 'green' is deprecated and shouldn't be used. Use (*.g * 255.0).round().clamp(0, 255). Try replacing the use of the deprecated member with the replacement • lib/part_render.dart:654:23 • deprecated_member_use
+   info • 'blue' is deprecated and shouldn't be used. Use (*.b * 255.0).round().clamp(0, 255). Try replacing the use of the deprecated member with the replacement • lib/part_render.dart:655:23 • deprecated_member_use
+   info • 'value' is deprecated and shouldn't be used. Use component accessors like .r or .g, or toARGB32 for an explicit conversion. Try replacing the use of the deprecated member with the replacement • lib/part_render.dart:656:8 • deprecated_member_use
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss. Try replacing the use of the deprecated member with the replacement • lib/part_render.dart:877:82 • deprecated_member_use
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss. Try replacing the use of the deprecated member with the replacement • lib/part_render.dart:938:28 • deprecated_member_use
+   info • The imported package 'meta' isn't a dependency of the importing package. Try adding a dependency for 'meta' in the 'pubspec.yaml' file • lib/perf_scenarios_soak.dart:66:8 • depend_on_referenced_packages
+   info • Unnecessary braces in a string interpolation. Try removing the braces • lib/perf_scenarios_stress.dart:90:53 • unnecessary_brace_in_string_interps
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/perf_scenarios_tools.dart:74:7 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/perf_scenarios_tools.dart:75:7 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/perf_scenarios_tools.dart:76:7 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/perf_scenarios_tools.dart:77:7 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/perf_scenarios_tools.dart:120:7 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/perf_scenarios_tools.dart:121:7 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/perf_scenarios_tools.dart:122:7 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/perf_scenarios_tools.dart:423:15 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/perf_scenarios_tools.dart:424:15 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/perf_scenarios_tools.dart:466:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/perf_scenarios_tools.dart:467:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/perf_scenarios_tools.dart:468:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/perf_scenarios_tools.dart:469:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/perf_scenarios_tools.dart:470:9 • prefer_const_constructors
+warning • The declaration '_bodyIsHovered' isn't referenced. Try removing the declaration of '_bodyIsHovered' • lib/reality_scene.dart:839:6 • unused_element
+   info • The imported package 'meta' isn't a dependency of the importing package. Try adding a dependency for 'meta' in the 'pubspec.yaml' file • lib/solver.dart:16:8 • depend_on_referenced_packages
+   info • Use 'isNotEmpty' instead of 'length' to test whether the collection is empty. Try rewriting the expression to use 'isNotEmpty' • lib/solver.dart:665:25 • prefer_is_empty
+   info • The constant name 'BL' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/svg_icons.dart:10:7 • constant_identifier_names
+   info • The constant name 'DIM' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/svg_icons.dart:11:7 • constant_identifier_names
+   info • The constant name 'RD' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/svg_icons.dart:12:7 • constant_identifier_names
+   info • The constant name 'YL' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/svg_icons.dart:13:7 • constant_identifier_names
+   info • The constant name 'RDD' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/svg_icons.dart:14:7 • constant_identifier_names
+   info • The constant name 'GC' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/svg_icons.dart:15:7 • constant_identifier_names
+   info • The constant name 'BLM' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/svg_icons.dart:16:7 • constant_identifier_names
+   info • The variable name 'IC' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/svg_icons.dart:32:27 • non_constant_identifier_names
+   info • The variable name 'CN' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/svg_icons.dart:115:27 • non_constant_identifier_names
+   info • The variable name 'IN' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/svg_icons.dart:153:27 • non_constant_identifier_names
+   info • The variable name 'MD' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/svg_icons.dart:187:27 • non_constant_identifier_names
+   info • The variable name 'PD' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/svg_icons.dart:248:27 • non_constant_identifier_names
+   info • The variable name 'CR' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/svg_icons.dart:281:27 • non_constant_identifier_names
+   info • The variable name 'MO' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/svg_icons.dart:293:27 • non_constant_identifier_names
+   info • The variable name 'WF' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/svg_icons.dart:308:27 • non_constant_identifier_names
+   info • The variable name 'PT' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/svg_icons.dart:316:27 • non_constant_identifier_names
+   info • The variable name 'PL' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/svg_icons.dart:324:27 • non_constant_identifier_names
+   info • The variable name 'AX' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/svg_icons.dart:341:27 • non_constant_identifier_names
+   info • The variable name 'PN' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/svg_icons.dart:353:27 • non_constant_identifier_names
+   info • The variable name 'AS' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/svg_icons.dart:373:27 • non_constant_identifier_names
+   info • The variable name 'AC' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/svg_icons.dart:416:27 • non_constant_identifier_names
+   info • Use 'const' for final variables initialized to a constant value. Try replacing 'final' with 'const' • lib/tools.dart:98:7 • prefer_const_declarations
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/widgets/combine_dialog.dart:50:27 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/widgets/combine_dialog.dart:61:33 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/widgets/combine_dialog.dart:61:60 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/widgets/constraint_dialog.dart:106:65 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/widgets/edge_feature_dialog.dart:102:27 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/widgets/edge_feature_dialog.dart:113:31 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/widgets/edge_feature_dialog.dart:113:58 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/widgets/extrude_dialog.dart:98:27 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/widgets/extrude_dialog.dart:108:31 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/widgets/extrude_dialog.dart:108:58 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/widgets/freehand_dialog.dart:45:68 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/widgets/gear_dialog.dart:144:28 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/widgets/hole_dialog.dart:92:27 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/widgets/hole_dialog.dart:103:33 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/widgets/hole_dialog.dart:103:60 • prefer_const_constructors
+   info • Use the '??' operator rather than '?:' when testing for 'null'. Try rewriting the code to use '??' • lib/widgets/home_view.dart:417:43 • prefer_if_null_operators
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/widgets/model_browser.dart:632:31 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/widgets/model_browser.dart:740:31 • prefer_const_constructors
+warning • The declaration '_eopMenuGroups' isn't referenced. Try removing the declaration of '_eopMenuGroups' • lib/widgets/model_browser.dart:922:30 • unused_element
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/widgets/model_browser.dart:1971:16 • prefer_const_constructors
+warning • Unused import: 'package:flutter/material.dart'. Try removing the import directive • lib/widgets/native_browser.dart:12:8 • unused_import
+   info • The type parameter name 'T' matches a visible type name. Try changing the type parameter name to not match an existing type • lib/widgets/native_browser_host.dart:656:13 • avoid_types_as_parameter_names
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/widgets/parameters_dialog.dart:74:28 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/widgets/parameters_dialog.dart:90:30 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/widgets/parameters_dialog.dart:104:21 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/widgets/parameters_dialog.dart:125:18 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/widgets/parameters_dialog.dart:131:11 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/widgets/parameters_dialog.dart:135:11 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/widgets/parameters_dialog.dart:139:11 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/widgets/parameters_dialog.dart:286:28 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/widgets/pattern_dialog.dart:81:61 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/widgets/pattern_dialog.dart:109:23 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/widgets/pattern_dialog.dart:109:50 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/widgets/pattern_dialog.dart:808:55 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/widgets/pattern_dialog.dart:817:27 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/widgets/pattern_dialog.dart:817:54 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/widgets/pattern_dialog.dart:1053:55 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/widgets/pattern_dialog.dart:1062:27 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/widgets/pattern_dialog.dart:1062:54 • prefer_const_constructors
+warning • Unused import: '../asm_constraints.dart'. Try removing the import directive • lib/widgets/pattern_panel_3d.dart:43:8 • unused_import
+warning • Unused import: '../asm_pattern.dart'. Try removing the import directive • lib/widgets/pattern_panel_3d.dart:44:8 • unused_import
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/widgets/pattern_panel_3d.dart:152:29 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/widgets/pattern_panel_3d.dart:188:27 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/widgets/pattern_panel_3d.dart:188:54 • prefer_const_constructors
+   info • Constructors in '@immutable' classes should be declared as 'const'. Try adding 'const' to the constructor declaration • lib/widgets/ribbon.dart:1652:3 • prefer_const_constructors_in_immutables
+warning • The declaration '_Big.plain' isn't referenced. Try removing the declaration of '_Big.plain' • lib/widgets/ribbon.dart:1846:14 • unused_element
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/widgets/split_dialog.dart:49:27 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/widgets/split_dialog.dart:60:33 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/widgets/split_dialog.dart:60:60 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/widgets/text_editor_window.dart:145:28 • prefer_const_constructors
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss. Try replacing the use of the deprecated member with the replacement • lib/widgets/text_editor_window.dart:307:51 • deprecated_member_use
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/widgets/value_pad.dart:194:58 • prefer_const_constructors
+   info • Use 'const' for final variables initialized to a constant value. Try replacing 'final' with 'const' • lib/widgets/value_pad.dart:309:5 • prefer_const_declarations
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/widgets/viewport.dart:1259:31 • prefer_const_constructors
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss. Try replacing the use of the deprecated member with the replacement • lib/widgets/viewport.dart:2027:39 • deprecated_member_use
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss. Try replacing the use of the deprecated member with the replacement • lib/widgets/viewport.dart:2184:30 • deprecated_member_use
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss. Try replacing the use of the deprecated member with the replacement • lib/widgets/viewport.dart:2226:35 • deprecated_member_use
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss. Try replacing the use of the deprecated member with the replacement • lib/widgets/viewport.dart:2528:28 • deprecated_member_use
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss. Try replacing the use of the deprecated member with the replacement • lib/widgets/viewport.dart:2689:54 • deprecated_member_use
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss. Try replacing the use of the deprecated member with the replacement • lib/widgets/viewport.dart:2817:30 • deprecated_member_use
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss. Try replacing the use of the deprecated member with the replacement • lib/widgets/viewport.dart:2832:30 • deprecated_member_use
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss. Try replacing the use of the deprecated member with the replacement • lib/widgets/viewport.dart:2892:31 • deprecated_member_use
+   info • Statements in a while should be enclosed in a block. Try wrapping the statement in a block • lib/widgets/viewport.dart:3190:35 • curly_braces_in_flow_control_structures
+   info • Statements in a while should be enclosed in a block. Try wrapping the statement in a block • lib/widgets/viewport.dart:3191:33 • curly_braces_in_flow_control_structures
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss. Try replacing the use of the deprecated member with the replacement • lib/widgets/viewport3d.dart:2553:48 • deprecated_member_use
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss. Try replacing the use of the deprecated member with the replacement • lib/widgets/viewport3d.dart:2731:43 • deprecated_member_use
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss. Try replacing the use of the deprecated member with the replacement • lib/widgets/viewport3d.dart:2737:53 • deprecated_member_use
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss. Try replacing the use of the deprecated member with the replacement • lib/widgets/viewport3d.dart:2853:45 • deprecated_member_use
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss. Try replacing the use of the deprecated member with the replacement • lib/widgets/viewport3d.dart:2859:55 • deprecated_member_use
+   info • Use 'const' for final variables initialized to a constant value. Try replacing 'final' with 'const' • lib/widgets/viewport_assembly.dart:804:5 • prefer_const_declarations
+   info • Dangling library doc comment. Add a 'library' directive after the library comment • packages/native_menu/lib/glass_browser.dart:1:1 • dangling_library_doc_comments
+   info • Dangling library doc comment. Add a 'library' directive after the library comment • packages/native_menu/lib/glass_tabbar.dart:1:1 • dangling_library_doc_comments
+   info • Dangling library doc comment. Add a 'library' directive after the library comment • packages/native_menu/lib/glass_toolbar.dart:1:1 • dangling_library_doc_comments
+   info • Dangling library doc comment. Add a 'library' directive after the library comment • packages/native_menu/lib/native_touches.dart:1:1 • dangling_library_doc_comments
+   info • The import of 'dart:ui' is unnecessary because all of the used elements are also provided by the import of 'package:flutter_test/flutter_test.dart'. Try removing the import directive • test/construction_geometry_test.dart:9:8 • unnecessary_import
+   info • The import of 'dart:ui' is unnecessary because all of the used elements are also provided by the import of 'package:flutter_test/flutter_test.dart'. Try removing the import directive • test/device_replay_test.dart:12:8 • unnecessary_import
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/dimension_expressions_test.dart:190:17 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/dimension_expressions_test.dart:190:29 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/dimension_kinds_test.dart:23:17 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/dimension_kinds_test.dart:23:29 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/dimension_kinds_test.dart:23:41 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/dimension_kinds_test.dart:36:17 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/dimension_kinds_test.dart:36:29 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/dimension_kinds_test.dart:36:41 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/dimension_kinds_test.dart:45:17 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/dimension_kinds_test.dart:45:29 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/dimension_kinds_test.dart:56:19 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/dimension_kinds_test.dart:56:31 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/dimension_kinds_test.dart:56:43 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/dimension_kinds_test.dart:71:19 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/dimension_kinds_test.dart:71:31 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/dimension_kinds_test.dart:71:43 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/dimension_kinds_test.dart:84:44 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/dimension_kinds_test.dart:84:56 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/dimension_kinds_test.dart:86:19 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/dimension_kinds_test.dart:86:31 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/dimension_kinds_test.dart:86:43 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/dimension_kinds_test.dart:93:17 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/dimension_kinds_test.dart:93:29 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/dimension_kinds_test.dart:93:41 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/dimension_kinds_test.dart:104:19 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/dimension_kinds_test.dart:104:31 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/dimension_kinds_test.dart:118:37 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/dimension_kinds_test.dart:121:17 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/dimension_kinds_test.dart:121:29 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/dimension_kinds_test.dart:121:41 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/dimension_picks_test.dart:50:20 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/dimension_picks_test.dart:53:22 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/dimension_picks_test.dart:60:20 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/dimension_picks_test.dart:63:32 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/dimension_picks_test.dart:63:44 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/dimension_picks_test.dart:71:20 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/dimension_picks_test.dart:71:32 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/dimension_picks_test.dart:79:22 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/dimension_picks_test.dart:101:24 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/dimension_picks_test.dart:101:36 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/dimension_picks_test.dart:109:24 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/dimension_picks_test.dart:109:36 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/dimension_picks_test.dart:109:48 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/drag_stability_test.dart:168:23 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/drag_stability_test.dart:261:15 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/drag_stability_test.dart:263:15 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/flow_probe_test.dart:34:5 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/flow_probe_test.dart:38:26 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/flow_probe_test.dart:41:25 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/flow_probe_test.dart:48:26 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/flow_probe_test.dart:60:19 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/flow_probe_test.dart:71:28 • prefer_const_constructors
+   info • The import of 'package:prototype/l10n/gen/app_l10n.dart' is unnecessary because all of the used elements are also provided by the import of 'package:prototype/l10n/l.dart'. Try removing the import directive • test/l10n_completeness_test.dart:17:8 • unnecessary_import
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m123_point_on_curve_test.dart:74:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m123_point_on_curve_test.dart:87:19 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m123_point_on_curve_test.dart:109:19 • prefer_const_constructors
+   info • Use 'const' for final variables initialized to a constant value. Try replacing 'final' with 'const' • test/m123_point_on_curve_test.dart:110:7 • prefer_const_declarations
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m123_point_on_curve_test.dart:124:18 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m123_point_on_curve_test.dart:148:20 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m123_point_on_curve_test.dart:158:19 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m123_point_on_curve_test.dart:189:17 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m123_point_on_curve_test.dart:190:19 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m123_point_on_curve_test.dart:191:16 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m123_point_on_curve_test.dart:192:20 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m123_point_on_curve_test.dart:193:19 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m123_point_on_curve_test.dart:195:20 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m123_point_on_curve_test.dart:201:11 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m123_point_on_curve_test.dart:212:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m123_point_on_curve_test.dart:214:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m123_point_on_curve_test.dart:240:18 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m123_point_on_curve_test.dart:267:18 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m123_point_on_curve_test.dart:288:18 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m123_point_on_curve_test.dart:312:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m123_point_on_curve_test.dart:313:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m123_point_on_curve_test.dart:326:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m123_point_on_curve_test.dart:327:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m123_point_on_curve_test.dart:328:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m123_point_on_curve_test.dart:335:11 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m124_circle_gap_dim_test.dart:35:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m124_circle_gap_dim_test.dart:36:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m124_circle_gap_dim_test.dart:47:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m124_circle_gap_dim_test.dart:48:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m124_circle_gap_dim_test.dart:68:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m124_circle_gap_dim_test.dart:69:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m124_circle_gap_dim_test.dart:86:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m124_circle_gap_dim_test.dart:87:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m124_circle_gap_dim_test.dart:107:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m124_circle_gap_dim_test.dart:108:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m124_circle_gap_dim_test.dart:128:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m124_circle_gap_dim_test.dart:129:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m124_circle_gap_dim_test.dart:152:22 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m124_circle_gap_dim_test.dart:172:22 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m128_end_of_part_test.dart:59:8 • prefer_const_constructors
+   info • The constant name '__' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • test/m132_extents_test.dart:63:17 • constant_identifier_names
+   info • The variable name '__' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • test/m132_extents_test.dart:63:17 • non_constant_identifier_names
+   info • The constant name '__' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • test/m132_extents_test.dart:142:17 • constant_identifier_names
+   info • The variable name '__' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • test/m132_extents_test.dart:142:17 • non_constant_identifier_names
+   info • The constant name '__' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • test/m132_extents_test.dart:149:17 • constant_identifier_names
+   info • The variable name '__' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • test/m132_extents_test.dart:149:17 • non_constant_identifier_names
+   info • Use 'const' for final variables initialized to a constant value. Try replacing 'final' with 'const' • test/m132_extents_test.dart:159:7 • prefer_const_declarations
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m133_edge_pick_test.dart:60:10 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m133_edge_pick_test.dart:60:25 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m133_edge_pick_test.dart:61:10 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m133_edge_pick_test.dart:61:25 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m133_edge_pick_test.dart:61:41 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m133_edge_pick_test.dart:62:10 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m133_edge_pick_test.dart:62:25 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m133_edge_pick_test.dart:83:10 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m133_edge_pick_test.dart:83:25 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m133_edge_pick_test.dart:94:10 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m133_edge_pick_test.dart:94:25 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m133_edge_pick_test.dart:101:10 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m133_edge_pick_test.dart:101:25 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m133_edge_pick_test.dart:109:10 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m133_edge_pick_test.dart:109:25 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m133_edge_pick_test.dart:119:10 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m133_edge_pick_test.dart:119:25 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m133_edge_pick_test.dart:134:10 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m133_edge_pick_test.dart:134:25 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m133_edge_pick_test.dart:135:10 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m133_edge_pick_test.dart:135:26 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m133_edge_pick_test.dart:144:10 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m133_edge_pick_test.dart:144:26 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m133_edge_pick_test.dart:145:10 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m133_edge_pick_test.dart:145:25 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m133_edge_pick_test.dart:153:10 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m133_edge_pick_test.dart:153:25 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m133_edge_pick_test.dart:156:10 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m133_edge_pick_test.dart:156:26 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m133_edge_pick_test.dart:168:10 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m133_edge_pick_test.dart:168:25 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m133_edge_pick_test.dart:168:40 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m133_edge_pick_test.dart:168:55 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m133_edge_pick_test.dart:169:10 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m133_edge_pick_test.dart:178:10 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m133_edge_pick_test.dart:178:25 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m133_edge_pick_test.dart:193:10 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m133_edge_pick_test.dart:193:25 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m133_edge_pick_test.dart:197:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m133_edge_pick_test.dart:198:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m133_edge_pick_test.dart:205:10 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m133_edge_pick_test.dart:205:25 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m136_edge_feature_test.dart:37:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m136_edge_feature_test.dart:38:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m136_edge_feature_test.dart:39:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m136_edge_feature_test.dart:329:14 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m136_edge_feature_test.dart:331:14 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m136_edge_feature_test.dart:334:17 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m152_edge_reanchor_test.dart:114:20 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m153_sketch_follows_face_test.dart:56:22 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m153_sketch_follows_face_test.dart:72:21 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m166_face_sketch_follows_test.dart:34:21 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m166_face_sketch_follows_test.dart:44:22 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m166_face_sketch_follows_test.dart:45:19 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m166_face_sketch_follows_test.dart:53:21 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m166_face_sketch_follows_test.dart:58:20 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m166_face_sketch_follows_test.dart:65:21 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m166_face_sketch_follows_test.dart:69:21 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m166_face_sketch_follows_test.dart:85:18 • prefer_const_constructors
+   info • The local variable '_mesh' starts with an underscore. Try renaming the variable to not start with an underscore • test/m168_slice_graphics_test.dart:142:16 • no_leading_underscores_for_local_identifiers
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m175_ray_on_plane_test.dart:78:18 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m175_ray_on_plane_test.dart:89:18 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m177_doc_ref_test.dart:100:17 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m177_doc_ref_test.dart:108:17 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m177_doc_ref_test.dart:114:17 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m177_doc_ref_test.dart:120:11 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m177_doc_ref_test.dart:125:17 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m177_doc_ref_test.dart:157:7 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m177_doc_ref_test.dart:162:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m177_doc_ref_test.dart:169:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m177_doc_ref_test.dart:178:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m177_doc_ref_test.dart:194:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m177_doc_ref_test.dart:205:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m177_doc_ref_test.dart:219:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m177_doc_ref_test.dart:245:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m177_doc_ref_test.dart:253:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m177_doc_ref_test.dart:271:11 • prefer_const_constructors
+warning • Unused import: 'package:prototype/doc_ref.dart'. Try removing the import directive • test/m177_documents_test.dart:13:8 • unused_import
+   info • Type could be non-nullable. Try changing the type to be non-nullable • test/m180_every_number_scrubs_test.dart:67:24 • unnecessary_nullable_for_final_variable_declarations
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m182_cannot_break_test.dart:71:8 • prefer_const_constructors
+   info • The local variable '_line' starts with an underscore. Try renaming the variable to not start with an underscore • test/m182_cannot_break_test.dart:273:9 • no_leading_underscores_for_local_identifiers
+   info • The constant name '__' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • test/m183_blend_robustness_test.dart:198:17 • constant_identifier_names
+   info • The variable name '__' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • test/m183_blend_robustness_test.dart:198:17 • non_constant_identifier_names
+   info • Unnecessary use of string interpolation. Try replacing the string literal with the variable name • test/m184_bug_report_test.dart:596:37 • unnecessary_string_interpolations
+   info • Instances of 'Color' should be created using an 8-digit hexadecimal integer (such as '0xFFFFFFFF') • test/m186_screenshot_test.dart:19:70 • use_full_hex_values_for_flutter_colors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m187_trim_and_binds_test.dart:41:7 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m187_trim_and_binds_test.dart:46:7 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m187_trim_and_binds_test.dart:52:7 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m187_trim_and_binds_test.dart:89:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m187_trim_and_binds_test.dart:90:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m187_trim_and_binds_test.dart:99:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m187_trim_and_binds_test.dart:100:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m187_trim_and_binds_test.dart:109:9 • prefer_const_constructors
+   info • Use 'const' for final variables initialized to a constant value. Try replacing 'final' with 'const' • test/m187_trim_and_binds_test.dart:121:7 • prefer_const_declarations
+   info • Use 'const' for final variables initialized to a constant value. Try replacing 'final' with 'const' • test/m187_trim_and_binds_test.dart:122:7 • prefer_const_declarations
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m187_trim_and_binds_test.dart:171:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m187_trim_and_binds_test.dart:172:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m201_tangent_snap_test.dart:24:7 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m201_tangent_snap_test.dart:82:7 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m201_tangent_snap_test.dart:94:7 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m201_tangent_snap_test.dart:95:7 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m203_degenerate_geometry_test.dart:117:38 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m203_degenerate_geometry_test.dart:131:30 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m203_degenerate_geometry_test.dart:132:30 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m203_degenerate_geometry_test.dart:133:30 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m203_degenerate_geometry_test.dart:135:30 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m207_drag_continuity_test.dart:148:22 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m207_drag_continuity_test.dart:149:25 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m209_point_and_windows_test.dart:71:33 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m209_point_and_windows_test.dart:82:22 • prefer_const_constructors
+   info • Use a 'SizedBox' to add whitespace to a layout. Try using a 'SizedBox' rather than a 'Container' • test/m209_point_and_windows_test.dart:193:30 • sized_box_for_whitespace
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m211_projected_arc_side_test.dart:187:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m212_pattern_3d_test.dart:82:5 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m212_pattern_3d_test.dart:83:5 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m212_pattern_3d_test.dart:84:5 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m212_pattern_3d_test.dart:403:17 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m212_pattern_3d_test.dart:1182:17 • prefer_const_constructors
+   info • The import of 'package:flutter/material.dart' is unnecessary because all of the used elements are also provided by the import of 'package:flutter_test/flutter_test.dart'. Try removing the import directive • test/m214_step_export_test.dart:23:8 • unnecessary_import
+warning • Unused import: 'package:prototype/pick_math.dart'. Try removing the import directive • test/m219_spline_trim_and_resolution_test.dart:33:8 • unused_import
+   info • Use 'const' for final variables initialized to a constant value. Try replacing 'final' with 'const' • test/m219_spline_trim_and_resolution_test.dart:118:1 • prefer_const_declarations
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m219_spline_trim_and_resolution_test.dart:204:17 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m219_spline_trim_and_resolution_test.dart:341:26 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m219_spline_trim_and_resolution_test.dart:360:18 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m219_spline_trim_and_resolution_test.dart:363:24 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m219_spline_trim_and_resolution_test.dart:388:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m219_spline_trim_and_resolution_test.dart:389:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m219_spline_trim_and_resolution_test.dart:428:22 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m219_spline_trim_and_resolution_test.dart:503:25 • prefer_const_constructors
+   info • Use 'const' for final variables initialized to a constant value. Try replacing 'final' with 'const' • test/m219_spline_trim_and_resolution_test.dart:535:7 • prefer_const_declarations
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m219_spline_trim_and_resolution_test.dart:579:18 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m219_spline_trim_and_resolution_test.dart:668:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m219_spline_trim_and_resolution_test.dart:694:20 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m219_spline_trim_and_resolution_test.dart:703:25 • prefer_const_constructors
+   info • Use 'const' for final variables initialized to a constant value. Try replacing 'final' with 'const' • test/m220_text_is_geometry_test.dart:527:7 • prefer_const_declarations
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m232_analyze_cache_test.dart:29:7 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m232_analyze_cache_test.dart:30:7 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m232_analyze_cache_test.dart:52:24 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m232_analyze_cache_test.dart:55:24 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m232_analyze_cache_test.dart:61:34 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m232_analyze_cache_test.dart:81:42 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m232_analyze_cache_test.dart:212:11 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m232_analyze_pin_test.dart:92:17 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m232_analyze_pin_test.dart:92:29 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m232_lm_pin_test.dart:132:11 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m232_lm_pin_test.dart:133:11 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m232_provenance_index_test.dart:147:28 • prefer_const_constructors
+   info • Statements in an if should be enclosed in a block. Try wrapping the statement in a block • test/m236_theme_test.dart:437:54 • curly_braces_in_flow_control_structures
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m241_assembly_reality_test.dart:125:47 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m242_asm_solver_test.dart:413:12 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m242_asm_ui_test.dart:319:20 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m242_asm_ui_test.dart:331:20 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m242_asm_ui_test.dart:357:11 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m242_asm_ui_test.dart:361:11 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m242_asm_ui_test.dart:378:12 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m242_asm_ui_test.dart:380:12 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m242_asm_ui_test.dart:565:29 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m242_asm_ui_test.dart:566:11 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m242_asm_ui_test.dart:571:29 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m242_asm_ui_test.dart:572:11 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m242_asm_ui_test.dart:637:12 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m242_asm_ui_test.dart:639:12 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m242_asm_ui_test.dart:735:12 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m242_asm_ui_test.dart:737:12 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m242_asm_ui_test.dart:777:12 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m242_asm_ui_test.dart:779:12 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m242_asm_ui_test.dart:808:12 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m242_asm_ui_test.dart:810:12 • prefer_const_constructors
+warning • Unused import: 'package:prototype/assembly.dart'. Try removing the import directive • test/m245_live_link_test.dart:22:8 • unused_import
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m245_live_link_test.dart:202:12 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m245_live_link_test.dart:204:12 • prefer_const_constructors
+   info • The import of 'dart:ui' is unnecessary because all of the used elements are also provided by the import of 'package:flutter/material.dart'. Try removing the import directive • test/m247_asm_work_features_test.dart:25:8 • unnecessary_import
+warning • Unused import: 'package:prototype/l10n/cad_terms.dart'. Try removing the import directive • test/m247_asm_work_features_test.dart:36:8 • unused_import
+warning • Unused import: 'package:prototype/l10n/cad_terms.dart'. Try removing the import directive • test/m248_asm_pattern_test.dart:37:8 • unused_import
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m248_asm_pattern_test.dart:205:21 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m25_test.dart:23:27 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m25_test.dart:39:27 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m25_test.dart:105:7 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m26_test.dart:57:19 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m26_test.dart:57:31 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m26_test.dart:105:19 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m26_test.dart:105:31 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m26_test.dart:116:19 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m26_test.dart:116:31 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m26_test.dart:147:44 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m26_test.dart:147:56 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m26_test.dart:158:19 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m26_test.dart:158:31 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m26_test.dart:186:19 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m26_test.dart:186:31 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m26_test.dart:199:27 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m26_test.dart:201:27 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m27_test.dart:26:13 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m27_test.dart:26:25 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m28_test.dart:49:14 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m28_test.dart:54:26 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m28_test.dart:66:26 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m28_test.dart:78:26 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m28_test.dart:103:26 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m28_test.dart:114:17 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m28_test.dart:116:35 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m28_test.dart:117:35 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m28_test.dart:118:35 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m28_test.dart:120:17 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m28_test.dart:120:29 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m28_test.dart:120:41 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m28_test.dart:120:53 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m28_test.dart:126:15 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m28_test.dart:126:27 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m28_test.dart:126:39 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m28_test.dart:126:51 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m28_test.dart:133:26 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m28_test.dart:133:56 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m29_test.dart:52:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m29_test.dart:53:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m29_test.dart:57:37 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m29_test.dart:58:37 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m29_test.dart:59:37 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m29_test.dart:60:37 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m29_test.dart:61:55 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m29_test.dart:72:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m29_test.dart:74:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m29_test.dart:78:37 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m29_test.dart:80:37 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m29_test.dart:81:37 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m29_test.dart:82:37 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m29_test.dart:83:55 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m29_test.dart:96:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m29_test.dart:97:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m29_test.dart:102:58 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m29_test.dart:107:22 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m29_test.dart:109:28 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m29_test.dart:116:22 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m29_test.dart:121:22 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m29_test.dart:123:28 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m29_test.dart:133:12 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m29_test.dart:133:42 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m29_test.dart:142:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m29_test.dart:143:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m29_test.dart:146:37 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m29_test.dart:147:37 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m29_test.dart:148:37 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m31_test.dart:55:18 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m31_test.dart:57:20 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m31_test.dart:72:22 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m31_test.dart:75:31 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m31_test.dart:75:43 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m31_test.dart:87:7 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m31_test.dart:88:7 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m31_test.dart:95:35 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m31_test.dart:96:35 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m31_test.dart:99:31 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m31_test.dart:99:43 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m31_test.dart:99:55 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m31_test.dart:110:7 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m31_test.dart:111:7 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m31_test.dart:118:35 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m31_test.dart:121:31 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m31_test.dart:121:43 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m31_test.dart:129:7 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m31_test.dart:130:7 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m31_test.dart:137:34 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m31_test.dart:137:46 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m31_test.dart:142:7 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m31_test.dart:143:7 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m32_test.dart:55:35 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m32_test.dart:58:17 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m32_test.dart:58:29 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m32_test.dart:83:13 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m32_test.dart:85:15 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m32_test.dart:85:27 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m33_test.dart:22:5 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m33_test.dart:23:5 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m33_test.dart:24:5 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m33_test.dart:26:5 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m34_test.dart:89:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m34_test.dart:145:17 • prefer_const_constructors
+   info • The import of 'dart:ui' is unnecessary because all of the used elements are also provided by the import of 'package:flutter_test/flutter_test.dart'. Try removing the import directive • test/m35_test.dart:8:8 • unnecessary_import
+   info • The import of 'dart:ui' is unnecessary because all of the used elements are also provided by the import of 'package:flutter_test/flutter_test.dart'. Try removing the import directive • test/m36_test.dart:9:8 • unnecessary_import
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m42_visibility_test.dart:29:13 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m42_visibility_test.dart:29:25 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m42_visibility_test.dart:88:15 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m42_visibility_test.dart:88:27 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m42_visibility_test.dart:123:15 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m42_visibility_test.dart:123:27 • prefer_const_constructors
+warning • Unused import: 'package:prototype/inserts.dart'. Try removing the import directive • test/m46_shortcut_suppression_test.dart:11:8 • unused_import
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m47_body_drag_test.dart:71:17 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m47_body_drag_test.dart:78:17 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m47_body_drag_test.dart:84:17 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m47_body_drag_test.dart:90:17 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m49_split_test.dart:100:40 • prefer_const_constructors
+   info • Use 'const' for final variables initialized to a constant value. Try replacing 'final' with 'const' • test/m49_split_test.dart:166:7 • prefer_const_declarations
+   info • Use 'const' for final variables initialized to a constant value. Try replacing 'final' with 'const' • test/m49_split_test.dart:183:7 • prefer_const_declarations
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m50_ribbon_slimming_test.dart:250:33 • prefer_const_constructors
+   info • The import of 'dart:ui' is unnecessary because all of the used elements are also provided by the import of 'package:flutter_test/flutter_test.dart'. Try removing the import directive • test/m53_end_of_sketch_test.dart:15:8 • unnecessary_import
+   info • The import of 'dart:ui' is unnecessary because all of the used elements are also provided by the import of 'package:flutter_test/flutter_test.dart'. Try removing the import directive • test/m53_hud_arrows_test.dart:6:8 • unnecessary_import
+   info • The import of 'package:flutter/material.dart' is unnecessary because all of the used elements are also provided by the import of 'package:flutter_test/flutter_test.dart'. Try removing the import directive • test/m56_part_test.dart:9:8 • unnecessary_import
+warning • Unused import: 'dart:typed_data'. Try removing the import directive • test/m58_smooth_solids_test.dart:7:8 • unused_import
+warning • Unused import: 'package:prototype/ffi/occt_engine.dart'. Try removing the import directive • test/m58_smooth_solids_test.dart:11:8 • unused_import
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m59_shaded_edges_test.dart:192:41 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m59_shaded_edges_test.dart:211:20 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m59_shaded_edges_test.dart:212:19 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m59_shaded_edges_test.dart:223:23 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m59_shaded_edges_test.dart:228:26 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m59_shaded_edges_test.dart:241:22 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m59_shaded_edges_test.dart:251:37 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m59_shaded_edges_test.dart:258:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m59_shaded_edges_test.dart:259:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m59_shaded_edges_test.dart:260:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m59_shaded_edges_test.dart:261:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m59_shaded_edges_test.dart:269:17 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m59_shaded_edges_test.dart:269:36 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m59_shaded_edges_test.dart:283:33 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m59_shaded_edges_test.dart:284:33 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m59_shaded_edges_test.dart:382:20 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m59_shaded_edges_test.dart:383:19 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m59_shaded_edges_test.dart:408:50 • prefer_const_constructors
+   info • The import of 'package:flutter/material.dart' is unnecessary because all of the used elements are also provided by the import of 'package:flutter_test/flutter_test.dart'. Try removing the import directive • test/m62_boolean_test.dart:10:8 • unnecessary_import
+   info • Use 'const' for final variables initialized to a constant value. Try replacing 'final' with 'const' • test/m62_boolean_test.dart:245:7 • prefer_const_declarations
+   info • The import of 'package:flutter/material.dart' is unnecessary because all of the used elements are also provided by the import of 'package:flutter_test/flutter_test.dart'. Try removing the import directive • test/m67_feature_cache_test.dart:10:8 • unnecessary_import
+   info • The import of 'package:flutter/material.dart' is unnecessary because all of the used elements are also provided by the import of 'package:flutter_test/flutter_test.dart'. Try removing the import directive • test/m76_project_3d_test.dart:12:8 • unnecessary_import
+   info • Use 'const' for final variables initialized to a constant value. Try replacing 'final' with 'const' • test/m83_origin_extent_test.dart:67:7 • prefer_const_declarations
+   info • The import of 'package:flutter/painting.dart' is unnecessary because all of the used elements are also provided by the import of 'package:flutter_test/flutter_test.dart'. Try removing the import directive • test/m86_spline_fixes_test.dart:18:8 • unnecessary_import
+   info • The import of 'package:flutter/painting.dart' is unnecessary because all of the used elements are also provided by the import of 'package:flutter_test/flutter_test.dart'. Try removing the import directive • test/m87_freehand_test.dart:8:8 • unnecessary_import
+   info • The local variable '_three' starts with an underscore. Try renaming the variable to not start with an underscore • test/m91_timeline_eop_test.dart:103:15 • no_leading_underscores_for_local_identifiers
+   info • Unnecessary cascade expression. Try using the operator '.' • test/m91_timeline_eop_test.dart:249:5 • avoid_single_cascade_in_expression_statements
+   info • The import of 'package:flutter/painting.dart' is unnecessary because all of the used elements are also provided by the import of 'package:flutter_test/flutter_test.dart'. Try removing the import directive • test/m92_construction_geometry_test.dart:10:8 • unnecessary_import
+   info • The local variable '_polySet' starts with an underscore. Try renaming the variable to not start with an underscore • test/m92_construction_geometry_test.dart:98:22 • no_leading_underscores_for_local_identifiers
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m92_construction_geometry_test.dart:113:52 • prefer_const_constructors
+   info • Use 'const' for final variables initialized to a constant value. Try replacing 'final' with 'const' • test/m92_construction_geometry_test.dart:132:7 • prefer_const_declarations
+   info • Use 'const' for final variables initialized to a constant value. Try replacing 'final' with 'const' • test/m92_construction_geometry_test.dart:146:7 • prefer_const_declarations
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m92_construction_geometry_test.dart:159:19 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m92_construction_geometry_test.dart:159:31 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m92_construction_geometry_test.dart:211:44 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m92_construction_geometry_test.dart:211:56 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m92_construction_geometry_test.dart:212:44 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m92_construction_geometry_test.dart:212:56 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m92_construction_geometry_test.dart:213:44 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m92_construction_geometry_test.dart:213:56 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m92_construction_geometry_test.dart:214:44 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m92_construction_geometry_test.dart:214:56 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m92_construction_geometry_test.dart:292:42 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m92_construction_geometry_test.dart:292:54 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m92_construction_geometry_test.dart:293:42 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m92_construction_geometry_test.dart:293:54 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m92_construction_geometry_test.dart:294:42 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m92_construction_geometry_test.dart:294:54 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m92_construction_geometry_test.dart:295:42 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m92_construction_geometry_test.dart:295:54 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m93_no_double_sketch_test.dart:22:5 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m93_no_double_sketch_test.dart:23:5 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m93_no_double_sketch_test.dart:25:5 • prefer_const_constructors
+   info • The import of 'package:flutter/painting.dart' is unnecessary because all of the used elements are also provided by the import of 'package:flutter_test/flutter_test.dart'. Try removing the import directive • test/m94_centre_drag_test.dart:14:8 • unnecessary_import
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/m94_centre_drag_test.dart:78:7 • prefer_const_constructors
+   info • Use 'const' for final variables initialized to a constant value. Try replacing 'final' with 'const' • test/mesh_conventions_test.dart:119:7 • prefer_const_declarations
+   info • Use 'const' for final variables initialized to a constant value. Try replacing 'final' with 'const' • test/mesh_conventions_test.dart:130:7 • prefer_const_declarations
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/native_context_menu_test.dart:94:22 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/native_context_menu_test.dart:97:15 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/native_context_menu_test.dart:98:22 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/native_context_menu_test.dart:102:12 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/native_context_menu_test.dart:121:17 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/native_context_menu_test.dart:122:32 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/native_context_menu_test.dart:128:17 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/native_context_menu_test.dart:129:26 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/native_context_menu_test.dart:139:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/native_context_menu_test.dart:139:41 • prefer_const_constructors
+warning • Unused import: 'dart:ui'. Try removing the import directive • test/profile_arrangement_test.dart:7:8 • unused_import
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/reality_scene_test.dart:225:23 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/s4_display_geometry_once_test.dart:77:18 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/s4_display_geometry_once_test.dart:227:22 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/s4_display_geometry_once_test.dart:228:25 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/s4_display_geometry_once_test.dart:242:22 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/s4_display_geometry_once_test.dart:243:25 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/s4_display_geometry_once_test.dart:325:22 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/s4_display_geometry_once_test.dart:326:22 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/s4_display_geometry_once_test.dart:329:25 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/s4_display_geometry_once_test.dart:336:25 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/s4_display_geometry_once_test.dart:348:22 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/s4_display_geometry_once_test.dart:349:25 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/s4_display_geometry_once_test.dart:359:21 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/s4_display_geometry_once_test.dart:360:25 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/s4_display_geometry_once_test.dart:369:22 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/s4_display_geometry_once_test.dart:371:22 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/s4_display_geometry_once_test.dart:374:25 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/s4_display_geometry_once_test.dart:386:22 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/s4_display_geometry_once_test.dart:387:25 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/spline_test.dart:24:7 • prefer_const_constructors
+   info • Use 'const' for final variables initialized to a constant value. Try replacing 'final' with 'const' • test/spline_test.dart:38:5 • prefer_const_declarations
+   info • Use 'const' for final variables initialized to a constant value. Try replacing 'final' with 'const' • test/spline_test.dart:58:5 • prefer_const_declarations
+   info • Use 'const' for final variables initialized to a constant value. Try replacing 'final' with 'const' • test/spline_test.dart:69:5 • prefer_const_declarations
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/spline_test.dart:130:17 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/spline_test.dart:139:17 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/spline_test.dart:141:29 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/spline_test.dart:146:17 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/spline_test.dart:149:29 • prefer_const_constructors
+   info • The import of 'dart:ui' is unnecessary because all of the used elements are also provided by the import of 'package:flutter_test/flutter_test.dart'. Try removing the import directive • test/trim_crossing_lines_test.dart:7:8 • unnecessary_import
+   info • The import of 'dart:ui' is unnecessary because all of the used elements are also provided by the import of 'package:flutter_test/flutter_test.dart'. Try removing the import directive • test/trim_stacked_points_test.dart:12:8 • unnecessary_import
+   info • The import of 'dart:ui' is unnecessary because all of the used elements are also provided by the import of 'package:flutter_test/flutter_test.dart'. Try removing the import directive • test/undo_redo_test.dart:12:8 • unnecessary_import
+
+652 issues found. (ran in 22.4s)

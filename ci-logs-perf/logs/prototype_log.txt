@@ -1,0 +1,67 @@
+
+================ APP LAUNCH 2026-08-26T09:34:51.514999 build=3c6ee0d ================
+2026-08-26T09:34:51.634064 [INFO ] log: logger ready, file=/Users/runner/Library/Developer/CoreSimulator/Devices/1C7A1766-1A8F-48CF-B6F7-FA4E792497B5/data/Containers/Data/Application/796023FA-A290-4BC0-981A-819C80D44912/tmp/logs/prototype_log.txt
+2026-08-26T09:34:51.708270 [INFO ] log: os=ios ver=Version 26.5 (Build 23F77) dart=3.13.1 (stable) (Tue Aug 18 01:00:59 2026 -0700) on "ios_x64" locale=en_US
+2026-08-26T09:34:51.843001 [INFO ] main: >> WidgetsFlutterBinding.ensureInitialized
+2026-08-26T09:34:52.282927 [INFO ] main: << WidgetsFlutterBinding.ensureInitialized OK (425.9 ms)
+2026-08-26T09:34:52.299173 [INFO ] perf: frame timings attached
+2026-08-26T09:34:52.302232 [INFO ] main: >> hide system UI (fire-and-forget)
+2026-08-26T09:34:52.313362 [INFO ] main: << hide system UI (fire-and-forget) OK (7.8 ms)
+2026-08-26T09:34:52.318216 [INFO ] main: >> setPreferredOrientations (fire-and-forget)
+2026-08-26T09:34:52.328520 [INFO ] main: << setPreferredOrientations (fire-and-forget) OK (7.3 ms)
+2026-08-26T09:34:52.351098 [INFO ] main: >> AppState()
+2026-08-26T09:34:52.367386 [INFO ] main: << AppState() OK (12.5 ms)
+2026-08-26T09:34:52.369410 [INFO ] main: >> T.followPlatform
+2026-08-26T09:34:52.409857 [INFO ] theme: palette = Chalk (mode=system)
+2026-08-26T09:34:52.414105 [INFO ] main: << T.followPlatform OK (42.6 ms)
+2026-08-26T09:34:52.416508 [INFO ] main: >> AppState.init (async, not awaited)
+2026-08-26T09:34:52.423958 [INFO ] state: >> getApplicationDocumentsDirectory (platform channel)
+2026-08-26T09:34:54.773339 [INFO ] main: LOG FILE: /Users/runner/Library/Developer/CoreSimulator/Devices/1C7A1766-1A8F-48CF-B6F7-FA4E792497B5/data/Containers/Data/Application/796023FA-A290-4BC0-981A-819C80D44912/tmp/logs/prototype_log.txt
+2026-08-26T09:34:54.774933 [INFO ] main: build=3c6ee0d
+2026-08-26T09:34:54.776185 [INFO ] main: >> runApp
+2026-08-26T09:34:54.808597 [INFO ] main: << runApp OK (30.9 ms)
+2026-08-26T09:34:54.809770 [INFO ] main: main() completed — first frame pending
+2026-08-26T09:34:54.835557 [INFO ] state: << getApplicationDocumentsDirectory (platform channel) OK (2409.0 ms)
+2026-08-26T09:34:54.838374 [INFO ] state: docs dir = /Users/runner/Library/Developer/CoreSimulator/Devices/1C7A1766-1A8F-48CF-B6F7-FA4E792497B5/data/Containers/Data/Application/796023FA-A290-4BC0-981A-819C80D44912/Documents
+2026-08-26T09:34:54.856966 [INFO ] log: retargeted log to Documents: /Users/runner/Library/Developer/CoreSimulator/Devices/1C7A1766-1A8F-48CF-B6F7-FA4E792497B5/data/Containers/Data/Application/796023FA-A290-4BC0-981A-819C80D44912/Documents/logs/prototype_log.txt
+2026-08-26T09:34:54.862433 [INFO ] perf: performance log at /Users/runner/Library/Developer/CoreSimulator/Devices/1C7A1766-1A8F-48CF-B6F7-FA4E792497B5/data/Containers/Data/Application/796023FA-A290-4BC0-981A-819C80D44912/Documents/logs/performance_logs.txt
+2026-08-26T09:34:54.872792 [INFO ] preview: format -> 2, thumbnail cache dropped
+2026-08-26T09:34:54.880860 [INFO ] state: >> Engine.create (backend probe)
+2026-08-26T09:34:54.883194 [INFO ] ffi: >> DynamicLibrary.process()
+2026-08-26T09:34:54.884539 [INFO ] ffi: << DynamicLibrary.process() OK (0.5 ms)
+2026-08-26T09:34:54.885238 [INFO ] ffi: >> symbol lookup + qcad_init()
+2026-08-26T09:34:54.887165 [INFO ] ffi: looking up qcad_init + calling it (other symbols resolve lazily on first use)
+2026-08-26T09:34:54.944253 [INFO ] ffi: qcad_init() returned
+2026-08-26T09:34:54.945485 [INFO ] ffi: << symbol lookup + qcad_init() OK (59.7 ms)
+2026-08-26T09:34:54.946473 [INFO ] ffi: >> qcad_version()
+2026-08-26T09:34:54.949972 [INFO ] ffi: << qcad_version() OK (2.8 ms)
+2026-08-26T09:34:54.951317 [INFO ] ffi: native backend version: Prototype C-API 0.1.0 (Qt 6.7.3)
+2026-08-26T09:34:54.952382 [INFO ] ffi: >> qcad_document_new()
+2026-08-26T09:34:55.025338 [INFO ] ffi: << qcad_document_new() OK (72.2 ms)
+2026-08-26T09:34:55.026680 [INFO ] ffi: >> probe qcad_add_line()
+2026-08-26T09:34:55.042158 [INFO ] ffi: << probe qcad_add_line() OK (14.4 ms)
+2026-08-26T09:34:55.043467 [INFO ] ffi: >> probe entity_ids/geometry round-trip
+2026-08-26T09:34:55.061672 [INFO ] ffi: << probe entity_ids/geometry round-trip OK (17.2 ms)
+2026-08-26T09:34:55.063101 [INFO ] ffi: >> probe qcad_document_free()
+2026-08-26T09:34:55.068139 [INFO ] ffi: << probe qcad_document_free() OK (4.3 ms)
+2026-08-26T09:34:55.075835 [INFO ] ffi: REAL backend active (qcad-ffi)
+2026-08-26T09:34:55.077130 [INFO ] state: << Engine.create (backend probe) OK (195.1 ms)
+2026-08-26T09:34:55.079884 [INFO ] state: >> Engine.create (smoke)
+2026-08-26T09:34:55.087425 [INFO ] state: << Engine.create (smoke) OK (6.3 ms)
+2026-08-26T09:34:55.096548 [INFO ] smoke: DART SMOKE: PASS (backend=qcad-ffi, Prototype C-API 0.1.0 (Qt 6.7.3))
+2026-08-26T09:34:55.097932 [INFO ] state: >> occt smoke
+2026-08-26T09:34:55.222383 [INFO ] state: << occt smoke OK (123.0 ms)
+2026-08-26T09:34:55.223731 [INFO ] smoke: DART SMOKE: PASS (backend=occt-ffi, shim v28, Prototype OCCT shim v28 (OCCT 7.9.3), box F6/E12/V8 vol 6000.000000)
+2026-08-26T09:34:55.224681 [INFO ] state: >> migrateLegacyDocuments
+2026-08-26T09:34:55.232974 [INFO ] state: << migrateLegacyDocuments OK (6.9 ms)
+2026-08-26T09:34:55.235297 [INFO ] state: >> loadRemembered
+2026-08-26T09:34:55.240993 [INFO ] state: << loadRemembered OK (4.4 ms)
+2026-08-26T09:34:55.242756 [INFO ] state: >> reacquireExternals
+2026-08-26T09:34:55.248954 [INFO ] state: << reacquireExternals OK (4.7 ms)
+2026-08-26T09:34:55.250471 [INFO ] state: >> refreshSaved
+2026-08-26T09:34:55.301447 [INFO ] state: << refreshSaved OK (49.7 ms)
+2026-08-26T09:34:55.304226 [INFO ] state: AppState.init done (backendReal=true)
+2026-08-26T09:34:55.305603 [INFO ] main: << AppState.init OK
+2026-08-26T09:34:59.248636 [INFO ] main: system UI hidden
+2026-08-26T09:34:59.253858 [INFO ] main: orientation set
+2026-08-26T09:35:02.791596 [INFO ] perf: time to first frame: 11006.6 ms
