@@ -13,6 +13,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:reality_view/reality_view.dart' show RealityThumbnailer;
 
 import 'asm_constraints.dart';
+import 'asm_joint.dart';
 import 'asm_pick.dart';
 import 'asm_pattern.dart';
 import 'asm_solver.dart';
@@ -990,6 +991,23 @@ class ConstraintSession {
   AsmKind kind = AsmKind.mate;
   AsmSolution solution = AsmSolution.mate;
 
+  /// M249 — the Place Joint dialog's Type list, when this session is a JOINT.
+  ///
+  /// One session class for two commands, because they collect identically: the
+  /// numbered selection buttons, the arming, the preview, the placement
+  /// snapshot, Apply-keeps-the-settings and the viewport's pick routing are
+  /// the same machinery for both, and a second copy of it would be a second
+  /// place for "a tap fills the armed slot" to drift. [tab] is what says which
+  /// dialog is on screen — see [AsmTab.joint].
+  ///
+  /// [AsmJointType.automatic] stays selected while it is chosen: [kind] then
+  /// holds whatever the current pair resolves to, so the dialog can show the
+  /// user what Automatic decided BEFORE they commit — which is the one thing
+  /// Inventor's own Automatic does not, and is free here.
+  AsmJointType jointType = AsmJointType.automatic;
+
+  bool get isJoint => tab == AsmTab.joint;
+
   /// The selections, in the dialog's own numbering: 1, 2 and (for Symmetry
   /// and an explicit reference vector) 3.
   AsmRef? a, b, c;
@@ -1049,6 +1067,85 @@ class ConstraintSession {
       if (slot(i) == null) return i;
     }
     return -1;
+  }
+}
+
+/// M249 — the live state of Inventor's DRIVE dialog.
+///
+/// "The Drive dialog box opens when you right-click a relationship in the
+/// browser and select Drive", and it animates that relationship's value from a
+/// Start to an End. Which is the UI M242 owed the motion constraints: the
+/// solver's drive pass (asm_solver.driveMotion) has been there and tested
+/// since — "motion is DRIVEN, not solved" — with nothing on screen to run it.
+///
+/// TWO KINDS OF SWEEP, chosen by what is being driven, because a motion
+/// constraint has no value worth animating:
+///
+///   POSITIONAL  a Mate's offset, an Angle's angle, a joint's gap. The value
+///               is set and the assembly re-solved, which is Inventor's own
+///               behaviour exactly.
+///   MOTION      a Rotation or Rotation-Translation constraint carries a RATIO
+///               or a distance per turn, and sweeping either of those animates
+///               nothing — it changes the gearing while the gears stand still.
+///               So what is swept is the DRIVER's own rotation, in degrees,
+///               through [AppState.turnOccurrence]: turning the first shaft is
+///               what makes the drive pass move the second one, and that is
+///               what a gear pair is for.
+class DriveSession {
+  DriveSession(this.constraint, {required this.motion, required this.value0});
+
+  final AsmConstraint constraint;
+
+  /// True when this sweeps the driver's rotation rather than the constraint's
+  /// value — see the class comment.
+  final bool motion;
+
+  /// The value the constraint had when the dialog opened, restored on close.
+  /// A drive is a preview of motion, not an edit.
+  final double value0;
+
+  double start = 0;
+  double end = 0;
+
+  /// Inventor's Increment group: a step SIZE, or a total number of steps.
+  bool byTotalSteps = false;
+  double increment = 1;
+  int totalSteps = 10;
+
+  /// "In Pause Delay, set the time in seconds between steps."
+  double pauseDelay = 0.05;
+
+  /// Inventor's Repetition group: Start/End "runs once and returns to the
+  /// beginning"; Start/End/Start "runs once forward, then once backward".
+  bool roundTrip = false;
+  int cycles = 1;
+
+  // ---- runtime ------------------------------------------------------------
+
+  /// Where the sweep is, as a fraction of Start -> End. A fraction rather than
+  /// a value because it makes a backwards sweep (End below Start) the same
+  /// arithmetic as a forwards one, and the turn-round at each extreme a
+  /// comparison against 0 and 1 rather than against whichever end is larger.
+  double phase = 0;
+
+  bool playing = false;
+
+  /// True while the sweep is running back towards Start — only ever set by the
+  /// Start/End/Start repetition.
+  bool reverse = false;
+
+  /// How many complete repetitions have finished.
+  int cycle = 0;
+
+  double get current => start + phase * (end - start);
+
+  /// The step, as a fraction of the whole sweep. Never zero: a zero step is a
+  /// timer that fires for ever and animates nothing.
+  double get phaseStep {
+    final span = (end - start).abs();
+    if (byTotalSteps) return 1.0 / math.max(1, totalSteps);
+    if (span < 1e-9) return 1;
+    return math.max(1e-4, increment.abs() / span);
   }
 }
 
@@ -4612,7 +4709,7 @@ class AppState extends ChangeNotifier {
   AsmMark markFor(AssemblyModel a, AsmRef r) {
     final geom = worldGeomOf(a, r);
     final o = r.isAssemblyOrigin ? null : a.byId(r.occurrence);
-    final anchor = o == null ? r.anchor : o.toWorld(r.anchor);
+    final anchor = worldAnchorOf(a, r);
     // The picked FACE's own size when the pick could measure it, which is
     // what makes the highlight mean "this face" rather than "somewhere on
     // this part". The component's extent is the fallback: the assembly's own
@@ -4629,6 +4726,12 @@ class AppState extends ChangeNotifier {
   void openConstraint({AsmConstraint? edit}) {
     final a = currentAssembly;
     if (a == null) return;
+    // M249 — a running DRIVE is moving components on a timer, and this dialog
+    // is about to snapshot their placements and preview against them. Two
+    // authorities over one placement is the failure asm_solver documents for
+    // pattern elements; closing the drive first is the same rule applied to
+    // two dialogs. openDrive does the reverse.
+    if (driveSession != null) closeDrive();
     final s = ConstraintSession(editing: edit);
     if (edit != null) {
       s.kind = edit.kind;
@@ -4647,6 +4750,95 @@ class AppState extends ChangeNotifier {
     _takeAsmSnapshot(a);
     _refreshConstraintPreview();
     notifyListeners();
+  }
+
+  /// M249 — opens PLACE JOINT. With [edit] it opens on that joint, filled in.
+  ///
+  /// The same session as Place Constraint, on [AsmTab.joint] — see
+  /// [ConstraintSession.jointType]. Which means every command that already
+  /// knows how to feed the constraint dialog (the viewport's tap routing, the
+  /// marker drawing, Apply, Cancel and the snapshot) feeds this one without
+  /// being told it exists.
+  void openJoint({AsmConstraint? edit}) {
+    final a = currentAssembly;
+    if (a == null) return;
+    if (driveSession != null) closeDrive(); // see openConstraint
+    final s = ConstraintSession(editing: edit);
+    s.tab = AsmTab.joint;
+    if (edit != null && edit.isJoint) {
+      s.jointType = jointTypeOf(edit.kind);
+      s.kind = edit.kind;
+      s.solution = edit.solution;
+      s.a = edit.a;
+      s.b = edit.b;
+      s.value = edit.value;
+      s.name = edit.name;
+    } else {
+      // Inventor opens on Automatic, and it is the right default: it is the
+      // entry that makes ONE pick pair enough, which is the whole point of the
+      // command. Rigid is what Automatic falls back to with nothing picked, so
+      // that is what `kind` reads until the second selection lands.
+      s.jointType = AsmJointType.automatic;
+      s.kind = AsmKind.jointRigid;
+      s.solution = solutionsFor(s.kind).first;
+    }
+    constraintSession = s;
+    _takeAsmSnapshot(a);
+    _refreshConstraintPreview();
+    notifyListeners();
+  }
+
+  /// Chooses a joint type in the Place Joint dialog.
+  void setJointType(AsmJointType type) {
+    final s = constraintSession;
+    if (s == null || !s.isJoint || s.jointType == type) return;
+    s.jointType = type;
+    final fixed = jointKindOf(type);
+    // Automatic has no kind of its own: it is re-derived from the picks below.
+    if (fixed != null) {
+      s.kind = fixed;
+      if (!solutionsFor(fixed).contains(s.solution)) {
+        s.solution = solutionsFor(fixed).first;
+      }
+    }
+    _resolveAutomaticJointKind(s);
+    _checkConstraintPair(s);
+    _refreshConstraintPreview();
+    notifyListeners();
+  }
+
+  /// Re-runs Inventor's Automatic rule over the current pair.
+  ///
+  /// Called after every pick and after every type change, so the dialog is
+  /// never showing a type the picks no longer imply. A no-op unless Automatic
+  /// is the chosen type.
+  void _resolveAutomaticJointKind(ConstraintSession s) {
+    final a = currentAssembly;
+    if (a == null || !s.isJoint) return;
+    if (s.jointType != AsmJointType.automatic) return;
+    if (s.a == null || s.b == null) {
+      s.kind = AsmKind.jointRigid;
+      return;
+    }
+    s.kind = resolveAutomaticJoint(worldGeomOf(a, s.a!), worldGeomOf(a, s.b!));
+    if (!solutionsFor(s.kind).contains(s.solution)) {
+      s.solution = solutionsFor(s.kind).first;
+    }
+  }
+
+  /// The twist a joint of [kind] would capture from the pair in [s], or null
+  /// when the type leaves the rotation about its axis free.
+  ///
+  /// Read from where the components CURRENTLY are, which is the whole point:
+  /// see [AsmConstraint.twist]. Callers must have restored the placement
+  /// snapshot first, or a Rigid joint would capture the twist of its own
+  /// preview rather than of the assembly.
+  double? _capturedTwist(AssemblyModel a, AsmKind kind, AsmRef ra, AsmRef rb) {
+    if (!isJointKind(kind) || !jointLocks(kind).twist) return null;
+    final fa = worldJointFrameOf(a, ra);
+    final fb = worldJointFrameOf(a, rb);
+    if (!fa.hasAxis || !fb.hasAxis) return null;
+    return jointTwistBetween(fa.ref, fb.ref, fa.axis);
   }
 
   /// Cancel: the preview is undone and nothing is written.
@@ -4674,6 +4866,9 @@ class AppState extends ChangeNotifier {
       AsmTab.motion => kMotionKinds,
       AsmTab.transitional => const [AsmKind.transitional],
       AsmTab.constraintSet => const <AsmKind>[],
+      // M249 — not one of Place Constraint's tabs; the Joint dialog owns it,
+      // and it is reached through [openJoint] rather than through this switch.
+      AsmTab.joint => kJointKinds,
     };
     if (kinds.isNotEmpty && !kinds.contains(s.kind)) {
       _applyKind(s, kinds.first);
@@ -4743,6 +4938,7 @@ class AppState extends ChangeNotifier {
     if (s == null || i < 0 || i >= s.needed) return;
     if (s.armed == i && s.slot(i) != null) {
       s.setSlot(i, null);
+      _resolveAutomaticJointKind(s);
       _checkConstraintPair(s);
       _refreshConstraintPreview();
       notifyListeners();
@@ -4820,6 +5016,10 @@ class AppState extends ChangeNotifier {
     s.setSlot(s.armed, pick.ref);
     final next = s.firstEmpty;
     s.armed = next < 0 ? s.armed : next;
+    // M249 — Automatic decides from the ORIGINS, so it can only decide once
+    // they have both been pointed at. Before the rejection check, because what
+    // the pair is allowed to be depends on the type it just resolved to.
+    _resolveAutomaticJointKind(s);
     _checkConstraintPair(s);
     // Predict runs on the pair, so it can only fire once the second selection
     // has landed.
@@ -4879,7 +5079,12 @@ class AppState extends ChangeNotifier {
       c: s.needed >= 3 ? s.c : third,
       value: s.value,
       suppressed: s.editing?.suppressed ?? false,
-    );
+    )
+      // M249 — a Rigid or Slider joint holds the rotation about its own axis
+      // at whatever the components already stood at. Captured HERE, from the
+      // model, because this is the one method both the preview and the commit
+      // go through and both must produce the same joint.
+      ..twist = _capturedTwist(a, s.kind, s.a!, s.b!);
   }
 
   String? _checkedRejection(ConstraintSession s, AssemblyModel a) {
@@ -4943,7 +5148,12 @@ class AppState extends ChangeNotifier {
         ..a = built.a
         ..b = built.b
         ..c = built.c
-        ..value = built.value;
+        ..value = built.value
+        // M249 — and the captured twist, or editing a Rigid joint's gap would
+        // keep the twist the joint was first made with while its geometry
+        // moved on. Null for every kind that does not hold one, which is what
+        // switching a Rigid joint to Cylindrical has to leave behind.
+        ..twist = built.twist;
     } else {
       a.constraints.add(built);
     }
@@ -4985,6 +5195,329 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ---- M249: Drive Constraint ---------------------------------------------
+  //
+  // See [DriveSession] for what a drive IS and for the two kinds of sweep.
+  // What lives here is the command surface and the TIMER, which is the half
+  // M242 left out: the drive pass has been in asm_solver since then with
+  // nothing to step it.
+
+  DriveSession? driveSession;
+
+  /// The stepping timer. Never outlives the session: [closeDrive] cancels it,
+  /// and so does [dispose] — a periodic timer left running past a widget test
+  /// keeps the whole test binding alive.
+  Timer? _driveTimer;
+
+  /// The placements as they were when the dialog opened.
+  ///
+  /// Separate from [_asmSnapshot], which belongs to Place Constraint: the two
+  /// dialogs are modeless and the browser can open Drive while nothing else is
+  /// up, but sharing one field would let closing either restore the other's.
+  Map<String, (Vec3, Quat)>? _driveSnapshot;
+
+  /// Opens the Drive dialog on [c].
+  void openDrive(AsmConstraint c) {
+    final a = currentAssembly;
+    if (a == null) return;
+    if (!canDriveConstraint(c)) {
+      toast(L.current.msgAsmCannotDrive);
+      return;
+    }
+    // The two other modeless assembly panels collect from the viewport, and a
+    // drive moves components under them; closing them is what Inventor does
+    // when a second command starts.
+    if (constraintSession != null) cancelConstraint();
+    final motion = !c.isPositional;
+    final s = DriveSession(c, motion: motion, value0: c.value);
+    // "In Start, enter the beginning value. The default value is the angle or
+    // offset defined for the constraint. In End, enter the ending value. The
+    // default is the Start value plus ten." A motion drive has no such value,
+    // so it starts where the shaft is — zero degrees turned — and Inventor's
+    // +10 becomes one full turn, which is the sweep a gear pair is for.
+    s.start = motion ? 0 : c.value;
+    s.end = motion ? 360 : c.value + 10;
+    s.increment = motion ? 5 : 1;
+    driveSession = s;
+    _driveSnapshot = {for (final o in a.occurrences) o.id: (o.offset, o.rot)};
+    notifyListeners();
+  }
+
+  /// Closes the dialog and puts the assembly back where it was.
+  ///
+  /// A drive is a preview of MOTION, not an edit: Inventor restores the
+  /// relationship's value when the dialog closes, and restoring the placements
+  /// with it is the same promise kept for the motion sweep, which has no value
+  /// to put back.
+  void closeDrive() {
+    final s = driveSession;
+    if (s == null) return;
+    _driveTimer?.cancel();
+    _driveTimer = null;
+    s.constraint.value = s.value0;
+    final a = currentAssembly;
+    final snap = _driveSnapshot;
+    if (a != null && snap != null) {
+      for (final o in a.occurrences) {
+        final was = snap[o.id];
+        if (was == null) continue;
+        o.offset = was.$1;
+        o.rot = was.$2;
+      }
+      _solveAssembly(a);
+      a.bump();
+    }
+    driveSession = null;
+    _driveSnapshot = null;
+    notifyListeners();
+  }
+
+  void setDriveField({
+    double? start,
+    double? end,
+    double? increment,
+    int? totalSteps,
+    double? pauseDelay,
+    bool? byTotalSteps,
+    bool? roundTrip,
+    int? cycles,
+  }) {
+    final s = driveSession;
+    if (s == null) return;
+    if (start != null) s.start = start;
+    if (end != null) s.end = end;
+    if (increment != null) s.increment = increment;
+    if (totalSteps != null) s.totalSteps = math.max(1, totalSteps);
+    if (pauseDelay != null) s.pauseDelay = pauseDelay.clamp(0.0, 10.0);
+    if (byTotalSteps != null) s.byTotalSteps = byTotalSteps;
+    if (roundTrip != null) s.roundTrip = roundTrip;
+    if (cycles != null) s.cycles = math.max(1, cycles);
+    // A changed Pause Delay has to reach a sweep that is already running, or
+    // the slider does nothing until the user stops and starts again.
+    if (s.playing) _armDriveTimer(s);
+    notifyListeners();
+  }
+
+  /// Plays the sweep. [reverse] is Inventor's ◀ button: it runs the same
+  /// range, from wherever the sweep is, back towards Start.
+  void playDrive({bool reverse = false}) {
+    final s = driveSession;
+    if (s == null) return;
+    s.reverse = reverse;
+    s.playing = true;
+    s.cycle = 0;
+    _armDriveTimer(s);
+    notifyListeners();
+  }
+
+  void pauseDrive() {
+    final s = driveSession;
+    if (s == null) return;
+    s.playing = false;
+    _driveTimer?.cancel();
+    _driveTimer = null;
+    notifyListeners();
+  }
+
+  /// Inventor's ⏮ / ⏭ : jump to either end of the range without sweeping.
+  void driveToEnd({required bool atEnd}) {
+    final s = driveSession;
+    if (s == null) return;
+    pauseDrive();
+    _driveTo(s, atEnd ? 1 : 0);
+    notifyListeners();
+  }
+
+  void _armDriveTimer(DriveSession s) {
+    _driveTimer?.cancel();
+    // Floored at one frame: a zero Pause Delay means "as fast as it will go",
+    // and a zero-duration periodic timer would starve the frame it is meant to
+    // be animating.
+    final ms = math.max(16, (s.pauseDelay * 1000).round());
+    _driveTimer = Timer.periodic(Duration(milliseconds: ms), (_) => _driveTick());
+  }
+
+  void _driveTick() {
+    final s = driveSession;
+    if (s == null || !s.playing) {
+      _driveTimer?.cancel();
+      _driveTimer = null;
+      return;
+    }
+    final step = s.phaseStep * (s.reverse ? -1 : 1);
+    var next = s.phase + step;
+    if (next >= 1 || next <= 0) {
+      next = next >= 1 ? 1 : 0;
+      _driveTo(s, next);
+      if (s.roundTrip) {
+        // Start/End/Start: the far end turns the sweep round, and arriving
+        // back at the near end is what finishes one repetition.
+        if (!s.reverse) {
+          s.reverse = true;
+        } else {
+          s.reverse = false;
+          s.cycle++;
+        }
+      } else {
+        s.cycle++;
+        if (s.cycle < s.cycles) _driveTo(s, 0);
+      }
+      if (s.cycle >= s.cycles) {
+        pauseDrive();
+        return;
+      }
+      notifyListeners();
+      return;
+    }
+    _driveTo(s, next);
+    notifyListeners();
+  }
+
+  /// Puts the sweep at [phase] and makes the assembly show it.
+  void _driveTo(DriveSession s, double phase) {
+    final a = currentAssembly;
+    // The relationship has to still BE in the document in front of us. Two
+    // ways it might not: it was deleted (deleteConstraint closes the dialog,
+    // but a timer already in flight can arrive first), or the user switched to
+    // another tab while the sweep was running. Either way the honest answer is
+    // to stop rather than to drive a constraint that is not on screen.
+    if (a == null || !a.constraints.contains(s.constraint)) {
+      pauseDrive();
+      return;
+    }
+    final was = s.current;
+    s.phase = phase.clamp(0.0, 1.0);
+    if (!s.motion) {
+      s.constraint.value = s.current;
+      _solveAssembly(a);
+      return;
+    }
+    // A motion drive turns the DRIVER, which is what runs asm_solver's drive
+    // pass. By the DELTA since the last step, because turnOccurrence takes an
+    // increment: it is the same call the viewport's rotate gesture makes, and
+    // going through it rather than round it is what keeps one definition of
+    // "turning this shaft drives that gear".
+    final degrees = s.current - was;
+    if (degrees.abs() < 1e-12) return;
+    final driver = a.byId(s.constraint.a.occurrence);
+    if (driver == null) return;
+    final geom = worldGeomOf(a, s.constraint.a);
+    final axis = geom.dir;
+    if (axis.length < 1e-9) return;
+    turnOccurrence(driver, axis.normalized(), worldAnchorOf(a, s.constraint.a),
+        degrees * math.pi / 180);
+  }
+
+  /// M249 — the first thing in this class with a resource that outlives a
+  /// frame, and therefore the first reason it has a dispose at all.
+  ///
+  /// A `Timer.periodic` keeps firing after the widget tree that owns this
+  /// state is gone; in a widget test that is a pending-timer failure at the
+  /// end of the test, and in the app it is a solve running against a document
+  /// nobody is looking at.
+  @override
+  void dispose() {
+    _driveTimer?.cancel();
+    _driveTimer = null;
+    super.dispose();
+  }
+
+  // ---- M249: Show / Show Sick / Hide All -----------------------------------
+  //
+  // The three rows of the Relationships panel, and what they control is what
+  // is DRAWN: a constraint used to be visible only as a browser row and, while
+  // the dialog was open, as its M244 selection highlight. Inventor draws a
+  // glyph at each constrained pair, and these three commands decide which.
+  //
+  // Show is MODAL, because Inventor's is: "You click Show, then select the
+  // component, or alternately select multiple components before starting the
+  // command." Both orders work here — with a component already selected the
+  // command acts on it at once, and with nothing selected it arms and the next
+  // tap in the viewport names the component. The armed state is what lights
+  // the ribbon row, so it is never a mode you are in without being told.
+
+  /// True while Show is waiting for the user to point at a component.
+  bool showRelationshipsPicking = false;
+
+  /// Inventor's Show: draw the glyphs of everything that touches a component.
+  ///
+  /// Tapping the row while it is armed disarms it, the way every other toggle
+  /// in this ribbon behaves — an armed command with no way out but Escape is
+  /// not something a touch device should have.
+  void showRelationships() {
+    final a = currentAssembly;
+    if (a == null) return;
+    if (showRelationshipsPicking) {
+      showRelationshipsPicking = false;
+      notifyListeners();
+      return;
+    }
+    final sel = a.selected;
+    if (sel != null) {
+      showRelationshipsOf(sel.id);
+      return;
+    }
+    showRelationshipsPicking = true;
+    toast(L.current.hintAsmShowPickComponent);
+    notifyListeners();
+  }
+
+  /// Adds every relationship on [occurrenceId] to the drawn set.
+  ///
+  /// Returns false when the component has none, so the caller can say so
+  /// rather than leave a tap looking like it missed.
+  bool showRelationshipsOf(String occurrenceId) {
+    final a = currentAssembly;
+    if (a == null) return false;
+    final on = a.constraintsOn(occurrenceId);
+    showRelationshipsPicking = false;
+    if (on.isEmpty) {
+      toast(L.current.msgAsmNoRelationships(occurrenceId));
+      notifyListeners();
+      return false;
+    }
+    for (final c in on) {
+      a.shownRelationships.add(c.name);
+    }
+    notifyListeners();
+    return true;
+  }
+
+  /// Inventor's Show Sick: every relationship the solver could not meet, on
+  /// whichever components they touch.
+  ///
+  /// Unlike Show this takes no selection — a sick constraint is a thing to go
+  /// and find, so asking which component to look on first would defeat it.
+  void showSickRelationships() {
+    final a = currentAssembly;
+    if (a == null) return;
+    showRelationshipsPicking = false;
+    final sick = [
+      for (final c in a.constraints)
+        if (c.isSick && !c.suppressed) c
+    ];
+    if (sick.isEmpty) {
+      // Inventor greys the command out in this state; the ribbon does too (see
+      // _assemblyRibbon), so this is the belt to that pair of braces — a
+      // keyboard or a test can still reach the command.
+      toast(L.current.msgAsmNoSickRelationships);
+      notifyListeners();
+      return;
+    }
+    for (final c in sick) {
+      a.shownRelationships.add(c.name);
+    }
+    notifyListeners();
+  }
+
+  void hideAllRelationships() {
+    final a = currentAssembly;
+    if (a == null) return;
+    showRelationshipsPicking = false;
+    a.shownRelationships.clear();
+    notifyListeners();
+  }
+
   // ---- the Relationships folder -------------------------------------------
 
   void selectConstraint(AsmConstraint? c) {
@@ -4997,6 +5530,10 @@ class AppState extends ChangeNotifier {
   void deleteConstraint(AsmConstraint c) {
     final a = currentAssembly;
     if (a == null) return;
+    // M249 — a Drive dialog open on THIS relationship is now open on nothing.
+    // Closed first, so its restore lands while the constraint is still there
+    // to have its value put back.
+    if (identical(driveSession?.constraint, c)) closeDrive();
     a.constraints.remove(c);
     if (identical(a.selectedConstraint, c)) a.selectedConstraint = null;
     // Deleting a constraint gives freedom back; it never takes any, so the
@@ -5093,6 +5630,7 @@ class AppState extends ChangeNotifier {
       'insertNeedsAxes' => t.msgAsmInsertNeedsAxes,
       'angleNeedsDirections' => t.msgAsmAngleNeedsDirections,
       'motionNeedsAxes' => t.msgAsmMotionNeedsAxes,
+      'jointNeedsDirections' => t.msgAsmJointNeedsDirections,
       'bothGrounded' => t.msgAsmBothGrounded,
       'missingComponent' => t.msgAsmMissingComponent,
       'cannotSatisfy' => t.msgAsmCannotSatisfy,

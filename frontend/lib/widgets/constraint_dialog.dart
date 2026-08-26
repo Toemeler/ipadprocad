@@ -216,24 +216,7 @@ class _ConstraintDialogState extends State<ConstraintDialog> {
       );
 
   /// The bordered, titled box Inventor groups its controls in.
-  Widget _group(String title, Widget child) => Container(
-        padding: const EdgeInsets.fromLTRB(6, 4, 6, 6),
-        decoration: BoxDecoration(
-          border: Border.all(color: T.panelSep),
-          borderRadius: BorderRadius.circular(3),
-        ),
-        child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: ts(10.5, T.dim)),
-              const SizedBox(height: 4),
-              child,
-            ]),
-      );
+  Widget _group(String title, Widget child) => asmGroup(title, child);
 
   // ---- Type ----------------------------------------------------------------
 
@@ -246,6 +229,11 @@ class _ConstraintDialogState extends State<ConstraintDialog> {
       // app has no UCS to offer yet. Drawn empty rather than hidden: the tab
       // exists, and a tab that vanishes teaches the user the wrong shape.
       AsmTab.constraintSet => const <AsmKind>[],
+      // M249 — unreachable: this panel is only mounted for the four tabs
+      // above, and main.dart shows JointDialog for the fifth. Written out
+      // rather than defaulted so that a SEVENTH tab could not silently land
+      // here and draw a joint's types on the wrong dialog.
+      AsmTab.joint => const <AsmKind>[],
     };
     return _group(
       t.grpAsmType,
@@ -278,6 +266,12 @@ class _ConstraintDialogState extends State<ConstraintDialog> {
         AsmKind.rotation => 'rotation',
         AsmKind.rotationTranslation => 'rotationTranslation',
         AsmKind.transitional => 'transitional',
+        // M249 — the joint kinds never reach this dialog's Type row; see
+        // [_typeGroup]. Answering with the transitional glyph rather than
+        // throwing, because a `!` on a null lookup here would take the whole
+        // ribbon down (M115's failure), and a wrong picture on a row that is
+        // never drawn costs nothing.
+        _ => 'transitional',
       };
 
   // ---- Selections ----------------------------------------------------------
@@ -583,6 +577,14 @@ class _ConstraintDialogState extends State<ConstraintDialog> {
       );
 
   // ---- small controls ------------------------------------------------------
+  //
+  // M249 — these moved out to the top level of this file when the Place Joint
+  // and Drive dialogs arrived. All three are transcriptions of Inventor
+  // dialogs from the same family and draw the same controls; a second copy of
+  // "what a checkbox in an assembly dialog looks like" is a second thing to
+  // keep in step for nothing. They stay HERE, in the file that first needed
+  // them, rather than moving to a chrome file of their own — dialog_dock.dart
+  // owns where a panel sits, not what is inside it.
 
   Widget _iconButton({
     required String icon,
@@ -590,105 +592,254 @@ class _ConstraintDialogState extends State<ConstraintDialog> {
     required String tip,
     required VoidCallback onTap,
   }) =>
-      Tooltip(
-        message: tip,
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: onTap,
-          child: Container(
-            width: 32,
-            height: 30,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: on ? T.accent.withValues(alpha: 0.28) : Colors.transparent,
-              border: Border.all(color: on ? T.accent : T.panelSep),
-              borderRadius: BorderRadius.circular(3),
-            ),
-            child: svg(icon, 22),
-          ),
-        ),
-      );
+      asmIconButton(icon: icon, on: on, tip: tip, onTap: onTap);
 
-  /// A checkbox whose LABEL is a picture. Inventor's, and the tooltip is
-  /// where the words live.
   Widget _glyphCheckbox({
     required bool on,
     required String icon,
     required String tip,
     required VoidCallback onTap,
   }) =>
-      Tooltip(
-        message: tip,
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: onTap,
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            _box(on),
-            const SizedBox(width: 4),
-            svg(icon, 15),
-          ]),
-        ),
-      );
+      asmGlyphCheckbox(on: on, icon: icon, tip: tip, onTap: onTap);
 
   Widget _textCheckbox({
     required bool on,
     required String label,
     required VoidCallback onTap,
   }) =>
-      GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: onTap,
-        child: Row(mainAxisSize: MainAxisSize.min, children: [
-          _box(on),
-          const SizedBox(width: 5),
-          Flexible(
-            child: Text(label,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: ts(11, T.text)),
-          ),
-        ]),
-      );
+      asmTextCheckbox(on: on, label: label, onTap: onTap);
 
-  Widget _box(bool on) => Container(
-        width: 13,
-        height: 13,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: on ? T.accent : T.fly,
-          border: Border.all(color: on ? T.accent : T.panelSep),
-          borderRadius: BorderRadius.circular(2),
-        ),
-        child:
-            on ? const Icon(Icons.check, size: 10, color: Colors.white) : null,
-      );
-
-  /// [width] is a FLOOR, not a size: "Übernehmen" is half again as long as
-  /// "Apply", and a fixed width would clip the German label rather than grow.
-  /// The same rule the ribbon's _Big buttons follow.
   Widget _flatButton(String label, VoidCallback? onTap,
           {bool primary = false, double width = 58}) =>
-      GestureDetector(
+      asmFlatButton(label, onTap, primary: primary, width: width);
+}
+
+// ---------------------------------------------------------------------------
+// the controls the three assembly dialogs share
+// ---------------------------------------------------------------------------
+
+/// The bordered, titled box Inventor groups its controls in.
+Widget asmGroup(String title, Widget child) => Container(
+      padding: const EdgeInsets.fromLTRB(6, 4, 6, 6),
+      decoration: BoxDecoration(
+        border: Border.all(color: T.panelSep),
+        borderRadius: BorderRadius.circular(3),
+      ),
+      child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: ts(10.5, T.dim)),
+            const SizedBox(height: 4),
+            child,
+          ]),
+    );
+
+/// One of Inventor's picture-only buttons: a Type, a Solution, a joint kind.
+Widget asmIconButton({
+  required String icon,
+  required bool on,
+  required String tip,
+  required VoidCallback onTap,
+}) =>
+    Tooltip(
+      message: tip,
+      child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: onTap,
         child: Container(
-          constraints: BoxConstraints(minWidth: width),
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          height: 26,
+          width: 32,
+          height: 30,
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            color: onTap == null
-                ? T.fly
-                : (primary ? T.accent.withValues(alpha: 0.22) : T.fly),
-            border: Border.all(
-                color: onTap != null && primary ? T.accent : T.panelSep),
+            color: on ? T.accent.withValues(alpha: 0.28) : Colors.transparent,
+            border: Border.all(color: on ? T.accent : T.panelSep),
             borderRadius: BorderRadius.circular(3),
           ),
+          child: svg(icon, 22),
+        ),
+      ),
+    );
+
+/// A checkbox whose LABEL is a picture. Inventor's, and the tooltip is where
+/// the words live.
+Widget asmGlyphCheckbox({
+  required bool on,
+  required String icon,
+  required String tip,
+  required VoidCallback onTap,
+}) =>
+    Tooltip(
+      message: tip,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          asmCheckMark(on),
+          const SizedBox(width: 4),
+          svg(icon, 15),
+        ]),
+      ),
+    );
+
+Widget asmTextCheckbox({
+  required bool on,
+  required String label,
+  required VoidCallback onTap,
+}) =>
+    GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        asmCheckMark(on),
+        const SizedBox(width: 5),
+        Flexible(
+          child: Text(label,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: ts(11, T.text)),
+        ),
+      ]),
+    );
+
+/// A RADIO, drawn as Inventor draws one: the same box as a checkbox with a
+/// disc in it, because an option group that looked like a checkbox group would
+/// promise that two of them could be on at once.
+Widget asmRadio({
+  required bool on,
+  required String label,
+  required VoidCallback onTap,
+}) =>
+    GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Container(
+          width: 13,
+          height: 13,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: T.fly,
+            border: Border.all(color: on ? T.accent : T.panelSep),
+            shape: BoxShape.circle,
+          ),
+          child: on
+              ? Container(
+                  width: 7,
+                  height: 7,
+                  decoration:
+                      BoxDecoration(color: T.accent, shape: BoxShape.circle))
+              : null,
+        ),
+        const SizedBox(width: 5),
+        Flexible(
           child: Text(label,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: ts(12, onTap == null ? T.dim : T.text,
-                  w: primary ? FontWeight.w600 : FontWeight.normal)),
+              style: ts(11, T.text)),
         ),
-      );
-}
+      ]),
+    );
+
+Widget asmCheckMark(bool on) => Container(
+      width: 13,
+      height: 13,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: on ? T.accent : T.fly,
+        border: Border.all(color: on ? T.accent : T.panelSep),
+        borderRadius: BorderRadius.circular(2),
+      ),
+      child: on ? const Icon(Icons.check, size: 10, color: Colors.white) : null,
+    );
+
+/// [width] is a FLOOR, not a size: "Übernehmen" is half again as long as
+/// "Apply", and a fixed width would clip the German label rather than grow.
+/// The same rule the ribbon's _Big buttons follow.
+Widget asmFlatButton(String label, VoidCallback? onTap,
+        {bool primary = false, double width = 58}) =>
+    GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Container(
+        constraints: BoxConstraints(minWidth: width),
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        height: 26,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: onTap == null
+              ? T.fly
+              : (primary ? T.accent.withValues(alpha: 0.22) : T.fly),
+          border: Border.all(
+              color: onTap != null && primary ? T.accent : T.panelSep),
+          borderRadius: BorderRadius.circular(3),
+        ),
+        child: Text(label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: ts(12, onTap == null ? T.dim : T.text,
+                w: primary ? FontWeight.w600 : FontWeight.normal)),
+      ),
+    );
+
+/// The draggable title bar every one of these panels wears.
+///
+/// [onDrag] rather than a position, because the position belongs to the
+/// dialog's own State — each one remembers where the user put it.
+Widget asmTitleBar(String title,
+        {required VoidCallback onClose,
+        required void Function(Offset) onDrag}) =>
+    GestureDetector(
+      onPanUpdate: (d) => onDrag(d.delta),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+        decoration: BoxDecoration(
+          color: T.fly,
+          border: Border(bottom: BorderSide(color: T.panelSep)),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
+        ),
+        child: Row(children: [
+          Flexible(
+            child: Text(title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: ts(13, T.text, w: FontWeight.w600)),
+          ),
+          const Spacer(),
+          GestureDetector(
+            onTap: onClose,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: Text('✕', style: ts(12, T.dim)),
+            ),
+          ),
+        ]),
+      ),
+    );
+
+/// The card every one of these panels is drawn on.
+Widget asmPanelCard({required double width, required List<Widget> children}) =>
+    Material(
+      color: Colors.transparent,
+      child: Container(
+        width: width,
+        decoration: BoxDecoration(
+          color: T.panel,
+          border: Border.all(color: T.sep),
+          borderRadius: BorderRadius.circular(6),
+          boxShadow: [
+            BoxShadow(color: T.scrim, blurRadius: 24, offset: Offset(0, 6)),
+          ],
+        ),
+        // STRETCH, so a row that holds only a group box fills the card's
+        // width. Centred (Flutter's default) it drifted to the middle and read
+        // as a floating panel of its own rather than as the dialog's own row.
+        child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: children),
+      ),
+    );

@@ -46,6 +46,7 @@
 import 'dart:math' as math;
 
 import 'asm_constraints.dart';
+import 'asm_joint.dart';
 import 'asm_pattern.dart';
 import 'asm_work_features.dart';
 import 'doc_file.dart' show kAssemblyDocKind;
@@ -639,6 +640,37 @@ class AssemblyModel {
   /// The constraint highlighted in the browser, if any.
   AsmConstraint? selectedConstraint;
 
+  /// M249 — the relationships whose GLYPHS are drawn in the viewport, by name.
+  ///
+  /// Inventor's Assemble > Relationships > Show / Show Sick / Hide All act on
+  /// exactly this set: "the Show command displays relationship glyphs on
+  /// selected components", "Show Sick displays all unhealthy relationships",
+  /// "Hide All removes all relationship glyphs from the display".
+  ///
+  /// Runtime only, and by NAME rather than by identity. Runtime for the reason
+  /// [solveSummary] is: a document records what the user asked the assembly to
+  /// be, never what was on screen the last time it was open. By name so that
+  /// re-solving, editing or reloading a constraint cannot leave a stale object
+  /// in a set that outlives it — a name that no longer exists simply draws
+  /// nothing.
+  final Set<String> shownRelationships = {};
+
+  /// The relationships that should be drawing a glyph right now: what Show put
+  /// in the set, minus anything that has since been deleted or switched off.
+  ///
+  /// Suppressed constraints are excluded here rather than at Show time,
+  /// because suppressing one is not un-showing it: unsuppress it and the glyph
+  /// comes back, which is what the browser's own dimmed row implies.
+  List<AsmConstraint> get visibleRelationships => [
+        for (final c in constraints)
+          if (!c.suppressed && shownRelationships.contains(c.name)) c
+      ];
+
+  /// True when some relationship could not be met — what gates Inventor's Show
+  /// Sick command, which "is not available if all relationships are healthy".
+  bool get hasSickRelationships =>
+      constraints.any((c) => c.isSick && !c.suppressed);
+
   AsmConstraint? constraintNamed(String name) {
     for (final c in constraints) {
       if (c.name == name) return c;
@@ -781,6 +813,7 @@ class AssemblyModel {
     patterns.clear();
     selected = null;
     selectedConstraint = null;
+    shownRelationships.clear();
   }
 }
 
@@ -854,6 +887,45 @@ AsmGeom worldGeomOf(AssemblyModel a, AsmRef r) {
     r.geom.dir.length < 1e-12 ? Vec3.zero : o.dirToWorld(r.geom.dir),
     radius: r.geom.radius,
   );
+}
+
+/// M249 — a stored reference's ANCHOR in world coordinates, right now.
+///
+/// [worldGeomOf]'s twin for the point the user actually touched. A constraint
+/// needs it only to draw a highlight; a JOINT needs it to solve, because a
+/// joint origin IS that point (see asm_joint.dart). One place for the
+/// conversion, so the marker and the solver cannot disagree about where a
+/// joint is.
+///
+/// The assembly's own origin geometry and its work features record their
+/// anchor in world coordinates already — they belong to no component — so
+/// there is no placement to apply to one.
+Vec3 worldAnchorOf(AssemblyModel a, AsmRef r) {
+  if (r.isAssemblyOrigin) return r.anchor;
+  final o = a.byId(r.occurrence);
+  return o == null ? r.anchor : o.toWorld(r.anchor);
+}
+
+/// M249 — a stored reference's JOINT FRAME in world coordinates, right now.
+///
+/// The model's twin of asm_solver's own `jointFrame`, for the callers that
+/// have an [AssemblyModel] rather than a solve in flight: capturing a joint's
+/// twist when it is created, and anything that wants to report where a joint
+/// is. Built in the component's own coordinates and then placed — see
+/// [AsmJointFrame.placed] for why never the other way round.
+AsmJointFrame worldJointFrameOf(AssemblyModel a, AsmRef r) {
+  // An assembly WORK FEATURE moves, so its live frame is read rather than the
+  // baked one, exactly as [worldGeomOf] does. Its anchor is already in world
+  // coordinates, so there is no placement to apply.
+  final wf = r.feature;
+  if (wf != null) {
+    final live = asmWorkGeom(a, wf);
+    if (live != null) return jointFrameOf(live, r.anchor);
+  }
+  final local = jointFrameOf(r.geom, r.anchor);
+  if (r.isAssemblyOrigin) return local;
+  final o = a.byId(r.occurrence);
+  return o == null ? local : local.placed(o.placement);
 }
 
 /// World bounds of everything drawable in [a] — every visible occurrence's

@@ -2877,5 +2877,168 @@
         "type": "String"
       }
     }
+  },
+  "dlgPlaceJoint": "Gelenk platzieren",
+  "@dlgPlaceJoint": {
+    "description": "Titel des Gelenkdialogs. Inventor DE: \"Gelenk platzieren\"."
+  },
+  "grpAsmConnect": "Verbinden",
+  "@grpAsmConnect": {
+    "description": "Gruppe im Gelenkdialog mit den beiden Ursprungsauswahlen und dem Abstand."
+  },
+  "lblAsmGap": "Abstand",
+  "@lblAsmGap": {
+    "description": "Zahlenfeld im Gelenkdialog: Abstand zwischen den beiden Gelenkursprüngen."
+  },
+  "jtAutomatic": "Automatisch",
+  "@jtAutomatic": {
+    "description": "Gelenktyp: Inventor leitet den Typ aus den beiden Ursprüngen ab."
+  },
+  "jtRigid": "Starr",
+  "@jtRigid": {
+    "description": "Gelenktyp ohne Freiheitsgrad (geschweißt, verschraubt)."
+  },
+  "jtRotational": "Drehung",
+  "@jtRotational": {
+    "description": "Gelenktyp mit einem Drehfreiheitsgrad (Scharnier)."
+  },
+  "jtSlider": "Schieber",
+  "@jtSlider": {
+    "description": "Gelenktyp mit einem Verschiebefreiheitsgrad (Schlitten in einer Führung)."
+  },
+  "jtCylindrical": "Zylindrisch",
+  "@jtCylindrical": {
+    "description": "Gelenktyp mit einem Dreh- und einem Verschiebefreiheitsgrad (Welle in einer Bohrung)."
+  },
+  "jtPlanar": "Eben",
+  "@jtPlanar": {
+    "description": "Gelenktyp mit zwei Verschiebe- und einem Drehfreiheitsgrad (auf einer Fläche)."
+  },
+  "jtBall": "Kugel",
+  "@jtBall": {
+    "description": "Gelenktyp mit drei Drehfreiheitsgraden (Kugelgelenk)."
+  },
+  "hintAsmJointAuto": "Automatisch: {type}",
+  "@hintAsmJointAuto": {
+    "description": "Zeigt im Gelenkdialog, welchen Typ Automatisch aus den Auswahlen abgeleitet hat.",
+    "placeholders": {
+      "type": {
+        "type": "String"
+      }
+    }
+  },
+  "hintAsmJointDof": "{n, plural, =0{Kein Freiheitsgrad bleibt} =1{Ein Freiheitsgrad bleibt} other{{n} Freiheitsgrade bleiben}}",
+  "@hintAsmJointDof": {
+    "description": "Zeigt im Gelenkdialog, wie viele Freiheitsgrade der gewählte Typ übrig lässt. Starr laesst keinen, Drehung genau einen — der Singular ist also der haeufigste Fall und keine Randbedingung.",
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "msgAsmJointNeedsDirections": "Dieses Gelenk braucht zwei Richtungen.",
+  "@msgAsmJointNeedsDirections": {
+    "description": "Meldung: alle Gelenke außer Kugel brauchen auf beiden Seiten eine Achse oder eine Fläche."
+  },
+  "hintAsmShowPickComponent": "Komponente wählen, deren Beziehungen eingeblendet werden sollen.",
+  "@hintAsmShowPickComponent": {
+    "description": "Hinweis, während der Befehl Einblenden auf eine Komponente wartet."
+  },
+  "msgAsmNoRelationships": "„{name}“ hat keine Beziehungen.",
+  "@msgAsmNoRelationships": {
+    "description": "Meldung: die gewählte Komponente ist an nichts gebunden.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgAsmNoSickRelationships": "Alle Beziehungen sind in Ordnung.",
+  "@msgAsmNoSickRelationships": {
+    "description": "Meldung: Fehlerhafte einblenden hat nichts zu zeigen."
+  },
+  "dlgDrive": "Abhängigkeit antreiben",
+  "@dlgDrive": {
+    "description": "Titel des Antriebsdialogs. Inventor DE: \"Abhängigkeit antreiben\"."
+  },
+  "ctxDrive": "Antreiben",
+  "@ctxDrive": {
+    "description": "Kontextmenü einer Beziehung: den Wert durch einen Bereich fahren."
+  },
+  "lblDriveStart": "Start",
+  "@lblDriveStart": {
+    "description": "Anfangswert des Antriebs."
+  },
+  "lblDriveEnd": "Ende",
+  "@lblDriveEnd": {
+    "description": "Endwert des Antriebs."
+  },
+  "lblDrivePause": "Pause",
+  "@lblDrivePause": {
+    "description": "Wartezeit in Sekunden zwischen zwei Schritten."
+  },
+  "grpDriveIncrement": "Schrittweite",
+  "@grpDriveIncrement": {
+    "description": "Gruppe: Schrittweite als Wert oder als Anzahl Schritte."
+  },
+  "optDriveAmount": "Wert",
+  "@optDriveAmount": {
+    "description": "Schrittweite als Betrag angeben."
+  },
+  "optDriveSteps": "Anzahl Schritte",
+  "@optDriveSteps": {
+    "description": "Schrittweite als Gesamtzahl der Schritte angeben."
+  },
+  "grpDriveRepetitions": "Wiederholungen",
+  "@grpDriveRepetitions": {
+    "description": "Gruppe: wie oft und in welcher Richtung der Bereich durchfahren wird."
+  },
+  "optDriveOnce": "Start/Ende",
+  "@optDriveOnce": {
+    "description": "Einmal vorwärts, dann zurück an den Anfang."
+  },
+  "optDriveBoth": "Start/Ende/Start",
+  "@optDriveBoth": {
+    "description": "Einmal vorwärts und einmal rückwärts."
+  },
+  "lblDriveCycles": "Zyklen",
+  "@lblDriveCycles": {
+    "description": "Wie oft die Wiederholung läuft."
+  },
+  "cbDriveAdaptivity": "Adaptivität antreiben",
+  "@cbDriveAdaptivity": {
+    "description": "Inventor-Option: Bauteile beim Antrieb anpassen. Hier nicht gebaut."
+  },
+  "cbDriveCollision": "Kollisionserkennung",
+  "@cbDriveCollision": {
+    "description": "Inventor-Option: beim Antrieb auf Durchdringung prüfen. Hier nicht gebaut."
+  },
+  "hintDriveUnavailable": "In dieser App nicht verfügbar.",
+  "@hintDriveUnavailable": {
+    "description": "Tooltip der beiden Optionen, die Inventor hat und diese App nicht."
+  },
+  "msgAsmCannotDrive": "Diese Beziehung lässt sich nicht antreiben.",
+  "@msgAsmCannotDrive": {
+    "description": "Meldung: Symmetrie und Übergang haben keinen Wert zum Durchfahren."
+  },
+  "tipDrivePlay": "Abspielen",
+  "@tipDrivePlay": {
+    "description": "Tooltip der Wiedergabetaste im Antriebsdialog."
+  },
+  "tipDriveReverse": "Rückwärts",
+  "@tipDriveReverse": {
+    "description": "Tooltip der Rückwärtstaste im Antriebsdialog."
+  },
+  "tipDrivePause": "Anhalten",
+  "@tipDrivePause": {
+    "description": "Tooltip der Pausetaste im Antriebsdialog."
+  },
+  "tipDriveToStart": "Zum Anfang",
+  "@tipDriveToStart": {
+    "description": "Tooltip: an den Anfang des Bereichs springen."
+  },
+  "tipDriveToEnd": "Zum Ende",
+  "@tipDriveToEnd": {
+    "description": "Tooltip: an das Ende des Bereichs springen."
   }
 }

@@ -266,10 +266,47 @@ enum AsmKind {
   rotationTranslation,
   // ---- Transitional tab ---------------------------------------------------
   transitional,
+  // ---- M249: JOINTS -------------------------------------------------------
+  //
+  // Not a tab of Place Constraint — Joint is its own command and its own
+  // dialog. They are [AsmKind]s all the same, because a joint is a row in the
+  // Relationships folder like every other relationship: same file format, same
+  // naming sequence, same Suppress, same Delete, same browser. See
+  // asm_joint.dart for what each one constrains and why a joint is not
+  // expanded into the constraints above.
+  //
+  // Automatic is deliberately absent: it is a dialog choice that RESOLVES to
+  // one of these six when the joint is made, exactly as Inventor's does, so a
+  // document never has to re-run the inference to know what a joint does.
+  jointRigid,
+  jointRotational,
+  jointSlider,
+  jointCylindrical,
+  jointPlanar,
+  jointBall,
 }
 
+/// True for the six M249 joint kinds — see asm_joint.dart.
+bool isJointKind(AsmKind k) => switch (k) {
+      AsmKind.jointRigid ||
+      AsmKind.jointRotational ||
+      AsmKind.jointSlider ||
+      AsmKind.jointCylindrical ||
+      AsmKind.jointPlanar ||
+      AsmKind.jointBall =>
+        true,
+      _ => false,
+    };
+
 /// Which tab of the Place Constraint dialog a kind lives on.
-enum AsmTab { assembly, motion, transitional, constraintSet }
+///
+/// [AsmTab.joint] is not one of its tabs. It exists because
+/// [AppState.constraintSession] serves BOTH commands — Place Constraint and
+/// Place Joint collect selections identically, so they share the session, the
+/// preview, the snapshot and the viewport's pick routing — and the tab is what
+/// says which dialog is on screen. The Place Constraint dialog names its own
+/// four tabs and never draws this one.
+enum AsmTab { assembly, motion, transitional, constraintSet, joint }
 
 AsmTab tabOf(AsmKind k) => switch (k) {
       AsmKind.mate ||
@@ -280,6 +317,7 @@ AsmTab tabOf(AsmKind k) => switch (k) {
         AsmTab.assembly,
       AsmKind.rotation || AsmKind.rotationTranslation => AsmTab.motion,
       AsmKind.transitional => AsmTab.transitional,
+      _ => AsmTab.joint,
     };
 
 const List<AsmKind> kAssemblyKinds = [
@@ -338,6 +376,13 @@ List<AsmSolution> solutionsFor(AsmKind k) => switch (k) {
       AsmKind.rotationTranslation =>
         const [AsmSolution.forward, AsmSolution.reverse],
       AsmKind.transitional => const [AsmSolution.none],
+      // M249 — a joint's two solutions are Insert's, and they mean the same
+      // thing: which way the second origin's axis faces. Inventor draws it as
+      // a pair of Flip buttons beside the origins rather than as a Solution
+      // group, but there is one bit of information in both and reusing the
+      // pair keeps the icons, the storage and the fallback in
+      // AsmConstraint.fromJson working unchanged.
+      _ => const [AsmSolution.opposed, AsmSolution.aligned],
     };
 
 /// How many selections a kind takes.
@@ -378,6 +423,10 @@ AsmValueKind valueKindOf(AsmKind k) => switch (k) {
       AsmKind.rotation => AsmValueKind.ratio,
       AsmKind.rotationTranslation => AsmValueKind.distancePerTurn,
       AsmKind.transitional => AsmValueKind.none,
+      // M249 — Inventor's GAP: "a Gap value provides the flexibility of
+      // joining the reference points at an offset". Millimetres along the
+      // joint's own axis, so the same field and the same units as a Mate's.
+      _ => AsmValueKind.offset,
     };
 
 /// One relationship in the assembly.
@@ -408,6 +457,22 @@ class AsmConstraint {
   /// [valueKindOf].
   double value;
 
+  /// M249 — a JOINT's captured twist about its own axis, in radians.
+  ///
+  /// Only Rigid and Slider hold the rotation about the joint axis, and only
+  /// they carry this. Inventor holds it against the Align 1 / Align 2
+  /// references its dialog collects; this app has none, so the angle the two
+  /// components already stood at when the joint was made is captured instead —
+  /// the same trade "Predict Offset and Orientation" makes for a constraint's
+  /// offset. A rigid joint therefore holds the parts as they are rather than
+  /// snapping them to an alignment nobody asked for.
+  ///
+  /// Null for every constraint and for the four joint types that leave the
+  /// rotation free, so nothing is written for one. Saved, because it is an
+  /// input the user cannot re-enter: recomputing it on load would capture
+  /// wherever the last solve happened to leave things.
+  double? twist;
+
   bool suppressed;
 
   /// Why this constraint could not be met, or null when it is healthy.
@@ -419,6 +484,9 @@ class AsmConstraint {
   String? error;
 
   bool get isSick => error != null;
+
+  /// M249 — true for the six joint kinds. See asm_joint.dart.
+  bool get isJoint => isJointKind(kind);
 
   /// True for the kinds that are EQUATIONS the solver drives to zero. The
   /// motion kinds are not: they are applied while dragging (see the file
@@ -444,7 +512,7 @@ class AsmConstraint {
         c: c,
         value: value,
         suppressed: suppressed,
-      );
+      )..twist = twist;
 
   Map<String, dynamic> toJson() => {
         'name': name,
@@ -454,6 +522,9 @@ class AsmConstraint {
         'b': b.toJson(),
         if (c != null) 'c': c!.toJson(),
         'value': value,
+        // M249 — written only by the two joint types that hold a twist, so
+        // every constraint written before joints existed is byte-identical.
+        if (twist != null) 'twist': twist,
         if (suppressed) 'suppressed': true,
       };
 
@@ -478,7 +549,7 @@ class AsmConstraint {
       c: AsmRef.fromJson(j['c']),
       value: (j['value'] as num?)?.toDouble() ?? 0,
       suppressed: j['suppressed'] == true,
-    );
+    )..twist = (j['twist'] as num?)?.toDouble();
   }
 }
 
@@ -507,6 +578,16 @@ String constraintBaseName(AsmKind kind) => switch (kind) {
       AsmKind.rotation => 'Rotation',
       AsmKind.rotationTranslation => 'RotationTranslation',
       AsmKind.transitional => 'Transitional',
+      // M249 — Inventor names a joint after its TYPE, not after the command:
+      // the browser row reads "Rotational:1", never "Joint:1". Which is worth
+      // having, because the type is the only thing that says what the joint
+      // lets the component still do.
+      AsmKind.jointRigid => 'Rigid',
+      AsmKind.jointRotational => 'Rotational',
+      AsmKind.jointSlider => 'Slider',
+      AsmKind.jointCylindrical => 'Cylindrical',
+      AsmKind.jointPlanar => 'Planar',
+      AsmKind.jointBall => 'Ball',
     };
 
 // ---------------------------------------------------------------------------
@@ -540,6 +621,12 @@ bool kindAccepts(AsmKind kind, AsmGeom a, AsmGeom b) => switch (kind) {
         a.isAxis && b.isAxis,
       AsmKind.transitional =>
         (a.isCylinder || a.isPlane) && (b.isCylinder || b.isPlane),
+      // M249 — every joint but Ball is stated against ITS OWN AXIS (see
+      // asm_joint.dart), so both origins have to offer a direction. Ball needs
+      // only the two points, which is what makes a sphere centre — the one
+      // pick that has no direction at all — a legal joint origin.
+      AsmKind.jointBall => true,
+      _ => !a.isPoint && !b.isPoint,
     };
 
 /// Why [kind] cannot act on this pair, as a key the l10n layer turns into a
@@ -556,7 +643,32 @@ String? rejectionFor(AsmKind kind, AsmGeom a, AsmGeom b) {
     AsmKind.rotation ||
     AsmKind.rotationTranslation =>
       'motionNeedsAxes',
+    AsmKind.jointRigid ||
+    AsmKind.jointRotational ||
+    AsmKind.jointSlider ||
+    AsmKind.jointCylindrical ||
+    AsmKind.jointPlanar =>
+      'jointNeedsDirections',
     _ => 'cannotConstrain',
+  };
+}
+
+/// M249 — whether [c] is a relationship Inventor's Drive command can sweep.
+///
+/// A VALUE to run through a range, or a shaft to turn. A Mate's offset and an
+/// Angle's angle are the first; the two motion kinds are the second, and they
+/// are drivable for the opposite reason — their own value is a gear ratio,
+/// which animates nothing, so what a drive sweeps there is the driver's
+/// rotation (see [DriveSession]). Symmetry and Transitional have neither, and
+/// Inventor greys Drive out on them too.
+///
+/// Here rather than on AppState because it is a fact about a constraint, and
+/// both browsers ask it — the native one holds no AppState at all.
+bool canDriveConstraint(AsmConstraint c) {
+  if (!c.isPositional) return true; // the two motion kinds
+  return switch (valueKindOf(c.kind)) {
+    AsmValueKind.offset || AsmValueKind.angle => true,
+    _ => false,
   };
 }
 

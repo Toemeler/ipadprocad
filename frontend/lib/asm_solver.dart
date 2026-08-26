@@ -40,9 +40,22 @@
 // drag, not solved. [driveMotion] is that pass, and it runs before the solve —
 // it proposes where the driven bodies should go, and the solve then honours
 // the positional constraints over that proposal.
+//
+// M249 — JOINTS ARE A RESIDUAL FAMILY, NOT AN EXPANSION
+//
+// Inventor's six joint types are here as [_Ctx._joint], one parameterised
+// residual switched by asm_joint.jointLocks, rather than as sugar that expands
+// into the constraints above when a joint is created. asm_joint.dart's header
+// argues that at length; the part that belongs in THIS file is why it costs so
+// little: a joint origin is a POINT (the pick's anchor) and a joint axis is
+// one direction, so all six types are four blocks of equations over one frame
+// pair, and the degrees of freedom each type claims are exactly 6 minus those
+// blocks' ranks. Which makes the claim testable rather than asserted — the
+// rank comes from [_analyseFreedom] row-reducing the real Jacobian.
 import 'dart:math' as math;
 
 import 'asm_constraints.dart';
+import 'asm_joint.dart';
 import 'assembly.dart';
 import 'part_model.dart';
 import 'part_render.dart' show kFaceCylinder, kFacePlane;
@@ -488,6 +501,23 @@ class _Ctx {
     );
   }
 
+  /// M249 — a reference's JOINT FRAME in world coordinates under [x].
+  ///
+  /// Built in the component's own coordinates and then placed, never from the
+  /// world geometry [world] hands back: see [AsmJointFrame.placed] for the
+  /// discontinuity that would otherwise be sitting inside the twist residual.
+  ///
+  /// A constraint never needs a frame and a joint always does, because a joint
+  /// origin is the point the user POINTED AT ([AsmRef.anchor]) rather than
+  /// whatever reference point the kernel gave the surface.
+  AsmJointFrame jointFrame(AsmRef ref, List<double> x) {
+    final local = jointFrameOf(ref.geom, ref.anchor);
+    if (ref.isAssemblyOrigin) return local;
+    final b = bodies[ref.occurrence];
+    if (b == null) return local;
+    return local.placed(_pose(b, x));
+  }
+
   List<double> residuals(List<double> x) {
     final out = <double>[];
     for (final c in constraints) {
@@ -578,6 +608,68 @@ class _Ctx {
       case AsmKind.rotation:
       case AsmKind.rotationTranslation:
         break; // driven, never solved — see the file header
+      case AsmKind.jointRigid:
+      case AsmKind.jointRotational:
+      case AsmKind.jointSlider:
+      case AsmKind.jointCylindrical:
+      case AsmKind.jointPlanar:
+      case AsmKind.jointBall:
+        _joint(c, x, out);
+    }
+  }
+
+  // -- Joint (M249) ---------------------------------------------------------
+  //
+  // ONE residual for all six types, switched by [jointLocks]. The types differ
+  // in nothing but which of the four blocks below they emit, which is what
+  // makes the degrees of freedom each one claims exactly 6 minus the blocks'
+  // ranks — and therefore an assertion a test can write against
+  // [AsmSolveReport.dof] rather than a comment. See asm_joint.dart.
+  //
+  // The ORIGIN is the pick's anchor, not the geometry's own point. That is the
+  // whole difference between a joint and a mate: "these two faces are
+  // coincident" does not care where on them you tapped, and "this point on
+  // this face meets that point on that face" is the entire content of a joint.
+  void _joint(AsmConstraint c, List<double> x, List<double> out) {
+    final locks = jointLocks(c.kind);
+    final fa = jointFrame(c.a, x);
+    final fb = jointFrame(c.b, x);
+    final d = fb.origin - fa.origin;
+    // Inventor's Flip, stored as Insert's opposed/aligned pair: opposed points
+    // the second origin's axis back at the first, which is what puts two faces
+    // together and a shaft into a hole.
+    final s = c.solution == AsmSolution.aligned ? 1.0 : -1.0;
+
+    // A pick with no direction at all — a vertex, a sphere centre. Only Ball
+    // accepts one (see kindAccepts), and with no axis there is no along and no
+    // across: the two origins simply coincide. Written out rather than left to
+    // the blocks below, because an `along` residual measured against a ZERO
+    // axis is a row with no derivative and a constant error, which the solver
+    // would report sick for ever without ever being able to move it.
+    if (!fa.hasAxis || !fb.hasAxis) {
+      if (locks.along && locks.perp) {
+        out..add(d.x)..add(d.y)..add(d.z);
+      }
+      return;
+    }
+    if (locks.axis) _dirEquals(fb.axis, fa.axis * s, out);
+    if (locks.along) out.add(d.dot(fa.axis) - c.value);
+    if (locks.perp) _perpZero(d, fa.axis, out);
+    if (locks.twist) {
+      // The rotation about the joint axis, held where creation found it. A
+      // joint written before the twist was captured (or by hand) holds zero,
+      // which is a definite pose rather than a free one — the alternative is a
+      // Rigid joint that is silently not rigid.
+      var e = jointTwistBetween(fa.ref, fb.ref, fa.axis) - (c.twist ?? 0);
+      // Wrap into (-pi, pi], for _angle's reason: -1 degree and 359 degrees
+      // are the same place, and without this the solve takes the long way.
+      while (e > math.pi) {
+        e -= 2 * math.pi;
+      }
+      while (e < -math.pi) {
+        e += 2 * math.pi;
+      }
+      out.add(e * kAngularScale);
     }
   }
 
