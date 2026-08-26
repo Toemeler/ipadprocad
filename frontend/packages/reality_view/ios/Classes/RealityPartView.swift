@@ -224,17 +224,34 @@ final class PartRenderer: NSObject {
         arView.snapshot(saveToHDR: false) { done($0) }
     }
 
-    init(frame: CGRect) {
+    /// [tracked] is false for the OFF-SCREEN still renderer, and this is the
+    /// M269 fix.
+    ///
+    /// `trackBackground` puts a view in the set that `setViewportColor`
+    /// repaints when the palette changes — which is right for a live viewport
+    /// and wrong for a renderer that exists for the two-to-eight frames of one
+    /// capture. The thumbnailer sets its own transparent ground immediately
+    /// after construction; a colour push landing inside that window painted
+    /// the ground back to the palette's opaque viewport colour UNDERNEATH the
+    /// capture, and the still went to disk carrying the scheme it happened to
+    /// be written in. In Chalk that is a cream card among charcoal ones, which
+    /// is exactly how this was found.
+    ///
+    /// Untracked, the still renderer's ground is nobody's business but the
+    /// thumbnailer's.
+    init(frame: CGRect, tracked: Bool = true) {
         arView = ARView(frame: frame,
                         cameraMode: .nonAR,
                         automaticallyConfigureSession: false)
         super.init()
-        commonInit()
+        commonInit(tracked: tracked)
     }
 
-    private func commonInit() {
+    private func commonInit(tracked: Bool) {
         arView.isUserInteractionEnabled = false
-        RealityPartView.trackBackground(arView)
+        if tracked {
+            RealityPartView.trackBackground(arView)
+        }
         arView.environment.background = .color(RealityPartView.viewportColor)
 
         // Crisp CAD look: kill the AR post effects that survive into .nonAR.

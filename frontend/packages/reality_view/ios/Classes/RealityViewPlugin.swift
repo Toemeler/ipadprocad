@@ -113,7 +113,10 @@ final class RealityThumbRenderer: NSObject {
             return completion(nil)
         }
         let px = CGRect(origin: .zero, size: size)
-        let renderer = PartRenderer(frame: px)
+        // M269 — UNTRACKED. See PartRenderer.init: a palette push landing
+        // during the capture would otherwise repaint this view's ground opaque
+        // and bake the current scheme into the file.
+        let renderer = PartRenderer(frame: px, tracked: false)
         let host = renderer.view
         host.frame = px
         host.alpha = 0.0
