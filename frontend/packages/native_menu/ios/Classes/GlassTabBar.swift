@@ -45,12 +45,18 @@
 // to the window is the slab again. The island on the right is the escape
 // hatch: every open document in one menu, always reachable.
 //
-// The fourth point is [engaged]. A CAD viewport never scrolls, so the gesture
-// that means "get out of my way" is the one that actually covers the model: a
-// finger orbiting, panning or zooming it. While that holds, the documents
-// capsule folds down to the open file and the rest of the bar stays put. Dart
-// owns the latch (AppState.engageView) because Dart owns the gestures; the
-// linger before it unfolds is over there too.
+// The fourth point is the fold, and M265 turned it the right way up. M260 had
+// the bar fold only while the model was under a finger — a CAD viewport never
+// scrolls, so that is the gesture that means "get out of my way" — and open
+// again the moment you let go. From the device: "it actually does but only
+// when i actively do something", which is the miss exactly. A bar that is only
+// out of the way while you are busy is in the way the rest of the time.
+//
+// Folded is the resting state now. The bar shows the document you are in and
+// opens when you reach for it: a touch on it, a pointer over it, or arriving
+// somewhere new. Three seconds later it folds back. Camera motion still folds
+// it at once — Dart owns that latch (AppState.engageView) because Dart owns
+// the gestures — but nothing Dart says can open it.
 import Flutter
 import UIKit
 
@@ -112,9 +118,33 @@ final class GlassGroup: UIVisualEffectView {
     }
 }
 
+/// M265 — a container that says when it is being touched.
+///
+/// The bar folds itself away when it is not in use, so it has to know when it
+/// IS. `hitTest` rather than a gesture recogniser: every touch that lands
+/// anywhere in the bar passes through here on its way to whatever it hit,
+/// including the ones that belong to a tab button or to the scroll view, and a
+/// recogniser would have to either compete with those or be attached to each
+/// of them in turn.
+///
+/// A hit on the container ITSELF is a touch in the empty space between the
+/// groups. That is not reaching for the bar, so it does not count — the hit is
+/// still returned unchanged, because who gets that touch is a separate
+/// question from whether the bar should open.
+@available(iOS 15.0, *)
+final class TouchAwareView: UIView {
+    var onTouched: (() -> Void)?
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        let hit = super.hitTest(point, with: event)
+        if let hit, hit !== self { onTouched?() }
+        return hit
+    }
+}
+
 @available(iOS 15.0, *)
 final class GlassTabBarView: NSObject, FlutterPlatformView {
-    private let container = UIView()
+    private let container = TouchAwareView()
 
     private let home = GlassGroup()
     private let docs = GlassGroup()
@@ -172,7 +202,33 @@ final class GlassTabBarView: NSObject, FlutterPlatformView {
     private var items: [TabItem] = []
     /// The document chips, in row order, paired with whether each is current.
     private var docViews: [(view: UIView, selected: Bool)] = []
-    private var engaged = false
+
+    // ---- M265: FOLDED IS THE RESTING STATE ---------------------------------
+    //
+    // M260 folded the bar while the model was under a finger and opened it
+    // again the moment you let go. From the device: "it actually does but only
+    // when i actively do something" — which is the whole of the miss. A bar
+    // that is only out of the way while you are busy is in the way the rest of
+    // the time, and the rest of the time is most of the time.
+    //
+    // So it is inverted. The bar is folded to the document you are in, and it
+    // opens when you reach for it: a touch anywhere on it, a pointer hovering
+    // it, or landing in a different document (worth seeing once, then gone).
+    // Three seconds after the last of those it folds back.
+    //
+    // Which makes the island load-bearing rather than a nicety — folded, it is
+    // how you reach a document that is not the current one, and it does not
+    // care whether the row scrolled off the end either.
+
+    /// How long the bar stays open after the last thing you did to it.
+    static let idleFold: TimeInterval = 3
+
+    /// Open because someone reached for it. Otherwise folded.
+    private var awake = false
+    private var idle: Timer?
+    /// The document that was current last time the tabs were pushed, so
+    /// arriving somewhere new can be told apart from a tree change.
+    private var selectedDocId: String?
 
     init(frame: CGRect, viewId: Int64, messenger: FlutterBinaryMessenger) {
         channel = FlutterMethodChannel(
@@ -191,6 +247,12 @@ final class GlassTabBarView: NSObject, FlutterPlatformView {
         // rendered in two schemes. AppearanceBinder does both jobs: always
         // explicit, and it follows a scheme change.
         AppearanceBinder.shared.bind(container)
+
+        container.onTouched = { [weak self] in self?.wake() }
+        // Pointer, for the trackpad: on iPadOS reaching for the bar can happen
+        // without ever touching the glass.
+        container.addGestureRecognizer(
+            UIHoverGestureRecognizer(target: self, action: #selector(onHover)))
 
         buildGroups()
         buildRow()
@@ -388,7 +450,15 @@ final class GlassTabBarView: NSObject, FlutterPlatformView {
         capToIsland.isActive = !empty
         capToEdge.isActive = empty
 
+        let wasIn = selectedDocId
+        selectedDocId = tabs.first(where: { $0.closable && $0.selected })?.id
+
+        // Without animation first: these are new views and they need the
+        // current fold state applied to them, not a transition into it.
         applyFold(animated: false)
+        // Landing somewhere new — from Home, from the island, from a file the
+        // ribbon opened — is worth seeing once. It folds itself back.
+        if selectedDocId != nil && selectedDocId != wasIn { wake() }
     }
 
     /// Home is a button, not a row entry — so it keeps its circle whatever
@@ -491,14 +561,43 @@ final class GlassTabBarView: NSObject, FlutterPlatformView {
 
     // MARK: - Fold
 
-    /// M260 — the model is under a finger. Fold, or come back.
+    /// M260 — the model is under a finger.
+    ///
+    /// M265 — and only the FOLD half of that is Dart's to drive now. A camera
+    /// that has stopped moving is not a reason to open the bar; reaching for
+    /// the bar is the only reason to open the bar.
     private func setEngaged(_ on: Bool) {
-        guard on != engaged else { return }
-        engaged = on
+        guard on else { return }
+        sleep()
+    }
+
+    @objc private func onHover(_ g: UIHoverGestureRecognizer) {
+        if g.state == .began || g.state == .changed { wake() }
+    }
+
+    /// Someone reached for the bar. Open it, and start counting again.
+    private func wake() {
+        idle?.invalidate()
+        idle = Timer.scheduledTimer(
+            withTimeInterval: GlassTabBarView.idleFold, repeats: false
+        ) { [weak self] _ in self?.sleep() }
+        guard !awake else { return }
+        awake = true
         applyFold(animated: true)
     }
 
-    /// Hides every document chip but the current one while [engaged].
+    /// Back to the document you are in.
+    private func sleep() {
+        idle?.invalidate()
+        idle = nil
+        guard awake else { return }
+        awake = false
+        applyFold(animated: true)
+    }
+
+    deinit { idle?.invalidate() }
+
+    /// Hides every document chip but the current one while the bar is folded.
     ///
     /// `isHidden` on an arranged subview rather than rebuilding the row: the
     /// stack view animates the collapse for free, the scroll offset survives,
@@ -510,7 +609,7 @@ final class GlassTabBarView: NSObject, FlutterPlatformView {
     /// capsule would collapse to nothing and reappear as a stub, which reads
     /// as a glitch rather than as chrome getting out of the way.
     private func applyFold(animated: Bool) {
-        let fold = engaged && docViews.contains(where: { $0.selected })
+        let fold = !awake && docViews.contains(where: { $0.selected })
         let step = {
             for d in self.docViews {
                 let hide = fold && !d.selected
@@ -520,10 +619,13 @@ final class GlassTabBarView: NSObject, FlutterPlatformView {
             self.container.layoutIfNeeded()
         }
         guard animated else { return step() }
+        // M265 — an ease, not a spring, for M263's reason: the capsule's edge
+        // is a straight edge, and a straight edge that overshoots its target
+        // and comes back reads as a mis-set constraint rather than as life.
         UIView.animate(
-            withDuration: 0.24, delay: 0,
-            usingSpringWithDamping: 0.92, initialSpringVelocity: 0,
-            options: [.beginFromCurrentState, .allowUserInteraction],
+            withDuration: 0.26, delay: 0,
+            options: [.curveEaseInOut, .beginFromCurrentState,
+                      .allowUserInteraction],
             animations: step)
     }
 
