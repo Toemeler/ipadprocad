@@ -35,6 +35,7 @@ import 'widgets/edge_feature_dialog.dart';
 import 'widgets/extrude_dialog.dart';
 import 'widgets/combine_dialog.dart';
 import 'widgets/constraint_dialog.dart';
+import 'widgets/create_component_dialog.dart';
 import 'widgets/split_dialog.dart';
 import 'widgets/hole_dialog.dart';
 import 'widgets/work_plane_offset_field.dart';
@@ -329,6 +330,16 @@ class PrototypeApp extends StatelessWidget {
                                           // seeds and its plane by pointing.
                                           if (app.asmPatternSession != null)
                                             PatternPanel3D(app: app),
+                                          // M250 — Create In-Place
+                                          // Component. Over the viewport
+                                          // like its siblings, and it takes
+                                          // itself away when OK hands over
+                                          // to the plane pick: the card
+                                          // would otherwise sit on top of
+                                          // the face you are choosing.
+                                          if (app.createComponentSession !=
+                                              null)
+                                            CreateComponentDialog(app: app),
                                           // M247 — an assembly has work
                                           // planes now, and an offset or an
                                           // angle plane carries the one number

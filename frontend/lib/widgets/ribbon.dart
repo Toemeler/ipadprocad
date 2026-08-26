@@ -763,12 +763,36 @@ class _RibbonState extends State<Ribbon> {
                 ]
               ]),
         );
+    final inPlace = app.inPlaceEdit;
     return IntrinsicHeight(
       child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        // M250 — RETURN, and only while this part is being edited IN PLACE.
+        //
+        // Inventor puts Return at the far RIGHT of the tab; this ribbon
+        // SCROLLS horizontally (see build), so the right-hand end is off
+        // screen on an iPad and the only way out of the mode would be a
+        // button nobody could see. It goes first instead, which is also where
+        // the eye lands when the viewport suddenly has an assembly in it.
+        //
+        // A sketch open inside the edit shows the SKETCH ribbon rather than
+        // this one, so the way out is then Finish Sketch and then this — which
+        // is Inventor's order too, and why this button does not try to close a
+        // sketch on the user's behalf.
+        if (inPlace != null)
+          _panel(
+            label: t.panelReturn,
+            arrow: false,
+            first: true,
+            child: _BigWide(
+                width: 64,
+                icon: returnIcon,
+                label: t.btnReturn,
+                onTap: () => app.leaveInPlaceEdit()),
+          ),
         _panel(
           label: t.panelSketch,
           arrow: false,
-          first: true,
+          first: inPlace == null,
           child: _BigWide(
               width: 70,
               icon: newSketchIcon,
@@ -969,9 +993,12 @@ class _RibbonState extends State<Ribbon> {
   // there.
   Widget _assemblyRibbon(AppState app) {
     final t = L.of(context);
-    // Small rows, all disabled: the assembly tab has no built command that
-    // lives in one, so this takes no callback at all. When one arrives it
-    // takes the shape [_partRibbon.colActive] already has.
+    // Small rows that are NOT built, and take no callback at all — which is
+    // the point: an unbuilt command cannot be given one by accident. The
+    // built small rows go through [asmCol] below.
+    //
+    // M250 — Free Move and Free Rotate left this list, so what is still in it
+    // is the Relationships panel's three Show commands.
     Widget offCol(List<(String, String)> rows, {double leftPad = 8}) => Padding(
           padding: EdgeInsets.only(left: leftPad),
           child: Column(
@@ -1049,26 +1076,50 @@ class _RibbonState extends State<Ribbon> {
                 icon: AS['place']!,
                 onDefault: () => _placeComponent(app),
                 active: _placing),
+            // M250 — WIRED. Inventor's Create In-Place Component: name the
+            // part, pick a plane to sketch on, and it is written, placed and
+            // opened for editing with the assembly still around it. The
+            // button stays lit for as long as the command is open — through
+            // the dialog AND through the plane pick that follows it, because
+            // both are the one command.
             _BigWide(
                 width: 58,
                 icon: AS['create']!,
                 label: t.btnCreateComponent,
-                enabled: false),
+                onTap: () => app.openCreateComponent(),
+                active: app.createComponentSession != null),
           ]),
         ),
         // ---- Position: Free Move / Free Rotate -----------------------------
         //
-        // Both greyed, and the viewport still drags a component: Inventor's
-        // Free Move is the COMMAND (pick, then move, then it stays where the
-        // command put it), while dragging an unconstrained component with the
-        // pointer is plain direct manipulation and needs no command at all.
-        // The second is what ViewportAssembly does; the first is not built.
+        // M250 — both WIRED, and the distinction the old comment here drew is
+        // exactly what they are for. The viewport has dragged a component
+        // since M240 and through the solver since M242; that is direct
+        // manipulation and needs no command. Inventor's Free Move is the
+        // COMMAND, and what it does that a drag does not is TEMPORARILY
+        // OVERRIDE the relationships — the component goes where you put it
+        // and stays there until the next update takes it back.
+        //
+        // Free Rotate is the half that had no existing anything: the viewport
+        // has never had a rotation gesture. It arms Inventor's 3D rotate
+        // glyph on the selected component. Both are toggles and both light
+        // while armed, like every other command in this ribbon.
         _panel(
           label: t.panelPosition,
           arrow: true,
-          child: offCol([
-            (AS['freemove']!, t.btnFreeMove),
-            (AS['freerotate']!, t.btnFreeRotate),
+          child: asmCol([
+            (
+              AS['freemove']!,
+              t.btnFreeMove,
+              app.startFreeMove,
+              app.asmPositionMode == AsmPositionMode.move
+            ),
+            (
+              AS['freerotate']!,
+              t.btnFreeRotate,
+              app.startFreeRotate,
+              app.asmPositionMode == AsmPositionMode.rotate
+            ),
           ], leftPad: 2),
         ),
         // ---- Relationships: Joint / Constrain + Show / Show Sick / Hide All

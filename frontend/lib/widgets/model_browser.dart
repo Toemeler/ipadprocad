@@ -49,6 +49,11 @@ class _ModelBrowserState extends State<ModelBrowser> {
   /// there is nothing in either of them yet and an expanded empty folder is a
   /// row that says less than the closed one does.
   bool reprOpen = false;
+
+  /// M250 — the View folder inside Representations. Position and Level of
+  /// Detail have no flag because they have no children: they are listed
+  /// dimmed and childless, and asm_reps.dart says why.
+  bool viewRepsOpen = true;
   bool relsOpen = false;
   OverlayEntry? _ctx;
   // M53 — End-of-Sketch drag: the marker's PREVIEW slot while the finger /
@@ -1182,6 +1187,53 @@ class _ModelBrowserState extends State<ModelBrowser> {
                     label: L.of(context).nodeRepresentations,
                     onTap: () => setState(() => reprOpen = !reprOpen),
                   ),
+                  // M250 — Inventor's three sub-folders. The native tree's
+                  // twin (see buildRepresentationRows' region in
+                  // native_browser.dart): View is real and lists the saved
+                  // representations with the active one ticked; Position and
+                  // Level of Detail are drawn dimmed and childless, for the
+                  // reasons asm_reps.dart sets out.
+                  if (reprOpen) ...[
+                    _row(
+                      indent: 22,
+                      exp: viewRepsOpen ? '−' : '+',
+                      icon: representationsIcon,
+                      label: L.of(context).nodeViewReps,
+                      onTap: () => setState(() => viewRepsOpen = !viewRepsOpen),
+                      trailing: _PlusButton(
+                          tip: L.of(context).ctxNewViewRep,
+                          onTap: () {
+                            app.newViewRep();
+                            setState(() => viewRepsOpen = true);
+                          }),
+                    ),
+                    if (viewRepsOpen)
+                      for (final name in asm.viewRepNames)
+                        _row(
+                          indent: 36,
+                          exp: ' ',
+                          icon: asm.activeViewRep == name
+                              ? viewRepActiveIcon
+                              : (asm.viewRepNamed(name)?.locked == true
+                                  ? viewRepLockedIcon
+                                  : viewRepIcon),
+                          label: name,
+                          active: asm.activeViewRep == name,
+                          onTap: () => app.activateViewRep(name),
+                        ),
+                    for (final label in [
+                      L.of(context).nodePositionalReps,
+                      L.of(context).nodeLodReps,
+                    ])
+                      Opacity(
+                        opacity: 0.45,
+                        child: _row(
+                            indent: 22,
+                            exp: ' ',
+                            icon: representationsIcon,
+                            label: label),
+                      ),
+                  ],
                   _row(
                     indent: 8,
                     exp: relsOpen ? '−' : '+',
@@ -1265,6 +1317,17 @@ class _ModelBrowserState extends State<ModelBrowser> {
                   for (final p in asm.patterns)
                     ..._patternRows(app, asm, p, indent: 8),
                 ],
+                // M250 — the assembly a part is being edited inside, and the
+                // way back to it. The native tree's twin; see there for why it
+                // is in the browser as well as in the ribbon.
+                if (app.inPlaceEdit != null)
+                  _row(
+                    indent: 8,
+                    exp: ' ',
+                    icon: inPlaceReturnIcon,
+                    label: app.inPlaceEdit!.assembly,
+                    onTap: () => app.leaveInPlaceEdit(),
+                  ),
                 // A part shows its child sketches and features instead of
                 // layers; the open child sketch falls through to the 2D tree.
                 if (part != null && app.activeChild == null) ...[
@@ -1917,6 +1980,45 @@ class _CtxRowState extends State<_CtxRow> {
 
 /// Layer visibility toggle. A hidden layer is not drawn, not picked, not
 /// snapped and not grippable — the eye is the single switch for all of it.
+/// M250 — the "+" on the View folder: Inventor's right-click New, as a
+/// button.
+///
+/// The native tree puts New in the row's context menu, where Inventor's is.
+/// This tree has context menus only on the rows that already had them (layers
+/// and features), and adding one here would be an overlay, a hit-test and a
+/// dismiss path for a single item — so the affordance is a trailing glyph
+/// instead, in the slot the visibility eye occupies on every other row.
+class _PlusButton extends StatefulWidget {
+  final String tip;
+  final VoidCallback onTap;
+  const _PlusButton({required this.tip, required this.onTap});
+  @override
+  State<_PlusButton> createState() => _PlusButtonState();
+}
+
+class _PlusButtonState extends State<_PlusButton> {
+  bool _h = false;
+
+  @override
+  Widget build(BuildContext context) => Tooltip(
+        message: widget.tip,
+        child: MouseRegion(
+          cursor: SystemMouseCursors.click,
+          onEnter: (_) => setState(() => _h = true),
+          onExit: (_) => setState(() => _h = false),
+          child: GestureDetector(
+            onTap: widget.onTap,
+            behavior: HitTestBehavior.opaque,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: Icon(Icons.add,
+                  size: 14, color: _h ? T.mbText : T.mbDim),
+            ),
+          ),
+        ),
+      );
+}
+
 class _EyeButton extends StatefulWidget {
   final bool visible;
   final VoidCallback onTap;

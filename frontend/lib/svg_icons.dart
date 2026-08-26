@@ -215,6 +215,24 @@ final layerBigIcon = S(34, '''
 final finishIcon =
     S(34, '<path d="M5 18 L13 27 L29 8" stroke="#3FA43C" stroke-width="6" fill="none"/>');
 
+/// M250 — Return: out of an edit in place and back to the assembly.
+///
+/// Inventor's own reading of the command — an arrow going back INTO the
+/// assembly — drawn with the assembly cube this app already uses for a
+/// component so the two say the same thing.
+final returnIcon = S(
+    34,
+    // The assembly, small and up in the corner, and a BOLD arrow back into it.
+    // The first version drew the arrow inside the cube's face, where at ribbon
+    // size it disappeared into the shading — found by rendering the ribbon,
+    // which is the only place the icon is ever this small.
+    '<path d="M23 3 L32 7.5 L32 16 L23 20.5 L14 16 L14 7.5 Z" fill="#8C939A" '
+    'stroke="#4d5257" stroke-width="1"/>'
+    '<path d="M14 7.5 L23 12 L32 7.5 M23 12 L23 20.5" fill="none" '
+    'stroke="#4d5257" stroke-width=".9"/>'
+    '<path d="M28 25 H8 M15 18 L8 25 L15 32" fill="none" stroke="#3FA43C" '
+    'stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>');
+
 final newSketchIcon = S(34,
     '<rect x="4" y="6" width="20" height="16" fill="none" stroke="$G" stroke-width="1.5"/>${gp(4, 6, 4)}${gp(24, 6, 4)}${gp(4, 22, 4)}${gp(24, 22, 4)}<path d="M27 20v9M22.5 24.5h9" stroke="#5CBF4A" stroke-width="3" stroke-linecap="round"/>');
 
@@ -516,6 +534,26 @@ const relationshipsIcon =
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="4" cy="4.5" r="2.4" fill="none" stroke="#C4C9CE" stroke-width="1.2"/><circle cx="12" cy="11.5" r="2.4" fill="none" stroke="#C4C9CE" stroke-width="1.2"/><path d="M5.7 6.2l4.6 3.6" stroke="#3D9BE9" stroke-width="1.3"/></svg>';
 const representationsIcon =
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect x="1.5" y="3" width="8" height="6" fill="none" stroke="#C4C9CE" stroke-width="1.1"/><rect x="6.5" y="7" width="8" height="6" fill="#3D9BE9" fill-opacity=".5" stroke="#1d5c8a" stroke-width="1.1"/></svg>';
+
+/// M250 — one VIEW REPRESENTATION in the browser: the ACTIVE one carries
+/// Inventor's tick, the rest an empty ring, and a locked one a padlock.
+///
+/// Three glyphs rather than one with a badge, because a browser row is 15 px
+/// and a badge on it is a smudge. The native tree says the same three things
+/// with SF Symbols (checkmark.circle.fill / circle / lock.fill); these are
+/// what the Flutter tree draws off iOS, and the two must agree about which
+/// row is active or the fallback browser is lying.
+const viewRepActiveIcon =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="#3D9BE9" stroke="#1d5c8a" stroke-width="1"/><path d="M5 8.2 L7.2 10.4 L11.2 5.8" fill="none" stroke="#ffffff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const viewRepIcon =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="#C4C9CE" stroke-width="1.2"/></svg>';
+const viewRepLockedIcon =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect x="3.5" y="7" width="9" height="7" rx="1" fill="#8C939A" stroke="#4d5257" stroke-width=".9"/><path d="M5.6 7V5.2a2.4 2.4 0 0 1 4.8 0V7" fill="none" stroke="#C4C9CE" stroke-width="1.2"/></svg>';
+
+/// M250 — the row above a part that is being edited IN PLACE: back to the
+/// assembly it belongs to.
+const inPlaceReturnIcon =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M8 1.5L14 5v6L8 14.5L2 11V5z" fill="#8C939A" stroke="#4d5257" stroke-width=".8"/><path d="M10.5 8H5.5M7.4 6.1 5.5 8l1.9 1.9" fill="none" stroke="#3FA43C" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
 // Part model-browser tree icons (15px rows) + the "+" menu glyphs
 const partCubeIcon =
