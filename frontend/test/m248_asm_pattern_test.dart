@@ -294,6 +294,12 @@ void main() {
           final n = at.applyDir(
               Vec3(m.normals[i], m.normals[i + 1], m.normals[i + 2]));
           if (n.length < 1e-12) continue;
+          // The PAINTER's sign, deliberately: this pair asks whether a
+          // mirrored component agrees with an unmirrored one, which is a
+          // question about relative consistency. It is blind to which
+          // absolute side the painter draws — see Cam3, and note that the
+          // PICKERS answer the other way round. Flipping this without
+          // flipping buildSceneSolid would only break the comparison.
           if (n.normalized().dot(cam.dir) < 0) out.add(t ~/ 3);
         }
       }

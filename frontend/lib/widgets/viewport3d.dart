@@ -1377,7 +1377,7 @@ class _Viewport3DState extends State<Viewport3D>
             Vec3(m.positions[i2], m.positions[i2 + 1], m.positions[i2 + 2]);
         final n = (w1 - w0).cross(w2 - w0);
         // Camera-facing only, same convention as _pickSolidFace (n·dir > 0).
-        if (n.length < 1e-12 || n.normalized().dot(cam.dir) <= 0) continue;
+        if (n.length < 1e-12 || !cam.facesCamera(n)) continue;
         // Barycentric test in SCREEN space: cheap and independent of the
         // surface type, which is the whole point here.
         final a = cam.project(w0), b = cam.project(w1), c = cam.project(w2);
@@ -1578,7 +1578,7 @@ class _Viewport3DState extends State<Viewport3D>
         final n = (w1 - w0).cross(w2 - w0);
         // Front faces only — see _pickSolidFace for why n·dir > 0 is the
         // visible side.
-        if (n.length < 1e-12 || n.normalized().dot(cam.dir) <= 0) continue;
+        if (n.length < 1e-12 || !cam.facesCamera(n)) continue;
         final a = cam.project(w0), b = cam.project(w1), c = cam.project(w2);
         final den =
             (b.dy - c.dy) * (a.dx - c.dx) + (c.dx - b.dx) * (a.dy - c.dy);
@@ -1650,7 +1650,7 @@ class _Viewport3DState extends State<Viewport3D>
       final w2 =
           Vec3(m.positions[i2], m.positions[i2 + 1], m.positions[i2 + 2]);
       final n = (w1 - w0).cross(w2 - w0);
-      if (n.length < 1e-12 || n.normalized().dot(cam.dir) <= 0) continue;
+      if (n.length < 1e-12 || !cam.facesCamera(n)) continue;
       final a = cam.project(w0), b = cam.project(w1), c = cam.project(w2);
       final den = (b.dy - c.dy) * (a.dx - c.dx) + (c.dx - b.dx) * (a.dy - c.dy);
       if (den.abs() < 1e-9) continue;
@@ -1751,7 +1751,7 @@ class _Viewport3DState extends State<Viewport3D>
         // behind the solid, and picking missed entirely near the silhouette
         // where no back face lies under the cursor. The ViewCube uses the
         // n·dir > 0 form and has always worked.
-        if (n.length < 1e-12 || n.normalized().dot(cam.dir) <= 0) continue;
+        if (n.length < 1e-12 || !cam.facesCamera(n)) continue;
         final nn = n.normalized();
         var faceId = -1;
         if (v4) {

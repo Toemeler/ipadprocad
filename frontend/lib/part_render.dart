@@ -58,8 +58,27 @@ Color get kEdgeAccent => T.edgeAccent;
 Color get kSolidEdge => T.solidEdge;
 
 /// Shared orthographic camera math (also used by the ViewCube/triad).
+///
+/// WHERE THE CAMERA IS, because getting this wrong is how the assembly
+/// pickers came to answer with the far side of the model (device report
+/// 2026-08-26; see asm_pick.dart's header). The EYE is at `+dir * D` and looks
+/// along `-dir`. Three independent witnesses:
+///
+///   * this class's own basis — `s.cross(u) == dir`, so `dir` comes out of the
+///     screen toward the viewer;
+///   * RealityKit, which draws the scene on the device, puts the eye at
+///     `center + dir * dist` (RealityPartView.placeCamera);
+///   * the device measurement recorded at viewport3d._pickSolidFace (build
+///     2648d2e), which is also the form the ViewCube has always used.
+///
+/// So a VISIBLE face has `n.dir > 0` for an outward normal `n`, and [depth]
+/// gets SMALLER toward the viewer. The Flutter painter below still runs the
+/// opposite rule and is self-consistent with it; it is host-only (RealityKit
+/// owns the device scene), and it is not the convention to copy.
 class Cam3 {
-  final Vec3 dir, s, u; // view direction (camera at dir*D), right, up
+  /// [dir] points from the scene TOWARD the eye — see the class note. [s] is
+  /// screen right and [u] screen up.
+  final Vec3 dir, s, u;
   final double halfH, ox, oy;
   final Size size;
   Cam3(PartCamera c, this.size)
@@ -113,8 +132,27 @@ class Cam3 {
         (x * 0.5 + 0.5) * size.width, (1 - (y * 0.5 + 0.5)) * size.height);
   }
 
-  /// Signed view coordinate along the ray: NEARER the camera = LARGER value
-  /// (depth = w·(-dir); the camera sits on the -dir side looking along dir).
+  /// True when a surface whose OUTWARD normal is [n] faces the camera, i.e.
+  /// when it is a surface the user can see.
+  ///
+  /// A named predicate rather than a bare `n.dot(cam.dir) > 0` at each pick
+  /// site, because the bare form is one character away from selecting the far
+  /// side of the model and reads as correct either way. That character is
+  /// exactly what the assembly pickers had wrong. Hand it the normal in
+  /// whatever space [dir] is in — for a placed component that is the piece's
+  /// own, via [placedCam], which is what makes a mirrored one work.
+  ///
+  /// [n] need not be unit length; only its sign against [dir] is read.
+  bool facesCamera(Vec3 n) => n.dot(dir) > 0;
+
+  /// Signed view coordinate along the ray: `w·(-dir)`, so NEARER the camera is
+  /// a SMALLER value — the eye is at `+dir * D` (see the class note).
+  ///
+  /// Every PICKER in this app resolves overlaps by keeping the smallest:
+  /// viewport3d's face and body picks, part_pick.PickBest, asm_pick and
+  /// pickOccurrence. This doc said the opposite until 2026-08-26, and the two
+  /// assembly pickers were written to it — which is why a tap in the assembly
+  /// answered with the far side of the model.
   double depth(Vec3 w) => w.dot(_fwd(dir));
 
   /// LINEAR part of [project]: the screen displacement of a world VECTOR.
@@ -1113,12 +1151,17 @@ class PlacedComponent {
 /// normal. The map carries an outward normal to an outward normal, because it
 /// is orthogonal, so
 ///
-///     (R·S·n)·dir < 0   ⟺   n·(S·Rᵀ·dir) < 0   ⟺   n·cam.dir < 0
+///     sign((R·S·n)·dir)   ==   sign(n·(S·Rᵀ·dir))   ==   sign(n·cam.dir)
 ///
-/// and buildSceneSolid, pickOccurrence and asm_pick._pickFaceOn all keep the
-/// test they had. Adding a sign here is not harmless: it selects the BACK
-/// faces of a mirrored component, which draws with the right silhouette and
-/// the wrong shading — found by rendering one, not by any unit test.
+/// — whichever sign a caller tests for. So buildSceneSolid, pickOccurrence and
+/// asm_pick._pickFaceOn all keep the test they had. Adding a sign HERE is not
+/// harmless: it selects the far side of a mirrored component, which draws with
+/// the right silhouette and the wrong shading — found by rendering one, not by
+/// any unit test.
+///
+/// (Which sign each caller should test is a separate question, and this note
+/// deliberately no longer answers it: see [Cam3] for where the camera is. The
+/// two assembly pickers were reading a stale answer here.)
 ///
 /// The one path where the winding trap IS real is RealityKit's, because the
 /// GPU transforms the vertices before it culls. See [solidPayload].
