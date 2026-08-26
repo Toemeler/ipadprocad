@@ -203,6 +203,21 @@ class GlassBrowser extends StatefulWidget {
   /// frosted plate behind them is one more thing covering the drawing.
   final bool glass;
 
+  /// M262 — how wide the CARD should draw itself, which is not always how wide
+  /// this widget currently is.
+  ///
+  /// The panel morphs between its retracted and open shapes, and UIKit runs
+  /// that animation inside its own bounds — a platform view cannot have its
+  /// width animated from Dart without racing the async native resize, which
+  /// is the whole of M204. So the caller holds the WIDGET at the larger of the
+  /// two sizes for the length of the morph and sends the target here; the
+  /// panel contracts or grows to it under its own steam and the bounds settle
+  /// afterwards, when nothing is moving.
+  ///
+  /// Sent as the card's width, insets included: the panel subtracts its own,
+  /// so neither side keeps a copy of the other's margins.
+  final double cardWidth;
+
   const GlassBrowser({
     super.key,
     required this.rows,
@@ -215,6 +230,7 @@ class GlassBrowser extends StatefulWidget {
     required this.onEopDrag,
     required this.onEopEnd,
     this.glass = true,
+    required this.cardWidth,
   });
 
   static bool get isSupported => !kIsWeb && Platform.isIOS;
@@ -227,6 +243,7 @@ class _GlassBrowserState extends State<GlassBrowser> {
   MethodChannel? _ch;
   String? _lastPushed;
   bool? _lastGlass;
+  double? _lastCard;
 
   void _onCreated(int id) {
     final ch = MethodChannel('prototype/glass_browser/$id');
@@ -267,6 +284,7 @@ class _GlassBrowserState extends State<GlassBrowser> {
     });
     _push(force: true);
     _pushGlass(force: true);
+    _pushCard(force: true);
   }
 
   /// Pushes only when the model actually changed — this runs on every rebuild
@@ -308,11 +326,23 @@ class _GlassBrowserState extends State<GlassBrowser> {
     ch.invokeMethod('setGlass', widget.glass).catchError((_) {});
   }
 
+  /// M262 — pushed AFTER the rows, so the panel has the new tree in hand
+  /// before it is told what shape to take. Both land in the same turn and the
+  /// two animations run together.
+  void _pushCard({bool force = false}) {
+    final ch = _ch;
+    if (ch == null) return;
+    if (!force && _lastCard == widget.cardWidth) return;
+    _lastCard = widget.cardWidth;
+    ch.invokeMethod('setCard', widget.cardWidth).catchError((_) {});
+  }
+
   @override
   void didUpdateWidget(covariant GlassBrowser old) {
     super.didUpdateWidget(old);
     _push();
     _pushGlass();
+    _pushCard();
   }
 
   @override

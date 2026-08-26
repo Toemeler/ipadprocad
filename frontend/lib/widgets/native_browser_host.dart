@@ -29,6 +29,28 @@ class NativeModelBrowser extends StatefulWidget {
   /// retract strip.
   static const double occupiedWidth = 264 + 24;
 
+  /// M262 — how much room the card is taking RIGHT NOW, which during a morph
+  /// is not the same as the state it is in.
+  ///
+  /// THE M204 INVARIANT, stated as arithmetic so it can be pinned:
+  /// the card is a UiKitView and resizing one is an async round trip, so it
+  /// must resize ONCE per toggle and never while something is moving. Holding
+  /// it at the wide figure for the length of the morph is what buys that —
+  /// closing, the bounds shrink after the panel has already drawn itself down
+  /// to the glyph column; opening, they are wide before there is anything out
+  /// there to draw. Either way exactly one resize, and it lands on a still
+  /// panel.
+  ///
+  /// So this is never the narrow figure while [morphing]. That is the whole
+  /// property, and undoing it is how "when its retracted i cant use the
+  /// icons" comes back.
+  static double occupancy({required bool collapsed, required bool morphing}) =>
+      ((!collapsed || morphing) ? _wideCard : _narrowCard) + _handleStrip;
+
+  static const double _wideCard = 264;
+  static const double _narrowCard = 56;
+  static const double _handleStrip = 24;
+
   /// M207 — what the panel claims RIGHT NOW, which is what the coordinate
   /// triad follows.
   ///
@@ -67,7 +89,7 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
   /// unreachable — it costs one tap on the chevron to have the labels back.
   bool _collapsed = true;
 
-  static const double _kWide = 264;
+  static const double _kWide = NativeModelBrowser._wideCard;
   /// M121 — retracted width. The card keeps its 28 pt left inset, so 62 left
   /// only ~34 pt of content and the 16 pt glyphs were clipped against the
   /// cell's own leading margin. 78 gives the icon column real room while still
@@ -79,12 +101,46 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
   /// the chevron parked out past all of it. 14 of card inset + 16 of glyph
   /// leaves the strip sitting just clear of the icons, which is where the eye
   /// looks for it. The wide panel is untouched.
-  static const double _kNarrow = 56;
+  static const double _kNarrow = NativeModelBrowser._narrowCard;
+
+  // ---- M262: the retract MORPHS ------------------------------------------
+  //
+  // M204 removed the slide, and its reasoning still holds exactly: the card is
+  // a UiKitView, resizing one is an async round trip to the platform-view
+  // controller, and animating the width fires that trip once per frame. A
+  // dozen resizes in flight, the last to LAND wins whether or not it was the
+  // last sent, and Flutter keeps painting the texture at the widget's size —
+  // icons drawn where the touch interceptor is not. "when its retracted i cant
+  // use the icons."
+  //
+  // So the resize stays exactly as M204 left it: ONE per toggle, instant, with
+  // nothing in flight when it happens. What is new is WHEN. The card is held
+  // at its wide size for the length of the morph, whichever direction it is
+  // going, and settles afterwards:
+  //
+  //   opening   bounds go wide on frame 1  -> content grows into them
+  //   closing   content shrinks first      -> bounds follow, 280 ms later
+  //
+  // Closing, the late resize is invisible: by the time it happens the panel
+  // has already drawn itself down to the glyph column and the 200-odd points
+  // being given up are empty. Opening, the early resize is invisible for the
+  // same reason from the other side. The animation itself is UIKit's, inside
+  // those bounds, where it costs no round trip at all — see M262 in
+  // GlassBrowser.swift.
+
+  /// One toggle, one curve. Must match `GlassBrowserView.morph` on the Swift
+  /// side, which is what is actually animating.
+  static const Duration _kMorph = Duration(milliseconds: 280);
+
+  /// A morph is playing out, so the card is holding its wide size regardless
+  /// of which way it is going.
+  bool _morphing = false;
+  Timer? _morphTimer;
 
   /// M119 — the chevron lives OUTSIDE the glass, in a strip beside it, and
   /// only shows when the pointer is near the panel. A handle permanently
   /// stuck to a CAD panel is visual noise; you look for it when you want it.
-  static const double _kHandle = 24;
+  static const double _kHandle = NativeModelBrowser._handleStrip;
   bool _near = false;
 
   /// True once a hovering pointer has been seen. Until then this is a
@@ -125,9 +181,39 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
   /// The chevron's left edge. Retracted it stands just past the glyphs;
   /// expanded, the wide card's rows run the full width, so the strip beside
   /// the card is still the only place it can go.
+  ///
+  /// M262 — this follows [_collapsed] and not the card's CURRENT width, so
+  /// the chevron sets off with the morph instead of jumping to its new home
+  /// when the card finally resizes. The AnimatedPositioned below carries it there over the
+  /// same 280 ms, which is what makes the handle read as part of the panel
+  /// rather than as a thing parked next to it.
   double get _handleLeft => _collapsed
       ? _glyphX + 6
       : _kWide + (_kHandle - _kChev) / 2;
+
+  /// Retract or open, and hold the card wide until the morph has played.
+  void _setCollapsed(bool next) {
+    setState(() {
+      _collapsed = next;
+      _handleHot = false; // the chevron moves out from under the pointer
+      _morphing = true;
+      _publishWidth();
+    });
+    _morphTimer?.cancel();
+    // Clear of the curve, not merely past it. The panel's width animates on a
+    // SPRING (damping 0.9), and a spring's stated duration is when it is
+    // essentially there, not when it has stopped — there is a small tail after
+    // it. The resize has to land on a still panel, so the margin covers the
+    // tail rather than the nominal end. 120 ms of the card standing wider than
+    // it needs to costs nothing; a resize landing on a moving panel is M204.
+    _morphTimer = Timer(_kMorph + const Duration(milliseconds: 120), () {
+      if (!mounted) return;
+      setState(() {
+        _morphing = false;
+        _publishWidth();
+      });
+    });
+  }
 
   /// The chevron's CENTRE: the middle of the rows, kept inside the panel.
   ///
@@ -158,6 +244,7 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
   @override
   void dispose() {
     _tipTimer?.cancel();
+    _morphTimer?.cancel();
     super.dispose();
   }
 
@@ -165,7 +252,11 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
   /// runs from build and from setState, and a notifier fired mid-build would
   /// rebuild a listener that has already been laid out this frame.
   void _publishWidth() {
-    final w = (_collapsed ? _kNarrow : _kWide) + _kHandle;
+    // M262 — the width it is OCCUPYING, not the state it is in. Publishing
+    // the narrow figure at the start of a collapse would send the triad and
+    // the quick tools sliding left across a panel that is still there.
+    final w = NativeModelBrowser.occupancy(
+        collapsed: _collapsed, morphing: _morphing);
     if (NativeModelBrowser.occupied.value == w) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       NativeModelBrowser.occupied.value = w;
@@ -222,14 +313,19 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
         // you see icons where the touch interceptor no longer is, and the taps
         // go nowhere.
         //
-        // One state change, one resize, no race. The cost is that the panel
-        // snaps rather than slides — a fair trade for a panel you can press.
-        // (The chevron still rotates; that is Flutter's own layer.)
+        // One state change, one resize, no race.
+        //
+        // M262 — and Duration.zero is now LOAD-BEARING rather than a
+        // concession. The panel does animate again, but not here: the width
+        // still snaps in a single step, and the morph runs inside those bounds
+        // on the UIKit side where it costs no round trip. Putting a duration
+        // back on this line is the M204 bug, exactly.
         duration: Duration.zero,
         curve: Curves.easeOutCubic,
         // The strip is part of the widget's width so the handle sits BESIDE
         // the card, never over it.
-        width: (_collapsed ? _kNarrow : _kWide) + _kHandle,
+        width: NativeModelBrowser.occupancy(
+            collapsed: _collapsed, morphing: _morphing),
         // LayoutBuilder for the panel's HEIGHT: the retract handle is placed
         // against the rows and clamped to what is on screen (M244), and the
         // panel is sized `double.infinity` by its parent, so this is the only
@@ -254,6 +350,12 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
           // M199 — retracted, the panel is icons over the model and nothing
           // else: the glass goes with the labels.
           glass: !_collapsed,
+          // M262 — the shape the card should MORPH to, which follows
+          // [_collapsed] immediately while the widget's own width waits out
+          // the animation. Closing, the panel draws itself down to the glyph
+          // column inside bounds that are still 264 wide; opening, it grows
+          // into bounds that went wide on the first frame.
+          cardWidth: _collapsed ? _kNarrow : _kWide,
           rows: _rows,
           onTap: _onTap,
           onHover: _onHover,
@@ -284,7 +386,13 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
         // away. It now sits at the middle of the ROWS' height and, retracted,
         // just past the glyph column — both measured by the panel itself
         // (onMetrics) rather than guessed at from here.
-        Positioned(
+        // M262 — the chevron TRAVELS with the morph rather than being
+        // teleported by the resize at the end of it. Same duration as the
+        // panel's own animation, so the handle and the edge it stands beside
+        // arrive together.
+        AnimatedPositioned(
+          duration: _kMorph,
+          curve: Curves.easeOutCubic,
           left: _handleLeft,
           top: _handleMid(height) - _kChev / 2,
           width: _kChev,
@@ -298,18 +406,11 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
             onExit: (_) => setState(() => _handleHot = false),
             child: GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onTap: () => setState(() {
-              _collapsed = !_collapsed;
-              _handleHot = false; // the chevron moves out from under the pointer
-              _publishWidth();
-            }),
+            onTap: () => _setCollapsed(!_collapsed),
             onHorizontalDragEnd: (d) {
               final v = d.primaryVelocity ?? 0;
               if (v.abs() < 50) return;
-              setState(() {
-                _collapsed = v < 0;
-                _publishWidth();
-              });
+              _setCollapsed(v < 0);
             },
             child: DecoratedBox(
               // The hover answer: a chip under the glyph, the same shape the
