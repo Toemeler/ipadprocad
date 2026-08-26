@@ -562,7 +562,27 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
                 accessories.append(.customView(configuration: .init(
                     customView: b, placement: .trailing(displayed: .always))))
             }
-            cell.accessories = accessories
+            // M264 — THE BOXES FLEW UP ON EVERY TAB SWITCH.
+            //
+            // "the boxes of the elements seem to fly up every time i switch
+            // tab". The boxes are these: the +/- accessory M129 puts at the
+            // leading edge, and the eye at the trailing one.
+            //
+            // UICollectionViewListCell ANIMATES an accessory change on a cell
+            // that is already configured, and a reloaded list does not hand
+            // out fresh cells — it hands out cells from the reuse pool, still
+            // carrying the last document's accessories. So switching tabs is
+            // an accessory swap on a live cell, which UIKit obligingly
+            // animates in from nothing, one per row. It has been doing that
+            // since M129; it takes a second document to notice.
+            //
+            // The content configuration above is deliberately NOT wrapped:
+            // during a retract (M263) that IS the animation — the glyph moving
+            // from its indentation to the column. Only the accessories are
+            // silenced, and they are the right thing to silence, because they
+            // exist in one state and not the other and have nowhere to move
+            // from.
+            UIView.performWithoutAnimation { cell.accessories = accessories }
         }
 
         dataSource = UICollectionViewDiffableDataSource<Int, String>(
