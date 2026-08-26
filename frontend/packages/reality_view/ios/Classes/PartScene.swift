@@ -147,6 +147,116 @@ enum Colors {
     static let previewEdge = rgb(0xBF, 0xD4, 0xEC)
 }
 
+// ---------------------------------------------------------------------------
+// Line weights and the stroke geometry every outline is built from.
+//
+// M251 — WHY THIS IS ONE PLACE AND NOT FIVE
+//
+// Every line in this scene is built as GEOMETRY: a camera-facing ribbon, or a
+// swept tube where the ribbon cannot be used. Geometry has a WORLD width, so
+// the on-screen weight of a line is only constant if the width it is built at
+// tracks the zoom — and if it is REBUILT when the zoom moves.
+//
+// Three separate answers to that had grown up side by side:
+//   * B-Rep edges took `halfH * 1.2e-3` and were re-tubed only once the zoom
+//     had drifted past 1.8x or under 0.55x, so their on-screen weight swung
+//     over a 3.3:1 range between rebuilds — "sometimes too thick, sometimes
+//     too thin", exactly as reported.
+//   * Sketch curves took `halfH / bounds.height`, which is a genuine point
+//     and correct, but a different number from the edges.
+//   * Work-plane borders and origin axes took a CONSTANT 0.06 mm and were
+//     never rebuilt at all, so they did not scale with the zoom in any sense:
+//     they ballooned into bars zoomed in and vanished zoomed out. Reported as
+//     "the outlines of a plane do not scale when I zoom".
+//
+// Now there is one answer. A weight is stated in logical POINTS, the same unit
+// the 2D sketcher strokes in, and [OutlineStyle] turns it into world half-
+// widths for whatever the camera is doing right now. PartRenderer holds the
+// one style the whole scene was built at and rebuilds EVERYTHING through it
+// (see PartRenderer.refreshOutlines), so lines cannot disagree with each other
+// and cannot disagree with the zoom.
+// ---------------------------------------------------------------------------
+
+/// Line weights in logical POINTS — the unit Viewport2D strokes in, so "the
+/// same weight as the 2D sketcher" is something this file can actually say.
+enum Stroke {
+    /// EVERY line: B-Rep outlines, sketch curves, work-plane borders, origin
+    /// axes. One point, which is what Viewport2D strokes with and what the CPU
+    /// painter draws an origin-plane border at — so the two viewports now
+    /// agree, where the 0.06 mm tube came to roughly 2.2 pt at the default
+    /// zoom and to whatever it liked at any other.
+    ///
+    /// One number rather than a family of them is the point. "Thin, but always
+    /// the same" is not a property any single call site can hold; it is a
+    /// property of there being one answer.
+    static let line: Float = 1.0
+    /// Hover / selection accent over an edge. Must read as clearly wider than
+    /// the outline it covers, since the two are coplanar by construction.
+    static let accent: Float = 2.4
+    /// DIAMETER of the origin centre-point marker. Sized to match what the
+    /// fixed 0.5 mm sphere came to at the default zoom, so the only thing
+    /// that changes is that it now holds that size at every zoom.
+    static let centerPoint: Float = 17.0
+    /// The same marker while hot.
+    static let centerPointHot: Float = 21.0
+}
+
+/// How every outline in the scene is stroked at the current camera.
+///
+/// [mmPerPoint] is the world length of one logical point at this zoom, which
+/// is the whole trick: a stroke asked for in points comes back in millimetres,
+/// so its on-screen weight is the same at every zoom AND on every screen size.
+/// [viewDir] is the direction the camera-facing ribbons are flattened toward,
+/// or nil to fall back to the orientation-independent tube.
+@available(iOS 15.0, *)
+struct OutlineStyle: Equatable {
+    var mmPerPoint: Float
+    var viewDir: SIMD3<Float>?
+
+    /// World half-width of a stroke [pt] points wide — what RibbonBuilder
+    /// takes as `halfWidth` and TubeBuilder as `radius`. Both are half the
+    /// drawn width, which is why one number serves both.
+    func halfWidth(_ pt: Float) -> Float { max(mmPerPoint * pt * 0.5, 1e-6) }
+}
+
+/// One stroked polyline in the current style. The single place every line
+/// that is not a solid's own outline goes through, so none of them can drift
+/// apart again.
+@available(iOS 15.0, *)
+enum OutlineBuilder {
+    /// A camera-facing ribbon where [style] gives a facing, the tube
+    /// otherwise. Exactly constant on-screen width; what MODEL lines use.
+    static func polyline(_ pts: [SIMD3<Float>], color: UIColor,
+                         style: OutlineStyle,
+                         weight: Float = Stroke.line) -> Entity? {
+        let w = style.halfWidth(weight)
+        if let v = style.viewDir,
+           let m = RibbonBuilder.mesh([pts], halfWidth: w, viewDir: v) {
+            return ModelEntity(mesh: m, materials: [Materials.unlitSoft(color)])
+        }
+        return TubeBuilder.polyline(pts, radius: w,
+                                    material: Materials.unlit(color))
+    }
+
+    /// Always the swept tube, whatever the style says.
+    ///
+    /// For chrome that lies IN a surface it has to beat in the depth buffer:
+    /// a work-plane border against its own translucent fill, an origin axis
+    /// against the two origin planes that contain it. A ribbon is flat, so
+    /// seen face-on it lands EXACTLY in that surface and z-fights with it,
+    /// where half of a tube always stands proud of it — which is why these
+    /// have always read cleanly and must keep doing so. The WIDTH still comes
+    /// from [style], which is the part that was broken; what is given up is
+    /// the 16-gon's residual wobble, under 2% (see TubeBuilder.sides) and so
+    /// under a pixel at a hairline.
+    static func tube(_ pts: [SIMD3<Float>], color: UIColor,
+                     style: OutlineStyle,
+                     weight: Float = Stroke.line) -> Entity? {
+        return TubeBuilder.polyline(pts, radius: style.halfWidth(weight),
+                                    material: Materials.unlit(color))
+    }
+}
+
 @available(iOS 15.0, *)
 enum Materials {
     // SimpleMaterial (non-metallic) reads correctly under plain directional
@@ -322,15 +432,22 @@ struct SolidGeom {
         return out
     }
 
-    /// Outline entity. With [viewDir] set this is a camera-facing RIBBON —
-    /// two triangles per segment and exactly constant on-screen width — which
-    /// is only valid while it faces that direction, so the caller must rebuild
-    /// it when the view turns. Without it, the orientation-independent TUBE is
-    /// used instead: ~12x the triangles and a slight width wobble, but it
-    /// survives any camera move, which makes it the safe fallback.
-    func edgeEntity(color: UIColor = Colors.edge, radius: Float = 0.10,
-                    viewDir: SIMD3<Float>? = nil) -> Entity? {
-        if #available(iOS 15.0, *), let v = viewDir {
+    /// Outline entity, stroked in the scene's current [style]. When that
+    /// style faces a camera this is a camera-facing RIBBON — two triangles per
+    /// segment and exactly constant on-screen width — which is only valid
+    /// while it faces that direction, so the caller must rebuild it when the
+    /// view turns. Otherwise the orientation-independent TUBE is used: ~12x
+    /// the triangles and a slight width wobble, but it survives any camera
+    /// move, which makes it the safe fallback.
+    ///
+    /// M251 — the width is no longer a caller's own number. It comes from
+    /// [style] in POINTS, so an edge here and a sketch curve and a work-plane
+    /// border are all the same weight by construction rather than by three
+    /// call sites agreeing.
+    func edgeEntity(color: UIColor = Colors.edge, style: OutlineStyle,
+                    weight: Float = Stroke.line) -> Entity? {
+        let radius = style.halfWidth(weight)
+        if #available(iOS 15.0, *), let v = style.viewDir {
             let lines = edgePolylines()
             if !lines.isEmpty,
                let m = RibbonBuilder.mesh(lines, halfWidth: radius, viewDir: v) {
@@ -427,8 +544,14 @@ final class PlaneEntity {
     // rebuilding the quad + outline meshes each time is pure churn.
     private var hot = false
     private var visible = true
+    /// The stroke the border was last built at. M251 — the border used to be
+    /// a 0.06 mm tube nailed into build(), which is why it did not scale with
+    /// the zoom: at halfH = 27 that is roughly a 2.2 pt bar, and zooming in
+    /// ten times made it a 22 pt one.
+    private var style: OutlineStyle
 
-    init?(payload p: [String: Any]) {
+    init?(payload p: [String: Any], style s: OutlineStyle) {
+        style = s
         guard let frame = Payload.doubles(p["frame"]), frame.count >= 9 else { return nil }
         let u = SIMD3<Float>(Float(frame[0]), Float(frame[1]), Float(frame[2]))
         let v = SIMD3<Float>(Float(frame[3]), Float(frame[4]), Float(frame[5]))
@@ -450,15 +573,16 @@ final class PlaneEntity {
         ]
         hot = (p["hot"] as? NSNumber)?.boolValue ?? false
         visible = (p["visible"] as? NSNumber)?.boolValue ?? true
-        build(hot: hot)
+        buildFill()
+        buildOutline()
         entity.isEnabled = visible
     }
 
-    private func build(hot: Bool) {
+    /// The translucent quad. Independent of the stroke, so a zoom that only
+    /// changes the border weight leaves this mesh alone.
+    private func buildFill() {
         fill?.removeFromParent()
-        outline?.removeFromParent()
         let fillColor = hot ? Colors.green : Colors.orange
-        let edgeColor = hot ? Colors.greenBright : Colors.orangeEdge
         // Two triangles, both windings, so the plane shows from either side
         // without relying on per-material face-culling toggles.
         let pos = corners
@@ -472,8 +596,15 @@ final class PlaneEntity {
             fill = e
             entity.addChild(e)
         }
-        if let o = TubeBuilder.polyline(corners + [corners[0]], radius: 0.06,
-                                        material: Materials.unlit(edgeColor)) {
+    }
+
+    /// The border, at the scene's current line weight and facing.
+    private func buildOutline() {
+        outline?.removeFromParent()
+        outline = nil
+        let edgeColor = hot ? Colors.greenBright : Colors.orangeEdge
+        if let o = OutlineBuilder.tube(corners + [corners[0]],
+                                       color: edgeColor, style: style) {
             outline = o
             entity.addChild(o)
         }
@@ -482,7 +613,19 @@ final class PlaneEntity {
     func setHot(_ h: Bool) {
         guard h != hot else { return }
         hot = h
-        build(hot: h)
+        buildFill()
+        buildOutline()
+    }
+
+    /// Re-stroke the border for a new zoom.
+    ///
+    /// Only the WIDTH is looked at: the border is a tube, and a tube is
+    /// orientation-independent, so a pure camera turn — which is most of what
+    /// makes the renderer re-stroke — leaves this mesh alone entirely.
+    func setStyle(_ s: OutlineStyle) {
+        let changed = s.mmPerPoint != style.mmPerPoint
+        style = s
+        if changed { buildOutline() }
     }
 
     func setVisible(_ v: Bool) {
@@ -501,8 +644,10 @@ final class PlaneEntity {
 }
 
 // ---------------------------------------------------------------------------
-// Origin axis: a thin tube spanning [lo, hi] along its direction (M83 — the
-// same padded box the planes use; pre-M83 payloads fall back to [-ext, +ext]).
+// Origin axis: a hairline tube spanning [lo, hi] along its direction (M83 —
+// the same padded box the planes use; pre-M83 payloads fall back to
+// [-ext, +ext]). Its width comes from the scene's OutlineStyle, so it holds
+// one on-screen weight at every zoom.
 // ---------------------------------------------------------------------------
 @available(iOS 15.0, *)
 final class AxisEntity {
@@ -512,8 +657,11 @@ final class AxisEntity {
     private let hi: Float
     private var hot = false
     private var visible = true
+    /// Same story as PlaneEntity.style: this was a fixed 0.06 mm tube.
+    private var style: OutlineStyle
 
-    init?(payload a: [String: Any]) {
+    init?(payload a: [String: Any], style s: OutlineStyle) {
+        style = s
         guard let d = Payload.vec3(a["dir"]) else { return nil }
         dir = d
         let ext = Float((a["ext"] as? NSNumber)?.doubleValue ?? 10)
@@ -521,15 +669,15 @@ final class AxisEntity {
         hi = Float((a["hi"] as? NSNumber)?.doubleValue ?? Double(ext))
         hot = (a["hot"] as? NSNumber)?.boolValue ?? false
         visible = (a["visible"] as? NSNumber)?.boolValue ?? true
-        build(hot: hot)
+        build()
         entity.isEnabled = visible
     }
 
-    private func build(hot: Bool) {
+    private func build() {
         for c in entity.children.map({ $0 }) { c.removeFromParent() }
         let color = hot ? Colors.green : Colors.orange
-        if let t = TubeBuilder.polyline([dir * lo, dir * hi], radius: 0.06,
-                                        material: Materials.unlit(color)) {
+        if let t = OutlineBuilder.tube([dir * lo, dir * hi], color: color,
+                                       style: style) {
             entity.addChild(t)
         }
     }
@@ -537,7 +685,14 @@ final class AxisEntity {
     func setHot(_ h: Bool) {
         guard h != hot else { return }
         hot = h
-        build(hot: h)
+        build()
+    }
+
+    /// Re-stroke for a new zoom. Width only, same as PlaneEntity.setStyle.
+    func setStyle(_ s: OutlineStyle) {
+        let changed = s.mmPerPoint != style.mmPerPoint
+        style = s
+        if changed { build() }
     }
 
     func setVisible(_ v: Bool) {
