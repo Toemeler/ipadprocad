@@ -10,6 +10,7 @@
 // lower-casing call at the point of use is a grammar bug the moment a second
 // language exists. Both spellings live in the ARB instead, one key each.
 import '../asm_constraints.dart' show AsmKind, AsmSolution;
+import '../asm_joint.dart' show AsmJointType, jointTypeOf;
 import '../part_model.dart'
     show FaceEditKind, FeatureExtent, HoleType, PartFeature, PatternKind;
 import 'l.dart';
@@ -101,6 +102,24 @@ String constraintLabel(AppL10n t, AsmKind k) => switch (k) {
       AsmKind.rotation => t.asmRotation,
       AsmKind.rotationTranslation => t.asmRotationTranslation,
       AsmKind.transitional => t.asmTransitional,
+      // M249 — a joint is named after its TYPE everywhere it is shown, so the
+      // one function that spells a relationship spells these too. Routed
+      // through the joint-type label rather than repeating the seven strings,
+      // because the dialog's Type list and the browser's tooltip must never be
+      // able to call one joint two things.
+      _ => jointTypeLabel(t, jointTypeOf(k)),
+    };
+
+/// M249 — the localised name of a JOINT TYPE, as the Place Joint dialog's Type
+/// list spells it.
+String jointTypeLabel(AppL10n t, AsmJointType j) => switch (j) {
+      AsmJointType.automatic => t.jtAutomatic,
+      AsmJointType.rigid => t.jtRigid,
+      AsmJointType.rotational => t.jtRotational,
+      AsmJointType.slider => t.jtSlider,
+      AsmJointType.cylindrical => t.jtCylindrical,
+      AsmJointType.planar => t.jtPlanar,
+      AsmJointType.ball => t.jtBall,
     };
 
 /// The localised name of a SOLUTION.

@@ -2443,7 +2443,16 @@ class _ScenePainter extends CustomPainter {
             f.bodyName != app.extrudeSession?.previewReplacesBody)
           f.solid!
     ];
-    final occ = occSolids.isEmpty ? null : solidOccluder(occSolids, cam);
+    // M250 — EDIT IN PLACE: the rest of the parent assembly, already in this
+    // part's own frame. Empty for every ordinary part render. It goes into the
+    // occluder as well as the painter, so a sketch or an origin plane behind a
+    // surrounding component is hidden by it — see solidOccluder.
+    final context = [
+      for (final (_, at, sol) in app.inPlaceContextPieces) (at, sol)
+    ];
+    final occ = occSolids.isEmpty && context.isEmpty
+        ? null
+        : solidOccluder(occSolids, cam, context: context);
 
     // Draw the SOLIDS first, then origin planes, then sketches. This gives the
     // Inventor coplanar tie-break — a sketch or plane on the exact plane of a
@@ -2499,7 +2508,10 @@ class _ScenePainter extends CustomPainter {
           accentSolid: accentSolid,
           accentEdges: accent,
           selectedSolids: solidsOfBody(app.selectedBody),
-          hoveredSolids: solidsOfBody(app.browserHoverBody));
+          hoveredSolids: solidsOfBody(app.browserHoverBody),
+          // M250 — the assembly around an in-place edit, in the same depth
+          // pass as the part so the two occlude each other properly.
+          context: context);
     }
 
     // ---- work planes (M151) ----

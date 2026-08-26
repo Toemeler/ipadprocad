@@ -15,8 +15,12 @@
 //     clear of it, and a grounded one refuses to move.
 //   * THE RIBBON. Five panels, Inventor's order, and which commands are
 //     ENABLED — the claim of the milestone, so it is asserted rather than
-//     described. M240 shipped with one (Place); M242 built Constrain, so it
-//     is two now and the rest are still drawn-and-disabled.
+//     described. M240 shipped with one (Place); M242 built Constrain, M247 the
+//     three work features, M248 Pattern/Mirror/Copy, M249 Joint / Show / Hide
+//     All and M250 Create / Free Move / Free Rotate — so the tab is finished
+//     and the drawn-and-disabled list is empty. Show Sick is the one command
+//     that can be untappable, and it is greyed for a REASON (nothing is sick)
+//     rather than for being unbuilt.
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -566,6 +570,15 @@ void main() {
     // "Pattern" — which covers the panel TITLE as well as the command — is now
     // tappable exactly once, since a panel title never was.
     //
+    // M250 (SPEC CHANGE) — and so do Create, Free Move and Free Rotate. All
+    // three are built: Create Component writes a new part document, places it
+    // on the plane you pick and opens it for editing with the assembly still
+    // around it; Free Move and Free Rotate are Inventor's Position commands,
+    // which move a component WITHOUT the solver — the relationships are
+    // overridden until the next update takes it back. Landing beside M249,
+    // which built the other three, that empties the drawn-and-disabled list
+    // altogether; the loop below therefore asserts the positive.
+    //
     // M247 (SPEC CHANGE) — and so do Plane, Axis and Point. Two things move
     // with them:
     //
@@ -577,6 +590,18 @@ void main() {
     //     than pinning a layout that no longer exists.
     //   * the three that are built are TAPPABLE, and the drawn-and-disabled
     //     list loses them.
+    //
+    // M249 (SPEC CHANGE) — Joint, Show and Hide All are built. Written before
+    // M250 landed, when those three were what the list would have kept; they
+    // are built too, so between them nothing is left in it.
+    //
+    // SHOW SICK stays in it, and it is the one entry there for a NEW reason:
+    // it is built and unavailable. Inventor's own rule — "the command is not
+    // available if all relationships are healthy" — and this fixture has no
+    // relationships at all, so the row must draw exactly as an unbuilt one
+    // does. The test below says so on both sides: untappable here, and
+    // tappable the moment a constraint goes sick (see "Show Sick lights up
+    // only when something is sick").
     testWidgets('every command is drawn; the built ones are enabled',
         (t) async {
       L.set(kEn);
@@ -630,24 +655,55 @@ void main() {
         expect(tappable(on), greaterThan(0),
             reason: 'M248 — "$on" is built');
       }
+      for (final on in const ['Joint', 'Show', 'Hide All']) {
+        expect(tappable(on), greaterThan(0),
+            reason: 'M249 — "$on" is built');
+      }
+      for (final on in const ['Create', 'Free Move', 'Free Rotate']) {
+        expect(tappable(on), greaterThan(0),
+            reason: 'M250 — "$on" is built');
+      }
       // 'Pattern' is on screen twice — the panel title and the command — and
       // exactly ONE of them is tappable, which is the stronger assertion than
       // either count alone: the command works and the title is still a label.
       expect(tappable('Pattern'), 1,
           reason: 'M248 — the command is wired; the panel title is not a '
               'button and never was');
-      for (final off in const [
+      // M249 + M250 (SPEC CHANGE) — THE DRAWN-AND-DISABLED LIST IS EMPTY.
+      //
+      // It has been a list of exceptions since M240 and there is nothing left
+      // to except: M249 built Joint, Show and Hide All, M250 built Create,
+      // Free Move and Free Rotate. So the claim is asserted the other way
+      // round — every command on this tab is tappable — which is the stronger
+      // statement and the one that will fail if a future milestone adds a
+      // button and forgets to wire it.
+      //
+      // Show Sick is deliberately not in the list, and it is not an exception
+      // either: it is BUILT and UNAVAILABLE, greyed because nothing is sick.
+      // See the assertion below, which pins both halves of that.
+      for (final b in const [
+        'Place',
         'Create',
         'Free Move',
         'Free Rotate',
         'Joint',
+        'Constrain',
         'Show',
-        'Show Sick',
         'Hide All',
+        'Mirror',
+        'Copy',
+        'Plane',
+        'Axis',
+        'Point',
       ]) {
-        expect(tappable(off), 0,
-            reason: '"$off" is not built and must not be tappable');
+        expect(tappable(b), greaterThan(0),
+            reason: '"$b" is built and must be tappable');
       }
+      // M249 — built, and unavailable because nothing is sick. Drawn exactly
+      // as an unbuilt command is, which is what Inventor does with it.
+      expect(tappable('Show Sick'), 0,
+          reason: 'M249 — Show Sick is greyed while every relationship is '
+              'healthy, and this assembly has none at all');
     });
 
     testWidgets('it renders in German too', (t) async {

@@ -215,6 +215,24 @@ final layerBigIcon = S(34, '''
 final finishIcon =
     S(34, '<path d="M5 18 L13 27 L29 8" stroke="#3FA43C" stroke-width="6" fill="none"/>');
 
+/// M250 — Return: out of an edit in place and back to the assembly.
+///
+/// Inventor's own reading of the command — an arrow going back INTO the
+/// assembly — drawn with the assembly cube this app already uses for a
+/// component so the two say the same thing.
+final returnIcon = S(
+    34,
+    // The assembly, small and up in the corner, and a BOLD arrow back into it.
+    // The first version drew the arrow inside the cube's face, where at ribbon
+    // size it disappeared into the shading — found by rendering the ribbon,
+    // which is the only place the icon is ever this small.
+    '<path d="M23 3 L32 7.5 L32 16 L23 20.5 L14 16 L14 7.5 Z" fill="#8C939A" '
+    'stroke="#4d5257" stroke-width="1"/>'
+    '<path d="M14 7.5 L23 12 L32 7.5 M23 12 L23 20.5" fill="none" '
+    'stroke="#4d5257" stroke-width=".9"/>'
+    '<path d="M28 25 H8 M15 18 L8 25 L15 32" fill="none" stroke="#3FA43C" '
+    'stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>');
+
 final newSketchIcon = S(34,
     '<rect x="4" y="6" width="20" height="16" fill="none" stroke="$G" stroke-width="1.5"/>${gp(4, 6, 4)}${gp(24, 6, 4)}${gp(4, 22, 4)}${gp(24, 22, 4)}<path d="M27 20v9M22.5 24.5h9" stroke="#5CBF4A" stroke-width="3" stroke-linecap="round"/>');
 
@@ -457,6 +475,27 @@ final Map<String, String> AC = {
   'solReverse': S(24, '<circle cx="7" cy="12" r="4.6" fill="#54B0E8" stroke="#1a5f95" stroke-width=".8"/><circle cx="17" cy="12" r="4.6" fill="#8C939A" stroke="#4d5257" stroke-width=".8"/><path d="M7 5 A 7 7 0 0 1 11.9 7" fill="none" stroke="#5CBF4A" stroke-width="1.2"/><path d="M11.9 7 l-2.2-.4 M11.9 7 l-.5 2.1" stroke="#5CBF4A" stroke-width="1"/><path d="M17 5 A 7 7 0 0 0 12.1 7" fill="none" stroke="$RD" stroke-width="1.2"/><path d="M12.1 7 l2.2-.4 M12.1 7 l.5 2.1" stroke="$RD" stroke-width="1"/>'),
   // Transitional has one behaviour and therefore one glyph, which is its own.
   'solNone': S(24, '<path d="M4 12 a7 7 0 1 1 14 0 a7 9 0 0 1 -14 0 Z" fill="#8C939A" stroke="#4d5257" stroke-width=".9"/><circle cx="19.5" cy="9" r="3" fill="#54B0E8" stroke="#1a5f95" stroke-width=".9"/>'),
+
+  // ---- M249: the Place Joint Type list ------------------------------------
+  //
+  // Same family rules as the constraint glyphs above — blue moves, grey does
+  // not, yellow is what was picked — with one addition that is the whole point
+  // of a joint: GREEN IS THE FREEDOM THAT IS LEFT. An arc means it can turn, a
+  // double arrow means it can slide, and Rigid has neither, which is exactly
+  // what makes the seven readable as one row.
+  'jtAutomatic': S(24, '<path d="M2 8 L8 5 L8 15 L2 18 Z" fill="#54B0E8" stroke="#1a5f95" stroke-width=".8"/><path d="M16 5 L22 8 L22 18 L16 15 Z" fill="#8C939A" stroke="#4d5257" stroke-width=".8"/><circle cx="12" cy="11.5" r="2.4" fill="$YL" stroke="#8a7318" stroke-width=".8"/><path d="M12 3.4 l1.1 2.3 2.3-1.1-1.1 2.3" fill="none" stroke="#5CBF4A" stroke-width="1.2"/><path d="M8 19.5 A 6 6 0 0 0 16 19.5" fill="none" stroke="#5CBF4A" stroke-width="1.2"/>'),
+  // Rigid: the two welded, with the seam picked and nothing green at all.
+  'jtRigid': S(24, '<path d="M2 6 L11 2 L11 16 L2 20 Z" fill="#54B0E8" stroke="#1a5f95" stroke-width=".8"/><path d="M13 2 L22 6 L22 20 L13 16 Z" fill="#8C939A" stroke="#4d5257" stroke-width=".8"/><path d="M11 2 v14 M13 2 v14" stroke="$YL" stroke-width="1.3"/><path d="M9 18.5 l6 4 M15 18.5 l-6 4" stroke="$RD" stroke-width="1.4"/>'),
+  // Rotational: a hinge, and the one arc it leaves.
+  'jtRotational': S(24, '<path d="M2 7 L9 4 L9 18 L2 21 Z" fill="#8C939A" stroke="#4d5257" stroke-width=".8"/><path d="M15 4 L22 7 L22 21 L15 18 Z" fill="#54B0E8" stroke="#1a5f95" stroke-width=".8"/><path d="M12 2 v20" stroke="$YL" stroke-width="1.4"/><circle cx="12" cy="11" r="2" fill="none" stroke="#8a7318" stroke-width="1"/><path d="M12 4.6 A 6.4 6.4 0 0 1 17.6 8" fill="none" stroke="#5CBF4A" stroke-width="1.3"/><path d="M17.6 8 l-2.3-.4 M17.6 8 l-.4 2.3" stroke="#5CBF4A" stroke-width="1.1"/>'),
+  // Slider: the block on its track, and the one line it runs along.
+  'jtSlider': S(24, '<path d="M1 15 L23 15 L23 19 L1 19 Z" fill="#8C939A" stroke="#4d5257" stroke-width=".8"/><path d="M1 15 h22" stroke="$YL" stroke-width="1.3"/><path d="M8 7 L16 7 L16 15 L8 15 Z" fill="#54B0E8" stroke="#1a5f95" stroke-width=".8"/><path d="M3 4 h18 M3 4 l2.2-1.7 M3 4 l2.2 1.7 M21 4 l-2.2-1.7 M21 4 l-2.2 1.7" stroke="#5CBF4A" stroke-width="1.3" fill="none"/>'),
+  // Cylindrical: a shaft in a bore — it turns AND it slides.
+  'jtCylindrical': S(24, '<ellipse cx="12" cy="7" rx="7" ry="2.6" fill="#8C939A" stroke="#4d5257" stroke-width=".8"/><path d="M5 7 v9 a7 2.6 0 0 0 14 0 V7" fill="#5b6167" stroke="#4d5257" stroke-width=".8"/><ellipse cx="12" cy="7" rx="3" ry="1.2" fill="#2b2f33" stroke="$YL" stroke-width="1"/><path d="M9 7 v11 a3 1.2 0 0 0 6 0 V7" fill="#54B0E8" stroke="#1a5f95" stroke-width=".8"/><path d="M12 1 v4 M12 1 l-1.6 1.5 M12 1 l1.6 1.5" stroke="#5CBF4A" stroke-width="1.2" fill="none"/><path d="M17.5 3.5 A 6 6 0 0 1 21.5 6" fill="none" stroke="#5CBF4A" stroke-width="1.2"/>'),
+  // Planar: the block loose on a face — two ways to slide and one to spin.
+  'jtPlanar': S(24, '<path d="M1 15 L10 10 L23 12 L14 18 Z" fill="#8C939A" stroke="#4d5257" stroke-width=".8"/><path d="M1 15 L10 10 L23 12 L14 18 Z" fill="none" stroke="$YL" stroke-width="1"/><path d="M8 8 L14 5 L19 6.5 L13 10 Z" fill="#54B0E8" stroke="#1a5f95" stroke-width=".8"/><path d="M4 20.5 h16 M4 20.5 l2 -1.5 M4 20.5 l2 1.5 M20 20.5 l-2 -1.5 M20 20.5 l-2 1.5" stroke="#5CBF4A" stroke-width="1.2" fill="none"/><path d="M11 2.6 A 5 5 0 0 1 15.5 3.4" fill="none" stroke="#5CBF4A" stroke-width="1.2"/>'),
+  // Ball: the ball in its socket, free to turn every way.
+  'jtBall': S(24, '<path d="M3 20 L21 20 L18 12 a6 6 0 0 0 -12 0 Z" fill="#8C939A" stroke="#4d5257" stroke-width=".8"/><circle cx="12" cy="10" r="6" fill="#54B0E8" stroke="#1a5f95" stroke-width=".9"/><ellipse cx="12" cy="10" rx="6" ry="2.4" fill="none" stroke="$YL" stroke-width="1"/><path d="M12 2.4 A 7.6 7.6 0 0 1 18 5.4" fill="none" stroke="#5CBF4A" stroke-width="1.2"/><path d="M4.6 7 A 7.6 7.6 0 0 1 8 3.6" fill="none" stroke="#5CBF4A" stroke-width="1.2"/>'),
 };
 
 /// The numbered SELECTION button of the Place Constraint dialog: the pick
@@ -516,6 +555,26 @@ const relationshipsIcon =
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="4" cy="4.5" r="2.4" fill="none" stroke="#C4C9CE" stroke-width="1.2"/><circle cx="12" cy="11.5" r="2.4" fill="none" stroke="#C4C9CE" stroke-width="1.2"/><path d="M5.7 6.2l4.6 3.6" stroke="#3D9BE9" stroke-width="1.3"/></svg>';
 const representationsIcon =
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect x="1.5" y="3" width="8" height="6" fill="none" stroke="#C4C9CE" stroke-width="1.1"/><rect x="6.5" y="7" width="8" height="6" fill="#3D9BE9" fill-opacity=".5" stroke="#1d5c8a" stroke-width="1.1"/></svg>';
+
+/// M250 — one VIEW REPRESENTATION in the browser: the ACTIVE one carries
+/// Inventor's tick, the rest an empty ring, and a locked one a padlock.
+///
+/// Three glyphs rather than one with a badge, because a browser row is 15 px
+/// and a badge on it is a smudge. The native tree says the same three things
+/// with SF Symbols (checkmark.circle.fill / circle / lock.fill); these are
+/// what the Flutter tree draws off iOS, and the two must agree about which
+/// row is active or the fallback browser is lying.
+const viewRepActiveIcon =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="#3D9BE9" stroke="#1d5c8a" stroke-width="1"/><path d="M5 8.2 L7.2 10.4 L11.2 5.8" fill="none" stroke="#ffffff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const viewRepIcon =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="#C4C9CE" stroke-width="1.2"/></svg>';
+const viewRepLockedIcon =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect x="3.5" y="7" width="9" height="7" rx="1" fill="#8C939A" stroke="#4d5257" stroke-width=".9"/><path d="M5.6 7V5.2a2.4 2.4 0 0 1 4.8 0V7" fill="none" stroke="#C4C9CE" stroke-width="1.2"/></svg>';
+
+/// M250 — the row above a part that is being edited IN PLACE: back to the
+/// assembly it belongs to.
+const inPlaceReturnIcon =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M8 1.5L14 5v6L8 14.5L2 11V5z" fill="#8C939A" stroke="#4d5257" stroke-width=".8"/><path d="M10.5 8H5.5M7.4 6.1 5.5 8l1.9 1.9" fill="none" stroke="#3FA43C" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
 // Part model-browser tree icons (15px rows) + the "+" menu glyphs
 const partCubeIcon =

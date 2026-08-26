@@ -261,6 +261,40 @@ class Placement {
         (rot * inner.rot * _reflectionPair(a, m2)).normalized(), at2);
   }
 
+  /// M250 — the placement that UNDOES this one.
+  ///
+  /// EDIT IN PLACE is what needs it, and nothing else does. To draw the rest
+  /// of the assembly around the component being edited, every OTHER
+  /// component's world placement has to be re-expressed in THIS component's
+  /// own frame, which is `edited.placement.inverse * other.placement`. Without
+  /// it the surrounding components arrive in world coordinates and the part
+  /// viewport — which works in the part's own frame — draws them wherever the
+  /// assembly happened to put them, which for a component placed 200 mm along
+  /// +X is off the edge of the screen.
+  ///
+  /// The reflection is the whole reason this is not one line. Writing S_m for
+  /// the reflection in unit normal m and R for the rotation, this placement is
+  /// v ↦ R·S_m(v) + t, so
+  ///
+  ///     P⁻¹(w) = S_m(R⁻¹(w − t)) = R⁻¹·S_(R·m)(w − t)
+  ///
+  /// by the same S_m·R = R·S_(R⁻¹m) identity [operator *] uses, read with R⁻¹
+  /// in place of R. So the inverse is an ORDINARY placement: its rotation is
+  /// R⁻¹, its reflection normal is m turned out into the world frame, and its
+  /// translation is where the world origin lands under those two. A mirrored
+  /// component therefore inverts to a mirrored placement rather than to
+  /// something no consumer could hold, which is what keeps
+  /// `p.inverse * p == identity` true for the mirrored case as well as the
+  /// rigid one — see the M250 tests, which assert exactly that.
+  Placement get inverse {
+    final r = rot.conjugate;
+    final m = reflect == null ? null : rot.rotate(reflect!).normalized();
+    // applyDir of the inverse, before its translation is known — which is all
+    // that is needed to work the translation out.
+    final back = Placement(r, Vec3.zero, m);
+    return Placement(r, back.applyDir(at) * -1, m);
+  }
+
   /// The rotation that two reflections compose to: S_a·S_b.
   ///
   /// A reflection in the unit normal n is v ↦ n·v·n in the quaternion

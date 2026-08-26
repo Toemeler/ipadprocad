@@ -3498,4 +3498,218 @@ class AppL10nDe extends AppL10n {
   String msgAsmWouldNest(String name) {
     return '„$name“ enthält diese Baugruppe bereits.';
   }
+
+  @override
+  String get dlgPlaceJoint => 'Gelenk platzieren';
+
+  @override
+  String get grpAsmConnect => 'Verbinden';
+
+  @override
+  String get lblAsmGap => 'Abstand';
+
+  @override
+  String get jtAutomatic => 'Automatisch';
+
+  @override
+  String get jtRigid => 'Starr';
+
+  @override
+  String get jtRotational => 'Drehung';
+
+  @override
+  String get jtSlider => 'Schieber';
+
+  @override
+  String get jtCylindrical => 'Zylindrisch';
+
+  @override
+  String get jtPlanar => 'Eben';
+
+  @override
+  String get jtBall => 'Kugel';
+
+  @override
+  String hintAsmJointAuto(String type) {
+    return 'Automatisch: $type';
+  }
+
+  @override
+  String hintAsmJointDof(int n) {
+    String _temp0 = intl.Intl.pluralLogic(
+      n,
+      locale: localeName,
+      other: '$n Freiheitsgrade bleiben',
+      one: 'Ein Freiheitsgrad bleibt',
+      zero: 'Kein Freiheitsgrad bleibt',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get msgAsmJointNeedsDirections =>
+      'Dieses Gelenk braucht zwei Richtungen.';
+
+  @override
+  String get hintAsmShowPickComponent =>
+      'Komponente wählen, deren Beziehungen eingeblendet werden sollen.';
+
+  @override
+  String msgAsmNoRelationships(String name) {
+    return '„$name“ hat keine Beziehungen.';
+  }
+
+  @override
+  String get msgAsmNoSickRelationships => 'Alle Beziehungen sind in Ordnung.';
+
+  @override
+  String get dlgDrive => 'Abhängigkeit antreiben';
+
+  @override
+  String get ctxDrive => 'Antreiben';
+
+  @override
+  String get lblDriveStart => 'Start';
+
+  @override
+  String get lblDriveEnd => 'Ende';
+
+  @override
+  String get lblDrivePause => 'Pause';
+
+  @override
+  String get grpDriveIncrement => 'Schrittweite';
+
+  @override
+  String get optDriveAmount => 'Wert';
+
+  @override
+  String get optDriveSteps => 'Anzahl Schritte';
+
+  @override
+  String get grpDriveRepetitions => 'Wiederholungen';
+
+  @override
+  String get optDriveOnce => 'Start/Ende';
+
+  @override
+  String get optDriveBoth => 'Start/Ende/Start';
+
+  @override
+  String get lblDriveCycles => 'Zyklen';
+
+  @override
+  String get cbDriveAdaptivity => 'Adaptivität antreiben';
+
+  @override
+  String get cbDriveCollision => 'Kollisionserkennung';
+
+  @override
+  String get hintDriveUnavailable => 'In dieser App nicht verfügbar.';
+
+  @override
+  String get msgAsmCannotDrive => 'Diese Beziehung lässt sich nicht antreiben.';
+
+  @override
+  String get tipDrivePlay => 'Abspielen';
+
+  @override
+  String get tipDriveReverse => 'Rückwärts';
+
+  @override
+  String get tipDrivePause => 'Anhalten';
+
+  @override
+  String get tipDriveToStart => 'Zum Anfang';
+
+  @override
+  String get tipDriveToEnd => 'Zum Ende';
+
+  @override
+  String get hintAsmFreeMove =>
+      'Komponente ziehen — Beziehungen werden dabei übergangen.';
+
+  @override
+  String get hintAsmFreeRotate => 'Komponente wählen und am Drehsymbol ziehen.';
+
+  @override
+  String msgAsmFreePositioned(String name) {
+    return '„$name“ steht außerhalb seiner Beziehungen — die nächste Aktualisierung setzt es zurück.';
+  }
+
+  @override
+  String msgNameTaken(String name) {
+    return 'Ein Dokument namens „$name“ existiert bereits.';
+  }
+
+  @override
+  String get hintAsmCreatePickPlane =>
+      'Ebene oder planare Fläche zum Skizzieren wählen.';
+
+  @override
+  String msgAsmEditSubInPlace(String name) {
+    return '„$name“ ist eine Unterbaugruppe — nicht vor Ort editierbar.';
+  }
+
+  @override
+  String msgAsmViewRepLocked(String name) {
+    return '„$name“ ist gesperrt.';
+  }
+
+  @override
+  String get nodeViewReps => 'Ansicht';
+
+  @override
+  String get nodePositionalReps => 'Position';
+
+  @override
+  String get nodeLodReps => 'Detailgenauigkeit';
+
+  @override
+  String get ctxNewViewRep => 'Neue Darstellung';
+
+  @override
+  String get ctxActivateViewRep => 'Aktivieren';
+
+  @override
+  String get ctxUpdateViewRep => 'Aktualisieren';
+
+  @override
+  String get ctxLockViewRep => 'Sperren';
+
+  @override
+  String get ctxUnlockViewRep => 'Entsperren';
+
+  @override
+  String get ctxDeleteViewRep => 'Darstellung löschen';
+
+  @override
+  String get dlgRenameViewRep => 'Darstellung umbenennen';
+
+  @override
+  String get phViewRepName => 'Name der Darstellung';
+
+  @override
+  String get dlgCreateComponent => 'Komponente vor Ort erstellen';
+
+  @override
+  String get lblComponentName => 'Name der neuen Komponente';
+
+  @override
+  String get chkConstrainSketchPlane =>
+      'Skizzenebene an gewählte Fläche binden';
+
+  @override
+  String get btnReturn => 'Zurück';
+
+  @override
+  String get panelReturn => 'Beenden';
+
+  @override
+  String hintInPlaceEditing(String part, String assembly) {
+    return '„$part“ wird in „$assembly“ bearbeitet.';
+  }
+
+  @override
+  String get ctxEditInPlace => 'Vor Ort bearbeiten';
 }

@@ -13,8 +13,10 @@ import 'package:path_provider/path_provider.dart';
 import 'package:reality_view/reality_view.dart' show RealityThumbnailer;
 
 import 'asm_constraints.dart';
+import 'asm_joint.dart';
 import 'asm_pick.dart';
 import 'asm_pattern.dart';
+import 'asm_reps.dart';
 import 'asm_solver.dart';
 import 'asm_work_features.dart';
 import 'assembly.dart';
@@ -765,6 +767,59 @@ class AsmPatternSession extends PartPatternSession {
   }
 }
 
+/// M250 — which of Inventor's two POSITION commands is armed.
+///
+/// Both make the viewport move the component ITSELF rather than asking the
+/// solver where it may go — see the Free Move / Free Rotate section of
+/// [AppState] for what that means and why it is Inventor's behaviour rather
+/// than a shortcut. [move] translates, [rotate] turns; neither has a
+/// "nothing armed" member, because that is what a null [AppState.asmPositionMode]
+/// already says.
+enum AsmPositionMode { move, rotate }
+
+/// M250 — the live state of Inventor's Create In-Place Component dialog.
+///
+/// Two fields, because two of Inventor's six rows survive the honest-scope cut
+/// (see the Create Component section of [AppState] for the other four and why
+/// each is absent), plus the flag that says the dialog is done and the command
+/// is out in the viewport looking for a plane.
+class CreateComponentSession {
+  CreateComponentSession(this.name);
+
+  /// Inventor's "New Component Name". Pre-filled with the same suggestion the
+  /// gallery's New Part offers, so OK on an untouched dialog always works.
+  String name;
+
+  /// Inventor's "Constrain sketch plane to the selected face or plane", and
+  /// its default: OFF. Ticked, it applies a FLUSH between the new component
+  /// and what was picked, so the new part follows the thing it was built on.
+  bool constrainSketchPlane = false;
+
+  /// True once OK has been taken and the plane is being collected.
+  bool picking = false;
+}
+
+/// M250 — which component of which assembly the open part tab is standing in
+/// for.
+///
+/// Three names rather than three objects, deliberately: a document can be
+/// closed, renamed or deleted from a dozen places, and a held [PartModel] or
+/// [AssemblyOccurrence] would outlive its document and go on being drawn.
+/// [AppState.inPlaceEdit] resolves all three on every read and answers null
+/// the moment any of them stops existing.
+class InPlaceEdit {
+  const InPlaceEdit(this.assembly, this.occurrence, this.part);
+
+  /// The parent assembly document's name.
+  final String assembly;
+
+  /// The occurrence id inside it — "Bracket:1".
+  final String occurrence;
+
+  /// The part document open in the tab.
+  final String part;
+}
+
 /// Which selector of the pattern panel the next pick feeds — Inventor's
 /// blue-outlined field. [none] means the panel is not waiting for anything
 /// and a tap in the viewport is an ordinary tap again.
@@ -990,6 +1045,23 @@ class ConstraintSession {
   AsmKind kind = AsmKind.mate;
   AsmSolution solution = AsmSolution.mate;
 
+  /// M249 — the Place Joint dialog's Type list, when this session is a JOINT.
+  ///
+  /// One session class for two commands, because they collect identically: the
+  /// numbered selection buttons, the arming, the preview, the placement
+  /// snapshot, Apply-keeps-the-settings and the viewport's pick routing are
+  /// the same machinery for both, and a second copy of it would be a second
+  /// place for "a tap fills the armed slot" to drift. [tab] is what says which
+  /// dialog is on screen — see [AsmTab.joint].
+  ///
+  /// [AsmJointType.automatic] stays selected while it is chosen: [kind] then
+  /// holds whatever the current pair resolves to, so the dialog can show the
+  /// user what Automatic decided BEFORE they commit — which is the one thing
+  /// Inventor's own Automatic does not, and is free here.
+  AsmJointType jointType = AsmJointType.automatic;
+
+  bool get isJoint => tab == AsmTab.joint;
+
   /// The selections, in the dialog's own numbering: 1, 2 and (for Symmetry
   /// and an explicit reference vector) 3.
   AsmRef? a, b, c;
@@ -1049,6 +1121,85 @@ class ConstraintSession {
       if (slot(i) == null) return i;
     }
     return -1;
+  }
+}
+
+/// M249 — the live state of Inventor's DRIVE dialog.
+///
+/// "The Drive dialog box opens when you right-click a relationship in the
+/// browser and select Drive", and it animates that relationship's value from a
+/// Start to an End. Which is the UI M242 owed the motion constraints: the
+/// solver's drive pass (asm_solver.driveMotion) has been there and tested
+/// since — "motion is DRIVEN, not solved" — with nothing on screen to run it.
+///
+/// TWO KINDS OF SWEEP, chosen by what is being driven, because a motion
+/// constraint has no value worth animating:
+///
+///   POSITIONAL  a Mate's offset, an Angle's angle, a joint's gap. The value
+///               is set and the assembly re-solved, which is Inventor's own
+///               behaviour exactly.
+///   MOTION      a Rotation or Rotation-Translation constraint carries a RATIO
+///               or a distance per turn, and sweeping either of those animates
+///               nothing — it changes the gearing while the gears stand still.
+///               So what is swept is the DRIVER's own rotation, in degrees,
+///               through [AppState.turnOccurrence]: turning the first shaft is
+///               what makes the drive pass move the second one, and that is
+///               what a gear pair is for.
+class DriveSession {
+  DriveSession(this.constraint, {required this.motion, required this.value0});
+
+  final AsmConstraint constraint;
+
+  /// True when this sweeps the driver's rotation rather than the constraint's
+  /// value — see the class comment.
+  final bool motion;
+
+  /// The value the constraint had when the dialog opened, restored on close.
+  /// A drive is a preview of motion, not an edit.
+  final double value0;
+
+  double start = 0;
+  double end = 0;
+
+  /// Inventor's Increment group: a step SIZE, or a total number of steps.
+  bool byTotalSteps = false;
+  double increment = 1;
+  int totalSteps = 10;
+
+  /// "In Pause Delay, set the time in seconds between steps."
+  double pauseDelay = 0.05;
+
+  /// Inventor's Repetition group: Start/End "runs once and returns to the
+  /// beginning"; Start/End/Start "runs once forward, then once backward".
+  bool roundTrip = false;
+  int cycles = 1;
+
+  // ---- runtime ------------------------------------------------------------
+
+  /// Where the sweep is, as a fraction of Start -> End. A fraction rather than
+  /// a value because it makes a backwards sweep (End below Start) the same
+  /// arithmetic as a forwards one, and the turn-round at each extreme a
+  /// comparison against 0 and 1 rather than against whichever end is larger.
+  double phase = 0;
+
+  bool playing = false;
+
+  /// True while the sweep is running back towards Start — only ever set by the
+  /// Start/End/Start repetition.
+  bool reverse = false;
+
+  /// How many complete repetitions have finished.
+  int cycle = 0;
+
+  double get current => start + phase * (end - start);
+
+  /// The step, as a fraction of the whole sweep. Never zero: a zero step is a
+  /// timer that fires for ever and animates nothing.
+  double get phaseStep {
+    final span = (end - start).abs();
+    if (byTotalSteps) return 1.0 / math.max(1, totalSteps);
+    if (span < 1e-9) return 1;
+    return math.max(1e-4, increment.abs() / span);
   }
 }
 
@@ -3462,18 +3613,27 @@ class AppState extends ChangeNotifier {
     return openSketch(name);
   }
 
-  Future<bool> createNamedPart(String name) async {
+  /// M250 — [open] false CREATES the document without making it current.
+  ///
+  /// Create Component needs exactly that: the new part has to exist before it
+  /// can be placed, and the ASSEMBLY has to stay the current tab until it has
+  /// been. Switching here and back would put an empty part on screen for the
+  /// length of the save that follows — the await is a frame boundary, so it
+  /// really would be seen.
+  Future<bool> createNamedPart(String name, {bool open = true}) async {
     final clean = name.trim();
     if (validateSketchName(clean) != null) return false;
     if (docNameExists(clean)) return false;
     final p = PartModel(clean);
     parts[clean] = p;
-    if (!openTabs.contains(clean)) openTabs.add(clean);
-    curTab = clean;
-    activeChild = null;
-    editingLayer = null;
-    tool = Tool.none;
-    _reanalyze();
+    if (open) {
+      if (!openTabs.contains(clean)) openTabs.add(clean);
+      curTab = clean;
+      activeChild = null;
+      editingLayer = null;
+      tool = Tool.none;
+      _reanalyze();
+    }
     await savePart(clean);
     return true;
   }
@@ -4421,7 +4581,13 @@ class AppState extends ChangeNotifier {
   /// as Inventor grounds the first one it places: an assembly needs something
   /// to be built against, and a free-floating first component would drift
   /// under the very drag this milestone adds.
-  Future<AssemblyOccurrence?> placeComponent(String source) async {
+  ///
+  /// M250 — [at] places it SOMEWHERE PARTICULAR instead, which is what Create
+  /// Component needs: the new part goes on the plane you picked, not clear of
+  /// everything else. The reframe goes with it — a placement the user aimed
+  /// is already where they are looking, and Zoom All would throw that away.
+  Future<AssemblyOccurrence?> placeComponent(String source,
+      {Placement? at}) async {
     final a = currentAssembly;
     if (a == null) return null;
     // M246 — a subassembly is placed by the same command, which is Inventor's
@@ -4467,7 +4633,13 @@ class AppState extends ChangeNotifier {
       sub: sub,
       grounded: a.occurrences.isEmpty,
     );
-    occ.offset = nextPlacement(a, occurrenceBounds(occ));
+    if (at != null) {
+      occ.offset = at.at;
+      occ.rot = at.rot;
+      occ.reflect = at.reflect;
+    } else {
+      occ.offset = nextPlacement(a, occurrenceBounds(occ));
+    }
     a.occurrences.add(occ);
     a.selected = occ;
     // A subassembly's own components have to be resolved too — it may place
@@ -4478,7 +4650,11 @@ class AppState extends ChangeNotifier {
     // a placement lands CLEAR of what is already there (see nextPlacement), so
     // without reframing, the second component of a large assembly arrives off
     // the edge of the screen and the command looks like it did nothing.
-    a.needsFit = true;
+    //
+    // NOT for a placement the caller aimed: that one landed where the user
+    // pointed, so it is already on screen, and reframing would move the view
+    // out from under the plane they had just chosen.
+    if (at == null) a.needsFit = true;
     notifyListeners();
     unawaited(saveAssembly(a.name));
     return occ;
@@ -4506,6 +4682,11 @@ class AppState extends ChangeNotifier {
     // would ask it to again until the user touched something else — the planes
     // would sit at the old extent for as long as the assembly was left alone.
     a.bump();
+    // M250 — a Free Move leaves a related component where its relationships
+    // say it does not belong. Saying so is the difference between Inventor's
+    // documented behaviour and a drag that looks like it did not take.
+    final moved = _dragOccId;
+    if (moved != null) _warnFreePositioned(a, moved);
     notifyListeners();
     unawaited(saveAssembly(a.name));
   }
@@ -4612,7 +4793,7 @@ class AppState extends ChangeNotifier {
   AsmMark markFor(AssemblyModel a, AsmRef r) {
     final geom = worldGeomOf(a, r);
     final o = r.isAssemblyOrigin ? null : a.byId(r.occurrence);
-    final anchor = o == null ? r.anchor : o.toWorld(r.anchor);
+    final anchor = worldAnchorOf(a, r);
     // The picked FACE's own size when the pick could measure it, which is
     // what makes the highlight mean "this face" rather than "somewhere on
     // this part". The component's extent is the fallback: the assembly's own
@@ -4629,6 +4810,12 @@ class AppState extends ChangeNotifier {
   void openConstraint({AsmConstraint? edit}) {
     final a = currentAssembly;
     if (a == null) return;
+    // M249 — a running DRIVE is moving components on a timer, and this dialog
+    // is about to snapshot their placements and preview against them. Two
+    // authorities over one placement is the failure asm_solver documents for
+    // pattern elements; closing the drive first is the same rule applied to
+    // two dialogs. openDrive does the reverse.
+    if (driveSession != null) closeDrive();
     final s = ConstraintSession(editing: edit);
     if (edit != null) {
       s.kind = edit.kind;
@@ -4643,10 +4830,107 @@ class AppState extends ChangeNotifier {
     } else if (defaultUndirectedAngle) {
       s.defaultUndirected = true;
     }
+    // M250 — and Free Move / Free Rotate, which are armed commands like any
+    // other: a tap meant for a constraint selection must not move the
+    // component instead.
+    cancelAsmPosition();
     constraintSession = s;
     _takeAsmSnapshot(a);
     _refreshConstraintPreview();
     notifyListeners();
+  }
+
+  /// M249 — opens PLACE JOINT. With [edit] it opens on that joint, filled in.
+  ///
+  /// The same session as Place Constraint, on [AsmTab.joint] — see
+  /// [ConstraintSession.jointType]. Which means every command that already
+  /// knows how to feed the constraint dialog (the viewport's tap routing, the
+  /// marker drawing, Apply, Cancel and the snapshot) feeds this one without
+  /// being told it exists.
+  void openJoint({AsmConstraint? edit}) {
+    final a = currentAssembly;
+    if (a == null) return;
+    if (driveSession != null) closeDrive(); // see openConstraint
+    // M250 — and the two Position commands and Create Component, which are
+    // armed states waiting for the same taps this dialog is about to collect.
+    cancelAsmPosition();
+    cancelCreateComponent();
+    final s = ConstraintSession(editing: edit);
+    s.tab = AsmTab.joint;
+    if (edit != null && edit.isJoint) {
+      s.jointType = jointTypeOf(edit.kind);
+      s.kind = edit.kind;
+      s.solution = edit.solution;
+      s.a = edit.a;
+      s.b = edit.b;
+      s.value = edit.value;
+      s.name = edit.name;
+    } else {
+      // Inventor opens on Automatic, and it is the right default: it is the
+      // entry that makes ONE pick pair enough, which is the whole point of the
+      // command. Rigid is what Automatic falls back to with nothing picked, so
+      // that is what `kind` reads until the second selection lands.
+      s.jointType = AsmJointType.automatic;
+      s.kind = AsmKind.jointRigid;
+      s.solution = solutionsFor(s.kind).first;
+    }
+    constraintSession = s;
+    _takeAsmSnapshot(a);
+    _refreshConstraintPreview();
+    notifyListeners();
+  }
+
+  /// Chooses a joint type in the Place Joint dialog.
+  void setJointType(AsmJointType type) {
+    final s = constraintSession;
+    if (s == null || !s.isJoint || s.jointType == type) return;
+    s.jointType = type;
+    final fixed = jointKindOf(type);
+    // Automatic has no kind of its own: it is re-derived from the picks below.
+    if (fixed != null) {
+      s.kind = fixed;
+      if (!solutionsFor(fixed).contains(s.solution)) {
+        s.solution = solutionsFor(fixed).first;
+      }
+    }
+    _resolveAutomaticJointKind(s);
+    _checkConstraintPair(s);
+    _refreshConstraintPreview();
+    notifyListeners();
+  }
+
+  /// Re-runs Inventor's Automatic rule over the current pair.
+  ///
+  /// Called after every pick and after every type change, so the dialog is
+  /// never showing a type the picks no longer imply. A no-op unless Automatic
+  /// is the chosen type.
+  void _resolveAutomaticJointKind(ConstraintSession s) {
+    final a = currentAssembly;
+    if (a == null || !s.isJoint) return;
+    if (s.jointType != AsmJointType.automatic) return;
+    if (s.a == null || s.b == null) {
+      s.kind = AsmKind.jointRigid;
+      return;
+    }
+    s.kind = resolveAutomaticJoint(worldGeomOf(a, s.a!), worldGeomOf(a, s.b!));
+    if (!solutionsFor(s.kind).contains(s.solution)) {
+      s.solution = solutionsFor(s.kind).first;
+    }
+  }
+
+  /// The twist a joint of [kind] would capture from the pair in [s], or null
+  /// when the type leaves the rotation about its axis free.
+  ///
+  /// Read from where the components CURRENTLY are, which is the whole point:
+  /// see [AsmConstraint.twist]. Callers must have restored the placement
+  /// snapshot first, or a Rigid joint would capture the twist of its own
+  /// preview rather than of the assembly.
+  double? _capturedTwist(AssemblyModel a, AsmKind kind, AsmRef ra, AsmRef rb) {
+    if (!isJointKind(kind) || !jointLocks(kind).twist) return null;
+    final fa = worldJointFrameOf(a, ra);
+    final fb = worldJointFrameOf(a, rb);
+    if (!fa.hasAxis || !fb.hasAxis) return null;
+    return jointTwistBetween(fa.ref, fb.ref, fa.axis);
   }
 
   /// Cancel: the preview is undone and nothing is written.
@@ -4674,6 +4958,9 @@ class AppState extends ChangeNotifier {
       AsmTab.motion => kMotionKinds,
       AsmTab.transitional => const [AsmKind.transitional],
       AsmTab.constraintSet => const <AsmKind>[],
+      // M249 — not one of Place Constraint's tabs; the Joint dialog owns it,
+      // and it is reached through [openJoint] rather than through this switch.
+      AsmTab.joint => kJointKinds,
     };
     if (kinds.isNotEmpty && !kinds.contains(s.kind)) {
       _applyKind(s, kinds.first);
@@ -4743,6 +5030,7 @@ class AppState extends ChangeNotifier {
     if (s == null || i < 0 || i >= s.needed) return;
     if (s.armed == i && s.slot(i) != null) {
       s.setSlot(i, null);
+      _resolveAutomaticJointKind(s);
       _checkConstraintPair(s);
       _refreshConstraintPreview();
       notifyListeners();
@@ -4820,6 +5108,10 @@ class AppState extends ChangeNotifier {
     s.setSlot(s.armed, pick.ref);
     final next = s.firstEmpty;
     s.armed = next < 0 ? s.armed : next;
+    // M249 — Automatic decides from the ORIGINS, so it can only decide once
+    // they have both been pointed at. Before the rejection check, because what
+    // the pair is allowed to be depends on the type it just resolved to.
+    _resolveAutomaticJointKind(s);
     _checkConstraintPair(s);
     // Predict runs on the pair, so it can only fire once the second selection
     // has landed.
@@ -4879,7 +5171,12 @@ class AppState extends ChangeNotifier {
       c: s.needed >= 3 ? s.c : third,
       value: s.value,
       suppressed: s.editing?.suppressed ?? false,
-    );
+    )
+      // M249 — a Rigid or Slider joint holds the rotation about its own axis
+      // at whatever the components already stood at. Captured HERE, from the
+      // model, because this is the one method both the preview and the commit
+      // go through and both must produce the same joint.
+      ..twist = _capturedTwist(a, s.kind, s.a!, s.b!);
   }
 
   String? _checkedRejection(ConstraintSession s, AssemblyModel a) {
@@ -4943,7 +5240,12 @@ class AppState extends ChangeNotifier {
         ..a = built.a
         ..b = built.b
         ..c = built.c
-        ..value = built.value;
+        ..value = built.value
+        // M249 — and the captured twist, or editing a Rigid joint's gap would
+        // keep the twist the joint was first made with while its geometry
+        // moved on. Null for every kind that does not hold one, which is what
+        // switching a Rigid joint to Cylindrical has to leave behind.
+        ..twist = built.twist;
     } else {
       a.constraints.add(built);
     }
@@ -4985,6 +5287,339 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ---- M249: Drive Constraint ---------------------------------------------
+  //
+  // See [DriveSession] for what a drive IS and for the two kinds of sweep.
+  // What lives here is the command surface and the TIMER, which is the half
+  // M242 left out: the drive pass has been in asm_solver since then with
+  // nothing to step it.
+
+  DriveSession? driveSession;
+
+  /// The stepping timer. Never outlives the session: [closeDrive] cancels it,
+  /// and so does [dispose] — a periodic timer left running past a widget test
+  /// keeps the whole test binding alive.
+  Timer? _driveTimer;
+
+  /// The placements as they were when the dialog opened.
+  ///
+  /// Separate from [_asmSnapshot], which belongs to Place Constraint: the two
+  /// dialogs are modeless and the browser can open Drive while nothing else is
+  /// up, but sharing one field would let closing either restore the other's.
+  Map<String, (Vec3, Quat)>? _driveSnapshot;
+
+  /// Opens the Drive dialog on [c].
+  void openDrive(AsmConstraint c) {
+    final a = currentAssembly;
+    if (a == null) return;
+    if (!canDriveConstraint(c)) {
+      toast(L.current.msgAsmCannotDrive);
+      return;
+    }
+    // The two other modeless assembly panels collect from the viewport, and a
+    // drive moves components under them; closing them is what Inventor does
+    // when a second command starts.
+    if (constraintSession != null) cancelConstraint();
+    // M250 — and the same for the Position commands and Create Component. A
+    // drive moves components on a TIMER, so a Free Move left armed under it
+    // would be undone between frames by an animation nothing connected it to.
+    cancelAsmPosition();
+    cancelCreateComponent();
+    final motion = !c.isPositional;
+    final s = DriveSession(c, motion: motion, value0: c.value);
+    // "In Start, enter the beginning value. The default value is the angle or
+    // offset defined for the constraint. In End, enter the ending value. The
+    // default is the Start value plus ten." A motion drive has no such value,
+    // so it starts where the shaft is — zero degrees turned — and Inventor's
+    // +10 becomes one full turn, which is the sweep a gear pair is for.
+    s.start = motion ? 0 : c.value;
+    s.end = motion ? 360 : c.value + 10;
+    s.increment = motion ? 5 : 1;
+    driveSession = s;
+    _driveSnapshot = {for (final o in a.occurrences) o.id: (o.offset, o.rot)};
+    notifyListeners();
+  }
+
+  /// Closes the dialog and puts the assembly back where it was.
+  ///
+  /// A drive is a preview of MOTION, not an edit: Inventor restores the
+  /// relationship's value when the dialog closes, and restoring the placements
+  /// with it is the same promise kept for the motion sweep, which has no value
+  /// to put back.
+  void closeDrive() {
+    final s = driveSession;
+    if (s == null) return;
+    _driveTimer?.cancel();
+    _driveTimer = null;
+    s.constraint.value = s.value0;
+    final a = currentAssembly;
+    final snap = _driveSnapshot;
+    if (a != null && snap != null) {
+      for (final o in a.occurrences) {
+        final was = snap[o.id];
+        if (was == null) continue;
+        o.offset = was.$1;
+        o.rot = was.$2;
+      }
+      _solveAssembly(a);
+      a.bump();
+    }
+    driveSession = null;
+    _driveSnapshot = null;
+    notifyListeners();
+  }
+
+  void setDriveField({
+    double? start,
+    double? end,
+    double? increment,
+    int? totalSteps,
+    double? pauseDelay,
+    bool? byTotalSteps,
+    bool? roundTrip,
+    int? cycles,
+  }) {
+    final s = driveSession;
+    if (s == null) return;
+    if (start != null) s.start = start;
+    if (end != null) s.end = end;
+    if (increment != null) s.increment = increment;
+    if (totalSteps != null) s.totalSteps = math.max(1, totalSteps);
+    if (pauseDelay != null) s.pauseDelay = pauseDelay.clamp(0.0, 10.0);
+    if (byTotalSteps != null) s.byTotalSteps = byTotalSteps;
+    if (roundTrip != null) s.roundTrip = roundTrip;
+    if (cycles != null) s.cycles = math.max(1, cycles);
+    // A changed Pause Delay has to reach a sweep that is already running, or
+    // the slider does nothing until the user stops and starts again.
+    if (s.playing) _armDriveTimer(s);
+    notifyListeners();
+  }
+
+  /// Plays the sweep. [reverse] is Inventor's ◀ button: it runs the same
+  /// range, from wherever the sweep is, back towards Start.
+  void playDrive({bool reverse = false}) {
+    final s = driveSession;
+    if (s == null) return;
+    s.reverse = reverse;
+    s.playing = true;
+    s.cycle = 0;
+    _armDriveTimer(s);
+    notifyListeners();
+  }
+
+  void pauseDrive() {
+    final s = driveSession;
+    if (s == null) return;
+    s.playing = false;
+    _driveTimer?.cancel();
+    _driveTimer = null;
+    notifyListeners();
+  }
+
+  /// Inventor's ⏮ / ⏭ : jump to either end of the range without sweeping.
+  void driveToEnd({required bool atEnd}) {
+    final s = driveSession;
+    if (s == null) return;
+    pauseDrive();
+    _driveTo(s, atEnd ? 1 : 0);
+    notifyListeners();
+  }
+
+  void _armDriveTimer(DriveSession s) {
+    _driveTimer?.cancel();
+    // Floored at one frame: a zero Pause Delay means "as fast as it will go",
+    // and a zero-duration periodic timer would starve the frame it is meant to
+    // be animating.
+    final ms = math.max(16, (s.pauseDelay * 1000).round());
+    _driveTimer = Timer.periodic(Duration(milliseconds: ms), (_) => _driveTick());
+  }
+
+  void _driveTick() {
+    final s = driveSession;
+    if (s == null || !s.playing) {
+      _driveTimer?.cancel();
+      _driveTimer = null;
+      return;
+    }
+    final step = s.phaseStep * (s.reverse ? -1 : 1);
+    var next = s.phase + step;
+    if (next >= 1 || next <= 0) {
+      next = next >= 1 ? 1 : 0;
+      _driveTo(s, next);
+      if (s.roundTrip) {
+        // Start/End/Start: the far end turns the sweep round, and arriving
+        // back at the near end is what finishes one repetition.
+        if (!s.reverse) {
+          s.reverse = true;
+        } else {
+          s.reverse = false;
+          s.cycle++;
+        }
+      } else {
+        s.cycle++;
+        if (s.cycle < s.cycles) _driveTo(s, 0);
+      }
+      if (s.cycle >= s.cycles) {
+        pauseDrive();
+        return;
+      }
+      notifyListeners();
+      return;
+    }
+    _driveTo(s, next);
+    notifyListeners();
+  }
+
+  /// Puts the sweep at [phase] and makes the assembly show it.
+  void _driveTo(DriveSession s, double phase) {
+    final a = currentAssembly;
+    // The relationship has to still BE in the document in front of us. Two
+    // ways it might not: it was deleted (deleteConstraint closes the dialog,
+    // but a timer already in flight can arrive first), or the user switched to
+    // another tab while the sweep was running. Either way the honest answer is
+    // to stop rather than to drive a constraint that is not on screen.
+    if (a == null || !a.constraints.contains(s.constraint)) {
+      pauseDrive();
+      return;
+    }
+    final was = s.current;
+    s.phase = phase.clamp(0.0, 1.0);
+    if (!s.motion) {
+      s.constraint.value = s.current;
+      _solveAssembly(a);
+      return;
+    }
+    // A motion drive turns the DRIVER, which is what runs asm_solver's drive
+    // pass. By the DELTA since the last step, because turnOccurrence takes an
+    // increment: it is the same call the viewport's rotate gesture makes, and
+    // going through it rather than round it is what keeps one definition of
+    // "turning this shaft drives that gear".
+    final degrees = s.current - was;
+    if (degrees.abs() < 1e-12) return;
+    final driver = a.byId(s.constraint.a.occurrence);
+    if (driver == null) return;
+    final geom = worldGeomOf(a, s.constraint.a);
+    final axis = geom.dir;
+    if (axis.length < 1e-9) return;
+    turnOccurrence(driver, axis.normalized(), worldAnchorOf(a, s.constraint.a),
+        degrees * math.pi / 180);
+  }
+
+  /// M249 — the first thing in this class with a resource that outlives a
+  /// frame, and therefore the first reason it has a dispose at all.
+  ///
+  /// A `Timer.periodic` keeps firing after the widget tree that owns this
+  /// state is gone; in a widget test that is a pending-timer failure at the
+  /// end of the test, and in the app it is a solve running against a document
+  /// nobody is looking at.
+  @override
+  void dispose() {
+    _driveTimer?.cancel();
+    _driveTimer = null;
+    super.dispose();
+  }
+
+  // ---- M249: Show / Show Sick / Hide All -----------------------------------
+  //
+  // The three rows of the Relationships panel, and what they control is what
+  // is DRAWN: a constraint used to be visible only as a browser row and, while
+  // the dialog was open, as its M244 selection highlight. Inventor draws a
+  // glyph at each constrained pair, and these three commands decide which.
+  //
+  // Show is MODAL, because Inventor's is: "You click Show, then select the
+  // component, or alternately select multiple components before starting the
+  // command." Both orders work here — with a component already selected the
+  // command acts on it at once, and with nothing selected it arms and the next
+  // tap in the viewport names the component. The armed state is what lights
+  // the ribbon row, so it is never a mode you are in without being told.
+
+  /// True while Show is waiting for the user to point at a component.
+  bool showRelationshipsPicking = false;
+
+  /// Inventor's Show: draw the glyphs of everything that touches a component.
+  ///
+  /// Tapping the row while it is armed disarms it, the way every other toggle
+  /// in this ribbon behaves — an armed command with no way out but Escape is
+  /// not something a touch device should have.
+  void showRelationships() {
+    final a = currentAssembly;
+    if (a == null) return;
+    if (showRelationshipsPicking) {
+      showRelationshipsPicking = false;
+      notifyListeners();
+      return;
+    }
+    // M250 — Show waits for a tap, and so do Free Move, Free Rotate and Create
+    // Component. Disarmed here for the reason every command in this file
+    // disarms its siblings: two commands waiting for one tap is a coin toss.
+    cancelAsmPosition();
+    cancelCreateComponent();
+    final sel = a.selected;
+    if (sel != null) {
+      showRelationshipsOf(sel.id);
+      return;
+    }
+    showRelationshipsPicking = true;
+    toast(L.current.hintAsmShowPickComponent);
+    notifyListeners();
+  }
+
+  /// Adds every relationship on [occurrenceId] to the drawn set.
+  ///
+  /// Returns false when the component has none, so the caller can say so
+  /// rather than leave a tap looking like it missed.
+  bool showRelationshipsOf(String occurrenceId) {
+    final a = currentAssembly;
+    if (a == null) return false;
+    final on = a.constraintsOn(occurrenceId);
+    showRelationshipsPicking = false;
+    if (on.isEmpty) {
+      toast(L.current.msgAsmNoRelationships(occurrenceId));
+      notifyListeners();
+      return false;
+    }
+    for (final c in on) {
+      a.shownRelationships.add(c.name);
+    }
+    notifyListeners();
+    return true;
+  }
+
+  /// Inventor's Show Sick: every relationship the solver could not meet, on
+  /// whichever components they touch.
+  ///
+  /// Unlike Show this takes no selection — a sick constraint is a thing to go
+  /// and find, so asking which component to look on first would defeat it.
+  void showSickRelationships() {
+    final a = currentAssembly;
+    if (a == null) return;
+    showRelationshipsPicking = false;
+    final sick = [
+      for (final c in a.constraints)
+        if (c.isSick && !c.suppressed) c
+    ];
+    if (sick.isEmpty) {
+      // Inventor greys the command out in this state; the ribbon does too (see
+      // _assemblyRibbon), so this is the belt to that pair of braces — a
+      // keyboard or a test can still reach the command.
+      toast(L.current.msgAsmNoSickRelationships);
+      notifyListeners();
+      return;
+    }
+    for (final c in sick) {
+      a.shownRelationships.add(c.name);
+    }
+    notifyListeners();
+  }
+
+  void hideAllRelationships() {
+    final a = currentAssembly;
+    if (a == null) return;
+    showRelationshipsPicking = false;
+    a.shownRelationships.clear();
+    notifyListeners();
+  }
+
   // ---- the Relationships folder -------------------------------------------
 
   void selectConstraint(AsmConstraint? c) {
@@ -4997,6 +5632,10 @@ class AppState extends ChangeNotifier {
   void deleteConstraint(AsmConstraint c) {
     final a = currentAssembly;
     if (a == null) return;
+    // M249 — a Drive dialog open on THIS relationship is now open on nothing.
+    // Closed first, so its restore lands while the constraint is still there
+    // to have its value put back.
+    if (identical(driveSession?.constraint, c)) closeDrive();
     a.constraints.remove(c);
     if (identical(a.selectedConstraint, c)) a.selectedConstraint = null;
     // Deleting a constraint gives freedom back; it never takes any, so the
@@ -5093,6 +5732,7 @@ class AppState extends ChangeNotifier {
       'insertNeedsAxes' => t.msgAsmInsertNeedsAxes,
       'angleNeedsDirections' => t.msgAsmAngleNeedsDirections,
       'motionNeedsAxes' => t.msgAsmMotionNeedsAxes,
+      'jointNeedsDirections' => t.msgAsmJointNeedsDirections,
       'bothGrounded' => t.msgAsmBothGrounded,
       'missingComponent' => t.msgAsmMissingComponent,
       'cannotSatisfy' => t.msgAsmCannotSatisfy,
@@ -5142,7 +5782,12 @@ class AppState extends ChangeNotifier {
     if (a == null) return;
     _dragOccId = occ.id;
     _dragGrip = occ.toLocal(worldGrip);
-    _dragSolved = _isAttached(a, occ.id);
+    // M250 — FREE MOVE bypasses the solver even on a component that is fully
+    // related to everything else. That is the whole of the command: Inventor's
+    // Free Move temporarily overrides the constraints, and the next update
+    // puts the component back. Without this branch the button would be a
+    // second name for the drag the viewport already had.
+    _dragSolved = !asmFreePositioning && _isAttached(a, occ.id);
   }
 
   /// True when [id] is connected, through active positional constraints, to
@@ -5211,16 +5856,729 @@ class AppState extends ChangeNotifier {
   /// asm_solver's header — motion constraints act only on open degrees of
   /// freedom), it is DRIVEN, so turning one shaft has to propose where the
   /// other goes and let the assembly constraints have the last word.
+  ///
+  /// M250 — [solve] is what Free Rotate turns off, and the split is worth
+  /// stating because the two halves of this method are not the same kind of
+  /// thing. Inventor's Free Rotate OVERRIDES assembly constraints: the
+  /// component stays where the command put it and snaps back at the next
+  /// update. So the solve goes. [driveMotion] stays, because a motion
+  /// constraint is not a positional one — there is nothing for it to override
+  /// — and turning a gear by hand and having its mate turn with it is the
+  /// entire content of a motion constraint.
   void turnOccurrence(
-      AssemblyOccurrence occ, Vec3 axis, Vec3 pivot, double radians) {
+      AssemblyOccurrence occ, Vec3 axis, Vec3 pivot, double radians,
+      {bool solve = true}) {
     final a = currentAssembly;
     if (a == null || occ.grounded || radians.abs() < 1e-12) return;
     final q = Quat.axisAngle(axis, radians);
     occ.rot = (q * occ.rot).normalized();
     occ.offset = pivot + q.rotate(occ.offset - pivot);
     driveMotion(a, occ.id, radians);
-    _solveAssembly(a);
+    if (solve) _solveAssembly(a);
     notifyListeners();
+  }
+
+  // ---- M250: FREE MOVE and FREE ROTATE ------------------------------------
+  //
+  // The two commands in Inventor's Position panel, and the reason they are
+  // commands at all when the viewport has dragged a component since M240.
+  //
+  // WHAT INVENTOR DOES (researched 2026-08 from search summaries of the
+  // Autodesk help and the Inventor forums — help.autodesk.com is blocked from
+  // this network, so the pages themselves were not read):
+  //
+  //   * A partially constrained component can be dragged with NO command at
+  //     all, in its free degrees of freedom. That is direct manipulation, it
+  //     is what M242's dragOccurrenceTo already does, and it goes through the
+  //     solver so a mechanism follows the finger.
+  //
+  //   * Free Move and Free Rotate TEMPORARILY OVERRIDE the constraints. The
+  //     component goes where you put it and STAYS there — until the next
+  //     update, or until a new relationship is applied, at which point it
+  //     snaps back to where its relationships say it belongs.
+  //
+  // The second is the whole difference, and it falls out of this codebase
+  // rather than having to be built: a free gesture writes the placement and
+  // does not call [_solveAssembly], and the next thing that does — a plain
+  // drag, a new constraint, an edit, a reopen — puts it back. That IS the
+  // snap-back, with nothing to implement and nothing to keep in step.
+  //
+  // Free Rotate is the one with no existing half at all. The viewport has
+  // never had a rotation gesture; [turnOccurrence] was written for it in M242
+  // and has had no caller until now. Inventor draws a 3D rotate glyph — a
+  // sphere with a rim and four edge handles — on the picked component:
+  //
+  //     top / bottom handle, dragged vertically     about the HORIZONTAL axis
+  //     left / right handle, dragged horizontally   about the VERTICAL axis
+  //     inside the sphere                           any direction (trackball)
+  //     the rim                                     planar to the screen
+  //
+  // and releasing drops the component in its rotated position. That is
+  // established from the Autodesk help summary and is what the viewport
+  // implements; how the glyph LOOKS is inferred, since the pages carrying the
+  // picture are blocked here.
+  //
+  // GROUNDED components refuse both, and that part is a decision rather than a
+  // finding: whether Inventor's Free Move overrides Ground was not
+  // established. It is refused here because Ground is the one state with
+  // nothing to snap back FROM — a grounded component nudged by Free Move
+  // would stay nudged for ever, and the pin the browser draws on its row
+  // would be a lie. Unground it first, which is one tap in the same tree.
+
+  /// Which Position command is armed, or null.
+  AsmPositionMode? asmPositionMode;
+
+  /// True while either is armed: the viewport moves the component ITSELF
+  /// rather than asking the solver where it may go.
+  bool get asmFreePositioning => asmPositionMode != null;
+
+  void startFreeMove() => _armAsmPosition(AsmPositionMode.move);
+
+  void startFreeRotate() => _armAsmPosition(AsmPositionMode.rotate);
+
+  void _armAsmPosition(AsmPositionMode mode) {
+    if (currentAssembly == null) return;
+    // Every ribbon entry is a TOGGLE (M210): the same button twice cancels,
+    // which on a device with no Escape key is the only way out of a command.
+    if (asmPositionMode == mode) {
+      cancelAsmPosition();
+      return;
+    }
+    cancelConstraint();
+    cancelWorkFeature();
+    cancelPattern();
+    cancelCreateComponent();
+    _cancelAsmShowAndDrive();
+    asmPositionMode = mode;
+    toast(mode == AsmPositionMode.move
+        ? L.current.hintAsmFreeMove
+        : L.current.hintAsmFreeRotate);
+    notifyListeners();
+  }
+
+  void cancelAsmPosition() {
+    if (asmPositionMode == null) return;
+    asmPositionMode = null;
+    _turnOccId = null;
+    notifyListeners();
+  }
+
+  /// M250 — disarms M249's two commands that would otherwise still be live.
+  ///
+  /// SHOW is armed and waiting for a tap, and two commands waiting for the
+  /// same tap is a coin toss the user cannot see. DRIVE is worse: it moves
+  /// components on a TIMER, so a Free Move underneath it would be undone
+  /// between frames by an animation the user did not connect to it.
+  ///
+  /// Its own half — M249's commands disarming M250's — is at each of their
+  /// entry points, for the reason the ones above are: an armed command is
+  /// cancelled by whoever takes over from it, and there is no central
+  /// registry of them to forget to update.
+  void _cancelAsmShowAndDrive() {
+    if (showRelationshipsPicking) {
+      showRelationshipsPicking = false;
+      notifyListeners();
+    }
+    if (driveSession != null) closeDrive();
+  }
+
+  /// The component the rotate glyph is drawn on: the selection, as long as it
+  /// is something that can turn.
+  ///
+  /// A pattern ELEMENT is excluded for the reason asm_pattern.dart gives about
+  /// a driven body: the pattern places it after every solve, so a rotation
+  /// applied here would survive exactly until the next regeneration and then
+  /// vanish without explanation.
+  AssemblyOccurrence? get freeRotateTarget {
+    if (asmPositionMode != AsmPositionMode.rotate) return null;
+    final o = currentAssembly?.selected;
+    if (o == null || o.grounded || o.isPatternElement) return null;
+    return o;
+  }
+
+  /// Where the rotate glyph sits and how big it is: the centre of the
+  /// component's world bounds, and the radius that encloses it.
+  ///
+  /// The BOUNDS centre rather than the component's origin, which is where
+  /// Inventor puts the glyph and is the only choice that behaves: a part
+  /// modelled a long way from its own origin would otherwise be rotated about
+  /// a point off in space, and the gesture would read as a translation.
+  (Vec3, double)? get freeRotateGlyph {
+    final o = freeRotateTarget;
+    if (o == null) return null;
+    final b = occurrenceBounds(o);
+    if (b == null) return null;
+    final (lo, hi) = b;
+    final centre = (lo + hi) * 0.5;
+    // Half the diagonal, so the sphere encloses the component whatever its
+    // aspect; floored so a tiny part still gets a glyph you can hit.
+    return (centre, math.max(2.0, (hi - lo).length * 0.5));
+  }
+
+  /// The occurrence being turned, and the pivot the gesture froze.
+  String? _turnOccId;
+  Vec3 _turnPivot = Vec3.zero;
+
+  /// Called when the rotate gesture starts on [occ].
+  ///
+  /// The pivot is frozen for the whole gesture, for the same reason M242
+  /// freezes the drag plane: reading the component's centre every frame would
+  /// let the rotation move the point it is being measured about, and a turn
+  /// that pushed its own pivot away would walk the component across the
+  /// screen instead of spinning it.
+  void beginOccurrenceTurn(AssemblyOccurrence occ) {
+    if (currentAssembly == null || occ.grounded) return;
+    _turnOccId = occ.id;
+    final b = occurrenceBounds(occ);
+    _turnPivot = b == null ? occ.offset : (b.$1 + b.$2) * 0.5;
+  }
+
+  /// Turns the component this gesture grabbed by [radians] about the WORLD
+  /// axis [axis], through the pivot frozen at the start.
+  void turnOccurrenceBy(Vec3 axis, double radians) {
+    final a = currentAssembly;
+    final id = _turnOccId;
+    if (a == null || id == null) return;
+    final occ = a.byId(id);
+    if (occ == null) return;
+    // solve: false — this is Inventor's override. See [turnOccurrence].
+    turnOccurrence(occ, axis, _turnPivot, radians, solve: false);
+  }
+
+  /// Ends the rotate gesture, persisting the new placement once rather than
+  /// on every frame of it.
+  void endOccurrenceTurn() {
+    final a = currentAssembly;
+    final id = _turnOccId;
+    _turnOccId = null;
+    if (a == null || id == null) return;
+    // The origin planes and axes are sized to the assembly's contents, so
+    // they are stale until the gesture settles — the same tick
+    // [endOccurrenceDrag] does, and for the same reason.
+    a.bump();
+    _warnFreePositioned(a, id);
+    notifyListeners();
+    unawaited(saveAssembly(a.name));
+  }
+
+  /// Says out loud that a component was put somewhere its relationships do not
+  /// agree with, and that the next update will take it back.
+  ///
+  /// Only when it actually has relationships: a loose component moved by Free
+  /// Move stays exactly where it was put for ever, and warning about that
+  /// would be warning about nothing. Silence here is what made the same
+  /// behaviour read as a bug in Inventor for a generation of users.
+  void _warnFreePositioned(AssemblyModel a, String id) {
+    if (!asmFreePositioning || !_isAttached(a, id)) return;
+    toast(L.current.msgAsmFreePositioned(id));
+  }
+
+  // ---- M250: CREATE COMPONENT, and EDIT IN PLACE --------------------------
+  //
+  // Inventor's Create In-Place Component: a NEW part document, made from
+  // inside the assembly, placed where you point and opened for editing with
+  // the rest of the assembly still around you.
+  //
+  // WHAT INVENTOR'S DIALOG HOLDS (researched 2026-08 from search summaries of
+  // the Autodesk help pages "Create In-Place Component dialog box" and "Create
+  // a part or a virtual part in an assembly"; help.autodesk.com and
+  // knowledge.autodesk.com are blocked from this network, so the pages
+  // themselves were not read and no screenshot was available):
+  //
+  //     New Component Name      the file name of the new part
+  //     Template                which .ipt template to build it from
+  //     New File Location       which folder to write it to
+  //     Default BOM Structure   Normal / Phantom / Reference / Purchased
+  //     Virtual Component       a component with NO geometry and NO file;
+  //                             ticking it disables most of the dialog
+  //     Constrain sketch plane to the selected face or plane
+  //                             OFF by default; when on, a FLUSH constraint
+  //                             is applied between the new component and what
+  //                             you picked
+  //
+  // and then you pick the sketch plane — an origin plane, a work plane or a
+  // planar face — and Inventor drops you into the new part with a sketch open
+  // on it. The first component of an assembly is grounded.
+  //
+  // WHAT THIS DIALOG HOLDS, and why the other four rows are absent rather
+  // than stubbed. Each of them is a control over something this app does not
+  // have, and a disabled row for a concept that does not exist is worse than
+  // no row: it invites the user to look for the feature.
+  //
+  //     Template              there is one kind of part document here and no
+  //                           template store. A list with one entry is not a
+  //                           choice.
+  //     New File Location     there is one gallery (see doc_store.dart); a
+  //                           document has a name, not a path.
+  //     Default BOM Structure there is no BOM, no parts list and no drawing.
+  //     Virtual Component     a component with no file is a BOM row, and it is
+  //                           the BOM that gives it meaning. Without one it
+  //                           would be an occurrence that draws nothing — which
+  //                           is what a component whose part has been DELETED
+  //                           already looks like, and that is a fault state,
+  //                           not a feature.
+  //
+  // The name and the Flush checkbox are both real and both do what Inventor's
+  // do. See CreateComponentDialog.
+
+  CreateComponentSession? createComponentSession;
+
+  /// True while Create Component is waiting for the sketch plane, so the
+  /// viewport picks GEOMETRY rather than grabbing a component.
+  bool get asmCreatePicking => createComponentSession?.picking == true;
+
+  /// Opens the dialog. A toggle like every other command button (M210).
+  void openCreateComponent() {
+    final a = currentAssembly;
+    if (a == null) return;
+    if (createComponentSession != null) {
+      cancelCreateComponent();
+      return;
+    }
+    cancelConstraint();
+    cancelWorkFeature();
+    cancelPattern();
+    cancelAsmPosition();
+    _cancelAsmShowAndDrive();
+    createComponentSession =
+        CreateComponentSession(suggestedPartName());
+    notifyListeners();
+  }
+
+  void cancelCreateComponent() {
+    final s = createComponentSession;
+    if (s == null) return;
+    createComponentSession = null;
+    final a = currentAssembly;
+    if (a != null) _asmWfOriginRestore(a);
+    notifyListeners();
+  }
+
+  /// The dialog's OK: validate the name, then go and collect the plane.
+  ///
+  /// The name is checked HERE rather than when the part is written, because
+  /// the alternative is telling the user their name was no good after they
+  /// have already chosen a face — and by then the dialog they would fix it in
+  /// is gone.
+  bool beginCreateComponentPick() {
+    final a = currentAssembly;
+    final s = createComponentSession;
+    if (a == null || s == null) return false;
+    final clean = s.name.trim();
+    final bad = validateSketchName(clean);
+    if (bad != null) {
+      toast(bad);
+      return false;
+    }
+    if (docNameExists(clean)) {
+      toast(L.current.msgNameTaken(clean));
+      return false;
+    }
+    s.name = clean;
+    s.picking = true;
+    // The origin geometry is offered while the pick is open, exactly as
+    // _armAsmWorkFeature and startPartSketch do it: the FIRST component of an
+    // assembly has nothing else to be placed against, and the assembly's
+    // origin planes are off by default.
+    _wfOriginAutoShown = a.isEmpty;
+    if (_wfOriginAutoShown) {
+      for (final k in a.vis.keys) {
+        a.vis[k] = true;
+      }
+      a.bump();
+    }
+    toast(L.current.hintAsmCreatePickPlane);
+    notifyListeners();
+    return true;
+  }
+
+  /// The viewport reports the picked sketch plane. Creates the part document,
+  /// places it there, and opens it for editing in place.
+  ///
+  /// Only a PLANE will do — an edge or a vertex is not something you can
+  /// sketch on — and a rejected pick leaves the command armed, which is the
+  /// rule every other assembly pick follows: a mis-tap costs that tap and
+  /// nothing else.
+  Future<bool> createComponentOn(AsmPick pick) async {
+    final a = currentAssembly;
+    final s = createComponentSession;
+    if (a == null || s == null || !s.picking) return false;
+    if (pick.ref.geom.kind != AsmGeomKind.plane) {
+      toast(L.current.hintAsmCreatePickPlane);
+      return false;
+    }
+    final name = s.name;
+    // The document first. Not OPENED: the assembly has to stay the current
+    // tab until the component is placed in it, and openPart mid-way would
+    // leave an empty part on screen for the length of one save.
+    if (!await createNamedPart(name, open: false)) {
+      toast(L.current.msgNameTaken(name));
+      return false;
+    }
+    // The new part's own XY plane, laid onto the plane that was picked: +Z
+    // along the picked normal, origin at the point actually touched.
+    //
+    // Quat.fromTo is the SHORTEST such rotation, so the part's X and Y land
+    // wherever that leaves them. Inventor asks a second question here (the
+    // sketch's X direction) and this does not; the sketch opens facing the
+    // plane either way, and a rotation about the normal is one the user can
+    // make by drawing the other way round.
+    final n = pick.world.dir.length < 1e-9
+        ? const Vec3(0, 0, 1)
+        : pick.world.dir.normalized();
+    final placed = await placeComponent(name,
+        at: Placement(Quat.fromTo(const Vec3(0, 0, 1), n), pick.hit));
+    if (placed == null) {
+      // placeComponent has already said why. The document exists and is in
+      // the gallery — deleting it here would throw away a name the user chose
+      // for a failure they can simply retry the placement of.
+      cancelCreateComponent();
+      return false;
+    }
+    // Inventor's "Constrain sketch plane to the selected face or plane", and
+    // its FLUSH: the new component's sketch plane and the picked one face the
+    // same way. Applied AFTER the placement, which already satisfies it, so
+    // the solve that follows is a no-op — what this buys is the RELATIONSHIP,
+    // which is what makes the new part follow the thing it was built on.
+    if (s.constrainSketchPlane) {
+      a.constraints.add(AsmConstraint(
+        name: nextConstraintName(a.constraints, AsmKind.mate),
+        kind: AsmKind.mate,
+        solution: AsmSolution.flush,
+        // The new component's own XY plane, in its own frame — which is where
+        // it will still be after the solver has moved the component, and is
+        // the whole reason a constraint stores local geometry.
+        a: AsmRef(placed.id, const AsmGeom.plane(Vec3.zero, Vec3(0, 0, 1)),
+            planeLabel('xy')),
+        b: pick.ref,
+      ));
+      _solveAssembly(a);
+      a.bump();
+    }
+    _asmWfOriginRestore(a);
+    createComponentSession = null;
+    unawaited(saveAssembly(a.name));
+    // And into the part, with the assembly still around it.
+    await enterInPlaceEdit(placed, startSketch: true);
+    return true;
+  }
+
+  // ---- edit in place ------------------------------------------------------
+  //
+  // "In the context of the assembly" is the phrase Inventor uses and it is
+  // worth being precise about what it buys, because it is the one part of
+  // Create Component that could have been skipped: you sketch and model in the
+  // NEW part while the REST OF THE ASSEMBLY stays on screen around you, so a
+  // bracket is drawn against the thing it bolts to rather than against an
+  // empty screen and a remembered dimension.
+  //
+  // This builds it, and reuses the part editor whole rather than growing a
+  // second one. The part tab becomes current, so every part command — sketch,
+  // extrude, hole, fillet, work planes, End of Part — is the one that already
+  // works, with nothing forked and nothing to keep in step. What edit in place
+  // ADDS is three things:
+  //
+  //   * the CONTEXT: every other component of the parent assembly, drawn
+  //     around the part in the part's own frame and dimmed. See
+  //     [inPlaceContextPieces], assembly.inPlaceContext for the transform, and
+  //     paintPartSolids / buildScenePayload for the two renderers that draw
+  //     it. It is drawn in the SAME depth pass as the part, not layered under
+  //     it, so a component in front of the part hides it — which is the whole
+  //     point of modelling in context.
+  //
+  //   * the CAMERA, carried across so the view does not jump. See
+  //     [_carryCamera].
+  //
+  //   * a way BACK. Inventor's is a Return button; here it is the row the
+  //     browser draws at the top of the part tree while this is on.
+  //
+  // The honest scope note: this app has one document per tab and a gallery
+  // that lists every document, so the new part APPEARS as its own tab and its
+  // own gallery card the moment it is created. Inventor hides it inside the
+  // assembly until you save. Neither is more correct; this one follows the
+  // rule the rest of the app already runs on — a document is a document — and
+  // the difference is stated here rather than papered over.
+
+  InPlaceEdit? _inPlace;
+
+  /// The in-place edit that is actually live, or null.
+  ///
+  /// Validated on every read rather than cleared on every exit: the tab can
+  /// change from a dozen places (the tab bar, the gallery, a rename, a delete)
+  /// and an edit that outlived its tab would draw one document's assembly
+  /// around another document's part. One condition, checked where it is used,
+  /// cannot be forgotten in a path nobody thought of.
+  InPlaceEdit? get inPlaceEdit {
+    final e = _inPlace;
+    if (e == null) return null;
+    if (curTab != e.part || !parts.containsKey(e.part)) return null;
+    final a = assemblies[e.assembly];
+    if (a == null || a.byId(e.occurrence) == null) return null;
+    return e;
+  }
+
+  bool get isEditingInPlace => inPlaceEdit != null;
+
+  /// The rest of the parent assembly, in the edited part's OWN frame, ready
+  /// for either renderer. Empty when nothing is being edited in place.
+  ///
+  /// Recomputed per frame rather than cached: it is a walk over placements
+  /// (no mesh is copied — see assembly.inPlaceContext), the components do not
+  /// move while a part is being edited, and a cache would be one more thing
+  /// to invalidate when the assembly changed underneath.
+  List<(String, Placement, KernelSolid)> get inPlaceContextPieces {
+    final e = inPlaceEdit;
+    if (e == null) return const [];
+    final a = assemblies[e.assembly]!;
+    return inPlaceContext(a, a.byId(e.occurrence)!);
+  }
+
+  /// Opens [occ]'s part for editing with its assembly around it.
+  ///
+  /// Refused for a SUBASSEMBLY: what would open is an assembly document, and
+  /// "the assembly around it" would then have to mean its parent — a second,
+  /// nested case with its own camera and its own return path. Inventor does
+  /// support it; this says so rather than half-doing it.
+  Future<bool> enterInPlaceEdit(AssemblyOccurrence occ,
+      {bool startSketch = false}) async {
+    final a = currentAssembly;
+    if (a == null) return false;
+    if (occ.isSubAssembly) {
+      toast(L.current.msgAsmEditSubInPlace(occ.id));
+      return false;
+    }
+    if (!isPartName(occ.source)) {
+      toast(L.current.msgAsmNoSuchPart(occ.source));
+      return false;
+    }
+    // Whatever was armed in the assembly is not what the user meant any more.
+    cancelConstraint();
+    cancelWorkFeature();
+    cancelPattern();
+    cancelAsmPosition();
+    cancelCreateComponent();
+    _cancelAsmShowAndDrive();
+    final asmName = a.name;
+    final camera = a.camera;
+    final rot = occ.rot;
+    final offset = occ.offset;
+    await saveAssembly(asmName);
+    await openPart(occ.source);
+    final p = parts[occ.source];
+    if (p == null) return false;
+    _inPlace = InPlaceEdit(asmName, occ.id, occ.source);
+    _carryCamera(camera, p.camera, rot, offset, into: true);
+    if (startSketch) {
+      // Inventor opens the new part with a sketch already active on the plane
+      // you picked. The component was placed so that its own XY plane IS that
+      // plane (see createComponentOn), so this is the ordinary "sketch on XY"
+      // path with nothing special about it — which is exactly why the
+      // component was placed that way round.
+      final framed = p.camera.halfH;
+      startPartSketch();
+      planePicked('xy');
+      // orientToPlane resets the pan to the part origin and the zoom to the
+      // app's 27 mm sketch default. The PAN is right — the part's origin is
+      // the point that was picked, so 0,0 centres on it — and the ZOOM is
+      // not: it frames an empty new part and pushes the assembly you are
+      // building against off the screen, which is the one thing edit in place
+      // exists to keep on it.
+      p.camera.halfH = framed;
+    }
+    // Say what just happened. The viewport changes completely — a part where
+    // an assembly was, with the assembly still drawn around it — and the way
+    // back is a ribbon panel and a browser row that were not there a moment
+    // ago. A mode you entered without being told is a mode you are stuck in.
+    toast(L.current.hintInPlaceEditing(occ.source, asmName));
+    notifyListeners();
+    return true;
+  }
+
+  /// Inventor's Return: back to the assembly, with the view kept.
+  Future<void> leaveInPlaceEdit() async {
+    final e = inPlaceEdit;
+    if (e == null) {
+      _inPlace = null;
+      return;
+    }
+    // A sketch open inside the part is closed the ordinary way first, so its
+    // features are recomputed and its display state (Slice Graphics) is put
+    // back — leaving it open and switching document would strand both.
+    if (activeChild != null) finishPartSketch();
+    final p = parts[e.part];
+    final a = assemblies[e.assembly]!;
+    final occ = a.byId(e.occurrence)!;
+    _inPlace = null;
+    await savePart(e.part);
+    await openAssembly(e.assembly);
+    if (p != null) {
+      _carryCamera(a.camera, p.camera, occ.rot, occ.offset, into: false);
+    }
+    // The part's geometry has very probably changed, and the assembly's scene
+    // signature is what decides whether RealityKit re-uploads a mesh. M245
+    // shares ONE model between the tab and the component, so there is nothing
+    // to reload — but the renderer still has to be told to look again.
+    a.bump();
+    notifyListeners();
+  }
+
+  /// Carries the view between an assembly and a component's part, in either
+  /// direction, so entering and leaving an in-place edit do not jump.
+  ///
+  /// This is [placedCam] written for a [PartCamera] instead of a [Cam3], and
+  /// it is exact for the same reason: the projection is affine, so a component
+  /// placed at (rot, offset) is the same picture as the camera turned by rot⁻¹
+  /// and panned by the component's origin. `into` runs it one way, `!into` the
+  /// other.
+  ///
+  /// THE MIRROR IS DELIBERATELY DROPPED. A reflected placement would need a
+  /// LEFT-handed camera basis, and [PartCamera.setBasis] rebuilds up from
+  /// right × −dir, so it cannot hold one. Only [rot] and [offset] travel. The
+  /// consequence is worth stating plainly: editing a MIRRORED component in
+  /// place shows the un-mirrored part — which is the document you are actually
+  /// editing, since M248 mirrors the OCCURRENCE and never the part — seen from
+  /// the mirrored camera position. The geometry around it is exact either way,
+  /// because [inPlaceContext] goes through the full [Placement].
+  void _carryCamera(PartCamera asm, PartCamera part, Quat rot, Vec3 offset,
+      {required bool into}) {
+    final from = into ? asm : part;
+    final to = into ? part : asm;
+    final d = into ? rot.unrotate(from.dir) : rot.rotate(from.dir);
+    final r = into ? rot.unrotate(from.right) : rot.rotate(from.right);
+    final halfH = from.halfH;
+    final ox = from.ox, oy = from.oy;
+    to.setBasis(d, r);
+    to.halfH = PartCamera.clampHalfH(halfH);
+    // The pan shift is measured against the ASSEMBLY camera's basis in BOTH
+    // directions, because [offset] is a vector in assembly world — that is
+    // what placedCam's `ox - at.at.dot(cam.s)` says, and using the part
+    // camera's axes for it would drift the model sideways by however far the
+    // component sits from the assembly origin. Read after setBasis, since on
+    // the way OUT the assembly camera is the one that was just written.
+    final sx = asm.right, sy = asm.up;
+    to.ox = into ? ox - offset.dot(sx) : ox + offset.dot(sx);
+    to.oy = into ? oy - offset.dot(sy) : oy + offset.dot(sy);
+  }
+
+  // ---- M250: VIEW REPRESENTATIONS -----------------------------------------
+  //
+  // The commands behind the browser's Representations folder. What a view
+  // representation IS, what Inventor's other two are, and why they are listed
+  // rather than built, is all written down in asm_reps.dart; this is only the
+  // verbs.
+  //
+  // Every one of them ends the same way — bump, notify, save — because a
+  // representation is document state: it survives the tab, the save and the
+  // reopen, exactly like a constraint.
+
+  /// Applies the representation called [name], writing the one being left
+  /// back into itself first.
+  ///
+  /// The write-back is [AssemblyModel.leaveViewRep] and is Inventor's rule for
+  /// an UNLOCKED representation. It is what makes going back to Default
+  /// restore the view you were working in rather than whatever Default held
+  /// the first time it was written.
+  void activateViewRep(String name) {
+    final a = currentAssembly;
+    if (a == null || a.activeViewRep == name) return;
+    if (name != kDefaultViewRep && a.viewRepNamed(name) == null) return;
+    a.leaveViewRep();
+    final rep = a.viewRepNamed(name);
+    if (rep != null) a.applyViewRep(rep);
+    a.activeViewRep = name;
+    // The heavy push: a representation changes which components are DRAWN, and
+    // the origin planes are sized to what is left. Both live behind the scene
+    // signature, so without this the components would vanish and their planes
+    // would not notice.
+    a.bump();
+    notifyListeners();
+    unawaited(saveAssembly(a.name));
+  }
+
+  /// Inventor's right-click New on the View node: saves the display state you
+  /// are looking at under a fresh name, and makes it the active one.
+  ///
+  /// Making it active is not decoration. A New that captured a snapshot and
+  /// left you in the old representation would put the next change you made
+  /// into the OLD one, and the rep you just created would silently be a
+  /// picture of a moment you had already moved on from.
+  String? newViewRep() {
+    final a = currentAssembly;
+    if (a == null) return null;
+    // Leave the current one properly first, so the state this one captures is
+    // also written where you came from — otherwise creating a rep would lose
+    // the working view it was made from.
+    a.leaveViewRep();
+    final rep = AsmViewRep(name: nextViewRepName(a.viewRepNames));
+    a.captureViewRep(rep);
+    a.viewReps.add(rep);
+    a.activeViewRep = rep.name;
+    notifyListeners();
+    unawaited(saveAssembly(a.name));
+    return rep.name;
+  }
+
+  /// Writes the current display state into [name], whatever is active.
+  ///
+  /// Refused on a LOCKED representation rather than silently ignored: the
+  /// padlock is the user's own statement that this one is not to move, and a
+  /// command that quietly did nothing would read as broken.
+  void updateViewRep(String name) {
+    final a = currentAssembly;
+    final rep = a?.viewRepNamed(name);
+    if (a == null || rep == null) return;
+    if (rep.locked) {
+      toast(L.current.msgAsmViewRepLocked(name));
+      return;
+    }
+    a.captureViewRep(rep);
+    notifyListeners();
+    unawaited(saveAssembly(a.name));
+  }
+
+  void toggleViewRepLocked(String name) {
+    final a = currentAssembly;
+    final rep = a?.viewRepNamed(name);
+    if (a == null || rep == null) return;
+    // Locking the ACTIVE representation freezes it as it is right now, so what
+    // it holds has to be what is on screen — otherwise the padlock would
+    // preserve the state it had before the changes you locked it to keep.
+    if (!rep.locked && a.activeViewRep == name) a.captureViewRep(rep);
+    rep.locked = !rep.locked;
+    notifyListeners();
+    unawaited(saveAssembly(a.name));
+  }
+
+  /// Renames a representation. Default cannot be renamed, which is Inventor's
+  /// rule and this app's too: it is the name a document falls back to when the
+  /// active one has gone, so something has to be able to answer to it.
+  bool renameViewRep(String from, String to) {
+    final a = currentAssembly;
+    final rep = a?.viewRepNamed(from);
+    if (a == null || rep == null || rep.isDefault) return false;
+    final clean = to.trim();
+    if (clean.isEmpty || clean == kDefaultViewRep) return false;
+    if (clean == from) return true;
+    if (a.viewRepNamed(clean) != null) return false;
+    rep.name = clean;
+    if (a.activeViewRep == from) a.activeViewRep = clean;
+    notifyListeners();
+    unawaited(saveAssembly(a.name));
+    return true;
+  }
+
+  /// Deletes a representation. Deleting the ACTIVE one falls back to Default
+  /// without applying anything: what is on screen is what you were looking at,
+  /// and throwing that away as well would be two commands where the user asked
+  /// for one.
+  void deleteViewRep(String name) {
+    final a = currentAssembly;
+    final rep = a?.viewRepNamed(name);
+    if (a == null || rep == null || rep.isDefault) return;
+    a.viewReps.remove(rep);
+    if (a.activeViewRep == name) a.activeViewRep = kDefaultViewRep;
+    notifyListeners();
+    unawaited(saveAssembly(a.name));
   }
 
   // ---- assembly document operations ---------------------------------------
@@ -6822,6 +8180,7 @@ class AppState extends ChangeNotifier {
       return cancelWorkFeature();
     }
     cancelWorkFeature();
+    cancelAsmPosition(); // M250 — one armed assembly command at a time
     workPlaneArm = planeKind;
     workPlaneMethodArm = planeMethod;
     workAxisArm = axis;
@@ -8764,6 +10123,7 @@ class AppState extends ChangeNotifier {
     cancelConstraint();
     cancelWorkFeature();
     cancelPattern();
+    cancelAsmPosition(); // M250 — one armed assembly command at a time
     final s = AsmPatternSession(kind, editing: edit);
     if (edit != null) {
       s.readFromAsm(edit);

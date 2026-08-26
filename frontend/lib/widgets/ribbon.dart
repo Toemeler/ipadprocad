@@ -763,12 +763,36 @@ class _RibbonState extends State<Ribbon> {
                 ]
               ]),
         );
+    final inPlace = app.inPlaceEdit;
     return IntrinsicHeight(
       child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        // M250 — RETURN, and only while this part is being edited IN PLACE.
+        //
+        // Inventor puts Return at the far RIGHT of the tab; this ribbon
+        // SCROLLS horizontally (see build), so the right-hand end is off
+        // screen on an iPad and the only way out of the mode would be a
+        // button nobody could see. It goes first instead, which is also where
+        // the eye lands when the viewport suddenly has an assembly in it.
+        //
+        // A sketch open inside the edit shows the SKETCH ribbon rather than
+        // this one, so the way out is then Finish Sketch and then this — which
+        // is Inventor's order too, and why this button does not try to close a
+        // sketch on the user's behalf.
+        if (inPlace != null)
+          _panel(
+            label: t.panelReturn,
+            arrow: false,
+            first: true,
+            child: _BigWide(
+                width: 64,
+                icon: returnIcon,
+                label: t.btnReturn,
+                onTap: () => app.leaveInPlaceEdit()),
+          ),
         _panel(
           label: t.panelSketch,
           arrow: false,
-          first: true,
+          first: inPlace == null,
           child: _BigWide(
               width: 70,
               icon: newSketchIcon,
@@ -969,25 +993,19 @@ class _RibbonState extends State<Ribbon> {
   // there.
   Widget _assemblyRibbon(AppState app) {
     final t = L.of(context);
-    // Small rows, all disabled: the assembly tab has no built command that
-    // lives in one, so this takes no callback at all. When one arrives it
-    // takes the shape [_partRibbon.colActive] already has.
-    Widget offCol(List<(String, String)> rows, {double leftPad = 8}) => Padding(
-          padding: EdgeInsets.only(left: leftPad),
-          child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                for (var i = 0; i < rows.length; i++) ...[
-                  if (i > 0) const SizedBox(height: 2),
-                  _SmallRow(
-                      icon: rows[i].$1,
-                      label: rows[i].$2,
-                      enabled: false,
-                      onTap: null),
-                ]
-              ]),
-        );
+    // M249 + M250 — `offCol`, the helper that drew small rows for commands
+    // that were NOT built, is gone: it had exactly two callers and the two
+    // milestones emptied it from opposite ends. M249 wired the Relationships
+    // panel's Show / Show Sick / Hide All, M250 wired the Position panel's
+    // Free Move and Free Rotate, and this tab now has no drawn-and-disabled
+    // small row at all.
+    //
+    // Not kept "in case one comes back", because one should not: M216's rule
+    // is that an unbuilt command goes behind the panel's ▼, where _OverRow
+    // draws it dimmed and untappable, rather than taking permanent width in
+    // the panel. UCS is the tab's only unbuilt command and that is where it
+    // lives.
+    //
     // M248 — small rows that are BUILT and can LIGHT UP, for the Pattern
     // panel. [_partRibbon.colActive], in the file that needs it; the two
     // cannot be shared for the same reason [wfCol] below cannot.
@@ -1004,6 +1022,31 @@ class _RibbonState extends State<Ribbon> {
                   _SmallRow(
                       icon: rows[i].$1,
                       label: rows[i].$2,
+                      onTap: rows[i].$3,
+                      active: rows[i].$4),
+                ]
+              ]),
+        );
+    // M249 — small rows whose callback may be NULL, which is a third state
+    // neither [offCol] nor [asmCol] can say: those two mean "not built" and
+    // "built", and Show Sick is built and unavailable — Inventor greys it out
+    // when every relationship is healthy. A row drawn disabled for that reason
+    // has to look exactly like one drawn disabled for the other, or the ribbon
+    // would be teaching two meanings for one appearance.
+    Widget maybeCol(List<(String, String, VoidCallback?, bool)> rows,
+            {double leftPad = 8}) =>
+        Padding(
+          padding: EdgeInsets.only(left: leftPad),
+          child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (var i = 0; i < rows.length; i++) ...[
+                  if (i > 0) const SizedBox(height: 2),
+                  _SmallRow(
+                      icon: rows[i].$1,
+                      label: rows[i].$2,
+                      enabled: rows[i].$3 != null,
                       onTap: rows[i].$3,
                       active: rows[i].$4),
                 ]
@@ -1049,26 +1092,50 @@ class _RibbonState extends State<Ribbon> {
                 icon: AS['place']!,
                 onDefault: () => _placeComponent(app),
                 active: _placing),
+            // M250 — WIRED. Inventor's Create In-Place Component: name the
+            // part, pick a plane to sketch on, and it is written, placed and
+            // opened for editing with the assembly still around it. The
+            // button stays lit for as long as the command is open — through
+            // the dialog AND through the plane pick that follows it, because
+            // both are the one command.
             _BigWide(
                 width: 58,
                 icon: AS['create']!,
                 label: t.btnCreateComponent,
-                enabled: false),
+                onTap: () => app.openCreateComponent(),
+                active: app.createComponentSession != null),
           ]),
         ),
         // ---- Position: Free Move / Free Rotate -----------------------------
         //
-        // Both greyed, and the viewport still drags a component: Inventor's
-        // Free Move is the COMMAND (pick, then move, then it stays where the
-        // command put it), while dragging an unconstrained component with the
-        // pointer is plain direct manipulation and needs no command at all.
-        // The second is what ViewportAssembly does; the first is not built.
+        // M250 — both WIRED, and the distinction the old comment here drew is
+        // exactly what they are for. The viewport has dragged a component
+        // since M240 and through the solver since M242; that is direct
+        // manipulation and needs no command. Inventor's Free Move is the
+        // COMMAND, and what it does that a drag does not is TEMPORARILY
+        // OVERRIDE the relationships — the component goes where you put it
+        // and stays there until the next update takes it back.
+        //
+        // Free Rotate is the half that had no existing anything: the viewport
+        // has never had a rotation gesture. It arms Inventor's 3D rotate
+        // glyph on the selected component. Both are toggles and both light
+        // while armed, like every other command in this ribbon.
         _panel(
           label: t.panelPosition,
           arrow: true,
-          child: offCol([
-            (AS['freemove']!, t.btnFreeMove),
-            (AS['freerotate']!, t.btnFreeRotate),
+          child: asmCol([
+            (
+              AS['freemove']!,
+              t.btnFreeMove,
+              app.startFreeMove,
+              app.asmPositionMode == AsmPositionMode.move
+            ),
+            (
+              AS['freerotate']!,
+              t.btnFreeRotate,
+              app.startFreeRotate,
+              app.asmPositionMode == AsmPositionMode.rotate
+            ),
           ], leftPad: 2),
         ),
         // ---- Relationships: Joint / Constrain + Show / Show Sick / Hide All
@@ -1076,11 +1143,18 @@ class _RibbonState extends State<Ribbon> {
           label: t.panelRelationships,
           arrow: true,
           child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            // M249 — Joint is WIRED. Inventor's own claim for it is that ONE
+            // pick pair replaces the two or three constraints you would
+            // otherwise place by hand, and the dialog it opens is the modeless
+            // sibling of Place Constraint's: it collects its two origins from
+            // the viewport through the same session (see
+            // ConstraintSession.jointType).
             _BigWide(
                 width: 52,
                 icon: AS['joint']!,
                 label: t.btnJoint,
-                enabled: false),
+                onTap: () => app.openJoint(),
+                active: app.constraintSession?.isJoint == true),
             // M242 — Constrain is WIRED. It opens Inventor's modeless Place
             // Constraint panel, which then collects its selections from the
             // viewport; the button stays lit for as long as the panel is up,
@@ -1091,10 +1165,35 @@ class _RibbonState extends State<Ribbon> {
                 label: t.btnConstrain,
                 onTap: () => app.openConstraint(),
                 active: app.constraintSession != null),
-            offCol([
-              (AS['show']!, t.btnShowRelationships),
-              (AS['showsick']!, t.btnShowSick),
-              (AS['hideall']!, t.btnHideAll),
+            // M249 — the three relationship-visibility rows, wired. They
+            // control whether the constraint GLYPHS are drawn in the viewport
+            // (paintRelationshipGlyphs), which is the thing that had to exist
+            // before the commands could mean anything.
+            //
+            // Show LIGHTS while it is waiting for a component, because
+            // Inventor's is modal in exactly that way ("click Show, then
+            // select the component"); the other two are one-shots and never
+            // light. Show Sick is DISABLED when nothing is sick, which is
+            // Inventor's own rule — "the command is not available if all
+            // relationships are healthy" — and the one place in this ribbon
+            // where a command's enablement depends on the document rather than
+            // on whether it has been built.
+            maybeCol([
+              (
+                AS['show']!,
+                t.btnShowRelationships,
+                app.showRelationships,
+                app.showRelationshipsPicking
+              ),
+              (
+                AS['showsick']!,
+                t.btnShowSick,
+                app.currentAssembly?.hasSickRelationships == true
+                    ? app.showSickRelationships
+                    : null,
+                false
+              ),
+              (AS['hideall']!, t.btnHideAll, app.hideAllRelationships, false),
             ]),
           ]),
         ),
@@ -1936,6 +2035,14 @@ class _BigWide extends StatelessWidget {
   /// be. Inventor itself draws these greyed rather than hidden (Free Move,
   /// Free Rotate and Show Sick are greyed in an empty assembly), so the third
   /// state is Inventor's own, not an excuse: dimmed, no hover, no tap, no lie.
+  ///
+  /// M249 + M250 — and as of those two, NOTHING passes it any more: every big
+  /// button on the assembly tab is built. The analyzer says so, and it is
+  /// worth reading as the milestone report it is rather than as dead weight.
+  /// Kept, because the state it draws is still the right answer for a command
+  /// that is built and momentarily UNAVAILABLE — which Show Sick now is, and
+  /// which it expresses through a null onTap in a small row instead. The next
+  /// big button in that position should use this rather than reinvent it.
   final bool enabled;
   const _BigWide(
       {required this.width,

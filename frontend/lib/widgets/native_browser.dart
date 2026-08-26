@@ -16,6 +16,7 @@ import '../app_state.dart';
 import '../asm_constraints.dart';
 import '../asm_work_features.dart';
 import '../asm_pattern.dart';
+import '../asm_reps.dart';
 import '../assembly.dart';
 import '../part_model.dart';
 import '../l10n/l.dart';
@@ -69,6 +70,21 @@ const String kIdAsmPattern = 'pat:';
 /// M240 — the assembly's two container folders.
 const String kIdRepresentations = '__reprs__';
 const String kIdRelationships = '__rels__';
+
+/// M250 — the three folders inside Representations. Two of them are drawn
+/// dimmed and childless on purpose; asm_reps.dart says which and why.
+const String kIdViewReps = '__viewreps__';
+const String kIdPositionalReps = '__posreps__';
+const String kIdLodReps = '__lodreps__';
+
+/// M250 — one VIEW REPRESENTATION: `vr:<Default>`. The same prefix rule as
+/// [kIdComponent] — match the prefix, take the rest whole — because a
+/// representation's name is user text and can hold anything.
+const String kIdViewRep = 'vr:';
+
+/// M250 — the row at the top of a PART tree that says this part is being
+/// edited inside an assembly, and takes you back to it.
+const String kIdInPlaceReturn = '__inplace__';
 const String kIdEos = '__eos__';
 const String kIdEop = '__eop__';
 
@@ -86,6 +102,52 @@ List<(String, String, String)> get kOriginRows => [
       ('y', t.nodeYAxis, 'line.diagonal'),
       ('z', t.nodeZAxis, 'line.diagonal'),
       ('cp', t.nodeCenterPoint, 'smallcircle.filled.circle'),
+    ];
+
+/// M250 — the context menu on the View node: Inventor's right-click New.
+List<List<GlassMenuItem>> _viewRepsMenu() => [
+      [
+        GlassMenuItem(
+            id: 'vrNew', title: t.ctxNewViewRep, symbol: 'plus.circle'),
+      ],
+    ];
+
+/// M250 — the context menu on one view representation.
+///
+/// Default carries neither Rename nor Delete, which is Inventor's rule and
+/// this app's for the same reason: it is the name a document falls back to
+/// when the active representation has gone, so something has to answer to it.
+/// A representation that has never been CAPTURED — Default, before anything
+/// made it necessary to write it down — has no Lock either: there is nothing
+/// yet to lock.
+List<List<GlassMenuItem>> _viewRepMenu(String name, AsmViewRep? rep) => [
+      [
+        GlassMenuItem(
+            id: 'vrActivate',
+            title: t.ctxActivateViewRep,
+            symbol: 'checkmark.circle'),
+        GlassMenuItem(
+            id: 'vrUpdate',
+            title: t.ctxUpdateViewRep,
+            symbol: 'arrow.clockwise'),
+        if (rep != null)
+          GlassMenuItem(
+              id: 'vrLock',
+              title: rep.locked ? t.ctxUnlockViewRep : t.ctxLockViewRep,
+              symbol: rep.locked ? 'lock.open' : 'lock'),
+      ],
+      if (name != kDefaultViewRep)
+        [
+          GlassMenuItem(
+              id: 'vrRename',
+              title: t.ctxRenameEllipsis,
+              symbol: 'character.cursor.ibeam'),
+          GlassMenuItem(
+              id: 'vrDelete',
+              title: t.ctxDeleteViewRep,
+              symbol: 'trash',
+              destructive: true),
+        ],
     ];
 
 /// M240 — the context menu on a placed component.
@@ -111,6 +173,17 @@ List<List<GlassMenuItem>> _componentMenu(AssemblyOccurrence o) {
   }
   return [
     [
+      // M250 — Inventor's Edit, which for an assembly component means EDIT IN
+      // PLACE: the part opens with the rest of the assembly around it. Only
+      // for a PART — a subassembly would open an assembly document, and "the
+      // assembly around it" would then have to mean its parent, which is a
+      // second case with its own camera and its own way back. AppState says
+      // so out loud rather than offering a row that toasts a refusal.
+      if (!o.isSubAssembly)
+        GlassMenuItem(
+            id: 'cpEditInPlace',
+            title: t.ctxEditInPlace,
+            symbol: 'pencil'),
       GlassMenuItem(
           id: 'cpGrounded',
           title: t.ctxGrounded,
@@ -254,6 +327,13 @@ GlassRow _constraintRow(AssemblyModel asm, AsmConstraint c,
 List<List<GlassMenuItem>> _constraintMenu(AsmConstraint c) => [
       [
         GlassMenuItem(id: 'relEdit', title: t.edit, symbol: 'slider.horizontal.3'),
+        // M249 — Drive, on the row Inventor puts it on. Symmetry and
+        // Transitional carry no value and no shaft to turn, so the entry is
+        // absent rather than present and inert; a context menu has no disabled
+        // state on this tree, and an entry that did nothing would be worse
+        // than one that is not offered.
+        if (canDriveConstraint(c))
+          GlassMenuItem(id: 'relDrive', title: t.ctxDrive, symbol: 'play.circle'),
         GlassMenuItem(
             id: 'relSuppress',
             title: c.suppressed ? t.ctxUnsuppress : t.ctxSuppress,
@@ -418,6 +498,57 @@ List<GlassRow> _buildRows(
       expandable: true,
       expanded: expanded.contains(kIdRepresentations),
     ));
+    // M250 — the folder FILLS. Inventor's three sub-folders, of which View is
+    // real and the other two are listed dimmed and childless; asm_reps.dart is
+    // where the research and the decision are written down.
+    if (expanded.contains(kIdRepresentations)) {
+      rows.add(GlassRow(
+        id: kIdViewReps,
+        label: t.nodeViewReps,
+        symbol: 'folder.fill',
+        tint: 'folder',
+        depth: 2,
+        expandable: true,
+        expanded: expanded.contains(kIdViewReps),
+        menu: _viewRepsMenu(),
+      ));
+      if (expanded.contains(kIdViewReps)) {
+        for (final name in asm.viewRepNames) {
+          final rep = asm.viewRepNamed(name);
+          final active = asm.activeViewRep == name;
+          rows.add(GlassRow(
+            id: '$kIdViewRep$name',
+            label: name,
+            // Inventor ticks the ACTIVE representation. A locked one that is
+            // not active shows its padlock instead — one symbol per row, and
+            // "which one am I looking at" is the more urgent question.
+            symbol: active
+                ? 'checkmark.circle.fill'
+                : (rep?.locked == true ? 'lock.fill' : 'circle'),
+            depth: 3,
+            selected: active,
+            menu: _viewRepMenu(name, rep),
+          ));
+        }
+      }
+      // Drawn and honestly empty. The alternative was to leave them out, and
+      // that reads as "Inventor has three of these and this has one" only if
+      // you already knew — see ribbon.dart at the Work Features panel for the
+      // same rule applied to a command.
+      for (final (id, label) in [
+        (kIdPositionalReps, t.nodePositionalReps),
+        (kIdLodReps, t.nodeLodReps),
+      ]) {
+        rows.add(GlassRow(
+          id: id,
+          label: label,
+          symbol: 'folder',
+          tint: 'folder',
+          depth: 2,
+          dim: true,
+        ));
+      }
+    }
     rows.add(GlassRow(
       id: kIdRelationships,
       label: t.nodeRelationships,
@@ -482,6 +613,29 @@ List<GlassRow> _buildRows(
   }
 
   if (part != null) {
+    // ---- M250: EDIT IN PLACE ----------------------------------------------
+    //
+    // Inventor's browser shows the ASSEMBLY while you edit a part inside it,
+    // with the edited component in bold. This tree is the part's — the part
+    // tab is what is current, which is what makes every part command work
+    // unchanged — so the assembly appears as one row above it that says where
+    // you are and takes you back.
+    //
+    // It is in the browser as well as in the ribbon because the ribbon's
+    // Return disappears while a SKETCH is open inside the edit (the sketch
+    // ribbon replaces the part one), and a mode with no visible way out is the
+    // failure this row exists to prevent.
+    final inPlace = app.inPlaceEdit;
+    if (inPlace != null) {
+      rows.add(GlassRow(
+        id: kIdInPlaceReturn,
+        label: inPlace.assembly,
+        symbol: 'arrow.uturn.backward',
+        tint: 'blue',
+        depth: 1,
+      ));
+    }
+
     // ---- solid bodies -----------------------------------------------------
     final bodies = part.solidBodies();
     if (bodies.isNotEmpty) {

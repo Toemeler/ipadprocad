@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:native_menu/native_menu.dart';
 
 import '../app_state.dart';
+import '../asm_reps.dart';
 import '../asm_constraints.dart';
 import '../assembly.dart';
 import '../menus.dart';
@@ -439,6 +440,10 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
     if (id == 'bodies' ||
         id == 'origin' ||
         id == kIdRepresentations ||
+        // M250 — View discloses; Position and Level of Detail do not, because
+        // there is nothing under them and a chevron that opens onto nothing is
+        // worse than no chevron. See asm_reps.dart.
+        id == kIdViewReps ||
         id == kIdRelationships) {
       setState(() {
         if (!_expanded.remove(id)) _expanded.add(id);
@@ -446,6 +451,20 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
       return;
     }
     if (id == 'root') return; // the document row is a label, not an action
+    // M250 — the row above a part that is being edited IN PLACE: tapping it
+    // goes back to the assembly, which is what it says it does.
+    if (id == kIdInPlaceReturn) {
+      unawaited(app.leaveInPlaceEdit());
+      return;
+    }
+    // M250 — tapping a VIEW REPRESENTATION activates it. One tap, unlike the
+    // component and relationship rows above: activating is not a selection you
+    // might want to undo by tapping again, it is the thing the row is for, and
+    // "make this the active one" is idempotent.
+    if (id.startsWith(kIdViewRep)) {
+      app.activateViewRep(id.substring(kIdViewRep.length));
+      return;
+    }
     // M240 — tapping a component SELECTS it, which is the same selection the
     // assembly viewport highlights and drags. Tapping the selected one again
     // clears it, so there is a way back to "nothing picked" without having to
@@ -491,7 +510,11 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
       final c = _constraint(id);
       if (c == null) return;
       if (identical(app.currentAssembly?.selectedConstraint, c)) {
-        app.openConstraint(edit: c);
+        if (c.isJoint) {
+          app.openJoint(edit: c);
+        } else {
+          app.openConstraint(edit: c);
+        }
       } else {
         app.selectConstraint(c);
       }
@@ -678,6 +701,11 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
         case 'cpDelete':
           app.deleteOccurrence(o);
           break;
+        // M250 — Inventor's Edit on a component: open its part with the rest
+        // of the assembly around it.
+        case 'cpEditInPlace':
+          unawaited(app.enterInPlaceEdit(o));
+          break;
         // M248 — a pattern ELEMENT has only this one verb: it belongs to the
         // pattern, so switching it off is the pattern's suppression set and
         // there is nothing here that could delete it.
@@ -687,6 +715,31 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
             app.asmPatternSuppressElement(
                 p, o.patternElement ?? 0, o.visible);
           }
+          break;
+      }
+      return;
+    }
+    if (id == kIdViewReps) {
+      if (item == 'vrNew') app.newViewRep();
+      return;
+    }
+    if (id.startsWith(kIdViewRep)) {
+      final name = id.substring(kIdViewRep.length);
+      switch (item) {
+        case 'vrActivate':
+          app.activateViewRep(name);
+          break;
+        case 'vrUpdate':
+          app.updateViewRep(name);
+          break;
+        case 'vrLock':
+          app.toggleViewRepLocked(name);
+          break;
+        case 'vrRename':
+          await _renameViewRep(name);
+          break;
+        case 'vrDelete':
+          app.deleteViewRep(name);
           break;
       }
       return;
@@ -710,7 +763,17 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
       if (c == null) return;
       switch (item) {
         case 'relEdit':
-          app.openConstraint(edit: c);
+          // M249 — a joint edits in the Joint dialog. See the same branch in
+          // model_browser: which panel opens is decided by what the
+          // relationship is, not by which tree the row was tapped in.
+          if (c.isJoint) {
+            app.openJoint(edit: c);
+          } else {
+            app.openConstraint(edit: c);
+          }
+          break;
+        case 'relDrive':
+          app.openDrive(c);
           break;
         case 'relSuppress':
           app.toggleConstraintSuppressed(c);
@@ -939,6 +1002,35 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
   /// M182 — the native EOP menu used to delete everything below the marker
   /// without asking; the Flutter fallback has always confirmed. Same dialog,
   /// same wording.
+  /// M250 — Rename on a view representation.
+  ///
+  /// Validated in the prompt rather than after it, the way every other rename
+  /// in this tree is: a name that collides with another representation would
+  /// give the browser two rows nothing could tell apart, and finding that out
+  /// after the dialog has closed means retyping it.
+  Future<void> _renameViewRep(String name) async {
+    final t = L.of(context);
+    final a = app.currentAssembly;
+    if (a == null) return;
+    final r = await promptForText(
+      context,
+      title: t.dlgRenameViewRep,
+      initialValue: name,
+      placeholder: t.phViewRepName,
+      confirmLabel: t.rename,
+      validate: (v) {
+        final clean = v.trim();
+        if (clean.isEmpty) return t.valNameEmpty;
+        if (clean == name) return null;
+        if (clean == kDefaultViewRep || a.viewRepNamed(clean) != null) {
+          return t.msgNameTaken(clean);
+        }
+        return null;
+      },
+    );
+    if (r != null) app.renameViewRep(name, r);
+  }
+
   Future<void> _confirmDeleteBelowPart() async {
     final part = app.currentPart;
     if (part == null) return;

@@ -426,6 +426,13 @@ class RealityPush {
 /// two-field stub instead of megabytes of geometry.
 Map<String, int> sceneRevs(AppState app, PartModel p) => {
       for (final (id, s) in visibleSolids(app, p)) id: identityHashCode(s.mesh),
+      // M250 — the in-place context, on the same terms. A surrounding
+      // component's mesh does not change while you edit the part in front of
+      // it, so without this entry every heavy push would re-upload the whole
+      // assembly to say nothing had happened to it.
+      for (final (path, _, sol) in app.inPlaceContextPieces)
+        inPlaceContextId(app.inPlaceEdit!.assembly, path):
+            identityHashCode(sol.mesh),
     };
 
 List<Map<String, dynamic>> _planePayloads(AppState app, PartModel p,
@@ -728,6 +735,54 @@ Map<String, dynamic>? _highlightPayload(
 
 /// The full scene: geometry + overlays' current visibility/hover. Sent only
 /// when [sceneSignature] changes.
+/// M250 — the id prefix every EDIT-IN-PLACE context piece travels under.
+///
+/// The renderer keys its entity cache on the id, so a context piece needs one
+/// that can collide with nothing else in the scene. The prefix separates it
+/// from the part's own features, and it says what the entity IS, so a stale
+/// context entity can be told apart from a feature that has been deleted.
+const String kInPlaceContextId = 'ctx/';
+
+/// The payload id of one context piece.
+///
+/// The ASSEMBLY's name is in it, and that is not decoration. The renderer's
+/// cache holds a mesh per id, and a mesh travels only when its revision has
+/// changed (see [sceneRevs]) — a reflected component's flip is in its BUFFERS,
+/// not in its transform, so two documents that both place a "Lid:1" of the
+/// same part, one mirrored and one not, would share an id, share a revision,
+/// and the second would be drawn with the first one's handedness. Naming the
+/// document makes the two different entities, which is what they are.
+String inPlaceContextId(String assembly, String path) =>
+    '$kInPlaceContextId$assembly/$path';
+
+/// The surrounding assembly's pieces, as scene solids, for an in-place edit.
+///
+/// Steel like everything else, with the DIM tint the CPU painter's veil says
+/// the same thing with (see paintPartSolids' `contextTint`): on device a
+/// component is dimmed by its material, because that is the only per-solid
+/// colour the payload carries. Empty for every ordinary part render.
+List<Map<String, dynamic>> _inPlaceContextPayloads(AppState app,
+    {Map<String, int>? knownRevs}) {
+  final ctx = app.inPlaceContextPieces;
+  if (ctx.isEmpty) return const [];
+  final dim =
+      (Color.lerp(T.solid, T.viewport, 0.55) ?? T.solid).toARGB32();
+  final asm = app.inPlaceEdit!.assembly;
+  return [
+    for (final (path, at, sol) in ctx)
+      solidPayload(
+        inPlaceContextId(asm, path),
+        sol,
+        at: at.at,
+        rot: at.rot,
+        mirror: at.reflect,
+        tint: dim,
+        includeGeometry: knownRevs?[inPlaceContextId(asm, path)] !=
+            identityHashCode(sol.mesh),
+      ),
+  ];
+}
+
 Map<String, dynamic> buildScenePayload(AppState app, PartModel p,
     {String? hover,
     (KernelSolid, int)? hoverFace,
@@ -764,6 +819,12 @@ Map<String, dynamic> buildScenePayload(AppState app, PartModel p,
             // again, and that only happens if its geometry travels too.
             includeGeometry: app.pickingBody ||
                 knownRevs?[id] != identityHashCode(s.mesh)),
+      // M250 — and the rest of the assembly, when this part is being edited
+      // in place. They ride the SAME list as the part's own bodies, which is
+      // what puts them in the same depth buffer: RealityKit sorts by depth
+      // whatever order the payload arrives in, so a component in front of the
+      // part hides it, exactly as the CPU painter's shared occluder does.
+      ..._inPlaceContextPayloads(app, knownRevs: knownRevs),
     ],
     'planes': _planePayloads(app, p, hover: hover),
     'axes': _axisPayloads(p, hover: hover),
@@ -878,6 +939,40 @@ String sceneSignature(AppState app, PartModel p) {
   final sb = StringBuffer();
   for (final (id, s) in visibleSolids(app, p)) {
     sb..write(id)..write(':')..write(identityHashCode(s.mesh))..write(';');
+  }
+  // M250 — the in-place context is part of the STRUCTURE: entering or leaving
+  // an in-place edit adds or removes whole solids, and so does hiding a
+  // component of the parent assembly while you are inside one. Without this
+  // the heavy push would not fire and the assembly would stay on screen after
+  // Return, or never appear on the way in.
+  //
+  // The PLACEMENT is in here too, unlike the assembly viewport's signature
+  // which deliberately leaves placements out (a drag rides the light push).
+  // There is no drag here: nothing moves the surrounding components while a
+  // part is being edited, and a placement that changed between edits has to
+  // reach the renderer on the only push that carries one.
+  final inPlace = app.inPlaceEdit;
+  for (final (path, at, sol) in app.inPlaceContextPieces) {
+    sb
+      ..write(inPlaceContextId(inPlace!.assembly, path))
+      ..write(':')
+      ..write(identityHashCode(sol.mesh))
+      ..write('@')
+      ..write(at.at.x.toStringAsFixed(3))
+      ..write(',')
+      ..write(at.at.y.toStringAsFixed(3))
+      ..write(',')
+      ..write(at.at.z.toStringAsFixed(3))
+      ..write(',')
+      ..write(at.rot.x.toStringAsFixed(4))
+      ..write(',')
+      ..write(at.rot.y.toStringAsFixed(4))
+      ..write(',')
+      ..write(at.rot.z.toStringAsFixed(4))
+      ..write(',')
+      ..write(at.rot.w.toStringAsFixed(4))
+      ..write(at.mirrored ? ',m' : '')
+      ..write(';');
   }
   // The marker itself: rolling it changes which features are drawn, and after
   // a recompute the surviving meshes can be the SAME objects as before.

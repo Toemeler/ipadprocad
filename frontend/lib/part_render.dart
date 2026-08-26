@@ -35,6 +35,22 @@ import 'theme.dart';
 /// Steel, same family as partCubeIcon — the committed-solid look.
 Color get kSolidBase => T.solid;
 
+/// M250 — the base colour the EDIT-IN-PLACE context shades from: the steel,
+/// most of the way back to the viewport ground.
+///
+/// A base colour rather than a wash laid over the context afterwards, and the
+/// difference is the whole of a defect this milestone shipped once. A wash is
+/// SCREEN SPACE: it dims every pixel the context covers, including the pixels
+/// where the PART is in front of it, so the part came out veiled by the very
+/// component it was standing in front of. Shading from a darker base puts the
+/// dimming in the same sorted pass as everything else, where the depths that
+/// were right all along can act on it. Only a rendering found this; every
+/// depth test in the file was already correct.
+///
+/// A getter, not a const, for the reason kSolidBase is one: a final would
+/// freeze whichever palette happened to be active when it was first read.
+Color get kContextBase => Color.lerp(T.solid, T.viewport, 0.55) ?? T.solid;
+
 /// M144 — accented (hovered or selected) B-Rep edge in the CPU painter. Same
 /// hue as the RealityKit accent so the two renderers agree.
 Color get kEdgeAccent => T.edgeAccent;
@@ -640,30 +656,56 @@ List<(Offset, Offset, double)> _meshSilhouetteSegmentsInner(
 // The painter
 // ---------------------------------------------------------------------------
 
-void _drawShaded(Canvas canvas, List<SceneTri> tris, int alpha) {
-  if (tris.isEmpty) return;
-  final sorted = [for (final t in tris) t]
-    // near = higher depth, so draw FAR (lower depth) first (painter's algo)
-    ..sort((a, b) => a.depth.compareTo(b.depth));
-  final pos = Float32List(sorted.length * 6);
-  final col = Int32List(sorted.length * 3);
+void _drawShaded(Canvas canvas, List<SceneTri> tris, int alpha) =>
+    _drawShadedGroups(canvas, [(tris, kSolidBase)], alpha);
+
+/// M250 — ONE sorted pass over triangles that do not all shade from the same
+/// base colour.
+///
+/// Edit in place is what needs it: the surrounding assembly is drawn dimmed
+/// and the part is not, and the two must sort against EACH OTHER or a
+/// component standing in front of the part will not hide it — which is the one
+/// thing modelling in context is for. See [kContextBase] for what was tried
+/// first and why it was wrong.
+///
+/// The groups are flattened and sorted together, so the group a triangle came
+/// from decides only its colour and never its order.
+void _drawShadedGroups(
+    Canvas canvas, List<(List<SceneTri>, Color)> groups, int alpha) {
+  // Grown rather than pre-sized from a filler element: a group can be present
+  // and hold no FRONT triangles (a solid seen edge-on, or one whose faces all
+  // point away), and seeding a fixed-length list from `groups.first.first`
+  // throws on exactly that. The old single-group form built a copy to sort in
+  // any case, so this costs nothing it did not already.
+  final flat = <(SceneTri, Color)>[];
+  for (final (tris, base) in groups) {
+    for (final t in tris) {
+      flat.add((t, base));
+    }
+  }
+  if (flat.isEmpty) return;
+  final n = flat.length;
+  // near = higher depth, so draw FAR (lower depth) first (painter's algo)
+  flat.sort((a, b) => a.$1.depth.compareTo(b.$1.depth));
+  final pos = Float32List(n * 6);
+  final col = Int32List(n * 3);
   var pi = 0, ci = 0;
-  int shadeColor(double s) => Color.fromARGB(
+  int shadeColor(Color base, double s) => Color.fromARGB(
           alpha,
-          (kSolidBase.red * s).round(),
-          (kSolidBase.green * s).round(),
-          (kSolidBase.blue * s).round())
-      .value;
-  for (final t in sorted) {
+          (base.r * 255 * s).round().clamp(0, 255),
+          (base.g * 255 * s).round().clamp(0, 255),
+          (base.b * 255 * s).round().clamp(0, 255))
+      .toARGB32();
+  for (final (t, base) in flat) {
     pos[pi++] = t.a.dx;
     pos[pi++] = t.a.dy;
     pos[pi++] = t.b.dx;
     pos[pi++] = t.b.dy;
     pos[pi++] = t.c.dx;
     pos[pi++] = t.c.dy;
-    col[ci++] = shadeColor(t.sa);
-    col[ci++] = shadeColor(t.sb);
-    col[ci++] = shadeColor(t.sc);
+    col[ci++] = shadeColor(base, t.sa);
+    col[ci++] = shadeColor(base, t.sb);
+    col[ci++] = shadeColor(base, t.sc);
   }
   final verts = ui.Vertices.raw(ui.VertexMode.triangles, pos, colors: col);
   canvas.drawVertices(verts, BlendMode.dst, Paint());
@@ -840,17 +882,69 @@ void paintPartSolids(
   /// two washes would compound into a third colour that means nothing.
   List<KernelSolid> hoveredSolids = const [],
   Color? hoveredTint,
+
+  /// M250 — EDIT IN PLACE: the rest of the assembly, around the part.
+  ///
+  /// Each piece is a solid plus its placement IN THE PART'S OWN FRAME —
+  /// assembly.inPlaceContext is where that transform is worked out, and it is
+  /// the one place it happens. Empty for every ordinary part render, which is
+  /// all of them except an in-place edit.
+  ///
+  /// It joins the SAME sorted buffer and the SAME occluder as the part, and
+  /// that is the whole reason it is a parameter here rather than a separate
+  /// call before this one. Drawing the context first and the part over it
+  /// would put the part in front of everything, however far behind a
+  /// component it actually is — and modelling a bracket against the thing it
+  /// bolts to is exactly the case where you need to see which is in front.
+  List<(Placement, KernelSolid)> context = const [],
+
+  /// The base colour the context shades from, so it reads as background
+  /// rather than as more of the part. Inventor dims the components you are not
+  /// editing. Defaults to [kContextBase]; see there for why this is a BASE and
+  /// not a wash laid over the top.
+  Color? contextBase,
 }) {
   final opaque = [for (final s in solids) buildSceneSolid(s, cam)];
-  final occ = SceneOccluders(opaque);
+  // The context, each piece through its own PLACED camera — the same identity
+  // paintAssemblySolids runs on, and no mesh is copied. The depth bias is the
+  // piece's own distance along the view axis, because buildSceneSolid measures
+  // depth in the frame it is handed and every one of these has a different
+  // one; without it the whole context would sort as if it sat at the part's
+  // origin.
+  final ctxCams = [for (final (at, _) in context) placedCam(cam, at)];
+  final ctx = [
+    for (var i = 0; i < context.length; i++)
+      buildSceneSolid(context[i].$2, ctxCams[i],
+          depthBias: cam.depth(context[i].$1.at))
+  ];
+  final occ = SceneOccluders([...ctx, ...opaque]);
 
-  // 1. shaded faces (front triangles only), one watertight sorted buffer
-  _drawShaded(
+  // 1. shaded faces (front triangles only), one watertight sorted buffer.
+  //
+  // M250 — TWO groups, ONE sort. The in-place context shades from a darker
+  // base so it reads as background, and it sorts against the part rather than
+  // sitting behind it: a component in front of the part hides it, which is the
+  // whole of modelling in context.
+  _drawShadedGroups(
       canvas,
       [
-        for (final s in opaque)
-          for (final t in s.tris)
-            if (t.front) t
+        if (ctx.isNotEmpty)
+          (
+            [
+              for (final s in ctx)
+                for (final t in s.tris)
+                  if (t.front) t
+            ],
+            contextBase ?? kContextBase
+          ),
+        (
+          [
+            for (final s in opaque)
+              for (final t in s.tris)
+                if (t.front) t
+          ],
+          kSolidBase
+        ),
       ],
       255);
 
@@ -912,6 +1006,15 @@ void paintPartSolids(
   }
 
   // 3. edges + silhouettes over the shading
+  //
+  // M250 — the context's first, dimmed, against the shared occluder: an edge
+  // of a surrounding component that runs behind the part must disappear
+  // behind it, which is exactly what the shared occluder gives for free.
+  for (var i = 0; i < ctx.length; i++) {
+    final dim = kSolidEdge.withValues(alpha: 0.5);
+    _paintSolidEdges(canvas, ctxCams[i], ctx[i], occ, dim);
+    _paintSolidSilhouettes(canvas, ctxCams[i], ctx[i], occ, dim);
+  }
   for (final s in opaque) {
     final on = accentAll || isSelected(s.solid);
     _paintSolidEdges(canvas, cam, s, occ, kSolidEdge,
@@ -1199,8 +1302,28 @@ void paintPartUnderlay(Canvas canvas, Size size, List<KernelSolid> solids,
 
 /// Builds the front-face occluder for [solids] under [cam]. Empty solids give
 /// an occluder that hides nothing.
-SceneOccluders solidOccluder(List<KernelSolid> solids, Cam3 cam) =>
-    SceneOccluders([for (final s in solids) buildSceneSolid(s, cam)]);
+///
+/// M250 — [context] is the in-place edit's surrounding components, each with
+/// its own placement in the part's frame. They belong in this occluder for
+/// the same reason they belong in the painter's: an origin plane or a sketch
+/// line that runs BEHIND a component of the assembly must be hidden by it,
+/// and an occluder that only knew about the part would draw the plane over
+/// the top of the thing the part is being built against.
+///
+/// The scene solids are therefore built TWICE per frame while an in-place edit
+/// is open — once here and once inside [paintPartSolids]. That duplication is
+/// not new: _ScenePainter has always handed this the same list it hands the
+/// painter, and the part's own solids have been built twice since M59. Ending
+/// it means having [paintPartSolids] hand back the occluder it already built,
+/// which is a change to the part viewport's main render path and belongs to
+/// whichever milestone measures it rather than to this one.
+SceneOccluders solidOccluder(List<KernelSolid> solids, Cam3 cam,
+        {List<(Placement, KernelSolid)> context = const []}) =>
+    SceneOccluders([
+      for (final s in solids) buildSceneSolid(s, cam),
+      for (final (at, s) in context)
+        buildSceneSolid(s, placedCam(cam, at), depthBias: cam.depth(at.at)),
+    ]);
 
 /// Strokes the world polyline [worldPts] projected through [cam], but only the
 /// portions NOT hidden behind [occ] (a nearer solid front face). Used for
