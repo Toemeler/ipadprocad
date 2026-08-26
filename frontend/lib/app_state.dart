@@ -1424,6 +1424,54 @@ class AppState extends ChangeNotifier {
   bool get isHome => curTab == null;
   final List<String> openTabs = [];
   String? curTab;
+
+  // ---- M260: is the user moving the VIEW right now? ------------------------
+  //
+  // iOS 26 expects chrome to yield to content: the system tab bar minimises
+  // while a view scrolls and comes back when it stops. A CAD viewport never
+  // scrolls, so the equivalent gesture is the one that actually covers the
+  // model — a finger orbiting, panning or zooming it. This latch is that
+  // signal, and the bottom bar folds down to the open document while it holds.
+  //
+  // It is an EDGE, not a poll. An orbit sends sixty of these a second and
+  // exactly two of them notify: the first, and the one the timer fires at the
+  // end. Anything cheaper than that would have to live below the notifier, and
+  // anything more eager would rebuild the app once per frame of every drag.
+
+  /// How long the latch holds after the last camera move.
+  ///
+  /// Long enough that the gap between two orbit events of one drag never
+  /// reaches it — those arrive per frame, ~16 ms apart — and short enough that
+  /// the bar is back before a hand leaves the glass. Settable so the debounce
+  /// can be pinned in a test without waiting on a real clock.
+  static Duration engageLinger = const Duration(milliseconds: 450);
+
+  bool _engaged = false;
+  Timer? _engageTimer;
+
+  /// True while the camera is under a finger.
+  bool get viewEngaged => _engaged;
+
+  /// Called by the viewports on every camera move. Idempotent, and cheap
+  /// enough to sit on the orbit path: one timer reset, one bool test.
+  void engageView() {
+    _engageTimer?.cancel();
+    _engageTimer = Timer(engageLinger, endViewEngagement);
+    if (_engaged) return;
+    _engaged = true;
+    notifyListeners();
+  }
+
+  /// Drops the latch now. The timer's own target, and called directly by the
+  /// tests so the STATE and the DEBOUNCE can be pinned apart.
+  void endViewEngagement() {
+    _engageTimer?.cancel();
+    _engageTimer = null;
+    if (!_engaged) return;
+    _engaged = false;
+    notifyListeners();
+  }
+
   int _newN = 0;
   int layerCounterOf(SketchModel s) => s.layers.length;
 
@@ -5774,6 +5822,10 @@ class AppState extends ChangeNotifier {
   void dispose() {
     _driveTimer?.cancel();
     _driveTimer = null;
+    // M260 — same reason, one gesture later: the linger timer outlives the
+    // tree that was orbiting, and a pending timer fails a widget test.
+    _engageTimer?.cancel();
+    _engageTimer = null;
     super.dispose();
   }
 
@@ -7788,7 +7840,7 @@ class AppState extends ChangeNotifier {
   /// created yet — Inventor shows the plane following your finger and only
   /// commits when you let go, so a mis-grab costs nothing.
   void beginWorkPlaneCreate(PlaneFrame base, String label) {
-    // M258 — Offset, or the generic Plane command, which keeps the same drag.
+    // M260 — Offset, or the generic Plane command, which keeps the same drag.
     if (workPlaneArm != WorkPlaneKind.offset && !workPlaneAutoArmed) return;
     wpCreateBase = base;
     wpCreateLabel = label;
@@ -7815,7 +7867,7 @@ class AppState extends ChangeNotifier {
     wpCreateBase = null;
     if (base == null) return;
     if (d.abs() < 1e-6) {
-      // M258 — under the generic Plane command a press that never moved is a
+      // M260 — under the generic Plane command a press that never moved is a
       // TAP, and a tap is the first (or second) pick of an inferred method.
       // Leave the command armed and let the viewport's tap handler turn the
       // same contact into a WorkRef; cancelling here is what made the plane
@@ -7936,7 +7988,7 @@ class AppState extends ChangeNotifier {
     _wpPicks.clear();
     _wpNames.clear();
     _planesAutoShown = false;
-    // M258 — and the work-feature arming, because the generic Plane command
+    // M260 — and the work-feature arming, because the generic Plane command
     // can reach this through the offset DRAG rather than through
     // [_commitConstructedWorkPlane]. Without it the command would stay armed
     // with a stale half-selection after making a plane.
@@ -8168,7 +8220,7 @@ class AppState extends ChangeNotifier {
   /// PICK path, which is what actually matters, costs nothing.
   WorkPlaneMethod? workPlaneMethodArm;
 
-  /// M258 — the generic Plane command is armed, the one that INFERS its
+  /// M260 — the generic Plane command is armed, the one that INFERS its
   /// method from the picks ([WorkPlaneMethod.auto]).
   ///
   /// It is the only work-feature command that also owns a GESTURE: a press and
@@ -8372,7 +8424,7 @@ class AppState extends ChangeNotifier {
   /// the log line and the save are one implementation.
   void _commitConstructedWorkPlane(PartModel p, WorkPlaneSolution s,
       [WorkPlaneMethod? method, List<WorkRef> picks = const []]) {
-    // M258 — under the generic Plane command the METHOD the caller armed is
+    // M260 — under the generic Plane command the METHOD the caller armed is
     // `auto`, which says nothing about what to file the result under. The
     // inference reports what it resolved to; read that instead, so an angle
     // plane reached by tapping a face and an edge keeps its editable number
@@ -8638,7 +8690,7 @@ class AppState extends ChangeNotifier {
 
   void _commitAsmWorkPlane(AssemblyModel a, WorkPlaneSolution s,
       WorkPlaneKind? kind, WorkPlaneMethod? method) {
-    // M258 — the part side's rule, for the same reason: the Work Features
+    // M260 — the part side's rule, for the same reason: the Work Features
     // flyout is shared with this ribbon (see _assemblyRibbon), so its "Plane"
     // entry arms the inferring command here too and `auto` says nothing about
     // what to file the result under. Read what the inference RESOLVED to.
@@ -12153,7 +12205,7 @@ class AppState extends ChangeNotifier {
     } else if (extrudeSession != null) {
       cancelExtrude(); // notifies for itself now (M210)
     } else if (pickWorkGeometry) {
-      // M258 — Esc had no branch for the work-feature commands at all, so an
+      // M260 — Esc had no branch for the work-feature commands at all, so an
       // armed Axis, Point or (now) Plane could only be put down by tapping
       // its ribbon entry again. Ahead of [pickPlane] because the two are
       // never both set and this one is the newer arming.

@@ -53,11 +53,22 @@ class GlassTabBar extends StatefulWidget {
   final void Function(String id) onTap;
   final void Function(String id) onClose;
 
+  /// M260 — the camera is under a finger. The bar folds down to the open
+  /// document while this holds and unfolds when it drops, the way iOS 26's
+  /// own tab bar minimises while a view scrolls.
+  ///
+  /// Its own channel call, not part of the tab payload: it changes twice per
+  /// gesture and the tab list changes once per document, so pushing them
+  /// together would either rebuild the row on every orbit or debounce the
+  /// fold behind a signature comparison it has no business waiting for.
+  final bool engaged;
+
   const GlassTabBar({
     super.key,
     required this.tabs,
     required this.onTap,
     required this.onClose,
+    this.engaged = false,
   });
 
   /// Only iOS has the native bar; elsewhere the caller keeps its own.
@@ -70,6 +81,7 @@ class GlassTabBar extends StatefulWidget {
 class _GlassTabBarState extends State<GlassTabBar> {
   MethodChannel? _ch;
   String? _lastPushed;
+  bool? _lastEngaged;
 
   void _onCreated(int id) {
     final ch = MethodChannel('prototype/glass_tabbar/$id');
@@ -88,6 +100,18 @@ class _GlassTabBarState extends State<GlassTabBar> {
       return null;
     });
     _push(force: true);
+    _pushEngaged(force: true);
+  }
+
+  /// M260 — one bool over the wire, on the edge only.
+  void _pushEngaged({bool force = false}) {
+    final ch = _ch;
+    if (ch == null) return;
+    if (!force && widget.engaged == _lastEngaged) return;
+    _lastEngaged = widget.engaged;
+    nmCount('tabbar.setEngaged.calls', 1);
+    ch.invokeMethod('setEngaged', {'engaged': widget.engaged})
+        .catchError((_) {});
   }
 
   /// Pushes only on a real change: this rebuilds with the whole app, and
@@ -118,6 +142,7 @@ class _GlassTabBarState extends State<GlassTabBar> {
   void didUpdateWidget(covariant GlassTabBar old) {
     super.didUpdateWidget(old);
     _push();
+    _pushEngaged();
   }
 
   @override
