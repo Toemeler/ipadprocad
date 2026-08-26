@@ -4614,6 +4614,77 @@ Handle(Geom_Curve) IntersectionCurve(const Handle(Geom_Surface) & s1,
 }
 
 /* Builds (or reuses) the edge for one chain. */
+/* Does this curve go where the chain goes?
+ *
+ * A B-spline fitted through a chain is an APPROXIMATION, and the fitter's own
+ * tolerance only promises that the POINTS it was given are near the curve. It
+ * promises nothing about the space between them, and that is where the classic
+ * overshoot lives: the user's side wall meets its top-edge fillet along
+ * eighteen millimetres of a straight tangency line with a single kink at the
+ * far end, where a fillet crossing pulls the last vertex up by a tenth of a
+ * millimetre. A C2 spline through that bows a MILLIMETRE the other way in the
+ * middle — and the wall and the fillet, which share the edge, both follow it
+ * out of the model. Measured: half a millimetre of flap, four and a half times
+ * tolerance, the length of the part.
+ *
+ * So measure the space between: sample the curve and ask how far each sample
+ * strays from the polyline the chain actually walks. This is asked of the
+ * FITTED curve only. An exact conic is not an approximation of the chain — the
+ * chain is a chord approximation of IT — so it is entitled to bow out by the
+ * tessellation's sagitta and is never asked. */
+/* How far the chain itself bends: for each interior vertex, how far it stands
+ * off the chord of its two neighbours.
+ *
+ * This is the slack a fitted curve is entitled to. A chain round a coarse hole
+ * turns by fifteen degrees a step and its own vertices stand a quarter of a
+ * millimetre off their neighbours' chords — a smooth curve through them bows
+ * out too, and must be allowed to. A chain down a straight tangency line does
+ * not bend at all, so nothing fitted through it has any business leaving it. */
+double ChainBow(const std::vector<gp_Pnt> &pts)
+{
+    double worst = 0;
+    for (size_t i = 1; i + 1 < pts.size(); ++i) {
+        const gp_Vec seg(pts[i - 1], pts[i + 1]);
+        const double len2 = seg.SquareMagnitude();
+        if (!(len2 > 0))
+            continue;
+        double t = gp_Vec(pts[i - 1], pts[i]).Dot(seg) / len2;
+        t = std::max(0.0, std::min(1.0, t));
+        const gp_Pnt on(pts[i - 1].X() + seg.X() * t, pts[i - 1].Y() + seg.Y() * t,
+                        pts[i - 1].Z() + seg.Z() * t);
+        worst = std::max(worst, std::sqrt(pts[i].SquareDistance(on)));
+    }
+    return worst;
+}
+
+double CurveOffChain(const Handle(Geom_Curve) & cur, double u1, double u2,
+                     const std::vector<gp_Pnt> &pts)
+{
+    if (cur.IsNull() || pts.size() < 2)
+        return 0;
+    double worst = 0;
+    const int samples = static_cast<int>(pts.size()) * 4 + 8;
+    for (int i = 1; i < samples; ++i) {
+        const double u = u1 + (u2 - u1) * i / samples;
+        const gp_Pnt q = cur->Value(u);
+        double best = 1e300;
+        for (size_t k = 0; k + 1 < pts.size(); ++k) {
+            const gp_Vec seg(pts[k], pts[k + 1]);
+            const double len2 = seg.SquareMagnitude();
+            double t = 0;
+            if (len2 > 0) {
+                t = gp_Vec(pts[k], q).Dot(seg) / len2;
+                t = std::max(0.0, std::min(1.0, t));
+            }
+            const gp_Pnt on(pts[k].X() + seg.X() * t, pts[k].Y() + seg.Y() * t,
+                            pts[k].Z() + seg.Z() * t);
+            best = std::min(best, q.SquareDistance(on));
+        }
+        worst = std::max(worst, std::sqrt(best));
+    }
+    return worst;
+}
+
 TopoDS_Edge ChainEdge(BuildCtx &ctx, const Chain &c, int self,
                       const Handle(Geom_Surface) & selfSurf,
                       const std::vector<Handle(Geom_Surface)> &surfs)
@@ -4846,7 +4917,9 @@ TopoDS_Edge ChainEdge(BuildCtx &ctx, const Chain &c, int self,
      *
      * Where the neighbour is faceted, the chords ARE the truth. A degree-one
      * B-spline through the chain is exactly them. */
-    if (e.IsNull() && neighbourFaceted && pts.size() >= 3) {
+    auto chainPolyline = [&]() {
+        if (pts.size() < 3)
+            return;
         try {
             const int n = static_cast<int>(pts.size());
             TColgp_Array1OfPnt poles(1, n);
@@ -4873,7 +4946,9 @@ TopoDS_Edge ChainEdge(BuildCtx &ctx, const Chain &c, int self,
         } catch (const Standard_Failure &) {
             e = TopoDS_Edge();
         }
-    }
+    };
+    if (e.IsNull() && neighbourFaceted)
+        chainPolyline();
 
     /* 3 — a spline through the chain. Not exact, but continuous and compact,
      *     which a polyline of two hundred segments is not. */
@@ -4886,7 +4961,18 @@ TopoDS_Edge ChainEdge(BuildCtx &ctx, const Chain &c, int self,
                     arr.SetValue(i + 1, pts[i]);
                 GeomAPI_PointsToBSpline approx(arr, 3, 8, GeomAbs_C2, ctx.tol);
                 Handle(Geom_BSplineCurve) bs = approx.Curve();
-                if (!bs.IsNull()) {
+                const double off =
+                    bs.IsNull() ? 1e300
+                                : CurveOffChain(bs, bs->FirstParameter(),
+                                                bs->LastParameter(), pts);
+                const double bar = std::max(ctx.tol, ChainBow(pts));
+                if (!bs.IsNull() && off > bar) {
+                    /* The chords ARE the boundary when nothing smoother can
+                     * be trusted to stay on it. */
+                    MR_TRACE("          spline strays %.4f from its chain "
+                             "(bar %.4f): polyline instead\n", off, bar);
+                    chainPolyline();
+                } else if (!bs.IsNull()) {
                     if (closed)
                         bs->SetPeriodic();
                     BRepBuilderAPI_MakeEdge me(bs);
