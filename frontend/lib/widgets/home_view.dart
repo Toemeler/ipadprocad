@@ -226,6 +226,51 @@ class _HomeViewState extends State<HomeView> {
     await app.createNamedSketch(name);
   }
 
+  /// M266 — one of the gallery header's two buttons, drawn by UIKit.
+  ///
+  /// These were Flutter: a Container with a BoxDecoration circle and a
+  /// MATERIAL glyph (Icons.add, Icons.settings_outlined). Next to a ribbon, a
+  /// model browser, a tab bar and a tool bar that are all native glass, two
+  /// Material circles on the front page are the first thing anyone sees and
+  /// the first thing that looks wrong — "they seem like flutter", and they
+  /// were.
+  ///
+  /// A ONE-ITEM [GlassToolBar] rather than a new platform view. That bar is
+  /// already a 54pt glass slab holding one 44pt SF-Symbol button, it already
+  /// carries M205's recovery for the press UIKit hands back as a cancel, and
+  /// it is the same object the quick-tool bar is made of — so the header now
+  /// matches the rest of the app's chrome instead of approximating it. A
+  /// bespoke round button would have been new Swift for a shape.
+  ///
+  /// [anchor] is the key the "+" menu measures to place its popover; only one
+  /// branch of the switch is ever built, so the GlobalKey is never attached
+  /// twice.
+  Widget _headerButton({
+    GlobalKey? anchor,
+    required String id,
+    required String symbol,
+    required String fallbackSymbol,
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    if (GlassToolBar.isSupported) {
+      return GlassToolBar(
+        key: anchor,
+        items: [
+          GlassToolItem(
+              id: id, symbol: symbol, fallback: fallbackSymbol, label: label),
+        ],
+        onTap: (_) => onTap(),
+      );
+    }
+    // Off iOS there are no SF Symbols and no glass. The Material circle stays
+    // as the host/desktop stand-in — same size, same job, and the widget tests
+    // that drive the "+" still find something to tap.
+    return _RoundButton(key: anchor, icon: icon, semanticLabel: label,
+        onTap: onTap);
+  }
+
   /// M261 — Settings. A real UIKit form sheet on the iPad; a Flutter dialog
   /// with the same sections everywhere else. [SettingsSheet.show] decides
   /// which, and refuses to stack a second one.
@@ -473,15 +518,21 @@ class _HomeViewState extends State<HomeView> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              _RoundButton(
+              _headerButton(
+                id: 'settings',
+                symbol: 'gearshape',
+                fallbackSymbol: 'gear',
                 icon: Icons.settings_outlined,
-                semanticLabel: t.settingsButton,
+                label: t.settingsButton,
                 onTap: _showSettings,
               ),
-              _RoundButton(
-                key: _plusKey,
+              _headerButton(
+                anchor: _plusKey,
+                id: 'new',
+                symbol: 'plus',
+                fallbackSymbol: 'plus',
                 icon: Icons.add,
-                semanticLabel: t.galleryNew2dSketch,
+                label: t.galleryNew2dSketch,
                 onTap: _showNewMenu,
               ),
             ],

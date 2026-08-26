@@ -85,6 +85,15 @@ class SettingsSheet {
         doneLabel: L.current.settingsDone,
         sections: settingsToMaps(sheet._spec()),
       );
+      // M266 — SAY WHICH SURFACE CAME UP.
+      //
+      // "the settings ... dont seem truly ios native. they seem like flutter"
+      // could mean two completely different things: the UIKit sheet is up and
+      // does not look native enough, or `showSettings` returned false and the
+      // Flutter stand-in is up wearing its name. From a screenshot those are
+      // hard to tell apart and from a bug bundle they were impossible — the
+      // fallback is silent, which is the one thing a fallback must never be.
+      Log.i('settings', ok ? 'native UIKit sheet' : 'FELL BACK to Flutter');
       // UIKit had nothing to present from. Take the handler back down rather
       // than leaving a live route to a screen that never appeared.
       if (!ok) {
@@ -93,6 +102,7 @@ class SettingsSheet {
       }
       return;
     }
+    Log.i('settings', 'not iOS — Flutter dialog');
     await _showFallback(context, app);
   }
 
