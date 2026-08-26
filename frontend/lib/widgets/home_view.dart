@@ -257,6 +257,12 @@ class _HomeViewState extends State<HomeView> {
     if (GlassToolBar.isSupported) {
       return GlassToolBar(
         key: anchor,
+        // M267 — ROUND. The bar's own radius is a 16pt squircle, which is
+        // right for a column of tools and wrong for a single button on the
+        // front page: half the slab's width makes the same glass a circle,
+        // and the 44pt button inside is already a capsule, so it lands
+        // concentric with no second shape to keep in step.
+        cornerRadius: GlassToolBar.width / 2,
         items: [
           GlassToolItem(
               id: id, symbol: symbol, fallback: fallbackSymbol, label: label),

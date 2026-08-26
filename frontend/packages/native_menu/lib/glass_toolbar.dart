@@ -76,7 +76,22 @@ class GlassToolBar extends StatefulWidget {
   final List<GlassToolItem> items;
   final void Function(String id) onTap;
 
-  const GlassToolBar({super.key, required this.items, required this.onTap});
+  /// M267 — the slab's corner radius, when it must not be the bar's own.
+  ///
+  /// Null means [radius], the squircle a column of tools should be. The
+  /// gallery header passes [width] / 2, which turns the same slab into a
+  /// CIRCLE — because a one-item bar is a button, and a button on the front
+  /// page of this app is round. One view, two shapes; a second platform view
+  /// whose only difference was a number would be a second thing to keep in
+  /// step with UIGlassEffect, the trait binding and M205's touch recovery.
+  final double? cornerRadius;
+
+  const GlassToolBar({
+    super.key,
+    required this.items,
+    required this.onTap,
+    this.cornerRadius,
+  });
 
   /// Only iOS has the native bar; elsewhere the caller draws its own.
   static bool get isSupported => !kIsWeb && Platform.isIOS;
@@ -89,6 +104,10 @@ class GlassToolBar extends StatefulWidget {
   static const double spacing = 2;
   static const double separatorSlot = 11;
   static const double padding = 5;
+
+  /// The squircle the bar draws by default. DUPLICATED in GlassToolBar.swift
+  /// as `defaultRadius`, for the reason the four numbers above are.
+  static const double radius = 16;
 
   /// Width of the glass slab itself (no outer margin: the platform view eats
   /// every touch inside its frame, so it stays exactly as wide as it looks).
@@ -164,6 +183,9 @@ class _GlassToolBarState extends State<GlassToolBar> {
       child: UiKitView(
         viewType: 'prototype/glass_toolbar',
         onPlatformViewCreated: _onCreated,
+        creationParams: <String, Object?>{
+          'radius': widget.cornerRadius ?? GlassToolBar.radius,
+        },
         creationParamsCodec: const StandardMessageCodec(),
         // M205 — the bar owns its touches outright, so a press can never be
         // handed to UIKit as a highlight and taken back as a cancel.

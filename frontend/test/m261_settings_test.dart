@@ -309,5 +309,21 @@ void main() {
       expect(find.byIcon(Icons.settings_outlined), findsOneWidget);
       expect(find.byIcon(Icons.add), findsOneWidget);
     });
+
+    test('M267 — a one-item bar is SQUARE, so half its width is a circle', () {
+      // The header asks for GlassToolBar.width / 2 and expects a circle. That
+      // is only true while a one-item bar is square, which is arithmetic on
+      // four constants that live in two languages (see GlassToolBar.swift).
+      // Change padding or the button size without this and the "circle"
+      // quietly becomes a lozenge on the device, where nothing here would
+      // catch it.
+      const one = [GlassToolItem(id: 'x', symbol: 'plus')];
+      expect(GlassToolBar.width, GlassToolBar.heightFor(one),
+          reason: 'a single-button bar has to be square to be round');
+      expect(GlassToolBar.width / 2, 27.0);
+      // ...and the DEFAULT is still the squircle every other bar draws, so
+      // the quick-tool column is untouched by the header's shape.
+      expect(GlassToolBar.radius, 16.0);
+    });
   });
 }
