@@ -2656,6 +2656,30 @@
   "@viewRendered": {
     "description": "Anzeigemodus: PBR-Materialien, Licht mit Schatten, keine Kanten. Bewusst nicht \"Raytracing\" — RealityKit rastert."
   },
+  "cubeSetFront": "Aktuelle Ansicht als Vorne",
+  "@cubeSetFront": {
+    "description": "ViewCube-Menue: dreht den Wuerfel so, dass die aktuelle Ansicht die Vorderansicht wird. Inventor DE: \"Aktuelle Ansicht als Vorne\"."
+  },
+  "cubeSetTop": "Aktuelle Ansicht als Oben",
+  "@cubeSetTop": {
+    "description": "ViewCube-Menue: dasselbe fuer die Draufsicht."
+  },
+  "cubeResetFront": "Vorne zuruecksetzen",
+  "@cubeResetFront": {
+    "description": "ViewCube-Menue: nimmt eine neu definierte Vorderansicht zurueck."
+  },
+  "cubeRollLeft": "Ansicht nach links drehen",
+  "@cubeRollLeft": {
+    "description": "Barrierefreier Name des gebogenen Pfeils: dreht die Ansicht um 90 Grad in der Bildebene."
+  },
+  "cubeRollRight": "Ansicht nach rechts drehen",
+  "@cubeRollRight": {
+    "description": "Barrierefreier Name des gebogenen Pfeils, andere Richtung."
+  },
+  "cubeStep": "Zur Nachbaransicht",
+  "@cubeStep": {
+    "description": "Barrierefreier Name der vier dreieckigen Pfeile: eine Vierteldrehung zur angrenzenden Flaeche."
+  },
   "panelAppearance": "Aussehen",
   "@panelAppearance": {
     "description": "Ribbon-Gruppe: die Farbe eines Koerpers oder einer Komponente. Inventor DE: \"Aussehen\"."

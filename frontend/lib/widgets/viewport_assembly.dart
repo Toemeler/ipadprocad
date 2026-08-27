@@ -694,8 +694,12 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
         RibbonMetrics.build((_, top) => Positioned(
             top: top + 8,
             right: 10,
-            child:
-                ViewCube(camera: a.camera, onChanged: () => setState(() {})))),
+            child: ViewCube(
+              camera: a.camera,
+              onChanged: () => setState(() {}),
+              orient: a.cubeOrient, // M275
+              onOrient: app.setCubeOrient,
+            ))),
         // The triad follows the model browser card, as in the part viewport.
         if (GlassBrowser.isSupported)
           ValueListenableBuilder<double>(

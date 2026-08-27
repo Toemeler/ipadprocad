@@ -5563,6 +5563,42 @@ abstract class AppL10n {
   /// **'Gerendert'**
   String get viewRendered;
 
+  /// ViewCube-Menue: dreht den Wuerfel so, dass die aktuelle Ansicht die Vorderansicht wird. Inventor DE: "Aktuelle Ansicht als Vorne".
+  ///
+  /// In de, this message translates to:
+  /// **'Aktuelle Ansicht als Vorne'**
+  String get cubeSetFront;
+
+  /// ViewCube-Menue: dasselbe fuer die Draufsicht.
+  ///
+  /// In de, this message translates to:
+  /// **'Aktuelle Ansicht als Oben'**
+  String get cubeSetTop;
+
+  /// ViewCube-Menue: nimmt eine neu definierte Vorderansicht zurueck.
+  ///
+  /// In de, this message translates to:
+  /// **'Vorne zuruecksetzen'**
+  String get cubeResetFront;
+
+  /// Barrierefreier Name des gebogenen Pfeils: dreht die Ansicht um 90 Grad in der Bildebene.
+  ///
+  /// In de, this message translates to:
+  /// **'Ansicht nach links drehen'**
+  String get cubeRollLeft;
+
+  /// Barrierefreier Name des gebogenen Pfeils, andere Richtung.
+  ///
+  /// In de, this message translates to:
+  /// **'Ansicht nach rechts drehen'**
+  String get cubeRollRight;
+
+  /// Barrierefreier Name der vier dreieckigen Pfeile: eine Vierteldrehung zur angrenzenden Flaeche.
+  ///
+  /// In de, this message translates to:
+  /// **'Zur Nachbaransicht'**
+  String get cubeStep;
+
   /// Ribbon-Gruppe: die Farbe eines Koerpers oder einer Komponente. Inventor DE: "Aussehen".
   ///
   /// In de, this message translates to:
