@@ -1491,6 +1491,22 @@ const int kFreeformMaxRegionTriangles = 20000;
 const int kFreeformGridMax = 32;
 const double kFreeformGridBar = 0.7;
 const double kFreeformApproxFraction = 0.25;
+/* Fairing weight for the least-squares control net, scaled by the point count
+ * so it means the same on a region of two hundred vertices and one of twenty
+ * thousand. The ridge is smaller again and exists only so the Cholesky cannot
+ * meet a zero on a net row no vertex reaches. */
+const double kFreeformFairing = 2.0e-7;
+const double kFreeformRidge = 1.0e-9;
+/* Triangles sampled when asking how far the surface goes BETWEEN the data. */
+const int kFreeformBetweenSamples = 2000;
+/* How far past its own data the net reaches, as a fraction of the parameter
+ * range. The face is trimmed by the region's boundary, so the surface has to
+ * exist a little way OUTSIDE it or the boundary has nowhere to project and
+ * the wire cannot be built. The raster this replaces got the same margin for
+ * free — badly, from cells the region never reached — and the fairing term
+ * now supplies it properly, by continuing the surface rather than inventing
+ * heights for it. */
+const double kFreeformNetMargin = 0.06;
 
 /* Above this many faces, sewing is not a fallback, it is a hang.
  *
@@ -6163,7 +6179,457 @@ void BuildRegionGrid(const Mesh &m, const std::vector<int> &tris,
     rg.ok = true;
 }
 
-/* The B-spline over a grid that has already proved itself. */
+
+/* ---- fitting a surface to the region, not to a raster of it ------------
+ *
+ * SurfaceFromGrid below resamples the region onto a 32x32 height raster and
+ * asks OCCT to approximate THAT. Two things go wrong with it, and both were
+ * measured on the whale rather than guessed:
+ *
+ *   - Most of the raster is invention. On the regions that came out worst,
+ *     between 14% and 55% of the cells were reached by any vertex at all; the
+ *     rest were filled by the clamped relaxation below, and a cell of fill
+ *     next to a cell of data is a step in the net that the surface has to
+ *     climb.
+ *   - The approximation is asked to pass within tol/4 of every node of that
+ *     net, so it inserts a knot per column — 31 poles across 32 nodes — and
+ *     interpolates the steps. Between the nodes the cubic then overshoots:
+ *     4.57 mm on a 0.41 mm tolerance, over cells that carried data.
+ *
+ * Neither of the tests in front of it can see that. rg.err asks the vertices
+ * about a BILINEAR reading of the grid, which cannot overshoot; and
+ * SurfaceOffRegion asks the vertices about the surface, which passes near
+ * them by construction. Nothing looked between the samples — which is the
+ * whole of what BRepMesh has to tessellate, and the whole of what is on
+ * screen. One face of the whale needed 14,973 triangles to hold 227 mm2 of
+ * area and stood 2.97 mm off the model at its rim.
+ *
+ * So solve for the control net directly against the vertices, with a fairing
+ * term to hold it where they are sparse, and then measure the surface where
+ * it was never measured: between them. */
+
+/* Clamped uniform cubic knots for n control points. */
+void ClampedKnots(int n, std::vector<double> &kv)
+{
+    const int seg = n - 3;
+    kv.assign(n + 4, 0.0);
+    for (int i = 0; i < seg - 1; ++i)
+        kv[4 + i] = static_cast<double>(i + 1) / seg;
+    for (int i = 0; i < 4; ++i)
+        kv[n + i] = 1.0;
+}
+
+int KnotSpan(const std::vector<double> &kv, int n, double t)
+{
+    if (t >= kv[n])
+        return n - 1;
+    if (t <= kv[3])
+        return 3;
+    int lo = 3, hi = n, mid = (lo + hi) / 2;
+    while (t < kv[mid] || t >= kv[mid + 1]) {
+        if (t < kv[mid])
+            hi = mid;
+        else
+            lo = mid;
+        mid = (lo + hi) / 2;
+    }
+    return mid;
+}
+
+/* The four non-zero cubic basis functions at t (Piegl & Tiller A2.2). */
+void BasisFuns(int span, double t, const std::vector<double> &kv, double *N)
+{
+    double left[4], right[4];
+    N[0] = 1.0;
+    for (int j = 1; j <= 3; ++j) {
+        left[j] = t - kv[span + 1 - j];
+        right[j] = kv[span + j] - t;
+        double saved = 0.0;
+        for (int r = 0; r < j; ++r) {
+            const double den = right[r + 1] + left[j - r];
+            const double tmp = den > 0 ? N[r] / den : 0.0;
+            N[r] = saved + right[r + 1] * tmp;
+            saved = left[j - r] * tmp;
+        }
+        N[j] = saved;
+    }
+}
+
+/* Cholesky solve of a small dense symmetric positive-definite system, in
+ * place. Returns false if it is not positive definite. */
+bool CholeskySolve(std::vector<double> &A, int n, double *rhs, int nrhs)
+{
+    for (int i = 0; i < n; ++i) {
+        for (int j = 0; j <= i; ++j) {
+            double s = A[static_cast<size_t>(i) * n + j];
+            for (int k = 0; k < j; ++k)
+                s -= A[static_cast<size_t>(i) * n + k] *
+                     A[static_cast<size_t>(j) * n + k];
+            if (i == j) {
+                if (!(s > 0))
+                    return false;
+                A[static_cast<size_t>(i) * n + i] = std::sqrt(s);
+            } else {
+                A[static_cast<size_t>(i) * n + j] =
+                    s / A[static_cast<size_t>(j) * n + j];
+            }
+        }
+    }
+    for (int c = 0; c < nrhs; ++c) {
+        double *b = rhs + static_cast<size_t>(c) * n;
+        for (int i = 0; i < n; ++i) {
+            double s = b[i];
+            for (int k = 0; k < i; ++k)
+                s -= A[static_cast<size_t>(i) * n + k] * b[k];
+            b[i] = s / A[static_cast<size_t>(i) * n + i];
+        }
+        for (int i = n - 1; i >= 0; --i) {
+            double s = b[i];
+            for (int k = i + 1; k < n; ++k)
+                s -= A[static_cast<size_t>(k) * n + i] * b[k];
+            b[i] = s / A[static_cast<size_t>(i) * n + i];
+        }
+    }
+    return true;
+}
+
+/* The region's vertices and where each one sits on the proxy plane.
+ *
+ * This is a parameterisation and not a guess: the split recursion has already
+ * established that the region is a graph over this plane — that is the whole
+ * of what it measures — so the projection is injective on it. */
+struct RegionUv
+{
+    std::vector<int> vert; /* ascending; a TOTAL order */
+    std::vector<double> u, v;
+    double spanU = 1, spanV = 1;
+};
+
+void RegionUvOf(const Mesh &m, const std::vector<int> &tris,
+                const RegionGrid &rg, RegionUv &out)
+{
+    out.vert.clear();
+    out.vert.reserve(tris.size() * 3);
+    for (int t : tris)
+        for (int k = 0; k < 3; ++k)
+            out.vert.push_back(m.tri[t * 3 + k]);
+    std::sort(out.vert.begin(), out.vert.end());
+    out.vert.erase(std::unique(out.vert.begin(), out.vert.end()),
+                   out.vert.end());
+    out.spanU = std::max((rg.nu - 1) * rg.su, 1e-12);
+    out.spanV = std::max((rg.nv - 1) * rg.sv, 1e-12);
+    out.u.resize(out.vert.size());
+    out.v.resize(out.vert.size());
+    for (size_t i = 0; i < out.vert.size(); ++i) {
+        const V3 d = m.pos[out.vert[i]] - rg.c;
+        const double k = 1.0 - 2.0 * kFreeformNetMargin;
+        out.u[i] = kFreeformNetMargin + k * std::max(0.0, std::min(1.0,
+                       (Dot(d, rg.e1) - rg.u0) / out.spanU));
+        out.v[i] = kFreeformNetMargin + k * std::max(0.0, std::min(1.0,
+                       (Dot(d, rg.e2) - rg.v0) / out.spanV));
+    }
+}
+
+/* A cubic tensor-product net, evaluated without going through OCCT. The
+ * between-the-data check below evaluates it tens of thousands of times per
+ * region and Geom_BSplineSurface::Value is not the way to do that. */
+struct Net
+{
+    int nu = 0, nv = 0;
+    std::vector<double> ku, kv;
+    std::vector<double> p; /* nc * 3, xyz interleaved */
+    V3 At(double uu, double vv) const
+    {
+        const int su = KnotSpan(ku, nu, uu), sv = KnotSpan(kv, nv, vv);
+        double Nu[4], Nv[4];
+        BasisFuns(su, uu, ku, Nu);
+        BasisFuns(sv, vv, kv, Nv);
+        V3 s;
+        for (int i = 0; i < 4; ++i)
+            for (int j = 0; j < 4; ++j) {
+                const size_t id =
+                    (static_cast<size_t>(su - 3 + i) * nv + (sv - 3 + j)) * 3;
+                const double w = Nu[i] * Nv[j];
+                s.x += w * p[id];
+                s.y += w * p[id + 1];
+                s.z += w * p[id + 2];
+            }
+        return s;
+    }
+};
+
+/* Least squares for the control net, with a fairing term.
+ *
+ * A plain least squares with more control points than local data is singular;
+ * the second difference of the net is the cheapest thing that makes it
+ * definite, and it costs nothing where the data is dense. Scaled by the point
+ * count so it means the same on a region of two hundred vertices and one of
+ * twenty thousand. Returns the worst residual AT THE DATA. */
+double FitNet(const Mesh &m, const RegionUv &uv, int nu, int nv, Net &out)
+{
+    const int nc = nu * nv;
+    const int np = static_cast<int>(uv.vert.size());
+    if (nc < 16 || np * 2 < nc)
+        return 1e300;
+    out.nu = nu;
+    out.nv = nv;
+    ClampedKnots(nu, out.ku);
+    ClampedKnots(nv, out.kv);
+
+    std::vector<double> A(static_cast<size_t>(nc) * nc, 0.0);
+    std::vector<double> rhs(static_cast<size_t>(nc) * 3, 0.0);
+    int ci[16];
+    double cw[16];
+    for (int q = 0; q < np; ++q) {
+        const double uu = uv.u[q], vv = uv.v[q];
+        const int su = KnotSpan(out.ku, nu, uu), sv = KnotSpan(out.kv, nv, vv);
+        double Nu[4], Nv[4];
+        BasisFuns(su, uu, out.ku, Nu);
+        BasisFuns(sv, vv, out.kv, Nv);
+        for (int i = 0; i < 4; ++i)
+            for (int j = 0; j < 4; ++j) {
+                ci[i * 4 + j] = (su - 3 + i) * nv + (sv - 3 + j);
+                cw[i * 4 + j] = Nu[i] * Nv[j];
+            }
+        const V3 &g = m.pos[uv.vert[q]];
+        for (int i = 0; i < 16; ++i) {
+            if (cw[i] == 0)
+                continue;
+            for (int j = 0; j < 16; ++j)
+                A[static_cast<size_t>(ci[i]) * nc + ci[j]] += cw[i] * cw[j];
+            rhs[static_cast<size_t>(0) * nc + ci[i]] += cw[i] * g.x;
+            rhs[static_cast<size_t>(1) * nc + ci[i]] += cw[i] * g.y;
+            rhs[static_cast<size_t>(2) * nc + ci[i]] += cw[i] * g.z;
+        }
+    }
+    {
+        const double w = kFreeformFairing * np;
+        const double coef[3] = {1.0, -2.0, 1.0};
+        int trip[3];
+        for (int a = 0; a + 2 < nu; ++a)
+            for (int c = 0; c < nv; ++c) {
+                for (int k = 0; k < 3; ++k)
+                    trip[k] = (a + k) * nv + c;
+                for (int i = 0; i < 3; ++i)
+                    for (int j = 0; j < 3; ++j)
+                        A[static_cast<size_t>(trip[i]) * nc + trip[j]] +=
+                            w * coef[i] * coef[j];
+            }
+        for (int a = 0; a < nu; ++a)
+            for (int c = 0; c + 2 < nv; ++c) {
+                for (int k = 0; k < 3; ++k)
+                    trip[k] = a * nv + (c + k);
+                for (int i = 0; i < 3; ++i)
+                    for (int j = 0; j < 3; ++j)
+                        A[static_cast<size_t>(trip[i]) * nc + trip[j]] +=
+                            w * coef[i] * coef[j];
+            }
+        for (int i = 0; i < nc; ++i)
+            A[static_cast<size_t>(i) * nc + i] += kFreeformRidge * np;
+    }
+    if (!CholeskySolve(A, nc, rhs.data(), 3))
+        return 1e300;
+    out.p.assign(static_cast<size_t>(nc) * 3, 0.0);
+    for (int i = 0; i < nc; ++i)
+        for (int c = 0; c < 3; ++c)
+            out.p[static_cast<size_t>(i) * 3 + c] =
+                rhs[static_cast<size_t>(c) * nc + i];
+
+    double worst = 0;
+    for (int q = 0; q < np; ++q) {
+        const V3 s = out.At(uv.u[q], uv.v[q]);
+        worst = std::max(worst, Norm(s - m.pos[uv.vert[q]]));
+    }
+    return worst;
+}
+
+/* Squared distance from p to the triangle abc (Ericson, Real-Time Collision
+ * Detection 5.1.5). */
+double PointTriangle2(const V3 &p, const V3 &a, const V3 &b, const V3 &c)
+{
+    const V3 ab = b - a, ac = c - a, ap = p - a;
+    const double d1 = Dot(ab, ap), d2 = Dot(ac, ap);
+    if (d1 <= 0 && d2 <= 0) return Dot(p - a, p - a);
+    const V3 bp = p - b;
+    const double d3 = Dot(ab, bp), d4 = Dot(ac, bp);
+    if (d3 >= 0 && d4 <= d3) return Dot(p - b, p - b);
+    const double vc = d1 * d4 - d3 * d2;
+    if (vc <= 0 && d1 >= 0 && d3 <= 0) {
+        const double t = d1 / (d1 - d3);
+        return Dot(p - (a + ab * t), p - (a + ab * t));
+    }
+    const V3 cp = p - c;
+    const double d5 = Dot(ab, cp), d6 = Dot(ac, cp);
+    if (d6 >= 0 && d5 <= d6) return Dot(p - c, p - c);
+    const double vb = d5 * d2 - d1 * d6;
+    if (vb <= 0 && d2 >= 0 && d6 <= 0) {
+        const double t = d2 / (d2 - d6);
+        return Dot(p - (a + ac * t), p - (a + ac * t));
+    }
+    const double va = d3 * d6 - d5 * d4;
+    if (va <= 0 && (d4 - d3) >= 0 && (d5 - d6) >= 0) {
+        const double t = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+        const V3 q = b + (c - b) * t;
+        return Dot(p - q, p - q);
+    }
+    const double den = 1.0 / (va + vb + vc);
+    const V3 q = a + ab * (vb * den) + ac * (vc * den);
+    return Dot(p - q, p - q);
+}
+
+/* How far the surface goes BETWEEN the data.
+ *
+ * The one measurement nothing else makes. Sample the net at the centroid and
+ * the three edge midpoints of a triangle and ask how far that is from the
+ * triangle itself: the parameterisation is a graph, so the correspondence is
+ * known and there is no search to do. Strided, because a region of twenty
+ * thousand triangles does not need all of them to say whether its surface
+ * ripples. */
+double NetBetween(const Mesh &m, const std::vector<int> &tris,
+                  const RegionUv &uv, const Net &net, double giveUp)
+{
+    const size_t step =
+        std::max<size_t>(1, tris.size() / kFreeformBetweenSamples);
+    double worst = 0;
+    double pu[3], pv[3];
+    for (size_t i = 0; i < tris.size(); i += step) {
+        const int t = tris[i];
+        V3 g[3];
+        bool ok = true;
+        for (int k = 0; k < 3; ++k) {
+            const int vtx = m.tri[t * 3 + k];
+            const std::vector<int>::const_iterator it =
+                std::lower_bound(uv.vert.begin(), uv.vert.end(), vtx);
+            if (it == uv.vert.end() || *it != vtx) { ok = false; break; }
+            const size_t s = static_cast<size_t>(it - uv.vert.begin());
+            pu[k] = uv.u[s];
+            pv[k] = uv.v[s];
+            g[k] = m.pos[vtx];
+        }
+        if (!ok)
+            continue;
+        static const double bary[4][3] = {{1. / 3, 1. / 3, 1. / 3},
+                                          {0.5, 0.5, 0.0},
+                                          {0.0, 0.5, 0.5},
+                                          {0.5, 0.0, 0.5}};
+        for (int s = 0; s < 4; ++s) {
+            const double uu = bary[s][0] * pu[0] + bary[s][1] * pu[1] +
+                              bary[s][2] * pu[2];
+            const double vv = bary[s][0] * pv[0] + bary[s][1] * pv[1] +
+                              bary[s][2] * pv[2];
+            const double d2 =
+                PointTriangle2(net.At(uu, vv), g[0], g[1], g[2]);
+            if (d2 > worst * worst) {
+                worst = std::sqrt(d2);
+                if (worst > giveUp)
+                    return worst;
+            }
+        }
+    }
+    return worst;
+}
+
+Handle(Geom_BSplineSurface) NetToSurface(const Net &net)
+{
+    try {
+        TColgp_Array2OfPnt poles(1, net.nu, 1, net.nv);
+        for (int i = 0; i < net.nu; ++i)
+            for (int j = 0; j < net.nv; ++j) {
+                const size_t id =
+                    (static_cast<size_t>(i) * net.nv + j) * 3;
+                poles.SetValue(i + 1, j + 1,
+                               gp_Pnt(net.p[id], net.p[id + 1], net.p[id + 2]));
+            }
+        const int segU = net.nu - 3, segV = net.nv - 3;
+        TColStd_Array1OfReal uk(1, segU + 1), vk(1, segV + 1);
+        TColStd_Array1OfInteger um(1, segU + 1), vm(1, segV + 1);
+        for (int i = 0; i <= segU; ++i) {
+            uk.SetValue(i + 1, static_cast<double>(i) / segU);
+            um.SetValue(i + 1, (i == 0 || i == segU) ? 4 : 1);
+        }
+        for (int i = 0; i <= segV; ++i) {
+            vk.SetValue(i + 1, static_cast<double>(i) / segV);
+            vm.SetValue(i + 1, (i == 0 || i == segV) ? 4 : 1);
+        }
+        return Handle(Geom_BSplineSurface)(
+            new Geom_BSplineSurface(poles, uk, vk, um, vm, 3, 3));
+    } catch (const Standard_Failure &) {
+    } catch (...) {
+    }
+    return Handle(Geom_BSplineSurface)();
+}
+
+/* As few control points as the tolerance allows, and no more.
+ *
+ * Doubling up the ladder rather than starting fine is what keeps a flat flank
+ * a 4x4 net: the first rung that meets tolerance wins, so the net's size is a
+ * measurement of how much the region curves rather than a setting. The rung
+ * is judged on the WORSE of the two errors — at the data and between it —
+ * because a net fine enough to thread every vertex is exactly the one that
+ * can ripple in between, and a surface is only as good as its worse half. */
+Handle(Geom_Surface) SurfaceForRegion(const Mesh &m,
+                                      const std::vector<int> &tris,
+                                      const RegionGrid &rg, double tol,
+                                      double &err)
+{
+    err = 1e300;
+    if (!rg.ok || tris.empty())
+        return Handle(Geom_Surface)();
+    RegionUv uv;
+    RegionUvOf(m, tris, rg, uv);
+    if (uv.vert.size() < 16)
+        return Handle(Geom_Surface)();
+    /* The net follows the region's shape: a square net over a flank three
+     * times longer than it is wide puts most of its freedom where there is no
+     * data. */
+    double su = 1, sv = 1;
+    {
+        const double r = std::sqrt(std::max(1e-9, uv.spanU) /
+                                   std::max(1e-9, uv.spanV));
+        su = std::max(0.35, std::min(r, 3.0));
+        sv = 1.0 / su;
+    }
+    static const int rung[] = {4, 6, 8, 11, 15, 20};
+    static const int rungs = static_cast<int>(sizeof(rung) / sizeof(rung[0]));
+    Net best;
+    double bestWorst = 1e300;
+    for (int r = 0; r < rungs; ++r) {
+        const int nu = std::max(4, static_cast<int>(std::lround(rung[r] * su)));
+        const int nv = std::max(4, static_cast<int>(std::lround(rung[r] * sv)));
+        if (nu * nv > 2 * static_cast<int>(uv.vert.size()))
+            break;
+        Net net;
+        const double at = FitNet(m, uv, nu, nv, net);
+        if (!(at < 1e299))
+            continue;
+        const double between = NetBetween(m, tris, uv, net, tol * 8);
+        const double worse = std::max(at, between);
+        if (worse < bestWorst) {
+            bestWorst = worse;
+            /* Reported as the residual AT THE DATA, which is what every other
+             * kind of patch reports and what the import line has always
+             * meant. The between-the-data number decides which rung wins; it
+             * is a different question and mixing the two into one printed
+             * figure would make a better surface look like a worse one. */
+            err = at;
+            best = net;
+        }
+        if (worse <= tol)
+            break;
+    }
+    if (best.nu == 0)
+        return Handle(Geom_Surface)();
+    return Handle(Geom_Surface)(NetToSurface(best));
+}
+
+/* The B-spline over the height raster, kept only as a floor.
+ *
+ * SurfaceForRegion above solves for the net against the region's own
+ * vertices and is better on every count measured; this is what a region
+ * falls back to when that will not solve at all — too few vertices for the
+ * smallest net, or a Cholesky that meets a zero — so that no region which
+ * used to become a face stops becoming one. See the note on SurfaceForRegion
+ * for what is wrong with fitting the raster instead of the region. */
 Handle(Geom_Surface) SurfaceFromGrid(const RegionGrid &rg, double tol)
 {
     if (!rg.ok)
@@ -6493,11 +6959,22 @@ void FreeformSurfaces(const Mesh &m, std::vector<Patch> &patches, double tol,
                     BuildRegionGrid(m, uni, pr, tol, rg);
                     if (!rg.ok || rg.err > tol * kFreeformGridBar)
                         continue;
+                    /* Judged by the surface the union would actually get,
+                     * which is the one solved against its vertices — asking
+                     * the raster instead let unions through that the finished
+                     * face could not honour, and refused ones it could. */
                     {
-                        const Handle(Geom_Surface) su = SurfaceFromGrid(rg, tol);
-                        if (su.IsNull() ||
-                            SurfaceOffRegion(m, uni, su, tol) > tol)
+                        double e = 1e300;
+                        Handle(Geom_Surface) su =
+                            SurfaceForRegion(m, uni, rg, tol, e);
+                        if (su.IsNull()) {
+                            su = SurfaceFromGrid(rg, tol);
+                            if (su.IsNull() ||
+                                SurfaceOffRegion(m, uni, su, tol) > tol)
+                                continue;
+                        } else if (e > tol) {
                             continue;
+                        }
                     }
                     std::sort(uni.begin(), uni.end());
                     reg[a].swap(uni);
@@ -6510,14 +6987,30 @@ void FreeformSurfaces(const Mesh &m, std::vector<Patch> &patches, double tol,
             for (size_t i = 0; i < reg.size(); ++i) {
                 if (reg[i].empty())
                     continue;
-                const Handle(Geom_Surface) su = SurfaceFromGrid(grid[i], tol);
+                /* Solve for the net against the region's own vertices, and
+                 * fall back to the raster's answer only if that will not
+                 * solve at all.
+                 *
+                 * Unlike the merge above, a net that misses tolerance is
+                 * still taken here. The merge is a choice — refusing it
+                 * leaves two faces where there might have been one — but by
+                 * this point the region has already been cut as far as the
+                 * recursion goes, and the only thing below the best surface
+                 * available is one B-Rep face per triangle. */
+                double err = 1e300;
+                Handle(Geom_Surface) su =
+                    SurfaceForRegion(m, reg[i], grid[i], tol, err);
+                if (su.IsNull()) {
+                    su = SurfaceFromGrid(grid[i], tol);
+                    err = grid[i].err;
+                }
                 if (su.IsNull())
                     continue;
                 Patch np;
                 np.tris = reg[i];
                 np.origin = org;
                 np.fit.kind = kFreeform;
-                np.fit.rms = grid[i].err;
+                np.fit.rms = err;
                 np.freeSurf = su;
                 add.push_back(np);
                 for (int t : np.tris)
@@ -8012,9 +8505,10 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
                  * FaceWithinPatch guards against a surface with more freedom
                  * than its patch — a torus threaded through a fillet, a sphere
                  * fitted to a corner — reaching somewhere the mesh never went.
-                 * A freeform surface has no such freedom: it is a height field
-                 * over the patch's own (u, v) box, clamped to the patch's own
-                 * envelope, so it is inside by construction. What the test
+                 * A freeform surface has no such freedom: it is a graph over
+                 * the patch's own (u, v) box, fitted to the patch's own
+                 * vertices and reaching a few per cent past them so that the
+                 * boundary has somewhere to project. What the test
                  * actually measures on one is its POLES, and a B-spline's
                  * control net stands outside the surface it describes — the
                  * same overstatement the comment inside that function
