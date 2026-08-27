@@ -460,6 +460,13 @@ final class PartRenderer: NSObject {
             guard let holder = solidEntities[id] else { continue }
             solidEdges[id]?.removeFromParent()
             solidEdges[id] = nil
+            // M273 — the rendered view has no edge overlay, and re-stroking
+            // must not put one back. setScene builds the solids without edges
+            // when the mode is rendered; THIS runs on every orbit and every
+            // zoom, to re-aim the camera-facing ribbons, and it rebuilt them
+            // unconditionally. So the edges went away when the mode changed
+            // and came back the moment the model was turned.
+            if rendered { continue }
             if let e = geom.edgeEntity(style: style) {
                 holder.addChild(e)
                 solidEdges[id] = e
