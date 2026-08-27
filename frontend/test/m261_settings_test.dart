@@ -56,12 +56,21 @@ void main() {
 
   // -------------------------------------------------------------------------
   group('M261 — the shape of the screen', () {
-    test('four sections, in the order a user reads them', () {
+    test('the sections, in the order a user reads them', () {
       // Appearance and Language first because they are what the user came
       // for; Diagnostics and About below, because they are what they come for
       // once. Not alphabetical, and not the order they were built in.
-      expect(_spec().map((s) => s.id).toList(),
-          [kSecAppearance, kSecLanguage, kSecDiagnostics, kSecAbout]);
+      //
+      // M270 — Backdrop sits under Appearance, because it is the narrower
+      // version of the same idea: Appearance is the whole app, Backdrop is one
+      // screen of it.
+      expect(_spec().map((s) => s.id).toList(), [
+        kSecAppearance,
+        kSecBackdrop,
+        kSecLanguage,
+        kSecDiagnostics,
+        kSecAbout
+      ]);
     });
 
     test('every section has a header, and every row a non-empty title', () {
@@ -158,7 +167,7 @@ void main() {
       // BugReport.enabled is the prototype switch. Dropping the rows and
       // keeping the header would leave a heading over nothing.
       final ids = _spec(diagnostics: false).map((s) => s.id).toList();
-      expect(ids, [kSecAppearance, kSecLanguage, kSecAbout]);
+      expect(ids, [kSecAppearance, kSecBackdrop, kSecLanguage, kSecAbout]);
     });
 
     test('Über reports the build and both kernels, read-only', () {
@@ -189,7 +198,7 @@ void main() {
   group('M261 — the wire form', () {
     test('every row carries the keys SettingsSheet.swift reads', () {
       final maps = settingsToMaps(_spec());
-      expect(maps, hasLength(4));
+      expect(maps, hasLength(5));
       for (final s in maps) {
         expect(s['id'], isA<String>());
         expect(s['header'], isA<String>());

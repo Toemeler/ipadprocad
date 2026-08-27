@@ -39,6 +39,7 @@
 // the open drawing is a second, competing ribbon.
 import 'dart:ui' show Locale;
 
+import 'backdrop.dart';
 import 'l10n/l.dart';
 import 'theme.dart';
 
@@ -75,6 +76,12 @@ class SettingsRow {
   /// SF Symbol. Unknown names simply render without a glyph, exactly as they
   /// do in [NativeMenuItem].
   final String? symbol;
+
+  /// M270 — the colour [symbol] is drawn in, as 0xAARRGGBB. Only the backdrop
+  /// swatches use it: everywhere else a row's glyph is chrome and takes the
+  /// table's own tint, and a coloured icon in a preference list reads as
+  /// decoration. Here the colour is the VALUE.
+  final int? tint;
   final SettingsRowKind kind;
   final bool selected;
   final bool destructive;
@@ -84,6 +91,7 @@ class SettingsRow {
     required this.title,
     this.detail,
     this.symbol,
+    this.tint,
     this.kind = SettingsRowKind.action,
     this.selected = false,
     this.destructive = false,
@@ -94,6 +102,7 @@ class SettingsRow {
         'title': title,
         if (detail != null) 'detail': detail,
         if (symbol != null) 'symbol': symbol,
+        if (tint != null) 'tint': tint,
         'kind': kind.name,
         'selected': selected,
         'destructive': destructive,
@@ -128,6 +137,7 @@ class SettingsSection {
 /// Section ids. Constants, because the handler switches on them and a header
 /// string changes with the language.
 const String kSecAppearance = 'appearance';
+const String kSecBackdrop = 'backdrop';
 const String kSecLanguage = 'language';
 const String kSecDiagnostics = 'diagnostics';
 const String kSecAbout = 'about';
@@ -135,6 +145,22 @@ const String kSecAbout = 'about';
 /// The two diagnostic commands.
 const String kRowReportProblem = 'report';
 const String kRowShareLog = 'log';
+
+/// M270 — the picture commands. [kBackdropImage] is the row that CARRIES the
+/// chosen picture (and re-opens the picker); these two are the verbs beside it.
+const String kRowChooseImage = 'choose';
+const String kRowRemoveImage = 'remove';
+
+/// The user-visible name of a backdrop. In the ARB, like every other string.
+String backdropName(AppL10n t, String id) => switch (id) {
+      kBackdropAuto => t.backdropAuto,
+      'ink' => t.backdropInk,
+      'slate' => t.backdropSlate,
+      'forest' => t.backdropForest,
+      'sand' => t.backdropSand,
+      'linen' => t.backdropLinen,
+      _ => t.backdropImage,
+    };
 
 /// The read-only facts the About section reports.
 ///
@@ -166,6 +192,9 @@ List<SettingsSection> buildSettings(
   required AppThemeMode mode,
   required Locale locale,
   required SettingsInfo info,
+  /// M270 — the gallery's backdrop. Defaulted so every existing caller (and
+  /// every test that pins the other four sections) keeps working unchanged.
+  Backdrop backdrop = Backdrop.auto,
   /// False once the prototype's report-it-now affordance is retired
   /// (BugReport.enabled), and the whole section goes with it rather than
   /// leaving a header over nothing.
@@ -185,6 +214,61 @@ List<SettingsSection> buildSettings(
             ),
         ],
         footer: t.settingsAppearanceFooter,
+      ),
+      // M270 — BELOW Appearance, because it is a narrower version of the same
+      // idea: Appearance is the whole app, this is one screen of it, and a
+      // reader who has just chosen light or dark is exactly the reader who
+      // wants to know they can also choose what the gallery sits on.
+      SettingsSection(
+        id: kSecBackdrop,
+        header: t.settingsBackdrop,
+        rows: [
+          SettingsRow(
+            id: kBackdropAuto,
+            title: backdropName(t, kBackdropAuto),
+            kind: SettingsRowKind.check,
+            selected: backdrop.kind == BackdropKind.auto,
+          ),
+          for (final sw in kBackdropSwatches)
+            SettingsRow(
+              id: sw.id,
+              title: backdropName(t, sw.id),
+              kind: SettingsRowKind.check,
+              selected: backdrop.selectedId == sw.id,
+              // The swatch IS the value, which is why this row has a glyph
+              // where the Appearance and Language rows deliberately do not:
+              // a colour named "Slate" and not shown is a colour you have to
+              // pick to find out. iOS does the same in Calendar and Reminders.
+              symbol: 'circle.fill',
+              tint: sw.argb,
+            ),
+          // The picture, if there is one, sits with the colours because it is
+          // the same choice: what the gallery is painted with. Tapping it when
+          // it is already chosen re-opens the picker, which is what a row
+          // showing a file name is expected to do.
+          if (backdrop.kind == BackdropKind.image)
+            SettingsRow(
+              id: kBackdropImage,
+              title: backdropName(t, kBackdropImage),
+              detail: _fileName(backdrop.imagePath),
+              kind: SettingsRowKind.check,
+              selected: true,
+              symbol: 'photo',
+            ),
+          SettingsRow(
+            id: kRowChooseImage,
+            title: t.backdropChooseImage,
+            symbol: 'photo.on.rectangle',
+          ),
+          if (backdrop.kind == BackdropKind.image)
+            SettingsRow(
+              id: kRowRemoveImage,
+              title: t.backdropRemoveImage,
+              symbol: 'trash',
+              destructive: true,
+            ),
+        ],
+        footer: t.settingsBackdropFooter,
       ),
       SettingsSection(
         id: kSecLanguage,
@@ -252,3 +336,11 @@ List<SettingsSection> buildSettings(
 /// The wire form of [buildSettings], which is what the channel carries.
 List<Map<String, Object?>> settingsToMaps(List<SettingsSection> s) =>
     [for (final x in s) x.toMap()];
+
+/// The last path segment, for the picture row's detail. Not the whole path: a
+/// settings row is not wide enough for one and the name is the part a person
+/// recognises.
+String _fileName(String path) {
+  final i = path.lastIndexOf('/');
+  return i < 0 ? path : path.substring(i + 1);
+}

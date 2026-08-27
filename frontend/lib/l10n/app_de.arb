@@ -32,6 +32,54 @@
   "@settingsAppearanceFooter": {
     "description": "Fusszeile unter der Darstellung."
   },
+  "settingsBackdrop": "Hintergrund",
+  "@settingsBackdrop": {
+    "description": "Abschnittstitel: der Hintergrund der Galerie."
+  },
+  "settingsBackdropFooter": "Nur für die Galerie. Über einem Bild liegt ein Schleier.",
+  "@settingsBackdropFooter": {
+    "description": "Fusszeile unter dem Hintergrund: Geltungsbereich und der Schleier."
+  },
+  "backdropAuto": "Wie die Darstellung",
+  "@backdropAuto": {
+    "description": "Hintergrund-Auswahl: folgt hell/dunkel, der Standard."
+  },
+  "backdropInk": "Tinte",
+  "@backdropInk": {
+    "description": "Name der Hintergrundfarbe: fast schwarz, kuehl."
+  },
+  "backdropSlate": "Schiefer",
+  "@backdropSlate": {
+    "description": "Name der Hintergrundfarbe: blaugrau."
+  },
+  "backdropForest": "Tanne",
+  "@backdropForest": {
+    "description": "Name der Hintergrundfarbe: dunkles Gruen."
+  },
+  "backdropSand": "Sand",
+  "@backdropSand": {
+    "description": "Name der Hintergrundfarbe: warmes Papier."
+  },
+  "backdropLinen": "Leinen",
+  "@backdropLinen": {
+    "description": "Name der Hintergrundfarbe: fast weiss."
+  },
+  "backdropImage": "Eigenes Bild",
+  "@backdropImage": {
+    "description": "Zeile, die ein selbst gewaehltes Hintergrundbild traegt."
+  },
+  "backdropChooseImage": "Bild waehlen …",
+  "@backdropChooseImage": {
+    "description": "Oeffnet die Dateiauswahl fuer ein Hintergrundbild."
+  },
+  "backdropRemoveImage": "Bild entfernen",
+  "@backdropRemoveImage": {
+    "description": "Loescht das Hintergrundbild und geht zurueck zur Darstellung."
+  },
+  "backdropImageFailed": "Das Bild konnte nicht uebernommen werden.",
+  "@backdropImageFailed": {
+    "description": "Meldung, wenn das gewaehlte Bild nicht kopiert werden konnte."
+  },
   "settingsLanguage": "Sprache",
   "@settingsLanguage": {
     "description": "Abschnittstitel der Sprachwahl."

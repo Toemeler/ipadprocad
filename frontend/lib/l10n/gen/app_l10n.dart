@@ -133,6 +133,78 @@ abstract class AppL10n {
   /// **'„System“ folgt der Einstellung des iPads.'**
   String get settingsAppearanceFooter;
 
+  /// Abschnittstitel: der Hintergrund der Galerie.
+  ///
+  /// In de, this message translates to:
+  /// **'Hintergrund'**
+  String get settingsBackdrop;
+
+  /// Fusszeile unter dem Hintergrund: Geltungsbereich und der Schleier.
+  ///
+  /// In de, this message translates to:
+  /// **'Nur für die Galerie. Über einem Bild liegt ein Schleier.'**
+  String get settingsBackdropFooter;
+
+  /// Hintergrund-Auswahl: folgt hell/dunkel, der Standard.
+  ///
+  /// In de, this message translates to:
+  /// **'Wie die Darstellung'**
+  String get backdropAuto;
+
+  /// Name der Hintergrundfarbe: fast schwarz, kuehl.
+  ///
+  /// In de, this message translates to:
+  /// **'Tinte'**
+  String get backdropInk;
+
+  /// Name der Hintergrundfarbe: blaugrau.
+  ///
+  /// In de, this message translates to:
+  /// **'Schiefer'**
+  String get backdropSlate;
+
+  /// Name der Hintergrundfarbe: dunkles Gruen.
+  ///
+  /// In de, this message translates to:
+  /// **'Tanne'**
+  String get backdropForest;
+
+  /// Name der Hintergrundfarbe: warmes Papier.
+  ///
+  /// In de, this message translates to:
+  /// **'Sand'**
+  String get backdropSand;
+
+  /// Name der Hintergrundfarbe: fast weiss.
+  ///
+  /// In de, this message translates to:
+  /// **'Leinen'**
+  String get backdropLinen;
+
+  /// Zeile, die ein selbst gewaehltes Hintergrundbild traegt.
+  ///
+  /// In de, this message translates to:
+  /// **'Eigenes Bild'**
+  String get backdropImage;
+
+  /// Oeffnet die Dateiauswahl fuer ein Hintergrundbild.
+  ///
+  /// In de, this message translates to:
+  /// **'Bild waehlen …'**
+  String get backdropChooseImage;
+
+  /// Loescht das Hintergrundbild und geht zurueck zur Darstellung.
+  ///
+  /// In de, this message translates to:
+  /// **'Bild entfernen'**
+  String get backdropRemoveImage;
+
+  /// Meldung, wenn das gewaehlte Bild nicht kopiert werden konnte.
+  ///
+  /// In de, this message translates to:
+  /// **'Das Bild konnte nicht uebernommen werden.'**
+  String get backdropImageFailed;
+
   /// Abschnittstitel der Sprachwahl.
   ///
   /// In de, this message translates to:

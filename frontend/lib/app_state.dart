@@ -21,6 +21,7 @@ import 'asm_reps.dart';
 import 'asm_solver.dart';
 import 'asm_work_features.dart';
 import 'assembly.dart';
+import 'backdrop.dart';
 import 'quat.dart';
 import 'reality_assembly.dart';
 import 'constraints.dart';
@@ -1708,6 +1709,12 @@ class AppState extends ChangeNotifier {
   /// next to the logs, and reaching for the test-only accessor to do that
   /// would be a lie about who the API is for.
   Directory? get docsDir => _docsDir;
+
+  /// Where preferences live: settings.json and anything that belongs to it,
+  /// such as the gallery's backdrop picture (M270). Null until [init] has
+  /// resolved the documents directory. Dot-prefixed, so nothing in here is
+  /// ever mistaken for a document — see [_cacheRoot].
+  Directory? get settingsDir => _docsDir == null ? null : _cacheRoot;
   List<SavedSketchInfo> saved = [];
   String backendInfo = '';
   bool backendReal = false;
@@ -1747,6 +1754,11 @@ class AppState extends ChangeNotifier {
     // iPad's own setting, which is also the default, so the worst case is one
     // frame in the system scheme before an explicit override is adopted.
     T.attachStore(ThemeStore(_cacheRoot));
+    // M270 — and so is the gallery's backdrop, in the same file for the same
+    // reason. It is read AFTER the appearance because "match appearance" is
+    // its default, and adopting it before there is an appearance to match
+    // would show one frame of the wrong ground.
+    Backdrops.attachStore(BackdropStore(_cacheRoot));
     final probe = Log.step(
         'state', 'Engine.create (backend probe)', () => Engine.create());
     backendReal = probe.isRealBackend;

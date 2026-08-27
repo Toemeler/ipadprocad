@@ -14,6 +14,7 @@ import 'ffi/perf_hook.dart';
 import 'package:reality_view/perf_hook.dart';
 
 import 'app_state.dart';
+import 'backdrop.dart';
 import 'l10n/l.dart';
 import 'theme.dart';
 import 'bug_capture.dart';
@@ -195,7 +196,14 @@ class PrototypeApp extends StatelessWidget {
       valueListenable: L.locale,
       builder: (context, locale, _) => ValueListenableBuilder<Palette>(
         valueListenable: T.scheme,
-        builder: (context, palette, _) => _app(locale, palette),
+        // M270 — and the gallery's backdrop, on the same terms. It changes
+        // only one screen, but that screen reads it at PAINT time (see
+        // galleryPalette), so the notification has to reach a rebuild the same
+        // way the palette's does.
+        builder: (context, palette, _) => ValueListenableBuilder<Backdrop>(
+          valueListenable: Backdrops.current,
+          builder: (context, _, __) => _app(locale, palette),
+        ),
       ),
     );
   }

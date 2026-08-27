@@ -17,12 +17,14 @@
 // test suite and a desktop run must behave, and `flutter analyze` must never
 // see a MissingPluginException.
 import 'dart:async' show unawaited;
-import 'dart:io' show Platform;
+import 'dart:io' show File, Platform;
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:native_menu/native_menu.dart';
 
 import '../app_state.dart';
+import '../backdrop.dart';
 import '../ffi/occt_engine.dart';
 import '../l10n/l.dart';
 import '../log.dart';
@@ -111,6 +113,7 @@ class SettingsSheet {
         mode: T.mode,
         locale: L.locale.value,
         info: settingsInfo(_app),
+        backdrop: Backdrops.current.value,
         diagnostics: BugReport.enabled,
       );
 
@@ -139,6 +142,16 @@ class SettingsSheet {
         final m = AppThemeMode.byId(row);
         if (m != null) T.set(m);
         break;
+      case kSecBackdrop:
+        // The picker is a screen of its own on top of the sheet, so it owns
+        // what happens next and re-pushes when it is done — exactly like the
+        // diagnostic commands below.
+        if (row == kRowChooseImage || row == kBackdropImage) {
+          unawaited(_pickImage());
+          return;
+        }
+        _backdrop(row);
+        break;
       case kSecLanguage:
         L.set(Locale(row)); // ignores anything not shipped; see L.set
         break;
@@ -154,6 +167,63 @@ class SettingsSheet {
     }
     // The state changed, so the screen has to say so.
     unawaited(_push());
+  }
+
+  /// A backdrop row that is not the picker: a colour, "match appearance", or
+  /// throwing the picture away.
+  void _backdrop(String row) {
+    final dir = _app.settingsDir;
+    if (row == kRowRemoveImage) {
+      if (dir != null) {
+        Backdrops.clear(dir);
+      } else {
+        Backdrops.set(Backdrop.auto);
+      }
+      return;
+    }
+    final b = Backdrop.byId(row);
+    if (b == null) return; // a row this build does not offer; leave the choice
+    // Choosing a colour retires the picture. Keeping the file against a change
+    // of mind sounds kind and is not: it is an invisible megabyte the user has
+    // no way to find, let alone delete.
+    if (dir != null) {
+      Backdrops.clear(dir);
+    }
+    Backdrops.set(b);
+  }
+
+  /// Opens the file picker and adopts what comes back.
+  ///
+  /// The SHEET STAYS UP. The picker is presented over it and returns to it,
+  /// which is what makes the choice feel like part of the setting rather than
+  /// a detour — and the re-push at the end is what moves the tick onto the new
+  /// picture row without the user having to reopen anything.
+  Future<void> _pickImage() async {
+    try {
+      final res = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        allowMultiple: false,
+      );
+      final path = res?.files.single.path;
+      if (path == null || path.isEmpty) return; // cancelled; nothing to say
+      final dir = _app.settingsDir;
+      if (dir == null) {
+        Log.w('backdrop', 'no place to keep the picture yet');
+        return;
+      }
+      // A toast rather than an alert: the sheet is up and a modal on top of a
+      // modal to report a copy that did not happen is more ceremony than the
+      // failure deserves. The row simply does not move, and the line says why.
+      if (!Backdrops.adoptImage(File(path), dir)) {
+        _app.toast(L.current.backdropImageFailed);
+      }
+    } catch (e) {
+      Log.w('backdrop', 'picking a picture failed: $e');
+    } finally {
+      // Whatever happened — adopted, cancelled, failed — the sheet must show
+      // the truth of what is set now.
+      if (isOpen) unawaited(_push());
+    }
   }
 
   void _diagnostic(String row) {
@@ -219,6 +289,7 @@ class _FallbackDialogState extends State<_FallbackDialog> {
       mode: T.mode,
       locale: L.locale.value,
       info: settingsInfo(widget.app),
+      backdrop: Backdrops.current.value,
       diagnostics: BugReport.enabled,
     );
     return AlertDialog(
@@ -243,6 +314,16 @@ class _FallbackDialogState extends State<_FallbackDialog> {
                     dense: true,
                     contentPadding: EdgeInsets.zero,
                     title: Text(r.title, style: ts(13, T.text)),
+                    leading: r.tint == null
+                        ? null
+                        : Container(
+                            width: 16,
+                            height: 16,
+                            decoration: BoxDecoration(
+                                color: Color(r.tint!),
+                                shape: BoxShape.circle,
+                                border:
+                                    Border.all(color: T.sep, width: 0.5))),
                     trailing: r.kind == SettingsRowKind.value
                         ? Text(r.detail ?? '', style: ts(11.5, T.dim))
                         : (r.selected
@@ -271,6 +352,21 @@ class _FallbackDialogState extends State<_FallbackDialog> {
       case kSecAppearance:
         final m = AppThemeMode.byId(row);
         if (m != null) T.set(m);
+        break;
+      case kSecBackdrop:
+        // The colours work here; the picker does not, because off iOS there is
+        // no sheet for it to come back to. That is the same bargain every
+        // fallback in this app makes: every setting REACHABLE, none of them
+        // pretending to be the native screen.
+        final dir = widget.app.settingsDir;
+        if (row == kRowRemoveImage) {
+          dir == null ? Backdrops.set(Backdrop.auto) : Backdrops.clear(dir);
+          break;
+        }
+        final b = Backdrop.byId(row);
+        if (b == null) return;
+        if (dir != null) Backdrops.clear(dir);
+        Backdrops.set(b);
         break;
       case kSecLanguage:
         L.set(Locale(row));

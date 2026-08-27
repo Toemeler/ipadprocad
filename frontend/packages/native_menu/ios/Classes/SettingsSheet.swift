@@ -33,6 +33,10 @@ struct SettingsRow {
     let title: String
     let detail: String?
     let symbol: String?
+    /// M270 — the colour `symbol` is drawn in, when Dart sends one. Only the
+    /// backdrop swatches do: there the colour IS the value, so it has to be on
+    /// the row. Everywhere else a glyph is chrome and keeps the table's tint.
+    let tint: UIColor?
     let kind: String
     let selected: Bool
     let destructive: Bool
@@ -133,7 +137,11 @@ final class SettingsSheetController: UITableViewController {
         content.text = row.title
         if row.kind == "value" { content.secondaryText = row.detail }
         if let symbol = row.symbol, let image = UIImage(systemName: symbol) {
-            content.image = image
+            // .alwaysOriginal for a tinted glyph, or the table re-tints every
+            // swatch to its own accent and the five colours come out identical.
+            content.image = row.tint.map {
+                image.withTintColor($0, renderingMode: .alwaysOriginal)
+            } ?? image
         }
         if row.destructive {
             content.textProperties.color = .systemRed
@@ -197,11 +205,20 @@ final class SettingsSheet {
             let rows = (s["rows"] as? [[String: Any]] ?? []).compactMap { r -> SettingsRow? in
                 guard let rid = r["id"] as? String,
                       let title = r["title"] as? String else { return nil }
+                let tint = (r["tint"] as? NSNumber).map { n -> UIColor in
+                    let v = n.uint32Value
+                    return UIColor(
+                        red: CGFloat((v >> 16) & 0xFF) / 255.0,
+                        green: CGFloat((v >> 8) & 0xFF) / 255.0,
+                        blue: CGFloat(v & 0xFF) / 255.0,
+                        alpha: CGFloat((v >> 24) & 0xFF) / 255.0)
+                }
                 return SettingsRow(
                     id: rid,
                     title: title,
                     detail: r["detail"] as? String,
                     symbol: r["symbol"] as? String,
+                    tint: tint,
                     kind: r["kind"] as? String ?? "action",
                     selected: (r["selected"] as? NSNumber)?.boolValue ?? false,
                     destructive: (r["destructive"] as? NSNumber)?.boolValue ?? false)
