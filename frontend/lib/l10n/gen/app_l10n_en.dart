@@ -3295,6 +3295,12 @@ class AppL10nEn extends AppL10n {
   String get panelComponent => 'Component';
 
   @override
+  String get viewShadedEdges => 'Shaded + Edges';
+
+  @override
+  String get viewRendered => 'Rendered';
+
+  @override
   String get panelAppearance => 'Appearance';
 
   @override

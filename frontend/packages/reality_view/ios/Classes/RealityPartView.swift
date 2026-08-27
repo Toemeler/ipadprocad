@@ -142,6 +142,31 @@ final class PartRenderer: NSObject {
     private let cameraEntity = Entity()
     private let headlight = DirectionalLight()
     private let fillLight = DirectionalLight()
+    /// M273 — the RENDERED view's two extra lights, both dark in the working
+    /// view.
+    ///
+    /// [sunLight] is the one that CASTS. It is fixed in WORLD space, unlike
+    /// the camera-locked headlight, and that is the point: a shadow from a
+    /// light sitting at the eye falls exactly behind the object and is
+    /// invisible. A sun from above and to one side is what puts the model on
+    /// the floor.
+    ///
+    /// [rimLight] comes from behind and above, so a body separates from the
+    /// background now that there is no silhouette line doing that job.
+    private let sunLight = DirectionalLight()
+    private let rimLight = DirectionalLight()
+
+    /// M273 — is the RENDERED view on? Latched from the scene payload at the
+    /// top of setScene, like builtStyle, so every builder below it agrees.
+    private var rendered = false
+
+    /// The ground the rendered view's shadows fall on.
+    ///
+    /// A shadow needs a receiver, and a CAD scene has no floor. This is one:
+    /// a large, dim, PBR quad parked just under the model, sized and placed
+    /// from the scene radius on every rebuild. Absent entirely in the working
+    /// view — a floor under a part you are modelling is in the way.
+    private var groundEntity: ModelEntity?
 
     // Per-solid cached geometry (positions/normals/triangle→face) so a hover
     // (setOverlays) can rebuild just the highlighted-face submesh without the
@@ -270,6 +295,27 @@ final class PartRenderer: NSObject {
         fillLight.transform = Transform(matrix: Self.lookAt(
             eye: SIMD3<Float>(-3, 6, -4), target: .zero, up: SIMD3<Float>(0, 1, 0)))
         root.addChild(fillLight)
+
+        // M273 — the rendered rig, dark until the rendered view asks for it.
+        // Built here rather than on demand so a mode switch is a property
+        // write and not a scene-graph edit in the middle of a rebuild.
+        //
+        // THE WORLD IS Z-UP. The payload's positions go to RealityKit
+        // unswizzled (see SolidGeom.init), so the app's Z is the model's up
+        // and these eyes are written in the MODEL's frame, not in RealityKit's
+        // Y-up idiom. The `up` vectors are +Z for the same reason. The two
+        // lights above predate this note and are aimed the other way; they are
+        // a fill and a headlight, so their direction barely reads, and
+        // re-aiming them would change the working view this milestone must not
+        // touch.
+        sunLight.light.intensity = 0
+        sunLight.transform = Transform(matrix: Self.lookAt(
+            eye: SIMD3<Float>(6, -8, 14), target: .zero, up: SIMD3<Float>(0, 0, 1)))
+        root.addChild(sunLight)
+        rimLight.light.intensity = 0
+        rimLight.transform = Transform(matrix: Self.lookAt(
+            eye: SIMD3<Float>(-8, 10, 6), target: .zero, up: SIMD3<Float>(0, 0, 1)))
+        root.addChild(rimLight)
 
         applyCameraComponent(dist: 400, near: 1, far: 800)
         root.addChild(cameraEntity)
@@ -543,6 +589,10 @@ final class PartRenderer: NSObject {
 
     func setScene(_ a: [String: Any]) {
         sceneRadius = 15 // origin planes span ±10 mm (diagonal ≈ 14.1)
+        // M273 — latched here, with builtStyle and for the same reason: every
+        // builder below reads it, so a scene comes out in ONE mode rather than
+        // in whatever each call site recomputed.
+        rendered = (a["render"] as? NSNumber)?.boolValue ?? false
         // Latch the stroke for the whole rebuild BEFORE any of it runs: every
         // builder below reads builtStyle, so a scene comes out at one line
         // weight and one facing rather than at whatever each call site
@@ -574,6 +624,100 @@ final class PartRenderer: NSObject {
             rebuildHighlight(from: a["highlight"] as? [String: Any])
         }
         RvPerf.time("rv.native.placeCamera") { placeCamera() }
+        // AFTER the builders, both of them: sceneRadius is accumulated by
+        // rebuildSolids and finished by placeCamera, and BOTH the ground's
+        // size and the shadow map's maximumDistance are derived from it.
+        // Called at the top instead, a 400 mm frame would get a shadow map
+        // sized for the 15 mm origin planes.
+        applyLighting()
+        applyGround()
+    }
+
+    // ---- M273: the rendered view -------------------------------------------
+
+    /// The light rig for the current mode.
+    ///
+    /// Working view: a bright camera-locked key plus a dim fill, no shadows —
+    /// the edges carry the form, and a shadow under a part you are modelling
+    /// is one more thing between you and it.
+    ///
+    /// Rendered: four lights. The headlight DROPS rather than going out — it
+    /// is what keeps a face turned toward you readable at any camera angle —
+    /// the fill stays, the rim comes on, and the fixed sun does the work: it
+    /// is the only one with a shadow, because two shadow maps over one scene
+    /// give a body two shadows and the eye reads that as a mistake before it
+    /// reads it as lighting.
+    ///
+    /// `maximumDistance` is tied to the scene radius. A shadow map spread over
+    /// a fixed huge volume would give a 10 mm part a shadow four texels wide.
+    private func applyLighting() {
+        headlight.light.intensity = rendered ? 620 : 1450
+        fillLight.light.intensity = rendered ? 380 : 480
+        rimLight.light.intensity = rendered ? 380 : 0
+        sunLight.light.intensity = rendered ? 950 : 0
+        sunLight.shadow = rendered
+            ? DirectionalLightComponent.Shadow(
+                maximumDistance: max(0.5, sceneRadius * 3),
+                depthBias: 2.0)
+            : nil
+    }
+
+    /// The floor, in the rendered view only.
+    ///
+    /// Sized from the scene rather than fixed: the same renderer draws a 10 mm
+    /// bracket and a 400 mm frame, and a floor that fits one is either invisible
+    /// or the whole screen for the other. Parked slightly BELOW the lowest
+    /// point so it never z-fights a body resting on the origin plane.
+    private func applyGround() {
+        guard rendered else {
+            groundEntity?.removeFromParent()
+            groundEntity = nil
+            return
+        }
+        let side = max(2, sceneRadius * 6)
+        // Just under the scene rather than well under it: a floor far below
+        // the model gives a shadow so spread out and so far from the body that
+        // it stops reading as contact and starts reading as a stain.
+        let drop = -sceneRadius
+        if let g = groundEntity {
+            g.position = SIMD3<Float>(0, 0, drop)
+            g.scale = SIMD3<Float>(repeating: side / 100)
+            return
+        }
+        var m = PhysicallyBasedMaterial()
+        // Darker than the viewport ground and fully rough: the floor is there
+        // to CATCH a shadow, and anything it does beyond that competes with
+        // the model for attention.
+        m.baseColor = .init(tint: Colors.rgb(0x2A, 0x2E, 0x33))
+        m.roughness = .init(floatLiteral: 1.0)
+        m.metallic = .init(floatLiteral: 0.0)
+        // 100 x 100 once, then scaled: MeshResource.generatePlane allocates a
+        // mesh, and re-generating one every scene rebuild for a floor whose
+        // only change is its size is an upload nobody asked for.
+        let mesh = MeshResource.generatePlane(width: 100, depth: 100)
+        let e = ModelEntity(mesh: mesh, materials: [m])
+        // generatePlane lies in RealityKit's XZ plane with its normal along
+        // +Y. The world here is Z-UP (see commonInit), so it has to be turned
+        // a quarter turn about X to lie in XY and face +Z — otherwise the
+        // "floor" stands on edge beside the model.
+        e.orientation = simd_quatf(angle: .pi / 2, axis: SIMD3<Float>(1, 0, 0))
+        e.position = SIMD3<Float>(0, 0, drop)
+        e.scale = SIMD3<Float>(repeating: side / 100)
+        root.addChild(e)
+        groundEntity = e
+    }
+
+    /// The material a solid gets, for the current mode and tint.
+    ///
+    /// One place, because three call sites need the same answer: the mesh
+    /// build in rebuildSolids, the mesh-free recolour in applyTint, and a mode
+    /// switch. Two of those used to decide it themselves, which is how M99's
+    /// silently-ignored material-only payload happened.
+    private func solidMaterial(tint: Int, preview: Bool) -> RealityKit.Material {
+        if preview { return Materials.preview() }
+        if rendered { return Materials.rendered(Payload.color(tint) ?? Colors.steel) }
+        if let c = Payload.color(tint) { return Materials.tinted(c) }
+        return Materials.steel()
     }
 
     // Light-touch: hover tints + visibility + face highlight, no mesh upload.
@@ -688,21 +832,20 @@ final class PartRenderer: NSObject {
             guard let geom = SolidGeom(payload: s) else { continue }
             solidRev[id] = rev
             solidCache[id] = geom
-            // if/else, not a ternary: the two branches are DIFFERENT concrete
-            // types (PhysicallyBasedMaterial vs SimpleMaterial) and Swift
-            // rejects a ternary whose arms mismatch even with an existential
-            // annotation.
-            let material: RealityKit.Material
-            if (s["material"] as? NSNumber)?.intValue == 1 {
-                material = Materials.preview()
-            } else if let c = Payload.color(tint) {
-                material = Materials.tinted(c)
-            } else {
-                material = Materials.steel()
-            }
+            // M273 — one place decides the material now (solidMaterial), for
+            // the reason the note on applyTint gives: three call sites needed
+            // the same answer and two of them used to work it out themselves.
+            let material = solidMaterial(
+                tint: tint,
+                preview: (s["material"] as? NSNumber)?.intValue == 1)
             sceneRadius = max(sceneRadius, geom.boundingRadius + simd_length(at))
             let shaded = geom.shadedEntity(material: material)
-            let edges = geom.edgeEntity(style: builtStyle)
+            // M273 — NO EDGE OVERLAY in the rendered view. Not built rather
+            // than built and hidden: the edge tubes are real geometry (one
+            // swept tube per B-Rep edge, thousands on a filleted part) and
+            // uploading them to leave them invisible is the whole cost of the
+            // thing for none of the benefit.
+            let edges = rendered ? nil : geom.edgeEntity(style: builtStyle)
             let holder = Entity()
             holder.position = at
             holder.orientation = rot
@@ -759,11 +902,7 @@ final class PartRenderer: NSObject {
         if (solidTint[id] ?? 0) == tint { return }
         solidTint[id] = tint
         guard let me = solidShaded[id] else { return }
-        if let c = Payload.color(tint) {
-            me.model?.materials = [Materials.tinted(c)]
-        } else {
-            me.model?.materials = [Materials.steel()]
-        }
+        me.model?.materials = [solidMaterial(tint: tint, preview: false)]
     }
 
     private func rebuildPlanes(_ planes: [[String: Any]]) {

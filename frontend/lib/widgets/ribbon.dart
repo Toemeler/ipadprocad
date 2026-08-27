@@ -11,6 +11,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:native_menu/native_menu.dart' show NativeMenu, NativeMenuItem;
 
 import '../app_state.dart';
+import '../display_mode.dart';
 import '../materials.dart';
 import '../l10n/l.dart';
 import '../log.dart';
@@ -1002,7 +1003,25 @@ class _RibbonState extends State<Ribbon> {
         _panel(
           label: t.panelAppearance,
           arrow: false,
-          child: _MaterialChip(app: app, onOpen: toggleOver),
+          // IntrinsicWidth, and it is not decoration: the ribbon is a
+          // horizontal scrollable, so this Column is laid out with an
+          // UNBOUNDED width and `stretch` inside that is an infinite
+          // constraint, not a layout. Intrinsic gives the pair the width of
+          // the WIDER chip, which is also what makes them line up.
+          child: IntrinsicWidth(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _MaterialChip(app: app, onOpen: toggleOver),
+                const SizedBox(height: 4),
+                // M273 — RIGHT UNDER the material, as asked, and in the same
+                // panel because they are the same question asked twice: what
+                // the body looks like, and how the body is drawn.
+                _DisplayModeChip(app: app, onOpen: toggleOver),
+              ],
+            ),
+          ),
         ),
       ]),
     );
@@ -1332,7 +1351,25 @@ class _RibbonState extends State<Ribbon> {
         _panel(
           label: t.panelAppearance,
           arrow: false,
-          child: _MaterialChip(app: app, onOpen: toggleOver),
+          // IntrinsicWidth, and it is not decoration: the ribbon is a
+          // horizontal scrollable, so this Column is laid out with an
+          // UNBOUNDED width and `stretch` inside that is an infinite
+          // constraint, not a layout. Intrinsic gives the pair the width of
+          // the WIDER chip, which is also what makes them line up.
+          child: IntrinsicWidth(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _MaterialChip(app: app, onOpen: toggleOver),
+                const SizedBox(height: 4),
+                // M273 — RIGHT UNDER the material, as asked, and in the same
+                // panel because they are the same question asked twice: what
+                // the body looks like, and how the body is drawn.
+                _DisplayModeChip(app: app, onOpen: toggleOver),
+              ],
+            ),
+          ),
         ),
       ]),
     );
@@ -2404,7 +2441,16 @@ class _OverRowState extends State<_OverRow> {
                 : Border(bottom: BorderSide(color: T.hover6)),
           ),
           child: Row(mainAxisSize: MainAxisSize.min, children: [
-            it.tint == null ? svg(it.icon, 18) : _Swatch(argb: it.tint!),
+            // M273 — a row may have neither glyph nor swatch. The display
+            // modes are a two-item choice list and iOS does not put icons in
+            // one; the gap keeps their labels on the same left edge as every
+            // other menu's, so the two kinds of menu still read as one family.
+            if (it.tint != null)
+              _Swatch(argb: it.tint!)
+            else if (it.icon.isNotEmpty)
+              svg(it.icon, 18)
+            else
+              const SizedBox(width: 18),
             const SizedBox(width: 10),
             // Flexible + ellipsis: the row must not be able to overflow its
             // menu no matter how wide the platform renders the label.
@@ -2653,17 +2699,83 @@ class _MaterialChipState extends State<_MaterialChip> {
         Text('▼', style: ts(8, T.dim)),
       ]),
     );
-    return Center(
-      child: MouseRegion(
-        cursor: on ? SystemMouseCursors.click : MouseCursor.defer,
-        onEnter: (_) => setState(() => _h = true),
-        onExit: (_) => setState(() => _h = false),
-        child: Builder(
-          builder: (ctx) => GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: on ? () => widget.onOpen('ov-material', ctx, _items(t)) : null,
-            child: chip,
-          ),
+    return MouseRegion(
+      cursor: on ? SystemMouseCursors.click : MouseCursor.defer,
+      onEnter: (_) => setState(() => _h = true),
+      onExit: (_) => setState(() => _h = false),
+      child: Builder(
+        builder: (ctx) => GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: on ? () => widget.onOpen('ov-material', ctx, _items(t)) : null,
+          child: chip,
+        ),
+      ),
+    );
+  }
+}
+
+/// M273 — the ribbon's display-mode control: the same chip as the material's,
+/// one row down.
+///
+/// Deliberately the same shape rather than a pair of toggle buttons. Two modes
+/// today, and Inventor has six; a chip that names the current one grows to a
+/// third without the panel changing shape, and — more to the point — it SAYS
+/// which view you are in, which two buttons only do by which of them is lit.
+class _DisplayModeChip extends StatefulWidget {
+  final AppState app;
+  final void Function(String id, BuildContext anchor, List<OverItem> items)
+      onOpen;
+  const _DisplayModeChip({required this.app, required this.onOpen});
+
+  @override
+  State<_DisplayModeChip> createState() => _DisplayModeChipState();
+}
+
+class _DisplayModeChipState extends State<_DisplayModeChip> {
+  bool _h = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = L.of(context);
+    final app = widget.app;
+    final on = app.canSetDisplayMode;
+    final cur = app.displayMode;
+    final chip = Container(
+      padding: const EdgeInsets.fromLTRB(8, 6, 6, 6),
+      decoration: BoxDecoration(
+        color: (_h && on) ? T.hover : T.field,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: T.sep),
+      ),
+      // MainAxisSize.min and a FLOOR rather than a fixed width, for the same
+      // two reasons _MaterialChip gives: the ribbon is a horizontal scrollable,
+      // and M235 exists because fixed label boxes wrap or clip.
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        ConstrainedBox(
+          constraints: const BoxConstraints(minWidth: 112),
+          child: Text(displayModeName(t, cur),
+              softWrap: false, style: ts(12, on ? T.text : T.dim)),
+        ),
+        const SizedBox(width: 6),
+        Text('▼', style: ts(8, T.dim)),
+      ]),
+    );
+    return MouseRegion(
+      cursor: on ? SystemMouseCursors.click : MouseCursor.defer,
+      onEnter: (_) => setState(() => _h = true),
+      onExit: (_) => setState(() => _h = false),
+      child: Builder(
+        builder: (ctx) => GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: on
+              ? () => widget.onOpen('ov-view', ctx, [
+                    for (final m in DisplayMode.values)
+                      OverItem('', displayModeName(t, m),
+                          () => app.setDisplayMode(m),
+                          active: m == cur),
+                  ])
+              : null,
+          child: chip,
         ),
       ),
     );

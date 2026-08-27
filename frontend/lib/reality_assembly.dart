@@ -116,6 +116,8 @@ Map<String, dynamic> buildAssemblyScenePayload(
             includeGeometry: knownRevs?[id] != identityHashCode(s.mesh),
           ),
       ],
+      // M273 — see buildScenePayload.
+      'render': a.displayMode.isRendered,
       'planes': assemblyPlanePayloads(a),
       'axes': assemblyAxisPayloads(a),
       'cp': {'visible': a.vis['cp'] == true, 'hot': false},
@@ -214,6 +216,15 @@ String assemblySceneSignature(AssemblyModel a) {
   final sb = StringBuffer()
     ..write('gen:')
     ..write(a.gen)
+    // M273 — a mode switch rebuilds every material and adds or removes the
+    // whole edge overlay: the heaviest rebuild there is, and one no light push
+    // could express.
+    //
+    // An APPEARANCE needs no line here, unlike the part's: an assembly's light
+    // push already carries a per-component tint (buildAssemblyOverlaysPayload)
+    // because a selected component has always had to recolour on a drag.
+    ..write(';view:')
+    ..write(a.displayMode.id)
     ..write(';vis:');
   for (final k in const ['yz', 'xz', 'xy', 'x', 'y', 'z', 'cp']) {
     sb.write(a.vis[k] == true ? '1' : '0');

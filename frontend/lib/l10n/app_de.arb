@@ -2648,6 +2648,14 @@
   "@panelComponent": {
     "description": "Ribbon-Gruppe der Baugruppe. Inventor DE: \"Komponente\"."
   },
+  "viewShadedEdges": "Schattiert + Kanten",
+  "@viewShadedEdges": {
+    "description": "Anzeigemodus: matte Flaechen mit allen B-Rep-Kanten darueber. Der Arbeitsmodus. Inventor DE: \"Schattiert mit Kanten\"."
+  },
+  "viewRendered": "Gerendert",
+  "@viewRendered": {
+    "description": "Anzeigemodus: PBR-Materialien, Licht mit Schatten, keine Kanten. Bewusst nicht \"Raytracing\" — RealityKit rastert."
+  },
   "panelAppearance": "Aussehen",
   "@panelAppearance": {
     "description": "Ribbon-Gruppe: die Farbe eines Koerpers oder einer Komponente. Inventor DE: \"Aussehen\"."

@@ -141,6 +141,13 @@ final class RealityThumbRenderer: NSObject {
         // move — which never comes, because there is exactly one frame.
         // Reversed, the outlines are right the first time.
         renderer.setCamera(camera)
+        // M273 — the still stays in the WORKING VIEW whatever the document is
+        // set to, and that is a decision rather than an omission. Two reasons,
+        // and the second is the one that settles it: a card identifies a part,
+        // and edges identify one better than a beauty render does; and the
+        // rendered view puts a FLOOR under the model to catch its shadow,
+        // which on a still with M269's transparent ground would come out as a
+        // dark slab filling the card.
         renderer.setScene(scene)
 
         RealityThumbRenderer.afterFrames(RealityThumbRenderer.warmupFrames) {

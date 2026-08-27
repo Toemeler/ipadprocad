@@ -295,6 +295,33 @@ enum Materials {
         return SimpleMaterial(color: color, roughness: 0.9, isMetallic: false)
     }
 
+    /// M273 — the RENDERED view's surface.
+    ///
+    /// PhysicallyBasedMaterial rather than SimpleMaterial, and the difference
+    /// is not cosmetic: PBR is the only one of the two that RECEIVES shadows
+    /// and answers to a specular response, which is the whole of what makes
+    /// the rendered mode a different picture rather than a slightly shinier
+    /// version of the working one.
+    ///
+    /// Metallic is deliberately LOW (0.15) even for the metal appearances. A
+    /// truly metallic surface takes essentially all of its colour from what it
+    /// reflects, and a .nonAR scene has no image-based lighting to reflect —
+    /// it would render near-black under three directional lights, which is the
+    /// exact trap the note on `steel()` above describes. A trace of metallic
+    /// gives the highlight its tint without staking the whole surface on an
+    /// environment that is not there.
+    static func rendered(_ color: UIColor) -> RealityKit.Material {
+        var m = PhysicallyBasedMaterial()
+        m.baseColor = .init(tint: color)
+        m.metallic = .init(floatLiteral: 0.15)
+        // Lower than the working view's 0.9: a matte surface is right when
+        // edges carry the form, and wrong when the shading has to carry it
+        // alone. 0.45 is a satin — enough of a highlight to read the curvature
+        // of a fillet, not so much that a flat face becomes a mirror.
+        m.roughness = .init(floatLiteral: 0.45)
+        return m
+    }
+
     /// Unlit colour whose ALPHA comes from the ribbon ramp, sampled across
     /// the strip via its cross-width UV. That is what feathers the outline
     /// edges. Falls back to a hard unlit colour if the texture is missing, so

@@ -827,6 +827,10 @@ Map<String, dynamic> buildScenePayload(AppState app, PartModel p,
       // part hides it, exactly as the CPU painter's shared occluder does.
       ..._inPlaceContextPayloads(app, knownRevs: knownRevs),
     ],
+    // M273 — the RENDERED view: PBR materials, lights that cast shadows, no
+    // edge overlay. One boolean, because it is one decision; every difference
+    // it makes is the renderer's own.
+    'render': p.displayMode.isRendered,
     'planes': _planePayloads(app, p, hover: hover),
     'axes': _axisPayloads(p, hover: hover),
     'cp': {'visible': p.vis['cp'] == true, 'hot': hover == 'cp'},
@@ -1049,6 +1053,20 @@ String sceneSignature(AppState app, PartModel p) {
     ..write(app.selectedBody ?? '')
     ..write(';hbrow:')
     ..write(app.browserHoverBody ?? '')
+    // M272 — an APPEARANCE is a tint too, and the part's light push carries no
+    // solid tints at all (see buildOverlaysPayload — only the assembly's
+    // does). Without this a body painted brass would keep its old colour until
+    // something else happened to move the signature. The same lesson as the
+    // two lines above, one state later again.
+    ..write(';mat:')
+    ..write([
+      for (final e in (p.bodyMaterials.keys.toList()..sort()))
+        '$e=${p.bodyMaterials[e]}'
+    ].join(','))
+    // M273 — the display mode changes every material AND whether the edge
+    // overlay exists, so it is the heaviest rebuild there is.
+    ..write(';view:')
+    ..write(p.displayMode.id)
     ..write(';edit:')
     ..write(app.inEditMode ? (app.activeChild?.name ?? '?') : '')
     ..write(';sk:');

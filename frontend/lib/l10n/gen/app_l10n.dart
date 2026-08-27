@@ -5551,6 +5551,18 @@ abstract class AppL10n {
   /// **'Komponente'**
   String get panelComponent;
 
+  /// Anzeigemodus: matte Flaechen mit allen B-Rep-Kanten darueber. Der Arbeitsmodus. Inventor DE: "Schattiert mit Kanten".
+  ///
+  /// In de, this message translates to:
+  /// **'Schattiert + Kanten'**
+  String get viewShadedEdges;
+
+  /// Anzeigemodus: PBR-Materialien, Licht mit Schatten, keine Kanten. Bewusst nicht "Raytracing" — RealityKit rastert.
+  ///
+  /// In de, this message translates to:
+  /// **'Gerendert'**
+  String get viewRendered;
+
   /// Ribbon-Gruppe: die Farbe eines Koerpers oder einer Komponente. Inventor DE: "Aussehen".
   ///
   /// In de, this message translates to:

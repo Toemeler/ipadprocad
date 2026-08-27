@@ -26,6 +26,7 @@ import 'quat.dart';
 import 'reality_assembly.dart';
 import 'constraints.dart';
 import 'diag.dart';
+import 'display_mode.dart';
 import 'doc_file.dart';
 import 'doc_ref.dart';
 import 'doc_store.dart';
@@ -4223,7 +4224,8 @@ class AppState extends ChangeNotifier {
       final canvas = Canvas(rec, const Rect.fromLTWH(0, 0, w, h));
       // No background fill, for the reason above: the still is the part, and
       // the card supplies the ground.
-      paintPartSolids(canvas, Cam3(cam, size), solids);
+      paintPartSolids(canvas, Cam3(cam, size), solids,
+          materialOf: (s) => materialColorOfSolid(p, s));
       final img = await rec.endRecording().toImage(w.toInt(), h.toInt());
       final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
       if (bytes != null) {
@@ -13689,6 +13691,44 @@ class AppState extends ChangeNotifier {
     m == null ? p.bodyMaterials.remove(body) : p.bodyMaterials[body] = m;
     p.dirty = true;
     Log.i('part', 'body "$body" appearance = ${m ?? kMaterialSteel}');
+    if (curTab != null) savePart(curTab!);
+    notifyListeners();
+  }
+
+  // ---- M273: how the model is drawn ----
+
+  /// The display mode of whatever document is open, or the working view.
+  DisplayMode get displayMode =>
+      currentAssembly?.displayMode ??
+      currentPart?.displayMode ??
+      DisplayMode.fallback;
+
+  /// Is there a 3D document to switch? A sketch has no display mode: it is
+  /// lines on a plane, and there is nothing to light.
+  bool get canSetDisplayMode =>
+      currentAssembly != null || (currentPart != null && activeChild == null);
+
+  /// Switches, and remembers it in the document.
+  ///
+  /// Saved rather than kept in memory, and undo does not take it, for the same
+  /// two reasons M272's appearance is not on the timeline: it changes nothing
+  /// the model is built from, and a view you have to re-choose on every open
+  /// is a view nobody uses twice.
+  void setDisplayMode(DisplayMode m) {
+    final a = currentAssembly;
+    if (a != null) {
+      if (a.displayMode == m) return;
+      a.displayMode = m;
+      Log.i('asm', 'display mode = ${m.id}');
+      if (curTab != null) saveAssembly(curTab!);
+      notifyListeners();
+      return;
+    }
+    final p = currentPart;
+    if (p == null || p.displayMode == m) return;
+    p.displayMode = m;
+    p.dirty = true;
+    Log.i('part', 'display mode = ${m.id}');
     if (curTab != null) savePart(curTab!);
     notifyListeners();
   }

@@ -3342,6 +3342,12 @@ class AppL10nDe extends AppL10n {
   String get panelComponent => 'Komponente';
 
   @override
+  String get viewShadedEdges => 'Schattiert + Kanten';
+
+  @override
+  String get viewRendered => 'Gerendert';
+
+  @override
   String get panelAppearance => 'Aussehen';
 
   @override

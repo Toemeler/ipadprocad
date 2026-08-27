@@ -51,6 +51,7 @@ import 'asm_pattern.dart';
 import 'asm_reps.dart';
 import 'asm_work_features.dart';
 import 'doc_file.dart' show kAssemblyDocKind;
+import 'display_mode.dart';
 import 'materials.dart';
 import 'part_model.dart';
 import 'quat.dart';
@@ -373,6 +374,10 @@ class AssemblyModel {
   String name;
 
   final PartCamera camera = PartCamera();
+
+  /// M273 — how this assembly is DRAWN. Next to the camera, and per document,
+  /// for the reason PartModel gives.
+  DisplayMode displayMode = DisplayMode.fallback;
 
   final List<AssemblyOccurrence> occurrences = [];
 
@@ -805,6 +810,8 @@ class AssemblyModel {
           'roll': camera.roll,
         },
         'vis': vis,
+        // M273 — written only when it is NOT the working view; see PartModel.
+        if (displayMode != DisplayMode.fallback) 'view': displayMode.id,
         'occurrences': [for (final o in occurrences) o.toJson()],
         if (constraints.isNotEmpty)
           'constraints': [for (final c in constraints) c.toJson()],
@@ -844,6 +851,7 @@ class AssemblyModel {
       camera.oy = n('oy', 0);
       camera.roll = n('roll', 0);
     }
+    displayMode = DisplayMode.byId(j['view'] as String?) ?? DisplayMode.fallback;
     final v = j['vis'];
     if (v is Map) {
       for (final e in v.entries) {

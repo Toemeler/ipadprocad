@@ -20,6 +20,7 @@ import 'dart:ui';
 import 'app_state.dart' show SketchModel;
 import 'ffi/occt_engine.dart';
 import 'ffi/qcad_engine.dart';
+import 'display_mode.dart';
 import 'log.dart';
 import 'materials.dart';
 import 'perf.dart';
@@ -5415,6 +5416,11 @@ class PartModel {
   final List<ChildSketch> childSketches = [];
   final List<PartFeature> features = [];
 
+  /// M273 — how this part is DRAWN. Per document, next to [camera], because
+  /// it is the same kind of thing: how you are looking at this model, and
+  /// something you set once and want back when you reopen it.
+  DisplayMode displayMode = DisplayMode.fallback;
+
   /// M272 — the appearance assigned to each BODY, keyed by body name.
   ///
   /// On the body and not on the feature, because that is what the user picks:
@@ -5696,6 +5702,9 @@ class PartModel {
         // M272 — written only when something is painted, so a part nobody has
         // given an appearance to is byte-identical to what it was before.
         if (bodyMaterials.isNotEmpty) 'materials': bodyMaterials,
+        // M273 — only when it is NOT the working view, same rule again: a part
+        // nobody has switched writes what it always wrote.
+        if (displayMode != DisplayMode.fallback) 'view': displayMode.id,
       };
 
   /// Loads everything EXCEPT the child sketch models (their geometry lives
@@ -5711,6 +5720,7 @@ class PartModel {
     // M272 — an id this build no longer offers is dropped rather than kept: a
     // body carrying an unrenderable appearance would just look wrong, with
     // nothing on screen to say why.
+    displayMode = DisplayMode.byId(j['view'] as String?) ?? DisplayMode.fallback;
     (j['materials'] as Map?)?.forEach((k, v) {
       final m = sanitiseMaterial(v);
       if (k is String && m != null) bodyMaterials[k] = m;

@@ -909,6 +909,8 @@
   "lblConstructionLineGeo": "Construction line",
   "lblLineGeo": "Line",
   "panelComponent": "Component",
+  "viewShadedEdges": "Shaded + Edges",
+  "viewRendered": "Rendered",
   "panelAppearance": "Appearance",
   "matPickBody": "Nothing selected",
   "matSteel": "Steel",
