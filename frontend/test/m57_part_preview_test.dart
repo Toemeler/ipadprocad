@@ -110,7 +110,8 @@ class FakeKernel implements PartKernel {
   KernelSolid? placeSolid(KernelSolid s, List<double> mat34) => null;
 
   @override
-  MeshImportOutcome meshToBrep(Float64List xyz, Int32List triangles) =>
+  MeshImportOutcome meshToBrep(Float64List xyz, Int32List triangles,
+          {double tolFraction = 0}) =>
       const MeshImportOutcome(
           null, MeshToBrepReport.empty(), 'fake kernel: no mesh converter');
   @override

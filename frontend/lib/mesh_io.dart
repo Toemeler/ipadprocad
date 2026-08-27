@@ -226,6 +226,72 @@ class MeshSoup {
   }
 }
 
+// =========================================================================
+// M280 — how coarse the reconstruction is allowed to be
+// =========================================================================
+//
+// The converter fits surfaces to the mesh within a tolerance, and takes that
+// tolerance as a FRACTION OF THE BOUNDING-BOX DIAGONAL — 0.002 by default.
+// Relative is right: one absolute number cannot serve a 4 mm pin and a 200 mm
+// bracket. It is also not enough, and the reported butterfly bookmark is why.
+//
+// Measured from that file:
+//
+//   bounding box     106.9 x 127.4 x 2.0 mm,  diagonal 166.3
+//   default tolerance                        0.002 * 166.3 = 0.333 mm
+//   the part's thickness                                     2.0 mm
+//   its NARROWEST slit                                       0.756 mm
+//
+// A tolerance of 0.333 mm is a sixth of everything the part is made of and
+// nearly half the width of its thinnest opening. Surfaces that far apart are
+// within tolerance of each other, and the pieces that survive that are sewn
+// with the same number and healed with a hundred times it. The 37 cut-outs
+// that mesh demonstrably contains (its genus is 37) came back filled.
+//
+// The diagonal says how BIG a model is and nothing about how FINE it is, and
+// for a plate the two are unrelated: the diagonal grows with the sheet while
+// the features stay the size of the features. So the tolerance is bounded by
+// the model's own thinnest overall dimension as well.
+//
+// It only ever LOWERS the tolerance. On a chunky part the diagonal term is
+// already the smaller of the two and nothing changes; the clamp bites exactly
+// on plate-like models, which is the class that was failing.
+
+/// The converter's own default: a fraction of the bounding-box diagonal.
+const double kBrepTolFractionDefault = 0.002;
+
+/// How much of the model's THINNEST dimension the tolerance may be.
+///
+/// A twentieth. Small enough that a 2 mm plate is fitted at 0.1 mm and its
+/// three-quarter-millimetre slits are eight tolerances wide; large enough that
+/// the fit does not collapse into per-triangle facets on an ordinary part.
+const double kBrepTolThinFraction = 0.05;
+
+/// A numerical floor. Below about this the fit is chasing the mesh's own
+/// round-off and every surface stops agreeing with its neighbour.
+const double kBrepTolFractionFloor = 1e-5;
+
+/// The tolerance fraction to convert [s] with, or 0 to leave the built-in
+/// default alone.
+///
+/// Returned as a FRACTION because that is what the shim takes; the reasoning
+/// above is all in millimetres, so it is done in millimetres and divided back.
+double brepTolFractionFor(MeshSoup s) {
+  final b = s.bounds;
+  if (b == null) return 0;
+  final dx = b[3] - b[0], dy = b[4] - b[1], dz = b[5] - b[2];
+  final diag = math.sqrt(dx * dx + dy * dy + dz * dz);
+  if (!diag.isFinite || diag <= 0) return 0;
+  final thin = math.min(dx, math.min(dy, dz));
+  // A mesh with no thickness at all is a surface, not a body. There is no
+  // thinnest feature to protect and the converter will not close it anyway, so
+  // leave its default alone rather than driving the tolerance to zero.
+  if (!thin.isFinite || thin <= 0) return 0;
+  final tol =
+      math.min(kBrepTolFractionDefault * diag, kBrepTolThinFraction * thin);
+  return math.max(tol / diag, kBrepTolFractionFloor);
+}
+
 /// Reads the mesh at [path], choosing the parser by extension.
 ///
 /// Throws [MeshLoadException] carrying a [MeshFailure] the caller localises.

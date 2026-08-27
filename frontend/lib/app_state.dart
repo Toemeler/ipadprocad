@@ -17786,6 +17786,12 @@ class AppState extends ChangeNotifier {
   /// document's geometry from then on.
   ///
   /// Returns the number of bodies added (0 on failure, having said why).
+  static double _thinnestDim(MeshSoup s) {
+    final b = s.bounds;
+    if (b == null) return 0;
+    return math.min(b[3] - b[0], math.min(b[4] - b[1], b[5] - b[2]));
+  }
+
   Future<int> importMeshIntoPart(String path) async {
     final p = currentPart;
     if (p == null) {
@@ -17822,6 +17828,14 @@ class AppState extends ChangeNotifier {
             '${soup.vertexCount} vtx, ${soup.objectCount} object(s), '
             'diagonal ${soup.diagonal.toStringAsFixed(2)} mm'
             '${soup.uprightedFromZUp ? ', turned Z-up -> Y-up' : ''}'
+            // M280 — the number that decides whether thin features survive.
+            // In the log because a filled-in cut-out is otherwise a report
+            // with no evidence in it: this line says what the fit was allowed
+            // to blur, next to the size of the thing it was fitting.
+            ', tol ${(brepTolFractionFor(soup) * soup.diagonal)
+                .toStringAsFixed(3)} mm'
+            '${soup.bounds == null ? '' : ' (thinnest dim '
+                '${_thinnestDim(soup).toStringAsFixed(2)} mm)'}'
             '${soup.droppedTriangles > 0 ? ', '
                 '${soup.droppedTriangles} dropped' : ''}');
 
@@ -17844,7 +17858,8 @@ class AppState extends ChangeNotifier {
     try {
       Log.milestone('import',
           'mesh: >> kernel convert (rss ${Log.rssMb() ?? -1} MB)');
-      res = partKernel.meshToBrep(soup.vertices, soup.triangles);
+      res = partKernel.meshToBrep(soup.vertices, soup.triangles,
+          tolFraction: brepTolFractionFor(soup));
       Log.milestone('import',
           'mesh: << kernel convert (rss ${Log.rssMb() ?? -1} MB)');
     } catch (_) {
