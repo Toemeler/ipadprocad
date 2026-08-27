@@ -13695,6 +13695,35 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ---- M275: the ViewCube's front ----
+
+  /// The open document's cube orientation, or the identity.
+  Quat get cubeOrient =>
+      currentAssembly?.cubeOrient ?? currentPart?.cubeOrient ?? Quat.identity;
+
+  /// Redefines which way the cube's FRONT (or TOP) faces, from the current
+  /// view — Inventor's "Set Current View as Front".
+  ///
+  /// Pass [Quat.identity] for "Reset Front". Nothing about the geometry moves;
+  /// see PartModel.cubeOrient.
+  void setCubeOrient(Quat q) {
+    final a = currentAssembly;
+    if (a != null) {
+      a.cubeOrient = q;
+      Log.i('asm', 'cube front redefined');
+      if (curTab != null) saveAssembly(curTab!);
+      notifyListeners();
+      return;
+    }
+    final p = currentPart;
+    if (p == null) return;
+    p.cubeOrient = q;
+    p.dirty = true;
+    Log.i('part', 'cube front redefined');
+    if (curTab != null) savePart(curTab!);
+    notifyListeners();
+  }
+
   // ---- M273: how the model is drawn ----
 
   /// The display mode of whatever document is open, or the working view.
@@ -17715,6 +17744,7 @@ class AppState extends ChangeNotifier {
         'mesh ${soup.format}: ${soup.triangleCount} tri, '
             '${soup.vertexCount} vtx, ${soup.objectCount} object(s), '
             'diagonal ${soup.diagonal.toStringAsFixed(2)} mm'
+            '${soup.uprightedFromZUp ? ', turned Z-up -> Y-up' : ''}'
             '${soup.droppedTriangles > 0 ? ', '
                 '${soup.droppedTriangles} dropped' : ''}');
 

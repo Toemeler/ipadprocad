@@ -18,6 +18,11 @@ import 'dart:typed_data';
 import 'dart:ui';
 
 import 'app_state.dart' show SketchModel;
+// M275 — cyclic (quat.dart imports Vec3 from here), and `show` for the same
+// reason the SketchModel import above is: Dart resolves the cycle, and the
+// narrow clause keeps it a documented one-name dependency rather than two
+// files quietly merging.
+import 'quat.dart' show Quat;
 import 'ffi/occt_engine.dart';
 import 'ffi/qcad_engine.dart';
 import 'display_mode.dart';
@@ -5416,6 +5421,16 @@ class PartModel {
   final List<ChildSketch> childSketches = [];
   final List<PartFeature> features = [];
 
+  /// M275 — where the ViewCube's FRONT is, as a rotation from cube space to
+  /// world space.
+  ///
+  /// The identity until the user says "set the current view as front" (or as
+  /// top), which is Inventor's way of telling a model imported at an arbitrary
+  /// orientation which way round it actually goes. It turns the CUBE, never
+  /// the geometry: nothing about the part changes, and a document whose front
+  /// has been redefined still extrudes along the same axes.
+  Quat cubeOrient = Quat.identity;
+
   /// M273 — how this part is DRAWN. Per document, next to [camera], because
   /// it is the same kind of thing: how you are looking at this model, and
   /// something you set once and want back when you reopen it.
@@ -5705,6 +5720,8 @@ class PartModel {
         // M273 — only when it is NOT the working view, same rule again: a part
         // nobody has switched writes what it always wrote.
         if (displayMode != DisplayMode.fallback) 'view': displayMode.id,
+        // M275 — only when front has been redefined, same rule as the rest.
+        if (!cubeOrient.isIdentity) 'cube': cubeOrient.toJson(),
       };
 
   /// Loads everything EXCEPT the child sketch models (their geometry lives
@@ -5721,6 +5738,7 @@ class PartModel {
     // body carrying an unrenderable appearance would just look wrong, with
     // nothing on screen to say why.
     displayMode = DisplayMode.byId(j['view'] as String?) ?? DisplayMode.fallback;
+    cubeOrient = Quat.fromJson(j['cube']);
     (j['materials'] as Map?)?.forEach((k, v) {
       final m = sanitiseMaterial(v);
       if (k is String && m != null) bodyMaterials[k] = m;

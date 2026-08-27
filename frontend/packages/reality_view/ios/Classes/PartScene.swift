@@ -391,6 +391,25 @@ struct SolidGeom {
         return r
     }
 
+    /// M276 — the LOWEST point this solid reaches once placed, in world Y.
+    ///
+    /// Exact, over every vertex, and not from a bounding box: the rendered
+    /// view's floor sits ON this number, and an AABB corner under a rotation
+    /// is a bound rather than the value — it would put the floor a visible gap
+    /// below a turned component and the shadow would come loose from the body.
+    ///
+    /// Only the second ROW of the rotation matrix is needed, since only Y is
+    /// wanted, so this is one dot product per vertex rather than a full
+    /// quaternion rotation.
+    func lowestY(rot: simd_quatf, at: SIMD3<Float>) -> Float {
+        let m = simd_float3x3(rot)
+        let r1 = SIMD3<Float>(m[0][1], m[1][1], m[2][1])
+        var lo = Float.greatestFiniteMagnitude
+        for p in positions { lo = min(lo, simd_dot(r1, p)) }
+        return lo == .greatestFiniteMagnitude ? .greatestFiniteMagnitude
+                                              : lo + at.y
+    }
+
     /// Every triangle in BOTH windings. RealityKit culls strictly by winding,
     /// and OCCT's orientation is not uniform across a shape — the inner wall of
     /// a HOLE comes back reversed, which culled it and let you see straight

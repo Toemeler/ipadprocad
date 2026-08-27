@@ -3301,6 +3301,24 @@ class AppL10nEn extends AppL10n {
   String get viewRendered => 'Rendered';
 
   @override
+  String get cubeSetFront => 'Set Current View as Front';
+
+  @override
+  String get cubeSetTop => 'Set Current View as Top';
+
+  @override
+  String get cubeResetFront => 'Reset Front';
+
+  @override
+  String get cubeRollLeft => 'Rotate view left';
+
+  @override
+  String get cubeRollRight => 'Rotate view right';
+
+  @override
+  String get cubeStep => 'Go to adjacent view';
+
+  @override
   String get panelAppearance => 'Appearance';
 
   @override

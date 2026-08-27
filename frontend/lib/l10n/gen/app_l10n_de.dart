@@ -3348,6 +3348,24 @@ class AppL10nDe extends AppL10n {
   String get viewRendered => 'Gerendert';
 
   @override
+  String get cubeSetFront => 'Aktuelle Ansicht als Vorne';
+
+  @override
+  String get cubeSetTop => 'Aktuelle Ansicht als Oben';
+
+  @override
+  String get cubeResetFront => 'Vorne zuruecksetzen';
+
+  @override
+  String get cubeRollLeft => 'Ansicht nach links drehen';
+
+  @override
+  String get cubeRollRight => 'Ansicht nach rechts drehen';
+
+  @override
+  String get cubeStep => 'Zur Nachbaransicht';
+
+  @override
   String get panelAppearance => 'Aussehen';
 
   @override

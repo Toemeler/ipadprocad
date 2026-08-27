@@ -379,6 +379,9 @@ class AssemblyModel {
   /// for the reason PartModel gives.
   DisplayMode displayMode = DisplayMode.fallback;
 
+  /// M275 — where the ViewCube's FRONT is. See PartModel.cubeOrient.
+  Quat cubeOrient = Quat.identity;
+
   final List<AssemblyOccurrence> occurrences = [];
 
   /// M242 — the RELATIONSHIPS: Inventor's assembly constraints, in the order
@@ -812,6 +815,7 @@ class AssemblyModel {
         'vis': vis,
         // M273 — written only when it is NOT the working view; see PartModel.
         if (displayMode != DisplayMode.fallback) 'view': displayMode.id,
+        if (!cubeOrient.isIdentity) 'cube': cubeOrient.toJson(),
         'occurrences': [for (final o in occurrences) o.toJson()],
         if (constraints.isNotEmpty)
           'constraints': [for (final c in constraints) c.toJson()],
@@ -852,6 +856,7 @@ class AssemblyModel {
       camera.roll = n('roll', 0);
     }
     displayMode = DisplayMode.byId(j['view'] as String?) ?? DisplayMode.fallback;
+    cubeOrient = Quat.fromJson(j['cube']);
     final v = j['vis'];
     if (v is Map) {
       for (final e in v.entries) {

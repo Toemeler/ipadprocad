@@ -25,6 +25,8 @@ import '../perf.dart';
 import '../ffi/qcad_engine.dart' show Geo;
 import '../part_model.dart';
 import '../part_render.dart';
+import '../quat.dart';
+import '../view_cube.dart';
 import '../reality_scene.dart';
 import '../text_geometry.dart' show textContours, textLayerOf;
 import '../menus.dart';
@@ -833,8 +835,13 @@ class _Viewport3DState extends State<Viewport3D>
         RibbonMetrics.build((_, top) => Positioned(
             top: top + 8,
             right: 10,
-            child:
-                ViewCube(camera: p.camera, onChanged: () => setState(() {})))),
+            child: ViewCube(
+              camera: p.camera,
+              onChanged: () => setState(() {}),
+              // M275 — the part's own front, and the command that redefines it.
+              orient: p.cubeOrient,
+              onOrient: app.setCubeOrient,
+            ))),
         // Coordinate triad. M146 — moved to the RIGHT of the model browser
         // instead of under it: the browser card reaches down into the
         // bottom-left corner the triad used to have to itself. Off iOS there
@@ -2939,94 +2946,76 @@ class _OverlayPainter extends CustomPainter {
 }
 
 // ---------------------------------------------------------------------------
-// ViewCube (84x84 with a Home icon above-left) + face-view nav arrows
+// The ViewCube: the cube itself, Home, the face-view arrows, and the menu that
+// redefines which way is front.
+//
+// M275 — the geometry moved to view_cube.dart, pure and shared, because the
+// region under the pointer, the region that lights up and the direction a tap
+// sends the camera are three answers to one question. See that file's header
+// for the pan/roll mismatch that made the highlight so unreliable.
 // ---------------------------------------------------------------------------
-const _cubeFaces = <(String, Vec3)>[
-  ('RIGHT', Vec3(1, 0, 0)),
-  ('LEFT', Vec3(-1, 0, 0)),
-  ('TOP', Vec3(0, 1, 0)),
-  ('BOTTOM', Vec3(0, -1, 0)),
-  ('FRONT', Vec3(0, 0, 1)),
-  ('BACK', Vec3(0, 0, -1)),
-];
 
-(Vec3, Vec3) faceBasis(Vec3 n) {
-  final up = n.y.abs() > 0.9 ? const Vec3(0, 0, 1) : const Vec3(0, 1, 0);
-  final u = up.cross(n).normalized();
-  final v = n.cross(u).normalized();
-  return (u, v);
-}
-
-/// Snap direction for a pointer on the cube: the face normal plus the
-/// edge/corner components when the hit sits in the outer 22% band.
-(Vec3, Set<String>)? cubePick(PartCamera c, Offset px, double sizePx) {
-  final cam = Cam3(c, Size(sizePx, sizePx));
-  // ray/unit-cube (slab method), camera-plane origin scaled to half 0.86
-  final o0 = cam.unprojectOnCamPlane(px);
-  final o = o0 * (0.86 / cam.halfH); // cube canvas uses its own half-height
-  final rd = cam.dir * -1;
-  var tmin = -1e9, tmax = 1e9;
-  Vec3 nEnter = Vec3.zero;
-  for (final ax in [
-    (const Vec3(1, 0, 0), o.x, rd.x),
-    (const Vec3(0, 1, 0), o.y, rd.y),
-    (const Vec3(0, 0, 1), o.z, rd.z)
-  ]) {
-    final (n, oc, dc) = ax;
-    if (dc.abs() < 1e-9) {
-      if (oc.abs() > 0.5) return null;
-      continue;
-    }
-    var t1 = (-0.5 - oc) / dc, t2 = (0.5 - oc) / dc;
-    var nn = n * (dc > 0 ? -1.0 : 1.0);
-    if (t1 > t2) {
-      final t = t1;
-      t1 = t2;
-      t2 = t;
-      nn = nn * -1;
-    }
-    if (t1 > tmin) {
-      tmin = t1;
-      nEnter = nn;
-    }
-    if (t2 < tmax) tmax = t2;
-    if (tmin > tmax) return null;
-  }
-  final hit = o + rd * tmin;
-  final (u, v) = faceBasis(nEnter);
-  final du = hit.dot(u), dv = hit.dot(v);
-  final cu = du < -0.28 ? -1.0 : (du > 0.28 ? 1.0 : 0.0);
-  final cv = dv < -0.28 ? -1.0 : (dv > 0.28 ? 1.0 : 0.0);
-  final lit = <String>{_nkey(nEnter)};
-  if (cu != 0) lit.add(_nkey(u * cu));
-  if (cv != 0) lit.add(_nkey(v * cv));
-  final dir = (nEnter + u * cu + v * cv).normalized();
-  return (dir, lit);
-}
-
-String _nkey(Vec3 v) => '${v.x.round()},${v.y.round()},${v.z.round()}';
-
-/// The ViewCube, the Home button and the face-view nav arrows.
+/// The ViewCube, the Home button, the face-view nav arrows and the roll pair.
 ///
 /// PUBLIC since M240: the assembly viewport shows the same cube over the same
 /// [PartCamera]. It knows nothing about a part — it turns a camera — so
 /// sharing it is not a coupling, and a second copy would be a second place for
 /// "snap to TOP" to drift.
+///
+/// M275 — [orient] and [onOrient] are how a document redefines its front. Both
+/// optional: a caller that does not offer the command passes neither and gets
+/// the cube it always had.
 class ViewCube extends StatefulWidget {
   final PartCamera camera;
   final VoidCallback onChanged;
-  const ViewCube({super.key, required this.camera, required this.onChanged});
+
+  /// Cube space -> world space. Identity until front is redefined.
+  final Quat orient;
+
+  /// Called with the new orientation when the user redefines front or top, or
+  /// with [Quat.identity] to reset. Null hides those menu entries entirely
+  /// rather than showing commands that would do nothing.
+  final void Function(Quat)? onOrient;
+
+  const ViewCube({
+    super.key,
+    required this.camera,
+    required this.onChanged,
+    this.orient = Quat.identity,
+    this.onOrient,
+  });
   @override
   State<ViewCube> createState() => _ViewCubeState();
 }
 
+/// The whole control's box. The cube is 84 inside it, with room above-left for
+/// Home and a ring of arrows around the rest.
+const double _kCubeBox = 132;
+const double _kCubeSize = 84;
+const double _kCubeInset = 24;
+
 class _ViewCubeState extends State<ViewCube> {
-  Set<String> _lit = const {};
+  CubeHit? _hit;
 
   bool get _faceView {
     final d = widget.camera.dir;
     return [d.x.abs(), d.y.abs(), d.z.abs()].reduce((a, b) => a > b ? a : b) >
         0.999;
+  }
+
+  Offset _local(Offset inBox) =>
+      inBox - const Offset(_kCubeInset, _kCubeInset);
+
+  void _pick(Offset inBox) {
+    final r = cubePick(widget.camera, _local(inBox), _kCubeSize,
+        orient: widget.orient);
+    if (r == null && _hit == null) return;
+    setState(() => _hit = r);
+  }
+
+  void _clear() {
+    if (_hit == null) return;
+    setState(() => _hit = null);
   }
 
   void _snapTo(Vec3 d) {
@@ -3041,180 +3030,436 @@ class _ViewCubeState extends State<ViewCube> {
     widget.onChanged();
   }
 
+  /// A quarter turn about the VIEW DIRECTION — Inventor's curved arrows.
+  ///
+  /// Not orbitScreen: that turns the camera to look somewhere else, and this
+  /// must keep looking at exactly the same thing and only change which way is
+  /// up. Rolling the right vector about dir is the whole of it.
+  void _roll(double sign) {
+    final c = widget.camera;
+    c.setBasis(
+        c.dir, rotateAboutAxis(c.right, c.dir, sign * math.pi / 2));
+    widget.onChanged();
+  }
+
+  void _step(String key) {
+    // M90 — these step arrows used to clamp pol away from the poles, which put
+    // the limit straight back after the drag was freed. Going through the same
+    // trackball rotation keeps them consistent with dragging, and a quarter
+    // turn up from the top now carries on over instead of sticking.
+    const q = math.pi / 2;
+    final c = widget.camera;
+    switch (key) {
+      case 'up':
+        c.orbitScreen(0, q);
+        break;
+      case 'down':
+        c.orbitScreen(0, -q);
+        break;
+      case 'left':
+        c.orbitScreen(-q, 0);
+        break;
+      default:
+        c.orbitScreen(q, 0);
+    }
+    c.ox = 0;
+    c.oy = 0;
+    c.halfH = 27;
+    widget.onChanged();
+  }
+
+  /// The long-press menu: Inventor puts "Set Current View as Front" on the
+  /// ViewCube's own context menu, and so does this.
+  Future<void> _menu(Offset globalPos) async {
+    final on = widget.onOrient;
+    if (on == null) return;
+    final t = L.of(context);
+    final anchor = Rect.fromLTWH(globalPos.dx, globalPos.dy, 1, 1);
+    final items = [
+      NativeMenuItem(id: 'front', title: t.cubeSetFront, symbol: 'cube'),
+      NativeMenuItem(id: 'top', title: t.cubeSetTop, symbol: 'cube'),
+      if (!widget.orient.isIdentity)
+        NativeMenuItem(
+            id: 'reset', title: t.cubeResetFront, symbol: 'arrow.uturn.left'),
+    ];
+    String? pick;
+    if (NativeMenu.isSupported) {
+      pick = await NativeMenu.menu(
+          items: items, anchor: anchor, cancelLabel: t.cancel);
+    } else if (mounted) {
+      pick = await showMenu<String>(
+        context: context,
+        color: T.fly,
+        position: RelativeRect.fromLTRB(
+            anchor.left, anchor.top, anchor.right, anchor.bottom),
+        items: [
+          for (final it in items)
+            PopupMenuItem(
+                value: it.id,
+                height: 40,
+                child: Text(it.title, style: ts(12.5, T.text))),
+        ],
+      );
+    }
+    if (pick == null) return;
+    switch (pick) {
+      case 'front':
+        on(cubeOrientFront(widget.camera));
+        break;
+      case 'top':
+        on(cubeOrientTop(widget.camera));
+        break;
+      case 'reset':
+        on(Quat.identity);
+        break;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = widget.camera;
+    final t = L.of(context);
     return SizedBox(
-      width: 120,
-      height: 120,
-      child: Stack(children: [
+      width: _kCubeBox,
+      height: _kCubeBox,
+      child: Stack(clipBehavior: Clip.none, children: [
         Positioned(
           top: 0,
-          left: 14,
+          left: 0,
           child: GestureDetector(
             onTap: () {
               c.home();
               widget.onChanged();
             },
             child: Tooltip(
-              message: L.of(context).menuHomeView,
+              message: t.menuHomeView,
               child: SizedBox(
-                  width: 22, height: 22, child: SvgPicture.string(themedIcon(homeTabIcon))),
+                  width: 22,
+                  height: 22,
+                  child: SvgPicture.string(themedIcon(homeTabIcon))),
             ),
           ),
         ),
-        Positioned(
-          top: 18,
-          left: 18,
+        // The cube. MouseRegion for a trackpad or a hovering Pencil, and a
+        // Listener for a FINGER — which never hovers, so without the pointer
+        // events a touch user only ever saw the highlight they were already
+        // committed to.
+        Positioned.fill(
           child: MouseRegion(
-            onHover: (e) {
-              final r = cubePick(c, e.localPosition, 84);
-              setState(() => _lit = r?.$2 ?? const {});
-            },
-            onExit: (_) => setState(() => _lit = const {}),
-            child: GestureDetector(
-              onTapUp: (d) {
-                final r = cubePick(c, d.localPosition, 84);
-                if (r != null) _snapTo(r.$1);
-              },
-              child: CustomPaint(
-                  painter: _CubePainter(c, _lit), size: const Size(84, 84)),
+            onHover: (e) => _pick(e.localPosition),
+            onExit: (_) => _clear(),
+            child: Listener(
+              behavior: HitTestBehavior.translucent,
+              onPointerDown: (e) => _pick(e.localPosition),
+              onPointerMove: (e) => _pick(e.localPosition),
+              onPointerCancel: (_) => _clear(),
+              child: GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onTapUp: (d) {
+                  final r = cubePick(c, _local(d.localPosition), _kCubeSize,
+                      orient: widget.orient);
+                  _clear();
+                  if (r != null) _snapTo(r.dir);
+                },
+                onTapCancel: _clear,
+                onLongPressStart: (d) {
+                  _clear();
+                  _menu(d.globalPosition);
+                },
+                child: CustomPaint(
+                  painter: _CubePainter(c, _hit, widget.orient),
+                  size: const Size(_kCubeBox, _kCubeBox),
+                ),
+              ),
             ),
           ),
         ),
-        // face-view navigation arrows (rotate 90° to the neighbouring face)
-        if (_faceView) ..._navArrows(c),
+        // M275 — the face-view controls, and only in a face view: they express
+        // "a quarter turn from here", which needs a here to turn from.
+        if (_faceView) ..._navArrows(t),
       ]),
     );
   }
 
-  List<Widget> _navArrows(PartCamera c) {
-    Widget arrow(String key, Alignment a, double turns) => Align(
-          alignment: a,
-          child: GestureDetector(
-            onTap: () {
-              // M90 — these step arrows used to clamp pol away from the
-              // poles, which put the limit straight back after the drag was
-              // freed. Going through the same trackball rotation keeps them
-              // consistent with dragging, and a quarter turn up from the top
-              // now carries on over instead of sticking.
-              const q = math.pi / 2;
-              switch (key) {
-                case 'up':
-                  c.orbitScreen(0, q);
-                  break;
-                case 'down':
-                  c.orbitScreen(0, -q);
-                  break;
-                case 'left':
-                  c.orbitScreen(-q, 0);
-                  break;
-                default:
-                  c.orbitScreen(q, 0);
-              }
-              c.ox = 0;
-              c.oy = 0;
-              c.halfH = 27;
-              widget.onChanged();
-            },
-            child: RotatedBox(
-              quarterTurns: (turns * 4).round(),
-              child: Icon(Icons.arrow_drop_up,
-                  size: 22, color: T.dim),
+  List<Widget> _navArrows(AppL10n t) {
+    const gap = 3.0;
+    Widget step(String key, double left, double top, double turns) => Positioned(
+          left: left,
+          top: top,
+          child: Semantics(
+            button: true,
+            label: t.cubeStep,
+            child: GestureDetector(
+              onTap: () => _step(key),
+              behavior: HitTestBehavior.opaque,
+              child: RotatedBox(
+                quarterTurns: (turns * 4).round(),
+                child: const _StepArrow(),
+              ),
             ),
           ),
         );
+    const a = _StepArrow.size;
+    const mid = _kCubeInset + _kCubeSize / 2 - a / 2;
+    const near = _kCubeInset - a - gap;
+    const far = _kCubeInset + _kCubeSize + gap;
     return [
-      arrow('up', Alignment.topCenter, 0),
-      arrow('down', Alignment.bottomCenter, 0.5),
-      arrow('left', Alignment.centerLeft, 0.75),
-      arrow('right', Alignment.centerRight, 0.25),
+      step('up', mid, near, 0),
+      step('down', mid, far, 0.5),
+      step('left', near, mid, 0.75),
+      step('right', far, mid, 0.25),
+      // The roll pair, above the cube's top-right corner, where Inventor puts
+      // it. Two arrows and not one: which way a single one would turn is a
+      // guess the user has to make and then undo.
+      Positioned(
+        left: _kCubeInset + _kCubeSize - 6,
+        top: 0,
+        child: Row(children: [
+          Semantics(
+            button: true,
+            label: t.cubeRollLeft,
+            child: GestureDetector(
+              onTap: () => _roll(1),
+              behavior: HitTestBehavior.opaque,
+              child: const _RollArrow(clockwise: false),
+            ),
+          ),
+          const SizedBox(width: 2),
+          Semantics(
+            button: true,
+            label: t.cubeRollRight,
+            child: GestureDetector(
+              onTap: () => _roll(-1),
+              behavior: HitTestBehavior.opaque,
+              child: const _RollArrow(clockwise: true),
+            ),
+          ),
+        ]),
+      ),
     ];
   }
 }
 
+/// One of the four triangles that step a quarter turn to the next face.
+class _StepArrow extends StatelessWidget {
+  const _StepArrow();
+  static const double size = 15;
+  @override
+  Widget build(BuildContext context) => CustomPaint(
+      size: const Size(size, size), painter: _StepArrowPainter());
+}
+
+class _StepArrowPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size s) {
+    final p = Path()
+      ..moveTo(s.width / 2, 1)
+      ..lineTo(s.width - 1.5, s.height - 2)
+      ..lineTo(1.5, s.height - 2)
+      ..close();
+    canvas.drawPath(p, Paint()..color = T.cubeFace);
+    canvas.drawPath(
+        p,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1
+          ..strokeJoin = StrokeJoin.round
+          ..color = T.cubeEdge);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter old) => true;
+}
+
+/// One of the two curved arrows that roll the view a quarter turn.
+class _RollArrow extends StatelessWidget {
+  final bool clockwise;
+  const _RollArrow({required this.clockwise});
+  static const double size = 20;
+  @override
+  Widget build(BuildContext context) => CustomPaint(
+      size: const Size(size, size),
+      painter: _RollArrowPainter(clockwise: clockwise));
+}
+
+class _RollArrowPainter extends CustomPainter {
+  final bool clockwise;
+  _RollArrowPainter({required this.clockwise});
+
+  @override
+  void paint(Canvas canvas, Size s) {
+    final r = s.width * 0.34;
+    final c = Offset(s.width / 2, s.height * 0.58);
+    // Three quarters of a circle, so the gap says which way it is open and the
+    // head says which way it goes.
+    final rect = Rect.fromCircle(center: c, radius: r);
+    final start = clockwise ? -math.pi * 0.85 : -math.pi * 0.15;
+    final sweep = (clockwise ? 1 : -1) * math.pi * 1.25;
+    canvas.drawArc(
+        rect,
+        start,
+        sweep,
+        false,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.8
+          ..strokeCap = StrokeCap.round
+          ..color = T.cubeEdge);
+    // The head, at the far end of the sweep and tangent to it.
+    final end = start + sweep;
+    final tip = c + Offset(math.cos(end) * r, math.sin(end) * r);
+    final tangent = clockwise
+        ? Offset(-math.sin(end), math.cos(end))
+        : Offset(math.sin(end), -math.cos(end));
+    final n = Offset(-tangent.dy, tangent.dx);
+    canvas.drawPath(
+        Path()
+          ..addPolygon([
+            tip + tangent * 4.5,
+            tip - tangent * 2 + n * 3.4,
+            tip - tangent * 2 - n * 3.4,
+          ], true),
+        Paint()..color = T.cubeEdge);
+  }
+
+  @override
+  bool shouldRepaint(covariant _RollArrowPainter old) =>
+      old.clockwise != clockwise;
+}
+
 class _CubePainter extends CustomPainter {
   final PartCamera camera;
-  final Set<String> lit;
-  _CubePainter(this.camera, this.lit);
+  final CubeHit? hit;
+  final Quat orient;
+  _CubePainter(this.camera, this.hit, this.orient);
+
+  static const Map<String, int> _order = {
+    'RIGHT': 0,
+    'LEFT': 0,
+    'TOP': 1,
+    'BOTTOM': 2,
+    'FRONT': 0,
+    'BACK': 0,
+  };
 
   @override
   void paint(Canvas canvas, Size size) {
-    final cam =
-        Cam3(PartCamera(az: camera.az, pol: camera.pol, halfH: 0.86), size);
-    final tint = {
-      'RIGHT': T.cubeFace,
-      'LEFT': T.cubeFace,
-      'TOP': T.cubeFaceTop,
-      'BOTTOM': T.cubeFaceDim,
-      'FRONT': T.cubeFace,
-      'BACK': T.cubeFace,
-    };
+    // The cube sits inset in a larger box that also holds Home and the arrows,
+    // so everything below is drawn in the cube's own square.
+    canvas.save();
+    canvas.translate(_kCubeInset, _kCubeInset);
+    final box = const Size(_kCubeSize, _kCubeSize);
+    // ONE camera for the picture and the pick — see view_cube.dart.
+    final cam = Cam3(cubeCamera(camera), box);
+    final tint = [T.cubeFace, T.cubeFaceTop, T.cubeFaceDim];
+
+    Offset pr(Vec3 v) => cam.project(orient.rotate(v));
+
     final faces = <(double, String, Vec3, List<Offset>)>[];
-    for (final (label, n) in _cubeFaces) {
-      if (n.dot(cam.dir) <= 0.02) continue; // back faces of the cube
+    for (final (label, n) in kCubeFaces) {
+      // Back faces of the cube. The normal has to be rotated first: after
+      // front is redefined, cube space and world space are different rooms.
+      if (orient.rotate(n).dot(cam.dir) <= 0.02) continue;
       final (u, v) = faceBasis(n);
       final centre = n * 0.5;
       final quad = [
-        cam.project(centre + u * -0.5 + v * -0.5),
-        cam.project(centre + u * 0.5 + v * -0.5),
-        cam.project(centre + u * 0.5 + v * 0.5),
-        cam.project(centre + u * -0.5 + v * 0.5),
+        pr(centre + u * -0.5 + v * -0.5),
+        pr(centre + u * 0.5 + v * -0.5),
+        pr(centre + u * 0.5 + v * 0.5),
+        pr(centre + u * -0.5 + v * 0.5),
       ];
-      faces.add((cam.depth(centre), label, n, quad));
+      faces.add((cam.depth(orient.rotate(centre)), label, n, quad));
     }
     faces.sort((a, b) => b.$1.compareTo(a.$1));
     for (final (_, label, n, quad) in faces) {
       final path = Path()..addPolygon(quad, true);
-      canvas.drawPath(path, Paint()..color = tint[label]!);
+      canvas.drawPath(path, Paint()..color = tint[_order[label]!]);
       canvas.drawPath(
           path,
           Paint()
             ..style = PaintingStyle.stroke
             ..strokeWidth = 1
             ..color = T.cubeEdge);
-      if (lit.contains(_nkey(n))) {
-        canvas.drawPath(path, Paint()..color = T.hover.withValues(alpha: 0.55));
-      }
-      // Label painted ON the face like a decal. Its basis is the face's FIXED
-      // (u, v) axes, so the text turns, tilts and foreshortens exactly with the
-      // face it belongs to. The old version rotated by the angle of ONE quad
-      // edge; which edge that was changed as the cube turned, so the text
-      // re-oriented on screen and could come out upside down (TOP read "dOT").
-      final (fu, fv) = faceBasis(n);
-      final fc = n * 0.5;
-      final c0 = cam.project(fc);
-      // Screen delta of a unit step along each face axis, normalised by the
-      // head-on projected length: the glyphs keep their size when a face looks
-      // straight at you and only compress as it turns away.
-      final s0 = size.height / 2 / 0.86;
-      final ex = (cam.project(fc + fu * 0.5) - cam.project(fc - fu * 0.5)) / s0;
-      final ey = (cam.project(fc + fv * 0.5) - cam.project(fc - fv * 0.5)) / s0;
-      final tp = TextPainter(
-          text: TextSpan(
-              text: label,
-              style: TextStyle(
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w600,
-                  color: T.cubeText)),
-          textDirection: TextDirection.ltr)
-        ..layout();
-      // Column-major affine: text +x follows u, text +y (down on screen)
-      // follows -v. (u, v, n) is right-handed, so nothing ever mirrors.
-      final m = Float64List(16);
-      m[0] = ex.dx;
-      m[1] = ex.dy;
-      m[4] = -ey.dx;
-      m[5] = -ey.dy;
-      m[10] = 1;
-      m[12] = c0.dx;
-      m[13] = c0.dy;
-      m[15] = 1;
-      canvas.save();
-      canvas.transform(m);
-      tp.paint(canvas, Offset(-tp.width / 2, -tp.height / 2));
-      canvas.restore();
+      _paintHighlight(canvas, cam, n, pr);
+      _paintLabel(canvas, cam, box, label, n, pr);
     }
+    canvas.restore();
+  }
+
+  /// M275 — the highlight is the picked CELL, not the whole face.
+  ///
+  /// This is the visible half of the bug report. An edge pick used to light
+  /// both of its faces end to end, so hovering anywhere near a boundary flooded
+  /// half the cube and there was no way to tell an edge from the face beside
+  /// it. A cell is a strip or a corner square, and it appears on each face the
+  /// pick touches — which is exactly what makes an edge read as one strip
+  /// folded over two faces.
+  void _paintHighlight(
+      Canvas canvas, Cam3 cam, Vec3 n, Offset Function(Vec3) pr) {
+    final h = hit;
+    if (h == null) return;
+    final cell = cubeCell(h, n);
+    if (cell == null) return;
+    final (cu, cv) = cell;
+    final (u0, u1, v0, v1) = cubeCellRect(cu, cv);
+    final (u, v) = faceBasis(n);
+    final centre = n * 0.5;
+    final quad = [
+      pr(centre + u * u0 + v * v0),
+      pr(centre + u * u1 + v * v0),
+      pr(centre + u * u1 + v * v1),
+      pr(centre + u * u0 + v * v1),
+    ];
+    final path = Path()..addPolygon(quad, true);
+    canvas.drawPath(path, Paint()..color = T.accent.withValues(alpha: 0.45));
+    canvas.drawPath(
+        path,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.2
+          ..color = T.accent);
+  }
+
+  void _paintLabel(Canvas canvas, Cam3 cam, Size size, String label, Vec3 n,
+      Offset Function(Vec3) pr) {
+    // Label painted ON the face like a decal. Its basis is the face's FIXED
+    // (u, v) axes, so the text turns, tilts and foreshortens exactly with the
+    // face it belongs to. The old version rotated by the angle of ONE quad
+    // edge; which edge that was changed as the cube turned, so the text
+    // re-oriented on screen and could come out upside down (TOP read "dOT").
+    final (fu, fv) = faceBasis(n);
+    final fc = n * 0.5;
+    final c0 = pr(fc);
+    // Screen delta of a unit step along each face axis, normalised by the
+    // head-on projected length: the glyphs keep their size when a face looks
+    // straight at you and only compress as it turns away.
+    final s0 = size.height / 2 / kCubeHalfH;
+    final ex = (pr(fc + fu * 0.5) - pr(fc - fu * 0.5)) / s0;
+    final ey = (pr(fc + fv * 0.5) - pr(fc - fv * 0.5)) / s0;
+    final tp = TextPainter(
+        text: TextSpan(
+            text: label,
+            style: TextStyle(
+                fontSize: 10.5,
+                fontWeight: FontWeight.w600,
+                color: T.cubeText)),
+        textDirection: TextDirection.ltr)
+      ..layout();
+    // Column-major affine: text +x follows u, text +y (down on screen)
+    // follows -v. (u, v, n) is right-handed, so nothing ever mirrors.
+    final m = Float64List(16);
+    m[0] = ex.dx;
+    m[1] = ex.dy;
+    m[4] = -ey.dx;
+    m[5] = -ey.dy;
+    m[10] = 1;
+    m[12] = c0.dx;
+    m[13] = c0.dy;
+    m[15] = 1;
+    canvas.save();
+    canvas.transform(m);
+    tp.paint(canvas, Offset(-tp.width / 2, -tp.height / 2));
+    canvas.restore();
   }
 
   @override
