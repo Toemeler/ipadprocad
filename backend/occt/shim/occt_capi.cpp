@@ -1372,6 +1372,55 @@ extern "C" occt_mesh *occt_mesh_create(const occt_shape *shape,
                                     Standard_True);
     (void)mesher;
 
+    /* M282 — a face the mesher refused is a hole you can see through.
+     *
+     * BRepMesh gives up on some trimmed B-splines and says nothing: it returns
+     * no triangulation for that face and the loop below, which has always
+     * skipped an untriangulated face, quietly leaves it out of the model. The
+     * shape is not at fault — on the whale the three faces this happened to
+     * were valid, their wires closed in 3D and in uv, and they were the
+     * SIMPLEST surfaces in the model (4x5, 5x4 and 4x6 control nets) while
+     * faces four times as complicated meshed without complaint. Nor is it a
+     * property that can be designed out upstream: the same face meshes at
+     * deflection 0.60, fails at 0.15 and meshes again at 0.0375, and the app
+     * changes deflection every time the user zooms.
+     *
+     * So ask again, differently. Nudging the deflection is enough to get past
+     * it, and a face drawn at a slightly different deflection costs a hairline
+     * seam where its neighbours' nodes no longer coincide — which is a trade
+     * worth making. Measured on the whale at the deflection the app asked for:
+     * three faces recovered, none left empty, the worst gap in the display
+     * mesh down from 5.18 mm to 3.42 mm, cracks wider than a millimetre down
+     * from 122.6 mm to 34.0 mm, and the edges with no neighbour at all down
+     * from 74 to 20. What it costs is seams a few microns wide.
+     *
+     * Nothing here touches the B-Rep. The solid stays the one that was sewn,
+     * checked and closed; only the triangles handed to the renderer change. */
+    {
+        static const double kNudge[] = {1.37, 0.73, 2.11, 0.41, 4.0, 0.19};
+        for (TopExp_Explorer ex(shape->s, TopAbs_FACE); ex.More(); ex.Next()) {
+            const TopoDS_Face f = TopoDS::Face(ex.Current());
+            TopLoc_Location loc;
+            Handle(Poly_Triangulation) t = BRep_Tool::Triangulation(f, loc);
+            if (!t.IsNull() && t->NbTriangles() > 0)
+                continue;
+            for (size_t k = 0; k < sizeof(kNudge) / sizeof(kNudge[0]); ++k) {
+                try {
+                    BRepMesh_IncrementalMesh retry(f, lin_deflection * kNudge[k],
+                                                   Standard_False,
+                                                   ang_deflection,
+                                                   Standard_True);
+                    (void)retry;
+                } catch (const Standard_Failure &) {
+                } catch (...) {
+                }
+                t = BRep_Tool::Triangulation(f, loc);
+                if (!t.IsNull() && t->NbTriangles() > 0)
+                    break;
+            }
+        }
+    }
+
     std::vector<double> verts, norms, edge_pts, edge_curves;
     std::vector<int> tris, edge_starts;
     std::vector<int> edge_ids; /* v12: topological index per display edge */
