@@ -2570,6 +2570,10 @@ class _ScenePainter extends CustomPainter {
           accentEdges: accent,
           selectedSolids: solidsOfBody(app.selectedBody),
           hoveredSolids: solidsOfBody(app.browserHoverBody),
+          // M272 — and the appearance each body was given, so the CPU painter
+          // and RealityKit show the same part. Keyed through the feature that
+          // built the solid, because a material belongs to the BODY.
+          materialOf: (s) => materialColorOfSolid(part, s),
           // M250 — the assembly around an in-place edit, in the same depth
           // pass as the part so the two occlude each other properly.
           context: context);

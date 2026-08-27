@@ -19,6 +19,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
 import 'ffi/occt_engine.dart' show OcctMeshData;
+import 'materials.dart';
 import 'part_model.dart';
 import 'perf.dart';
 import 'quat.dart';
@@ -882,6 +883,23 @@ void _paintSolidSilhouettes(Canvas canvas, Cam3 cam, SceneSolid scene,
 /// Draws [solids] (committed, opaque) and the optional translucent
 /// [previewSolid] in Inventor's Shaded-with-Edges style. [highlightSolid]
 /// + [highlightFace] tint one face for hover prehighlight (Phase 2).
+/// M272 — [solids] grouped by the base colour they shade from, in a stable
+/// order (steel first, then first-seen).
+///
+/// A LinkedHashMap by construction, so the group order is deterministic and a
+/// golden-image test of a two-material part cannot flip between runs.
+Map<Color, List<SceneSolid>> _byMaterial(
+    List<SceneSolid> solids, Color? Function(KernelSolid)? materialOf) {
+  final out = <Color, List<SceneSolid>>{};
+  // Steel first and unconditionally, so the common case — nothing painted —
+  // produces exactly one group holding exactly what it always held.
+  out[kSolidBase] = [];
+  for (final s in solids) {
+    (out[materialOf?.call(s.solid) ?? kSolidBase] ??= []).add(s);
+  }
+  return out;
+}
+
 void paintPartSolids(
   Canvas canvas,
   Cam3 cam,
@@ -941,6 +959,16 @@ void paintPartSolids(
   /// editing. Defaults to [kContextBase]; see there for why this is a BASE and
   /// not a wash laid over the top.
   Color? contextBase,
+
+  /// M272 — the appearance assigned to a solid, or null for the palette's
+  /// steel.
+  ///
+  /// A BASE, like [contextBase], and never a wash: the shading is computed
+  /// from the base, so laying a colour over finished grey shading gives a
+  /// flat, plastic body instead of a lit one. Solids are grouped by the colour
+  /// this returns and every group goes through the SAME sort, which is what
+  /// keeps a red body and a blue one interleaving correctly where they overlap.
+  Color? Function(KernelSolid)? materialOf,
 }) {
   final opaque = [for (final s in solids) buildSceneSolid(s, cam)];
   // The context, each piece through its own PLACED camera — the same identity
@@ -975,14 +1003,20 @@ void paintPartSolids(
             ],
             contextBase ?? kContextBase
           ),
-        (
-          [
-            for (final s in opaque)
-              for (final t in s.tris)
-                if (t.front) t
-          ],
-          kSolidBase
-        ),
+        // M272 — one group per DISTINCT appearance. Grouped rather than drawn
+        // solid by solid because _drawShadedGroups sorts all of its groups
+        // together: one call per body would put each body in its own depth
+        // buffer and a blue body poking through a red one would come out
+        // whichever was drawn last.
+        for (final entry in _byMaterial(opaque, materialOf).entries)
+          (
+            [
+              for (final s in entry.value)
+                for (final t in s.tris)
+                  if (t.front) t
+            ],
+            entry.key
+          ),
       ],
       255);
 
@@ -1213,6 +1247,13 @@ SceneOccluders? paintAssemblySolids(
   Color? accentColor,
   Color? selectedTint,
   Color? hoveredTint,
+
+  /// M272 — the appearance assigned to component [i], or null for steel.
+  ///
+  /// A base colour, and grouped through the same one sorted pass the part
+  /// painter uses: an assembly of differently painted components has to
+  /// interleave correctly wherever two of them overlap.
+  Color? Function(int i)? materialOf,
 }) {
   // (component index, the piece's own placed camera, the projected solid).
   //
@@ -1230,14 +1271,20 @@ SceneOccluders? paintAssemblySolids(
   final occ = SceneOccluders([for (final (_, _, s) in scenes) s]);
 
   // 1. shaded faces of the WHOLE assembly, one watertight sorted buffer
-  _drawShaded(
-      canvas,
-      [
-        for (final (_, _, s) in scenes)
-          for (final t in s.tris)
-            if (t.front) t
-      ],
-      255);
+  //
+  // M272 — one GROUP per distinct appearance, still one sort. Steel is seeded
+  // first and unconditionally, so an assembly nobody has painted produces
+  // exactly the single group it always produced.
+  final byBase = <Color, List<SceneTri>>{kSolidBase: []};
+  for (final (i, _, s) in scenes) {
+    final base = materialOf?.call(i) ?? kSolidBase;
+    final into = byBase[base] ??= [];
+    for (final t in s.tris) {
+      if (t.front) into.add(t);
+    }
+  }
+  _drawShadedGroups(
+      canvas, [for (final e in byBase.entries) (e.value, e.key)], 255);
 
   // 2. the selection / hover wash, over the shading and under the edges.
   //
@@ -1558,4 +1605,21 @@ void _fitInto(
   final aspect = size.width / size.height;
   final halfH = math.max(hy, hx / (aspect <= 0 ? 1 : aspect)) / kThumbFill;
   cam.halfH = PartCamera.clampHalfH(halfH > 1e-6 ? halfH : 27);
+}
+
+/// M272 — the appearance colour of [s] within [p], or null for steel.
+///
+/// Lives here rather than in materials.dart because it needs [PartModel] to
+/// walk feature -> body -> material, and materials.dart is deliberately free of
+/// the model. Linear over the features: a part has tens of them, this runs once
+/// per solid per paint, and a cache would have to be invalidated by every
+/// rebuild.
+Color? materialColorOfSolid(PartModel p, KernelSolid s) {
+  if (p.bodyMaterials.isEmpty) return null;
+  for (final f in p.features) {
+    if (!identical(f.solid, s)) continue;
+    final argb = materialArgb(p.bodyMaterials[f.bodyName]);
+    return argb == null ? null : Color(argb);
+  }
+  return null;
 }

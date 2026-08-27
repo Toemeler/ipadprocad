@@ -3342,6 +3342,39 @@ class AppL10nDe extends AppL10n {
   String get panelComponent => 'Komponente';
 
   @override
+  String get panelAppearance => 'Aussehen';
+
+  @override
+  String get matPickBody => 'Nichts gewaehlt';
+
+  @override
+  String get matSteel => 'Stahl';
+
+  @override
+  String get matAluminium => 'Aluminium';
+
+  @override
+  String get matGraphite => 'Graphit';
+
+  @override
+  String get matBrass => 'Messing';
+
+  @override
+  String get matCopper => 'Kupfer';
+
+  @override
+  String get matRed => 'Rot';
+
+  @override
+  String get matGreen => 'Gruen';
+
+  @override
+  String get matBlue => 'Blau';
+
+  @override
+  String get matViolet => 'Violett';
+
+  @override
   String get panelPosition => 'Position';
 
   @override

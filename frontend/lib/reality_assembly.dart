@@ -30,6 +30,7 @@
 import 'package:flutter/painting.dart' show Color;
 
 import 'assembly.dart';
+import 'materials.dart';
 import 'part_model.dart';
 import 'quat.dart';
 import 'reality_payload.dart';
@@ -79,7 +80,10 @@ int assemblyTint(AssemblyModel a, AssemblyOccurrence o, {String? hoverId}) {
     return (Color.lerp(T.solid, T.faceHighlight, 0.38) ?? T.faceHighlight)
         .toARGB32();
   }
-  return kNoTint;
+  // M272 — and under both, the component's own appearance. Selection and hover
+  // are questions being asked right now; a material is a fact set once, so it
+  // sits underneath them. Same rule as _bodyRowTint on the part side.
+  return materialArgb(o.material) ?? kNoTint;
 }
 
 /// Mesh revisions currently on screen, so the next push can omit the buffers

@@ -2648,6 +2648,50 @@
   "@panelComponent": {
     "description": "Ribbon-Gruppe der Baugruppe. Inventor DE: \"Komponente\"."
   },
+  "panelAppearance": "Aussehen",
+  "@panelAppearance": {
+    "description": "Ribbon-Gruppe: die Farbe eines Koerpers oder einer Komponente. Inventor DE: \"Aussehen\"."
+  },
+  "matPickBody": "Nichts gewaehlt",
+  "@matPickBody": {
+    "description": "Steht im Aussehen-Feld, solange kein Koerper und keine Komponente gewaehlt ist."
+  },
+  "matSteel": "Stahl",
+  "@matSteel": {
+    "description": "Aussehen: das schlichte Grau, mit dem alles gebaut wird."
+  },
+  "matAluminium": "Aluminium",
+  "@matAluminium": {
+    "description": "Aussehen: helles Metallgrau."
+  },
+  "matGraphite": "Graphit",
+  "@matGraphite": {
+    "description": "Aussehen: dunkles Grau."
+  },
+  "matBrass": "Messing",
+  "@matBrass": {
+    "description": "Aussehen: gedaempftes Gelbgold."
+  },
+  "matCopper": "Kupfer",
+  "@matCopper": {
+    "description": "Aussehen: gedaempftes Rotbraun."
+  },
+  "matRed": "Rot",
+  "@matRed": {
+    "description": "Aussehen: gedaempftes Rot."
+  },
+  "matGreen": "Gruen",
+  "@matGreen": {
+    "description": "Aussehen: gedaempftes Gruen."
+  },
+  "matBlue": "Blau",
+  "@matBlue": {
+    "description": "Aussehen: gedaempftes Blau."
+  },
+  "matViolet": "Violett",
+  "@matViolet": {
+    "description": "Aussehen: gedaempftes Violett."
+  },
   "panelPosition": "Position",
   "@panelPosition": {
     "description": "Ribbon-Gruppe der Baugruppe. Inventor DE: \"Position\"."

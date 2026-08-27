@@ -44,6 +44,7 @@ import 'perf.dart';
 import 'modify.dart';
 import 'params.dart';
 import 'part_model.dart';
+import 'materials.dart';
 import 'part_render.dart';
 import 'preview_matte.dart';
 // PURE payload builders only — importing reality_scene.dart here would close a
@@ -2303,8 +2304,12 @@ class AppState extends ChangeNotifier {
         } catch (_) {
           modified = r.lastOpened ?? DateTime.fromMillisecondsSinceEpoch(0);
         }
-        list.add(SavedSketchInfo(
-            entry.key, modified, _thumbFor(r), r.isPart ? 'part' : 'sketch'));
+        // M272 — the document's OWN kind, all three of them. It used to be
+        // `isPart ? 'part' : 'sketch'`, which quietly filed every assembly
+        // under sketch: the card's blank state drew a sketch cube for an
+        // assembly, and the gallery had no way to say which was which even
+        // though _Card has handled all three kinds since M240.
+        list.add(SavedSketchInfo(entry.key, modified, _thumbFor(r), r.kind));
       }
     }
     list.sort((a, b) => b.modified.compareTo(a.modified));
@@ -4190,7 +4195,17 @@ class AppState extends ChangeNotifier {
       // a palette: a thumbnail written in Ember still looks right in Chalk,
       // and a scheme switch does not invalidate a single cached still.
       final shot = await RealityThumbnailer.render(
-        scene: buildThumbScenePayload(named),
+        // M272 — the appearances too. `named` is keyed by FEATURE name and a
+        // material belongs to a body, so this is the same feature -> body ->
+        // material walk _bodyRowTint does.
+        scene: buildThumbScenePayload(named, tintOf: (id) {
+          for (final f in p.features) {
+            if (f.name == id) {
+              return materialArgb(p.bodyMaterials[f.bodyName]) ?? kNoTint;
+            }
+          }
+          return kNoTint;
+        }),
         camera: cameraPayload(cam, size),
         width: w.toInt(),
         height: h.toInt(),
@@ -4901,6 +4916,13 @@ class AppState extends ChangeNotifier {
       final pieces = [
         for (final (id, _, at, s) in assemblyPieces(a)) (id, s, at)
       ];
+      // M272 — built from the SAME walk, so a piece and its appearance cannot
+      // drift apart. Matching an id back to an occurrence by prefix would work
+      // today and break the first time a piece path changes shape.
+      final pieceTint = {
+        for (final (id, o, _, _) in assemblyPieces(a))
+          id: materialArgb(o.material) ?? kNoTint
+      };
       if (pieces.isEmpty) {
         if (png.existsSync()) png.deleteSync();
         return;
@@ -4914,20 +4936,29 @@ class AppState extends ChangeNotifier {
       // the PNG, so a still written in one scheme still looks right in the
       // other and a palette switch invalidates no cached file.
       final shot = await RealityThumbnailer.render(
-        scene: buildPlacedThumbScenePayload(pieces),
+        // M272 — and each component's own appearance.
+        scene: buildPlacedThumbScenePayload(pieces,
+            tintOf: (id) => pieceTint[id] ?? kNoTint),
         camera: cameraPayload(cam, size),
         width: w.toInt(),
         height: h.toInt(),
       );
       if (shot != null && shot.isNotEmpty) {
-        await png.writeAsBytes(shot);
+        // M272 — the same check the part's still gets (M269). It was fitted to
+        // one of the two writers and not the other, which is exactly how a
+        // cream card comes back on an assembly six weeks from now.
+        await png.writeAsBytes(await demattePng(shot) ?? shot);
         return;
       }
 
       // Fallback: CPU painter, same camera.
       final rec = ui.PictureRecorder();
       final canvas = Canvas(rec, const Rect.fromLTWH(0, 0, w, h));
-      paintAssemblySolids(canvas, Cam3(cam, size), placed);
+      final mats = placedMaterials(a);
+      paintAssemblySolids(canvas, Cam3(cam, size), placed, materialOf: (i) {
+        final argb = materialArgb(mats[i]);
+        return argb == null ? null : Color(argb);
+      });
       final img = await rec.endRecording().toImage(w.toInt(), h.toInt());
       final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
       if (bytes != null) {
@@ -13611,6 +13642,57 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ---- M272: appearances ----
+
+  /// The appearance of whatever is selected right now, or null for steel.
+  ///
+  /// One getter over both modes, because the ribbon control is one control:
+  /// in a part the selection is a BODY, in an assembly it is a COMPONENT, and
+  /// the difference stops at this line.
+  String? get selectedMaterial {
+    final a = currentAssembly;
+    if (a != null) return a.selected?.material;
+    final b = selectedBody;
+    return b == null ? null : currentPart?.bodyMaterials[b];
+  }
+
+  /// Is there anything to paint? The ribbon control dims when there is not.
+  bool get canSetMaterial => currentAssembly != null
+      ? currentAssembly!.selected != null
+      : (currentPart != null && activeChild == null && selectedBody != null);
+
+  /// Paints the current selection. [id] null (or [kMaterialSteel]) strips it.
+  ///
+  /// Undo is deliberately NOT taken here. An appearance changes nothing the
+  /// model is built from — no face moves, no feature rebuilds — so putting it
+  /// on the timeline would mean an undo after painting a body silently threw
+  /// away the extrusion before it. Re-picking steel is the undo, and it is one
+  /// tap away in the same menu.
+  void setSelectedMaterial(String? id) {
+    final m = sanitiseMaterial(id);
+    final a = currentAssembly;
+    if (a != null) {
+      final o = a.selected;
+      if (o == null || o.material == m) return;
+      o.material = m;
+      Log.i('asm', 'component "${o.id}" appearance = ${m ?? kMaterialSteel}');
+      if (curTab != null) saveAssembly(curTab!);
+      notifyListeners();
+      return;
+    }
+    final p = currentPart;
+    final body = selectedBody;
+    if (p == null || body == null) return;
+    if (p.bodyMaterials[body] == m) return;
+    // Removed rather than stored as 'steel', so an unpainted part's document
+    // is byte-identical to what it was before appearances existed.
+    m == null ? p.bodyMaterials.remove(body) : p.bodyMaterials[body] = m;
+    p.dirty = true;
+    Log.i('part', 'body "$body" appearance = ${m ?? kMaterialSteel}');
+    if (curTab != null) savePart(curTab!);
+    notifyListeners();
+  }
+
   /// M97 — renames a body everywhere it is built.
   bool renameBody(String from, String to) {
     final p = currentPart;
@@ -13626,6 +13708,10 @@ class AppState extends ChangeNotifier {
     }
     if (selectedBody == from) selectedBody = n; // the selection follows it
     if (browserHoverBody == from) browserHoverBody = n;
+    // M272 — and so does the appearance. Keyed by body NAME, so a rename that
+    // did not carry it would silently repaint the body steel.
+    final mat = p.bodyMaterials.remove(from);
+    if (mat != null) p.bodyMaterials[n] = mat;
     p.dirty = true;
     if (curTab != null) savePart(curTab!);
     notifyListeners();
@@ -13641,6 +13727,8 @@ class AppState extends ChangeNotifier {
     _partCheckpoint(p); // M182 — deleting a body must be undoable
     if (selectedBody == bodyName) selectedBody = null; // nothing left to light
     if (browserHoverBody == bodyName) browserHoverBody = null;
+    p.bodyMaterials.remove(bodyName); // M272 — and nothing left to paint
+
     for (final f in victims) {
       f.disposeSolid();
       p.features.remove(f);

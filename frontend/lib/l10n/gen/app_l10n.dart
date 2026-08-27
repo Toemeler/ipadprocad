@@ -5551,6 +5551,72 @@ abstract class AppL10n {
   /// **'Komponente'**
   String get panelComponent;
 
+  /// Ribbon-Gruppe: die Farbe eines Koerpers oder einer Komponente. Inventor DE: "Aussehen".
+  ///
+  /// In de, this message translates to:
+  /// **'Aussehen'**
+  String get panelAppearance;
+
+  /// Steht im Aussehen-Feld, solange kein Koerper und keine Komponente gewaehlt ist.
+  ///
+  /// In de, this message translates to:
+  /// **'Nichts gewaehlt'**
+  String get matPickBody;
+
+  /// Aussehen: das schlichte Grau, mit dem alles gebaut wird.
+  ///
+  /// In de, this message translates to:
+  /// **'Stahl'**
+  String get matSteel;
+
+  /// Aussehen: helles Metallgrau.
+  ///
+  /// In de, this message translates to:
+  /// **'Aluminium'**
+  String get matAluminium;
+
+  /// Aussehen: dunkles Grau.
+  ///
+  /// In de, this message translates to:
+  /// **'Graphit'**
+  String get matGraphite;
+
+  /// Aussehen: gedaempftes Gelbgold.
+  ///
+  /// In de, this message translates to:
+  /// **'Messing'**
+  String get matBrass;
+
+  /// Aussehen: gedaempftes Rotbraun.
+  ///
+  /// In de, this message translates to:
+  /// **'Kupfer'**
+  String get matCopper;
+
+  /// Aussehen: gedaempftes Rot.
+  ///
+  /// In de, this message translates to:
+  /// **'Rot'**
+  String get matRed;
+
+  /// Aussehen: gedaempftes Gruen.
+  ///
+  /// In de, this message translates to:
+  /// **'Gruen'**
+  String get matGreen;
+
+  /// Aussehen: gedaempftes Blau.
+  ///
+  /// In de, this message translates to:
+  /// **'Blau'**
+  String get matBlue;
+
+  /// Aussehen: gedaempftes Violett.
+  ///
+  /// In de, this message translates to:
+  /// **'Violett'**
+  String get matViolet;
+
   /// Ribbon-Gruppe der Baugruppe. Inventor DE: "Position".
   ///
   /// In de, this message translates to:

@@ -102,6 +102,35 @@ List<NativeMenuItem> newDocMenuItems(AppL10n t) => [
       // and the whole of what the "+" is for.
     ];
 
+/// M272 — how strongly a card's name leans toward its kind's hue.
+///
+/// "very slight and not too strong but still helping to see what is an
+/// assembly what is a part and what a sketch". A third of the way is where a
+/// column of names still reads as one typographic voice while a neighbouring
+/// pair is plainly two different things. Past about half it stops being a
+/// gallery of documents and starts being a colour-coded list.
+const double kKindTint = 0.34;
+
+/// The colour a card's NAME is written in, for its document kind.
+///
+/// The hues are not invented here — they are the ones the browser's cube
+/// glyphs have used since M84: a sketch cube is the app's accent blue, a part
+/// cube is neutral grey. So a sketch name leans accent, and a PART name leans
+/// nowhere at all. That last one is deliberate: parts are the commonest
+/// document, an un-tinted baseline is what the other two are read against, and
+/// three tints with nothing neutral between them is the wall of colour the
+/// request explicitly did not ask for.
+///
+/// An assembly is the one kind whose glyph has no hue of its own (it is a grey
+/// cube and a blue one), so it takes the palette's green — the only remaining
+/// chromatic token with no meaning on this surface, and the easiest thing to
+/// tell from blue at a glance in a grid.
+Color cardNameColor(Palette g, String kind) => switch (kind) {
+      'sketch' => Color.lerp(g.cardName, g.accent, kKindTint)!,
+      kAssemblyDocKind => Color.lerp(g.cardName, g.okText, kKindTint)!,
+      _ => g.cardName, // 'part', and anything a later build adds
+    };
+
 class HomeView extends StatefulWidget {
   final AppState app;
   const HomeView({super.key, required this.app});
@@ -783,7 +812,8 @@ class _CardState extends State<_Card> {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center,
-              style: ts(13.5, g.cardName, w: FontWeight.w600)),
+              style: ts(13.5, cardNameColor(g, widget.kind),
+                  w: FontWeight.w600)),
           const SizedBox(height: 3),
           Text(widget.date,
               textAlign: TextAlign.center,
