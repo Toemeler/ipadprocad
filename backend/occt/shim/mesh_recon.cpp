@@ -1487,6 +1487,34 @@ const int kFreeformRounds = 12;
 const int kFreeformSplitDepth = 9;
 const int kFreeformMergePasses = 12;
 const int kFreeformCheckSamples = 48;
+
+/* Chart parameters — see BuildChart and FitChartSurface.
+ *
+ * The relaxation is a Gauss-Seidel sweep over a system whose coefficients are
+ * all positive, so it converges from anywhere; it is started from the plane
+ * projection the old code used, which is already close on the regions that
+ * were working, and the cap is there for the ones that are not.
+ *
+ * Fairing is scaled by the point count so it means the same thing on a region
+ * of two hundred vertices and one of twenty thousand. The ridge is smaller
+ * again and exists only so the Cholesky cannot meet a zero. */
+const int kChartMaxVertices = 60000;
+const int kChartRelaxPasses = 3000;
+const double kChartRelaxEps = 1e-7;
+const double kChartFairing = 2e-7;
+const double kChartRidge = 1e-9;
+const long long kChartKey = 1000000LL;
+/* Smallest angular step between neighbouring boundary vertices that still
+ * counts as going round the right way. Below it two of them pin to the same
+ * place on the circle and the triangle between them has nowhere to be. */
+const double kChartAngleStep = 1e-6;
+/* Conjugate gradients on the conformal system. It converges in far fewer than
+ * this on a well-shaped region; the cap is for the ones that are not. */
+const int kLscmIterations = 400;
+const double kLscmEps = 1e-10;
+/* How much the conformal map may stretch one part of a region against
+ * another before the chart is worth more than the angles it preserves. */
+const double kLscmMaxStretch = 400.0;
 const int kFreeformMaxRegionTriangles = 20000;
 const int kFreeformGridMax = 32;
 const double kFreeformGridBar = 0.7;
@@ -6229,6 +6257,876 @@ double SurfaceOffRegion(const Mesh &m, const std::vector<int> &tris,
     return worst;
 }
 
+/* A region flattened into its own square, and the surface fitted over it.
+ *
+ * WHY NOT A PLANE. The first version of this projected a region onto its own
+ * average plane and fitted a height field. That works and it is why the whale
+ * came back at all, but it makes flatness a requirement rather than an
+ * observation: a limb that turns more than about ninety degrees is a graph
+ * over NO plane, so it had to be cut, and every one of those cuts is a seam
+ * the shape does not have. Six of the whale's regions could not be flattened
+ * at any depth and stayed as triangles.
+ *
+ * A chart asks less. Any region that is a topological disk can be flattened
+ * into a square — that is Tutte's theorem, with Floater's mean-value weights
+ * giving the positive coefficients it needs — and the flattening is injective
+ * however far the region wraps. So the surface is fitted over the CHART's
+ * parameters, not over a plane, and wrapping stops being a disqualification.
+ * This is the core of Eck and Hoppe, SIGGRAPH 1996.
+ *
+ * The boundary is pinned to the square by arc length, corners at the quarters.
+ * The interior is solved by Gauss-Seidel: with mean-value weights every
+ * coefficient is positive and the iteration is a contraction, so no linear
+ * algebra library is needed for this half. */
+bool ProxyOf(const Mesh &m, const std::vector<int> &tris, Proxy &pr);
+
+struct Chart
+{
+    std::vector<int> vert;    /* the region's vertices, ascending */
+    std::vector<double> u, v; /* where each one landed in [0,1]^2 */
+    bool ok = false;
+};
+
+/* Mean-value weight for the edge from a to b, summed over the two region
+ * triangles that share it. Floater 2003: positive whatever the geometry, which
+ * is what makes the map injective. */
+double MeanValueWeight(const Mesh &m, int a, int b,
+                       const std::vector<int> &fan)
+{
+    const V3 &pa = m.pos[a], &pb = m.pos[b];
+    const double len = Norm(pb - pa);
+    if (!(len > 0))
+        return 0;
+    double w = 0;
+    for (int t : fan) {
+        int other = -1;
+        for (int k = 0; k < 3; ++k) {
+            const int q = m.tri[t * 3 + k];
+            if (q != a && q != b)
+                other = q;
+        }
+        if (other < 0)
+            continue;
+        /* the angle at a, in the triangle (a, b, other) */
+        const V3 e1 = pb - pa, e2 = m.pos[other] - pa;
+        const double n1 = Norm(e1), n2 = Norm(e2);
+        if (!(n1 > 0) || !(n2 > 0))
+            continue;
+        double c = Dot(e1, e2) / (n1 * n2);
+        c = std::max(-1.0, std::min(1.0, c));
+        w += std::tan(std::acos(c) * 0.5);
+    }
+    return w / len;
+}
+
+/* Signed area of a triangle as the chart lays it out. */
+double ChartArea(const Mesh &m, const Chart &ch,
+                 const std::unordered_map<int, int> &idx, int t)
+{
+    const int a = idx.at(m.tri[t * 3]), b = idx.at(m.tri[t * 3 + 1]),
+              c = idx.at(m.tri[t * 3 + 2]);
+    return (ch.u[b] - ch.u[a]) * (ch.v[c] - ch.v[a]) -
+           (ch.u[c] - ch.u[a]) * (ch.v[b] - ch.v[a]);
+}
+
+#ifdef MESHRECON_TRACE
+int g_chartFail[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+int g_fitFail = 0, g_fitOk = 0;
+#define CHARTFAIL(i) (++g_chartFail[i])
+#else
+#define CHARTFAIL(i) ((void)0)
+#endif
+
+/* A least-squares conformal map of the region — Lévy, Petitjean, Ray and
+ * Maillot, SIGGRAPH 2002.
+ *
+ * Pinning the boundary to a circle is what a fixed-boundary map has to do, and
+ * it is what ruins the fit: a long strip has both its ends crushed into a few
+ * degrees of the circle, and no control net resolves what happens there. On
+ * the whale those fits plateaued at 1.4 times tolerance however many control
+ * points they were given.
+ *
+ * LSCM lets the boundary go where it wants and asks instead that the map be
+ * conformal — angle-preserving — which is the property that makes a chart
+ * worth fitting over. Per triangle, laid out in its own plane, conformality is
+ * one complex equation, Sum_a W_a U_a = 0; two pinned vertices remove the
+ * translation, rotation and scale that would otherwise leave the system
+ * singular, and the rest is a sparse least-squares solved by conjugate
+ * gradients on the normal equations.
+ *
+ * It is not guaranteed injective the way Tutte's construction is, so the fold
+ * check still runs and the fixed-boundary map is still there to fall back on.
+ */
+bool LscmChart(const Mesh &m, const std::vector<int> &tris,
+               const std::unordered_map<int, int> &idx,
+               const std::vector<int> &loop, Chart &ch)
+{
+    const int nv = static_cast<int>(ch.vert.size());
+    const int nt = static_cast<int>(tris.size());
+    if (nv < 4 || loop.size() < 3)
+        return false;
+
+    /* Two pins, as far apart along the boundary as it goes. */
+    const int pinA = loop[0];
+    const int pinB = loop[loop.size() / 2];
+    if (pinA == pinB)
+        return false;
+    std::vector<int> col(nv, -1);
+    int nf = 0;
+    for (int i = 0; i < nv; ++i)
+        if (i != pinA && i != pinB)
+            col[i] = nf++;
+    if (nf == 0)
+        return false;
+
+    /* Rows: two per triangle. Columns: u then v for every free vertex. */
+    const int nrow = 2 * nt, ncol = 2 * nf;
+    std::vector<int> rowOf, colOf;
+    std::vector<double> valOf;
+    rowOf.reserve(nt * 12);
+    colOf.reserve(nt * 12);
+    valOf.reserve(nt * 12);
+    std::vector<double> rhs(nrow, 0.0);
+    /* the pins, a unit apart on the u axis */
+    const double pu[2] = {0.0, 1.0}, pv[2] = {0.0, 0.0};
+
+    for (int ti = 0; ti < nt; ++ti) {
+        const int t = tris[ti];
+        const int vi[3] = {idx.at(m.tri[t * 3]), idx.at(m.tri[t * 3 + 1]),
+                           idx.at(m.tri[t * 3 + 2])};
+        /* lay the triangle out in its own plane */
+        const V3 &p0 = m.pos[ch.vert[vi[0]]];
+        const V3 &p1 = m.pos[ch.vert[vi[1]]];
+        const V3 &p2 = m.pos[ch.vert[vi[2]]];
+        const V3 e1 = p1 - p0, e2 = p2 - p0;
+        const double l1 = Norm(e1);
+        if (!(l1 > 0))
+            return false;
+        const V3 ax = e1 * (1.0 / l1);
+        const V3 nz = Cross(e1, e2);
+        const double area2 = Norm(nz);
+        if (!(area2 > 0))
+            return false;
+        const V3 ay = Unit(Cross(nz, e1));
+        const double x[3] = {0.0, l1, Dot(e2, ax)};
+        const double y[3] = {0.0, 0.0, Dot(e2, ay)};
+        const double w = 1.0 / std::sqrt(area2);
+        for (int a = 0; a < 3; ++a) {
+            const int b = (a + 1) % 3, c = (a + 2) % 3;
+            const double wx = (x[c] - x[b]) * w, wy = (y[c] - y[b]) * w;
+            /* real row: wx*u - wy*v ; imag row: wy*u + wx*v */
+            const int r0 = 2 * ti, r1 = 2 * ti + 1;
+            const int cv = col[vi[a]];
+            if (cv < 0) {
+                const int k = (vi[a] == pinA) ? 0 : 1;
+                rhs[r0] -= wx * pu[k] - wy * pv[k];
+                rhs[r1] -= wy * pu[k] + wx * pv[k];
+            } else {
+                rowOf.push_back(r0); colOf.push_back(cv);      valOf.push_back(wx);
+                rowOf.push_back(r0); colOf.push_back(nf + cv); valOf.push_back(-wy);
+                rowOf.push_back(r1); colOf.push_back(cv);      valOf.push_back(wy);
+                rowOf.push_back(r1); colOf.push_back(nf + cv); valOf.push_back(wx);
+            }
+        }
+    }
+
+    /* CGNR: minimise ||Mx - rhs||, never forming M^T M. */
+    const size_t nnz = valOf.size();
+    std::vector<double> xv(ncol, 0.0), r(nrow), z(ncol), pvec(ncol), Mp(nrow);
+    auto mul = [&](const std::vector<double> &in, std::vector<double> &out) {
+        std::fill(out.begin(), out.end(), 0.0);
+        for (size_t k = 0; k < nnz; ++k)
+            out[rowOf[k]] += valOf[k] * in[colOf[k]];
+    };
+    auto mulT = [&](const std::vector<double> &in, std::vector<double> &out) {
+        std::fill(out.begin(), out.end(), 0.0);
+        for (size_t k = 0; k < nnz; ++k)
+            out[colOf[k]] += valOf[k] * in[rowOf[k]];
+    };
+    r = rhs;
+    mulT(r, z);
+    pvec = z;
+    double zz = 0;
+    for (int i = 0; i < ncol; ++i)
+        zz += z[i] * z[i];
+    const double zz0 = zz;
+    if (!(zz0 > 0))
+        return false;
+    for (int it = 0; it < kLscmIterations && zz > zz0 * kLscmEps; ++it) {
+        mul(pvec, Mp);
+        double pp = 0;
+        for (int i = 0; i < nrow; ++i)
+            pp += Mp[i] * Mp[i];
+        if (!(pp > 0))
+            break;
+        const double alpha = zz / pp;
+        for (int i = 0; i < ncol; ++i)
+            xv[i] += alpha * pvec[i];
+        for (int i = 0; i < nrow; ++i)
+            r[i] -= alpha * Mp[i];
+        mulT(r, z);
+        double zn = 0;
+        for (int i = 0; i < ncol; ++i)
+            zn += z[i] * z[i];
+        const double beta = zn / zz;
+        zz = zn;
+        for (int i = 0; i < ncol; ++i)
+            pvec[i] = z[i] + beta * pvec[i];
+    }
+
+    for (int i = 0; i < nv; ++i) {
+        if (i == pinA) { ch.u[i] = pu[0]; ch.v[i] = pv[0]; }
+        else if (i == pinB) { ch.u[i] = pu[1]; ch.v[i] = pv[1]; }
+        else { ch.u[i] = xv[col[i]]; ch.v[i] = xv[nf + col[i]]; }
+        if (!(ch.u[i] > -1e12 && ch.u[i] < 1e12) ||
+            !(ch.v[i] > -1e12 && ch.v[i] < 1e12))
+            return false;
+    }
+    /* into the unit square, keeping the aspect ratio the map chose */
+    double a0 = 1e300, a1 = -1e300, b0 = 1e300, b1 = -1e300;
+    for (int i = 0; i < nv; ++i) {
+        a0 = std::min(a0, ch.u[i]); a1 = std::max(a1, ch.u[i]);
+        b0 = std::min(b0, ch.v[i]); b1 = std::max(b1, ch.v[i]);
+    }
+    /* Fill the square in both directions.
+     *
+     * Keeping the map's own aspect ratio leaves the data in a thin band and
+     * the rest of the control net holding nothing — and a tensor-product
+     * surface fitted over a square whose corners have no data does whatever
+     * the fairing term says out there, which is where the face went when it
+     * was trimmed. Stretching u and v independently is not conformal any more,
+     * but conformality was only ever wanted so the FIT would behave, and a
+     * separable scale does not bend anything the fit cannot follow. */
+    const double du = a1 - a0, dv = b1 - b0;
+    if (!(du > 0) || !(dv > 0))
+        return false;
+    for (int i = 0; i < nv; ++i) {
+        ch.u[i] = (ch.u[i] - a0) / du;
+        ch.v[i] = (ch.v[i] - b0) / dv;
+    }
+    /* A conformal map preserves angles and says nothing about area, and on a
+     * region with a neck it will shrink one side of the neck to almost
+     * nothing. The chart is then unfittable however many control points it is
+     * given — one of the whale's came back at 24 mm — so measure the stretch
+     * and hand those regions to the pinned-boundary map instead, which
+     * distorts angles but keeps area under control. */
+    {
+        double lo = 1e300, hi = 0;
+        for (int ti = 0; ti < nt; ++ti) {
+            const int t = tris[ti];
+            const int a = idx.at(m.tri[t * 3]), b = idx.at(m.tri[t * 3 + 1]),
+                      c = idx.at(m.tri[t * 3 + 2]);
+            const double ar = std::fabs((ch.u[b] - ch.u[a]) * (ch.v[c] - ch.v[a]) -
+                                        (ch.u[c] - ch.u[a]) * (ch.v[b] - ch.v[a]));
+            if (!(m.tarea[t] > 0))
+                continue;
+            const double s = ar / m.tarea[t];
+            lo = std::min(lo, s);
+            hi = std::max(hi, s);
+        }
+        if (!(lo > 0) || hi > lo * kLscmMaxStretch)
+            return false;
+    }
+    return true;
+}
+
+bool BuildChart(const Mesh &m, const std::vector<int> &tris, Chart &ch)
+{
+    ch.ok = false;
+    ch.vert.clear();
+    if (tris.size() < 3)
+        { CHARTFAIL(0); return false; }
+
+    std::vector<char> mine(m.triCount(), 0);
+    for (int t : tris)
+        mine[t] = 1;
+
+    ch.vert.reserve(tris.size() * 3);
+    for (int t : tris)
+        for (int k = 0; k < 3; ++k)
+            ch.vert.push_back(m.tri[t * 3 + k]);
+    std::sort(ch.vert.begin(), ch.vert.end());
+    ch.vert.erase(std::unique(ch.vert.begin(), ch.vert.end()), ch.vert.end());
+    const int nv = static_cast<int>(ch.vert.size());
+    if (nv < 4 || nv > kChartMaxVertices) {
+        for (int t : tris)
+            mine[t] = 0;
+        { CHARTFAIL(1); return false; }
+    }
+    std::unordered_map<int, int> idx;
+    idx.reserve(nv * 2);
+    for (int i = 0; i < nv; ++i)
+        idx[ch.vert[i]] = i;
+
+    /* The region's boundary: an edge with only one of its two triangles
+     * inside. For a disk these form exactly one closed loop. */
+    std::unordered_map<long long, int> nextOf; /* directed a -> b */
+    std::vector<std::vector<int>> fan(nv);     /* triangles at each vertex */
+    int boundaryEdges = 0;
+    for (int t : tris) {
+        for (int k = 0; k < 3; ++k) {
+            const int a = m.tri[t * 3 + k], b = m.tri[t * 3 + (k + 1) % 3];
+            fan[idx[a]].push_back(t);
+            const int o = m.adj[t * 3 + k];
+            if (o >= 0 && mine[o])
+                continue;
+            /* keep the winding so the loop walks one way round */
+            nextOf[static_cast<long long>(idx[a])] = idx[b];
+            ++boundaryEdges;
+        }
+    }
+    for (int t : tris)
+        mine[t] = 0;
+    if (boundaryEdges < 3 ||
+        static_cast<int>(nextOf.size()) != boundaryEdges)
+        { CHARTFAIL(2); return false; } /* a vertex leaves twice: pinched, not a disk */
+
+    std::vector<int> loop;
+    loop.reserve(boundaryEdges);
+    {
+        const int start = nextOf.begin()->first;
+        int cur = start;
+        for (int guard = 0; guard <= boundaryEdges; ++guard) {
+            loop.push_back(cur);
+            std::unordered_map<long long, int>::iterator it =
+                nextOf.find(static_cast<long long>(cur));
+            if (it == nextOf.end())
+                { CHARTFAIL(3); return false; }
+            cur = it->second;
+            if (cur == start)
+                break;
+        }
+        if (cur != start || static_cast<int>(loop.size()) != boundaryEdges)
+            { CHARTFAIL(4); return false; } /* more than one loop: an annulus, not a disk */
+    }
+
+    /* A conformal map first; the pinned-boundary one only if it folds. */
+    ch.u.assign(nv, 0.0);
+    ch.v.assign(nv, 0.0);
+    if (LscmChart(m, tris, idx, loop, ch)) {
+        int flipped = 0;
+        for (int t : tris)
+            if (ChartArea(m, ch, idx, t) <= 0)
+                ++flipped;
+        if (flipped == static_cast<int>(tris.size())) {
+            for (int i = 0; i < nv; ++i)
+                ch.v[i] = 1.0 - ch.v[i];
+            flipped = 0;
+            for (int t : tris)
+                if (ChartArea(m, ch, idx, t) <= 0)
+                    ++flipped;
+        }
+        if (flipped == 0) {
+            ch.ok = true;
+            return true;
+        }
+    }
+
+    /* Pin the loop to a CIRCLE by arc length, not to a square.
+     *
+     * Tutte's theorem wants a convex boundary and a square is convex, but a
+     * square has straight sides, and a triangle whose three vertices all land
+     * on one side is exactly collinear — zero area, indistinguishable from a
+     * fold. On small regions most vertices are on the boundary and this is
+     * common: it rejected 4,401 of the whale's 4,500 charts. No three points
+     * on a circle are collinear. The surface is still fitted over the square
+     * that circle sits in; the corners are simply not where the data is, and
+     * the face is trimmed to the region either way. */
+    ch.u.assign(nv, 0.0);
+    ch.v.assign(nv, 0.0);
+    std::vector<char> pinned(nv, 0);
+    {
+        const int nb = static_cast<int>(loop.size());
+        std::vector<double> acc(nb + 1, 0.0);
+        for (int i = 0; i < nb; ++i)
+            acc[i + 1] = acc[i] + Norm(m.pos[ch.vert[loop[(i + 1) % nb]]] -
+                                       m.pos[ch.vert[loop[i]]]);
+        const double total = acc[nb];
+        if (!(total > 0))
+            { CHARTFAIL(5); return false; }
+        /* Where on the circle each boundary vertex goes.
+         *
+         * Arc length is the safe answer and a poor one: it takes a long strip
+         * and squashes both ends into a few degrees of the circle, and then no
+         * control net can resolve what happens there — the whale's fits
+         * plateaued at 1.4 times tolerance however many control points they
+         * were given.
+         *
+         * Where the region IS a graph over its proxy plane — which is most of
+         * them, and is what the old height-field code depended on — the
+         * projected angle round the centroid is monotonic along the boundary,
+         * and using it makes the chart near-isometric: the map is then close
+         * to the plane projection that was already working, but it is still a
+         * disk map, so a region that wraps is not disqualified. When the angle
+         * is NOT monotonic the region genuinely folds over its plane, and arc
+         * length is what is left. */
+        std::vector<double> ang(nb, 0.0);
+        bool monotone = false;
+        {
+            Proxy pr;
+            if (ProxyOf(m, tris, pr)) {
+                V3 e1 = std::fabs(pr.n.x) < 0.9 ? Cross(pr.n, V3(1, 0, 0))
+                                                : Cross(pr.n, V3(0, 1, 0));
+                e1 = Unit(e1);
+                const V3 e2 = Cross(pr.n, e1);
+                for (int i = 0; i < nb; ++i) {
+                    const V3 d = m.pos[ch.vert[loop[i]]] - pr.c;
+                    ang[i] = std::atan2(Dot(d, e2), Dot(d, e1));
+                }
+                /* Every step the same way round, none of them zero. The total
+                 * turn being 2*pi is not enough: local reversals cancel, and a
+                 * boundary pinned out of its own order crosses itself, which
+                 * is exactly the convexity Tutte's theorem needs. */
+                double up = 1e300, down = 1e300;
+                for (int i = 0; i < nb; ++i) {
+                    double step = ang[(i + 1) % nb] - ang[i];
+                    while (step > M_PI) step -= 2.0 * M_PI;
+                    while (step <= -M_PI) step += 2.0 * M_PI;
+                    up = std::min(up, step);
+                    down = std::min(down, -step);
+                }
+                if (up > kChartAngleStep) {
+                    monotone = true;
+                } else if (down > kChartAngleStep) {
+                    monotone = true;
+                    for (int i = 0; i < nb; ++i)
+                        ang[i] = -ang[i];
+                }
+            }
+        }
+        for (int i = 0; i < nb; ++i) {
+            const double a =
+                monotone ? ang[i] : 2.0 * M_PI * acc[i] / total;
+            ch.u[loop[i]] = 0.5 + 0.5 * std::cos(a);
+            ch.v[loop[i]] = 0.5 + 0.5 * std::sin(a);
+            pinned[loop[i]] = 1;
+        }
+    }
+
+    /* Interior: each vertex is the mean-value average of its neighbours. */
+    std::vector<std::vector<std::pair<int, double>>> nbr(nv);
+    {
+        std::unordered_map<long long, std::vector<int>> edgeFan;
+        edgeFan.reserve(tris.size() * 3);
+        for (int t : tris)
+            for (int k = 0; k < 3; ++k) {
+                const int a = idx[m.tri[t * 3 + k]];
+                const int b = idx[m.tri[t * 3 + (k + 1) % 3]];
+                edgeFan[static_cast<long long>(std::min(a, b)) * kChartKey +
+                        std::max(a, b)]
+                    .push_back(t);
+            }
+        for (std::unordered_map<long long, std::vector<int>>::iterator it =
+                 edgeFan.begin();
+             it != edgeFan.end(); ++it) {
+            const int a = static_cast<int>(it->first / kChartKey);
+            const int b = static_cast<int>(it->first % kChartKey);
+            if (!pinned[a]) {
+                const double w =
+                    MeanValueWeight(m, ch.vert[a], ch.vert[b], it->second);
+                if (w > 0)
+                    nbr[a].push_back(std::make_pair(b, w));
+            }
+            if (!pinned[b]) {
+                const double w =
+                    MeanValueWeight(m, ch.vert[b], ch.vert[a], it->second);
+                if (w > 0)
+                    nbr[b].push_back(std::make_pair(a, w));
+            }
+        }
+    }
+    /* Start the interior at the region's own plane projection rather than at
+     * the middle. It is the answer the old code settled for, so on everything
+     * that was already working the relaxation begins nearly converged; where
+     * it was not working it is no worse than any other guess. */
+    {
+        Proxy pr;
+        if (ProxyOf(m, tris, pr)) {
+            V3 e1 = std::fabs(pr.n.x) < 0.9 ? Cross(pr.n, V3(1, 0, 0))
+                                            : Cross(pr.n, V3(0, 1, 0));
+            e1 = Unit(e1);
+            const V3 e2 = Cross(pr.n, e1);
+            double a0 = 1e300, a1 = -1e300, b0 = 1e300, b1 = -1e300;
+            std::vector<double> pu(nv), pv(nv);
+            for (int i = 0; i < nv; ++i) {
+                const V3 d = m.pos[ch.vert[i]] - pr.c;
+                pu[i] = Dot(d, e1);
+                pv[i] = Dot(d, e2);
+                a0 = std::min(a0, pu[i]); a1 = std::max(a1, pu[i]);
+                b0 = std::min(b0, pv[i]); b1 = std::max(b1, pv[i]);
+            }
+            const double da = a1 - a0, db = b1 - b0;
+            for (int i = 0; i < nv; ++i)
+                if (!pinned[i]) {
+                    ch.u[i] = da > 0 ? (pu[i] - a0) / da : 0.5;
+                    ch.v[i] = db > 0 ? (pv[i] - b0) / db : 0.5;
+                }
+        }
+    }
+    for (int i = 0; i < nv; ++i)
+        if (!pinned[i]) {
+            if (nbr[i].empty())
+                { CHARTFAIL(7); return false; }
+            if (!(ch.u[i] >= 0.0 && ch.u[i] <= 1.0))
+                ch.u[i] = 0.5;
+            if (!(ch.v[i] >= 0.0 && ch.v[i] <= 1.0))
+                ch.v[i] = 0.5;
+        }
+    for (int pass = 0; pass < kChartRelaxPasses; ++pass) {
+        double moved = 0;
+        for (int i = 0; i < nv; ++i) {
+            if (pinned[i])
+                continue;
+            double su = 0, sv = 0, sw = 0;
+            for (size_t k = 0; k < nbr[i].size(); ++k) {
+                const double w = nbr[i][k].second;
+                su += w * ch.u[nbr[i][k].first];
+                sv += w * ch.v[nbr[i][k].first];
+                sw += w;
+            }
+            if (!(sw > 0))
+                continue;
+            const double nu = su / sw, nvv = sv / sw;
+            moved = std::max(moved,
+                             std::max(std::fabs(nu - ch.u[i]),
+                                      std::fabs(nvv - ch.v[i])));
+            ch.u[i] = nu;
+            ch.v[i] = nvv;
+        }
+        if (moved < kChartRelaxEps)
+            break;
+    }
+
+    /* A flattening that folds is not a chart. Tutte's theorem says it cannot
+     * happen with positive weights and a convex boundary, and the theorem
+     * assumes exact arithmetic on a mesh that is exactly a disk; check it
+     * rather than trust it. */
+    /* A flattening that folds is not a chart. Tutte's theorem says it cannot
+     * happen with positive weights and a convex boundary, but the theorem
+     * assumes a mesh that is exactly a disk and arithmetic that is exact.
+     * Check it rather than trust it. The whole chart being wound the other way
+     * is not a fold — the region's triangles simply face the other way — so
+     * that case is turned over instead of refused. */
+    {
+        int flipped = 0;
+        const int nt = static_cast<int>(tris.size());
+        for (int t : tris)
+            if (ChartArea(m, ch, idx, t) <= 0)
+                ++flipped;
+        if (flipped == nt) {
+            for (int i = 0; i < nv; ++i)
+                ch.v[i] = 1.0 - ch.v[i];
+            flipped = 0;
+            for (int t : tris)
+                if (ChartArea(m, ch, idx, t) <= 0)
+                    ++flipped;
+        }
+        if (flipped > 0) {
+#ifdef MESHRECON_TRACE
+            if (g_chartFail[6] < 8)
+                std::fprintf(stderr,
+                             "    CHART fold: %d of %d tri, %d vert, %d bnd\n",
+                             flipped, nt, nv, (int)loop.size());
+#endif
+            CHARTFAIL(6);
+            return false;
+        }
+    }
+    ch.ok = true;
+    return true;
+}
+
+/* ---- the fit ---------------------------------------------------------- */
+
+/* Clamped uniform cubic knots for n control points. */
+void ClampedKnots(int n, std::vector<double> &kv)
+{
+    const int seg = n - 3;
+    kv.assign(n + 4, 0.0);
+    for (int i = 0; i < seg - 1; ++i)
+        kv[4 + i] = static_cast<double>(i + 1) / seg;
+    for (int i = 0; i < 4; ++i)
+        kv[n + i] = 1.0;
+}
+
+int KnotSpan(const std::vector<double> &kv, int n, double t)
+{
+    if (t >= kv[n])
+        return n - 1;
+    if (t <= kv[3])
+        return 3;
+    int lo = 3, hi = n, mid = (lo + hi) / 2;
+    while (t < kv[mid] || t >= kv[mid + 1]) {
+        if (t < kv[mid])
+            hi = mid;
+        else
+            lo = mid;
+        mid = (lo + hi) / 2;
+    }
+    return mid;
+}
+
+/* The four non-zero cubic basis functions at t (Piegl & Tiller A2.2). */
+void BasisFuns(int span, double t, const std::vector<double> &kv, double *N)
+{
+    double left[4], right[4];
+    N[0] = 1.0;
+    for (int j = 1; j <= 3; ++j) {
+        left[j] = t - kv[span + 1 - j];
+        right[j] = kv[span + j] - t;
+        double saved = 0.0;
+        for (int r = 0; r < j; ++r) {
+            const double den = right[r + 1] + left[j - r];
+            const double tmp = den > 0 ? N[r] / den : 0.0;
+            N[r] = saved + right[r + 1] * tmp;
+            saved = left[j - r] * tmp;
+        }
+        N[j] = saved;
+    }
+}
+
+/* Cholesky solve of a small dense symmetric positive-definite system, in
+ * place. Returns false if it is not positive definite. */
+bool CholeskySolve(std::vector<double> &A, int n, double *rhs, int nrhs)
+{
+    for (int i = 0; i < n; ++i) {
+        for (int j = 0; j <= i; ++j) {
+            double s = A[static_cast<size_t>(i) * n + j];
+            for (int k = 0; k < j; ++k)
+                s -= A[static_cast<size_t>(i) * n + k] *
+                     A[static_cast<size_t>(j) * n + k];
+            if (i == j) {
+                if (!(s > 0))
+                    return false;
+                A[static_cast<size_t>(i) * n + i] = std::sqrt(s);
+            } else {
+                A[static_cast<size_t>(i) * n + j] =
+                    s / A[static_cast<size_t>(j) * n + j];
+            }
+        }
+    }
+    for (int c = 0; c < nrhs; ++c) {
+        double *b = rhs + static_cast<size_t>(c) * n;
+        for (int i = 0; i < n; ++i) {
+            double s = b[i];
+            for (int k = 0; k < i; ++k)
+                s -= A[static_cast<size_t>(i) * n + k] * b[k];
+            b[i] = s / A[static_cast<size_t>(i) * n + i];
+        }
+        for (int i = n - 1; i >= 0; --i) {
+            double s = b[i];
+            for (int k = i + 1; k < n; ++k)
+                s -= A[static_cast<size_t>(k) * n + i] * b[k];
+            b[i] = s / A[static_cast<size_t>(i) * n + i];
+        }
+    }
+    return true;
+}
+
+/* Least squares, with a fairing term, for the control net over a chart.
+ *
+ * The grid this replaces resampled the region onto a raster and asked OCCT to
+ * approximate THAT, which loses accuracy twice and is why the grid's own error
+ * was a poor guide to the finished surface — regions the grid put inside 0.29
+ * came back as faces standing 3.0 off the mesh. Solving for the control points
+ * against the data directly removes both losses, and the residual it reports
+ * is the surface's own, measured where the data is.
+ *
+ * The fairing term is what holds the surface steady where the chart is sparse:
+ * a plain least squares with more control points than local data is singular,
+ * and the second difference of the control net is the cheapest thing that
+ * makes it definite while costing nothing where the data is dense. */
+double FitChartSurface(const Mesh &m, const Chart &ch, int nu, int nv,
+                       double lambda, Handle(Geom_BSplineSurface) &out)
+{
+    out.Nullify();
+    const int nc = nu * nv;
+    const int np = static_cast<int>(ch.vert.size());
+    if (nc < 16 || np * 2 < nc)
+        return 1e300;
+    std::vector<double> ku, kv;
+    ClampedKnots(nu, ku);
+    ClampedKnots(nv, kv);
+
+    std::vector<double> A(static_cast<size_t>(nc) * nc, 0.0);
+    std::vector<double> b(static_cast<size_t>(nc) * 3, 0.0);
+    std::vector<int> ci(16);
+    std::vector<double> cw(16);
+    for (int p = 0; p < np; ++p) {
+        const double uu = std::max(0.0, std::min(1.0, ch.u[p]));
+        const double vv = std::max(0.0, std::min(1.0, ch.v[p]));
+        const int su = KnotSpan(ku, nu, uu), sv = KnotSpan(kv, nv, vv);
+        double Nu[4], Nv[4];
+        BasisFuns(su, uu, ku, Nu);
+        BasisFuns(sv, vv, kv, Nv);
+        for (int i = 0; i < 4; ++i)
+            for (int j = 0; j < 4; ++j) {
+                ci[i * 4 + j] = (su - 3 + i) * nv + (sv - 3 + j);
+                cw[i * 4 + j] = Nu[i] * Nv[j];
+            }
+        const V3 &q = m.pos[ch.vert[p]];
+        for (int i = 0; i < 16; ++i) {
+            if (cw[i] == 0)
+                continue;
+            for (int j = 0; j < 16; ++j)
+                A[static_cast<size_t>(ci[i]) * nc + ci[j]] += cw[i] * cw[j];
+            b[static_cast<size_t>(ci[i]) * 3 + 0] += cw[i] * q.x;
+            b[static_cast<size_t>(ci[i]) * 3 + 1] += cw[i] * q.y;
+            b[static_cast<size_t>(ci[i]) * 3 + 2] += cw[i] * q.z;
+        }
+    }
+    /* fairing: the second difference of the net, both ways */
+    {
+        const double w = lambda * np;
+        int trip[3];
+        double coef[3] = {1.0, -2.0, 1.0};
+        for (int a = 0; a + 2 < nu; ++a)
+            for (int c = 0; c < nv; ++c) {
+                for (int k = 0; k < 3; ++k)
+                    trip[k] = (a + k) * nv + c;
+                for (int i = 0; i < 3; ++i)
+                    for (int j = 0; j < 3; ++j)
+                        A[static_cast<size_t>(trip[i]) * nc + trip[j]] +=
+                            w * coef[i] * coef[j];
+            }
+        for (int a = 0; a < nu; ++a)
+            for (int c = 0; c + 2 < nv; ++c) {
+                for (int k = 0; k < 3; ++k)
+                    trip[k] = a * nv + (c + k);
+                for (int i = 0; i < 3; ++i)
+                    for (int j = 0; j < 3; ++j)
+                        A[static_cast<size_t>(trip[i]) * nc + trip[j]] +=
+                            w * coef[i] * coef[j];
+            }
+        for (int i = 0; i < nc; ++i)
+            A[static_cast<size_t>(i) * nc + i] += kChartRidge * np;
+    }
+    /* the solver wants the right-hand sides column-major */
+    std::vector<double> rhs(static_cast<size_t>(nc) * 3, 0.0);
+    for (int i = 0; i < nc; ++i)
+        for (int c = 0; c < 3; ++c)
+            rhs[static_cast<size_t>(c) * nc + i] =
+                b[static_cast<size_t>(i) * 3 + c];
+    if (!CholeskySolve(A, nc, rhs.data(), 3))
+        return 1e300;
+
+    /* how far the surface actually is from the data it was fitted to */
+    double worst = 0;
+    for (int p = 0; p < np; ++p) {
+        const double uu = std::max(0.0, std::min(1.0, ch.u[p]));
+        const double vv = std::max(0.0, std::min(1.0, ch.v[p]));
+        const int su = KnotSpan(ku, nu, uu), sv = KnotSpan(kv, nv, vv);
+        double Nu[4], Nv[4];
+        BasisFuns(su, uu, ku, Nu);
+        BasisFuns(sv, vv, kv, Nv);
+        double s[3] = {0, 0, 0};
+        for (int i = 0; i < 4; ++i)
+            for (int j = 0; j < 4; ++j) {
+                const int id = (su - 3 + i) * nv + (sv - 3 + j);
+                const double w = Nu[i] * Nv[j];
+                for (int c = 0; c < 3; ++c)
+                    s[c] += w * rhs[static_cast<size_t>(c) * nc + id];
+            }
+        const V3 &q = m.pos[ch.vert[p]];
+        const V3 d(s[0] - q.x, s[1] - q.y, s[2] - q.z);
+        worst = std::max(worst, Norm(d));
+    }
+
+    try {
+        TColgp_Array2OfPnt poles(1, nu, 1, nv);
+        for (int i = 0; i < nu; ++i)
+            for (int j = 0; j < nv; ++j) {
+                const int id = i * nv + j;
+                poles.SetValue(i + 1, j + 1,
+                               gp_Pnt(rhs[static_cast<size_t>(0) * nc + id],
+                                      rhs[static_cast<size_t>(1) * nc + id],
+                                      rhs[static_cast<size_t>(2) * nc + id]));
+            }
+        const int segU = nu - 3, segV = nv - 3;
+        TColStd_Array1OfReal uk(1, segU + 1), vk(1, segV + 1);
+        TColStd_Array1OfInteger um(1, segU + 1), vm(1, segV + 1);
+        for (int i = 0; i <= segU; ++i) {
+            uk.SetValue(i + 1, static_cast<double>(i) / segU);
+            um.SetValue(i + 1, (i == 0 || i == segU) ? 4 : 1);
+        }
+        for (int i = 0; i <= segV; ++i) {
+            vk.SetValue(i + 1, static_cast<double>(i) / segV);
+            vm.SetValue(i + 1, (i == 0 || i == segV) ? 4 : 1);
+        }
+        out = new Geom_BSplineSurface(poles, uk, vk, um, vm, 3, 3);
+    } catch (const Standard_Failure &) {
+        out.Nullify();
+        return 1e300;
+    }
+    return worst;
+}
+
+/* As few control points as the tolerance allows, and no more.
+ *
+ * Doubling up the ladder rather than starting fine is what keeps a flat flank
+ * a 4x4 net: the first rung that meets tolerance wins, so the net's size is a
+ * measurement of how much the region curves. */
+#ifdef MESHRECON_TRACE
+extern int g_fitFail, g_fitOk;
+#endif
+double FitChartAdaptive(const Mesh &m, const Chart &ch, double tol,
+                        Handle(Geom_BSplineSurface) &out)
+{
+    static const int rung[] = {4, 6, 8, 11, 15, 20, 26};
+    static const int rungs = static_cast<int>(sizeof(rung) / sizeof(rung[0]));
+    /* The net follows the chart's shape.
+     *
+     * LSCM leaves the boundary where it wants, so an elongated region comes
+     * back elongated — which is right, and it means a SQUARE control net puts
+     * most of its freedom where there is no data. Splitting the same number of
+     * control points along the chart's own aspect ratio is what lets a long
+     * thin flank fit at all: the plateau at twice tolerance was a net with
+     * twenty-six rows across a chart fifteen times wider than it was tall. */
+    double su = 0, sv = 0;
+    {
+        double a0 = 1e300, a1 = -1e300, b0 = 1e300, b1 = -1e300;
+        for (size_t i = 0; i < ch.vert.size(); ++i) {
+            a0 = std::min(a0, ch.u[i]); a1 = std::max(a1, ch.u[i]);
+            b0 = std::min(b0, ch.v[i]); b1 = std::max(b1, ch.v[i]);
+        }
+        const double du = std::max(a1 - a0, 1e-9), dv = std::max(b1 - b0, 1e-9);
+        const double r = std::sqrt(du / dv);
+        su = std::max(0.35, std::min(r, 3.0));
+        sv = 1.0 / su;
+    }
+    double best = 1e300;
+    for (int r = 0; r < rungs; ++r) {
+        const int n = rung[r];
+        const int nu = std::max(4, static_cast<int>(std::lround(n * su)));
+        const int nv2 = std::max(4, static_cast<int>(std::lround(n * sv)));
+        if (nu * nv2 > 2 * static_cast<int>(ch.vert.size()))
+            break;
+        Handle(Geom_BSplineSurface) s;
+        const double e = FitChartSurface(m, ch, nu, nv2, kChartFairing, s);
+#ifdef MESHRECON_TRACE
+        if (g_fitFail < 3)
+            std::fprintf(stderr, "      ladder %2dx%-2d -> %.4f\n", nu, nv2, e);
+#endif
+        if (e < best && !s.IsNull()) {
+            best = e;
+            out = s;
+        }
+        if (e <= tol) {
+#ifdef MESHRECON_TRACE
+            ++g_fitOk;
+#endif
+            return e;
+        }
+    }
+#ifdef MESHRECON_TRACE
+    ++g_fitFail;
+    if (g_fitFail < 12)
+        std::fprintf(stderr, "    FIT miss: %d vert, best %.4f (tol %.4f)\n",
+                     (int)ch.vert.size(), best, tol);
+#endif
+    return best;
+}
+
 /* The area-weighted proxy of a set of triangles. */
 bool ProxyOf(const Mesh &m, const std::vector<int> &tris, Proxy &pr)
 {
@@ -6335,7 +7233,7 @@ void FreeformSurfaces(const Mesh &m, std::vector<Patch> &patches, double tol,
         for (int i = 0; i < k; ++i)
             if (!regs[i].empty())
                 work.push_back(std::make_pair(regs[i], 0));
-        std::vector<std::pair<std::vector<int>, RegionGrid>> good;
+        std::vector<std::pair<std::vector<int>, Handle(Geom_Surface)>> good;
         while (!work.empty()) {
             std::vector<int> reg;
             reg.swap(work.back().first);
@@ -6346,19 +7244,20 @@ void FreeformSurfaces(const Mesh &m, std::vector<Patch> &patches, double tol,
             Proxy pr;
             if (!ProxyOf(m, reg, pr))
                 continue;
-            RegionGrid rg;
-            BuildRegionGrid(m, reg, pr, tol, rg);
-            if (rg.ok && rg.err <= tol * kFreeformGridBar) {
-                good.push_back(std::make_pair(std::vector<int>(), RegionGrid()));
+            Chart ch;
+            Handle(Geom_BSplineSurface) su;
+            if (BuildChart(m, reg, ch) &&
+                FitChartAdaptive(m, ch, tol, su) <= tol && !su.IsNull()) {
+                good.push_back(
+                    std::make_pair(std::vector<int>(), Handle(Geom_Surface)()));
                 good.back().first.swap(reg);
-                good.back().second = rg;
+                good.back().second = su;
                 continue;
             }
             if (depth >= kFreeformSplitDepth ||
                 static_cast<int>(reg.size()) < kFreeformMinRegion * 2) {
-                MR_TRACE("    freeform region %d tri: not a height field at "
-                         "depth %d (err %.4f)\n",
-                         (int)reg.size(), depth, rg.err);
+                MR_TRACE("    freeform region %d tri: no chart at depth %d\n",
+                         (int)reg.size(), depth);
                 continue;
             }
             std::sort(reg.begin(), reg.end());
@@ -6434,11 +7333,11 @@ void FreeformSurfaces(const Mesh &m, std::vector<Patch> &patches, double tol,
          * tail fluke and the blowhole, where nothing merges, keep theirs. */
         {
             std::vector<std::vector<int>> reg;
-            std::vector<RegionGrid> grid;
+            std::vector<Handle(Geom_Surface)> surf;
             for (size_t i = 0; i < good.size(); ++i) {
                 reg.push_back(std::vector<int>());
                 reg.back().swap(good[i].first);
-                grid.push_back(good[i].second);
+                surf.push_back(good[i].second);
             }
             std::vector<int> owner(m.triCount(), -1);
             bool merged = true;
@@ -6486,39 +7385,29 @@ void FreeformSurfaces(const Mesh &m, std::vector<Patch> &patches, double tol,
                         continue;
                     std::vector<int> uni(reg[a]);
                     uni.insert(uni.end(), reg[b].begin(), reg[b].end());
-                    Proxy pr;
-                    if (!ProxyOf(m, uni, pr))
-                        continue;
-                    RegionGrid rg;
-                    BuildRegionGrid(m, uni, pr, tol, rg);
-                    if (!rg.ok || rg.err > tol * kFreeformGridBar)
-                        continue;
-                    {
-                        const Handle(Geom_Surface) su = SurfaceFromGrid(rg, tol);
-                        if (su.IsNull() ||
-                            SurfaceOffRegion(m, uni, su, tol) > tol)
-                            continue;
-                    }
                     std::sort(uni.begin(), uni.end());
+                    Chart ch;
+                    Handle(Geom_BSplineSurface) su;
+                    if (!BuildChart(m, uni, ch))
+                        continue;
+                    if (FitChartAdaptive(m, ch, tol, su) > tol || su.IsNull())
+                        continue;
                     reg[a].swap(uni);
-                    grid[a] = rg;
+                    surf[a] = su;
                     reg[b].clear();
                     touched[a] = touched[b] = 1;
                     merged = true;
                 }
             }
             for (size_t i = 0; i < reg.size(); ++i) {
-                if (reg[i].empty())
-                    continue;
-                const Handle(Geom_Surface) su = SurfaceFromGrid(grid[i], tol);
-                if (su.IsNull())
+                if (reg[i].empty() || surf[i].IsNull())
                     continue;
                 Patch np;
                 np.tris = reg[i];
                 np.origin = org;
                 np.fit.kind = kFreeform;
-                np.fit.rms = grid[i].err;
-                np.freeSurf = su;
+                np.fit.rms = 0;
+                np.freeSurf = surf[i];
                 add.push_back(np);
                 for (int t : np.tris)
                     consumed[t] = 1;
@@ -6549,6 +7438,14 @@ void FreeformSurfaces(const Mesh &m, std::vector<Patch> &patches, double tol,
         out.push_back(std::move(pa));
     patches.swap(out);
     MR_TRACE("  freeform: %d surfaces over %d runs\n", made, (int)origins.size());
+#ifdef MESHRECON_TRACE
+    std::fprintf(stderr,
+                 "  chart fails: tri=%d nvert=%d pinched=%d loop=%d annulus=%d "
+                 "len=%d fold=%d noNbr=%d  fit: ok=%d fail=%d\n",
+                 g_chartFail[0], g_chartFail[1], g_chartFail[2], g_chartFail[3],
+                 g_chartFail[4], g_chartFail[5], g_chartFail[6],
+                 g_chartFail[7], g_fitOk, g_fitFail);
+#endif
 }
 
 /* Cuts in half every patch that wraps the whole way round.
