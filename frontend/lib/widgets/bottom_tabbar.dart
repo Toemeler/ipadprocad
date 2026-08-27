@@ -15,13 +15,26 @@ import '../theme.dart';
 /// M149 — the tab model handed to UIKit. Pure, so it can be tested on the
 /// host: this is where "which document is current" and "what may be closed"
 /// are decided, and none of that should live in Swift.
+/// M271 — HOME IS ONLY THERE WHEN IT TAKES YOU SOMEWHERE.
+///
+/// The house used to be the first tab always, including while the gallery was
+/// on screen — where it was a button that led to where you already were, and a
+/// permanently lit one at that. On the gallery the bar's whole job is the
+/// other direction: here are the documents you have open, tap one to go back
+/// into it. So on the gallery the bar is exactly that list, and the house
+/// comes back the moment there is somewhere to come back FROM.
+///
+/// The bar can now be empty — gallery, nothing open — and [BottomTabBar]
+/// renders nothing at all rather than an empty pill.
 List<GlassTab> buildTabs(AppState app) => [
-      GlassTab(
-        id: kHomeTabId,
-        // The house speaks for itself — the word next to it was redundant.
-        symbol: app.isHome ? 'house.fill' : 'house',
-        selected: app.isHome,
-      ),
+      if (!app.isHome)
+        const GlassTab(
+          id: kHomeTabId,
+          // The house speaks for itself — the word next to it was redundant.
+          // Never `house.fill`: the filled glyph meant "you are here", and the
+          // one state it could say that in is the one state it is not in.
+          symbol: 'house',
+        ),
       for (final t in app.openTabs)
         GlassTab(
           id: t,
@@ -60,13 +73,26 @@ class BottomTabBar extends StatelessWidget {
   static double get floatingHeight =>
       GlassTabBar.isSupported ? kNativeHeight : 0;
 
+  /// The same space, for chrome that also renders on the GALLERY.
+  ///
+  /// M271 — the bar can be absent there (nothing open, so nothing to go back
+  /// to), and anything holding a gap for a bar that is not on screen leaves a
+  /// gap. Viewport chrome keeps using [floatingHeight]: in a document the bar
+  /// always has at least the house in it.
+  static double floatingHeightFor(AppState app) =>
+      buildTabs(app).isEmpty ? 0 : floatingHeight;
+
   @override
   Widget build(BuildContext context) {
+    final tabs = buildTabs(app);
+    // Nothing open and nothing to go back to: an empty glass pill floating
+    // over the gallery is chrome about chrome.
+    if (tabs.isEmpty) return const SizedBox.shrink();
     if (GlassTabBar.isSupported) {
       return SizedBox(
         height: kNativeHeight,
         child: GlassTabBar(
-          tabs: buildTabs(app),
+          tabs: tabs,
           // M260 — folds to the open document while the model is under a
           // finger. The bar is the only chrome the viewport runs underneath,
           // so it is the only chrome that has to get out of the way.
@@ -103,16 +129,20 @@ class BottomTabBar extends StatelessWidget {
         // corner radius and cannot be clipped. Previously the whole tab was
         // offset by 16, which put the label at 16+12=28 — leftPad keeps the
         // label exactly where it was and moves only the background.
-        _Tab(
-          leftPad: 28,
-          on: app.isHome,
-          onTap: app.goHome,
-          // The house speaks for itself — the word next to it was redundant.
-          child: SvgPicture.string(themedIcon(homeTabIcon), width: 15, height: 15),
-        ),
+        //
+        // M271 — and it is not there at all on the gallery. See buildTabs.
+        if (!app.isHome)
+          _Tab(
+            leftPad: 28,
+            on: false,
+            onTap: app.goHome,
+            // The house speaks for itself — the word next to it was redundant.
+            child: SvgPicture.string(themedIcon(homeTabIcon),
+                width: 15, height: 15),
+          ),
         for (final t in app.openTabs)
           _Tab(
-            on: app.curTab == t,
+            on: !app.isHome && app.curTab == t,
             onTap: () => app.openDocument(t),
             child: Row(mainAxisSize: MainAxisSize.min, children: [
               Text(t),

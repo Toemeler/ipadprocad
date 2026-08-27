@@ -262,8 +262,16 @@ class PrototypeApp extends StatelessWidget {
             // while the ribbon right beneath it is T.panel, which reads as a
             // seam across the top of the screen. It follows the view: the
             // ribbon's tone in a sketch, the gallery's on home.
+            // M270 — and on home it follows the BACKDROP, or a chosen colour
+            // would leave the palette's old ground as a stripe across the top
+            // of the very screen it was chosen for. A picture keeps the
+            // palette's ground here: the strip is behind the SafeArea and the
+            // photograph does not run under it.
             return ColoredBox(
-              color: app.isHome ? T.galleryBg : T.panel,
+              color: app.isHome
+                  ? (galleryGround(Backdrops.current.value, T.palette) ??
+                      T.galleryBg)
+                  : T.panel,
               child: SafeArea(
                 bottom: false,
                 child: Column(children: [

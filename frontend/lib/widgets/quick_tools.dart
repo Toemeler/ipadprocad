@@ -389,7 +389,9 @@ class QuickToolsBar extends StatelessWidget {
     return RibbonMetrics.build(
       (_, top) => Positioned(
         top: top,
-        bottom: BottomTabBar.floatingHeight,
+        // M271 — ...For, because this bar renders on the gallery too, where
+        // the tab bar is absent when nothing is open.
+        bottom: BottomTabBar.floatingHeightFor(app),
         right: margin,
         // widthFactor 1 — WITHOUT it the Align expands to the whole stack
         // width, and a platform view eats every touch inside its frame: the
