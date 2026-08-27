@@ -22,6 +22,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:native_menu/native_menu.dart';
 
 import '../app_state.dart';
+import '../backdrop.dart';
 import '../doc_ref.dart';
 import '../l10n/l.dart';
 import '../log.dart';
@@ -257,6 +258,12 @@ class _HomeViewState extends State<HomeView> {
     if (GlassToolBar.isSupported) {
       return GlassToolBar(
         key: anchor,
+        // M267 — ROUND. The bar's own radius is a 16pt squircle, which is
+        // right for a column of tools and wrong for a single button on the
+        // front page: half the slab's width makes the same glass a circle,
+        // and the 44pt button inside is already a capsule, so it lands
+        // concentric with no second shape to keep in step.
+        cornerRadius: GlassToolBar.width / 2,
         items: [
           GlassToolItem(
               id: id, symbol: symbol, fallback: fallbackSymbol, label: label),
@@ -501,9 +508,36 @@ class _HomeViewState extends State<HomeView> {
     // The gallery contents can change without HomeView being rebuilt from
     // scratch (rename, delete, duplicate), so re-measure after every build.
     _schedulePush();
+    // M270 — the backdrop the user chose. `galleryPalette` is what the cards,
+    // their titles and their dates read below: a LIGHT colour under a dark app
+    // flips this screen's ink and nothing else, which is the whole reason the
+    // setting is safe to offer.
+    final backdrop = Backdrops.current.value;
     return Container(
-      color: T.galleryBg,
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      // Under the picture as well as instead of it: the ground is painted on
+      // the first frame and a photograph is decoded on a later one, and
+      // without this the gallery flashes white in between.
+      color: galleryGround(backdrop, T.palette) ?? T.galleryBg,
+      child: Stack(children: [
+        if (backdrop.kind == BackdropKind.image) ...[
+          Positioned.fill(
+            child: Image.file(
+              File(backdrop.imagePath),
+              fit: BoxFit.cover,
+              // A picture that has gone (deleted in Files, restored onto a new
+              // device) leaves the palette's ground, not a broken-image glyph.
+              errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+            ),
+          ),
+          // THE SCRIM. See kBackdropScrim: a photograph has a thousand
+          // luminances and the labels must not depend on which one they land
+          // on. The picture reads through it; the gallery stays legible.
+          Positioned.fill(
+            child: ColoredBox(
+                color: T.galleryBg.withValues(alpha: kBackdropScrim)),
+          ),
+        ],
+        Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         // ---- gallery header: nothing but the new-sketch button ----
         // The "CAD" title is gone: the gallery IS the app's front page, a big
         // word above it only ate a card row. Padding is tightened to match,
@@ -548,6 +582,7 @@ class _HomeViewState extends State<HomeView> {
                   onLayoutChanged: _schedulePush,
                 ),
         ),
+        ]),
       ]),
     );
   }
@@ -636,6 +671,10 @@ class _RoundButtonState extends State<_RoundButton> {
   bool _h = false;
   @override
   Widget build(BuildContext context) {
+    // M270 — the BACKDROP's palette, not the app's. Everything on this screen
+    // sits on whatever the user chose, so everything on this screen has to be
+    // legible against it.
+    final g = galleryPalette;
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _h = true),
@@ -650,17 +689,17 @@ class _RoundButtonState extends State<_RoundButton> {
             width: 46,
             height: 46,
             decoration: BoxDecoration(
-              color: _h ? T.galleryActionBgHover : T.galleryActionBg,
+              color: _h ? g.galleryActionBgHover : g.galleryActionBg,
               shape: BoxShape.circle,
-              border: Border.all(color: T.cardBorder),
+              border: Border.all(color: g.cardBorder),
               boxShadow: [
                 BoxShadow(
-                    color: T.cardShadow,
+                    color: g.cardShadow,
                     blurRadius: 8,
                     offset: const Offset(0, 2)),
               ],
             ),
-            child: Icon(widget.icon, color: T.text, size: 24),
+            child: Icon(widget.icon, color: g.text, size: 24),
           ),
         ),
       ),
@@ -676,7 +715,7 @@ class _EmptyState extends StatelessWidget {
     // were decoration around a message that already says everything.
     return Center(
       child: Text(L.of(context).galleryEmpty,
-          style: ts(13.5, T.cardDate)),
+          style: ts(13.5, galleryPalette.cardDate)),
     );
   }
 }
@@ -703,6 +742,7 @@ class _CardState extends State<_Card> {
   bool _h = false;
   @override
   Widget build(BuildContext context) {
+    final g = galleryPalette; // M270 — see _RoundButtonState
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _h = true),
@@ -718,14 +758,14 @@ class _CardState extends State<_Card> {
             child: Container(
               height: widget.thumbHeight,
               decoration: BoxDecoration(
-                color: T.galleryThumb,
+                color: g.galleryThumb,
                 borderRadius: BorderRadius.circular(_kThumbRadius),
                 border: Border.all(
-                    color: _h ? T.cardHoverBorder : T.cardBorder,
+                    color: _h ? g.cardHoverBorder : g.cardBorder,
                     width: _h ? 1.5 : 1),
                 boxShadow: [
                   BoxShadow(
-                      color: T.cardShadow, blurRadius: 10, offset: const Offset(0, 3)),
+                      color: g.cardShadow, blurRadius: 10, offset: const Offset(0, 3)),
                 ],
               ),
               child: ClipRRect(
@@ -743,11 +783,11 @@ class _CardState extends State<_Card> {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center,
-              style: ts(13.5, T.cardName, w: FontWeight.w600)),
+              style: ts(13.5, g.cardName, w: FontWeight.w600)),
           const SizedBox(height: 3),
           Text(widget.date,
               textAlign: TextAlign.center,
-              style: ts(11.5, T.cardDate)),
+              style: ts(11.5, g.cardDate)),
         ]),
       ),
     );

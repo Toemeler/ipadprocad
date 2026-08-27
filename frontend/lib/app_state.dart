@@ -21,6 +21,7 @@ import 'asm_reps.dart';
 import 'asm_solver.dart';
 import 'asm_work_features.dart';
 import 'assembly.dart';
+import 'backdrop.dart';
 import 'quat.dart';
 import 'reality_assembly.dart';
 import 'constraints.dart';
@@ -44,6 +45,7 @@ import 'modify.dart';
 import 'params.dart';
 import 'part_model.dart';
 import 'part_render.dart';
+import 'preview_matte.dart';
 // PURE payload builders only — importing reality_scene.dart here would close a
 // cycle (it imports this file). See lib/reality_payload.dart.
 import 'reality_payload.dart';
@@ -1707,6 +1709,12 @@ class AppState extends ChangeNotifier {
   /// next to the logs, and reaching for the test-only accessor to do that
   /// would be a lie about who the API is for.
   Directory? get docsDir => _docsDir;
+
+  /// Where preferences live: settings.json and anything that belongs to it,
+  /// such as the gallery's backdrop picture (M270). Null until [init] has
+  /// resolved the documents directory. Dot-prefixed, so nothing in here is
+  /// ever mistaken for a document — see [_cacheRoot].
+  Directory? get settingsDir => _docsDir == null ? null : _cacheRoot;
   List<SavedSketchInfo> saved = [];
   String backendInfo = '';
   bool backendReal = false;
@@ -1746,6 +1754,11 @@ class AppState extends ChangeNotifier {
     // iPad's own setting, which is also the default, so the worst case is one
     // frame in the system scheme before an explicit override is adopted.
     T.attachStore(ThemeStore(_cacheRoot));
+    // M270 — and so is the gallery's backdrop, in the same file for the same
+    // reason. It is read AFTER the appearance because "match appearance" is
+    // its default, and adopting it before there is an appearance to match
+    // would show one frame of the wrong ground.
+    Backdrops.attachStore(BackdropStore(_cacheRoot));
     final probe = Log.step(
         'state', 'Engine.create (backend probe)', () => Engine.create());
     backendReal = probe.isRealBackend;
@@ -2296,6 +2309,10 @@ class AppState extends ChangeNotifier {
     }
     list.sort((a, b) => b.modified.compareTo(a.modified));
     saved = list;
+    // NOT awaited: the gallery must appear now. The repair decodes a handful
+    // of PNGs, fixes the ones that carry a palette, and asks for a repaint if
+    // any did.
+    unawaited(_repairThumbGrounds(list));
   }
 
   /// The folder an external document sits in, for disambiguating two
@@ -4179,7 +4196,10 @@ class AppState extends ChangeNotifier {
         height: h.toInt(),
       );
       if (shot != null && shot.isNotEmpty) {
-        await png.writeAsBytes(shot);
+        // M269 — and CHECK that it came back without one, rather than
+        // assuming. The off-screen renderer is a real view in the real window
+        // and the ground it was told to use is not always the ground it draws.
+        await png.writeAsBytes(await demattePng(shot) ?? shot);
         return;
       }
 
@@ -4197,6 +4217,46 @@ class AppState extends ChangeNotifier {
     } catch (e) {
       debugPrint('part preview write failed: $e');
     }
+  }
+
+  /// Stills already checked this session: path -> the mtime it was checked at.
+  /// A still is only ever wrong once, and re-decoding nine PNGs on every
+  /// gallery refresh to re-learn that is exactly the kind of cost a gallery
+  /// must not carry.
+  final Map<String, int> _groundChecked = {};
+
+  /// M269 — the one-time repair for stills written before the check existed.
+  ///
+  /// Runs off the gallery refresh rather than at save, because the file that
+  /// is wrong belongs to a document the user is not opening: waiting for the
+  /// next save would leave the odd cream card among the charcoal ones until
+  /// they happened to edit that part again. Rewriting the extracted thumbnail
+  /// also makes it NEWER than its document, which is what stops [_thumbFor]
+  /// from extracting the baked original over it again.
+  Future<void> _repairThumbGrounds(List<SavedSketchInfo> list) async {
+    var changed = false;
+    for (final s in list) {
+      final f = s.preview;
+      if (f == null) continue;
+      try {
+        if (!f.existsSync()) continue;
+        final stamp = f.lastModifiedSync().millisecondsSinceEpoch;
+        if (_groundChecked[f.path] == stamp) continue;
+        _groundChecked[f.path] = stamp;
+        final fixed = await demattePng(await f.readAsBytes());
+        if (fixed == null) continue;
+        await f.writeAsBytes(fixed);
+        _groundChecked[f.path] = f.lastModifiedSync().millisecondsSinceEpoch;
+        // The bytes changed under a path Flutter has already decoded and
+        // cached; without this the gallery keeps showing the old picture until
+        // the app is relaunched.
+        await FileImage(f).evict();
+        changed = true;
+      } catch (e) {
+        Log.w('doc', 'thumbnail ground repair failed: $e');
+      }
+    }
+    if (changed) notifyListeners();
   }
 
   Future<void> deletePart(String name) async {

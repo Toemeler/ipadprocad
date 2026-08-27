@@ -28,6 +28,43 @@ class AppL10nEn extends AppL10n {
       '“System” follows your iPad’s setting.';
 
   @override
+  String get settingsBackdrop => 'Backdrop';
+
+  @override
+  String get settingsBackdropFooter =>
+      'The gallery only. A picture is veiled so cards stay readable.';
+
+  @override
+  String get backdropAuto => 'Match Appearance';
+
+  @override
+  String get backdropInk => 'Ink';
+
+  @override
+  String get backdropSlate => 'Slate';
+
+  @override
+  String get backdropForest => 'Forest';
+
+  @override
+  String get backdropSand => 'Sand';
+
+  @override
+  String get backdropLinen => 'Linen';
+
+  @override
+  String get backdropImage => 'Custom Picture';
+
+  @override
+  String get backdropChooseImage => 'Choose a Picture …';
+
+  @override
+  String get backdropRemoveImage => 'Remove Picture';
+
+  @override
+  String get backdropImageFailed => 'That picture could not be used.';
+
+  @override
   String get settingsLanguage => 'Language';
 
   @override

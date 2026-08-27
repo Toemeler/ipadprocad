@@ -56,12 +56,21 @@ void main() {
 
   // -------------------------------------------------------------------------
   group('M261 — the shape of the screen', () {
-    test('four sections, in the order a user reads them', () {
+    test('the sections, in the order a user reads them', () {
       // Appearance and Language first because they are what the user came
       // for; Diagnostics and About below, because they are what they come for
       // once. Not alphabetical, and not the order they were built in.
-      expect(_spec().map((s) => s.id).toList(),
-          [kSecAppearance, kSecLanguage, kSecDiagnostics, kSecAbout]);
+      //
+      // M270 — Backdrop sits under Appearance, because it is the narrower
+      // version of the same idea: Appearance is the whole app, Backdrop is one
+      // screen of it.
+      expect(_spec().map((s) => s.id).toList(), [
+        kSecAppearance,
+        kSecBackdrop,
+        kSecLanguage,
+        kSecDiagnostics,
+        kSecAbout
+      ]);
     });
 
     test('every section has a header, and every row a non-empty title', () {
@@ -158,7 +167,7 @@ void main() {
       // BugReport.enabled is the prototype switch. Dropping the rows and
       // keeping the header would leave a heading over nothing.
       final ids = _spec(diagnostics: false).map((s) => s.id).toList();
-      expect(ids, [kSecAppearance, kSecLanguage, kSecAbout]);
+      expect(ids, [kSecAppearance, kSecBackdrop, kSecLanguage, kSecAbout]);
     });
 
     test('Über reports the build and both kernels, read-only', () {
@@ -189,7 +198,7 @@ void main() {
   group('M261 — the wire form', () {
     test('every row carries the keys SettingsSheet.swift reads', () {
       final maps = settingsToMaps(_spec());
-      expect(maps, hasLength(4));
+      expect(maps, hasLength(5));
       for (final s in maps) {
         expect(s['id'], isA<String>());
         expect(s['header'], isA<String>());
@@ -308,6 +317,22 @@ void main() {
       // not a preference hiding in a create menu.
       expect(find.byIcon(Icons.settings_outlined), findsOneWidget);
       expect(find.byIcon(Icons.add), findsOneWidget);
+    });
+
+    test('M267 — a one-item bar is SQUARE, so half its width is a circle', () {
+      // The header asks for GlassToolBar.width / 2 and expects a circle. That
+      // is only true while a one-item bar is square, which is arithmetic on
+      // four constants that live in two languages (see GlassToolBar.swift).
+      // Change padding or the button size without this and the "circle"
+      // quietly becomes a lozenge on the device, where nothing here would
+      // catch it.
+      const one = [GlassToolItem(id: 'x', symbol: 'plus')];
+      expect(GlassToolBar.width, GlassToolBar.heightFor(one),
+          reason: 'a single-button bar has to be square to be round');
+      expect(GlassToolBar.width / 2, 27.0);
+      // ...and the DEFAULT is still the squircle every other bar draws, so
+      // the quick-tool column is untouched by the header's shape.
+      expect(GlassToolBar.radius, 16.0);
     });
   });
 }

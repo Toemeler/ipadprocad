@@ -28,6 +28,43 @@ class AppL10nDe extends AppL10n {
       '„System“ folgt der Einstellung des iPads.';
 
   @override
+  String get settingsBackdrop => 'Hintergrund';
+
+  @override
+  String get settingsBackdropFooter =>
+      'Nur für die Galerie. Über einem Bild liegt ein Schleier.';
+
+  @override
+  String get backdropAuto => 'Wie die Darstellung';
+
+  @override
+  String get backdropInk => 'Tinte';
+
+  @override
+  String get backdropSlate => 'Schiefer';
+
+  @override
+  String get backdropForest => 'Tanne';
+
+  @override
+  String get backdropSand => 'Sand';
+
+  @override
+  String get backdropLinen => 'Leinen';
+
+  @override
+  String get backdropImage => 'Eigenes Bild';
+
+  @override
+  String get backdropChooseImage => 'Bild waehlen …';
+
+  @override
+  String get backdropRemoveImage => 'Bild entfernen';
+
+  @override
+  String get backdropImageFailed => 'Das Bild konnte nicht uebernommen werden.';
+
+  @override
   String get settingsLanguage => 'Sprache';
 
   @override

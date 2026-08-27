@@ -9,15 +9,16 @@ import 'package:flutter/services.dart';
 
 import 'log.dart';
 import 'perf.dart';
+import 'perf_document.dart';
 import 'ffi/perf_hook.dart';
 import 'package:reality_view/perf_hook.dart';
 
 import 'app_state.dart';
+import 'backdrop.dart';
 import 'l10n/l.dart';
 import 'theme.dart';
 import 'bug_capture.dart';
 import 'gesture_trace.dart';
-import 'widgets/perf_overlay.dart';
 import 'widgets/bottom_tabbar.dart';
 import 'widgets/home_view.dart';
 import 'widgets/model_browser.dart';
@@ -123,6 +124,14 @@ void main() {
     // PERSISTED override is read later, from AppState.init, for the same
     // launch-time reason the language is.
     Log.step('main', 'T.followPlatform', T.followPlatform);
+    // M268 — the open document's size, reported with every perf snapshot.
+    //
+    // These five counts used to be a side effect of painting the bottom-right
+    // FPS overlay, which is gone: it was a permanent debug readout over a
+    // shipping app's canvas. Registering the source here keeps the numbers —
+    // and makes them reliable for the first time, since they no longer depend
+    // on a readout being visible.
+    Log.step('main', 'installDocumentGauges', () => installDocumentGauges(app));
     // init() is async; log its outcome instead of silently dropping it.
     Log.i('main', '>> AppState.init (async, not awaited)');
     app
@@ -187,7 +196,14 @@ class PrototypeApp extends StatelessWidget {
       valueListenable: L.locale,
       builder: (context, locale, _) => ValueListenableBuilder<Palette>(
         valueListenable: T.scheme,
-        builder: (context, palette, _) => _app(locale, palette),
+        // M270 — and the gallery's backdrop, on the same terms. It changes
+        // only one screen, but that screen reads it at PAINT time (see
+        // galleryPalette), so the notification has to reach a rebuild the same
+        // way the palette's does.
+        builder: (context, palette, _) => ValueListenableBuilder<Backdrop>(
+          valueListenable: Backdrops.current,
+          builder: (context, _, __) => _app(locale, palette),
+        ),
       ),
     );
   }
@@ -208,8 +224,6 @@ class PrototypeApp extends StatelessWidget {
         // and read as random pan/zoom drift on the device.
         resizeToAvoidBottomInset: false,
         // Apple status bar (time etc.) must not overlap the ribbon.
-        // The perf readout sits above everything and ignores pointers, so it
-        // can never interfere with the canvas it is measuring.
         // M186 — two diagnostic wrappers, outermost first.
         //
         // Listener sees the RAW pointer stream before the gesture arena
@@ -233,6 +247,11 @@ class PrototypeApp extends StatelessWidget {
           onPointerSignal: GestureTrace.record,
           child: RepaintBoundary(
           key: screenshotKey,
+          // M268 — one child, deliberately kept. The bug reporter (M194) and
+          // the performance readout (M77) both used to float here; both are
+          // gone. Unwrapping the Stack would re-lay-out the entire app to
+          // remove nothing, and this is where the next thing that floats over
+          // everything will go.
           child: Stack(children: [
           AnimatedBuilder(
           animation: app,
@@ -500,7 +519,6 @@ class PrototypeApp extends StatelessWidget {
             );
           },
         ),
-          PerfOverlay(app: app),
           // M194 — the bug reporter used to float here as a draggable red
           // circle. It is the last button of the quick-tool bar now (which
           // renders on the home gallery too, so it is still reachable from

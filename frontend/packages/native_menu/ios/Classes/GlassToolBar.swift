@@ -70,9 +70,23 @@ final class GlassToolBarView: NSObject, FlutterPlatformView {
     static let spacing: CGFloat = 2
     static let separatorSlot: CGFloat = 11
     static let padding: CGFloat = 5
-    static let radius: CGFloat = 16
 
-    init(frame: CGRect, viewId: Int64, messenger: FlutterBinaryMessenger) {
+    /// The slab's corner radius when the caller does not ask for one. A
+    /// squircle, which is what a BAR of buttons should be.
+    static let defaultRadius: CGFloat = 16
+
+    /// M267 — the radius this instance actually draws.
+    ///
+    /// Per-instance because the same bar is now two shapes. As a column of
+    /// tools it is a squircle; as a SINGLE button in the gallery header it has
+    /// to be a circle, and a circle is just this slab at half its own width.
+    /// One view, two radii, rather than a second platform view whose only
+    /// difference from this one would be a number.
+    private let radius: CGFloat
+
+    init(frame: CGRect, viewId: Int64, messenger: FlutterBinaryMessenger,
+         radius: CGFloat) {
+        self.radius = radius
         channel = FlutterMethodChannel(
             name: "prototype/glass_toolbar/\(viewId)", binaryMessenger: messenger)
         super.init()
@@ -124,7 +138,7 @@ final class GlassToolBarView: NSObject, FlutterPlatformView {
         let ev = UIVisualEffectView(effect: effect)
         ev.translatesAutoresizingMaskIntoConstraints = false
         ev.isUserInteractionEnabled = false
-        ev.layer.cornerRadius = GlassToolBarView.radius
+        ev.layer.cornerRadius = radius
         ev.layer.cornerCurve = .continuous
         ev.clipsToBounds = true
         container.addSubview(ev)
@@ -243,7 +257,14 @@ final class GlassToolBarFactory: NSObject, FlutterPlatformViewFactory {
 
     func create(withFrame frame: CGRect, viewIdentifier viewId: Int64,
                 arguments args: Any?) -> FlutterPlatformView {
-        GlassToolBarView(frame: frame, viewId: viewId, messenger: messenger)
+        // M267 — the only creation param, and it is a shape rather than
+        // content: the items still arrive over the channel, because they
+        // change and this does not.
+        let a = args as? [String: Any]
+        let r = (a?["radius"] as? NSNumber)?.doubleValue
+        return GlassToolBarView(
+            frame: frame, viewId: viewId, messenger: messenger,
+            radius: r.map { CGFloat($0) } ?? GlassToolBarView.defaultRadius)
     }
 
     func createArgsCodec() -> FlutterMessageCodec & NSObjectProtocol {
