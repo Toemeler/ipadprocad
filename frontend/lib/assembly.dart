@@ -51,6 +51,7 @@ import 'asm_pattern.dart';
 import 'asm_reps.dart';
 import 'asm_work_features.dart';
 import 'doc_file.dart' show kAssemblyDocKind;
+import 'materials.dart';
 import 'part_model.dart';
 import 'quat.dart';
 import 'part_render.dart' show PlacedComponent;
@@ -163,6 +164,15 @@ class AssemblyOccurrence {
   /// knows where a document's model lives.
   PartModel? part;
 
+  /// M272 — the appearance assigned to this OCCURRENCE, or null for steel.
+  ///
+  /// On the occurrence and not on the source part, deliberately, and it is the
+  /// same rule M248 set for the mirror: two instances of one bracket may be
+  /// painted differently and the part document learns nothing about either.
+  /// An assembly is where a component gets its colour, because an assembly is
+  /// where telling two identical components apart matters.
+  String? material;
+
   /// M246 — the SUBASSEMBLY this occurrence places, borrowed the same way.
   ///
   /// Exactly one of [part] and [sub] is ever set. Both are written by
@@ -183,6 +193,7 @@ class AssemblyOccurrence {
     this.patternElement,
     this.grounded = false,
     this.visible = true,
+    this.material,
     this.part,
     this.sub,
   })  : offset = offset ?? Vec3.zero,
@@ -303,6 +314,9 @@ class AssemblyOccurrence {
         if (patternElement != null) 'patEl': patternElement,
         'grounded': grounded,
         'visible': visible,
+        // M272 — only a PAINTED component carries one, so an assembly nobody
+        // has coloured writes exactly the bytes it wrote before.
+        if (material != null) 'mat': material,
       };
 
   static AssemblyOccurrence? fromJson(Map j) {
@@ -322,6 +336,7 @@ class AssemblyOccurrence {
       patternElement: (j['patEl'] as num?)?.toInt(),
       grounded: j['grounded'] == true,
       visible: j['visible'] != false,
+      material: sanitiseMaterial(j['mat']),
     );
   }
 
@@ -978,6 +993,16 @@ List<PlacedComponent> placedComponents(AssemblyModel a) => [
           PlacedComponent([
             for (final (_, at, s) in o.worldSolids) (at, s),
           ])
+    ];
+
+/// M272 — the appearance of each of [placedComponents], index for index.
+///
+/// Right here, under the list it indexes, and with the SAME visibility filter
+/// written out again beside it: a painter takes the two together and an
+/// index-keyed pair that drifts apart paints the wrong component.
+List<String?> placedMaterials(AssemblyModel a) => [
+      for (final o in a.occurrences)
+        if (o.visible) o.material
     ];
 
 /// M250 — everything the assembly draws AROUND [occ], expressed in [occ]'s

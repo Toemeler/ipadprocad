@@ -16,6 +16,7 @@ import 'package:flutter/painting.dart' show Color;
 import 'app_state.dart';
 import 'ffi/occt_engine.dart' show OcctMeshData;
 import 'log.dart';
+import 'materials.dart';
 import 'part_model.dart';
 import 'reality_payload.dart';
 import 'text_geometry.dart' show textContours, textLayerOf;
@@ -915,13 +916,17 @@ bool _bodyIsHovered(AppState app, PartModel p, String featureId) {
 /// third colour that means nothing, and "selected" is the stronger statement —
 /// the same rule, and the same two tones, as [assemblyTint].
 ///
+/// M272 — and under both of them, the body's own MATERIAL. Same field, same
+/// renderer; the difference is only that a material outlives the pointer. The
+/// order is the point: selection is a question the user just asked, an
+/// appearance is a fact they set once, so the question is on top.
+///
 /// Feature-keyed like [_bodyIsHovered], and for the same reason: a body is the
 /// name several features build into, so the WHOLE body lights up rather than
 /// the one feature the row happens to sit over.
 int _bodyRowTint(AppState app, PartModel p, String featureId) {
   final sel = app.selectedBody;
   final hov = app.browserHoverBody;
-  if (sel == null && hov == null) return kNoTint;
   for (final f in p.features) {
     if (f.name != featureId) continue;
     if (f.bodyName == sel) return T.faceHighlight.toARGB32();
@@ -929,7 +934,7 @@ int _bodyRowTint(AppState app, PartModel p, String featureId) {
       return (Color.lerp(T.solid, T.faceHighlight, 0.38) ?? T.faceHighlight)
           .toARGB32();
     }
-    return kNoTint;
+    return materialArgb(p.bodyMaterials[f.bodyName]) ?? kNoTint;
   }
   return kNoTint;
 }

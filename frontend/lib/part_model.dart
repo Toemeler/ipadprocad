@@ -21,6 +21,7 @@ import 'app_state.dart' show SketchModel;
 import 'ffi/occt_engine.dart';
 import 'ffi/qcad_engine.dart';
 import 'log.dart';
+import 'materials.dart';
 import 'perf.dart';
 import 'snap.dart' show sampleEntity;
 import 'spline.dart' show splineCurveFor, splineArcChain, polyPoints;
@@ -5414,6 +5415,15 @@ class PartModel {
   final List<ChildSketch> childSketches = [];
   final List<PartFeature> features = [];
 
+  /// M272 — the appearance assigned to each BODY, keyed by body name.
+  ///
+  /// On the body and not on the feature, because that is what the user picks:
+  /// the browser's Solid Bodies row names a body, several features build into
+  /// one, and painting "the feature" would leave a two-extrusion body in two
+  /// colours. Absent means steel — see [sanitiseMaterial], which is why
+  /// nothing is ever stored as the string 'steel'.
+  final Map<String, String> bodyMaterials = {};
+
   /// M151 — user-created work planes, in creation order.
   final List<WorkPlane> workPlanes = [];
 
@@ -5683,6 +5693,9 @@ class PartModel {
         // M113 — 'eopNodes' counts timeline rows; the old 'eop' counted
         // features and is only READ, never written again.
         if (eopAfter < partTimeline(this).length) 'eopNodes': eopAfter,
+        // M272 — written only when something is painted, so a part nobody has
+        // given an appearance to is byte-identical to what it was before.
+        if (bodyMaterials.isNotEmpty) 'materials': bodyMaterials,
       };
 
   /// Loads everything EXCEPT the child sketch models (their geometry lives
@@ -5695,6 +5708,13 @@ class PartModel {
     if (cam is Map) camera.loadJson(cam.cast<String, dynamic>());
     featureN = (j['featureN'] as num?)?.toInt() ?? 0;
     solidN = (j['solidN'] as num?)?.toInt() ?? 0;
+    // M272 — an id this build no longer offers is dropped rather than kept: a
+    // body carrying an unrenderable appearance would just look wrong, with
+    // nothing on screen to say why.
+    (j['materials'] as Map?)?.forEach((k, v) {
+      final m = sanitiseMaterial(v);
+      if (k is String && m != null) bodyMaterials[k] = m;
+    });
     for (final f in (j['features'] as List? ?? const [])) {
       final pf = PartFeature.fromJson((f as Map).cast<String, dynamic>());
       if (pf != null) features.add(pf);

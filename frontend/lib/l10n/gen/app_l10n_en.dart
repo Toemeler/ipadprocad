@@ -3295,6 +3295,39 @@ class AppL10nEn extends AppL10n {
   String get panelComponent => 'Component';
 
   @override
+  String get panelAppearance => 'Appearance';
+
+  @override
+  String get matPickBody => 'Nothing selected';
+
+  @override
+  String get matSteel => 'Steel';
+
+  @override
+  String get matAluminium => 'Aluminium';
+
+  @override
+  String get matGraphite => 'Graphite';
+
+  @override
+  String get matBrass => 'Brass';
+
+  @override
+  String get matCopper => 'Copper';
+
+  @override
+  String get matRed => 'Red';
+
+  @override
+  String get matGreen => 'Green';
+
+  @override
+  String get matBlue => 'Blue';
+
+  @override
+  String get matViolet => 'Violet';
+
+  @override
   String get panelPosition => 'Position';
 
   @override

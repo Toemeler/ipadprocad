@@ -145,20 +145,35 @@ Map<String, dynamic> solidPayload(String id, KernelSolid s,
 ///
 /// Pure — takes the solids the caller already chose, so it needs no AppState
 /// and host tests can assert its shape directly.
-Map<String, dynamic> buildThumbScenePayload(List<(String, KernelSolid)> solids) => {
+/// M272 — [tintOf] gives the appearance assigned to the solid published under
+/// an id, or [kNoTint]. Omitted by every caller that has none, so a part with
+/// no appearances produces byte-identical bytes to before.
+///
+/// A card that shows the body in grey after the user painted it red is a card
+/// that is lying about the document, which is the one thing a gallery still
+/// must not do.
+Map<String, dynamic> buildThumbScenePayload(List<(String, KernelSolid)> solids,
+        {int Function(String id)? tintOf}) =>
+    {
       'solids': [
-        for (final (id, s) in solids) solidPayload(id, s),
+        for (final (id, s) in solids)
+          solidPayload(id, s, tint: tintOf?.call(id) ?? kNoTint),
       ],
     };
 
 /// M241 — [buildThumbScenePayload] for an ASSEMBLY: the same geometry-only
 /// still, with each solid's placement travelling beside it.
 Map<String, dynamic> buildPlacedThumbScenePayload(
-        List<(String, KernelSolid, Placement)> solids) =>
+        List<(String, KernelSolid, Placement)> solids,
+        {int Function(String id)? tintOf}) =>
     {
       'solids': [
         for (final (id, s, at) in solids)
-          solidPayload(id, s, at: at.at, rot: at.rot, mirror: at.reflect),
+          solidPayload(id, s,
+              at: at.at,
+              rot: at.rot,
+              mirror: at.reflect,
+              tint: tintOf?.call(id) ?? kNoTint),
       ],
     };
 

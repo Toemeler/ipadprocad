@@ -51,6 +51,7 @@ import 'package:native_menu/native_menu.dart' show GlassBrowser;
 import 'package:reality_view/reality_view.dart';
 
 import '../app_state.dart';
+import '../materials.dart';
 import '../asm_constraints.dart';
 import '../asm_pick.dart';
 import '../assembly.dart';
@@ -1427,6 +1428,12 @@ class _AssemblyPainter extends CustomPainter {
       selected: indexOf(asm.selected),
       hovered: indexOf(hover),
       accentColor: kEdgeAccent,
+      // M272 — the appearance each component was given, so this painter and
+      // RealityKit show the same assembly.
+      materialOf: (i) {
+        final argb = materialArgb(visible[i].material);
+        return argb == null ? null : Color(argb);
+      },
     );
 
     // ---- origin planes ----

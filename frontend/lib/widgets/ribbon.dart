@@ -11,6 +11,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:native_menu/native_menu.dart' show NativeMenu, NativeMenuItem;
 
 import '../app_state.dart';
+import '../materials.dart';
 import '../l10n/l.dart';
 import '../log.dart';
 import '../perf.dart';
@@ -45,7 +46,16 @@ class OverItem {
   final String icon, label;
   final VoidCallback? onTap;
   final bool active;
-  const OverItem(this.icon, this.label, this.onTap, {this.active = false});
+
+  /// M272 — a solid colour swatch INSTEAD of [icon], as 0xAARRGGBB.
+  ///
+  /// Only the appearance menu uses it, and it cannot go through [icon]: an SVG
+  /// swatch would be re-mapped by `themedIcon`, which is exactly right for a
+  /// glyph modelled in the palette's own hues and exactly wrong for a colour
+  /// that IS the value being chosen.
+  final int? tint;
+  const OverItem(this.icon, this.label, this.onTap,
+      {this.active = false, this.tint});
 }
 
 /// The flyout lists, in the current language.
@@ -982,6 +992,18 @@ class _RibbonState extends State<Ribbon> {
             ]),
           ]),
         ),
+        // ---- M272: Appearance, on the FAR RIGHT of both 3D ribbons ------
+        //
+        // Last, deliberately, and identical in the part and the assembly. It
+        // is not a modelling command — nothing it does changes a face — so it
+        // belongs after the commands that do, where Inventor also parks its
+        // Appearance drop-down. One control, two selections: a body in a part,
+        // a component in an assembly, and _MaterialChip does not know which.
+        _panel(
+          label: t.panelAppearance,
+          arrow: false,
+          child: _MaterialChip(app: app, onOpen: toggleOver),
+        ),
       ]),
     );
   }
@@ -1299,6 +1321,18 @@ class _RibbonState extends State<Ribbon> {
               ),
             ]),
           ]),
+        ),
+        // ---- M272: Appearance, on the FAR RIGHT of both 3D ribbons ------
+        //
+        // Last, deliberately, and identical in the part and the assembly. It
+        // is not a modelling command — nothing it does changes a face — so it
+        // belongs after the commands that do, where Inventor also parks its
+        // Appearance drop-down. One control, two selections: a body in a part,
+        // a component in an assembly, and _MaterialChip does not know which.
+        _panel(
+          label: t.panelAppearance,
+          arrow: false,
+          child: _MaterialChip(app: app, onOpen: toggleOver),
         ),
       ]),
     );
@@ -2370,7 +2404,7 @@ class _OverRowState extends State<_OverRow> {
                 : Border(bottom: BorderSide(color: T.hover6)),
           ),
           child: Row(mainAxisSize: MainAxisSize.min, children: [
-            svg(it.icon, 18),
+            it.tint == null ? svg(it.icon, 18) : _Swatch(argb: it.tint!),
             const SizedBox(width: 10),
             // Flexible + ellipsis: the row must not be able to overflow its
             // menu no matter how wide the platform renders the label.
@@ -2504,6 +2538,132 @@ class _FlyRowState extends State<_FlyRow> {
                     Text(it.sub, style: ts(12, T.dim, height: 1.25)),
                 ]),
           ]),
+        ),
+      ),
+    );
+  }
+}
+
+/// M272 — one appearance, as a filled disc.
+///
+/// A ring around it, and it is not decoration: Aluminium on the light palette
+/// and Graphite on the dark one are both within a few percent of the menu's
+/// own ground, and without an edge the swatch simply disappears on the one row
+/// where the user most needs to see it.
+class _Swatch extends StatelessWidget {
+  final int argb;
+  const _Swatch({required this.argb});
+
+  static const double size = 14;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          color: Color(argb),
+          shape: BoxShape.circle,
+          border: Border.all(color: T.sep, width: 0.5),
+        ),
+      );
+}
+
+/// M272 — the ribbon's appearance control: a swatch, a name and a ▼.
+///
+/// Not a _SmallRow with a flyout, because the two say different things. A
+/// ribbon button is a VERB with variants behind its chip; this is a VALUE that
+/// happens to be editable, and it has to show what is currently set even when
+/// it is not being used. Inventor draws its Appearance drop-down the same way,
+/// and for the same reason.
+///
+/// DIMMED WITH NOTHING SELECTED, and it still says why rather than going
+/// blank: "Nothing selected" is an instruction, an empty box is a bug report.
+class _MaterialChip extends StatefulWidget {
+  final AppState app;
+
+  /// The ribbon's own overflow-menu opener, passed in rather than reached for:
+  /// this widget lives outside _RibbonState and the menu has to be part of the
+  /// one-open-menu-at-a-time discipline every other ribbon flyout follows.
+  final void Function(String id, BuildContext anchor, List<OverItem> items)
+      onOpen;
+  const _MaterialChip({required this.app, required this.onOpen});
+
+  @override
+  State<_MaterialChip> createState() => _MaterialChipState();
+}
+
+class _MaterialChipState extends State<_MaterialChip> {
+  bool _h = false;
+
+  List<OverItem> _items(AppL10n t) {
+    final app = widget.app;
+    final cur = app.selectedMaterial;
+    return [
+      // Steel first: "back to plain" is a choice in the same list, not a
+      // separate command somewhere else.
+      for (final id in materialIds)
+        OverItem(
+          '', // never drawn — see OverItem.tint
+          materialName(t, id),
+          () => app.setSelectedMaterial(id),
+          active: (cur ?? kMaterialSteel) == id,
+          tint: materialArgb(id) ?? T.solid.toARGB32(),
+        ),
+    ];
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = L.of(context);
+    final app = widget.app;
+    final on = app.canSetMaterial;
+    final cur = app.selectedMaterial;
+    // The 132 is a FLOOR, not a cap, and that is M235's rule rather than a
+    // preference: a fixed box with an ellipsis inside it is exactly the shape
+    // that made every long German ribbon label wrap or clip. The chip is as
+    // wide as its widest state needs and no narrower, and because it is the
+    // LAST panel of a horizontally scrolling bar the extra width costs scroll
+    // rather than layout — which is the same bargain every other panel makes.
+    // The 90 is a FLOOR on the LABEL, not a cap on the chip, and that is
+    // M235's rule rather than a preference: a fixed box with an ellipsis in it
+    // is exactly the shape that made every long German ribbon label wrap or
+    // clip. So the chip is as wide as its widest state needs and never
+    // narrower than a steady 90 — and because it is the LAST panel of a
+    // horizontally scrolling bar, the extra width costs scroll, not layout.
+    //
+    // MainAxisSize.min throughout, and not a style choice either: the ribbon
+    // is a horizontal scrollable, so this Row is laid out with an UNBOUNDED
+    // width and an Expanded inside it is an assertion, not a layout.
+    final chip = Container(
+      padding: const EdgeInsets.fromLTRB(8, 6, 6, 6),
+      decoration: BoxDecoration(
+        color: (_h && on) ? T.hover : T.field,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: T.sep),
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        _Swatch(argb: materialArgb(cur) ?? T.solid.toARGB32()),
+        const SizedBox(width: 8),
+        ConstrainedBox(
+          constraints: const BoxConstraints(minWidth: 90),
+          child: Text(on ? materialName(t, cur) : t.matPickBody,
+              softWrap: false, style: ts(12, on ? T.text : T.dim)),
+        ),
+        const SizedBox(width: 6),
+        Text('▼', style: ts(8, T.dim)),
+      ]),
+    );
+    return Center(
+      child: MouseRegion(
+        cursor: on ? SystemMouseCursors.click : MouseCursor.defer,
+        onEnter: (_) => setState(() => _h = true),
+        onExit: (_) => setState(() => _h = false),
+        child: Builder(
+          builder: (ctx) => GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: on ? () => widget.onOpen('ov-material', ctx, _items(t)) : null,
+            child: chip,
+          ),
         ),
       ),
     );
