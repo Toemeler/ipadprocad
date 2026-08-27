@@ -13,6 +13,7 @@ import 'dart:typed_data';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import '../icon_theme.dart';
+import 'package:flutter/scheduler.dart' show Ticker;
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:reality_view/reality_view.dart';
@@ -30,6 +31,7 @@ import '../view_cube.dart';
 import '../reality_scene.dart';
 import '../text_geometry.dart' show textContours, textLayerOf;
 import '../menus.dart';
+import '../mouse_nav.dart';
 import '../work_features.dart';
 import '../svg_icons.dart' show homeTabIcon;
 import '../theme.dart';
@@ -93,7 +95,7 @@ class Viewport3D extends StatefulWidget {
 }
 
 class _Viewport3DState extends State<Viewport3D>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
@@ -117,6 +119,7 @@ class _Viewport3DState extends State<Viewport3D>
 
   @override
   void dispose() {
+    _wheelStop();
     _camAnim?.dispose();
     _refineTimer?.cancel();
     _cancelLongPress();
@@ -192,9 +195,28 @@ class _Viewport3DState extends State<Viewport3D>
   // M59 Phase 2: face prehighlight while picking a sketch plane —
   // (solid, v4 face id) of the planar face under the cursor.
   (KernelSolid, int)? _hoverFace;
-  // MMB drag (desktop): pan with shift, orbit without
-  bool _mmb = false, _mmbPan = false;
+  // M283 — what the mouse drag in flight is doing to the view: the middle
+  // button pans, shift with it orbits.
+  MouseDrag _mouseNav = MouseDrag.none;
+  // Its own last position, deliberately NOT the _mmbLast the scale recognizer
+  // writes. THE STEP BACK ON RELEASE: a middle-button drag drives the raw
+  // Listener AND the GestureDetector's ScaleGestureRecognizer, which accepts
+  // any button — and both wrote _mmbLast. onScaleStart reports the focal point
+  // the gesture STARTED at, so the moment the recognizer won the arena it
+  // rewound the anchor to the press position and the next Listener move
+  // re-applied travel the view had already made; every later onScaleUpdate
+  // then overwrote the anchor again mid-drag. The drag jittered and the last
+  // contested delta landed as a jump at the end. One field per owner is the
+  // whole fix.
+  Offset _navLast = Offset.zero;
   Offset _mmbLast = Offset.zero;
+  // M283 — the wheel zoom still owed, and the ticker paying it out. See
+  // mouse_nav.dart: a notch arrives over a few frames instead of in one jump,
+  // which is what makes a discrete wheel feel continuous.
+  final WheelZoom _wheel = WheelZoom();
+  Ticker? _wheelTick;
+  Duration? _wheelLast;
+  Size _viewSize = Size.zero;
   double _scaleStartH = 27;
 
   // Adaptive tessellation: re-mesh solids to the current screen resolution so
@@ -473,6 +495,7 @@ class _Viewport3DState extends State<Viewport3D>
     if (p == null) return ColoredBox(color: T.viewport);
     return LayoutBuilder(builder: (context, bc) {
       final size = Size(bc.maxWidth, bc.maxHeight);
+      _viewSize = size; // the wheel glide runs outside build and needs it
       final cam = Cam3(_effectiveCamera(app, p, size), size);
       // Keep solids at screen resolution: refine on the first frame, on resize,
       // and whenever a new (coarse) preview appears. Cheap no-op once smooth.
@@ -541,6 +564,20 @@ class _Viewport3DState extends State<Viewport3D>
           child: Listener(
             onPointerDown: (e) {
               _dragKind = e.kind;
+              // M283 — with a mouse the middle button drags the view and
+              // shift with it turns the model. Tested FIRST: navigation is not
+              // a pick, and a middle button that happens to land on a work
+              // plane must move the view, not the plane.
+              final nav = mouseDrag(e.kind, e.buttons,
+                  shift: HardwareKeyboard.instance.isShiftPressed);
+              if (nav != MouseDrag.none) {
+                _mouseNav = nav;
+                _navLast = e.localPosition;
+                _wheel.cancel(); // a drag owns the camera now
+                _cancelLongPress();
+                _lpFired = false;
+                return;
+              }
               // M174 — the Plane command is armed: pointer down on a plane or
               // a face starts DRAGGING a new one off it. Nothing is created
               // until you let go, so a mis-grab costs nothing, and the offset
@@ -595,12 +632,6 @@ class _Viewport3DState extends State<Viewport3D>
                   }
                 }
               }
-              if (e.kind == PointerDeviceKind.mouse &&
-                  e.buttons == kMiddleMouseButton) {
-                _mmb = true;
-                _mmbPan = HardwareKeyboard.instance.isShiftPressed;
-                _mmbLast = e.localPosition;
-              }
               // M218 — long-press a SKETCH for its context menu (the
               // right-click role, 600 ms, exactly as in 2D — M53). Armed only
               // when the press starts ON a curve and nothing else has claimed
@@ -609,7 +640,7 @@ class _Viewport3DState extends State<Viewport3D>
               _lpFired = false;
               if (_wpDrag == null &&
                   _wpNewBase == null &&
-                  !_mmb &&
+                  _mouseNav == MouseDrag.none &&
                   _sketchAt(cam, e.localPosition) != null) {
                 _lpDown = e.localPosition;
                 _lpTimer = Timer(const Duration(milliseconds: 600),
@@ -669,11 +700,11 @@ class _Viewport3DState extends State<Viewport3D>
                 }
                 return; // the drag owns this pointer
               }
-              if (_mmb) {
-                final d = e.localPosition - _mmbLast;
-                _mmbLast = e.localPosition;
+              if (_mouseNav != MouseDrag.none) {
+                final d = e.localPosition - _navLast;
+                _navLast = e.localPosition;
                 setState(() {
-                  if (_mmbPan) {
+                  if (_mouseNav == MouseDrag.pan) {
                     _pan(p, d, size);
                   } else {
                     _orbit(p, d);
@@ -682,7 +713,7 @@ class _Viewport3DState extends State<Viewport3D>
               }
             },
             onPointerUp: (_) {
-              _mmb = false;
+              _mouseNav = MouseDrag.none;
               // The press ended before the menu was earned. (_lpFired is NOT
               // cleared here: the tap that follows this up must still know
               // the press was consumed, and the next pointer down clears it.)
@@ -705,7 +736,7 @@ class _Viewport3DState extends State<Viewport3D>
               }
             },
             onPointerCancel: (_) {
-              _mmb = false;
+              _mouseNav = MouseDrag.none;
               _cancelLongPress();
               if (_wpNewBase != null) {
                 _wpNewBase = null;
@@ -723,6 +754,7 @@ class _Viewport3DState extends State<Viewport3D>
             // still zooms. One finger (a click-drag, reported as a mouse
             // pointer) deliberately does nothing.
             onPointerPanZoomStart: (e) {
+              _wheel.cancel(); // the trackpad takes over from a wheel glide
               _tpActive = true;
               _tpLastPan = Offset.zero;
               _scaleStartH = p.camera.halfH;
@@ -746,9 +778,13 @@ class _Viewport3DState extends State<Viewport3D>
             },
             onPointerPanZoomEnd: (_) => _tpActive = false,
             onPointerSignal: (e) {
+              // M283 — the wheel no longer zooms a fixed step per event
+              // however far it turned. It adds to a pending zoom that a ticker
+              // pays out over the next few frames; see mouse_nav.dart.
               if (e is PointerScrollEvent) {
-                setState(() => _zoomAt(
-                    p, cam, e.localPosition, e.scrollDelta.dy > 0 ? 1.1 : 0.9));
+                _wheel.add(
+                    wheelDoublings(e.scrollDelta.dy), e.localPosition);
+                _wheelStart();
               }
             },
             child: MouseRegion(
@@ -785,20 +821,25 @@ class _Viewport3DState extends State<Viewport3D>
                   _tap(cam, d.localPosition);
                 },
                 onScaleStart: (d) {
+                  _wheel.cancel(); // M283 — a touch gesture outranks the glide
                   _scaleStartH = p.camera.halfH;
                   _mmbLast = d.localFocalPoint;
                 },
                 onScaleUpdate: (d) => setState(() {
                   // the trackpad path above already handled this gesture
                   if (_tpActive) return;
+                  // M283 — and a mouse navigation drag owns the camera outright.
+                  // Returning BEFORE the _mmbLast write at the end of this
+                  // callback is the point: that write is what used to rewind
+                  // the drag's anchor mid-gesture.
+                  if (_mouseNav != MouseDrag.none) return;
                   if (d.pointerCount >= 2) {
                     if (d.scale > 0) {
                       final f = (_scaleStartH / d.scale) / p.camera.halfH;
                       _zoomAt(p, Cam3(p.camera, size), d.localFocalPoint, f);
                     }
                     _pan(p, d.localFocalPoint - _mmbLast, size);
-                  } else if (!_mmb &&
-                      _wpDrag == null &&
+                  } else if (_wpDrag == null &&
                       // M218 — and NOT under an open sketch menu. Same trap
                       // as the work-plane drag: the press that opened it
                       // lives in the raw Listener, so the finger still on the
@@ -841,6 +882,10 @@ class _Viewport3DState extends State<Viewport3D>
               // M275 — the part's own front, and the command that redefines it.
               orient: p.cubeOrient,
               onOrient: app.setCubeOrient,
+              // M283 — every view the cube sends the camera to is framed on
+              // the part's own solids. _liveSolids, so the extrude preview
+              // counts: it is on screen and it is what the user is looking at.
+              fit: (c) => fitPartView(c, _liveSolids().toList(), size),
             ))),
         // Coordinate triad. M146 — moved to the RIGHT of the model browser
         // instead of under it: the browser card reaches down into the
@@ -937,6 +982,44 @@ class _Viewport3DState extends State<Viewport3D>
       p.camera.oy += ny * dH;
     }
     _armRefine(cam.size); // re-tessellate to the new screen resolution
+  }
+
+  // ---- M283: the wheel glide -------------------------------------------
+  //
+  // A scroll event does not move the camera itself. It adds to [_wheel], and
+  // this ticker takes a slice of what is owed every frame until it is spent.
+  // One notch therefore arrives as a short movement rather than a jump, and a
+  // fast scroll melts into one continuous zoom instead of a staircase.
+  void _wheelStart() {
+    if (_wheelTick != null) return;
+    _wheelLast = null;
+    _wheelTick = createTicker(_wheelFrame)..start();
+  }
+
+  void _wheelStop() {
+    _wheelTick?.dispose();
+    _wheelTick = null;
+    _wheelLast = null;
+  }
+
+  void _wheelFrame(Duration elapsed) {
+    final p = part;
+    final last = _wheelLast;
+    _wheelLast = elapsed;
+    if (p == null || _viewSize.isEmpty || !mounted) {
+      _wheel.cancel();
+      _wheelStop();
+      return;
+    }
+    // The first frame has nothing to measure against; one frame at 60 Hz is
+    // the honest guess, and being a millisecond out is invisible.
+    final dt =
+        last == null ? 1 / 60 : (elapsed - last).inMicroseconds / 1000000.0;
+    final f = _wheel.takeHalfHeightFactor(dt);
+    if (f != 1) {
+      setState(() => _zoomAt(p, Cam3(p.camera, _viewSize), _wheel.focus, f));
+    }
+    if (!_wheel.active) _wheelStop();
   }
 
   /// All drawable solids currently in the part (features + live preview).
@@ -2977,12 +3060,23 @@ class ViewCube extends StatefulWidget {
   /// rather than showing commands that would do nothing.
   final void Function(Quat)? onOrient;
 
+  /// M283 — frames the model in a camera the cube is about to swing to.
+  ///
+  /// "when i click on a viewing direction the zoom should also animate so that
+  /// the whole model is visible". The cube still knows nothing about a part or
+  /// an assembly: it hands over a camera already turned to the chosen
+  /// direction and the host sets the pan and zoom that fit ITS geometry into
+  /// the viewport. Null keeps the old fixed framing, which is what an empty
+  /// document gets.
+  final void Function(PartCamera)? fit;
+
   const ViewCube({
     super.key,
     required this.camera,
     required this.onChanged,
     this.orient = Quat.identity,
     this.onOrient,
+    this.fit,
   });
   @override
   State<ViewCube> createState() => _ViewCubeState();
@@ -3090,14 +3184,29 @@ class _ViewCubeState extends State<ViewCube>
     setState(() => _hit = null);
   }
 
+  /// M283 — pan and zoom so the whole model is in frame, once the camera has
+  /// been turned. The swing then animates the framing along with the
+  /// orientation for free: [PartCamera.lerp] interpolates ox, oy and halfH
+  /// too, the last one geometrically, so the zoom glides rather than steps.
+  void _frame(PartCamera c) {
+    final fit = widget.fit;
+    if (fit != null) {
+      fit(c);
+      return;
+    }
+    // No geometry to frame (an empty document, or a host that offers no fit):
+    // centred, at the same fixed height Home has always used.
+    c.ox = 0;
+    c.oy = 0;
+    c.halfH = 27;
+  }
+
   void _snapTo(Vec3 d) => _animateTo((c) {
         // M90 — snapping to top/bottom is exact now; the clamp that kept it a
         // thousandth of a radian short is gone with the trackball.
         if (d.y.abs() < 0.999) c.az = math.atan2(d.x, d.z);
         c.setBasis(d, PartCamera.rightFor(c.az));
-        c.ox = 0;
-        c.oy = 0;
-        c.halfH = 27;
+        _frame(c);
       });
 
   /// A quarter turn about the VIEW DIRECTION — Inventor's curved arrows.
@@ -3128,9 +3237,7 @@ class _ViewCubeState extends State<ViewCube>
         default:
           c.orbitScreen(q, 0);
       }
-      c.ox = 0;
-      c.oy = 0;
-      c.halfH = 27;
+      _frame(c);
     });
   }
 
@@ -3193,7 +3300,13 @@ class _ViewCubeState extends State<ViewCube>
           top: 0,
           left: 0,
           child: GestureDetector(
-            onTap: () => _animateTo((cam) => cam.home()),
+            onTap: () => _animateTo((cam) {
+              cam.home();
+              // M283 — and Home frames the model too. A home view that leaves
+              // the part off screen is the same complaint as a front view that
+              // does.
+              _frame(cam);
+            }),
             child: Tooltip(
               message: t.menuHomeView,
               child: SizedBox(

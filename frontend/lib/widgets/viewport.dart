@@ -18,6 +18,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart' show Ticker;
 import 'package:flutter/services.dart';
 
 import '../app_state.dart';
@@ -26,6 +27,7 @@ import '../diag.dart';
 import '../gesture_trace.dart';
 import '../log.dart';
 import '../menus.dart';
+import '../mouse_nav.dart';
 import '../constraints.dart';
 import '../ffi/qcad_engine.dart' show Geo;
 import '../perf.dart';
@@ -74,9 +76,22 @@ class Viewport2D extends StatefulWidget {
   State<Viewport2D> createState() => _Viewport2DState();
 }
 
-class _Viewport2DState extends State<Viewport2D> with WidgetsBindingObserver {
+class _Viewport2DState extends State<Viewport2D>
+    with WidgetsBindingObserver, TickerProviderStateMixin {
   bool _projCpSelected = false; // mock: click toggles yellow <-> blue
   double _panZoomStartZoom = 1;
+  // M283 — MOUSE NAVIGATION. A mouse had no way to pan this canvas at all:
+  // one finger pans, two fingers pan and zoom, a trackpad pans and zooms, and
+  // a mouse drag box-selected or drew. The middle button now drags the view.
+  // A sketch has nothing to ORBIT, so shift+middle — which turns the model in
+  // the 3D viewports — pans here too rather than doing nothing at all.
+  bool _mousePan = false;
+  Offset _mousePanLast = Offset.zero;
+  // M283 — the pending wheel zoom and the ticker paying it out over frames
+  // instead of in one 1.1x jump. See mouse_nav.dart.
+  final WheelZoom _wheel = WheelZoom();
+  Ticker? _wheelTick;
+  Duration? _wheelLast;
   final FocusNode _focus = FocusNode();
 
   @override
@@ -98,6 +113,7 @@ class _Viewport2DState extends State<Viewport2D> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _wheelStop();
     WidgetsBinding.instance.removeObserver(this);
     _lpTimer?.cancel();
     _liveWatchdog?.cancel();
@@ -427,11 +443,54 @@ class _Viewport2DState extends State<Viewport2D> with WidgetsBindingObserver {
     return editable;
   }
 
+  // ---- M283: the wheel glide --------------------------------------------
+  //
+  // A scroll event does not zoom the camera itself. It adds to [_wheel], and
+  // this ticker takes a slice of what is owed every frame until it is spent —
+  // which is what turns a discrete wheel's notches into a movement instead of
+  // a staircase. The 3D viewports run the identical loop on their half-height.
+  void _wheelStart() {
+    if (_wheelTick != null) return;
+    _wheelLast = null;
+    _wheelTick = createTicker(_wheelFrame)..start();
+  }
+
+  void _wheelStop() {
+    _wheelTick?.dispose();
+    _wheelTick = null;
+    _wheelLast = null;
+  }
+
+  void _wheelFrame(Duration elapsed) {
+    final last = _wheelLast;
+    _wheelLast = elapsed;
+    if (!mounted) {
+      _wheel.cancel();
+      _wheelStop();
+      return;
+    }
+    // The first frame has nothing to measure against; one frame at 60 Hz is
+    // the honest guess, and being a millisecond out is invisible.
+    final dt =
+        last == null ? 1 / 60 : (elapsed - last).inMicroseconds / 1000000.0;
+    final f = _wheel.takeZoomFactor(dt);
+    if (f != 1) widget.app.zoomBy(f, aroundWorld: _wheel.focus);
+    if (!_wheel.active) _wheelStop();
+  }
+
   void _scaleStart(ScaleStartDetails d, Size size) {
     final app = widget.app;
+    _wheel.cancel(); // M283 — a gesture on the canvas outranks a wheel glide
     // M209 — the press began on a floating window; it is that window's drag
     // (a slider, a title bar), not a gesture on the canvas.
     if (_downOnWindow) {
+      _gesture = 'none';
+      return;
+    }
+    // M283 — the mouse is panning the view (middle button, or shift with a
+    // button held). The canvas gestures — box select, grip drag, tool drag —
+    // must keep their hands off this pointer.
+    if (_mousePan) {
       _gesture = 'none';
       return;
     }
@@ -1514,7 +1573,10 @@ class _Viewport2DState extends State<Viewport2D> with WidgetsBindingObserver {
         },
         child: Listener(
           // trackpad two-finger pan + pinch zoom (FIRST version requirement)
-          onPointerPanZoomStart: (e) => _panZoomStartZoom = app.zoom,
+          onPointerPanZoomStart: (e) {
+            _wheel.cancel(); // M283 — the trackpad takes over from the wheel
+            _panZoomStartZoom = app.zoom;
+          },
           onPointerPanZoomUpdate: (e) {
             if (e.scale != 1.0) {
               final w = _toWorld(e.localPosition, size);
@@ -1526,10 +1588,15 @@ class _Viewport2DState extends State<Viewport2D> with WidgetsBindingObserver {
             }
           },
           onPointerSignal: (e) {
+            // M283 — the wheel zooms around the cursor proportionally to how
+            // far it turned, and arrives over several frames rather than in
+            // 1.1x steps. The anchor is kept in WORLD space, which is what
+            // keeps the point under the cursor pinned there for the whole
+            // glide however far the camera travels. See mouse_nav.dart.
             if (e is PointerScrollEvent) {
-              // mouse wheel / two-finger scroll -> zoom around cursor
-              final w = _toWorld(e.localPosition, size);
-              app.zoomBy(e.scrollDelta.dy > 0 ? 1 / 1.1 : 1.1, aroundWorld: w);
+              _wheel.add(wheelDoublings(e.scrollDelta.dy),
+                  _toWorld(e.localPosition, size));
+              _wheelStart();
             }
           },
           onPointerHover: (e) {
@@ -1608,6 +1675,22 @@ class _Viewport2DState extends State<Viewport2D> with WidgetsBindingObserver {
             // not turn the release into a canvas click.
             _downOnWindow = _onWindow(e.localPosition);
             if (_downOnWindow) {
+              _clickDown = null;
+              _cancelLp();
+              return;
+            }
+            // M283 — with a mouse, the middle button drags the view. Claimed
+            // here, above every canvas gesture, so that panning never draws,
+            // box-selects or grabs a grip on the way past — but below the
+            // floating windows, whose own drags keep the pointer they started
+            // on. (Registered with [_live] first: the up path removes
+            // unconditionally.)
+            if (mouseDrag(e.kind, e.buttons,
+                    shift: HardwareKeyboard.instance.isShiftPressed) !=
+                MouseDrag.none) {
+              _mousePan = true;
+              _mousePanLast = e.localPosition;
+              _wheel.cancel(); // a drag owns the camera now
               _clickDown = null;
               _cancelLp();
               return;
@@ -1693,6 +1776,11 @@ class _Viewport2DState extends State<Viewport2D> with WidgetsBindingObserver {
             // it, and RE-ADOPTS it if the watchdog evicted it in error. That
             // is what makes the silence rule safe to be wrong about.
             _live.touch(e.pointer, e.device, e.kind);
+            if (_mousePan) {
+              widget.app.panBy(e.localPosition - _mousePanLast);
+              _mousePanLast = e.localPosition;
+              return; // M283 — the pan owns this pointer
+            }
             final rejected = _rejectedTouches.contains(e.pointer);
             // M87 — freehand ink. A rejected touch (palm) must never draw.
             if (!rejected && app.freehand?.drawing == true) {
@@ -1728,6 +1816,10 @@ class _Viewport2DState extends State<Viewport2D> with WidgetsBindingObserver {
           onPointerCancel: (e) {
             _live.remove(e.pointer);
             _disarmLiveWatchdogIfIdle();
+            if (_mousePan) {
+              _mousePan = false;
+              return;
+            }
             _downOnWindow = false;
             _rejectedTouches.remove(e.pointer);
             if (e.kind == PointerDeviceKind.touch) _mft.cancel(e.pointer);
@@ -1737,6 +1829,10 @@ class _Viewport2DState extends State<Viewport2D> with WidgetsBindingObserver {
           onPointerUp: (e) {
             _live.remove(e.pointer);
             _disarmLiveWatchdogIfIdle();
+            if (_mousePan) {
+              _mousePan = false;
+              return; // M283 — a pan ends nothing else; it clicked on nothing
+            }
             if (_downOnWindow) {
               _downOnWindow = false;
               return; // M209: the window had it

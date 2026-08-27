@@ -46,6 +46,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart' show Ticker;
 import 'package:flutter/services.dart';
 import 'package:native_menu/native_menu.dart' show GlassBrowser;
 import 'package:reality_view/reality_view.dart';
@@ -57,6 +58,7 @@ import '../asm_pick.dart';
 import '../assembly.dart';
 import '../l10n/l.dart';
 import '../log.dart';
+import '../mouse_nav.dart';
 import '../part_model.dart';
 import '../part_render.dart';
 import '../perf.dart';
@@ -82,12 +84,24 @@ class ViewportAssembly extends StatefulWidget {
   State<ViewportAssembly> createState() => _ViewportAssemblyState();
 }
 
-class _ViewportAssemblyState extends State<ViewportAssembly> {
+class _ViewportAssemblyState extends State<ViewportAssembly>
+    with TickerProviderStateMixin {
   AssemblyModel? get asm => widget.app.currentAssembly;
 
   // ---- navigation state (mirrors _Viewport3DState) ----
-  bool _mmb = false, _mmbPan = false;
+  // M283 — what the mouse drag in flight is doing to the view: the middle
+  // button pans, shift with it orbits. [_navLast] is deliberately its own
+  // field and not the [_mmbLast] the scale recognizer writes — the part
+  // viewport carries the full account of the jump that caused.
+  MouseDrag _mouseNav = MouseDrag.none;
+  Offset _navLast = Offset.zero;
   Offset _mmbLast = Offset.zero;
+  // M283 — the pending wheel zoom and the ticker paying it out. Identical to
+  // the part viewport, deliberately. See mouse_nav.dart.
+  final WheelZoom _wheel = WheelZoom();
+  Ticker? _wheelTick;
+  Duration? _wheelLast;
+  Size _viewSize = Size.zero;
   double _scaleStartH = 27;
   bool _tpActive = false;
   Offset _tpLastPan = Offset.zero;
@@ -280,6 +294,7 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
 
   @override
   void dispose() {
+    _wheelStop();
     _refineTimer?.cancel();
     super.dispose();
   }
@@ -300,6 +315,7 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
     if (a == null) return ColoredBox(color: T.viewport);
     return LayoutBuilder(builder: (context, bc) {
       final size = Size(bc.maxWidth, bc.maxHeight);
+      _viewSize = size; // the wheel glide runs outside build and needs it
       // Zoom All, when a placement asked for one. Here and not in AppState
       // because framing needs the viewport's size — see AssemblyModel.needsFit.
       if (a.needsFit) {
@@ -372,11 +388,14 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
             onPointerDown: (e) {
               _dragKind = e.kind;
               _down.add(e.pointer);
-              if (e.kind == PointerDeviceKind.mouse &&
-                  e.buttons == kMiddleMouseButton) {
-                _mmb = true;
-                _mmbPan = HardwareKeyboard.instance.isShiftPressed;
-                _mmbLast = e.localPosition;
+              // M283 — with a mouse the middle button drags the view and
+              // shift with it turns the model.
+              final nav = mouseDrag(e.kind, e.buttons,
+                  shift: HardwareKeyboard.instance.isShiftPressed);
+              if (nav != MouseDrag.none) {
+                _mouseNav = nav;
+                _navLast = e.localPosition;
+                _wheel.cancel(); // a drag owns the camera now
                 return;
               }
               // A second finger turns this into a navigation gesture.
@@ -550,11 +569,11 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
                 _dragFrom = e.localPosition;
                 return; // the drag owns this pointer
               }
-              if (_mmb) {
-                final delta = e.localPosition - _mmbLast;
-                _mmbLast = e.localPosition;
+              if (_mouseNav != MouseDrag.none) {
+                final delta = e.localPosition - _navLast;
+                _navLast = e.localPosition;
                 setState(() {
-                  if (_mmbPan) {
+                  if (_mouseNav == MouseDrag.pan) {
                     _pan(a, delta, size);
                   } else {
                     _orbit(a, delta);
@@ -563,13 +582,13 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
               }
             },
             onPointerUp: (e) {
-              _mmb = false;
+              _mouseNav = MouseDrag.none;
               _down.remove(e.pointer);
               _endTurn(app);
               _endDrag();
             },
             onPointerCancel: (e) {
-              _mmb = false;
+              _mouseNav = MouseDrag.none;
               _down.remove(e.pointer);
               _endTurn(app);
               _endDrag();
@@ -578,6 +597,7 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
             // pointers: two fingers orbit, two fingers + shift pan, pinch
             // zooms. Identical to the part viewport, deliberately.
             onPointerPanZoomStart: (e) {
+              _wheel.cancel(); // the trackpad takes over from a wheel glide
               _tpActive = true;
               _tpLastPan = Offset.zero;
               _scaleStartH = a.camera.halfH;
@@ -601,9 +621,12 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
             },
             onPointerPanZoomEnd: (_) => _tpActive = false,
             onPointerSignal: (e) {
+              // M283 — proportional to the travel and paid out over frames.
+              // The part viewport carries the full explanation.
               if (e is PointerScrollEvent) {
-                setState(() => _zoomAt(
-                    a, cam, e.localPosition, e.scrollDelta.dy > 0 ? 1.1 : 0.9));
+                _wheel.add(
+                    wheelDoublings(e.scrollDelta.dy), e.localPosition);
+                _wheelStart();
               }
             },
             child: MouseRegion(
@@ -655,18 +678,22 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onScaleStart: (d) {
+                  _wheel.cancel(); // M283 — a touch gesture outranks the glide
                   _scaleStartH = a.camera.halfH;
                   _mmbLast = d.localFocalPoint;
                 },
                 onScaleUpdate: (d) => setState(() {
                   if (_tpActive) return; // handled on the trackpad path
+                  // M283 — a mouse navigation drag owns the camera outright,
+                  // and must return BEFORE the _mmbLast write below.
+                  if (_mouseNav != MouseDrag.none) return;
                   if (d.pointerCount >= 2) {
                     if (d.scale > 0) {
                       final f = (_scaleStartH / d.scale) / a.camera.halfH;
                       _zoomAt(a, Cam3(a.camera, size), d.localFocalPoint, f);
                     }
                     _pan(a, d.localFocalPoint - _mmbLast, size);
-                  } else if (!_mmb &&
+                  } else if (
                       // NOT while a component is being dragged: that drag
                       // lives in the raw Listener above, which never enters
                       // the gesture arena, so without this a finger moving a
@@ -699,6 +726,9 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
               onChanged: () => setState(() {}),
               orient: a.cubeOrient, // M275
               onOrient: app.setCubeOrient,
+              // M283 — framed on the placed components, the same rule Zoom All
+              // uses when a component is dropped in.
+              fit: (c) => fitAssemblyView(c, placedComponents(a), size),
             ))),
         // The triad follows the model browser card, as in the part viewport.
         if (GlassBrowser.isSupported)
@@ -876,6 +906,37 @@ class _ViewportAssemblyState extends State<ViewportAssembly> {
       a.camera.oy += ny * dH;
     }
     _armRefine(cam.size); // re-tessellate to the new screen resolution
+  }
+
+  // ---- M283: the wheel glide, exactly as in the part viewport ------------
+  void _wheelStart() {
+    if (_wheelTick != null) return;
+    _wheelLast = null;
+    _wheelTick = createTicker(_wheelFrame)..start();
+  }
+
+  void _wheelStop() {
+    _wheelTick?.dispose();
+    _wheelTick = null;
+    _wheelLast = null;
+  }
+
+  void _wheelFrame(Duration elapsed) {
+    final a = asm;
+    final last = _wheelLast;
+    _wheelLast = elapsed;
+    if (a == null || _viewSize.isEmpty || !mounted) {
+      _wheel.cancel();
+      _wheelStop();
+      return;
+    }
+    final dt =
+        last == null ? 1 / 60 : (elapsed - last).inMicroseconds / 1000000.0;
+    final f = _wheel.takeHalfHeightFactor(dt);
+    if (f != 1) {
+      setState(() => _zoomAt(a, Cam3(a.camera, _viewSize), _wheel.focus, f));
+    }
+    if (!_wheel.active) _wheelStop();
   }
 }
 

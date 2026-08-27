@@ -1348,6 +1348,31 @@ void fitAssemblyView(PartCamera cam, List<PlacedComponent> placed, Size size) {
   _fitInto(cam, size, _walkPlaced(placed));
 }
 
+/// [fitAssemblyView] for a part: frames [solids] in [cam] WITHOUT touching its
+/// orientation.
+///
+/// M283 — the ViewCube runs this on the camera it is about to swing to, so
+/// that choosing a view direction also brings the whole model into frame. It
+/// used to set a flat `halfH = 27` there, which is a fixed 54 mm of view
+/// height: a bookmark filled it, an engine block was a speck in the middle of
+/// it, and neither had anything to do with what the user had asked for, which
+/// was to look at the model from the front.
+void fitPartView(PartCamera cam, List<KernelSolid> solids, Size size) {
+  if (solids.isEmpty) return;
+  _fitInto(cam, size, _walkSolids(solids));
+}
+
+/// Every vertex of [solids], in model coordinates.
+void Function(void Function(Vec3)) _walkSolids(List<KernelSolid> solids) =>
+    (add) {
+      for (final sol in solids) {
+        final pos = sol.mesh.positions;
+        for (var i = 0; i + 2 < pos.length; i += 3) {
+          add(Vec3(pos[i], pos[i + 1], pos[i + 2]));
+        }
+      }
+    };
+
 /// Every placed vertex of [placed], in world coordinates.
 void Function(void Function(Vec3)) _walkPlaced(List<PlacedComponent> placed) =>
     (add) {
@@ -1562,14 +1587,7 @@ Vec3 get thumbCameraDir =>
 /// identical whether the picture is produced by the CPU painter or by the
 /// RealityKit snapshot, since both are handed THIS camera.
 PartCamera fitThumbCamera(List<KernelSolid> solids, Size size) =>
-    _fitThumb(size, (add) {
-      for (final sol in solids) {
-        final pos = sol.mesh.positions;
-        for (var i = 0; i + 2 < pos.length; i += 3) {
-          add(Vec3(pos[i], pos[i + 1], pos[i + 2]));
-        }
-      }
-    });
+    _fitThumb(size, _walkSolids(solids));
 
 /// The framing itself, over whatever world points [walk] offers.
 ///
