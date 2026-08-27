@@ -1455,6 +1455,44 @@ const int kTrimRounds = 6;
 const double kUvSpanSlack = 1.5;
 
 
+/* Above this many faces, sewing is not a fallback, it is a hang.
+ *
+ * BRepBuilderAPI_Sewing rediscovers by geometric search the adjacency this
+ * file already computed exactly, and it costs more than linearly in the faces
+ * it is handed. Measured on the user's whale — 83,178 triangles of organic
+ * shell — plain triangle faces sew in 3.4 s at ten thousand, 7.9 at twenty
+ * thousand, 22.8 at forty; at the model's OWN tolerance the same twenty
+ * thousand take 25.4 s, and the real 82,683 never finished at all.
+ *
+ * The tolerance is why. It is a fraction of the bounding-box diagonal, which
+ * is the right way to ask whether two SURFACES describe the same thing and
+ * the wrong way to ask whether two edges are the same edge: on that model it
+ * is 0.408 against a median mesh edge of 0.73, so a quarter of all edges are
+ * shorter than the tolerance and every one of them has several candidate
+ * partners.
+ *
+ * A face count this high means the result is one face per triangle, and those
+ * already share their edges — BuildFaceted makes them that way. What sewing
+ * could add is the handful of seams where a fitted face meets them, and
+ * minutes for a handful of seams is not a trade worth making when the faceted
+ * build below closes the model outright. */
+const int kMaxSewFaces = 20000;
+
+/* When the fitted result stopped being a READING of the shape.
+ *
+ * The fitted pass earns an open shell by being light: on the curved shell in
+ * the test suite it finds four drilled holes and turns the rest to triangles —
+ * nine faces for 2,674 triangles — and replacing that to gain a solid would
+ * throw the holes away. On the user's whale it finds seven faces and 82,676
+ * triangles, which is not a reading of a whale; it is the faceted build with
+ * seven seams in it that stop the shell closing.
+ *
+ * So measure it: what fraction of the mesh the fitted pass left as triangles.
+ * 78% on the curved shell, 99.4% on the whale. Past this share there is
+ * nothing to protect — the faceted build is no heavier than what the fitted
+ * pass already produced, and it closes. */
+const int kFittedIsFacetedPercent = 95;
+
 /* Above this the faceted fallback is not a rescue, it is a freeze.
  *
  * Measured at 90 to 140 microseconds a triangle — a tenth of what it cost
@@ -7275,15 +7313,30 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
             if (!direct.IsNull())
                 out = Solidify(direct, rep);
         }
-        if (out.IsNull())
-            out = SewAndSolidify(faces, tol, rep);
+        if (out.IsNull()) {
+            if (faces.size() <= static_cast<size_t>(kMaxSewFaces)) {
+                out = SewAndSolidify(faces, tol, rep);
+            } else {
+                /* Too many to sew — see kMaxSewFaces. Hand back what was
+                 * built, open, so the faceted build below can replace it. */
+                MR_TRACE("  sewing skipped: %d faces\n", (int)faces.size());
+                BRep_Builder cb;
+                TopoDS_Compound c;
+                cb.MakeCompound(c);
+                for (const TopoDS_Face &f : faces)
+                    cb.Add(c, f);
+                rep.shells = rep.solids = rep.closed = 0;
+                out = c;
+            }
+        }
         /* A hybrid shell — fitted faces beside triangles — can come out of sewing
          * with a handful of edges still open where the two kinds meet: 26 of 3032
          * on the model this was measured on, the seams round its four holes. They
          * are not gaps in the model, they are two descriptions of the same seam
          * that sewing declined to identify at the tolerance it was given. Ask
          * again, once, with room. */
-        if (rep.closed != 1 && !faces.empty()) {
+        if (rep.closed != 1 && !faces.empty() &&
+            faces.size() <= static_cast<size_t>(kMaxSewFaces)) {
             Report r2 = rep;
             r2.shells = r2.solids = r2.closed = 0;
             TopoDS_Shape again;
@@ -7433,9 +7486,35 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
 #else
     const bool noFallback = false;
 #endif
-    if (rep.closed != 1 && !recognisedFeatures && !noFallback &&
-        m.triCount() <= kMaxAutoFacetedTriangles &&
-        m.triCount() <= prm.max_faceted_triangles) {
+    /* Is the fitted result a reading of the shape, or the faceted one with
+     * seams in it? See kFittedIsFacetedPercent. */
+    int facetedTris = 0;
+    for (const Patch &pa : patches)
+        if (pa.fit.kind == kNone)
+            facetedTris += static_cast<int>(pa.tris.size());
+    const bool fittedIsFaceted =
+        m.triCount() > 0 &&
+        facetedTris * 100 >= m.triCount() * kFittedIsFacetedPercent;
+
+    /* What the open fitted shell is worth keeping FOR: a feature of the part
+     * that the faceted build would lose. When the fitted result is itself one
+     * face per triangle there is no such thing — the whale's lone eleven-facet
+     * cylinder is 0.013% of it — and nothing is being protected. */
+    const bool worthKeeping = recognisedFeatures && !fittedIsFaceted;
+
+    /* And the ceiling exists so the faceted build cannot be an ESCALATION over
+     * a light fitted result. Where the fitted result is already one face per
+     * triangle it cannot be: the same faces have been built once already. */
+    const bool affordable =
+        m.triCount() <= prm.max_faceted_triangles &&
+        (fittedIsFaceted || m.triCount() <= kMaxAutoFacetedTriangles);
+
+    MR_TRACE("  fallback: closed=%d faceted %d of %d tri (%d%% bar) "
+             "features=%d worthKeeping=%d affordable=%d\n",
+             rep.closed, facetedTris, m.triCount(), kFittedIsFacetedPercent,
+             (int)recognisedFeatures, (int)worthKeeping, (int)affordable);
+
+    if (rep.closed != 1 && !worthKeeping && !noFallback && affordable) {
         Report fr;
         ClearReport(fr);
         fr.triangles_in = rep.triangles_in;
