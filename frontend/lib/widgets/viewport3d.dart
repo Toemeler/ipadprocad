@@ -2994,8 +2994,80 @@ const double _kCubeBox = 132;
 const double _kCubeSize = 84;
 const double _kCubeInset = 24;
 
-class _ViewCubeState extends State<ViewCube> {
+class _ViewCubeState extends State<ViewCube>
+    with SingleTickerProviderStateMixin {
   CubeHit? _hit;
+
+  // ---- M277: the view SWINGS to where you sent it ------------------------
+  //
+  // Snapping the camera in one frame is disorienting for the reason M88 gives
+  // about entering a sketch: the model appears at an unrelated orientation and
+  // you lose track of which side you were looking at. A quarter turn is the
+  // case where that matters most — front and back of a symmetric part are the
+  // same picture, and only the motion between them says which you are on.
+  //
+  // Every command here goes through it: the faces, the edges and corners, the
+  // step arrows, the roll pair and Home. A control where two of six things
+  // animate is worse than one where none of them do.
+  AnimationController? _anim;
+  PartCamera? _from, _to;
+
+  static const _swing = Duration(milliseconds: 300);
+
+  @override
+  void initState() {
+    super.initState();
+    _anim = AnimationController(vsync: this, duration: _swing)
+      ..addListener(_tick)
+      ..addStatusListener((st) {
+        if (st != AnimationStatus.completed) return;
+        // Land EXACTLY on the target rather than on the last interpolated
+        // step: a face view is a face view to a thousandth of a radian, and
+        // _faceView (which decides whether the arrows exist at all) tests for
+        // one.
+        final to = _to;
+        if (to != null) widget.camera.setFrom(to);
+        _from = null;
+        _to = null;
+        widget.onChanged();
+      });
+  }
+
+  @override
+  void dispose() {
+    _anim?.dispose();
+    super.dispose();
+  }
+
+  void _tick() {
+    final a = _anim, from = _from, to = _to;
+    if (a == null || from == null || to == null) return;
+    widget.camera
+        .setFrom(PartCamera.lerp(from, to, Curves.easeInOutCubic.transform(a.value)));
+    widget.onChanged();
+  }
+
+  /// Runs [mutate] on a COPY and swings the live camera onto the result.
+  ///
+  /// The copy is what makes an interrupted swing behave: a second tap starts
+  /// from whatever is on screen at that instant — which is the live camera,
+  /// because the tick writes into it — rather than from where the first swing
+  /// began.
+  void _animateTo(void Function(PartCamera) mutate) {
+    final target = widget.camera.copy();
+    mutate(target);
+    final a = _anim;
+    if (a == null) {
+      widget.camera.setFrom(target);
+      widget.onChanged();
+      return;
+    }
+    _from = widget.camera.copy();
+    _to = target;
+    a
+      ..reset()
+      ..forward();
+  }
 
   bool get _faceView {
     final d = widget.camera.dir;
@@ -3018,29 +3090,23 @@ class _ViewCubeState extends State<ViewCube> {
     setState(() => _hit = null);
   }
 
-  void _snapTo(Vec3 d) {
-    final c = widget.camera;
-    // M90 — snapping to top/bottom is exact now; the clamp that kept it a
-    // thousandth of a radian short is gone with the trackball.
-    if (d.y.abs() < 0.999) c.az = math.atan2(d.x, d.z);
-    c.setBasis(d, PartCamera.rightFor(c.az));
-    c.ox = 0;
-    c.oy = 0;
-    c.halfH = 27;
-    widget.onChanged();
-  }
+  void _snapTo(Vec3 d) => _animateTo((c) {
+        // M90 — snapping to top/bottom is exact now; the clamp that kept it a
+        // thousandth of a radian short is gone with the trackball.
+        if (d.y.abs() < 0.999) c.az = math.atan2(d.x, d.z);
+        c.setBasis(d, PartCamera.rightFor(c.az));
+        c.ox = 0;
+        c.oy = 0;
+        c.halfH = 27;
+      });
 
   /// A quarter turn about the VIEW DIRECTION — Inventor's curved arrows.
   ///
   /// Not orbitScreen: that turns the camera to look somewhere else, and this
   /// must keep looking at exactly the same thing and only change which way is
   /// up. Rolling the right vector about dir is the whole of it.
-  void _roll(double sign) {
-    final c = widget.camera;
-    c.setBasis(
-        c.dir, rotateAboutAxis(c.right, c.dir, sign * math.pi / 2));
-    widget.onChanged();
-  }
+  void _roll(double sign) => _animateTo((c) =>
+      c.setBasis(c.dir, rotateAboutAxis(c.right, c.dir, sign * math.pi / 2)));
 
   void _step(String key) {
     // M90 — these step arrows used to clamp pol away from the poles, which put
@@ -3048,24 +3114,24 @@ class _ViewCubeState extends State<ViewCube> {
     // trackball rotation keeps them consistent with dragging, and a quarter
     // turn up from the top now carries on over instead of sticking.
     const q = math.pi / 2;
-    final c = widget.camera;
-    switch (key) {
-      case 'up':
-        c.orbitScreen(0, q);
-        break;
-      case 'down':
-        c.orbitScreen(0, -q);
-        break;
-      case 'left':
-        c.orbitScreen(-q, 0);
-        break;
-      default:
-        c.orbitScreen(q, 0);
-    }
-    c.ox = 0;
-    c.oy = 0;
-    c.halfH = 27;
-    widget.onChanged();
+    _animateTo((c) {
+      switch (key) {
+        case 'up':
+          c.orbitScreen(0, q);
+          break;
+        case 'down':
+          c.orbitScreen(0, -q);
+          break;
+        case 'left':
+          c.orbitScreen(-q, 0);
+          break;
+        default:
+          c.orbitScreen(q, 0);
+      }
+      c.ox = 0;
+      c.oy = 0;
+      c.halfH = 27;
+    });
   }
 
   /// The long-press menu: Inventor puts "Set Current View as Front" on the
@@ -3127,10 +3193,7 @@ class _ViewCubeState extends State<ViewCube> {
           top: 0,
           left: 0,
           child: GestureDetector(
-            onTap: () {
-              c.home();
-              widget.onChanged();
-            },
+            onTap: () => _animateTo((cam) => cam.home()),
             child: Tooltip(
               message: t.menuHomeView,
               child: SizedBox(

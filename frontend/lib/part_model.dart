@@ -608,6 +608,26 @@ class PartCamera {
     );
   }
 
+  /// An independent copy. Needed wherever an animation has to remember where
+  /// it started while the live camera is being written to every frame.
+  PartCamera copy() => PartCamera(
+      az: az, pol: pol, halfH: halfH, ox: ox, oy: oy, roll: roll);
+
+  /// Overwrites this camera's six numbers from [o], in place.
+  ///
+  /// In place and not by replacement, because the camera is OWNED by the
+  /// document and referenced by the viewport, the ViewCube and the renderer
+  /// push: handing any of them a new instance would leave the others turning
+  /// the old one.
+  void setFrom(PartCamera o) {
+    az = o.az;
+    pol = o.pol;
+    roll = o.roll;
+    halfH = o.halfH;
+    ox = o.ox;
+    oy = o.oy;
+  }
+
   /// Interpolates between two cameras for the sketch-entry animation (M88).
   ///
   /// [t] runs 0..1. Angles are interpolated on the SHORT way round — plain
@@ -740,6 +760,12 @@ class PartCamera {
     halfH = 27;
     ox = 0;
     oy = 0;
+    // M277 — the ROLL too. It was left alone because nothing the user could
+    // reach set it: roll arrived in M80 for sketch cameras, which are built
+    // rather than navigated. The ViewCube's roll arrows are the first control
+    // that puts a roll on an ordinary view, and a Home that leaves the model
+    // lying on its side is not a home view.
+    roll = 0;
   }
 
   /// Face the camera along an arbitrary plane normal (sketch on a face).

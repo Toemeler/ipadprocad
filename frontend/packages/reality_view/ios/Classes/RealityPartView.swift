@@ -356,6 +356,35 @@ final class PartRenderer: NSObject {
     /// million millimetres (~0.06 mm resolution) — coarser than the edge tubes
     /// and the face-highlight lift, which is what made edges speckle, vanish
     /// when zoomed in, and coplanar surfaces fight.
+    /// Where the camera sits and how much padding the depth range needs.
+    ///
+    /// M277 — pulled out of placeCamera because the rendered view's shadow has
+    /// to agree with it. `maximumDistance` is measured FROM THE CAMERA, and the
+    /// camera sits `pad * 4` away; a shadow distance worked out from the scene
+    /// radius alone had no relationship to that number at all.
+    ///
+    /// pad covers the geometry radius AND the current view height, so nothing
+    /// ever clips while the depth range stays small enough to be precise.
+    private func cameraFit() -> (pad: Float, dist: Float) {
+        let pad = max(sceneRadius, Float(cam.halfH)) + 10
+        if #available(iOS 18.0, *) {
+            return (pad, pad * 4)
+        }
+        return (pad, Float(cam.halfH) / tan(Float(cam.nearOrthoFovRad) * 0.5))
+    }
+
+    /// M277 — how far from the origin the rendered view has to reach.
+    ///
+    /// The geometry, the frame the camera can currently see, and wherever the
+    /// pan has taken that frame. The floor is sized from this and the shadow
+    /// volume is sized to contain it, which is the whole of the fix: both used
+    /// to be worked out from sceneRadius, a number that does not move when you
+    /// zoom or pan, so the floor's edge and the shadow's edge walked into view.
+    private var renderedReach: Float {
+        let pan = Float(max(abs(cam.ox), abs(cam.oy)))
+        return max(sceneRadius, Float(cam.halfH) * 2) + pan + 10
+    }
+
     private func applyCameraComponent(dist: Float, near: Float, far: Float) {
         if #available(iOS 18.0, *) {
             var oc = OrthographicCameraComponent()
@@ -543,17 +572,7 @@ final class PartRenderer: NSObject {
         }
 
         let center = right * Float(cam.ox) + up * Float(cam.oy)
-        // Fit the depth range to the scene instead of using a huge constant:
-        // pad covers the geometry radius AND the current view height, so
-        // nothing ever clips, while the range stays small enough for a precise
-        // depth buffer.
-        let pad = max(sceneRadius, Float(cam.halfH)) + 10
-        let dist: Float
-        if #available(iOS 18.0, *) {
-            dist = pad * 4
-        } else {
-            dist = Float(cam.halfH) / tan(Float(cam.nearOrthoFovRad) * 0.5)
-        }
+        let (pad, dist) = cameraFit()
         let near = max(0.001, dist - pad * 2)
         let far = dist + pad * 2
         let pos = center + dir * dist
@@ -569,6 +588,14 @@ final class PartRenderer: NSObject {
         // solid face — "the work plane / sketch is in front", like Inventor.
         let bias = max(Float(cam.halfH) * 5e-4, 1e-6)
         for (_, pe) in planeEntities { pe.applyBias(camDir: dir, eps: bias) }
+        // M277 — the rendered view's shadow volume and its floor are sized from
+        // the CAMERA as well as from the scene, so both have to be redone when
+        // the camera moves. See applyLighting: doing this only in setScene is
+        // what made the shadow disappear the moment you zoomed out.
+        if rendered {
+            applyLighting()
+            applyGround()
+        }
         refreshOutlines()
         for e in edgeEntities { e.position = dir * bias }
         // A sketch drawn ON a solid face is EXACTLY coplanar with it, so it
@@ -666,18 +693,38 @@ final class PartRenderer: NSObject {
     /// give a body two shadows and the eye reads that as a mistake before it
     /// reads it as lighting.
     ///
-    /// `maximumDistance` is tied to the scene radius. A shadow map spread over
-    /// a fixed huge volume would give a 10 mm part a shadow four texels wide.
+    /// M277 — `maximumDistance` IS MEASURED FROM THE CAMERA, and that is the
+    /// bug this replaces.
+    ///
+    /// It was `sceneRadius * 3`. sceneRadius is the extent of the geometry
+    /// about the ORIGIN; the camera sits `cameraFit().dist` away, which is four
+    /// times a pad that itself already exceeds the scene. The two numbers had
+    /// no relationship, so the shadow volume ended somewhere in front of the
+    /// model — and where it ended moved with the zoom, because the camera
+    /// distance follows halfH and the old shadow distance did not. That is the
+    /// "the shadow often gets cut away": it was not being clipped by anything
+    /// in the scene, it was falling out of the volume that renders it.
+    ///
+    /// Now it spans the camera all the way past the far side of everything the
+    /// rendered view reaches, floor included — the floor has to be INSIDE the
+    /// volume to receive, not merely the model to cast.
     private func applyLighting() {
         headlight.light.intensity = rendered ? 620 : 1450
         fillLight.light.intensity = rendered ? 380 : 480
         rimLight.light.intensity = rendered ? 380 : 0
         sunLight.light.intensity = rendered ? 950 : 0
-        sunLight.shadow = rendered
-            ? DirectionalLightComponent.Shadow(
-                maximumDistance: max(0.5, sceneRadius * 3),
-                depthBias: 2.0)
-            : nil
+        guard rendered else {
+            sunLight.shadow = nil
+            return
+        }
+        let reach = renderedReach
+        sunLight.shadow = DirectionalLightComponent.Shadow(
+            maximumDistance: max(0.5, cameraFit().dist + reach * 2),
+            // Scaled with the volume rather than fixed: a bias is a depth
+            // offset, and a shadow map covering ten times as much world has
+            // ten times the depth per texel. A constant 2 that was right at
+            // one zoom is acne at another.
+            depthBias: max(1.0, reach * 0.02))
     }
 
     /// The floor, in the rendered view only.
@@ -692,7 +739,12 @@ final class PartRenderer: NSObject {
             groundEntity = nil
             return
         }
-        let side = max(2, sceneRadius * 6)
+        // M277 — sized from the VIEW as well as the scene. A floor 6 x
+        // sceneRadius wide is smaller than the frame the moment you zoom out
+        // past the part, and its edge walking into view takes the shadow with
+        // it. renderedReach also carries the pan, because a floor centred on
+        // the origin slides out of a panned view.
+        let side = max(2, renderedReach * 4)
         // M276 — ON the lowest point of the model, not under it.
         //
         // It used to be -sceneRadius, which is the radius of the whole SCENE
