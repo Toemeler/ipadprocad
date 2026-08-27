@@ -1,4 +1,35 @@
-/* M232 — mesh -> B-Rep reconstruction. See mesh_recon.h for the shape of it. */
+/* M232 — mesh -> B-Rep reconstruction. See mesh_recon.h for the shape of it.
+ *
+ * WHERE THE TOLERANCE COMES FROM, and why it is not decided here.
+ *
+ * tol_frac is a fraction of the bounding-box DIAGONAL, and on its own that is
+ * the wrong scale for anything flat: the diagonal says how big a model is and
+ * nothing about how fine it is. A 2 mm bookmark 166 mm across got 0.333 mm of
+ * tolerance from its diagonal and came back a solid slab — all 37 of its
+ * cut-outs closed, as thirty-nine separate solids carrying 171% too much
+ * material. Bounded by its 2 mm thickness instead it converts at +0.17% with
+ * every opening open. The mechanism in between is NOT established; see the
+ * note on kVolumeDivergenceBar for what was ruled out.
+ *
+ * The rule that bounds it lives in ONE place, and that place is the caller —
+ * frontend/lib/mesh_io.dart, brepTolFractionFor(), which caps the tolerance at
+ * the model's thinnest dimension as well as its diagonal. It lives there
+ * because the caller has the mesh's bounds in hand before the conversion
+ * starts and can say so in the import log, where a person can read it.
+ *
+ * p.tol_frac below is therefore a FALLBACK, not a second opinion: it applies
+ * only to a caller that passes 0. Nothing in this file clamps tol_frac again,
+ * deliberately — two clamps would mean the smaller one silently wins and
+ * neither the log nor the code would say which tolerance actually applied.
+ *
+ * What this file does instead is check its own answer. No rule can predict a
+ * safe tolerance, because the quantity that matters is the narrowest gap
+ * between two walls and every cheap proxy for it is dominated by tessellation
+ * slivers — measured across the fixtures here, all four have two unconnected
+ * vertices within 0.03 mm of each other, the perforated ones included. So the
+ * converter builds the solid and then measures it against the volume of the
+ * mesh it was given, and refuses to pass off a body that is not that part.
+ */
 #include "mesh_recon.h"
 
 #include <algorithm>
@@ -85,6 +116,8 @@ Params Defaults()
 {
     Params p;
     p.mode = 1;
+    /* A fallback for callers that do not compute one. The app does: see the
+     * note at the top of this file, and brepTolFractionFor() in mesh_io.dart. */
     p.tol_frac = 2.0e-3;
     p.sharp_deg = 22.0;
     p.weld_frac = 1.0e-6;
@@ -1499,6 +1532,17 @@ const double kFreeformFairing = 2.0e-7;
 const double kFreeformRidge = 1.0e-9;
 /* Triangles sampled when asking how far the surface goes BETWEEN the data. */
 const int kFreeformBetweenSamples = 2000;
+/* How far the finished solid may stand from the volume of the mesh it was
+ * made from before it stops being that part.
+ *
+ * Every conversion that works lands inside a couple of per cent: the whale
+ * -0.92%, the TOKA boss +0.18%, the broomholder +1.67%, the butterfly
+ * bookmark +0.17% once its tolerance fits. The one that does not work is not
+ * close: the same bookmark converted with a tolerance wider than the webs
+ * between its cut-outs came back +171.84%, having grown all 37 of them shut.
+ * A quarter is far above everything that passes and far below the only thing
+ * that fails, which is what a threshold wants to be. */
+const double kVolumeDivergenceBar = 0.25;
 /* How far past its own data the net reaches, as a fraction of the parameter
  * range. The face is trimmed by the region's boundary, so the surface has to
  * exist a little way OUTSIDE it or the boundary has nowhere to project and
@@ -8017,6 +8061,20 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
 
     const double scale = m.diagonal;
     const double tol = std::max(scale * prm.tol_frac, 1e-9);
+
+    /* The volume the caller's own triangles enclose. One pass, and it is the
+     * only ground truth available for "is the answer still this part?" — see
+     * the check at the end of this function. */
+    double meshVolume = 0;
+    for (int t = 0; t < m.triCount(); ++t) {
+        const V3 &a = m.pos[m.tri[t * 3]];
+        const V3 &b = m.pos[m.tri[t * 3 + 1]];
+        const V3 &c = m.pos[m.tri[t * 3 + 2]];
+        meshVolume += a.x * (b.y * c.z - b.z * c.y) -
+                      a.y * (b.x * c.z - b.z * c.x) +
+                      a.z * (b.x * c.y - b.y * c.x);
+    }
+    meshVolume = std::fabs(meshVolume / 6.0);
     std::vector<TopoDS_Face> faces;
 
     /* ---- faceted -------------------------------------------------- */
@@ -8778,7 +8836,52 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
              rep.closed, facetedTris, m.triCount(), kFittedIsFacetedPercent,
              (int)recognisedFeatures, (int)worthKeeping, (int)affordable);
 
-    if (rep.closed != 1 && !worthKeeping && !noFallback && affordable) {
+    /* Is the answer still the part we were given?
+     *
+     * A 2 mm bookmark with 37 cut-outs, converted at the tolerance its 166 mm
+     * diagonal implied, came back closed=1, thirty-nine solids, and 171% more
+     * material than the mesh it was handed: every opening grown shut, and
+     * nothing downstream with any reason to doubt it. A part that has
+     * silently gained two thirds of its volume is the worst thing this
+     * converter can do — worse than failing, because the user keeps it and
+     * prints it.
+     *
+     * WHY that tolerance does it is not known, and three explanations have
+     * been measured and ruled out, so do not assume one here:
+     *   - not "wider than the gap between two walls": a synthetic plate with
+     *     round openings 0.25 mm apart converts at 0.267 mm and comes back
+     *     -0.93%;
+     *   - not a gap that could be measured and bounded instead: every fixture
+     *     here has two unconnected vertices within 0.03 mm, so any such
+     *     anchor collapses to 0.0006 mm and nothing converts at all;
+     *   - not the model's short edges: the bookmark fails with 6.9% of its
+     *     edges under the tolerance, the broomholder converts with 33.2%.
+     *
+     * Which is the point of doing it this way. The cause does not have to be
+     * understood for the result to be checked: build the solid, measure it
+     * against the volume of the mesh that came in, and when they are not the
+     * same object take the faceted build, which reproduces the mesh exactly.
+     * That holds whatever the mechanism turns out to be. */
+    bool volumeWrong = false;
+    if (rep.closed == 1 && meshVolume > 0 && !out.IsNull()) {
+        try {
+            GProp_GProps vg;
+            BRepGProp::VolumeProperties(out, vg);
+            const double got = std::fabs(vg.Mass());
+            const double off = std::fabs(got - meshVolume) / meshVolume;
+            if (off > kVolumeDivergenceBar) {
+                volumeWrong = true;
+                MR_TRACE("  volume check: %.3f vs mesh %.3f (%+.2f%%) — "
+                         "not the same part\n", got, meshVolume,
+                         100.0 * (got - meshVolume) / meshVolume);
+            }
+        } catch (const Standard_Failure &) {
+        } catch (...) {
+        }
+    }
+
+    if ((rep.closed != 1 || volumeWrong) &&
+        (volumeWrong || !worthKeeping) && !noFallback && affordable) {
         Report fr;
         ClearReport(fr);
         fr.triangles_in = rep.triangles_in;
@@ -8796,10 +8899,34 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
         } catch (const std::exception &) {
         } catch (...) {
         }
-        if (!alt.IsNull() && (fr.closed == 1 || shattered)) {
+        if (!alt.IsNull() && (fr.closed == 1 || shattered || volumeWrong)) {
             rep = fr;
             return alt;
         }
+        if (volumeWrong) {
+            /* Nothing sound to hand back. Say so with the numbers rather than
+             * return a part that is not the one that was asked for. */
+            char buf[224];
+            std::snprintf(buf, sizeof(buf),
+                          "the converted solid encloses a volume %.0f%% away "
+                          "from the mesh's own — its tolerance (%.4f mm) is "
+                          "wider than the gaps in the model, and its openings "
+                          "have closed",
+                          100.0 * kVolumeDivergenceBar, tol);
+            err = buf;
+            return TopoDS_Shape();
+        }
+    }
+    if (volumeWrong) {
+        char buf[224];
+        std::snprintf(buf, sizeof(buf),
+                      "the converted solid encloses a volume more than %.0f%% "
+                      "away from the mesh's own — its tolerance (%.4f mm) is "
+                      "wider than the gaps in the model, and its openings have "
+                      "closed",
+                      100.0 * kVolumeDivergenceBar, tol);
+        err = buf;
+        return TopoDS_Shape();
     }
     return out;
 }

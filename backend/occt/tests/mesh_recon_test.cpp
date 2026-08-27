@@ -25,6 +25,8 @@
 #include <BRepPrimAPI_MakeTorus.hxx>
 #include <BRepAlgoAPI_Common.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
+#include <BRep_Builder.hxx>
+#include <TopoDS_Compound.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepFilletAPI_MakeFillet.hxx>
 #include <BRepMesh_IncrementalMesh.hxx>
@@ -1209,6 +1211,141 @@ int main()
                     std::fabs(Volume(out) - g_meshVolume) / g_meshVolume < 1e-3,
                     std::to_string(Volume(out)) + " mesh " +
                         std::to_string(g_meshVolume));
+            }
+        }
+    }
+
+    {
+        /* M281 — a plate whose openings are narrower than the naive tolerance.
+         *
+         * The pathology the butterfly bookmark arrived with, in a shape this
+         * suite can build for itself: a 2 mm sheet, 106 mm across, with a grid
+         * of square openings separated by 0.7 mm webs. The diagonal is 150, so
+         * the tolerance the diagonal alone implies is 0.30 mm — nearly half the
+         * width of a web. Sew at that and the webs collapse, opposite walls
+         * become one edge, and every opening grows shut while the result stays
+         * a perfectly respectable closed solid.
+         *
+         * Two things are pinned here. Bounded by the sheet's own THICKNESS the
+         * conversion keeps its openings; and at the naive tolerance the
+         * converter must never hand back a closed solid that is not the part —
+         * it may fall back to triangles, it may refuse, but a plate that has
+         * silently gained its own openings' worth of material is not an
+         * acceptable answer. */
+        std::printf("== a perforated sheet, and the promise that a solid is "
+                    "never silently the wrong one ==\n");
+        const double side = 106.0, thick = 2.0;
+        const double pitch = 10.7, hole = 10.0; /* 0.7 mm webs */
+        TopoDS_Shape plate =
+            BRepPrimAPI_MakeBox(gp_Pnt(0, 0, 0), side, side, thick).Shape();
+        TopoDS_Compound holes;
+        BRep_Builder bb;
+        bb.MakeCompound(holes);
+        int nHoles = 0;
+        for (int i = 0; i < 9; ++i)
+            for (int j = 0; j < 9; ++j) {
+                const double x = 1.0 + i * pitch, y = 1.0 + j * pitch;
+                bb.Add(holes, BRepPrimAPI_MakeBox(
+                                  gp_Pnt(x, y, -1.0), hole, hole, thick + 2.0)
+                                  .Shape());
+                ++nHoles;
+            }
+        TopoDS_Shape sheet;
+        try {
+            sheet = BRepAlgoAPI_Cut(plate, holes).Shape();
+        } catch (const Standard_Failure &) {
+        }
+        if (sheet.IsNull()) {
+            chk("the perforated sheet could be built", false);
+        } else {
+            std::vector<double> xyz;
+            std::vector<int> tri;
+            Tessellate(sheet, 0.2, xyz, tri);
+            const double mv = std::fabs(MeshVolume(xyz, tri));
+            const double diag =
+                std::sqrt(side * side + side * side + thick * thick);
+            /* WHAT THIS FIXTURE DOES NOT DO, said plainly so nobody reads
+             * more into a green run than is there.
+             *
+             * It does not reproduce the bookmark's failure. That was the
+             * intent, and it did not work: a synthetic sheet converts cleanly
+             * at the naive tolerance, and so does one with round openings
+             * whose webs are NARROWER than the tolerance (measured down to a
+             * 0.25 mm web against a 0.267 mm tolerance, still -0.93% on
+             * volume). Whatever closes the bookmark's cut-outs, it is not
+             * simply "the tolerance is wider than the gap", and it is not the
+             * short edges either — the bookmark fails with 6.9% of its edges
+             * under the tolerance while the broomholder converts happily with
+             * 33%.
+             *
+             * So what is pinned below is the CONTRACT, not the cause: bounded
+             * by thickness a perforated sheet keeps its openings, and at any
+             * tolerance the converter never hands back a closed solid that is
+             * not the part it was given. The second of those is what actually
+             * protects the bookmark, and it protects it without anyone having
+             * to know why it broke. */
+            (void)diag;
+
+            /* bounded by the sheet's thickness, as the app bounds it */
+            {
+                meshrecon::Params p = meshrecon::Defaults();
+                p.tol_frac = (0.05 * thick) / diag;
+                meshrecon::Report r;
+                std::string err;
+                TopoDS_Shape out = meshrecon::Reconstruct(
+                    xyz.data(), (int)(xyz.size() / 3), tri.data(),
+                    (int)(tri.size() / 3), p, r, err);
+                chk("bounded by thickness: it converts", !out.IsNull(), err);
+                if (!out.IsNull()) {
+                    chk("bounded by thickness: closed", r.closed == 1);
+                    const double got = Volume(out);
+                    chk("bounded by thickness: keeps its openings",
+                        std::fabs(got - mv) / mv < 0.01,
+                        std::to_string(got) + " vs mesh " + std::to_string(mv));
+                    int mostWires = 0;
+                    for (TopExp_Explorer ex(out, TopAbs_FACE); ex.More();
+                         ex.Next()) {
+                        int w = 0;
+                        for (TopExp_Explorer we(ex.Current(), TopAbs_WIRE);
+                             we.More(); we.Next())
+                            ++w;
+                        mostWires = std::max(mostWires, w);
+                    }
+                    chk("bounded by thickness: one face carries every opening",
+                        mostWires >= nHoles + 1,
+                        std::to_string(mostWires) + " wires, wanted " +
+                            std::to_string(nHoles + 1));
+                }
+            }
+
+            /* and at the naive tolerance: anything but a confident wrong solid */
+            {
+                meshrecon::Params p = meshrecon::Defaults(); /* 2.0e-3 */
+                meshrecon::Report r;
+                std::string err;
+                TopoDS_Shape out = meshrecon::Reconstruct(
+                    xyz.data(), (int)(xyz.size() / 3), tri.data(),
+                    (int)(tri.size() / 3), p, r, err);
+                const bool silentlyWrong =
+                    !out.IsNull() && r.closed == 1 &&
+                    std::fabs(Volume(out) - mv) / mv > 0.25;
+                chk("at the naive tolerance it never returns the wrong solid",
+                    !silentlyWrong,
+                    out.IsNull()
+                        ? std::string("refused: ") + err
+                        : std::to_string(Volume(out)) + " vs mesh " +
+                              std::to_string(mv));
+                /* Say WHICH of the two acceptable outcomes happened, so a
+                 * green test cannot hide a fixture that never had the
+                 * pathology in the first place. */
+                std::printf("   at the naive tolerance: %s (volume %.1f vs "
+                            "mesh %.1f, %d faceted patch(es))\n",
+                            out.IsNull() ? "refused"
+                                         : (r.faceted_patches > 0
+                                                ? "fell back to triangles"
+                                                : "converted"),
+                            out.IsNull() ? 0.0 : Volume(out), mv,
+                            r.faceted_patches);
             }
         }
     }

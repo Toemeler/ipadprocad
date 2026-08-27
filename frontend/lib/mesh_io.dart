@@ -258,6 +258,21 @@ class MeshSoup {
 // on plate-like models, which is the class that was failing.
 
 /// The converter's own default: a fraction of the bounding-box diagonal.
+/// M281 — this file owns the tolerance rule; the kernel does not clamp again.
+///
+/// [brepTolFractionFor] below is the ONE place the surface-fit tolerance is
+/// bounded. `Params::tol_frac` in mesh_recon.cpp keeps the same 0.002 as a
+/// fallback for callers that pass 0, and deliberately does not re-clamp: two
+/// clamps would mean the smaller silently wins and nothing would record which
+/// tolerance actually applied. The header of mesh_recon.cpp says the same from
+/// the other side.
+///
+/// The rule cannot be perfect — the quantity that really matters is the
+/// narrowest gap between two walls, and every cheap proxy for that is buried
+/// in tessellation noise. So the kernel independently checks the solid it
+/// built against the volume of the mesh it was given, and refuses a body that
+/// is not the part. This rule keeps the common case out of trouble; that check
+/// catches whatever it cannot foresee.
 const double kBrepTolFractionDefault = 0.002;
 
 /// How much of the model's THINNEST dimension the tolerance may be.
