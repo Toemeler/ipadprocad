@@ -300,21 +300,20 @@ final class PartRenderer: NSObject {
         // Built here rather than on demand so a mode switch is a property
         // write and not a scene-graph edit in the middle of a rebuild.
         //
-        // THE WORLD IS Z-UP. The payload's positions go to RealityKit
-        // unswizzled (see SolidGeom.init), so the app's Z is the model's up
-        // and these eyes are written in the MODEL's frame, not in RealityKit's
-        // Y-up idiom. The `up` vectors are +Z for the same reason. The two
-        // lights above predate this note and are aimed the other way; they are
-        // a fill and a headlight, so their direction barely reads, and
-        // re-aiming them would change the working view this milestone must not
-        // touch.
+        // THE WORLD IS Y-UP, and it is worth writing down because the app's
+        // sketch planes make it look otherwise: the XY plane's normal is +Z
+        // (planeFrame in part_model.dart), so an extrusion off the default
+        // plane grows along Z. The VIEW does not follow the sketch planes.
+        // placeCamera builds its basis by crossing with (0, 1, 0), the
+        // ViewCube's TOP face is (0, 1, 0), and PartCamera.dir puts cos(pol)
+        // in Y. Up is +Y. Both eyes below and the ground are in that frame.
         sunLight.light.intensity = 0
         sunLight.transform = Transform(matrix: Self.lookAt(
-            eye: SIMD3<Float>(6, -8, 14), target: .zero, up: SIMD3<Float>(0, 0, 1)))
+            eye: SIMD3<Float>(7, 14, 9), target: .zero, up: SIMD3<Float>(0, 1, 0)))
         root.addChild(sunLight)
         rimLight.light.intensity = 0
         rimLight.transform = Transform(matrix: Self.lookAt(
-            eye: SIMD3<Float>(-8, 10, 6), target: .zero, up: SIMD3<Float>(0, 0, 1)))
+            eye: SIMD3<Float>(-9, 7, -12), target: .zero, up: SIMD3<Float>(0, 1, 0)))
         root.addChild(rimLight)
 
         applyCameraComponent(dist: 400, near: 1, far: 800)
@@ -680,7 +679,7 @@ final class PartRenderer: NSObject {
         // it stops reading as contact and starts reading as a stain.
         let drop = -sceneRadius
         if let g = groundEntity {
-            g.position = SIMD3<Float>(0, 0, drop)
+            g.position = SIMD3<Float>(0, drop, 0)
             g.scale = SIMD3<Float>(repeating: side / 100)
             return
         }
@@ -696,12 +695,11 @@ final class PartRenderer: NSObject {
         // only change is its size is an upload nobody asked for.
         let mesh = MeshResource.generatePlane(width: 100, depth: 100)
         let e = ModelEntity(mesh: mesh, materials: [m])
-        // generatePlane lies in RealityKit's XZ plane with its normal along
-        // +Y. The world here is Z-UP (see commonInit), so it has to be turned
-        // a quarter turn about X to lie in XY and face +Z — otherwise the
-        // "floor" stands on edge beside the model.
-        e.orientation = simd_quatf(angle: .pi / 2, axis: SIMD3<Float>(1, 0, 0))
-        e.position = SIMD3<Float>(0, 0, drop)
+        // generatePlane already lies in the XZ plane with its normal along +Y,
+        // which is the floor this world wants (see commonInit on the up axis).
+        // No rotation: turning it a quarter turn would stand it on edge beside
+        // the model instead of putting it under one.
+        e.position = SIMD3<Float>(0, drop, 0)
         e.scale = SIMD3<Float>(repeating: side / 100)
         root.addChild(e)
         groundEntity = e
