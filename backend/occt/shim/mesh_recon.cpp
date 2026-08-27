@@ -31,6 +31,7 @@
 #include <ElSLib.hxx>
 #include <GProp_GProps.hxx>
 #include <Geom_BSplineCurve.hxx>
+#include <Geom_BSplineSurface.hxx>
 #include <Geom_ConicalSurface.hxx>
 #include <Geom_Circle.hxx>
 #include <Geom_CylindricalSurface.hxx>
@@ -42,6 +43,7 @@
 #include <Geom_TrimmedCurve.hxx>
 #include <Geom_ToroidalSurface.hxx>
 #include <GeomAPI_IntSS.hxx>
+#include <GeomAPI_PointsToBSplineSurface.hxx>
 #include <GeomAPI_PointsToBSpline.hxx>
 #include <GeomAPI_ProjectPointOnCurve.hxx>
 #include <GeomAPI_ProjectPointOnSurf.hxx>
@@ -54,6 +56,8 @@
 #include <TColStd_Array1OfInteger.hxx>
 #include <TColStd_Array1OfReal.hxx>
 #include <TColgp_Array1OfPnt.hxx>
+#include <TColgp_Array2OfPnt.hxx>
+#include <queue>
 #include <TopExp.hxx>
 #include <TopTools_DataMapOfShapeInteger.hxx>
 #include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
@@ -1230,6 +1234,8 @@ const char *KindName(SurfKind k)
         return "cone";
     case kTorus:
         return "torus";
+    case kFreeform:
+        return "freeform";
     default:
         return "?";
     }
@@ -1454,6 +1460,37 @@ const int kTrimRounds = 6;
  * over. */
 const double kUvSpanSlack = 1.5;
 
+
+/* Freeform surfacing — see FreeformSurfaces.
+ *
+ * REGION SIZE sets how many faces the model comes back as, and the whale is
+ * the measurement: at 600 triangles a region it becomes 128 surfaces whose
+ * median distance from the mesh is 0.148 against a tolerance of 0.408, and
+ * two regions that no plane is a graph over. Coarser costs accuracy — at
+ * 1300 a region, 64 surfaces, eleven of them miss tolerance — and finer buys
+ * little: 256 surfaces only take the median to 0.104, for twice the faces.
+ *
+ * THE GRID BAR is what a region has to prove before a surface is built on it.
+ * It is measured against the resampled grid rather than the finished surface
+ * because that costs a multiply per vertex where projecting onto a B-spline
+ * costs milliseconds — 12 s against 0.02 for the whale's 128 regions. Seven
+ * tenths, not one: the approximator is asked for a quarter of tolerance on
+ * top and does not always deliver it, and a region measured at 0.34 came back
+ * as a surface 0.51 out.
+ *
+ * ROUNDS is where the partition stops moving; the whale's distortion is flat
+ * from about eight. */
+const int kFreeformRegionTriangles = 600;
+const int kFreeformMinRegion = 24;
+const int kFreeformMaxRegions = 400;
+const int kFreeformRounds = 12;
+const int kFreeformSplitDepth = 9;
+const int kFreeformMergePasses = 12;
+const int kFreeformCheckSamples = 48;
+const int kFreeformMaxRegionTriangles = 20000;
+const int kFreeformGridMax = 32;
+const double kFreeformGridBar = 0.7;
+const double kFreeformApproxFraction = 0.25;
 
 /* Above this many faces, sewing is not a fallback, it is a hang.
  *
@@ -1756,6 +1793,10 @@ struct Patch
      * kept aside while the dissolve decides whether the neighbours want the
      * triangles. See DissolveUnexplained's closing pass. */
     Fit shelved;
+    /* A fitted B-spline, for a patch that is kFreeform. The analytic kinds
+     * are eight numbers and are carried in Fit; this one is a surface and
+     * cannot be, so it rides here and MakeSurface never sees it. */
+    Handle(Geom_Surface) freeSurf;
 };
 
 void PatchPoints(const Mesh &m, const std::vector<int> &tris, PatchData &d,
@@ -5824,6 +5865,692 @@ void DissolveUnexplained(const Mesh &m, std::vector<Patch> &patches, double tol,
     patches.swap(keep);
 }
 
+/* ====================================================================== */
+/* Freeform surfacing                                                     */
+/* ====================================================================== */
+
+/* What to do with the part of a model that is not made of primitives.
+ *
+ * Everything above this point asks "which of plane, cylinder, cone, sphere,
+ * torus is this?", and on a designed part that is the whole question. On a
+ * scanned or sculpted one it has no answer, and until now the answer was one
+ * B-Rep face per triangle: on the user's whale, 83,162 of them. That is a
+ * body, not a conversion — it cannot be filleted, it cannot be selected face
+ * by face, and it is the reason the import took twenty-five seconds.
+ *
+ * What a reverse-engineering tool does instead is cover the shape in a few
+ * large NURBS patches, and there are two halves to that.
+ *
+ * WHERE THE PATCHES GO is Variational Shape Approximation (Cohen-Steiner,
+ * Alliez and Desbrun, SIGGRAPH 2004). Grow regions from seeds under the L2,1
+ * metric — a triangle's cost of joining a region is its area times the squared
+ * difference between its normal and the region's — then refit each region's
+ * proxy to its own area-weighted average normal and grow again. A dozen
+ * rounds settle. The regions that come out are as close to planar as the
+ * count allows, which is exactly the property the other half needs.
+ *
+ * WHAT COVERS EACH ONE is then a height field. A region that is nearly planar
+ * is a graph over its own proxy plane, so project its vertices for (u, v),
+ * keep the signed height, resample onto a grid, and hand that to OCCT's
+ * approximator. The grid is what makes this cheap: GeomAPI_PointsToBSplineSurface
+ * wants one anyway, and the cells the region does not reach are filled by
+ * relaxation so the surface leaves the region smoothly instead of flying off.
+ *
+ * Measured on the whale, 83,162 triangles: 128 regions in 0.26 s, 128 surfaces
+ * in 2.9 s, and the median surface sits 0.148 from the mesh against a
+ * tolerance of 0.408.
+ *
+ * A region that will not fit is left alone and its triangles go faceted, which
+ * is the same bargain the rest of the file makes: two of the 128 are not
+ * height fields over any plane — the thin edge of the tail fluke turns 96
+ * degrees inside one region — and no grid resolution rescues them. */
+struct Proxy
+{
+    V3 n, c;
+};
+
+/* One partition sweep: multi-source region growing under L2,1, cheapest
+ * first. Deterministic — the queue breaks ties on triangle then region, and
+ * both are total orders; see "Ties decide the model". */
+void VsaGrow(const Mesh &m, const std::vector<int> &tris,
+             const std::vector<char> &mine, const std::vector<Proxy> &px,
+             const std::vector<int> &seed, std::vector<int> &label)
+{
+    struct Item
+    {
+        double cost;
+        int tri, lab;
+    };
+    struct Cmp
+    {
+        bool operator()(const Item &a, const Item &b) const
+        {
+            if (a.cost != b.cost)
+                return a.cost > b.cost;
+            if (a.tri != b.tri)
+                return a.tri > b.tri;
+            return a.lab > b.lab;
+        }
+    };
+    for (int t : tris)
+        label[t] = -1;
+    std::priority_queue<Item, std::vector<Item>, Cmp> pq;
+    auto push = [&](int from, int lab) {
+        for (int k = 0; k < 3; ++k) {
+            const int o = m.adj[from * 3 + k];
+            if (o < 0 || !mine[o] || label[o] >= 0)
+                continue;
+            const V3 d = m.tnorm[o] - px[lab].n;
+            pq.push(Item{m.tarea[o] * Dot(d, d), o, lab});
+        }
+    };
+    for (size_t i = 0; i < seed.size(); ++i) {
+        if (seed[i] < 0)
+            continue;
+        label[seed[i]] = static_cast<int>(i);
+        push(seed[i], static_cast<int>(i));
+    }
+    while (!pq.empty()) {
+        const Item it = pq.top();
+        pq.pop();
+        if (label[it.tri] >= 0)
+            continue;
+        label[it.tri] = it.lab;
+        push(it.tri, it.lab);
+    }
+}
+
+/* Refit every proxy to its region, and pick the triangle that best represents
+ * it as the next round's seed. */
+void VsaRefit(const Mesh &m, const std::vector<int> &tris,
+              const std::vector<int> &label, int k, std::vector<Proxy> &px,
+              std::vector<int> &seed)
+{
+    px.assign(k, Proxy());
+    seed.assign(k, -1);
+    std::vector<double> aw(k, 0.0), best(k, 1e300);
+    for (int t : tris) {
+        const int l = label[t];
+        if (l < 0)
+            continue;
+        px[l].n += m.tnorm[t] * m.tarea[t];
+        V3 g;
+        for (int q = 0; q < 3; ++q)
+            g += m.pos[m.tri[t * 3 + q]];
+        px[l].c += g * (m.tarea[t] / 3.0);
+        aw[l] += m.tarea[t];
+    }
+    for (int i = 0; i < k; ++i) {
+        if (aw[i] > 0) {
+            px[i].n = Unit(px[i].n);
+            px[i].c = px[i].c * (1.0 / aw[i]);
+        }
+    }
+    for (int t : tris) {
+        const int l = label[t];
+        if (l < 0)
+            continue;
+        const V3 d = m.tnorm[t] - px[l].n;
+        const double e = m.tarea[t] * Dot(d, d);
+        if (e < best[l] || (e == best[l] && t < seed[l])) {
+            best[l] = e;
+            seed[l] = t;
+        }
+    }
+}
+
+/* A B-spline over one region's proxy plane, or null when the region is not a
+ * height field over it. `err` comes back as the worst distance from the
+ * region's own vertices to the GRID the surface was approximated from, which
+ * is what the caller judges it on. */
+/* The height field a region makes over its own proxy plane: the resampled
+ * grid, and how far the region's vertices are from it.
+ *
+ * Split by THIS and not by a fitted surface. It is the same question — is the
+ * region a graph over its plane, to within tolerance — and it costs a bilinear
+ * evaluation per vertex where fitting costs OCCT an approximation: measured on
+ * the whale, deciding the splits by surface fit took seven minutes and by grid
+ * twelve seconds, for the same partition. Surfaces are built once, at the end,
+ * on the regions that survive. */
+struct RegionGrid
+{
+    V3 e1, e2, n, c;
+    double u0 = 0, v0 = 0, su = 0, sv = 0;
+    int nu = 0, nv = 0;
+    std::vector<double> h;
+    double err = 1e300;
+    bool ok = false;
+};
+
+void BuildRegionGrid(const Mesh &m, const std::vector<int> &tris,
+                     const Proxy &px, double tol, RegionGrid &rg)
+{
+    rg.ok = false;
+    rg.err = 1e300;
+    if (tris.empty())
+        return;
+    const V3 n = px.n;
+    V3 e1 = std::fabs(n.x) < 0.9 ? Cross(n, V3(1, 0, 0)) : Cross(n, V3(0, 1, 0));
+    e1 = Unit(e1);
+    const V3 e2 = Cross(n, e1);
+    rg.n = n;
+    rg.c = px.c;
+    rg.e1 = e1;
+    rg.e2 = e2;
+
+    std::vector<int> seen;
+    seen.reserve(tris.size() * 3);
+    for (int t : tris)
+        for (int k = 0; k < 3; ++k)
+            seen.push_back(m.tri[t * 3 + k]);
+    std::sort(seen.begin(), seen.end());
+    seen.erase(std::unique(seen.begin(), seen.end()), seen.end());
+
+    std::vector<double> U(seen.size()), V(seen.size()), H(seen.size());
+    double u0 = 1e300, u1 = -1e300, v0 = 1e300, v1 = -1e300;
+    for (size_t i = 0; i < seen.size(); ++i) {
+        const V3 d = m.pos[seen[i]] - px.c;
+        U[i] = Dot(d, e1);
+        V[i] = Dot(d, e2);
+        H[i] = Dot(d, n);
+        u0 = std::min(u0, U[i]);
+        u1 = std::max(u1, U[i]);
+        v0 = std::min(v0, V[i]);
+        v1 = std::max(v1, V[i]);
+    }
+    const double du = u1 - u0, dv = v1 - v0;
+    if (!(du > 0) || !(dv > 0))
+        return;
+
+    /* About one cell per mesh facet, bounded at both ends: below four there is
+     * no surface to speak of, and above kFreeformGridMax the approximation
+     * costs more than the faces it saves. */
+    double areaSum = 0;
+    for (int t : tris)
+        areaSum += m.tarea[t];
+    const double cell = std::sqrt(areaSum / static_cast<double>(tris.size())) * 1.6;
+    int nu = static_cast<int>(std::ceil(du / std::max(cell, 1e-9))) + 1;
+    int nv = static_cast<int>(std::ceil(dv / std::max(cell, 1e-9))) + 1;
+    nu = std::max(4, std::min(nu, kFreeformGridMax));
+    nv = std::max(4, std::min(nv, kFreeformGridMax));
+    const double su = du / (nu - 1), sv = dv / (nv - 1);
+    rg.u0 = u0;
+    rg.v0 = v0;
+    rg.su = su;
+    rg.sv = sv;
+    rg.nu = nu;
+    rg.nv = nv;
+
+    std::vector<double> g(static_cast<size_t>(nu) * nv, 0.0),
+        w(static_cast<size_t>(nu) * nv, 0.0);
+    for (size_t i = 0; i < seen.size(); ++i) {
+        const double fu = (U[i] - u0) / su, fv = (V[i] - v0) / sv;
+        const int iu = static_cast<int>(std::floor(fu));
+        const int iv = static_cast<int>(std::floor(fv));
+        for (int a = 0; a < 2; ++a)
+            for (int b = 0; b < 2; ++b) {
+                const int cu = iu + a, cv = iv + b;
+                if (cu < 0 || cu >= nu || cv < 0 || cv >= nv)
+                    continue;
+                const double ww = std::max(0.0, 1.0 - std::fabs(fu - cu)) *
+                                  std::max(0.0, 1.0 - std::fabs(fv - cv));
+                g[static_cast<size_t>(cu) * nv + cv] += H[i] * ww;
+                w[static_cast<size_t>(cu) * nv + cv] += ww;
+            }
+    }
+    std::vector<char> known(g.size(), 0);
+    double hLo = 1e300, hHi = -1e300;
+    for (size_t i = 0; i < g.size(); ++i)
+        if (w[i] > 1e-12) {
+            g[i] /= w[i];
+            known[i] = 1;
+            hLo = std::min(hLo, g[i]);
+            hHi = std::max(hHi, g[i]);
+        }
+    if (hLo > hHi)
+        return;
+    /* The cells the region does not reach get a smooth continuation of the
+     * ones it does, so the surface leaves the region flat rather than flying
+     * off. The face is trimmed to the region anyway; this only decides how it
+     * behaves just outside, where the trimming curve has to live. */
+    for (int pass = 0; pass < 200; ++pass) {
+        double moved = 0;
+        for (int a = 0; a < nu; ++a)
+            for (int b = 0; b < nv; ++b) {
+                const size_t i = static_cast<size_t>(a) * nv + b;
+                if (known[i])
+                    continue;
+                double sum = 0;
+                int c = 0;
+                if (a > 0) { sum += g[i - nv]; ++c; }
+                if (a < nu - 1) { sum += g[i + nv]; ++c; }
+                if (b > 0) { sum += g[i - 1]; ++c; }
+                if (b < nv - 1) { sum += g[i + 1]; ++c; }
+                if (!c)
+                    continue;
+                /* Clamped to the region's own envelope. Relaxation is a
+                 * smooth continuation, not an extrapolation with a licence:
+                 * unclamped, four of the whale's faces had poles far enough
+                 * outside their region for the builder to refuse them, and
+                 * their triangles — most of the 1,871 that were still faceted
+                 * — went back to being triangles. The surface is only ever
+                 * used inside the region, so it has no business leaving it. */
+                const double nvl = std::max(hLo, std::min(hHi, sum / c));
+                moved = std::max(moved, std::fabs(nvl - g[i]));
+                g[i] = nvl;
+            }
+        if (moved < tol * 1e-3)
+            break;
+    }
+
+    /* How well the grid represents the region, bilinearly. */
+    double err = 0;
+    for (size_t i = 0; i < seen.size(); ++i) {
+        const double fu = (U[i] - u0) / su, fv = (V[i] - v0) / sv;
+        int iu = std::max(0, std::min(static_cast<int>(std::floor(fu)), nu - 2));
+        int iv = std::max(0, std::min(static_cast<int>(std::floor(fv)), nv - 2));
+        const double au = fu - iu, av = fv - iv;
+        const double h00 = g[static_cast<size_t>(iu) * nv + iv];
+        const double h10 = g[static_cast<size_t>(iu + 1) * nv + iv];
+        const double h01 = g[static_cast<size_t>(iu) * nv + iv + 1];
+        const double h11 = g[static_cast<size_t>(iu + 1) * nv + iv + 1];
+        const double hi = (h00 * (1 - au) + h10 * au) * (1 - av) +
+                          (h01 * (1 - au) + h11 * au) * av;
+        err = std::max(err, std::fabs(hi - H[i]));
+    }
+    rg.err = err;
+    rg.h.swap(g);
+    rg.ok = true;
+}
+
+/* The B-spline over a grid that has already proved itself. */
+Handle(Geom_Surface) SurfaceFromGrid(const RegionGrid &rg, double tol)
+{
+    if (!rg.ok)
+        return Handle(Geom_Surface)();
+    TColgp_Array2OfPnt pts(1, rg.nu, 1, rg.nv);
+    for (int a = 0; a < rg.nu; ++a)
+        for (int b = 0; b < rg.nv; ++b) {
+            const V3 p = rg.c + rg.e1 * (rg.u0 + a * rg.su) +
+                         rg.e2 * (rg.v0 + b * rg.sv) +
+                         rg.n * rg.h[static_cast<size_t>(a) * rg.nv + b];
+            pts.SetValue(a + 1, b + 1, gp_Pnt(p.x, p.y, p.z));
+        }
+    try {
+        GeomAPI_PointsToBSplineSurface ap(pts, 3, 3, GeomAbs_C1,
+                                          tol * kFreeformApproxFraction);
+        if (ap.IsDone())
+            return Handle(Geom_Surface)(ap.Surface());
+    } catch (const Standard_Failure &) {
+    } catch (...) {
+    }
+    return Handle(Geom_Surface)();
+}
+
+/* How far the region really is from the surface built over it.
+ *
+ * The grid check is a proxy and it is too kind: it asks the vertices about the
+ * GRID, and between the grid nodes a B-spline through a coarse net can swing
+ * a long way further. On the whale, regions the grid put inside 0.29 came back
+ * as faces standing 3.0 from the mesh — the pectoral fins, where a merge had
+ * grown a region until one plane could no longer hold it. So the surface is
+ * asked directly, on a sample: projection costs milliseconds, which is why it
+ * is not what the SPLITTING is decided by, but a few dozen points once per
+ * finished region is affordable and it is the number that matters. */
+double SurfaceOffRegion(const Mesh &m, const std::vector<int> &tris,
+                        const Handle(Geom_Surface) &surf, double giveUp)
+{
+    if (surf.IsNull() || tris.empty())
+        return 1e300;
+    std::vector<int> seen;
+    seen.reserve(tris.size() * 3);
+    for (int t : tris)
+        for (int k = 0; k < 3; ++k)
+            seen.push_back(m.tri[t * 3 + k]);
+    std::sort(seen.begin(), seen.end());
+    seen.erase(std::unique(seen.begin(), seen.end()), seen.end());
+    const size_t step =
+        std::max<size_t>(1, seen.size() / kFreeformCheckSamples);
+    double worst = 0;
+    for (size_t i = 0; i < seen.size(); i += step) {
+        const V3 &p = m.pos[seen[i]];
+        try {
+            GeomAPI_ProjectPointOnSurf pr(gp_Pnt(p.x, p.y, p.z), surf);
+            if (pr.NbPoints() > 0)
+                worst = std::max(worst, static_cast<double>(pr.LowerDistance()));
+        } catch (const Standard_Failure &) {
+            return 1e300;
+        } catch (...) {
+            return 1e300;
+        }
+        if (worst > giveUp)
+            return worst;
+    }
+    return worst;
+}
+
+/* The area-weighted proxy of a set of triangles. */
+bool ProxyOf(const Mesh &m, const std::vector<int> &tris, Proxy &pr)
+{
+    pr = Proxy();
+    double aw = 0;
+    for (int t : tris) {
+        pr.n += m.tnorm[t] * m.tarea[t];
+        V3 g;
+        for (int q = 0; q < 3; ++q)
+            g += m.pos[m.tri[t * 3 + q]];
+        pr.c += g * (m.tarea[t] / 3.0);
+        aw += m.tarea[t];
+    }
+    if (!(aw > 0))
+        return false;
+    pr.n = Unit(pr.n);
+    pr.c = pr.c * (1.0 / aw);
+    return true;
+}
+
+/* Replaces the patches that fitted nothing with a few large B-spline ones.
+ *
+ * Works per smooth run, because a run is the largest thing that is certainly
+ * one surface: its boundary is the mesh's own sharp edges, and a region that
+ * crossed one would be covering two faces of the part with one. */
+void FreeformSurfaces(const Mesh &m, std::vector<Patch> &patches, double tol,
+                      int &made)
+{
+    made = 0;
+    /* Which triangles are still unexplained, grouped by the run they came
+     * from. A patch with a fit is a face already and is left alone. */
+    std::unordered_map<int, std::vector<int>> loose;
+    for (const Patch &pa : patches) {
+        if (pa.fit.kind != kNone || pa.tris.empty())
+            continue;
+        std::vector<int> &v = loose[pa.origin];
+        v.insert(v.end(), pa.tris.begin(), pa.tris.end());
+    }
+    std::vector<int> origins;
+    for (std::unordered_map<int, std::vector<int>>::iterator it = loose.begin();
+         it != loose.end(); ++it)
+        origins.push_back(it->first);
+    std::sort(origins.begin(), origins.end()); /* a TOTAL order */
+
+    std::vector<Patch> add;
+    std::vector<char> consumed(m.triCount(), 0);
+    std::vector<char> mine(m.triCount(), 0);
+    std::vector<int> label(m.triCount(), -1);
+
+    for (int org : origins) {
+        std::vector<int> &tris = loose[org];
+        if (static_cast<int>(tris.size()) < kFreeformMinRegion)
+            continue;
+        std::sort(tris.begin(), tris.end()); /* a TOTAL order */
+        for (int t : tris)
+            mine[t] = 1;
+
+        const int k = std::max(
+            1, std::min(kFreeformMaxRegions,
+                        static_cast<int>(tris.size()) / kFreeformRegionTriangles));
+        std::vector<int> seed(k);
+        for (int i = 0; i < k; ++i)
+            seed[i] = tris[static_cast<size_t>(
+                static_cast<long long>(i) * tris.size() / k)];
+        std::vector<Proxy> px(k);
+        for (int i = 0; i < k; ++i) {
+            px[i].n = m.tnorm[seed[i]];
+            V3 g;
+            for (int q = 0; q < 3; ++q)
+                g += m.pos[m.tri[seed[i] * 3 + q]];
+            px[i].c = g * (1.0 / 3.0);
+        }
+        for (int it = 0; it < kFreeformRounds; ++it) {
+            VsaGrow(m, tris, mine, px, seed, label);
+            VsaRefit(m, tris, label, k, px, seed);
+        }
+        VsaGrow(m, tris, mine, px, seed, label);
+
+        std::vector<std::vector<int>> regs(k);
+        for (int t : tris)
+            if (label[t] >= 0)
+                regs[label[t]].push_back(t);
+        for (int t : tris)
+            mine[t] = 0;
+
+        /* Cut a region in two until each half is a height field, and only
+         * then build a surface on it.
+         *
+         * This is what makes the face count follow the SHAPE rather than the
+         * triangle count: a flank that is already flat enough passes the very
+         * first test and stays ONE face however large it is, while the tail
+         * fluke, where the surface turns through ninety degrees in a few
+         * millimetres, is cut until each piece is a graph. Starting coarse is
+         * the whole point — kFreeformRegionTriangles is a ceiling on the first
+         * cut, not a target size.
+         *
+         * Split by the GRID and not by a fitted surface. It is the same
+         * question, and it costs a bilinear evaluation per vertex where
+         * fitting costs OCCT an approximation: measured on the whale, deciding
+         * the splits by surface fit took seven minutes, by grid twelve
+         * seconds. Only what reaches the bottom of the recursion still folded
+         * goes faceted. */
+        std::vector<std::pair<std::vector<int>, int>> work;
+        for (int i = 0; i < k; ++i)
+            if (!regs[i].empty())
+                work.push_back(std::make_pair(regs[i], 0));
+        std::vector<std::pair<std::vector<int>, RegionGrid>> good;
+        while (!work.empty()) {
+            std::vector<int> reg;
+            reg.swap(work.back().first);
+            const int depth = work.back().second;
+            work.pop_back();
+            if (static_cast<int>(reg.size()) < kFreeformMinRegion)
+                continue;
+            Proxy pr;
+            if (!ProxyOf(m, reg, pr))
+                continue;
+            RegionGrid rg;
+            BuildRegionGrid(m, reg, pr, tol, rg);
+            if (rg.ok && rg.err <= tol * kFreeformGridBar) {
+                good.push_back(std::make_pair(std::vector<int>(), RegionGrid()));
+                good.back().first.swap(reg);
+                good.back().second = rg;
+                continue;
+            }
+            if (depth >= kFreeformSplitDepth ||
+                static_cast<int>(reg.size()) < kFreeformMinRegion * 2) {
+                MR_TRACE("    freeform region %d tri: not a height field at "
+                         "depth %d (err %.4f)\n",
+                         (int)reg.size(), depth, rg.err);
+                continue;
+            }
+            std::sort(reg.begin(), reg.end());
+            for (int t : reg)
+                mine[t] = 1;
+            /* Seed the cut at the two triangles that face the most different
+             * ways. Taking the first and the middle of the list seeds both
+             * halves in the same place as often as not, and then one half
+             * comes back empty and the region is abandoned — which is where
+             * 2,878 of the whale's triangles were still going. */
+            std::vector<int> sseed(2);
+            std::vector<Proxy> spx(2);
+            sseed[0] = reg.front();
+            {
+                double far = -1;
+                for (int t : reg) {
+                    const double d = 1.0 - Dot(m.tnorm[t], pr.n);
+                    if (d > far) { far = d; sseed[0] = t; }
+                }
+                far = -1;
+                sseed[1] = reg.back();
+                for (int t : reg) {
+                    const double d = 1.0 - Dot(m.tnorm[t], m.tnorm[sseed[0]]);
+                    if (d > far && t != sseed[0]) { far = d; sseed[1] = t; }
+                }
+            }
+            for (int i = 0; i < 2; ++i) {
+                spx[i].n = m.tnorm[sseed[i]];
+                V3 g;
+                for (int q = 0; q < 3; ++q)
+                    g += m.pos[m.tri[sseed[i] * 3 + q]];
+                spx[i].c = g * (1.0 / 3.0);
+            }
+            for (int it = 0; it < kFreeformRounds; ++it) {
+                VsaGrow(m, reg, mine, spx, sseed, label);
+                VsaRefit(m, reg, label, 2, spx, sseed);
+            }
+            VsaGrow(m, reg, mine, spx, sseed, label);
+            std::vector<std::vector<int>> half(2);
+            for (int t : reg)
+                if (label[t] >= 0)
+                    half[label[t]].push_back(t);
+            for (int t : reg)
+                mine[t] = 0;
+            if (half[0].empty() || half[1].empty()) {
+                /* The partition would not divide it; divide it anyway rather
+                 * than abandon it — a region growing pass on a set that is
+                 * already one proxy has nothing to say, but the halves still
+                 * flatten. */
+                half[0].assign(reg.begin(), reg.begin() + reg.size() / 2);
+                half[1].assign(reg.begin() + reg.size() / 2, reg.end());
+                if (half[0].empty() || half[1].empty())
+                    continue;
+            }
+            for (int i = 0; i < 2; ++i)
+                work.push_back(std::make_pair(half[i], depth + 1));
+        }
+        /* Then put back together everything that did not need cutting.
+         *
+         * Segmenting finely is what makes the cover COMPLETE — every region
+         * small enough to be a graph over its plane — and it is the wrong
+         * answer to how many faces the model should have: a flat flank comes
+         * back as a dozen faces because a dozen is how the seeds happened to
+         * fall, not because the flank is a dozen surfaces. Starting coarse
+         * instead does not work either: two proxies cut a folded region into
+         * two folded regions, and on the whale that left three hundred pieces
+         * still faceted at the bottom of the recursion.
+         *
+         * So over-segment, then merge back while the union is STILL a height
+         * field. That is a measurement, not a guess, and it is the same one
+         * the splitting used. What comes out follows the shape: the flat
+         * flanks and the underside collapse into a few large faces, and the
+         * tail fluke and the blowhole, where nothing merges, keep theirs. */
+        {
+            std::vector<std::vector<int>> reg;
+            std::vector<RegionGrid> grid;
+            for (size_t i = 0; i < good.size(); ++i) {
+                reg.push_back(std::vector<int>());
+                reg.back().swap(good[i].first);
+                grid.push_back(good[i].second);
+            }
+            std::vector<int> owner(m.triCount(), -1);
+            bool merged = true;
+            for (int pass = 0; pass < kFreeformMergePasses && merged; ++pass) {
+                merged = false;
+                for (size_t i = 0; i < reg.size(); ++i)
+                    for (int t : reg[i])
+                        owner[t] = static_cast<int>(i);
+                /* Adjacent pairs, smallest union first so the small pieces are
+                 * absorbed before the big ones grow past what a grid can hold.
+                 * A TOTAL order; see "Ties decide the model". */
+                std::vector<std::pair<int, int>> pairs;
+                for (size_t i = 0; i < reg.size(); ++i)
+                    for (int t : reg[i])
+                        for (int q = 0; q < 3; ++q) {
+                            const int o = m.adj[t * 3 + q];
+                            if (o < 0)
+                                continue;
+                            const int j = owner[o];
+                            if (j < 0 || j == static_cast<int>(i))
+                                continue;
+                            pairs.push_back(std::make_pair(
+                                std::min(static_cast<int>(i), j),
+                                std::max(static_cast<int>(i), j)));
+                        }
+                std::sort(pairs.begin(), pairs.end());
+                pairs.erase(std::unique(pairs.begin(), pairs.end()), pairs.end());
+                std::stable_sort(
+                    pairs.begin(), pairs.end(),
+                    [&](const std::pair<int, int> &a,
+                        const std::pair<int, int> &b) {
+                        const size_t sa = reg[a.first].size() + reg[a.second].size();
+                        const size_t sb = reg[b.first].size() + reg[b.second].size();
+                        if (sa != sb)
+                            return sa < sb;
+                        return a < b;
+                    });
+                std::vector<char> touched(reg.size(), 0);
+                for (size_t pi = 0; pi < pairs.size(); ++pi) {
+                    const int a = pairs[pi].first, b = pairs[pi].second;
+                    if (touched[a] || touched[b] || reg[a].empty() || reg[b].empty())
+                        continue;
+                    if (static_cast<int>(reg[a].size() + reg[b].size()) >
+                        kFreeformMaxRegionTriangles)
+                        continue;
+                    std::vector<int> uni(reg[a]);
+                    uni.insert(uni.end(), reg[b].begin(), reg[b].end());
+                    Proxy pr;
+                    if (!ProxyOf(m, uni, pr))
+                        continue;
+                    RegionGrid rg;
+                    BuildRegionGrid(m, uni, pr, tol, rg);
+                    if (!rg.ok || rg.err > tol * kFreeformGridBar)
+                        continue;
+                    {
+                        const Handle(Geom_Surface) su = SurfaceFromGrid(rg, tol);
+                        if (su.IsNull() ||
+                            SurfaceOffRegion(m, uni, su, tol) > tol)
+                            continue;
+                    }
+                    std::sort(uni.begin(), uni.end());
+                    reg[a].swap(uni);
+                    grid[a] = rg;
+                    reg[b].clear();
+                    touched[a] = touched[b] = 1;
+                    merged = true;
+                }
+            }
+            for (size_t i = 0; i < reg.size(); ++i) {
+                if (reg[i].empty())
+                    continue;
+                const Handle(Geom_Surface) su = SurfaceFromGrid(grid[i], tol);
+                if (su.IsNull())
+                    continue;
+                Patch np;
+                np.tris = reg[i];
+                np.origin = org;
+                np.fit.kind = kFreeform;
+                np.fit.rms = grid[i].err;
+                np.freeSurf = su;
+                add.push_back(np);
+                for (int t : np.tris)
+                    consumed[t] = 1;
+                ++made;
+            }
+        }
+    }
+    if (add.empty())
+        return;
+
+    /* Whatever the surfaces took comes out of the patches that had it. */
+    for (Patch &pa : patches) {
+        if (pa.fit.kind != kNone || pa.tris.empty())
+            continue;
+        std::vector<int> keep;
+        keep.reserve(pa.tris.size());
+        for (int t : pa.tris)
+            if (!consumed[t])
+                keep.push_back(t);
+        pa.tris.swap(keep);
+    }
+    std::vector<Patch> out;
+    out.reserve(patches.size() + add.size());
+    for (Patch &pa : patches)
+        if (!pa.tris.empty())
+            out.push_back(std::move(pa));
+    for (Patch &pa : add)
+        out.push_back(std::move(pa));
+    patches.swap(out);
+    MR_TRACE("  freeform: %d surfaces over %d runs\n", made, (int)origins.size());
+}
+
 /* Cuts in half every patch that wraps the whole way round.
  *
  * A patch that closes on itself — a hole's barrel, the ring of a boss blend —
@@ -5856,7 +6583,11 @@ void SplitFullWraps(const Mesh &m, std::vector<Patch> &patches,
     std::vector<int> local(m.triCount(), -1);
     std::vector<int> comp, stack;
     for (size_t i = 0; i < n0; ++i) {
-        if (patches[i].fit.kind == kNone || patches[i].fit.kind == kPlane)
+        /* A freeform patch is a height field over a plane: it has no seam to
+         * be on the wrong side of, and MakeSurface cannot rebuild it anyway.
+         * Asking anyway cost 29 s on the user's whale. */
+        if (patches[i].fit.kind == kNone || patches[i].fit.kind == kPlane ||
+            patches[i].fit.kind == kFreeform)
             continue;
         if (patches[i].tris.size() < 4)
             continue;
@@ -7141,6 +7872,25 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
     }
     MR_STAGE("patch verdicts");
 
+    /* Cover what fitted nothing in a few B-splines rather than in triangles. */
+    {
+        int madeFree = 0;
+        try {
+            FreeformSurfaces(m, patches, tol, madeFree);
+        } catch (const Standard_Failure &) {
+        } catch (const std::exception &) {
+        } catch (...) {
+        }
+        if (madeFree > 0) {
+            rep.patches = static_cast<int>(patches.size());
+            patchOf.assign(m.triCount(), -1);
+            for (size_t i = 0; i < patches.size(); ++i)
+                for (int t : patches[i].tris)
+                    patchOf[t] = static_cast<int>(i);
+        }
+        MR_STAGE("freeform surfaces");
+    }
+
     /* The count of RECOGNISED surfaces, taken before anything is cut: two
      * halves of a barrel are one surface however many faces carry them. */
     const size_t recognisedPatches = patches.size();
@@ -7188,7 +7938,9 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
         std::vector<Handle(Geom_Surface)> surfs(patches.size());
         double rmsNum = 0, rmsDen = 0;
         for (size_t i = 0; i < patches.size(); ++i) {
-            surfs[i] = MakeSurface(patches[i].fit);
+            surfs[i] = patches[i].fit.kind == kFreeform
+                           ? patches[i].freeSurf
+                           : MakeSurface(patches[i].fit);
             if (surfs[i].IsNull())
                 continue;
             AlignSurfaceSeam(surfs[i], m, patches[i].tris);
@@ -7214,6 +7966,9 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
                 break;
             case kTorus:
                 rep.tori++;
+                break;
+            case kFreeform:
+                rep.freeform++;
                 break;
             default:
                 break;
@@ -7252,8 +8007,24 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
                 /* Checked HERE rather than inside the builder because the analytic
                  * path can also hand off to the parametric one, and a face that
                  * escaped its patch is worthless whichever built it. */
+                /* A freeform face is not asked whether it escaped.
+                 *
+                 * FaceWithinPatch guards against a surface with more freedom
+                 * than its patch — a torus threaded through a fillet, a sphere
+                 * fitted to a corner — reaching somewhere the mesh never went.
+                 * A freeform surface has no such freedom: it is a height field
+                 * over the patch's own (u, v) box, clamped to the patch's own
+                 * envelope, so it is inside by construction. What the test
+                 * actually measures on one is its POLES, and a B-spline's
+                 * control net stands outside the surface it describes — the
+                 * same overstatement the comment inside that function
+                 * describes. On the whale it refused a face carrying 1,650
+                 * triangles that was exactly right, and sent them back to
+                 * being 1,650 triangles. FaceIsSound still applies. */
+                const bool freeform = patches[i].fit.kind == kFreeform;
                 for (size_t k = before; k < faces.size(); ++k) {
-                    if (!FaceWithinPatch(faces[k], m, patches[i].tris, tol)) {
+                    if (!freeform &&
+                        !FaceWithinPatch(faces[k], m, patches[i].tris, tol)) {
                         built = false;
                         why = "face escaped its patch";
                         break;
@@ -7299,7 +8070,6 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
 
         rep.analytic_edges = ctx.analytic;
         rep.approximated_edges = ctx.approximated;
-        rep.freeform = 0;
 
         if (faces.empty()) {
             err = "no faces could be built from that mesh";
