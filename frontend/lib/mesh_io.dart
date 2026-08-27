@@ -809,28 +809,97 @@ Float64List? _mul3mf(Float64List? outer, Float64List? inner) {
 /// Reads the CENTRAL DIRECTORY rather than walking local headers: a local
 /// header may declare zero sizes and defer them to a trailing data descriptor,
 /// and the central directory always carries the real numbers.
+/// The 32-bit sentinel a ZIP64 container puts in a field whose real value is
+/// out in the extra data.
+const int _kZip64Sentinel = 0xFFFFFFFF;
+
+/// M278 — the real (compressedSize, localHeaderOffset) for a central-directory
+/// entry whose fixed record holds sentinels.
+///
+/// The ZIP64 extended-information field (header id 0x0001) is a POSITIONAL
+/// record, and that is the whole subtlety: it carries only the fields that
+/// were replaced by a sentinel, in the spec's order — uncompressed size,
+/// compressed size, local header offset, disk number. Reading it as a fixed
+/// layout works on the common case (all three replaced) and silently returns
+/// the wrong number on a file where only one of them was, which is exactly the
+/// kind of bug that shows up as a corrupt model months later.
+(int, int) _zip64Sizes(ByteData bd, int extraAt, int extraLen, int uncompSize,
+    int compSize, int local) {
+  var comp = compSize, off = local;
+  var q = extraAt;
+  final end = extraAt + extraLen;
+  while (q + 4 <= end && q + 4 <= bd.lengthInBytes) {
+    final id = bd.getUint16(q, Endian.little);
+    final size = bd.getUint16(q + 2, Endian.little);
+    if (q + 4 + size > bd.lengthInBytes) break;
+    if (id == 0x0001) {
+      var f = q + 4;
+      final stop = q + 4 + size;
+      // EACH slot is present only if ITS OWN field was the one replaced. The
+      // uncompressed size is not wanted here and is still read past, because
+      // it occupies eight bytes whenever it was a sentinel — and whether it
+      // was is a question about the uncompressed size, not about the
+      // compressed one. Getting that wrong reads the compressed size out of
+      // the uncompressed slot on any file where only one of the two overflowed.
+      if (uncompSize == _kZip64Sentinel && f + 8 <= stop) f += 8;
+      if (compSize == _kZip64Sentinel && f + 8 <= stop) {
+        comp = bd.getUint64(f, Endian.little);
+        f += 8;
+      }
+      if (local == _kZip64Sentinel && f + 8 <= stop) {
+        off = bd.getUint64(f, Endian.little);
+      }
+      break;
+    }
+    q += 4 + size;
+  }
+  return (comp, off);
+}
+
 Map<String, Uint8List> _readZip(Uint8List bytes) {
   final bd = ByteData.sublistView(bytes);
   final eocd = _findEocd(bytes);
   if (eocd < 0) {
     throw MeshLoadException(MeshFailure.notAnArchive);
   }
-  final count = bd.getUint16(eocd + 10, Endian.little);
+  var count = bd.getUint16(eocd + 10, Endian.little);
   var p = bd.getUint32(eocd + 16, Endian.little);
+  // M278 — ZIP64.
+  //
+  // Reported as "the mesh to cad converter doesn't handle 3mf files", and the
+  // converter never saw one: this container's classic end-of-central-directory
+  // record holds 0xFFFFFFFF where the directory offset should be, so the walk
+  // below started past the end of the file, found nothing, and the 3MF reader
+  // said "no model".
+  //
+  // A quarter of a megabyte does not need ZIP64 — and that is the point. The
+  // format is not only for archives past 4 GB: several writers (this file came
+  // from a slicer) emit the records unconditionally, so treating ZIP64 as the
+  // exotic case is treating a large share of real 3MF files as broken.
+  if (count == 0xFFFF || p == _kZip64Sentinel) {
+    final z = _findZip64Eocd(bd, bytes, eocd);
+    if (z < 0) throw MeshLoadException(MeshFailure.notAnArchive);
+    count = bd.getUint64(z + 32, Endian.little);
+    p = bd.getUint64(z + 48, Endian.little);
+  }
   final out = <String, Uint8List>{};
   for (var i = 0; i < count; i++) {
     if (p + 46 > bytes.length || bd.getUint32(p, Endian.little) != 0x02014b50) {
       break;
     }
     final method = bd.getUint16(p + 10, Endian.little);
-    final compSize = bd.getUint32(p + 20, Endian.little);
+    var compSize = bd.getUint32(p + 20, Endian.little);
     final nameLen = bd.getUint16(p + 28, Endian.little);
     final extraLen = bd.getUint16(p + 30, Endian.little);
     final commentLen = bd.getUint16(p + 32, Endian.little);
-    final local = bd.getUint32(p + 42, Endian.little);
+    var local = bd.getUint32(p + 42, Endian.little);
     final name = utf8.decode(
         bytes.sublist(p + 46, math.min(p + 46 + nameLen, bytes.length)),
         allowMalformed: true);
+    if (compSize == _kZip64Sentinel || local == _kZip64Sentinel) {
+      (compSize, local) = _zip64Sizes(bd, p + 46 + nameLen, extraLen,
+          bd.getUint32(p + 24, Endian.little), compSize, local);
+    }
     p += 46 + nameLen + extraLen + commentLen;
 
     if (local + 30 > bytes.length ||
@@ -856,6 +925,22 @@ Map<String, Uint8List> _readZip(Uint8List bytes) {
     }
   }
   return out;
+}
+
+/// M278 — offset of the ZIP64 end-of-central-directory RECORD, or -1.
+///
+/// Reached through the LOCATOR, which sits in the twenty bytes immediately
+/// before the classic EOCD and holds the record's absolute offset. Going
+/// through the locator rather than scanning for the record's own signature is
+/// what keeps this correct on a container that happens to contain those four
+/// bytes as data — which a compressed mesh very well might.
+int _findZip64Eocd(ByteData bd, Uint8List bytes, int eocd) {
+  final loc = eocd - 20;
+  if (loc < 0 || bd.getUint32(loc, Endian.little) != 0x07064b50) return -1;
+  final at = bd.getUint64(loc + 8, Endian.little);
+  if (at < 0 || at + 56 > bytes.length) return -1;
+  if (bd.getUint32(at, Endian.little) != 0x06064b50) return -1;
+  return at;
 }
 
 /// Offset of the end-of-central-directory record, or -1.
