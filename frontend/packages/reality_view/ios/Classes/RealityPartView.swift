@@ -160,6 +160,17 @@ final class PartRenderer: NSObject {
     /// top of setScene, like builtStyle, so every builder below it agrees.
     private var rendered = false
 
+    /// M276 — the lowest point the model reaches in world Y, or +inf when the
+    /// scene holds no solids. The rendered view's floor sits exactly on it.
+    ///
+    /// Accumulated in rebuildSolids and therefore only current after a HEAVY
+    /// push, which is deliberate: it is an exact per-vertex minimum, and
+    /// re-deriving it on the light path would put a pass over every vertex
+    /// into every frame of a component drag. The floor holds still under a
+    /// drag and settles on the next rebuild — the same bargain sceneRadius
+    /// already makes.
+    private var sceneLowY: Float = .greatestFiniteMagnitude
+
     /// The ground the rendered view's shadows fall on.
     ///
     /// A shadow needs a receiver, and a CAD scene has no floor. This is one:
@@ -599,6 +610,7 @@ final class PartRenderer: NSObject {
         // builder below reads it, so a scene comes out in ONE mode rather than
         // in whatever each call site recomputed.
         rendered = (a["render"] as? NSNumber)?.boolValue ?? false
+        sceneLowY = .greatestFiniteMagnitude
         // Latch the stroke for the whole rebuild BEFORE any of it runs: every
         // builder below reads builtStyle, so a scene comes out at one line
         // weight and one facing rather than at whatever each call site
@@ -681,10 +693,26 @@ final class PartRenderer: NSObject {
             return
         }
         let side = max(2, sceneRadius * 6)
-        // Just under the scene rather than well under it: a floor far below
-        // the model gives a shadow so spread out and so far from the body that
-        // it stops reading as contact and starts reading as a stain.
-        let drop = -sceneRadius
+        // M276 — ON the lowest point of the model, not under it.
+        //
+        // It used to be -sceneRadius, which is the radius of the whole SCENE
+        // including the origin planes, so the floor sat at least 15 mm below
+        // anything and usually much further: the shadow came out spread wide
+        // and detached, reading as a stain rather than as contact. Now a part
+        // resting on the XY plane casts a shadow at its own feet.
+        //
+        // The epsilon is relative and it is not a fudge: a floor exactly
+        // coplanar with a flat bottom face is a depth tie, and a depth tie
+        // shimmers. A ten-thousandth of the scene is far below a pixel at any
+        // zoom this renderer reaches, and it is the difference between
+        // "touching" and "flickering".
+        //
+        // The fallback covers a scene with no solids at all — the origin
+        // planes on their own — where there is no lowest point to sit on.
+        let low = sceneLowY == .greatestFiniteMagnitude
+            ? -sceneRadius
+            : sceneLowY
+        let drop = low - max(1e-4, sceneRadius * 1e-4)
         if let g = groundEntity {
             g.position = SIMD3<Float>(0, drop, 0)
             g.scale = SIMD3<Float>(repeating: side / 100)
@@ -830,6 +858,7 @@ final class PartRenderer: NSObject {
                     applyTint(id, tint)
                     sceneRadius = max(sceneRadius,
                                       cached.boundingRadius + simd_length(at))
+                    sceneLowY = min(sceneLowY, cached.lowestY(rot: rot, at: at))
                     solidRev[id] = rev
                 }
                 continue
@@ -844,6 +873,7 @@ final class PartRenderer: NSObject {
                 tint: tint,
                 preview: (s["material"] as? NSNumber)?.intValue == 1)
             sceneRadius = max(sceneRadius, geom.boundingRadius + simd_length(at))
+            sceneLowY = min(sceneLowY, geom.lowestY(rot: rot, at: at))
             let shaded = geom.shadedEntity(material: material)
             // M273 — NO EDGE OVERLAY in the rendered view. Not built rather
             // than built and hidden: the edge tubes are real geometry (one

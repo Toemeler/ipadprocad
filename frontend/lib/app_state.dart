@@ -17744,6 +17744,7 @@ class AppState extends ChangeNotifier {
         'mesh ${soup.format}: ${soup.triangleCount} tri, '
             '${soup.vertexCount} vtx, ${soup.objectCount} object(s), '
             'diagonal ${soup.diagonal.toStringAsFixed(2)} mm'
+            '${soup.uprightedFromZUp ? ', turned Z-up -> Y-up' : ''}'
             '${soup.droppedTriangles > 0 ? ', '
                 '${soup.droppedTriangles} dropped' : ''}');
 

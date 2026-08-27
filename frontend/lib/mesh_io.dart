@@ -153,7 +153,23 @@ class MeshSoup {
     this.objectCount = 1,
     this.unitScale = 1.0,
     this.droppedTriangles = 0,
+    this.uprightedFromZUp = false,
   });
+
+  /// The same soup, marked as having been turned Z-up -> Y-up.
+  ///
+  /// The vertices are rotated IN PLACE (see [rotateZUpToYUp]), so this shares
+  /// them rather than copying: the flag exists for the import log, and a log
+  /// line is not worth a second copy of a large model.
+  MeshSoup uprighted() => MeshSoup(
+        vertices: vertices,
+        triangles: triangles,
+        format: format,
+        objectCount: objectCount,
+        unitScale: unitScale,
+        droppedTriangles: droppedTriangles,
+        uprightedFromZUp: true,
+      );
 
   final Float64List vertices;
   final Int32List triangles;
@@ -169,6 +185,10 @@ class MeshSoup {
   /// its unit; STL and OBJ do not and are taken as mm, which is what every
   /// slicer and every MakerWorld model actually uses.
   final double unitScale;
+
+  /// M276 — the file was Z-up and has been turned into the app's Y-up world.
+  /// True for STL and 3MF, false for OBJ. Reported, never acted on.
+  final bool uprightedFromZUp;
 
   /// Triangles the file listed that were dropped as degenerate or
   /// out-of-range. A non-zero count is worth saying out loud.
@@ -233,7 +253,65 @@ MeshSoup loadMeshFile(String path) {
   return loadMeshBytes(bytes, path: path);
 }
 
+// =========================================================================
+// M276 — which way is up
+// =========================================================================
+//
+// Reported as "bei einem stl import ist das modell falsch gedreht und wird
+// immer seitlich importiert", and that is exactly what was happening: nothing
+// on the import path touched the axes, so a file's own convention became the
+// app's.
+//
+// The app is Y-UP. PartCamera.dir puts cos(pol) in Y, the renderer builds its
+// basis by crossing with (0, 1, 0), and the ViewCube's TOP face is (0, 1, 0).
+// The sketch planes look like evidence for Z and are not: XY is the FRONT
+// plane (its normal is +Z, toward the viewer), which is the SolidWorks
+// convention this app follows.
+//
+// The FILES are not all Y-up:
+//
+//   * STL has no header field for it, and every slicer, every printer and
+//     every model site treats it as Z-UP, because the printer's bed is the
+//     XY plane. A model exported to be printed stands up in Z.
+//   * 3MF says so in its own specification: Z-up, same world.
+//   * OBJ came out of graphics rather than manufacturing and is Y-UP by
+//     convention — Maya, Blender's exporter default, and every game engine.
+//
+// So two of the three need a quarter turn and the third must not get one.
+// Doing it per format rather than per file is the honest reading: none of the
+// three states its up axis in the data, so the convention IS the information.
+
+/// Which way is up in a file of this format.
+enum MeshUpAxis { y, z }
+
+/// STL and 3MF are Z-up, OBJ is Y-up. See the note above.
+MeshUpAxis meshUpAxisOf(String format) =>
+    format == 'obj' ? MeshUpAxis.y : MeshUpAxis.z;
+
+/// Turns Z-up vertices into the app's Y-up world, in place.
+///
+/// A quarter turn about +X: (x, y, z) -> (x, z, -y). That takes the file's up
+/// (0, 0, 1) onto the app's up (0, 1, 0), and the file's FRONT — which in the
+/// printing world is -Y, the side facing the operator — onto +Z, which is the
+/// ViewCube's FRONT. Both land where a person would expect them to.
+///
+/// In place, and on the Float64List the parser already allocated: an import is
+/// already the one place in this app that holds a hundred megabytes of
+/// vertices, and a second copy of them to rotate into is the difference
+/// between a large model importing and the app being killed for memory.
+void rotateZUpToYUp(Float64List v) {
+  for (var i = 0; i + 2 < v.length; i += 3) {
+    final y = v[i + 1];
+    v[i + 1] = v[i + 2];
+    v[i + 2] = -y;
+  }
+}
+
 /// Reads a mesh already in memory. [path] is used only to pick the parser.
+///
+/// M276 — and this is where a file's up axis becomes the app's. The parsers
+/// below stay faithful to their formats and return exactly what the file said;
+/// the convention is applied once, here, on the app's own entry point.
 MeshSoup loadMeshBytes(Uint8List bytes, {required String path}) {
   final lower = path.toLowerCase();
   if (bytes.isEmpty) throw MeshLoadException(MeshFailure.empty);
@@ -252,6 +330,12 @@ MeshSoup loadMeshBytes(Uint8List bytes, {required String path}) {
   if (soup.triangleCount > kMaxMeshTriangles) {
     throw MeshLoadException(MeshFailure.tooManyTriangles,
         count: soup.triangleCount);
+  }
+  // AFTER the size check, so a file that is about to be refused is not rotated
+  // first — that is a full pass over vertices spent on a model nobody gets.
+  if (meshUpAxisOf(soup.format) == MeshUpAxis.z) {
+    rotateZUpToYUp(soup.vertices);
+    return soup.uprighted();
   }
   return soup;
 }
