@@ -3319,6 +3319,17 @@ class AppL10nEn extends AppL10n {
   String get cubeStep => 'Go to adjacent view';
 
   @override
+  String msgProjectedFace(int n) {
+    String _temp0 = intl.Intl.pluralLogic(
+      n,
+      locale: localeName,
+      other: '$n edges projected',
+      one: '1 edge projected',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get panelAppearance => 'Appearance';
 
   @override

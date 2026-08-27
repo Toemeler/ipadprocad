@@ -5599,6 +5599,12 @@ abstract class AppL10n {
   /// **'Zur Nachbaransicht'**
   String get cubeStep;
 
+  /// Rueckmeldung nach dem Projizieren einer ganzen Flaeche.
+  ///
+  /// In de, this message translates to:
+  /// **'{n, plural, =1{1 Kante projiziert} other{{n} Kanten projiziert}}'**
+  String msgProjectedFace(int n);
+
   /// Ribbon-Gruppe: die Farbe eines Koerpers oder einer Komponente. Inventor DE: "Aussehen".
   ///
   /// In de, this message translates to:

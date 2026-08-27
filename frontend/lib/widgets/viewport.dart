@@ -2220,6 +2220,11 @@ class _ViewportPainter extends CustomPainter {
       // you hover one, highlighted when a tap would take it.
       if (app.tool == Tool.project) {
         final hovered = app.hoverSolidEdge;
+        // M279 — the whole FACE under the cursor lights up, because a tap
+        // there projects all of it. The set is what the click path would
+        // take, not a second guess at it: hoverSolidFace is filled by the same
+        // query _projectClick runs.
+        final face = app.hoverSolidFace;
         final faint = Paint()
           ..style = PaintingStyle.stroke
           ..strokeWidth = 1.0
@@ -2238,7 +2243,9 @@ class _ViewportPainter extends CustomPainter {
             final q = map(ep[i].dx, ep[i].dy);
             path.lineTo(q.dx, q.dy);
           }
-          canvas.drawPath(path, e.index == hovered ? hot : faint);
+          canvas.drawPath(
+              path,
+              (e.index == hovered || face.contains(e.index)) ? hot : faint);
         }
       }
 

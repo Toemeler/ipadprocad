@@ -3366,6 +3366,17 @@ class AppL10nDe extends AppL10n {
   String get cubeStep => 'Zur Nachbaransicht';
 
   @override
+  String msgProjectedFace(int n) {
+    String _temp0 = intl.Intl.pluralLogic(
+      n,
+      locale: localeName,
+      other: '$n Kanten projiziert',
+      one: '1 Kante projiziert',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get panelAppearance => 'Aussehen';
 
   @override

@@ -26,6 +26,7 @@ import 'quat.dart';
 import 'reality_assembly.dart';
 import 'constraints.dart';
 import 'diag.dart';
+import 'face_project.dart';
 import 'display_mode.dart';
 import 'doc_file.dart';
 import 'doc_ref.dart';
@@ -15177,6 +15178,23 @@ class AppState extends ChangeNotifier {
     return pickPartEdge(edges, w, 8 / zoom);
   }
 
+  /// M279 — the part-wide edge indices of the model FACE under [w], or empty.
+  ///
+  /// Inventor's Project Geometry takes a face and projects every edge of its
+  /// boundary — the outer loop and every inner one, so a plate with four holes
+  /// comes across as the outline plus four circles in a single pick. This is
+  /// the query behind that; see face_project.dart for how "the edges of this
+  /// face" is derived without a new kernel entry point.
+  List<int> projectHoverFace(Offset w) {
+    if (tool != Tool.project) return const [];
+    final part = currentPart;
+    final cs = _activeChildSketch();
+    if (part == null || cs == null) return const [];
+    final ref = faceUnderPoint(part, sketchFrameOf(cs), w);
+    if (ref == null) return const [];
+    return partEdgeIndicesForFace(part, ref);
+  }
+
   /// The ChildSketch currently being edited, or null.
   ChildSketch? _activeChildSketch() {
     final part = currentPart;
@@ -15199,6 +15217,17 @@ class AppState extends ChangeNotifier {
       final hit = pickPartEdge(projectableEdges(), w, 8 / zoom);
       if (hit != null) {
         _projectSolidEdge(s, hit, lay);
+        return;
+      }
+      // M279 — no edge under the cursor, but a FACE is: project all of it.
+      //
+      // AFTER the edge test, which is Inventor's order and the only one that
+      // works: an edge lies ON the faces it bounds, so a face pick would
+      // swallow every edge pick if it went first, and there would be no way to
+      // project a single edge of a face at all.
+      final faceEdges = projectHoverFace(w);
+      if (faceEdges.isNotEmpty) {
+        _projectSolidEdges(s, faceEdges, lay);
         return;
       }
     }
@@ -15288,29 +15317,40 @@ class AppState extends ChangeNotifier {
   }
 
   /// Creates the reference curve for model edge [edgeIndex] on [lay].
-  void _projectSolidEdge(SketchModel s, int edgeIndex, String lay) {
+  bool _isSolidEdgeProjected(SketchModel s, int edgeIndex, String lay) {
     for (final g in s.geometry) {
       if (g.proj == Geo.projSolid &&
           g.projSeg == edgeIndex &&
           g.layer == lay) {
-        toast(L.current.msgAlreadyProjected);
-        return;
+        return true;
       }
     }
+    return false;
+  }
+
+  /// Builds the sketch entity for model edge [edgeIndex] and adds it to [s]'s
+  /// engine. Returns the tag to append, or null when there is nothing to add.
+  ///
+  /// M279 — split out of [_projectSolidEdge] so a FACE can add all of its
+  /// edges before anything commits. Projecting a face by calling the
+  /// single-edge command in a loop would put one undo step and one full solve
+  /// on EVERY edge: a plate with four holes would be five solves and five
+  /// steps to undo, and half a face would be a reachable state.
+  Geo? _buildSolidEdge(
+      SketchModel s, int edgeIndex, String lay, List<PartEdge> edges) {
     PartEdge? src;
-    for (final e in projectableEdges()) {
+    for (final e in edges) {
       if (e.index == edgeIndex) {
         src = e;
         break;
       }
     }
-    if (src == null) return;
-    if (src.kind == ProjKind.polyline && src.pts.length < 2) return;
+    if (src == null) return null;
+    if (src.kind == ProjKind.polyline && src.pts.length < 2) return null;
     // EXACT form: a projected circle becomes a circle, an arc an arc, a
     // tilted circle a true ellipse. Only a kernel edge with no analytic
     // record falls back to a polyline.
     final copy = geoForPartEdge(src, lay);
-    final tags = List<Geo>.of(s.geometry)..add(copy);
     s.engine.setCurrentLayer(lay);
     final d = copy.data;
     switch (copy.type) {
@@ -15330,9 +15370,46 @@ class AppState extends ChangeNotifier {
           for (var i = 0; i < n; i++) ...[d[2 + 2 * i], d[3 + 2 * i]]
         ], closed: d[0] != 0);
     }
-    _committed(s, tags: tags);
+    return copy;
+  }
+
+  void _projectSolidEdge(SketchModel s, int edgeIndex, String lay) {
+    if (_isSolidEdgeProjected(s, edgeIndex, lay)) {
+      toast(L.current.msgAlreadyProjected);
+      return;
+    }
+    final copy = _buildSolidEdge(s, edgeIndex, lay, projectableEdges());
+    if (copy == null) return;
+    _committed(s, tags: List<Geo>.of(s.geometry)..add(copy));
     _solveAndRebuild(s);
     Log.i('project', 'projected model edge $edgeIndex onto "$lay"');
+  }
+
+  /// M279 — every edge of a picked FACE, in ONE step.
+  ///
+  /// Edges already on this layer are skipped silently rather than refused: a
+  /// face whose outline you projected by hand should still bring its holes
+  /// across, and "already projected" is an answer about one edge, not about a
+  /// face that is merely partly there.
+  void _projectSolidEdges(SketchModel s, List<int> edgeIndices, String lay) {
+    final edges = projectableEdges();
+    final tags = List<Geo>.of(s.geometry);
+    var added = 0;
+    for (final i in edgeIndices) {
+      if (_isSolidEdgeProjected(s, i, lay)) continue;
+      final copy = _buildSolidEdge(s, i, lay, edges);
+      if (copy == null) continue;
+      tags.add(copy);
+      added++;
+    }
+    if (added == 0) {
+      toast(L.current.msgAlreadyProjected);
+      return;
+    }
+    _committed(s, tags: tags);
+    _solveAndRebuild(s);
+    toast(L.current.msgProjectedFace(added));
+    Log.i('project', 'projected $added edges of a face onto "$lay"');
   }
 
 
@@ -18916,6 +18993,15 @@ class AppState extends ChangeNotifier {
   /// active (index into [projectableEdges]), or null.
   int? hoverSolidEdge;
 
+  /// M279 — the model FACE under the cursor while the Project tool is active,
+  /// as the part-wide edge indices a tap would project.
+  ///
+  /// Empty when the cursor is over an edge (an edge pick is the narrower
+  /// statement and wins) or over nothing. The painter draws exactly this set
+  /// hot, so what lights up is what a tap takes — the rule the single-edge
+  /// hover has followed since M76.
+  List<int> hoverSolidFace = const [];
+
   void setHover(Offset? w) {
     hoverWorld = w;
     final s = current;
@@ -18923,8 +19009,10 @@ class AppState extends ChangeNotifier {
       hoverEnt = null;
       hoverEdge = null;
       hoverSolidEdge = null;
+      hoverSolidFace = const [];
     } else if (tool == Tool.project) {
       hoverSolidEdge = null;
+      hoverSolidFace = const [];
       // project mode highlights the PROJECTABLE geometry under the cursor:
       // entities of OTHER layers that are not yet projected onto this one
       final e = pickVisibleAny(s, w);
@@ -18946,8 +19034,13 @@ class AppState extends ChangeNotifier {
       // matching the click order in _projectClick so the highlight always
       // shows what a tap would actually project.
       hoverSolidEdge = hoverEnt == null ? projectHoverEdge(w) : null;
+      // M279 — and, failing an edge, the whole FACE under the cursor.
+      hoverSolidFace = (hoverEnt == null && hoverSolidEdge == null)
+          ? projectHoverFace(w)
+          : const [];
     } else {
       hoverSolidEdge = null;
+      hoverSolidFace = const [];
       hoverEnt = _pickEntity(s, w);
       final seg = hoverEnt == null ? null : polySegmentAt(s, hoverEnt!, w);
       hoverEdge = seg == null ? null : (seg.$1.ent, seg.$1.pt);

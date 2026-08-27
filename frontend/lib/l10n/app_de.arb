@@ -2680,6 +2680,11 @@
   "@cubeStep": {
     "description": "Barrierefreier Name der vier dreieckigen Pfeile: eine Vierteldrehung zur angrenzenden Flaeche."
   },
+  "msgProjectedFace": "{n, plural, =1{1 Kante projiziert} other{{n} Kanten projiziert}}",
+  "@msgProjectedFace": {
+    "description": "Rueckmeldung nach dem Projizieren einer ganzen Flaeche.",
+    "placeholders": { "n": { "type": "int" } }
+  },
   "panelAppearance": "Aussehen",
   "@panelAppearance": {
     "description": "Ribbon-Gruppe: die Farbe eines Koerpers oder einer Komponente. Inventor DE: \"Aussehen\"."

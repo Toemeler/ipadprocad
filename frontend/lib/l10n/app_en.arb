@@ -917,6 +917,7 @@
   "cubeRollLeft": "Rotate view left",
   "cubeRollRight": "Rotate view right",
   "cubeStep": "Go to adjacent view",
+  "msgProjectedFace": "{n, plural, =1{1 edge projected} other{{n} edges projected}}",
   "panelAppearance": "Appearance",
   "matPickBody": "Nothing selected",
   "matSteel": "Steel",
