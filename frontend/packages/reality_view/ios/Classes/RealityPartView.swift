@@ -718,13 +718,25 @@ final class PartRenderer: NSObject {
             return
         }
         let reach = renderedReach
-        sunLight.shadow = DirectionalLightComponent.Shadow(
-            maximumDistance: max(0.5, cameraFit().dist + reach * 2),
-            // Scaled with the volume rather than fixed: a bias is a depth
-            // offset, and a shadow map covering ten times as much world has
-            // ten times the depth per texel. A constant 2 that was right at
-            // one zoom is acne at another.
-            depthBias: max(1.0, reach * 0.02))
+        let maximumDistance = max(0.5, cameraFit().dist + reach * 2)
+        // `maximumDistance` is deprecated on iOS 18 in favour of
+        // `shadowProjection`; a deprecated property may be a no-op there,
+        // which would explain a shadow lost on every model.
+        //
+        // The bias is the other failure mode: the old max(1.0, reach * 0.02)
+        // floors at 1 mm — more than a thin part's gap above the floor — so
+        // the floor reads as fully lit and the contact shadow vanishes. Scale
+        // it with the shadow volume and cap it under 1 mm instead.
+        let depthBias = min(1.0, maximumDistance * 0.001)
+        if #available(iOS 18.0, *) {
+            sunLight.shadow = DirectionalLightComponent.Shadow(
+                shadowProjection: .automatic(maximumDistance: maximumDistance),
+                depthBias: depthBias)
+        } else {
+            sunLight.shadow = DirectionalLightComponent.Shadow(
+                maximumDistance: maximumDistance,
+                depthBias: depthBias)
+        }
     }
 
     /// The floor, in the rendered view only.
