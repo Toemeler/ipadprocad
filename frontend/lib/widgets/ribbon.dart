@@ -244,6 +244,28 @@ class _RibbonState extends State<Ribbon> {
         ),
       );
 
+  /// Positions a flyout beside its anchor in the direction the dock leaves
+  /// room: down from a top band, up from a bottom band, and to the side from a
+  /// side rail. A side-docked band previously opened the menu downward, which
+  /// put a right rail's menu off the screen edge.
+  Positioned _anchoredFly(Offset pos, Size size, Widget child) {
+    final screen = MediaQuery.of(context).size;
+    switch (RibbonMetrics.dock) {
+      case RibbonPosition.top:
+        return Positioned(
+            left: pos.dx, top: pos.dy + size.height + 1, child: child);
+      case RibbonPosition.bottom:
+        return Positioned(
+            left: pos.dx, bottom: screen.height - pos.dy + 1, child: child);
+      case RibbonPosition.left:
+        return Positioned(
+            left: pos.dx + size.width + 1, top: pos.dy, child: child);
+      case RibbonPosition.right:
+        return Positioned(
+            right: screen.width - pos.dx + 1, top: pos.dy, child: child);
+    }
+  }
+
   @override
   void dispose() {
     closeFly();
@@ -262,11 +284,8 @@ class _RibbonState extends State<Ribbon> {
     _fly = OverlayEntry(
       builder: (_) => Stack(children: [
         _barrier(),
-        Positioned(
-          left: pos.dx,
-          top: pos.dy + box.size.height + 1,
-          child: _FlyMenu(
-            items: items,
+        _anchoredFly(pos, box.size, _FlyMenu(
+          items: items,
             onPick: (it) {
               closeFly();
               if (it.tool != null) {
@@ -444,22 +463,13 @@ class _RibbonState extends State<Ribbon> {
     _fly = OverlayEntry(
       builder: (_) => Stack(children: [
         _barrier(),
-        Positioned(
-          left: pos.dx,
-          // Downward, like every other ribbon flyout: the menu hangs BELOW the
-          // title row and over the canvas. It used to open upward (the title
-          // sits at the panel's bottom edge, so that felt symmetrical), but
-          // upward means it climbs over the ribbon it belongs to and runs into
-          // the iOS status bar. Down is also what the sibling _FlyMenu does.
-          top: pos.dy + box.size.height + 1,
-          child: _OverMenu(
-            items: items,
-            onPick: (it) {
-              closeFly();
-              it.onTap?.call();
-            },
-          ),
-        ),
+        _anchoredFly(pos, box.size, _OverMenu(
+          items: items,
+          onPick: (it) {
+            closeFly();
+            it.onTap?.call();
+          },
+        )),
       ]),
     );
     Overlay.of(context).insert(_fly!);

@@ -73,7 +73,8 @@ class RibbonMetrics {
   static EdgeInsets get pad => EdgeInsets.zero;
 
   /// Width of the band when docked left or right (surface C's rail width).
-  static const double railWidth = 104;
+  /// Wide enough that a small row (icon + German label) does not clip its text.
+  static const double railWidth = 168;
 
   /// Gap between the band and whatever floats beside it.
   static const double gap = 10;
