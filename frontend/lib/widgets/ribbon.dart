@@ -725,6 +725,20 @@ class _RibbonState extends State<Ribbon> {
     );
   }
 
+  /// Lays the buttons INSIDE a panel in a horizontal row (top/bottom) or a
+  /// vertical column (left/right). In a side rail the tools stack under each
+  /// other instead of running off the rail's edge.
+  Widget _flow({
+    required List<Widget> children,
+    CrossAxisAlignment crossAxisAlignment = CrossAxisAlignment.center,
+  }) {
+    if (RibbonMetrics.isVertical) {
+      return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch, children: children);
+    }
+    return Row(crossAxisAlignment: crossAxisAlignment, children: children);
+  }
+
   // Home: single "Sketch" panel with the big Create New Sketch button.
   Widget _homeRibbon(AppState app) =>
       Perf.span('menu.ribbon.home', () => _homeRibbonInner(app));
@@ -877,7 +891,7 @@ class _RibbonState extends State<Ribbon> {
             OverItem(CR['derive']!, t.btnDerive, null),
             OverItem(CR['decal']!, t.btnDecal, null),
           ],
-          child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          child: _flow(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             _BigWide(
                 width: 58,
                 icon: CR['extrude']!,
@@ -925,7 +939,7 @@ class _RibbonState extends State<Ribbon> {
             OverItem(MO['split']!, t.btnSplit, () => app.openSplit(),
                 active: app.splitSession != null),
           ],
-          child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          child: _flow(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             _BigWide(
                 width: 58,
                 icon: MO['fillet']!,
@@ -963,7 +977,7 @@ class _RibbonState extends State<Ribbon> {
           over: () => [
             OverItem(WF['ucs']!, t.btnUcs, null),
           ],
-          child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          child: _flow(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             _Big(
                 id: 'plane',
                 label: t.btnPlane,
@@ -1012,7 +1026,7 @@ class _RibbonState extends State<Ribbon> {
         _panel(
           label: t.panelPattern,
           arrow: false,
-          child: Row(children: [
+          child: _flow(children: [
             colActive([
               (PT['rect']!, t.btnRectangular, app.openRectPattern,
                   app.patternKind == PatternKind.rectangular),
@@ -1168,7 +1182,7 @@ class _RibbonState extends State<Ribbon> {
           label: t.panelComponent,
           arrow: true,
           first: true,
-          child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          child: _flow(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             // The drop chip is Inventor's: Place has a list behind it (Place
             // Component / Place from Content Center / Place Imported CAD).
             // Only the default action exists here, so the chip runs the same
@@ -1228,7 +1242,7 @@ class _RibbonState extends State<Ribbon> {
         _panel(
           label: t.panelRelationships,
           arrow: true,
-          child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          child: _flow(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             // M249 — Joint is WIRED. Inventor's own claim for it is that ONE
             // pick pair replaces the two or three constraints you would
             // otherwise place by hand, and the dialog it opens is the modeless
@@ -1303,7 +1317,7 @@ class _RibbonState extends State<Ribbon> {
         _panel(
           label: t.panelPattern,
           arrow: false,
-          child: Row(children: [
+          child: _flow(children: [
             asmCol([
               (
                 PT['rect']!,
@@ -1347,7 +1361,7 @@ class _RibbonState extends State<Ribbon> {
           over: () => [
             OverItem(WF['ucs']!, t.btnUcs, null),
           ],
-          child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          child: _flow(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             _Big(
                 id: 'plane',
                 label: t.btnPlane,
@@ -1500,7 +1514,7 @@ class _RibbonState extends State<Ribbon> {
         _panel(
           label: t.panelCreate,
           arrow: false,
-          child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          child: _flow(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             _BigSplit(app: app, id: 'line', dflt: Tool.line,
                 icon: IC['line34']!, label: t.btnLine,
                 onFly: toggleFly, onStart: _startTool),
@@ -1598,7 +1612,7 @@ class _RibbonState extends State<Ribbon> {
             OverItem(CN['showcons']!, t.btnShowConstraints,
                 app.toggleShowConstraints, active: app.showConstraints),
           ],
-          child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          child: _flow(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             ConstrainedBox(
               // Was a fixed 66 and it cramped the German: "Bemaßung" asks for
               // ~94 px where "Dimension" fitted in 66, so the label wrapped.
@@ -1636,7 +1650,7 @@ class _RibbonState extends State<Ribbon> {
             OverItem(IN['driven']!, t.btnDrivenDimension, null),
             OverItem(IN['showfmt']!, t.btnShowFormat, null),
           ],
-          child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+          child: _flow(crossAxisAlignment: CrossAxisAlignment.center, children: [
             Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1718,7 +1732,7 @@ class _RibbonState extends State<Ribbon> {
                 () => _startTool(Tool.mstretch),
                 active: app.tool == Tool.mstretch),
           ],
-          child: Row(children: [
+          child: _flow(children: [
             _modCol(['trim', 'split', 'moffset'],
                 [t.btnTrim, t.btnSplitCurve, t.btnOffsetCurve],
                 leftPad: 2),

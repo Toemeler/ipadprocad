@@ -480,7 +480,10 @@ class PrototypeApp extends StatelessWidget {
                                     ? 0
                                     : null,
                                 left: RibbonMetrics.isRight ? null : 0,
-                                right: RibbonMetrics.isRight ? 0 : null,
+                                right: RibbonMetrics.isRight ||
+                                        RibbonMetrics.isHorizontal
+                                    ? 0
+                                    : null,
                                 width: RibbonMetrics.isVertical
                                     ? RibbonMetrics.railWidth
                                     : null,
