@@ -200,7 +200,7 @@ void main() {
   group('M261 — the wire form', () {
     test('every row carries the keys SettingsSheet.swift reads', () {
       final maps = settingsToMaps(_spec());
-      expect(maps, hasLength(5));
+      expect(maps, hasLength(6));
       for (final s in maps) {
         expect(s['id'], isA<String>());
         expect(s['header'], isA<String>());

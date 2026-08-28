@@ -211,31 +211,31 @@ abstract class AppL10n {
   /// **'Sprache'**
   String get settingsLanguage;
 
-  /// Abschnittstitel: wo die Multifunktionsleiste andockt.
+  /// Abschnittstitel: wo das Menüband andockt.
   ///
   /// In de, this message translates to:
-  /// **'Multifunktionsleiste'**
+  /// **'Menüband'**
   String get settingsRibbon;
 
-  /// Multifunktionsleiste oben andocken (Standard, Flush-Band).
+  /// Menüband oben andocken (Standard, Flush-Band).
   ///
   /// In de, this message translates to:
   /// **'Oben'**
   String get ribbonTop;
 
-  /// Multifunktionsleiste unten andocken.
+  /// Menüband unten andocken.
   ///
   /// In de, this message translates to:
   /// **'Unten'**
   String get ribbonBottom;
 
-  /// Multifunktionsleiste links andocken (Seitenschiene).
+  /// Menüband links andocken (Seitenschiene).
   ///
   /// In de, this message translates to:
   /// **'Links'**
   String get ribbonLeft;
 
-  /// Multifunktionsleiste rechts andocken (Seitenschiene).
+  /// Menüband rechts andocken (Seitenschiene).
   ///
   /// In de, this message translates to:
   /// **'Rechts'**

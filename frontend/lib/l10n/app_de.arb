@@ -84,25 +84,25 @@
   "@settingsLanguage": {
     "description": "Abschnittstitel der Sprachwahl."
   },
-  "settingsRibbon": "Multifunktionsleiste",
+  "settingsRibbon": "Menüband",
   "@settingsRibbon": {
-    "description": "Abschnittstitel: wo die Multifunktionsleiste andockt."
+    "description": "Abschnittstitel: wo das Menüband andockt."
   },
   "ribbonTop": "Oben",
   "@ribbonTop": {
-    "description": "Multifunktionsleiste oben andocken (Standard, Flush-Band)."
+    "description": "Menüband oben andocken (Standard, Flush-Band)."
   },
   "ribbonBottom": "Unten",
   "@ribbonBottom": {
-    "description": "Multifunktionsleiste unten andocken."
+    "description": "Menüband unten andocken."
   },
   "ribbonLeft": "Links",
   "@ribbonLeft": {
-    "description": "Multifunktionsleiste links andocken (Seitenschiene)."
+    "description": "Menüband links andocken (Seitenschiene)."
   },
   "ribbonRight": "Rechts",
   "@ribbonRight": {
-    "description": "Multifunktionsleiste rechts andocken (Seitenschiene)."
+    "description": "Menüband rechts andocken (Seitenschiene)."
   },
   "settingsDiagnostics": "Diagnose",
   "@settingsDiagnostics": {
