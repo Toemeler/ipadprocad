@@ -539,13 +539,14 @@ class PrototypeApp extends StatelessWidget {
                       if (GlassTabBar.isSupported)
                         RibbonMetrics.build(
                           (_, __) => Positioned(
-                            // M284 — when the band docks BOTTOM, the tab bar
-                            // rests on top of it rather than under it. The
+                            // M284 — the tab bar moves inward on the edge the
+                            // band owns: UP when the band docks BOTTOM, and in
+                            // from the side when it docks LEFT or RIGHT. The
                             // build() wrapper keeps it listening to the band's
                             // measured thickness, not only to its edge.
                             bottom: RibbonMetrics.contentBottom,
-                            left: 0,
-                            right: 0,
+                            left: RibbonMetrics.contentLeft,
+                            right: RibbonMetrics.contentRight,
                             child: BottomTabBar(app: app),
                           ),
                         ),
