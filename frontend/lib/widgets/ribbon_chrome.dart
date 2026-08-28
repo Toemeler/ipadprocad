@@ -116,6 +116,14 @@ class RibbonMetrics {
   static double get contentBottom => contentInsets.bottom;
   static double get contentLeft => contentInsets.left;
 
+  /// The same insets as [contentInsets], but reading zero when the band is not
+  /// actually drawn. The band is only laid out over a document: on the home
+  /// gallery (the card menu) it is gone while [position] and [extent] keep
+  /// their last document values, so floating chrome must NOT clear a band that
+  /// is not there.
+  static EdgeInsets contentInsetsFor(bool ribbonDrawn) =>
+      ribbonDrawn ? contentInsets : EdgeInsets.zero;
+
   /// Both [position] and [extent] change where the floating chrome may sit, so
   /// a rebuild has to listen to the two together.
   static final Listenable _changes = Listenable.merge([position, extent]);

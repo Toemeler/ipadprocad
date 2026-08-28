@@ -166,6 +166,19 @@ void main() {
       expect(RibbonMetrics.contentBottom, 0);
     });
 
+    test('contentInsetsFor reads zero when the band is not drawn', () {
+      // M284 — floating chrome that also renders on the gallery (the bottom
+      // tab bar, the quick-tool rail) must NOT clear a band that is not there.
+      // Both pass `ribbonDrawn: !app.isHome` through this one gate.
+      RibbonMetrics.extent.value = 60;
+      RibbonMetrics.position.value = RibbonPosition.bottom;
+      expect(RibbonMetrics.contentInsetsFor(false), EdgeInsets.zero,
+          reason: 'the gallery has no band, so nothing may clear one');
+      expect(RibbonMetrics.contentInsetsFor(true), RibbonMetrics.contentInsets);
+      expect(RibbonMetrics.contentInsetsFor(true).bottom,
+          60 + RibbonMetrics.gap);
+    });
+
     testWidgets('RibbonMetrics.build rebuilds when the ribbon resizes',
         (t) async {
       double seen = -1;

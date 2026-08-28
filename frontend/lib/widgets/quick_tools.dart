@@ -394,32 +394,33 @@ class QuickToolsBar extends StatelessWidget {
     // M284 — the ribbon band is only drawn over a document, so on the gallery
     // (the home "menu") there is no band for the rail to clear: the insets
     // read zero and the bar keeps its ordinary spot.
-    final bottomInset = app.isHome ? 0 : RibbonMetrics.contentBottom;
-    final rightInset = app.isHome ? 0 : RibbonMetrics.contentRight;
     return RibbonMetrics.build(
-      (_, top) => Positioned(
-        top: top,
-        // M271 — ...For, because this bar renders on the gallery too, where
-        // the tab bar is absent when nothing is open. M284 — the bar also
-        // moves up when the band docks BOTTOM.
-        bottom: BottomTabBar.floatingHeightFor(app) + bottomInset,
-        // M284 — when the band docks RIGHT, the rail shifts LEFT out of its
-        // way; `margin` is the ordinary gap from the screen edge.
-        right: margin + rightInset,
-        // widthFactor 1 — WITHOUT it the Align expands to the whole stack
-        // width, and a platform view eats every touch inside its frame: the
-        // bar would have swallowed the viewport.
-        child: Align(
-          alignment: Alignment.centerRight,
-          widthFactor: 1,
-          child: GlassToolBar.isSupported
-              ? GlassToolBar(
-                  items: items,
-                  onTap: (id) => runQuickTool(app, id, context: context),
-                )
-              : _flutterBar(context, items),
-        ),
-      ),
+      (_, __) {
+        final insets = RibbonMetrics.contentInsetsFor(!app.isHome);
+        return Positioned(
+          top: insets.top,
+          // M271 — ...For, because this bar renders on the gallery too, where
+          // the tab bar is absent when nothing is open. M284 — the bar also
+          // moves up when the band docks BOTTOM.
+          bottom: BottomTabBar.floatingHeightFor(app) + insets.bottom,
+          // M284 — when the band docks RIGHT, the rail shifts LEFT out of its
+          // way; `margin` is the ordinary gap from the screen edge.
+          right: margin + insets.right,
+          // widthFactor 1 — WITHOUT it the Align expands to the whole stack
+          // width, and a platform view eats every touch inside its frame: the
+          // bar would have swallowed the viewport.
+          child: Align(
+            alignment: Alignment.centerRight,
+            widthFactor: 1,
+            child: GlassToolBar.isSupported
+                ? GlassToolBar(
+                    items: items,
+                    onTap: (id) => runQuickTool(app, id, context: context),
+                  )
+                : _flutterBar(context, items),
+          ),
+        );
+      },
     );
   }
 

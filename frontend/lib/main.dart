@@ -538,17 +538,24 @@ class PrototypeApp extends StatelessWidget {
                       // bar rests on it, like the ribbon and the browser.
                       if (GlassTabBar.isSupported)
                         RibbonMetrics.build(
-                          (_, __) => Positioned(
+                          (_, __) {
                             // M284 — the tab bar moves inward on the edge the
                             // band owns: UP when the band docks BOTTOM, and in
                             // from the side when it docks LEFT or RIGHT. The
                             // build() wrapper keeps it listening to the band's
-                            // measured thickness, not only to its edge.
-                            bottom: RibbonMetrics.contentBottom,
-                            left: RibbonMetrics.contentLeft,
-                            right: RibbonMetrics.contentRight,
-                            child: BottomTabBar(app: app),
-                          ),
+                            // measured thickness, not only to its edge. The
+                            // band is only drawn over a document though, so on
+                            // the gallery the insets read zero and the bar
+                            // keeps its ordinary spot.
+                            final insets =
+                                RibbonMetrics.contentInsetsFor(!app.isHome);
+                            return Positioned(
+                              bottom: insets.bottom,
+                              left: insets.left,
+                              right: insets.right,
+                              child: BottomTabBar(app: app),
+                            );
+                          },
                         ),
                       // M192 — the quick tools (OK, Cancel, Undo, Redo and the
                       // four everyday sketch tools) on the right edge, always

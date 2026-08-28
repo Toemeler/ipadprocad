@@ -6,11 +6,14 @@
 // nothing is the exact failure this file exists to prevent.
 import 'dart:io';
 
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:native_menu/native_menu.dart';
 import 'package:prototype/app_state.dart';
 import 'package:prototype/part_model.dart';
+import 'package:prototype/widgets/bottom_tabbar.dart';
 import 'package:prototype/widgets/quick_tools.dart';
+import 'package:prototype/widgets/ribbon_chrome.dart';
 
 AppState makeApp() {
   final app = AppState();
@@ -281,5 +284,46 @@ void main() {
     expect(GlassToolBar.buttonSize, greaterThanOrEqualTo(44),
         reason: "Apple's HIG floor for a touch target is the point of this bar");
     expect(GlassToolBar.heightFor(const []), 0);
+  });
+
+  group('M284 gallery insets', () {
+    setUp(() {
+      RibbonMetrics.extent.value = 0;
+      RibbonMetrics.resetForTest();
+    });
+
+    Future<void> pumpBar(WidgetTester t, AppState app) async {
+      await t.binding.setSurfaceSize(const Size(1600, 900));
+      await t.pumpWidget(MaterialApp(
+          home: Scaffold(body: Stack(children: [QuickToolsBar(app: app)]))));
+      await t.pump();
+    }
+
+    testWidgets('on the gallery the rail clears no ribbon, whatever the dock',
+        (t) async {
+      final app = makeApp(); // isHome, nothing open
+      expect(app.isHome, isTrue);
+      RibbonMetrics.extent.value = 60;
+      RibbonMetrics.position.value = RibbonPosition.bottom;
+      await pumpBar(t, app);
+
+      final p = t.widget<Positioned>(find.byType(Positioned));
+      expect(p.bottom, BottomTabBar.floatingHeightFor(app),
+          reason: 'no band on the gallery: the rail keeps its ordinary gap');
+      expect(p.right, QuickToolsBar.margin);
+      expect(p.top, 0);
+    });
+
+    testWidgets('in a document the rail clears the docked band', (t) async {
+      final app = editingApp();
+      RibbonMetrics.extent.value = 60;
+      RibbonMetrics.position.value = RibbonPosition.bottom;
+      await pumpBar(t, app);
+
+      final p = t.widget<Positioned>(find.byType(Positioned));
+      expect(p.bottom,
+          BottomTabBar.floatingHeightFor(app) + RibbonMetrics.contentBottom);
+      expect(p.top, 0);
+    });
   });
 }
