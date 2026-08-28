@@ -1641,3 +1641,12 @@ Color? materialColorOfSolid(PartModel p, KernelSolid s) {
   }
   return null;
 }
+
+/// M284 — the colour appearance [id] would paint, as a [Color], or null for
+/// steel. A thin wrapper over [materialArgb] so a caller outside
+/// materials.dart (which stays free of Flutter's paint types, see its header)
+/// does not need its own import just to preview one swatch.
+Color? previewMaterialColor(String? id) {
+  final argb = materialArgb(id);
+  return argb == null ? null : Color(argb);
+}

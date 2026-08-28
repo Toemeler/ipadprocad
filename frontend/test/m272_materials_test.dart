@@ -182,6 +182,28 @@ void main() {
       expect(assemblyTint(a, o, hoverId: 'P:1'), T.faceHighlight.toARGB32());
     });
 
+    test('M284 — previewing a swatch beats the selection highlight, on the '
+        'SELECTED component only', () {
+      final a = AssemblyModel('A');
+      final sel = occ('P:1', material: 'red');
+      final other = occ('P:2', material: 'red');
+      a.occurrences.addAll([sel, other]);
+      a.selected = sel;
+
+      // Nothing previewed: the ordinary selection colour.
+      expect(assemblyTint(a, sel), T.faceHighlight.toARGB32());
+
+      // Previewing 'blue': the SELECTED component shows blue, not the wash.
+      expect(assemblyTint(a, sel, previewMaterial: 'blue'), materialArgb('blue'));
+
+      // An unselected component ignores the preview — it is not what the
+      // menu would act on — and keeps its own appearance.
+      expect(assemblyTint(a, other, previewMaterial: 'blue'), materialArgb('red'));
+
+      // Previewing steel shows the plain body, not the highlight either.
+      expect(assemblyTint(a, sel, previewMaterial: kMaterialSteel), 0);
+    });
+
     test('an unpainted component is still kNoTint, byte for byte', () {
       // The whole no-material path must be unchanged: kNoTint means the
       // renderer keeps its own steel material rather than being handed a
@@ -250,13 +272,70 @@ void main() {
       expect(app.canSetMaterial, isTrue);
 
       app.setSelectedMaterial('copper');
-      expect(app.selectedMaterial, 'copper');
+      expect(p.bodyMaterials['Solid1'], 'copper');
+
+      // M284 — the pick answers the question the selection was asking, so it
+      // clears the selection along with it. Re-selecting is one more tap on
+      // the body, same as any other re-selection.
+      expect(app.selectedBody, isNull);
+      expect(app.canSetMaterial, isFalse);
+      expect(app.selectedMaterial, isNull);
 
       // Steel is a row in the same menu, so "back to plain" is one tap — and
       // it REMOVES the entry rather than storing the word.
+      app.selectBody('Solid1');
       app.setSelectedMaterial(kMaterialSteel);
-      expect(app.selectedMaterial, isNull);
       expect(p.bodyMaterials.containsKey('Solid1'), isFalse);
+      expect(app.selectedBody, isNull);
+    });
+
+    test('picking the SAME appearance again still clears the selection', () async {
+      final app = _app();
+      await app.createNamedPart('P');
+      final p = app.currentPart!;
+      p.features.add(ExtrudeFeature(
+          name: 'Extrusion1',
+          bodyName: 'Solid1',
+          sketchName: 'S',
+          profiles: [ProfileSel(0, 0, 100)]));
+      p.bodyMaterials['Solid1'] = 'copper';
+      app.selectBody('Solid1');
+
+      app.setSelectedMaterial('copper');
+      expect(p.bodyMaterials['Solid1'], 'copper');
+      expect(app.selectedBody, isNull);
+    });
+
+    test('picking an appearance for a selected COMPONENT clears that '
+        'selection too', () async {
+      final app = _app();
+      await app.createNamedAssembly('A');
+      final a = app.currentAssembly!;
+      final o = AssemblyOccurrence(id: 'Bracket:1', source: 'Bracket');
+      a.occurrences.add(o);
+      a.selected = o;
+      expect(app.canSetMaterial, isTrue);
+
+      app.setSelectedMaterial('blue');
+      expect(o.material, 'blue');
+      expect(a.selected, isNull);
+      expect(app.canSetMaterial, isFalse);
+    });
+
+    test('hovering a swatch previews it, and clearing it restores steel', () {
+      final app = _app();
+      expect(app.previewMaterial, isNull);
+      app.setPreviewMaterial('brass');
+      expect(app.previewMaterial, 'brass');
+
+      // Moving to another row before the first one's exit fires must not let
+      // the stale exit erase the new hover.
+      app.setPreviewMaterial('green');
+      app.clearPreviewMaterial('brass');
+      expect(app.previewMaterial, 'green');
+
+      app.clearPreviewMaterial('green');
+      expect(app.previewMaterial, isNull);
     });
   });
 

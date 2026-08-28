@@ -199,10 +199,13 @@ class _ViewportAssemblyState extends State<ViewportAssembly>
       c.setScene(Perf.span(
           '3d.payload',
           () => buildAssemblyScenePayload(a,
-              hoverId: _hover?.id, knownRevs: _sentRevs)));
+              hoverId: _hover?.id,
+              previewMaterial: widget.app.previewMaterial,
+              knownRevs: _sentRevs)));
       _sentRevs = assemblySceneRevs(a);
     }
-    c.setOverlays(buildAssemblyOverlaysPayload(a, hoverId: _hover?.id));
+    c.setOverlays(buildAssemblyOverlaysPayload(a,
+        hoverId: _hover?.id, previewMaterial: widget.app.previewMaterial));
   }
 
   // ---- mesh refinement -----------------------------------------------------
@@ -1483,6 +1486,12 @@ class _AssemblyPainter extends CustomPainter {
     ];
     int indexOf(AssemblyOccurrence? o) =>
         o == null ? -1 : visible.indexWhere((v) => identical(v, o));
+    // M284 — while the appearance menu previews a swatch, the SELECTED
+    // component shows that colour instead of the highlight wash: `selected`
+    // goes to -1 (no wash, no accent edges) and materialOf answers with the
+    // preview colour for it, the CPU-painter twin of assemblyTint's rule.
+    final previewOn = app.previewMaterial;
+    final selIdx = indexOf(asm.selected);
     final occ = paintAssemblySolids(
       canvas,
       cam,
@@ -1490,12 +1499,15 @@ class _AssemblyPainter extends CustomPainter {
         for (final o in visible)
           PlacedComponent([for (final (_, at, s) in o.worldSolids) (at, s)])
       ],
-      selected: indexOf(asm.selected),
+      selected: previewOn != null ? -1 : selIdx,
       hovered: indexOf(hover),
       accentColor: kEdgeAccent,
       // M272 — the appearance each component was given, so this painter and
       // RealityKit show the same assembly.
       materialOf: (i) {
+        if (previewOn != null && i == selIdx) {
+          return previewMaterialColor(previewOn);
+        }
         final argb = materialArgb(visible[i].material);
         return argb == null ? null : Color(argb);
       },

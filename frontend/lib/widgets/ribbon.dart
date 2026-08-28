@@ -55,8 +55,14 @@ class OverItem {
   /// glyph modelled in the palette's own hues and exactly wrong for a colour
   /// that IS the value being chosen.
   final int? tint;
+
+  /// M284 — fires true on hover ENTER, false on hover EXIT. Only the
+  /// appearance menu sets it: the row lights up in the preview colour
+  /// instead of playing the ordinary flyHov background, and the render sees
+  /// it through [AppState.previewMaterial].
+  final void Function(bool)? onHover;
   const OverItem(this.icon, this.label, this.onTap,
-      {this.active = false, this.tint});
+      {this.active = false, this.tint, this.onHover});
 }
 
 /// The flyout lists, in the current language.
@@ -230,6 +236,11 @@ class _RibbonState extends State<Ribbon> {
     _fly?.remove();
     _fly = null;
     _flyId = null;
+    // M284 — a preview only means anything while its menu is open. Only the
+    // appearance menu ever sets one, so this is a no-op for every other
+    // flyout; it exists for the paths a swatch row's own onExit cannot
+    // reach — a tap that never hovered, or the tap-outside barrier.
+    widget.app.clearPreviewMaterialForce();
   }
 
   /// M205 — the barrier behind every flyout. A raw pointer DOWN, not a tap:
@@ -2426,8 +2437,14 @@ class _OverRowState extends State<_OverRow> {
   Widget build(BuildContext context) {
     final it = widget.item;
     return MouseRegion(
-      onEnter: (_) => setState(() => _h = true),
-      onExit: (_) => setState(() => _h = false),
+      onEnter: (_) {
+        setState(() => _h = true);
+        it.onHover?.call(true);
+      },
+      onExit: (_) {
+        setState(() => _h = false);
+        it.onHover?.call(false);
+      },
       child: GestureDetector(
         // opaque, or only the label text would be tappable (see _FlyRow)
         behavior: HitTestBehavior.opaque,
@@ -2654,6 +2671,11 @@ class _MaterialChipState extends State<_MaterialChip> {
           () => app.setSelectedMaterial(id),
           active: (cur ?? kMaterialSteel) == id,
           tint: materialArgb(id) ?? T.solid.toARGB32(),
+          // M284 — live preview: the selected body/component shows this
+          // swatch's colour, in place of the selection highlight, for as
+          // long as the pointer sits over the row.
+          onHover: (h) =>
+              h ? app.setPreviewMaterial(id) : app.clearPreviewMaterial(id),
         ),
     ];
   }

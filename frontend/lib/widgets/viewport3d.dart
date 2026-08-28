@@ -2652,18 +2652,30 @@ class _ScenePainter extends CustomPainter {
                     solids.any((s) => identical(s, f.solid)))
                   f.solid!
             ];
+      // M284 — while the appearance menu previews a swatch, the SELECTED
+      // body shows that colour instead of the highlight wash: the wash is
+      // skipped for it (selectedSolids drops it) and materialOf answers with
+      // the preview colour instead of the body's stored one, same trade the
+      // RealityKit side makes in _bodyRowTint.
+      final previewOn = app.previewMaterial;
+      final List<KernelSolid> previewSolids =
+          previewOn != null ? solidsOfBody(app.selectedBody) : const [];
       paintPartSolids(canvas, cam, solids,
           previewSolid: sess?.preview,
           highlightSolid: hoverFace?.$1,
           highlightFace: hoverFace?.$2 ?? -1,
           accentSolid: accentSolid,
           accentEdges: accent,
-          selectedSolids: solidsOfBody(app.selectedBody),
+          selectedSolids:
+              previewOn != null ? const [] : solidsOfBody(app.selectedBody),
           hoveredSolids: solidsOfBody(app.browserHoverBody),
           // M272 — and the appearance each body was given, so the CPU painter
           // and RealityKit show the same part. Keyed through the feature that
           // built the solid, because a material belongs to the BODY.
-          materialOf: (s) => materialColorOfSolid(part, s),
+          materialOf: (s) => previewOn != null &&
+                  previewSolids.any((x) => identical(x, s))
+              ? previewMaterialColor(previewOn)
+              : materialColorOfSolid(part, s),
           // M250 — the assembly around an in-place edit, in the same depth
           // pass as the part so the two occlude each other properly.
           context: context);

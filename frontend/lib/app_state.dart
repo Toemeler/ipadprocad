@@ -13671,28 +13671,72 @@ class AppState extends ChangeNotifier {
   /// on the timeline would mean an undo after painting a body silently threw
   /// away the extrusion before it. Re-picking steel is the undo, and it is one
   /// tap away in the same menu.
+  ///
+  /// M284 — and the pick DESELECTS. The selection highlight exists to answer
+  /// "what am I about to act on"; once the appearance menu has acted, holding
+  /// the blue wash over the very colour just picked would hide it. Painting a
+  /// second time is one more tap on the body, same as any other re-selection.
   void setSelectedMaterial(String? id) {
     final m = sanitiseMaterial(id);
     final a = currentAssembly;
     if (a != null) {
       final o = a.selected;
-      if (o == null || o.material == m) return;
-      o.material = m;
-      Log.i('asm', 'component "${o.id}" appearance = ${m ?? kMaterialSteel}');
-      if (curTab != null) saveAssembly(curTab!);
+      if (o == null) return;
+      if (o.material != m) {
+        o.material = m;
+        Log.i(
+            'asm', 'component "${o.id}" appearance = ${m ?? kMaterialSteel}');
+        if (curTab != null) saveAssembly(curTab!);
+      }
+      a.selected = null;
+      previewMaterial = null;
       notifyListeners();
       return;
     }
     final p = currentPart;
     final body = selectedBody;
     if (p == null || body == null) return;
-    if (p.bodyMaterials[body] == m) return;
-    // Removed rather than stored as 'steel', so an unpainted part's document
-    // is byte-identical to what it was before appearances existed.
-    m == null ? p.bodyMaterials.remove(body) : p.bodyMaterials[body] = m;
-    p.dirty = true;
-    Log.i('part', 'body "$body" appearance = ${m ?? kMaterialSteel}');
-    if (curTab != null) savePart(curTab!);
+    if (p.bodyMaterials[body] != m) {
+      // Removed rather than stored as 'steel', so an unpainted part's
+      // document is byte-identical to what it was before appearances existed.
+      m == null ? p.bodyMaterials.remove(body) : p.bodyMaterials[body] = m;
+      p.dirty = true;
+      Log.i('part', 'body "$body" appearance = ${m ?? kMaterialSteel}');
+      if (curTab != null) savePart(curTab!);
+    }
+    selectedBody = null;
+    previewMaterial = null;
+    notifyListeners();
+  }
+
+  /// M284 — the appearance under the pointer in the (still open) appearance
+  /// menu, or null when nothing is hovered. Read by the renderer in place of
+  /// the selection highlight, so hovering a swatch shows the body IN that
+  /// colour rather than under a blue wash a colour can't be judged through.
+  String? previewMaterial;
+
+  /// Called on hover ENTER for menu item [id].
+  void setPreviewMaterial(String id) {
+    if (previewMaterial == id) return;
+    previewMaterial = id;
+    notifyListeners();
+  }
+
+  /// Called on hover EXIT for menu item [id]. Only clears if [id] is still
+  /// the one being previewed — moving the pointer directly from one row to
+  /// the next must not let the old row's exit erase the new row's enter.
+  void clearPreviewMaterial(String id) {
+    if (previewMaterial != id) return;
+    previewMaterial = null;
+    notifyListeners();
+  }
+
+  /// Force-clears the preview regardless of which id set it. For the paths a
+  /// row's own hover exit cannot reach: the menu closing on a tap that never
+  /// hovered, or the tap-outside barrier dismissing it.
+  void clearPreviewMaterialForce() {
+    if (previewMaterial == null) return;
+    previewMaterial = null;
     notifyListeners();
   }
 

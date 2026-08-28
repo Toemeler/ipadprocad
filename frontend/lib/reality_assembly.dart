@@ -74,8 +74,20 @@ List<AssemblyPiece> assemblyPieces(AssemblyModel a) => [
 /// it — an assembly is picked by the body, so the body is what answers. The
 /// hover tone is the same hue mixed most of the way back to steel, so the two
 /// states are told apart at a glance without the hover shouting.
-int assemblyTint(AssemblyModel a, AssemblyOccurrence o, {String? hoverId}) {
-  if (identical(a.selected, o)) return T.faceHighlight.toARGB32();
+///
+/// M284 — [previewMaterial] wins over the selection highlight on the SELECTED
+/// component while the appearance menu is open, for the same reason as the
+/// part side's `_bodyRowTint`: a colour can't be judged through a wash over
+/// it. This file cannot read [AppState] (see the header note), so the value
+/// travels in as a plain string, same as [hoverId].
+int assemblyTint(AssemblyModel a, AssemblyOccurrence o,
+    {String? hoverId, String? previewMaterial}) {
+  if (identical(a.selected, o)) {
+    if (previewMaterial != null) {
+      return materialArgb(previewMaterial) ?? kNoTint;
+    }
+    return T.faceHighlight.toARGB32();
+  }
   if (hoverId != null && o.id == hoverId) {
     return (Color.lerp(T.solid, T.faceHighlight, 0.38) ?? T.faceHighlight)
         .toARGB32();
@@ -101,6 +113,7 @@ Map<String, int> assemblySceneRevs(AssemblyModel a) => {
 Map<String, dynamic> buildAssemblyScenePayload(
   AssemblyModel a, {
   String? hoverId,
+  String? previewMaterial,
   Map<String, int>? knownRevs,
 }) =>
     {
@@ -112,7 +125,8 @@ Map<String, dynamic> buildAssemblyScenePayload(
             at: at.at,
             rot: at.rot,
             mirror: at.reflect,
-            tint: assemblyTint(a, o, hoverId: hoverId),
+            tint: assemblyTint(a, o,
+                hoverId: hoverId, previewMaterial: previewMaterial),
             includeGeometry: knownRevs?[id] != identityHashCode(s.mesh),
           ),
       ],
@@ -133,7 +147,7 @@ Map<String, dynamic> buildAssemblyScenePayload(
 /// This is the drag path. It carries no geometry, no plane meshes and no
 /// camera work — just where every component sits and what colour it is.
 Map<String, dynamic> buildAssemblyOverlaysPayload(AssemblyModel a,
-        {String? hoverId}) =>
+        {String? hoverId, String? previewMaterial}) =>
     {
       'placements': [
         for (final (id, o, at, _) in assemblyPieces(a))
@@ -145,7 +159,8 @@ Map<String, dynamic> buildAssemblyOverlaysPayload(AssemblyModel a,
             // reflecting the buffers rather than scaling the holder: a
             // mirrored component's placement IS a rigid transform, so a drag
             // stays the transform write per frame this push exists to be.
-            'tint': assemblyTint(a, o, hoverId: hoverId),
+            'tint': assemblyTint(a, o,
+                hoverId: hoverId, previewMaterial: previewMaterial),
           },
       ],
       'planes': [

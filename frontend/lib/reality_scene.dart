@@ -928,12 +928,21 @@ bool _bodyIsHovered(AppState app, PartModel p, String featureId) {
 /// Feature-keyed like [_bodyIsHovered], and for the same reason: a body is the
 /// name several features build into, so the WHOLE body lights up rather than
 /// the one feature the row happens to sit over.
+///
+/// M284 — [AppState.previewMaterial] wins over the selection highlight on the
+/// SELECTED body while the appearance menu is open: hovering a swatch has to
+/// show what the body would actually look like, and a colour can't be judged
+/// through a translucent blue wash over it.
 int _bodyRowTint(AppState app, PartModel p, String featureId) {
   final sel = app.selectedBody;
   final hov = app.browserHoverBody;
   for (final f in p.features) {
     if (f.name != featureId) continue;
-    if (f.bodyName == sel) return T.faceHighlight.toARGB32();
+    if (f.bodyName == sel) {
+      final pv = app.previewMaterial;
+      if (pv != null) return materialArgb(pv) ?? kNoTint;
+      return T.faceHighlight.toARGB32();
+    }
     if (f.bodyName == hov) {
       return (Color.lerp(T.solid, T.faceHighlight, 0.38) ?? T.faceHighlight)
           .toARGB32();
