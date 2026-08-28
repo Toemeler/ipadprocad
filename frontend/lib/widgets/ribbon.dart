@@ -2743,9 +2743,15 @@ class _MaterialChipState extends State<_MaterialChip> {
     final chip = Container(
       padding: const EdgeInsets.fromLTRB(8, 6, 6, 6),
       decoration: BoxDecoration(
-        color: (_h && on) ? T.hover : T.field,
+        // A dropdown chip on the glass ribbon is a translucent wash, not the
+        // opaque dark "field" well: T.field reads as a hole punched into the
+        // liquid glass, and the hard T.sep edge is the same kind of seam the
+        // bar's own hairline is. The hover washes are the idiom _DropChip
+        // already uses, so the whole bar reads as one surface.
+        color: (_h && on) ? T.hover7 : T.hover6,
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: T.sep),
+        border: Border.all(
+            color: (_h && on) ? T.accent.withValues(alpha: 0.45) : T.border10),
       ),
       child: Row(mainAxisSize: MainAxisSize.min, children: [
         _Swatch(argb: materialArgb(cur) ?? T.solid.toARGB32()),
@@ -2803,9 +2809,11 @@ class _DisplayModeChipState extends State<_DisplayModeChip> {
     final chip = Container(
       padding: const EdgeInsets.fromLTRB(8, 6, 6, 6),
       decoration: BoxDecoration(
-        color: (_h && on) ? T.hover : T.field,
+        // Same glass wash as the material chip above, for the same reason.
+        color: (_h && on) ? T.hover7 : T.hover6,
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: T.sep),
+        border: Border.all(
+            color: (_h && on) ? T.accent.withValues(alpha: 0.45) : T.border10),
       ),
       // MainAxisSize.min and a FLOOR rather than a fixed width, for the same
       // two reasons _MaterialChip gives: the ribbon is a horizontal scrollable,
