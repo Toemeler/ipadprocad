@@ -875,7 +875,9 @@ class _Viewport3DState extends State<Viewport3D>
         // simply behind the glass).
         RibbonMetrics.build((_, top) => Positioned(
             top: top + 8,
-            right: 10,
+            // M284 — when the band docks RIGHT, the cube shifts LEFT with the
+            // quick-tool rail instead of sitting under the band.
+            right: 10 + RibbonMetrics.contentRight,
             child: ViewCube(
               camera: p.camera,
               onChanged: () => setState(() {}),
@@ -899,12 +901,18 @@ class _Viewport3DState extends State<Viewport3D>
         if (GlassBrowser.isSupported)
           ValueListenableBuilder<double>(
             valueListenable: NativeModelBrowser.occupied,
-            builder: (_, w, child) => Positioned(
-              left: w,
-              // M150 — the tab bar floats over the viewport now, so bottom: 0
-              // would put the triad behind it.
-              bottom: BottomTabBar.floatingHeight,
-              child: child!,
+            builder: (_, w, child) => RibbonMetrics.build(
+              (_, __) => Positioned(
+                // M284 — LEFT dock: the triad follows the model browser
+                // inward, so it sits beside the band, not under it.
+                left: w + RibbonMetrics.contentLeft,
+                // M150 — the tab bar floats over the viewport now, so bottom: 0
+                // would put the triad behind it. M284 — and BOTTOM dock lifts it
+                // above the band as well.
+                bottom: BottomTabBar.floatingHeight +
+                    RibbonMetrics.contentBottom,
+                child: child!,
+              ),
             ),
             child: IgnorePointer(
                 child: CustomPaint(
@@ -923,8 +931,10 @@ class _Viewport3DState extends State<Viewport3D>
           Positioned(
             left: 0,
             right: 0,
-            // M203 — above the floating tab bar, not behind it.
-            bottom: 44 + BottomTabBar.floatingHeight,
+            // M203 — above the floating tab bar, not behind it. M284 — and
+            // above the band when it docks BOTTOM.
+            bottom: 44 + BottomTabBar.floatingHeight +
+                RibbonMetrics.contentBottom,
             child: Center(
               child: Container(
                 padding:

@@ -68,6 +68,21 @@ class AppL10nDe extends AppL10n {
   String get settingsLanguage => 'Sprache';
 
   @override
+  String get settingsRibbon => 'Multifunktionsleiste';
+
+  @override
+  String get ribbonTop => 'Oben';
+
+  @override
+  String get ribbonBottom => 'Unten';
+
+  @override
+  String get ribbonLeft => 'Links';
+
+  @override
+  String get ribbonRight => 'Rechts';
+
+  @override
   String get settingsDiagnostics => 'Diagnose';
 
   @override

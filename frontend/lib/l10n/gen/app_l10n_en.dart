@@ -68,6 +68,21 @@ class AppL10nEn extends AppL10n {
   String get settingsLanguage => 'Language';
 
   @override
+  String get settingsRibbon => 'Ribbon';
+
+  @override
+  String get ribbonTop => 'Top';
+
+  @override
+  String get ribbonBottom => 'Bottom';
+
+  @override
+  String get ribbonLeft => 'Left';
+
+  @override
+  String get ribbonRight => 'Right';
+
+  @override
   String get settingsDiagnostics => 'Diagnostics';
 
   @override

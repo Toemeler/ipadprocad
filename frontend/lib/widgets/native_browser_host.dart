@@ -63,7 +63,7 @@ class NativeModelBrowser extends StatefulWidget {
   /// that was left behind rather than one that is standing clear.
   ///
   /// A notifier rather than app state: this is pure chrome geometry, the same
-  /// shape as [RibbonMetrics.bottom], and it must not end up in a document.
+  /// shape as [RibbonMetrics.extent], and it must not end up in a document.
   static final ValueNotifier<double> occupied =
       ValueNotifier<double>(occupiedWidth);
 

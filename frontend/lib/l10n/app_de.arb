@@ -84,6 +84,26 @@
   "@settingsLanguage": {
     "description": "Abschnittstitel der Sprachwahl."
   },
+  "settingsRibbon": "Multifunktionsleiste",
+  "@settingsRibbon": {
+    "description": "Abschnittstitel: wo die Multifunktionsleiste andockt."
+  },
+  "ribbonTop": "Oben",
+  "@ribbonTop": {
+    "description": "Multifunktionsleiste oben andocken (Standard, Flush-Band)."
+  },
+  "ribbonBottom": "Unten",
+  "@ribbonBottom": {
+    "description": "Multifunktionsleiste unten andocken."
+  },
+  "ribbonLeft": "Links",
+  "@ribbonLeft": {
+    "description": "Multifunktionsleiste links andocken (Seitenschiene)."
+  },
+  "ribbonRight": "Rechts",
+  "@ribbonRight": {
+    "description": "Multifunktionsleiste rechts andocken (Seitenschiene)."
+  },
   "settingsDiagnostics": "Diagnose",
   "@settingsDiagnostics": {
     "description": "Abschnittstitel: Fehler melden, Protokoll teilen."

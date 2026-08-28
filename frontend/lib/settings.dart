@@ -42,6 +42,7 @@ import 'dart:ui' show Locale;
 import 'backdrop.dart';
 import 'l10n/l.dart';
 import 'theme.dart';
+import 'widgets/ribbon_chrome.dart' show RibbonPosition;
 
 /// The user-visible name of an appearance. In the ARB, like every other
 /// string — [Palette.name] is 'Chalk'/'Ember', which are internal names.
@@ -52,6 +53,15 @@ String appearanceName(AppL10n t, AppThemeMode m) => switch (m) {
       AppThemeMode.system => t.appearanceSystem,
       AppThemeMode.light => t.appearanceLight,
       AppThemeMode.dark => t.appearanceDark,
+    };
+
+/// The user-visible name of a ribbon position. In the ARB, like every other
+/// string — the enum's own `name` is 'top'/'bottom'/'left'/'right'.
+String ribbonName(AppL10n t, RibbonPosition p) => switch (p) {
+      RibbonPosition.top => t.ribbonTop,
+      RibbonPosition.bottom => t.ribbonBottom,
+      RibbonPosition.left => t.ribbonLeft,
+      RibbonPosition.right => t.ribbonRight,
     };
 
 /// What a row is, which decides what UIKit builds for it.
@@ -139,6 +149,7 @@ class SettingsSection {
 const String kSecAppearance = 'appearance';
 const String kSecBackdrop = 'backdrop';
 const String kSecLanguage = 'language';
+const String kSecRibbon = 'ribbon';
 const String kSecDiagnostics = 'diagnostics';
 const String kSecAbout = 'about';
 
@@ -195,6 +206,9 @@ List<SettingsSection> buildSettings(
   /// M270 — the gallery's backdrop. Defaulted so every existing caller (and
   /// every test that pins the other four sections) keeps working unchanged.
   Backdrop backdrop = Backdrop.auto,
+  /// M284 — where the ribbon band is docked. Defaulted so existing callers
+  /// keep the flush top band.
+  RibbonPosition ribbon = RibbonPosition.top,
   /// False once the prototype's report-it-now affordance is retired
   /// (BugReport.enabled), and the whole section goes with it rather than
   /// leaving a header over nothing.
@@ -284,6 +298,23 @@ List<SettingsSection> buildSettings(
               title: L.stringsFor(l).languageName,
               kind: SettingsRowKind.check,
               selected: l.languageCode == locale.languageCode,
+            ),
+        ],
+      ),
+      // M284 — the ribbon band's dock. Four positions; the default is the
+      // flush top band (surface A). Placed after Language because it is an
+      // interface choice, before the Diagnostics/About that always close the
+      // screen.
+      SettingsSection(
+        id: kSecRibbon,
+        header: t.settingsRibbon,
+        rows: [
+          for (final p in RibbonPosition.values)
+            SettingsRow(
+              id: p.id,
+              title: ribbonName(t, p),
+              kind: SettingsRowKind.check,
+              selected: p == ribbon,
             ),
         ],
       ),

@@ -56,13 +56,19 @@ double _fieldTop(WidgetTester t) =>
     t.getTopLeft(find.byType(WorkPlaneOffsetField)).dy;
 
 void main() {
-  setUp(() => RibbonMetrics.bottom.value = 0);
-  tearDown(() => RibbonMetrics.bottom.value = 0);
+  setUp(() {
+    RibbonMetrics.extent.value = 0;
+    RibbonMetrics.resetForTest();
+  });
+  tearDown(() {
+    RibbonMetrics.extent.value = 0;
+    RibbonMetrics.resetForTest();
+  });
 
   group('M178 — the offset field clears the ribbon', () {
     testWidgets('it starts below the measured ribbon, not at the top edge',
         (t) async {
-      RibbonMetrics.bottom.value = 120;
+      RibbonMetrics.extent.value = 120;
       final app = _editingApp();
       await _pump(t, app);
       expect(_fieldTop(t), greaterThanOrEqualTo(RibbonMetrics.contentTop),
@@ -89,13 +95,13 @@ void main() {
       await _pump(t, app);
       expect(_fieldTop(t), 14);
 
-      RibbonMetrics.bottom.value = 96;
+      RibbonMetrics.extent.value = 96;
       await t.pump();
       expect(_fieldTop(t), 96 + RibbonMetrics.gap + 14);
     });
 
     testWidgets('a closed field still occupies nothing', (t) async {
-      RibbonMetrics.bottom.value = 120;
+      RibbonMetrics.extent.value = 120;
       final app = _editingApp();
       app.workPlaneOffsetEditing = false;
       await _pump(t, app);

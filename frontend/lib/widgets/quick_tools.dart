@@ -371,13 +371,17 @@ class QuickToolsBar extends StatelessWidget {
   final AppState app;
   const QuickToolsBar({super.key, required this.app});
 
-  /// Gap between the glass and the screen edge. Matches the ribbon's side
-  /// inset, so the right edge lines up with the left one.
-  static const double margin = RibbonMetrics.side;
+  /// Gap between the glass and the screen edge. Decoupled from the ribbon now
+  /// that the band is flush (surface A): the quick-tool rail is still a
+  /// floating pill, so it keeps a little air instead of running to the edge.
+  static const double margin = 14;
 
   /// Horizontal space the bar claims on the right of the content area, for
   /// anything else anchored there (the modeless Pattern and Fillet dialogs).
-  static double get occupiedWidth => GlassToolBar.width + margin;
+  /// Includes the ribbon band's width when it is docked RIGHT, so dialogs park
+  /// beside the shifted rail rather than under it.
+  static double get occupiedWidth =>
+      GlassToolBar.width + margin + RibbonMetrics.contentRight;
 
   @override
   Widget build(BuildContext context) {
@@ -390,9 +394,13 @@ class QuickToolsBar extends StatelessWidget {
       (_, top) => Positioned(
         top: top,
         // M271 — ...For, because this bar renders on the gallery too, where
-        // the tab bar is absent when nothing is open.
-        bottom: BottomTabBar.floatingHeightFor(app),
-        right: margin,
+        // the tab bar is absent when nothing is open. M284 — the bar also
+        // moves up when the band docks BOTTOM.
+        bottom: BottomTabBar.floatingHeightFor(app) +
+            RibbonMetrics.contentBottom,
+        // M284 — when the band docks RIGHT, the rail shifts LEFT out of its
+        // way; `margin` is the ordinary gap from the screen edge.
+        right: margin + RibbonMetrics.contentRight,
         // widthFactor 1 — WITHOUT it the Align expands to the whole stack
         // width, and a platform view eats every touch inside its frame: the
         // bar would have swallowed the viewport.

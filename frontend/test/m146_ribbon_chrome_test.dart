@@ -44,7 +44,10 @@ Future<void> pump(WidgetTester t, Widget w,
 }
 
 void main() {
-  setUp(() => RibbonMetrics.bottom.value = 0);
+  setUp(() {
+    RibbonMetrics.extent.value = 0;
+    RibbonMetrics.resetForTest();
+  });
 
   group('M146 surface', () {
     testWidgets('the ribbon still builds', (t) async {
@@ -72,22 +75,22 @@ void main() {
           T.panel);
     });
 
-    test('the card matches the model browser, not a look of its own', () {
-      // If the browser is restyled, the ribbon must be restyled WITH it. These
-      // are the two numbers that would otherwise drift apart unnoticed.
-      expect(RibbonMetrics.radius, 18);
-      // M150 — 28 gave up ~30 pt of ribbon at each end. The value matters less
-      // than the fact that all three panels use the SAME one.
-      expect(RibbonMetrics.pad.left, RibbonMetrics.side);
-      expect(RibbonMetrics.pad.left, RibbonMetrics.pad.right,
-          reason: 'the card is centred between the screen edges');
+    test('surface A is flush, not a floating card', () {
+      // M284 (surface A) — the band de-floats: no side inset, no corner
+      // radius, no shadow. These are the two numbers that used to drift
+      // toward the model browser's and now must both be zero.
+      expect(RibbonMetrics.radius, 0);
+      expect(RibbonMetrics.side, 0);
+      expect(RibbonMetrics.pad, EdgeInsets.zero,
+          reason: 'the band runs to the screen edge');
     });
 
     test('the glass is asked for its own corners', () {
-      // A platform view cannot be clipped from the Flutter side, so a floating
-      // card MUST pass a radius down or it ships with square corners.
+      // A platform view cannot be clipped from the Flutter side. Surface A is
+      // square, so the ribbon passes 0 and the browser fallback stays the
+      // full-bleed 0 it always was.
       expect(const GlassPanel(cornerRadius: RibbonMetrics.radius).cornerRadius,
-          18);
+          0);
       expect(const GlassPanel().cornerRadius, 0,
           reason: 'the browser fallback must stay full-bleed');
     });
@@ -116,20 +119,51 @@ void main() {
   });
 
   group('M146 metrics', () {
-    testWidgets('the ribbon publishes its own bottom edge', (t) async {
+    testWidgets('the ribbon publishes its own thickness', (t) async {
       await pump(t, Ribbon(app: makeApp()));
       await t.pump(); // let the post-frame report land
-      expect(RibbonMetrics.bottom.value, greaterThan(0));
-      // Everything that floats starts BELOW the card, with a gap.
+      expect(RibbonMetrics.extent.value, greaterThan(0));
+      // Everything that floats starts INSIDE the band, with a gap.
       expect(RibbonMetrics.contentTop,
-          RibbonMetrics.bottom.value + RibbonMetrics.gap);
+          RibbonMetrics.extent.value + RibbonMetrics.gap);
     });
 
     test('an unmeasured ribbon insets nothing', () {
       // Off iOS the ribbon keeps its own row in the Column, so overlays must
       // not be pushed down by a stale value.
-      RibbonMetrics.bottom.value = 0;
+      RibbonMetrics.extent.value = 0;
       expect(RibbonMetrics.contentTop, 0);
+    });
+
+    test('the per-edge insets follow the dock, one edge at a time', () {
+      RibbonMetrics.extent.value = 0;
+      RibbonMetrics.position.value = RibbonPosition.top;
+      expect(RibbonMetrics.contentInsets, EdgeInsets.zero);
+
+      RibbonMetrics.extent.value = 60;
+      RibbonMetrics.position.value = RibbonPosition.top;
+      expect(RibbonMetrics.contentTop, 60 + RibbonMetrics.gap);
+      expect(RibbonMetrics.contentRight, 0);
+      expect(RibbonMetrics.contentBottom, 0);
+      expect(RibbonMetrics.contentLeft, 0);
+
+      RibbonMetrics.position.value = RibbonPosition.right;
+      expect(RibbonMetrics.contentTop, 0);
+      expect(RibbonMetrics.contentRight, 60 + RibbonMetrics.gap);
+      expect(RibbonMetrics.contentBottom, 0);
+      expect(RibbonMetrics.contentLeft, 0);
+
+      RibbonMetrics.position.value = RibbonPosition.bottom;
+      expect(RibbonMetrics.contentBottom, 60 + RibbonMetrics.gap);
+      expect(RibbonMetrics.contentTop, 0);
+      expect(RibbonMetrics.contentRight, 0);
+      expect(RibbonMetrics.contentLeft, 0);
+
+      RibbonMetrics.position.value = RibbonPosition.left;
+      expect(RibbonMetrics.contentLeft, 60 + RibbonMetrics.gap);
+      expect(RibbonMetrics.contentTop, 0);
+      expect(RibbonMetrics.contentRight, 0);
+      expect(RibbonMetrics.contentBottom, 0);
     });
 
     testWidgets('RibbonMetrics.build rebuilds when the ribbon resizes',
@@ -141,7 +175,7 @@ void main() {
             return const SizedBox.shrink();
           }));
       expect(seen, 0);
-      RibbonMetrics.bottom.value = 100;
+      RibbonMetrics.extent.value = 100;
       await t.pump();
       expect(seen, 100 + RibbonMetrics.gap);
     });

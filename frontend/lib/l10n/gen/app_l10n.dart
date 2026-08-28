@@ -211,6 +211,36 @@ abstract class AppL10n {
   /// **'Sprache'**
   String get settingsLanguage;
 
+  /// Abschnittstitel: wo die Multifunktionsleiste andockt.
+  ///
+  /// In de, this message translates to:
+  /// **'Multifunktionsleiste'**
+  String get settingsRibbon;
+
+  /// Multifunktionsleiste oben andocken (Standard, Flush-Band).
+  ///
+  /// In de, this message translates to:
+  /// **'Oben'**
+  String get ribbonTop;
+
+  /// Multifunktionsleiste unten andocken.
+  ///
+  /// In de, this message translates to:
+  /// **'Unten'**
+  String get ribbonBottom;
+
+  /// Multifunktionsleiste links andocken (Seitenschiene).
+  ///
+  /// In de, this message translates to:
+  /// **'Links'**
+  String get ribbonLeft;
+
+  /// Multifunktionsleiste rechts andocken (Seitenschiene).
+  ///
+  /// In de, this message translates to:
+  /// **'Rechts'**
+  String get ribbonRight;
+
   /// Abschnittstitel: Fehler melden, Protokoll teilen.
   ///
   /// In de, this message translates to:

@@ -651,17 +651,19 @@ class _RibbonState extends State<Ribbon> {
     // means the whole menu is being rebuilt during a drag — which no duration
     // would reveal, because each individual build looks cheap.
     Perf.count('menu.ribbon.builds');
-    // M146 — the bar is a FLOATING glass card, not a bordered strip: padded
-    // in from the edges with the model browser's own inset and corner radius,
-    // with the viewport running behind and around it. The two blue borders are
-    // gone; a lit edge on a floating card is a seam looking for a wall.
+    // M146 (surface A, M284) — the bar is no longer a FLOATING card. It is a
+    // FLUSH band: no side inset, no corner radius, no shadow, just one hairline
+    // seam on the edge facing the viewport. The viewport still runs behind the
+    // glass; the band sits on the outermost edge of the content Stack and every
+    // floating panel stays above it.
+    final bool vertical = RibbonMetrics.isVertical;
     final content = SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      // The bar is only as wide as the screen and its panels routinely
-      // overflow, so the scroll must never be disabled by a shrink-wrapped
-      // parent. Explicit physics keeps the drag alive even when the content
-      // happens to fit, which is what makes the ribbon feel like a strip
-      // rather than a truncated row.
+      scrollDirection: vertical ? Axis.vertical : Axis.horizontal,
+      // The band is only as wide (or tall) as the screen and its panels
+      // routinely overflow, so the scroll must never be disabled by a
+      // shrink-wrapped parent. Explicit physics keeps the drag alive even when
+      // the content happens to fit, which is what makes the ribbon feel like a
+      // strip rather than a truncated row.
       physics: const AlwaysScrollableScrollPhysics(
           parent: BouncingScrollPhysics()),
       clipBehavior: Clip.hardEdge,
@@ -679,12 +681,47 @@ class _RibbonState extends State<Ribbon> {
         padding: RibbonMetrics.pad,
         child: Stack(
           children: [
-            // The glass, sized to the card by the content below it.
+            // The glass, sized to the band by the content below it.
             const Positioned.fill(child: RibbonSurface()),
+            _seam(),
             content,
           ],
         ),
       ),
+    );
+  }
+
+  /// The single hairline that separates the flush band from the viewport, on
+  /// the band's inner edge.
+  Widget _seam() {
+    final color = T.sep;
+    return switch (RibbonMetrics.dock) {
+      RibbonPosition.top => Positioned(
+          left: 0, right: 0, bottom: 0,
+          child: Container(height: 1, color: color)),
+      RibbonPosition.bottom => Positioned(
+          left: 0, right: 0, top: 0,
+          child: Container(height: 1, color: color)),
+      RibbonPosition.left => Positioned(
+          top: 0, bottom: 0, right: 0,
+          child: Container(width: 1, color: color)),
+      RibbonPosition.right => Positioned(
+          top: 0, bottom: 0, left: 0,
+          child: Container(width: 1, color: color)),
+    };
+  }
+
+  /// Lays the panels in a horizontal strip (top/bottom) or a vertical rail
+  /// (left/right). The horizontal form needs [IntrinsicHeight] so every panel
+  /// is as tall as the tallest and its own [Expanded] has a bound.
+  Widget _orient({required List<Widget> children}) {
+    if (RibbonMetrics.isVertical) {
+      return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch, children: children);
+    }
+    return IntrinsicHeight(
+      child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch, children: children),
     );
   }
 
@@ -694,8 +731,7 @@ class _RibbonState extends State<Ribbon> {
 
   Widget _homeRibbonInner(AppState app) {
     final t = L.of(context);
-    return IntrinsicHeight(
-      child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+    return _orient(children: [
         _panel(
           label: t.panelSketch,
           arrow: false,
@@ -706,8 +742,7 @@ class _RibbonState extends State<Ribbon> {
               label: t.btnCreateNewSketch,
               onTap: app.createNewSketch),
         ),
-      ]),
-    );
+    ]);
   }
 
 
@@ -782,8 +817,7 @@ class _RibbonState extends State<Ribbon> {
               ]),
         );
     final inPlace = app.inPlaceEdit;
-    return IntrinsicHeight(
-      child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+    return _orient(children: [
         // M250 — RETURN, and only while this part is being edited IN PLACE.
         //
         // Inventor puts Return at the far RIGHT of the tab; this ribbon
@@ -1023,8 +1057,7 @@ class _RibbonState extends State<Ribbon> {
             ),
           ),
         ),
-      ]),
-    );
+    ]);
   }
 
   Widget _sketchRibbon(AppState app) =>
@@ -1129,8 +1162,7 @@ class _RibbonState extends State<Ribbon> {
                 ]
               ]),
         );
-    return IntrinsicHeight(
-      child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+    return _orient(children: [
         // ---- Component: Place (wired) + Create -----------------------------
         _panel(
           label: t.panelComponent,
@@ -1371,8 +1403,7 @@ class _RibbonState extends State<Ribbon> {
             ),
           ),
         ),
-      ]),
-    );
+    ]);
   }
 
   /// True while the Place picker is up, so the button stays lit under it the
@@ -1448,8 +1479,7 @@ class _RibbonState extends State<Ribbon> {
 
   Widget _sketchRibbonInner(AppState app) {
     final t = L.of(context);
-    return IntrinsicHeight(
-      child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+    return _orient(children: [
         // 1. Layer
         _panel(
           label: t.panelLayer,
@@ -1727,8 +1757,7 @@ class _RibbonState extends State<Ribbon> {
                     ? app.finishPartSketch()
                     : app.finishEdit()),
           ),
-      ]),
-    );
+    ]);
   }
 
   static const _modToolOf = <String, Tool>{
@@ -1797,26 +1826,33 @@ class _RibbonState extends State<Ribbon> {
             ),
           )
         : titleRow;
+    final vertical = RibbonMetrics.isVertical;
+    final body = Padding(
+      padding: const EdgeInsets.fromLTRB(10, 6, 10, 2),
+      // A vertical rail has no [IntrinsicHeight] around the whole row of panels,
+      // so each panel supplies its own bounded height for its content's
+      // `stretch` rows; the panel title sits under it instead of beside it.
+      child: vertical ? IntrinsicHeight(child: child) : child,
+    );
+    final titlePad = Padding(
+      padding: const EdgeInsets.only(top: 3, bottom: 5),
+      child: title,
+    );
     return Container(
       decoration: first
           ? null
           : BoxDecoration(
-              border: Border(left: BorderSide(color: T.panelSep, width: 1))),
+              border: vertical
+                  ? Border(top: BorderSide(color: T.panelSep, width: 1))
+                  : Border(left: BorderSide(color: T.panelSep, width: 1))),
       padding: EdgeInsets.zero,
-      child: Column(
-        children: [
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(10, 6, 10, 2),
-              child: child,
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.only(top: 3, bottom: 5),
-            child: title,
-          ),
-        ],
-      ),
+      child: vertical
+          ? Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [body, titlePad],
+            )
+          : Column(children: [Expanded(child: body), titlePad]),
     );
   }
 }

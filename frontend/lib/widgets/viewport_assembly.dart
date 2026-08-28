@@ -720,7 +720,9 @@ class _ViewportAssemblyState extends State<ViewportAssembly>
         // ViewCube + Home, below the floating ribbon (M146).
         RibbonMetrics.build((_, top) => Positioned(
             top: top + 8,
-            right: 10,
+            // M284 — when the band docks RIGHT, the cube shifts LEFT with the
+            // quick-tool rail instead of sitting under the band.
+            right: 10 + RibbonMetrics.contentRight,
             child: ViewCube(
               camera: a.camera,
               onChanged: () => setState(() {}),
@@ -734,10 +736,16 @@ class _ViewportAssemblyState extends State<ViewportAssembly>
         if (GlassBrowser.isSupported)
           ValueListenableBuilder<double>(
             valueListenable: NativeModelBrowser.occupied,
-            builder: (_, w, child) => Positioned(
-              left: w,
-              bottom: BottomTabBar.floatingHeight,
-              child: child!,
+            builder: (_, w, child) => RibbonMetrics.build(
+              (_, __) => Positioned(
+                // M284 — LEFT dock: the triad follows the model browser
+                // inward, so it sits beside the band, not under it.
+                left: w + RibbonMetrics.contentLeft,
+                // M284 — BOTTOM dock lifts the triad above the band.
+                bottom: BottomTabBar.floatingHeight +
+                    RibbonMetrics.contentBottom,
+                child: child!,
+              ),
             ),
             child: IgnorePointer(
                 child: CustomPaint(
@@ -756,7 +764,9 @@ class _ViewportAssemblyState extends State<ViewportAssembly>
           Positioned(
             left: 0,
             right: 0,
-            bottom: 44 + BottomTabBar.floatingHeight,
+            // M284 — above the band when it docks BOTTOM.
+            bottom: 44 + BottomTabBar.floatingHeight +
+                RibbonMetrics.contentBottom,
             child: Center(
               child: Container(
                 padding:

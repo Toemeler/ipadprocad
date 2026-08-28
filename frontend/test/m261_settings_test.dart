@@ -68,6 +68,7 @@ void main() {
         kSecAppearance,
         kSecBackdrop,
         kSecLanguage,
+        kSecRibbon,
         kSecDiagnostics,
         kSecAbout
       ]);
@@ -167,7 +168,8 @@ void main() {
       // BugReport.enabled is the prototype switch. Dropping the rows and
       // keeping the header would leave a heading over nothing.
       final ids = _spec(diagnostics: false).map((s) => s.id).toList();
-      expect(ids, [kSecAppearance, kSecBackdrop, kSecLanguage, kSecAbout]);
+      expect(ids,
+          [kSecAppearance, kSecBackdrop, kSecLanguage, kSecRibbon, kSecAbout]);
     });
 
     test('Über reports the build and both kernels, read-only', () {
