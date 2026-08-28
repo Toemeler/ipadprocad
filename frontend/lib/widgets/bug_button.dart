@@ -50,11 +50,15 @@ class BugReport {
     if (text == null) return; // cancelled
     if (!context.mounted) return;
     await Future<void>.delayed(const Duration(milliseconds: 120));
-    final file = await captureBugReport(app, text);
+    final result = await captureBugReport(app, text);
     if (!context.mounted) return;
     await showDialog<void>(
       context: context,
-      builder: (_) => _ResultDialog(path: file?.path),
+      builder: (_) => _ResultDialog(
+        path: result.file?.path,
+        issueUrl: result.upload?.issueUrl,
+        uploadFailed: result.upload != null && !result.upload!.ok,
+      ),
     );
   }
 }
@@ -131,9 +135,11 @@ class _BugDialogState extends State<_BugDialog> {
 }
 
 class _ResultDialog extends StatelessWidget {
-  const _ResultDialog({required this.path});
+  const _ResultDialog({required this.path, this.issueUrl, this.uploadFailed = false});
 
   final String? path;
+  final String? issueUrl;
+  final bool uploadFailed;
 
   @override
   Widget build(BuildContext context) {
@@ -161,6 +167,15 @@ class _ResultDialog extends StatelessWidget {
               const SizedBox(height: 10),
               SelectableText(path!, style: ts(11, T.dim)),
             ],
+            if (issueUrl != null) ...[
+              const SizedBox(height: 10),
+              Text(L.of(context).msgBugUploaded, style: ts(12, T.dim)),
+              const SizedBox(height: 4),
+              SelectableText(issueUrl!, style: ts(11, T.dim)),
+            ] else if (uploadFailed) ...[
+              const SizedBox(height: 10),
+              Text(L.of(context).msgBugUploadFailed, style: ts(12, T.dim)),
+            ],
           ],
         ),
       ),
@@ -170,6 +185,12 @@ class _ResultDialog extends StatelessWidget {
             onPressed: () =>
                 Clipboard.setData(ClipboardData(text: path!)),
             child: Text(L.of(context).btnCopyPath, style: ts(13, T.text)),
+          ),
+        if (issueUrl != null)
+          TextButton(
+            onPressed: () =>
+                Clipboard.setData(ClipboardData(text: issueUrl!)),
+            child: Text(L.of(context).btnCopyIssueLink, style: ts(13, T.text)),
           ),
         FilledButton(
           onPressed: () => Navigator.of(context).pop(),

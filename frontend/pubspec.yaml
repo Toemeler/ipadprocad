@@ -20,6 +20,8 @@ dependencies:
   # localisations import it directly.
   intl: any
   ffi: ^2.1.0
+  # M285 — POSTs a bug bundle to the relay in relay/; see bug_upload.dart.
+  http: ^1.2.2
   # In-repo iOS plugin (real UIKit context menus / share sheet / Files export).
   # A path dependency, so CocoaPods picks it up from the generated Podfile just
   # like file_picker — no hand-written code in the CI-scaffolded Runner target.

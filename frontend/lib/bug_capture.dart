@@ -23,6 +23,7 @@ import 'app_state.dart';
 import 'gesture_trace.dart';
 import 'constraints.dart';
 import 'bug_report.dart';
+import 'bug_upload.dart';
 import 'ffi/occt_engine.dart';
 import 'log.dart';
 import 'part_model.dart';
@@ -152,11 +153,22 @@ String captureMeshReports(PartModel? p) {
   return b.toString();
 }
 
-/// Writes a bug bundle and returns the file, or null if it could not be
-/// written. Never throws.
+/// What one press of the bug button produced: the local file (or null if it
+/// could not be written) and, when a relay is configured, what came of
+/// trying to also hand it online.
+class BugCaptureResult {
+  const BugCaptureResult(this.file, this.upload);
+  final File? file;
+  final BugUploadResult? upload;
+}
+
+/// Writes a bug bundle, uploads it if a relay is configured, and returns
+/// both outcomes. Never throws — a bug reporter that fails a user's bug
+/// report is worse than none at all.
 ///
 /// [description] is what the user typed. Everything else is gathered here.
-Future<File?> captureBugReport(AppState app, String description) async {
+Future<BugCaptureResult> captureBugReport(
+    AppState app, String description) async {
   final when = DateTime.now();
   try {
     // Get the log on disk BEFORE reading it, or the bundle ships a log that
@@ -426,8 +438,9 @@ Future<File?> captureBugReport(AppState app, String description) async {
       }
     }
 
+    final stem = bundleStem(when);
     final dir = Directory('${_docsRoot(app)}/bugreports');
-    final out = writeBundle(dir, bundleStem(when), files,
+    final out = writeBundle(dir, stem, files,
         when: when,
         binaries: png == null ? const {} : {'screenshot.png': png});
     if (out == null) {
@@ -436,10 +449,27 @@ Future<File?> captureBugReport(AppState app, String description) async {
       Log.i('bug', 'bug bundle written: ${out.path} '
           '(${out.lengthSync()} bytes, ${files.length} members)');
     }
-    return out;
+
+    // Additive only: the local write above is already complete and durable
+    // by the time this runs, so a relay that is unconfigured, unreachable or
+    // erroring never changes what the user walks away with.
+    BugUploadResult? upload;
+    if (out != null && bugUploadConfigured) {
+      upload = await uploadBugReport(
+        zipBytes: out.readAsBytesSync(),
+        stem: stem,
+        description: description,
+      );
+      if (upload.ok) {
+        Log.i('bug', 'bug bundle uploaded: ${upload.issueUrl}');
+      } else {
+        Log.w('bug', 'bug bundle upload failed: ${upload.error}');
+      }
+    }
+    return BugCaptureResult(out, upload);
   } catch (e, st) {
     Log.e('bug', 'capture failed outright', e, st);
-    return null;
+    return const BugCaptureResult(null, null);
   }
 }
 

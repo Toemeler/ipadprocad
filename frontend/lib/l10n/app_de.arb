@@ -1567,6 +1567,10 @@
   "hintBugExample": "z. B. die obere Kante mit 2 mm verrundet, und die Wand ist verschwunden statt abgerundet zu werden",
   "btnSaveReport": "Bericht sichern",
   "btnCopyPath": "Pfad kopieren",
+  "btnCopyIssueLink": "Issue-Link kopieren",
+  "@btnCopyIssueLink": {
+    "description": "M285 — Knopf im Bug-Report-Ergebnisdialog, kopiert die GitHub-Issue-URL, die der Relay zurueckgegeben hat."
+  },
   "btnDirect": "Direkt",
   "@btnDirect": {
     "description": "Inventor DE: \"Direktbearbeitung\"; auf der Schaltflaeche steht die Kurzform, wie im Englischen auch.",
@@ -2535,6 +2539,14 @@
   "msgBugBundleFailed": "Das Paket ließ sich nicht schreiben. Das Protokoll enthält die Beschreibung noch, die Sitzung ist also nicht verloren — siehe die „bug“-Zeilen in prototype_log.txt.",
   "@msgBugBundleFailed": {
     "description": "prototype_log.txt und die Logmarke \"bug\" sind Dateiname und Logmarke — sie bleiben, wie sie auf der Platte stehen."
+  },
+  "msgBugUploaded": "Zusätzlich online abgelegt — eine KI kann direkt darauf zugreifen.",
+  "@msgBugUploaded": {
+    "description": "M285 — steht ueber dem Issue-Link im Ergebnisdialog, nur wenn ein Relay konfiguriert ist UND der Upload geklappt hat."
+  },
+  "msgBugUploadFailed": "Der Relay war nicht erreichbar — es gibt nur die lokale Kopie oben. Von Hand verschicken, oder es später erneut versuchen.",
+  "@msgBugUploadFailed": {
+    "description": "M285 — nur sichtbar, wenn ein Relay konfiguriert ist und der Versand fehlgeschlagen ist; die lokale Kopie existiert in jedem Fall, das hier ist rein zusaetzlich."
   },
   "hintPickBodyTapCancel": "Körper wählen… (zum Abbrechen tippen)",
   "lblSelectBodyIn3d": "Körper in 3D / im Browser wählen",
