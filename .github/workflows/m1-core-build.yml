@@ -753,7 +753,9 @@ jobs:
           flutter build ios --config-only --release --no-codesign \
             --build-name=0.1.${{ github.run_number }} \
             --build-number=${{ github.run_number }} \
-            --dart-define=GIT_SHA=${GITHUB_SHA::7}
+            --dart-define=GIT_SHA=${GITHUB_SHA::7} \
+            --dart-define=BUG_RELAY_URL=${{ vars.BUG_RELAY_URL }} \
+            --dart-define=BUG_RELAY_SECRET=${{ secrets.BUG_RELAY_SECRET }}
           if [ -f ios/Podfile ]; then
             sed -i '' "s/^# platform :ios.*/platform :ios, '14.0'/" ios/Podfile
             sed -i '' "s/^platform :ios.*/platform :ios, '14.0'/" ios/Podfile
@@ -916,7 +918,10 @@ jobs:
           flutter build ios --release --no-codesign \
             --build-name=0.1.${{ github.run_number }} \
             --build-number=${{ github.run_number }} \
-            --dart-define=GIT_SHA=${GITHUB_SHA::7} 2>&1 | tee ../ci-m5-build.log
+            --dart-define=GIT_SHA=${GITHUB_SHA::7} \
+            --dart-define=BUG_RELAY_URL=${{ vars.BUG_RELAY_URL }} \
+            --dart-define=BUG_RELAY_SECRET=${{ secrets.BUG_RELAY_SECRET }} \
+            2>&1 | tee ../ci-m5-build.log
 
       - name: Verify core is linked (M5 LINK CHECK) & package IPA
         working-directory: frontend
