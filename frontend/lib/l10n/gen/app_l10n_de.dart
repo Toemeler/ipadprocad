@@ -1949,6 +1949,9 @@ class AppL10nDe extends AppL10n {
   String get btnCopyPath => 'Pfad kopieren';
 
   @override
+  String get btnCopyIssueLink => 'Issue-Link kopieren';
+
+  @override
   String get btnDirect => 'Direkt';
 
   @override
@@ -3135,6 +3138,14 @@ class AppL10nDe extends AppL10n {
   @override
   String get msgBugSaved =>
       'Dateien-App > Auf meinem iPad > prototype > bugreports\nDie .zip verschicken — sie enthält alles Nötige; es muss keine Erklärung mitreisen.';
+
+  @override
+  String get msgBugUploaded =>
+      'Zusätzlich online abgelegt — eine KI kann direkt darauf zugreifen.';
+
+  @override
+  String get msgBugUploadFailed =>
+      'Der Relay war nicht erreichbar — es gibt nur die lokale Kopie oben. Von Hand verschicken, oder es später erneut versuchen.';
 
   @override
   String get msgBugBundleFailed =>

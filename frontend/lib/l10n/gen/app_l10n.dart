@@ -3181,6 +3181,12 @@ abstract class AppL10n {
   /// **'Pfad kopieren'**
   String get btnCopyPath;
 
+  /// M285 — Knopf im Bug-Report-Ergebnisdialog, kopiert die GitHub-Issue-URL, die der Relay zurueckgegeben hat.
+  ///
+  /// In de, this message translates to:
+  /// **'Issue-Link kopieren'**
+  String get btnCopyIssueLink;
+
   /// Inventor DE: "Direktbearbeitung"; auf der Schaltflaeche steht die Kurzform, wie im Englischen auch.
   ///
   /// In de, this message translates to:
@@ -5220,6 +5226,18 @@ abstract class AppL10n {
   /// In de, this message translates to:
   /// **'Das Paket ließ sich nicht schreiben. Das Protokoll enthält die Beschreibung noch, die Sitzung ist also nicht verloren — siehe die „bug“-Zeilen in prototype_log.txt.'**
   String get msgBugBundleFailed;
+
+  /// M285 — steht ueber dem Issue-Link im Ergebnisdialog, nur wenn ein Relay konfiguriert ist UND der Upload geklappt hat.
+  ///
+  /// In de, this message translates to:
+  /// **'Zusätzlich online abgelegt — eine KI kann direkt darauf zugreifen.'**
+  String get msgBugUploaded;
+
+  /// M285 — nur sichtbar, wenn ein Relay konfiguriert ist und der Versand fehlgeschlagen ist; die lokale Kopie existiert in jedem Fall, das hier ist rein zusaetzlich.
+  ///
+  /// In de, this message translates to:
+  /// **'Der Relay war nicht erreichbar — es gibt nur die lokale Kopie oben. Von Hand verschicken, oder es später erneut versuchen.'**
+  String get msgBugUploadFailed;
 
   /// No description provided for @hintPickBodyTapCancel.
   ///

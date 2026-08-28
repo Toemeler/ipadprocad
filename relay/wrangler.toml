@@ -1,0 +1,19 @@
+name = "ipadprocad-bug-relay"
+main = "worker.js"
+compatibility_date = "2024-09-01"
+
+[vars]
+REPO_OWNER = "toemeler"
+REPO_NAME = "ipadprocad"
+REPORT_BRANCH = "bug-reports"
+ISSUE_LABEL = "bug-report"
+
+# Secrets — set these with `wrangler secret put <NAME>`, never write them
+# here or anywhere else that gets committed:
+#
+#   GITHUB_TOKEN   A fine-grained PAT scoped to ONLY this repo, with
+#                  "Contents: Read and write" and "Issues: Read and write"
+#                  and nothing else. This process is the only place it lives.
+#
+#   SHARED_SECRET  Any string. An abuse throttle the app also sends as
+#                  BUG_RELAY_SECRET — optional; omit both to run with none.
