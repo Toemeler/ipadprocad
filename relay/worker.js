@@ -131,18 +131,36 @@ export default {
 async function ensureBranch(gh, owner, repo, branch) {
   const check = await gh(`/repos/${owner}/${repo}/git/ref/heads/${branch}`);
   if (check.ok) return;
+
   const repoRes = await gh(`/repos/${owner}/${repo}`);
+  if (!repoRes.ok) {
+    throw new Error(
+      `could not read repo ${owner}/${repo}: ${repoRes.status} ${await repoRes.text()}`,
+    );
+  }
   const repoJson = await repoRes.json();
   const base = repoJson.default_branch;
+
   const baseRef = await gh(`/repos/${owner}/${repo}/git/ref/heads/${base}`);
+  if (!baseRef.ok) {
+    throw new Error(
+      `could not read ref heads/${base}: ${baseRef.status} ${await baseRef.text()}`,
+    );
+  }
   const baseJson = await baseRef.json();
-  await gh(`/repos/${owner}/${repo}/git/refs`, {
+
+  const createRes = await gh(`/repos/${owner}/${repo}/git/refs`, {
     method: 'POST',
     body: JSON.stringify({
       ref: `refs/heads/${branch}`,
       sha: baseJson.object.sha,
     }),
   });
+  if (!createRes.ok) {
+    throw new Error(
+      `could not create branch ${branch}: ${createRes.status} ${await createRes.text()}`,
+    );
+  }
 }
 
 function sanitizeStem(s) {
