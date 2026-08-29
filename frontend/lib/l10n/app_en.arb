@@ -919,6 +919,7 @@
   "panelComponent": "Component",
   "viewShadedEdges": "Shaded + Edges",
   "viewRendered": "Rendered",
+  "viewFloor": "Display floor",
   "cubeSetFront": "Set Current View as Front",
   "cubeSetTop": "Set Current View as Top",
   "cubeResetFront": "Reset Front",

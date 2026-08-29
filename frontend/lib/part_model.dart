@@ -5462,6 +5462,13 @@ class PartModel {
   /// something you set once and want back when you reopen it.
   DisplayMode displayMode = DisplayMode.fallback;
 
+  /// M286 — whether the RENDERED floor is shown. A view setting like
+  /// [displayMode]: per document, remembered next to the camera, defaulting to
+  /// visible. The working views never draw a floor, so this only has meaning
+  /// while [displayMode] is rendered, but it is stored regardless so toggling
+  /// it off and reopening keeps the floor gone.
+  bool showFloor = true;
+
   /// M272 — the appearance assigned to each BODY, keyed by body name.
   ///
   /// On the body and not on the feature, because that is what the user picks:
@@ -5746,6 +5753,9 @@ class PartModel {
         // M273 — only when it is NOT the working view, same rule again: a part
         // nobody has switched writes what it always wrote.
         if (displayMode != DisplayMode.fallback) 'view': displayMode.id,
+        // M286 — written only when HIDDEN, so a document nobody has touched
+        // still writes what it always wrote. Default (visible) stays implicit.
+        if (!showFloor) 'floor': false,
         // M275 — only when front has been redefined, same rule as the rest.
         if (!cubeOrient.isIdentity) 'cube': cubeOrient.toJson(),
       };
@@ -5764,6 +5774,7 @@ class PartModel {
     // body carrying an unrenderable appearance would just look wrong, with
     // nothing on screen to say why.
     displayMode = DisplayMode.byId(j['view'] as String?) ?? DisplayMode.fallback;
+    showFloor = (j['floor'] as bool?) ?? true;
     cubeOrient = Quat.fromJson(j['cube']);
     (j['materials'] as Map?)?.forEach((k, v) {
       final m = sanitiseMaterial(v);

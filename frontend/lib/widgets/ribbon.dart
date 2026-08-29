@@ -1077,6 +1077,10 @@ class _RibbonState extends State<Ribbon> {
                 // panel because they are the same question asked twice: what
                 // the body looks like, and how the body is drawn.
                 _DisplayModeChip(app: app, onOpen: toggleOver),
+                if (app.displayMode.isRendered) ...[
+                  const SizedBox(height: 4),
+                  _FloorToggle(app: app),
+                ],
               ],
             ),
           ),
@@ -1423,6 +1427,10 @@ class _RibbonState extends State<Ribbon> {
                 // panel because they are the same question asked twice: what
                 // the body looks like, and how the body is drawn.
                 _DisplayModeChip(app: app, onOpen: toggleOver),
+                if (app.displayMode.isRendered) ...[
+                  const SizedBox(height: 4),
+                  _FloorToggle(app: app),
+                ],
               ],
             ),
           ),
@@ -2779,6 +2787,49 @@ class _MaterialChipState extends State<_MaterialChip> {
     );
   }
 }
+
+/// M286 — the floor toggle, shown only while the model is drawn in rendered
+/// mode. The working view never draws a floor, so a checkbox there would be a
+/// control that does nothing; the chip above only offers this row once
+/// `displayMode` is rendered. Same drawing as the rest of the app's check
+/// marks (see `asmCheckMark`), with the label kept short like every ribbon row.
+class _FloorToggle extends StatelessWidget {
+  final AppState app;
+  const _FloorToggle({required this.app});
+
+  @override
+  Widget build(BuildContext context) {
+    final t = L.of(context);
+    final on = app.showFloor;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => app.setShowFloor(!on),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Container(
+          width: 13,
+          height: 13,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: on ? T.accent : T.fly,
+            border: Border.all(color: on ? T.accent : T.panelSep),
+            borderRadius: BorderRadius.circular(2),
+          ),
+          child: on
+              ? const Icon(Icons.check, size: 10, color: Colors.white)
+              : null,
+        ),
+        const SizedBox(width: 5),
+        Flexible(
+          child: Text(t.viewFloor,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: ts(11, T.text)),
+        ),
+      ]),
+    );
+  }
+}
+
 
 /// M273 — the ribbon's display-mode control: the same chip as the material's,
 /// one row down.

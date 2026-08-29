@@ -831,6 +831,9 @@ Map<String, dynamic> buildScenePayload(AppState app, PartModel p,
     // edge overlay. One boolean, because it is one decision; every difference
     // it makes is the renderer's own.
     'render': p.displayMode.isRendered,
+    // M286 — the floor is only meaningful in rendered mode, but it is sent
+    // always so the renderer never has to guess between modes.
+    'floor': p.showFloor,
     'planes': _planePayloads(app, p, hover: hover),
     'axes': _axisPayloads(p, hover: hover),
     'cp': {'visible': p.vis['cp'] == true, 'hot': hover == 'cp'},
@@ -1067,6 +1070,8 @@ String sceneSignature(AppState app, PartModel p) {
     // overlay exists, so it is the heaviest rebuild there is.
     ..write(';view:')
     ..write(p.displayMode.id)
+    ..write(';floor:')
+    ..write(p.showFloor ? '1' : '0')
     ..write(';edit:')
     ..write(app.inEditMode ? (app.activeChild?.name ?? '?') : '')
     ..write(';sk:');

@@ -5611,6 +5611,12 @@ abstract class AppL10n {
   /// **'Gerendert'**
   String get viewRendered;
 
+  /// Kontrollkaestchen im Anzeigemodus-Band: blendet den gerenderten Boden ein/aus. Nur im gerenderten Modus sichtbar.
+  ///
+  /// In de, this message translates to:
+  /// **'Boden anzeigen'**
+  String get viewFloor;
+
   /// ViewCube-Menue: dreht den Wuerfel so, dass die aktuelle Ansicht die Vorderansicht wird. Inventor DE: "Aktuelle Ansicht als Vorne".
   ///
   /// In de, this message translates to:

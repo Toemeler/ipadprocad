@@ -160,6 +160,11 @@ final class PartRenderer: NSObject {
     /// top of setScene, like builtStyle, so every builder below it agrees.
     private var rendered = false
 
+    /// M286 — is the rendered FLOOR shown? Latched next to [rendered] for the
+    /// same reason, and only consulted where [rendered] already is. Defaults
+    /// to visible so a payload from before the checkbox keeps its floor.
+    private var showFloor = true
+
     /// M276 — the lowest point the model reaches in world Y, or +inf when the
     /// scene holds no solids. The rendered view's floor sits exactly on it.
     ///
@@ -637,6 +642,7 @@ final class PartRenderer: NSObject {
         // builder below reads it, so a scene comes out in ONE mode rather than
         // in whatever each call site recomputed.
         rendered = (a["render"] as? NSNumber)?.boolValue ?? false
+        showFloor = (a["floor"] as? NSNumber)?.boolValue ?? true
         sceneLowY = .greatestFiniteMagnitude
         // Latch the stroke for the whole rebuild BEFORE any of it runs: every
         // builder below reads builtStyle, so a scene comes out at one line
@@ -746,7 +752,7 @@ final class PartRenderer: NSObject {
     /// or the whole screen for the other. Parked slightly BELOW the lowest
     /// point so it never z-fights a body resting on the origin plane.
     private func applyGround() {
-        guard rendered else {
+        guard rendered, showFloor else {
             groundEntity?.removeFromParent()
             groundEntity = nil
             return

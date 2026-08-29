@@ -13768,6 +13768,33 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// M286 — whether the rendered floor is drawn. Only meaningful while
+  /// [displayMode] is rendered (the working views never draw a floor), but
+  /// the ribbon shows the checkbox only in rendered mode so this is never
+  /// reachable anywhere else.
+  bool get showFloor =>
+      currentAssembly?.showFloor ?? currentPart?.showFloor ?? true;
+
+  /// Toggles the floor, remembered in the document like [setDisplayMode].
+  void setShowFloor(bool on) {
+    final a = currentAssembly;
+    if (a != null) {
+      if (a.showFloor == on) return;
+      a.showFloor = on;
+      Log.i('asm', 'show floor = $on');
+      if (curTab != null) saveAssembly(curTab!);
+      notifyListeners();
+      return;
+    }
+    final p = currentPart;
+    if (p == null || p.showFloor == on) return;
+    p.showFloor = on;
+    p.dirty = true;
+    Log.i('part', 'show floor = $on');
+    if (curTab != null) savePart(curTab!);
+    notifyListeners();
+  }
+
   /// M97 — renames a body everywhere it is built.
   bool renameBody(String from, String to) {
     final p = currentPart;

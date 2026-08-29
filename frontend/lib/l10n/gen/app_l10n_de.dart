@@ -3140,16 +3140,16 @@ class AppL10nDe extends AppL10n {
       'Dateien-App > Auf meinem iPad > prototype > bugreports\nDie .zip verschicken — sie enthält alles Nötige; es muss keine Erklärung mitreisen.';
 
   @override
+  String get msgBugBundleFailed =>
+      'Das Paket ließ sich nicht schreiben. Das Protokoll enthält die Beschreibung noch, die Sitzung ist also nicht verloren — siehe die „bug“-Zeilen in prototype_log.txt.';
+
+  @override
   String get msgBugUploaded =>
       'Zusätzlich online abgelegt — eine KI kann direkt darauf zugreifen.';
 
   @override
   String get msgBugUploadFailed =>
       'Der Relay war nicht erreichbar — es gibt nur die lokale Kopie oben. Von Hand verschicken, oder es später erneut versuchen.';
-
-  @override
-  String get msgBugBundleFailed =>
-      'Das Paket ließ sich nicht schreiben. Das Protokoll enthält die Beschreibung noch, die Sitzung ist also nicht verloren — siehe die „bug“-Zeilen in prototype_log.txt.';
 
   @override
   String get hintPickBodyTapCancel => 'Körper wählen… (zum Abbrechen tippen)';
@@ -3372,6 +3372,9 @@ class AppL10nDe extends AppL10n {
 
   @override
   String get viewRendered => 'Gerendert';
+
+  @override
+  String get viewFloor => 'Boden anzeigen';
 
   @override
   String get cubeSetFront => 'Aktuelle Ansicht als Vorne';

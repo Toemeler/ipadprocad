@@ -2688,6 +2688,10 @@
   "@viewRendered": {
     "description": "Anzeigemodus: PBR-Materialien, Licht mit Schatten, keine Kanten. Bewusst nicht \"Raytracing\" — RealityKit rastert."
   },
+  "viewFloor": "Boden anzeigen",
+  "@viewFloor": {
+    "description": "Kontrollkaestchen im Anzeigemodus-Band: blendet den gerenderten Boden ein/aus. Nur im gerenderten Modus sichtbar."
+  },
   "cubeSetFront": "Aktuelle Ansicht als Vorne",
   "@cubeSetFront": {
     "description": "ViewCube-Menue: dreht den Wuerfel so, dass die aktuelle Ansicht die Vorderansicht wird. Inventor DE: \"Aktuelle Ansicht als Vorne\"."

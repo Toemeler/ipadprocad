@@ -118,6 +118,8 @@ Map<String, dynamic> buildAssemblyScenePayload(
       ],
       // M273 — see buildScenePayload.
       'render': a.displayMode.isRendered,
+      // M286 — see buildScenePayload.
+      'floor': a.showFloor,
       'planes': assemblyPlanePayloads(a),
       'axes': assemblyAxisPayloads(a),
       'cp': {'visible': a.vis['cp'] == true, 'hot': false},
@@ -225,6 +227,8 @@ String assemblySceneSignature(AssemblyModel a) {
     // because a selected component has always had to recolour on a drag.
     ..write(';view:')
     ..write(a.displayMode.id)
+    ..write(';floor:')
+    ..write(a.showFloor ? '1' : '0')
     ..write(';vis:');
   for (final k in const ['yz', 'xz', 'xy', 'x', 'y', 'z', 'cp']) {
     sb.write(a.vis[k] == true ? '1' : '0');

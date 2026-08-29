@@ -3103,15 +3103,16 @@ class AppL10nEn extends AppL10n {
       'Files app > On My iPad > prototype > bugreports\nSend the .zip — it contains everything needed; no explanation has to travel with it.';
 
   @override
-  String get msgBugUploaded => 'Also filed online — an AI can act on it directly.';
+  String get msgBugBundleFailed =>
+      'The bundle could not be written. The log still has the description, so the session is not lost — see the \"bug\" lines in prototype_log.txt.';
+
+  @override
+  String get msgBugUploaded =>
+      'Also filed online — an AI can act on it directly.';
 
   @override
   String get msgBugUploadFailed =>
       'Could not reach the relay — only the local copy above exists. Send it by hand, or try again once you have a connection.';
-
-  @override
-  String get msgBugBundleFailed =>
-      'The bundle could not be written. The log still has the description, so the session is not lost — see the \"bug\" lines in prototype_log.txt.';
 
   @override
   String get hintPickBodyTapCancel => 'Pick a body… (tap to cancel)';
@@ -3324,6 +3325,9 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get viewRendered => 'Rendered';
+
+  @override
+  String get viewFloor => 'Display floor';
 
   @override
   String get cubeSetFront => 'Set Current View as Front';
