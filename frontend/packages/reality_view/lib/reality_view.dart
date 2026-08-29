@@ -201,6 +201,18 @@ class RealityAppearance {
       // No plugin (host tests), or a host build without the method.
     }
   }
+
+  /// Sets the ground the RENDERED view draws under the model. Swallows
+  /// failures exactly like [setViewportColor]: a floor in last session's
+  /// colour is cosmetic, not a crash.
+  static Future<void> setFloorColor(int argb) async {
+    if (!RealityView.isSupported) return;
+    try {
+      await _channel.invokeMethod<void>('setFloorColor', {'argb': argb});
+    } catch (_) {
+      // No plugin (host tests), or a host build without the method.
+    }
+  }
 }
 
 class RealityThumbnailer {

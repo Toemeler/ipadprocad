@@ -128,6 +128,36 @@ final class RealityPartView: NSObject, FlutterPlatformView {
             #endif
         }
     }
+
+    /// The RENDERED view's floor, pushed from the palette like [viewportColor]
+    /// (M237's lesson: a frozen UIColor here is right in one scheme and wrong
+    /// in the other). Defaults to the old charcoal so an app launched before
+    /// the first palette push still renders a floor rather than none.
+    private(set) static var floorColor = UIColor(
+        red: 0x2A / 255.0, green: 0x2E / 255.0, blue: 0x33 / 255.0, alpha: 1)
+
+    /// Live renderers whose floor must be repainted when the palette changes.
+    /// Weak, so a torn-down viewport drops out on its own. `AnyObject` rather
+    /// than `PartRenderer`, because the renderer is iOS 15+ and this class is
+    /// not.
+    private static let liveRenderers = NSHashTable<AnyObject>.weakObjects()
+
+    static func trackRenderer(_ r: AnyObject) {
+        liveRenderers.add(r)
+    }
+
+    /// Applies a new floor colour to every live rendered view, now.
+    static func setFloorColor(_ c: UIColor) {
+        assert(Thread.isMainThread, "floor colour must be applied on the main thread")
+        floorColor = c
+        #if canImport(RealityKit)
+        if #available(iOS 15.0, *) {
+            for r in liveRenderers.allObjects {
+                (r as? PartRenderer)?.applyGround()
+            }
+        }
+        #endif
+    }
 }
 
 // ===========================================================================
@@ -292,6 +322,7 @@ final class PartRenderer: NSObject {
         arView.isUserInteractionEnabled = false
         if tracked {
             RealityPartView.trackBackground(arView)
+            RealityPartView.trackRenderer(self)
         }
         arView.environment.background = .color(RealityPartView.viewportColor)
 
@@ -751,7 +782,7 @@ final class PartRenderer: NSObject {
     /// bracket and a 400 mm frame, and a floor that fits one is either invisible
     /// or the whole screen for the other. Parked slightly BELOW the lowest
     /// point so it never z-fights a body resting on the origin plane.
-    private func applyGround() {
+    func applyGround() {
         guard rendered, showFloor else {
             groundEntity?.removeFromParent()
             groundEntity = nil
@@ -786,20 +817,17 @@ final class PartRenderer: NSObject {
         if let g = groundEntity {
             g.position = SIMD3<Float>(0, drop, 0)
             g.scale = SIMD3<Float>(repeating: side / 100)
+            // Re-tint rather than rebuild: the floor's colour is pushed from
+            // the palette and must follow a scheme change, while the mesh is
+            // the same 100 x 100 plane as before.
+            g.model?.materials = [Self.groundMaterial()]
             return
         }
-        var m = PhysicallyBasedMaterial()
-        // Darker than the viewport ground and fully rough: the floor is there
-        // to CATCH a shadow, and anything it does beyond that competes with
-        // the model for attention.
-        m.baseColor = .init(tint: Colors.rgb(0x2A, 0x2E, 0x33))
-        m.roughness = .init(floatLiteral: 1.0)
-        m.metallic = .init(floatLiteral: 0.0)
         // 100 x 100 once, then scaled: MeshResource.generatePlane allocates a
         // mesh, and re-generating one every scene rebuild for a floor whose
         // only change is its size is an upload nobody asked for.
         let mesh = MeshResource.generatePlane(width: 100, depth: 100)
-        let e = ModelEntity(mesh: mesh, materials: [m])
+        let e = ModelEntity(mesh: mesh, materials: [Self.groundMaterial()])
         // generatePlane already lies in the XZ plane with its normal along +Y,
         // which is the floor this world wants (see commonInit on the up axis).
         // No rotation: turning it a quarter turn would stand it on edge beside
@@ -808,6 +836,22 @@ final class PartRenderer: NSObject {
         e.scale = SIMD3<Float>(repeating: side / 100)
         root.addChild(e)
         groundEntity = e
+    }
+
+    /// The floor's PBR material, in the palette's colour.
+    ///
+    /// Fully rough and non-metallic: the floor is there to CATCH a shadow, and
+    /// anything it does beyond that competes with the model for attention. The
+    /// colour comes from [RealityPartView.floorColor], pushed from the palette
+    /// — a frozen UIColor here would be right in one scheme and wrong in the
+    /// other, which is exactly how the browser's icons came to vanish against
+    /// a charcoal floor under Chalk's cream chrome.
+    private static func groundMaterial() -> RealityKit.Material {
+        var m = PhysicallyBasedMaterial()
+        m.baseColor = .init(tint: RealityPartView.floorColor)
+        m.roughness = .init(floatLiteral: 1.0)
+        m.metallic = .init(floatLiteral: 0.0)
+        return m
     }
 
     /// The material a solid gets, for the current mode and tint.

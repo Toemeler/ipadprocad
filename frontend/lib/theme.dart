@@ -90,6 +90,14 @@ class Palette {
   final Color accent; // selection, active tab, focus ring
   final Color hover; // halo under hovered / pre-selected geometry
   final Color viewport; // the drawing ground
+  /// The rendered view's floor, the ground plane the model sits on.
+  ///
+  /// Distinct from [viewport]: in the rendered view the model is lit and
+  /// shadowed, and a shadow needs a surface a step away from the background
+  /// to land on. It follows the scheme for the same reason [viewport] does —
+  /// a frozen charcoal floor is the dark island under Chalk's cream chrome
+  /// that the model browser's icons vanish against.
+  final Color floor;
   final Color ribbonTop; // ribbon active-tab gradient, top stop
   final Color ribbonBottom; // ... and bottom stop
   final Color panelSep; // soft separator inside a panel, control borders
@@ -230,6 +238,7 @@ class Palette {
     required this.accent,
     required this.hover,
     required this.viewport,
+    required this.floor,
     required this.ribbonTop,
     required this.ribbonBottom,
     required this.panelSep,
@@ -340,6 +349,7 @@ const Palette kEmber = Palette(
   accent: Color(0xFF2FA9A2),
   hover: Color(0xFF74D6CE),
   viewport: Color(0xFF201D19),
+  floor: Color(0xFF2A2E33),
   ribbonTop: Color(0xD92FA9A2),
   ribbonBottom: Color(0x732FA9A2),
   panelSep: Color(0xFF3A342D),
@@ -454,6 +464,7 @@ const Palette kChalk = Palette(
   accent: Color(0xFF0F6A70),
   hover: Color(0xFF7FC9C4),
   viewport: Color(0xFFFCFBF8),
+  floor: Color(0xFFE8E5DF),
   ribbonTop: Color(0xD90F6A70),
   ribbonBottom: Color(0x730F6A70),
   panelSep: Color(0xFFE3E0D9),
@@ -725,6 +736,7 @@ class T {
     final dark = p.brightness == Brightness.dark;
     NativeMenu.setAppearance(dark: dark);
     RealityAppearance.setViewportColor(p.viewport.toARGB32());
+    RealityAppearance.setFloorColor(p.floor.toARGB32());
   }
 
   /// Resets the switch so one test cannot leak its palette into the next.
@@ -747,6 +759,7 @@ class T {
   static Color get accent => scheme.value.accent;
   static Color get hover => scheme.value.hover;
   static Color get viewport => scheme.value.viewport;
+  static Color get floor => scheme.value.floor;
   static Color get ribbonTop => scheme.value.ribbonTop;
   static Color get ribbonBottom => scheme.value.ribbonBottom;
   static Color get panelSep => scheme.value.panelSep;

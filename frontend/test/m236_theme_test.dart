@@ -174,6 +174,24 @@ void main() {
       expect(_lum(kEmber.panel), lessThan(_lum(kEmber.text)));
     });
 
+    test('the rendered floor follows the scheme, not a frozen charcoal', () {
+      // The floor is what the RENDERED view draws under the model, and where
+      // the model browser's icons sit. It used to be a fixed charcoal — right
+      // on Ember, a dark island under Chalk's cream chrome — which is how the
+      // icons stopped switching colour with the ground behind them.
+      expect(_lum(kEmber.floor), lessThan(0.1),
+          reason: 'the Ember floor must stay dark for its light icons');
+      expect(_lum(kChalk.floor), greaterThan(0.6),
+          reason: 'the Chalk floor must be light for its dark icons');
+      // A step away from the viewport in BOTH schemes, so it reads as a
+      // ground plane rather than vanishing into the background — and still
+      // catches the shadow it exists to catch.
+      expect(_cr(kEmber.floor, kEmber.viewport), greaterThan(1.15),
+          reason: 'the Ember floor must read against the Ember viewport');
+      expect(_cr(kChalk.floor, kChalk.viewport), greaterThan(1.15),
+          reason: 'the Chalk floor must read against the Chalk viewport');
+    });
+
     test('the neutral overlays flip polarity between the schemes', () {
       // A white 6% wash is invisible on cream — the single most likely way to
       // ship a broken light mode.

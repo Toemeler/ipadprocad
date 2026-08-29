@@ -32,17 +32,26 @@ extension RealityViewPlugin {
             name: "prototype/reality_view/appearance",
             binaryMessenger: registrar.messenger())
         channel.setMethodCallHandler { call, result in
-            guard call.method == "setViewportColor",
-                  let a = call.arguments as? [String: Any],
-                  let argb = a["argb"] as? NSNumber
-            else { return result(FlutterMethodNotImplemented) }
-            let v = argb.uint32Value
-            RealityPartView.setViewportColor(UIColor(
-                red: CGFloat((v >> 16) & 0xFF) / 255.0,
-                green: CGFloat((v >> 8) & 0xFF) / 255.0,
-                blue: CGFloat(v & 0xFF) / 255.0,
-                alpha: CGFloat((v >> 24) & 0xFF) / 255.0))
-            result(nil)
+            switch call.method {
+            case "setViewportColor", "setFloorColor":
+                guard let a = call.arguments as? [String: Any],
+                      let argb = a["argb"] as? NSNumber
+                else { return result(FlutterMethodNotImplemented) }
+                let v = argb.uint32Value
+                let color = UIColor(
+                    red: CGFloat((v >> 16) & 0xFF) / 255.0,
+                    green: CGFloat((v >> 8) & 0xFF) / 255.0,
+                    blue: CGFloat(v & 0xFF) / 255.0,
+                    alpha: CGFloat((v >> 24) & 0xFF) / 255.0)
+                if call.method == "setViewportColor" {
+                    RealityPartView.setViewportColor(color)
+                } else {
+                    RealityPartView.setFloorColor(color)
+                }
+                result(nil)
+            default:
+                result(FlutterMethodNotImplemented)
+            }
         }
     }
 }
