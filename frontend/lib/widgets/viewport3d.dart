@@ -904,8 +904,10 @@ class _Viewport3DState extends State<Viewport3D>
             builder: (_, w, child) => RibbonMetrics.build(
               (_, __) => Positioned(
                 // M284 — LEFT dock: the triad follows the model browser
-                // inward, so it sits beside the band, not under it.
-                left: w + RibbonMetrics.contentLeft,
+                // inward, so it sits beside the band, not under it. Retracted,
+                // [NativeModelBrowser.triadInset] returns it to the border.
+                left: NativeModelBrowser.triadInset(w) +
+                    RibbonMetrics.contentLeft,
                 // M150 — the tab bar floats over the viewport now, so bottom: 0
                 // would put the triad behind it. M284 — and BOTTOM dock lifts it
                 // above the band as well.

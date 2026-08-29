@@ -51,6 +51,24 @@ class NativeModelBrowser extends StatefulWidget {
   static const double _narrowCard = 56;
   static const double _handleStrip = 24;
 
+  /// The panel's width when retracted: the glyph column plus the retract
+  /// strip. The only [occupied] figure where the glass slab is gone (M199)
+  /// and the bottom-left corner is clear.
+  static const double collapsedWidth = _narrowCard + _handleStrip;
+
+  /// How far right the coordinate triad must sit to clear the panel's OPAQUE
+  /// footprint, rather than its whole widget width.
+  ///
+  /// M207 made the triad follow [occupied]; but retracted, the glass slab is
+  /// gone and only the glyph column at the TOP of the card remains, so there
+  /// is nothing at the bottom-left to clear. The report asked for the triad
+  /// "right next to the left border": below the retracted width it returns to
+  /// the corner instead of hovering [collapsedWidth] points out in open space.
+  /// Wide — or mid-morph, when the plate is still on screen (M262) — the full
+  /// footprint stands.
+  static double triadInset(double occupied) =>
+      occupied == collapsedWidth ? 0 : occupied;
+
   /// M207 — what the panel claims RIGHT NOW, which is what the coordinate
   /// triad follows.
   ///

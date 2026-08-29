@@ -739,8 +739,10 @@ class _ViewportAssemblyState extends State<ViewportAssembly>
             builder: (_, w, child) => RibbonMetrics.build(
               (_, __) => Positioned(
                 // M284 — LEFT dock: the triad follows the model browser
-                // inward, so it sits beside the band, not under it.
-                left: w + RibbonMetrics.contentLeft,
+                // inward, so it sits beside the band, not under it. Retracted,
+                // [NativeModelBrowser.triadInset] returns it to the border.
+                left: NativeModelBrowser.triadInset(w) +
+                    RibbonMetrics.contentLeft,
                 // M284 — BOTTOM dock lifts the triad above the band.
                 bottom: BottomTabBar.floatingHeight +
                     RibbonMetrics.contentBottom,
