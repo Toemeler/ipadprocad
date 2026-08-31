@@ -463,9 +463,9 @@ class TestGrepExpand(unittest.TestCase):
     def test_grep_finds_every_site(self):
         chunks = self.index.grep('frontend/lib/theme.dart', ['accent'])
         text = '\n'.join('\n'.join(b) for _, b in chunks)
-        self.assertIn('final Color accent;', text)
-        self.assertIn('accent: Color(0xFF2FA9A2)', text)
-        self.assertIn('accent: Color(0xFF0F6A70)', text)
+        self.assertIn('final Color rawAccent;', text)
+        self.assertIn('rawAccent: Color(0xFF2FA9A2)', text)
+        self.assertIn('rawAccent: Color(0xFF0F6A70)', text)
 
     def test_grep_is_bounded(self):
         chunks = self.index.grep('frontend/lib/app_state.dart', ['the'],
@@ -489,8 +489,8 @@ class TestGrepExpand(unittest.TestCase):
             self.index,
             [edits_mod.Expand('frontend/lib/theme.dart', 'accent colour')],
             'accent', set())
-        self.assertIn('accent: Color(0xFF2FA9A2)', text)
-        self.assertIn('accent: Color(0xFF0F6A70)', text)
+        self.assertIn('rawAccent: Color(0xFF2FA9A2)', text)
+        self.assertIn('rawAccent: Color(0xFF0F6A70)', text)
 
     def test_stop_words_do_not_become_needles(self):
         import run
@@ -587,9 +587,9 @@ class PinnedFileTest(unittest.TestCase):
         for start, lines in chunks:
             shown.update(range(start, start + len(lines)))
         text = '\n'.join(l for _, ls in chunks for l in ls)
-        self.assertIn('final Color accent;', text)
-        self.assertIn('accent: Color(0xFF2FA9A2)', text)   # kChalk
-        self.assertIn('accent: Color(0xFF0F6A70)', text)   # kEmber
+        self.assertIn('final Color rawAccent;', text)
+        self.assertIn('rawAccent: Color(0xFF2FA9A2)', text)   # kChalk
+        self.assertIn('rawAccent: Color(0xFF0F6A70)', text)   # kEmber
         self.assertIn('static Color get accent', text)
         self.assertTrue(shown)
 
@@ -608,14 +608,14 @@ class PinnedFileTest(unittest.TestCase):
         idx.texts = {'x.dart': '\n'.join([
             '// the accent is a petrol teal',      # 1  comment
             '// and it is used for selection',     # 2
-            'final Color accent;',                 # 3  declaration
+            'final Color rawAccent;',                 # 3  declaration
         ] + ['// filler'] * 40 + [
             'accent: Color(0xFF2FA9A2),',          # 44
         ])}
         idx.doc_freq = {}
         chunks = idx.grep('x.dart', ('accent',), radius=6, max_sites=8)
         text = '\n'.join(l for _, ls in chunks for l in ls)
-        self.assertIn('final Color accent;', text)
+        self.assertIn('final Color rawAccent;', text)
         self.assertIn('accent: Color(0xFF2FA9A2),', text)
 
 
@@ -645,13 +645,15 @@ class ValueRowsSurviveTest(unittest.TestCase):
         import rank
         cls.index = rank.Index()
 
-    WANT = ('final Color accent;',
-            'accent: Color(0xFF2FA9A2)',     # kEmber
-            'accent: Color(0xFF0F6A70)',     # kChalk
-            'static Color get accent')
+    WANT = ('final Color rawAccent;',              # what it is
+            'rawAccent: Color(0xFF2FA9A2)',          # kEmber's value
+            'rawAccent: Color(0xFF0F6A70)',          # kChalk's value
+            'Color get accent => _tinted',           # where the override lives
+            'static Color get accent')               # the facade all 450 read
 
-    def test_the_value_rows_survive_every_budget(self):
-        for sites in (10, 12, 16, 24):
+    def test_the_value_rows_survive_the_budget_and_above(self):
+        import pack
+        for sites in (pack.PINNED_SITES, 20, 24, 32):
             chunks = self.index.grep('frontend/lib/theme.dart', ('accent',),
                                      radius=6, max_sites=sites)
             text = '\n'.join(l for _, ls in chunks for l in ls)

@@ -141,6 +141,79 @@ void main() {
       });
     }
 
+    // Bug report #11's SECOND round. The accent became the user's choice and
+    // only `accent` itself followed, so the tick and the selection moved while
+    // the card highlight, the tab underline, the ribbon wash and the sketch
+    // nodes stayed the palette's teal — eight tokens that ARE the accent at
+    // another alpha, and one app in two accents at once.
+    //
+    // The fix compares rather than lists, so nothing has to be remembered. THIS
+    // asserts the comparison is wired to every getter that needs it, by reading
+    // the palettes rather than trusting a list here either: a ninth token that
+    // becomes the accent tomorrow fails this test by name.
+    // Bug report #11 took THREE attempts, and the first two both leaked in the
+    // same way: the override was put somewhere a reader could go around.
+    // Overriding `T.accent` left eight tokens that are the accent at another
+    // alpha; overriding the `T` getters too still left the gallery, because
+    // `galleryChrome` hands widgets a `Palette` and `home_view` reads
+    // `g.cardHoverBorder` straight off it.
+    //
+    // It lives on `Palette` now, so there is nowhere to go around. This
+    // asserts the rule reaches every token that needs it, by READING the
+    // palettes rather than trusting a list here either: a token that becomes
+    // the accent tomorrow fails this test by name.
+    test('every token that IS the accent follows the accent choice', () {
+      final src = File('lib/theme.dart').readAsStringSync();
+      // The authored value is `rawX`; the getter that re-tints it is `X`.
+      final getters = <String, Color Function(Palette)>{
+        'rawAccent': (p) => p.accent,
+        'rawRibbonTop': (p) => p.ribbonTop,
+        'rawRibbonBottom': (p) => p.ribbonBottom,
+        'rawTabUnderline': (p) => p.tabUnderline,
+        'rawCardHoverBorder': (p) => p.cardHoverBorder,
+        'rawConActiveBg': (p) => p.conActiveBg,
+        'rawConActiveBorder': (p) => p.conActiveBorder,
+        'rawChipStrong': (p) => p.chipStrong,
+        'rawNode': (p) => p.node,
+      };
+
+      for (final (name, palette) in [('kChalk', kChalk), ('kEmber', kEmber)]) {
+        final body = RegExp('const Palette $name = Palette\\((.*?)\\n\\);',
+                dotAll: true)
+            .firstMatch(src)!
+            .group(1)!;
+        final rows = <String, int>{};
+        for (final m
+            in RegExp(r'(\w+): Color\(0x([0-9A-Fa-f]{8})\)').allMatches(body)) {
+          rows[m.group(1)!] = int.parse(m.group(2)!, radix: 16);
+        }
+        final base = rows['rawAccent']! & 0xFFFFFF;
+        final want = rows.keys.where((k) => rows[k]! & 0xFFFFFF == base);
+
+        expect(want, isNotEmpty, reason: 'the parse found nothing in $name');
+        expect(want.where((w) => !getters.containsKey(w)), isEmpty,
+            reason: '$name has tokens that ARE the accent and do not follow '
+                'it. Give them a `_tinted` getter on Palette, and list them '
+                'here.');
+
+        T.palette = palette;
+        T.setAccent(Accent.magenta);
+        final chosen = Accent.magenta.on(palette)!.toARGB32() & 0xFFFFFF;
+        for (final w in want) {
+          final got = getters[w]!(palette).toARGB32();
+          expect(got & 0xFFFFFF, chosen, reason: '$name.$w kept the old teal');
+          expect(got >> 24, rows[w]! >> 24,
+              reason: '$name.$w lost its own alpha — ribbonTop is a wash, not '
+                  'a slab');
+        }
+        T.setAccent(Accent.scheme);
+        for (final w in want) {
+          expect(getters[w]!(palette).toARGB32(), rows[w],
+              reason: '$name.$w did not go back');
+        }
+      }
+    });
+
     for (final p in [kChalk, kEmber]) {
       test('${p.name}: text clears $kMinText:1', () {
         check(p, 'text', kMinText, text(p));
@@ -421,6 +494,29 @@ void main() {
           parse('#${RegExp(r'#([0-9a-fA-F]{6})').firstMatch(s)!.group(1)!}');
       expect(_lum(only(onLight)), lessThan(_lum(only(onDark))),
           reason: 'a light stop must become a DARK one on paper');
+    });
+
+    test('the cache follows the accent, not just the palette', () {
+      // Bug report #11, second round: "it doesnt change most of the things
+      // like icons". `themedIcon` cached on `identical(_cachedFor, T.palette)`,
+      // and the accent override deliberately does NOT build a new Palette — it
+      // re-tints at the getter — so that check stayed true across a change of
+      // accent and every icon kept the colour it was first rendered in.
+      //
+      // The blue band is the one that maps to the accent (see `_map`), so an
+      // authored blue is what moves when the accent does.
+      const blue = '<path fill="#4a9eda"/>'; // hue ~205, inside the accent band
+      T.palette = kEmber;
+      T.setAccent(Accent.scheme);
+      final before = themedIcon(blue);
+      T.setAccent(Accent.magenta);
+      final after = themedIcon(blue);
+      expect(after, isNot(before),
+          reason: 'the icon set must be re-tinted when the accent changes');
+
+      // And going back is not a stale hit either.
+      T.setAccent(Accent.scheme);
+      expect(themedIcon(blue), before);
     });
 
     test('orange stays annotation and never becomes an error colour', () {

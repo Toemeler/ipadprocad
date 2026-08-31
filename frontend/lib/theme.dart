@@ -87,7 +87,7 @@ class Palette {
   final Color text; // primary text
   final Color dim; // secondary text and labels
   final Color sep; // hard separator, darkest/lightest hairline
-  final Color accent; // selection, active tab, focus ring
+  final Color rawAccent; // selection, active tab, focus ring
   final Color hover; // halo under hovered / pre-selected geometry
   final Color viewport; // the drawing ground
   /// The rendered view's floor, the ground plane the model sits on.
@@ -98,8 +98,8 @@ class Palette {
   /// a frozen charcoal floor is the dark island under Chalk's cream chrome
   /// that the model browser's icons vanish against.
   final Color floor;
-  final Color ribbonTop; // ribbon active-tab gradient, top stop
-  final Color ribbonBottom; // ... and bottom stop
+  final Color rawRibbonTop; // ribbon active-tab gradient, top stop
+  final Color rawRibbonBottom; // ... and bottom stop
   final Color panelSep; // soft separator inside a panel, control borders
 
   // ---- model browser ----
@@ -120,12 +120,12 @@ class Palette {
   final Color tabBg;
   final Color tabOnBg;
   final Color tabText;
-  final Color tabUnderline;
+  final Color rawTabUnderline;
 
   // ---- home ----
   final Color cardBg;
   final Color cardBorder;
-  final Color cardHoverBorder;
+  final Color rawCardHoverBorder;
   final Color homeH1;
   final Color cardName;
   final Color cardDate;
@@ -152,14 +152,14 @@ class Palette {
   final Color hover7;
   final Color hover8;
   final Color border10;
-  final Color conActiveBg;
-  final Color conActiveBorder;
+  final Color rawConActiveBg;
+  final Color rawConActiveBorder;
 
   // ---- dialogs and controls ----
   final Color scrim; // behind a modal
   final Color shadow; // drop shadow under a floating panel
   final Color chipBg; // an active chip / segment, accent-tinted fill
-  final Color chipStrong; // a primary button at rest
+  final Color rawChipStrong; // a primary button at rest
   final Color onAccent; // text and icons ON chipStrong or accent
   final Color disabled; // disabled text and icons
   final Color disabledFill; // a disabled primary button
@@ -182,7 +182,7 @@ class Palette {
   final Color snapOk; // snap markers and alignment guides
   final Color grid; // grid dots
   final Color axis; // the world axes through the origin
-  final Color node; // a draggable grip / control point
+  final Color rawNode; // a draggable grip / control point
 
   // Inventor colours a sketch entity by its CONSTRAINT STATE, and the three
   // states have to stay tellable apart on both grounds: fully defined reads as
@@ -235,12 +235,12 @@ class Palette {
     required this.text,
     required this.dim,
     required this.sep,
-    required this.accent,
+    required this.rawAccent,
     required this.hover,
     required this.viewport,
     required this.floor,
-    required this.ribbonTop,
-    required this.ribbonBottom,
+    required this.rawRibbonTop,
+    required this.rawRibbonBottom,
     required this.panelSep,
     required this.mbBg,
     required this.mbHead,
@@ -257,10 +257,10 @@ class Palette {
     required this.tabBg,
     required this.tabOnBg,
     required this.tabText,
-    required this.tabUnderline,
+    required this.rawTabUnderline,
     required this.cardBg,
     required this.cardBorder,
-    required this.cardHoverBorder,
+    required this.rawCardHoverBorder,
     required this.homeH1,
     required this.cardName,
     required this.cardDate,
@@ -278,12 +278,12 @@ class Palette {
     required this.hover7,
     required this.hover8,
     required this.border10,
-    required this.conActiveBg,
-    required this.conActiveBorder,
+    required this.rawConActiveBg,
+    required this.rawConActiveBorder,
     required this.scrim,
     required this.shadow,
     required this.chipBg,
-    required this.chipStrong,
+    required this.rawChipStrong,
     required this.onAccent,
     required this.disabled,
     required this.disabledFill,
@@ -300,7 +300,7 @@ class Palette {
     required this.snapOk,
     required this.grid,
     required this.axis,
-    required this.node,
+    required this.rawNode,
     required this.dofFull,
     required this.dofUnder,
     required this.refDim,
@@ -332,6 +332,49 @@ class Palette {
     required this.cubeEdge,
     required this.cubeText,
   });
+
+  // ---- the accent, and everything that IS the accent (bug report #11) ----
+  //
+  // WHY THESE ARE GETTERS OVER `raw*` FIELDS.
+  //
+  // The accent became the user's choice, and the first two attempts at that
+  // both leaked. Overriding `T.accent` alone left EIGHT tokens behind — the
+  // card's hover border, the tab underline, the ribbon wash, the constraint
+  // fill, the sketch nodes — because each is the accent stored again at
+  // another alpha. Overriding the `T` getters too still left the gallery,
+  // because `galleryChrome` hands widgets a `Palette` and `home_view` reads
+  // `g.cardHoverBorder` off it directly, never touching `T`.
+  //
+  // A value that can be overridden must be overridden where it LIVES. Here,
+  // every reader gets the same answer: `T.cardHoverBorder`, `g.cardHoverBorder`
+  // and a palette pulled out of `galleryChrome` cannot disagree, and a widget
+  // written tomorrow cannot pick the wrong one.
+  //
+  // The rule is a COMPARISON, not a list: a token whose RGB matches this
+  // palette's own accent follows the choice, one that does not is left alone.
+  // A list would go stale the first time a palette changed a token, silently
+  // and in exactly the way this comment exists to describe.
+  //
+  // The alpha stays the TOKEN'S. That is the difference between `ribbonTop` as
+  // a wash and `ribbonTop` as a slab.
+  Color _tinted(Color c) {
+    final chosen = T.accentChoice.value.on(this);
+    if (chosen == null) return c;
+    if (c.r != rawAccent.r || c.g != rawAccent.g || c.b != rawAccent.b) {
+      return c;
+    }
+    return chosen.withValues(alpha: c.a);
+  }
+
+  Color get accent => _tinted(rawAccent);
+  Color get ribbonTop => _tinted(rawRibbonTop);
+  Color get ribbonBottom => _tinted(rawRibbonBottom);
+  Color get tabUnderline => _tinted(rawTabUnderline);
+  Color get cardHoverBorder => _tinted(rawCardHoverBorder);
+  Color get conActiveBg => _tinted(rawConActiveBg);
+  Color get conActiveBorder => _tinted(rawConActiveBorder);
+  Color get chipStrong => _tinted(rawChipStrong);
+  Color get node => _tinted(rawNode);
 }
 
 /// EMBER — warm brown charcoal. The dark scheme.
@@ -346,12 +389,12 @@ const Palette kEmber = Palette(
   text: Color(0xFFEDE6D9),
   dim: Color(0xFFA09686),
   sep: Color(0xFF141210),
-  accent: Color(0xFF2FA9A2),
+  rawAccent: Color(0xFF2FA9A2),
   hover: Color(0xFF74D6CE),
   viewport: Color(0xFF201D19),
   floor: Color(0xFF2A2E33),
-  ribbonTop: Color(0xD92FA9A2),
-  ribbonBottom: Color(0x732FA9A2),
+  rawRibbonTop: Color(0xD92FA9A2),
+  rawRibbonBottom: Color(0x732FA9A2),
   panelSep: Color(0xFF3A342D),
   mbBg: Color(0xFF2A2621),
   mbHead: Color(0xFF322D27),
@@ -368,10 +411,10 @@ const Palette kEmber = Palette(
   tabBg: Color(0xFF24211D),
   tabOnBg: Color(0xFF2C2823),
   tabText: Color(0xFFA09686),
-  tabUnderline: Color(0xFF2FA9A2),
+  rawTabUnderline: Color(0xFF2FA9A2),
   cardBg: Color(0xFF2C2823),
   cardBorder: Color(0xFF1B1815),
-  cardHoverBorder: Color(0xFF2FA9A2),
+  rawCardHoverBorder: Color(0xFF2FA9A2),
   homeH1: Color(0xFFF2ECE0),
   cardName: Color(0xFFEDE6D9),
   cardDate: Color(0xFFA09686),
@@ -389,12 +432,12 @@ const Palette kEmber = Palette(
   hover7: Color(0x12FFFFFF),
   hover8: Color(0x14FFFFFF),
   border10: Color(0x1AFFFFFF),
-  conActiveBg: Color(0x2E2FA9A2),
-  conActiveBorder: Color(0x8C2FA9A2),
+  rawConActiveBg: Color(0x2E2FA9A2),
+  rawConActiveBorder: Color(0x8C2FA9A2),
   scrim: Color(0x73000000),
   shadow: Color(0x8C000000),
   chipBg: Color(0xFF1E4A48),
-  chipStrong: Color(0xFF237E79),
+  rawChipStrong: Color(0xFF237E79),
   onAccent: Color(0xFFF2FBFA),
   disabled: Color(0xFF7A7267),
   disabledFill: Color(0xFF232E2C),
@@ -411,7 +454,7 @@ const Palette kEmber = Palette(
   snapOk: Color(0xFF6FC96A),
   grid: Color(0xFF3A342D),
   axis: Color(0xFF4A443B),
-  node: Color(0xFF2FA9A2),
+  rawNode: Color(0xFF2FA9A2),
   dofFull: Color(0xFFFBF7EF),
   dofUnder: Color(0xFFA79BF7),
   refDim: Color(0xFF5C5851),
@@ -461,12 +504,12 @@ const Palette kChalk = Palette(
   text: Color(0xFF1C1E20),
   dim: Color(0xFF5C6165),
   sep: Color(0xFFD9D6CF),
-  accent: Color(0xFF0F6A70),
+  rawAccent: Color(0xFF0F6A70),
   hover: Color(0xFF7FC9C4),
   viewport: Color(0xFFFCFBF8),
   floor: Color(0xFFE8E5DF),
-  ribbonTop: Color(0xD90F6A70),
-  ribbonBottom: Color(0x730F6A70),
+  rawRibbonTop: Color(0xD90F6A70),
+  rawRibbonBottom: Color(0x730F6A70),
   panelSep: Color(0xFFE3E0D9),
   mbBg: Color(0xFFF5F4F0),
   mbHead: Color(0xFFEDEBE6),
@@ -483,10 +526,10 @@ const Palette kChalk = Palette(
   tabBg: Color(0xFFEFEDE8),
   tabOnBg: Color(0xFFFCFBF8),
   tabText: Color(0xFF545A5E),
-  tabUnderline: Color(0xFF0F6A70),
+  rawTabUnderline: Color(0xFF0F6A70),
   cardBg: Color(0xFFFFFFFF),
   cardBorder: Color(0xFFE3E0D9),
-  cardHoverBorder: Color(0xFF0F6A70),
+  rawCardHoverBorder: Color(0xFF0F6A70),
   homeH1: Color(0xFF16181A),
   cardName: Color(0xFF1C1E20),
   cardDate: Color(0xFF63686C),
@@ -504,12 +547,12 @@ const Palette kChalk = Palette(
   hover7: Color(0x0D000000),
   hover8: Color(0x12000000),
   border10: Color(0x1A000000),
-  conActiveBg: Color(0x240F6A70),
-  conActiveBorder: Color(0x8C0F6A70),
+  rawConActiveBg: Color(0x240F6A70),
+  rawConActiveBorder: Color(0x8C0F6A70),
   scrim: Color(0x40000000),
   shadow: Color(0x1F000000),
   chipBg: Color(0xFFD2E3E1),
-  chipStrong: Color(0xFF0F6A70),
+  rawChipStrong: Color(0xFF0F6A70),
   onAccent: Color(0xFFF4FAF9),
   disabled: Color(0xFF878D91),
   disabledFill: Color(0xFFE0E4E3),
@@ -526,7 +569,7 @@ const Palette kChalk = Palette(
   snapOk: Color(0xFF26762F),
   grid: Color(0xFFE6E3DC),
   axis: Color(0xFFD2CEC5),
-  node: Color(0xFF0F6A70),
+  rawNode: Color(0xFF0F6A70),
   dofFull: Color(0xFF16181A),
   dofUnder: Color(0xFF5A4CC4),
   refDim: Color(0xFFA8ADB0),
@@ -606,7 +649,7 @@ enum Accent {
 
   /// The swatch the settings row draws. [scheme] shows what it will actually
   /// give you, which is the palette's own accent rather than a blank.
-  Color swatchOn(Palette p) => on(p) ?? p.accent;
+  Color swatchOn(Palette p) => on(p) ?? p.rawAccent;
 
   static Accent? byId(Object? s) {
     for (final a in Accent.values) {
@@ -843,8 +886,11 @@ class T {
   static void _pushAccent() {
     final a = accentChoice.value;
     NativeMenu.setAccent(
-      light: (a.light ?? kChalk.accent).toARGB32(),
-      dark: (a.dark ?? kEmber.accent).toARGB32(),
+      // `rawAccent`, not `accent`: the getter is the OVERRIDDEN value, and
+      // asking it for the fallback would be asking the answer to define
+      // itself. `Accent.scheme` means "whatever each palette authored".
+      light: (a.light ?? kChalk.rawAccent).toARGB32(),
+      dark: (a.dark ?? kEmber.rawAccent).toARGB32(),
     );
   }
 
@@ -869,8 +915,8 @@ class T {
   /// The accent, after the user's choice (#11). `Accent.scheme` returns null
   /// and the palette's own colour stands, which is what every install had
   /// before the setting existed.
-  static Color get accent =>
-      accentChoice.value.on(scheme.value) ?? scheme.value.accent;
+  static Color get accent => scheme.value.accent;
+
   static Color get hover => scheme.value.hover;
   static Color get viewport => scheme.value.viewport;
   static Color get floor => scheme.value.floor;

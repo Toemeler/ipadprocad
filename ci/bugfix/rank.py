@@ -463,25 +463,51 @@ class Index:
             #   3. everything else that mentioned it.
             def tier(i):
                 line = lines[i]
-                if re.match(rf'\s*{re.escape(needle_word)}\s*:', line):
+                # A const-constructor row, `<name>: <value>`. The NAME is
+                # identifier-split rather than compared whole: theme.dart's
+                # value rows are `rawAccent: Color(0x…)` since the accent
+                # became overridable, and a literal match stopped seeing the
+                # very lines this tier exists to keep.
+                row = re.match(r'\s*(\w+)\s*:\s*\S', line)
+                if row and needle_word in split_identifier(row.group(1)):
                     return 0
-                whole = needle_word in re.findall(r'\w+', line.lower())
-                return 1 if DECL_RE.match(line) and whole else 2
+                # Identifier-split here too, and for the same reason: the
+                # field is `final Color rawAccent;`, so a plain word match saw
+                # `rawaccent` and not `accent`, and the declaration a reader
+                # needs in order to know what the value rows ARE never made the
+                # slice at any budget.
+                return (1 if DECL_RE.match(line)
+                        and needle_word in split_identifier(line) else 2)
 
             needle_word = (ordered[0] if ordered else '').lower()
+            # EVERY TIER KEEPS A SEAT. A tier that oversubscribes leaves one
+            # site for each non-empty tier below it, so the answer shows every
+            # KIND of place rather than every instance of the loudest kind.
+            #
+            # Without that, theme.dart's eighteen `raw…: Color(0x…)` value rows
+            # — nine per palette, once the accent became overridable — filled
+            # the budget on their own and pushed out `final Color rawAccent;`,
+            # the declaration a reader needs to know what any of them are.
+            pools = [[i for i in rows if tier(i) == level] for level in (0, 1, 2)]
             picked, room = [], max_sites
-            for level in (0, 1, 2):
-                pool = [i for i in rows if tier(i) == level]
+            for at, pool in enumerate(pools):
                 if not pool or room <= 0:
                     continue
-                if len(pool) <= room:
+                # A QUARTER of what is left, per non-empty tier below, not a
+                # single seat. One seat made the result depend on where the
+                # stride happened to land — 12 sites showed the getters, 14
+                # did not, 16 did again — and a budget that has to be lucky is
+                # a budget nobody can reason about.
+                reserve = sum(max(1, room // 4) for later in pools[at + 1:]
+                              if later)
+                take = min(len(pool), max(1, room - reserve))
+                if take >= len(pool):
                     picked += pool
-                    room -= len(pool)
-                    continue
-                span = len(pool) - 1
-                picked += [pool[round(k * span / (room - 1))] if room > 1
-                           else pool[0] for k in range(room)]
-                room = 0
+                else:
+                    span = len(pool) - 1
+                    picked += [pool[round(k * span / (take - 1))] if take > 1
+                               else pool[0] for k in range(take)]
+                room -= take
             rows = sorted(set(picked))
         wanted = set()
         for i in rows:

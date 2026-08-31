@@ -778,8 +778,8 @@ class SoughtSymbolTest(unittest.TestCase):
                                  self.LOG, 'accent colour settings',
                                  ['frontend/lib/theme.dart'])
         self.assertIn('static Color get accent', text)
-        self.assertIn('final Color accent;', text)
-        self.assertIn('accent: Color(0x', text)
+        self.assertIn('final Color rawAccent;', text)
+        self.assertIn('rawAccent: Color(0x', text)
 
 
 class PostPushTest(unittest.TestCase):
@@ -1423,3 +1423,28 @@ class GuardedExitTest(unittest.TestCase):
                                side_effect=OSError('github is down')), \
              mock.patch('sys.argv', ['run.py', '--issue', '11']):
             self.assertEqual(run.guarded(), 1)
+
+
+class DerivedValueRuleTest(unittest.TestCase):
+    """Bug report #11 needed three attempts and both misses were the same shape.
+
+    A value stored twice has to be changed twice, and in this repo the second
+    copy is invisible: nine tokens per palette ARE the accent at another alpha,
+    written as their own hex. And an override put at a READER is skipped by
+    every other reader — `galleryChrome` hands out a `Palette`, so `T.x` is not
+    the only door.
+    """
+
+    def test_the_duplicate_value_rule_is_in_the_cached_prefix(self):
+        import pack
+        rules = pack.house_rules()
+        self.assertIn('STORED TWICE', rules)
+        self.assertIn('rawCardHoverBorder', rules)
+        self.assertIn('m236_theme_test', rules)
+
+    def test_the_override_where_it_lives_rule_is_stated(self):
+        import pack
+        rules = pack.house_rules()
+        self.assertIn('WHERE IT LIVES', rules)
+        self.assertIn('galleryChrome', rules)
+        self.assertIn('icon_theme.dart', rules)

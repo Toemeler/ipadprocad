@@ -21,8 +21,15 @@
 //     "wrong". On a light ground every stop is additionally darkened, because
 //     a colour that reads on charcoal is invisible on paper.
 //
-// The result is cached per palette: the mapping is pure, the icon strings are
-// constants, and the ribbon rebuilds on every notification.
+// The result is cached per palette AND per accent: the mapping is pure, the
+// icon strings are constants, and the ribbon rebuilds on every notification.
+//
+// Per accent as well since bug report #11, and that was a real bug rather than
+// caution. The accent override deliberately does NOT build a new Palette — it
+// re-tints at the getter — so `identical(_cachedFor, T.palette)` stayed true
+// across a change of accent and every icon kept the colour it was first
+// rendered in. The report named it: "it doesnt change most of the things like
+// icons".
 import 'package:flutter/material.dart';
 
 import 'theme.dart';
@@ -30,6 +37,7 @@ import 'theme.dart';
 final RegExp _hex = RegExp(r'#([0-9a-fA-F]{6})\b');
 
 Palette? _cachedFor;
+Accent? _cachedAccent;
 final Map<String, String> _cache = <String, String>{};
 
 /// Returns [svg] with every `#rrggbb` moved into the active palette.
@@ -37,8 +45,10 @@ final Map<String, String> _cache = <String, String>{};
 /// Call at the SvgPicture site, never at a top-level constant: the palette can
 /// change while the app runs, and a constant would freeze the first one.
 String themedIcon(String svg) {
-  if (!identical(_cachedFor, T.palette)) {
+  if (!identical(_cachedFor, T.palette) ||
+      _cachedAccent != T.accentChoice.value) {
     _cachedFor = T.palette;
+    _cachedAccent = T.accentChoice.value;
     _cache.clear();
   }
   return _cache.putIfAbsent(
