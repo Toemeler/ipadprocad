@@ -777,6 +777,23 @@ class HouseRulesTest(unittest.TestCase):
         self.assertIn('native_prompts.dart', rules)
         self.assertIn('NativeMenuItem', rules)
 
+    def test_colour_invariant_is_stated(self):
+        # m236_theme_test has a test literally named "no colour is written
+        # inline outside theme.dart". Issue #11 kept adding `const Color
+        # kAccentTeal = Color(0xFF4DB6AC);` to settings.dart, which fails that
+        # test even once it compiles.
+        import pack
+        rules = pack.house_rules()
+        self.assertIn('m236_theme_test', rules)
+        self.assertIn('kChalk', rules)
+        self.assertIn('scheme.value', rules)
+
+    def test_import_rule_is_stated(self):
+        import pack
+        rules = pack.house_rules()
+        self.assertIn('ADD THE IMPORT', rules)
+        self.assertIn('show', rules)
+
     def test_package_import_rule_is_stated(self):
         import pack
         self.assertIn('package:prototype', pack.house_rules())
