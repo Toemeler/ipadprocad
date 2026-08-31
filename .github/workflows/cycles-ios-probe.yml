@@ -1,0 +1,164 @@
+# M294 — CAN CYCLES BE BUILT FOR iOS FROM THIS REPO'S CI?
+#
+# The one question everything else waits on. Rendered mode cannot use Cycles
+# until there are Cycles static libraries for iOS arm64 to link against, and
+# nothing about the app, the C API or the material bridge can be written
+# against a library that may not exist.
+#
+# This job answers it and nothing else. It does not touch the app, it is not in
+# the IPA's dependency chain, and it cannot make the main build red — it is a
+# separate workflow on manual dispatch and on its own file only.
+#
+# WHY BUILD INSIDE BLENDER'S TREE rather than standalone Cycles. `intern/cycles`
+# is Apache-2.0 and is meant to be embeddable, but its CMake still expects
+# Blender's top-level infrastructure to have found Embree, TBB, OpenImageIO and
+# OpenColorIO first. Configuring it standalone for iOS is a project of its own.
+# Blender's own tree, on the `ios` branch, is ALREADY PROVEN to configure and
+# build for iOS device — Toemeler/blender-iOS-ipa does it on every run, with
+# `WITH_CYCLES ON`, `WITH_CYCLES_EMBREE ON`. So: configure exactly the way that
+# pipeline does, and build only the cycles targets out of it. Same compiler,
+# same SDK, same dependency set, none of the standalone work.
+#
+# THIS RUN IS RECONNAISSANCE. The target names are a reasonable guess at the
+# tree's layout and the first run may well not match them, so the job DUMPS THE
+# TARGET LIST before building and uploads it either way. A red run that says
+# "here are the 400 targets this tree actually has" is the useful outcome; the
+# names get fixed in one edit and the second run builds.
+#
+# What it deliberately does NOT do:
+#   * clone Git LFS. The datafiles (startup.blend and friends) are needed to RUN
+#     Blender, not to compile a library, and they are the slowest part of that
+#     pipeline's checkout.
+#   * build all of Blender. That takes the better part of an hour and produces
+#     an application nobody here wants.
+name: Cycles iOS probe (M294)
+
+on:
+  workflow_dispatch:
+    inputs:
+      blender_ref:
+        description: "Blender ios-branch commit to build (default: the ref the IPA pipeline pins)"
+        required: false
+        default: "d9b6fe34ddce527d93b97c0bf42ad92cebac4e4e"
+      extra_cmake_args:
+        description: "Extra CMake args"
+        required: false
+        default: ""
+  push:
+    paths:
+      - ".github/workflows/cycles-ios-probe.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: Build the Cycles targets for iOS arm64
+    runs-on: macos-15
+    timeout-minutes: 180
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain report
+        run: |
+          sw_vers
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+          cmake --version
+          python3 --version
+
+      # No LFS: a library build never opens a .blend.
+      - name: Clone Blender's ios branch (no LFS)
+        run: |
+          set -o pipefail
+          REF="${{ github.event.inputs.blender_ref }}"
+          REF="${REF:-d9b6fe34ddce527d93b97c0bf42ad92cebac4e4e}"
+          GIT_LFS_SKIP_SMUDGE=1 git clone --branch ios \
+            https://projects.blender.org/blender/blender.git blender 2>&1 | tail -5
+          cd blender
+          git checkout "$REF"
+          git log --oneline -1
+
+      - name: Cache the precompiled iOS dependency libraries
+        uses: actions/cache@v4
+        with:
+          path: |
+            blender/lib/ios_arm64
+            blender/lib/macos_arm64
+          key: blender-ios-libs-m294-v1
+
+      # The same call Toemeler/blender-iOS-ipa makes. --no-blender skips the
+      # source update (we pinned it above); --use-ios-libraries is what fetches
+      # the prebuilt Embree / TBB / OpenImageIO / OpenColorIO for iOS arm64.
+      - name: Fetch the iOS dependency libraries
+        working-directory: blender
+        run: |
+          set -o pipefail
+          python3 ./build_files/utils/make_update.py --no-blender --use-ios-libraries 2>&1 \
+            | tail -40
+          echo "--- lib/ios_arm64 ---"
+          ls lib/ios_arm64 2>/dev/null || echo "MISSING: no iOS libraries were fetched"
+
+      - name: Configure (iOS device, arm64)
+        run: |
+          set -o pipefail
+          cmake -S blender -B build_ios -G Xcode \
+            -DAPPLE_TARGET_DEVICE=ios \
+            -DWITH_CYCLES=ON \
+            -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO \
+            -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED=NO \
+            -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY="" \
+            -DCMAKE_XCODE_ATTRIBUTE_DEVELOPMENT_TEAM="" \
+            ${{ github.event.inputs.extra_cmake_args }} 2>&1 | tee configure.log | tail -40
+          echo "=== Cycles feature report ==="
+          grep -iE "WITH_CYCLES|Rendering \(Cycles\)" configure.log || true
+
+      # THE POINT OF THE FIRST RUN. Whatever happens below, this list is what
+      # tells us the real target names.
+      - name: List every target the tree offers
+        run: |
+          xcodebuild -list -project build_ios/Blender.xcodeproj 2>/dev/null > targets.txt || true
+          if [ ! -s targets.txt ]; then
+            cmake --build build_ios --target help 2>/dev/null > targets.txt || true
+          fi
+          echo "=== targets containing 'cycles' ==="
+          grep -i cycles targets.txt || echo "(none matched — read the artifact)"
+          wc -l targets.txt
+
+      - name: Build the Cycles libraries
+        id: build
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          # Ordered roughly by dependency depth. Each is attempted; a name that
+          # does not exist is reported and skipped rather than ending the run,
+          # because the list above is worth more than a clean early exit.
+          for t in cycles_util cycles_graph cycles_bvh cycles_subd \
+                   cycles_scene cycles_integrator cycles_session \
+                   cycles_device cycles_kernel; do
+            echo "=== $t ==="
+            cmake --build build_ios --config Release --target "$t" -- -quiet -jobs 3 \
+              2>&1 | tail -25 || echo "FAILED: $t"
+          done
+
+      - name: Harvest whatever archives exist
+        if: always()
+        run: |
+          mkdir -p out
+          find build_ios -name "libcycles*.a" -print -exec cp {} out/ \; || true
+          echo "=== harvested ==="
+          ls -la out || true
+          for f in out/*.a; do [ -e "$f" ] || continue; echo "--- $f"; lipo -info "$f" || true; done
+
+      - name: Upload the probe result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cycles-ios-probe
+          path: |
+            out
+            targets.txt
+            configure.log
+          if-no-files-found: warn
+          retention-days: 14
