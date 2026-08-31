@@ -99,6 +99,12 @@ One secret and one optional variable on the repository:
 
 Nothing else. `GITHUB_TOKEN` is provided by Actions.
 
+The OpenHands automation stays on as the fallback for when this workflow is off
+or an issue lands on `openhands-blocked`. Its importable config is
+`bugreports/openhands-automation.json`; the three sandbox settings that are
+*not* in that file — and are three of the four largest cost drivers — are in
+`bugreports/openhands-settings.md`.
+
 ## Running it
 
 ```bash
