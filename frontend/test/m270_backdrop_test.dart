@@ -282,7 +282,22 @@ void main() {
               .cast<Map<String, Object?>>();
       expect(backdropRows.where((r) => r['tint'] != null).length,
           kBackdropSwatches.length);
-      for (final m in maps.where((m) => m['id'] != kSecBackdrop)) {
+
+      // "Where it belongs" is the two sections where the COLOUR IS THE CHOICE:
+      // the gallery's backdrop, and — since bug report #11 — the accent. A row
+      // named "Indigo" with no swatch is a colour you have to pick to find
+      // out, which is the whole reason the backdrop rows carry one. Everywhere
+      // else a tint would be decoration on a row that is not about colour, and
+      // the Swift sheet would draw a dot beside it.
+      const swatched = {kSecBackdrop, kSecAccent};
+      final accentRows =
+          (maps.firstWhere((m) => m['id'] == kSecAccent)['rows'] as List)
+              .cast<Map<String, Object?>>();
+      expect(accentRows.every((r) => r['tint'] != null), isTrue,
+          reason: 'every accent row is a swatch, including "Scheme", which '
+              'shows the palette colour it will actually give you');
+
+      for (final m in maps.where((m) => !swatched.contains(m['id']))) {
         for (final raw in (m['rows'] as List).cast<Map<String, Object?>>()) {
           expect(raw.containsKey('tint'), isFalse,
               reason: '${m['id']}/${raw['id']} should carry no colour');

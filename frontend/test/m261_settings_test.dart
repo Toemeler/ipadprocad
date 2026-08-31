@@ -211,7 +211,11 @@ void main() {
   group('M261 — the wire form', () {
     test('every row carries the keys SettingsSheet.swift reads', () {
       final maps = settingsToMaps(_spec());
-      expect(maps, hasLength(6));
+      // Seven since bug report #11 added Accent between Appearance and
+      // Backdrop. Kept as a number rather than `isNotEmpty` on purpose: the
+      // Swift sheet renders whatever comes over the wire, so a section that
+      // silently stops being sent is exactly the failure this asserts against.
+      expect(maps, hasLength(7));
       for (final s in maps) {
         expect(s['id'], isA<String>());
         expect(s['header'], isA<String>());
