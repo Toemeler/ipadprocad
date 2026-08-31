@@ -73,6 +73,33 @@ def pub_get():
     return _run(['flutter', 'pub', 'get'], 600)
 
 
+# Files gen-l10n writes. Committed on purpose (see l10n.yaml) so a fresh
+# checkout can analyze and test without anyone having run the generator.
+L10N_GEN = 'frontend/lib/l10n/gen'
+ARB_DIR = 'frontend/lib/l10n'
+
+
+def touches_arb(paths):
+    return any(p.startswith(ARB_DIR) and p.endswith('.arb') for p in paths)
+
+
+def regenerate_l10n():
+    """Rebuild lib/l10n/gen from the ARBs. -> (ok, output)
+
+    An ARB edit that is not regenerated does not fail loudly: `t.yourNewKey`
+    simply does not exist on the generated class, and `flutter analyze` reports
+    an undefined getter in the widget rather than anything about localisation.
+    The model then tries to fix the widget, which is the wrong file. So this
+    runs automatically whenever an edit touched an ARB, before analyze.
+    """
+    code, out = _run(['flutter', 'gen-l10n'], 300)
+    if code == 0:
+        return True, out
+    # Older Flutter drives gen-l10n from `pub get` (pubspec `generate: true`).
+    code, out2 = _run(['flutter', 'pub', 'get'], 600)
+    return code == 0, clip(out + out2)
+
+
 def analyze():
     """0 errors required. Infos and warnings are pre-existing noise in this repo."""
     code, out = _run(

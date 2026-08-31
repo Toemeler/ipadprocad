@@ -255,9 +255,23 @@ def main():
             continue
 
         applied = {}
+
+        def apply_code():
+            errs = edits_mod.apply(code, ROOT)
+            applied['c'] = errs
+            if errs:
+                return errs
+            # An ARB edit is only half a change until gen-l10n has run; see
+            # verify.regenerate_l10n.
+            if verify.touches_arb(edits_mod.touched(code)):
+                ok_gen, out = verify.regenerate_l10n()
+                if not ok_gen:
+                    return [f'gen-l10n failed after your ARB edit:\n{out}']
+            return []
+
         ok, reason, log = verify.gate(
             lambda: applied.setdefault('t', edits_mod.apply(tests, ROOT)),
-            lambda: applied.setdefault('c', edits_mod.apply(code, ROOT)),
+            apply_code,
             git_reset,
             test_paths)
 
@@ -266,6 +280,10 @@ def main():
 
         if ok:
             paths = edits_mod.touched(parsed)
+            # The regenerated localisation belongs in the same commit as the
+            # ARB change that caused it, or the next checkout is inconsistent.
+            if verify.touches_arb(paths):
+                paths.append(verify.L10N_GEN)
             cause = parse_tagged(reply, 'root-cause')
             try:
                 sha = ship(number, parse_tagged(reply, 'subject') or

@@ -37,7 +37,12 @@ REASONING_EFFORT = os.environ.get('BUGFIX_REASONING_EFFORT', 'medium')
 # Enough for a real fix plus a real test, not enough to rewrite a 3,000-line
 # widget wholesale — which is a failure mode worth capping rather than paying
 # for and then rejecting.
-MAX_TOKENS = 8000
+#
+# Raised from 8,000 after issue #9: a change that legitimately spans a widget,
+# a model method, two ARBs and a test ran into the cap mid-block, and a
+# truncated answer costs a whole round. 16,000 still refuses a wholesale
+# rewrite; SEARCH/REPLACE blocks for a five-file change come in well under it.
+MAX_TOKENS = 16000
 
 SYSTEM = '''\
 You are the bug-fix step of an automated maintainer for a Flutter iPad CAD app.

@@ -34,6 +34,7 @@ Run:  python3 -m unittest discover -s ci/bugfix -p 'test_*.py'
 """
 import unittest
 
+import pack
 import rank
 
 
@@ -150,3 +151,81 @@ class TestRanking(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestL10nSlice(unittest.TestCase):
+    """The pack's localisation section.
+
+    The retriever's corpus is `.dart` and `.swift`, so the ARBs were invisible
+    to the model until issue #9 needed a format picker and therefore needed
+    strings. A change that adds user-facing text cannot be got right without
+    seeing them: the key convention, whether a suitable key already exists, and
+    that a key in one file but not the other fails the build.
+    """
+
+    QUERY = ('when i longpress a card and select export i first want to select '
+             'stl or step before chosing a location')
+
+    def test_finds_the_related_entries(self):
+        text = pack.l10n_slice(self.QUERY)
+        self.assertIn('msgStepExport', text)
+        self.assertIn('German / English', text)
+
+    def test_rare_words_beat_common_ones(self):
+        # Raw hit counting surfaces whatever matches "select" or "first" —
+        # over a hundred entries each — and buries the export strings.
+        head = pack.l10n_slice(self.QUERY).splitlines()[:6]
+        self.assertTrue(any('Export' in ln for ln in head),
+                        f'no export entry in the first rows: {head}')
+
+    def test_matches_whole_words_not_substrings(self):
+        # "card" must not match inside "discard".
+        text = pack.l10n_slice('card')
+        self.assertNotIn('tipDiscardEsc', text)
+
+    def test_is_bounded(self):
+        text = pack.l10n_slice(self.QUERY)
+        rows = [ln for ln in text.splitlines() if ln.startswith('  "')]
+        self.assertLessEqual(len(rows), pack.L10N_ENTRIES)
+
+    def test_rules_state_the_build_breaking_constraint(self):
+        rules = pack.l10n_rules()
+        self.assertIn('app_de.arb', rules)
+        self.assertIn('app_en.arb', rules)
+        self.assertIn('BOTH', rules)
+        self.assertIn('l10n/gen', rules)
+
+    def test_pack_carries_l10n_for_a_text_change(self):
+        prefix, body, _ = pack.build(9, self.QUERY, '')
+        self.assertIn('Localisation', prefix)
+        self.assertIn('msgStepExport', body)
+
+
+class TestL10nRegeneration(unittest.TestCase):
+    """ARB edits must drag lib/l10n/gen along with them."""
+
+    def test_arb_paths_are_detected(self):
+        import verify
+        self.assertTrue(verify.touches_arb(['frontend/lib/l10n/app_de.arb']))
+        self.assertTrue(verify.touches_arb(
+            ['frontend/lib/widgets/home_view.dart',
+             'frontend/lib/l10n/app_en.arb']))
+        self.assertFalse(verify.touches_arb(['frontend/lib/theme.dart']))
+
+    def test_generated_l10n_is_not_editable_by_the_model(self):
+        # It is derived; the pipeline regenerates it. A model edit there would
+        # be overwritten and would mask the real ARB change.
+        import edits
+        parsed, _, errors = edits.parse(
+            '<file path="frontend/lib/l10n/gen/app_l10n.dart">\n'
+            '<<<<<<< SEARCH\na\n=======\nb\n>>>>>>> REPLACE\n</file>')
+        self.assertEqual(parsed, [])
+        self.assertTrue(errors)
+
+    def test_arbs_themselves_are_editable(self):
+        import edits
+        parsed, _, errors = edits.parse(
+            '<file path="frontend/lib/l10n/app_de.arb">\n'
+            '<<<<<<< SEARCH\na\n=======\nb\n>>>>>>> REPLACE\n</file>')
+        self.assertEqual(errors, [])
+        self.assertEqual(len(parsed), 1)

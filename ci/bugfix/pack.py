@@ -50,6 +50,7 @@ import zipfile
 import rank
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
+FRONTEND = ROOT / 'frontend'
 
 # Bundle members worth reading, in the order they help. `report.md` first
 # because the app has already triaged itself in it.
@@ -70,7 +71,12 @@ LOG_TAIL_LINES = 60
 GESTURE_WORDS = ('tap', 'drag', 'swipe', 'pinch', 'gesture', 'touch', 'press',
                  'tippen', 'ziehen', 'wischen', 'druck')
 
-FILES_IN_PACK = 5
+FILES_IN_PACK = 6
+
+# How many existing l10n entries to show. Enough to convey the naming
+# conventions and to reveal a key that already says the thing, not so many that
+# 1089 strings arrive at cache-miss prices.
+L10N_ENTRIES = 24
 
 # Lines of source the pack may spend, per rank. The whole design rests on the
 # pack staying small — at $1.3184/M for a cache miss, every 1,000 lines of
@@ -192,6 +198,87 @@ Every report ships the same diagnostic bundle:
   anything. Use `reality.txt`, `mesh.txt` and `state.txt` for the body.'''
 
 
+def l10n_slice(query, frontend=FRONTEND, limit=L10N_ENTRIES):
+    """The localisation entries this issue is likely to need.
+
+    WHY THIS IS IN THE PACK AT ALL
+    ------------------------------
+    The retriever's corpus is `.dart` and `.swift`, so until now the model
+    could not see `app_de.arb` at all. That makes every change adding
+    user-facing text impossible to get right: it cannot tell whether a suitable
+    key already exists, it cannot follow the naming convention, and it cannot
+    know that a key added to one file and not the other fails
+    `l10n_completeness_test.dart` and therefore the whole run.
+
+    Issue #9 needs exactly this — a format picker has to say "STL" and "STEP"
+    and have a title — and it is the reason the pack now carries l10n.
+
+    The files are 124 KB and 55 KB, so they arrive as a slice: entries whose
+    GERMAN OR ENGLISH TEXT matches the report, which is the same trick the
+    ranker uses, plus their placeholder metadata.
+    """
+    de_path = frontend / 'lib' / 'l10n' / 'app_de.arb'
+    en_path = frontend / 'lib' / 'l10n' / 'app_en.arb'
+    if not de_path.is_file():
+        return ''
+    de = json.loads(de_path.read_text(encoding='utf-8'))
+    en = json.loads(en_path.read_text(encoding='utf-8')) if en_path.is_file() else {}
+
+    # Tokenised, not raw text: a substring test matches "card" inside
+    # "discard" and puts `tipDiscardEsc` above `msgStepExportFailed`.
+    entries = {}
+    for k, v in de.items():
+        if k.startswith('@') or not isinstance(v, str):
+            continue
+        blob = f'{k} {v} {en.get(k, "")}'
+        entries[k] = set(rank.split_identifier(blob)) | set(
+            re.findall(r'\w{3,}', blob.lower()))
+
+    # Rare words carry the meaning. Counting raw hits instead surfaces whatever
+    # matches "select" or "first" — 100+ entries each in this ARB — and buries
+    # `exportEllipsis`. Same lesson as BRIDGE_MAX_KEYS in rank.py, same fix.
+    words = set(re.findall(r'\w{3,}', query.lower()))
+    freq = {w: sum(1 for t in entries.values() if w in t) for w in words}
+    scored = []
+    for key, tokens in entries.items():
+        score = sum(1.0 / (1 + freq[w]) for w in words if w in tokens)
+        if score:
+            scored.append((score, key))
+    scored.sort(reverse=True)
+
+    lines = []
+    for _, key in scored[:limit]:
+        meta = de.get('@' + key)
+        suffix = f'   // {json.dumps(meta, ensure_ascii=False)}' if meta else ''
+        lines.append(f'  "{key}": {json.dumps(de[key], ensure_ascii=False)}'
+                     f'   /  {json.dumps(en.get(key, ""), ensure_ascii=False)}{suffix}')
+    if not lines:
+        return ''
+    return ('Existing entries related to this report, as `key: German / English`:\n\n'
+            + '\n'.join(lines))
+
+
+def l10n_rules():
+    return """\
+The app's user-facing text lives in `frontend/lib/l10n/app_de.arb` (the
+TEMPLATE — German is the source language) and `frontend/lib/l10n/app_en.arb`
+(the translation). Both are plain JSON, one flat object, `"key": "text"`.
+
+If your fix adds or changes any text the user can see:
+
+- Add the key to BOTH files, with the German in `app_de.arb`. A key in only one
+  fails `l10n_completeness_test.dart`, and that fails the whole run.
+- Follow the neighbouring names: `dlg…` for dialog titles, `msg…` for messages,
+  `btn…`/plain verbs for buttons, `ph…` for placeholders, `ctx…` for context
+  menu items.
+- Reach it in code as `L.of(context)` — conventionally `final t = L.of(context);`
+  then `t.yourKey`.
+- Do NOT touch `frontend/lib/l10n/gen/` — it is generated from the ARBs by
+  `gen-l10n` on every build, and the pipeline regenerates it for you after your
+  edits land.
+- Check the entries below first: the string you need may already exist."""
+
+
 def house_rules():
     return '''\
 - German is the app's SOURCE language. `frontend/lib/l10n/app_de.arb` is the
@@ -256,7 +343,11 @@ viewport and the Liquid Glass chrome.
 
 ## The diagnostic bundle
 
-{BUNDLE_GUIDE}'''
+{BUNDLE_GUIDE}
+
+## Localisation
+
+{l10n_rules()}'''
 
     issue_body = f'''\
 ## Issue #{issue_number}
@@ -272,6 +363,10 @@ viewport and the Liquid Glass chrome.
 ## Previously fixed in this repo
 
 {notes_tail() or "_(none recorded)_"}
+
+## Localisation entries you may need
+
+{l10n_slice(query) or "_(no closely related entries; follow the conventions above)_"}
 
 ## Candidate code
 
