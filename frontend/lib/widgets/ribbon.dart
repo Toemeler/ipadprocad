@@ -1090,11 +1090,6 @@ class _RibbonState extends State<Ribbon> {
                 // model is DRAWN. It is the third question this panel answers:
                 // what colour, how shaded, and how much of it you can see.
                 //
-                // Part only. Inventor sections an assembly too, and the state
-                // and the cut here would carry over unchanged, but the pick
-                // has to reach a component's faces and that is the assembly
-                // viewport's hit test, not this one's. Left off rather than
-                // drawn dead (M157).
                 const SizedBox(height: 4),
                 _SectionChip(app: app, onOpen: toggleOver),
               ],
@@ -1447,6 +1442,13 @@ class _RibbonState extends State<Ribbon> {
                   const SizedBox(height: 4),
                   _FloorToggle(app: app),
                 ],
+                // M292 — and the section view here too. The commands, the
+                // planes, the flips and the offsets are the same value on both
+                // document types (AppState.documentSection); what differs is
+                // which solids get cut, and that is sectionedPiece's business
+                // rather than this chip's.
+                const SizedBox(height: 4),
+                _SectionChip(app: app, onOpen: toggleOver),
               ],
             ),
           ),

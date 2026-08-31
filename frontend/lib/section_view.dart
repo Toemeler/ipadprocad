@@ -48,7 +48,10 @@
 // This file is deliberately free of the kernel, of AppState and of widgets: it
 // decides WHAT is cut. part_model.dart's sectionCutSolid does the cutting and
 // app_state.dart owns the live state and the picking session.
-import 'part_model.dart' show PlaneFrame, offsetPlaneFrame;
+import 'dart:math' as math;
+
+import 'part_model.dart' show PlaneFrame, Vec3, offsetPlaneFrame;
+import 'quat.dart' show Placement;
 
 /// Which of Inventor's three section commands is running.
 enum SectionMode {
@@ -181,4 +184,47 @@ class SectionView {
     }
     return sb.toString();
   }
+}
+
+
+/// M292 — [frame], given in the assembly's world coordinates, expressed in the
+/// LOCAL frame of something placed by [at].
+///
+/// An assembly's section plane is one plane in world space, but each
+/// component's solid lives in its own frame — so the cut is taken by bringing
+/// the plane to the solid rather than the solid to the plane. That is one
+/// transform per component instead of one per triangle, and it leaves the
+/// placement of the cut result exactly what it was.
+///
+/// The in-plane axes are REBUILT from the transported normal rather than
+/// carried across. A mirrored component's placement reverses handedness, and a
+/// left-handed frame handed to [PlaneFrame.mat34] builds the cut box mirrored;
+/// with the square profile the section tool uses that happens to be the same
+/// box, but relying on "happens to be" is how the next tool with an asymmetric
+/// profile breaks.
+PlaneFrame sectionFrameInto(PlaneFrame frame, Placement at) {
+  final n = at.unapplyDir(frame.n).normalized();
+  final o = at.unapply(frame.origin);
+  return planeFrameAbout(o, n);
+}
+
+/// A right-handed plane frame through [origin] with normal [n].
+///
+/// The in-plane axes are arbitrary — nothing about a section cut depends on
+/// which way round u and v point, only on their spanning the plane and on the
+/// frame being right-handed — so they are taken from whichever world axis is
+/// least parallel to [n], which is the standard stable choice and has no
+/// degenerate case.
+PlaneFrame planeFrameAbout(Vec3 origin, Vec3 n) {
+  final nn = n.normalized();
+  final ax = nn.x.abs(), ay = nn.y.abs(), az = nn.z.abs();
+  final seed = (ax <= ay && ax <= az)
+      ? const Vec3(1, 0, 0)
+      : (ay <= az ? const Vec3(0, 1, 0) : const Vec3(0, 0, 1));
+  var u = seed - nn * seed.dot(nn);
+  final len = math.sqrt(u.dot(u));
+  if (!len.isFinite || len < 1e-12) return PlaneFrame('face', const Vec3(1, 0, 0), const Vec3(0, 1, 0), nn, origin);
+  u = u * (1 / len);
+  final v = nn.cross(u);
+  return PlaneFrame('face', u, v, nn, origin);
 }

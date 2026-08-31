@@ -29,6 +29,7 @@
 // app_state can import this directly.
 import 'package:flutter/painting.dart' show Color;
 
+import 'app_state.dart';
 import 'assembly.dart';
 import 'materials.dart';
 import 'part_model.dart';
@@ -60,11 +61,28 @@ typedef AssemblyPiece = (String, AssemblyOccurrence, Placement, KernelSolid);
 /// A component whose source part could not be loaded (the part was deleted
 /// from the gallery) contributes nothing here and still keeps its browser row
 /// — see AppState._loadAssemblyModel for why the occurrence survives.
-List<AssemblyPiece> assemblyPieces(AssemblyModel a) => [
+List<AssemblyPiece> assemblyPieces(AssemblyModel a, {AppState? app}) => [
       for (final o in a.occurrences)
         if (o.visible)
           for (final (path, at, s) in o.worldSolids)
-            ('${o.id}/$path', o, at, s),
+            (
+              '${o.id}/$path',
+              o,
+              at,
+              // M292 — the section view substitutes the CUT piece for the whole
+              // one, exactly as visibleSolids does on the part side, so every
+              // consumer (payload, signature, triangle budget, the CPU
+              // painter) sees one consistent scene. Null means "no section" or
+              // "the cut failed", and the piece is then drawn whole — a failed
+              // section must never make a component vanish.
+              //
+              // [app] is optional and omitted by the THUMBNAIL path on
+              // purpose: a gallery card shows the assembly, not the view state
+              // somebody left it in.
+              (app == null
+                  ? s
+                  : app.sectionedPiece('${o.id}/$path', at, s) ?? s),
+            ),
     ];
 
 /// The tint a component is drawn in, as a packed ARGB, or [kNoTint] for the
@@ -88,8 +106,8 @@ int assemblyTint(AssemblyModel a, AssemblyOccurrence o, {String? hoverId}) {
 
 /// Mesh revisions currently on screen, so the next push can omit the buffers
 /// of everything that did not change. Mirrors `sceneRevs` on the part side.
-Map<String, int> assemblySceneRevs(AssemblyModel a) => {
-      for (final (id, _, _, s) in assemblyPieces(a))
+Map<String, int> assemblySceneRevs(AssemblyModel a, {AppState? app}) => {
+      for (final (id, _, _, s) in assemblyPieces(a, app: app))
         id: identityHashCode(s.mesh),
     };
 
@@ -102,10 +120,13 @@ Map<String, dynamic> buildAssemblyScenePayload(
   AssemblyModel a, {
   String? hoverId,
   Map<String, int>? knownRevs,
+  /// M292 — present so the pieces can be SECTIONED. Optional, and omitted by
+  /// the thumbnail path, which wants the whole assembly.
+  AppState? app,
 }) =>
     {
       'solids': [
-        for (final (id, o, at, s) in assemblyPieces(a))
+        for (final (id, o, at, s) in assemblyPieces(a, app: app))
           solidPayload(
             id,
             s,
@@ -214,10 +235,16 @@ List<Map<String, dynamic>> assemblyAxisPayloads(AssemblyModel a) => [
 /// change and cannot express here: the origin planes are sized to the
 /// assembly's contents, so once a drag ENDS the extent is stale until the
 /// generation ticks and brings the planes with it.
-String assemblySceneSignature(AssemblyModel a) {
+String assemblySceneSignature(AssemblyModel a, {AppState? app}) {
   final sb = StringBuffer()
     ..write('gen:')
     ..write(a.gen)
+    // M292 — the SECTION. It replaces every mesh in the scene, and a change to
+    // it that is not in here sends no rebuild at all: the same lesson M95,
+    // M122 and M165 each were, and the reason the part's signature carries the
+    // identical line.
+    ..write(';sect:')
+    ..write(app?.activeSection?.signature ?? '-')
     // M273 — a mode switch rebuilds every material and adds or removes the
     // whole edge overlay: the heaviest rebuild there is, and one no light push
     // could express.

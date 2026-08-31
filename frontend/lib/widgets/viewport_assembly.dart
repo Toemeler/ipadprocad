@@ -55,6 +55,7 @@ import '../app_state.dart';
 import '../materials.dart';
 import '../asm_constraints.dart';
 import '../asm_pick.dart';
+import '../section_view.dart';
 import '../assembly.dart';
 import '../l10n/l.dart';
 import '../log.dart';
@@ -180,11 +181,11 @@ class _ViewportAssemblyState extends State<ViewportAssembly>
     // unanswerable (bug_capture.dart carries RealityPush.dump()).
     RealityPush.recordCamera('assembly on ${size.width.toInt()}x'
         '${size.height.toInt()}');
-    final sig = assemblySceneSignature(a);
+    final sig = assemblySceneSignature(a, app: widget.app);
     if (sig != _lastSceneSig) {
       _lastSceneSig = sig;
       final pushed = <String>[];
-      for (final (id, _, at, sol) in assemblyPieces(a)) {
+      for (final (id, _, at, sol) in assemblyPieces(a, app: widget.app)) {
         logMeshConvention(id, sol.mesh);
         pushed.add('$id @ ${at.at.x.toStringAsFixed(2)},'
             '${at.at.y.toStringAsFixed(2)},'
@@ -198,8 +199,10 @@ class _ViewportAssemblyState extends State<ViewportAssembly>
       c.setScene(Perf.span(
           '3d.payload',
           () => buildAssemblyScenePayload(a,
-              hoverId: _hover?.id, knownRevs: _sentRevs)));
-      _sentRevs = assemblySceneRevs(a);
+              hoverId: _hover?.id,
+              knownRevs: _sentRevs,
+              app: widget.app)));
+      _sentRevs = assemblySceneRevs(a, app: widget.app);
     }
     c.setOverlays(buildAssemblyOverlaysPayload(a, hoverId: _hover?.id));
   }
@@ -407,6 +410,33 @@ class _ViewportAssemblyState extends State<ViewportAssembly>
               // everywhere else in this app; it must not grab a component.
               if (e.kind == PointerDeviceKind.mouse &&
                   e.buttons != kPrimaryMouseButton) {
+                return;
+              }
+              // M292 — a SECTION command is asking for a plane, and owns the
+              // tap while it is. First of the picking branches: it is armed
+              // from the ribbon and nothing else can be armed at the same
+              // time, and a tap meant to choose a cutting plane must not drag
+              // a component instead.
+              //
+              // pickAsmRef is the assembly's own hit test — the one Mate and
+              // the work features use — and it already answers with a PLANE
+              // for a planar face and for the three origin planes. That is
+              // exactly "pick any plane or planar face" on this side, and it
+              // is why sectioning an assembly needed no new picker.
+              if (app.sectionPicking) {
+                final pick = pickAsmRef(a, cam, e.localPosition);
+                final geom = pick?.world;
+                if (geom == null || geom.kind != AsmGeomKind.plane) {
+                  app.toast(app.sectionDraft == null
+                      ? L.of(context).msgPickSectionPlane
+                      : L.of(context).msgPickSectionPlane2);
+                  return;
+                }
+                app.sectionPlanePicked(
+                    planeFrameAbout(geom.at, geom.dir), pick!.ref.occurrence);
+                if (app.sectionPicking) {
+                  app.toast(L.of(context).msgPickSectionPlane2);
+                }
                 return;
               }
               // M247 — while a WORK FEATURE command is collecting, a tap is
@@ -1490,7 +1520,13 @@ class _AssemblyPainter extends CustomPainter {
       cam,
       [
         for (final o in visible)
-          PlacedComponent([for (final (_, at, s) in o.worldSolids) (at, s)])
+          // M292 — the CPU painter draws the sectioned pieces too, so the
+          // fallback renderer and RealityKit show the same assembly. Same
+          // rule, same call, one line apart from the platform view's.
+          PlacedComponent([
+            for (final (path, at, s) in o.worldSolids)
+              (at, app.sectionedPiece('${o.id}/$path', at, s) ?? s)
+          ])
       ],
       selected: indexOf(asm.selected),
       hovered: indexOf(hover),

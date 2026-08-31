@@ -10023,22 +10023,28 @@ const List<(double, double)> kSectionHatch = [
 /// the part vanish.
 KernelSolid? sliceSolidAt(
         PartKernel kernel, PartModel part, KernelSolid solid, PlaneFrame frame) =>
-    sectionCutSolid(kernel, part, solid, SectionView.slice(frame));
+    sectionCutSolid(kernel, originExtentBounds(part), solid,
+        SectionView.slice(frame));
 
 /// The half-space tool for one section plane: a box covering everything on the
 /// side of [frame] its normal points AWAY from.
 ///
 /// M168 built this inline for Slice Graphics; M291 gives it a name because a
 /// quarter section needs two of them and a three-quarter section needs their
-/// common solid. Sized from the part's own extent, so it always swallows
-/// whatever is on that side however large the model is.
+/// common solid. Sized from [extent] — the model's own padded box — so it
+/// always swallows whatever is on that side however large the model is.
+///
+/// M292 — the EXTENT is handed in rather than walked out of a [PartModel],
+/// because an assembly is sectioned by the same box rule and its extent comes
+/// from its placed components. `paddedOriginExtent` is the one function that
+/// turns either document's content bounds into this box.
 ///
 /// The caller owns the result and must dispose it.
 KernelSolid? sectionHalfSpace(
-    PartKernel kernel, PartModel part, PlaneFrame frame) {
+    PartKernel kernel, (Vec3, Vec3) extent, PlaneFrame frame) {
   if (!kernel.available) return null;
-  final (lo, hi) = originExtentBounds(part);
-  // Half-diagonal of the part's box, plus a margin: any square of this size
+  final (lo, hi) = extent;
+  // Half-diagonal of the model's box, plus a margin: any square of this size
   // centred on the plane covers the whole model in the plane's own axes.
   final r = (hi - lo).length + 10.0;
   if (!r.isFinite || r <= 0) return null;
@@ -10076,10 +10082,10 @@ KernelSolid? sectionHalfSpace(
 /// view with one plane picked cuts nothing rather than guessing a half), or
 /// when the kernel refuses — and the caller then shows the solid whole. A
 /// failed section must never make the part vanish.
-KernelSolid? sectionCutSolid(
-    PartKernel kernel, PartModel part, KernelSolid solid, SectionView view) {
+KernelSolid? sectionCutSolid(PartKernel kernel, (Vec3, Vec3) extent,
+    KernelSolid solid, SectionView view) {
   if (!kernel.available || !view.complete) return null;
-  final a = sectionHalfSpace(kernel, part, view.a.cutFrame);
+  final a = sectionHalfSpace(kernel, extent, view.a.cutFrame);
   if (a == null) return null;
   final second = view.b;
   if (second == null) {
@@ -10087,7 +10093,7 @@ KernelSolid? sectionCutSolid(
     a.dispose();
     return cut;
   }
-  final b = sectionHalfSpace(kernel, part, second.cutFrame);
+  final b = sectionHalfSpace(kernel, extent, second.cutFrame);
   if (b == null) {
     a.dispose();
     return null;

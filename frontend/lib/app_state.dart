@@ -8006,15 +8006,33 @@ class AppState extends ChangeNotifier {
   /// Null means "draw the model whole".
   SectionView? get activeSection {
     final p = currentPart;
-    if (p == null) return null;
-    if (sliceGraphics) {
+    if (p != null && sliceGraphics) {
       final cs = activeChild == null ? null : p.sketchByName(activeChild!.name);
       if (cs != null) return SectionView.slice(sketchFrameOf(cs));
     }
-    final own = p.section;
     // An unfinished quarter view (one plane picked, the command still asking
     // for the second) cuts nothing: see SectionView.complete.
+    final own = documentSection;
     return own != null && own.complete ? own : null;
+  }
+
+  /// M292 — the section on whatever document is open, part or assembly.
+  ///
+  /// One getter and one setter, because the two are the same value on two
+  /// document types and every command below routes through them — the way
+  /// [displayMode] already does. An assembly is sectioned by the same planes,
+  /// the same flips and the same offsets; only WHICH solids get cut differs,
+  /// and that is [sectionedPiece]'s business, not the command's.
+  SectionView? get documentSection =>
+      currentAssembly?.section ?? currentPart?.section;
+
+  set documentSection(SectionView? v) {
+    final a = currentAssembly;
+    if (a != null) {
+      a.section = v;
+      return;
+    }
+    currentPart?.section = v;
   }
 
   /// The section stand-in for [solid], or null to draw it whole.
@@ -8040,7 +8058,7 @@ class AppState extends ChangeNotifier {
     }
     final hit = _sliceCache['$id:${identityHashCode(solid.mesh)}'];
     if (hit != null) return hit;
-    final cut = sectionCutSolid(partKernel, p, solid, view);
+    final cut = sectionCutSolid(partKernel, originExtentBounds(p), solid, view);
     if (cut == null) return null;
     _sliceCache['$id:${identityHashCode(solid.mesh)}'] = cut;
     Log.i('slice', 'sectioned $id (${view.mode.id})');
@@ -8069,10 +8087,14 @@ class AppState extends ChangeNotifier {
   /// Whether the commands are offered at all. Inventor greys them out with
   /// nothing to cut; here they are not shown (M157 — a visible button that
   /// does nothing reads as broken).
-  bool get canSection => currentPart?.hasSolid == true && activeChild == null;
+  bool get canSection =>
+      activeChild == null &&
+      (currentAssembly != null
+          ? currentAssembly!.occurrences.any((o) => o.visible && o.loaded)
+          : currentPart?.hasSolid == true);
 
-  /// The section currently applied to the open part, if any.
-  SectionView? get partSection => currentPart?.section;
+  /// The section currently applied to the open document, if any.
+  SectionView? get partSection => documentSection;
 
   /// Start one of the three commands. Starting one while another section is up
   /// replaces it, which is what Inventor's own panel does — the three buttons
@@ -8082,6 +8104,7 @@ class AppState extends ChangeNotifier {
     sectionArm = mode;
     sectionDraft = null;
     _clearSliceCache();
+    _clearAsmSectionCache();
     // The viewport is now waiting for something and must say so: a command
     // that arms silently reads as a button that did nothing (M157's rule,
     // applied to the moment after the tap rather than to the button).
@@ -8098,8 +8121,9 @@ class AppState extends ChangeNotifier {
   /// worse answer than one that waits.
   void sectionPlanePicked(PlaneFrame frame, String label) {
     final mode = sectionArm;
-    final p = currentPart;
-    if (mode == null || p == null) return;
+    if (mode == null || (currentPart == null && currentAssembly == null)) {
+      return;
+    }
     final draft = sectionDraft;
     if (draft == null) {
       sectionDraft = SectionView(mode, SectionPlane(frame, label));
@@ -8108,33 +8132,34 @@ class AppState extends ChangeNotifier {
     }
     final now = sectionDraft!;
     if (now.complete) {
-      p.section = now;
+      documentSection = now;
       sectionArm = null;
       sectionDraft = null;
       Log.i('slice', 'section: ${now.mode.id} on ${now.planes.length} plane(s)');
     }
     _clearSliceCache();
+    _clearAsmSectionCache();
     notifyListeners();
   }
 
   /// Inventor's Flip: swap which side of plane [i] is removed.
   void flipSectionPlane(int i) {
-    final p = currentPart;
-    final v = p?.section;
-    if (p == null || v == null || i < 0 || i >= v.planes.length) return;
-    p.section = v.withPlane(i, v.planes[i].flip);
+    final v = documentSection;
+    if (v == null || i < 0 || i >= v.planes.length) return;
+    documentSection = v.withPlane(i, v.planes[i].flip);
     _clearSliceCache();
+    _clearAsmSectionCache();
     notifyListeners();
   }
 
   /// Inventor's Virtual Movement: slide plane [i] along its own normal.
   void setSectionOffset(int i, double mm) {
-    final p = currentPart;
-    final v = p?.section;
-    if (p == null || v == null || !mm.isFinite) return;
+    final v = documentSection;
+    if (v == null || !mm.isFinite) return;
     if (i < 0 || i >= v.planes.length) return;
-    p.section = v.withPlane(i, v.planes[i].copyWith(offset: mm));
+    documentSection = v.withPlane(i, v.planes[i].copyWith(offset: mm));
     _clearSliceCache();
+    _clearAsmSectionCache();
     notifyListeners();
   }
 
@@ -8145,16 +8170,77 @@ class AppState extends ChangeNotifier {
   /// half-started quarter view has no way out but picking a plane you do not
   /// want.
   void endSection() {
-    final p = currentPart;
-    final had = sectionArm != null || p?.section != null;
+    final had = sectionArm != null || documentSection != null;
     sectionArm = null;
     sectionDraft = null;
-    p?.section = null;
+    documentSection = null;
     if (!had) return;
     _clearSliceCache();
+    _clearAsmSectionCache();
     Log.i('slice', 'section: ended');
     notifyListeners();
   }
+
+  // ---- M292: the same section, applied to an assembly ---------------------
+  //
+  // One plane in the assembly's world space, and a component's solid in its
+  // own frame. The cut brings the PLANE to the solid (sectionFrameInto) rather
+  // than the solid to the plane: one transform per component instead of one
+  // per triangle, and the placement of the cut result is exactly what it was.
+
+  final Map<String, KernelSolid> _asmSectionCache = {};
+  String _asmSectionKey = '';
+
+  void _clearAsmSectionCache() {
+    for (final s in _asmSectionCache.values) {
+      s.dispose();
+    }
+    _asmSectionCache.clear();
+    _asmSectionKey = '';
+  }
+
+  /// The section stand-in for one placed piece of an assembly, or null to draw
+  /// it whole.
+  ///
+  /// [id] is the piece's own key ('occurrence/path'), which is what makes two
+  /// occurrences of the SAME part cut differently: they sit at different
+  /// placements, so the plane arrives in each one's frame in a different
+  /// place, and a cache keyed on the mesh alone would give the second one the
+  /// first one's cut. Null means "draw it whole" — a failed section must never
+  /// make a component vanish.
+  KernelSolid? sectionedPiece(String id, Placement at, KernelSolid solid) {
+    final view = activeSection;
+    final a = currentAssembly;
+    if (view == null || a == null) return null;
+    final key = view.signature;
+    if (key != _asmSectionKey) {
+      _clearAsmSectionCache();
+      _asmSectionKey = key;
+    }
+    final hit = _asmSectionCache['$id:${identityHashCode(solid.mesh)}'];
+    if (hit != null) return hit;
+    // The extent is the WHOLE assembly's, not the component's: the tool has to
+    // swallow everything on its side of the plane, and a box sized to one
+    // small component would leave the rest of the assembly uncut.
+    final extent = paddedOriginExtent(assemblyContentBounds(a));
+    final local = SectionView(
+        view.mode,
+        _pieceLocal(view.a, at),
+        view.b == null ? null : _pieceLocal(view.b!, at));
+    final cut = sectionCutSolid(partKernel, extent, solid, local);
+    if (cut == null) return null;
+    _asmSectionCache['$id:${identityHashCode(solid.mesh)}'] = cut;
+    return cut;
+  }
+
+  /// One section plane, already flipped and offset, brought into the frame of
+  /// a piece placed by [at].
+  ///
+  /// The flip and the offset are applied FIRST (that is what cutFrame is) and
+  /// the result is transported, so the transported plane carries them and the
+  /// local SectionPlane needs neither.
+  SectionPlane _pieceLocal(SectionPlane p, Placement at) =>
+      SectionPlane(sectionFrameInto(p.cutFrame, at), p.label);
 
   // ---- M174 drag-to-create a work plane -----------------------------------
 

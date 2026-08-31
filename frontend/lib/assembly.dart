@@ -54,6 +54,7 @@ import 'doc_file.dart' show kAssemblyDocKind;
 import 'display_mode.dart';
 import 'materials.dart';
 import 'part_model.dart';
+import 'section_view.dart';
 import 'quat.dart';
 import 'part_render.dart' show PlacedComponent;
 
@@ -403,6 +404,15 @@ class AssemblyModel {
   /// Unlike a part's, these are PARAMETRIC: each stores the picks it was
   /// built from as [AsmRef]s and is re-derived after every solve. See
   /// asm_work_features.dart for why that is not optional here.
+  /// M292 — the section view cutting this assembly open, or null for the
+  /// whole thing.
+  ///
+  /// TRANSIENT and per DOCUMENT, exactly as [PartModel.section] is and for the
+  /// same reasons: a section view shows the inside without modifying anything,
+  /// so it is never written to disk, and two documents open at once must be
+  /// able to be sectioned differently.
+  SectionView? section;
+
   final List<AsmWorkPlane> workPlanes = [];
   final List<AsmWorkAxis> workAxes = [];
   final List<AsmWorkPoint> workPoints = [];
