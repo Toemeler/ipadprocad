@@ -26,6 +26,7 @@ import 'quat.dart' show Quat;
 import 'ffi/occt_engine.dart';
 import 'ffi/qcad_engine.dart';
 import 'display_mode.dart';
+import 'section_view.dart';
 import 'log.dart';
 import 'materials.dart';
 import 'perf.dart';
@@ -5469,6 +5470,20 @@ class PartModel {
   /// it off and reopening keeps the floor gone.
   bool showFloor = true;
 
+  /// M291 — the section view cutting this part open, or null for the whole
+  /// model.
+  ///
+  /// TRANSIENT, deliberately: it is never written to disk and never enters the
+  /// timeline. Inventor is explicit that a section view lets you "see inside
+  /// your model without modifying geometry", and a document that reopened
+  /// half-cut would read as a broken part rather than as a view.
+  ///
+  /// On the PART and not on AppState, unlike M168's [AppState.sliceGraphics]
+  /// flag, because it outlives a sketch: switching to another tab and back
+  /// must find the same model still open at the same plane, and two parts open
+  /// at once must be able to be sectioned differently.
+  SectionView? section;
+
   /// M272 — the appearance assigned to each BODY, keyed by body name.
   ///
   /// On the body and not on the feature, because that is what the user picks:
@@ -10007,7 +10022,20 @@ const List<(double, double)> kSectionHatch = [
 /// and the caller then shows the solid whole — a failed slice must not make
 /// the part vanish.
 KernelSolid? sliceSolidAt(
-    PartKernel kernel, PartModel part, KernelSolid solid, PlaneFrame frame) {
+        PartKernel kernel, PartModel part, KernelSolid solid, PlaneFrame frame) =>
+    sectionCutSolid(kernel, part, solid, SectionView.slice(frame));
+
+/// The half-space tool for one section plane: a box covering everything on the
+/// side of [frame] its normal points AWAY from.
+///
+/// M168 built this inline for Slice Graphics; M291 gives it a name because a
+/// quarter section needs two of them and a three-quarter section needs their
+/// common solid. Sized from the part's own extent, so it always swallows
+/// whatever is on that side however large the model is.
+///
+/// The caller owns the result and must dispose it.
+KernelSolid? sectionHalfSpace(
+    PartKernel kernel, PartModel part, PlaneFrame frame) {
   if (!kernel.available) return null;
   final (lo, hi) = originExtentBounds(part);
   // Half-diagonal of the part's box, plus a margin: any square of this size
@@ -10026,11 +10054,66 @@ KernelSolid? sliceSolidAt(
       ]
     ]
   ];
-  final tool = kernel.extrude(profile, r, 0, frame.mat34(0));
-  if (tool == null) return null;
-  final cut = kernel.cutSolids(solid, tool);
-  tool.dispose();
-  return cut;
+  return kernel.extrude(profile, r, 0, frame.mat34(0));
+}
+
+/// M291 — [solid] with [view] cut out of it, or null when nothing was cut.
+///
+/// One path for all three of Inventor's section commands AND for Slice
+/// Graphics, which is [SectionView.slice] and nothing more. Written as
+/// half-spaces, with A- meaning "the side of plane A that its normal points
+/// away from", what comes out is:
+///
+///   half           solid - A-
+///   quarter        solid - A- - B-        (three quarters removed)
+///   threeQuarter   solid - (A- ∩ B-)      (one quarter removed)
+///
+/// A real boolean, not a render trick, for the reason M168 gave: the section
+/// faces have to be REAL faces, because a hatch follows face boundaries and a
+/// clipped render has none to follow.
+///
+/// Null when there is nothing to cut, when the view is not finished (a quarter
+/// view with one plane picked cuts nothing rather than guessing a half), or
+/// when the kernel refuses — and the caller then shows the solid whole. A
+/// failed section must never make the part vanish.
+KernelSolid? sectionCutSolid(
+    PartKernel kernel, PartModel part, KernelSolid solid, SectionView view) {
+  if (!kernel.available || !view.complete) return null;
+  final a = sectionHalfSpace(kernel, part, view.a.cutFrame);
+  if (a == null) return null;
+  final second = view.b;
+  if (second == null) {
+    final cut = kernel.cutSolids(solid, a);
+    a.dispose();
+    return cut;
+  }
+  final b = sectionHalfSpace(kernel, part, second.cutFrame);
+  if (b == null) {
+    a.dispose();
+    return null;
+  }
+  KernelSolid? out;
+  if (view.mode == SectionMode.threeQuarter) {
+    // The NOTCH: only where both half-spaces overlap. Cutting with each in
+    // turn would remove their union instead, which is the quarter view.
+    final notch = kernel.intersectSolids(a, b);
+    if (notch != null) {
+      out = kernel.cutSolids(solid, notch);
+      notch.dispose();
+    }
+  } else {
+    // Quarter: remove both half-spaces, leaving the one quadrant that is on
+    // the far side of each. Sequential cuts, because a - x - y is a - (x ∪ y)
+    // and the union never has to be built.
+    final once = kernel.cutSolids(solid, a);
+    if (once != null) {
+      out = kernel.cutSolids(once, b);
+      once.dispose();
+    }
+  }
+  a.dispose();
+  b.dispose();
+  return out;
 }
 
 /// M163 — the model edge a projection currently refers to.

@@ -47,6 +47,7 @@ import 'perf.dart';
 import 'modify.dart';
 import 'params.dart';
 import 'part_model.dart';
+import 'section_view.dart';
 import 'materials.dart';
 import 'part_render.dart';
 import 'preview_matte.dart';
@@ -7988,31 +7989,171 @@ class AppState extends ChangeNotifier {
     _sliceFaces = const [];
   }
 
-  /// The sliced stand-in for [solid], or null to draw it whole.
+  /// M291 — THE ONE SECTION IN FRONT, whatever asked for it.
   ///
-  /// Cached against the sketch frame and the identity of every mesh in the
-  /// scene: the cut is a full boolean and must not run per frame. A null
-  /// result (no kernel, or the cut failed) deliberately means "show it whole"
-  /// — a failed slice must never make the part disappear.
-  KernelSolid? slicedSolid(String id, KernelSolid solid) {
-    if (!sliceGraphics) return null;
+  /// Two commands produce a cut and they are the same cut: the part's own
+  /// section view (half / quarter / three-quarter, from the Appearance panel)
+  /// and Slice Graphics inside a sketch, which is a half section at the
+  /// sketch's own plane and nothing more. M168 built the second as its own
+  /// state with its own cutter; this is where they became one value.
+  ///
+  /// Slice Graphics wins while a sketch is open, deliberately: it is a
+  /// SKETCHING aid — you turned it on to see what you are drawing into — and a
+  /// section view left on from before must not decide what you can see of the
+  /// plane you are drawing on. Ending the sketch brings the section back
+  /// untouched, because neither state was ever overwritten.
+  ///
+  /// Null means "draw the model whole".
+  SectionView? get activeSection {
     final p = currentPart;
-    final cs = activeChild == null ? null : p?.sketchByName(activeChild!.name);
-    if (p == null || cs == null) return null;
-    final fr = sketchFrameOf(cs);
-    final key = '${fr.origin.x},${fr.origin.y},${fr.origin.z},'
-        '${fr.n.x},${fr.n.y},${fr.n.z}';
+    if (p == null) return null;
+    if (sliceGraphics) {
+      final cs = activeChild == null ? null : p.sketchByName(activeChild!.name);
+      if (cs != null) return SectionView.slice(sketchFrameOf(cs));
+    }
+    final own = p.section;
+    // An unfinished quarter view (one plane picked, the command still asking
+    // for the second) cuts nothing: see SectionView.complete.
+    return own != null && own.complete ? own : null;
+  }
+
+  /// The section stand-in for [solid], or null to draw it whole.
+  ///
+  /// Cached against the section's signature and the identity of every mesh in
+  /// the scene: the cut is a full boolean and must not run per frame. A null
+  /// result (no kernel, or the cut failed) deliberately means "show it whole"
+  /// — a failed section must never make the part disappear.
+  ///
+  /// Still called [slicedSolid] because that is what every consumer of it has
+  /// been calling since M168 — visibleSolids, the payload, the signature, the
+  /// triangle budget, the thumbnails — and renaming it would be the only
+  /// change in six files that carried no meaning.
+  KernelSolid? slicedSolid(String id, KernelSolid solid) {
+    final view = activeSection;
+    if (view == null) return null;
+    final p = currentPart;
+    if (p == null) return null;
+    final key = view.signature;
     if (key != _sliceKey) {
       _clearSliceCache();
       _sliceKey = key;
     }
     final hit = _sliceCache['$id:${identityHashCode(solid.mesh)}'];
     if (hit != null) return hit;
-    final cut = sliceSolidAt(partKernel, p, solid, fr);
+    final cut = sectionCutSolid(partKernel, p, solid, view);
     if (cut == null) return null;
     _sliceCache['$id:${identityHashCode(solid.mesh)}'] = cut;
-    Log.i('slice', 'sliced $id at the sketch plane');
+    Log.i('slice', 'sectioned $id (${view.mode.id})');
     return cut;
+  }
+
+  // ---- M291: the section-view commands ------------------------------------
+  //
+  // Inventor's flow, and the reason this needed no new picking machinery: pick
+  // any plane or planar face, Flip to swap which side goes, drag or type an
+  // offset, Continue for the second plane on the two-plane commands, End
+  // Section View to get the model back. The pick is the SAME hit test the work
+  // planes use (Viewport3D._planeOrFaceAt), which is what makes an origin
+  // plane, a work plane and a face all valid targets without three code paths.
+
+  /// The section command waiting for a plane, or null when none is running.
+  SectionMode? sectionArm;
+
+  /// What has been picked so far while [sectionArm] is running. Becomes the
+  /// part's [PartModel.section] as soon as it is complete.
+  SectionView? sectionDraft;
+
+  /// True while the viewport should hand taps to the section command.
+  bool get sectionPicking => sectionArm != null;
+
+  /// Whether the commands are offered at all. Inventor greys them out with
+  /// nothing to cut; here they are not shown (M157 — a visible button that
+  /// does nothing reads as broken).
+  bool get canSection => currentPart?.hasSolid == true && activeChild == null;
+
+  /// The section currently applied to the open part, if any.
+  SectionView? get partSection => currentPart?.section;
+
+  /// Start one of the three commands. Starting one while another section is up
+  /// replaces it, which is what Inventor's own panel does — the three buttons
+  /// are one control with three settings, not three independent toggles.
+  void beginSection(SectionMode mode) {
+    if (!canSection) return;
+    sectionArm = mode;
+    sectionDraft = null;
+    _clearSliceCache();
+    // The viewport is now waiting for something and must say so: a command
+    // that arms silently reads as a button that did nothing (M157's rule,
+    // applied to the moment after the tap rather than to the button).
+    toast(L.current.msgPickSectionPlane);
+    Log.i('slice', 'section: ${mode.id} armed');
+    notifyListeners();
+  }
+
+  /// A plane or planar face was picked in the viewport.
+  ///
+  /// The first pick shows the cut immediately for a half section; on the
+  /// two-plane commands nothing is cut until the second lands, because a
+  /// quarter view that showed a half first and then changed under you is a
+  /// worse answer than one that waits.
+  void sectionPlanePicked(PlaneFrame frame, String label) {
+    final mode = sectionArm;
+    final p = currentPart;
+    if (mode == null || p == null) return;
+    final draft = sectionDraft;
+    if (draft == null) {
+      sectionDraft = SectionView(mode, SectionPlane(frame, label));
+    } else {
+      sectionDraft = draft.withSecond(SectionPlane(frame, label));
+    }
+    final now = sectionDraft!;
+    if (now.complete) {
+      p.section = now;
+      sectionArm = null;
+      sectionDraft = null;
+      Log.i('slice', 'section: ${now.mode.id} on ${now.planes.length} plane(s)');
+    }
+    _clearSliceCache();
+    notifyListeners();
+  }
+
+  /// Inventor's Flip: swap which side of plane [i] is removed.
+  void flipSectionPlane(int i) {
+    final p = currentPart;
+    final v = p?.section;
+    if (p == null || v == null || i < 0 || i >= v.planes.length) return;
+    p.section = v.withPlane(i, v.planes[i].flip);
+    _clearSliceCache();
+    notifyListeners();
+  }
+
+  /// Inventor's Virtual Movement: slide plane [i] along its own normal.
+  void setSectionOffset(int i, double mm) {
+    final p = currentPart;
+    final v = p?.section;
+    if (p == null || v == null || !mm.isFinite) return;
+    if (i < 0 || i >= v.planes.length) return;
+    p.section = v.withPlane(i, v.planes[i].copyWith(offset: mm));
+    _clearSliceCache();
+    notifyListeners();
+  }
+
+  /// Inventor's End Section View: the whole model back.
+  ///
+  /// Also cancels a command that is still asking for a plane, which is what
+  /// the same button has to mean while one is running — otherwise a
+  /// half-started quarter view has no way out but picking a plane you do not
+  /// want.
+  void endSection() {
+    final p = currentPart;
+    final had = sectionArm != null || p?.section != null;
+    sectionArm = null;
+    sectionDraft = null;
+    p?.section = null;
+    if (!had) return;
+    _clearSliceCache();
+    Log.i('slice', 'section: ended');
+    notifyListeners();
   }
 
   // ---- M174 drag-to-create a work plane -----------------------------------

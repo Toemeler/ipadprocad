@@ -2189,6 +2189,25 @@ class _Viewport3DState extends State<Viewport3D>
       app.holePointPicked(hit.$1, hit.$2);
       return;
     }
+    // M291 — a section command is waiting for a plane, and owns the tap while
+    // it is. The SAME hit test the work-plane drag uses, which is what makes
+    // an origin plane, a work plane and a planar face all valid targets
+    // without three code paths — and what makes "pick any plane or planar
+    // face" true here in the sense Inventor means it.
+    if (app.sectionPicking) {
+      final (frame, label) = _planeOrFaceAt(cam, px, p);
+      if (frame == null) {
+        app.toast(app.sectionDraft == null
+            ? L.current.msgPickSectionPlane
+            : L.current.msgPickSectionPlane2);
+        return;
+      }
+      app.sectionPlanePicked(frame, label);
+      // Still asking: the two-plane commands prompt for the second one rather
+      // than leaving the viewport silent with a command half given.
+      if (app.sectionPicking) app.toast(L.current.msgPickSectionPlane2);
+      return;
+    }
     // M254 — a tap that is NOT on a work plane clears the work-plane
     // selection, the other half of "die work plane im Modell browser [ist]
     // immer gehighlighted". Pointer-down selects the plane you touch; nothing
@@ -2704,8 +2723,14 @@ class _ScenePainter extends CustomPainter {
 
     // ---- origin planes (fills first: everything else draws over them) ----
     for (final key in kPlaneKeys) {
-      final visible =
-          part.vis[key] == true || (app.pickPlane && !part.hasSolid);
+      // M291 — and while a section command is asking for a plane, the three
+      // origin planes are shown whatever the part's own visibility says. They
+      // are the commonest thing to section at and you cannot tap what is not
+      // drawn; ending the command puts them back as they were, because this
+      // reads the flag rather than writing `vis`.
+      final visible = part.vis[key] == true ||
+          (app.pickPlane && !part.hasSolid) ||
+          app.sectionPicking;
       if (!visible) continue;
       final f = planeFrame(key);
       // M83: the plane's own padded rectangle around the part, NOT a fixed

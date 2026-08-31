@@ -3406,6 +3406,31 @@ class AppL10nDe extends AppL10n {
   }
 
   @override
+  String get sectionNone => 'Kein Schnitt';
+
+  @override
+  String get sectionHalf => 'Halbschnitt';
+
+  @override
+  String get sectionQuarter => 'Viertelschnitt';
+
+  @override
+  String get sectionThreeQuarter => 'Dreiviertelschnitt';
+
+  @override
+  String get sectionFlip1 => 'Ebene 1 umkehren';
+
+  @override
+  String get sectionFlip2 => 'Ebene 2 umkehren';
+
+  @override
+  String get msgPickSectionPlane =>
+      'Ebene oder ebene Flaeche zum Schneiden antippen';
+
+  @override
+  String get msgPickSectionPlane2 => 'Zweite Ebene antippen';
+
+  @override
   String get panelAppearance => 'Aussehen';
 
   @override

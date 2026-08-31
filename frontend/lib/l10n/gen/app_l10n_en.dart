@@ -3359,6 +3359,30 @@ class AppL10nEn extends AppL10n {
   }
 
   @override
+  String get sectionNone => 'No Section';
+
+  @override
+  String get sectionHalf => 'Half Section';
+
+  @override
+  String get sectionQuarter => 'Quarter Section';
+
+  @override
+  String get sectionThreeQuarter => 'Three Quarter Section';
+
+  @override
+  String get sectionFlip1 => 'Flip Plane 1';
+
+  @override
+  String get sectionFlip2 => 'Flip Plane 2';
+
+  @override
+  String get msgPickSectionPlane => 'Tap a plane or planar face to cut at';
+
+  @override
+  String get msgPickSectionPlane2 => 'Tap the second plane';
+
+  @override
   String get panelAppearance => 'Appearance';
 
   @override

@@ -1016,7 +1016,14 @@ String sceneSignature(AppState app, PartModel p) {
   // same lesson: anything that changes the picture and is not here means no
   // rebuild is sent and the change "does not work". A plane's position is
   // part of that, not just its existence — re-offsetting one moves it.
-  sb..write(';slice:')..write(app.sliceGraphics ? '1' : '0');
+  // M291 — the SECTION, not just the Slice Graphics flag. The two are one
+  // value now (AppState.activeSection), and it carries the mode, both planes,
+  // their flips and their offsets: flipping a section or sliding a plane
+  // changes every mesh in the scene and would otherwise send no rebuild at
+  // all — which is exactly the failure M95, M122 and M165 each were.
+  sb
+    ..write(';sect:')
+    ..write(app.activeSection?.signature ?? '-');
   // The preview MOVES every frame of the drag, so its offset is part of the
   // signature or the plane would appear frozen while the finger moves.
   sb

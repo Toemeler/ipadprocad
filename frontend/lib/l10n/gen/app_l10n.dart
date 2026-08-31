@@ -5659,6 +5659,54 @@ abstract class AppL10n {
   /// **'{n, plural, =1{1 Kante projiziert} other{{n} Kanten projiziert}}'**
   String msgProjectedFace(int n);
 
+  /// Aussehen: kein Schnitt, das ganze Modell. Standard.
+  ///
+  /// In de, this message translates to:
+  /// **'Kein Schnitt'**
+  String get sectionNone;
+
+  /// Aussehen: eine Ebene, die nahe Haelfte wird entfernt. Inventor: "Half Section View".
+  ///
+  /// In de, this message translates to:
+  /// **'Halbschnitt'**
+  String get sectionHalf;
+
+  /// Aussehen: zwei Ebenen, ein Viertel des Modells bleibt stehen. Inventor: "Quarter Section View".
+  ///
+  /// In de, this message translates to:
+  /// **'Viertelschnitt'**
+  String get sectionQuarter;
+
+  /// Aussehen: zwei Ebenen, ein Viertel wird herausgeschnitten. Inventor: "Three Quarter Section View".
+  ///
+  /// In de, this message translates to:
+  /// **'Dreiviertelschnitt'**
+  String get sectionThreeQuarter;
+
+  /// Schnittansicht: welche Seite der ersten Ebene entfernt wird. Inventor: "Flip".
+  ///
+  /// In de, this message translates to:
+  /// **'Ebene 1 umkehren'**
+  String get sectionFlip1;
+
+  /// Schnittansicht: welche Seite der zweiten Ebene entfernt wird.
+  ///
+  /// In de, this message translates to:
+  /// **'Ebene 2 umkehren'**
+  String get sectionFlip2;
+
+  /// Aufforderung, waehrend die Schnittansicht auf die erste Ebene wartet.
+  ///
+  /// In de, this message translates to:
+  /// **'Ebene oder ebene Flaeche zum Schneiden antippen'**
+  String get msgPickSectionPlane;
+
+  /// Aufforderung, waehrend die Schnittansicht auf die zweite Ebene wartet.
+  ///
+  /// In de, this message translates to:
+  /// **'Zweite Ebene antippen'**
+  String get msgPickSectionPlane2;
+
   /// Ribbon-Gruppe: die Farbe eines Koerpers oder einer Komponente. Inventor DE: "Aussehen".
   ///
   /// In de, this message translates to:

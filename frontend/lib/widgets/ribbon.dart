@@ -18,6 +18,7 @@ import '../log.dart';
 import '../perf.dart';
 import '../menus.dart';
 import '../ribbon_dock.dart';
+import '../section_view.dart';
 import '../part_model.dart' show FaceEditKind, PatternKind, WorkPlaneKind;
 import '../work_features.dart'
     show WorkAxisMethod, WorkPlaneMethod, WorkPointMethod;
@@ -1085,6 +1086,17 @@ class _RibbonState extends State<Ribbon> {
                   const SizedBox(height: 4),
                   _FloorToggle(app: app),
                 ],
+                // M291 — and the section view, under the two that say how the
+                // model is DRAWN. It is the third question this panel answers:
+                // what colour, how shaded, and how much of it you can see.
+                //
+                // Part only. Inventor sections an assembly too, and the state
+                // and the cut here would carry over unchanged, but the pick
+                // has to reach a component's faces and that is the assembly
+                // viewport's hit test, not this one's. Left off rather than
+                // drawn dead (M157).
+                const SizedBox(height: 4),
+                _SectionChip(app: app, onOpen: toggleOver),
               ],
             ),
           ),
@@ -2865,6 +2877,102 @@ class _FloorToggle extends StatelessWidget {
 /// today, and Inventor has six; a chip that names the current one grows to a
 /// third without the panel changing shape, and — more to the point — it SAYS
 /// which view you are in, which two buttons only do by which of them is lit.
+// M291 — SECTION VIEWS, in the panel Inventor puts them in.
+//
+// Inventor's View tab has Half / Quarter / Three Quarter / End Section View as
+// four buttons on the Appearance panel. Here they are one chip with four
+// settings, for the same reason Material and Display Mode are: this panel is a
+// stack of chips, four more buttons would be the widest panel on the ribbon,
+// and the four commands ARE one control — starting one while another is up
+// replaces it, and "End Section View" is simply the setting called None.
+//
+// Flip joins them in the same flyout when a section is up. Inventor puts it on
+// the right-click menu, which this app spends on the sketch context menu, and
+// a command reachable only by a gesture the app does not have is a command
+// that does not exist.
+class _SectionChip extends StatefulWidget {
+  final AppState app;
+  final void Function(String id, BuildContext anchor, List<OverItem> items)
+      onOpen;
+  const _SectionChip({required this.app, required this.onOpen});
+
+  @override
+  State<_SectionChip> createState() => _SectionChipState();
+}
+
+class _SectionChipState extends State<_SectionChip> {
+  bool _h = false;
+
+  /// The user-visible name of a mode, from the ARB like every other string.
+  String _name(AppL10n t, SectionMode? m) => switch (m) {
+        null => t.sectionNone,
+        SectionMode.half => t.sectionHalf,
+        SectionMode.quarter => t.sectionQuarter,
+        SectionMode.threeQuarter => t.sectionThreeQuarter,
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    final t = L.of(context);
+    final app = widget.app;
+    final on = app.canSection;
+    // While a command is waiting for a plane the chip shows THAT mode, not the
+    // one still applied: the user has committed to it, and the viewport is
+    // asking them for a plane on its behalf.
+    final cur = app.sectionArm ?? app.partSection?.mode;
+    final live = app.partSection;
+    final chip = Container(
+      padding: const EdgeInsets.fromLTRB(8, 6, 6, 6),
+      decoration: BoxDecoration(
+        color: (_h && on) ? T.hover7 : T.hover6,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(
+            color: (_h && on) ? T.accent.withValues(alpha: 0.45) : T.border10),
+      ),
+      // The same floor-not-a-cap rule as the two chips above it (M235).
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        ConstrainedBox(
+          constraints: const BoxConstraints(minWidth: 112),
+          child: Text(_name(t, cur),
+              softWrap: false,
+              style: ts(12, !on ? T.dim : (cur == null ? T.text : T.accent))),
+        ),
+        const SizedBox(width: 6),
+        Text('▼', style: ts(8, T.dim)),
+      ]),
+    );
+    return MouseRegion(
+      cursor: on ? SystemMouseCursors.click : MouseCursor.defer,
+      onEnter: (_) => setState(() => _h = true),
+      onExit: (_) => setState(() => _h = false),
+      child: Builder(
+        builder: (ctx) => GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: on
+              ? () => widget.onOpen('ov-section', ctx, [
+                    OverItem('', t.sectionNone, app.endSection,
+                        active: cur == null),
+                    for (final m in SectionMode.values)
+                      OverItem('', _name(t, m), () => app.beginSection(m),
+                          active: m == cur),
+                    // Flip, one entry per plane the live section actually has.
+                    // Absent while a command is still picking, because there
+                    // is nothing yet to flip.
+                    if (live != null)
+                      OverItem(
+                          '', t.sectionFlip1, () => app.flipSectionPlane(0)),
+                    if (live != null && live.planes.length > 1)
+                      OverItem(
+                          '', t.sectionFlip2, () => app.flipSectionPlane(1)),
+                  ])
+              : null,
+          child: chip,
+        ),
+      ),
+    );
+  }
+}
+
 class _DisplayModeChip extends StatefulWidget {
   final AppState app;
   final void Function(String id, BuildContext anchor, List<OverItem> items)

@@ -2721,6 +2721,38 @@
     "description": "Rueckmeldung nach dem Projizieren einer ganzen Flaeche.",
     "placeholders": { "n": { "type": "int" } }
   },
+  "sectionNone": "Kein Schnitt",
+  "@sectionNone": {
+    "description": "Aussehen: kein Schnitt, das ganze Modell. Standard."
+  },
+  "sectionHalf": "Halbschnitt",
+  "@sectionHalf": {
+    "description": "Aussehen: eine Ebene, die nahe Haelfte wird entfernt. Inventor: \"Half Section View\"."
+  },
+  "sectionQuarter": "Viertelschnitt",
+  "@sectionQuarter": {
+    "description": "Aussehen: zwei Ebenen, ein Viertel des Modells bleibt stehen. Inventor: \"Quarter Section View\"."
+  },
+  "sectionThreeQuarter": "Dreiviertelschnitt",
+  "@sectionThreeQuarter": {
+    "description": "Aussehen: zwei Ebenen, ein Viertel wird herausgeschnitten. Inventor: \"Three Quarter Section View\"."
+  },
+  "sectionFlip1": "Ebene 1 umkehren",
+  "@sectionFlip1": {
+    "description": "Schnittansicht: welche Seite der ersten Ebene entfernt wird. Inventor: \"Flip\"."
+  },
+  "sectionFlip2": "Ebene 2 umkehren",
+  "@sectionFlip2": {
+    "description": "Schnittansicht: welche Seite der zweiten Ebene entfernt wird."
+  },
+  "msgPickSectionPlane": "Ebene oder ebene Flaeche zum Schneiden antippen",
+  "@msgPickSectionPlane": {
+    "description": "Aufforderung, waehrend die Schnittansicht auf die erste Ebene wartet."
+  },
+  "msgPickSectionPlane2": "Zweite Ebene antippen",
+  "@msgPickSectionPlane2": {
+    "description": "Aufforderung, waehrend die Schnittansicht auf die zweite Ebene wartet."
+  },
   "panelAppearance": "Aussehen",
   "@panelAppearance": {
     "description": "Ribbon-Gruppe: die Farbe eines Koerpers oder einer Komponente. Inventor DE: \"Aussehen\"."

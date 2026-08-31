@@ -62,9 +62,10 @@ void main() {
     await _pump(t, _partApp());
 
     final decos = _chipDecorations(t);
-    // Material + Display mode. Exactly two, or the discriminator caught a
-    // third (or the panel gained a chip this test does not know about).
-    expect(decos.length, 2);
+    // Material + Display mode + Section (M291). An exact count on purpose: a
+    // chip added to this panel must arrive wearing the same treatment, and a
+    // >= would let the next one in wearing the old dark well.
+    expect(decos.length, 3);
 
     for (final d in decos) {
       final fill = d.color!;
