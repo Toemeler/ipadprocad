@@ -133,6 +133,66 @@ abstract class AppL10n {
   /// **'„System“ folgt der Einstellung des iPads.'**
   String get settingsAppearanceFooter;
 
+  /// Abschnittstitel: die Farbe für Auswahl, aktiven Tab und Fokus.
+  ///
+  /// In de, this message translates to:
+  /// **'Akzentfarbe'**
+  String get settingsAccent;
+
+  /// Fusszeile unter der Akzentfarbe.
+  ///
+  /// In de, this message translates to:
+  /// **'„Schema“ nimmt die Farbe der gewählten Darstellung. Jede Farbe ist auf Lesbarkeit geprüft.'**
+  String get settingsAccentFooter;
+
+  /// Akzent: die Farbe der Darstellung selbst (Standard).
+  ///
+  /// In de, this message translates to:
+  /// **'Schema'**
+  String get accentScheme;
+
+  /// Akzent: Blaugrün.
+  ///
+  /// In de, this message translates to:
+  /// **'Petrol'**
+  String get accentTeal;
+
+  /// Akzent: Blau.
+  ///
+  /// In de, this message translates to:
+  /// **'Blau'**
+  String get accentBlue;
+
+  /// Akzent: Violett.
+  ///
+  /// In de, this message translates to:
+  /// **'Indigo'**
+  String get accentIndigo;
+
+  /// Akzent: Pink.
+  ///
+  /// In de, this message translates to:
+  /// **'Magenta'**
+  String get accentMagenta;
+
+  /// Akzent: Orange.
+  ///
+  /// In de, this message translates to:
+  /// **'Bernstein'**
+  String get accentAmber;
+
+  /// Akzent: Grün.
+  ///
+  /// In de, this message translates to:
+  /// **'Grün'**
+  String get accentGreen;
+
+  /// Akzent: Rot.
+  ///
+  /// In de, this message translates to:
+  /// **'Rot'**
+  String get accentRed;
+
   /// Abschnittstitel: der Hintergrund der Galerie.
   ///
   /// In de, this message translates to:

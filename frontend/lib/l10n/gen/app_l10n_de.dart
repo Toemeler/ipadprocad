@@ -28,6 +28,46 @@ class AppL10nDe extends AppL10n {
       '„System“ folgt der Einstellung des iPads.';
 
   @override
+  String get settingsAccent =>
+      'Akzentfarbe';
+
+  @override
+  String get settingsAccentFooter =>
+      '„Schema“ nimmt die Farbe der gewählten Darstellung. Jede Farbe ist auf Lesbarkeit geprüft.';
+
+  @override
+  String get accentScheme =>
+      'Schema';
+
+  @override
+  String get accentTeal =>
+      'Petrol';
+
+  @override
+  String get accentBlue =>
+      'Blau';
+
+  @override
+  String get accentIndigo =>
+      'Indigo';
+
+  @override
+  String get accentMagenta =>
+      'Magenta';
+
+  @override
+  String get accentAmber =>
+      'Bernstein';
+
+  @override
+  String get accentGreen =>
+      'Grün';
+
+  @override
+  String get accentRed =>
+      'Rot';
+
+  @override
   String get settingsBackdrop => 'Hintergrund';
 
   @override

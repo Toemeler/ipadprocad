@@ -64,8 +64,13 @@ void main() {
       // M270 — Backdrop sits under Appearance, because it is the narrower
       // version of the same idea: Appearance is the whole app, Backdrop is one
       // screen of it.
+      //
+      // Bug report #11 — and Accent sits between them, for the same reason one
+      // step finer: Appearance chooses the palette, Accent chooses the one
+      // colour inside it that means "you are working on this".
       expect(_spec().map((s) => s.id).toList(), [
         kSecAppearance,
+        kSecAccent,
         kSecBackdrop,
         kSecLanguage,
         kSecRibbon,
@@ -168,8 +173,14 @@ void main() {
       // BugReport.enabled is the prototype switch. Dropping the rows and
       // keeping the header would leave a heading over nothing.
       final ids = _spec(diagnostics: false).map((s) => s.id).toList();
-      expect(ids,
-          [kSecAppearance, kSecBackdrop, kSecLanguage, kSecRibbon, kSecAbout]);
+      expect(ids, [
+        kSecAppearance,
+        kSecAccent,
+        kSecBackdrop,
+        kSecLanguage,
+        kSecRibbon,
+        kSecAbout
+      ]);
     });
 
     test('Über reports the build and both kernels, read-only', () {

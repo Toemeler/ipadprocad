@@ -123,6 +123,24 @@ void main() {
           reason: '${p.name} $what below $bar:1:\n  ${bad.join('\n  ')}');
     }
 
+    // Bug report #11 — the accent became the user's choice, so the bar it
+    // already answered to has to follow it. A settings screen that lets you
+    // pick an accent nobody can read against the panel would have moved the
+    // one colour this file exists to hold OUT of this file's reach, which is
+    // exactly the failure M236 was written to end. Every entry, both
+    // palettes, the same 4.5:1 as `Palette.accent` itself.
+    for (final p in [kChalk, kEmber]) {
+      test('${p.name}: every choosable accent clears $kMinText:1', () {
+        check(p, 'accents', kMinText, [
+          for (final a in Accent.values)
+            ...[
+              ('${a.id} on panel', a.swatchOn(p), p.panel),
+              ('${a.id} on viewport', a.swatchOn(p), p.viewport),
+            ],
+        ]);
+      });
+    }
+
     for (final p in [kChalk, kEmber]) {
       test('${p.name}: text clears $kMinText:1', () {
         check(p, 'text', kMinText, text(p));

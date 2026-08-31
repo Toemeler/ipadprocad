@@ -112,6 +112,8 @@ class SettingsSheet {
   List<SettingsSection> _spec() => buildSettings(
         L.current,
         mode: T.mode,
+        accent: T.accentChoice.value,
+        palette: T.palette,
         locale: L.locale.value,
         info: settingsInfo(_app),
         backdrop: Backdrops.current.value,
@@ -143,6 +145,10 @@ class SettingsSheet {
       case kSecAppearance:
         final m = AppThemeMode.byId(row);
         if (m != null) T.set(m);
+        break;
+      case kSecAccent:
+        final a = Accent.byId(row);
+        if (a != null) T.setAccent(a);
         break;
       case kSecBackdrop:
         // The picker is a screen of its own on top of the sheet, so it owns
@@ -293,6 +299,8 @@ class _FallbackDialogState extends State<_FallbackDialog> {
     final spec = buildSettings(
       t,
       mode: T.mode,
+      accent: T.accentChoice.value,
+      palette: T.palette,
       locale: L.locale.value,
       info: settingsInfo(widget.app),
       backdrop: Backdrops.current.value,
@@ -359,6 +367,10 @@ class _FallbackDialogState extends State<_FallbackDialog> {
       case kSecAppearance:
         final m = AppThemeMode.byId(row);
         if (m != null) T.set(m);
+        break;
+      case kSecAccent:
+        final a = Accent.byId(row);
+        if (a != null) T.setAccent(a);
         break;
       case kSecBackdrop:
         // The colours work here; the picker does not, because off iOS there is

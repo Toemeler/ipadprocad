@@ -207,7 +207,14 @@ class PrototypeApp extends StatelessWidget {
           // switch does.
           builder: (context, _, __) => ValueListenableBuilder<RibbonPosition>(
             valueListenable: RibbonDock.position,
-            builder: (context, __, ___) => _app(locale, palette),
+            // Bug report #11 — and the accent, for the same reason as the
+            // backdrop: it is read at PAINT time through `T.accent`, and its
+            // own notifier is what says it moved. It cannot ride on T.scheme,
+            // whose value is the same Palette object before and after.
+            builder: (context, __, ___) => ValueListenableBuilder<Accent>(
+              valueListenable: T.accentChoice,
+              builder: (context, _____, ______) => _app(locale, palette),
+            ),
           ),
         ),
       ),
@@ -221,7 +228,7 @@ class PrototypeApp extends StatelessWidget {
       localizationsDelegates: AppL10n.localizationsDelegates,
       supportedLocales: AppL10n.supportedLocales,
       debugShowCheckedModeBanner: false,
-      theme: materialTheme(palette),
+      theme: materialTheme(palette, accent: T.accent),
       home: Scaffold(
         // M42-Fix: the CAD canvas must NOT reflow when the software keyboard
         // appears (inline dimension editor). Resizing re-centres the world

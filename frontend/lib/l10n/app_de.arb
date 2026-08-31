@@ -32,6 +32,46 @@
   "@settingsAppearanceFooter": {
     "description": "Fusszeile unter der Darstellung."
   },
+  "settingsAccent": "Akzentfarbe",
+  "@settingsAccent": {
+    "description": "Abschnittstitel: die Farbe für Auswahl, aktiven Tab und Fokus."
+  },
+  "settingsAccentFooter": "„Schema“ nimmt die Farbe der gewählten Darstellung. Jede Farbe ist auf Lesbarkeit geprüft.",
+  "@settingsAccentFooter": {
+    "description": "Fusszeile unter der Akzentfarbe."
+  },
+  "accentScheme": "Schema",
+  "@accentScheme": {
+    "description": "Akzent: die Farbe der Darstellung selbst (Standard)."
+  },
+  "accentTeal": "Petrol",
+  "@accentTeal": {
+    "description": "Akzent: Blaugrün."
+  },
+  "accentBlue": "Blau",
+  "@accentBlue": {
+    "description": "Akzent: Blau."
+  },
+  "accentIndigo": "Indigo",
+  "@accentIndigo": {
+    "description": "Akzent: Violett."
+  },
+  "accentMagenta": "Magenta",
+  "@accentMagenta": {
+    "description": "Akzent: Pink."
+  },
+  "accentAmber": "Bernstein",
+  "@accentAmber": {
+    "description": "Akzent: Orange."
+  },
+  "accentGreen": "Grün",
+  "@accentGreen": {
+    "description": "Akzent: Grün."
+  },
+  "accentRed": "Rot",
+  "@accentRed": {
+    "description": "Akzent: Rot."
+  },
   "settingsBackdrop": "Hintergrund",
   "@settingsBackdrop": {
     "description": "Abschnittstitel: der Hintergrund der Galerie."

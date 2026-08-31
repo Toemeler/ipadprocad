@@ -55,6 +55,19 @@ String appearanceName(AppL10n t, AppThemeMode m) => switch (m) {
       AppThemeMode.dark => t.appearanceDark,
     };
 
+/// The user-visible name of an accent (bug report #11). In the ARB, like every
+/// other string — the enum's own `name` is 'teal'/'amber'/…
+String accentName(AppL10n t, Accent a) => switch (a) {
+      Accent.scheme => t.accentScheme,
+      Accent.teal => t.accentTeal,
+      Accent.blue => t.accentBlue,
+      Accent.indigo => t.accentIndigo,
+      Accent.magenta => t.accentMagenta,
+      Accent.amber => t.accentAmber,
+      Accent.green => t.accentGreen,
+      Accent.red => t.accentRed,
+    };
+
 /// The user-visible name of a ribbon position. In the ARB, like every other
 /// string — the enum's own `name` is 'top'/'bottom'/'left'/'right'.
 String ribbonName(AppL10n t, RibbonPosition p) => switch (p) {
@@ -147,6 +160,7 @@ class SettingsSection {
 /// Section ids. Constants, because the handler switches on them and a header
 /// string changes with the language.
 const String kSecAppearance = 'appearance';
+const String kSecAccent = 'accent';
 const String kSecBackdrop = 'backdrop';
 const String kSecLanguage = 'language';
 const String kSecRibbon = 'ribbon';
@@ -203,6 +217,12 @@ List<SettingsSection> buildSettings(
   required AppThemeMode mode,
   required Locale locale,
   required SettingsInfo info,
+  /// Bug report #11 — the accent the user chose. Defaulted so every existing
+  /// caller (and every test that pins the other sections) keeps working.
+  Accent accent = Accent.scheme,
+  /// The palette the swatches are drawn against. The accents come in a light
+  /// and a dark value, so a swatch is only truthful once it knows which.
+  Palette palette = kEmber,
   /// M270 — the gallery's backdrop. Defaulted so every existing caller (and
   /// every test that pins the other four sections) keeps working unchanged.
   Backdrop backdrop = Backdrop.auto,
@@ -228,6 +248,29 @@ List<SettingsSection> buildSettings(
             ),
         ],
         footer: t.settingsAppearanceFooter,
+      ),
+      // Bug report #11 — "make the accent color ... a color which is changable
+      // in the settings". Directly under Appearance because it is the same
+      // question one step finer: Appearance chooses the palette, this chooses
+      // the one colour inside it that means "you are working on this".
+      //
+      // Swatched like the backdrop rows and for the same reason — a colour
+      // named "Indigo" and not shown is a colour you have to pick to find out.
+      SettingsSection(
+        id: kSecAccent,
+        header: t.settingsAccent,
+        rows: [
+          for (final a in Accent.values)
+            SettingsRow(
+              id: a.id,
+              title: accentName(t, a),
+              kind: SettingsRowKind.check,
+              selected: a == accent,
+              symbol: 'circle.fill',
+              tint: a.swatchOn(palette).toARGB32(),
+            ),
+        ],
+        footer: t.settingsAccentFooter,
       ),
       // M270 — BELOW Appearance, because it is a narrower version of the same
       // idea: Appearance is the whole app, this is one screen of it, and a

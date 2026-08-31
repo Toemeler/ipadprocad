@@ -560,6 +560,63 @@ const Palette kChalk = Palette(
 );
 
 
+/// What the user picked in the ACCENT switch (bug report #11).
+///
+/// The accent is the one colour the app uses to mean "this is the thing you
+/// are working on" — the selected tab, the tick in a list, an active chip, a
+/// focus ring — and the report asked for it to be the user's choice rather
+/// than the palette's.
+///
+/// A CLOSED LIST, NOT A COLOUR WHEEL, and that is the whole design.
+/// `m236_theme_test` holds the accent to WCAG AA against BOTH the panel and
+/// the viewport, in both palettes, because an accent that cannot be read is
+/// not an accent. A free picker hands the user the one control that can break
+/// the rule the theme exists to keep, and it would break it silently, on their
+/// device, where no test runs. Every entry here is checked by that same test.
+///
+/// Each entry carries a light value AND a dark value for the reason [Palette]
+/// comes in two: a teal that reads on cream is not the teal that reads on
+/// charcoal. One value for both would fail one of them — which is exactly what
+/// the two built-in accents (`0xFF0F6A70` on Chalk, `0xFF2FA9A2` on Ember)
+/// already say.
+enum Accent {
+  /// Whatever the palette itself says. The default, and what every install
+  /// before this had.
+  scheme(null, null),
+  teal(Color(0xFF107375), Color(0xFF17A8AB)),
+  blue(Color(0xFF2569B6), Color(0xFF629CDF)),
+  indigo(Color(0xFF734DCB), Color(0xFFA58CDE)),
+  magenta(Color(0xFFB23484), Color(0xFFD879B5)),
+  amber(Color(0xFF8F5A14), Color(0xFFD6871F)),
+  green(Color(0xFF1E7638), Color(0xFF2CAF53)),
+  red(Color(0xFFBA3A2C), Color(0xFFDE7D73));
+
+  const Accent(this.light, this.dark);
+
+  /// Null on [scheme] alone: it defers to the palette rather than overriding.
+  final Color? light;
+  final Color? dark;
+
+  /// The name as it is stored, and the row id the settings sheet sends back.
+  /// NOT shown to anyone — visible names come from the ARB.
+  String get id => name;
+
+  /// What this accent is on [p], or null to leave the palette's own alone.
+  Color? on(Palette p) => p.brightness == Brightness.dark ? dark : light;
+
+  /// The swatch the settings row draws. [scheme] shows what it will actually
+  /// give you, which is the palette's own accent rather than a blank.
+  Color swatchOn(Palette p) => on(p) ?? p.accent;
+
+  static Accent? byId(Object? s) {
+    for (final a in Accent.values) {
+      if (a.id == s) return a;
+    }
+    return null;
+  }
+}
+
+
 /// What the user picked in the appearance switch.
 enum AppThemeMode {
   /// Follow the iPad's own appearance setting. The default.
@@ -590,39 +647,39 @@ class ThemeStore {
 
   static const String fileName = 'settings.json';
   static const String key = 'theme';
+  static const String accentKey = 'accent';
 
   File get file => File('${dir.path}/$fileName');
 
-  AppThemeMode? load() {
+  Map<String, Object?> _read() {
     try {
       final f = file;
-      if (!f.existsSync()) return null;
+      if (!f.existsSync()) return const {};
       final raw = jsonDecode(f.readAsStringSync());
-      if (raw is! Map) return null;
-      return AppThemeMode.byId(raw[key]);
+      if (raw is! Map) return const {};
+      return <String, Object?>{for (final e in raw.entries) '${e.key}': e.value};
     } catch (e) {
       // A corrupt settings file costs an appearance preference and nothing
       // else. It must not cost the launch.
       Log.w('theme', 'could not read the appearance setting: $e');
-      return null;
+      return const {};
     }
   }
 
-  void save(AppThemeMode m) {
+  AppThemeMode? load() => AppThemeMode.byId(_read()[key]);
+
+  /// The accent the user chose, or null for "whatever the palette says".
+  Accent? loadAccent() => Accent.byId(_read()[accentKey]);
+
+  void save(AppThemeMode m) => _write(key, m.id);
+
+  void saveAccent(Accent a) => _write(accentKey, a.id);
+
+  void _write(String k, Object? value) {
     try {
       if (!dir.existsSync()) dir.createSync(recursive: true);
-      Map<String, Object?> data = <String, Object?>{};
-      final f = file;
-      if (f.existsSync()) {
-        final raw = jsonDecode(f.readAsStringSync());
-        if (raw is Map) {
-          data = <String, Object?>{
-            for (final e in raw.entries) '${e.key}': e.value
-          };
-        }
-      }
-      data[key] = m.id;
-      f.writeAsStringSync(jsonEncode(data));
+      final data = <String, Object?>{..._read(), k: value};
+      file.writeAsStringSync(jsonEncode(data));
     } catch (e) {
       Log.w('theme', 'could not remember the appearance setting: $e');
     }
@@ -696,6 +753,35 @@ class T {
       _mode = saved;
       _apply();
     }
+    final savedAccent = store.loadAccent();
+    if (savedAccent != null) accentChoice.value = savedAccent;
+  }
+
+  /// Bug report #11 — the accent the user chose, as something the app root
+  /// listens to.
+  ///
+  /// NOT a field on [Palette], and not carried by [scheme]. A palette is an
+  /// immutable value with a hundred and fifty fields and exactly two
+  /// instances; copying one to change a single colour would mean a `copyWith`
+  /// nobody can read plus a second pair of palettes that `m236_theme_test`
+  /// does not know about. And [scheme] cannot publish it, because its value
+  /// would be the same `Palette` object before and after — a `ValueNotifier`
+  /// compares before it notifies, so nothing would repaint.
+  ///
+  /// So the accent gets the treatment [L.locale] and `Backdrops.current`
+  /// already have: its own notifier, and one more builder at the root. Every
+  /// one of the 450 call sites still goes through [accent], so the override
+  /// is one line there and cannot be forgotten.
+  static final ValueNotifier<Accent> accentChoice =
+      ValueNotifier<Accent>(Accent.scheme);
+
+  /// Switch accent, and remember it. Same contract as [set]: a preference that
+  /// does not survive the app being killed is not a preference.
+  static void setAccent(Accent a) {
+    if (a == accentChoice.value) return;
+    accentChoice.value = a;
+    Log.i('theme', 'accent = ${a.id}');
+    _store?.saveAccent(a);
   }
 
   /// Switch scheme, and remember it. A preference that does not survive the
@@ -745,6 +831,7 @@ class T {
     _mode = AppThemeMode.system;
     _platform = Brightness.dark;
     _store = null;
+    accentChoice.value = Accent.scheme;
     scheme.value = kEmber;
   }
 
@@ -756,7 +843,11 @@ class T {
   static Color get text => scheme.value.text;
   static Color get dim => scheme.value.dim;
   static Color get sep => scheme.value.sep;
-  static Color get accent => scheme.value.accent;
+  /// The accent, after the user's choice (#11). `Accent.scheme` returns null
+  /// and the palette's own colour stands, which is what every install had
+  /// before the setting existed.
+  static Color get accent =>
+      accentChoice.value.on(scheme.value) ?? scheme.value.accent;
   static Color get hover => scheme.value.hover;
   static Color get viewport => scheme.value.viewport;
   static Color get floor => scheme.value.floor;
@@ -869,28 +960,35 @@ class T {
 
 /// The Material theme, derived from [Palette] so a scheme change carries the
 /// framework's own surfaces (text selection, cursors, dialogs) with it.
-ThemeData materialTheme(Palette p) => ThemeData(
+/// [accent] is passed rather than taken from `p` so the user's choice (#11)
+/// reaches the framework's own surfaces too. A cursor and a selection handle
+/// in the palette's teal, inside an app the user has set to amber, is the same
+/// two-schemes-at-once bug M237 exists to prevent — one layer down.
+ThemeData materialTheme(Palette p, {Color? accent}) {
+  final a = accent ?? p.accent;
+  return ThemeData(
+    brightness: p.brightness,
+    scaffoldBackgroundColor: p.viewport,
+    colorScheme: ColorScheme.fromSeed(
+      seedColor: a,
       brightness: p.brightness,
-      scaffoldBackgroundColor: p.viewport,
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: p.accent,
-        brightness: p.brightness,
-        surface: p.panel,
+      surface: p.panel,
+    ),
+    textSelectionTheme: TextSelectionThemeData(
+      cursorColor: a,
+      selectionColor: a.withValues(alpha: 0.35),
+      selectionHandleColor: a,
+    ),
+    tooltipTheme: TooltipThemeData(
+      waitDuration: const Duration(milliseconds: 500),
+      textStyle: ts(11.5, p.onAccent),
+      decoration: BoxDecoration(
+        color: p.fly,
+        border: Border.all(color: p.sep),
       ),
-      textSelectionTheme: TextSelectionThemeData(
-        cursorColor: p.accent,
-        selectionColor: p.accent.withValues(alpha: 0.35),
-        selectionHandleColor: p.accent,
-      ),
-      tooltipTheme: TooltipThemeData(
-        waitDuration: const Duration(milliseconds: 500),
-        textStyle: ts(11.5, p.onAccent),
-        decoration: BoxDecoration(
-          color: p.fly,
-          border: Border.all(color: p.sep),
-        ),
-      ),
-    );
+    ),
+  );
+}
 
 TextStyle ts(double size, Color color,
         {FontWeight w = FontWeight.normal, double height = 1.1}) =>
