@@ -269,7 +269,9 @@ def main():
     for round_no in range(1, args.max_rounds + 1):
         reply, usage, truncated = model.ask(prefix, issue_body, history)
         spent += model.cost(usage)
+        thinking = model.reasoning_tokens(usage)
         print(f'round {round_no}: {usage.get("completion_tokens", 0)} out'
+              f'{f" ({thinking} thinking)" if thinking else ""}'
               f'{" TRUNCATED" if truncated else ""}, ${spent:.4f} so far')
 
         parsed, expands, errors = edits_mod.parse(reply)
@@ -284,6 +286,20 @@ def main():
                     {'role': 'assistant', 'content': reply}]
 
         if truncated and not parsed:
+            if not reply.strip():
+                # Nothing was written at all: the entire budget went on
+                # reasoning. Asking for a "smaller edit" is the wrong
+                # instruction — there was no edit.
+                note(round_no,
+                     f'spent the whole output budget thinking ({thinking} '
+                     'tokens) without writing an answer')
+                issue_body = (
+                    'You used your entire output budget reasoning and emitted '
+                    'nothing. Do not deliberate further — you have already '
+                    'worked this out. Write the `<file>` blocks NOW, starting '
+                    'with the single most important one. A partial fix that '
+                    'applies beats a complete one that never gets written.')
+                continue
             note(round_no, 'the answer was cut off at the output limit')
             issue_body = (
                 'Your answer was cut off at the output limit, so nothing could '

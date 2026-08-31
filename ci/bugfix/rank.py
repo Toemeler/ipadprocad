@@ -130,6 +130,24 @@ DECL_RE = re.compile(
     r'\s+\w+\s*\(')
 DECL_BOOST = 4.0
 
+# l10n key NAMING PREFIXES, dropped when a key is split into query terms.
+#
+# Keys in this repo are named `msgStepExportFailed`, `dlgNewSketch`,
+# `phSketchName`. Splitting one into tokens yields the prefix as well as the
+# content, and the prefix is a filing convention that says nothing about what
+# the user asked for. It is not harmless: on issue #9 `msg` scored 22.3 of
+# `app_state.dart`'s 72 — a third of its total, from tf=275 — and helped bury
+# `mesh_io.dart` ("M232 — reading a MESH file: STL, OBJ, 3MF"), which is where
+# an STL writer belongs and which the model asked for by name.
+#
+# Exactly one entry, and that is a measured choice rather than restraint for
+# its own sake. Sweeping the five issues fixed to date: `msg` alone gives
+# recall@5 of 5/5 and moves #9's `home_view.dart` from 2nd to 1st. Adding
+# `dlg`/`btn` holds 5/5 but costs #7 a place, and any broader list — `wf`,
+# `ov`, `tip` — drops #5's `ribbon.dart` out of the top five entirely. Those
+# prefixes turn out to carry meaning; `msg` does not.
+KEY_PREFIXES = frozenset(('msg',))
+
 
 def split_identifier(text):
     """camelCase, snake_case and paths -> lowercase word tokens.
@@ -235,6 +253,8 @@ class Index:
                 continue
             for key in keys:
                 for token in split_identifier(key):
+                    if token in KEY_PREFIXES:
+                        continue
                     terms[token] += BRIDGE_WEIGHT
         return terms
 
@@ -294,11 +314,17 @@ class Index:
         if not hits:
             return [(1, lines[:max_lines])] if lines else []
 
+        # A hard cap, not an approximate one: the loop used to break AFTER
+        # adding a whole neighbourhood, so a slice could overshoot its budget by
+        # up to 2*radius. Every line here is billed at cache-miss prices on
+        # every issue, so the budget is the budget.
         wanted = set()
         for weight, i in sorted(hits, reverse=True):
             if len(wanted) >= max_lines:
                 break
             wanted.update(range(max(0, i - radius), min(len(lines), i + radius + 1)))
+        if len(wanted) > max_lines:
+            wanted = set(sorted(wanted)[:max_lines])
 
         chunks, current, start = [], [], None
         for i in sorted(wanted):

@@ -34,15 +34,21 @@ MODEL = os.environ.get('DEEPSEEK_MODEL', 'deepseek-v4-pro')
 API_KEY = os.environ.get('DEEPSEEK_API_KEY', '')
 REASONING_EFFORT = os.environ.get('BUGFIX_REASONING_EFFORT', 'medium')
 
-# Enough for a real fix plus a real test, not enough to rewrite a 3,000-line
-# widget wholesale — which is a failure mode worth capping rather than paying
-# for and then rejecting.
+# `max_tokens` bounds REASONING PLUS CONTENT on a reasoning model, and that is
+# the whole story behind issue #9's eighth run:
 #
-# Raised from 8,000 after issue #9: a change that legitimately spans a widget,
-# a model method, two ARBs and a test ran into the cap mid-block, and a
-# truncated answer costs a whole round. 16,000 still refuses a wholesale
-# rewrite; SEARCH/REPLACE blocks for a five-file change come in well under it.
-MAX_TOKENS = 16000
+#     round 2: 16000 out TRUNCATED — reply began: (empty)
+#     round 3: 16000 out TRUNCATED — reply began: (empty)
+#
+# Sixteen thousand completion tokens, no content at all. The model thought
+# until it hit the ceiling and never reached the answer, twice, for $0.13. Both
+# earlier raises (8,000 -> 16,000) were treating this as "the answer is too
+# long" when the answer had not started.
+#
+# 32,000 leaves room for both on a change spanning a widget, a model method,
+# two ARBs and a test. It is a ceiling, not a target: a well-scoped round still
+# comes in around 2-4k, and `cost()` reports what was actually spent.
+MAX_TOKENS = 32000
 
 SYSTEM = '''\
 You are the bug-fix step of an automated maintainer for a Flutter iPad CAD app.
@@ -165,12 +171,24 @@ def ask(prefix, body, history=None, timeout=300):
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 data = json.loads(resp.read())
             choice = data['choices'][0]
-            return (choice['message']['content'], data.get('usage', {}),
+            return (choice['message'].get('content') or '',
+                    data.get('usage', {}),
                     choice.get('finish_reason') == 'length')
         except (urllib.error.URLError, TimeoutError, KeyError) as e:
             last = e
             time.sleep(2 ** attempt * 4)
     raise SystemExit(f'DeepSeek call failed after 4 attempts: {last}')
+
+
+def reasoning_tokens(usage):
+    """How much of the completion went on thinking rather than answering.
+
+    Worth printing every round: an answer that arrives empty after thousands of
+    completion tokens is a budget problem, not a formatting one, and the two
+    look identical without this number.
+    """
+    detail = usage.get('completion_tokens_details') or {}
+    return detail.get('reasoning_tokens') or usage.get('reasoning_tokens') or 0
 
 
 def cost(usage):
