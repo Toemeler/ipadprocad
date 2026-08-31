@@ -210,6 +210,64 @@ jobs:
           echo "=== Metal device present in libcycles_device.a? ==="
           nm -gU out/libcycles_device.a 2>/dev/null | grep -ci metal || echo 0
 
+      # ---------------------------------------------------------------------
+      # M296: does the SHIM compile and link against those archives?
+      # ---------------------------------------------------------------------
+      #
+      # The flags are not guessed. Cycles' headers need the right include roots
+      # (its own tree plus every dependency's) and the right feature defines,
+      # and getting either wrong is a round trip on a machine nobody is
+      # watching — so they are read back out of the Xcode project that just
+      # built cycles_scene, which by construction carries the set that worked.
+      - name: Extract the real compile flags
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          xcodebuild -project build_ios/Blender.xcodeproj -target cycles_scene \
+            -configuration Release -showBuildSettings > buildsettings.txt 2>/dev/null || true
+          echo "settings lines: $(wc -l < buildsettings.txt)"
+          grep -E "^[[:space:]]+(HEADER_SEARCH_PATHS|USER_HEADER_SEARCH_PATHS|GCC_PREPROCESSOR_DEFINITIONS|CLANG_CXX_LANGUAGE_STANDARD) = " buildsettings.txt || echo "(none of the expected keys were present)"
+
+      - name: Compile and link the shim
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+          INCS="-I blender/intern/cycles -I backend/cycles/shim"
+          for d in $(find blender/lib/ios_arm64 -maxdepth 3 -type d -name include 2>/dev/null); do
+            INCS="$INCS -I $d"
+          done
+          echo "include roots: $(echo $INCS | wc -w)"
+          DEFS=$(grep -E "^[[:space:]]+GCC_PREPROCESSOR_DEFINITIONS = " buildsettings.txt | head -1 | sed -e 's/^[^=]*= //' -e 's/"//g')
+          DFLAGS=""
+          for d in $DEFS; do DFLAGS="$DFLAGS -D$d"; done
+          echo "defines: $(echo $DFLAGS | wc -w)"
+          set +e
+          xcrun --sdk iphoneos clang++ -target arm64-apple-ios14.0 -isysroot "$SDK" -std=c++17 -O2 $INCS $DFLAGS -c backend/cycles/shim/cycles_shim.cpp -o cycles_shim.o 2> shim_compile.log
+          RC=$?
+          set -e
+          echo "compile exit: $RC"
+          if [ $RC -ne 0 ]; then
+            echo "=== first 80 lines of the compile log ==="
+            head -80 shim_compile.log
+            exit 0
+          fi
+          echo "COMPILED."
+          DEPS=$(find blender/lib/ios_arm64 -name '*.a' 2>/dev/null | tr '\n' ' ')
+          set +e
+          xcrun --sdk iphoneos clang++ -target arm64-apple-ios14.0 -isysroot "$SDK" -I backend/cycles/shim backend/cycles/shim/shim_probe.c cycles_shim.o out/*.a $DEPS -lc++ -lz -framework Metal -framework Foundation -framework CoreGraphics -framework IOKit -o shim_probe.bin 2> shim_link.log
+          RC=$?
+          set -e
+          echo "link exit: $RC"
+          if [ $RC -eq 0 ]; then
+            echo "LINKED. The shim resolves against Cycles and its dependencies."
+            lipo -info shim_probe.bin
+            ls -la shim_probe.bin
+          else
+            echo "=== unresolved (first 80) ==="
+            head -80 shim_link.log
+          fi
+
       - name: Upload the probe result
         if: always()
         uses: actions/upload-artifact@v4
@@ -220,5 +278,8 @@ jobs:
             targets.txt
             configure.log
             link.log
+            buildsettings.txt
+            shim_compile.log
+            shim_link.log
           if-no-files-found: warn
           retention-days: 14
