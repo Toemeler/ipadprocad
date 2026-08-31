@@ -58,7 +58,10 @@ class Harness:
 
     def ask(self, prefix, body, history=None, timeout=300):
         self.asked.append(body)
-        reply = self.replies.pop(0)
+        # A real model always answers something. When the script runs out it
+        # repeats its last reply, which is what a model stuck in a loop does —
+        # and keeps these tests independent of how the round budget is counted.
+        reply = self.replies.pop(0) if len(self.replies) > 1 else self.replies[0]
         truncated = isinstance(reply, tuple)
         if truncated:
             reply = reply[0]

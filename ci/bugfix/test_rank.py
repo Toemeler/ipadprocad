@@ -355,3 +355,44 @@ class TestModulesImport(unittest.TestCase):
         for name in ('rank', 'pack', 'edits', 'model', 'verify', 'gh', 'run'):
             with self.subTest(module=name):
                 importlib.import_module(name)
+
+
+class TestImportHeaders(unittest.TestCase):
+    """Every sliced file leads with its imports.
+
+    Issue #9's ninth run wrote `NativeMenuItem(...)` into app_state.dart and
+    the compiler said the type was not found. It exists — but line 12 of that
+    file is a SELECTIVE import, `show NativeMenu`, so the type genuinely is not
+    in scope. Slices are query-matched regions from the middle of a file, so
+    the import block had never appeared in any of them, and the model could not
+    have known.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.index = rank.Index()
+
+    def test_header_carries_the_selective_import(self):
+        chunks = self.index.header_lines('frontend/lib/app_state.dart')
+        self.assertTrue(chunks)
+        start, body = chunks[0]
+        self.assertEqual(start, 1)
+        self.assertTrue(any('show NativeMenu' in ln for ln in body))
+
+    def test_header_is_bounded(self):
+        for path in list(self.index.freqs)[:20]:
+            with self.subTest(path=path):
+                chunks = self.index.header_lines(path, max_lines=44)
+                if chunks:
+                    self.assertLessEqual(len(chunks[0][1]), 44)
+
+    def test_pack_shows_imports_for_its_files(self):
+        import pack
+        _, body, paths = pack.build(
+            9, 'when i longpress a card and select export i first want to '
+               'select stl or step before chosing a location', '')
+        self.assertIn('frontend/lib/widgets/home_view.dart', paths)
+        self.assertIn("import 'package:flutter/material.dart'", body)
+
+    def test_a_file_with_no_imports_yields_no_header(self):
+        self.assertEqual(self.index.header_lines('frontend/lib/nope.dart'), [])

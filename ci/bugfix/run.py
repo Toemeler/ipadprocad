@@ -89,7 +89,7 @@ def slices_for(index, paths, query, radius=30, max_lines=160):
         if not chunks:
             out.append(f'### {path}\n_(no such file, or nothing matched)_')
             continue
-        out.append(pack.render_slices(path, chunks))
+        out.append(pack.render_slices(path, index.header_lines(path) + chunks))
     return '\n\n'.join(out)
 
 
@@ -266,7 +266,17 @@ def main():
         last_reason, last_log = reason, log
         print(f'  round {round_no}: {reason}')
 
-    for round_no in range(1, args.max_rounds + 1):
+    # Expand rounds are bounded separately (MAX_EXPAND_ROUNDS) and no longer
+    # consume the fix budget. On issue #9's ninth run, rounds 1 and 3 were both
+    # expands, leaving only two actual attempts out of four — the model was
+    # being cut off for having asked to look, which is behaviour the pipeline
+    # explicitly invites.
+    round_no = 0
+    fix_rounds = 0
+    while fix_rounds < args.max_rounds:
+        round_no += 1
+        if round_no > args.max_rounds + MAX_EXPAND_ROUNDS:
+            break
         reply, usage, truncated = model.ask(prefix, issue_body, history)
         spent += model.cost(usage)
         thinking = model.reasoning_tokens(usage)
@@ -275,6 +285,10 @@ def main():
               f'{" TRUNCATED" if truncated else ""}, ${spent:.4f} so far')
 
         parsed, expands, errors = edits_mod.parse(reply)
+        # Anything that is not a served expand is an attempt at the fix, and
+        # spends the fix budget. The expand branch below is the one exception.
+        if not (expands and not parsed):
+            fix_rounds += 1
         if not parsed and not expands:
             # The reply is the only evidence of WHY a format failure happened,
             # and until now it was never recorded — three rounds of issue #9
@@ -315,6 +329,7 @@ def main():
                  'asked to see more source: '
                  + ', '.join(e.path for e in expands[:3]))
             if expand_rounds > MAX_EXPAND_ROUNDS:
+                fix_rounds += 1  # refusing to look again is itself an attempt
                 issue_body = (
                     'No. You have had your two rounds of looking, and asking '
                     'again spends the budget without writing anything. If what '

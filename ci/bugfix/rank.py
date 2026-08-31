@@ -277,6 +277,33 @@ class Index:
                 scored[rel] = total * (1 + RECENCY_WEIGHT * self.recency.get(rel, 0.0))
         return sorted(scored.items(), key=lambda kv: -kv[1])[:limit]
 
+    def header_lines(self, rel, max_lines=44):
+        """The file's imports, always. -> [(1, [lines])] or []
+
+        Issue #9's ninth run wrote `NativeMenuItem(...)` into `app_state.dart`
+        and the compiler said the type was not found. It does exist — but line
+        12 of that file is
+
+            import 'package:native_menu/native_menu.dart' show NativeMenu;
+
+        a SELECTIVE import, so the type is genuinely not in scope. The model had
+        no way to know: slices are query-matched regions from the middle of the
+        file, and the import block never appeared in any of them.
+
+        What is in scope, and how to widen it, is not something a retriever can
+        guess is relevant — it is relevant to every edit. So it is unconditional.
+        """
+        lines = self.texts.get(rel, '').splitlines()
+        if not lines:
+            return []
+        last = 0
+        for i, line in enumerate(lines[:200]):
+            if re.match(r'\s*(?:import|export|part|#include|@_exported)\b', line):
+                last = i
+        if not last:
+            return []
+        return [(1, lines[:min(last + 1, max_lines)])]
+
     def slice_around(self, rel, line, radius=30):
         """The neighbourhood of one line. -> [(start, [lines])]
 

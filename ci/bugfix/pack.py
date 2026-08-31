@@ -344,7 +344,8 @@ def build(issue_number, title, body, index=None, files=FILES_IN_PACK):
     slices = []
     for position, (path, _) in enumerate(ranked):
         budget = SLICE_BUDGET[min(position, len(SLICE_BUDGET) - 1)]
-        chunks = index.slice_file(path, query, radius=22, max_lines=budget)
+        chunks = (index.header_lines(path)
+                  + index.slice_file(path, query, radius=22, max_lines=budget))
         slices.append(render_slices(path, chunks))
 
     prefix = f'''\
