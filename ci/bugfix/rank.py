@@ -127,8 +127,62 @@ DECL_RE = re.compile(
     r'(?:static\s+|external\s+|final\s+|const\s+|late\s+)*'
     r'(?:Future<[^>]*>|void|bool|int|double|String|num|dynamic|'
     r'Widget|List<[^>]*>|Map<[^>]*>|Set<[^>]*>|[A-Z]\w*<[^>]*>|[A-Z]\w*\??)'
-    r'\s+\w+\s*\(')
+    # `(` is a method, `;` a bare field, `=` an initialised one. Requiring
+    # the paren — all this matched until issue #11 — sees only functions,
+    # and a theming change is entirely fields: `final Color accent;` plus
+    # the `accent: Color(0xFF2FA9A2),` row of each palette.
+    r'\s+\w+\s*[(;=]'
+    # A named argument in a const constructor. This repo builds its two
+    # palettes that way (M236), so the line actually holding a colour is
+    # of this shape and nothing above matches it.
+    r'|^\s*\w+:\s*(?:Color|const|\[)')
 DECL_BOOST = 4.0
+
+# Prose is context; code is what gets edited.
+#
+# Issue #11 asked for a configurable accent colour. The slice of `theme.dart`
+# came back as lines 12-56 — the file's header essay, which discusses the
+# accent alongside "colour", "icons" and "highlight" and therefore outscored
+# every real declaration — and not one of `final Color accent;` (line 90) or
+# the two `accent: Color(0x…)` palette rows (349, 464). The model invented
+# `static const Color accent = Color(0xFF3D9BE9);`, guessing even the hex from
+# the reporter's "blueish green".
+#
+# This repo comments unusually heavily and unusually well, which is exactly why
+# its comments crowd out its code under a plain term-frequency score.
+COMMENT_RE = re.compile(r'^\s*(?://|///|/\*|\*|#)')
+COMMENT_WEIGHT = 0.25
+
+# A query word that occurs on only a handful of lines in a file is a POINTER to
+# them, and the slice must contain them all.
+#
+# Weight-ranked neighbourhoods do not guarantee that. On issue #11, boosting
+# declarations moved `theme.dart`'s slice from the header essay to lines
+# 123-186 — a different, denser run of field declarations — and STILL missed
+# every one of the three lines holding the accent colour, because summed
+# term-weight favours wherever query words are thickest, not wherever the one
+# word that matters actually is.
+#
+# So part of each file's budget is reserved: for the rarest query terms present,
+# a tight window around each occurrence is included before the general
+# neighbourhoods compete for what is left.
+# Pointer terms are the ones that made THIS FILE rank, scored by their own BM25
+# contribution to it — not the query's globally rarest words.
+#
+# Global rarity gets it wrong in both directions. Per-file rarity picked
+# "which", "now" and "used", scarce in theme.dart and meaningless. Corpus IDF
+# then picked "settings", "green" and "icons" — rare across the repo, but not
+# what made theme.dart the answer. Only the per-file contribution names
+# "accent", which is the whole reason this file is in the pack at all.
+# Pointers come from the words the REPORTER TYPED, never from the l10n bridge.
+# The bridge earns its place ranking files, but its expansions are not evidence
+# about where to look inside one: on issue #11 the three rarest terms in the
+# expanded query were `mat`, `backdrop` and `bad` — fragments of unrelated l10n
+# keys — while `accent`, the only word that mattered, ranked ninth.
+POINTER_TERMS = 5           # how many of the reporter's rarest words to guarantee
+POINTER_SITES = 4           # occurrences of each to cover, declarations first
+POINTER_RADIUS = 5
+POINTER_BUDGET = 0.45       # share of a file's line budget reserved for them
 
 # l10n key NAMING PREFIXES, dropped when a key is split into query terms.
 #
@@ -304,6 +358,75 @@ class Index:
             return []
         return [(1, lines[:min(last + 1, max_lines)])]
 
+    def grep(self, rel, needles, radius=4, max_sites=24):
+        """Every line mentioning any of `needles`, with context. -> [(start, [lines])]
+
+        `expand` used to re-run the same query-weighted slicer that had already
+        failed to show the model what it needed, so asking twice got two
+        variations on one guess. Issue #11 is the case: theme.dart is 942 lines,
+        the accent lives on three of them (a field and one row in each of two
+        palettes), and no ranking of an 80-line budget reliably lands all three.
+
+        A person asked "show me the accent lines" would grep. So does this, and
+        it is exact rather than clever — which is the right division of labour,
+        since by the time the model is asking it knows the name it wants.
+        """
+        lines = self.texts.get(rel, '').splitlines()
+        if not lines:
+            return []
+        # Try the rarest needle on its own first. An `expand` query is prose —
+        # "accent colour", "floor colour, Palette fields" — and its common word
+        # matches everywhere, which forces sampling and then drops the very
+        # lines that were asked for. The rare word is the request; the rest is
+        # grammar. Broader needles are only used if the narrow one finds
+        # nothing.
+        # Rank needles by how often each names something DECLARED in this
+        # file, not by rarity. Rarity picked "colour" over "accent" for issue
+        # #11: this repo writes "color" in code and "colour" in its prose, so
+        # the rarer word was the one that appears only in comments. What the
+        # request is really asking for is a symbol, and a symbol is declared.
+        def declaredness(needle):
+            return sum(1 for ln in lines
+                       if DECL_RE.match(ln) and needle in split_identifier(ln))
+        ordered = sorted(needles, key=lambda n: (-declaredness(n),
+                                                 self.doc_freq.get(n) or 10 ** 6))
+        rows = []
+        for attempt in (ordered[:1], ordered):
+            if not attempt:
+                continue
+            rows = [i for i, line in enumerate(lines)
+                    if any(n in split_identifier(line) or n in line
+                           for n in attempt)]
+            if rows:
+                break
+        if not rows:
+            return []
+        # Too many hits are SAMPLED ACROSS THE FILE, never truncated from the
+        # top. Truncating is what made the first version useless for issue #11:
+        # `accent colour` matched steadily through theme.dart's first three
+        # hundred lines, the budget ran out there, and the two palette rows at
+        # 349 and 464 — the whole point of the request — were never reached.
+        if len(rows) > max_sites:
+            step = len(rows) / max_sites
+            rows = [rows[min(len(rows) - 1, int(k * step))]
+                    for k in range(max_sites)]
+        wanted = set()
+        for i in rows:
+            wanted.update(range(max(0, i - radius),
+                                min(len(lines), i + radius + 1)))
+        chunks, current, start = [], [], None
+        for i in sorted(wanted):
+            if start is None:
+                start, current = i, [lines[i]]
+            elif i == start + len(current):
+                current.append(lines[i])
+            else:
+                chunks.append((start + 1, current))
+                start, current = i, [lines[i]]
+        if current:
+            chunks.append((start + 1, current))
+        return chunks
+
     def slice_around(self, rel, line, radius=30):
         """The neighbourhood of one line. -> [(start, [lines])]
 
@@ -334,7 +457,9 @@ class Index:
         for i, line in enumerate(lines):
             tokens = set(split_identifier(line))
             weight = sum(w for t, w in terms.items() if t in tokens)
-            if weight and DECL_RE.match(line):
+            if weight and COMMENT_RE.match(line):
+                weight *= COMMENT_WEIGHT
+            elif weight and DECL_RE.match(line):
                 weight *= DECL_BOOST
             if weight:
                 hits.append((weight, i))
@@ -346,6 +471,62 @@ class Index:
         # up to 2*radius. Every line here is billed at cache-miss prices on
         # every issue, so the budget is the budget.
         wanted = set()
+
+        # Pointer terms first, so the lines the query actually names cannot be
+        # crowded out by a denser passage elsewhere in the file.
+        typed = set(re.findall(r'\w{3,}', query.lower()))
+        counter = self.freqs.get(rel, {})
+        length = sum(counter.values()) or 1
+        contribution = {}
+        for term in typed:
+            freq = counter.get(term, 0)
+            df = self.doc_freq.get(term, 0)
+            if not freq or not df:
+                continue
+            idf = math.log(1 + (self.n - df + 0.5) / (df + 0.5))
+            contribution[term] = idf * freq * (K1 + 1) / (
+                freq + K1 * (1 - B + B * length / self.avg_len))
+        rarest = sorted(contribution, key=lambda t: -contribution[t])[:POINTER_TERMS]
+        reserved = int(max_lines * POINTER_BUDGET)
+        sites = {}
+        for term in rarest:
+            rows = [i for i, ln in enumerate(lines)
+                    if term in split_identifier(ln)]
+            # A declaration of the thing beats a mention of it, so those sites
+            # come first when there are more than the budget allows.
+            rows.sort(key=lambda i: (not DECL_RE.match(lines[i]), i))
+            # Sites must be SPREAD OUT. Four adjacent lines are one place, not
+            # four: on issue #11 `accent`'s first four hits were lines 90, 161,
+            # 163 and 171 — the Palette field block, where `onAccent` also
+            # splits to "accent" — so the two palette rows at 349 and 464, the
+            # lines that actually hold the colour, never made the list.
+            spread = []
+            for i in rows:
+                if all(abs(i - j) > POINTER_RADIUS * 2 for j in spread):
+                    spread.append(i)
+                if len(spread) >= POINTER_SITES:
+                    break
+            if spread:
+                sites[term] = spread
+
+        # Round robin, not term by term. Taken in order, the first few terms
+        # exhaust the reserve and the last never gets a site — which is exactly
+        # what happened to `accent` on issue #11, where it ranked fifth of five.
+        # Every pointer term gets its best site before any gets its second.
+        for nth in range(POINTER_SITES):
+            for term in rarest:
+                rows = sites.get(term)
+                if not rows or nth >= len(rows):
+                    continue
+                # The first pass is guaranteed; later ones respect the reserve.
+                if nth and len(wanted) >= reserved:
+                    break
+                if len(wanted) >= max_lines:
+                    break
+                i = rows[nth]
+                wanted.update(range(max(0, i - POINTER_RADIUS),
+                                    min(len(lines), i + POINTER_RADIUS + 1)))
+
         for weight, i in sorted(hits, reverse=True):
             if len(wanted) >= max_lines:
                 break

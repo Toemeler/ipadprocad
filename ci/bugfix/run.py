@@ -64,6 +64,12 @@ MAX_EXPAND_ROUNDS = 2
 
 FOOTER = '\n\n---\n_Fixed automatically. Pipeline: `ci/bugfix/`._'
 
+# Words an `expand` query carries that are not worth grepping for.
+STOP_WORDS = frozenset((
+    'the', 'and', 'for', 'with', 'its', 'this', 'that', 'from', 'show',
+    'where', 'how', 'all', 'any', 'field', 'fields', 'value', 'values',
+    'definition', 'definitions', 'declaration', 'declarations', 'code'))
+
 
 def sh(*args, check=True, cwd=ROOT):
     p = subprocess.run(args, cwd=cwd, capture_output=True, text=True)
@@ -139,11 +145,19 @@ def serve_expands(index, expands, query, already):
     you were looking for is not in there.
     """
     fresh = [e for e in expands[:3] if e.path not in already]
+    # An expand names what it wants. Grep for it rather than re-running the
+    # ranking that already missed it — see Index.grep.
+    def served(e):
+        needles = [w for w in re.findall(r'\w{3,}', e.query)
+                   if w.lower() not in STOP_WORDS]
+        chunks = index.grep(e.path, needles) if needles else []
+        if chunks:
+            return pack.render_slices(e.path, index.header_lines(e.path) + chunks)
+        return slices_for(index, [e.path], f'{query} {e.query}')
     repeats = [e.path for e in expands[:3] if e.path in already]
     parts = []
     if fresh:
-        parts.append('\n\n'.join(
-            slices_for(index, [e.path], f'{query} {e.query}') for e in fresh))
+        parts.append('\n\n'.join(served(e) for e in fresh))
         already.update(e.path for e in fresh)
     if repeats:
         parts.append(

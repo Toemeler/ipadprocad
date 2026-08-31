@@ -69,6 +69,10 @@ CASES = [
      'when i longpress a card and select export i first want to select stl or '
      'step before chosing a location',
      ['frontend/lib/widgets/home_view.dart']),
+    (11,
+     'make the accent color which is now this blueish green used for icons and '
+     'highlight and other stuff a color which is changable in the settings',
+     ['frontend/lib/theme.dart']),
 ]
 
 
@@ -396,3 +400,59 @@ class TestImportHeaders(unittest.TestCase):
 
     def test_a_file_with_no_imports_yields_no_header(self):
         self.assertEqual(self.index.header_lines('frontend/lib/nope.dart'), [])
+
+
+class TestGrepExpand(unittest.TestCase):
+    """`expand` returns what was asked for, not another guess.
+
+    Issue #11 needed the three lines of theme.dart that hold the accent colour:
+    `final Color accent;` and one `accent: Color(0x…)` row in each of the two
+    palettes, 259 lines apart in a 942-line file. No ranking of an 80-line
+    budget landed all three — several attempts at a smarter slicer each got one
+    — and re-running that slicer for an `expand` just produced another
+    variation on the same guess.
+
+    By the time the model asks, it knows the name it wants. Grep is the right
+    tool and it is exact.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.index = rank.Index()
+
+    def test_grep_finds_every_site(self):
+        chunks = self.index.grep('frontend/lib/theme.dart', ['accent'])
+        text = '\n'.join('\n'.join(b) for _, b in chunks)
+        self.assertIn('final Color accent;', text)
+        self.assertIn('accent: Color(0xFF2FA9A2)', text)
+        self.assertIn('accent: Color(0xFF0F6A70)', text)
+
+    def test_grep_is_bounded(self):
+        chunks = self.index.grep('frontend/lib/app_state.dart', ['the'],
+                                 max_sites=4)
+        total = sum(len(b) for _, b in chunks)
+        self.assertLess(total, 400)
+
+    def test_grep_reports_real_line_numbers(self):
+        chunks = self.index.grep('frontend/lib/theme.dart', ['accent'])
+        for start, body in chunks:
+            self.assertGreaterEqual(start, 1)
+            self.assertTrue(body)
+
+    def test_grep_on_an_unknown_file_is_empty(self):
+        self.assertEqual(self.index.grep('frontend/lib/nope.dart', ['x']), [])
+
+    def test_expand_serves_grep_results(self):
+        import run
+        import edits as edits_mod
+        text = run.serve_expands(
+            self.index,
+            [edits_mod.Expand('frontend/lib/theme.dart', 'accent colour')],
+            'accent', set())
+        self.assertIn('accent: Color(0xFF2FA9A2)', text)
+        self.assertIn('accent: Color(0xFF0F6A70)', text)
+
+    def test_stop_words_do_not_become_needles(self):
+        import run
+        self.assertIn('the', run.STOP_WORDS)
+        self.assertIn('definition', run.STOP_WORDS)
