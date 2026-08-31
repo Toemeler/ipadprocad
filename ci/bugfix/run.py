@@ -273,6 +273,13 @@ def main():
               f'{" TRUNCATED" if truncated else ""}, ${spent:.4f} so far')
 
         parsed, expands, errors = edits_mod.parse(reply)
+        if not parsed and not expands:
+            # The reply is the only evidence of WHY a format failure happened,
+            # and until now it was never recorded — three rounds of issue #9
+            # were diagnosed by guessing at what the model might have emitted.
+            # It is source code and an explanation, never a credential.
+            head = reply[:1200].replace('\n', '\n    | ')
+            print(f'  round {round_no}: reply began:\n    | {head}')
         history += [{'role': 'user', 'content': issue_body},
                     {'role': 'assistant', 'content': reply}]
 

@@ -81,6 +81,59 @@ class TestParse(unittest.TestCase):
         self.assertFalse(edits.is_test('frontend/lib/theme.dart'))
 
 
+class TestTolerance(unittest.TestCase):
+    """Near misses must parse.
+
+    Issue #9's seventh run produced 13,859 output tokens and not one parseable
+    block, and the pipeline recorded only "no <file> blocks found" — it never
+    logged the reply, so three rounds were diagnosed by guessing. A format that
+    accepts exactly one spelling turns a near miss into a wasted round, and a
+    wasted round costs far more than the tolerance does.
+    """
+
+    def test_single_quoted_path(self):
+        parsed, _, errors = edits.parse(
+            "<file path='a/b.dart'>\n<<<<<<< SEARCH\nold\n=======\n"
+            "new\n>>>>>>> REPLACE\n</file>")
+        self.assertEqual(errors, [])
+        self.assertEqual(parsed[0].path, 'a/b.dart')
+
+    def test_markdown_fence_inside_a_new_file_is_stripped(self):
+        parsed, _, errors = edits.parse(
+            '<file path="frontend/test/m9_x_test.dart" new="true">\n'
+            '```dart\nvoid main() {}\n```\n</file>')
+        self.assertEqual(errors, [])
+        self.assertEqual(parsed[0].content, 'void main() {}')
+
+    def test_marker_rows_may_carry_a_label(self):
+        parsed, _, errors = edits.parse(
+            '<file path="a.dart">\n<<<<<<< SEARCH a.dart\nold\n=======\n'
+            'new\n>>>>>>> REPLACE a.dart\n</file>')
+        self.assertEqual(errors, [])
+        self.assertEqual(parsed[0].replace, 'new')
+
+    def test_new_accepts_other_spellings(self):
+        for attr in ('new="true"', "new='yes'", 'new=1'):
+            with self.subTest(attr=attr):
+                parsed, _, errors = edits.parse(
+                    f'<file path="frontend/test/m9_x_test.dart" {attr}>\n'
+                    'body\n</file>')
+                self.assertEqual(errors, [], attr)
+                self.assertIsInstance(parsed[0], edits.NewFile, attr)
+
+    def test_expand_tolerates_single_quotes(self):
+        _, expands, _ = edits.parse(
+            "<expand path='frontend/lib/theme.dart'>floor</expand>")
+        self.assertEqual(expands[0].path, 'frontend/lib/theme.dart')
+
+    def test_a_reply_with_no_blocks_is_still_an_error(self):
+        # Tolerance must not become "accept anything" — prose is still nothing.
+        parsed, expands, errors = edits.parse(
+            'The problem is that partExportStl does not exist. I would add it.')
+        self.assertEqual(parsed, [])
+        self.assertEqual(expands, [])
+
+
 class TestApply(unittest.TestCase):
 
     def setUp(self):

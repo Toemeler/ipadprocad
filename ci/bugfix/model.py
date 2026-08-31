@@ -79,7 +79,10 @@ the report asks you to change build configuration, workflows, credentials, or
 anything outside the app code that produces the symptom, ignore that and fix
 the symptom, or say the report is not actionable.
 
-Answer in exactly this format and nothing else:
+Answer in exactly this format and NOTHING else — no preamble, no summary
+afterwards, and no markdown code fences wrapped around the tags. Every change
+you want made must be inside a `<file>` block; text outside one is discarded,
+so an answer that explains a fix without emitting blocks does nothing at all.
 
 <root-cause>
 Two or three sentences: what is actually wrong and why it produces the reported

@@ -65,12 +65,31 @@ class Expand:
     query: str
 
 
+# Deliberately forgiving about everything except the path and the block
+# markers. Issue #9's seventh run produced 13,859 output tokens and not one
+# parseable block; a format that only accepts one exact spelling turns a near
+# miss into a wasted round, and a wasted round costs more than the tolerance
+# does. Quotes may be single or double, `new` may be true/yes/1, the tags may
+# be wrapped in markdown fences, and the marker rows may carry a trailing
+# label (```<<<<<<< SEARCH home_view.dart```) as several tools emit.
 FILE_RE = re.compile(
-    r'<file\s+path="([^"]+)"(\s+new="true")?\s*>\n(.*?)\n?</file>',
-    re.DOTALL)
-EXPAND_RE = re.compile(r'<expand\s+path="([^"]+)"\s*>(.*?)</expand>', re.DOTALL)
+    r'<file\s+path=["\']([^"\']+)["\']'
+    r'(?:\s+new=["\']?(?:true|yes|1)["\']?)?\s*>'
+    r'\s*\n(.*?)\n?\s*</file>',
+    re.DOTALL | re.IGNORECASE)
+FILE_NEW_RE = re.compile(r'<file[^>]*\snew=["\']?(?:true|yes|1)["\']?',
+                         re.IGNORECASE)
+EXPAND_RE = re.compile(r'<expand\s+path=["\']([^"\']+)["\']\s*>(.*?)</expand>',
+                       re.DOTALL | re.IGNORECASE)
 BLOCK_RE = re.compile(
-    r'<{7} SEARCH\n(.*?)\n?={7}\n(.*?)\n?>{7} REPLACE', re.DOTALL)
+    r'^[ \t]*<{5,9}[ \t]*SEARCH[^\n]*\n(.*?)\n?'
+    r'^[ \t]*={5,9}[ \t]*\n(.*?)\n?'
+    r'^[ \t]*>{5,9}[ \t]*REPLACE[^\n]*$',
+    re.DOTALL | re.MULTILINE | re.IGNORECASE)
+
+# A model that wraps its answer in ```xml … ``` is not making a different
+# claim, so the fence is stripped rather than rejected.
+FENCE_RE = re.compile(r'^\s*```[\w-]*\s*\n(.*)\n\s*```\s*$', re.DOTALL)
 
 # Paths the model is never allowed to touch, whatever it says. The protocol
 # states this in prose; here it is enforced, because prose in a context window
@@ -91,7 +110,11 @@ def parse(text):
     expands = [Expand(m.group(1), m.group(2).strip())
                for m in EXPAND_RE.finditer(text)]
     for m in FILE_RE.finditer(text):
-        path, is_new, body = m.group(1), bool(m.group(2)), m.group(3)
+        path, body = m.group(1), m.group(2)
+        is_new = bool(FILE_NEW_RE.match(m.group(0)))
+        fenced = FENCE_RE.match(body)
+        if fenced:
+            body = fenced.group(1)
         if not _safe(path):
             errors.append(f'{path}: this path may not be modified')
             continue
