@@ -791,6 +791,28 @@ class PostPushTest(unittest.TestCase):
             with self.subTest(subject=subject):
                 self.assertIsNone(postpush.SUBJECT_RE.search(subject))
 
+    def test_a_pre_existing_failure_does_not_reopen(self):
+        """The common case here, not the exception.
+
+        `Core + C-API Build (iOS)` has gone red on main for a commit that
+        touched only .gitignore, and its fast Dart job runs without the native
+        OCCT library so m207 dies in Engine.create whatever was pushed.
+        Reopening on that would reopen every issue the pipeline closes.
+        """
+        import postpush
+        calls = []
+        with mock.patch.object(postpush, 'commit_subject',
+                               return_value='Bugfix #9: a thing'), \
+             mock.patch.object(postpush, 'failing_steps', return_value=[]), \
+             mock.patch.object(postpush, 'previously_failing',
+                               return_value=True), \
+             mock.patch.object(postpush, 'api',
+                               side_effect=lambda *a, **k: calls.append(a) or
+                               {'workflow_id': 1}):
+            self.assertEqual(postpush.main(), 0)
+        # Only the workflow lookup; no comment, no reopen, no label.
+        self.assertLessEqual(len(calls), 1, calls)
+
     def test_the_subject_is_matched_at_line_start(self):
         # A commit BODY mentioning "Bugfix #3:" must not claim issue 3.
         import postpush

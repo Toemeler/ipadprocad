@@ -24,13 +24,19 @@ the one thing this whole system is careful never to do. It reopens the issue,
 labels it `openhands-blocked`, and says exactly what broke — the protocol's own
 answer for "cannot safely fix this automatically", reached from the other side.
 
-IT CHECKS WHETHER THE BREAK IS EVEN OURS
-----------------------------------------
-The same job may already have been failing before the fix landed. Reporting a
-pre-existing failure as "your fix broke the build" would be worse than saying
-nothing: it sends a human to read a diff that is innocent. So the previous run
-of the same workflow on `main` is consulted first, and its verdict is carried
-into the comment either way.
+IT CHECKS WHETHER THE BREAK IS EVEN OURS, AND STAYS QUIET IF NOT
+----------------------------------------------------------------
+The same job may already have been failing before the fix landed — and on this
+repository that is the common case, not the exception: `Core + C-API Build
+(iOS)` has gone red on `main` for commits that touched only `.gitignore`, and
+its fast Dart job runs without the native OCCT library so `m207` dies in
+`Engine.create` regardless of what was pushed.
+
+So the previous run of the same workflow on `main` is consulted first, and if
+it was ALSO failing this exits silently. Reopening on a pre-existing failure
+would reopen every issue the pipeline ever closes, and an alert that fires
+every time is one everybody learns to ignore — including on the day it is
+right.
 """
 import json
 import os
@@ -126,11 +132,15 @@ def main():
     was_red = previously_failing(workflow_id, RUN_ID) if workflow_id else None
 
     if was_red:
-        verdict = ('The **same workflow was already failing on `main` before '
-                   'this commit**, so this is most likely not the fix\'s doing '
-                   '— but the fix is now sitting on top of a red build and '
-                   'nobody has confirmed which is which.')
-    elif was_red is False:
+        # Do not reopen. `Core + C-API Build (iOS)` has been red on main across
+        # commits that changed only .gitignore, so a workflow that was already
+        # failing says nothing about this fix — and reopening on it would
+        # reopen every issue the pipeline ever closes, which trains everyone to
+        # ignore the signal precisely when it is real.
+        print(f'#{issue}: {RUN_URL} failed, but the same workflow was already '
+              f'red on main before {SHA[:8]} — not reopening')
+        return 0
+    if was_red is False:
         verdict = ('The previous run of this workflow on `main` **passed**, so '
                    'this commit is the most likely cause.')
     else:
