@@ -106,8 +106,8 @@ List<NativeMenuItem> newDocMenuItems(AppL10n t) => [
 /// destination is ever chosen. 3D parts can write both STL and STEP; sketches
 /// only DXF, assemblies only STEP.
 List<String> exportFormatsFor(String kind) => switch (kind) {
-      'part' => ['stl', 'step'],
-      'sketch' => ['dxf'],
+      'part' || 'ptp' => ['stl', 'step'],
+      'sketch' || 'pts' => ['dxf'],
       kAssemblyDocKind => ['step'],
       _ => ['step'],
     };
