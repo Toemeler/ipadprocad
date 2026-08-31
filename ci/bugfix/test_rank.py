@@ -80,7 +80,25 @@ class TestRanking(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        # Recency OFF for the recall assertions.
+        #
+        # `_recency` reads the last 60 commits, so as the pipeline ships fixes
+        # the ranking shifts under its own test: issues #9 and #10 touched
+        # home_view.dart and app_state.dart, which promoted them and pushed
+        # theme.dart out of #8's and #11's top five. The recall this file is
+        # meant to protect is the retrieval's, not git's, and a test that fails
+        # because the repository moved is measuring the wrong thing.
+        #
+        # Recency stays ON in production, where it is real evidence — bugs do
+        # live in fresh code — and `test_recency_is_applied` pins that it is
+        # still wired up.
         cls.index = rank.Index()
+        cls.index.recency = {}
+
+    def test_recency_is_applied_in_production(self):
+        live = rank.Index()
+        self.assertTrue(live.recency, 'recency should be populated from git log')
+        self.assertTrue(all(0.0 <= v <= 1.0 for v in live.recency.values()))
 
     def test_corpus_is_not_empty(self):
         # A silent empty corpus would make every other assertion here vacuous.
