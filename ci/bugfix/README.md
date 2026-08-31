@@ -64,13 +64,19 @@ issue #5's real bundle, not an estimate:
 
 | | tokens | $/1M | cost |
 |---|---:|---:|---:|
-| stable prefix — house rules, repo map, bundle guide (cache hit from run 2) | 1,211 | 0.0441 | 0.00005 |
-| issue pack — report, bundle, 5 sliced files | 9,222 | 1.3184 | 0.01216 |
+| stable prefix — house rules, repo map, bundle guide (cache hit from run 2) | 1,974 | 0.0441 | 0.00009 |
+| issue pack — report, bundle, 6 sliced files | 13,988 | 1.3184 | 0.01844 |
 | output — patch + test, `reasoning_effort: medium` | ~2,400 | 3.9583 | 0.00950 |
-| **one call, happy path** | | | **$0.0217** |
-| expected with escalation (≈40 % need a second round) | | | **~$0.028** |
+| **one call, happy path** | | | **$0.0280** |
+| expected with escalation (≈40 % need a second round) | | | **~$0.036** |
 
-Against S1 that is **69×**. Against S3, **144×**. Plan against ~1/50 rather
+The pack grew from 9.2k tokens to 14k deliberately. Of the pipeline defects
+found in production, nine of ten were the pack withholding something the model
+needed — an import, a declaration, the failing SEARCH, the two lines that hold
+the colour. A thousand extra lines of slice is about a cent; the round it
+prevents is a nickel and twenty minutes.
+
+Against S1 that is **53×**. Against S3, **111×**. Plan against ~1/50 rather
 than the best case: hard bugs escalate, and an escalation round is ~$0.015.
 
 The pipeline prints its own cost per run, so a regression shows up in the
@@ -86,7 +92,7 @@ workflow log rather than on next month's invoice.
 | `edits.py` | Search/replace block format, parsing and all-or-nothing application. Enforces forbidden paths. |
 | `verify.py` | `analyze`, `test`, and the test-first gate. |
 | `run.py` | The loop: ask → gate → verify → ship, or escalate, or block. |
-| `test_*.py` | 30 tests. Run by the workflow *before* the model is called. |
+| `test_*.py` | 134 tests. Run by the workflow *before* the model is called. |
 
 ## Setup
 

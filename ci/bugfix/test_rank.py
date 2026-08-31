@@ -474,3 +474,120 @@ class TestGrepExpand(unittest.TestCase):
         import run
         self.assertIn('the', run.STOP_WORDS)
         self.assertIn('definition', run.STOP_WORDS)
+
+
+class PinnedFileTest(unittest.TestCase):
+    """Issue #11: the file the change MUST be written in was eighth.
+
+    The house rules already say every colour lives in `theme.dart` and that
+    `m236_theme_test` fails the build if one is written anywhere else. Term
+    frequency cannot see a rule: the widgets that USE a colour mention it far
+    more often than the one file allowed to define it, so a 942-line
+    `theme.dart` lost to `bug_capture.dart` — which ranked at all only because
+    the relay appends two bundle URLs to every report.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        import rank
+        cls.index = rank.Index()
+
+    REPORT = ('make the accent color which is now this blueish green used for '
+              'icons and highlight and other stuff a color which is changable '
+              'in the settings\n\n'
+              'Bundle: https://github.com/toemeler/ipadprocad/blob/'
+              'bug-reports/bugreports/bug-2026-08-31T173704.zip\n'
+              'Raw zip: https://raw.githubusercontent.com/toemeler/ipadprocad/'
+              'bug-reports/bugreports/bug-2026-08-31T173704.zip')
+
+    def test_the_bundle_urls_are_not_part_of_the_query(self):
+        import pack
+        q = pack.ranking_query('Bug report: accent colour', self.REPORT)
+        for word in ('githubusercontent', 'bugreports', '.zip', 'Raw zip'):
+            self.assertNotIn(word, q)
+        self.assertIn('accent color', q)
+
+    def test_the_plumbing_used_to_outrank_the_theme(self):
+        """Without the strip, bug_capture.dart beats theme.dart."""
+        raw = f'Bug report: accent colour\n{self.REPORT}'
+        ranked = [p for p, _ in self.index.rank(raw, limit=8)]
+        self.assertIn('frontend/lib/bug_capture.dart', ranked)
+
+    def test_theme_is_pinned_into_a_colour_report(self):
+        import pack
+        q = pack.ranking_query('Bug report: accent colour', self.REPORT)
+        ranked = pack.pin(q, self.index.rank(q, limit=pack.FILES_IN_PACK + 6),
+                          pack.FILES_IN_PACK)[:pack.FILES_IN_PACK]
+        paths = [p for p, _ in ranked]
+        self.assertEqual(paths[pack.PINNED_RANK], 'frontend/lib/theme.dart')
+
+    def test_a_report_about_nothing_colourful_pins_nothing(self):
+        import pack
+        q = 'the triad should be a bit more on the left'
+        ranked = self.index.rank(q, limit=pack.FILES_IN_PACK)
+        self.assertEqual(pack.pin(q, ranked, pack.FILES_IN_PACK), ranked)
+
+    def test_the_needle_is_the_specific_word_not_the_generic_one(self):
+        import pack
+        q = pack.ranking_query('Bug report: accent colour', self.REPORT)
+        needles = pack.pinned_needles(q, 'frontend/lib/theme.dart')
+        self.assertIn('accent', needles)
+        self.assertNotIn('color', needles,
+                         '`color` matches five hundred lines of theme.dart')
+
+    def test_every_line_that_holds_the_accent_is_shown(self):
+        """A field, a row in each palette, and the getter every call site reads.
+
+        This is the whole reason the file is pinned: the fix cannot be written
+        without all four, and the query slicer showed none of them — it spent
+        the budget on one run of `final Color x;` field declarations.
+        """
+        import pack
+        chunks = self.index.grep('frontend/lib/theme.dart', ('accent',),
+                                 radius=6, max_sites=pack.PINNED_SITES)
+        shown = set()
+        for start, lines in chunks:
+            shown.update(range(start, start + len(lines)))
+        text = '\n'.join(l for _, ls in chunks for l in ls)
+        self.assertIn('final Color accent;', text)
+        self.assertIn('accent: Color(0xFF2FA9A2)', text)   # kChalk
+        self.assertIn('accent: Color(0xFF0F6A70)', text)   # kEmber
+        self.assertIn('static Color get accent', text)
+        self.assertTrue(shown)
+
+    def test_a_getter_declares(self):
+        import rank
+        self.assertTrue(
+            rank.DECL_RE.match('  static Color get accent => scheme.value.accent;'),
+            'the whole of T is getters, and they were counted as mentions')
+        self.assertTrue(rank.DECL_RE.match('  final Color accent;'))
+        self.assertTrue(rank.DECL_RE.match('  accent: Color(0xFF2FA9A2),'))
+        self.assertFalse(rank.DECL_RE.match('    return T.accent;'))
+
+    def test_adjacent_hits_are_one_site_and_the_declaration_wins(self):
+        import rank
+        idx = rank.Index.__new__(rank.Index)
+        idx.texts = {'x.dart': '\n'.join([
+            '// the accent is a petrol teal',      # 1  comment
+            '// and it is used for selection',     # 2
+            'final Color accent;',                 # 3  declaration
+        ] + ['// filler'] * 40 + [
+            'accent: Color(0xFF2FA9A2),',          # 44
+        ])}
+        idx.doc_freq = {}
+        chunks = idx.grep('x.dart', ('accent',), radius=6, max_sites=8)
+        text = '\n'.join(l for _, ls in chunks for l in ls)
+        self.assertIn('final Color accent;', text)
+        self.assertIn('accent: Color(0xFF2FA9A2),', text)
+
+
+class MergeChunksTest(unittest.TestCase):
+    def test_overlapping_ranges_are_printed_once(self):
+        import pack
+        merged = pack.merge_chunks([(1, ['a', 'b', 'c']), (2, ['b', 'c', 'd'])])
+        self.assertEqual(merged, [(1, ['a', 'b', 'c', 'd'])])
+
+    def test_a_gap_stays_a_gap(self):
+        import pack
+        merged = pack.merge_chunks([(1, ['a']), (9, ['i'])])
+        self.assertEqual(merged, [(1, ['a']), (9, ['i'])])

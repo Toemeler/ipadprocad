@@ -131,7 +131,13 @@ DECL_RE = re.compile(
     # the paren — all this matched until issue #11 — sees only functions,
     # and a theming change is entirely fields: `final Color accent;` plus
     # the `accent: Color(0xFF2FA9A2),` row of each palette.
-    r'\s+\w+\s*[(;=]'
+    #
+    # `get`/`set` because an accessor declares as surely as a field does, and
+    # in this repo it is often the ONLY declaration that matters: the whole of
+    # `T` is `static Color get accent => scheme.value.accent;`, the line every
+    # one of the 450 call sites actually reads, and without this it counted as
+    # a mention.
+    r'\s+(?:get\s+|set\s+)?\w+\s*[(;=]'
     # A named argument in a const constructor. This repo builds its two
     # palettes that way (M236), so the line actually holding a colour is
     # of this shape and nothing above matches it.
@@ -401,15 +407,58 @@ class Index:
                 break
         if not rows:
             return []
-        # Too many hits are SAMPLED ACROSS THE FILE, never truncated from the
+        # Hits closer together than the context radius are ONE site: they merge
+        # into a single chunk regardless, so counting them separately spends
+        # the site budget on nothing. `accent` matches theme.dart's onAccent
+        # field at 161 and its doc comment at 163 — one place, two rows.
+        merged = []
+        for i in rows:
+            if merged and i - merged[-1] <= radius:
+                # One place, so keep whichever of its rows DECLARES the thing:
+                # theme.dart's `accent` is documented three lines above the
+                # field it names, and keeping the comment would drop the field.
+                if DECL_RE.match(lines[i]) and not DECL_RE.match(
+                        lines[merged[-1]]):
+                    merged[-1] = i
+                continue
+            merged.append(i)
+        rows = merged
+
+        # Too many sites are SAMPLED ACROSS THE FILE, never truncated from the
         # top. Truncating is what made the first version useless for issue #11:
         # `accent colour` matched steadily through theme.dart's first three
         # hundred lines, the budget ran out there, and the two palette rows at
         # 349 and 464 — the whole point of the request — were never reached.
+        #
+        # EVERY DECLARATION FIRST, and only then a spread of the mentions.
+        #
+        # Sampling with an even stride over all the hits was tried and is worse
+        # than it looks: `accent` also matches `onAccent`, whose rows sit twenty
+        # lines above the palette rows in both palettes, so the stride kept
+        # landing on the neighbour. Worse, which lines survived moved
+        # unpredictably with the site budget — 8 sites reached the two palette
+        # rows, 10 reached the getter instead, 12 lost the field — so any value
+        # would have been fitted to one issue rather than chosen.
+        #
+        # Declarations are bounded and are what a request for a symbol means:
+        # `accent` has ten in theme.dart, which is a hundred and thirty lines,
+        # a sixth of a cent. Take all of them, then spend whatever room is left
+        # on mentions spread across the file.
         if len(rows) > max_sites:
-            step = len(rows) / max_sites
-            rows = [rows[min(len(rows) - 1, int(k * step))]
-                    for k in range(max_sites)]
+            decl = [i for i in rows if DECL_RE.match(lines[i])]
+            rest = [i for i in rows if not DECL_RE.match(lines[i])]
+            if len(decl) > max_sites:
+                pool, room = decl, max_sites
+            else:
+                pool, room = rest, max_sites - len(decl)
+            picked = list(decl[:max_sites])
+            if room > 0 and pool:
+                if pool is decl:
+                    picked = []
+                span = len(pool) - 1
+                picked += [pool[round(k * span / (room - 1))] if room > 1
+                           else pool[0] for k in range(room)]
+            rows = sorted(set(picked))
         wanted = set()
         for i in rows:
             wanted.update(range(max(0, i - radius),

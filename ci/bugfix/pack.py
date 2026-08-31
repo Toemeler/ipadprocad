@@ -78,13 +78,91 @@ FILES_IN_PACK = 6
 # 1089 strings arrive at cache-miss prices.
 L10N_ENTRIES = 24
 
-# Lines of source the pack may spend, per rank. The whole design rests on the
-# pack staying small — at $1.3184/M for a cache miss, every 1,000 lines of
-# slice is about a cent, on every issue, forever. The top-ranked file gets four
-# times the 5th's because the ranking is informative: measured over the four
+# Lines of source the pack may spend, per rank. The top-ranked file gets more
+# than twice the last's because the ranking is informative: measured over the
 # issues fixed to date, when the culprit is in the pack at all it is usually in
-# the first three. Sum ≈ 420 lines ≈ 6k tokens.
-SLICE_BUDGET = (140, 110, 80, 55, 35)
+# the first three.
+#
+# THE FIRST VERSION OF THIS WAS TOO MEAN, and the arithmetic says why. A
+# thousand lines of slice is about a cent at cache-miss prices. A rejected
+# round is five to ten cents and twenty minutes, and of the ten pipeline
+# defects found so far, NINE were the pipeline withholding something the model
+# needed — an import, a declaration, the error text, the SEARCH that failed.
+# Starving the pack to save a tenth of a cent while spending a nickel on the
+# round it causes is a false economy. Sum ≈ 650 lines ≈ 8k tokens.
+SLICE_BUDGET = (170, 140, 110, 90, 70, 70)
+
+# Boilerplate the relay appends to every report. It is not description, it is
+# plumbing — `fetch_bundle` reads the URL out of the raw body and the ranker
+# should never see it. Left in, `bug`, `reports`, `zip`, `github` and `raw` are
+# half the query on a short report: issue #11 ("make the accent color ...
+# changable in the settings") ranked `bug_capture.dart` and `bug_button.dart`
+# above `theme.dart`, the one file the house rules allow a colour to live in.
+BUNDLE_LINE_RE = re.compile(r'^\s*(?:Bundle|Raw zip)\s*:\s*\S+\s*$',
+                            re.MULTILINE | re.IGNORECASE)
+
+
+def ranking_query(title, body):
+    """What the retriever should read: the report, without the plumbing."""
+    return f'{title}\n{BUNDLE_LINE_RE.sub("", body or "")}'.strip()
+
+
+# Files a house rule makes MANDATORY for a kind of change. The rules already
+# tell the model "every colour lives in theme.dart, and m236_theme_test fails
+# the build if one is written anywhere else" — so a report about colour that
+# does not carry theme.dart is a pack the model cannot answer from, however
+# well BM25 ranked the rest. Term frequency cannot see this: the places that
+# USE a colour mention it far more often than the one place allowed to define
+# it, and on #11 that put a 942-line theme.dart eighth.
+# Ordered MOST SPECIFIC FIRST. The first two that appear in the report become
+# the grep needles below, so `accent` is used and `color` — which matches five
+# hundred lines of theme.dart and would force the sampler to throw away the
+# three that matter — is not.
+PINNED = (
+    (('akzent', 'accent', 'tint', 'palette', 'farbe', 'highlight', 'colour',
+      'color', 'theme'), 'frontend/lib/theme.dart'),
+)
+
+# How many needle words a pinned file is sliced by.
+PINNED_NEEDLES = 2
+
+# Distinct places in a pinned file to show, at 13 lines each. Generous on
+# purpose: this is the file the change MUST be written in, and on theme.dart
+# the accent has nine — a field, two palette rows, a getter, the Material
+# bridge — of which the fix touches at least three. ~120 lines is a sixth of a
+# cent; the round it saves is a nickel.
+PINNED_SITES = 12
+
+
+# Where a pinned file lands. Not last, and not first: the slice budget is
+# ordered, and the file the change must be WRITTEN in cannot be the one that
+# gets the thinnest peek — but the report's own top hits are where the symptom
+# is, and they earned their place.
+PINNED_RANK = 2
+
+
+def pinned_needles(query, path):
+    """-> the trigger words a pinned file should be grepped for, or ()."""
+    words = set(re.findall(r'[a-zA-Z]+', query.lower()))
+    for triggers, pinned_path in PINNED:
+        if pinned_path != path:
+            continue
+        return tuple(t for t in triggers if t in words)[:PINNED_NEEDLES]
+    return ()
+
+
+def pin(query, ranked, limit):
+    """Promote a mandatory file to PINNED_RANK, whatever BM25 made of it."""
+    for triggers, path in PINNED:
+        if not pinned_needles(query, path):
+            continue
+        scores = dict(ranked)
+        if path not in scores:
+            continue  # not in the index at all; nothing to promote
+        rest = [r for r in ranked if r[0] != path]
+        ranked = (rest[:PINNED_RANK] + [(path, scores[path])]
+                  + rest[PINNED_RANK:])
+    return ranked
 
 
 def _bundle_url(body):
@@ -196,6 +274,32 @@ Every report ships the same diagnostic bundle:
   body is a RealityKit platform view composited outside Flutter, so the shaded
   model is NEVER in the image and an empty-looking viewport is not evidence of
   anything. Use `reality.txt`, `mesh.txt` and `state.txt` for the body.'''
+
+
+def merge_chunks(chunks):
+    """Overlapping ranges from one file, folded into one ordered set.
+
+    `header_lines` and the slicer are independent, so they overlap constantly:
+    on issue #11 every file in the pack shipped its first thirty lines twice
+    and `ribbon.dart` shipped lines 19-29 as a whole second slice INSIDE the
+    header it had just printed. Paid for at cache-miss prices, and read by the
+    model as two separate places.
+    """
+    text = {}
+    for start, lines in chunks:
+        for n, line in enumerate(lines):
+            text.setdefault(start + n, line)
+    out, current, first = [], [], None
+    for n in sorted(text):
+        if first is None or n != first + len(current):
+            if current:
+                out.append((first, current))
+            first, current = n, [text[n]]
+        else:
+            current.append(text[n])
+    if current:
+        out.append((first, current))
+    return out
 
 
 def render_slices(path, chunks):
@@ -362,16 +466,27 @@ def build(issue_number, title, body, index=None, files=FILES_IN_PACK):
     caches between runs and the second is what it cannot.
     """
     index = index or rank.Index()
-    query = f'{title}\n{body or ""}'
+    query = ranking_query(title, body)
     zf = fetch_bundle(body or '')
     evidence = bundle_evidence(zf, query)
 
-    ranked = index.rank(query, limit=files)
+    ranked = pin(query, index.rank(query, limit=files + 6), files)[:files]
     slices = []
     for position, (path, _) in enumerate(ranked):
         budget = SLICE_BUDGET[min(position, len(SLICE_BUDGET) - 1)]
-        chunks = (index.header_lines(path)
-                  + index.slice_file(path, query, radius=22, max_lines=budget))
+        # A pinned file is grepped, not query-sliced. The query slicer scores
+        # line by line and then merges neighbourhoods, so on theme.dart it
+        # spent issue #11's whole budget on one 46-line run of `final Color x;`
+        # field declarations and never reached `accent: Color(0xFF2FA9A2)` in
+        # either palette — the two lines the fix has to edit. `grep` samples
+        # its hits ACROSS the file, which is what a person asked to show the
+        # accent lines would do.
+        needles = pinned_needles(query, path)
+        matched = (index.grep(path, needles, radius=6,
+                              max_sites=PINNED_SITES)
+                   if needles else
+                   index.slice_file(path, query, radius=22, max_lines=budget))
+        chunks = merge_chunks(index.header_lines(path) + matched)
         slices.append(render_slices(path, chunks))
 
     prefix = f'''\
