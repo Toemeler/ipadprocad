@@ -42,7 +42,7 @@ import 'dart:ui' show Locale;
 import 'backdrop.dart';
 import 'l10n/l.dart';
 import 'theme.dart';
-import 'widgets/ribbon_chrome.dart' show RibbonPosition;
+import 'ribbon_dock.dart' show RibbonPosition;
 
 /// The user-visible name of an appearance. In the ARB, like every other
 /// string — [Palette.name] is 'Chalk'/'Ember', which are internal names.

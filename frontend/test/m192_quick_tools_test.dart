@@ -13,7 +13,7 @@ import 'package:prototype/app_state.dart';
 import 'package:prototype/part_model.dart';
 import 'package:prototype/widgets/bottom_tabbar.dart';
 import 'package:prototype/widgets/quick_tools.dart';
-import 'package:prototype/widgets/ribbon_chrome.dart';
+import 'package:prototype/ribbon_dock.dart';
 
 AppState makeApp() {
   final app = AppState();
@@ -286,11 +286,17 @@ void main() {
     expect(GlassToolBar.heightFor(const []), 0);
   });
 
-  group('M284 gallery insets', () {
-    setUp(() {
-      RibbonMetrics.extent.value = 0;
-      RibbonMetrics.resetForTest();
-    });
+  // M290 — the rail no longer clears anything, on any screen.
+  //
+  // M284 had it subtract the band's measured thickness on three edges and gate
+  // that on whether the band was drawn at all, because on the gallery there is
+  // no ribbon and a stale inset would have lifted the rail off nothing (that
+  // gate was itself a device bug, #3). The band takes a row of the layout now:
+  // this Stack's edges are already inside it, so the rail's numbers are
+  // constants — and are the SAME constants on the gallery and in a document,
+  // which is the property that bug could not have.
+  group('M290 the rail is placed by constants', () {
+    setUp(RibbonDock.resetForTest);
 
     Future<void> pumpBar(WidgetTester t, AppState app) async {
       await t.binding.setSurfaceSize(const Size(1600, 900));
@@ -299,31 +305,26 @@ void main() {
       await t.pump();
     }
 
-    testWidgets('on the gallery the rail clears no ribbon, whatever the dock',
+    testWidgets('same placement on every dock, gallery and document alike',
         (t) async {
-      final app = makeApp(); // isHome, nothing open
-      expect(app.isHome, isTrue);
-      RibbonMetrics.extent.value = 60;
-      RibbonMetrics.position.value = RibbonPosition.bottom;
-      await pumpBar(t, app);
-
-      final p = t.widget<Positioned>(find.byType(Positioned));
-      expect(p.bottom, BottomTabBar.floatingHeightFor(app),
-          reason: 'no band on the gallery: the rail keeps its ordinary gap');
-      expect(p.right, QuickToolsBar.margin);
-      expect(p.top, 0);
+      for (final dock in RibbonPosition.values) {
+        RibbonDock.set(dock);
+        for (final app in [makeApp(), editingApp()]) {
+          await pumpBar(t, app);
+          final p = t.widget<Positioned>(find.byType(Positioned));
+          expect(p.top, 0, reason: '$dock');
+          expect(p.right, QuickToolsBar.margin, reason: '$dock');
+          expect(p.bottom, BottomTabBar.floatingHeightFor(app),
+              reason: '$dock');
+        }
+      }
     });
 
-    testWidgets('in a document the rail clears the docked band', (t) async {
-      final app = editingApp();
-      RibbonMetrics.extent.value = 60;
-      RibbonMetrics.position.value = RibbonPosition.bottom;
-      await pumpBar(t, app);
-
-      final p = t.widget<Positioned>(find.byType(Positioned));
-      expect(p.bottom,
-          BottomTabBar.floatingHeightFor(app) + RibbonMetrics.contentBottom);
-      expect(p.top, 0);
+    test('the width it claims is its own, with no band in it', () {
+      RibbonDock.set(RibbonPosition.right);
+      expect(QuickToolsBar.occupiedWidth,
+          GlassToolBar.width + QuickToolsBar.margin,
+          reason: 'a right-docked band is outside this box entirely');
     });
   });
 }

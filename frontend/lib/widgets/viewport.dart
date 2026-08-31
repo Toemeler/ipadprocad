@@ -39,7 +39,6 @@ import '../snap.dart';
 import '../tools.dart';
 import '../theme.dart';
 import 'scrub_field.dart';
-import 'ribbon_chrome.dart';
 import '../touch.dart';
 import 'bottom_tabbar.dart';
 import 'dialog_dock.dart';
@@ -1953,7 +1952,7 @@ class _Viewport2DState extends State<Viewport2D>
                   if (app.pattern != null)
                     Positioned(
                         right: 12 + QuickToolsBar.occupiedWidth,
-                        top: 12 + RibbonMetrics.contentTop,
+                        top: 12,
                         child: ViewportWindow(child: PatternDialog(app: app))),
                   // M43: movable Parameters (fx) window
                   if (app.showParams)
@@ -2013,7 +2012,7 @@ class _Viewport2DState extends State<Viewport2D>
                       (app.tool == Tool.fillet || app.tool == Tool.chamfer))
                     Positioned(
                         right: 12 + QuickToolsBar.occupiedWidth,
-                        top: 12 + RibbonMetrics.contentTop,
+                        top: 12,
                         child: ViewportWindow(child: FilletChamferDialog(app: app))),
                   // M207 — the Polygon side count, in the same idiom and the
                   // same spot. It used to be a modal AlertDialog answered
@@ -2023,7 +2022,7 @@ class _Viewport2DState extends State<Viewport2D>
                   if (app.tool == Tool.polygon)
                     Positioned(
                         right: 12 + QuickToolsBar.occupiedWidth,
-                        top: 12 + RibbonMetrics.contentTop,
+                        top: 12,
                         child: ViewportWindow(child: PolygonDialog(app: app))),
                   // Inventor's status readout, bottom right of the graphics
                   // window: "N dimensions needed" while under-constrained,

@@ -8,9 +8,15 @@
 // glass: a smear of a title, a text box and a blue button inside the ribbon.
 //
 // The ViewCube had exactly this bug and M146 fixed it by anchoring to
-// `RibbonMetrics.contentTop`. These tests pin the same contract for the field,
-// because "reads contentTop" is the only thing standing between it and the
-// glass, and nothing else in the widget would fail if it were removed.
+// `RibbonMetrics.contentTop`, which these tests pinned for the field too.
+//
+// M290 — the bug is now impossible rather than guarded. The band takes a row
+// of the layout instead of floating over the content Stack, so the field's box
+// begins where the band ends and `top: 14` is measured from there. There is no
+// inset to read, no post-frame value to be stranded by, and no way for a panel
+// added tomorrow to forget the contract — because there is no contract. What
+// is left to pin is the thing the report was actually about: the field sits at
+// the top of the content area and nothing of the ribbon is above it.
 //
 // The OTHER half of M178 — iPadOS floating its keyboard shortcuts bar over the
 // app's own tab bar, reported in the same breath — is not here and cannot be:
@@ -21,7 +27,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/app_state.dart';
 import 'package:prototype/part_model.dart';
-import 'package:prototype/widgets/ribbon_chrome.dart';
+import 'package:prototype/ribbon_dock.dart';
 import 'package:prototype/widgets/work_plane_offset_field.dart';
 
 AppState _editingApp() {
@@ -56,52 +62,32 @@ double _fieldTop(WidgetTester t) =>
     t.getTopLeft(find.byType(WorkPlaneOffsetField)).dy;
 
 void main() {
-  setUp(() {
-    RibbonMetrics.extent.value = 0;
-    RibbonMetrics.resetForTest();
-  });
-  tearDown(() {
-    RibbonMetrics.extent.value = 0;
-    RibbonMetrics.resetForTest();
-  });
+  setUp(RibbonDock.resetForTest);
+  tearDown(RibbonDock.resetForTest);
 
   group('M178 — the offset field clears the ribbon', () {
-    testWidgets('it starts below the measured ribbon, not at the top edge',
-        (t) async {
-      RibbonMetrics.extent.value = 120;
+    testWidgets('it sits at the top of the content area', (t) async {
       final app = _editingApp();
       await _pump(t, app);
-      expect(_fieldTop(t), greaterThanOrEqualTo(RibbonMetrics.contentTop),
-          reason: 'anything above contentTop is behind the glass');
-      expect(_fieldTop(t), RibbonMetrics.contentTop + 14);
+      expect(_fieldTop(t), 14,
+          reason: 'the band is no longer in this coordinate space');
     });
 
-    testWidgets('with no ribbon measured it keeps its old top inset',
+    testWidgets('and does not move when the band is docked elsewhere',
         (t) async {
-      // Off iOS the ribbon takes a row of the Column and insets nothing, so
-      // the field must not be pushed down by a stale value.
-      final app = _editingApp();
-      await _pump(t, app);
-      expect(RibbonMetrics.contentTop, 0);
-      expect(_fieldTop(t), 14);
-    });
-
-    testWidgets('it follows the ribbon when the ribbon is measured later',
-        (t) async {
-      // The field can open before the post-frame measurement lands, and the
-      // ribbon changes height with the active tab. Reading contentTop once at
-      // build time would leave the field stranded under the glass.
-      final app = _editingApp();
-      await _pump(t, app);
-      expect(_fieldTop(t), 14);
-
-      RibbonMetrics.extent.value = 96;
-      await t.pump();
-      expect(_fieldTop(t), 96 + RibbonMetrics.gap + 14);
+      // The whole point of M290: the field's offset is a constant on every
+      // dock, because the box it is laid out in has already had the band
+      // taken out of it. Under M284 each of these four would have needed the
+      // field to subtract a different edge.
+      for (final p in RibbonPosition.values) {
+        RibbonDock.set(p);
+        final app = _editingApp();
+        await _pump(t, app);
+        expect(_fieldTop(t), 14, reason: '$p');
+      }
     });
 
     testWidgets('a closed field still occupies nothing', (t) async {
-      RibbonMetrics.extent.value = 120;
       final app = _editingApp();
       app.workPlaneOffsetEditing = false;
       await _pump(t, app);

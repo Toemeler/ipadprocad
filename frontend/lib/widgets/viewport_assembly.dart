@@ -68,7 +68,6 @@ import '../reality_scene.dart' show RealityPush, logMeshConvention;
 import '../theme.dart';
 import 'bottom_tabbar.dart';
 import 'native_browser_host.dart';
-import 'ribbon_chrome.dart';
 import 'viewport3d.dart'
     show ViewCube, TriadPainter, paintWorkAxesAndPoints;
 
@@ -717,12 +716,11 @@ class _ViewportAssemblyState extends State<ViewportAssembly>
             ),
           ),
         ),
-        // ViewCube + Home, below the floating ribbon (M146).
-        RibbonMetrics.build((_, top) => Positioned(
-            top: top + 8,
-            // M284 — when the band docks RIGHT, the cube shifts LEFT with the
-            // quick-tool rail instead of sitting under the band.
-            right: 10 + RibbonMetrics.contentRight,
+        // ViewCube + Home, top-right. M290 — plain numbers: the band takes a
+        // row of the layout, so this corner IS the content area's corner.
+        Positioned(
+            top: 8,
+            right: 10,
             child: ViewCube(
               camera: a.camera,
               onChanged: () => setState(() {}),
@@ -731,23 +729,17 @@ class _ViewportAssemblyState extends State<ViewportAssembly>
               // M283 — framed on the placed components, the same rule Zoom All
               // uses when a component is dropped in.
               fit: (c) => fitAssemblyView(c, placedComponents(a), size),
-            ))),
+            )),
         // The triad follows the model browser card, as in the part viewport.
         if (GlassBrowser.isSupported)
           ValueListenableBuilder<double>(
             valueListenable: NativeModelBrowser.occupied,
-            builder: (_, w, child) => RibbonMetrics.build(
-              (_, __) => Positioned(
-                // M284 — LEFT dock: the triad follows the model browser
-                // inward, so it sits beside the band, not under it. Retracted,
-                // [NativeModelBrowser.triadInset] returns it to the border.
-                left: NativeModelBrowser.triadInset(w) +
-                    RibbonMetrics.contentLeft,
-                // M284 — BOTTOM dock lifts the triad above the band.
-                bottom: BottomTabBar.floatingHeight +
-                    RibbonMetrics.contentBottom,
-                child: child!,
-              ),
+            builder: (_, w, child) => Positioned(
+              // The triad follows the model browser inward. Retracted,
+              // [NativeModelBrowser.triadInset] returns it to the border.
+              left: NativeModelBrowser.triadInset(w),
+              bottom: BottomTabBar.floatingHeight,
+              child: child!,
             ),
             child: IgnorePointer(
                 child: CustomPaint(
@@ -766,9 +758,7 @@ class _ViewportAssemblyState extends State<ViewportAssembly>
           Positioned(
             left: 0,
             right: 0,
-            // M284 — above the band when it docks BOTTOM.
-            bottom: 44 + BottomTabBar.floatingHeight +
-                RibbonMetrics.contentBottom,
+            bottom: 44 + BottomTabBar.floatingHeight,
             child: Center(
               child: Container(
                 padding:

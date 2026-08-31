@@ -17,6 +17,7 @@ import '../l10n/l.dart';
 import '../log.dart';
 import '../perf.dart';
 import '../menus.dart';
+import '../ribbon_dock.dart';
 import '../part_model.dart' show FaceEditKind, PatternKind, WorkPlaneKind;
 import '../work_features.dart'
     show WorkAxisMethod, WorkPlaneMethod, WorkPointMethod;
@@ -250,7 +251,7 @@ class _RibbonState extends State<Ribbon> {
   /// put a right rail's menu off the screen edge.
   Positioned _anchoredFly(Offset pos, Size size, Widget child) {
     final screen = MediaQuery.of(context).size;
-    switch (RibbonMetrics.dock) {
+    switch (RibbonDock.current) {
       case RibbonPosition.top:
         return Positioned(
             left: pos.dx, top: pos.dy + size.height + 1, child: child);
@@ -663,10 +664,12 @@ class _RibbonState extends State<Ribbon> {
     Perf.count('menu.ribbon.builds');
     // M146 (surface A, M284) — the bar is no longer a FLOATING card. It is a
     // FLUSH band: no side inset, no corner radius, no shadow, just one hairline
-    // seam on the edge facing the viewport. The viewport still runs behind the
-    // glass; the band sits on the outermost edge of the content Stack and every
-    // floating panel stays above it.
-    final bool vertical = RibbonMetrics.isVertical;
+    // seam on the edge facing the viewport.
+    //
+    // M290 — and it is a ROW of the layout rather than an overlay on top of
+    // one, so nothing runs behind it and nothing has to be told where it ends.
+    // See ribbon_chrome.dart for what that replaced.
+    final bool vertical = RibbonDock.isVertical;
     final content = SingleChildScrollView(
       scrollDirection: vertical ? Axis.vertical : Axis.horizontal,
       // The band is only as wide (or tall) as the screen and its panels
@@ -686,17 +689,18 @@ class _RibbonState extends State<Ribbon> {
                   : _sketchRibbon(app)),
     );
 
-    return RibbonMeasure(
-      child: Padding(
-        padding: RibbonMetrics.pad,
-        child: Stack(
-          children: [
-            // The glass, sized to the band by the content below it.
-            const Positioned.fill(child: RibbonSurface()),
-            _seam(),
-            content,
-          ],
-        ),
+    // M290 — no RibbonMeasure. The band used to publish its own thickness so
+    // seven floating panels could subtract it; it takes a row of the layout
+    // now, so its size is the layout's business and nobody else's.
+    return Padding(
+      padding: RibbonMetrics.pad,
+      child: Stack(
+        children: [
+          // The glass, sized to the band by the content below it.
+          const Positioned.fill(child: RibbonSurface()),
+          _seam(),
+          content,
+        ],
       ),
     );
   }
@@ -705,7 +709,7 @@ class _RibbonState extends State<Ribbon> {
   /// the band's inner edge.
   Widget _seam() {
     final color = T.sep;
-    return switch (RibbonMetrics.dock) {
+    return switch (RibbonDock.current) {
       RibbonPosition.top => Positioned(
           left: 0, right: 0, bottom: 0,
           child: Container(height: 1, color: color)),
@@ -725,7 +729,7 @@ class _RibbonState extends State<Ribbon> {
   /// (left/right). The horizontal form needs [IntrinsicHeight] so every panel
   /// is as tall as the tallest and its own [Expanded] has a bound.
   Widget _orient({required List<Widget> children}) {
-    if (RibbonMetrics.isVertical) {
+    if (RibbonDock.isVertical) {
       return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch, children: children);
     }
@@ -742,7 +746,7 @@ class _RibbonState extends State<Ribbon> {
     required List<Widget> children,
     CrossAxisAlignment crossAxisAlignment = CrossAxisAlignment.center,
   }) {
-    if (RibbonMetrics.isVertical) {
+    if (RibbonDock.isVertical) {
       return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch, children: children);
     }
@@ -1858,7 +1862,7 @@ class _RibbonState extends State<Ribbon> {
             ),
           )
         : titleRow;
-    final vertical = RibbonMetrics.isVertical;
+    final vertical = RibbonDock.isVertical;
     final body = Padding(
       padding: const EdgeInsets.fromLTRB(10, 6, 10, 2),
       // A vertical rail has no [IntrinsicHeight] around the whole row of panels,
@@ -2273,10 +2277,11 @@ class _SmallRow extends StatelessWidget {
       this.onTap, this.active = false, this.enabled = true, this.iconWidget});
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: 26,
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        _Hover(
+    // M290 — the hit target may shrink in a rail, and only in a rail. It has
+    // to be flexible HERE, on the outer row, or the bound never reaches the
+    // label: _Hover shrink-wraps to its child's natural width, so a Flexible
+    // further in has nothing to shrink against.
+    final Widget hit = _Hover(
           hoverBorder: false,
           activeHighlight: active,
           onTap: enabled ? onTap : null,
@@ -2289,11 +2294,33 @@ class _SmallRow extends StatelessWidget {
                   child: Center(
                       child: _dimmable(iconWidget ?? svg(icon, 18), enabled))),
               const SizedBox(width: 6),
-              Text(label,
-                  style: ts(12.5, enabled ? T.text : T.dim), softWrap: false),
+              // M290 — IN A SIDE RAIL THE LABEL MAY SHRINK.
+              //
+              // A rail is 168 pt wide and these rows are laid out inside it,
+              // where the horizontal scroll that saves the band does not
+              // apply: a row wider than the rail is a RenderFlex overflow, and
+              // on a device that is the yellow-and-black bar, not a clipped
+              // word. ("Geometrie projizieren" overflowed a left dock by
+              // 36 px.) Flexible only in the rail, deliberately: the
+              // horizontal band lives in an unbounded-width scroll view, and a
+              // flex child under unbounded constraints is an assertion.
+              if (RibbonDock.isVertical)
+                Flexible(
+                  child: Text(label,
+                      style: ts(12.5, enabled ? T.text : T.dim),
+                      softWrap: false,
+                      overflow: TextOverflow.ellipsis),
+                )
+              else
+                Text(label,
+                    style: ts(12.5, enabled ? T.text : T.dim), softWrap: false),
             ]),
           ),
-        ),
+        );
+    return SizedBox(
+      height: 26,
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        if (RibbonDock.isVertical) Flexible(child: hit) else hit,
         Builder(builder: (ctx) {
           // M205: same chip as the big split buttons — the 14-px column that
           // used to hold a 7.5-px glyph was the hardest target in the app. The

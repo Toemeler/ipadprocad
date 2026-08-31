@@ -25,6 +25,7 @@ import 'package:prototype/ffi/qcad_engine.dart';
 import 'package:prototype/theme.dart';
 import 'package:prototype/widgets/native_browser_host.dart';
 import 'package:prototype/widgets/ribbon.dart';
+import 'package:prototype/ribbon_dock.dart';
 import 'package:prototype/widgets/ribbon_chrome.dart';
 
 AppState makeApp() {
@@ -44,10 +45,7 @@ Future<void> pump(WidgetTester t, Widget w,
 }
 
 void main() {
-  setUp(() {
-    RibbonMetrics.extent.value = 0;
-    RibbonMetrics.resetForTest();
-  });
+  setUp(RibbonDock.resetForTest);
 
   group('M146 surface', () {
     testWidgets('the ribbon still builds', (t) async {
@@ -118,79 +116,90 @@ void main() {
     });
   });
 
-  group('M146 metrics', () {
-    testWidgets('the ribbon publishes its own thickness', (t) async {
-      await pump(t, Ribbon(app: makeApp()));
-      await t.pump(); // let the post-frame report land
-      expect(RibbonMetrics.extent.value, greaterThan(0));
-      // Everything that floats starts INSIDE the band, with a gap.
-      expect(RibbonMetrics.contentTop,
-          RibbonMetrics.extent.value + RibbonMetrics.gap);
+  // M290 — THE BAND IS A ROW OF THE LAYOUT, NOT AN OVERLAY WITH INSETS.
+  //
+  // M284 had the band float over the content Stack, publish its measured
+  // thickness one frame after layout, and seven floating panels each subtract
+  // the edge that concerned them. The tests that used to live here pinned that
+  // protocol: extent -> contentTop/Right/Bottom/Left, and a
+  // contentInsetsFor(ribbonDrawn) gate that existed only because the published
+  // values outlived the band on the gallery.
+  //
+  // All of it is gone, and these are the properties that replace it: the band
+  // has no way to publish anything, and the layout puts it on its edge with
+  // the stage taking the rest. That is not a smaller test of the same thing —
+  // it is the reason the old failures (a frame of misplaced chrome after every
+  // dock change; the gallery clearing a band that was not drawn; a new panel
+  // forgetting to subtract) cannot be written any more.
+  group('M290 the band takes a row', () {
+    test('the band publishes no thickness for anyone to read', () {
+      // A compile-time property, asserted as documentation: RibbonMetrics is
+      // constants only now. If an inset protocol ever comes back, it comes
+      // back deliberately and this comment is where the argument is.
+      expect(RibbonMetrics.railWidth, greaterThan(0));
+      expect(RibbonMetrics.pad, EdgeInsets.zero);
     });
 
-    test('an unmeasured ribbon insets nothing', () {
-      // Off iOS the ribbon keeps its own row in the Column, so overlays must
-      // not be pushed down by a stale value.
-      RibbonMetrics.extent.value = 0;
-      expect(RibbonMetrics.contentTop, 0);
+    test('the dock is a value, not a widget', () {
+      // M290 — RibbonPosition and its store moved out of widgets/ into
+      // lib/ribbon_dock.dart. This test running at all is the assertion: it
+      // needs no widget tree, no binding and no channel.
+      expect(RibbonDock.current, RibbonPosition.top);
+      expect(RibbonDock.isVertical, isFalse);
+      expect(RibbonDock.isHorizontal, isTrue);
+
+      RibbonDock.set(RibbonPosition.left);
+      expect(RibbonDock.isLeft, isTrue);
+      expect(RibbonDock.isVertical, isTrue);
+      expect(RibbonPosition.left.isVertical, isTrue);
+      expect(RibbonPosition.bottom.isVertical, isFalse);
     });
 
-    test('the per-edge insets follow the dock, one edge at a time', () {
-      RibbonMetrics.extent.value = 0;
-      RibbonMetrics.position.value = RibbonPosition.top;
-      expect(RibbonMetrics.contentInsets, EdgeInsets.zero);
-
-      RibbonMetrics.extent.value = 60;
-      RibbonMetrics.position.value = RibbonPosition.top;
-      expect(RibbonMetrics.contentTop, 60 + RibbonMetrics.gap);
-      expect(RibbonMetrics.contentRight, 0);
-      expect(RibbonMetrics.contentBottom, 0);
-      expect(RibbonMetrics.contentLeft, 0);
-
-      RibbonMetrics.position.value = RibbonPosition.right;
-      expect(RibbonMetrics.contentTop, 0);
-      expect(RibbonMetrics.contentRight, 60 + RibbonMetrics.gap);
-      expect(RibbonMetrics.contentBottom, 0);
-      expect(RibbonMetrics.contentLeft, 0);
-
-      RibbonMetrics.position.value = RibbonPosition.bottom;
-      expect(RibbonMetrics.contentBottom, 60 + RibbonMetrics.gap);
-      expect(RibbonMetrics.contentTop, 0);
-      expect(RibbonMetrics.contentRight, 0);
-      expect(RibbonMetrics.contentLeft, 0);
-
-      RibbonMetrics.position.value = RibbonPosition.left;
-      expect(RibbonMetrics.contentLeft, 60 + RibbonMetrics.gap);
-      expect(RibbonMetrics.contentTop, 0);
-      expect(RibbonMetrics.contentRight, 0);
-      expect(RibbonMetrics.contentBottom, 0);
+    test('every edge round-trips through its stored id', () {
+      for (final p in RibbonPosition.values) {
+        expect(RibbonPosition.byId(p.id), p);
+      }
+      expect(RibbonPosition.byId('sideways'), isNull);
+      expect(RibbonPosition.byId(null), isNull);
     });
 
-    test('contentInsetsFor reads zero when the band is not drawn', () {
-      // M284 — floating chrome that also renders on the gallery (the bottom
-      // tab bar, the quick-tool rail) must NOT clear a band that is not there.
-      // Both pass `ribbonDrawn: !app.isHome` through this one gate.
-      RibbonMetrics.extent.value = 60;
-      RibbonMetrics.position.value = RibbonPosition.bottom;
-      expect(RibbonMetrics.contentInsetsFor(false), EdgeInsets.zero,
-          reason: 'the gallery has no band, so nothing may clear one');
-      expect(RibbonMetrics.contentInsetsFor(true), RibbonMetrics.contentInsets);
-      expect(RibbonMetrics.contentInsetsFor(true).bottom,
-          60 + RibbonMetrics.gap);
-    });
-
-    testWidgets('RibbonMetrics.build rebuilds when the ribbon resizes',
+    testWidgets('a horizontal band is as tall as its content, no more',
         (t) async {
-      double seen = -1;
-      await pump(
-          t, RibbonMetrics.build((_, top) {
-            seen = top;
-            return const SizedBox.shrink();
-          }));
-      expect(seen, 0);
-      RibbonMetrics.extent.value = 100;
-      await t.pump();
-      expect(seen, 100 + RibbonMetrics.gap);
+      // The row it takes is the band's own height: nothing measures it, so
+      // nothing can be a frame behind it either.
+      await pump(t, Column(children: [
+        Ribbon(app: makeApp()),
+        const Expanded(child: SizedBox.expand()),
+      ]));
+      final band = t.getSize(find.byType(Ribbon));
+      expect(band.height, greaterThan(0));
+      expect(band.height, lessThan(400), reason: 'a band, not half the screen');
+      expect(band.width, 1600, reason: 'flush: it spans its edge');
+    });
+
+    testWidgets('a side rail is the rail width and full height', (t) async {
+      RibbonDock.set(RibbonPosition.left);
+      await pump(t, Row(children: [
+        SizedBox(width: RibbonMetrics.railWidth, child: Ribbon(app: makeApp())),
+        const Expanded(child: SizedBox.expand()),
+      ]));
+      final band = t.getSize(find.byType(Ribbon));
+      expect(band.width, RibbonMetrics.railWidth);
+      expect(band.height, 900, reason: 'flush: it spans its edge');
+    });
+
+    testWidgets('the rail scrolls DOWN itself, not across', (t) async {
+      RibbonDock.set(RibbonPosition.right);
+      await pump(t, Row(children: [
+        const Expanded(child: SizedBox.expand()),
+        SizedBox(width: RibbonMetrics.railWidth, child: Ribbon(app: makeApp())),
+      ]));
+      expect(
+          t
+              .widget<SingleChildScrollView>(
+                  find.byType(SingleChildScrollView).first)
+              .scrollDirection,
+          Axis.vertical);
     });
   });
 

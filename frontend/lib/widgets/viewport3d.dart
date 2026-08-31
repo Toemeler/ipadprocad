@@ -39,7 +39,6 @@ import 'package:native_menu/native_menu.dart'
     show GlassBrowser, NativeMenu, NativeMenuItem;
 import 'bottom_tabbar.dart';
 import 'native_browser_host.dart';
-import 'ribbon_chrome.dart';
 import '../l10n/l.dart';
 
 // M83: the origin planes/axes are no longer a fixed 20 mm square — they frame
@@ -870,14 +869,15 @@ class _Viewport3DState extends State<Viewport3D>
             ),
           ),
         ),
-        // ViewCube + Home (top-right, BELOW the floating ribbon — M146: the
-        // ribbon shares this coordinate space now, and at top: 8 the cube was
-        // simply behind the glass).
-        RibbonMetrics.build((_, top) => Positioned(
-            top: top + 8,
-            // M284 — when the band docks RIGHT, the cube shifts LEFT with the
-            // quick-tool rail instead of sitting under the band.
-            right: 10 + RibbonMetrics.contentRight,
+        // ViewCube + Home, top-right.
+        //
+        // M290 — plain numbers again. M146 put the ribbon into this coordinate
+        // space and the cube had to be told where the glass ended; the band is
+        // a row of the layout now, so this Stack's top-right corner IS the
+        // corner of the content area, on every dock.
+        Positioned(
+            top: 8,
+            right: 10,
             child: ViewCube(
               camera: p.camera,
               onChanged: () => setState(() {}),
@@ -888,7 +888,7 @@ class _Viewport3DState extends State<Viewport3D>
               // the part's own solids. _liveSolids, so the extrude preview
               // counts: it is on screen and it is what the user is looking at.
               fit: (c) => fitPartView(c, _liveSolids().toList(), size),
-            ))),
+            )),
         // Coordinate triad. M146 — moved to the RIGHT of the model browser
         // instead of under it: the browser card reaches down into the
         // bottom-left corner the triad used to have to itself. Off iOS there
@@ -901,20 +901,14 @@ class _Viewport3DState extends State<Viewport3D>
         if (GlassBrowser.isSupported)
           ValueListenableBuilder<double>(
             valueListenable: NativeModelBrowser.occupied,
-            builder: (_, w, child) => RibbonMetrics.build(
-              (_, __) => Positioned(
-                // M284 — LEFT dock: the triad follows the model browser
-                // inward, so it sits beside the band, not under it. Retracted,
-                // [NativeModelBrowser.triadInset] returns it to the border.
-                left: NativeModelBrowser.triadInset(w) +
-                    RibbonMetrics.contentLeft,
-                // M150 — the tab bar floats over the viewport now, so bottom: 0
-                // would put the triad behind it. M284 — and BOTTOM dock lifts it
-                // above the band as well.
-                bottom: BottomTabBar.floatingHeight +
-                    RibbonMetrics.contentBottom,
-                child: child!,
-              ),
+            builder: (_, w, child) => Positioned(
+              // The triad follows the model browser inward. Retracted,
+              // [NativeModelBrowser.triadInset] returns it to the border.
+              left: NativeModelBrowser.triadInset(w),
+              // M150 — the tab bar floats over the viewport now, so bottom: 0
+              // would put the triad behind it.
+              bottom: BottomTabBar.floatingHeight,
+              child: child!,
             ),
             child: IgnorePointer(
                 child: CustomPaint(
@@ -933,10 +927,8 @@ class _Viewport3DState extends State<Viewport3D>
           Positioned(
             left: 0,
             right: 0,
-            // M203 — above the floating tab bar, not behind it. M284 — and
-            // above the band when it docks BOTTOM.
-            bottom: 44 + BottomTabBar.floatingHeight +
-                RibbonMetrics.contentBottom,
+            // M203 — above the floating tab bar, not behind it.
+            bottom: 44 + BottomTabBar.floatingHeight,
             child: Center(
               child: Container(
                 padding:

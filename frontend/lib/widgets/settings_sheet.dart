@@ -31,7 +31,7 @@ import '../log.dart';
 import '../settings.dart';
 import '../theme.dart';
 import 'bug_button.dart';
-import 'ribbon_chrome.dart';
+import '../ribbon_dock.dart';
 
 /// The live facts the About section reports.
 ///
@@ -115,7 +115,7 @@ class SettingsSheet {
         locale: L.locale.value,
         info: settingsInfo(_app),
         backdrop: Backdrops.current.value,
-        ribbon: RibbonMetrics.dock,
+        ribbon: RibbonDock.current,
         diagnostics: BugReport.enabled,
       );
 
@@ -159,7 +159,7 @@ class SettingsSheet {
         break;
       case kSecRibbon:
         final p = RibbonPosition.byId(row);
-        if (p != null) RibbonMetrics.set(p);
+        if (p != null) RibbonDock.set(p);
         break;
       case kSecDiagnostics:
         _diagnostic(row);
@@ -296,7 +296,7 @@ class _FallbackDialogState extends State<_FallbackDialog> {
       locale: L.locale.value,
       info: settingsInfo(widget.app),
       backdrop: Backdrops.current.value,
-      ribbon: RibbonMetrics.dock,
+      ribbon: RibbonDock.current,
       diagnostics: BugReport.enabled,
     );
     return AlertDialog(
@@ -380,7 +380,7 @@ class _FallbackDialogState extends State<_FallbackDialog> {
         break;
       case kSecRibbon:
         final p = RibbonPosition.byId(row);
-        if (p != null) RibbonMetrics.set(p);
+        if (p != null) RibbonDock.set(p);
         break;
       case kSecDiagnostics:
         if (row == kRowReportProblem) {

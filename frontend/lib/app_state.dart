@@ -61,7 +61,7 @@ import 'text_geometry.dart';
 import 'theme.dart';
 import 'tools.dart';
 import 'vector_font.dart';
-import 'widgets/ribbon_chrome.dart';
+import 'ribbon_dock.dart';
 import 'work_features.dart';
 
 /// Drawing tools. M6: the ENTIRE Create panel draws real backend geometry
@@ -1767,7 +1767,7 @@ class AppState extends ChangeNotifier {
     // M284 — the ribbon band's dock, in the same file for the same reason. It
     // is read after the appearance and backdrop so its default (the flush top
     // band) never paints over a scheme that has not been adopted yet.
-    RibbonMetrics.attachStore(RibbonStore(_cacheRoot));
+    RibbonDock.attachStore(RibbonStore(_cacheRoot));
     final probe = Log.step(
         'state', 'Engine.create (backend probe)', () => Engine.create());
     backendReal = probe.isRealBackend;

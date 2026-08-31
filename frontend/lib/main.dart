@@ -15,6 +15,7 @@ import 'package:reality_view/perf_hook.dart';
 
 import 'app_state.dart';
 import 'backdrop.dart';
+import 'ribbon_dock.dart';
 import 'l10n/l.dart';
 import 'theme.dart';
 import 'bug_capture.dart';
@@ -27,8 +28,7 @@ import 'package:native_menu/native_menu.dart';
 import 'widgets/native_browser_host.dart';
 import 'widgets/quick_tools.dart';
 import 'widgets/pattern_panel_3d.dart';
-import 'widgets/ribbon.dart';
-import 'widgets/ribbon_chrome.dart';
+import 'widgets/ribbon_dock_layout.dart';
 import 'widgets/viewport.dart';
 import 'widgets/viewport3d.dart';
 import 'widgets/viewport_assembly.dart';
@@ -206,7 +206,7 @@ class PrototypeApp extends StatelessWidget {
           // Stack's edges, so it rebuilds the app shell the same way a theme
           // switch does.
           builder: (context, _, __) => ValueListenableBuilder<RibbonPosition>(
-            valueListenable: RibbonMetrics.position,
+            valueListenable: RibbonDock.position,
             builder: (context, __, ___) => _app(locale, palette),
           ),
         ),
@@ -281,25 +281,25 @@ class PrototypeApp extends StatelessWidget {
               child: SafeArea(
                 bottom: false,
                 child: Column(children: [
-                  // On the home gallery there is no ribbon — the "+" button in the
-                  // gallery header is the only new-sketch affordance. The ribbon
-                  // only belongs to an open sketch.
+                  // M290 — THE BAND TAKES A ROW OF THE LAYOUT.
                   //
-                  // M146 — with the native glass surface the ribbon FLOATS over
-                  // the viewport instead of taking a row of the Column, for the
-                  // same reason the model browser does (M108): glass with an
-                  // opaque bar behind it has nothing to refract and looks like
-                  // painted grey. Both viewports run underneath it — the 2D
-                  // sketcher and the 3D part alike, because the overlay sits over
-                  // the whole content area rather than over one of them.
+                  // On the home gallery there is no ribbon at all — the "+"
+                  // button in the gallery header is the only new-sketch
+                  // affordance — so [RibbonDockLayout] hands the stage back
+                  // and there is no band for anything to work around.
                   //
-                  // Off iOS there is no glass, so the ribbon keeps its own row:
-                  // an opaque Flutter bar floating over the model would just hide
-                  // a strip of it, and every host test keeps the tree it knows.
-                  if (!app.isHome && !RibbonSurface.isGlass)
-                    SizedBox(width: double.infinity, child: Ribbon(app: app)),
+                  // Over a document the band gets a real edge of this box and
+                  // the whole rest of the app is laid out in what is left.
+                  // That IS the placement rule: the model browser is right of
+                  // a left band, the quick-tool rail and the ViewCube are left
+                  // of a right one and the tab bar rests above a bottom one,
+                  // because all three are children of a box that no longer
+                  // contains it. Nothing measures the band, nothing subtracts
+                  // it, and a panel added tomorrow cannot forget to.
                   Expanded(
-                    child: Stack(children: [
+                    child: RibbonDockLayout(
+                      app: app,
+                      stage: Stack(children: [
                       Positioned.fill(
                         child: app.isHome
                         ? HomeView(app: app)
@@ -463,32 +463,6 @@ class PrototypeApp extends StatelessWidget {
                                       : Viewport2D(app: app),
                                 ),
                               ])),
-                            // M284 — the ribbon band docks here, BEHIND the
-                            // model browser and every other floating panel.
-                            // It is the outermost chrome, so it is painted
-                            // first among the overlays; the other panels read
-                            // RibbonMetrics and move inward. The band sits on
-                            // the chosen edge (surface A is the flush top).
-                            if (RibbonSurface.isGlass)
-                              Positioned(
-                                top: RibbonMetrics.isTop ||
-                                        RibbonMetrics.isVertical
-                                    ? 0
-                                    : null,
-                                bottom: RibbonMetrics.isBottom ||
-                                        RibbonMetrics.isVertical
-                                    ? 0
-                                    : null,
-                                left: RibbonMetrics.isRight ? null : 0,
-                                right: RibbonMetrics.isRight ||
-                                        RibbonMetrics.isHorizontal
-                                    ? 0
-                                    : null,
-                                width: RibbonMetrics.isVertical
-                                    ? RibbonMetrics.railWidth
-                                    : null,
-                                child: Ribbon(app: app),
-                              ),
                             // M116 — the panel is a FLOATING card, not a
                             // full-height wall: half the viewport tall,
                             // anchored top-left, so the origin triad in the
@@ -504,27 +478,20 @@ class PrototypeApp extends StatelessWidget {
                               // edge also lets the card reach much further
                               // down, into the corner the triad used to own
                               // (the triad moved right, beside the panel).
+                              // M290 — no ribbon inset. The band is a row of
+                              // the layout (RibbonDockLayout), so this box
+                              // already starts beside it on a left dock and
+                              // stops above it on a bottom one.
                               Positioned.fill(
-                                child: RibbonMetrics.build(
-                                  (_, top) => Padding(
-                                    padding: EdgeInsets.only(
-                                        top: top,
-                                        // M284 — when the band docks LEFT, the
-                                        // browser moves inward by the band's
-                                        // width instead of starting under it.
-                                        left: RibbonMetrics.contentLeft,
-                                        // ...and when it docks BOTTOM, the card
-                                        // stops above the band instead of
-                                        // running behind it.
-                                        bottom: BottomTabBar.floatingHeight +
-                                            8 +
-                                            RibbonMetrics.contentBottom),
-                                    child: Align(
-                                      alignment: Alignment.topLeft,
-                                      child: SizedBox(
-                                        height: double.infinity,
-                                        child: NativeModelBrowser(app: app),
-                                      ),
+                                child: Padding(
+                                  padding: EdgeInsets.only(
+                                      bottom:
+                                          BottomTabBar.floatingHeight + 8),
+                                  child: Align(
+                                    alignment: Alignment.topLeft,
+                                    child: SizedBox(
+                                      height: double.infinity,
+                                      child: NativeModelBrowser(app: app),
                                     ),
                                   ),
                                 ),
@@ -536,27 +503,19 @@ class PrototypeApp extends StatelessWidget {
                       // strip across the bottom that the model visibly stopped
                       // at. Now the viewport runs to the screen edge and the
                       // bar rests on it, like the ribbon and the browser.
+                      // M290 — bottom: 0, left: 0, right: 0 again. M284 had
+                      // the bar subtract the band's measured thickness on
+                      // three edges, and needed to know whether the band was
+                      // drawn at all (it is not, on the gallery). The band is
+                      // a row of the layout now: this Stack's bottom edge IS
+                      // above a bottom-docked band, and there is nothing to
+                      // special-case on a screen that has no band.
                       if (GlassTabBar.isSupported)
-                        RibbonMetrics.build(
-                          (_, __) {
-                            // M284 — the tab bar moves inward on the edge the
-                            // band owns: UP when the band docks BOTTOM, and in
-                            // from the side when it docks LEFT or RIGHT. The
-                            // build() wrapper keeps it listening to the band's
-                            // measured thickness, not only to its edge. The
-                            // band is only drawn over a document though, so on
-                            // the gallery the insets read zero and the bar
-                            // keeps its ordinary spot.
-                            final insets =
-                                RibbonMetrics.contentInsetsFor(!app.isHome);
-                            return Positioned(
-                              bottom: insets.bottom,
-                              left: insets.left,
-                              right: insets.right,
-                              child: BottomTabBar(app: app),
-                            );
-                          },
-                        ),
+                        Positioned(
+                            bottom: 0,
+                            left: 0,
+                            right: 0,
+                            child: BottomTabBar(app: app)),
                       // M192 — the quick tools (OK, Cancel, Undo, Redo and the
                       // four everyday sketch tools) on the right edge, always
                       // visible. Until now the only way to reach OK and Cancel
@@ -566,6 +525,7 @@ class PrototypeApp extends StatelessWidget {
                       // floating panels, so it covers least.
                       QuickToolsBar(app: app),
                     ]),
+                    ),
                   ),
                   if (!GlassTabBar.isSupported) BottomTabBar(app: app),
                 ]),

@@ -27,7 +27,6 @@
 import 'package:flutter/widgets.dart';
 
 import 'quick_tools.dart';
-import 'ribbon_chrome.dart';
 
 class DialogDock {
   DialogDock._();
@@ -45,8 +44,13 @@ class DialogDock {
       (viewport.width - width - gap - rightChrome)
           .clamp(gap, (viewport.width - gap).clamp(gap, double.infinity));
 
-  /// Top edge just under the ribbon, for a dialog that hangs from the top.
-  static double top() => gap + RibbonMetrics.contentTop;
+  /// Top edge, for a dialog that hangs from the top.
+  ///
+  /// M290 — just [gap]. It used to add the ribbon's measured thickness,
+  /// because the band floated over this coordinate space; the band takes a row
+  /// of the layout now, so the top of this box already IS the top of the
+  /// content area.
+  static double top() => gap;
 
   /// Top edge for a TALL dialog: vertically centred in what is left below the
   /// ribbon, and never pushed off the top by its own height.

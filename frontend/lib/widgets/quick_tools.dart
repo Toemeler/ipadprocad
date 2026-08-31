@@ -33,7 +33,6 @@ import '../theme.dart';
 import '../tools.dart';
 import 'bottom_tabbar.dart';
 import 'bug_button.dart';
-import 'ribbon_chrome.dart';
 import '../l10n/l.dart';
 
 /// Ids on the wire. They come back from UIKit verbatim and are dispatched by
@@ -378,10 +377,11 @@ class QuickToolsBar extends StatelessWidget {
 
   /// Horizontal space the bar claims on the right of the content area, for
   /// anything else anchored there (the modeless Pattern and Fillet dialogs).
-  /// Includes the ribbon band's width when it is docked RIGHT, so dialogs park
-  /// beside the shifted rail rather than under it.
-  static double get occupiedWidth =>
-      GlassToolBar.width + margin + RibbonMetrics.contentRight;
+  ///
+  /// M290 — the ribbon band is no longer part of this sum. A right-docked band
+  /// is outside this box entirely, so the rail's own width and margin are the
+  /// whole of what it occupies.
+  static double get occupiedWidth => GlassToolBar.width + margin;
 
   @override
   Widget build(BuildContext context) {
@@ -391,36 +391,31 @@ class QuickToolsBar extends StatelessWidget {
     // corner belongs to the ViewCube and the bottom-right to the constraint
     // readout, and both were there first.
     //
-    // M284 — the ribbon band is only drawn over a document, so on the gallery
-    // (the home "menu") there is no band for the rail to clear: the insets
-    // read zero and the bar keeps its ordinary spot.
-    return RibbonMetrics.build(
-      (_, __) {
-        final insets = RibbonMetrics.contentInsetsFor(!app.isHome);
-        return Positioned(
-          top: insets.top,
-          // M271 — ...For, because this bar renders on the gallery too, where
-          // the tab bar is absent when nothing is open. M284 — the bar also
-          // moves up when the band docks BOTTOM.
-          bottom: BottomTabBar.floatingHeightFor(app) + insets.bottom,
-          // M284 — when the band docks RIGHT, the rail shifts LEFT out of its
-          // way; `margin` is the ordinary gap from the screen edge.
-          right: margin + insets.right,
-          // widthFactor 1 — WITHOUT it the Align expands to the whole stack
-          // width, and a platform view eats every touch inside its frame: the
-          // bar would have swallowed the viewport.
-          child: Align(
-            alignment: Alignment.centerRight,
-            widthFactor: 1,
-            child: GlassToolBar.isSupported
-                ? GlassToolBar(
-                    items: items,
-                    onTap: (id) => runQuickTool(app, id, context: context),
-                  )
-                : _flutterBar(context, items),
-          ),
-        );
-      },
+    //
+    // M290 — no ribbon inset in any of these numbers. The band is a row of the
+    // layout, so this Stack's right edge is already left of a right-docked
+    // band and its bottom edge already above a bottom-docked one. It also ends
+    // the gallery special case: there is no band to clear on the home screen
+    // because there is no band, and nothing here has to know that.
+    return Positioned(
+      top: 0,
+      // M271 — ...For, because this bar renders on the gallery too, where the
+      // tab bar is absent when nothing is open.
+      bottom: BottomTabBar.floatingHeightFor(app),
+      right: margin,
+      // widthFactor 1 — WITHOUT it the Align expands to the whole stack
+      // width, and a platform view eats every touch inside its frame: the
+      // bar would have swallowed the viewport.
+      child: Align(
+        alignment: Alignment.centerRight,
+        widthFactor: 1,
+        child: GlassToolBar.isSupported
+            ? GlassToolBar(
+                items: items,
+                onTap: (id) => runQuickTool(app, id, context: context),
+              )
+            : _flutterBar(context, items),
+      ),
     );
   }
 
