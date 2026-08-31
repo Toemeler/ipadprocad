@@ -1,0 +1,166 @@
+# `ci/bugfix` — the bug-report pipeline
+
+Fixes a `bug-report` issue end to end: claim it, read the diagnostic bundle,
+find the code, write the patch and a test that pins it, prove it with
+`flutter analyze` and the full suite, commit, push to `main`, close the issue,
+log it. The language model is called between **one and four times**. Everything
+else is deterministic.
+
+## Why this replaced the agent session
+
+Three OpenHands sessions were exported and measured turn by turn. Same model
+(DeepSeek V4 Pro), same repo, one issue each:
+
+| | issue | model calls | median context | prompt tokens | condensations | cost |
+|---|---|---:|---:|---:|---:|---:|
+| S1 | #5 dropdown colours | 212 | 52,816 | 11.17M | 9 | **$1.4925** |
+| S2 | #8 browser icon contrast | 193 | 59,199 | 11.47M | 8 | **$1.6040** |
+| S3 | #6 triad position | 387 | 58,022 | 22.42M | 17 | **$3.1157** |
+
+S1 shipped a 16-line change to `ribbon.dart` and an 85-line test. It burned
+11.17M prompt tokens doing it, because a ~53k-token conversation was replayed
+212 times. **Cost is linear in turn count**, and the turn count was roughly ten
+times what the work needed.
+
+Classifying all 796 actions across the three runs:
+
+| category | S1 | S2 | S3 | what happened to it |
+|---|---:|---:|---:|---|
+| code read + search (`sed`/`grep`) | 88 | 92 | 227 | → `rank.py`, free |
+| token/auth discovery | 32 | 15 | 23 | → gone; `GITHUB_TOKEN` is correct in Actions |
+| screenshot pixel forensics | 10 | 5 | 39 | → banned; the 3D body is never in the image |
+| Flutter install | 9 | 9 | 5 | → `subosito/flutter-action`, cached |
+| `unzip` shim | 7 | 13 | 14 | → present on the runner |
+| re-reading protocol/notes | 10 | 9 | 17 | → in the cached prefix, read once |
+| `sleep` polling | 9 | 2 | 0 | → foreground, once |
+
+Two findings drove the redesign:
+
+**Condensation was ~26 % of every run.** DeepSeek's cache only hits on a
+byte-for-byte identical prefix from token 0. The condenser rewrote the middle
+of the conversation every 4–6 minutes, invalidating all of it. Every large
+cache-miss spike in all three sessions — 9 of 9 in S1, 17 of 17 in S3 — lands
+within 90 seconds of a condensation. It also caused the amnesia:
+`MAINTAINER_PROTOCOL.md` was re-read five times in one session.
+
+**An injected skill was wrong.** 11,204 tokens of `github` and
+`openhands-automation` skills were pasted into every context, telling the agent
+the token was `GITHUB_TOKEN` (it was `github_token`), to always open a PR (the
+protocol forbids PRs), and never to push to `main` (the protocol requires it).
+
+## What it costs now
+
+Rates fitted to the three sessions' own cost and token counters, and validated
+against S1's first call to within 0.1 %:
+
+| token class | $/1M |
+|---|---:|
+| input, cache **miss** | 1.3184 |
+| input, cache **hit** | 0.0441 |
+| output (reasoning included) | 3.9583 |
+
+A run's arithmetic. The token counts are measured — `pack.build()` against
+issue #5's real bundle, not an estimate:
+
+| | tokens | $/1M | cost |
+|---|---:|---:|---:|
+| stable prefix — house rules, repo map, bundle guide (cache hit from run 2) | 1,211 | 0.0441 | 0.00005 |
+| issue pack — report, bundle, 5 sliced files | 9,222 | 1.3184 | 0.01216 |
+| output — patch + test, `reasoning_effort: medium` | ~2,400 | 3.9583 | 0.00950 |
+| **one call, happy path** | | | **$0.0217** |
+| expected with escalation (≈40 % need a second round) | | | **~$0.028** |
+
+Against S1 that is **69×**. Against S3, **144×**. Plan against ~1/50 rather
+than the best case: hard bugs escalate, and an escalation round is ~$0.015.
+
+The pipeline prints its own cost per run, so a regression shows up in the
+workflow log rather than on next month's invoice.
+
+## Files
+
+| | |
+|---|---|
+| `rank.py` | BM25 retrieval over Dart + Swift. German ARB bridge, recency boost. Replaces the `grep`/`sed` turns. |
+| `pack.py` | Bundle + issue + ranked slices → one context pack, split into cacheable prefix and per-issue body. |
+| `model.py` | The DeepSeek call. Fixed message order so the prefix stays cacheable. |
+| `edits.py` | Search/replace block format, parsing and all-or-nothing application. Enforces forbidden paths. |
+| `verify.py` | `analyze`, `test`, and the test-first gate. |
+| `run.py` | The loop: ask → gate → verify → ship, or escalate, or block. |
+| `test_*.py` | 30 tests. Run by the workflow *before* the model is called. |
+
+## Setup
+
+One secret and one optional variable on the repository:
+
+- `DEEPSEEK_API_KEY` — **required**. Settings → Secrets → Actions.
+- `DEEPSEEK_MODEL` — optional repo *variable*, defaults to `deepseek-v4-pro`.
+  Set it if your account exposes the model under a different id; the old
+  automation reached it through LiteLLM as `deepseek/deepseek-v4-pro`.
+
+Nothing else. `GITHUB_TOKEN` is provided by Actions.
+
+## Running it
+
+```bash
+ci/bugfix/run.py --issue 12              # the real thing
+ci/bugfix/run.py --issue 12 --dry-run    # pack + model, no writes, no push
+ci/bugfix/pack.py 12                     # just look at what the model gets
+ci/bugfix/rank.py "the floor is dark"    # just the ranking
+python3 -m unittest discover -s ci/bugfix -p 'test_*.py'
+```
+
+`workflow_dispatch` takes an issue number, for re-running a blocked one after a
+fix to the pipeline.
+
+## The test-first gate
+
+`verify.gate()` applies the model's **test alone**, requires it to **fail**,
+then applies the fix and requires it to **pass**.
+
+The old protocol said "a fix with no test is not finished" but never said the
+test had to fail without the fix, and nothing checked — so a test asserting
+behaviour the code already had would pass review and pin nothing. Two extra
+`flutter test` invocations against one file close that hole for free. This is
+the one place where the new pipeline is *stricter* than what it replaced, not
+merely cheaper.
+
+## Honest limits
+
+- **Retrieval finds the neighbourhood, not always the whole fix.**
+  `test_rank.py::test_known_misses` records this: for issue #8 the fix also
+  touched `theme.dart`, which the ranker misses from the title; for #7 it also
+  touched `part_model.dart`. That is why the model can answer with `expand`
+  instead of a patch — one more slice costs ~$0.004, against $1.49 for the
+  search it replaces. If recall@5 ever drops below ~85 %, widen
+  `pack.FILES_IN_PACK`.
+- **Cross-cutting Dart↔Swift fixes are the common hard case** (#7 and #8 both
+  were). Swift is in the corpus, but it cannot be compiled on Linux — CI's
+  macOS build remains the source of truth for it, exactly as
+  `AUTOMATION_NOTES.md` has said since #2.
+- **Prefix drift is silent.** A timestamp or an issue number accidentally
+  placed ahead of the pack in `model.SYSTEM` costs 30× on every call and breaks
+  nothing visibly. If the printed cost per run climbs, look there first.
+- **Hard bugs still block.** After four rounds it labels `openhands-blocked`,
+  posts what failed, and pushes nothing — the same outcome as before, reached
+  for about $0.05 instead of $3.12.
+
+## Untrusted input
+
+A bug report is written by whoever pressed the button in the app, and the relay
+that files it treats its shared secret as an abuse throttle rather than a
+security boundary (`relay/README.md`). So the issue text and the bundle reach
+the model as attacker-controllable text, and this pipeline pushes to `main`.
+
+Three things contain that, in order of how much they are relied on:
+
+1. **`edits.FORBIDDEN` is enforced in code**, not asked for in a prompt.
+   `.github/`, `ci/`, `relay/`, `lib/l10n/gen/` and any path containing `..`
+   are rejected before anything is written, so a successful prompt injection
+   still cannot reach the workflow, this pipeline, or the relay.
+2. **The full suite must pass**, and the model never sees a credential — the
+   API keys are in the environment, not in the context.
+3. **The system prompt frames the report as data**, not instructions.
+
+The residual risk is a plausible-looking but wrong change to app code under
+`frontend/lib/`, which is the same risk any automated fix carries: it lands as
+one reviewable, revertable commit with a test attached.

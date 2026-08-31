@@ -1,0 +1,242 @@
+#!/usr/bin/env python3
+"""One bug report, start to finish.
+
+    ci/bugfix/run.py --issue 12
+    ci/bugfix/run.py --issue 12 --dry-run     # pack + model, no writes, no push
+
+WHAT THIS REPLACES
+------------------
+Three measured OpenHands sessions took 193, 212 and 387 model turns to fix one
+issue each, at $1.49, $1.60 and $3.12. Almost none of those turns needed a
+language model: they were clone, install, grep, sed, unzip, poll, rebase, push.
+Here all of that is code, and the model is called between one and four times —
+once to diagnose and patch, and after that only when something it wrote
+actually failed.
+
+THE SHAPE OF THE LOOP
+---------------------
+    pack (free)  ->  ask  ->  expand? serve another slice, ask again
+                          ->  edits?  test-first gate, analyze, full suite
+                                      pass -> commit, push, close
+                                      fail -> tell it exactly what broke, ask again
+    out of rounds -> label openhands-blocked, post the diff, push nothing
+
+Escalation feeds back ONLY the failure, clipped to 4,000 characters, on top of
+a conversation whose prefix is already cached. A repair round therefore costs
+about $0.015 rather than the $1.49 that re-deriving everything used to.
+
+WHY IT NEVER OPENS A PULL REQUEST
+---------------------------------
+Because bugreports/MAINTAINER_PROTOCOL.md says not to, and that rule predates
+this pipeline. One commit per issue, straight to main, rebased immediately
+before the push so sibling runs cannot clobber each other.
+"""
+import argparse
+import os
+import pathlib
+import subprocess
+import sys
+
+sys.path.insert(0, str(pathlib.Path(__file__).parent))
+
+import edits as edits_mod
+import gh
+import model
+import pack
+import rank
+import verify
+
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+
+# One diagnose call plus at most three repairs. Past that the failures in the
+# measured sessions stopped converging and a human is cheaper than a fourth
+# guess; the protocol's blocked path exists for exactly this.
+MAX_ROUNDS = 4
+
+FOOTER = '\n\n---\n_Fixed automatically. Pipeline: `ci/bugfix/`._'
+
+
+def sh(*args, check=True, cwd=ROOT):
+    p = subprocess.run(args, cwd=cwd, capture_output=True, text=True)
+    if check and p.returncode != 0:
+        raise SystemExit(f'{" ".join(args)}\n{p.stdout}\n{p.stderr}')
+    return p.stdout.strip()
+
+
+def git_reset():
+    sh('git', 'checkout', '--', '.')
+    sh('git', 'clean', '-fd', '--', 'frontend')
+
+
+def parse_tagged(text, tag):
+    import re
+    m = re.search(rf'<{tag}>(.*?)</{tag}>', text, re.DOTALL)
+    return m.group(1).strip() if m else ''
+
+
+def serve_expands(index, expands, query):
+    """Answer an `expand` request with more source, still for free."""
+    out = []
+    for e in expands[:3]:
+        chunks = index.slice_file(e.path, f'{query} {e.query}',
+                                 radius=30, max_lines=160)
+        if not chunks:
+            out.append(f'### {e.path}\n_(no such file, or nothing matched)_')
+            continue
+        rendered = '\n\n'.join(
+            '\n'.join(f'{start + i:5}  {line}' for i, line in enumerate(body))
+            for start, body in chunks)
+        out.append(f'### {e.path}\n```dart\n{rendered}\n```')
+    return ('You asked to see more. Here it is — now answer with the fix.\n\n'
+            + '\n\n'.join(out))
+
+
+class RebaseConflict(Exception):
+    """`main` moved under us in a way that cannot be resolved mechanically.
+
+    The protocol's answer to this predates the pipeline and has not changed:
+    leave `main` alone, say so on the issue, do not force anything.
+    """
+
+
+def ship(number, subject, root_cause, paths, dry_run):
+    """Commit, rebase, push, log. Only reachable from a green tree."""
+    summary = (root_cause or '').strip() or 'See the issue for the report.'
+    message = f'{subject}\n\n{summary}\n\nFiles: {", ".join(paths)}'
+    if dry_run:
+        print(f'[dry-run] would commit: {subject}')
+        return None
+
+    sh('git', 'config', 'user.name', 'ipadprocad-bugfix')
+    sh('git', 'config', 'user.email', 'bugfix@users.noreply.github.com')
+    sh('git', 'add', '--', *paths)
+    sh('git', 'commit', '-m', message)
+
+    # One commit per issue, and the notes entry separately, so each is
+    # revertable on its own — the protocol's rule, unchanged.
+    notes = ROOT / 'bugreports' / 'AUTOMATION_NOTES.md'
+    sha = sh('git', 'rev-parse', '--short', 'HEAD')
+    with notes.open('a', encoding='utf-8') as fh:
+        fh.write(f'\n- #{number} — {summary.splitlines()[0]} Commit `{sha}`.\n')
+    sh('git', 'add', '--', 'bugreports/AUTOMATION_NOTES.md')
+    sh('git', 'commit', '-m',
+       f'Update AUTOMATION_NOTES.md: log bug-report issue #{number}')
+
+    sh('git', 'fetch', 'origin', 'main')
+    rebase = subprocess.run(['git', 'rebase', 'origin/main'], cwd=ROOT,
+                            capture_output=True, text=True)
+    if rebase.returncode != 0:
+        subprocess.run(['git', 'rebase', '--abort'], cwd=ROOT,
+                       capture_output=True)
+        raise RebaseConflict(rebase.stdout + rebase.stderr)
+    sh('git', 'push', 'origin', 'HEAD:main')
+    return sh('git', 'rev-parse', '--short', 'HEAD~1')
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--issue', type=int, required=True)
+    ap.add_argument('--dry-run', action='store_true')
+    ap.add_argument('--max-rounds', type=int, default=MAX_ROUNDS)
+    args = ap.parse_args()
+
+    number = args.issue
+    gh.ensure_labels()
+    data = gh.issue(number)
+    title, body = data['title'], data.get('body') or ''
+
+    if not args.dry_run:
+        if not gh.claim(number):
+            print(f'#{number} was already claimed by another run — nothing to do')
+            return 0
+
+    index = rank.Index()
+    prefix, issue_body, ranked = pack.build(number, title, body, index=index)
+    print(f'pack: ~{(len(prefix) + len(issue_body)) // 4} tokens, files={ranked}')
+
+    history, spent = [], 0.0
+    last_reason, last_log = '', ''
+
+    for round_no in range(1, args.max_rounds + 1):
+        reply, usage = model.ask(prefix, issue_body, history)
+        spent += model.cost(usage)
+        print(f'round {round_no}: {usage.get("completion_tokens", 0)} out, '
+              f'${spent:.4f} so far')
+
+        parsed, expands, errors = edits_mod.parse(reply)
+        history += [{'role': 'user', 'content': issue_body},
+                    {'role': 'assistant', 'content': reply}]
+
+        if expands and not parsed:
+            issue_body = serve_expands(index, expands, f'{title} {body}')
+            continue
+
+        if errors or not parsed:
+            issue_body = ('Your answer could not be applied:\n\n'
+                          + '\n'.join(errors or ['no <file> blocks found'])
+                          + '\n\nAnswer again in the required format.')
+            continue
+
+        tests = [e for e in parsed if edits_mod.is_test(e.path)]
+        code = [e for e in parsed if not edits_mod.is_test(e.path)]
+        test_paths = [p for p in edits_mod.touched(tests)]
+
+        if not tests:
+            issue_body = ('You changed code but added no test under '
+                          '`frontend/test/`. A fix with no test is not '
+                          'finished. Answer again, with the test.')
+            git_reset()
+            continue
+
+        ok, reason, log = verify.gate(
+            lambda: edits_mod.apply(tests, ROOT),
+            lambda: edits_mod.apply(code, ROOT),
+            git_reset,
+            test_paths)
+
+        if ok:
+            ok, reason, log = verify.full_verification()
+
+        if ok:
+            paths = edits_mod.touched(parsed)
+            cause = parse_tagged(reply, 'root-cause')
+            try:
+                sha = ship(number, parse_tagged(reply, 'subject') or
+                           f'Bugfix #{number}: automated fix',
+                           cause, paths, args.dry_run)
+            except RebaseConflict as e:
+                git_reset()
+                print(f'rebase conflict — main untouched, ${spent:.4f}')
+                if not args.dry_run:
+                    gh.block(number, (
+                        '`main` moved while this fix was being verified and the '
+                        'rebase does not resolve mechanically, so nothing was '
+                        f'pushed.\n\n```\n{str(e)[:1500]}\n```\n\nRe-running '
+                        'the workflow on this issue will start from the new '
+                        f'`main`.{FOOTER}'))
+                return 1
+            print(f'shipped {sha} — ${spent:.4f}')
+            if not args.dry_run:
+                gh.close(number, f'{cause}\n\nFixed in `{sha}` — '
+                                 f'{", ".join(paths)}.{FOOTER}')
+            return 0
+
+        last_reason, last_log = reason, log
+        git_reset()
+        issue_body = (f'That did not work: {reason}\n\n```\n{log}\n```\n\n'
+                      'Fix it and answer again in the required format.')
+
+    git_reset()
+    print(f'blocked after {args.max_rounds} rounds — ${spent:.4f}')
+    if not args.dry_run:
+        gh.block(number, (
+            f'Automated fixing stopped after {args.max_rounds} attempts and '
+            f'pushed nothing.\n\n**Last failure:** {last_reason}\n\n'
+            f'```\n{last_log[:2500]}\n```\n\n'
+            f'Files the retriever ranked highest: {", ".join(ranked)}.'
+            f'{FOOTER}'))
+    return 1
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

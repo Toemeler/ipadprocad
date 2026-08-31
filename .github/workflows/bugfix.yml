@@ -1,0 +1,89 @@
+name: Bug report autofix  # ci/bugfix — ersetzt die OpenHands-Session pro Issue
+
+# Läuft, wenn der Relay (relay/worker.js) ein Issue mit `bug-report` anlegt.
+#
+# WARUM ALS WORKFLOW UND NICHT ALS AGENT-SESSION
+# ----------------------------------------------
+# Drei gemessene OpenHands-Sessions brauchten 193, 212 und 387 Modell-Turns für
+# je einen Fix — $1.49, $1.60 und $3.12. Der grösste Teil davon war kein
+# Denken, sondern Umgebung: klonen, Flutter installieren (9 Turns, ~22 min),
+# `unzip` nachbauen (7–14 Turns), den Namen der Token-Variable herausfinden
+# (15–32 Turns), die Test-Suite mit `sleep 60` pollen.
+#
+# Hier ist all das der Runner: Flutter kommt aus dem Cache, `unzip` ist da,
+# `GITHUB_TOKEN` heisst per Konstruktion so, und die Suite läuft im
+# Vordergrund. Das Modell wird 1–4 mal gerufen und macht nur noch das, wofür
+# man ein Sprachmodell braucht: Ursache finden, Patch und Test schreiben.
+
+on:
+  issues:
+    types: [opened, labeled]
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: 'Issue-Nummer, die gefixt werden soll'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  issues: write
+
+# Nur ein Run gleichzeitig. Das ersetzt Schritt 1+3 des alten Protokolls (die
+# Session blieb minutenlang am Leben und listete Issues neu, um Nachzügler
+# einzusammeln — das kostete echtes Geld fürs Nichtstun). Nicht abbrechen:
+# ein laufender Fix darf nicht mitten im Push sterben.
+concurrency:
+  group: bugfix-main
+  cancel-in-progress: false
+
+jobs:
+  autofix:
+    name: Diagnose, fix, verify, push
+    runs-on: ubuntu-latest
+    # `labeled` feuert für jedes Label; nur `bug-report` ist gemeint.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.issue.labels.*.name, 'bug-report')
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          # Der Rebase vor dem Push braucht echte History, nicht nur den Tip.
+          fetch-depth: 50
+
+      # Der Diagnose-Bundle liegt auf `bug-reports` (gehört dem Relay, wird
+      # nur gelesen). Ein flacher Fetch reicht und spart den Klon der ganzen
+      # Branch-History.
+      - name: Bug-report-Branch holen
+        continue-on-error: true
+        run: |
+          git fetch --depth=1 origin bug-reports:refs/remotes/origin/bug-reports
+
+      - name: Flutter installieren
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: flutter pub get
+        working-directory: frontend
+        run: flutter pub get
+
+      # Der Retriever selbst hat Tests (ci/bugfix/test_rank.py). Wenn er
+      # kaputt ist, bekommt das Modell die falschen Dateien und schreibt
+      # plausible Patches für heilen Code — teuer und unsichtbar. Also vorher
+      # prüfen, nicht nachher.
+      - name: Pipeline-Selbsttests
+        run: python3 -m unittest discover -s ci/bugfix -p 'test_*.py'
+
+      - name: Fix
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DEEPSEEK_MODEL: ${{ vars.DEEPSEEK_MODEL || 'deepseek-v4-pro' }}
+        run: |
+          python3 ci/bugfix/run.py --issue "${{ github.event.inputs.issue || github.event.issue.number }}"

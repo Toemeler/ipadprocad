@@ -1,0 +1,303 @@
+#!/usr/bin/env python3
+"""Everything the model needs about one bug, assembled before it wakes up.
+
+WHY THIS EXISTS
+---------------
+In the old sessions the model gathered its own context: clone, unzip, grep,
+sed, read, re-read. Measured over three runs that was 65-77 % of all turns,
+and because each turn replayed a ~55,000-token conversation it was most of the
+cost. None of it needed a language model. It is done here instead, for free,
+and the model's first turn already contains the answer to "what am I looking
+at".
+
+WHAT GOES IN, AND WHAT DELIBERATELY DOES NOT
+--------------------------------------------
+IN: the issue text, the bundle's own `report.md` (the app triages itself
+already — it even says whether to read log.txt or state.txt), `env.txt`,
+`reality.txt`, a bounded tail of `log.txt`, and slices of the five files the
+retriever ranked highest.
+
+OUT: `screenshot.png`. This is the expensive one. The old sessions installed
+Pillow and counted pixels in it — 10 turns in one session, 39 in another —
+while the bundle's own README says in as many words that the 3D body is a
+RealityKit platform view composited outside Flutter and is therefore NOT in
+the image. The evidence those turns were hunting for is in `reality.txt` and
+`mesh.txt` as text, and both are included instead.
+
+OUT: whole files. `ribbon.dart` is 2,902 lines and `app_state.dart` 19,550.
+Pasting either costs more than this pipeline's entire budget, so `rank.py`
+emits located slices and the model asks for more if it needs more.
+
+THE PREFIX/BODY SPLIT IS LOAD-BEARING
+-------------------------------------
+DeepSeek's cache only hits on a byte-for-byte identical prefix starting at
+token 0, and a hit costs $0.0441/M against $1.3184/M for a miss — a factor of
+30. So `build()` returns the invariant part (house rules, repo map) separately
+from the per-issue part, and `model.py` is careful to send them in that order
+and never to let a timestamp, an issue number or a run id leak forward into
+the prefix. Getting this wrong does not break anything; it just quietly
+multiplies the input bill by thirty.
+"""
+import io
+import json
+import os
+import pathlib
+import re
+import subprocess
+import urllib.request
+import zipfile
+
+import rank
+
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+
+# Bundle members worth reading, in the order they help. `report.md` first
+# because the app has already triaged itself in it.
+BUNDLE_FILES = (
+    ('report.md', 6000),
+    ('env.txt', 800),
+    ('reality.txt', 1500),
+    ('mesh.txt', 1200),
+)
+
+# The report is written at the END of the session, so the interesting lines are
+# the last ones. 60 is enough to carry the failure and its lead-up without
+# carrying the whole 8,000-line session.
+LOG_TAIL_LINES = 60
+
+# A raw pointer stream, only worth its tokens when the complaint is that a
+# gesture did the wrong thing.
+GESTURE_WORDS = ('tap', 'drag', 'swipe', 'pinch', 'gesture', 'touch', 'press',
+                 'tippen', 'ziehen', 'wischen', 'druck')
+
+FILES_IN_PACK = 5
+
+# Lines of source the pack may spend, per rank. The whole design rests on the
+# pack staying small — at $1.3184/M for a cache miss, every 1,000 lines of
+# slice is about a cent, on every issue, forever. The top-ranked file gets four
+# times the 5th's because the ranking is informative: measured over the four
+# issues fixed to date, when the culprit is in the pack at all it is usually in
+# the first three. Sum ≈ 420 lines ≈ 6k tokens.
+SLICE_BUDGET = (140, 110, 80, 55, 35)
+
+
+def _bundle_url(body):
+    m = re.search(r'https://raw\.githubusercontent\.com/\S+\.zip', body or '')
+    if m:
+        return m.group(0)
+    m = re.search(r'bugreports/([A-Za-z0-9._-]+\.zip)', body or '')
+    if m:
+        return m.group(1)
+    return None
+
+
+def fetch_bundle(issue_body):
+    """-> ZipFile or None. Tries the checkout first, the network second.
+
+    `git show bug-reports:...` costs nothing when the branch is already
+    fetched, which it is inside the workflow. The raw URL is the fallback for
+    running this by hand.
+    """
+    ref = _bundle_url(issue_body)
+    if not ref:
+        return None
+    name = ref.rsplit('/', 1)[-1]
+    try:
+        blob = subprocess.run(
+            ['git', '-C', str(ROOT), 'show', f'origin/bug-reports:bugreports/{name}'],
+            capture_output=True, timeout=60)
+        if blob.returncode == 0 and blob.stdout[:2] == b'PK':
+            return zipfile.ZipFile(io.BytesIO(blob.stdout))
+    except (OSError, subprocess.SubprocessError):
+        pass
+    if ref.startswith('http'):
+        try:
+            with urllib.request.urlopen(ref, timeout=60) as resp:
+                return zipfile.ZipFile(io.BytesIO(resp.read()))
+        except Exception:
+            return None
+    return None
+
+
+def _read(zf, name, limit):
+    try:
+        text = zf.read(name).decode('utf-8', 'replace')
+    except KeyError:
+        return None
+    if name == 'report.md':
+        # `report.md` ends with a "## Contents" section explaining what each
+        # bundle member is. It is byte-identical in every report — 1,121 of the
+        # file's 2,051 characters — and arrives as a cache MISS on every issue
+        # at $1.3184/M. The same guidance lives in the stable prefix instead,
+        # where it is billed once and then cached (see BUNDLE_GUIDE).
+        cut = text.find('\n## Contents')
+        if cut > 0:
+            text = text[:cut]
+    return text if len(text) <= limit else text[:limit] + '\n… (truncated)\n'
+
+
+def bundle_evidence(zf, issue_text):
+    """The readable parts of the diagnostic bundle, bounded."""
+    if zf is None:
+        return '_(no diagnostic bundle could be fetched)_'
+    out = []
+    for name, limit in BUNDLE_FILES:
+        text = _read(zf, name, limit)
+        if text:
+            out.append(f'### {name}\n```\n{text.strip()}\n```')
+    log = _read(zf, 'log.txt', 400000)
+    if log:
+        tail = '\n'.join(log.splitlines()[-LOG_TAIL_LINES:])
+        out.append(f'### log.txt (last {LOG_TAIL_LINES} lines)\n```\n{tail}\n```')
+    if any(w in issue_text.lower() for w in GESTURE_WORDS):
+        g = _read(zf, 'gestures.txt', 2500)
+        if g:
+            out.append(f'### gestures.txt\n```\n{g.strip()}\n```')
+    return '\n\n'.join(out) if out else '_(bundle contained nothing readable)_'
+
+
+def repo_map(index):
+    """A one-screen orientation, invariant across issues so it stays cached."""
+    groups = {}
+    for path in sorted(index.freqs):
+        groups.setdefault(str(pathlib.PurePosixPath(path).parent), []).append(
+            pathlib.PurePosixPath(path).name)
+    lines = []
+    for d, names in sorted(groups.items()):
+        lines.append(f'{d}/  ' + ' '.join(sorted(names)))
+    return '\n'.join(lines)
+
+
+# What the bundle's members are. Identical for every report, so it lives in the
+# cached prefix rather than being re-billed inside each `report.md`.
+#
+# The screenshot line is the expensive one to get wrong: two of the three
+# measured sessions spent 10 and 39 turns respectively counting pixels in an
+# image that cannot contain the thing they were looking for.
+BUNDLE_GUIDE = '''\
+Every report ships the same diagnostic bundle:
+
+- `report.md` — the app's own triage, including whether `log.txt` or
+  `state.txt` is the file worth reading for this fault.
+- `state.txt` — every feature with its parameters and its solid or error, every
+  picked edge fingerprint, every sketch with its geometry and constraints.
+- `log.txt` — the session, ending at the moment the report was filed.
+- `reality.txt` — the last scene Dart handed the native renderer.
+- `mesh.txt` — triangle and vertex counts of what was actually drawn.
+- `gestures.txt` — the raw pointer stream, before the gesture arena resolved
+  it. Read this when the complaint is that a tap or drag did the wrong thing.
+- `screenshot.png` — **not included here and not worth asking for.** The 3D
+  body is a RealityKit platform view composited outside Flutter, so the shaded
+  model is NEVER in the image and an empty-looking viewport is not evidence of
+  anything. Use `reality.txt`, `mesh.txt` and `state.txt` for the body.'''
+
+
+def house_rules():
+    return '''\
+- German is the app's SOURCE language. `frontend/lib/l10n/app_de.arb` is the
+  l10n TEMPLATE and `app_en.arb` the translation. A key added to one MUST be
+  added to the other or `l10n_completeness_test.dart` fails the build.
+- Minimal, surgical diffs. No unrelated refactors, no speculative abstractions,
+  no new dependencies.
+- Comments only where they explain a non-obvious WHY. Never restate the code.
+- Match the style of the code you are editing, including its milestone-tagged
+  comment convention (`// M284 — …`) when you add a comment near one.
+- Swift under `frontend/packages/*/ios/` CANNOT be compiled on Linux. Changing
+  it is fine and often necessary; it is verified by CI's macOS build, not here.
+- Never edit `.github/workflows/*`, `relay/*`, `ci/*`, or generated files under
+  `lib/l10n/gen/` (those are regenerated by the build).
+- Fix the root cause, not the symptom. This codebase's history punishes surface
+  patches.'''
+
+
+def notes_tail(limit=8):
+    """The last few AUTOMATION_NOTES entries — prior art, cheaply."""
+    p = ROOT / 'bugreports' / 'AUTOMATION_NOTES.md'
+    if not p.is_file():
+        return ''
+    entries = [ln for ln in p.read_text(encoding='utf-8').splitlines()
+               if ln.startswith('- #')]
+    return '\n'.join(entries[-limit:])
+
+
+def build(issue_number, title, body, index=None, files=FILES_IN_PACK):
+    """-> (stable_prefix, per_issue_body, [paths]).
+
+    The two halves are returned separately because the first is what DeepSeek
+    caches between runs and the second is what it cannot.
+    """
+    index = index or rank.Index()
+    query = f'{title}\n{body or ""}'
+    zf = fetch_bundle(body or '')
+    evidence = bundle_evidence(zf, query)
+
+    ranked = index.rank(query, limit=files)
+    slices = []
+    for position, (path, _) in enumerate(ranked):
+        budget = SLICE_BUDGET[min(position, len(SLICE_BUDGET) - 1)]
+        chunks = index.slice_file(path, query, radius=22, max_lines=budget)
+        rendered = '\n\n'.join(
+            '\n'.join(f'{start + i:5}  {line}' for i, line in enumerate(chunk))
+            for start, chunk in chunks)
+        slices.append(f'### {path}\n```dart\n{rendered}\n```')
+
+    prefix = f'''\
+## The repository
+
+`Toemeler/ipadprocad` — a Flutter iPad CAD app with a QCAD/OpenCASCADE C++
+backend reached over FFI, plus Swift platform plugins for the RealityKit
+viewport and the Liquid Glass chrome.
+
+{repo_map(index)}
+
+## House rules
+
+{house_rules()}
+
+## The diagnostic bundle
+
+{BUNDLE_GUIDE}'''
+
+    issue_body = f'''\
+## Issue #{issue_number}
+
+**{title}**
+
+{(body or "_(no description given)_").strip()}
+
+## Diagnostic bundle
+
+{evidence}
+
+## Previously fixed in this repo
+
+{notes_tail() or "_(none recorded)_"}
+
+## Candidate code
+
+These are the {len(slices)} files the retriever ranked highest for this report,
+sliced around the matching lines. Line numbers are real. If the fix belongs
+somewhere not shown here, say so with an `expand` request instead of guessing.
+
+{chr(10).join(slices)}'''
+
+    return prefix, issue_body, [p for p, _ in ranked]
+
+
+def main():
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument('issue', type=int)
+    args = ap.parse_args()
+    import gh
+    data = gh.issue(args.issue)
+    prefix, body, paths = build(args.issue, data['title'], data.get('body') or '')
+    print(prefix)
+    print(body)
+    total = len(prefix) + len(body)
+    print(f'\n--- pack: {total} chars, ~{total // 4} tokens, files={paths}',
+          file=__import__('sys').stderr)
+
+
+if __name__ == '__main__':
+    main()
