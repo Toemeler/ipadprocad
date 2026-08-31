@@ -71,3 +71,5 @@ the model reasoning badly, and each fix is general:
   shape of a correct fix — every native surface has a Flutter fallback — so it
   now names both sites and says so.
 
+
+- #12 — `exportFormatsFor` matched the human-readable labels `'part'`/`'sketch'`, but document kinds are stored by file extension (`ptp`/`pts`). Part cards therefore fell through to the default `['step']`, so the chooser never offered STL, and the old code path then handled the part as a sketch, producing no export. Commit `d3b8d51`.
