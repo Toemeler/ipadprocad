@@ -60,6 +60,14 @@ CASES = [
      'behind them. if there is a dark part which is behi',
      ['frontend/lib/theme.dart',
       'frontend/lib/widgets/model_browser.dart']),
+    # #9 is the case that set BRIDGE_MAX_KEYS. It is an interaction bug, not a
+    # styling one, so its words ("select", "location", "first") are common in
+    # the ARB and used to swamp the query — `home_view.dart` ranked 20th and
+    # never entered the pack.
+    (9,
+     'when i longpress a card and select export i first want to select stl or '
+     'step before chosing a location',
+     ['frontend/lib/widgets/home_view.dart']),
 ]
 
 
@@ -112,14 +120,32 @@ class TestRanking(unittest.TestCase):
 
         Both of these fixes were cross-cutting and the ranker finds only one
         end of each from the title. That is why the pipeline gives the model an
-        `expand` request instead of a fixed five files, and why this test
-        asserts the CURRENT behaviour: if a tuning change ever makes these hit,
-        that is good news and this test should be updated to demand it.
+        `expand` request instead of a fixed five files, and why `run.py` serves
+        the file back when an edit fails against code that was never shown.
+
+        This asserts the CURRENT behaviour: if a tuning change ever makes these
+        hit, that is good news and the test should be tightened to demand it.
         """
         top5 = {issue: [p for p, _ in self.index.rank(title, limit=5)]
                 for issue, title, _ in CASES}
         self.assertNotIn('frontend/lib/theme.dart', top5[8])
         self.assertNotIn('frontend/lib/part_model.dart', top5[7])
+
+    def test_bridge_is_capped_to_discriminative_words(self):
+        """The #9 regression: common words must not swamp the query.
+
+        Without the cap, issue #9's 13 words unlocked 123 l10n keys and the
+        expansion carried 79 % of the query's weight, pulling the ranking
+        toward whichever files merely use the most l10n.
+        """
+        import re
+        title = CASES[-1][1]
+        words = set(re.findall(r'\w{3,}', title.lower()))
+        terms = self.index.query_terms(title)
+        bridged = sum(v for k, v in terms.items() if k not in words)
+        self.assertLess(bridged / sum(terms.values()), 0.5)
+        # A rare, meaningful word must still bridge — that is the whole point.
+        self.assertLess(len(self.index.bridge['boden']), rank.BRIDGE_MAX_KEYS)
 
 
 if __name__ == '__main__':

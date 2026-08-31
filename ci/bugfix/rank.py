@@ -89,6 +89,27 @@ RECENCY_WEIGHT = 0.6
 # a term the user actually wrote.
 BRIDGE_WEIGHT = 0.5
 
+# A word is only bridged if it unlocks FEWER than this many l10n keys.
+#
+# This bound is the lesson from issue #9 ("longpress a card and select export…").
+# Its 13 query words unlocked 123 keys between them, because "select", "first",
+# "want" and "location" each appear in dozens of UI strings. The expansion ended
+# up carrying 79 % of the query's weight and pulled the ranking toward whichever
+# files simply use the most l10n — `app_state.dart`, `ribbon.dart`. The file the
+# fix actually belonged in, `home_view.dart`, fell to 20th and never made the
+# pack; the model worked out where to go on its own and then guessed at code it
+# had not been shown, four times.
+#
+# A word that appears in fifty strings is not evidence of anything. A word that
+# appears in two or three — "Boden", "Fase", "Modellbrowser" — is nearly a
+# pointer to the code, and those are exactly the ones this keeps.
+#
+# 22 is the middle of a plateau, not a fitted value: sweeping the five issues
+# fixed to date, every cap from 18 to 26 gives recall@5 of 5/5, below 18 issue
+# #5 loses `ribbon.dart`, and above ~30 issue #9 starts sliding back down. The
+# middle is chosen so the constant is not sitting on an edge.
+BRIDGE_MAX_KEYS = 22
+
 
 def split_identifier(text):
     """camelCase, snake_case and paths -> lowercase word tokens.
@@ -189,7 +210,10 @@ class Index:
         for word in words:
             terms[word] += 1.0
         for word in words:
-            for key in self.bridge.get(word, ()):
+            keys = self.bridge.get(word, ())
+            if len(keys) >= BRIDGE_MAX_KEYS:
+                continue
+            for key in keys:
                 for token in split_identifier(key):
                     terms[token] += BRIDGE_WEIGHT
         return terms

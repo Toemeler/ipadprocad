@@ -102,7 +102,15 @@ only one end of it.'''
 
 
 def ask(prefix, body, history=None, timeout=300):
-    """-> (text, usage). `history` carries earlier rounds of one issue."""
+    """-> (text, usage, truncated). `history` carries earlier rounds of one issue.
+
+    `truncated` is True when the answer hit MAX_TOKENS. Issue #9 spent two of
+    its four rounds that way: with the culprit file missing from the pack the
+    model started writing whole files, ran into the cap mid-block, and the
+    truncated answer then failed to parse — a wasted round each time, billed at
+    the full output rate. The caller says so explicitly rather than letting it
+    look like a formatting mistake.
+    """
     if not API_KEY:
         raise SystemExit('DEEPSEEK_API_KEY is not set')
     messages = [
@@ -130,7 +138,9 @@ def ask(prefix, body, history=None, timeout=300):
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 data = json.loads(resp.read())
-            return data['choices'][0]['message']['content'], data.get('usage', {})
+            choice = data['choices'][0]
+            return (choice['message']['content'], data.get('usage', {}),
+                    choice.get('finish_reason') == 'length')
         except (urllib.error.URLError, TimeoutError, KeyError) as e:
             last = e
             time.sleep(2 ** attempt * 4)

@@ -74,21 +74,60 @@ def parse_tagged(text, tag):
     return m.group(1).strip() if m else ''
 
 
-def serve_expands(index, expands, query):
-    """Answer an `expand` request with more source, still for free."""
+def slices_for(index, paths, query, radius=30, max_lines=160):
     out = []
-    for e in expands[:3]:
-        chunks = index.slice_file(e.path, f'{query} {e.query}',
-                                 radius=30, max_lines=160)
+    for path in paths[:3]:
+        chunks = index.slice_file(path, query, radius=radius, max_lines=max_lines)
         if not chunks:
-            out.append(f'### {e.path}\n_(no such file, or nothing matched)_')
+            out.append(f'### {path}\n_(no such file, or nothing matched)_')
             continue
         rendered = '\n\n'.join(
             '\n'.join(f'{start + i:5}  {line}' for i, line in enumerate(body))
             for start, body in chunks)
-        out.append(f'### {e.path}\n```dart\n{rendered}\n```')
+        out.append(f'### {path}\n```dart\n{rendered}\n```')
+    return '\n\n'.join(out)
+
+
+def failed_paths(errors):
+    """The files an apply failure names, in order, without duplicates.
+
+    Every message `edits.apply` produces starts `'<path>: …'`.
+    """
+    seen = []
+    for e in errors:
+        path = e.split(':', 1)[0].strip()
+        if '/' in path and path not in seen:
+            seen.append(path)
+    return seen
+
+
+def serve_expands(index, expands, query):
+    """Answer an `expand` request with more source, still for free."""
+    served = '\n\n'.join(
+        slices_for(index, [e.path], f'{query} {e.query}') for e in expands[:3])
     return ('You asked to see more. Here it is — now answer with the fix.\n\n'
-            + '\n\n'.join(out))
+            + served)
+
+
+def repair_prompt(index, reason, log, query, paths):
+    """The escalation message, with the source the model was missing.
+
+    Issue #9 is why this carries code rather than only the error. The retriever
+    had put `home_view.dart` 20th, so it was not in the pack — but the model
+    worked out unaided that the fix belonged there and wrote a SEARCH block for
+    a function it had never seen. That cannot match byte for byte, so it failed;
+    and because the repair prompt said only "SEARCH text not found", it guessed
+    again, four times, for $0.097 and no fix.
+
+    A failed edit names its file. Serving that file's slices costs about
+    $0.004 and turns a guess into a read.
+    """
+    body = (f'That did not work: {reason}\n\n```\n{log}\n```\n\n')
+    if paths:
+        body += ('Here is the file you tried to edit, as it actually reads. '
+                 'Copy the SEARCH text from this, byte for byte.\n\n'
+                 + slices_for(index, paths, query) + '\n\n')
+    return body + 'Now answer again in the required format.'
 
 
 class RebaseConflict(Exception):
@@ -158,23 +197,33 @@ def main():
     last_reason, last_log = '', ''
 
     for round_no in range(1, args.max_rounds + 1):
-        reply, usage = model.ask(prefix, issue_body, history)
+        reply, usage, truncated = model.ask(prefix, issue_body, history)
         spent += model.cost(usage)
-        print(f'round {round_no}: {usage.get("completion_tokens", 0)} out, '
-              f'${spent:.4f} so far')
+        print(f'round {round_no}: {usage.get("completion_tokens", 0)} out'
+              f'{" TRUNCATED" if truncated else ""}, ${spent:.4f} so far')
 
         parsed, expands, errors = edits_mod.parse(reply)
         history += [{'role': 'user', 'content': issue_body},
                     {'role': 'assistant', 'content': reply}]
+
+        if truncated and not parsed:
+            issue_body = (
+                'Your answer was cut off at the output limit, so nothing could '
+                'be applied. Send a SMALLER edit: SEARCH/REPLACE blocks around '
+                'just the lines that change, never a whole rewritten file. If '
+                'the change genuinely needs to be large, do the smallest part '
+                'that stands alone and say what remains.')
+            continue
 
         if expands and not parsed:
             issue_body = serve_expands(index, expands, f'{title} {body}')
             continue
 
         if errors or not parsed:
-            issue_body = ('Your answer could not be applied:\n\n'
-                          + '\n'.join(errors or ['no <file> blocks found'])
-                          + '\n\nAnswer again in the required format.')
+            issue_body = repair_prompt(
+                index, 'your answer could not be applied',
+                '\n'.join(errors or ['no <file> blocks found']),
+                f'{title} {body}', failed_paths(errors))
             continue
 
         tests = [e for e in parsed if edits_mod.is_test(e.path)]
@@ -188,9 +237,10 @@ def main():
             git_reset()
             continue
 
+        applied = {}
         ok, reason, log = verify.gate(
-            lambda: edits_mod.apply(tests, ROOT),
-            lambda: edits_mod.apply(code, ROOT),
+            lambda: applied.setdefault('t', edits_mod.apply(tests, ROOT)),
+            lambda: applied.setdefault('c', edits_mod.apply(code, ROOT)),
             git_reset,
             test_paths)
 
@@ -223,8 +273,10 @@ def main():
 
         last_reason, last_log = reason, log
         git_reset()
-        issue_body = (f'That did not work: {reason}\n\n```\n{log}\n```\n\n'
-                      'Fix it and answer again in the required format.')
+        missing = failed_paths(
+            [e for v in applied.values() for e in (v or [])]
+            + ([log] if 'did not apply' in reason else []))
+        issue_body = repair_prompt(index, reason, log, f'{title} {body}', missing)
 
     git_reset()
     print(f'blocked after {args.max_rounds} rounds — ${spent:.4f}')

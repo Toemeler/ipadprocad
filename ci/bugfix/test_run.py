@@ -21,6 +21,7 @@ WHAT IS ASSERTED
   * `expand` is answered with source rather than treated as an answer;
   * running out of rounds blocks the issue and pushes NOTHING;
   * a rebase conflict blocks rather than becoming a force-push;
+  * a failed edit sends the file's real source back, not just the error;
   * the happy path ships exactly once.
 
 Run:  python3 -m unittest discover -s ci/bugfix -p 'test_*.py'
@@ -56,9 +57,13 @@ class Harness:
 
     def ask(self, prefix, body, history=None, timeout=300):
         self.asked.append(body)
-        return self.replies.pop(0), {'prompt_tokens': 9000,
-                                     'prompt_cache_hit_tokens': 6000,
-                                     'completion_tokens': 900}
+        reply = self.replies.pop(0)
+        truncated = isinstance(reply, tuple)
+        if truncated:
+            reply = reply[0]
+        return reply, {'prompt_tokens': 9000,
+                       'prompt_cache_hit_tokens': 6000,
+                       'completion_tokens': 900}, truncated
 
 
 class RunTest(unittest.TestCase):
@@ -128,6 +133,15 @@ class RunTest(unittest.TestCase):
         # And the served slice must be real source from the repo.
         self.assertIn('frontend/lib/theme.dart', h.asked[1])
 
+    def test_truncated_answer_asks_for_a_smaller_edit(self):
+        # A cut-off answer is not a formatting mistake, and saying so is what
+        # stops the model repeating the whole-file rewrite that caused it.
+        code, h = self.drive([('<file path="frontend/lib/a.dart">\n<<<<<<< SEA',),
+                              answer()])
+        self.assertEqual(code, 0)
+        self.assertIn('cut off at the output limit', h.asked[1])
+        self.assertIn('SMALLER', h.asked[1])
+
     def test_unparseable_answer_is_sent_back(self):
         code, h = self.drive(['I think the problem is the colour.', answer()])
         self.assertEqual(code, 0)
@@ -174,6 +188,79 @@ class RunTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual(len(h.blocked), 1)
         self.assertIn('nothing was pushed', h.blocked[0])
+
+
+
+class RepairPromptTest(unittest.TestCase):
+    """Issue #9's lesson: a failed SEARCH must come back WITH the file.
+
+    The retriever had ranked `home_view.dart` 20th, so it never entered the
+    pack. The model worked out unaided that the fix belonged there and wrote a
+    SEARCH block for code it had not been shown; that cannot match byte for
+    byte. Because the repair prompt carried only "SEARCH text not found", it
+    guessed again, four times, for $0.097 and no fix.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        import rank
+        cls.index = rank.Index()
+
+    def test_failed_paths_extracts_files_from_apply_errors(self):
+        errs = [
+            'frontend/lib/widgets/home_view.dart: SEARCH text not found. It '
+            'must match the file byte for byte.',
+            'frontend/lib/theme.dart: SEARCH text appears 2 times',
+            'frontend/lib/widgets/home_view.dart: no such file',
+            'no <file> blocks found',
+        ]
+        self.assertEqual(
+            run.failed_paths(errs),
+            ['frontend/lib/widgets/home_view.dart', 'frontend/lib/theme.dart'])
+
+    def test_repair_prompt_carries_the_source(self):
+        text = run.repair_prompt(
+            self.index, 'the code edits did not apply',
+            'frontend/lib/widgets/home_view.dart: SEARCH text not found.',
+            'longpress a card and select export',
+            ['frontend/lib/widgets/home_view.dart'])
+        self.assertIn('did not apply', text)
+        self.assertIn('as it actually reads', text)
+        self.assertIn('home_view.dart', text)
+        self.assertIn('```dart', text)
+        # And it must be real source, with real line numbers, not a placeholder.
+        self.assertNotIn('no such file', text)
+
+    def test_repair_prompt_without_a_named_file_stays_short(self):
+        text = run.repair_prompt(self.index, 'the full suite fails',
+                                 'some test output', 'q', [])
+        self.assertNotIn('as it actually reads', text)
+        self.assertIn('Now answer again', text)
+
+    def test_apply_failure_round_serves_the_file(self):
+        """End to end: round 2's prompt must contain home_view.dart's code."""
+        h = Harness([answer(), answer()])
+        with mock.patch.object(run.model, 'ask', h.ask), \
+             mock.patch.object(run.gh, 'ensure_labels'), \
+             mock.patch.object(run.gh, 'claim', return_value=True), \
+             mock.patch.object(run.gh, 'issue',
+                               return_value={'title': 'longpress a card and '
+                                                      'select export', 'body': ''}), \
+             mock.patch.object(run.gh, 'block',
+                               side_effect=lambda n, b: h.blocked.append(b)), \
+             mock.patch.object(run.edits_mod, 'apply', return_value=[]), \
+             mock.patch.object(
+                 run.verify, 'gate',
+                 return_value=(False, 'the code edits did not apply',
+                               'frontend/lib/widgets/home_view.dart: SEARCH '
+                               'text not found.')), \
+             mock.patch.object(run, 'git_reset'), \
+             mock.patch('sys.argv', ['run.py', '--issue', '1',
+                                     '--max-rounds', '2']):
+            run.main()
+        self.assertEqual(len(h.asked), 2)
+        self.assertIn('home_view.dart', h.asked[1])
+        self.assertIn('```dart', h.asked[1])
 
 
 class ExpandServingTest(unittest.TestCase):
