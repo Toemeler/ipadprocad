@@ -629,6 +629,109 @@ class PinsOwnSourceTest(unittest.TestCase):
         self.assertIn('pins a spelling', reason)
 
 
+class CoverageGateTest(unittest.TestCase):
+    """The general form: the test must RUN the code that changed.
+
+    Three gates were added for three specific evasions and each was cleared
+    honestly by the next answer. They share one shape — the test never executes
+    the change — and that is measurable directly rather than inferred.
+    """
+
+    DIFF = ('--- a/frontend/lib/app_state.dart\n'
+            '+++ b/frontend/lib/app_state.dart\n'
+            '@@ -100,0 +101,3 @@\n'
+            '+  final a = 1;\n'
+            '+  final b = 2;\n'
+            '+  return a + b;\n')
+
+    def _with_diff(self, fn):
+        import verify
+        original = verify.subprocess.run
+        verify.subprocess.run = lambda *a, **k: type(
+            'R', (), {'stdout': self.DIFF, 'returncode': 0})()
+        try:
+            return fn()
+        finally:
+            verify.subprocess.run = original
+
+    def test_added_lines_are_located(self):
+        import verify
+        added = self._with_diff(lambda: verify.added_lib_lines())
+        self.assertEqual(added, {'lib/app_state.dart': {101, 102, 103}})
+
+    def test_lcov_paths_are_normalised(self):
+        import verify
+        data = verify._parse_lcov(
+            'SF:frontend/lib/theme.dart\nDA:5,2\nDA:6,0\nend_of_record\n')
+        self.assertEqual(data, {'lib/theme.dart': {5: 2, 6: 0}})
+
+    def test_gate_rejects_a_test_that_runs_none_of_the_change(self):
+        import verify
+        originals = (verify.test, verify.coverage_of_change,
+                     verify.pins_own_source, verify.dead_new_symbols)
+        calls = []
+
+        def staged(paths=None, timeout=None):
+            calls.append(1)
+            return (len(calls) > 1, 'Expected: x\n  Actual: y')
+
+        verify.test = staged
+        verify.coverage_of_change = lambda paths, root=None: (0, 30)
+        verify.pins_own_source = lambda paths, root=None: []
+        verify.dead_new_symbols = lambda root=None: []
+        try:
+            ok, reason, _ = verify.gate(lambda: [], lambda: [], lambda: None,
+                                        ['frontend/test/t_test.dart'])
+        finally:
+            (verify.test, verify.coverage_of_change,
+             verify.pins_own_source, verify.dead_new_symbols) = originals
+        self.assertFalse(ok)
+        self.assertIn('0 of the 30', reason)
+        self.assertIn('not exercising the fix', reason)
+
+    def test_gate_accepts_a_test_that_runs_the_change(self):
+        import verify
+        originals = (verify.test, verify.coverage_of_change,
+                     verify.pins_own_source, verify.dead_new_symbols)
+        calls = []
+
+        def staged(paths=None, timeout=None):
+            calls.append(1)
+            return (len(calls) > 1, 'Expected: x\n  Actual: y')
+
+        verify.test = staged
+        verify.coverage_of_change = lambda paths, root=None: (18, 30)
+        verify.pins_own_source = lambda paths, root=None: []
+        verify.dead_new_symbols = lambda root=None: []
+        try:
+            ok, reason, _ = verify.gate(lambda: [], lambda: [], lambda: None,
+                                        ['frontend/test/t_test.dart'])
+        finally:
+            (verify.test, verify.coverage_of_change,
+             verify.pins_own_source, verify.dead_new_symbols) = originals
+        self.assertTrue(ok, reason)
+
+    def test_no_coverage_data_does_not_block(self):
+        # A Swift-only change, or a run where lcov did not appear, must not be
+        # treated as evidence that the test is bad.
+        import verify
+        originals = (verify.test, verify.coverage_of_change,
+                     verify.pins_own_source, verify.dead_new_symbols)
+        calls = []
+        verify.test = lambda paths=None, timeout=None: (
+            bool(calls) or calls.append(1), 'Expected: x\n  Actual: y')
+        verify.coverage_of_change = lambda paths, root=None: (0, 0)
+        verify.pins_own_source = lambda paths, root=None: []
+        verify.dead_new_symbols = lambda root=None: []
+        try:
+            ok, _, _ = verify.gate(lambda: [], lambda: [], lambda: None,
+                                   ['frontend/test/t_test.dart'])
+        finally:
+            (verify.test, verify.coverage_of_change,
+             verify.pins_own_source, verify.dead_new_symbols) = originals
+        self.assertTrue(ok)
+
+
 class HouseRulesTest(unittest.TestCase):
     """The conventions that the shipped #9 fix violated."""
 

@@ -268,6 +268,103 @@ def pins_own_source(test_paths, root=ROOT):
     return offenders
 
 
+# How much of the changed code the new test has to actually run.
+#
+# Not 100 %: a fix legitimately adds error branches, platform-guarded paths and
+# `else` arms that a host test cannot reach. 20 % is a floor that says "this
+# test executes the change" without dictating how thoroughly.
+COVERAGE_FLOOR = 0.20
+
+# Rejections that `allow_weak` stands down after one attempt, because they can
+# be genuinely impossible to satisfy: some features cannot be asserted without
+# naming new symbols, and some changed lines are platform-guarded and
+# unreachable from a host test.
+#
+# The other two quality gates — a test that greps its own diff, a helper with
+# no callers — are ALWAYS avoidable and are never stood down.
+SOFT_REJECTIONS = ('regression pin', 'not exercising the fix')
+
+LCOV_SF_RE = re.compile(r'^SF:(.+)$')
+LCOV_DA_RE = re.compile(r'^DA:(\d+),(\d+)')
+
+
+def added_lib_lines(root=ROOT):
+    """{frontend-relative path: {line numbers this change added}}"""
+    diff = subprocess.run(['git', 'diff', '--unified=0', '--', 'frontend/lib'],
+                          cwd=root, capture_output=True, text=True).stdout
+    out, current, line_no = {}, None, 0
+    for line in diff.splitlines():
+        if line.startswith('+++ b/'):
+            current = line[6:]
+            if current.startswith('frontend/'):
+                current = current[len('frontend/'):]
+            out.setdefault(current, set())
+        elif line.startswith('@@'):
+            m = re.search(r'\+(\d+)', line)
+            line_no = int(m.group(1)) if m else 0
+        elif line.startswith('+') and not line.startswith('+++'):
+            if current is not None:
+                out[current].add(line_no)
+            line_no += 1
+    return {k: v for k, v in out.items() if v}
+
+
+def _parse_lcov(text):
+    out, current = {}, None
+    for line in text.splitlines():
+        m = LCOV_SF_RE.match(line)
+        if m:
+            current = m.group(1)
+            if current.startswith('frontend/'):
+                current = current[len('frontend/'):]
+            out.setdefault(current, {})
+            continue
+        m = LCOV_DA_RE.match(line)
+        if m and current is not None:
+            out[current][int(m.group(1))] = int(m.group(2))
+    return out
+
+
+def coverage_of_change(test_paths, root=ROOT):
+    """Does the new test actually EXECUTE the changed code? -> (hit, total)
+
+    THE GENERAL FORM OF A PROBLEM THAT KEPT COMING BACK IN NEW COSTUMES.
+
+    Three gates were added for three specific evasions — a test that only fails
+    to compile, a helper nothing calls, a test that greps its own diff — and
+    each was cleared honestly by the next answer. They share one shape: the
+    test does not RUN the code that changed. That is measurable directly.
+
+    `flutter test --coverage` reports which lines executed; the diff says which
+    lines are new. A test that never touches the change cannot be pinning it,
+    whatever else it asserts, and lines are counted rather than intentions.
+
+    Only lines lcov considers executable are counted, so comments, blank lines
+    and closing braces do not drag the ratio down.
+    """
+    added = added_lib_lines(root)
+    if not added:
+        return 0, 0
+    code, _ = _run(['flutter', 'test', '--no-pub', '--coverage']
+                   + [_frontend_relative(p) for p in test_paths],
+                   SINGLE_TEST_TIMEOUT)
+    lcov = pathlib.Path(root) / 'frontend' / 'coverage' / 'lcov.info'
+    if not lcov.is_file():
+        return 0, 0          # no data is not evidence of absence; do not block
+    data = _parse_lcov(lcov.read_text(encoding='utf-8', errors='ignore'))
+    hit = total = 0
+    for path, lines in added.items():
+        counts = data.get(path)
+        if not counts:
+            continue
+        for line in lines:
+            if line in counts:      # lcov lists only executable lines
+                total += 1
+                if counts[line] > 0:
+                    hit += 1
+    return hit, total
+
+
 def gate(apply_tests, apply_code, revert, test_paths, allow_weak=False):
     """The test-first gate. -> (ok, reason, log)
 
@@ -328,6 +425,16 @@ def gate(apply_tests, apply_code, revert, test_paths, allow_weak=False):
                 'and deleting the call site would not. Exercise the code '
                 'instead — call the function and assert what it returns or '
                 'writes, or pump the widget and assert what appears.',
+                '')
+
+    hit, total = coverage_of_change(test_paths)
+    if total and hit / total < COVERAGE_FLOOR and not allow_weak:
+        return (False,
+                f'your test runs only {hit} of the {total} executable lines '
+                f'this change adds ({hit / total:.0%}). Whatever it asserts, '
+                'it is not exercising the fix. Call the changed code path and '
+                'assert what it does — for a widget, pump it and drive the '
+                'interaction the report describes.',
                 '')
 
     dead = dead_new_symbols()

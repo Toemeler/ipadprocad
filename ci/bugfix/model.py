@@ -120,6 +120,10 @@ RULES ON THE TEST — these are checked mechanically, so read them:
   rejected.
 - Do not add a helper whose only caller is the test. If a value is worth
   asserting, the app must be using it.
+- The pipeline measures, with `flutter test --coverage`, how much of the code
+  your change adds is actually EXECUTED by your test, and rejects an answer
+  that runs almost none of it. Drive the real path: call the function you
+  changed, or pump the widget and perform the interaction the report is about.
 - The test MUST FAIL against the unpatched code and PASS with your fix. The
   pipeline applies your test WITHOUT your fix first and rejects the whole
   answer if it passes. A test that would pass either way is not a regression

@@ -390,7 +390,7 @@ def main():
             git_reset,
             test_paths,
             allow_weak=weak_pin_rejections > 0)
-        if not ok and 'regression pin' in reason:
+        if not ok and any(m in reason for m in verify.SOFT_REJECTIONS):
             weak_pin_rejections += 1
 
         if ok:
