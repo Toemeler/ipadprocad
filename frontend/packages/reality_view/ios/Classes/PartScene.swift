@@ -442,6 +442,20 @@ struct SolidGeom {
     /// Giving the reversed copy negated normals makes whichever side faces the
     /// camera light correctly, so shading no longer depends on the kernel's
     /// per-face orientation at all.
+    ///
+    /// M293 — NOTE FOR THE NEXT SHADOW ROUND. This doubling puts two copies of
+    /// every triangle at IDENTICAL positions. Back-face culling keeps them
+    /// apart in the colour pass, but a shadow pass that rasterises both would
+    /// have the scene self-shadow against its own duplicate — coincident depth,
+    /// which no bias fixes — and that is the second candidate for the striping
+    /// M293 attributes to the depth bias. Not changed there, deliberately: two
+    /// speculative fixes at once make it impossible to say which one worked. If
+    /// stripes survive the bias fix, separate the copies by a scene-relative
+    /// epsilon along the normal before touching anything else.
+    ///
+    /// The root cause under BOTH is that the kernel emits faces whose normals
+    /// are not reliably outward (normal_outward measured 0.63 above). Fixing
+    /// that in the shim retires the doubling entirely.
     func shadedEntity(material: RealityKit.Material) -> Entity {
         let n = UInt32(positions.count)
         var pos = positions

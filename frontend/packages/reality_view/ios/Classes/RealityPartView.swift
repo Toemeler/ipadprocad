@@ -760,11 +760,41 @@ final class PartRenderer: NSObject {
         // `shadowProjection`; a deprecated property may be a no-op there,
         // which would explain a shadow lost on every model.
         //
-        // The bias is the other failure mode: the old max(1.0, reach * 0.02)
-        // floors at 1 mm — more than a thin part's gap above the floor — so
-        // the floor reads as fully lit and the contact shadow vanishes. Scale
-        // it with the shadow volume and cap it under 1 mm instead.
-        let depthBias = min(1.0, maximumDistance * 0.001)
+        // ---------------------------------------------------------------
+        // M293 — depthBias IS NOT A LENGTH, and treating it as one is what
+        // put stripes across every rendered surface.
+        // ---------------------------------------------------------------
+        //
+        // Two milestones have now scaled it by a distance in millimetres.
+        // M277 read the old `max(1.0, reach * 0.02)` as "floors at 1 mm —
+        // more than a thin part's gap above the floor" and replaced it with
+        // `min(1.0, maximumDistance * 0.001)`, i.e. cap it UNDER a
+        // millimetre. Both readings are of a parameter that has no unit:
+        // RealityKit's default is 1.0 for every scene at every scale, which
+        // is by itself the proof that it cannot be metres or millimetres.
+        //
+        // What that arithmetic actually produced, on the part in the report:
+        //
+        //     sceneRadius ~25, halfH ~15  ->  pad 35, dist 140
+        //     reach ~40                   ->  maximumDistance ~220
+        //     depthBias = min(1.0, 0.22)  =   0.22      (default: 1.0)
+        //
+        // A fifth of the default bias is shadow acne — the regular parallel
+        // banding that follows the shadow map's own projection rather than
+        // the surface, which is exactly what the screenshot shows on a
+        // fillet and on the flat top alike. And it gets WORSE as you zoom
+        // in: halfH shrinks, so dist shrinks, so maximumDistance shrinks,
+        // so the bias shrinks again.
+        //
+        // M277's complaint was real and this keeps its fix. Note what the
+        // old expression did: `max(1.0, reach * 0.02)` is 1.0 for a small
+        // part and GROWS — 4.0 at reach 200, 10.0 at reach 500 — and a bias
+        // several times the default is what pushed the contact shadow out
+        // from under the model. The bug was the growth, not the floor. So
+        // the answer is the constant both expressions were reaching for from
+        // opposite sides: RealityKit's own default, which needs no scaling
+        // because it is not measured in the scene's units.
+        let depthBias: Float = 1.0
         if #available(iOS 18.0, *) {
             sunLight.shadow = DirectionalLightComponent.Shadow(
                 shadowProjection: .automatic(maximumDistance: maximumDistance),
