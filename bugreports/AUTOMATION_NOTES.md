@@ -25,3 +25,5 @@ Running log for the bug-report automation. Read first; append, don't rewrite.
 - #8 — rendered floor was a hardcoded charcoal, so the model browser's icons (which flip dark-on-light per scheme) vanished against it in Chalk mode. `fixed:` added a per-scheme `Palette.floor` pushed Dart → `setFloorColor` method channel → `RealityPartView.setFloorColor`, re-tinting live renderers' ground plane via `applyGround()`/`groundMaterial()`; new contrast test in `m236_theme_test.dart`. Commit `f5f309e`.
 
 - #9 — The gallery export action (`_sendFile`) fixed the format by document kind and called `partExportStep`/`sketchExportPath` immediately, so the destination picker opened with no format choice. The format picker belongs before the location picker for 3D part cards, and STL export itself is missing from `AppState`. Commit `0431693`.
+
+- #10 — The export format chooser used a Flutter Material `SimpleDialog` instead of the app's native glass menu surface. The STL writer emitted zero facet normals because it didn't compute them from the triangle geometry; the fix calculates and normalizes each triangle's cross-product normal before writing the binary STL. Commit `7bf188d`.
