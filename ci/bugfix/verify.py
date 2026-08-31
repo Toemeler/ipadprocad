@@ -152,6 +152,73 @@ def failed_to_compile(output):
     return bool(COMPILE_FAIL_RE.search(output or ''))
 
 
+# A top-level Dart declaration in an added line.
+ADDED_DECL_RE = re.compile(
+    r'^\+\s*(?:(?:static|final|const|abstract|late|external)\s+)*'
+    r'(?:class|mixin|extension|enum|typedef)\s+(\w+)'
+    r'|^\+\s*(?:(?:static|external)\s+)*'
+    r'(?:Future<[^>]*>|void|bool|int|double|String|num|dynamic|'
+    r'List<[^>]*>|Map<[^>]*>|Set<[^>]*>|[A-Z]\w*<[^>]*>|[A-Z]\w*\??)'
+    r'\s+(\w+)\s*\(')
+
+
+# Called by Flutter, Dart or the test runner rather than by app code, so an
+# absence of callers proves nothing about them.
+FRAMEWORK_CALLED = frozenset((
+    'build', 'createState', 'initState', 'dispose', 'didUpdateWidget',
+    'didChangeDependencies', 'setState', 'toString', 'hashCode', 'noSuchMethod',
+    'main', 'setUp', 'tearDown', 'setUpAll', 'tearDownAll', 'debugFillProperties',
+    'reassemble', 'deactivate', 'activate', 'didChangeAppLifecycleState'))
+
+
+def dead_new_symbols(root=ROOT):
+    """New declarations in lib/ that nothing in lib/ ever calls. -> [names]
+
+    THE FAILURE THIS CATCHES, which shipped as 0431693:
+
+        List<String> exportFormatsFor(String kind) => switch (kind) { … };
+
+    added to home_view.dart, referenced by its own test, and called from
+    production code exactly nowhere — the dialog it was supposedly describing
+    hardcodes 'STL' and 'STEP' inline. The test then "pinned" that function, so
+    the gate was satisfied by an artifact invented to satisfy the gate, while
+    the behaviour the report actually asked about stayed untested.
+
+    Requiring a behavioural assertion (see gate) does not catch this on its
+    own: an assertion about a dead function is still an assertion. What makes
+    it detectable is that the symbol has no callers.
+    """
+    diff = subprocess.run(['git', 'diff', '--unified=0', '--', 'frontend/lib'],
+                          cwd=root, capture_output=True, text=True).stdout
+    names = set()
+    lines = diff.splitlines()
+    for i, line in enumerate(lines):
+        m = ADDED_DECL_RE.match(line)
+        if not m:
+            continue
+        name = m.group(1) or m.group(2)
+        # A framework override has no explicit caller anywhere and would be a
+        # false positive that blocks a legitimate fix. Both spellings of the
+        # evidence are honoured: an `@override` on the preceding added line,
+        # and the lifecycle names Flutter calls for you.
+        prev = lines[i - 1] if i else ''
+        if '@override' in prev or name in FRAMEWORK_CALLED:
+            continue
+        names.add(name)
+    if not names:
+        return []
+    dead = []
+    for name in sorted(names):
+        hits = subprocess.run(
+            ['git', 'grep', '-w', '--no-color', '-c', name, '--', 'frontend/lib'],
+            cwd=root, capture_output=True, text=True).stdout
+        total = sum(int(l.rsplit(':', 1)[1]) for l in hits.splitlines() if ':' in l)
+        # One occurrence is the declaration itself; a real symbol has callers.
+        if total <= 1:
+            dead.append(name)
+    return dead
+
+
 def gate(apply_tests, apply_code, revert, test_paths, allow_weak=False):
     """The test-first gate. -> (ok, reason, log)
 
@@ -201,6 +268,15 @@ def gate(apply_tests, apply_code, revert, test_paths, allow_weak=False):
         return (False,
                 'with your fix applied, your own new test still fails',
                 clip(out))
+
+    dead = dead_new_symbols()
+    if dead:
+        return (False,
+                'you added ' + ', '.join(f'`{d}`' for d in dead) + ' and '
+                'nothing in the app calls it. A helper that exists only for '
+                'its own test pins nothing — wire it into the code path the '
+                'report is about, or drop it and test that path directly.',
+                '')
     return True, '', ''
 
 

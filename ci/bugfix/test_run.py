@@ -411,17 +411,43 @@ class WeakPinTest(unittest.TestCase):
                 self.assertFalse(verify.failed_to_compile(out))
 
     def test_gate_rejects_a_compile_only_pin(self):
+        # `verify.test` is stubbed rather than left to the environment: this
+        # assertion used to depend on whether Flutter was installed, so it
+        # passed locally and failed on CI, where a missing test file produces
+        # "Does not exist" — which IS a compile failure.
         import verify
-        ok, reason, _ = verify.gate(
-            apply_tests=lambda: [],
-            apply_code=lambda: [],
-            revert=lambda: None,
-            test_paths=['frontend/test/x_test.dart'],
-            allow_weak=False)
-        # `flutter` is absent here, so test() returns 127 with "not installed"
-        # — not a compile failure, so this must NOT be the weak-pin rejection.
+        original = verify.test
+        verify.test = lambda paths=None, timeout=None: (
+            False, "Failed to load 'x_test.dart': Compilation failed")
+        try:
+            ok, reason, _ = verify.gate(lambda: [], lambda: [], lambda: None,
+                                        ['frontend/test/x_test.dart'],
+                                        allow_weak=False)
+        finally:
+            verify.test = original
         self.assertFalse(ok)
-        self.assertNotIn('regression pin', reason)
+        self.assertIn('regression pin', reason)
+
+    def test_gate_accepts_a_genuine_assertion_failure(self):
+        import verify
+        original_test, original_dead = verify.test, verify.dead_new_symbols
+        verify.test = lambda paths=None, timeout=None: (
+            len(seen) > 0, 'Expected: [1, 2]\n  Actual: [1, 3]')
+        verify.dead_new_symbols = lambda root=None: []
+        seen = []
+        try:
+            # First call (pre-fix) fails on an assertion; second (post-fix) passes.
+            def staged(paths=None, timeout=None):
+                if not seen:
+                    seen.append(1)
+                    return False, 'Expected: [1, 2]\n  Actual: [1, 3]'
+                return True, 'All tests passed'
+            verify.test = staged
+            ok, reason, _ = verify.gate(lambda: [], lambda: [], lambda: None,
+                                        ['frontend/test/x_test.dart'])
+        finally:
+            verify.test, verify.dead_new_symbols = original_test, original_dead
+        self.assertTrue(ok, reason)
 
     def test_gate_stands_down_when_weak_is_allowed(self):
         import verify
@@ -446,6 +472,69 @@ class WeakPinTest(unittest.TestCase):
             self.assertNotIn('regression pin', reason2)
         finally:
             verify.test = original
+
+
+class DeadSymbolTest(unittest.TestCase):
+    """A helper that only its own test calls is not a fix.
+
+    `exportFormatsFor` shipped in 0431693, was referenced by its own test, and
+    is called from production code nowhere — the dialog it purported to
+    describe hardcodes 'STL' and 'STEP' inline. Demanding a behavioural
+    assertion does not catch that on its own: an assertion about a dead
+    function is still an assertion. Having no callers is what makes it
+    detectable.
+    """
+
+    def test_declarations_are_extracted_from_a_diff(self):
+        import verify
+        for line, want in (
+                ('+List<String> exportFormatsFor(String kind) => switch (k) {',
+                 'exportFormatsFor'),
+                ('+  Future<String?> partExportStl(String name) async {',
+                 'partExportStl'),
+                ('+class NativeFormatSheet {', 'NativeFormatSheet')):
+            with self.subTest(line=line[:40]):
+                m = verify.ADDED_DECL_RE.match(line)
+                self.assertTrue(m, line)
+                self.assertEqual(m.group(1) or m.group(2), want)
+
+    def test_ordinary_added_lines_are_not_declarations(self):
+        import verify
+        for line in ('+    if (format == null) return;',
+                     '+      path = await widget.app.partExportStl(name);',
+                     '+// M289 — which formats a card may offer.'):
+            with self.subTest(line=line[:40]):
+                self.assertIsNone(verify.ADDED_DECL_RE.match(line))
+
+    def test_framework_overrides_are_not_dead(self):
+        # A false positive here would block legitimate fixes: nothing in app
+        # code calls build() or dispose(), the framework does.
+        import verify
+        self.assertIn('build', verify.FRAMEWORK_CALLED)
+        self.assertIn('dispose', verify.FRAMEWORK_CALLED)
+        self.assertIn('createState', verify.FRAMEWORK_CALLED)
+
+    def test_gate_rejects_a_dead_helper(self):
+        import verify
+        original_test, original_dead = verify.test, verify.dead_new_symbols
+        calls = []
+
+        def staged(paths=None, timeout=None):
+            calls.append(1)
+            if len(calls) == 1:
+                return False, 'Expected: [1, 2]\n  Actual: [1, 3]'
+            return True, 'All tests passed'
+
+        verify.test = staged
+        verify.dead_new_symbols = lambda root=None: ['exportFormatsFor']
+        try:
+            ok, reason, _ = verify.gate(lambda: [], lambda: [], lambda: None,
+                                        ['frontend/test/x_test.dart'])
+        finally:
+            verify.test, verify.dead_new_symbols = original_test, original_dead
+        self.assertFalse(ok)
+        self.assertIn('exportFormatsFor', reason)
+        self.assertIn('nothing in the app calls it', reason)
 
 
 class HouseRulesTest(unittest.TestCase):
