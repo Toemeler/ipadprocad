@@ -219,6 +219,55 @@ def dead_new_symbols(root=ROOT):
     return dead
 
 
+SOURCE_READ_RE = re.compile(r'readAsString|loadString|File\s*\(')
+STRING_LITERAL_RE = re.compile(r"'([^'\n]{12,})'|\"([^\"\n]{12,})\"")
+
+
+def pins_own_source(test_paths, root=ROOT):
+    """Test literals that only restate lines this very diff added. -> [snippets]
+
+    THE THIRD COSTUME OF THE SAME PATHOLOGY. Issue #10's test was:
+
+        final source = File('lib/app_state.dart').readAsStringSync();
+        expect(source, contains('nx = ay * bz - az * by;'));
+
+    It asserts that a particular spelling of a particular line exists. Rename
+    `nx` to `n0` and it fails while the behaviour is identical; delete the call
+    to the writer entirely and it still passes. It cleared the compile-only
+    gate honestly (it fails by assertion before the fix) and the dead-symbol
+    gate honestly, and it still tests nothing.
+
+    The repo does have LEGITIMATE source-asserting tests — m236_theme_test
+    fails the build when `Color(0x…)` appears outside theme.dart. That is a
+    standing invariant, and its pattern is not drawn from any one diff. The
+    distinction drawn here is exactly that: a literal is only flagged when the
+    change being verified ADDED it.
+    """
+    added = set()
+    diff = subprocess.run(['git', 'diff', '--unified=0', '--', 'frontend/lib'],
+                          cwd=root, capture_output=True, text=True).stdout
+    for line in diff.splitlines():
+        if line.startswith('+') and not line.startswith('+++'):
+            added.add(line[1:].strip())
+    if not added:
+        return []
+    joined = '\n'.join(added)
+
+    offenders = []
+    for rel in test_paths:
+        path = pathlib.Path(root) / rel
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding='utf-8', errors='ignore')
+        if not SOURCE_READ_RE.search(text):
+            continue
+        for m in STRING_LITERAL_RE.finditer(text):
+            lit = (m.group(1) or m.group(2)).strip()
+            if lit and lit in joined:
+                offenders.append(lit[:60])
+    return offenders
+
+
 def gate(apply_tests, apply_code, revert, test_paths, allow_weak=False):
     """The test-first gate. -> (ok, reason, log)
 
@@ -268,6 +317,18 @@ def gate(apply_tests, apply_code, revert, test_paths, allow_weak=False):
         return (False,
                 'with your fix applied, your own new test still fails',
                 clip(out))
+
+    pinned = pins_own_source(test_paths)
+    if pinned:
+        return (False,
+                'your test reads the source file and asserts that text you '
+                'just added appears in it — for example ' +
+                ', '.join(f'`{x}`' for x in pinned[:2]) + '. That pins a '
+                'spelling, not a behaviour: renaming a local would fail it, '
+                'and deleting the call site would not. Exercise the code '
+                'instead — call the function and assert what it returns or '
+                'writes, or pump the widget and assert what appears.',
+                '')
 
     dead = dead_new_symbols()
     if dead:

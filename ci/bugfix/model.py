@@ -113,6 +113,13 @@ the complete test file
 </file>
 
 RULES ON THE TEST — these are checked mechanically, so read them:
+- Test BEHAVIOUR by running the code. Call the function and assert what it
+  returns or writes; pump the widget and assert what appears. Do NOT read a
+  source file and assert that some text is in it — that pins a spelling, fails
+  when a local is renamed, and passes when the call site is deleted. It is
+  rejected.
+- Do not add a helper whose only caller is the test. If a value is worth
+  asserting, the app must be using it.
 - The test MUST FAIL against the unpatched code and PASS with your fix. The
   pipeline applies your test WITHOUT your fix first and rejects the whole
   answer if it passes. A test that would pass either way is not a regression

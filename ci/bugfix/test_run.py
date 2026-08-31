@@ -28,6 +28,8 @@ WHAT IS ASSERTED
 
 Run:  python3 -m unittest discover -s ci/bugfix -p 'test_*.py'
 """
+import pathlib
+import tempfile
 import unittest
 from unittest import mock
 
@@ -535,6 +537,96 @@ class DeadSymbolTest(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn('exportFormatsFor', reason)
         self.assertIn('nothing in the app calls it', reason)
+
+
+class PinsOwnSourceTest(unittest.TestCase):
+    """A test that greps the file it just edited is not a test.
+
+    Issue #10 shipped this, and it cleared both existing gates honestly:
+
+        final source = File('lib/app_state.dart').readAsStringSync();
+        expect(source, contains('nx = ay * bz - az * by;'));
+
+    Rename `nx` and it fails though nothing changed; delete the call to the
+    writer and it still passes.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = pathlib.Path(self.tmp.name)
+        (self.root / 'frontend' / 'test').mkdir(parents=True)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _write_test(self, body):
+        p = self.root / 'frontend' / 'test' / 't_test.dart'
+        p.write_text(body, encoding='utf-8')
+        return ['frontend/test/t_test.dart']
+
+    def test_flags_a_literal_the_diff_added(self):
+        import verify
+        paths = self._write_test(
+            "import 'dart:io';\n"
+            "void main() { final s = File('lib/app_state.dart')"
+            ".readAsStringSync();\n"
+            "  expect(s, contains('nx = ay * bz - az * by;')); }")
+        original = verify.subprocess.run
+        verify.subprocess.run = lambda *a, **k: type(
+            'R', (), {'stdout': '+        var nx = ay * bz - az * by;\n',
+                      'returncode': 0})()
+        try:
+            found = verify.pins_own_source(paths, root=self.root)
+        finally:
+            verify.subprocess.run = original
+        self.assertTrue(found)
+
+    def test_ignores_a_standing_invariant_not_from_the_diff(self):
+        # m236_theme_test greps source for `Color(0x…)` outside theme.dart.
+        # That is a legitimate lint-style test and must keep working.
+        import verify
+        paths = self._write_test(
+            "import 'dart:io';\n"
+            "void main() { final s = File('lib/part_render.dart')"
+            ".readAsStringSync();\n"
+            "  expect(s, isNot(contains('Color(0xFF00FF00)'))); }")
+        original = verify.subprocess.run
+        verify.subprocess.run = lambda *a, **k: type(
+            'R', (), {'stdout': '+        var nx = ay * bz - az * by;\n',
+                      'returncode': 0})()
+        try:
+            found = verify.pins_own_source(paths, root=self.root)
+        finally:
+            verify.subprocess.run = original
+        self.assertEqual(found, [])
+
+    def test_ignores_a_test_that_does_not_read_source(self):
+        import verify
+        paths = self._write_test(
+            "void main() { expect(writeStl(mesh).length, 134); }")
+        self.assertEqual(verify.pins_own_source(paths, root=self.root), [])
+
+    def test_gate_rejects_it(self):
+        import verify
+        original_test = verify.test
+        original_pins = verify.pins_own_source
+        calls = []
+
+        def staged(paths=None, timeout=None):
+            calls.append(1)
+            if len(calls) == 1:
+                return False, 'Expected: not contains SimpleDialog'
+            return True, 'All tests passed'
+
+        verify.test = staged
+        verify.pins_own_source = lambda paths, root=None: ['nx = ay * bz']
+        try:
+            ok, reason, _ = verify.gate(lambda: [], lambda: [], lambda: None,
+                                        ['frontend/test/t_test.dart'])
+        finally:
+            verify.test, verify.pins_own_source = original_test, original_pins
+        self.assertFalse(ok)
+        self.assertIn('pins a spelling', reason)
 
 
 class HouseRulesTest(unittest.TestCase):
