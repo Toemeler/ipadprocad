@@ -53,6 +53,14 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 # guess; the protocol's blocked path exists for exactly this.
 MAX_ROUNDS = 4
 
+# How many rounds may be spent looking rather than fixing.
+#
+# Issue #9's third run spent ALL FOUR asking to see `occt_engine.dart`, hunting
+# for an STL exporter that does not exist in this repo. Serving the same file
+# again cannot answer that question, and the run ended having written nothing.
+# After this budget the model is told it has everything it is going to get.
+MAX_EXPAND_ROUNDS = 2
+
 FOOTER = '\n\n---\n_Fixed automatically. Pipeline: `ci/bugfix/`._'
 
 
@@ -101,12 +109,28 @@ def failed_paths(errors):
     return seen
 
 
-def serve_expands(index, expands, query):
-    """Answer an `expand` request with more source, still for free."""
-    served = '\n\n'.join(
-        slices_for(index, [e.path], f'{query} {e.query}') for e in expands[:3])
-    return ('You asked to see more. Here it is — now answer with the fix.\n\n'
-            + served)
+def serve_expands(index, expands, query, already):
+    """Answer an `expand` request with more source, still for free.
+
+    `already` is the set of paths served in earlier rounds. Re-serving one
+    cannot tell the model anything it does not have, and on issue #9 that loop
+    consumed every round — so a repeat is answered with the fact itself: what
+    you were looking for is not in there.
+    """
+    fresh = [e for e in expands[:3] if e.path not in already]
+    repeats = [e.path for e in expands[:3] if e.path in already]
+    parts = []
+    if fresh:
+        parts.append('\n\n'.join(
+            slices_for(index, [e.path], f'{query} {e.query}') for e in fresh))
+        already.update(e.path for e in fresh)
+    if repeats:
+        parts.append(
+            'You have already been shown ' + ', '.join(repeats) + '. What you '
+            'were looking for is not in there — treat that as the answer: it '
+            'does not exist yet, so build it.')
+    return ('You asked to see more.\n\n' + '\n\n'.join(parts)
+            + '\n\nNow answer with the fix.')
 
 
 def repair_prompt(index, reason, log, query, paths):
@@ -194,6 +218,7 @@ def main():
     print(f'pack: ~{(len(prefix) + len(issue_body)) // 4} tokens, files={ranked}')
 
     history, spent = [], 0.0
+    expanded, expand_rounds = set(ranked), 0
     # Why the last round ended. Seeded rather than left empty: issue #9's
     # re-run blocked with a BLANK "Last failure" because every early `continue`
     # below skipped the assignment, and the comment is the whole handoff to a
@@ -227,10 +252,22 @@ def main():
             continue
 
         if expands and not parsed:
+            expand_rounds += 1
             note(round_no,
                  'asked to see more source: '
                  + ', '.join(e.path for e in expands[:3]))
-            issue_body = serve_expands(index, expands, f'{title} {body}')
+            if expand_rounds > MAX_EXPAND_ROUNDS:
+                issue_body = (
+                    'No. You have had your two rounds of looking, and asking '
+                    'again spends the budget without writing anything. If what '
+                    'you were shown does not contain the capability you need, '
+                    'that IS the finding: it does not exist yet, and building '
+                    'it is the job. Answer now with the fix, or say precisely '
+                    'which unavailable thing (C++ kernel rebuild, Xcode, a '
+                    'physical device) blocks it and what you would have done.')
+                continue
+            issue_body = serve_expands(index, expands, f'{title} {body}',
+                                       expanded)
             continue
 
         if errors or not parsed:

@@ -284,8 +284,10 @@ def house_rules():
 - German is the app's SOURCE language. `frontend/lib/l10n/app_de.arb` is the
   l10n TEMPLATE and `app_en.arb` the translation. A key added to one MUST be
   added to the other or `l10n_completeness_test.dart` fails the build.
-- Minimal, surgical diffs. No unrelated refactors, no speculative abstractions,
-  no new dependencies.
+- Minimal, surgical diffs: do not change what the report did not ask about. This
+  is NOT "write as little code as possible" — a report asking for behaviour the
+  app lacks needs that behaviour built, new functions and new files included.
+- No unrelated refactors, no speculative abstractions, no new dependencies.
 - Comments only where they explain a non-obvious WHY. Never restate the code.
 - Match the style of the code you are editing, including its milestone-tagged
   comment convention (`// M284 — …`) when you add a comment near one.

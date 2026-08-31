@@ -134,6 +134,31 @@ class RunTest(unittest.TestCase):
         # And the served slice must be real source from the repo.
         self.assertIn('frontend/lib/theme.dart', h.asked[1])
 
+    def test_expanding_forever_is_refused(self):
+        # Issue #9's third run spent all four rounds asking to see
+        # occt_engine.dart, hunting an STL exporter that is not in this repo.
+        e = '<expand path="frontend/lib/ffi/occt_engine.dart">stl</expand>'
+        code, h = self.drive([e, e, e, e], max_rounds=4)
+        self.assertEqual(h.shipped, [])
+        self.assertIn('does not exist yet', h.asked[2])
+        self.assertIn('building', h.asked[3].lower())
+
+    def test_a_repeated_expand_is_told_it_is_a_repeat(self):
+        e = '<expand path="frontend/lib/theme.dart">floor</expand>'
+        code, h = self.drive([e, e, answer()], max_rounds=3)
+        self.assertIn('already been shown', h.asked[2])
+        self.assertIn('build it', h.asked[2])
+
+    def test_a_packed_file_is_never_re_served(self):
+        # The pack's own five files are already in front of the model.
+        import rank
+        index = rank.Index()
+        already = {'frontend/lib/theme.dart'}
+        text = run.serve_expands(
+            index, [edits_mod.Expand('frontend/lib/theme.dart', 'floor')],
+            'q', already)
+        self.assertIn('already been shown', text)
+
     def test_truncated_answer_asks_for_a_smaller_edit(self):
         # A cut-off answer is not a formatting mistake, and saying so is what
         # stops the model repeating the whole-file rewrite that caused it.
@@ -337,7 +362,7 @@ class ExpandServingTest(unittest.TestCase):
         index = rank.Index()
         text = run.serve_expands(
             index, [edits_mod.Expand('frontend/lib/theme.dart', 'floor')],
-            'floor colour')
+            'floor colour', set())
         self.assertIn('frontend/lib/theme.dart', text)
         self.assertIn('```', text)
 
@@ -345,7 +370,7 @@ class ExpandServingTest(unittest.TestCase):
         import rank
         index = rank.Index()
         text = run.serve_expands(
-            index, [edits_mod.Expand('frontend/lib/nope.dart', 'x')], 'q')
+            index, [edits_mod.Expand('frontend/lib/nope.dart', 'x')], 'q', set())
         self.assertIn('no such file', text)
 
 
