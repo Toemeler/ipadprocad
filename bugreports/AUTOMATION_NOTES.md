@@ -27,3 +27,47 @@ Running log for the bug-report automation. Read first; append, don't rewrite.
 - #9 — The gallery export action (`_sendFile`) fixed the format by document kind and called `partExportStep`/`sketchExportPath` immediately, so the destination picker opened with no format choice. The format picker belongs before the location picker for 3D part cards, and STL export itself is missing from `AppState`. Commit `0431693`.
 
 - #10 — The export format chooser used a Flutter Material `SimpleDialog` instead of the app's native glass menu surface. The STL writer emitted zero facet normals because it didn't compute them from the triangle geometry; the fix calculates and normalizes each triangle's cross-product normal before writing the binary STL. Commit `7bf188d`.
+
+## 2026-08-31
+
+- #11 — the accent (the "blueish green" for icons, selection and highlight) was
+  the palette's, with no way to change it. `fixed:` an `Accent` enum in
+  `theme.dart` — eight entries, each carrying a LIGHT and a DARK value because
+  a teal that reads on cream is not the teal that reads on charcoal — behind
+  `T.accent`, which all ~450 call sites already read; its own `ValueNotifier`
+  and one more builder at the app root, because `T.scheme` holds the same
+  `Palette` instance before and after and so never fires; `materialTheme` takes
+  the accent as an argument so the cursor and selection follow it; the choice
+  merges into the same `settings.json` as the appearance and the language. A
+  CLOSED LIST rather than a picker: `m236_theme_test` holds the accent to
+  4.5:1 against panel and viewport in both palettes, and that test now iterates
+  every entry (worst case 5.04:1). Commit `97cf4cc`.
+
+  Written BY HAND, not by the pipeline, after eight attempts and ~$2.15. The
+  native glass tab bar still uses its built-in teal: `GlassTabBar.swift` holds
+  the two accents as `static let` UIColors captured across the view tree, and
+  making them settable is Swift that cannot be compiled here.
+
+### What the eight attempts on #11 taught the pipeline
+
+Every one of these was the pipeline withholding or misstating something, not
+the model reasoning badly, and each fix is general:
+
+- the relay appends `Bundle:` and `Raw zip:` URLs to every report, so `bug`,
+  `zip`, `github` and `raw` were half the query on a short one and ranked the
+  bug REPORTER above the file the fix belonged in. Stripped from the ranking
+  query.
+- a house rule that names a file ("every colour lives in theme.dart") is
+  evidence BM25 cannot see, because the widgets that use a colour mention it
+  far more than the one file allowed to define it. `pack.PINNED` promotes it.
+- a pinned file is grepped, not query-sliced: the slicer spent theme.dart's
+  whole budget on one run of `final Color x;` declarations and never reached
+  the two `accent: Color(0x…)` palette rows.
+- `DECL_RE` did not match getters, so all of `T` counted as mentions.
+- the model's own earlier patch stays in its context while `git_reset` throws
+  it away, so it wrote SEARCH text against a file state that never existed.
+  The repair prompt now says the tree was reset.
+- "SEARCH appears 2 times" named neither. In this app that is the EXPECTED
+  shape of a correct fix — every native surface has a Flutter fallback — so it
+  now names both sites and says so.
+
