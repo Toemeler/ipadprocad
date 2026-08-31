@@ -22,6 +22,7 @@ WHAT IS ASSERTED
   * running out of rounds blocks the issue and pushes NOTHING;
   * a rebase conflict blocks rather than becoming a force-push;
   * a failed edit sends the file's real source back, not just the error;
+  * EVERY losing path records why, so the blocked comment is never blank;
   * the happy path ships exactly once.
 
 Run:  python3 -m unittest discover -s ci/bugfix -p 'test_*.py'
@@ -261,6 +262,72 @@ class RepairPromptTest(unittest.TestCase):
         self.assertEqual(len(h.asked), 2)
         self.assertIn('home_view.dart', h.asked[1])
         self.assertIn('```dart', h.asked[1])
+
+
+
+class BlockedCommentTest(unittest.TestCase):
+    """The blocked comment is the handoff to a human, so it must never be blank.
+
+    Issue #9's re-run blocked with an empty "Last failure" because every early
+    `continue` in the loop skipped the assignment that recorded the reason. The
+    run cost $0.0822 and told nobody anything. Each losing path is pinned here.
+    """
+
+    def drive_to_block(self, replies, **kw):
+        h = Harness(replies)
+        with mock.patch.object(run.model, 'ask', h.ask), \
+             mock.patch.object(run.gh, 'ensure_labels'), \
+             mock.patch.object(run.gh, 'claim', return_value=True), \
+             mock.patch.object(run.gh, 'issue',
+                               return_value={'title': 'the floor is dark',
+                                             'body': ''}), \
+             mock.patch.object(run.gh, 'block',
+                               side_effect=lambda n, b: h.blocked.append(b)), \
+             mock.patch.object(run.edits_mod, 'apply', return_value=[]), \
+             mock.patch.object(run.verify, 'gate',
+                               return_value=kw.get('gate', (True, '', ''))), \
+             mock.patch.object(run.verify, 'full_verification',
+                               return_value=kw.get('full', (True, '', ''))), \
+             mock.patch.object(run, 'git_reset'), \
+             mock.patch.object(run, 'ship',
+                               side_effect=lambda *a, **k: 'abc1234'), \
+             mock.patch('sys.argv', ['run.py', '--issue', '1', '--max-rounds',
+                                     str(len(replies))]):
+            run.main()
+        self.assertEqual(len(h.blocked), 1, 'expected exactly one block comment')
+        return h.blocked[0]
+
+    def _assert_says_something(self, comment):
+        self.assertIn('**Last failure:**', comment)
+        after = comment.split('**Last failure:**', 1)[1].split('```')[0]
+        self.assertTrue(after.strip(),
+                        f'blocked comment has an empty reason:\n{comment}')
+
+    def test_expand_loop_records_a_reason(self):
+        expand = '<expand path="frontend/lib/theme.dart">floor</expand>'
+        self._assert_says_something(self.drive_to_block([expand, expand]))
+
+    def test_truncation_loop_records_a_reason(self):
+        cut = ('<file path="frontend/lib/a.dart">\n<<<<<<< SEA',)
+        c = self.drive_to_block([cut, cut])
+        self._assert_says_something(c)
+        self.assertIn('cut off', c)
+
+    def test_unparseable_loop_records_a_reason(self):
+        c = self.drive_to_block(['just prose', 'more prose'])
+        self._assert_says_something(c)
+        self.assertIn('could not be applied', c)
+
+    def test_missing_test_loop_records_a_reason(self):
+        c = self.drive_to_block([answer(test=False), answer(test=False)])
+        self._assert_says_something(c)
+        self.assertIn('no test', c)
+
+    def test_gate_failure_records_its_reason(self):
+        c = self.drive_to_block([answer(), answer()],
+                                gate=(False, 'the full suite fails', 'boom'))
+        self._assert_says_something(c)
+        self.assertIn('full suite', c)
 
 
 class ExpandServingTest(unittest.TestCase):

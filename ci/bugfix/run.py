@@ -194,7 +194,17 @@ def main():
     print(f'pack: ~{(len(prefix) + len(issue_body)) // 4} tokens, files={ranked}')
 
     history, spent = [], 0.0
-    last_reason, last_log = '', ''
+    # Why the last round ended. Seeded rather than left empty: issue #9's
+    # re-run blocked with a BLANK "Last failure" because every early `continue`
+    # below skipped the assignment, and the comment is the whole handoff to a
+    # human. `note()` is now the only way a round ends.
+    last_reason = 'no round completed'
+    last_log = ''
+
+    def note(round_no, reason, log=''):
+        nonlocal last_reason, last_log
+        last_reason, last_log = reason, log
+        print(f'  round {round_no}: {reason}')
 
     for round_no in range(1, args.max_rounds + 1):
         reply, usage, truncated = model.ask(prefix, issue_body, history)
@@ -207,6 +217,7 @@ def main():
                     {'role': 'assistant', 'content': reply}]
 
         if truncated and not parsed:
+            note(round_no, 'the answer was cut off at the output limit')
             issue_body = (
                 'Your answer was cut off at the output limit, so nothing could '
                 'be applied. Send a SMALLER edit: SEARCH/REPLACE blocks around '
@@ -216,10 +227,15 @@ def main():
             continue
 
         if expands and not parsed:
+            note(round_no,
+                 'asked to see more source: '
+                 + ', '.join(e.path for e in expands[:3]))
             issue_body = serve_expands(index, expands, f'{title} {body}')
             continue
 
         if errors or not parsed:
+            note(round_no, 'the answer could not be applied',
+                 '\n'.join(errors or ['no <file> blocks found']))
             issue_body = repair_prompt(
                 index, 'your answer could not be applied',
                 '\n'.join(errors or ['no <file> blocks found']),
@@ -231,6 +247,7 @@ def main():
         test_paths = [p for p in edits_mod.touched(tests)]
 
         if not tests:
+            note(round_no, 'code was changed but no test was added')
             issue_body = ('You changed code but added no test under '
                           '`frontend/test/`. A fix with no test is not '
                           'finished. Answer again, with the test.')
@@ -271,7 +288,7 @@ def main():
                                  f'{", ".join(paths)}.{FOOTER}')
             return 0
 
-        last_reason, last_log = reason, log
+        note(round_no, reason, log)
         git_reset()
         missing = failed_paths(
             [e for v in applied.values() for e in (v or [])]
