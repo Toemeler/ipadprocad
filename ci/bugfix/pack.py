@@ -318,6 +318,13 @@ def house_rules():
   `NativeMenu`/`NativeMenuItem` from the `native_menu` package, the glass
   toolbars and tab bars — and follow the nearest existing call site.
 - Tests import through `package:prototype/…`, never a relative `../lib/…` path.
+- NATIVE SURFACES HAVE A FLUTTER FALLBACK, AND THE TEST RUNS THE FALLBACK. The
+  settings sheet, the model browser and the menus all branch on
+  `NativeMenu.isSupported` / `GlassBrowser.isSupported`: native on iOS, a
+  Flutter widget everywhere else. A host test is "everywhere else", so a widget
+  test only ever sees the fallback branch. If you add something to one branch,
+  add it to BOTH — otherwise the feature works on device and your own test
+  cannot find it.
 - Match the style of the code you are editing, including its milestone-tagged
   comment convention (`// M284 — …`) when you add a comment near one.
 - Swift under `frontend/packages/*/ios/` CANNOT be compiled on Linux. Changing

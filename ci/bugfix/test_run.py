@@ -822,6 +822,16 @@ class HouseRulesTest(unittest.TestCase):
         self.assertIn('kChalk', rules)
         self.assertIn('scheme.value', rules)
 
+    def test_native_fallback_rule_is_stated(self):
+        # Issue #11 added the accent option to the native settings sheet only.
+        # `settings_sheet.dart:83` branches on NativeMenu.isSupported, so the
+        # host test ran the Flutter fallback and found 0 widgets.
+        import pack
+        rules = pack.house_rules()
+        self.assertIn('isSupported', rules)
+        self.assertIn('fallback', rules.lower())
+        self.assertIn('BOTH', rules)
+
     def test_import_rule_is_stated(self):
         import pack
         rules = pack.house_rules()
