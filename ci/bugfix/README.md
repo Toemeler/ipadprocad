@@ -101,11 +101,11 @@ Nothing else. `GITHUB_TOKEN` is provided by Actions.
 
 The OpenHands automation stays on as the fallback for when this workflow is off
 or an issue lands on `openhands-blocked`. Its importable config is
-`bugreports/openhands-automation.json`. One further setting is worth changing by
-hand — the condenser's `max_size`, 80 → 200, which is ~26 % of a fallback run
-and the only one of the three original candidates that the Cloud UI actually
-exposes. `bugreports/openhands-settings.md` has that, and why the other two no
-longer matter.
+`bugreports/openhands-automation.json`, and there is nothing else to set: the
+generated `main.py` that starts an automation builds its own agent, so the
+condenser and the injected skills do not come from user settings at all.
+`bugreports/openhands-settings.md` shows the evidence and what carries the load
+instead — the prompt, `.openhands/`, and the protocol.
 
 ## Running it
 
