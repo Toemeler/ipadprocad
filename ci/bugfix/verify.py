@@ -110,7 +110,15 @@ def analyze():
     # `flutter analyze` exits non-zero for warnings too depending on version;
     # the repo's own bar is "0 errors", so that is what is checked.
     errors = [ln for ln in out.splitlines() if re.match(r'\s*error\s+•', ln)]
-    return (not errors), clip(out if errors else 'analyze: 0 errors\n' + out)
+    if not errors:
+        return True, 'analyze: 0 errors'
+    # ONLY the errors go back. This repo carries ~61 pre-existing infos and
+    # warnings, and clipping the raw output kept the head and tail of that
+    # noise while eliding the actual errors in the middle — so the repair
+    # prompt showed the model a wall of deprecations and not its own mistake.
+    others = len(out.splitlines()) - len(errors)
+    return False, clip('\n'.join(errors)
+                       + f'\n\n({others} pre-existing infos/warnings omitted)')
 
 
 def _frontend_relative(path):
@@ -205,6 +213,15 @@ def dead_new_symbols(root=ROOT):
         if '@override' in prev or name in FRAMEWORK_CALLED:
             continue
         names.add(name)
+    # A symbol the change ORPHANS is as dead as one it invents, and issue #10
+    # shipped exactly that: it rewrote the STL writer inline and left
+    # `_writeBinaryStl` declared and unreferenced on main, where `flutter
+    # analyze` has warned about it on every run since. Anything the diff
+    # REMOVED a reference to is therefore checked as well.
+    for line in lines:
+        if line.startswith('-') and not line.startswith('---'):
+            for word in re.findall(r'[A-Za-z_]\w{3,}', line[1:]):
+                names.add(word)
     if not names:
         return []
     dead = []
@@ -213,8 +230,10 @@ def dead_new_symbols(root=ROOT):
             ['git', 'grep', '-w', '--no-color', '-c', name, '--', 'frontend/lib'],
             cwd=root, capture_output=True, text=True).stdout
         total = sum(int(l.rsplit(':', 1)[1]) for l in hits.splitlines() if ':' in l)
-        # One occurrence is the declaration itself; a real symbol has callers.
-        if total <= 1:
+        # Exactly one occurrence means a declaration with no callers. ZERO
+        # means the word is not a symbol in lib/ at all — most words on a
+        # removed line are not — so it is not evidence of anything.
+        if total == 1:
             dead.append(name)
     return dead
 
