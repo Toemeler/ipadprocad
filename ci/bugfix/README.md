@@ -132,6 +132,25 @@ behaviour the code already had would pass review and pin nothing. Two extra
 the one place where the new pipeline is *stricter* than what it replaced, not
 merely cheaper.
 
+## The post-push check
+
+`run.py` verifies on a Linux runner. That is most of the truth and it is what
+keeps a bad fix off `main`, but it is not all of it: Swift cannot be compiled
+there, the simulator test and the IPA build run on macOS, and even the fast
+Dart job runs without the native OCCT library. A fix can go green, land, and
+turn `Core + C-API Build (iOS)` red minutes later with the issue already closed.
+
+`.github/workflows/bugfix-verify.yml` fires on that build completing and runs
+`postpush.py`, which reopens the issue, labels it `openhands-blocked`, and
+names the failing job and step. It first checks whether the same workflow was
+already red on `main` before the commit and says so either way — reporting a
+pre-existing failure as "your fix broke the build" sends a human to read an
+innocent diff.
+
+It deliberately does NOT re-run the fixer. Handing a red build back to the
+model that produced it would put a push-to-`main` loop in motion, which is the
+one thing this system is careful never to do.
+
 ## Honest limits
 
 - **Retrieval finds the neighbourhood, not always the whole fix.**

@@ -767,6 +767,40 @@ class SoughtSymbolTest(unittest.TestCase):
         self.assertIn('final Color accent;', text)
 
 
+class PostPushTest(unittest.TestCase):
+    """A push that breaks the iOS build is a failed fix.
+
+    run.py verifies on Linux and cannot compile Swift, run the simulator test,
+    or link the native OCCT library. A fix can therefore go green, land, and
+    turn `Core + C-API Build (iOS)` red minutes later with the issue already
+    closed and the run that closed it long since exited successfully.
+    """
+
+    def test_only_automated_fix_commits_are_claimed(self):
+        import postpush
+        self.assertTrue(postpush.SUBJECT_RE.search(
+            'Bugfix #9: prompt STL/STEP before choosing export location'))
+        self.assertEqual(
+            postpush.SUBJECT_RE.search('Bugfix #11: x').group(1), '11')
+
+    def test_a_human_commit_is_ignored(self):
+        import postpush
+        for subject in ('M270: the first row was the one row M264 did not cover',
+                        'Update AUTOMATION_NOTES.md: log bug-report issue #9',
+                        'CI(dart): analyze+test logs from run 33418131242'):
+            with self.subTest(subject=subject):
+                self.assertIsNone(postpush.SUBJECT_RE.search(subject))
+
+    def test_the_subject_is_matched_at_line_start(self):
+        # A commit BODY mentioning "Bugfix #3:" must not claim issue 3.
+        import postpush
+        body = ('Some change\n\nThis is similar to Bugfix #3: the old one.\n')
+        m = postpush.SUBJECT_RE.search(body)
+        # MULTILINE means a line STARTING with the marker; the body line here
+        # does not, so nothing is claimed.
+        self.assertIsNone(m)
+
+
 class HouseRulesTest(unittest.TestCase):
     """The conventions that the shipped #9 fix violated."""
 

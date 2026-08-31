@@ -1,0 +1,49 @@
+name: Bug report autofix — post-push check
+
+# Schliesst die Schleife, die ci/bugfix offen liess.
+#
+# WARUM DAS NOETIG IST
+# --------------------
+# Die Fix-Pipeline prueft auf einem Linux-Runner: `flutter analyze` und die
+# vollstaendige Dart-Suite. Das ist die halbe Wahrheit. Swift laesst sich dort
+# gar nicht kompilieren, der Simulator-Test und der IPA-Build laufen auf macOS,
+# und der schnelle Dart-Job laeuft ohne die native OCCT-Bibliothek — ein Fix
+# kann also gruen durch die Pipeline gehen und danach `Core + C-API Build (iOS)`
+# rot machen. Bis hierher hat das niemand bemerkt: gepusht war gepusht.
+#
+# Ein `workflow_run`-Trigger ist der richtige Weg dafuer. Die Fix-Pipeline
+# koennte nach dem Push nicht warten, ohne einen Runner minutenlang leer
+# laufen zu lassen, und der Build startet ohnehin erst danach.
+
+on:
+  workflow_run:
+    workflows: ["Core + C-API Build (iOS)"]
+    types: [completed]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    name: Did an automated fix break the build?
+    runs-on: ubuntu-latest
+    # Nur echte Fehlschlaege auf main. `cancelled` passiert hier staendig, weil
+    # der iOS-Build `cancel-in-progress` nutzt und Pushes sich ueberholen.
+    if: >-
+      github.event.workflow_run.conclusion == 'failure' &&
+      github.event.workflow_run.head_branch == 'main'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 30
+
+      - name: Auswerten und ggf. das Issue wieder oeffnen
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          FAILED_RUN_ID: ${{ github.event.workflow_run.id }}
+          FAILED_SHA: ${{ github.event.workflow_run.head_sha }}
+          FAILED_URL: ${{ github.event.workflow_run.html_url }}
+        run: python3 ci/bugfix/postpush.py
