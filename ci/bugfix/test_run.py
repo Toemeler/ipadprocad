@@ -759,13 +759,23 @@ class SoughtSymbolTest(unittest.TestCase):
         self.assertEqual(run.sought_symbols('`flutter test` failed'), [])
 
     def test_repair_prompt_greps_for_them(self):
+        """The DECLARATIONS the failed SEARCH named, as the file really reads.
+
+        Asserted on the declaration heads rather than on whole lines. The first
+        version of this pinned the getter's entire text, and the accent fix for
+        issue #11 wrapped that line — so a test about the retriever failed
+        because unrelated source moved, which is a test measuring the wrong
+        thing. What must hold is that the grep finds where `accent` is
+        declared: the field, the getter, and the row in each palette.
+        """
         import rank
         index = rank.Index()
         text = run.repair_prompt(index, 'the code edits did not apply',
                                  self.LOG, 'accent colour settings',
                                  ['frontend/lib/theme.dart'])
-        self.assertIn('static Color get accent => scheme.value.accent;', text)
+        self.assertIn('static Color get accent', text)
         self.assertIn('final Color accent;', text)
+        self.assertIn('accent: Color(0x', text)
 
 
 class PostPushTest(unittest.TestCase):

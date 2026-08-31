@@ -529,11 +529,27 @@ class PinnedFileTest(unittest.TestCase):
             self.assertNotIn(word, q)
         self.assertIn('accent color', q)
 
-    def test_the_plumbing_used_to_outrank_the_theme(self):
-        """Without the strip, bug_capture.dart beats theme.dart."""
+    def test_the_plumbing_scores_the_bug_reporter_and_the_strip_stops_it(self):
+        """`bug`, `reports`, `zip` and `raw` point at the bug REPORTER.
+
+        Asserted as a change in score, not as a position in the ranking. The
+        first version of this pinned `bug_capture.dart` into the top eight for
+        the unstripped query, which was true on the day and stopped being true
+        as soon as the accent fix gave `theme.dart` and `settings.dart` more of
+        the report's own vocabulary. A test of the retriever must not depend on
+        what the rest of the repository happens to say this week; what has to
+        hold is that removing the boilerplate removes the score it was lending.
+        """
         raw = f'Bug report: accent colour\n{self.REPORT}'
-        ranked = [p for p, _ in self.index.rank(raw, limit=8)]
-        self.assertIn('frontend/lib/bug_capture.dart', ranked)
+        import pack
+        stripped = pack.ranking_query('Bug report: accent colour', self.REPORT)
+        with_plumbing = dict(self.index.rank(raw, limit=40))
+        without = dict(self.index.rank(stripped, limit=40))
+        bug = 'frontend/lib/bug_capture.dart'
+        self.assertIn(bug, with_plumbing,
+                      'the two bundle URLs score the bug reporter')
+        self.assertGreater(with_plumbing[bug], without.get(bug, 0.0),
+                           'stripping them must take that score away')
 
     def test_theme_is_pinned_into_a_colour_report(self):
         import pack
