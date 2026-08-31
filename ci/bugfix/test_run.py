@@ -31,6 +31,7 @@ Run:  python3 -m unittest discover -s ci/bugfix -p 'test_*.py'
 import pathlib
 import tempfile
 import unittest
+import urllib.error
 from unittest import mock
 
 import edits as edits_mod
@@ -960,3 +961,59 @@ class PreexistingFailureTest(unittest.TestCase):
                 lambda: None, lambda: ['no <<<<<<< SEARCH match'])
         self.assertFalse(ok)
         self.assertIn('re-applied', reason)
+
+
+class ClaimTest(unittest.TestCase):
+    """`workflow_dispatch` is how a blocked issue gets re-run. It could not.
+
+    A blocked issue has no `bug-report` label — the run that blocked it took
+    the label on the way in — so the DELETE that makes claiming atomic always
+    404'd, and every manual re-run printed "already claimed by another run"
+    and exited 0 in two seconds, green. Issue #11 was re-run that way after
+    four separate fixes to the retriever and did nothing at all.
+    """
+
+    def calls(self, force, labels=(), report_label_exists=False):
+        import gh
+        seen = []
+
+        def fake(method, path, body=None, retries=3):
+            seen.append((method, path))
+            if method == 'DELETE' and path.endswith(f'/labels/{gh.REPORT}'):
+                if not report_label_exists:
+                    raise urllib.error.HTTPError(path, 404, 'no', None, None)
+                return {}
+            if method == 'DELETE' and path.endswith(f'/labels/{gh.BLOCKED}'):
+                raise urllib.error.HTTPError(path, 404, 'no', None, None)
+            return {}
+
+        with mock.patch.object(gh, '_request', side_effect=fake), \
+             mock.patch.object(gh, 'issue',
+                               return_value={'labels': [{'name': n}
+                                                        for n in labels]}):
+            took = gh.claim(1, force=force)
+        return took, seen
+
+    def test_the_normal_path_is_still_a_compare_and_swap(self):
+        took, _ = self.calls(force=False, report_label_exists=True)
+        self.assertTrue(took)
+        took, _ = self.calls(force=False, report_label_exists=False)
+        self.assertFalse(took, 'a second run must lose the race')
+
+    def test_a_manual_rerun_claims_a_blocked_issue(self):
+        import gh
+        took, seen = self.calls(force=True, labels=[gh.BLOCKED])
+        self.assertTrue(took)
+        self.assertIn(('POST', f'/repos/{gh.REPO}/issues/1/labels'), seen)
+        self.assertIn(('DELETE', f'/repos/{gh.REPO}/issues/1/labels/{gh.BLOCKED}'),
+                      seen, 'blocked and in progress at once is not a state')
+
+    def test_force_still_loses_to_a_run_that_is_live(self):
+        import gh
+        took, _ = self.calls(force=True, labels=[gh.WORKING])
+        self.assertFalse(took, 'openhands-working means somebody holds it')
+
+    def test_the_workflow_passes_force_only_on_a_manual_start(self):
+        wf = (pathlib.Path(run.__file__).resolve().parents[2]
+              / '.github' / 'workflows' / 'bugfix.yml').read_text()
+        self.assertIn("github.event_name == 'workflow_dispatch' && '--force'", wf)

@@ -92,7 +92,7 @@ workflow log rather than on next month's invoice.
 | `edits.py` | Search/replace block format, parsing and all-or-nothing application. Enforces forbidden paths. |
 | `verify.py` | `analyze`, `test`, and the test-first gate. |
 | `run.py` | The loop: ask → gate → verify → ship, or escalate, or block. |
-| `test_*.py` | 134 tests. Run by the workflow *before* the model is called. |
+| `test_*.py` | 138 tests. Run by the workflow *before* the model is called. |
 
 ## Setup
 
@@ -124,7 +124,11 @@ python3 -m unittest discover -s ci/bugfix -p 'test_*.py'
 ```
 
 `workflow_dispatch` takes an issue number, for re-running a blocked one after a
-fix to the pipeline.
+fix to the pipeline. It passes `--force`, because a blocked issue no longer
+carries the `bug-report` label that `gh.claim` swaps on — without it every
+manual re-run reported "already claimed by another run" and exited 0. The
+race is still closed: under `--force` the live-run signal is
+`openhands-working`.
 
 ## The test-first gate
 

@@ -93,18 +93,41 @@ def ensure_labels():
                 pass
 
 
-def claim(number):
+def claim(number, force=False):
     """-> True if this run took the issue, False if someone else already had it.
 
     DELETE on the label is the atomic part: GitHub 404s the second caller.
+
+    `force` IS FOR THE RE-RUN THAT THE README PROMISES AND THIS BROKE.
+    `workflow_dispatch` exists to re-run a BLOCKED issue after a fix to the
+    pipeline — but a blocked issue has no `bug-report` label, because the run
+    that blocked it took the label on the way in. So every manual re-run
+    404'd on the DELETE, reported "already claimed by another run", and
+    exited 0 in two seconds. Issue #11 was re-run that way and did nothing;
+    the workflow went green saying so.
+
+    Under `force` the missing label is not evidence of anything, so the live-
+    run signal is consulted instead: `openhands-working` is on the issue for
+    exactly as long as a run holds it. Two dispatches racing still cannot both
+    proceed, and neither can a dispatch racing the relay.
     """
     try:
         _request('DELETE', f'/repos/{REPO}/issues/{number}/labels/{REPORT}')
     except urllib.error.HTTPError as e:
-        if e.code == 404:
+        if e.code != 404:
+            raise
+        if not force:
             return False
-        raise
+        if WORKING in {l['name'] for l in issue(number).get('labels', [])}:
+            return False
     _request('POST', f'/repos/{REPO}/issues/{number}/labels', {'labels': [WORKING]})
+    # Whatever blocked it last time, a run now holds it. Leaving the label on
+    # would have the issue reading as blocked and in progress at once.
+    try:
+        _request('DELETE', f'/repos/{REPO}/issues/{number}/labels/{BLOCKED}')
+    except urllib.error.HTTPError as e:
+        if e.code != 404:
+            raise
     return True
 
 

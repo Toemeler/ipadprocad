@@ -301,6 +301,8 @@ def main():
     ap.add_argument('--issue', type=int, required=True)
     ap.add_argument('--dry-run', action='store_true')
     ap.add_argument('--max-rounds', type=int, default=MAX_ROUNDS)
+    # Re-running a blocked issue by hand: see gh.claim.
+    ap.add_argument('--force', action='store_true')
     args = ap.parse_args()
 
     number = args.issue
@@ -309,7 +311,7 @@ def main():
     title, body = data['title'], data.get('body') or ''
 
     if not args.dry_run:
-        if not gh.claim(number):
+        if not gh.claim(number, force=args.force):
             print(f'#{number} was already claimed by another run — nothing to do')
             return 0
 
