@@ -186,11 +186,27 @@ jobs:
           set -o pipefail
           SDK=$(xcrun --sdk iphoneos --show-sdk-path)
           echo 'int main(void){return 0;}' > probe.c
-          DEPS=$(find blender/lib/ios_arm64 -name '*.a' 2>/dev/null | tr '\n' ' ')
+          # Run 3 failed here, and usefully:
+          #
+          #   ld: building for 'iOS', but linking in object file
+          #       (lib/ios_arm64/python/lib/python3.11/site-packages/numpy/
+          #        core/lib/libnpymath.a) built for 'macOS'
+          #
+          # The blanket `find ... -name '*.a'` swept up Python's site-packages,
+          # which carry HOST numpy — the very macOS-vs-iOS mismatch the
+          # blender-iOS-ipa pipeline has to fix for its own build. Cycles needs
+          # none of Python; excluding that tree is both the fix and the truth.
+          DEPS=$(find blender/lib/ios_arm64 -name '*.a' -not -path '*/python/*' 2>/dev/null | tr '\n' ' ')
           echo "dependency archives found: $(echo $DEPS | wc -w)"
+          # force_load per Cycles archive rather than a global -all_load: the
+          # question is whether the CYCLES objects resolve, and dragging every
+          # object of every dependency in as well only invents work and more
+          # ways to fail.
+          FORCE=""
+          for a in out/*.a; do FORCE="$FORCE -Wl,-force_load,$a"; done
           set +e
-          xcrun --sdk iphoneos clang -target arm64-apple-ios14.0 -isysroot "$SDK" \
-            probe.c -Wl,-all_load out/*.a $DEPS \
+          xcrun --sdk iphoneos clang -target arm64-apple-ios15.0 -isysroot "$SDK" \
+            probe.c $FORCE $DEPS \
             -lc++ -lz -framework Metal -framework Foundation \
             -framework CoreGraphics -framework IOKit \
             -o probe.bin 2> link.log
@@ -243,7 +259,7 @@ jobs:
           for d in $DEFS; do DFLAGS="$DFLAGS -D$d"; done
           echo "defines: $(echo $DFLAGS | wc -w)"
           set +e
-          xcrun --sdk iphoneos clang++ -target arm64-apple-ios14.0 -isysroot "$SDK" -std=c++17 -O2 $INCS $DFLAGS -c backend/cycles/shim/cycles_shim.cpp -o cycles_shim.o 2> shim_compile.log
+          xcrun --sdk iphoneos clang++ -target arm64-apple-ios15.0 -isysroot "$SDK" -std=c++17 -O2 $INCS $DFLAGS -c backend/cycles/shim/cycles_shim.cpp -o cycles_shim.o 2> shim_compile.log
           RC=$?
           set -e
           echo "compile exit: $RC"
@@ -253,9 +269,9 @@ jobs:
             exit 0
           fi
           echo "COMPILED."
-          DEPS=$(find blender/lib/ios_arm64 -name '*.a' 2>/dev/null | tr '\n' ' ')
+          DEPS=$(find blender/lib/ios_arm64 -name '*.a' -not -path '*/python/*' 2>/dev/null | tr '\n' ' ')
           set +e
-          xcrun --sdk iphoneos clang++ -target arm64-apple-ios14.0 -isysroot "$SDK" -I backend/cycles/shim backend/cycles/shim/shim_probe.c cycles_shim.o out/*.a $DEPS -lc++ -lz -framework Metal -framework Foundation -framework CoreGraphics -framework IOKit -o shim_probe.bin 2> shim_link.log
+          xcrun --sdk iphoneos clang++ -target arm64-apple-ios15.0 -isysroot "$SDK" -I backend/cycles/shim backend/cycles/shim/shim_probe.c cycles_shim.o out/*.a $DEPS -lc++ -lz -framework Metal -framework Foundation -framework CoreGraphics -framework IOKit -o shim_probe.bin 2> shim_link.log
           RC=$?
           set -e
           echo "link exit: $RC"

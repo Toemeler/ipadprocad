@@ -1,0 +1,172 @@
+// M297 — the camera the Cycles render is given is the camera on screen.
+//
+// The renderer is C++ that first compiles in CI and first runs on a device.
+// The arithmetic in front of it is not, and it is where the first render is
+// most likely to go wrong: a camera matrix is twelve doubles and a convention,
+// and the classic error — taking Z as -dir instead of +dir — renders the model
+// from BEHIND, which on a symmetric part is a picture that looks almost right.
+//
+// So the test is not "these twelve numbers equal those twelve numbers". It is
+// the property that actually matters: a world point projected THROUGH the
+// matrix lands where Cam3.project puts it. If the two agree, the render frames
+// what the viewport frames, and no convention has been guessed.
+import 'dart:math' as math;
+
+import 'package:flutter/painting.dart' show Size;
+import 'package:flutter_test/flutter_test.dart';
+import 'package:prototype/cycles_view.dart';
+import 'package:prototype/part_model.dart';
+import 'package:prototype/part_render.dart';
+
+const _size = Size(400, 300);
+
+Cam3 _cam({double az = 0.7, double pol = 0.9, double halfH = 30,
+    double ox = 0, double oy = 0, double roll = 0}) =>
+    Cam3(PartCamera(az: az, pol: pol, halfH: halfH, ox: ox, oy: oy, roll: roll),
+        _size);
+
+/// The app's own projection, in the same normalised [-1, 1] the matrix path
+/// produces — Cam3.project goes on to map that into pixels.
+(double, double) _appProject(Cam3 c, Vec3 w) {
+  final px = c.project(w);
+  return (
+    (px.dx / _size.width) * 2 - 1,
+    -((px.dy / _size.height) * 2 - 1),
+  );
+}
+
+void main() {
+  group('the matrix agrees with the viewport', () {
+    test('on every camera, for points all over the model', () {
+      // The whole verification. Four cameras that differ in every degree of
+      // freedom the app has — direction, zoom, pan and roll — against points
+      // spread through a 40 mm box.
+      final cams = [
+        _cam(),
+        _cam(az: -2.1, pol: 0.3, halfH: 12),
+        _cam(az: 1.1, pol: 2.4, halfH: 55, ox: 7, oy: -4),
+        _cam(az: 0.2, pol: 1.4, halfH: 20, roll: 1.0),
+      ];
+      final points = [
+        const Vec3(0, 0, 0),
+        const Vec3(20, 0, 0),
+        const Vec3(0, 20, 0),
+        const Vec3(0, 0, 20),
+        const Vec3(-13, 7, 19),
+        const Vec3(11, -18, -6),
+      ];
+      for (final c in cams) {
+        final m = cyclesCameraMatrix(c, 40);
+        final (halfW, halfH) = cyclesViewplane(c);
+        for (final p in points) {
+          final (ax, ay) = _appProject(c, p);
+          final (cx, cy) = cyclesProject(m, halfW, halfH, p);
+          expect(cx, closeTo(ax, 1e-9), reason: 'x for $p');
+          expect(cy, closeTo(ay, 1e-9), reason: 'y for $p');
+        }
+      }
+    });
+  });
+
+  group('the matrix is a camera', () {
+    test('its basis is orthonormal and right-handed', () {
+      // Cycles applies it as a rigid transform; a basis that is not
+      // orthonormal skews the image, and one that is left-handed mirrors it.
+      final m = cyclesCameraMatrix(_cam(), 40);
+      final x = Vec3(m[0], m[4], m[8]);
+      final y = Vec3(m[1], m[5], m[9]);
+      final z = Vec3(m[2], m[6], m[10]);
+      for (final v in [x, y, z]) {
+        expect(math.sqrt(v.dot(v)), closeTo(1, 1e-9));
+      }
+      expect(x.dot(y).abs(), lessThan(1e-9));
+      expect(y.dot(z).abs(), lessThan(1e-9));
+      expect(z.dot(x).abs(), lessThan(1e-9));
+      final cross = x.cross(y);
+      expect(cross.x, closeTo(z.x, 1e-9));
+      expect(cross.y, closeTo(z.y, 1e-9));
+      expect(cross.z, closeTo(z.z, 1e-9));
+    });
+
+    test('Z is +dir, so the camera looks AT the model', () {
+      // The error this test exists for. Cycles looks down its own -Z, so the
+      // matrix's Z column must be the direction the eye is displaced IN, not
+      // the direction it looks. Taking -dir renders the far side.
+      final c = _cam();
+      final m = cyclesCameraMatrix(c, 40);
+      final z = Vec3(m[2], m[6], m[10]);
+      final d = c.dir;
+      final n = math.sqrt(d.dot(d));
+      expect(z.dot(Vec3(d.x / n, d.y / n, d.z / n)), closeTo(1, 1e-9),
+          reason: 'Z must be +dir; -dir would render the model from behind');
+    });
+
+    test('the eye is outside the model, whichever way it is turned', () {
+      // An orthographic camera's position does not change the framing, but
+      // Cycles clips what is behind it. Nothing of a model of the given reach
+      // may end up behind the eye.
+      const reach = 40.0;
+      for (final c in [
+        _cam(),
+        _cam(az: -2.1, pol: 0.3),
+        _cam(az: 1.1, pol: 2.4),
+        _cam(az: 3.0, pol: 1.6),
+      ]) {
+        final m = cyclesCameraMatrix(c, reach);
+        final eye = Vec3(m[3], m[7], m[11]);
+        expect(math.sqrt(eye.dot(eye)), greaterThan(reach),
+            reason: 'the eye sits inside a model of reach $reach');
+      }
+    });
+
+    test('the pan moves the eye, not the viewplane', () {
+      // The app pans by moving ox/oy, which slides what is at the centre of
+      // the view. Cycles has no pan: it has to come out in the camera's
+      // position, or the render would ignore it and frame the origin.
+      final a = cyclesCameraMatrix(_cam(ox: 0, oy: 0), 40);
+      final b = cyclesCameraMatrix(_cam(ox: 9, oy: -5), 40);
+      expect(Vec3(b[3] - a[3], b[7] - a[7], b[11] - a[11]).dot(
+          Vec3(b[3] - a[3], b[7] - a[7], b[11] - a[11])),
+          greaterThan(1e-6));
+      // ...and the viewplane is untouched by it.
+      final (aw, ah) = cyclesViewplane(_cam(ox: 0, oy: 0));
+      final (bw, bh) = cyclesViewplane(_cam(ox: 9, oy: -5));
+      expect(aw, bw);
+      expect(ah, bh);
+    });
+  });
+
+  group('the viewplane is the zoom', () {
+    test('half-height is halfH and half-width follows the aspect', () {
+      final c = _cam(halfH: 27);
+      final (w, h) = cyclesViewplane(c);
+      expect(h, 27);
+      expect(w, closeTo(27 * (400 / 300), 1e-12));
+    });
+
+    test('zooming in shrinks it', () {
+      final (w1, h1) = cyclesViewplane(_cam(halfH: 40));
+      final (w2, h2) = cyclesViewplane(_cam(halfH: 10));
+      expect(h2, lessThan(h1));
+      expect(w2, lessThan(w1));
+    });
+  });
+
+  group('the reach', () {
+    test('is the furthest point from the origin', () {
+      expect(cyclesReach([const Vec3(3, 4, 0), const Vec3(1, 1, 1)]),
+          closeTo(5, 1e-12));
+      expect(cyclesReach(const []), 0);
+    });
+
+    test('a degenerate reach still puts the eye somewhere sane', () {
+      // An empty document, or one whose geometry is all at the origin.
+      final m = cyclesCameraMatrix(_cam(), 0);
+      final eye = Vec3(m[3], m[7], m[11]);
+      expect(math.sqrt(eye.dot(eye)), greaterThan(0));
+      for (final v in m) {
+        expect(v.isFinite, isTrue);
+      }
+    });
+  });
+}
