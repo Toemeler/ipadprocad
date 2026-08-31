@@ -732,6 +732,41 @@ class CoverageGateTest(unittest.TestCase):
         self.assertTrue(ok)
 
 
+class SoughtSymbolTest(unittest.TestCase):
+    """A failed SEARCH names what the model believed existed.
+
+    Issue #11 round 6 looked for `static Color get accent => current.accent;`.
+    The real line is `... => scheme.value.accent;`, one grep away — but the
+    repair prompt was answering with neighbourhoods ranked by the ISSUE text,
+    which is what the model already had and had already failed to use.
+    """
+
+    LOG = ("frontend/lib/theme.dart: SEARCH text not found. It must match the "
+           "file byte for byte, INCLUDING leading whitespace. First line "
+           "looked for: '  static Color get accent => current.accent;'")
+
+    def test_symbols_are_extracted(self):
+        self.assertEqual(run.sought_symbols(self.LOG), ['accent', 'current'])
+
+    def test_dart_keywords_are_dropped(self):
+        # Grepping `Color` or `static` matches half of theme.dart.
+        got = run.sought_symbols(self.LOG)
+        for kw in ('static', 'Color', 'get'):
+            self.assertNotIn(kw, got)
+
+    def test_nothing_sought_in_an_unrelated_failure(self):
+        self.assertEqual(run.sought_symbols('`flutter test` failed'), [])
+
+    def test_repair_prompt_greps_for_them(self):
+        import rank
+        index = rank.Index()
+        text = run.repair_prompt(index, 'the code edits did not apply',
+                                 self.LOG, 'accent colour settings',
+                                 ['frontend/lib/theme.dart'])
+        self.assertIn('static Color get accent => scheme.value.accent;', text)
+        self.assertIn('final Color accent;', text)
+
+
 class HouseRulesTest(unittest.TestCase):
     """The conventions that the shipped #9 fix violated."""
 

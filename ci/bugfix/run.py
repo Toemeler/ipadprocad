@@ -70,6 +70,18 @@ STOP_WORDS = frozenset((
     'where', 'how', 'all', 'any', 'field', 'fields', 'value', 'values',
     'definition', 'definitions', 'declaration', 'declarations', 'code'))
 
+# Dart's own vocabulary. A failed SEARCH line is mostly this — `static Color
+# get accent => current.accent;` yields "static", "Color" and "get" before it
+# yields the one word that identifies anything — and grepping a keyword
+# matches half the file.
+DART_KEYWORDS = frozenset((
+    'static', 'final', 'const', 'late', 'var', 'get', 'set', 'void', 'class',
+    'extends', 'implements', 'with', 'mixin', 'return', 'async', 'await',
+    'new', 'required', 'this', 'super', 'null', 'true', 'false', 'import',
+    'export', 'part', 'factory', 'abstract', 'override', 'Color', 'String',
+    'int', 'double', 'bool', 'num', 'List', 'Map', 'Set', 'Future', 'Widget',
+    'BuildContext', 'dynamic'))
+
 
 def sh(*args, check=True, cwd=ROOT):
     p = subprocess.run(args, cwd=cwd, capture_output=True, text=True)
@@ -121,6 +133,28 @@ def error_locations(log, limit=3):
         if len(seen) >= limit:
             break
     return seen
+
+
+# `First line looked for: '  static Color get accent => current.accent;'`
+SOUGHT_RE = re.compile(r"First line looked for:\s*[\'\"](.+?)[\'\"]\s*$",
+                       re.MULTILINE)
+
+
+def sought_symbols(log, limit=4):
+    """Identifiers out of the SEARCH text that failed. -> [names]
+
+    A failed SEARCH is a statement of intent: the model has told you, in its
+    own words, which symbol it believes exists. That is a far better query for
+    finding the real one than the issue text, and it is available for free in
+    the error message.
+    """
+    names = []
+    for m in SOUGHT_RE.finditer(log or ''):
+        for word in re.findall(r'[A-Za-z_][A-Za-z0-9_]{2,}', m.group(1)):
+            if (word not in STOP_WORDS and word not in DART_KEYWORDS
+                    and word not in names):
+                names.append(word)
+    return names[:limit]
 
 
 def failed_paths(errors):
@@ -183,9 +217,26 @@ def repair_prompt(index, reason, log, query, paths):
     """
     body = (f'That did not work: {reason}\n\n```\n{log}\n```\n\n')
     if paths:
+        # The SEARCH that failed is the most precise query available: it names
+        # the symbol the model was reaching for. Grep the file for it rather
+        # than re-slicing by the ISSUE text, which is what it had already been
+        # given and had already failed to use.
+        #
+        # Issue #11 round 6 looked for `static Color get accent =>
+        # current.accent;`. The real line is `... => scheme.value.accent;` and
+        # it is one grep away, but the repair prompt was answering with
+        # neighbourhoods ranked by "accent color changable in the settings".
+        wanted = sought_symbols(log)
+        served = ''
+        if wanted:
+            for path in paths[:2]:
+                chunks = index.grep(path, wanted)
+                if chunks:
+                    served += pack.render_slices(
+                        path, index.header_lines(path) + chunks) + '\n\n'
         body += ('Here is the file you tried to edit, as it actually reads. '
                  'Copy the SEARCH text from this, byte for byte.\n\n'
-                 + slices_for(index, paths, query) + '\n\n')
+                 + (served or slices_for(index, paths, query) + '\n\n'))
 
     located = error_locations(log)
     if located:
