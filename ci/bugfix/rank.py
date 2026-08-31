@@ -110,6 +110,26 @@ BRIDGE_WEIGHT = 0.5
 # middle is chosen so the constant is not sitting on an edge.
 BRIDGE_MAX_KEYS = 22
 
+# A line that DECLARES something is worth several that merely mention it.
+#
+# Issue #9 needed to add `partExportStl` beside the existing
+# `partExportStep`. The slice of `app_state.dart` (19,550 lines) contained
+# three mentions of that name in comments and none of its definition at line
+# 7055 -- so the model had neither a template for how such a method is written
+# nor an anchor to insert next to, and emitted a call to a method it never
+# wrote. Scoring by query-word density alone finds discussion; adding a
+# sibling function needs the sibling.
+DECL_RE = re.compile(
+    r'^\s*(?:@\w+\s+)*'
+    r'(?:static\s+|final\s+|const\s+|abstract\s+|late\s+)*'
+    r'(?:class|mixin|extension|enum|typedef|func|var|let)\s+\w+'
+    r'|^\s*(?:@\w+\s+)*'
+    r'(?:static\s+|external\s+|final\s+|const\s+|late\s+)*'
+    r'(?:Future<[^>]*>|void|bool|int|double|String|num|dynamic|'
+    r'Widget|List<[^>]*>|Map<[^>]*>|Set<[^>]*>|[A-Z]\w*<[^>]*>|[A-Z]\w*\??)'
+    r'\s+\w+\s*\(')
+DECL_BOOST = 4.0
+
 
 def split_identifier(text):
     """camelCase, snake_case and paths -> lowercase word tokens.
@@ -237,6 +257,20 @@ class Index:
                 scored[rel] = total * (1 + RECENCY_WEIGHT * self.recency.get(rel, 0.0))
         return sorted(scored.items(), key=lambda kv: -kv[1])[:limit]
 
+    def slice_around(self, rel, line, radius=30):
+        """The neighbourhood of one line. -> [(start, [lines])]
+
+        A compiler error names a file and a line; that is a better pointer than
+        any query, so it is followed literally.
+        """
+        lines = self.texts.get(rel, '').splitlines()
+        if not lines:
+            return []
+        i = max(0, min(len(lines) - 1, line - 1))
+        lo = max(0, i - radius)
+        hi = min(len(lines), i + radius + 1)
+        return [(lo + 1, lines[lo:hi])]
+
     def slice_file(self, rel, query, radius=40, max_lines=260):
         """The parts of one file the query actually points at.
 
@@ -253,6 +287,8 @@ class Index:
         for i, line in enumerate(lines):
             tokens = set(split_identifier(line))
             weight = sum(w for t, w in terms.items() if t in tokens)
+            if weight and DECL_RE.match(line):
+                weight *= DECL_BOOST
             if weight:
                 hits.append((weight, i))
         if not hits:

@@ -264,3 +264,94 @@ class TestFlutterPaths(unittest.TestCase):
             verify._run = original
         self.assertIn('test/m287_x_test.dart', seen['args'])
         self.assertNotIn('frontend/test/m287_x_test.dart', seen['args'])
+
+
+class TestDeclarationBoost(unittest.TestCase):
+    """A slice must contain the DEFINITION, not just mentions of the name.
+
+    Issue #9 needed `partExportStl` written beside the existing
+    `partExportStep`. app_state.dart is 19,550 lines; the slice contained
+    mentions of that name in comments and not its definition at line 7055, so
+    the model had no template and no anchor, and emitted a call to a method it
+    never wrote.
+    """
+
+    QUERY = ('when i longpress a card and select export i first want to select '
+             'stl or step before chosing a location')
+
+    @classmethod
+    def setUpClass(cls):
+        cls.index = rank.Index()
+
+    def test_slice_contains_the_sibling_definition(self):
+        chunks = self.index.slice_file('frontend/lib/app_state.dart',
+                                       self.QUERY, radius=22, max_lines=140)
+        text = '\n'.join('\n'.join(b) for _, b in chunks)
+        self.assertIn('partExportStep(String name)', text)
+
+    def test_declarations_are_recognised(self):
+        for line in ('  Future<String?> partExportStep(String name) async {',
+                     'class AppState extends ChangeNotifier {',
+                     '  void dispose() {',
+                     '  static bool isSupported(int x) {'):
+            with self.subTest(line=line):
+                self.assertTrue(rank.DECL_RE.match(line), line)
+
+    def test_prose_is_not_a_declaration(self):
+        for line in ('  /// someone. ([partExportStep] even had a `wasLoaded`)',
+                     '  // partExportStep exports the solids',
+                     '    return partExportStep(name);'):
+            with self.subTest(line=line):
+                self.assertFalse(rank.DECL_RE.match(line), line)
+
+    def test_slice_around_a_line(self):
+        chunks = self.index.slice_around('frontend/lib/app_state.dart', 7055,
+                                         radius=5)
+        self.assertEqual(len(chunks), 1)
+        start, body = chunks[0]
+        self.assertLessEqual(start, 7055)
+        self.assertGreaterEqual(start + len(body), 7055)
+
+
+class TestErrorLocations(unittest.TestCase):
+    """The compiler says exactly where; follow it literally."""
+
+    LOG = ("test/m289_export_format_test.dart:13:28: Error: Method not found: "
+           "'choosePartExportFormat'.\n"
+           "lib/widgets/home_view.dart:494:30: Error: The method "
+           "'partExportStl' isn't defined for the type 'AppState'.")
+
+    def test_paths_are_made_repo_relative(self):
+        import run
+        self.assertEqual(
+            run.error_locations(self.LOG),
+            [('frontend/test/m289_export_format_test.dart', 13),
+             ('frontend/lib/widgets/home_view.dart', 494)])
+
+    def test_each_file_appears_once(self):
+        import run
+        log = self.LOG + '\nlib/widgets/home_view.dart:501:9: Error: again.'
+        self.assertEqual(len(run.error_locations(log)), 2)
+
+    def test_no_locations_in_a_plain_message(self):
+        import run
+        self.assertEqual(run.error_locations('everything exploded'), [])
+
+    def test_repair_prompt_serves_the_error_sites(self):
+        import run
+        index = rank.Index()
+        text = run.repair_prompt(index, 'your own new test still fails',
+                                 self.LOG, 'export stl step', [])
+        self.assertIn('the compiler pointed', text)
+        self.assertIn('home_view.dart', text)
+        self.assertIn('DEFINE IT', text)
+
+
+class TestModulesImport(unittest.TestCase):
+    """py_compile does not catch a missing import; this does."""
+
+    def test_every_module_imports(self):
+        import importlib
+        for name in ('rank', 'pack', 'edits', 'model', 'verify', 'gh', 'run'):
+            with self.subTest(module=name):
+                importlib.import_module(name)

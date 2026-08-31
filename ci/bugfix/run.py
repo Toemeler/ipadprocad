@@ -34,6 +34,7 @@ before the push so sibling runs cannot clobber each other.
 import argparse
 import os
 import pathlib
+import re
 import subprocess
 import sys
 
@@ -77,7 +78,6 @@ def git_reset():
 
 
 def parse_tagged(text, tag):
-    import re
     m = re.search(rf'<{tag}>(.*?)</{tag}>', text, re.DOTALL)
     return m.group(1).strip() if m else ''
 
@@ -91,6 +91,30 @@ def slices_for(index, paths, query, radius=30, max_lines=160):
             continue
         out.append(pack.render_slices(path, chunks))
     return '\n\n'.join(out)
+
+
+# `lib/widgets/home_view.dart:494:30: Error: ...` — Dart names the file
+# frontend-relative, the rest of the pipeline names it from the repo root.
+ERROR_LOC_RE = re.compile(r'((?:lib|test)/[\w./-]+\.dart):(\d+):\d*')
+
+
+def error_locations(log, limit=3):
+    """-> [(repo_relative_path, line)] the compiler actually pointed at.
+
+    Issue #9's sixth run wrote a call to `partExportStl` and a test calling
+    `choosePartExportFormat`, and defined neither. The compiler said exactly
+    where, in both files. Serving those neighbourhoods back is a far better
+    repair prompt than the error text alone, because what the model needs is
+    the surrounding code it has to add the definition INTO.
+    """
+    seen = []
+    for m in ERROR_LOC_RE.finditer(log or ''):
+        item = (f'frontend/{m.group(1)}', int(m.group(2)))
+        if item[0] not in [p for p, _ in seen]:
+            seen.append(item)
+        if len(seen) >= limit:
+            break
+    return seen
 
 
 def failed_paths(errors):
@@ -148,6 +172,20 @@ def repair_prompt(index, reason, log, query, paths):
         body += ('Here is the file you tried to edit, as it actually reads. '
                  'Copy the SEARCH text from this, byte for byte.\n\n'
                  + slices_for(index, paths, query) + '\n\n')
+
+    located = error_locations(log)
+    if located:
+        parts = []
+        for path, line in located:
+            chunks = index.slice_around(path, line)
+            if chunks:
+                parts.append(pack.render_slices(path, chunks))
+        if parts:
+            body += (
+                'And here is the code around each place the compiler pointed '
+                'at. If it says a method is not defined, DEFINE IT — a call '
+                'site without its implementation is not a fix.\n\n'
+                + '\n\n'.join(parts) + '\n\n')
     return body + 'Now answer again in the required format.'
 
 
