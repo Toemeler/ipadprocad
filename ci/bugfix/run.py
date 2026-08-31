@@ -131,7 +131,7 @@ def slices_for(index, paths, query, radius=30, max_lines=160):
 ERROR_LOC_RE = re.compile(r'((?:lib|test)/[\w./-]+\.dart):(\d+):\d*')
 
 
-def error_locations(log, limit=3):
+def error_locations(log, limit=4):
     """-> [(repo_relative_path, line)] the compiler actually pointed at.
 
     Issue #9's sixth run wrote a call to `partExportStl` and a test calling
@@ -143,7 +143,17 @@ def error_locations(log, limit=3):
     seen = []
     for m in ERROR_LOC_RE.finditer(log or ''):
         item = (f'frontend/{m.group(1)}', int(m.group(2)))
-        if item[0] not in [p for p, _ in seen]:
+        # TWO PLACES PER FILE, not one.
+        #
+        # One was right while the only producer of these was the compiler,
+        # where a cascade of twenty errors in one file would crowd out the
+        # other file that also broke. It is wrong for an ambiguous SEARCH,
+        # which names exactly two lines in ONE file — the native surface and
+        # the Flutter fallback under it — and showing the first alone shows
+        # the model half of its own problem. Two per file keeps both without
+        # letting a cascade take the whole budget.
+        same = sum(1 for p, _ in seen if p == item[0])
+        if item not in seen and same < 2:
             seen.append(item)
         if len(seen) >= limit:
             break

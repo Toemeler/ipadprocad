@@ -174,6 +174,35 @@ def _shift(text, from_indent, to_indent):
     return '\n'.join(out)
 
 
+def _dart_relative(path):
+    """`frontend/lib/x.dart` -> `lib/x.dart`, which is how Dart names it.
+
+    That spelling is not cosmetic: `run.error_locations` follows exactly this
+    shape, so an error written this way is answered with the code around each
+    place it names, for free.
+    """
+    return path[len('frontend/'):] if path.startswith('frontend/') else path
+
+
+def match_lines(text, needle):
+    """1-based line numbers where `needle` starts. -> [int]
+
+    An ambiguous SEARCH used to come back as "appears 2 times; include enough
+    surrounding context" and nothing else, so the model had to guess which two
+    places it had hit. On issue #11 it had hit the native `_onSelect` and the
+    Flutter fallback's `_tap` in `settings_sheet.dart` — the pair pattern every
+    surface in this app uses — and the last round of a six-round run was spent
+    finding that out.
+    """
+    out, at = [], 0
+    while True:
+        at = text.find(needle, at)
+        if at < 0:
+            return out
+        out.append(text.count('\n', 0, at) + 1)
+        at += 1
+
+
 def apply(edits, root):
     """Apply in order. -> list of error strings; empty means everything landed.
 
@@ -210,8 +239,14 @@ def apply(edits, root):
             continue
         if count > 1:
             errors.append(
-                f'{e.path}: SEARCH text appears {count} times; include enough '
-                'surrounding context to make it unique')
+                f'{e.path}: SEARCH text appears {count} times, at '
+                + ', '.join(f'{_dart_relative(e.path)}:{n}:'
+                            for n in match_lines(current, e.search))
+                + '. Include enough surrounding context to make each one '
+                'unique. In this app a switch arm usually appears TWICE — '
+                'once in the native surface and once in the Flutter fallback '
+                'below it — and both normally need the same change, as two '
+                'separate SEARCH/REPLACE blocks in the same <file>.')
             continue
         staged[e.path] = current.replace(e.search, e.replace, 1)
     if errors:

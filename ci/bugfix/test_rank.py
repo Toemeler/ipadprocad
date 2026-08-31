@@ -350,10 +350,32 @@ class TestErrorLocations(unittest.TestCase):
             [('frontend/test/m289_export_format_test.dart', 13),
              ('frontend/lib/widgets/home_view.dart', 494)])
 
-    def test_each_file_appears_once(self):
+    def test_two_places_per_file_but_not_a_whole_cascade(self):
+        """An ambiguous SEARCH names two lines in ONE file, and both matter.
+
+        `settings_sheet.dart` carries every switch arm twice — the native
+        `_onSelect` and the Flutter fallback's `_tap` — so issue #11's model
+        hit both with one SEARCH. Serving only the first showed it half of its
+        own problem. A compiler cascade must still not take the whole budget,
+        so the third error in the same file is dropped.
+        """
         import run
         log = self.LOG + '\nlib/widgets/home_view.dart:501:9: Error: again.'
-        self.assertEqual(len(run.error_locations(log)), 2)
+        self.assertEqual(run.error_locations(log),
+                         [('frontend/test/m289_export_format_test.dart', 13),
+                          ('frontend/lib/widgets/home_view.dart', 494),
+                          ('frontend/lib/widgets/home_view.dart', 501)])
+        log += '\nlib/widgets/home_view.dart:absurd:9: Error: x.'
+        log += '\nlib/widgets/home_view.dart:۹:9: Error: x.'
+        log += '\nlib/widgets/home_view.dart:777:9: Error: and again.'
+        self.assertEqual(len(run.error_locations(log)), 3,
+                         'a third error in the same file is a cascade')
+
+    def test_an_ambiguous_search_names_every_place_it_hit(self):
+        import edits as edits_mod
+        text = 'a\nSAME\nb\nc\nSAME\nd\n'
+        self.assertEqual(edits_mod.match_lines(text, 'SAME\n'), [2, 5])
+        self.assertEqual(edits_mod.match_lines(text, 'nope'), [])
 
     def test_no_locations_in_a_plain_message(self):
         import run

@@ -92,7 +92,7 @@ workflow log rather than on next month's invoice.
 | `edits.py` | Search/replace block format, parsing and all-or-nothing application. Enforces forbidden paths. |
 | `verify.py` | `analyze`, `test`, and the test-first gate. |
 | `run.py` | The loop: ask → gate → verify → ship, or escalate, or block. |
-| `test_*.py` | 141 tests. Run by the workflow *before* the model is called. |
+| `test_*.py` | 142 tests. Run by the workflow *before* the model is called. |
 
 ## Setup
 
