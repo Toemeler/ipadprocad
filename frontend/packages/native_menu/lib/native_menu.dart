@@ -159,6 +159,25 @@ class NativeMenu {
     }
   }
 
+  /// Bug report #11 — the accent the user chose, for the glass chrome.
+  ///
+  /// TWO colours, not one, and not the resolved one. UIKit resolves against
+  /// the trait `AppearanceBinder` pins, exactly as the Dart side picks a
+  /// [Palette]; sending only the active colour would be right until the next
+  /// appearance switch and wrong after it, which is the staleness M237 exists
+  /// to prevent.
+  ///
+  /// Swallows failures like [setAppearance]: a tab bar still wearing last
+  /// session's teal is cosmetic, not a crash.
+  static Future<void> setAccent({required int light, required int dark}) async {
+    if (!isSupported) return;
+    try {
+      await _ch.invokeMethod<void>('setAccent', {'light': light, 'dark': dark});
+    } catch (_) {
+      // Older host build without the method, or no plugin at all.
+    }
+  }
+
   static final Map<String, List<NativeMenuTarget>> _scopes = {};
   static final Map<String, NativeMenuSelection> _handlers = {};
   static NativePencilGesture? _pencil;

@@ -445,19 +445,43 @@ class Index:
         # a sixth of a cent. Take all of them, then spend whatever room is left
         # on mentions spread across the file.
         if len(rows) > max_sites:
-            decl = [i for i in rows if DECL_RE.match(lines[i])]
-            rest = [i for i in rows if not DECL_RE.match(lines[i])]
-            if len(decl) > max_sites:
-                pool, room = decl, max_sites
-            else:
-                pool, room = rest, max_sites - len(decl)
-            picked = list(decl[:max_sites])
-            if room > 0 and pool:
-                if pool is decl:
-                    picked = []
+            # THREE TIERS, most specific first.
+            #
+            # Declarations alone were not enough, and issue #11's own fix is
+            # what proved it: adding an `Accent` enum, a notifier, a store key
+            # and four methods took theme.dart from ten declarations mentioning
+            # `accent` to twenty-five, and an even stride across them dropped
+            # `accent: Color(0xFF0F6A70)` — the line a colour change has to
+            # edit. More code about a thing must not bury the thing.
+            #
+            #   1. the VALUE rows: `accent: Color(0x…)`, one per palette. In a
+            #      repo that builds records with const constructors this is
+            #      where a value literally lives, and it is what an edit needs.
+            #   2. declarations naming the needle as a WHOLE word — the field,
+            #      the getter, the enum — rather than as a camelCase fragment
+            #      of something else (`loadAccent`, `_pushAccent`).
+            #   3. everything else that mentioned it.
+            def tier(i):
+                line = lines[i]
+                if re.match(rf'\s*{re.escape(needle_word)}\s*:', line):
+                    return 0
+                whole = needle_word in re.findall(r'\w+', line.lower())
+                return 1 if DECL_RE.match(line) and whole else 2
+
+            needle_word = (ordered[0] if ordered else '').lower()
+            picked, room = [], max_sites
+            for level in (0, 1, 2):
+                pool = [i for i in rows if tier(i) == level]
+                if not pool or room <= 0:
+                    continue
+                if len(pool) <= room:
+                    picked += pool
+                    room -= len(pool)
+                    continue
                 span = len(pool) - 1
                 picked += [pool[round(k * span / (room - 1))] if room > 1
                            else pool[0] for k in range(room)]
+                room = 0
             rows = sorted(set(picked))
         wanted = set()
         for i in rows:

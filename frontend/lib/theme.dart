@@ -754,7 +754,10 @@ class T {
       _apply();
     }
     final savedAccent = store.loadAccent();
-    if (savedAccent != null) accentChoice.value = savedAccent;
+    if (savedAccent != null) {
+      accentChoice.value = savedAccent;
+      _pushAccent();
+    }
   }
 
   /// Bug report #11 — the accent the user chose, as something the app root
@@ -781,6 +784,10 @@ class T {
     if (a == accentChoice.value) return;
     accentChoice.value = a;
     Log.i('theme', 'accent = ${a.id}');
+    // The glass ribbon, tab bar and tool bar are UIKit and cannot see a Dart
+    // notifier. Without this the app renders in two accents at once — M237's
+    // bug, one colour down.
+    _pushAccent();
     _store?.saveAccent(a);
   }
 
@@ -823,6 +830,22 @@ class T {
     NativeMenu.setAppearance(dark: dark);
     RealityAppearance.setViewportColor(p.viewport.toARGB32());
     RealityAppearance.setFloorColor(p.floor.toARGB32());
+    _pushAccent();
+  }
+
+  /// Bug report #11 — the accent, across to UIKit.
+  ///
+  /// Sent as BOTH values rather than the active one, because UIKit resolves it
+  /// against the trait the binder pins. Sent on an appearance change too, not
+  /// only on an accent change: a host that has just been told to go light must
+  /// already hold the light accent, or the tab bar wears the dark one for a
+  /// frame.
+  static void _pushAccent() {
+    final a = accentChoice.value;
+    NativeMenu.setAccent(
+      light: (a.light ?? kChalk.accent).toARGB32(),
+      dark: (a.dark ?? kEmber.accent).toARGB32(),
+    );
   }
 
   /// Resets the switch so one test cannot leak its palette into the next.

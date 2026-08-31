@@ -92,7 +92,7 @@ workflow log rather than on next month's invoice.
 | `edits.py` | Search/replace block format, parsing and all-or-nothing application. Enforces forbidden paths. |
 | `verify.py` | `analyze`, `test`, and the test-first gate. |
 | `run.py` | The loop: ask → gate → verify → ship, or escalate, or block. |
-| `test_*.py` | 151 tests. Run by the workflow *before* the model is called. |
+| `test_*.py` | 165 tests. Run by the workflow *before* the model is called. |
 
 ## Setup
 
@@ -171,9 +171,17 @@ one thing this system is careful never to do.
   search it replaces. If recall@5 ever drops below ~85 %, widen
   `pack.FILES_IN_PACK`.
 - **Cross-cutting Dart↔Swift fixes are the common hard case** (#7 and #8 both
-  were). Swift is in the corpus, but it cannot be compiled on Linux — CI's
+  were). Swift is in the corpus and it cannot be compiled on Linux — CI's
   macOS build remains the source of truth for it, exactly as
-  `AUTOMATION_NOTES.md` has said since #2.
+  `AUTOMATION_NOTES.md` has said since #2. Two things about it ARE checked
+  here, and between them they cover how these actually break:
+  `verify.swift_contract()` matches every Dart `invokeMethod` the diff adds
+  against the `case "…"` and `args["…"]` on the Swift side — a name or a key
+  spelled differently compiles on both sides and is a silent no-op that no
+  test in this repo would catch — and `verify.swift_braces()` counts brackets,
+  so a search/replace that drops one fails in milliseconds instead of twenty
+  minutes later on macOS. A shipped fix that touched Swift says so on the
+  issue rather than closing as if it had been built.
 - **Prefix drift is silent.** A timestamp or an issue number accidentally
   placed ahead of the pack in `model.SYSTEM` costs 30× on every call and breaks
   nothing visibly. If the printed cost per run climbs, look there first.

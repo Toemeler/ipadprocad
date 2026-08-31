@@ -384,7 +384,8 @@ def coverage_of_change(test_paths, root=ROOT):
     return hit, total
 
 
-def gate(apply_tests, apply_code, revert, test_paths, allow_weak=False):
+def gate(apply_tests, apply_code, revert, test_paths, allow_weak=False,
+         code_paths=()):
     """The test-first gate. -> (ok, reason, log)
 
     `apply_tests`, `apply_code` and `revert` are callables so this function
@@ -427,6 +428,15 @@ def gate(apply_tests, apply_code, revert, test_paths, allow_weak=False):
     if err:
         revert()
         return False, 'the code edits did not apply', '\n'.join(err)
+
+    # Swift first, and before the suite: it is the half nothing downstream can
+    # check, and it costs milliseconds against the three minutes the suite
+    # takes. A broken channel contract is not worth finding out about later.
+    swift = swift_braces(code_paths) + swift_contract(code_paths)
+    if swift:
+        return (False,
+                'your platform-channel change does not line up across the two '
+                'languages', '\n'.join(swift))
 
     passed, out = test(test_paths)
     if not passed:
@@ -491,6 +501,124 @@ def failing_test_files(output):
         if path not in seen:
             seen.append(path)
     return seen
+
+
+# ---------------------------------------------------------------------------
+# SWIFT: THE HALF THIS RUNNER CANNOT COMPILE
+#
+# Swift needs Xcode and an Apple SDK, so on a Linux runner there is no build,
+# no test and no analyzer for it. Until now that meant a Swift change shipped
+# on the model's word alone and was found out — if at all — by the macOS build
+# minutes later, with the issue already closed.
+#
+# Two things ARE checkable here, and between them they cover the way these
+# actually break.
+#
+# 1. THE CHANNEL CONTRACT. Every Dart→UIKit call is a method name and a bag of
+#    string keys, matched by hand on the other side. Issues #7 and #8 were both
+#    Dart+Swift, and this seam is where such a change silently does nothing: a
+#    `case` that was never added, or a key spelled `colour` on one side and
+#    `color` on the other, compiles perfectly on BOTH sides and is a no-op at
+#    runtime. Neither the Dart suite nor the macOS build would fail. This is
+#    the one class of Swift defect a Linux runner can catch, and it is the
+#    likeliest one.
+#
+# 2. BRACES. A search/replace that drops a closing brace is a compile error the
+#    macOS job would find twenty minutes later; counting them costs a
+#    millisecond.
+#
+# Only the methods the DIFF touches are checked. The repository has channel
+# calls this pipeline did not write, and blocking a fix for a pre-existing
+# mismatch would be charging the model for someone else's debt.
+
+# `_ch.invokeMethod<void>('setAccent', {'light': light, 'dark': dark})`
+INVOKE_RE = re.compile(
+    r"""invokeMethod(?:<[^>]*>)?\(\s*['"]([A-Za-z_]\w*)['"]"""
+    r"""(?:\s*,\s*(\{[^{}]*\}))?""", re.S)
+# The keys inside that map literal: `'light': light`
+MAP_KEY_RE = re.compile(r"""['"](\w+)['"]\s*:""")
+# `case "setAccent":` and `case "setViewportColor", "setFloorColor":`
+SWIFT_CASE_RE = re.compile(r'case\s+((?:"[^"]*"\s*,\s*)*"[^"]*")\s*:')
+SWIFT_STR_RE = re.compile(r'"([^"]*)"')
+# Any subscript by string literal: `args["light"]`, `a["argb"]`, `m["id"]`
+SWIFT_KEY_RE = re.compile(r'\[\s*"(\w+)"\s*\]')
+
+
+def _swift_side(dart_path):
+    """The plugin's Swift sources for a Dart file, or [] if it has none."""
+    parts = pathlib.Path(dart_path).parts
+    if 'packages' not in parts:
+        return []
+    pkg = ROOT.joinpath(*parts[:parts.index('packages') + 2])
+    classes = pkg / 'ios' / 'Classes'
+    return sorted(classes.glob('*.swift')) if classes.is_dir() else []
+
+
+def swift_braces(paths):
+    """-> [complaint] for a changed .swift file whose brackets do not close."""
+    out = []
+    for rel in paths:
+        if not str(rel).endswith('.swift'):
+            continue
+        text = (ROOT / rel).read_text(encoding='utf-8', errors='replace')
+        # Comments and string literals hold braces that are not structure.
+        stripped = re.sub(r'//[^\n]*|/\*.*?\*/|"(?:\\.|[^"\\\n])*"', '',
+                          text, flags=re.S)
+        for open_c, close_c in (('{', '}'), ('(', ')'), ('[', ']')):
+            a, b = stripped.count(open_c), stripped.count(close_c)
+            if a != b:
+                out.append(f'{rel}: {a} `{open_c}` against {b} `{close_c}` — '
+                           'the edit did not close what it opened')
+    return out
+
+
+def swift_contract(paths):
+    """Do the Dart calls this change makes exist on the Swift side?
+
+    -> [complaint]. Empty when there is no Dart→Swift call in the diff.
+    """
+    out = []
+    for rel in paths:
+        rel = str(rel)
+        if not rel.endswith('.dart'):
+            continue
+        swift_files = _swift_side(rel)
+        if not swift_files:
+            continue
+        swift = '\n'.join(f.read_text(encoding='utf-8', errors='replace')
+                           for f in swift_files)
+        handled = set()
+        for m in SWIFT_CASE_RE.finditer(swift):
+            handled.update(SWIFT_STR_RE.findall(m.group(1)))
+        keys = set(SWIFT_KEY_RE.findall(swift))
+        dart = (ROOT / rel).read_text(encoding='utf-8', errors='replace')
+        for call in INVOKE_RE.finditer(dart):
+            method = call.group(1)
+            if method not in changed_lines(rel):
+                continue  # not this change's business
+            if method not in handled:
+                out.append(
+                    f'{rel} calls `{method}` over the platform channel and no '
+                    f'Swift `case "{method}":` handles it. Add the case in '
+                    f'{swift_files[0].parent.relative_to(ROOT)}/, or the call '
+                    'compiles on both sides and does nothing at runtime.')
+                continue
+            for key in MAP_KEY_RE.findall(call.group(2) or ''):
+                if key not in keys:
+                    out.append(
+                        f'{rel} sends `{key}` to `{method}` and no Swift file '
+                        f'reads `["{key}"]`. A key spelled differently on the '
+                        'two sides compiles and is silently ignored.')
+    return out
+
+
+def changed_lines(rel):
+    """The text this change ADDED to one file, for "is this ours?" questions."""
+    code, out = _run(['git', 'diff', '--unified=0', '--', rel],
+                     60, cwd=ROOT)
+    if code != 0:
+        return ''
+    return '\n'.join(ln for ln in out.splitlines() if ln.startswith('+'))
 
 
 def full_verification(revert=None, reapply=None):

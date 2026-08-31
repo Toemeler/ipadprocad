@@ -629,3 +629,43 @@ class MergeChunksTest(unittest.TestCase):
         import pack
         merged = pack.merge_chunks([(1, ['a']), (9, ['i'])])
         self.assertEqual(merged, [(1, ['a']), (9, ['i'])])
+
+
+class ValueRowsSurviveTest(unittest.TestCase):
+    """More code ABOUT a thing must not bury the thing.
+
+    Issue #11's own fix proved this: adding an `Accent` enum, a notifier, a
+    store key and four methods took `theme.dart` from ten declarations
+    mentioning `accent` to twenty-five, and an even stride across them dropped
+    `accent: Color(0xFF0F6A70)` — the exact line a colour change has to edit.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        import rank
+        cls.index = rank.Index()
+
+    WANT = ('final Color accent;',
+            'accent: Color(0xFF2FA9A2)',     # kEmber
+            'accent: Color(0xFF0F6A70)',     # kChalk
+            'static Color get accent')
+
+    def test_the_value_rows_survive_every_budget(self):
+        for sites in (10, 12, 16, 24):
+            chunks = self.index.grep('frontend/lib/theme.dart', ('accent',),
+                                     radius=6, max_sites=sites)
+            text = '\n'.join(l for _, ls in chunks for l in ls)
+            for want in self.WANT:
+                self.assertIn(want, text, f'lost at max_sites={sites}')
+
+    def test_a_camel_case_fragment_ranks_below_a_whole_word(self):
+        import rank
+        idx = rank.Index.__new__(rank.Index)
+        idx.texts = {'x.dart': '\n'.join(
+            ['void loadAccentFromDisk() {}'] * 30
+            + ['  accent: Color(0xFF0F6A70),'])}
+        idx.doc_freq = {}
+        chunks = idx.grep('x.dart', ('accent',), radius=2, max_sites=3)
+        text = '\n'.join(l for _, ls in chunks for l in ls)
+        self.assertIn('accent: Color(0xFF0F6A70)', text,
+                      'the value row must outrank thirty mentions of it')

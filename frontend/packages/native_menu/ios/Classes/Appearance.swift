@@ -21,6 +21,17 @@
 // is deallocated, so binding is one call and there is nothing to unbind.
 import UIKit
 
+/// A view that PAINTS with the accent, and so has to redraw when it changes.
+///
+/// Distinct from merely being bound to the appearance: a trait change makes
+/// UIKit re-resolve every dynamic colour by itself, but bug report #11 made
+/// the accent a value the user sets WITHOUT the trait moving. Nothing tells a
+/// button whose `baseForegroundColor` was resolved at build time that the
+/// colour behind it now means something else, so the view is asked to rebuild.
+protocol AccentFollowing: AnyObject {
+    func accentDidChange()
+}
+
 /// The app-wide UIKit appearance, and the views that follow it.
 final class AppearanceBinder {
     static let shared = AppearanceBinder()
@@ -31,6 +42,48 @@ final class AppearanceBinder {
     private(set) var style: UIUserInterfaceStyle = .dark
 
     private let bound = NSHashTable<UIView>.weakObjects()
+    private let accented = NSHashTable<AnyObject>.weakObjects()
+
+    // Bug report #11 — the accent is the user's choice, not a constant.
+    //
+    // TWO values, because UIKit resolves against the pinned trait exactly as
+    // the Dart side picks a Palette, and a colour that reads on cream does not
+    // read on charcoal. They start at M260's built-in teals so the frames
+    // before Dart first speaks are the palette's own rather than a flash of
+    // something else.
+    private(set) var accentLight =
+        UIColor(red: 0.059, green: 0.416, blue: 0.439, alpha: 1)
+    private(set) var accentDark =
+        UIColor(red: 0.184, green: 0.663, blue: 0.635, alpha: 1)
+
+    /// The accent, as a DYNAMIC colour.
+    ///
+    /// A provider rather than a resolved colour, for the reason M260 gives at
+    /// `GlassTabBarView.accentFill`: resolving once returns a static colour
+    /// that is then the wrong palette for the rest of the session after an
+    /// appearance switch. Built once and reused, so the identity is stable.
+    let accent = UIColor { t in
+        t.userInterfaceStyle == .light
+            ? AppearanceBinder.shared.accentLight
+            : AppearanceBinder.shared.accentDark
+    }
+
+    /// Keeps [view] redrawing when the accent changes. Weak, like [bind].
+    func bindAccent(_ view: AccentFollowing) {
+        accented.add(view)
+    }
+
+    /// Applies a new accent to every view that paints with one, now.
+    ///
+    /// Main thread only, for [set]'s reason: it touches UIKit views.
+    func setAccent(light: UIColor, dark: UIColor) {
+        assert(Thread.isMainThread, "the accent must be applied on the main thread")
+        accentLight = light
+        accentDark = dark
+        for case let view as AccentFollowing in accented.allObjects {
+            view.accentDidChange()
+        }
+    }
 
     /// Pins [view] to the current appearance and keeps it in step.
     ///

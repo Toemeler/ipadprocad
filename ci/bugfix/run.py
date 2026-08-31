@@ -591,7 +591,8 @@ def main():
             apply_code,
             git_reset,
             test_paths,
-            allow_weak=weak_pin_rejections > 0)
+            allow_weak=weak_pin_rejections > 0,
+            code_paths=edits_mod.touched(code))
         if not ok and any(m in reason for m in verify.SOFT_REJECTIONS):
             weak_pin_rejections += 1
 
@@ -623,9 +624,25 @@ def main():
                         f'`main`.{FOOTER}'))
                 return 1
             print(f'shipped {sha} — ${spent:.4f}')
+            # SAY WHEN HALF THE FIX WAS NEVER RUN.
+            #
+            # Swift is not compiled on this runner, so a fix that touches it is
+            # verified only by the channel-contract check and then by CI's
+            # macOS build minutes later. Closing such an issue with the same
+            # "fixed" as a pure-Dart one overstates what was proved, and
+            # HANDOFF.md's rule is to report real status.
+            swift = [p for p in paths if p.endswith('.swift')]
+            caveat = ('' if not swift else
+                      '\n\n**The Swift half was not compiled here.** '
+                      + ', '.join(f'`{p}`' for p in swift)
+                      + ' changed. This runner is Linux: the platform-channel '
+                        'contract was checked and the brackets counted, but '
+                        'nothing built it. CI\'s macOS job is the verification, '
+                        'and the post-push check reopens this issue if it goes '
+                        'red.')
             if not args.dry_run:
                 gh.close(number, f'{cause}\n\nFixed in `{sha}` — '
-                                 f'{", ".join(paths)}.{FOOTER}')
+                                 f'{", ".join(paths)}.{caveat}{FOOTER}')
             return 0
 
         note(round_no, reason, log)

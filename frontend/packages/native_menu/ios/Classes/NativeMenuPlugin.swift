@@ -137,6 +137,20 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
             AppearanceBinder.shared.set(dark: args["dark"] as? Bool ?? true)
             result(nil)
 
+        // Bug report #11 — the accent the user picked, both values.
+        //
+        // Both, because UIKit resolves against the pinned trait: sending only
+        // the active one would be right until the next appearance switch and
+        // wrong after it. A missing or malformed argument leaves the accent as
+        // it was rather than painting the chrome black, which is what falling
+        // back to the current value buys over a force-unwrap.
+        case "setAccent":
+            let binder = AppearanceBinder.shared
+            binder.setAccent(
+                light: NativeMenuPlugin.color(args["light"]) ?? binder.accentLight,
+                dark: NativeMenuPlugin.color(args["dark"]) ?? binder.accentDark)
+            result(nil)
+
         case "setTargets":
             let raw = args["targets"] as? [[String: Any]] ?? []
             targets = raw.compactMap { NativeMenuPlugin.parseTarget($0) }
@@ -491,6 +505,21 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
               let h = m["height"] as? NSNumber else { return nil }
         return CGRect(x: CGFloat(l.doubleValue), y: CGFloat(t.doubleValue),
                       width: CGFloat(w.doubleValue), height: CGFloat(h.doubleValue))
+    }
+
+    /// An ARGB int from Dart as a UIColor, or nil if it is not one.
+    ///
+    /// `Color.toARGB32()` on the Dart side, the same encoding
+    /// `setViewportColor` already carries. The alpha byte is honoured, so a
+    /// translucent accent would survive the trip rather than arriving opaque.
+    private static func color(_ raw: Any?) -> UIColor? {
+        guard let n = raw as? NSNumber else { return nil }
+        let v = n.uint32Value
+        return UIColor(
+            red: CGFloat((v >> 16) & 0xFF) / 255.0,
+            green: CGFloat((v >> 8) & 0xFF) / 255.0,
+            blue: CGFloat(v & 0xFF) / 255.0,
+            alpha: CGFloat((v >> 24) & 0xFF) / 255.0)
     }
 
     private static func parseTarget(_ m: [String: Any]) -> Target? {

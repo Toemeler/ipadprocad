@@ -1197,3 +1197,166 @@ class SystemPromptTest(unittest.TestCase):
         import model
         self.assertIn('COMPILE ERROR IS NOT A FAILING TEST', model.SYSTEM)
         self.assertIn('BEHAVIOUR', model.SYSTEM)
+
+
+class SwiftGateTest(unittest.TestCase):
+    """The half of a cross-cutting fix a Linux runner cannot compile.
+
+    Issues #7 and #8 both needed a Dart change AND a Swift change. The channel
+    between them is a method name and a bag of string keys matched by hand, and
+    a mismatch there compiles perfectly on BOTH sides and is a no-op at
+    runtime — so neither the Dart suite nor the macOS build would fail. That is
+    the one class of Swift defect this runner can catch, and the likeliest one.
+    """
+
+    DART = ("class NativeMenu {\n"
+            "  static Future<void> setAccent({required int light,\n"
+            "      required int dark}) async {\n"
+            "    await _ch.invokeMethod<void>('setAccent',\n"
+            "        {'light': light, 'dark': dark});\n"
+            "  }\n"
+            "}\n")
+    SWIFT = ('switch call.method {\n'
+             'case "setAccent":\n'
+             '    binder.setAccent(light: color(args["light"]),\n'
+             '                     dark: color(args["dark"]))\n'
+             '    result(nil)\n'
+             'default:\n'
+             '    result(FlutterMethodNotImplemented)\n'
+             '}\n')
+
+    REL = 'frontend/packages/native_menu/lib/native_menu.dart'
+
+    def build(self, dart=None, swift=None):
+        """A miniature package tree. -> (root, [changed paths])"""
+        tmp = tempfile.mkdtemp()
+        root = pathlib.Path(tmp)
+        (root / 'frontend/packages/native_menu/lib').mkdir(parents=True)
+        (root / 'frontend/packages/native_menu/ios/Classes').mkdir(parents=True)
+        (root / self.REL).write_text(dart if dart is not None else self.DART)
+        (root / 'frontend/packages/native_menu/ios/Classes/Plugin.swift'
+         ).write_text(swift if swift is not None else self.SWIFT)
+        return root
+
+    def check(self, **kw):
+        import verify
+        root = self.build(**kw)
+        # Everything the diff added, so the gate treats the call as ours.
+        with mock.patch.object(verify, 'ROOT', root), \
+             mock.patch.object(verify, 'changed_lines',
+                               side_effect=lambda rel: (root / rel).read_text()):
+            return verify.swift_contract([self.REL])
+
+    def test_a_matching_pair_passes(self):
+        self.assertEqual(self.check(), [])
+
+    def test_a_call_with_no_swift_case_is_caught(self):
+        out = self.check(swift=self.SWIFT.replace('setAccent', 'setAccentColor'))
+        self.assertEqual(len(out), 1)
+        self.assertIn('no Swift `case "setAccent":`', out[0])
+
+    def test_a_key_spelled_differently_is_caught(self):
+        """The failure that compiles on both sides and does nothing."""
+        out = self.check(swift=self.SWIFT.replace('args["light"]',
+                                                  'args["lightColour"]'))
+        self.assertEqual(len(out), 1)
+        self.assertIn('sends `light`', out[0])
+
+    def test_a_call_this_change_did_not_make_is_not_its_problem(self):
+        import verify
+        root = self.build(swift='switch x {\ndefault: break\n}\n')
+        with mock.patch.object(verify, 'ROOT', root), \
+             mock.patch.object(verify, 'changed_lines', return_value=''):
+            self.assertEqual(verify.swift_contract([self.REL]), [],
+                             'a pre-existing mismatch is somebody else\'s debt')
+
+    def test_a_dart_file_outside_a_plugin_is_skipped(self):
+        import verify
+        root = self.build()
+        (root / 'frontend/lib').mkdir(parents=True)
+        (root / 'frontend/lib/theme.dart').write_text(self.DART)
+        with mock.patch.object(verify, 'ROOT', root), \
+             mock.patch.object(verify, 'changed_lines', return_value='setAccent'):
+            self.assertEqual(verify.swift_contract(['frontend/lib/theme.dart']),
+                             [])
+
+    def test_an_unclosed_brace_is_caught(self):
+        import verify
+        root = self.build(swift=self.SWIFT.replace('}\n', '', 1))
+        rel = 'frontend/packages/native_menu/ios/Classes/Plugin.swift'
+        with mock.patch.object(verify, 'ROOT', root):
+            out = verify.swift_braces([rel])
+        self.assertEqual(len(out), 1)
+        self.assertIn('did not close what it opened', out[0])
+
+    def test_braces_inside_strings_and_comments_do_not_count(self):
+        import verify
+        root = self.build(swift='// a { in a comment\nlet s = "a { in a string"\n')
+        rel = 'frontend/packages/native_menu/ios/Classes/Plugin.swift'
+        with mock.patch.object(verify, 'ROOT', root):
+            self.assertEqual(verify.swift_braces([rel]), [])
+
+    def test_the_real_accent_change_passes_both(self):
+        """This gate's first real case is the change that motivated it."""
+        import verify
+        touched = ['frontend/packages/native_menu/lib/native_menu.dart',
+                   'frontend/packages/native_menu/ios/Classes/Appearance.swift',
+                   'frontend/packages/native_menu/ios/Classes/GlassTabBar.swift',
+                   'frontend/packages/native_menu/ios/Classes/'
+                   'NativeMenuPlugin.swift']
+        self.assertEqual(verify.swift_braces(touched), [])
+        with mock.patch.object(verify, 'changed_lines', return_value='setAccent'):
+            self.assertEqual(verify.swift_contract(touched), [])
+
+
+class SwiftCaveatTest(unittest.TestCase):
+    """Closing a Swift fix with a plain "fixed" overstates what was proved."""
+
+    def close_body(self, paths):
+        h = Harness([answer()])
+        bodies = []
+        with mock.patch.object(run.model, 'ask', h.ask), \
+             mock.patch.object(run.gh, 'ensure_labels'), \
+             mock.patch.object(run.gh, 'claim', return_value=True), \
+             mock.patch.object(run.gh, 'issue',
+                               return_value={'title': 't', 'body': ''}), \
+             mock.patch.object(run.gh, 'close',
+                               side_effect=lambda n, b=None: bodies.append(b)), \
+             mock.patch.object(run.edits_mod, 'apply', return_value=[]), \
+             mock.patch.object(run.edits_mod, 'touched', return_value=paths), \
+             mock.patch.object(run.verify, 'gate', return_value=(True, '', '')), \
+             mock.patch.object(run.verify, 'full_verification',
+                               return_value=(True, '', '')), \
+             mock.patch.object(run.verify, 'touches_arb', return_value=False), \
+             mock.patch.object(run, 'git_reset'), \
+             mock.patch.object(run, 'ship', return_value='abc1234'), \
+             mock.patch('sys.argv', ['run.py', '--issue', '1']):
+            run.main()
+        return bodies[0]
+
+    def test_a_swift_fix_says_nothing_built_it(self):
+        body = self.close_body(['frontend/lib/theme.dart',
+                                'frontend/packages/native_menu/ios/Classes/'
+                                'GlassTabBar.swift'])
+        self.assertIn('was not compiled here', body)
+        self.assertIn('GlassTabBar.swift', body)
+        self.assertIn('macOS', body)
+
+    def test_a_pure_dart_fix_carries_no_caveat(self):
+        body = self.close_body(['frontend/lib/theme.dart'])
+        self.assertNotIn('was not compiled here', body)
+
+
+class SwiftHouseRuleTest(unittest.TestCase):
+    def test_the_channel_contract_is_stated_in_the_cached_prefix(self):
+        import pack
+        rules = pack.house_rules()
+        self.assertIn('CHANNEL CONTRACT', rules)
+        self.assertIn('case "setAccent":', rules)
+        self.assertIn('does nothing at all at runtime', rules)
+
+    def test_the_push_every_variant_rule_is_stated(self):
+        import pack
+        rules = pack.house_rules()
+        self.assertIn('ValueNotifier', rules)
+        self.assertIn('setViewportColor', rules)

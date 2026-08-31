@@ -60,12 +60,10 @@
 import Flutter
 import UIKit
 
-/// M260 — the app's two accents, as UIKit sees them. `T.accent` on the Dart
-/// side: Ember's teal and Chalk's darker one.
-private enum Accent {
-    static let ember = UIColor(red: 0.184, green: 0.663, blue: 0.635, alpha: 1)
-    static let chalk = UIColor(red: 0.059, green: 0.416, blue: 0.439, alpha: 1)
-}
+// M260's two accent constants used to live here. Bug report #11 made the
+// accent something the user picks, so both values now live on
+// `AppearanceBinder` beside the appearance they resolve against, and Dart
+// pushes them over `setAccent`.
 
 struct TabItem {
     let id: String
@@ -143,7 +141,7 @@ final class TouchAwareView: UIView {
 }
 
 @available(iOS 15.0, *)
-final class GlassTabBarView: NSObject, FlutterPlatformView {
+final class GlassTabBarView: NSObject, FlutterPlatformView, AccentFollowing {
     private let container = TouchAwareView()
 
     private let home = GlassGroup()
@@ -177,9 +175,7 @@ final class GlassTabBarView: NSObject, FlutterPlatformView {
     /// Dynamic rather than one constant because M236 gave the app two
     /// palettes; AppearanceBinder pins the trait, so this resolves to the one
     /// Dart says is active.
-    static let accent = UIColor { t in
-        t.userInterfaceStyle == .light ? Accent.chalk : Accent.ember
-    }
+    static var accent: UIColor { AppearanceBinder.shared.accent }
 
     /// The same accent as a chip fill.
     ///
@@ -188,9 +184,12 @@ final class GlassTabBarView: NSObject, FlutterPlatformView {
     /// trait is current at the call and returns a static colour, which would
     /// then be the wrong palette for the rest of the session after a scheme
     /// switch. M237 exists because that class of staleness is hard to see.
-    static let accentFill = UIColor { t in
-        (t.userInterfaceStyle == .light ? Accent.chalk : Accent.ember)
-            .withAlphaComponent(0.30)
+    static var accentFill: UIColor {
+        UIColor { t in
+            (t.userInterfaceStyle == .light
+                ? AppearanceBinder.shared.accentLight
+                : AppearanceBinder.shared.accentDark).withAlphaComponent(0.30)
+        }
     }
 
     /// Trailing cap on the documents capsule. Exactly one is active: the bar
@@ -263,6 +262,10 @@ final class GlassTabBarView: NSObject, FlutterPlatformView {
         // rendered in two schemes. AppearanceBinder does both jobs: always
         // explicit, and it follows a scheme change.
         AppearanceBinder.shared.bind(container)
+        // Bug report #11 — the rows paint with the accent and resolve it at
+        // build time, so a change of accent has to rebuild them. The trait
+        // does not move, so UIKit will not do it for us.
+        AppearanceBinder.shared.bindAccent(self)
 
         container.onTouched = { [weak self] in self?.wake() }
         // Pointer, for the trackpad: on iPadOS reaching for the bar can happen
@@ -430,6 +433,16 @@ final class GlassTabBarView: NSObject, FlutterPlatformView {
     }
 
     // MARK: - Model
+
+    /// Bug report #11 — the accent changed under us; redraw with it.
+    ///
+    /// The same render as the last push, one colour different: `items` is
+    /// exactly what Dart last sent, so nothing is invented and nothing is
+    /// asked of Dart. Cheap enough to do eagerly — this is at most a handful
+    /// of buttons, and it happens when a person taps a settings row.
+    func accentDidChange() {
+        apply(items)
+    }
 
     private func apply(_ tabs: [TabItem]) {
         items = tabs
