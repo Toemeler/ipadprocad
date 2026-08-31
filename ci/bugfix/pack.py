@@ -309,6 +309,15 @@ def house_rules():
   app lacks needs that behaviour built, new functions and new files included.
 - No unrelated refactors, no speculative abstractions, no new dependencies.
 - Comments only where they explain a non-obvious WHY. Never restate the code.
+- USER-FACING CHROME IS NATIVE, NOT MATERIAL. This app's own history is a long
+  march away from Flutter's Material widgets: M266 replaced two Material
+  circles on the gallery header because "they seem like flutter, and they
+  were". Do not introduce `SimpleDialog`, `AlertDialog`, `showDialog`,
+  `SnackBar`, `PopupMenuButton` or Material buttons in the UI. Use what the app
+  already has — `promptForText` in `frontend/lib/widgets/native_prompts.dart`,
+  `NativeMenu`/`NativeMenuItem` from the `native_menu` package, the glass
+  toolbars and tab bars — and follow the nearest existing call site.
+- Tests import through `package:prototype/…`, never a relative `../lib/…` path.
 - Match the style of the code you are editing, including its milestone-tagged
   comment convention (`// M284 — …`) when you add a comment near one.
 - Swift under `frontend/packages/*/ios/` CANNOT be compiled on Linux. Changing

@@ -140,7 +140,19 @@ def test(paths=None, timeout=None):
     return code == 0, out
 
 
-def gate(apply_tests, apply_code, revert, test_paths):
+# A pre-fix run that failed to COMPILE proves only that a symbol was missing.
+COMPILE_FAIL_RE = re.compile(
+    r'Failed to load|Compilation failed|Error: Method not found|'
+    r"Error: (?:The (?:method|getter|setter) '[^']+' isn't defined|"
+    r"Type '[^']+' not found|Undefined name)",
+    re.IGNORECASE)
+
+
+def failed_to_compile(output):
+    return bool(COMPILE_FAIL_RE.search(output or ''))
+
+
+def gate(apply_tests, apply_code, revert, test_paths, allow_weak=False):
     """The test-first gate. -> (ok, reason, log)
 
     `apply_tests`, `apply_code` and `revert` are callables so this function
@@ -157,6 +169,26 @@ def gate(apply_tests, apply_code, revert, test_paths):
                 'the new test PASSES without your fix, so it pins nothing. '
                 'Write a test that fails against the current code and passes '
                 'with your change.',
+                clip(out))
+
+    if failed_to_compile(out) and not allow_weak:
+        # The loophole this closes, found on issue #9's shipped fix: the test
+        # asserted `exportFormatsFor('part') == ['stl','step']` against a pure
+        # helper added by the same commit. It "failed before the fix" because
+        # the symbol did not COMPILE, not because it described behaviour that
+        # was wrong — and by that standard any test naming any new symbol
+        # passes this gate automatically. It tested neither the dialog ordering
+        # the report asked for nor a byte of the file it writes.
+        revert()
+        return (False,
+                'your test failed before the fix only because the code it '
+                'names does not exist yet — that is a compile error, not a '
+                'regression pin, and a test like it would pass this check no '
+                'matter how the feature behaved. Assert the BEHAVIOUR the '
+                'report describes: the order things happen in, the values '
+                'produced, the bytes written. Keep the new symbols, and add at '
+                'least one assertion that would still fail if they existed but '
+                'were wrong.',
                 clip(out))
 
     err = apply_code()

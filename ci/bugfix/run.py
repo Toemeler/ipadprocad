@@ -253,6 +253,11 @@ def main():
     print(f'pack: ~{(len(prefix) + len(issue_body)) // 4} tokens, files={ranked}')
 
     history, spent = [], 0.0
+    # Some features genuinely cannot be asserted without naming new symbols, so
+    # the weak-pin rejection fires ONCE and then stands down rather than
+    # looping. A weak pin that ships is still better than no fix; a weak pin
+    # nobody was asked to improve is the thing worth preventing.
+    weak_pin_rejections = 0
     expanded, expand_rounds = set(ranked), 0
     # Why the last round ended. Seeded rather than left empty: issue #9's
     # re-run blocked with a BLANK "Last failure" because every early `continue`
@@ -383,7 +388,10 @@ def main():
             lambda: applied.setdefault('t', edits_mod.apply(tests, ROOT)),
             apply_code,
             git_reset,
-            test_paths)
+            test_paths,
+            allow_weak=weak_pin_rejections > 0)
+        if not ok and 'regression pin' in reason:
+            weak_pin_rejections += 1
 
         if ok:
             ok, reason, log = verify.full_verification()

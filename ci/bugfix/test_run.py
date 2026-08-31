@@ -23,6 +23,7 @@ WHAT IS ASSERTED
   * a rebase conflict blocks rather than becoming a force-push;
   * a failed edit sends the file's real source back, not just the error;
   * EVERY losing path records why, so the blocked comment is never blank;
+  * a test that only fails to COMPILE before the fix is rejected as no pin;
   * the happy path ships exactly once.
 
 Run:  python3 -m unittest discover -s ci/bugfix -p 'test_*.py'
@@ -379,3 +380,84 @@ class ExpandServingTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class WeakPinTest(unittest.TestCase):
+    """A test must fail on BEHAVIOUR, not on a missing symbol.
+
+    Issue #9's shipped fix exposed the hole: its test asserted
+    `exportFormatsFor('part') == ['stl','step']` against a pure helper added by
+    the same commit, so it "failed before the fix" because the symbol did not
+    compile. By that standard any test naming any new symbol passes the gate,
+    which makes the gate decorative.
+    """
+
+    def test_compile_failure_is_recognised(self):
+        import verify
+        for out in ("Failed to load \"x_test.dart\": Does not exist.",
+                    'Compilation failed for testPath=/x',
+                    "Error: Method not found: 'partExportStl'.",
+                    "Error: The method 'foo' isn't defined for the type 'Bar'.",
+                    "Error: Type 'NativeMenuItem' not found."):
+            with self.subTest(out=out[:40]):
+                self.assertTrue(verify.failed_to_compile(out))
+
+    def test_assertion_failure_is_not_a_compile_failure(self):
+        import verify
+        for out in ('Expected: [1, 2]\n  Actual: [1, 3]',
+                    'Expected: exactly one matching candidate\n  Actual: zero',
+                    '00:03 +12 -1: some test [E]'):
+            with self.subTest(out=out[:40]):
+                self.assertFalse(verify.failed_to_compile(out))
+
+    def test_gate_rejects_a_compile_only_pin(self):
+        import verify
+        ok, reason, _ = verify.gate(
+            apply_tests=lambda: [],
+            apply_code=lambda: [],
+            revert=lambda: None,
+            test_paths=['frontend/test/x_test.dart'],
+            allow_weak=False)
+        # `flutter` is absent here, so test() returns 127 with "not installed"
+        # — not a compile failure, so this must NOT be the weak-pin rejection.
+        self.assertFalse(ok)
+        self.assertNotIn('regression pin', reason)
+
+    def test_gate_stands_down_when_weak_is_allowed(self):
+        import verify
+        seen = {}
+
+        def fake_test(paths=None, timeout=None):
+            seen['n'] = seen.get('n', 0) + 1
+            return (False, 'Compilation failed for testPath=/x')
+
+        original = verify.test
+        verify.test = fake_test
+        try:
+            ok, reason, _ = verify.gate(lambda: [], lambda: [], lambda: None,
+                                        ['frontend/test/x_test.dart'],
+                                        allow_weak=False)
+            self.assertIn('regression pin', reason)
+            ok2, reason2, _ = verify.gate(lambda: [], lambda: [], lambda: None,
+                                          ['frontend/test/x_test.dart'],
+                                          allow_weak=True)
+            # With weak allowed it proceeds past the pin check and fails later,
+            # for a different reason.
+            self.assertNotIn('regression pin', reason2)
+        finally:
+            verify.test = original
+
+
+class HouseRulesTest(unittest.TestCase):
+    """The conventions that the shipped #9 fix violated."""
+
+    def test_native_chrome_rule_is_stated(self):
+        import pack
+        rules = pack.house_rules()
+        self.assertIn('SimpleDialog', rules)
+        self.assertIn('native_prompts.dart', rules)
+        self.assertIn('NativeMenuItem', rules)
+
+    def test_package_import_rule_is_stated(self):
+        import pack
+        self.assertIn('package:prototype', pack.house_rules())
