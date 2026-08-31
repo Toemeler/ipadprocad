@@ -92,7 +92,7 @@ workflow log rather than on next month's invoice.
 | `edits.py` | Search/replace block format, parsing and all-or-nothing application. Enforces forbidden paths. |
 | `verify.py` | `analyze`, `test`, and the test-first gate. |
 | `run.py` | The loop: ask → gate → verify → ship, or escalate, or block. |
-| `test_*.py` | 138 tests. Run by the workflow *before* the model is called. |
+| `test_*.py` | 141 tests. Run by the workflow *before* the model is called. |
 
 ## Setup
 
@@ -177,9 +177,12 @@ one thing this system is careful never to do.
 - **Prefix drift is silent.** A timestamp or an issue number accidentally
   placed ahead of the pack in `model.SYSTEM` costs 30× on every call and breaks
   nothing visibly. If the printed cost per run climbs, look there first.
-- **Hard bugs still block.** After four rounds it labels `openhands-blocked`,
+- **Hard bugs still block.** After six rounds it labels `openhands-blocked`,
   posts what failed, and pushes nothing — the same outcome as before, reached
-  for about $0.05 instead of $3.12.
+  for about $0.45 at the very worst instead of $3.12. Six rather than four
+  because issue #11's rounds converged rather than repeated and it ran out one
+  short, twice; a bug that is genuinely misunderstood still fails fast, since
+  most issues finish in one or two.
 
 ## Untrusted input
 

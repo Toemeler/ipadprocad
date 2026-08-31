@@ -1017,3 +1017,36 @@ class ClaimTest(unittest.TestCase):
         wf = (pathlib.Path(run.__file__).resolve().parents[2]
               / '.github' / 'workflows' / 'bugfix.yml').read_text()
         self.assertIn("github.event_name == 'workflow_dispatch' && '--force'", wf)
+
+
+class TreeIsResetTest(unittest.TestCase):
+    """The model's own previous patch is still in its context. The tree is not.
+
+    Issue #11's fifth round searched `settings.dart` for
+    `import 'dart:ui' show Color, Locale;`. No such line exists — it is what
+    the model's OWN earlier round had tried to make out of the real
+    `import 'dart:ui' show Locale;`, and `git_reset` had thrown that away
+    before the prompt was written. Nothing in the prompt said so.
+    """
+
+    def test_the_repair_prompt_says_the_tree_was_reset(self):
+        import rank
+        text = run.repair_prompt(rank.Index(), 'the code edits did not apply',
+                                 'SEARCH text not found', 'accent colour',
+                                 ['frontend/lib/settings.dart'])
+        self.assertIn('RESET', text)
+        self.assertIn('back to how the repository has it', text)
+        self.assertIn('ORIGINAL', text)
+
+    def test_it_is_said_before_the_source_is_shown(self):
+        import rank
+        text = run.repair_prompt(rank.Index(), 'the code edits did not apply',
+                                 'SEARCH text not found', 'accent colour',
+                                 ['frontend/lib/settings.dart'])
+        self.assertLess(text.index('RESET'), text.index('byte for byte'),
+                        'the warning has to arrive before the code it is about')
+
+    def test_a_converging_run_gets_more_than_four_rounds(self):
+        # #11 ran out one round short, twice, on a feature whose rounds did not
+        # repeat: weak pin -> compile error -> failing test -> one SEARCH miss.
+        self.assertGreaterEqual(run.MAX_ROUNDS, 6)

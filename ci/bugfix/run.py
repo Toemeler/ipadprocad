@@ -49,10 +49,25 @@ import verify
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 
-# One diagnose call plus at most three repairs. Past that the failures in the
-# measured sessions stopped converging and a human is cheaper than a fourth
-# guess; the protocol's blocked path exists for exactly this.
-MAX_ROUNDS = 4
+# One diagnose call plus at most five repairs.
+#
+# Four was chosen for BUGS, and it is right for them: #9 and #10 both shipped
+# in three, and a bug whose fourth attempt still fails is usually one the model
+# has misunderstood rather than one it is closing in on.
+#
+# Issue #11 is a FEATURE — a persisted setting, an override in `theme.dart`,
+# a row in `settings.dart` and tap routing in both the native sheet and its
+# Flutter fallback — and its rounds did not repeat, they converged: a weak
+# pin, then a compile error, then a test that did not pass, then a single
+# SEARCH that missed. It ran out one round short, twice.
+#
+# The cost of the extra two is bounded and small. A round on this issue is
+# about $0.07, nearly all of it reasoning tokens, so the worst case moves from
+# ~$0.30 to ~$0.45 — still five to ten times cheaper than the $1.49-$3.12
+# sessions this replaced, and it changes nothing for the issues that finish in
+# one or two rounds, which is most of them. A converging process is the one
+# case where more rounds are worth buying.
+MAX_ROUNDS = 6
 
 # How many rounds may be spent looking rather than fixing.
 #
@@ -215,7 +230,27 @@ def repair_prompt(index, reason, log, query, paths):
     A failed edit names its file. Serving that file's slices costs about
     $0.004 and turns a guess into a read.
     """
-    body = (f'That did not work: {reason}\n\n```\n{log}\n```\n\n')
+    body = (
+        f'That did not work: {reason}\n\n```\n{log}\n```\n\n'
+        # THE MODEL CANNOT SEE THE TREE, AND IT ASSUMES ITS LAST PATCH STUCK.
+        #
+        # Every round is appended to the conversation, so the model's own
+        # previous <file> blocks are still in front of it — but `git_reset`
+        # threw them away before this prompt was written. Nothing said so, and
+        # on issue #11 the fifth round searched settings.dart for
+        #
+        #     import \'dart:ui\' show Color, Locale;
+        #
+        # which is not a line in the repository. It is the line the model\'s
+        # OWN earlier round had tried to create, out of the real
+        # `import \'dart:ui\' show Locale;`. The edit could not apply, the round
+        # was spent, and the run ran out. One sentence closes it.
+        'The working tree has been RESET. Every edit from your earlier '
+        'answers has been thrown away and every file is back to how the '
+        'repository has it — including any line you already changed once. '
+        'Write this answer as a complete fix against the ORIGINAL files, and '
+        'take every SEARCH from the source shown below rather than from what '
+        'you wrote before.\n\n')
     if paths:
         # The SEARCH that failed is the most precise query available: it names
         # the symbol the model was reaching for. Grep the file for it rather
