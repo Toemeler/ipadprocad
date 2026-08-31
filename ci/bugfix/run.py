@@ -449,6 +449,10 @@ def main():
                     return [f'gen-l10n failed after your ARB edit:\n{out}']
             return []
 
+        def reapply():
+            errs = edits_mod.apply(tests, ROOT)
+            return errs or apply_code()
+
         ok, reason, log = verify.gate(
             lambda: applied.setdefault('t', edits_mod.apply(tests, ROOT)),
             apply_code,
@@ -459,7 +463,9 @@ def main():
             weak_pin_rejections += 1
 
         if ok:
-            ok, reason, log = verify.full_verification()
+            # revert/reapply so a test that is red on `main` anyway is not
+            # charged to this fix; see verify.full_verification.
+            ok, reason, log = verify.full_verification(git_reset, reapply)
 
         if ok:
             paths = edits_mod.touched(parsed)

@@ -863,3 +863,100 @@ class HouseRulesTest(unittest.TestCase):
     def test_package_import_rule_is_stated(self):
         import pack
         self.assertIn('package:prototype', pack.house_rules())
+
+
+class PreexistingFailureTest(unittest.TestCase):
+    """A test that is red on `main` must not be charged to the model's fix.
+
+    This is not hypothetical tidiness. `s10_analyze_memory_test` compares two
+    RSS deltas, and its instrument gate sat exactly on the line where a reading
+    is provably impossible instead of where it stops being trustworthy — so it
+    failed on `main` at 45d1222a, skipped on the next run of the same code, and
+    the whole suite is the pipeline's last gate. Every fix written while it was
+    red would have been rejected for it, handed a log about `solver.dart`, and
+    told to try again.
+    """
+
+    GITHUB_OUT = (
+        '::group::❌ /home/runner/work/ipadprocad/ipadprocad/frontend/'
+        'test/s10_analyze_memory_test.dart: the dense algorithm (failed)\n'
+        'Expected: a value less than <33464320>\n'
+        '::endgroup::\n'
+        '::error::2993 tests passed, 1 failed.\n')
+
+    PLAIN_OUT = ('00:41 +2993 -1: test/s10_analyze_memory_test.dart: '
+                 'the dense algorithm [E]\n')
+
+    def test_reads_the_failing_file_from_the_actions_reporter(self):
+        import verify
+        self.assertEqual(verify.failing_test_files(self.GITHUB_OUT),
+                         ['frontend/test/s10_analyze_memory_test.dart'])
+
+    def test_reads_the_failing_file_from_the_plain_reporter(self):
+        import verify
+        self.assertEqual(verify.failing_test_files(self.PLAIN_OUT),
+                         ['frontend/test/s10_analyze_memory_test.dart'])
+
+    def test_passing_output_names_nothing(self):
+        import verify
+        self.assertEqual(verify.failing_test_files('All tests passed!'), [])
+
+    def _drive(self, single_result):
+        """full_verification with a red suite; the single re-run decides."""
+        import verify
+        calls = {'revert': 0, 'reapply': 0, 'single': None}
+
+        def fake_test(paths=None, timeout=None):
+            if paths is None:
+                return False, self.GITHUB_OUT
+            calls['single'] = paths
+            return single_result, ''
+
+        def revert():
+            calls['revert'] += 1
+
+        def reapply():
+            calls['reapply'] += 1
+            return []
+
+        with mock.patch.object(verify, 'analyze', return_value=(True, '')), \
+             mock.patch.object(verify, 'test', side_effect=fake_test):
+            out = verify.full_verification(revert, reapply)
+        return out, calls
+
+    def test_a_failure_that_survives_the_revert_is_not_the_fix(self):
+        (ok, reason, _), calls = self._drive(single_result=False)
+        self.assertTrue(ok, 'a test red on main must not block the fix')
+        self.assertEqual(reason, '')
+        self.assertEqual(calls['revert'], 1)
+        self.assertEqual(calls['reapply'], 1, 'the fix must be put back')
+        self.assertEqual(calls['single'],
+                         ['frontend/test/s10_analyze_memory_test.dart'])
+
+    def test_a_failure_that_goes_away_on_the_revert_is_the_fix(self):
+        (ok, reason, _), calls = self._drive(single_result=True)
+        self.assertFalse(ok, 'the fix broke it — that must still block')
+        self.assertIn('full suite', reason)
+        self.assertEqual(calls['reapply'], 1)
+
+    def test_without_revert_and_reapply_it_stays_all_or_nothing(self):
+        import verify
+        with mock.patch.object(verify, 'analyze', return_value=(True, '')), \
+             mock.patch.object(verify, 'test',
+                               return_value=(False, self.GITHUB_OUT)):
+            ok, reason, _ = verify.full_verification()
+        self.assertFalse(ok)
+        self.assertIn('full suite', reason)
+
+    def test_a_fix_that_cannot_be_re_applied_blocks(self):
+        import verify
+
+        def fake_test(paths=None, timeout=None):
+            return (False, self.GITHUB_OUT) if paths is None else (False, '')
+
+        with mock.patch.object(verify, 'analyze', return_value=(True, '')), \
+             mock.patch.object(verify, 'test', side_effect=fake_test):
+            ok, reason, _ = verify.full_verification(
+                lambda: None, lambda: ['no <<<<<<< SEARCH match'])
+        self.assertFalse(ok)
+        self.assertIn('re-applied', reason)

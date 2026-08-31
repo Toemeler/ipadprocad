@@ -467,12 +467,72 @@ def gate(apply_tests, apply_code, revert, test_paths, allow_weak=False):
     return True, '', ''
 
 
-def full_verification():
-    """analyze + the whole suite. -> (ok, reason, log)"""
+# A failing test, in either reporter. Actions sets GITHUB_ACTIONS, so
+# `flutter test` prints `::group::❌ /abs/path/x_test.dart: name (failed)`;
+# run by hand it prints `path/x_test.dart: name [E]`.
+FAILED_LINE_RE = re.compile(r'\u274c|\[E\]')
+TEST_FILE_RE = re.compile(r'([\w./-]*?[\w-]+_test\.dart)')
+
+
+def failing_test_files(output):
+    """-> repo-relative test files named on a failing line, in order, no dupes."""
+    seen = []
+    for line in (output or '').splitlines():
+        if not FAILED_LINE_RE.search(line):
+            continue
+        m = TEST_FILE_RE.search(line)
+        if not m:
+            continue
+        path = m.group(1)
+        cut = path.find('frontend/test/')
+        path = path[cut:] if cut >= 0 else path
+        if not path.startswith('frontend/'):
+            path = 'frontend/' + path.lstrip('/')
+        if path not in seen:
+            seen.append(path)
+    return seen
+
+
+def full_verification(revert=None, reapply=None):
+    """analyze + the whole suite. -> (ok, reason, log)
+
+    WHY THIS TAKES revert/reapply
+    -----------------------------
+    The suite is the last gate and it is all-or-nothing, so ANY red test on
+    `main` blocks every fix the pipeline could ever write — the model is
+    charged for a failure it did not cause, gets handed a log about code it
+    never touched, and burns its four rounds guessing at it.
+
+    That is not hypothetical. `s10_analyze_memory_test` measures RSS deltas and
+    its own instrument gate was set at the line where a reading is provably
+    impossible rather than where it stops being trustworthy, so it failed on
+    `main` at 45d1222a and skipped on the very next run of the same commit
+    range. Issue #11 was in the fixer at the time.
+
+    "The diff did not touch that file" is not enough to acquit a change — a
+    one-line edit to `theme.dart` breaks `m236_theme_test` — so the check is
+    the only one that settles it: revert everything, run exactly the files that
+    failed, and see whether they still fail with the fix gone. If they do, the
+    fix did not cause them. Without `revert`/`reapply` the old all-or-nothing
+    behaviour is kept, which is what the unit tests want.
+    """
     ok, out = analyze()
     if not ok:
         return False, '`flutter analyze` reports errors', clip(out)
     ok, out = test()
-    if not ok:
-        return False, '`flutter test` (full suite) fails', clip(out)
-    return True, '', ''
+    if ok:
+        return True, '', ''
+
+    red = failing_test_files(out) if (revert and reapply) else []
+    if red:
+        revert()
+        clean, _ = test(red)
+        errs = reapply()
+        if errs:
+            return (False, 'the fix could not be re-applied after checking '
+                    'whether the failure was pre-existing', clip(str(errs)))
+        if not clean:
+            print('  full suite: ' + ', '.join(red) + ' fail on main WITHOUT '
+                  'this change too — not charging them to the fix')
+            return True, '', ''
+    return False, '`flutter test` (full suite) fails', clip(out)
