@@ -29,6 +29,7 @@ WHAT IS ASSERTED
 Run:  python3 -m unittest discover -s ci/bugfix -p 'test_*.py'
 """
 import pathlib
+import subprocess
 import tempfile
 import unittest
 import urllib.error
@@ -291,7 +292,10 @@ class RepairPromptTest(unittest.TestCase):
              mock.patch('sys.argv', ['run.py', '--issue', '1',
                                      '--max-rounds', '2']):
             run.main()
-        self.assertEqual(len(h.asked), 2)
+        # More than two rounds now, and deliberately: an anchor miss no
+        # longer spends the fix budget (MAX_APPLY_ROUNDS). What this test is
+        # about is unchanged — the SECOND prompt carries the file's real code.
+        self.assertGreaterEqual(len(h.asked), 2)
         self.assertIn('home_view.dart', h.asked[1])
         self.assertIn('```dart', h.asked[1])
 
@@ -1060,3 +1064,136 @@ class TreeIsResetTest(unittest.TestCase):
         # #11 ran out one round short, twice, on a feature whose rounds did not
         # repeat: weak pin -> compile error -> failing test -> one SEARCH miss.
         self.assertGreaterEqual(run.MAX_ROUNDS, 6)
+
+
+class ApplyBudgetTest(unittest.TestCase):
+    """A SEARCH that misses is a mechanical failure, not a wrong diagnosis.
+
+    Issue #11's sixth, seventh and eighth attempts lost FIVE of nineteen rounds
+    to "the code edits did not apply". The eighth had a complete, verified fix
+    on its round 8 — reachable only because expands were already exempt from
+    the budget. Anchor misses now get the same bounded exemption.
+    """
+
+    def test_the_apply_failures_are_recognised(self):
+        for reason in ('the code edits did not apply',
+                       'the test edits did not apply',
+                       'the answer could not be applied'):
+            self.assertTrue(run.is_apply_failure(reason), reason)
+
+    def test_a_wrong_fix_is_not_one_of_them(self):
+        for reason in ('with your fix applied, your own new test still fails',
+                       'the new test PASSES without your fix, so it pins '
+                       'nothing.',
+                       '`flutter analyze` reports errors',
+                       '`flutter test` (full suite) fails'):
+            self.assertFalse(run.is_apply_failure(reason), reason)
+
+    def test_the_exemption_is_bounded(self):
+        self.assertEqual(run.MAX_APPLY_ROUNDS, 2)
+
+    def test_a_model_that_never_applies_still_terminates(self):
+        """The exemption is used, and then the budget bites anyway."""
+        h = Harness([answer()] * 12)
+        with mock.patch.object(run.model, 'ask', h.ask), \
+             mock.patch.object(run.gh, 'ensure_labels'), \
+             mock.patch.object(run.gh, 'claim', return_value=True), \
+             mock.patch.object(run.gh, 'issue',
+                               return_value={'title': 't', 'body': ''}), \
+             mock.patch.object(run.gh, 'block',
+                               side_effect=lambda n, b: h.blocked.append(b)), \
+             mock.patch.object(run.edits_mod, 'apply', return_value=[]), \
+             mock.patch.object(
+                 run.verify, 'gate',
+                 return_value=(False, 'the code edits did not apply', '')), \
+             mock.patch.object(run, 'git_reset'), \
+             mock.patch.object(run, 'ship', side_effect=AssertionError), \
+             mock.patch('sys.argv', ['run.py', '--issue', '1',
+                                     '--max-rounds', '2']):
+            code = run.main()
+        self.assertEqual(code, 1)
+        self.assertEqual(len(h.blocked), 1, 'it must still block')
+        self.assertEqual(len(h.asked), 2 + run.MAX_APPLY_ROUNDS,
+                         'two exempted anchor misses, then the fix budget')
+
+
+class LandingTest(unittest.TestCase):
+    """`main` moves under a twenty-minute run. That is normal, not an error."""
+
+    def test_a_rejected_push_is_retried_from_a_fresh_fetch(self):
+        calls = []
+
+        def fake_sh(*args):
+            calls.append(args)
+            return 'abc1234'
+
+        pushes = [1, 0]  # rejected once, then accepted
+
+        def fake_run(argv, **kw):
+            calls.append(tuple(argv))
+            rc = 0
+            if argv[:2] == ['git', 'push']:
+                rc = pushes.pop(0)
+            return subprocess.CompletedProcess(argv, rc, '', '')
+
+        with mock.patch.object(run, 'sh', side_effect=fake_sh), \
+             mock.patch.object(run.subprocess, 'run', side_effect=fake_run):
+            sha = run._land()
+        self.assertEqual(sha, 'abc1234')
+        fetches = [c for c in calls if c[:2] == ('git', 'fetch')]
+        self.assertEqual(len(fetches), 2, 'the retry must re-fetch, not reuse')
+
+    def test_a_push_that_never_lands_still_raises(self):
+        def fake_run(argv, **kw):
+            rc = 1 if argv[:2] == ['git', 'push'] else 0
+            return subprocess.CompletedProcess(argv, rc, '', 'rejected')
+
+        with mock.patch.object(run, 'sh', return_value=''), \
+             mock.patch.object(run.subprocess, 'run', side_effect=fake_run):
+            with self.assertRaises(run.RebaseConflict):
+                run._land()
+
+    def test_a_real_content_conflict_still_raises_at_once(self):
+        def fake_run(argv, **kw):
+            rc = 1 if argv[:2] == ['git', 'rebase'] else 0
+            return subprocess.CompletedProcess(argv, rc, 'CONFLICT', '')
+
+        # `git diff --diff-filter=U` names a source file, not just the log.
+        with mock.patch.object(run, 'sh',
+                               return_value='frontend/lib/theme.dart'), \
+             mock.patch.object(run.subprocess, 'run', side_effect=fake_run):
+            with self.assertRaises(run.RebaseConflict):
+                run._land()
+
+    def test_the_append_only_log_keeps_both_entries(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            notes = root / run.NOTES
+            notes.parent.mkdir(parents=True)
+            notes.write_text('- #9 — first.\n'
+                             '<<<<<<< HEAD\n'
+                             '- #10 — theirs.\n'
+                             '=======\n'
+                             '- #11 — ours.\n'
+                             '>>>>>>> abc123\n')
+            with mock.patch.object(run, 'ROOT', root), \
+                 mock.patch.object(run, 'sh', return_value=run.NOTES), \
+                 mock.patch.object(
+                     run.subprocess, 'run',
+                     return_value=subprocess.CompletedProcess([], 0, '', '')):
+                self.assertTrue(run._keep_both_notes())
+            self.assertEqual(notes.read_text(),
+                             '- #9 — first.\n- #10 — theirs.\n- #11 — ours.\n')
+
+
+class SystemPromptTest(unittest.TestCase):
+    def test_the_compile_error_pin_is_in_the_cached_prefix(self):
+        """It was rejected on round 2 of all three logged #11 attempts.
+
+        The rejection text lived only in `verify.gate`, so every run paid an
+        expensive round (21k-27k output tokens) to be told it. The prefix is a
+        cache hit at $0.0441/M, so saying it up front is very nearly free.
+        """
+        import model
+        self.assertIn('COMPILE ERROR IS NOT A FAILING TEST', model.SYSTEM)
+        self.assertIn('BEHAVIOUR', model.SYSTEM)

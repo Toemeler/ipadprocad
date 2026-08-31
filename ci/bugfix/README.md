@@ -92,7 +92,7 @@ workflow log rather than on next month's invoice.
 | `edits.py` | Search/replace block format, parsing and all-or-nothing application. Enforces forbidden paths. |
 | `verify.py` | `analyze`, `test`, and the test-first gate. |
 | `run.py` | The loop: ask → gate → verify → ship, or escalate, or block. |
-| `test_*.py` | 142 tests. Run by the workflow *before* the model is called. |
+| `test_*.py` | 151 tests. Run by the workflow *before* the model is called. |
 
 ## Setup
 
@@ -177,6 +177,16 @@ one thing this system is careful never to do.
 - **Prefix drift is silent.** A timestamp or an issue number accidentally
   placed ahead of the pack in `model.SYSTEM` costs 30× on every call and breaks
   nothing visibly. If the printed cost per run climbs, look there first.
+- **A miss on the anchor is not a wrong fix.** A SEARCH that does not match is
+  mechanical, so it gets a bounded exemption from the fix budget
+  (`MAX_APPLY_ROUNDS`) the way `expand` does. Issue #11 lost five of nineteen
+  rounds across three attempts to exactly that, and its eighth attempt reached
+  a complete verified fix only on round 8 of a budget of 6.
+- **`main` moving mid-run is normal.** `ship()` re-fetches and retries the push
+  once, and resolves the one file that always collides for a reason that is not
+  a disagreement — every fix appends to the end of `AUTOMATION_NOTES.md`, so
+  both entries are kept. A genuine content conflict still raises at once and
+  `main` is never forced.
 - **Hard bugs still block.** After six rounds it labels `openhands-blocked`,
   posts what failed, and pushes nothing — the same outcome as before, reached
   for about $0.45 at the very worst instead of $3.12. Six rather than four

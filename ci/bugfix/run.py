@@ -69,6 +69,28 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 # case where more rounds are worth buying.
 MAX_ROUNDS = 6
 
+# Failures that mean "your edits did not land", as opposed to "your fix is
+# wrong". A SEARCH that does not match is a mechanical miss: the diagnosis may
+# be perfect and only the anchor text was off.
+#
+# Charging those to the fix budget is what ran issue #11 out of rounds. Across
+# its sixth, seventh and eighth attempts, FIVE of nineteen rounds died this
+# way — and the eighth attempt, which did produce a complete verified fix,
+# reached it on round 8 of a budget of 6 only because expands are already
+# exempt. A model that cannot emit applicable edits at all must still
+# terminate, so the exemption is bounded like the expand one.
+APPLY_FAILURES = (
+    'the answer could not be applied',
+    'the code edits did not apply',
+    'the test edits did not apply',
+)
+MAX_APPLY_ROUNDS = 2
+
+
+def is_apply_failure(reason):
+    return any(reason.startswith(m) for m in APPLY_FAILURES)
+
+
 # How many rounds may be spent looking rather than fixing.
 #
 # Issue #9's third run spent ALL FOUR asking to see `occt_engine.dart`, hunting
@@ -330,15 +352,74 @@ def ship(number, subject, root_cause, paths, dry_run):
     sh('git', 'commit', '-m',
        f'Update AUTOMATION_NOTES.md: log bug-report issue #{number}')
 
-    sh('git', 'fetch', 'origin', 'main')
-    rebase = subprocess.run(['git', 'rebase', 'origin/main'], cwd=ROOT,
-                            capture_output=True, text=True)
-    if rebase.returncode != 0:
-        subprocess.run(['git', 'rebase', '--abort'], cwd=ROOT,
-                       capture_output=True)
-        raise RebaseConflict(rebase.stdout + rebase.stderr)
-    sh('git', 'push', 'origin', 'HEAD:main')
-    return sh('git', 'rev-parse', '--short', 'HEAD~1')
+    return _land()
+
+
+# `main` MOVING IS NORMAL, NOT EXCEPTIONAL.
+#
+# A run takes fifteen to thirty minutes, and this repository has humans and
+# other agents pushing to `main` throughout. The first version fetched once,
+# rebased once, pushed once and gave up on any failure — so issue #11's eighth
+# attempt, which had produced a complete fix and taken it green through the
+# test-first gate, `flutter analyze` and the whole suite, lost every bit of it
+# because unrelated commits had landed while it worked.
+#
+# Two attempts, because the race it loses is narrow: `main` can move between
+# the fetch and the push, and a retry starts from a fresh fetch. A genuine
+# CONTENT conflict does not become resolvable by trying again, so that still
+# raises on the first occurrence — and `main` is still never forced.
+LAND_ATTEMPTS = 2
+
+# The one file that collides for a reason which is not a disagreement: every
+# shipped fix appends a line to the END of it, so two runs — or a run and a
+# person — appending independently always meet on the last line. Both lines
+# belong in the log, in either order, so this is resolved by keeping both
+# rather than by asking a human which fix to forget.
+NOTES = 'bugreports/AUTOMATION_NOTES.md'
+
+
+def _land():
+    """Rebase onto a moving `main` and push. -> the fix's short sha."""
+    last = ''
+    for attempt in range(LAND_ATTEMPTS):
+        sh('git', 'fetch', 'origin', 'main')
+        rebase = subprocess.run(['git', 'rebase', 'origin/main'], cwd=ROOT,
+                                capture_output=True, text=True)
+        if rebase.returncode != 0 and not _keep_both_notes():
+            subprocess.run(['git', 'rebase', '--abort'], cwd=ROOT,
+                           capture_output=True)
+            raise RebaseConflict(rebase.stdout + rebase.stderr)
+        push = subprocess.run(['git', 'push', 'origin', 'HEAD:main'], cwd=ROOT,
+                              capture_output=True, text=True)
+        if push.returncode == 0:
+            return sh('git', 'rev-parse', '--short', 'HEAD~1')
+        last = (push.stdout + push.stderr).strip()
+        print(f'  push rejected ({LAND_ATTEMPTS - attempt - 1} retry left): '
+              + (last.splitlines()[-1] if last else '?'))
+    raise RebaseConflict('`main` moved under every push attempt:\n' + last)
+
+
+def _keep_both_notes():
+    """Resolve an append-only collision in the notes log. -> True if resolved.
+
+    Only when the notes file is the ONLY thing conflicting. Anything else is a
+    real disagreement about code, and not this function to settle.
+    """
+    conflicted = sh('git', 'diff', '--name-only', '--diff-filter=U').split()
+    if conflicted != [NOTES]:
+        return False
+    path = ROOT / NOTES
+    kept = [ln for ln in path.read_text(encoding='utf-8').splitlines()
+            if not ln.startswith(('<<<<<<<', '=======', '>>>>>>>'))]
+    path.write_text('\n'.join(kept) + '\n', encoding='utf-8')
+    sh('git', 'add', '--', NOTES)
+    cont = subprocess.run(['git', 'rebase', '--continue'], cwd=ROOT,
+                          capture_output=True, text=True,
+                          env={**os.environ, 'GIT_EDITOR': 'true'})
+    if cont.returncode != 0:
+        return False
+    print(f'  {NOTES} collided on its last line; kept both entries')
+    return True
 
 
 def main():
@@ -371,6 +452,7 @@ def main():
     # nobody was asked to improve is the thing worth preventing.
     weak_pin_rejections = 0
     expanded, expand_rounds = set(ranked), 0
+    apply_rounds = 0
     # Why the last round ended. Seeded rather than left empty: issue #9's
     # re-run blocked with a BLANK "Last failure" because every early `continue`
     # below skipped the assignment, and the comment is the whole handoff to a
@@ -392,7 +474,8 @@ def main():
     fix_rounds = 0
     while fix_rounds < args.max_rounds:
         round_no += 1
-        if round_no > args.max_rounds + MAX_EXPAND_ROUNDS:
+        # The hard stop, in case a budget exemption ever fails to terminate.
+        if round_no > args.max_rounds + MAX_EXPAND_ROUNDS + MAX_APPLY_ROUNDS:
             break
         reply, usage, truncated = model.ask(prefix, issue_body, history)
         spent += model.cost(usage)
@@ -463,6 +546,9 @@ def main():
         if errors or not parsed:
             note(round_no, 'the answer could not be applied',
                  '\n'.join(errors or ['no <file> blocks found']))
+            apply_rounds += 1
+            if apply_rounds <= MAX_APPLY_ROUNDS:
+                fix_rounds -= 1  # a miss on the anchor is not a wrong fix
             issue_body = repair_prompt(
                 index, 'your answer could not be applied',
                 '\n'.join(errors or ['no <file> blocks found']),
@@ -543,6 +629,10 @@ def main():
             return 0
 
         note(round_no, reason, log)
+        if is_apply_failure(reason):
+            apply_rounds += 1
+            if apply_rounds <= MAX_APPLY_ROUNDS:
+                fix_rounds -= 1
         git_reset()
         missing = failed_paths(
             [e for v in applied.values() for e in (v or [])]

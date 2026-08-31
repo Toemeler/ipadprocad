@@ -128,6 +128,15 @@ RULES ON THE TEST — these are checked mechanically, so read them:
   pipeline applies your test WITHOUT your fix first and rejects the whole
   answer if it passes. A test that would pass either way is not a regression
   pin and is worse than no test.
+- A COMPILE ERROR IS NOT A FAILING TEST, and this is the single most common
+  reason a first answer is rejected. When you add `Accent.teal` and your test
+  names it, the test "fails" without your fix only because the symbol does not
+  exist yet — and a test like that would pass this check no matter how the
+  feature behaved, so it pins nothing. The pipeline detects it and sends the
+  round back. Write the test so that it would STILL FAIL if every symbol you
+  are adding existed but behaved wrongly: assert the order things happen in,
+  the values produced, the bytes written, the widget that appears. Keep the new
+  symbols; add at least one assertion about their BEHAVIOUR.
 - Follow the naming and structure of the existing files in `frontend/test/`.
   Extend an existing file (with a SEARCH/REPLACE block) when the subject
   already has one; create `mNNN_*_test.dart` only when it does not, choosing an
