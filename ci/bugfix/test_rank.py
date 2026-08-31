@@ -229,3 +229,38 @@ class TestL10nRegeneration(unittest.TestCase):
             '<<<<<<< SEARCH\na\n=======\nb\n>>>>>>> REPLACE\n</file>')
         self.assertEqual(errors, [])
         self.assertEqual(len(parsed), 1)
+
+
+class TestFlutterPaths(unittest.TestCase):
+    """`flutter test` runs from frontend/, everything else names repo paths."""
+
+    def test_frontend_prefix_is_stripped(self):
+        import verify
+        self.assertEqual(
+            verify._frontend_relative('frontend/test/m287_x_test.dart'),
+            'test/m287_x_test.dart')
+
+    def test_other_paths_are_untouched(self):
+        import verify
+        self.assertEqual(verify._frontend_relative('test/a_test.dart'),
+                         'test/a_test.dart')
+
+    def test_the_command_never_doubles_the_directory(self):
+        # The exact shape of the bug: frontend/frontend/test/... reported as
+        # "Does not exist", which made the test-first gate pass for the wrong
+        # reason on every run.
+        import verify
+        seen = {}
+
+        def fake_run(args, timeout, cwd=None):
+            seen['args'] = args
+            return 0, ''
+
+        original = verify._run
+        verify._run = fake_run
+        try:
+            verify.test(['frontend/test/m287_x_test.dart'])
+        finally:
+            verify._run = original
+        self.assertIn('test/m287_x_test.dart', seen['args'])
+        self.assertNotIn('frontend/test/m287_x_test.dart', seen['args'])

@@ -113,10 +113,29 @@ def analyze():
     return (not errors), clip(out if errors else 'analyze: 0 errors\n' + out)
 
 
+def _frontend_relative(path):
+    """Repo-relative -> frontend-relative.
+
+    Everything else in the pipeline names files from the repo root, because
+    that is what the model is shown and what `git add` wants. `flutter test`
+    runs with cwd=frontend, so handing it `frontend/test/x_test.dart` produced
+    `frontend/frontend/test/x_test.dart`, and the runner reported "Does not
+    exist".
+
+    That was not merely noisy: it silently defeated the test-first gate. The
+    gate requires the new test to FAIL before the fix, and a path that cannot
+    be loaded fails -- so the check passed for the wrong reason on every run,
+    and then the same bad path failed again after the fix and was reported as
+    the model's test being broken.
+    """
+    p = str(path)
+    return p[len('frontend/'):] if p.startswith('frontend/') else p
+
+
 def test(paths=None, timeout=None):
     args = ['flutter', 'test', '--no-pub']
     if paths:
-        args += [str(p) for p in paths]
+        args += [_frontend_relative(p) for p in paths]
     code, out = _run(args, timeout or (SINGLE_TEST_TIMEOUT if paths else FULL_SUITE_TIMEOUT))
     return code == 0, out
 
