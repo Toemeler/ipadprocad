@@ -102,6 +102,16 @@ List<NativeMenuItem> newDocMenuItems(AppL10n t) => [
       // and the whole of what the "+" is for.
     ];
 
+/// M289 — which file formats a card's Export action may offer, before the
+/// destination is ever chosen. 3D parts can write both STL and STEP; sketches
+/// only DXF, assemblies only STEP.
+List<String> exportFormatsFor(String kind) => switch (kind) {
+      'part' => ['stl', 'step'],
+      'sketch' => ['dxf'],
+      kAssemblyDocKind => ['step'],
+      _ => ['step'],
+    };
+
 /// M272 — how strongly a card's name leans toward its kind's hue.
 ///
 /// "very slight and not too strong but still helping to see what is an
@@ -483,10 +493,36 @@ class _HomeViewState extends State<HomeView> {
   }
 
   Future<void> _sendFile(String name, {required bool share}) async {
-    // A part exports as STEP (its solids), a sketch as DXF.
-    final path = widget.app.isPartName(name)
-        ? await widget.app.partExportStep(name)
-        : await widget.app.sketchExportPath(name);
+    final isPart = widget.app.isPartName(name);
+    String? path;
+    if (isPart && !share) {
+      // M289 — ask STL or STEP before the location, for part cards.
+      final t = L.of(context);
+      final format = await showDialog<String>(
+        context: context,
+        builder: (context) => SimpleDialog(
+          title: Text(t.exportEllipsis),
+          children: [
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(context, 'stl'),
+              child: const Text('STL'),
+            ),
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(context, 'step'),
+              child: const Text('STEP'),
+            ),
+          ],
+        ),
+      );
+      if (format == null || !mounted) return;
+      path = format == 'stl'
+          ? await widget.app.partExportStl(name)
+          : await widget.app.partExportStep(name);
+    } else {
+      path = isPart
+          ? await widget.app.partExportStep(name)
+          : await widget.app.sketchExportPath(name);
+    }
     if (path == null || !mounted) return;
     // iPad refuses to present these sheets without a popover anchor.
     final anchor = _globalRect(_keyFor(name)) ??

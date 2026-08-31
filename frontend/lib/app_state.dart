@@ -4,6 +4,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
@@ -7135,6 +7136,70 @@ class AppState extends ChangeNotifier {
       // sketch. Dropping the reference without disposing leaks all of them,
       // once per share. `closeTab` disposes an open part for the same reason.
       if (!wasLoaded) p.dispose();
+    }
+  }
+
+  /// M289 — STL export for a part: writes the live solids' tessellations as
+  /// binary STL, without needing the OCCT kernel. A part is a mesh on this
+  /// side already, so the file can be produced from Dart.
+  Future<String?> partExportStl(String name) async {
+    if (_docsDir == null) return null;
+    final wasLoaded = parts.containsKey(name);
+    final p = wasLoaded ? parts[name]! : await _loadPartModel(name);
+    try {
+      if (wasLoaded) await savePart(name);
+      final meshes = <OcctMeshData>[
+        for (final f in p.features)
+          if (f.solid != null) f.solid!.mesh,
+      ];
+      if (meshes.isEmpty) {
+        toast(L.current.msgNothingToExportYet);
+        return null;
+      }
+      final exportDir = Directory('${_cacheRoot.path}/export');
+      if (!exportDir.existsSync()) exportDir.createSync(recursive: true);
+      final out = File('${exportDir.path}/$name.stl');
+      final sink = out.openWrite();
+      try {
+        _writeBinaryStl(sink, meshes);
+        await sink.flush();
+      } finally {
+        await sink.close();
+      }
+      return out.path;
+    } finally {
+      if (!wasLoaded) p.dispose();
+    }
+  }
+
+  void _writeBinaryStl(IOSink sink, List<OcctMeshData> meshes) {
+    var triCount = 0;
+    for (final m in meshes) {
+      triCount += m.indices.length ~/ 3;
+    }
+    final header = Uint8List(80);
+    final count = ByteData(4)..setUint32(0, triCount, Endian.little);
+    sink.add(header);
+    sink.add(count.buffer.asUint8List());
+    final normal = Float32List(3);
+    final attr = Uint16List(1);
+    for (final m in meshes) {
+      final pos = m.positions;
+      final idx = m.indices;
+      for (var t = 0; t + 2 < idx.length; t += 3) {
+        sink.add(normal.buffer.asUint8List());
+        for (final vi in [idx[t], idx[t + 1], idx[t + 2]]) {
+          final off = vi * 3;
+          final xyz = Float32List(3);
+          if (off + 2 < pos.length) {
+            xyz[0] = pos[off];
+            xyz[1] = pos[off + 1];
+            xyz[2] = pos[off + 2];
+          }
+          sink.add(xyz.buffer.asUint8List());
+        }
+        sink.add(attr.buffer.asUint8List());
+      }
     }
   }
 
