@@ -203,6 +203,22 @@ final class GlassTabBarView: NSObject, FlutterPlatformView {
     /// The document chips, in row order, paired with whether each is current.
     private var docViews: [(view: UIView, selected: Bool)] = []
 
+    // ---- M270: HOME IS BUILT ONCE ------------------------------------------
+    //
+    // It used to be torn down and rebuilt on every push — and a push happens
+    // whenever the tab list changes AT ALL, selection included, so switching
+    // documents destroyed the Home button and made a new one. A view added to
+    // a hierarchy has a zero frame until the next layout pass resolves its
+    // constraints, and this bar now runs layout inside animation blocks: the
+    // fold, and the wake that follows arriving somewhere new. Whether the
+    // replacement got laid out before or after that block opened decided
+    // whether the house sat still or slid in from the corner of its circle.
+    //
+    // Nothing about Home needs replacing. A symbol, a tint and a target are
+    // all that differ between one push and the next, and a button can be told
+    // those. Built once, in init, where there is no animation to be caught by.
+    private var homeButton: GlassButton?
+
     // ---- M265: FOLDED IS THE RESTING STATE ---------------------------------
     //
     // M260 folded the bar while the model was under a finger and opened it
@@ -257,6 +273,7 @@ final class GlassTabBarView: NSObject, FlutterPlatformView {
         buildGroups()
         buildRow()
         buildIsland()
+        buildHome()
 
         channel.setMethodCallHandler { [weak self] call, result in
             guard let self else { return result(nil) }
@@ -417,18 +434,9 @@ final class GlassTabBarView: NSObject, FlutterPlatformView {
     private func apply(_ tabs: [TabItem]) {
         items = tabs
 
-        home.contentView.subviews.forEach { $0.removeFromSuperview() }
-        if let h = tabs.first(where: { !$0.closable }) {
-            let b = makeHome(h)
-            home.contentView.addSubview(b)
-            NSLayoutConstraint.activate([
-                b.leadingAnchor.constraint(equalTo: home.contentView.leadingAnchor),
-                b.trailingAnchor.constraint(equalTo: home.contentView.trailingAnchor),
-                b.topAnchor.constraint(equalTo: home.contentView.topAnchor),
-                b.bottomAnchor.constraint(equalTo: home.contentView.bottomAnchor),
-            ])
-        }
-        home.isHidden = !tabs.contains(where: { !$0.closable })
+        let h = tabs.first(where: { !$0.closable })
+        if let h { configureHome(h) }
+        home.isHidden = h == nil
 
         row.arrangedSubviews.forEach {
             row.removeArrangedSubview($0)
@@ -465,23 +473,44 @@ final class GlassTabBarView: NSObject, FlutterPlatformView {
     /// happens to the documents, and it carries the accent when it is the
     /// place you are. A tinted glyph rather than a tinted circle: the group
     /// is already a shape, and tinting both would be saying it twice.
-    private func makeHome(_ t: TabItem) -> UIButton {
+    private func buildHome() {
         var c = UIButton.Configuration.plain()
-        c.image = UIImage(systemName: t.symbol)
         c.preferredSymbolConfigurationForImage =
             UIImage.SymbolConfiguration(pointSize: 15, weight: .regular)
         c.contentInsets = .zero
-        c.baseForegroundColor = t.selected
-            ? GlassTabBarView.accent : .secondaryLabel
 
         let b = GlassButton(configuration: c)
         b.translatesAutoresizingMaskIntoConstraints = false
         b.isPointerInteractionEnabled = true
+        home.contentView.addSubview(b)
+        NSLayoutConstraint.activate([
+            b.leadingAnchor.constraint(equalTo: home.contentView.leadingAnchor),
+            b.trailingAnchor.constraint(equalTo: home.contentView.trailingAnchor),
+            b.topAnchor.constraint(equalTo: home.contentView.topAnchor),
+            b.bottomAnchor.constraint(equalTo: home.contentView.bottomAnchor),
+        ])
+        homeButton = b
+    }
+
+    /// The three things that actually differ between one push and the next:
+    /// the glyph (house vs house.fill), the tint, and which id a tap sends.
+    ///
+    /// M270 — silently, for the browser's reason (see `settle` in
+    /// GlassBrowser.swift). A configuration change on a live button animates,
+    /// and this one lands during a document switch, which is exactly when the
+    /// bar is already moving.
+    private func configureHome(_ t: TabItem) {
+        guard let b = homeButton else { return }
+        UIView.performWithoutAnimation {
+            b.configuration?.image = UIImage(systemName: t.symbol)
+            b.configuration?.baseForegroundColor = t.selected
+                ? GlassTabBarView.accent : .secondaryLabel
+            b.layoutIfNeeded()
+        }
         b.onTap = { [weak self] in
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
             self?.channel.invokeMethod("tap", arguments: ["id": t.id])
         }
-        return b
     }
 
     private func makeTab(_ t: TabItem) -> UIView {

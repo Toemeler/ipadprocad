@@ -151,6 +151,35 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
 
     /// True while the rows are the glyph-only set.
     private var retracted = false
+
+    // ---- M270: NOTHING IN A ROW MOVES UNLESS THE RETRACT MOVED IT ----------
+    //
+    // M264 silenced the accessories, and it was the right diagnosis for most
+    // of the tree: "the boxes of the elements seem to fly up every time i
+    // switch tab" is UIKit animating an accessory swap on a cell that came out
+    // of the reuse pool still carrying the last document's. But the report
+    // came back: "the first element in the tab list still behaves weird. the
+    // others are normal."
+    //
+    // The first row is `root` — the document itself — and it is the ONE row in
+    // the tree with no accessories at all: not expandable, no eye. So it is
+    // also the one row whose cell, when it is handed a cell that previously
+    // drew some other row, loses an accessory rather than swapping one. The
+    // content view then has to grow into the space the accessory was holding,
+    // and THAT is a content-configuration change, which M264 deliberately left
+    // free to animate.
+    //
+    // Silencing one mutation and not its neighbour was the mistake. A reload
+    // is not a transition — nothing about it should move — so the whole cell
+    // is applied silently, and the exemption is granted to exactly one caller:
+    // the retract, which is a transition and is supposed to move.
+    private var morphInFlight = false
+
+    /// Applies [work] without animation, unless a retract is deliberately
+    /// running — in which case moving is the entire point.
+    private func settle(_ work: () -> Void) {
+        if morphInFlight { work() } else { UIView.performWithoutAnimation(work) }
+    }
     /// What the last `setGlass` asked for, so a completion block cannot hide a
     /// plate that a second toggle has already brought back.
     private var glassOn = true
@@ -495,9 +524,11 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
             default: c.imageProperties.tintColor = r.dim ? .tertiaryLabel : .secondaryLabel
             }
             // Indentation is the tree: UIKit owns it, no manual padding.
-            cell.indentationLevel = r.depth
-            cell.indentationWidth = GlassBrowserView.indentStep
-            cell.contentConfiguration = c
+            self.settle {
+                cell.indentationLevel = r.depth
+                cell.indentationWidth = GlassBrowserView.indentStep
+                cell.contentConfiguration = c
+            }
 
             var bg = UIBackgroundConfiguration.listPlainCell()
             // M242 — selection, then the pointer prehighlight at half its
@@ -519,7 +550,7 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
                     top: 1, leading: 6, bottom: 1, trailing: 6)
                 bg.cornerRadius = 9
             }
-            cell.backgroundConfiguration = bg
+            self.settle { cell.backgroundConfiguration = bg }
 
             var accessories: [UICellAccessory] = []
             if r.expandable {
@@ -582,7 +613,7 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
             // silenced, and they are the right thing to silence, because they
             // exist in one state and not the other and have nowhere to move
             // from.
-            UIView.performWithoutAnimation { cell.accessories = accessories }
+            self.settle { cell.accessories = accessories }
         }
 
         dataSource = UICollectionViewDiffableDataSource<Int, String>(
@@ -716,7 +747,13 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
     private func morphRows() {
         var snap = dataSource.snapshot()
         snap.reconfigureItems(snap.itemIdentifiers)
-        dataSource.apply(snap, animatingDifferences: true)
+        // Held across the apply rather than around the call: the batch update
+        // configures its cells inside, and a flag cleared on the next line
+        // would be false by the time any of them asked.
+        morphInFlight = true
+        dataSource.apply(snap, animatingDifferences: true) { [weak self] in
+            self?.morphInFlight = false
+        }
     }
 
     /// M244 — where the rows actually are, so the retract handle can stand
