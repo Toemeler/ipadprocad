@@ -113,6 +113,44 @@ def is_test(path):
     return path.startswith('frontend/test/')
 
 
+def _reindented_match(current, search):
+    """-> (start, end, actual_indent, search_indent) for a unique match that
+    differs from `search` only in leading whitespace, else None.
+
+    The belt to render_slices' brace. Getting indentation byte-exact through a
+    model is the single most fragile part of a SEARCH/REPLACE format, and on
+    issue #9 it cost four rounds. Comparing stripped lines recovers from that,
+    and the UNIQUENESS check is what keeps it honest — if the stripped form
+    occurs twice the edit is still refused, exactly as an ambiguous exact match
+    would be.
+    """
+    want = [ln.strip() for ln in search.split('\n')]
+    lines = current.split('\n')
+    hits = []
+    for i in range(len(lines) - len(want) + 1):
+        if all(lines[i + j].strip() == want[j] for j in range(len(want))):
+            hits.append(i)
+    if len(hits) != 1:
+        return None
+    i = hits[0]
+    first_real = next((j for j, w in enumerate(want) if w), 0)
+    actual = lines[i + first_real][:len(lines[i + first_real])
+                                   - len(lines[i + first_real].lstrip())]
+    quoted = search.split('\n')[first_real]
+    given = quoted[:len(quoted) - len(quoted.lstrip())]
+    return i, i + len(want), actual, given
+
+
+def _shift(text, from_indent, to_indent):
+    out = []
+    for ln in text.split('\n'):
+        if ln.startswith(from_indent):
+            out.append(to_indent + ln[len(from_indent):])
+        else:
+            out.append(ln)
+    return '\n'.join(out)
+
+
 def apply(edits, root):
     """Apply in order. -> list of error strings; empty means everything landed.
 
@@ -134,10 +172,18 @@ def apply(edits, root):
             current = target.read_text(encoding='utf-8')
         count = current.count(e.search)
         if count == 0:
+            found = _reindented_match(current, e.search)
+            if found:
+                start, end, actual, given = found
+                lines = current.split('\n')
+                replacement = _shift(e.replace, given, actual)
+                staged[e.path] = '\n'.join(
+                    lines[:start] + replacement.split('\n') + lines[end:])
+                continue
             errors.append(
                 f'{e.path}: SEARCH text not found. It must match the file '
-                f'byte for byte. First line looked for: '
-                f'{e.search.splitlines()[0][:120]!r}')
+                f'byte for byte, INCLUDING leading whitespace. First line '
+                f'looked for: {e.search.splitlines()[0][:120]!r}')
             continue
         if count > 1:
             errors.append(

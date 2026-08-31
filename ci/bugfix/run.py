@@ -89,10 +89,7 @@ def slices_for(index, paths, query, radius=30, max_lines=160):
         if not chunks:
             out.append(f'### {path}\n_(no such file, or nothing matched)_')
             continue
-        rendered = '\n\n'.join(
-            '\n'.join(f'{start + i:5}  {line}' for i, line in enumerate(body))
-            for start, body in chunks)
-        out.append(f'### {path}\n```dart\n{rendered}\n```')
+        out.append(pack.render_slices(path, chunks))
     return '\n\n'.join(out)
 
 

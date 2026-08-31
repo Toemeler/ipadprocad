@@ -198,6 +198,26 @@ Every report ships the same diagnostic bundle:
   anything. Use `reality.txt`, `mesh.txt` and `state.txt` for the body.'''
 
 
+def render_slices(path, chunks):
+    """Source the model can copy byte for byte.
+
+    The line numbers used to be a gutter on every line (`  485  code`). That is
+    unusable for a SEARCH/REPLACE format: the model has to strip a seven-column
+    prefix to recover the text, and on issue #9 it got it wrong -- it copied
+    `_sendFile`'s signature with four spaces of indentation where the file has
+    two, and every edit was rejected as not matching byte for byte.
+
+    The range goes in a header, where it still locates the code but cannot end
+    up inside it.
+    """
+    parts = []
+    for start, body in chunks:
+        end = start + len(body) - 1
+        parts.append(f'# {path} lines {start}-{end}\n'
+                     + '\n'.join(body))
+    return f'### {path}\n```dart\n' + '\n\n'.join(parts) + '\n```'
+
+
 def l10n_slice(query, frontend=FRONTEND, limit=L10N_ENTRIES):
     """The localisation entries this issue is likely to need.
 
@@ -325,10 +345,7 @@ def build(issue_number, title, body, index=None, files=FILES_IN_PACK):
     for position, (path, _) in enumerate(ranked):
         budget = SLICE_BUDGET[min(position, len(SLICE_BUDGET) - 1)]
         chunks = index.slice_file(path, query, radius=22, max_lines=budget)
-        rendered = '\n\n'.join(
-            '\n'.join(f'{start + i:5}  {line}' for i, line in enumerate(chunk))
-            for start, chunk in chunks)
-        slices.append(f'### {path}\n```dart\n{rendered}\n```')
+        slices.append(render_slices(path, chunks))
 
     prefix = f'''\
 ## The repository
@@ -373,8 +390,10 @@ viewport and the Liquid Glass chrome.
 ## Candidate code
 
 These are the {len(slices)} files the retriever ranked highest for this report,
-sliced around the matching lines. Line numbers are real. If the fix belongs
-somewhere not shown here, say so with an `expand` request instead of guessing.
+sliced around the matching lines; each slice is headed with the line range it
+came from. The code inside is VERBATIM — copy your SEARCH text from it exactly,
+including its leading whitespace. If the fix belongs somewhere not shown here,
+say so with an `expand` request instead of guessing.
 
 {chr(10).join(slices)}'''
 

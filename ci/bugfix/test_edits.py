@@ -141,6 +141,34 @@ class TestApply(unittest.TestCase):
         self.assertTrue(p.is_file())
         self.assertTrue(p.read_text().endswith('\n'))
 
+    def test_recovers_from_wrong_indentation(self):
+        # Exactly issue #9: the model copied `_sendFile`'s signature with four
+        # spaces where the file has two, and every edit was rejected.
+        self.target.write_text('class A {\n  void f() {\n    x();\n  }\n}\n',
+                               encoding='utf-8')
+        errs = edits.apply([edits.Replace('frontend/lib/a.dart',
+                                          '    void f() {\n      x();',
+                                          '    void f() {\n      y();')],
+                           self.root)
+        self.assertEqual(errs, [])
+        # And the file keeps ITS indentation, not the model's.
+        self.assertEqual(self.target.read_text(),
+                         'class A {\n  void f() {\n    y();\n  }\n}\n')
+
+    def test_reindent_still_refuses_an_ambiguous_match(self):
+        self.target.write_text('  a();\n  b();\n      a();\n', encoding='utf-8')
+        errs = edits.apply([edits.Replace('frontend/lib/a.dart', 'a();', 'c();')],
+                           self.root)
+        self.assertTrue(errs)
+        self.assertEqual(self.target.read_text(), '  a();\n  b();\n      a();\n')
+
+    def test_exact_match_still_wins(self):
+        self.target.write_text('  keep\n  target\n', encoding='utf-8')
+        errs = edits.apply([edits.Replace('frontend/lib/a.dart',
+                                          '  target', '  done')], self.root)
+        self.assertEqual(errs, [])
+        self.assertEqual(self.target.read_text(), '  keep\n  done\n')
+
     def test_missing_file_reported(self):
         errs = edits.apply([edits.Replace('frontend/lib/gone.dart', 'a', 'b')],
                            self.root)
