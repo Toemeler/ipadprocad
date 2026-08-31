@@ -13,6 +13,10 @@ plugins/
 __pycache__/
 *.pyc
 
+# lcov output from the bug-fix pipeline's coverage gate (ci/bugfix/verify.py).
+# Written on every verified fix; a build report, not a source.
+frontend/coverage/
+
 # Lane C — local OCCT install/build trees and benchmark output
 backend/occt/install-host/
 backend/occt/build-occt-host/
