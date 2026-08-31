@@ -7139,6 +7139,66 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// M289 — Binary STL writer that computes per-facet normals from the
+  /// triangle geometry (CCW winding) instead of leaving them zero.
+  static void writeBinaryStl(IOSink sink, List<OcctMeshData> meshes) {
+    final totalTriangles =
+        meshes.fold<int>(0, (sum, m) => sum + m.indices.length ~/ 3);
+    sink.add(Uint8List(80));
+    final countBytes = ByteData(4)
+      ..setUint32(0, totalTriangles, Endian.little);
+    sink.add(countBytes.buffer.asUint8List());
+
+    for (final mesh in meshes) {
+      final pos = mesh.positions;
+      final idx = mesh.indices;
+      for (var i = 0; i + 2 < idx.length; i += 3) {
+        final i0 = idx[i] * 3;
+        final i1 = idx[i + 1] * 3;
+        final i2 = idx[i + 2] * 3;
+        final ax = pos[i1] - pos[i0];
+        final ay = pos[i1 + 1] - pos[i0 + 1];
+        final az = pos[i1 + 2] - pos[i0 + 2];
+        final bx = pos[i2] - pos[i0];
+        final by = pos[i2 + 1] - pos[i0 + 1];
+        final bz = pos[i2 + 2] - pos[i0 + 2];
+        var nx = ay * bz - az * by;
+        var ny = az * bx - ax * bz;
+        var nz = ax * by - ay * bx;
+        final len = math.sqrt(nx * nx + ny * ny + nz * nz);
+        if (len > 0) {
+          nx /= len;
+          ny /= len;
+          nz /= len;
+        } else {
+          nx = 0;
+          ny = 0;
+          nz = 1;
+        }
+        final tri = ByteData(50);
+        var o = 0;
+        void putFloat(double v) {
+          tri.setFloat32(o, v, Endian.little);
+          o += 4;
+        }
+        putFloat(nx);
+        putFloat(ny);
+        putFloat(nz);
+        putFloat(pos[i0]);
+        putFloat(pos[i0 + 1]);
+        putFloat(pos[i0 + 2]);
+        putFloat(pos[i1]);
+        putFloat(pos[i1 + 1]);
+        putFloat(pos[i1 + 2]);
+        putFloat(pos[i2]);
+        putFloat(pos[i2 + 1]);
+        putFloat(pos[i2 + 2]);
+        tri.setUint16(o, 0, Endian.little);
+        sink.add(tri.buffer.asUint8List());
+      }
+    }
+  }
+
   /// M289 — STL export for a part: writes the live solids' tessellations as
   /// binary STL, without needing the OCCT kernel. A part is a mesh on this
   /// side already, so the file can be produced from Dart.
@@ -7161,7 +7221,7 @@ class AppState extends ChangeNotifier {
       final out = File('${exportDir.path}/$name.stl');
       final sink = out.openWrite();
       try {
-        _writeBinaryStl(sink, meshes);
+        writeBinaryStl(sink, meshes);
         await sink.flush();
       } finally {
         await sink.close();

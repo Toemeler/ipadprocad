@@ -498,26 +498,39 @@ class _HomeViewState extends State<HomeView> {
     if (isPart && !share) {
       // M289 — ask STL or STEP before the location, for part cards.
       final t = L.of(context);
-      final format = await showDialog<String>(
-        context: context,
-        builder: (context) => SimpleDialog(
-          title: Text(t.exportEllipsis),
-          children: [
-            SimpleDialogOption(
-              onPressed: () => Navigator.pop(context, 'stl'),
-              child: const Text('STL'),
-            ),
-            SimpleDialogOption(
-              onPressed: () => Navigator.pop(context, 'step'),
-              child: const Text('STEP'),
-            ),
+      final box = context.findRenderObject();
+      final anchor = box is RenderBox
+          ? box.localToGlobal(Offset.zero) & box.size
+          : Rect.zero;
+      final items = [
+        NativeMenuItem(id: 'stl', title: 'STL', symbol: 'doc'),
+        NativeMenuItem(id: 'step', title: 'STEP', symbol: 'doc'),
+      ];
+      String? format;
+      if (NativeMenu.isSupported) {
+        format = await NativeMenu.menu(
+            items: items, anchor: anchor, cancelLabel: t.cancel);
+      } else {
+        format = await showMenu<String>(
+          context: context,
+          color: T.fly,
+          position: RelativeRect.fromRect(
+              anchor, Offset.zero & MediaQuery.sizeOf(context)),
+          items: [
+            for (final item in items)
+              PopupMenuItem<String>(
+                value: item.id,
+                child: Text(item.title),
+              ),
           ],
-        ),
-      );
+        );
+      }
       if (format == null || !mounted) return;
-      path = format == 'stl'
-          ? await widget.app.partExportStl(name)
-          : await widget.app.partExportStep(name);
+      path = switch (format) {
+        'stl' => await widget.app.partExportStl(name),
+        'step' => await widget.app.partExportStep(name),
+        _ => null,
+      };
     } else {
       path = isPart
           ? await widget.app.partExportStep(name)
