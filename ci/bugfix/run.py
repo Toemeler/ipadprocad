@@ -37,6 +37,7 @@ import pathlib
 import re
 import subprocess
 import sys
+import traceback
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
 
@@ -668,5 +669,60 @@ def main():
     return 1
 
 
+def guarded():
+    """`main`, but the issue is never left mid-flight.
+
+    THE TRAP THIS CLOSES, WHICH TODAY'S OWN CHANGES MADE WORSE.
+
+    `gh.claim` takes the `bug-report` label off and puts `openhands-working`
+    on. Every planned ending — shipped, blocked, rebase conflict — takes
+    `openhands-working` off again. An UNPLANNED one does not: an API 500, a
+    runner evicted mid-round, a bug in this file, and the issue keeps a label
+    saying a run holds it while no run does.
+
+    Nothing recovered from that. The relay files each report once, so no second
+    `labeled` event is coming; and `--force`, added today so a blocked issue
+    could be re-run by hand, refuses precisely when `openhands-working` is
+    present — which is exactly this state. So the fix that made manual re-runs
+    possible also made this particular hole into a dead end.
+
+    Every exit now ends somewhere a human or a re-run can act on: the issue is
+    blocked, with what actually happened on it. The traceback is included
+    because it is this pipeline's own text, never the model's answer and never
+    a credential — those live in the environment and are not in scope here.
+    """
+    try:
+        return main()
+    except SystemExit:
+        raise
+    except BaseException as exc:                       # noqa: BLE001
+        number = _issue_argument()
+        detail = traceback.format_exc(limit=8)[-1500:]
+        print(f'unhandled {type(exc).__name__}: {exc}', file=sys.stderr)
+        if number:
+            try:
+                gh.block(number, (
+                    'The fix run ended unexpectedly, so nothing was pushed and '
+                    '`main` is untouched.\n\n'
+                    f'```\n{detail}\n```\n\n'
+                    'The issue is unblocked for a re-run — start the '
+                    '**Bug report autofix** workflow with this number, or put '
+                    'the `bug-report` label back on.' + FOOTER))
+            except Exception as post:                  # noqa: BLE001
+                print(f'could not even block #{number}: {post}', file=sys.stderr)
+        return 1
+
+
+def _issue_argument():
+    """The issue number, without argparse — this runs after a failure."""
+    for i, a in enumerate(sys.argv):
+        if a == '--issue' and i + 1 < len(sys.argv):
+            return int(sys.argv[i + 1]) if sys.argv[i + 1].isdigit() else None
+        if a.startswith('--issue='):
+            tail = a.split('=', 1)[1]
+            return int(tail) if tail.isdigit() else None
+    return None
+
+
 if __name__ == '__main__':
-    raise SystemExit(main())
+    raise SystemExit(guarded())

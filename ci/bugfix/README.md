@@ -92,7 +92,7 @@ workflow log rather than on next month's invoice.
 | `edits.py` | Search/replace block format, parsing and all-or-nothing application. Enforces forbidden paths. |
 | `verify.py` | `analyze`, `test`, and the test-first gate. |
 | `run.py` | The loop: ask → gate → verify → ship, or escalate, or block. |
-| `test_*.py` | 165 tests. Run by the workflow *before* the model is called. |
+| `test_*.py` | 171 tests. Run by the workflow *before* the model is called. |
 
 ## Setup
 
@@ -160,6 +160,17 @@ innocent diff.
 It deliberately does NOT re-run the fixer. Handing a red build back to the
 model that produced it would put a push-to-`main` loop in motion, which is the
 one thing this system is careful never to do.
+
+## Every run ends somewhere actionable
+
+`claim()` takes `bug-report` off the issue and puts `openhands-working` on.
+Every planned ending puts the issue back into a state something can act on —
+closed, or `openhands-blocked` with the reason. An unplanned one did not: an
+API 500 or an evicted runner left `openhands-working` standing with no run
+behind it, the relay files each report only once so no second event is coming,
+and `--force` refuses precisely when that label is present. `run.guarded()`
+closes it: any unhandled exception blocks the issue with the traceback, so the
+next step is always a re-run rather than an archaeology session.
 
 ## Honest limits
 

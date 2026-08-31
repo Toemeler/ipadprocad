@@ -1360,3 +1360,66 @@ class SwiftHouseRuleTest(unittest.TestCase):
         rules = pack.house_rules()
         self.assertIn('ValueNotifier', rules)
         self.assertIn('setViewportColor', rules)
+
+
+class GuardedExitTest(unittest.TestCase):
+    """An issue must never be left claimed by a run that is no longer running.
+
+    `claim` takes `bug-report` off and puts `openhands-working` on. Every
+    PLANNED ending takes it off again; an unplanned one did not — and the
+    `--force` re-run added in the same session refuses exactly when
+    `openhands-working` is present, so a crash became a dead end.
+    """
+
+    def crash(self, exc, argv=('run.py', '--issue', '11')):
+        blocked = []
+        with mock.patch.object(run, 'main', side_effect=exc), \
+             mock.patch.object(run.gh, 'block',
+                               side_effect=lambda n, b: blocked.append((n, b))), \
+             mock.patch('sys.argv', list(argv)):
+            code = run.guarded()
+        return code, blocked
+
+    def test_a_crash_blocks_the_issue_instead_of_stranding_it(self):
+        code, blocked = self.crash(RuntimeError('the runner went away'))
+        self.assertEqual(code, 1)
+        self.assertEqual(len(blocked), 1)
+        number, body = blocked[0]
+        self.assertEqual(number, 11)
+        self.assertIn('ended unexpectedly', body)
+        self.assertIn('RuntimeError', body)
+        self.assertIn('`main` is untouched', body)
+        self.assertIn('re-run', body)
+
+    def test_the_issue_number_survives_argparse_never_running(self):
+        _, blocked = self.crash(RuntimeError('x'),
+                                argv=('run.py', '--issue=11', '--force'))
+        self.assertEqual(blocked[0][0], 11)
+
+    def test_a_normal_exit_is_not_touched(self):
+        with mock.patch.object(run, 'main', return_value=0), \
+             mock.patch.object(run.gh, 'block',
+                               side_effect=AssertionError('must not block')), \
+             mock.patch('sys.argv', ['run.py', '--issue', '11']):
+            self.assertEqual(run.guarded(), 0)
+
+    def test_argparse_errors_still_exit_normally(self):
+        """SystemExit is argparse doing its job, not a crash to report."""
+        with mock.patch.object(run, 'main', side_effect=SystemExit(2)), \
+             mock.patch.object(run.gh, 'block',
+                               side_effect=AssertionError('must not block')), \
+             mock.patch('sys.argv', ['run.py', '--issue', '11']):
+            with self.assertRaises(SystemExit):
+                run.guarded()
+
+    def test_a_crash_with_no_issue_number_does_not_guess(self):
+        code, blocked = self.crash(RuntimeError('x'), argv=('run.py',))
+        self.assertEqual(code, 1)
+        self.assertEqual(blocked, [], 'blocking a guessed issue is worse')
+
+    def test_failing_to_block_does_not_mask_the_exit_code(self):
+        with mock.patch.object(run, 'main', side_effect=RuntimeError('x')), \
+             mock.patch.object(run.gh, 'block',
+                               side_effect=OSError('github is down')), \
+             mock.patch('sys.argv', ['run.py', '--issue', '11']):
+            self.assertEqual(run.guarded(), 1)
