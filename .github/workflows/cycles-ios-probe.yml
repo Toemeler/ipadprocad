@@ -45,6 +45,10 @@ on:
         required: false
         default: ""
   push:
+    # main only. Without the branch filter the designated development branch
+    # ran the whole probe a second time on every push — two macOS runners for
+    # one answer.
+    branches: [main]
     paths:
       - ".github/workflows/cycles-ios-probe.yml"
 
@@ -69,15 +73,23 @@ jobs:
           python3 --version
 
       # No LFS: a library build never opens a .blend.
-      - name: Clone Blender's ios branch (no LFS)
+      # --depth 2, as the IPA pipeline does. Run 1 omitted it and spent 3.5
+      # minutes pulling Blender's entire history to compile nine libraries.
+      # The fallback covers the pinned ref having fallen out of the shallow
+      # window, which it will the first time the branch head moves past it.
+      - name: Clone Blender's ios branch (shallow, no LFS)
         run: |
           set -o pipefail
           REF="${{ github.event.inputs.blender_ref }}"
           REF="${REF:-d9b6fe34ddce527d93b97c0bf42ad92cebac4e4e}"
-          GIT_LFS_SKIP_SMUDGE=1 git clone --branch ios \
+          GIT_LFS_SKIP_SMUDGE=1 git clone --depth 2 --branch ios \
             https://projects.blender.org/blender/blender.git blender 2>&1 | tail -5
           cd blender
-          git checkout "$REF"
+          if ! git checkout "$REF" 2>/dev/null; then
+            echo "pinned ref not in the shallow window; fetching it"
+            git fetch --depth 1 origin "$REF"
+            git checkout "$REF"
+          fi
           git log --oneline -1
 
       - name: Cache the precompiled iOS dependency libraries
@@ -151,6 +163,53 @@ jobs:
           ls -la out || true
           for f in out/*.a; do [ -e "$f" ] || continue; echo "--- $f"; lipo -info "$f" || true; done
 
+      # ---------------------------------------------------------------------
+      # RUN 2's QUESTION: does the dependency set CLOSE?
+      # ---------------------------------------------------------------------
+      #
+      # Nine archives that compiled prove the sources are iOS-clean. They do
+      # not prove the app can LINK them: Cycles pulls in Embree, TBB,
+      # OpenImageIO and OpenColorIO, and an unresolved symbol only shows up
+      # when something actually tries to produce a binary.
+      #
+      # No Cycles headers and no Cycles API call here, deliberately. `-all_load`
+      # forces every object out of every archive into the link, so every
+      # undefined symbol in all nine libraries has to resolve against the
+      # dependency set — which is exactly the question — and it asks it without
+      # a compile line that would need include paths and feature defines
+      # guessed correctly first. A failure prints the missing symbols, and the
+      # missing symbols name the library that is not being fetched.
+      - name: Link probe — do the archives resolve against the iOS deps?
+        id: link
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+          echo 'int main(void){return 0;}' > probe.c
+          DEPS=$(find blender/lib/ios_arm64 -name '*.a' 2>/dev/null | tr '\n' ' ')
+          echo "dependency archives found: $(echo $DEPS | wc -w)"
+          set +e
+          xcrun --sdk iphoneos clang -target arm64-apple-ios14.0 -isysroot "$SDK" \
+            probe.c -Wl,-all_load out/*.a $DEPS \
+            -lc++ -lz -framework Metal -framework Foundation \
+            -framework CoreGraphics -framework IOKit \
+            -o probe.bin 2> link.log
+          RC=$?
+          set -e
+          echo "link exit: $RC"
+          if [ $RC -eq 0 ]; then
+            echo "LINKED. Every symbol in the nine Cycles archives resolved."
+            lipo -info probe.bin
+            ls -la probe.bin
+          else
+            echo "=== unresolved symbols (first 60) ==="
+            grep -E "Undefined symbols|_[A-Za-z_]" link.log | head -60 || true
+            echo "=== full log tail ==="
+            tail -30 link.log
+          fi
+          echo "=== Metal device present in libcycles_device.a? ==="
+          nm -gU out/libcycles_device.a 2>/dev/null | grep -ci metal || echo 0
+
       - name: Upload the probe result
         if: always()
         uses: actions/upload-artifact@v4
@@ -160,5 +219,6 @@ jobs:
             out
             targets.txt
             configure.log
+            link.log
           if-no-files-found: warn
           retention-days: 14
