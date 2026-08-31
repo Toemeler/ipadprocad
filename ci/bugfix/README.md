@@ -101,9 +101,11 @@ Nothing else. `GITHUB_TOKEN` is provided by Actions.
 
 The OpenHands automation stays on as the fallback for when this workflow is off
 or an issue lands on `openhands-blocked`. Its importable config is
-`bugreports/openhands-automation.json`; the three sandbox settings that are
-*not* in that file — and are three of the four largest cost drivers — are in
-`bugreports/openhands-settings.md`.
+`bugreports/openhands-automation.json`. One further setting is worth changing by
+hand — the condenser's `max_size`, 80 → 200, which is ~26 % of a fallback run
+and the only one of the three original candidates that the Cloud UI actually
+exposes. `bugreports/openhands-settings.md` has that, and why the other two no
+longer matter.
 
 ## Running it
 
