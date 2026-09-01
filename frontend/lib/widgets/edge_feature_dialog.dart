@@ -5,14 +5,21 @@
 // preview, the OK/Cancel behaviour and the whole chrome are identical, and
 // two copies would be two places to keep the edge handling in step.
 //
-// Chrome and field widgets come from properties_panel.dart, shared with the
-// extrude dialog.
-import 'package:flutter/material.dart';
+// M338 — drawn as an iOS panel (widgets/ios_kit.dart). The fillet's edge SETS
+// are the part that changed shape rather than only style: each set used to be
+// a 62 pt button with a count in it beside its radius field, which is a
+// two-control row that says nothing about which set is armed until you read
+// the border colour. A set is now a row of its own — the count on the left,
+// the radius on the right, and the ARMED one tinted the way a selected row is
+// tinted anywhere else in this app since this milestone. Its optional end
+// radius is the row underneath, and it appears only for the set being edited,
+// which is what Inventor's variable-radius list does.
+import 'package:flutter/widgets.dart';
 
 import '../app_state.dart';
-import '../theme.dart';
+import '../ios_design.dart';
 import 'dialog_dock.dart';
-import 'properties_panel.dart';
+import 'ios_kit.dart';
 import '../l10n/l.dart';
 
 class EdgeFeatureDialog extends StatefulWidget {
@@ -38,6 +45,8 @@ class _EdgeFeatureDialogState extends State<EdgeFeatureDialog> {
   /// Null until first laid out, then wherever the user dragged it to.
   Offset? _pos;
   String? _syncedFor;
+
+  static const _size = Size(IosMetrics.panelWidth, 520);
 
   EdgeFeatureSession get sess => widget.app.edgeSession!;
 
@@ -73,115 +82,77 @@ class _EdgeFeatureDialogState extends State<EdgeFeatureDialog> {
     final s = app.edgeSession;
     if (s == null) return const SizedBox.shrink();
     _syncOnce();
+    final t = L.of(context);
     final n = app.pickedEdges.length;
-    final title = s.isFillet ? L.of(context).btnFillet : L.of(context).btnChamfer;
+    final title = s.isFillet ? t.btnFillet : t.btnChamfer;
+    final ready = n > 0 && s.previewError == null;
 
-    // M123 — the same fix M122 made for the extrude dialog: (12, 12) is the
-    // top-left corner, i.e. directly underneath the floating model browser
-    // card, so the panel opened half hidden behind it. Park it against the
-    // right edge, vertically centred, once the viewport size is known.
-    const w = 300.0, h = 520.0;
     final vp = MediaQuery.sizeOf(context);
-    // M206 — beside the quick-tool bar, not under it. See DialogDock.
-    final pos = _pos ?? DialogDock.spot(vp, const Size(w, h));
+    final pos = _pos ?? DialogDock.spot(vp, _size);
     return Positioned(
       left: pos.dx,
       top: pos.dy,
-      child: Material(
-        color: Colors.transparent,
-        child: Container(
-          width: 300,
-          decoration: BoxDecoration(
-            color: T.panel,
-            border: Border.all(color: T.sep),
-            borderRadius: BorderRadius.circular(6),
-            boxShadow: [
-              BoxShadow(
-                  color: T.scrim,
-                  blurRadius: 24,
-                  offset: Offset(0, 6)),
+      child: IosPanel(
+        width: _size.width,
+        nav: IosNavBar(
+          title: s.editing?.name ?? title,
+          onDrag: (d) => setState(() => _pos = pos + d),
+          leading: IosBarButton(label: t.cancel, onTap: app.cancelEdgeFeature),
+          trailing: IosBarButton(
+              label: t.ok,
+              prominent: true,
+              onTap: ready ? app.applyEdgeFeature : null),
+        ),
+        children: [
+          iosSection(
+            header: t.secInputGeometry,
+            open: _inputOpen,
+            onToggle: () => setState(() => _inputOpen = !_inputOpen),
+            children: [
+              iosPickRow(
+                label: t.lblEdges,
+                value: n == 0 ? null : t.lblEdgeCount(n),
+                hint: app.pickingEdges ? t.hintTapEdgesIn3d : t.lblSelectEdges,
+                armed: app.pickingEdges,
+                filled: n > 0,
+                onTap:
+                    app.pickingEdges ? app.cancelPickEdges : app.beginPickEdges,
+              ),
+              if (s.isFillet)
+                iosStackedRow(
+                  label: t.select,
+                  enabled: app.pickedEdgeSolid != null,
+                  child: Row(children: [
+                    Expanded(
+                      child: IosButton(
+                          label: t.lblAllFillets,
+                          style: IosButtonStyle.grey,
+                          height: 34,
+                          expand: true,
+                          onTap: () => app.selectAllEdges(concave: true)),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: IosButton(
+                          label: t.lblAllRounds,
+                          style: IosButtonStyle.grey,
+                          height: 34,
+                          expand: true,
+                          onTap: () => app.selectAllEdges(concave: false)),
+                    ),
+                  ]),
+                ),
             ],
           ),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            GestureDetector(
-              onPanUpdate: (d) => setState(() => _pos = pos + d.delta),
-              child: Container(
-              padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
-              decoration: BoxDecoration(
-                color: T.fly,
-                border: Border(bottom: BorderSide(color: T.panelSep)),
-                borderRadius: BorderRadius.vertical(top: Radius.circular(6)),
-              ),
-              child: Row(children: [
-                Text(L.of(context).dlgProperties,
-                    style: ts(13, T.text, w: FontWeight.w600)),
-                const SizedBox(width: 6),
-                GestureDetector(
-                  onTap: app.cancelEdgeFeature,
-                  child: Text('✕', style: ts(11.5, T.dim)),
-                ),
-                const Spacer(),
-                Icon(Icons.menu, size: 14, color: T.dim),
-              ]),
-            )),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-              child: Row(children: [
-                Text(s.editing?.name ?? title,
-                    style: TextStyle(
-                        fontSize: 12.5,
-                        color: T.accent,
-                        decoration: TextDecoration.underline,
-                        decorationColor: T.accent)),
-                const Spacer(),
-                Icon(Icons.visibility_outlined, size: 14, color: T.dim),
-              ]),
-            ),
-            panelSection(L.of(context).secInputGeometry, _inputOpen,
-                () => setState(() => _inputOpen = !_inputOpen), [
-              panelRow(
-                  L.of(context).lblEdges,
-                  GestureDetector(
-                    onTap: app.pickingEdges
-                        ? app.cancelPickEdges
-                        : app.beginPickEdges,
-                    child: Container(
-                      height: 26,
-                      alignment: Alignment.centerLeft,
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      decoration: BoxDecoration(
-                        color: T.field,
-                        border: Border.all(
-                            color: app.pickingEdges
-                                ? T.accent
-                                : T.panelSep),
-                        borderRadius: BorderRadius.circular(3),
-                      ),
-                      child: Text(
-                          n == 0
-                              ? (app.pickingEdges
-                                  ? L.of(context).hintTapEdgesIn3d
-                                  : L.of(context).lblSelectEdges)
-                              : '$n Edge${n == 1 ? '' : 's'}'
-                                  '${app.pickingEdges ? ' — tap to finish' : ''}',
-                          style: ts(12, n == 0 ? T.dim : T.text)),
-                    ),
-                  )),
-            ]),
-            panelSection(
-                s.isFillet ? L.of(context).lblRadius : L.of(context).btnChamfer,
-                _shapeOpen,
-                () => setState(() => _shapeOpen = !_shapeOpen),
-                s.isFillet ? _filletFields() : _chamferFields()),
-            if (s.previewError != null)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(12, 2, 12, 0),
-                child: Text(s.previewError!,
-                    style: ts(11.5, T.warnText)),
-              ),
-            _footer(),
-          ]),
-        ),
+          iosSection(
+            header: s.isFillet ? t.lblRadius : t.btnChamfer,
+            open: _shapeOpen,
+            onToggle: () => setState(() => _shapeOpen = !_shapeOpen),
+            footer: s.isFillet ? t.hintEndRadiusOptional : null,
+            children: s.isFillet ? _filletRows() : _chamferRows(),
+          ),
+          if (s.previewError != null) iosStatusLine(s.previewError!),
+        ],
       ),
     );
   }
@@ -203,215 +174,108 @@ class _EdgeFeatureDialogState extends State<EdgeFeatureDialog> {
   /// One row per edge set — Inventor's "several edge sets in a single fillet
   /// feature", each with its own radius. Tapping a row makes that set the one
   /// new picks land in, so you build set 1, press +, then keep tapping edges.
-  List<Widget> _filletFields() {
+  List<Widget> _filletRows() {
     final app = widget.app;
+    final t = L.of(context);
     final s = sess;
     _syncRadii(s);
     final sets = app.edgeSetCount;
     return [
       for (var i = 0; i < sets; i++) ...[
-        panelRow(
-            sets == 1 ? L.of(context).lblRadius : L.of(context).lblRadiusN('${i + 1}'),
-            Row(children: [
-              GestureDetector(
-                onTap: () => app.selectEdgeSet(i),
-                child: Container(
-                  width: 62,
-                  height: 26,
-                  alignment: Alignment.center,
-                  margin: const EdgeInsets.only(right: 6),
-                  decoration: BoxDecoration(
-                    color: i == app.activeEdgeSet
-                        ? T.chipBg
-                        : T.bg,
-                    border: Border.all(
-                        color: i == app.activeEdgeSet
-                            ? T.accent
-                            : T.panelSep),
-                    borderRadius: BorderRadius.circular(3),
+        Container(
+          color: i == app.activeEdgeSet && sets > 1
+              ? IosColors.tintedFill
+              : null,
+          child: iosValueRow(
+            app: app,
+            label: sets == 1 ? t.lblRadius : t.lblRadiusN('${i + 1}'),
+            controller: _radii[i.clamp(0, _radii.length - 1)],
+            unit: 'mm',
+            onChanged: (v) => app.setEdgeFeature(exprRadius: v, radiusSet: i),
+            leading: sets == 1
+                ? null
+                : IosPressable(
+                    onTap: () => setState(() => app.selectEdgeSet(i)),
+                    child: Text(t.lblEdgeCount(app.edgesInSet(i)),
+                        style: IosText.footnote.on(
+                            i == app.activeEdgeSet
+                                ? IosColors.tint
+                                : IosColors.secondaryLabel)),
                   ),
-                  child: Text(L.of(context).lblEdgeCount(app.edgesInSet(i)),
-                      style: ts(11.5, T.text)),
-                ),
-              ),
-              Expanded(
-                child: panelValueField(
-                    _radii[i.clamp(0, _radii.length - 1)],
-                    'mm',
-                    (v) => app.setEdgeFeature(exprRadius: v, radiusSet: i), app: app),
-              ),
-            ])),
+          ),
+        ),
         // Inventor's variable radius: leave blank for a constant fillet, or
-        // give an end radius and it varies linearly along each edge of the set.
-        panelRow(
-            sets == 1 ? 'to (optional)' : 'to ${i + 1}',
-            panelValueField(
-                _radii2[i.clamp(0, _radii2.length - 1)],
-                'mm',
-                (v) => app.setEdgeFeature(exprRadius2: v, radiusSet: i), app: app)),
+        // give an end radius and it varies linearly along each edge of the
+        // set. Shown for the ARMED set only — a second field per set is a
+        // second field to read past on every one you are not editing.
+        if (sets == 1 || i == app.activeEdgeSet)
+          iosValueRow(
+            app: app,
+            label: t.lblEndRadius,
+            controller: _radii2[i.clamp(0, _radii2.length - 1)],
+            unit: 'mm',
+            onChanged: (v) => app.setEdgeFeature(exprRadius2: v, radiusSet: i),
+          ),
       ],
-      // Inventor's Select Mode. Enabled once a body is known, because
-      // "all edges" is meaningless without one.
-      panelRow(
-          L.of(context).select,
-          Row(children: [
-            _pill(L.of(context).lblAllFillets, () => app.selectAllEdges(concave: true),
-                app.pickedEdgeSolid != null),
-            const SizedBox(width: 3),
-            _pill(L.of(context).lblAllRounds, () => app.selectAllEdges(concave: false),
-                app.pickedEdgeSolid != null),
-          ])),
-      panelRow(
-          '',
-          GestureDetector(
-            onTap: app.newEdgeSet,
-            child: Container(
-              height: 24,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: T.bg,
-                border: Border.all(color: T.panelSep),
-                borderRadius: BorderRadius.circular(3),
-              ),
-              child: Text(L.of(context).btnAddEdgeSet, style: ts(11.5, T.dim)),
-            ),
-          )),
+      iosStackedRow(
+        child: IosButton(
+            label: t.btnAddEdgeSet,
+            glyph: IosGlyph.plus,
+            style: IosButtonStyle.tinted,
+            height: 34,
+            expand: true,
+            onTap: () => setState(app.newEdgeSet)),
+      ),
     ];
   }
 
-  List<Widget> _chamferFields() {
+  List<Widget> _chamferRows() {
+    final app = widget.app;
+    final t = L.of(context);
     final s = sess;
     return [
-      panelRow(
-          L.of(context).lblMethod,
-          Row(children: [
-            _modeButton(0, L.of(context).lblDistance, 'd'),
-            const SizedBox(width: 3),
-            _modeButton(1, L.of(context).lblTwoDistances, 'd1/d2'),
-            const SizedBox(width: 3),
-            _modeButton(2, L.of(context).lblDistanceAndAngle, 'd∠'),
-          ])),
-      panelRow(
-          s.mode == 0 ? L.of(context).lblDistance : L.of(context).lblDistance1,
-          panelValueField(
-              _d1, 'mm', (v) => widget.app.setEdgeFeature(exprD1: v), app: widget.app)),
-      if (s.mode == 1)
-        panelRow(
-            L.of(context).lblDistance2,
-            panelValueField(
-                _d2, 'mm', (v) => widget.app.setEdgeFeature(exprD2: v), app: widget.app)),
-      if (s.mode == 2)
-        panelRow(
-            L.of(context).lblAngle,
-            panelValueField(
-                _angle, 'deg', (v) => widget.app.setEdgeFeature(exprAngle: v), app: widget.app)),
-      // Flip only means anything when the two sides differ.
-      if (s.mode != 0)
-        panelRow(
-            L.of(context).lblFlip,
-            GestureDetector(
-              onTap: () => widget.app.setEdgeFeature(flip: !s.flip),
-              child: Container(
-                height: 24,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: s.flip
-                      ? T.chipBg
-                      : T.bg,
-                  border: Border.all(
-                      color: s.flip ? T.accent : T.panelSep),
-                  borderRadius: BorderRadius.circular(3),
-                ),
-                child: Text(L.of(context).lblSwapFaces, style: ts(12, T.text)),
-              ),
-            )),
-    ];
-  }
-
-  Widget _pill(String label, VoidCallback onTap, bool enabled) => Expanded(
-        child: Opacity(
-          opacity: enabled ? 1 : 0.4,
-          child: GestureDetector(
-            onTap: enabled ? onTap : null,
-            child: Container(
-              height: 24,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: T.bg,
-                border: Border.all(color: T.panelSep),
-                borderRadius: BorderRadius.circular(3),
-              ),
-              child: Text(label, style: ts(11.5, T.text)),
-            ),
-          ),
-        ),
-      );
-
-  Widget _modeButton(int mode, String tip, String label) {
-    final active = sess.mode == mode;
-    return Expanded(
-      child: Tooltip(
-        message: tip,
-        child: GestureDetector(
-          onTap: () => widget.app.setEdgeFeature(mode: mode),
-          child: Container(
-            height: 26,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color:
-                  active ? T.chipBg : T.bg,
-              border: Border.all(
-                  color: active ? T.accent : T.panelSep),
-              borderRadius: BorderRadius.circular(3),
-            ),
-            child: Text(label, style: ts(11.5, T.text)),
-          ),
+      iosStackedRow(
+        label: t.lblMethod,
+        child: IosSegmented<int>(
+          value: s.mode,
+          onChanged: (v) => app.setEdgeFeature(mode: v),
+          segments: [
+            IosSegment(value: 0, label: t.lblDistance),
+            IosSegment(value: 1, label: t.lblTwoDistances),
+            IosSegment(value: 2, label: t.lblDistanceAndAngle),
+          ],
         ),
       ),
-    );
-  }
-
-  Widget _footer() {
-    final app = widget.app;
-    final ready = app.pickedEdges.isNotEmpty && sess.previewError == null;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-      child: Row(children: [
-        Expanded(
-          child: Opacity(
-            opacity: ready ? 1 : 0.45,
-            child: GestureDetector(
-              onTap: ready ? () => app.applyEdgeFeature() : null,
-              child: Container(
-                height: 28,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: T.accent,
-                  borderRadius: BorderRadius.circular(3),
-                ),
-                child: Text(L.of(context).ok,
-                    style: ts(12.5, T.text, w: FontWeight.w600)),
-              ),
-            ),
-          ),
+      iosValueRow(
+        app: app,
+        label: s.mode == 0 ? t.lblDistance : t.lblDistance1,
+        controller: _d1,
+        unit: 'mm',
+        onChanged: (v) => app.setEdgeFeature(exprD1: v),
+      ),
+      if (s.mode == 1)
+        iosValueRow(
+          app: app,
+          label: t.lblDistance2,
+          controller: _d2,
+          unit: 'mm',
+          onChanged: (v) => app.setEdgeFeature(exprD2: v),
         ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: GestureDetector(
-            onTap: app.cancelEdgeFeature,
-            child: Container(
-              height: 28,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: T.bg,
-                border: Border.all(color: T.panelSep),
-                borderRadius: BorderRadius.circular(3),
-              ),
-              child: Text(L.of(context).cancel, style: ts(12.5, T.text)),
-            ),
-          ),
+      if (s.mode == 2)
+        iosValueRow(
+          app: app,
+          label: t.lblAngle,
+          controller: _angle,
+          unit: 'deg',
+          onChanged: (v) => app.setEdgeFeature(exprAngle: v),
         ),
-      ]),
-    );
+      // Flip only means anything when the two sides differ.
+      if (s.mode != 0)
+        iosSwitchRow(
+          label: t.lblSwapFaces,
+          value: s.flip,
+          onChanged: (v) => app.setEdgeFeature(flip: v),
+        ),
+    ];
   }
 }

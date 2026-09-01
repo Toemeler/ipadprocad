@@ -1,31 +1,33 @@
 // Prototype — the Gear dialog (M61). A MOVABLE modeless window over the
-// viewport, matching the Parameters / Pattern dialogs: pick a gear kind
-// (External / Internal / Planetary), set the metric parameters, watch a LIVE
-// preview, then place the gear with a viewport tap or the Insert button.
+// viewport: pick a gear kind (External / Internal / Planetary), set the metric
+// parameters, watch a LIVE preview, then place the gear with a viewport tap or
+// the Insert button.
 //
 // Everything the dialog edits lives in AppState.gear (a GearSession); changing
 // a field mutates the session and calls app.gearNotify(), which repaints both
-// this preview and the ghost following the cursor. Insert calls app.commitGear.
+// this preview and the ghost following the cursor. Insert calls
+// app.commitGear.
+//
+// M338 — drawn as an iOS panel (widgets/ios_kit.dart). The preview keeps its
+// own painter and its own card; what changed is around it — the kind is a
+// segmented control, the nine parameters are labelled value rows instead of a
+// 120 pt label beside a bordered box, "auto root/tip fillet" is a switch, and
+// Insert is the navigation bar's confirming action with Cancel opposite it.
+// The sentence about tapping to place, and the pitch/tip/root readout, are the
+// two sections' footers — which is where iOS puts a line that explains the
+// rows above it, and is where a person can actually read them.
 import 'dart:math' as math;
 
-import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 
 import '../app_state.dart';
 import '../gear.dart';
+import '../ios_design.dart';
 import '../scrub.dart';
 import '../theme.dart';
-import 'scrub_field.dart';
+import 'ios_kit.dart';
 import '../l10n/fmt.dart';
 import '../l10n/l.dart';
-
-// M236 — getters, not finals: a top-level `final` is initialised lazily on
-// first use and would freeze whichever palette was active at that moment.
-Color get _fieldBg => T.field;
-Color get _fieldBorder => T.panelSep;
-
-TextStyle _ts(double s, Color c, {FontWeight w = FontWeight.normal}) =>
-    TextStyle(fontSize: s, color: c, fontWeight: w, height: 1.1);
 
 class GearDialog extends StatefulWidget {
   final AppState app;
@@ -115,108 +117,98 @@ class _GearDialogState extends State<GearDialog> {
   @override
   Widget build(BuildContext context) {
     final g = gs;
+    final t = L.of(context);
     final planetary = g.kind == GearKind.planetary;
-    return Container(
-      width: 300,
-      decoration: BoxDecoration(
-        color: T.fly,
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: T.sep),
-        boxShadow: [BoxShadow(color: T.shadow, blurRadius: 10)],
-      ),
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        // ---- draggable title bar ----
-        GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onPanUpdate: (d) => widget.onDrag(d.delta),
-          child: Container(
-            height: 30,
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            decoration: BoxDecoration(
-                border: Border(bottom: BorderSide(color: T.sep))),
-            child: Row(children: [
-              Expanded(
-                  child: Text(L.of(context).dlgGear,
-                      style: _ts(12, T.text, w: FontWeight.w600))),
-              InkWell(
-                onTap: widget.app.cancelTool,
-                child: Padding(
-                  padding: EdgeInsets.all(4),
-                  child: Icon(Icons.close, size: 14, color: T.dim),
-                ),
-              ),
-            ]),
-          ),
+    return IosPanel(
+      width: IosMetrics.panelWidth,
+      nav: IosNavBar(
+        title: t.dlgGear,
+        onDrag: widget.onDrag,
+        leading: IosBarButton(label: t.cancel, onTap: widget.app.cancelTool),
+        trailing: IosBarButton(
+          label: t.btnInsert,
+          prominent: true,
+          onTap: () {
+            _sync();
+            final gg = widget.app.gear;
+            if (gg != null && !gg.placedOnce) {
+              // No viewport tap yet: drop it at the CENTRE OF THE VIEW
+              // (app.pan is the world point at the viewport centre), so the
+              // gear always lands where the user can see it rather than
+              // off-screen at the origin.
+              gg.center = widget.app.pan;
+              gg.placedOnce = true;
+            }
+            widget.app.commitGear();
+          },
         ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
-          child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _segmented(g.kind),
-                const SizedBox(height: 8),
-                // ---- live preview ----
-                Container(
-                  height: 128,
-                  decoration: BoxDecoration(
-                    color: T.fly,
-                    borderRadius: BorderRadius.circular(4),
-                    border: Border.all(color: _fieldBorder),
-                  ),
+      ),
+      children: [
+        iosSection(
+          footer: _infoLine(g),
+          children: [
+            iosStackedRow(
+              child: IosSegmented<GearKind>(
+                value: g.kind,
+                onChanged: _setKind,
+                segments: [
+                  IosSegment(value: GearKind.external, label: t.gearExternal),
+                  IosSegment(value: GearKind.internal, label: t.gearInternal),
+                  IosSegment(
+                      value: GearKind.planetary, label: t.gearPlanetary),
+                ],
+              ),
+            ),
+            iosStackedRow(
+              child: Container(
+                height: 132,
+                decoration: ShapeDecoration(
+                  color: IosColors.quaternarySystemFill,
+                  shape: IosShape.border(IosMetrics.controlRadius),
+                ),
+                child: IosShape.clip(
+                  IosMetrics.controlRadius,
                   child: CustomPaint(
                     painter: _GearPreviewPainter(g),
                     child: const SizedBox.expand(),
                   ),
                 ),
-                const SizedBox(height: 4),
-                Text(_infoLine(g),
-                    style: _ts(10.5, T.dim), textAlign: TextAlign.left),
-                const SizedBox(height: 8),
-                // ---- fields ----
-                _field(L.of(context).lblModuleMm, _module, min: 0.1),
-                if (!planetary)
-                  _field(L.of(context).lblTeeth, _teeth,
-                      kind: ScrubKind.count, min: 3, max: 400),
-                _field(L.of(context).lblCornerRadiusMm, _corner, min: 0),
-                if (planetary) ...[
-                  _field(L.of(context).lblSunTeeth, _sun, kind: ScrubKind.count, min: 3, max: 400),
-                  _field(L.of(context).lblPlanetTeeth, _planet,
-                      kind: ScrubKind.count, min: 3, max: 400),
-                  _field(L.of(context).lblPlanets, _count, kind: ScrubKind.count, min: 1, max: 12),
-                ],
-                _field(L.of(context).lblPressureAngle, _angle,
-                    kind: ScrubKind.angle, min: 5, max: 45),
-                _field(L.of(context).lblProfileShift, _shift, kind: ScrubKind.ratio),
-                if (!planetary) _field(L.of(context).lblBoreDia, _bore, min: 0),
-                const SizedBox(height: 6),
-                _filletToggle(g),
-                const SizedBox(height: 12),
-                Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-                  _btn(L.of(context).cancel, () => widget.app.cancelTool()),
-                  const SizedBox(width: 8),
-                  _btn(L.of(context).btnInsert, () {
-                    _sync();
-                    final gg = widget.app.gear;
-                    if (gg != null && !gg.placedOnce) {
-                      // No viewport tap yet: drop it at the CENTRE OF THE VIEW
-                      // (app.pan is the world point at the viewport centre), so
-                      // the gear always lands where the user can see it rather
-                      // than off-screen at the origin.
-                      gg.center = widget.app.pan;
-                      gg.placedOnce = true;
-                    }
-                    widget.app.commitGear();
-                  }, primary: true),
-                ]),
-                Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: Text(L.of(context).msgGearTapToPlace,
-                      style: _ts(10, T.dim)),
-                ),
-              ]),
+              ),
+            ),
+          ],
         ),
-      ]),
+        iosSection(
+          footer: t.msgGearTapToPlace,
+          children: [
+            _field(t.lblModuleMm, _module, min: 0.1),
+            if (!planetary)
+              _field(t.lblTeeth, _teeth,
+                  kind: ScrubKind.count, integer: true, min: 3, max: 400),
+            _field(t.lblCornerRadiusMm, _corner, min: 0),
+            if (planetary) ...[
+              _field(t.lblSunTeeth, _sun,
+                  kind: ScrubKind.count, integer: true, min: 3, max: 400),
+              _field(t.lblPlanetTeeth, _planet,
+                  kind: ScrubKind.count, integer: true, min: 3, max: 400),
+              _field(t.lblPlanets, _count,
+                  kind: ScrubKind.count, integer: true, min: 1, max: 12),
+            ],
+            _field(t.lblPressureAngle, _angle,
+                kind: ScrubKind.angle, min: 5, max: 45),
+            _field(t.lblProfileShift, _shift, kind: ScrubKind.ratio),
+            if (!planetary) _field(t.lblBoreDia, _bore, min: 0),
+            iosSwitchRow(
+              label: t.lblAutoRootTip,
+              value: g.params.fillet,
+              onChanged: (v) {
+                g.params.fillet = v;
+                widget.app.gearNotify();
+                setState(() {});
+              },
+            ),
+          ],
+        ),
+      ],
     );
   }
 
@@ -237,137 +229,32 @@ class _GearDialogState extends State<GearDialog> {
         Fmt.fixed(p.rootRadius * 2, 1));
   }
 
-  Widget _segmented(GearKind sel) {
-    Widget seg(String label, GearKind k) {
-      final on = sel == k;
-      return Expanded(
-        child: GestureDetector(
-          onTap: () => _setKind(k),
-          child: Container(
-            height: 26,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: on ? T.accent : _fieldBg,
-              border: Border.all(color: on ? T.accent : _fieldBorder),
-            ),
-            child: Text(label,
-                style: _ts(11, on ? T.onAccent : T.text,
-                    w: on ? FontWeight.w600 : FontWeight.normal)),
-          ),
-        ),
-      );
-    }
-
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(4),
-      child: Row(children: [
-        seg(L.of(context).gearExternal, GearKind.external),
-        seg(L.of(context).gearInternal, GearKind.internal),
-        seg(L.of(context).gearPlanetary, GearKind.planetary),
-      ]),
-    );
-  }
-
   /// M180 — every one of these drags. [kind] is what the number measures: a
   /// tooth count steps by one whole tooth, the pressure angle by a degree, the
   /// profile shift by a tenth, and the millimetre fields by whatever the zoom
   /// says a notch is worth, like every other length in the app.
+  ///
+  /// The controllers hold BARE numbers here (the gear's parameters are set,
+  /// not written as expressions), so the unit is DRAWN rather than carried in
+  /// the text — see ios_kit.dart on why those are two different arguments.
+  /// NO drawn unit: every one of these labels already carries it — "Modul
+  /// (mm)", "Eingriffswinkel (°)", "Bohrung Ø (mm)" — and a second one beside
+  /// the number would say it twice.
   Widget _field(String label, TextEditingController c,
-      {VoidCallback? on,
-      ScrubKind kind = ScrubKind.length,
-      double? min,
-      double? max}) {
-    final row = Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Row(children: [
-        SizedBox(
-            width: 120,
-            child: Text(label, style: _ts(11.5, T.dim))),
-        Expanded(
-          child: SizedBox(
-            height: 26,
-            child: TextField(
-              controller: c,
-              onChanged: (_) => (on ?? _sync)(),
-              keyboardType: kValueKeyboard, // M206: the app's own pad
-              stylusHandwritingEnabled: kValueHandwriting, // M179
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'[0-9.\-]'))
-              ],
-              style: _ts(12, T.text),
-              decoration: InputDecoration(
-                isDense: true,
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-                filled: true,
-                fillColor: _fieldBg,
-                enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(3),
-                    borderSide: BorderSide(color: _fieldBorder)),
-                focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(3),
-                    borderSide: BorderSide(color: T.accent)),
-              ),
-            ),
-          ),
-        ),
-      ]),
-    );
-    return ScrubField(
-      app: widget.app,
-      controller: c,
-      kind: kind,
-      min: min,
-      max: max,
-      onCommit: (_) => (on ?? _sync)(),
-      child: row,
-    );
-  }
-
-  Widget _filletToggle(GearSession g) {
-    final on = g.params.fillet;
-    return GestureDetector(
-      onTap: () {
-        g.params.fillet = !on;
-        widget.app.gearNotify();
-        setState(() {});
-      },
-      behavior: HitTestBehavior.opaque,
-      child: Row(children: [
-        Container(
-          width: 16,
-          height: 16,
-          decoration: BoxDecoration(
-            color: on ? T.accent : _fieldBg,
-            border: Border.all(color: on ? T.accent : _fieldBorder),
-            borderRadius: BorderRadius.circular(3),
-          ),
-          child: on
-              ? Icon(Icons.check, size: 12, color: T.onAccent)
-              : null,
-        ),
-        const SizedBox(width: 8),
-        Text(L.of(context).lblAutoRootTip, style: _ts(11.5, T.text)),
-      ]),
-    );
-  }
-
-  Widget _btn(String label, VoidCallback onTap, {bool primary = false}) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-        decoration: BoxDecoration(
-          color: primary ? T.accent : Colors.transparent,
-          border: Border.all(color: primary ? T.accent : _fieldBorder),
-          borderRadius: BorderRadius.circular(3),
-        ),
-        child: Text(label,
-            style: _ts(12.5, primary ? T.onAccent : T.text,
-                w: primary ? FontWeight.w600 : FontWeight.normal)),
-      ),
-    );
-  }
+          {ScrubKind kind = ScrubKind.length,
+          bool integer = false,
+          double? min,
+          double? max}) =>
+      iosValueRow(
+        app: widget.app,
+        label: label,
+        controller: c,
+        kind: kind,
+        integer: integer,
+        min: min,
+        max: max,
+        onChanged: (_) => _sync(),
+      );
 }
 
 /// Paints the current gear (or planetary set) fitted into the preview box.

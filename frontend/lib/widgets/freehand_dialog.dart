@@ -5,11 +5,17 @@
 // app.freehandNotify(), which re-fits from the RAW ink and repaints. The
 // preview in the viewport is therefore always exactly the geometry that ✓ will
 // commit — there is no second code path to drift.
-import 'package:flutter/material.dart';
+//
+// M338 — drawn as an iOS panel (widgets/ios_kit.dart). The two sliders were
+// already the right control and are now the system one; Finish is the
+// navigation bar's confirming action with Discard opposite it, and the count
+// of fit points is the section's footer rather than a caption crowded against
+// the button.
+import 'package:flutter/widgets.dart';
 
 import '../app_state.dart';
 import '../freehand.dart';
-import '../theme.dart';
+import 'ios_kit.dart';
 import '../l10n/l.dart';
 
 class FreehandDialog extends StatefulWidget {
@@ -33,177 +39,53 @@ class _FreehandDialogState extends State<FreehandDialog> {
   Widget build(BuildContext context) {
     final f = fs;
     if (f == null) return const SizedBox.shrink();
-    return Material(
-      color: Colors.transparent,
-      child: Container(
-        width: 268,
-        decoration: BoxDecoration(
-          color: T.panel,
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: T.panelSep),
-          boxShadow: [
-            BoxShadow(color: T.cardShadow, blurRadius: 14, offset: Offset(0, 6))
+    final app = widget.app;
+    final t = L.of(context);
+    return IosPanel(
+      width: 320,
+      nav: IosNavBar(
+        title: t.dlgFreehandSpline,
+        onDrag: widget.onDrag,
+        leading: IosBarButton(
+            label: t.discard,
+            tooltip: t.tipDiscardEsc,
+            onTap: app.freehandCancel),
+        trailing: IosBarButton(
+            label: t.finish,
+            prominent: true,
+            tooltip: t.tipFinishEnter,
+            onTap: app.freehandCommit),
+      ),
+      children: [
+        iosSection(
+          // M207 — "close if ends meet should be standard and snap ends to
+          // points also, and not be a toggle in the dialog." Both were already
+          // ON by default; what they cost was two rows of dialog and a decision
+          // nobody was going to make differently. They are constants on the
+          // session now (see FreehandSession) — off is reachable by deleting
+          // the constraint afterwards, like any other.
+          footer: t.lblFitPoints(app.toolPoints.length),
+          children: [
+            iosSliderRow(
+              label: t.lblPoints,
+              readout: '${f.points}',
+              value: f.points.toDouble(),
+              min: kFreehandMinPoints.toDouble(),
+              max: kFreehandMaxPoints.toDouble(),
+              divisions: kFreehandMaxPoints - kFreehandMinPoints,
+              onChanged: (v) => _edit(() => f.points = v.round()),
+            ),
+            iosSliderRow(
+              label: t.lblSmoothing,
+              readout: '${(f.smoothing * 100).round()}%',
+              value: f.smoothing,
+              min: 0,
+              max: 1,
+              onChanged: (v) => _edit(() => f.smoothing = v),
+            ),
           ],
         ),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          // title bar — drag to move, like every other floating window here
-          GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onPanUpdate: (d) => widget.onDrag(d.delta),
-            child: Container(
-              height: 30,
-              padding: const EdgeInsets.symmetric(horizontal: 10),
-              decoration: BoxDecoration(
-                color: T.flyHov,
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
-              ),
-              child: Row(children: [
-                Text(L.of(context).dlgFreehandSpline,
-                    style: ts(12, T.text, w: FontWeight.w600)),
-                const Spacer(),
-                _IconBtn(
-                  tooltip: L.of(context).tipDiscardEsc,
-                  icon: Icons.close,
-                  color: T.dim,
-                  onTap: widget.app.freehandCancel,
-                ),
-              ]),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              _slider(
-                label: L.of(context).lblPoints,
-                value: f.points.toDouble(),
-                min: kFreehandMinPoints.toDouble(),
-                max: kFreehandMaxPoints.toDouble(),
-                divisions: kFreehandMaxPoints - kFreehandMinPoints,
-                readout: '${f.points}',
-                onChanged: (v) => _edit(() => f.points = v.round()),
-              ),
-              _slider(
-                label: L.of(context).lblSmoothing,
-                value: f.smoothing,
-                min: 0,
-                max: 1,
-                readout: '${(f.smoothing * 100).round()}%',
-                onChanged: (v) => _edit(() => f.smoothing = v),
-              ),
-              // M207 — "close if ends meet should be standard and snap ends
-              // to points also, and not be a toggle in the dialog." Both were
-              // already ON by default; what they cost was two rows of dialog
-              // and a decision nobody was going to make differently. A stroke
-              // whose ends meet is a closed curve, and ends that land on
-              // existing points are meant to be there. They are constants on
-              // the session now (see FreehandSession) — off is reachable by
-              // deleting the constraint afterwards, like any other.
-              const SizedBox(height: 10),
-              Row(children: [
-                Text(L.of(context).lblFitPoints(widget.app.toolPoints.length),
-                    style: ts(10.5, T.dim)),
-                const Spacer(),
-                _FinishButton(onTap: widget.app.freehandCommit),
-              ]),
-            ]),
-          ),
-        ]),
-      ),
+      ],
     );
   }
-
-  Widget _slider({
-    required String label,
-    required double value,
-    required double min,
-    required double max,
-    required String readout,
-    required ValueChanged<double> onChanged,
-    int? divisions,
-  }) =>
-      Padding(
-        padding: const EdgeInsets.only(bottom: 2),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Row(children: [
-            Text(label, style: ts(11.5, T.text)),
-            const Spacer(),
-            Text(readout, style: ts(11.5, T.dim)),
-          ]),
-          SizedBox(
-            height: 26,
-            child: SliderTheme(
-              data: SliderTheme.of(context).copyWith(
-                trackHeight: 2.5,
-                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
-                overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
-                activeTrackColor: T.accent,
-                inactiveTrackColor: T.panelSep,
-                thumbColor: T.accent,
-              ),
-              child: Slider(
-                value: value.clamp(min, max),
-                min: min,
-                max: max,
-                divisions: divisions,
-                onChanged: onChanged,
-              ),
-            ),
-          ),
-        ]),
-      );
-
-}
-
-class _IconBtn extends StatelessWidget {
-  final String tooltip;
-  final IconData icon;
-  final Color color;
-  final VoidCallback onTap;
-  const _IconBtn({
-    required this.tooltip,
-    required this.icon,
-    required this.color,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) => Tooltip(
-        message: tooltip,
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: onTap,
-          child: SizedBox(
-            width: 26,
-            height: 26,
-            child: Icon(icon, size: 16, color: color),
-          ),
-        ),
-      );
-}
-
-/// The green ✓, same affordance as the ribbon's Finish.
-class _FinishButton extends StatelessWidget {
-  final VoidCallback onTap;
-  const _FinishButton({required this.onTap});
-
-  @override
-  Widget build(BuildContext context) => Tooltip(
-        message: L.of(context).tipFinishEnter,
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: onTap,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: T.ok,
-              borderRadius: BorderRadius.circular(4),
-            ),
-            child: Row(mainAxisSize: MainAxisSize.min, children: [
-              Icon(Icons.check, size: 15, color: T.onAccent),
-              const SizedBox(width: 5),
-              Text(L.of(context).finish, style: ts(11.5, T.onAccent, w: FontWeight.w600)),
-            ]),
-          ),
-        ),
-      );
 }

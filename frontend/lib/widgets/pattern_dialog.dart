@@ -1,37 +1,46 @@
-// Prototype — the Pattern dialogs (M35): Rectangular / Circular / Mirror,
-// 1:1 with Inventor's sketch dialogs (see HANDOFF, mock screenshots):
+// Prototype — the sketch tool windows: the 2D Pattern dialogs (M35), the 2D
+// Fillet / Chamfer value window (M36) and the Polygon side count (M207).
 //
 //   Rectangular: Geometry | Direction 1 + Direction 2 (select/flip, count,
-//                spacing) | Extents (boundary fill — future work, greyed
-//                exactly like Inventor greys it before a boundary is picked)
-//                | ? OK Cancel >>  and the expanded Suppress/Associative/
-//                Fitted row behind ">>".
+//                spacing) | Extents (boundary fill — future work, offered
+//                exactly as Inventor offers it before a boundary is picked)
+//                | OK Cancel >>  and the Suppress / Associative / Fitted
+//                block behind ">>".
 //   Circular:    Geometry + Axis (+ flip) | count + angle | Extents | footer.
 //   Mirror:      Select + Mirror Line + Self Symmetric | Apply Done Cancel.
 //
-// The dialog is MODELESS: it floats over the viewport and the user keeps
-// tapping geometry while it is open. Which input a tap feeds is the ACTIVE
-// selector (blue outline) — AppState._patternClick routes it.
-import 'package:flutter/material.dart';
-import '../icon_theme.dart';
-import 'package:flutter/services.dart';
-import 'package:flutter_svg/flutter_svg.dart';
+// The dialogs are MODELESS: they float over the viewport and the user keeps
+// tapping geometry while they are open. Which input a tap feeds is the ACTIVE
+// selector — AppState._patternClick routes it.
+//
+// M338 — drawn as iOS panels (widgets/ios_kit.dart). Four notes:
+//
+//   * THE PICK BUTTONS ARE ROWS. `_PickBtn` was a 28 pt square holding a
+//     cursor glyph, with a blue underline once its pick existed and the word
+//     for what it picks in a Text beside it. The row says both: the name on
+//     the leading edge and what is in it on the trailing one.
+//   * THE ICONS BESIDE THE NUMBERS ARE NAMES. A yellow diamond meant
+//     "spacing" and a dotted arc meant "angle"; the ARB already had both
+//     words, and a labelled row does not need to be learned.
+//   * THE "?" BADGE IS A FOOTER. It carried a real sentence — "pick while the
+//     selector is blue" — in a tooltip, which on a touch screen is nowhere.
+//     It is the Geometry section's footer now.
+//   * WHAT IS NOT BUILT STAYS VISIBLE, dimmed, with the reason written under
+//     it rather than hidden in a tooltip: Inventor's boundary fill, its
+//     along-a-path direction mode and its Suppress. Same decision the Drive
+//     panel makes about Adaptivity and Collision Detection.
+import 'package:flutter/widgets.dart';
 
 import '../app_state.dart';
 import '../ffi/qcad_engine.dart';
+import '../ios_design.dart';
 import '../scrub.dart';
-import '../svg_icons.dart';
-import '../theme.dart';
-import 'scrub_field.dart';
+import 'ios_kit.dart';
 import '../l10n/l.dart';
 
-// M236 — getters, not finals: a top-level `final` is initialised lazily on
-// first use and would freeze whichever palette was active at that moment.
-Color get _fieldBg => T.field;
-Color get _fieldBorder => T.panelSep;
-Color get _disabledBg => T.disabledFill;
-Color get _disabledBorder => T.disabled;
-Color get _disabledText => T.disabled;
+// ===========================================================================
+// the 2D pattern dialogs
+// ===========================================================================
 
 class PatternDialog extends StatefulWidget {
   final AppState app;
@@ -42,6 +51,7 @@ class PatternDialog extends StatefulWidget {
 
 class _PatternDialogState extends State<PatternDialog> {
   late final TextEditingController _c1, _s1, _c2, _s2, _cc, _ac;
+  bool _advancedOpen = false;
 
   PatternSession get ps => widget.app.pattern!;
 
@@ -71,135 +81,106 @@ class _PatternDialogState extends State<PatternDialog> {
   Widget build(BuildContext context) {
     final app = widget.app;
     if (app.pattern == null) return const SizedBox.shrink();
-    return Container(
-      width: 330,
-      decoration: BoxDecoration(
-        color: T.panel,
-        border: Border.all(color: T.sep),
-        borderRadius: BorderRadius.circular(6),
-        boxShadow: [
-          BoxShadow(color: T.scrim, blurRadius: 24, offset: Offset(0, 6)),
-        ],
+    final t = L.of(context);
+    final mirror = ps.kind == Tool.mirror;
+    return IosPanel(
+      width: IosMetrics.panelWidth,
+      nav: IosNavBar(
+        title: switch (ps.kind) {
+          Tool.patRect => t.patRectangular,
+          Tool.patCirc => t.patCircular,
+          _ => t.patMirror,
+        },
+        leading: IosBarButton(label: t.cancel, onTap: app.cancelTool),
+        trailing: IosBarButton(
+            label: mirror ? t.done : t.ok,
+            prominent: true,
+            onTap: () => app.commitPattern()),
       ),
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        _header(app),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
-          child: switch (ps.kind) {
-            Tool.patRect => _rectBody(app),
-            Tool.patCirc => _circBody(app),
-            _ => _mirrorBody(app),
-          },
-        ),
-      ]),
+      // Only Mirror has a third verb; Inventor gives the other two OK and
+      // Cancel alone.
+      footer: !mirror
+          ? null
+          : iosFooter(children: [
+              Expanded(
+                child: IosButton(
+                  label: t.apply,
+                  style: IosButtonStyle.tinted,
+                  height: 38,
+                  expand: true,
+                  onTap: () => app.commitPattern(keepOpen: true),
+                ),
+              ),
+            ]),
+      children: switch (ps.kind) {
+        Tool.patRect => _rect(app, t),
+        Tool.patCirc => _circ(app, t),
+        _ => _mirror(app, t),
+      },
     );
   }
 
-  Widget _header(AppState app) {
-    final title = switch (ps.kind) {
-      Tool.patRect => L.of(context).patRectangular,
-      Tool.patCirc => L.of(context).patCircular,
-      _ => L.of(context).patMirror,
-    };
-    return Container(
-      padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
-      decoration: BoxDecoration(
-        color: T.fly,
-        border: Border(bottom: BorderSide(color: T.panelSep)),
-        borderRadius: BorderRadius.vertical(top: Radius.circular(6)),
-      ),
-      child: Row(children: [
-        Expanded(
-            child: Text(title, style: ts(13.5, T.text, w: FontWeight.w600))),
-        _IconTap(
-          tooltip: L.of(context).cancel,
-          onTap: app.cancelTool,
-          child: Icon(Icons.close, size: 17, color: T.dim),
-        ),
-      ]),
-    );
-  }
+  // ---- Rectangular ---------------------------------------------------------
 
-  // ---- Rectangular --------------------------------------------------------
-  Widget _rectBody(AppState app) {
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      _geometryRow(app),
-      const SizedBox(height: 10),
-      Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Expanded(child: _directionBox(app, 1)),
-        const SizedBox(width: 8),
-        Expanded(child: _directionBox(app, 2)),
-      ]),
-      const SizedBox(height: 10),
-      _extentsBox(),
-      const SizedBox(height: 10),
-      _footer(app),
-      if (ps.expanded) _advancedRow(app),
-    ]);
-  }
+  List<Widget> _rect(AppState app, AppL10n t) => [
+        _geometrySection(app, t),
+        _directionSection(app, t, 1),
+        _directionSection(app, t, 2),
+        _extentsSection(t),
+        _advancedSection(app, t),
+      ];
 
-  Widget _directionBox(AppState app, int which) {
+  Widget _directionSection(AppState app, AppL10n t, int which) {
     final field = which == 1 ? PatField.dir1 : PatField.dir2;
     final ent = which == 1 ? ps.dir1Ent : ps.dir2Ent;
     final flip = which == 1 ? ps.flip1 : ps.flip2;
-    // Direction 2 stays greyed until Direction 1 is picked — Inventor's flow.
+    // Direction 2 stays inert until Direction 1 is picked — Inventor's flow.
     final enabled = which == 1 || ps.dir1Ent != null;
     final cCtrl = which == 1 ? _c1 : _c2;
     final sCtrl = which == 1 ? _s1 : _s2;
-    return Container(
-      padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(
-        color: _fieldBg,
-        border: Border.all(color: _fieldBorder),
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(L.of(context).lblDirectionN('$which'),
-            style: ts(10.5, enabled ? T.dim : _disabledText)),
-        const SizedBox(height: 6),
-        Row(children: [
-          _PickBtn(
-            icon: PD['sel']!,
-            active: enabled && ps.active == field,
-            done: ent != null,
-            enabled: enabled,
-            tooltip: L.of(context).tipSelectDirectionLine,
-            onTap: () {
-              ps.active = field;
-              app.patNotify();
-            },
-          ),
-          const SizedBox(width: 5),
-          _SquareBtn(
-            icon: PD['flip']!,
-            enabled: enabled && ent != null,
-            tooltip: L.of(context).tipFlipDirection,
-            onTap: () {
-              if (which == 1) {
-                ps.flip1 = !flip;
-              } else {
-                ps.flip2 = !flip;
-              }
-              app.patNotify();
-            },
-          ),
-          const SizedBox(width: 5),
-          _SquareBtn(
-            icon: IC['patrect']!,
-            enabled: false, // path mode — Inventor's 3rd toggle, future work
-            tooltip: L.of(context).tipPatternAlongPath,
-            onTap: () {},
-          ),
-        ]),
-        const SizedBox(height: 8),
-        _valueField(
-          icon: which == 1 ? PD['countH']! : PD['countV']!,
-          ctrl: cCtrl,
-          enabled: enabled,
+    return iosSection(
+      header: t.lblDirectionN('$which'),
+      children: [
+        iosPickRow(
+          label: t.lblGeometry,
+          value: ent == null ? null : t.lblLineN('$ent'),
+          hint: t.tipSelectDirectionLine,
+          armed: enabled && ps.active == field,
+          filled: ent != null,
+          onTap: enabled
+              ? () {
+                  ps.active = field;
+                  app.patNotify();
+                }
+              : null,
+        ),
+        iosSwitchRow(
+          label: t.tipFlipDirection,
+          value: flip,
+          onChanged: enabled && ent != null
+              ? (v) {
+                  if (which == 1) {
+                    ps.flip1 = v;
+                  } else {
+                    ps.flip2 = v;
+                  }
+                  app.patNotify();
+                }
+              : null,
+        ),
+        // Inventor's third direction mode: run the row along a picked path.
+        iosSwitchRow(label: t.tipPatternAlongPath, value: false),
+        iosValueRow(
+          app: app,
+          label: t.lblNumber,
+          controller: cCtrl,
           integer: true,
           min: 1,
           max: 64,
-          onValue: (v) {
+          enabled: enabled,
+          onChanged: (text) {
+            final v = double.tryParse(text.replaceAll(',', '.'));
+            if (v == null) return;
             final n = v.toInt().clamp(1, 64);
             if (which == 1) {
               ps.count1 = n;
@@ -209,13 +190,16 @@ class _PatternDialogState extends State<PatternDialog> {
             app.patNotify();
           },
         ),
-        const SizedBox(height: 6),
-        _valueField(
-          icon: PD['spacing']!,
-          ctrl: sCtrl,
+        iosValueRow(
+          app: app,
+          label: t.lblSpacing,
+          controller: sCtrl,
+          unitLabel: 'mm',
+          kind: ScrubKind.length,
           enabled: enabled,
-          suffix: 'mm',
-          onValue: (v) {
+          onChanged: (text) {
+            final v = double.tryParse(text.replaceAll(',', '.'));
+            if (v == null || v <= 0) return;
             if (which == 1) {
               ps.spacing1 = v;
             } else {
@@ -224,79 +208,76 @@ class _PatternDialogState extends State<PatternDialog> {
             app.patNotify();
           },
         ),
-      ]),
+      ],
     );
   }
 
-  // ---- Circular -----------------------------------------------------------
-  Widget _circBody(AppState app) {
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Row(children: [
-        Expanded(child: _geometryRow(app)),
-        const SizedBox(width: 6),
-        _PickBtn(
-          icon: PD['selAxis']!,
-          active: ps.active == PatField.axis,
-          done: ps.axisPt != null,
-          tooltip: L.of(context).tipSelectRotationAxisPoint,
-          onTap: () {
-            ps.active = PatField.axis;
-            app.patNotify();
-          },
-        ),
-        const SizedBox(width: 5),
-        Text(L.of(context).lblAxis, style: ts(12.5, T.text)),
-        const Spacer(),
-        _SquareBtn(
-          icon: PD['flip']!,
-          enabled: ps.axisPt != null,
-          tooltip: L.of(context).tipFlipRotation,
-          onTap: () {
-            ps.flipC = !ps.flipC;
-            app.patNotify();
-          },
-        ),
-      ]),
-      const SizedBox(height: 10),
-      Row(children: [
-        Expanded(
-          child: _valueField(
-            icon: PD['countC']!,
-            ctrl: _cc,
-            integer: true,
-            min: 2,
-            max: 128,
-            onValue: (v) {
-              ps.countC = v.toInt().clamp(2, 128);
-              app.patNotify();
-            },
-          ),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: _valueField(
-            icon: PD['angle']!,
-            ctrl: _ac,
-            suffix: 'deg',
-            min: -360,
-            max: 360,
-            onValue: (v) {
-              ps.angleC = v.clamp(-360.0, 360.0);
-              app.patNotify();
-            },
-          ),
-        ),
-      ]),
-      const SizedBox(height: 10),
-      _extentsBox(),
-      const SizedBox(height: 10),
-      _footer(app),
-      if (ps.expanded) _advancedRow(app),
-    ]);
-  }
+  // ---- Circular ------------------------------------------------------------
 
-  // ---- Mirror -------------------------------------------------------------
-  Widget _mirrorBody(AppState app) {
+  List<Widget> _circ(AppState app, AppL10n t) => [
+        _geometrySection(app, t),
+        iosSection(
+          header: t.lblAxis,
+          children: [
+            iosPickRow(
+              label: t.lblAxis,
+              value: ps.axisPt == null ? null : t.lblLineN('${ps.axisPt!.ent}'),
+              hint: t.tipSelectRotationAxisPoint,
+              armed: ps.active == PatField.axis,
+              filled: ps.axisPt != null,
+              onTap: () {
+                ps.active = PatField.axis;
+                app.patNotify();
+              },
+            ),
+            iosSwitchRow(
+              label: t.tipFlipRotation,
+              value: ps.flipC,
+              onChanged: ps.axisPt == null
+                  ? null
+                  : (v) {
+                      ps.flipC = v;
+                      app.patNotify();
+                    },
+            ),
+            iosValueRow(
+              app: app,
+              label: t.lblCount,
+              controller: _cc,
+              integer: true,
+              min: 2,
+              max: 128,
+              onChanged: (text) {
+                final v = double.tryParse(text.replaceAll(',', '.'));
+                if (v == null) return;
+                ps.countC = v.toInt().clamp(2, 128);
+                app.patNotify();
+              },
+            ),
+            iosValueRow(
+              app: app,
+              label: t.lblAngle,
+              controller: _ac,
+              unitLabel: 'deg',
+              kind: ScrubKind.angle,
+              min: -360,
+              max: 360,
+              onChanged: (text) {
+                final v = double.tryParse(text.replaceAll(',', '.'));
+                if (v == null) return;
+                ps.angleC = v.clamp(-360.0, 360.0);
+                app.patNotify();
+              },
+            ),
+          ],
+        ),
+        _extentsSection(t),
+        _advancedSection(app, t),
+      ];
+
+  // ---- Mirror --------------------------------------------------------------
+
+  List<Widget> _mirror(AppState app, AppL10n t) {
     final s = app.current;
     // Self Symmetric is only offered for a single OPEN spline (Inventor).
     var selfSymOk = false;
@@ -310,456 +291,130 @@ class _PatternDialogState extends State<PatternDialog> {
       }
     }
     if (!selfSymOk) ps.selfSym = false;
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Row(children: [
-        _PickBtn(
-          icon: PD['sel']!,
-          active: ps.active == PatField.geometry,
-          done: ps.geo.isNotEmpty,
-          tooltip: L.of(context).tipSelectGeometryToMirror,
-          onTap: () {
-            ps.active = PatField.geometry;
-            app.patNotify();
-          },
-        ),
-        const SizedBox(width: 7),
-        Text(L.of(context).select, style: ts(12.5, T.text)),
-        const Spacer(),
-        Text(
-            ps.geo.isEmpty ? 'nothing selected' : '${ps.geo.length} selected',
-            style: ts(11.5, T.dim)),
-      ]),
-      const SizedBox(height: 8),
-      Row(children: [
-        _PickBtn(
-          icon: PD['mirLine']!,
-          active: ps.active == PatField.mirrorLine,
-          done: ps.mirrorEnt != null,
-          tooltip: L.of(context).tipSelectMirrorLine,
-          onTap: () {
-            ps.active = PatField.mirrorLine;
-            app.patNotify();
-          },
-        ),
-        const SizedBox(width: 7),
-        Text(L.of(context).lblMirrorLine, style: ts(12.5, T.text)),
-        const Spacer(),
-        Text(ps.mirrorEnt == null ? '—' : L.of(context).lblLineN('${ps.mirrorEnt}'),
-            style: ts(11.5, T.dim)),
-      ]),
-      const SizedBox(height: 8),
-      _CheckRow(
-        label: L.of(context).btnSelfSymmetric,
-        hint: selfSymOk ? null : L.of(context).lblSingleOpenSplineOnly,
-        value: ps.selfSym,
-        enabled: selfSymOk,
-        onChanged: (v) {
-          ps.selfSym = v;
-          app.patNotify();
-        },
-      ),
-      const SizedBox(height: 10),
-      Row(children: [
-        _HelpBadge(),
-        const Spacer(),
-        _DlgBtn(
-            label: L.of(context).apply,
-            outline: true,
-            onTap: () => app.commitPattern(keepOpen: true)),
-        const SizedBox(width: 8),
-        _DlgBtn(label: L.of(context).done, primary: true, onTap: () => app.commitPattern()),
-        const SizedBox(width: 8),
-        _DlgBtn(label: L.of(context).cancel, onTap: app.cancelTool),
-      ]),
-    ]);
-  }
-
-  // ---- shared pieces ------------------------------------------------------
-  Widget _geometryRow(AppState app) {
-    return Row(children: [
-      _PickBtn(
-        icon: PD['sel']!,
-        active: ps.active == PatField.geometry,
-        done: ps.geo.isNotEmpty,
-        tooltip: L.of(context).tipSelectGeometryToPattern,
-        onTap: () {
-          ps.active = PatField.geometry;
-          app.patNotify();
-        },
-      ),
-      const SizedBox(width: 7),
-      Text(L.of(context).lblGeometry, style: ts(12.5, T.text)),
-      const SizedBox(width: 8),
-      Text(ps.geo.isEmpty ? '' : '${ps.geo.length} selected',
-          style: ts(11.5, T.dim)),
-    ]);
-  }
-
-  /// The Extents/Boundary block — rendered exactly like Inventor renders it
-  /// before a boundary exists: greyed. Boundary fill is future work (HANDOFF).
-  Widget _extentsBox() {
-    Widget dis(String icon) => Container(
-          width: 26,
-          height: 26,
-          margin: const EdgeInsets.only(right: 5),
-          decoration: BoxDecoration(
-            color: _disabledBg,
-            border: Border.all(color: _disabledBorder),
-            borderRadius: BorderRadius.circular(3),
-          ),
-          child: Opacity(opacity: .35, child: Center(child: svgi(icon, 14))),
-        );
-    return Tooltip(
-      message: L.of(context).msgBoundaryFillNotYet,
-      child: Container(
-        padding: const EdgeInsets.all(8),
-        decoration: BoxDecoration(
-          border: Border.all(color: _disabledBorder),
-          borderRadius: BorderRadius.circular(4),
-        ),
-        child:
-            Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(L.of(context).lblExtents, style: ts(10.5, _disabledText)),
-          const SizedBox(height: 6),
-          Row(children: [
-            dis(PD['sel']!),
-            Text(L.of(context).lblBoundary, style: ts(12, _disabledText)),
-          ]),
-          const SizedBox(height: 6),
-          Row(children: [
-            dis(IC['patrect']!),
-            dis(PD['countC']!),
-            dis(PD['sel']!),
-            Text(L.of(context).lblIncludeGeometry, style: ts(12, _disabledText)),
-          ]),
-        ]),
-      ),
-    );
-  }
-
-  Widget _footer(AppState app) {
-    return Row(children: [
-      _HelpBadge(),
-      const Spacer(),
-      _DlgBtn(label: L.of(context).ok, primary: true, onTap: () => app.commitPattern()),
-      const SizedBox(width: 8),
-      _DlgBtn(label: L.of(context).cancel, onTap: app.cancelTool),
-      const SizedBox(width: 8),
-      _DlgBtn(
-        label: ps.expanded ? '\u00ab' : '\u00bb',
-        onTap: () {
-          ps.expanded = !ps.expanded;
-          app.patNotify();
-        },
-      ),
-    ]);
-  }
-
-  /// The ">>" row: Suppress (future work) + Associative + Fitted.
-  Widget _advancedRow(AppState app) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 10),
-      child: Row(children: [
-        Tooltip(
-          message: L.of(context).msgSuppressNotYet,
-          child: Opacity(
-            opacity: .4,
-            child: Row(mainAxisSize: MainAxisSize.min, children: [
-              svgi(PD['sel']!, 14),
-              const SizedBox(width: 4),
-              Text(L.of(context).lblSuppress, style: ts(12, T.dim)),
-            ]),
-          ),
-        ),
-        const Spacer(),
-        _CheckRow(
-          label: L.of(context).btnAssociative,
-          value: ps.associative,
-          onChanged: (v) {
-            ps.associative = v;
-            app.patNotify();
-          },
-        ),
-        const SizedBox(width: 10),
-        _CheckRow(
-          label: L.of(context).btnFitted,
-          value: ps.fitted,
-          onChanged: (v) {
-            ps.fitted = v;
-            app.patNotify();
-          },
-        ),
-      ]),
-    );
-  }
-
-  Widget _valueField({
-    required String icon,
-    required TextEditingController ctrl,
-    required void Function(double) onValue,
-    bool enabled = true,
-    bool integer = false,
-    String? suffix,
-    double? min,
-    double? max,
-  }) {
-    final row = Row(children: [
-      svgi(icon, 15),
-      const SizedBox(width: 6),
-      Expanded(
-        child: SizedBox(
-          height: 28,
-          child: TextField(
-            controller: ctrl,
-            enabled: enabled,
-            style: ts(12.5, enabled ? T.text : _disabledText),
-            keyboardType: kValueKeyboard, // M206: the app's own pad
-            stylusHandwritingEnabled: kValueHandwriting, // M179
-            inputFormatters: [
-              FilteringTextInputFormatter.allow(
-                  RegExp(integer ? r'[0-9]' : r'[0-9.,\-]')),
-            ],
-            decoration: InputDecoration(
-              isDense: true,
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-              suffixText: suffix,
-              suffixStyle: ts(11, T.dim),
-              filled: true,
-              fillColor: enabled ? _fieldBg : _disabledBg,
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(3),
-                borderSide: BorderSide(color: _fieldBorder),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(3),
-                borderSide: BorderSide(color: T.accent, width: 1.4),
-              ),
-              disabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(3),
-                borderSide: BorderSide(color: _disabledBorder),
-              ),
-            ),
-            onChanged: (t) {
-              final v = double.tryParse(t.replaceAll(',', '.'));
-              if (v != null) onValue(v);
+    return [
+      iosSection(
+        header: t.lblGeometry,
+        footer: t.msgPickWhileSelectorBlue,
+        children: [
+          iosPickRow(
+            label: t.select,
+            value: ps.geo.isEmpty ? null : t.lblSelectedCount(ps.geo.length),
+            hint: t.tipSelectGeometryToMirror,
+            armed: ps.active == PatField.geometry,
+            filled: ps.geo.isNotEmpty,
+            onTap: () {
+              ps.active = PatField.geometry;
+              app.patNotify();
             },
           ),
-        ),
-      ),
-    ]);
-    // M180 — draggable, like every other number in the app. A disabled field
-    // is not: it is greyed because the pattern does not use it, and a value
-    // that moves under the finger while the model ignores it is worse than
-    // one that does not move.
-    if (!enabled) return row;
-    return ScrubField(
-      app: widget.app,
-      controller: ctrl,
-      // The unit here is DECORATION (suffixText), so the text is a bare
-      // number and must stay one — the onChanged above parses it raw.
-      kind: integer
-          ? ScrubKind.count
-          : scrubKindForUnit(suffix ?? ''),
-      min: min,
-      max: max,
-      onCommit: (t) {
-        final v = double.tryParse(t.replaceAll(',', '.'));
-        if (v != null) onValue(v);
-      },
-      child: row,
-    );
-  }
-}
-
-Widget svgi(String s, double size) =>
-    SvgPicture.string(themedIcon(s), width: size, height: size);
-
-/// A selector button: blue outline while ARMED (the next viewport tap feeds
-/// it), a subtle blue underline once its pick exists — Inventor's language.
-class _PickBtn extends StatelessWidget {
-  final String icon;
-  final bool active, done, enabled;
-  final String tooltip;
-  final VoidCallback onTap;
-  const _PickBtn(
-      {required this.icon, required this.active, required this.done,
-      this.enabled = true, required this.tooltip, required this.onTap});
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      child: GestureDetector(
-        onTap: enabled ? onTap : null,
-        child: Container(
-          width: 28,
-          height: 28,
-          decoration: BoxDecoration(
-            color: enabled ? _fieldBg : _disabledBg,
-            border: Border.all(
-                color: active
-                    ? T.accent
-                    : enabled
-                        ? _fieldBorder
-                        : _disabledBorder,
-                width: active ? 1.5 : 1),
-            borderRadius: BorderRadius.circular(3),
+          iosPickRow(
+            label: t.lblMirrorLine,
+            value: ps.mirrorEnt == null
+                ? null
+                : t.lblLineN('${ps.mirrorEnt}'),
+            hint: t.tipSelectMirrorLine,
+            armed: ps.active == PatField.mirrorLine,
+            filled: ps.mirrorEnt != null,
+            onTap: () {
+              ps.active = PatField.mirrorLine;
+              app.patNotify();
+            },
           ),
-          child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-            Opacity(opacity: enabled ? 1 : .35, child: svgi(icon, 15)),
-            if (done)
-              Container(
-                  margin: const EdgeInsets.only(top: 1),
-                  width: 14,
-                  height: 2,
-                  color: T.accent),
-          ]),
-        ),
-      ),
-    );
-  }
-}
-
-class _SquareBtn extends StatelessWidget {
-  final String icon;
-  final bool enabled;
-  final String tooltip;
-  final VoidCallback onTap;
-  const _SquareBtn(
-      {required this.icon, required this.enabled, required this.tooltip,
-      required this.onTap});
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      child: GestureDetector(
-        onTap: enabled ? onTap : null,
-        child: Container(
-          width: 28,
-          height: 28,
-          decoration: BoxDecoration(
-            color: enabled ? _fieldBg : _disabledBg,
-            border:
-                Border.all(color: enabled ? _fieldBorder : _disabledBorder),
-            borderRadius: BorderRadius.circular(3),
-          ),
-          child: Center(
-              child:
-                  Opacity(opacity: enabled ? 1 : .35, child: svgi(icon, 15))),
-        ),
-      ),
-    );
-  }
-}
-
-class _DlgBtn extends StatelessWidget {
-  final String label;
-  final bool primary, outline;
-  final VoidCallback onTap;
-  const _DlgBtn(
-      {required this.label, this.primary = false, this.outline = false,
-      required this.onTap});
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-        decoration: BoxDecoration(
-          color: primary ? T.accent : Colors.transparent,
-          border: Border.all(
-              color: primary
-                  ? T.accent
-                  : outline
-                      ? T.accent
-                      : _fieldBorder),
-          borderRadius: BorderRadius.circular(3),
-        ),
-        child: Text(label,
-            style: ts(12.5, primary ? T.onAccent : outline ? T.accent : T.text,
-                w: primary ? FontWeight.w600 : FontWeight.normal)),
-      ),
-    );
-  }
-}
-
-class _CheckRow extends StatelessWidget {
-  final String label;
-  final String? hint;
-  final bool value, enabled;
-  final void Function(bool) onChanged;
-  const _CheckRow(
-      {required this.label, this.hint, required this.value,
-      this.enabled = true, required this.onChanged});
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: enabled ? () => onChanged(!value) : null,
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        Container(
-          width: 15,
-          height: 15,
-          decoration: BoxDecoration(
-            color: value && enabled ? T.accent : _fieldBg,
-            border: Border.all(
-                color: enabled ? _fieldBorder : _disabledBorder),
-            borderRadius: BorderRadius.circular(2),
-          ),
-          child: value && enabled
-              ? Icon(Icons.check, size: 12, color: T.onAccent)
-              : null,
-        ),
-        const SizedBox(width: 5),
-        Text(label, style: ts(12, enabled ? T.text : _disabledText)),
-        if (hint != null) ...[
-          const SizedBox(width: 4),
-          Text(hint!, style: ts(10.5, _disabledText)),
         ],
-      ]),
-    );
-  }
-}
-
-class _HelpBadge extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: L.of(context).msgPickWhileSelectorBlue,
-      child: Container(
-        width: 22,
-        height: 22,
-        decoration: BoxDecoration(
-          border: Border.all(color: _fieldBorder),
-          borderRadius: BorderRadius.circular(3),
-        ),
-        child: Center(child: Text('?', style: ts(12, T.dim))),
       ),
-    );
+      iosSection(
+        footer: selfSymOk ? null : t.lblSingleOpenSplineOnly,
+        children: [
+          iosSwitchRow(
+            label: t.btnSelfSymmetric,
+            value: ps.selfSym,
+            onChanged: selfSymOk
+                ? (v) {
+                    ps.selfSym = v;
+                    app.patNotify();
+                  }
+                : null,
+          ),
+        ],
+      ),
+    ];
   }
+
+  // ---- shared sections -----------------------------------------------------
+
+  Widget _geometrySection(AppState app, AppL10n t) => iosSection(
+        header: t.lblGeometry,
+        // The "?" badge's sentence, in the open. It is the one thing a user
+        // has to know about these dialogs and it was living in a tooltip.
+        footer: t.msgPickWhileSelectorBlue,
+        children: [
+          iosPickRow(
+            label: t.select,
+            value: ps.geo.isEmpty ? null : t.lblSelectedCount(ps.geo.length),
+            hint: t.tipSelectGeometryToPattern,
+            armed: ps.active == PatField.geometry,
+            filled: ps.geo.isNotEmpty,
+            onTap: () {
+              ps.active = PatField.geometry;
+              app.patNotify();
+            },
+          ),
+        ],
+      );
+
+  /// Inventor's Extents / Boundary block, offered exactly as Inventor offers
+  /// it before a boundary exists: present and inert. Boundary fill is future
+  /// work (HANDOFF), and the footer says so instead of a tooltip.
+  Widget _extentsSection(AppL10n t) => iosSection(
+        header: t.lblExtents,
+        footer: t.msgBoundaryFillNotYet,
+        children: [
+          iosRow(label: t.lblBoundary, enabled: false, chevron: true),
+          iosSwitchRow(label: t.lblIncludeGeometry, value: false),
+        ],
+      );
+
+  /// Inventor's ">>" block: Suppress (future work) + Associative + Fitted.
+  Widget _advancedSection(AppState app, AppL10n t) => iosSection(
+        header: t.secAdvancedProperties,
+        open: _advancedOpen,
+        onToggle: () => setState(() => _advancedOpen = !_advancedOpen),
+        footer: _advancedOpen ? t.msgSuppressNotYet : null,
+        children: [
+          iosSwitchRow(label: t.lblSuppress, value: false),
+          iosSwitchRow(
+            label: t.btnAssociative,
+            value: ps.associative,
+            onChanged: (v) {
+              ps.associative = v;
+              app.patNotify();
+            },
+          ),
+          iosSwitchRow(
+            label: t.btnFitted,
+            value: ps.fitted,
+            onChanged: (v) {
+              ps.fitted = v;
+              app.patNotify();
+            },
+          ),
+        ],
+      );
 }
 
-class _IconTap extends StatelessWidget {
-  final String tooltip;
-  final VoidCallback onTap;
-  final Widget child;
-  const _IconTap(
-      {required this.tooltip, required this.onTap, required this.child});
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      child: GestureDetector(
-          onTap: onTap,
-          child: Padding(padding: const EdgeInsets.all(4), child: child)),
-    );
-  }
-}
+// ===========================================================================
+// the 2D fillet / chamfer value window
+// ===========================================================================
 
 /// The modeless 2D Fillet / 2D Chamfer window (M36) — Inventor's tiny value
-/// dialogs: it floats while the tool is armed, every two picks make a
-/// corner, and the values are editable between corners. Chamfer offers
-/// Inventor's three modes (equal distance / two distances / distance +
-/// angle) as the icon toggles on the left.
+/// dialogs: it floats while the tool is armed, every two picks make a corner,
+/// and the values are editable between corners. Chamfer offers Inventor's
+/// three modes (equal distance / two distances / distance + angle).
+///
+/// M207 — no ✕: it was a third way to say Cancel, next to Esc and the
+/// quick-tool bar's own Cancel button, on a window whose whole job is to hold
+/// one number. M338 keeps that decision, so this panel has no navigation
+/// actions at all — only a title.
 class FilletChamferDialog extends StatefulWidget {
   final AppState app;
   const FilletChamferDialog({super.key, required this.app});
@@ -796,112 +451,85 @@ class _FilletChamferDialogState extends State<FilletChamferDialog> {
   Widget build(BuildContext context) {
     final app = widget.app;
     if (app.filletSess == null) return const SizedBox.shrink();
+    final t = L.of(context);
     final isFillet = fs.kind == Tool.fillet;
-    return Container(
-      width: 250,
-      decoration: BoxDecoration(
-        color: T.panel,
-        border: Border.all(color: T.sep),
-        borderRadius: BorderRadius.circular(6),
-        boxShadow: [
-          BoxShadow(
-              color: T.scrim, blurRadius: 24, offset: Offset(0, 6)),
-        ],
-      ),
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Container(
-          padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
-          decoration: BoxDecoration(
-            color: T.fly,
-            border: Border(bottom: BorderSide(color: T.panelSep)),
-            borderRadius: BorderRadius.vertical(top: Radius.circular(6)),
-          ),
-          // M207 — no ✕ ("on the radius input field the cross at top left
-          // isn't needed. remove it"). It was a third way to say Cancel, next
-          // to Esc and the quick-tool bar's own Cancel button, on a window
-          // whose whole job is to hold one number.
-          child: Row(children: [
-            Expanded(
-                child: Text(isFillet ? '2D Fillet' : '2D Chamfer',
-                    style: ts(13.5, T.text, w: FontWeight.w600))),
-          ]),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-          child: isFillet ? _filletBody(app) : _chamferBody(app),
-        ),
-      ]),
+    return IosPanel(
+      width: 300,
+      nav: IosNavBar(title: isFillet ? t.btnFillet : t.btnChamfer),
+      children: isFillet ? _fillet(app, t) : _chamfer(app, t),
     );
   }
 
-  Widget _filletBody(AppState app) {
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      _num(PD['spacing']!, _r, min: 0.1, (v) {
-        fs.radius = v;
-        app.filletNotify();
-      }, suffix: 'mm'),
-      const SizedBox(height: 8),
-      Text(L.of(context).msgFilletPickTwo, style: ts(10.5, T.dim)),
-    ]);
-  }
-
-  Widget _chamferBody(AppState app) {
-    Widget modeBtn(int m, String icon, String tip) => Padding(
-          padding: const EdgeInsets.only(right: 5),
-          child: _PickBtn(
-            icon: icon,
-            active: fs.mode == m,
-            done: false,
-            tooltip: tip,
-            onTap: () {
-              fs.mode = m;
+  List<Widget> _fillet(AppState app, AppL10n t) => [
+        iosSection(
+          footer: t.msgFilletPickTwo,
+          children: [
+            toolValueRow(
+                app: app,
+                label: t.lblRadius,
+                ctrl: _r,
+                unitLabel: 'mm',
+                min: 0.1, onValue: (v) {
+              fs.radius = v;
               app.filletNotify();
-            },
-          ),
-        );
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Row(children: [
-        modeBtn(0, PD['chamEq']!, L.of(context).lblEqualDistance),
-        modeBtn(1, PD['cham2d']!, L.of(context).lblTwoDistances),
-        modeBtn(2, PD['chamAng']!, L.of(context).lblDistanceAndAngle),
-      ]),
-      const SizedBox(height: 8),
-      _num(PD['spacing']!, _d1, min: 0.1, (v) {
-        fs.d1 = v;
-        app.filletNotify();
-      }, suffix: 'mm'),
-      if (fs.mode == 1) ...[
-        const SizedBox(height: 6),
-        _num(PD['spacing']!, _d2, min: 0.1, (v) {
-          fs.d2 = v;
-          app.filletNotify();
-        }, suffix: 'mm'),
-      ],
-      if (fs.mode == 2) ...[
-        const SizedBox(height: 6),
-        _num(PD['angle']!, _ang, min: 1, max: 89, (v) {
-          fs.angle = v;
-          app.filletNotify();
-        }, suffix: 'deg'),
-      ],
-      const SizedBox(height: 8),
-      Text(L.of(context).msgDistance1FirstLine,
-          style: ts(10.5, T.dim)),
-    ]);
-  }
+            }),
+          ],
+        ),
+      ];
 
-  Widget _num(String icon, TextEditingController ctrl,
-          void Function(double) onValue,
-          {String? suffix, double? min, double? max}) =>
-      toolNumberRow(
-        app: widget.app,
-        icon: icon,
-        ctrl: ctrl,
-        onValue: onValue,
-        suffix: suffix,
-        min: min,
-        max: max,
-      );
+  List<Widget> _chamfer(AppState app, AppL10n t) => [
+        iosSection(
+          footer: t.msgDistance1FirstLine,
+          children: [
+            iosStackedRow(
+              label: t.lblMethod,
+              child: IosSegmented<int>(
+                value: fs.mode,
+                onChanged: (m) {
+                  fs.mode = m;
+                  app.filletNotify();
+                },
+                segments: [
+                  IosSegment(value: 0, label: t.lblEqualDistance),
+                  IosSegment(value: 1, label: t.lblTwoDistances),
+                  IosSegment(value: 2, label: t.lblDistanceAndAngle),
+                ],
+              ),
+            ),
+            toolValueRow(
+                app: app,
+                label: fs.mode == 0 ? t.lblDistance : t.lblDistance1,
+                ctrl: _d1,
+                unitLabel: 'mm',
+                min: 0.1, onValue: (v) {
+              fs.d1 = v;
+              app.filletNotify();
+            }),
+            if (fs.mode == 1)
+              toolValueRow(
+                  app: app,
+                  label: t.lblDistance2,
+                  ctrl: _d2,
+                  unitLabel: 'mm',
+                  min: 0.1, onValue: (v) {
+                fs.d2 = v;
+                app.filletNotify();
+              }),
+            if (fs.mode == 2)
+              toolValueRow(
+                  app: app,
+                  label: t.lblAngle,
+                  ctrl: _ang,
+                  unitLabel: 'deg',
+                  kind: ScrubKind.angle,
+                  min: 1,
+                  max: 89, onValue: (v) {
+                fs.angle = v;
+                app.filletNotify();
+              }),
+          ],
+        ),
+      ];
 }
 
 /// M207 — ONE number row for the modeless tool windows.
@@ -909,75 +537,43 @@ class _FilletChamferDialogState extends State<FilletChamferDialog> {
 /// The 2D Fillet's radius is the row the device asked every other tool value
 /// to look like ("this polygon input field ... should be similar to the radius
 /// input field"), so it stopped being a private method of that one dialog.
-/// Icon, field, unit, the scrub and the number pad all come from here, and a
+/// The field, the unit, the scrub and the number pad all come from here, and a
 /// second spelling of any of them cannot drift in behind the first.
-Widget toolNumberRow({
+///
+/// M338 — the shared piece is now [iosValueRow]; what stays here is the
+/// contract these windows hold their numbers under: a BARE number in the
+/// controller (so the parse below works), the unit drawn beside it, and a
+/// value that is only pushed to the model when it is positive.
+Widget toolValueRow({
   required AppState app,
-  required String icon,
+  required String label,
   required TextEditingController ctrl,
   required void Function(double) onValue,
-  String? suffix,
+  String? unitLabel,
+  ScrubKind? kind,
   double? min,
   double? max,
   /// Whole numbers only — a polygon has no 5.5 sides.
   bool integer = false,
-}) {
-  final row = Row(children: [
-    svgi(icon, 15),
-    const SizedBox(width: 6),
-    Expanded(
-      child: SizedBox(
-        height: 28,
-        child: TextField(
-          controller: ctrl,
-          style: ts(12.5, T.text),
-          keyboardType: kValueKeyboard, // M206: the app's own pad
-          stylusHandwritingEnabled: kValueHandwriting, // M179
-          inputFormatters: [
-            FilteringTextInputFormatter.allow(
-                RegExp(integer ? r'[0-9]' : r'[0-9.,]')),
-          ],
-          decoration: InputDecoration(
-            isDense: true,
-            contentPadding:
-                const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-            suffixText: suffix,
-            suffixStyle: ts(11, T.dim),
-            filled: true,
-            fillColor: _fieldBg,
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(3),
-              borderSide: BorderSide(color: _fieldBorder),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(3),
-              borderSide: BorderSide(color: T.accent, width: 1.4),
-            ),
-          ),
-          onChanged: (t) {
-            final v = double.tryParse(t.replaceAll(',', '.'));
-            if (v != null && v > 0) onValue(v);
-          },
-        ),
-      ),
-    ),
-  ]);
-  // M180 — the value drags too. The unit is decoration here, so the text stays
-  // a bare number for the parse above.
-  return ScrubField(
-    app: app,
-    controller: ctrl,
-    kind: integer ? ScrubKind.count : scrubKindForUnit(suffix),
-    min: min,
-    max: max,
-    onCommit: (t) {
-      final v = double.tryParse(t.replaceAll(',', '.'));
-      if (v != null && v > 0) onValue(v);
-    },
-    child: row,
-  );
-}
+}) =>
+    iosValueRow(
+      app: app,
+      label: label,
+      controller: ctrl,
+      unitLabel: unitLabel,
+      kind: kind,
+      integer: integer,
+      min: min,
+      max: max,
+      onChanged: (text) {
+        final v = double.tryParse(text.replaceAll(',', '.'));
+        if (v != null && v > 0) onValue(v);
+      },
+    );
 
+// ===========================================================================
+// the polygon side count
+// ===========================================================================
 
 /// M207 — the polygon's side count, as a modeless window.
 ///
@@ -1042,49 +638,26 @@ class _PolygonDialogState extends State<PolygonDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 250,
-      decoration: BoxDecoration(
-        color: T.panel,
-        border: Border.all(color: T.sep),
-        borderRadius: BorderRadius.circular(6),
-        boxShadow: [
-          BoxShadow(
-              color: T.scrim, blurRadius: 24, offset: Offset(0, 6)),
-        ],
-      ),
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Container(
-          padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
-          decoration: BoxDecoration(
-            color: T.fly,
-            border: Border(bottom: BorderSide(color: T.panelSep)),
-            borderRadius: BorderRadius.vertical(top: Radius.circular(6)),
-          ),
-          child: Row(children: [
-            Expanded(
-                child: Text(L.of(context).dlgPolygon,
-                    style: ts(13.5, T.text, w: FontWeight.w600))),
-          ]),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            toolNumberRow(
+    final t = L.of(context);
+    return IosPanel(
+      width: 300,
+      nav: IosNavBar(title: t.dlgPolygon),
+      children: [
+        iosSection(
+          footer: t.msgPolygonSides,
+          children: [
+            toolValueRow(
               app: widget.app,
-              icon: PD['countC']!,
+              label: t.lblCount,
               ctrl: _sides,
               onValue: _apply,
               min: PolygonDialog.minSides.toDouble(),
               max: PolygonDialog.maxSides.toDouble(),
               integer: true,
             ),
-            const SizedBox(height: 8),
-            Text(L.of(context).msgPolygonSides,
-                style: ts(10.5, T.dim)),
-          ]),
+          ],
         ),
-      ]),
+      ],
     );
   }
 }

@@ -8,10 +8,19 @@
 //
 // Every caller therefore behaves identically on both sides, and no test has to
 // know which half ran.
-import 'package:flutter/material.dart';
+//
+// M338 — the FALLBACKS are Cupertino now. They were Material `AlertDialog`s,
+// which is the wrong alphabet for a fallback whose whole job is to stand in
+// for a UIAlertController: a Material dialog has left-aligned actions in a
+// row, a different corner radius and a different type ramp, so an off-device
+// screenshot said nothing about what the device would show. A
+// `CupertinoAlertDialog` is the same shape UIKit draws, so the two halves now
+// differ only in who renders them.
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart' show showDialog;
 import 'package:native_menu/native_menu.dart';
 
-import '../theme.dart';
+import '../ios_design.dart';
 import '../l10n/l.dart';
 
 /// One-line text input. Returns null when cancelled.
@@ -111,33 +120,35 @@ class _TextPromptDialogState extends State<_TextPromptDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      backgroundColor: T.panel,
-      title: Text(widget.title, style: ts(14, T.mbText)),
-      content: TextField(
-        controller: _ctrl,
-        autofocus: true,
-        style: ts(13, T.text),
-        cursorColor: T.accent,
-        decoration: InputDecoration(
-          hintText: widget.placeholder,
-          hintStyle: ts(13, T.mbDim),
-          errorText: _error,
-          errorStyle: ts(11.5, T.err),
-          enabledBorder:
-              UnderlineInputBorder(borderSide: BorderSide(color: T.sep)),
-          focusedBorder:
-              UnderlineInputBorder(borderSide: BorderSide(color: T.accent)),
-        ),
-        onSubmitted: (_) => _submit(),
+    return CupertinoAlertDialog(
+      title: Text(widget.title),
+      content: Padding(
+        padding: const EdgeInsets.only(top: 12),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          CupertinoTextField(
+            controller: _ctrl,
+            autofocus: true,
+            placeholder: widget.placeholder,
+            cursorColor: IosColors.tint,
+            style: IosText.subheadline.on(IosColors.label),
+            onSubmitted: (_) => _submit(),
+          ),
+          if (_error != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(_error!,
+                  style: IosText.footnote.on(IosColors.destructive)),
+            ),
+        ]),
       ),
       actions: [
-        TextButton(
+        CupertinoDialogAction(
             onPressed: () => Navigator.of(context).pop(),
-            child: Text(L.of(context).cancel, style: ts(13, T.mbDim))),
-        TextButton(
+            child: Text(L.of(context).cancel)),
+        CupertinoDialogAction(
+            isDefaultAction: true,
             onPressed: _submit,
-            child: Text(widget.confirmLabel, style: ts(13, T.accent))),
+            child: Text(widget.confirmLabel)),
       ],
     );
   }
@@ -162,19 +173,20 @@ Future<bool> confirmAction(
   if (!context.mounted) return false;
   final ok = await showDialog<bool>(
     context: context,
-    builder: (ctx) => AlertDialog(
-      backgroundColor: T.panel,
-      title: Text(title, style: ts(14, T.mbText)),
-      content: message == null ? null : Text(message, style: ts(12.5, T.mbDim)),
+    builder: (ctx) => CupertinoAlertDialog(
+      title: Text(title),
+      content: message == null ? null : Text(message),
       actions: [
-        TextButton(
+        CupertinoDialogAction(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: Text(L.of(context).cancel, style: ts(13, T.mbDim))),
-        TextButton(
+            child: Text(L.of(context).cancel)),
+        CupertinoDialogAction(
+          // UIKit draws a destructive action red itself, and so does this —
+          // we never colour one by hand.
+          isDestructiveAction: destructive,
+          isDefaultAction: !destructive,
           onPressed: () => Navigator.of(ctx).pop(true),
-          child: Text(confirmLabel,
-              style: ts(13,
-                  destructive ? T.err : T.accent)),
+          child: Text(confirmLabel),
         ),
       ],
     ),

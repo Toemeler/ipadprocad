@@ -94,7 +94,7 @@ void main() {
       expect(find.text(app.suggestedPartName()), findsOneWidget);
       expect(app.openTabs, isEmpty);
 
-      await t.enterText(find.byType(TextField), 'Housing');
+      await t.enterText(find.byType(EditableText), 'Housing');
       await t.tap(find.text(L.current.create));
       await t.pumpAndSettle();
 
@@ -117,7 +117,7 @@ void main() {
       expect(find.text(app.suggestedAssemblyName()), findsOneWidget);
       expect(app.openTabs, isEmpty);
 
-      await t.enterText(find.byType(TextField), 'Gearbox');
+      await t.enterText(find.byType(EditableText), 'Gearbox');
       await t.tap(find.text(L.current.create));
       await t.pumpAndSettle();
 

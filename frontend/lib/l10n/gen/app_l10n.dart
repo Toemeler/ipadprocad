@@ -3286,7 +3286,7 @@ abstract class AppL10n {
   /// Kurz gehalten: die Schaltflaeche sitzt in der Dialogspalte. "+ Kantengruppe hinzufügen" waere doppelt so lang wie das Original.
   ///
   /// In de, this message translates to:
-  /// **'+ Kantengruppe'**
+  /// **'Kantengruppe'**
   String get btnAddEdgeSet;
 
   /// No description provided for @lblSwapFaces.
@@ -5056,13 +5056,13 @@ abstract class AppL10n {
   /// No description provided for @lblAddIrregularAngle.
   ///
   /// In de, this message translates to:
-  /// **'+ Abweichender Winkel'**
+  /// **'Abweichender Winkel'**
   String get lblAddIrregularAngle;
 
   /// No description provided for @lblAddIrregularDistance.
   ///
   /// In de, this message translates to:
-  /// **'+ Abweichender Abstand'**
+  /// **'Abweichender Abstand'**
   String get lblAddIrregularDistance;
 
   /// No description provided for @lblSelectDir.
@@ -6148,25 +6148,25 @@ abstract class AppL10n {
   /// Beschriftung des Zahlenfelds bei Passend, Tangential und Einfügen. Mit Doppelpunkt wie in Inventor.
   ///
   /// In de, this message translates to:
-  /// **'Versatz:'**
+  /// **'Versatz'**
   String get lblAsmOffset;
 
   /// Beschriftung des Zahlenfelds bei einer Winkelabhängigkeit.
   ///
   /// In de, this message translates to:
-  /// **'Winkel:'**
+  /// **'Winkel'**
   String get lblAsmAngle;
 
   /// Beschriftung des Zahlenfelds bei einer Drehungsabhängigkeit (Zahnradverhältnis).
   ///
   /// In de, this message translates to:
-  /// **'Verhältnis:'**
+  /// **'Verhältnis'**
   String get lblAsmRatio;
 
   /// Beschriftung des Zahlenfelds bei Drehung-Translation: Weg pro voller Umdrehung.
   ///
   /// In de, this message translates to:
-  /// **'Abstand:'**
+  /// **'Abstand'**
   String get lblAsmDistance;
 
   /// Kontrollkästchen neben den Auswahlschaltflächen. Inventor DE: "Bauteil zuerst wählen".
@@ -6906,6 +6906,66 @@ abstract class AppL10n {
   /// In de, this message translates to:
   /// **'Der Renderer konnte nicht gestartet werden'**
   String get cyclesWarmupFailed;
+
+  /// M338 — der optionale Endradius einer Kantengruppe; leer heisst konstant.
+  ///
+  /// In de, this message translates to:
+  /// **'Endradius'**
+  String get lblEndRadius;
+
+  /// M338 — wie viele Profile gewaehlt sind.
+  ///
+  /// In de, this message translates to:
+  /// **'{n, plural, =1{Ein Profil} other{{n} Profile}}'**
+  String lblProfileCount(int n);
+
+  /// M338 — wie viele Loft-Querschnitte gewaehlt sind.
+  ///
+  /// In de, this message translates to:
+  /// **'{n, plural, =1{Ein Querschnitt} other{{n} Querschnitte}}'**
+  String lblSectionCount(int n);
+
+  /// M338 — wie viele Skizzenpunkte gewaehlt sind.
+  ///
+  /// In de, this message translates to:
+  /// **'{n, plural, =1{Ein Punkt} other{{n} Punkte}}'**
+  String lblPointsCount(int n);
+
+  /// M338 — Zusatz an einer laufenden Mehrfachauswahl.
+  ///
+  /// In de, this message translates to:
+  /// **'· zum Beenden tippen'**
+  String get hintTapToFinish;
+
+  /// M338 — Fussnote unter Verhalten, solange das Teil noch leer ist.
+  ///
+  /// In de, this message translates to:
+  /// **'Bis zum Nächsten, Bis und Durch alle brauchen einen vorhandenen Körper.'**
+  String get hintTerminationNeedsBody;
+
+  /// M338 — wie viele Elemente gemustert werden.
+  ///
+  /// In de, this message translates to:
+  /// **'{n, plural, =1{Ein Element} other{{n} Elemente}}'**
+  String lblFeatureCount(int n);
+
+  /// M338 — wie viel Geometrie gewählt ist.
+  ///
+  /// In de, this message translates to:
+  /// **'{n, plural, =0{nichts gewählt} =1{1 gewählt} other{{n} gewählt}}'**
+  String lblSelectedCount(int n);
+
+  /// M338 — Inventors zweite Verteilungsart: die Gesamtstrecke, die alle Exemplare zusammen einnehmen. Auf Deutsch NICHT 'Abstand', weil das schon die Luecke zwischen zweien heisst.
+  ///
+  /// In de, this message translates to:
+  /// **'Gesamtabstand'**
+  String get lblTotalDistance;
+
+  /// M338 — Fussnote unter der Radius-Sektion der Verrundung.
+  ///
+  /// In de, this message translates to:
+  /// **'Endradius leer lassen für eine konstante Verrundung; mit einem Wert läuft der Radius entlang jeder Kante der Gruppe.'**
+  String get hintEndRadiusOptional;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

@@ -986,14 +986,18 @@ void main() {
       ]) {
         expect(find.text(label), findsWidgets, reason: label);
       }
-      // Two numbered selection buttons for a Mate, and the OK/Cancel/Apply
-      // row Inventor puts under everything.
-      expect(find.text('1'), findsOneWidget);
-      expect(find.text('2'), findsOneWidget);
+      // Two selection slots for a Mate, and the three verbs. M338 — the
+      // slots are NAMED rows now rather than 36 pt boxes reading "1" and "2",
+      // and OK/Cancel sit in the navigation bar with Apply under the scroll;
+      // what has to be true is unchanged, so this asserts the same three
+      // buttons and the same two slots by the words they carry.
+      expect(find.text(l.tipAsmSelection(1)), findsOneWidget);
+      expect(find.text(l.tipAsmSelection(2)), findsOneWidget);
       expect(find.text(l.ok), findsOneWidget);
       expect(find.text(l.cancel), findsOneWidget);
       expect(find.text(l.apply), findsOneWidget);
-      expect(find.text('>>'), findsOneWidget);
+      // Inventor's ">>" is the Name section's own disclosure now.
+      expect(find.text(l.lblAsmName), findsOneWidget);
     });
 
     testWidgets('the value label follows the TYPE', (t) async {
@@ -1012,22 +1016,30 @@ void main() {
     testWidgets('Symmetry grows a THIRD selection button', (t) async {
       L.set(kEn);
       final app = await pumpDialog(t);
-      expect(find.text('3'), findsNothing);
+      expect(find.text(en.tipAsmSelection(3)), findsNothing);
       app.setConstraintKind(AsmKind.symmetry);
       await t.pump();
-      expect(find.text('3'), findsOneWidget);
+      expect(find.text(en.tipAsmSelection(3)), findsOneWidget);
     });
 
     testWidgets('>> reveals Name and Default to Undirected', (t) async {
       L.set(kEn);
       final app = await pumpDialog(t, kind: AsmKind.angle);
-      expect(find.text(en.lblAsmName), findsNothing);
-      await t.tap(find.text('>>'));
-      await t.pump();
-      expect(find.text(en.lblAsmName), findsOneWidget);
+      // M338 — the drawer is a folded SECTION. Its header is always there
+      // (that is the button); what is hidden until it opens is the content.
+      expect(find.text(en.cbAsmDefaultUndirected), findsNothing);
+      // The panel scrolls when its sections outgrow the window, so the drawer
+      // has to be brought on screen before it can be tapped — which is what a
+      // user does too.
+      await t.ensureVisible(find.text(en.lblAsmName));
+      await t.pumpAndSettle();
+      await t.tap(find.text(en.lblAsmName));
+      await t.pumpAndSettle();
       expect(find.text(en.cbAsmDefaultUndirected), findsOneWidget);
+      await t.ensureVisible(find.text(en.cbAsmDefaultUndirected));
+      await t.pumpAndSettle();
       await t.tap(find.text(en.cbAsmDefaultUndirected));
-      await t.pump();
+      await t.pumpAndSettle();
       expect(app.defaultUndirectedAngle, isTrue);
       // And the preference acts: the NEXT angle opens undirected.
       app.setConstraintKind(AsmKind.mate);

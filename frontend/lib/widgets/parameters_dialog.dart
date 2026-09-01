@@ -1,20 +1,35 @@
-// M43 — Inventors Parameters dialog (Manage > fx Parameters).
+// M43 — Inventor's Parameters dialog (Manage > fx Parameters).
 //
 // A MOVABLE modeless window over the viewport: a table of every model
 // parameter (the dimensions: name, equation, value — driven ones read-only)
 // and the user parameters, plus an Add row. Name cells rename (references
 // follow), equation cells accept the full M41 expression grammar with live
-// red validation, and while an equation cell is focused, tapping a
-// dimension label in the viewport inserts its parameter name at the cursor
+// red validation, and while an equation cell is focused, tapping a dimension
+// label in the viewport inserts its parameter name at the cursor
 // (AppState.paramRefSink). Dragging the title bar moves the window.
-
-import 'package:flutter/material.dart';
+//
+// M338 — drawn as an iOS panel (widgets/ios_kit.dart). This one keeps its
+// TABLE, and that is a decision rather than an oversight: a parameter is three
+// values that are read across (name, equation, result) and compared down a
+// column, which is what a table is for and what an inset list of one-value
+// rows would destroy. What became iOS is everything around it — the panel, the
+// navigation bar, the two grouped sections, the wells the cells sit in, and
+// the Add row, which is iOS's own "one more of these" affordance rather than a
+// blue plus in a corner.
+//
+// The `fx` mark that used to sit in the title bar is gone: it was Inventor's
+// icon for the command, and a navigation bar names what you are looking at
+// rather than which button opened it.
+import 'package:flutter/material.dart'
+    show InputBorder, InputDecoration, TextField;
+import 'package:flutter/widgets.dart';
 
 import '../app_state.dart';
 import '../constraints.dart';
+import '../ios_design.dart';
 import '../params.dart';
 import '../scrub.dart';
-import '../theme.dart';
+import 'ios_kit.dart';
 import 'scrub_field.dart';
 import '../l10n/fmt.dart';
 import '../l10n/l.dart';
@@ -32,111 +47,72 @@ class _ParametersDialogState extends State<ParametersDialog> {
   @override
   Widget build(BuildContext context) {
     final app = widget.app;
+    final t = L.of(context);
     final s = app.current;
     final dims = <Constraint>[
       if (s != null)
         for (final c in s.constraints)
           if (c.type == CType.dimension && c.paramName != null) c
     ];
-    return Container(
-      width: 420,
-      constraints: const BoxConstraints(maxHeight: 380),
-      decoration: BoxDecoration(
-        color: T.fly,
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: T.sep),
-        boxShadow: [BoxShadow(color: T.shadow, blurRadius: 10)],
+    return IosPanel(
+      width: 460,
+      maxHeight: 460,
+      nav: IosNavBar(
+        title: t.dlgParameters,
+        onDrag: widget.onDrag,
+        trailing:
+            IosBarButton(label: t.done, prominent: true, onTap: app.toggleParams),
       ),
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        // ---- draggable title bar ----
-        GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onPanUpdate: (d) => widget.onDrag(d.delta),
-          child: Container(
-            height: 30,
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            decoration: BoxDecoration(
-                border: Border(bottom: BorderSide(color: T.sep))),
-            child: Row(children: [
-              Text('fx',
-                  style: TextStyle(
-                      color: T.accent,
-                      fontSize: 13,
-                      fontStyle: FontStyle.italic,
-                      fontWeight: FontWeight.w600)),
-              const SizedBox(width: 6),
-              Expanded(
-                  child: Text(L.of(context).dlgParameters,
-                      style: TextStyle(color: T.text, fontSize: 12))),
-              InkWell(
-                onTap: app.toggleParams,
-                child: Padding(
-                  padding: EdgeInsets.all(4),
-                  child: Icon(Icons.close, size: 14, color: T.dim),
-                ),
-              ),
-            ]),
-          ),
+      children: [
+        iosSection(
+          header: t.secModelParameters,
+          children: [
+            _columns(t),
+            if (dims.isEmpty)
+              iosRow(label: t.msgNoDimensionsInSketch, enabled: false),
+            for (final c in dims) _DimRow(app: app, dim: c),
+          ],
         ),
-        Flexible(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(10, 6, 10, 8),
-            child:
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              _header(),
-              _section(L.of(context).secModelParameters),
-              if (dims.isEmpty)
-                Padding(
-                    padding: EdgeInsets.symmetric(vertical: 4),
-                    child: Text(L.of(context).msgNoDimensionsInSketch,
-                        style: TextStyle(color: T.dim, fontSize: 11))),
-              for (final c in dims) _DimRow(app: app, dim: c),
-              const SizedBox(height: 6),
-              _section(L.of(context).secUserParameters),
-              if (s != null)
-                for (final u in s.userParams) _UserRow(app: app, u: u),
-              Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: InkWell(
-                  onTap: () => setState(() => app.addUserParam()),
-                  child: Row(mainAxisSize: MainAxisSize.min, children: [
-                    Icon(Icons.add, size: 14, color: T.accent),
-                    SizedBox(width: 4),
-                    Text(L.of(context).btnAddNumericParameter,
-                        style: TextStyle(color: T.accent, fontSize: 11)),
-                  ]),
-                ),
-              ),
-            ]),
-          ),
+        iosSection(
+          header: t.secUserParameters,
+          children: [
+            _columns(t),
+            if (s != null)
+              for (final u in s.userParams) _UserRow(app: app, u: u),
+            // iOS's "add one more" row: a tinted plus and the verb, at the end
+            // of the list it adds to.
+            iosRow(
+              label: t.btnAddNumericParameter,
+              leading: iosGlyph(IosGlyph.plus, size: 17, color: IosColors.tint),
+              onTap: () => setState(() => app.addUserParam()),
+            ),
+          ],
         ),
-      ]),
+      ],
     );
   }
 
-  Widget _section(String t) => Padding(
-        padding: const EdgeInsets.only(top: 2, bottom: 2),
-        child: Text(t,
-            style: TextStyle(
-                color: T.dim, fontSize: 10, fontWeight: FontWeight.w600)),
-      );
-
-  Widget _header() => Padding(
-        padding: EdgeInsets.only(bottom: 2),
+  /// The column names. A caption row rather than a section header, because
+  /// they belong to the table under them and not to the group.
+  Widget _columns(AppL10n t) => Padding(
+        padding: const EdgeInsets.fromLTRB(IosMetrics.rowInset, 8,
+            IosMetrics.rowInset, 4),
         child: Row(children: [
           SizedBox(
-              width: 96,
-              child: Text(L.of(context).colParameterName,
-                  style: TextStyle(color: T.dim, fontSize: 10))),
-          SizedBox(width: 6),
+              width: 110,
+              child: Text(t.colParameterName,
+                  style: IosText.caption1.on(IosColors.secondaryLabel))),
+          const SizedBox(width: 8),
           Expanded(
-              child:
-                  Text(L.of(context).colEquation, style: TextStyle(color: T.dim, fontSize: 10))),
-          SizedBox(width: 6),
+              child: Text(t.colEquation,
+                  style: IosText.caption1.on(IosColors.secondaryLabel))),
+          const SizedBox(width: 8),
           SizedBox(
-              width: 86,
-              child: Text(L.of(context).colValue, style: TextStyle(color: T.dim, fontSize: 10))),
-          SizedBox(width: 22),
+              width: 90,
+              child: Text(t.colValue,
+                  textAlign: TextAlign.right,
+                  style: IosText.caption1.on(IosColors.secondaryLabel))),
+          const SizedBox(width: 26),
         ]),
       );
 }
@@ -247,45 +223,50 @@ class _ParamRowState extends State<_ParamRow> {
     super.dispose();
   }
 
+  /// One editable cell: an input well the size of a control, which is what
+  /// tells a table cell apart from a label.
+  Widget _cell(Widget child) => Container(
+        height: 32,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        alignment: Alignment.centerLeft,
+        decoration: ShapeDecoration(
+          color: IosColors.quaternarySystemFill,
+          shape: IosShape.border(8),
+        ),
+        child: child,
+      );
+
   @override
   Widget build(BuildContext context) {
+    final t = L.of(context);
     final eqValid = widget.readOnly || widget.validEquation(_eq.text);
-    InputDecoration deco() => const InputDecoration(
+    const deco = InputDecoration(
         isDense: true,
         border: InputBorder.none,
-        contentPadding: EdgeInsets.symmetric(horizontal: 4, vertical: 6));
-    Widget cell(Widget child) => Container(
-          height: 26,
-          decoration: BoxDecoration(
-              color: T.tabOnBg,
-              borderRadius: BorderRadius.circular(3),
-              border: Border.all(color: T.sep, width: 0.5)),
-          alignment: Alignment.centerLeft,
-          child: child,
-        );
+        contentPadding: EdgeInsets.symmetric(vertical: 6));
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 1.5),
+      padding: const EdgeInsets.fromLTRB(
+          IosMetrics.rowInset, 3, IosMetrics.rowInset, 3),
       child: Row(children: [
         SizedBox(
-          width: 96,
-          child: cell(TextField(
+          width: 110,
+          child: _cell(TextField(
             controller: _name,
             focusNode: _nameF,
             readOnly: widget.readOnly,
             autocorrect: false,
             enableSuggestions: false,
-            style: TextStyle(fontSize: 11, color: T.text),
-            decoration: deco(),
+            cursorColor: IosColors.tint,
+            style: IosText.footnote.on(IosColors.label),
+            decoration: deco,
             onSubmitted: (_) => _commitName(),
           )),
         ),
-        const SizedBox(width: 6),
+        const SizedBox(width: 8),
         Expanded(
           child: widget.readOnly
-              ? cell(Padding(
-                  padding: EdgeInsets.only(left: 4),
-                  child: Text(L.of(context).lblReference,
-                      style: TextStyle(fontSize: 11, color: T.dim))))
+              ? _cell(Text(t.lblReference,
+                  style: IosText.footnote.on(IosColors.secondaryLabel)))
               // M180 — the Equation cell drags too, when it holds a plain
               // number. Applied per detent like everywhere else, so the sketch
               // follows the drag instead of waiting for Enter.
@@ -302,26 +283,29 @@ class _ParamRowState extends State<_ParamRow> {
                     widget.commitEquation(t);
                     setState(() {});
                   },
-                  child: cell(TextField(
+                  child: _cell(TextField(
                     controller: _eq,
                     focusNode: _eqF,
                     autocorrect: false,
                     enableSuggestions: false,
+                    cursorColor: IosColors.tint,
                     onChanged: (_) => setState(() {}),
-                    style: TextStyle(
-                        fontSize: 11,
-                        color: eqValid ? T.text : T.err),
-                    decoration: deco(),
+                    style: IosText.footnote.on(
+                        eqValid ? IosColors.label : IosColors.destructive),
+                    decoration: deco,
                     onSubmitted: (_) => _commitEq(),
                   )),
                 ),
         ),
-        const SizedBox(width: 6),
+        const SizedBox(width: 8),
         SizedBox(
-            width: 86,
+            width: 90,
             child: Text(widget.value,
-                style: TextStyle(fontSize: 11, color: T.dim))),
-        SizedBox(width: 22, child: widget.trailing ?? const SizedBox()),
+                textAlign: TextAlign.right,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: IosText.footnote.on(IosColors.secondaryLabel))),
+        SizedBox(width: 26, child: widget.trailing ?? const SizedBox()),
       ]),
     );
   }
@@ -338,7 +322,7 @@ class _DimRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final v = dim.value ?? 0;
-    final unit = _angle(dim) ? '\u00b0' : ' mm';
+    final unit = _angle(dim) ? '°' : ' mm';
     return _ParamRow(
       key: ObjectKey(dim),
       app: app,
@@ -370,9 +354,16 @@ class _UserRow extends StatelessWidget {
       commitName: (t) => app.renameUserParam(u, t),
       commitEquation: (t) => app.setUserParamText(u, t),
       validEquation: (t) => app.userParamTextValid(u, t),
-      trailing: InkWell(
+      trailing: IosPressable(
         onTap: () => app.deleteUserParam(u),
-        child: Icon(Icons.delete_outline, size: 14, color: T.dim),
+        child: SizedBox(
+          width: 26,
+          height: 32,
+          child: Center(
+            child: iosGlyph(IosGlyph.xmarkCircleFill,
+                size: 17, color: IosColors.destructive),
+          ),
+        ),
       ),
     );
   }

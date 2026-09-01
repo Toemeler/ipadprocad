@@ -1,7 +1,9 @@
 // M242 — Inventor's PLACE CONSTRAINT dialog.
 //
-// Drawn from the real thing rather than from memory, and its layout is the
-// one part of this milestone that is a transcription rather than a design:
+// Inventor's own layout is a Win32 grid: a tab strip, two bordered group
+// boxes side by side (Type | Selections), a value field with two picture
+// checkboxes under it, a Solution box, and ? OK Cancel Apply >> along the
+// bottom.
 //
 //   ┌ Place Constraint ───────────────────────── ✕ ┐
 //   │ [Assembly] Motion  Transitional  Constraint  │
@@ -16,36 +18,39 @@
 //   │  Name  [_________]   ☐ Default to Undirected │
 //   └──────────────────────────────────────────────┘
 //
-// Two things about it are worth stating, because they are what make the
-// transcription honest rather than decorative:
+// M338 — that grid is gone and the CONTENT is unchanged. What each part
+// became, and why:
 //
-//   * The two checkboxes under the value field, and the one beside the
-//     selection buttons, carry a GRAPHIC label and no text — the spectacles
-//     for Show Preview, the offset arrows for Predict, the red cursor for
-//     Pick Part First. That is exactly what Inventor draws, and a tooltip
-//     supplies the name. Widening them into text rows would be a different
-//     dialog.
+//   * THE TAB STRIP is a segmented control. It was already four labels that
+//     select one view of the same panel, which is what a segmented control
+//     is for (HIG, Segmented controls: "closely related subviews").
+//   * THE TWO NUMBERED SELECTION BUTTONS are pick rows that say what is in
+//     them. They were 36 pt boxes reading "↖1" and "↖2" whose three states
+//     (armed / filled / empty) were three border colours and whose CONTENT
+//     was invisible — you could not tell from the dialog which face you had
+//     picked. The row names the occurrence and the geometry.
+//   * THE THREE PICTURE CHECKBOXES are switch rows. Pick Part First, Show
+//     Preview and Predict were a tick beside a 15 pt glyph, with the words
+//     only in a tooltip — which on a touch device is nowhere. Every one of
+//     them already had a localised name in the ARB; they wear it now.
+//   * THE ">>" DRAWER is a collapsible section. Same button, same content,
+//     drawn as iOS draws a section you can fold.
+//   * THE "?" IS GONE. It had `onTap: null` from the day it was drawn: this
+//     app has no help book to open. See ios_kit.dart on dead controls.
 //
-//   * The whole thing is MODELESS and collects by pointing. Nothing here
-//     holds a selection: [AppState.constraintSession] does, the viewport
-//     writes into it, and this panel is a view of it. That is what lets the
-//     user orbit, zoom and pick while it is open, which is the only way the
-//     command is usable at all.
-//
-// Chrome from properties_panel.dart / dialog_dock.dart, like every other
-// floating panel in this app.
-import 'package:flutter/material.dart';
+// Provenance, because this repo records it: the layout above is a
+// transcription of Inventor's dialog; the mapping to iOS is this milestone's.
+import 'package:flutter/widgets.dart';
 
 import '../app_state.dart';
 import '../asm_constraints.dart';
-import '../l10n/cad_terms.dart';
-import '../l10n/l.dart';
+import '../ios_design.dart';
 import '../scrub.dart';
 import '../svg_icons.dart';
-import '../theme.dart';
 import 'dialog_dock.dart';
-import 'ribbon.dart' show svg;
-import 'scrub_field.dart';
+import 'ios_kit.dart';
+import '../l10n/cad_terms.dart';
+import '../l10n/l.dart';
 
 class ConstraintDialog extends StatefulWidget {
   final AppState app;
@@ -63,6 +68,8 @@ class _ConstraintDialogState extends State<ConstraintDialog> {
   /// What the value field last showed, so a rebuild driven by a viewport pick
   /// does not fight the digits being typed into it.
   String _valueShown = '';
+
+  static const _size = Size(IosMetrics.widePanelWidth, 560);
 
   @override
   void dispose() {
@@ -87,140 +94,69 @@ class _ConstraintDialogState extends State<ConstraintDialog> {
     }
     if (_name.text != s.name) _name.text = s.name;
 
-    const w = 420.0;
-    final h = s.expanded ? 330.0 : 256.0;
     final vp = MediaQuery.sizeOf(context);
-    final pos = _pos ?? DialogDock.spot(vp, Size(w, h));
+    final pos = _pos ?? DialogDock.spot(vp, _size);
     return Positioned(
       left: pos.dx,
       top: pos.dy,
-      child: Material(
-        color: Colors.transparent,
-        child: Container(
-          width: w,
-          decoration: BoxDecoration(
-            color: T.panel,
-            border: Border.all(color: T.sep),
-            borderRadius: BorderRadius.circular(6),
-            boxShadow: [
-              BoxShadow(color: T.scrim, blurRadius: 24, offset: Offset(0, 6)),
-            ],
-          ),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            _title(app, t),
-            _tabs(app, s, t),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(10, 8, 10, 0),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(child: _typeGroup(app, s, t)),
-                  const SizedBox(width: 8),
-                  Expanded(child: _selectionGroup(app, s, t)),
-                ],
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(10, 8, 10, 0),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(child: _valueColumn(app, s, t)),
-                  const SizedBox(width: 8),
-                  Expanded(child: _solutionGroup(app, s, t)),
-                ],
-              ),
-            ),
-            if (s.rejection != null) _rejection(app, s),
-            _footer(app, s, t),
-            if (s.expanded) _drawer(app, s, t),
-          ]),
+      child: IosPanel(
+        width: _size.width,
+        nav: IosNavBar(
+          title: t.dlgPlaceConstraint,
+          onDrag: (d) => setState(() => _pos = pos + d),
+          leading: IosBarButton(label: t.cancel, onTap: app.cancelConstraint),
+          trailing: IosBarButton(
+              label: t.ok,
+              prominent: true,
+              onTap: s.complete ? app.okConstraint : null),
         ),
+        footer: iosFooter(children: [
+          Expanded(
+            child: IosButton(
+              label: t.apply,
+              style: IosButtonStyle.tinted,
+              height: 38,
+              expand: true,
+              onTap: s.complete ? () => app.applyConstraint() : null,
+            ),
+          ),
+        ]),
+        children: [
+          _tabs(app, s, t),
+          _typeSection(app, s, t),
+          _selectionSection(app, s, t),
+          _valueSection(app, s, t),
+          _solutionSection(app, s, t),
+          if (s.rejection != null)
+            iosStatusLine(app.constraintRejectionText(s.rejection!)),
+          _drawer(app, s, t),
+        ],
       ),
     );
   }
 
-  // ---- chrome --------------------------------------------------------------
+  // ---- the four tabs -------------------------------------------------------
 
-  Widget _title(AppState app, AppL10n t) => GestureDetector(
-        onPanUpdate: (d) => setState(() {
-          final vp = MediaQuery.sizeOf(context);
-          _pos = (_pos ?? DialogDock.spot(vp, const Size(420, 256))) + d.delta;
-        }),
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
-          decoration: BoxDecoration(
-            color: T.fly,
-            border: Border(bottom: BorderSide(color: T.panelSep)),
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
-          ),
-          child: Row(children: [
-            Flexible(
-              child: Text(t.dlgPlaceConstraint,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: ts(13, T.text, w: FontWeight.w600)),
-            ),
-            const Spacer(),
-            GestureDetector(
-              onTap: app.cancelConstraint,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: Text('✕', style: ts(12, T.dim)),
-              ),
-            ),
-          ]),
+  Widget _tabs(AppState app, ConstraintSession s, AppL10n t) => Padding(
+        padding: const EdgeInsets.fromLTRB(
+            IosMetrics.cardInset, 12, IosMetrics.cardInset, 0),
+        child: IosSegmented<AsmTab>(
+          value: s.tab,
+          onChanged: app.setConstraintTab,
+          segments: [
+            IosSegment(value: AsmTab.assembly, label: t.tabAsmAssembly),
+            IosSegment(value: AsmTab.motion, label: t.tabAsmMotion),
+            IosSegment(
+                value: AsmTab.transitional, label: t.tabAsmTransitional),
+            IosSegment(
+                value: AsmTab.constraintSet, label: t.tabAsmConstraintSet),
+          ],
         ),
       );
-
-  Widget _tabs(AppState app, ConstraintSession s, AppL10n t) => Container(
-        height: 26,
-        padding: const EdgeInsets.only(left: 8),
-        decoration: BoxDecoration(
-            border: Border(bottom: BorderSide(color: T.panelSep))),
-        // The four names are long in German and longer again at an
-        // accessibility text size; Inventor's strip cannot scroll because its
-        // dialog is a fixed-width Win32 window, and this one is not. Scrolling
-        // is the honest answer: every tab stays reachable at any label length,
-        // and at the common one nothing moves.
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(children: [
-            for (final (tab, label) in [
-              (AsmTab.assembly, t.tabAsmAssembly),
-              (AsmTab.motion, t.tabAsmMotion),
-              (AsmTab.transitional, t.tabAsmTransitional),
-              (AsmTab.constraintSet, t.tabAsmConstraintSet),
-            ])
-              GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () => app.setConstraintTab(tab),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: s.tab == tab ? T.panel : Colors.transparent,
-                    border: s.tab == tab
-                        ? Border(bottom: BorderSide(color: T.accent, width: 2))
-                        : null,
-                  ),
-                  child: Text(label,
-                      style: ts(11.5, s.tab == tab ? T.text : T.dim,
-                          w: s.tab == tab
-                              ? FontWeight.w600
-                              : FontWeight.normal)),
-                ),
-              ),
-          ]),
-        ),
-      );
-
-  /// The bordered, titled box Inventor groups its controls in.
-  Widget _group(String title, Widget child) => asmGroup(title, child);
 
   // ---- Type ----------------------------------------------------------------
 
-  Widget _typeGroup(AppState app, ConstraintSession s, AppL10n t) {
+  Widget _typeSection(AppState app, ConstraintSession s, AppL10n t) {
     final kinds = switch (s.tab) {
       AsmTab.assembly => kAssemblyKinds,
       AsmTab.motion => kMotionKinds,
@@ -235,25 +171,30 @@ class _ConstraintDialogState extends State<ConstraintDialog> {
       // here and draw a joint's types on the wrong dialog.
       AsmTab.joint => const <AsmKind>[],
     };
-    return _group(
-      t.grpAsmType,
-      kinds.isEmpty
-          ? SizedBox(
-              height: 30,
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(t.hintAsmConstraintSet, style: ts(11, T.dim)),
-              ),
-            )
-          : Wrap(spacing: 3, runSpacing: 3, children: [
+    if (kinds.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.only(top: IosMetrics.sectionTop),
+        child: iosNote(t.hintAsmConstraintSet),
+      );
+    }
+    return iosSection(
+      header: t.grpAsmType,
+      children: [
+        iosStackedRow(
+          child: IosToggleGroup<AsmKind>(
+            value: s.kind,
+            onChanged: app.setConstraintKind,
+            segments: [
               for (final k in kinds)
-                _iconButton(
-                  icon: AC[_typeIcon(k)]!,
-                  on: s.kind == k,
-                  tip: constraintLabel(t, k),
-                  onTap: () => app.setConstraintKind(k),
+                IosSegment(
+                  value: k,
+                  icon: iosSvg(AC[_typeIcon(k)]!, 24),
+                  tooltip: constraintLabel(t, k),
                 ),
-            ]),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -267,7 +208,7 @@ class _ConstraintDialogState extends State<ConstraintDialog> {
         AsmKind.rotationTranslation => 'rotationTranslation',
         AsmKind.transitional => 'transitional',
         // M249 — the joint kinds never reach this dialog's Type row; see
-        // [_typeGroup]. Answering with the transitional glyph rather than
+        // [_typeSection]. Answering with the transitional glyph rather than
         // throwing, because a `!` on a null lookup here would take the whole
         // ribbon down (M115's failure), and a wrong picture on a row that is
         // never drawn costs nothing.
@@ -276,133 +217,47 @@ class _ConstraintDialogState extends State<ConstraintDialog> {
 
   // ---- Selections ----------------------------------------------------------
 
-  Widget _selectionGroup(AppState app, ConstraintSession s, AppL10n t) =>
-      _group(
-        t.grpAsmSelections,
-        Wrap(spacing: 3, runSpacing: 3, children: [
-          for (var i = 0; i < s.needed; i++) _selectionButton(app, s, t, i),
-          _glyphCheckbox(
-            on: s.pickPartFirst,
-            icon: asmPickPartIcon,
-            tip: t.cbAsmPickPartFirst,
-            onTap: app.toggleConstraintPickPartFirst,
+  Widget _selectionSection(AppState app, ConstraintSession s, AppL10n t) =>
+      iosSection(
+        header: t.grpAsmSelections,
+        children: [
+          for (var i = 0; i < s.needed; i++) selectionRow(app, s, t, i),
+          iosSwitchRow(
+            label: t.cbAsmPickPartFirst,
+            value: s.pickPartFirst,
+            onChanged: (_) => app.toggleConstraintPickPartFirst(),
           ),
-        ]),
+        ],
       );
 
-  Widget _selectionButton(AppState app, ConstraintSession s, AppL10n t, int i) {
-    final filled = s.slot(i) != null;
-    final armed = s.armed == i;
-    return Tooltip(
-      message: t.tipAsmSelection(i + 1),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: () => app.armConstraintSelection(i),
-        child: Container(
-          width: 36,
-          height: 30,
-          decoration: BoxDecoration(
-            // Three states, and they say three different things: ARMED is
-            // "tap in the viewport now", FILLED is "this one is done", plain
-            // is "not yet". Inventor lights the armed one and ticks the
-            // filled one; the tick is the number turning solid here.
-            color: armed
-                ? T.accent.withValues(alpha: 0.28)
-                : (filled ? T.fly : Colors.transparent),
-            border: Border.all(color: armed ? T.accent : T.panelSep),
-            borderRadius: BorderRadius.circular(3),
-          ),
-          child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-            svg(asmSelectionIcon, 14),
-            const SizedBox(width: 1),
-            Text('${i + 1}',
-                style: ts(11, filled ? T.accent : T.dim,
-                    w: filled ? FontWeight.w600 : FontWeight.normal)),
-          ]),
-        ),
-      ),
-    );
-  }
+  // ---- the value, and the two options under it -----------------------------
 
-  // ---- the value field, and the two checkboxes under it --------------------
-
-  Widget _valueColumn(AppState app, ConstraintSession s, AppL10n t) {
+  Widget _valueSection(AppState app, ConstraintSession s, AppL10n t) {
     final kind = valueKindOf(s.kind);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
+    return iosSection(
       children: [
-        Text(_valueLabel(t, kind),
-            maxLines: 1, overflow: TextOverflow.ellipsis, style: ts(11, T.dim)),
-        const SizedBox(height: 3),
-        // A kind with no value still reserves the row: the dialog must not
+        // A kind with no value still shows the row, dimmed: the panel must not
         // change height when the type changes, or the buttons move out from
         // under the finger halfway through choosing one.
-        Opacity(
-          opacity: kind == AsmValueKind.none ? 0.4 : 1,
-          child: IgnorePointer(
-            ignoring: kind == AsmValueKind.none,
-            child: _valueField(app, s, kind),
-          ),
+        iosValueRow(
+          app: app,
+          label: _valueLabel(t, kind),
+          controller: _value,
+          unit: _valueSuffix(kind),
+          enabled: kind != AsmValueKind.none,
+          onChanged: (v) => _commitValue(app, v),
         ),
-        const SizedBox(height: 6),
-        Row(children: [
-          _glyphCheckbox(
-            on: s.showPreview,
-            icon: asmPreviewIcon,
-            tip: t.cbAsmShowPreview,
-            onTap: app.toggleConstraintPreview,
-          ),
-          const SizedBox(width: 10),
-          _glyphCheckbox(
-            on: s.predict,
-            icon: asmPredictIcon,
-            tip: t.cbAsmPredict,
-            onTap: app.toggleConstraintPredict,
-          ),
-        ]),
+        iosSwitchRow(
+          label: t.cbAsmShowPreview,
+          value: s.showPreview,
+          onChanged: (_) => app.toggleConstraintPreview(),
+        ),
+        iosSwitchRow(
+          label: t.cbAsmPredict,
+          value: s.predict,
+          onChanged: (_) => app.toggleConstraintPredict(),
+        ),
       ],
-    );
-  }
-
-  Widget _valueField(AppState app, ConstraintSession s, AsmValueKind kind) {
-    final row = Container(
-      height: 26,
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      decoration: BoxDecoration(
-        color: T.fly,
-        border: Border.all(color: T.panelSep),
-        borderRadius: BorderRadius.circular(3),
-      ),
-      child: Row(children: [
-        Expanded(
-          child: TextField(
-            controller: _value,
-            keyboardType: kValueKeyboard,
-            stylusHandwritingEnabled: kValueHandwriting,
-            autocorrect: false,
-            enableSuggestions: false,
-            style: ts(12.5, T.text),
-            decoration: const InputDecoration(
-                isDense: true,
-                border: InputBorder.none,
-                contentPadding: EdgeInsets.only(bottom: 10)),
-            onChanged: (v) => _commitValue(app, v),
-          ),
-        ),
-        // Inventor's ▸, which opens the recent-values list. There is no
-        // history to show yet, so it is drawn and inert rather than removed:
-        // its absence would make the field look like a different control.
-        Text('▸', style: ts(9, T.dim)),
-      ]),
-    );
-    return ScrubField(
-      app: app,
-      controller: _value,
-      suffix: _valueSuffix(kind),
-      kind: scrubKindForUnit(_valueSuffix(kind)),
-      onCommit: (v) => _commitValue(app, v),
-      child: row,
     );
   }
 
@@ -429,26 +284,36 @@ class _ConstraintDialogState extends State<ConstraintDialog> {
 
   static String _formatValue(double v, AsmKind kind) {
     final unit = _valueSuffix(valueKindOf(kind));
-    final digits = unit == 'ul' ? 3 : 3;
     return unit == 'ul'
-        ? v.toStringAsFixed(digits)
-        : '${v.toStringAsFixed(digits)} $unit';
+        ? v.toStringAsFixed(3)
+        : '${v.toStringAsFixed(3)} $unit';
   }
 
   // ---- Solution ------------------------------------------------------------
 
-  Widget _solutionGroup(AppState app, ConstraintSession s, AppL10n t) => _group(
-        t.grpAsmSolution,
-        Wrap(spacing: 3, runSpacing: 3, children: [
-          for (final sol in solutionsFor(s.kind))
-            _iconButton(
-              icon: AC[_solutionIcon(sol)]!,
-              on: s.solution == sol,
-              tip: solutionLabel(t, sol),
-              onTap: () => app.setConstraintSolution(sol),
-            ),
-        ]),
-      );
+  Widget _solutionSection(AppState app, ConstraintSession s, AppL10n t) {
+    final solutions = solutionsFor(s.kind);
+    if (solutions.isEmpty) return const SizedBox.shrink();
+    return iosSection(
+      header: t.grpAsmSolution,
+      children: [
+        iosStackedRow(
+          child: IosToggleGroup<AsmSolution>(
+            value: s.solution,
+            onChanged: app.setConstraintSolution,
+            segments: [
+              for (final sol in solutions)
+                IosSegment(
+                  value: sol,
+                  icon: iosSvg(AC[_solutionIcon(sol)]!, 24),
+                  tooltip: solutionLabel(t, sol),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
 
   static String _solutionIcon(AsmSolution s) => switch (s) {
         AsmSolution.mate => 'solMate',
@@ -467,379 +332,86 @@ class _ConstraintDialogState extends State<ConstraintDialog> {
         AsmSolution.none => 'solNone',
       };
 
-  // ---- the refusal line ----------------------------------------------------
+  // ---- Inventor's ">>" drawer ---------------------------------------------
 
-  Widget _rejection(AppState app, ConstraintSession s) => Padding(
-        padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
-        child: Row(children: [
-          svg(asmSickIcon, 13),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Text(app.constraintRejectionText(s.rejection!),
-                style: ts(11, T.err)),
-          ),
-        ]),
-      );
-
-  // ---- footer --------------------------------------------------------------
-
-  /// The command row.
+  /// The constraint's NAME, and the one preference Inventor puts behind `>>`.
   ///
-  /// spaceBetween rather than Spacers, and the three buttons travel as ONE
-  /// cluster inside a FittedBox: with each button its own flex child the gaps
-  /// competed with them for space and starved the long German labels into
-  /// "Abbr…" and "Über…". This way the cluster takes its natural width, the
-  /// two gaps absorb whatever is left, and only a genuinely impossible width
-  /// (an accessibility text size) scales the cluster down rather than
-  /// clipping it.
-  Widget _footer(AppState app, ConstraintSession s, AppL10n t) => Padding(
-        padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
-        child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-          _flatButton('?', null, width: 26),
-          Flexible(
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Row(mainAxisSize: MainAxisSize.min, children: [
-                _flatButton(t.ok, s.complete ? app.okConstraint : null,
-                    primary: true),
-                const SizedBox(width: 6),
-                _flatButton(t.cancel, app.cancelConstraint),
-                const SizedBox(width: 6),
-                _flatButton(
-                    t.apply, s.complete ? () => app.applyConstraint() : null),
-              ]),
-            ),
+  /// Folded by default, which is what `>>` meant; the chevron on the header is
+  /// the same button.
+  Widget _drawer(AppState app, ConstraintSession s, AppL10n t) => iosSection(
+        header: t.lblAsmName,
+        open: s.expanded,
+        onToggle: app.toggleConstraintExpanded,
+        children: [
+          // No row label: the section header already says Name, and iOS does
+          // not repeat itself.
+          iosTextRow(
+            controller: _name,
+            placeholder: t.hintAsmAutoName,
+            onChanged: app.setConstraintName,
           ),
-          _flatButton(s.expanded ? '<<' : '>>', app.toggleConstraintExpanded,
-              width: 30),
-        ]),
+          // Only an Angle has a directed default to opt out of, so the row is
+          // drawn for every type and only lives on that one — which is what
+          // Inventor does, and why it looks disabled beside a Mate.
+          iosSwitchRow(
+            label: t.cbAsmDefaultUndirected,
+            value: s.defaultUndirected,
+            onChanged: s.kind == AsmKind.angle
+                ? (_) => app.toggleDefaultUndirected()
+                : null,
+          ),
+        ],
       );
-
-  /// The `>>` drawer: the constraint's NAME, and the one preference Inventor
-  /// puts here.
-  Widget _drawer(AppState app, ConstraintSession s, AppL10n t) => Container(
-        padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-        decoration:
-            BoxDecoration(border: Border(top: BorderSide(color: T.panelSep))),
-        child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(t.lblAsmName, style: ts(11, T.dim)),
-              const SizedBox(height: 4),
-              Row(children: [
-                Expanded(
-                  flex: 3,
-                  child: Container(
-                    height: 26,
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    decoration: BoxDecoration(
-                      color: T.fly,
-                      border: Border.all(color: T.panelSep),
-                      borderRadius: BorderRadius.circular(3),
-                    ),
-                    child: TextField(
-                      controller: _name,
-                      autocorrect: false,
-                      enableSuggestions: false,
-                      style: ts(12.5, T.text),
-                      decoration: InputDecoration(
-                          isDense: true,
-                          border: InputBorder.none,
-                          hintText: t.hintAsmAutoName,
-                          hintStyle: ts(12.5, T.dim),
-                          contentPadding: const EdgeInsets.only(bottom: 10)),
-                      onChanged: app.setConstraintName,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                // Only an Angle has a directed default to opt out of, so the
-                // box is drawn for every type and only lives on that one —
-                // which is what Inventor does, and why it looks disabled
-                // beside a Mate.
-                Expanded(
-                  flex: 4,
-                  child: Opacity(
-                    opacity: s.kind == AsmKind.angle ? 1 : 0.4,
-                    child: IgnorePointer(
-                      ignoring: s.kind != AsmKind.angle,
-                      child: _textCheckbox(
-                        on: s.defaultUndirected,
-                        label: t.cbAsmDefaultUndirected,
-                        onTap: app.toggleDefaultUndirected,
-                      ),
-                    ),
-                  ),
-                ),
-              ]),
-            ]),
-      );
-
-  // ---- small controls ------------------------------------------------------
-  //
-  // M249 — these moved out to the top level of this file when the Place Joint
-  // and Drive dialogs arrived. All three are transcriptions of Inventor
-  // dialogs from the same family and draw the same controls; a second copy of
-  // "what a checkbox in an assembly dialog looks like" is a second thing to
-  // keep in step for nothing. They stay HERE, in the file that first needed
-  // them, rather than moving to a chrome file of their own — dialog_dock.dart
-  // owns where a panel sits, not what is inside it.
-
-  Widget _iconButton({
-    required String icon,
-    required bool on,
-    required String tip,
-    required VoidCallback onTap,
-  }) =>
-      asmIconButton(icon: icon, on: on, tip: tip, onTap: onTap);
-
-  Widget _glyphCheckbox({
-    required bool on,
-    required String icon,
-    required String tip,
-    required VoidCallback onTap,
-  }) =>
-      asmGlyphCheckbox(on: on, icon: icon, tip: tip, onTap: onTap);
-
-  Widget _textCheckbox({
-    required bool on,
-    required String label,
-    required VoidCallback onTap,
-  }) =>
-      asmTextCheckbox(on: on, label: label, onTap: onTap);
-
-  Widget _flatButton(String label, VoidCallback? onTap,
-          {bool primary = false, double width = 58}) =>
-      asmFlatButton(label, onTap, primary: primary, width: width);
 }
 
-// ---------------------------------------------------------------------------
-// the controls the three assembly dialogs share
-// ---------------------------------------------------------------------------
+// ===========================================================================
+// what the three assembly dialogs share
+// ===========================================================================
+//
+// M249 — Place Joint and Drive are transcriptions of dialogs from the same
+// family and draw the same controls; a second copy of "what a selection row in
+// an assembly dialog looks like" is a second thing to keep in step for
+// nothing. They stay HERE, in the file that first needed them, rather than
+// moving to a chrome file of their own — ios_kit.dart owns what a control
+// looks like, this owns what the assembly dialogs make of it.
 
-/// The bordered, titled box Inventor groups its controls in.
-Widget asmGroup(String title, Widget child) => Container(
-      padding: const EdgeInsets.fromLTRB(6, 4, 6, 6),
-      decoration: BoxDecoration(
-        border: Border.all(color: T.panelSep),
-        borderRadius: BorderRadius.circular(3),
-      ),
-      child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: ts(10.5, T.dim)),
-            const SizedBox(height: 4),
-            child,
-          ]),
-    );
-
-/// One of Inventor's picture-only buttons: a Type, a Solution, a joint kind.
-Widget asmIconButton({
-  required String icon,
-  required bool on,
-  required String tip,
-  required VoidCallback onTap,
-}) =>
-    Tooltip(
-      message: tip,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: onTap,
-        child: Container(
-          width: 32,
-          height: 30,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: on ? T.accent.withValues(alpha: 0.28) : Colors.transparent,
-            border: Border.all(color: on ? T.accent : T.panelSep),
-            borderRadius: BorderRadius.circular(3),
-          ),
-          child: svg(icon, 22),
-        ),
-      ),
-    );
-
-/// A checkbox whose LABEL is a picture. Inventor's, and the tooltip is where
-/// the words live.
-Widget asmGlyphCheckbox({
-  required bool on,
-  required String icon,
-  required String tip,
-  required VoidCallback onTap,
-}) =>
-    Tooltip(
-      message: tip,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: onTap,
-        child: Row(mainAxisSize: MainAxisSize.min, children: [
-          asmCheckMark(on),
-          const SizedBox(width: 4),
-          svg(icon, 15),
-        ]),
-      ),
-    );
-
-Widget asmTextCheckbox({
-  required bool on,
-  required String label,
-  required VoidCallback onTap,
-}) =>
-    GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: onTap,
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        asmCheckMark(on),
-        const SizedBox(width: 5),
-        Flexible(
-          child: Text(label,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: ts(11, T.text)),
-        ),
-      ]),
-    );
-
-/// A RADIO, drawn as Inventor draws one: the same box as a checkbox with a
-/// disc in it, because an option group that looked like a checkbox group would
-/// promise that two of them could be on at once.
-Widget asmRadio({
-  required bool on,
-  required String label,
-  required VoidCallback onTap,
-}) =>
-    GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: onTap,
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        Container(
-          width: 13,
-          height: 13,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: T.fly,
-            border: Border.all(color: on ? T.accent : T.panelSep),
-            shape: BoxShape.circle,
-          ),
-          child: on
-              ? Container(
-                  width: 7,
-                  height: 7,
-                  decoration:
-                      BoxDecoration(color: T.accent, shape: BoxShape.circle))
-              : null,
-        ),
-        const SizedBox(width: 5),
-        Flexible(
-          child: Text(label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: ts(11, T.text)),
-        ),
-      ]),
-    );
-
-Widget asmCheckMark(bool on) => Container(
-      width: 13,
-      height: 13,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: on ? T.accent : T.fly,
-        border: Border.all(color: on ? T.accent : T.panelSep),
-        borderRadius: BorderRadius.circular(2),
-      ),
-      child: on ? const Icon(Icons.check, size: 10, color: Colors.white) : null,
-    );
-
-/// [width] is a FLOOR, not a size: "Übernehmen" is half again as long as
-/// "Apply", and a fixed width would clip the German label rather than grow.
-/// The same rule the ribbon's _Big buttons follow.
-Widget asmFlatButton(String label, VoidCallback? onTap,
-        {bool primary = false, double width = 58}) =>
-    GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: onTap,
-      child: Container(
-        constraints: BoxConstraints(minWidth: width),
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-        height: 26,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: onTap == null
-              ? T.fly
-              : (primary ? T.accent.withValues(alpha: 0.22) : T.fly),
-          border: Border.all(
-              color: onTap != null && primary ? T.accent : T.panelSep),
-          borderRadius: BorderRadius.circular(3),
-        ),
-        child: Text(label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: ts(12, onTap == null ? T.dim : T.text,
-                w: primary ? FontWeight.w600 : FontWeight.normal)),
-      ),
-    );
-
-/// The draggable title bar every one of these panels wears.
+/// One numbered selection slot, as a row that says what is in it.
 ///
-/// [onDrag] rather than a position, because the position belongs to the
-/// dialog's own State — each one remembers where the user put it.
-Widget asmTitleBar(String title,
-        {required VoidCallback onClose,
-        required void Function(Offset) onDrag}) =>
-    GestureDetector(
-      onPanUpdate: (d) => onDrag(d.delta),
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
-        decoration: BoxDecoration(
-          color: T.fly,
-          border: Border(bottom: BorderSide(color: T.panelSep)),
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
-        ),
-        child: Row(children: [
-          Flexible(
-            child: Text(title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: ts(13, T.text, w: FontWeight.w600)),
-          ),
-          const Spacer(),
-          GestureDetector(
-            onTap: onClose,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: Text('✕', style: ts(12, T.dim)),
-            ),
-          ),
-        ]),
-      ),
-    );
+/// Three states, and they say three different things — the same three Inventor
+/// lights: ARMED is "tap in the viewport now", FILLED reads back the occurrence
+/// and the geometry, EMPTY is a placeholder.
+Widget selectionRow(
+    AppState app, ConstraintSession s, AppL10n t, int i) {
+  final ref = s.slot(i);
+  return iosPickRow(
+    label: t.tipAsmSelection(i + 1),
+    value: ref == null ? null : '${ref.occurrence} · ${ref.label}',
+    hint: t.hintAsmPickGeometry,
+    armed: s.armed == i,
+    filled: ref != null,
+    onTap: () => app.armConstraintSelection(i),
+  );
+}
 
-/// The card every one of these panels is drawn on.
-Widget asmPanelCard({required double width, required List<Widget> children}) =>
-    Material(
-      color: Colors.transparent,
-      child: Container(
-        width: width,
-        decoration: BoxDecoration(
-          color: T.panel,
-          border: Border.all(color: T.sep),
-          borderRadius: BorderRadius.circular(6),
-          boxShadow: [
-            BoxShadow(color: T.scrim, blurRadius: 24, offset: Offset(0, 6)),
-          ],
-        ),
-        // STRETCH, so a row that holds only a group box fills the card's
-        // width. Centred (Flutter's default) it drifted to the middle and read
-        // as a floating panel of its own rather than as the dialog's own row.
-        child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: children),
-      ),
+/// The number field the Place Constraint and Place Joint dialogs share.
+///
+/// Both hold a value WITH its unit in the text ("0.000 mm"), which is what
+/// [ScrubField.suffix] is for; see ios_kit.dart on why a drawn unit and a
+/// scrub suffix are not the same argument.
+Widget asmValueRow({
+  required AppState app,
+  required String label,
+  required TextEditingController controller,
+  required String unit,
+  required ValueChanged<String> onChanged,
+  bool enabled = true,
+}) =>
+    iosValueRow(
+      app: app,
+      label: label,
+      controller: controller,
+      unit: unit,
+      kind: scrubKindForUnit(unit),
+      enabled: enabled,
+      onChanged: onChanged,
     );

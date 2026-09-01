@@ -1634,7 +1634,7 @@
       }
     }
   },
-  "btnAddEdgeSet": "+ Kantengruppe",
+  "btnAddEdgeSet": "Kantengruppe",
   "@btnAddEdgeSet": {
     "description": "Kurz gehalten: die Schaltflaeche sitzt in der Dialogspalte. \"+ Kantengruppe hinzufügen\" waere doppelt so lang wie das Original."
   },
@@ -2489,8 +2489,8 @@
       }
     }
   },
-  "lblAddIrregularAngle": "+ Abweichender Winkel",
-  "lblAddIrregularDistance": "+ Abweichender Abstand",
+  "lblAddIrregularAngle": "Abweichender Winkel",
+  "lblAddIrregularDistance": "Abweichender Abstand",
   "lblSelectDir": "Richtung…",
   "lblMidplane": "Mittelebene",
   "lblCurveLength": "Kurvenlänge",
@@ -3049,19 +3049,19 @@
   "@grpAsmSolution": {
     "description": "Gruppe der Lösungsschaltflächen im Abhängigkeitsdialog."
   },
-  "lblAsmOffset": "Versatz:",
+  "lblAsmOffset": "Versatz",
   "@lblAsmOffset": {
     "description": "Beschriftung des Zahlenfelds bei Passend, Tangential und Einfügen. Mit Doppelpunkt wie in Inventor."
   },
-  "lblAsmAngle": "Winkel:",
+  "lblAsmAngle": "Winkel",
   "@lblAsmAngle": {
     "description": "Beschriftung des Zahlenfelds bei einer Winkelabhängigkeit."
   },
-  "lblAsmRatio": "Verhältnis:",
+  "lblAsmRatio": "Verhältnis",
   "@lblAsmRatio": {
     "description": "Beschriftung des Zahlenfelds bei einer Drehungsabhängigkeit (Zahnradverhältnis)."
   },
-  "lblAsmDistance": "Abstand:",
+  "lblAsmDistance": "Abstand",
   "@lblAsmDistance": {
     "description": "Beschriftung des Zahlenfelds bei Drehung-Translation: Weg pro voller Umdrehung."
   },
@@ -3651,5 +3651,50 @@
   "cyclesWarmupFailed": "Der Renderer konnte nicht gestartet werden",
   "@cyclesWarmupFailed": {
     "description": "M320 — kein Metal-Geraet oder ein fehlgeschlagener Kernel-Build. Der Grund steht darunter."
+  },
+  "lblEndRadius": "Endradius",
+  "@lblEndRadius": {
+    "description": "M338 — der optionale Endradius einer Kantengruppe; leer heisst konstant."
+  },
+  "lblProfileCount": "{n, plural, =1{Ein Profil} other{{n} Profile}}",
+  "@lblProfileCount": {
+    "description": "M338 — wie viele Profile gewaehlt sind.",
+    "placeholders": { "n": { "type": "int" } }
+  },
+  "lblSectionCount": "{n, plural, =1{Ein Querschnitt} other{{n} Querschnitte}}",
+  "@lblSectionCount": {
+    "description": "M338 — wie viele Loft-Querschnitte gewaehlt sind.",
+    "placeholders": { "n": { "type": "int" } }
+  },
+  "lblPointsCount": "{n, plural, =1{Ein Punkt} other{{n} Punkte}}",
+  "@lblPointsCount": {
+    "description": "M338 — wie viele Skizzenpunkte gewaehlt sind.",
+    "placeholders": { "n": { "type": "int" } }
+  },
+  "hintTapToFinish": "· zum Beenden tippen",
+  "@hintTapToFinish": {
+    "description": "M338 — Zusatz an einer laufenden Mehrfachauswahl."
+  },
+  "hintTerminationNeedsBody": "Bis zum Nächsten, Bis und Durch alle brauchen einen vorhandenen Körper.",
+  "@hintTerminationNeedsBody": {
+    "description": "M338 — Fussnote unter Verhalten, solange das Teil noch leer ist."
+  },
+  "lblFeatureCount": "{n, plural, =1{Ein Element} other{{n} Elemente}}",
+  "@lblFeatureCount": {
+    "description": "M338 — wie viele Elemente gemustert werden.",
+    "placeholders": { "n": { "type": "int" } }
+  },
+  "lblSelectedCount": "{n, plural, =0{nichts gewählt} =1{1 gewählt} other{{n} gewählt}}",
+  "@lblSelectedCount": {
+    "description": "M338 — wie viel Geometrie gewählt ist.",
+    "placeholders": { "n": { "type": "int" } }
+  },
+  "lblTotalDistance": "Gesamtabstand",
+  "@lblTotalDistance": {
+    "description": "M338 — Inventors zweite Verteilungsart: die Gesamtstrecke, die alle Exemplare zusammen einnehmen. Auf Deutsch NICHT 'Abstand', weil das schon die Luecke zwischen zweien heisst."
+  },
+  "hintEndRadiusOptional": "Endradius leer lassen für eine konstante Verrundung; mit einem Wert läuft der Radius entlang jeder Kante der Gruppe.",
+  "@hintEndRadiusOptional": {
+    "description": "M338 — Fussnote unter der Radius-Sektion der Verrundung."
   }
 }

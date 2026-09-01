@@ -42,9 +42,11 @@
 // it does not care what iPadOS does next. `kValueKeyboard` becomes
 // `TextInputType.none` — the field keeps its caret, its selection and a
 // hardware keyboard, and the system simply never raises anything.
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' show Material, MaterialType;
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 
+import '../ios_design.dart';
 import '../theme.dart';
 import '../l10n/l.dart';
 
@@ -152,7 +154,7 @@ class ValuePad extends StatelessWidget {
   /// [border] is in here because a BoxDecoration's border eats into the
   /// Container's WIDTH rather than adding to it — leave it out and the key row
   /// overflows by exactly two pixels, which is how this was found.
-  static const double keyW = 44, keyH = 38, gap = 4, pad = 6, border = 1;
+  static const double keyW = 46, keyH = 44, gap = 6, pad = 8, border = 0;
   static const double tail = 7;
   static const double width = 4 * keyW + 3 * gap + 2 * pad + 2 * border;
   static const double height = 4 * keyH + 3 * gap + 2 * pad + 2 * border;
@@ -185,14 +187,13 @@ class ValuePad extends StatelessWidget {
       child: Container(
         width: width,
         padding: const EdgeInsets.all(pad),
-        decoration: BoxDecoration(
-          color: T.fly,
-          border: Border.all(color: T.sep, width: border),
-          borderRadius: BorderRadius.circular(10),
-          boxShadow: [
-            BoxShadow(
-                color: T.shadow, blurRadius: 20, offset: Offset(0, 6)),
-          ],
+        // M338 — the pad wears the panels' own surface: a superellipse, the
+        // grouped-list ground under keys that stand on it, and the two-part
+        // shadow every floating thing in this app now casts.
+        decoration: ShapeDecoration(
+          color: IosColors.groupedBackground,
+          shape: IosShape.border(16),
+          shadows: iosPanelShadow(),
         ),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           row([k(PadKey.k7), k(PadKey.k8), k(PadKey.k9),
@@ -250,21 +251,25 @@ class _PadKeyCapState extends State<_PadKeyCap> {
         width: widget.width,
         height: ValuePad.keyH,
         alignment: Alignment.center,
-        decoration: BoxDecoration(
+        // A key cap, the way iOS's own keyboard draws one: a light face that
+        // lifts off the pad's ground, and a PRESSED state that sinks into it
+        // rather than lighting up.
+        decoration: ShapeDecoration(
           color: tint != null
               ? (_down ? tint.withValues(alpha: 0.75) : tint)
-              : (_down ? T.hover8 : T.flyHov),
-          borderRadius: BorderRadius.circular(7),
-          border: Border.all(color: T.border10),
+              : (_down
+                  ? IosColors.tertiarySystemFill
+                  : IosColors.segmentThumb),
+          shape: IosShape.border(8),
+          shadows: tint != null || _down ? null : iosThumbShadow(),
         ),
         child: Text(
           widget.label,
-          style: TextStyle(
-            fontSize: 17,
-            color: widget.enabled
-                ? (tint != null ? T.onAccent : T.text)
-                : T.dim.withValues(alpha: 0.4),
-          ),
+          style: IosText.title3.on(
+              widget.enabled
+                  ? (tint != null ? IosColors.onTint : IosColors.label)
+                  : IosColors.quaternaryLabel,
+              weight: tint != null ? FontWeight.w600 : FontWeight.w400),
         ),
       ),
     );
@@ -368,13 +373,10 @@ class _TailPainter extends CustomPainter {
       path.lineTo(x + half, 0);
     }
     path.close();
-    canvas.drawPath(path, Paint()..color = T.fly);
-    canvas.drawPath(
-        path,
-        Paint()
-          ..color = T.sep
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1);
+    // The tail is part of the pad's own surface, so it takes the pad's ground
+    // and no outline — an outlined triangle beside an un-outlined panel reads
+    // as a separate arrow stuck to it.
+    canvas.drawPath(path, Paint()..color = IosColors.groupedBackground);
   }
 
   @override

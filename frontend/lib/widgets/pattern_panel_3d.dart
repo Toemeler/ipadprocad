@@ -1,5 +1,5 @@
 // M212 — the PART pattern panel: Rectangular, Circular, Sketch Driven and
-// Mirror, 1:1 with Inventor's property panel (see the mock screenshots).
+// Mirror, 1:1 with Inventor's property panel.
 //
 //   Rectangular:   Input Geometry (Feature) | Direction A (direction, number,
 //                  distribution, distance) | Direction B | Output Geometry
@@ -17,9 +17,8 @@
 // keep the selection handling in step.
 //
 // The panel is MODELESS — it floats over the viewport while the user keeps
-// picking geometry. Which input a pick feeds is the ACTIVE selector (blue
-// outline), exactly as in Inventor and exactly as the 2D pattern dialog
-// already works; AppState routes the taps.
+// picking geometry. Which input a pick feeds is the ACTIVE selector (the
+// tinted row), exactly as in Inventor; AppState routes the taps.
 //
 // M248 — and it serves the ASSEMBLY's Pattern Component and Mirror Component
 // as well, on an [AsmPatternSession]. Almost nothing here knows: the counts,
@@ -28,24 +27,33 @@
 // AppState methods, which route on the session's type. What DOES differ is
 // named in one place each and is exactly three things —
 //
-//   * INPUT GEOMETRY is components, not features or a solid. The chips list
-//     occurrence ids; there is no Pattern-a-solid mode, because an assembly
-//     has no bodies of its own.
+//   * INPUT GEOMETRY is components, not features or a solid.
 //   * THE PICKED INPUTS ARE REFERENCES that move with their component (see
 //     asm_pattern.dart), so the label and the clear button read and write the
 //     AsmRef rather than the resolved AxisRef beside it.
 //   * A WARNING LINE, because the preview is the real pattern: shrinking a
 //     count destroys elements and the relationships on them, and the panel
 //     says how many while Cancel can still put them back.
-import 'package:flutter/material.dart';
+//
+// M338 — drawn as an iOS panel (widgets/ios_kit.dart). Two of its controls
+// changed shape rather than only style:
+//
+//   * FLIP AND MIDPLANE ARE SWITCHES. They were two 26 pt icon buttons beside
+//     the direction picker whose meaning lived in a tooltip, which on a touch
+//     device is nowhere. They are named switch rows now.
+//   * THE MODE RAIL IS A CONTROL CLUSTER, not a strip of bordered squares. It
+//     keeps its own card beside the panel — Inventor puts it there and it is
+//     genuinely a different axis of choice from everything in the panel — but
+//     it is drawn as iOS draws a group of toggles.
+import 'package:flutter/widgets.dart';
 
 import '../app_state.dart';
-import '../asm_constraints.dart';
-import '../asm_pattern.dart';
+import '../ios_design.dart';
 import '../part_model.dart';
-import '../theme.dart';
+import '../svg_icons.dart' show PT;
 import 'dialog_dock.dart';
-import 'properties_panel.dart';
+import 'ios_kit.dart';
+import '../l10n/cad_terms.dart';
 import '../l10n/fmt.dart';
 import '../l10n/l.dart';
 
@@ -76,6 +84,8 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
   /// Null until first laid out, then wherever the user dragged it to.
   Offset? _pos;
   String? _syncedFor;
+
+  static const _size = Size(IosMetrics.panelWidth, 620);
 
   PartPatternSession get sess => widget.app.patternSession!;
 
@@ -128,156 +138,106 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
     final s = app.patternSession;
     if (s == null) return const SizedBox.shrink();
     _syncOnce();
+    final t = L.of(context);
+    final ready = s.previewError == null;
 
-    const w = 320.0, h = 560.0;
     final vp = MediaQuery.sizeOf(context);
-    // M206 — beside the quick-tool bar, not under it. See DialogDock.
-    final pos = _pos ?? DialogDock.spot(vp, const Size(w, h));
+    final pos = _pos ?? DialogDock.spot(vp, _size);
     return Positioned(
       left: pos.dx,
       top: pos.dy,
-      child: Material(
-        color: Colors.transparent,
-        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Container(
-            width: w,
-            decoration: BoxDecoration(
-              color: T.panel,
-              border: Border.all(color: T.sep),
-              borderRadius: BorderRadius.circular(6),
-              boxShadow: [
-                BoxShadow(
-                    color: T.scrim,
-                    blurRadius: 24,
-                    offset: Offset(0, 6)),
-              ],
-            ),
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              _titleBar(pos),
-              _commandName(s),
-              _inputGeometry(s),
-              ..._middleSections(s),
-              _outputGeometry(s),
-              if (s.previewError != null)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 2, 12, 0),
-                  child: Text(s.previewError!,
-                      style: ts(11.5, T.warnText)),
-                ),
-              _footer(s),
-            ]),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        IosPanel(
+          width: _size.width,
+          nav: IosNavBar(
+            title: s.editing?.name ?? patternKindDisplay(t, s.mode),
+            onDrag: (d) => setState(() => _pos = pos + d),
+            leading: IosBarButton(label: t.cancel, onTap: app.cancelPattern),
+            trailing: IosBarButton(
+                label: t.ok,
+                prominent: true,
+                onTap: ready ? app.applyPattern : null),
           ),
-          const SizedBox(width: 6),
-          // Inventor's vertical rail beside the panel: the pattern commands,
-          // then the two Input Geometry modes.
-          _rail(s),
-        ]),
-      ),
+          children: [
+            _inputGeometry(s, t),
+            ..._middleSections(s, t),
+            _outputGeometry(s, t),
+            if (s.previewError != null) iosStatusLine(s.previewError!),
+          ],
+        ),
+        const SizedBox(width: 8),
+        // Inventor's vertical rail beside the panel: the pattern commands,
+        // then the two Input Geometry modes.
+        _rail(s, t),
+      ]),
     );
   }
 
-  // ---- chrome ------------------------------------------------------------
-
-  Widget _titleBar(Offset pos) => GestureDetector(
-        onPanUpdate: (d) => setState(() => _pos = pos + d.delta),
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
-          decoration: BoxDecoration(
-            color: T.fly,
-            border: Border(bottom: BorderSide(color: T.panelSep)),
-            borderRadius: BorderRadius.vertical(top: Radius.circular(6)),
-          ),
-          child: Row(children: [
-            Text(L.of(context).dlgProperties, style: ts(13, T.text, w: FontWeight.w600)),
-            const SizedBox(width: 6),
-            GestureDetector(
-              onTap: widget.app.cancelPattern,
-              child: Text('✕', style: ts(11.5, T.dim)),
-            ),
-            const Spacer(),
-            Icon(Icons.menu, size: 14, color: T.dim),
-          ]),
-        ),
-      );
-
-  Widget _commandName(PartPatternSession s) => Padding(
-        padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-        child: Row(children: [
-          Text(s.editing?.name ?? patternKindLabel(s.mode),
-              style: TextStyle(
-                  fontSize: 12.5,
-                  color: T.accent,
-                  decoration: TextDecoration.underline,
-                  decorationColor: T.accent)),
-          const Spacer(),
-          Icon(Icons.visibility_outlined, size: 14, color: T.dim),
-        ]),
-      );
-
   // ---- sections ----------------------------------------------------------
 
-  Widget _inputGeometry(PartPatternSession s) {
+  Widget _inputGeometry(PartPatternSession s, AppL10n t) {
     final app = widget.app;
     final n = s.features.length;
     final a = asm;
-    return panelSection(L.of(context).secInputGeometry, _inputOpen,
-        () => setState(() => _inputOpen = !_inputOpen), [
-      // M248 — an assembly patterns COMPONENTS. The same list and the same
-      // chips; what changes is the noun, where the taps come from (the
-      // graphics window, never a feature browser) and that there is no
-      // solid mode to switch to.
-      if (a != null)
-        panelRow(
-            L.of(context).lblComponent,
-            _pickButton(
-                label: n == 0
-                    ? L.of(context).lblSelectComponents
-                    : L.of(context).lblNComponents(n),
-                active: s.active == PatternField.features,
-                hint: L.of(context).hintTapComponentIn3d,
-                onTap: () => app.patternPick(PatternField.features)))
-      else if (s.patternSolid)
-        panelRow(
-            L.of(context).lblSolid,
-            _pickButton(
-                label: s.bodyName.isEmpty ? L.of(context).lblSelectSolid : s.bodyName,
-                active: s.active == PatternField.solid,
-                hint: L.of(context).hintTapBodyIn3d,
-                onTap: () => app.patternPick(PatternField.solid)))
-      else
-        panelRow(
-            L.of(context).lblFeature,
-            _pickButton(
-                label: n == 0
-                    ? L.of(context).lblSelectFeatures
-                    : '$n Feature${n == 1 ? '' : 's'}',
-                active: s.active == PatternField.features,
-                // The feature list is fed from the MODEL BROWSER: a feature is
-                // a row in the tree, and the graphics window shows a folded
-                // body in which one extrusion's faces are no longer its own.
-                hint: L.of(context).hintTapFeaturesInBrowser,
-                onTap: () => app.patternPick(PatternField.features))),
-      if (asm != null) ..._associativeRows(asm!),
-      if ((asm != null || !s.patternSolid) && s.features.isNotEmpty)
-        Padding(
-          padding: const EdgeInsets.only(bottom: 6),
-          child: Row(children: [
-            const SizedBox(width: 82),
-            Expanded(
-              child: Wrap(
-                spacing: 4,
-                runSpacing: 4,
-                children: [
-                  for (final f in s.features)
-                    _chip(f, () => _changed(() {
-                          s.features.remove(f);
-                        })),
-                ],
-              ),
+    return iosSection(
+      header: t.secInputGeometry,
+      open: _inputOpen,
+      onToggle: () => setState(() => _inputOpen = !_inputOpen),
+      children: [
+        // M248 — an assembly patterns COMPONENTS. The same list and the same
+        // chips; what changes is the noun, where the taps come from (the
+        // graphics window, never a feature browser) and that there is no
+        // solid mode to switch to.
+        if (a != null)
+          iosPickRow(
+            label: t.lblComponent,
+            value: n == 0 ? null : t.lblNComponents(n),
+            hint: s.active == PatternField.features
+                ? t.hintTapComponentIn3d
+                : t.lblSelectComponents,
+            armed: s.active == PatternField.features,
+            filled: n > 0,
+            onTap: () => app.patternPick(PatternField.features),
+          )
+        else if (s.patternSolid)
+          iosPickRow(
+            label: t.lblSolid,
+            value: s.bodyName.isEmpty ? null : s.bodyName,
+            hint: s.active == PatternField.solid
+                ? t.hintTapBodyIn3d
+                : t.lblSelectSolid,
+            armed: s.active == PatternField.solid,
+            filled: s.bodyName.isNotEmpty,
+            onTap: () => app.patternPick(PatternField.solid),
+          )
+        else
+          iosPickRow(
+            label: t.lblFeature,
+            // The feature list is fed from the MODEL BROWSER: a feature is a
+            // row in the tree, and the graphics window shows a folded body in
+            // which one extrusion's faces are no longer its own.
+            value: n == 0 ? null : t.lblFeatureCount(n),
+            hint: s.active == PatternField.features
+                ? t.hintTapFeaturesInBrowser
+                : t.lblSelectFeatures,
+            armed: s.active == PatternField.features,
+            filled: n > 0,
+            onTap: () => app.patternPick(PatternField.features),
+          ),
+        if (a != null) ..._associativeRows(a, t),
+        if ((a != null || !s.patternSolid) && s.features.isNotEmpty)
+          iosStackedRow(
+            child: Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final f in s.features)
+                  iosChip(f, () => _changed(() => s.features.remove(f))),
+              ],
             ),
-          ]),
-        ),
-    ]);
+          ),
+      ],
+    );
   }
 
   /// Inventor's Associative tab, as a row rather than a tab: the pattern
@@ -286,98 +246,99 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
   /// Listed off the LIVE models, so a hole pattern added in the part's own tab
   /// appears here the moment you look — which is the same liveness that makes
   /// the bolts follow it afterwards (M245).
-  List<Widget> _associativeRows(AsmPatternSession s) {
+  List<Widget> _associativeRows(AsmPatternSession s, AppL10n t) {
     if (s.mode == PatternKind.mirror) return const [];
     final drivers = widget.app.asmPatternDrivers();
     if (drivers.isEmpty && s.driver == null) return const [];
     final cur = s.driver;
     return [
-      panelRow(
-          L.of(context).lblFeaturePattern,
-          Row(children: [
-            Expanded(
-              child: _smallButton(
-                  cur == null
-                      ? L.of(context).lblOwnSpacing
-                      : '${cur.$1} · ${cur.$2}',
-                  cur != null,
-                  () {
-                    // One button cycling the list, not a menu: an assembly
-                    // holds a handful of feature patterns and a menu widget
-                    // here would be the panel's first.
-                    if (drivers.isEmpty) return;
-                    final i = cur == null
-                        ? -1
-                        : drivers.indexWhere(
-                            (d) => d.$1 == cur.$1 && d.$2 == cur.$2);
-                    widget.app.asmPatternSetDriver(
-                        i + 1 >= drivers.length ? null : drivers[i + 1]);
-                  }),
-            ),
-          ])),
+      // M338 — a real pop-up, where it used to be one button cycling the list.
+      // A cycling button is only bearable while the list is short and gives no
+      // way back; a menu names every choice and marks the one in force.
+      IosMenuRow<int>(
+        label: t.lblFeaturePattern,
+        value: cur == null
+            ? -1
+            : drivers.indexWhere((d) => d.$1 == cur.$1 && d.$2 == cur.$2),
+        cancelLabel: t.cancel,
+        choices: [
+          IosMenuChoice(-1, t.lblOwnSpacing),
+          for (var i = 0; i < drivers.length; i++)
+            IosMenuChoice(i, '${drivers[i].$1} · ${drivers[i].$2}'),
+        ],
+        onChanged: (i) => widget.app
+            .asmPatternSetDriver(i < 0 ? null : drivers[i]),
+      ),
     ];
   }
 
-  List<Widget> _middleSections(PartPatternSession s) => switch (s.mode) {
+  List<Widget> _middleSections(PartPatternSession s, AppL10n t) =>
+      switch (s.mode) {
         PatternKind.rectangular => [
-            _directionSection(L.of(context).lblDirectionA, s, first: true),
-            _directionSection(L.of(context).lblDirectionB, s, first: false),
-            _extentsSection(s),
+            _directionSection(t.lblDirectionA, s, t, first: true),
+            _directionSection(t.lblDirectionB, s, t, first: false),
+            _extentsSection(s, t),
           ],
-        PatternKind.circular => [_orientationSection(s)],
-        PatternKind.sketchDriven => [_placementSection(s)],
-        PatternKind.mirror => [_mirrorSection(s)],
+        PatternKind.circular => [_orientationSection(s, t)],
+        PatternKind.sketchDriven => [_placementSection(s, t)],
+        PatternKind.mirror => [_mirrorSection(s, t)],
       };
 
   /// Inventor's Extents: WHERE on the path each row starts. Shown only when
   /// a row actually runs along a curve — on a straight direction there is no
   /// path to start anywhere on, and a permanently dead field would be the
   /// ninth of those this ribbon has had.
-  Widget _extentsSection(PartPatternSession s) {
+  Widget _extentsSection(PartPatternSession s, AppL10n t) {
     if (s.pathA == null && s.pathB == null) return const SizedBox.shrink();
     final app = widget.app;
-    return panelSection(L.of(context).secExtents, _extentsOpen,
-        () => setState(() => _extentsOpen = !_extentsOpen), [
-      if (s.pathA != null)
-        panelRow(
-            L.of(context).lblStartA,
-            _pickButton(
-                label: s.startPickedA
-                    ? L.of(context).lblMmAlong(Fmt.fixed(s.startA, 2))
-                    : L.of(context).lblCurveStart,
-                active: s.active == PatternField.startA,
-                hint: L.of(context).hintTapPointOnCurve,
-                onTap: () => app.patternPick(PatternField.startA),
-                onClear: s.startPickedA
-                    ? () => _changed(() {
-                          s.startA = 0;
-                          s.startPickedA = false;
-                        })
-                    : null)),
-      if (s.pathB != null)
-        panelRow(
-            L.of(context).lblStartB,
-            _pickButton(
-                label: s.startPickedB
-                    ? L.of(context).lblMmAlong(Fmt.fixed(s.startB, 2))
-                    : L.of(context).lblCurveStart,
-                active: s.active == PatternField.startB,
-                hint: L.of(context).hintTapPointOnCurve,
-                onTap: () => app.patternPick(PatternField.startB),
-                onClear: s.startPickedB
-                    ? () => _changed(() {
-                          s.startB = 0;
-                          s.startPickedB = false;
-                        })
-                    : null)),
-    ]);
+    return iosSection(
+      header: t.secExtents,
+      open: _extentsOpen,
+      onToggle: () => setState(() => _extentsOpen = !_extentsOpen),
+      children: [
+        if (s.pathA != null)
+          iosPickRow(
+            label: t.lblStartA,
+            value: s.startPickedA ? t.lblMmAlong(Fmt.fixed(s.startA, 2)) : null,
+            hint: s.active == PatternField.startA
+                ? t.hintTapPointOnCurve
+                : t.lblCurveStart,
+            armed: s.active == PatternField.startA,
+            filled: s.startPickedA,
+            onTap: () => app.patternPick(PatternField.startA),
+            onClear: s.startPickedA
+                ? () => _changed(() {
+                      s.startA = 0;
+                      s.startPickedA = false;
+                    })
+                : null,
+          ),
+        if (s.pathB != null)
+          iosPickRow(
+            label: t.lblStartB,
+            value: s.startPickedB ? t.lblMmAlong(Fmt.fixed(s.startB, 2)) : null,
+            hint: s.active == PatternField.startB
+                ? t.hintTapPointOnCurve
+                : t.lblCurveStart,
+            armed: s.active == PatternField.startB,
+            filled: s.startPickedB,
+            onTap: () => app.patternPick(PatternField.startB),
+            onClear: s.startPickedB
+                ? () => _changed(() {
+                      s.startB = 0;
+                      s.startPickedB = false;
+                    })
+                : null,
+          ),
+      ],
+    );
   }
 
   /// Inventor 2026's Irregular Distance / Irregular Angle: one occurrence
   /// given its own offset instead of the even step. The "+" adds the next
   /// step that has none, which is the order they are normally wanted in.
-  List<Widget> _irregularRows(PartPatternSession s, String which, int count,
-      String unit) {
+  List<Widget> _irregularRows(
+      PartPatternSession s, AppL10n t, String which, int count, String unit) {
     final map = switch (which) {
       'B' => s.irregularB,
       'C' => s.irregularC,
@@ -386,40 +347,47 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
     final steps = map.keys.toList()..sort();
     return [
       for (final k in steps)
-        panelRow(
-            L.of(context).nodeOccurrence(k + 1),
-            Row(children: [
-              Expanded(
-                child: panelValueField(_irrController('$which$k', map[k]!),
-                    unit, (v) {
-                  final parsed = parseValueExpr(v);
-                  if (parsed != null) {
-                    widget.app.patternSetIrregular(which, k, parsed);
-                  }
-                }, app: widget.app),
-              ),
-              const SizedBox(width: 4),
-              GestureDetector(
-                onTap: () => widget.app.patternSetIrregular(which, k, null),
-                child: Icon(Icons.cancel_outlined, size: 14, color: T.dim),
-              ),
-            ])),
-      panelRow(
-          '',
-          _smallButton(
-              which == 'C' ? L.of(context).lblAddIrregularAngle : L.of(context).lblAddIrregularDistance,
-              false, () {
+        iosValueRow(
+          app: widget.app,
+          label: t.nodeOccurrence(k + 1),
+          controller: _irrController('$which$k', map[k]!),
+          unit: unit,
+          onChanged: (v) {
+            final parsed = parseValueExpr(v);
+            if (parsed != null) {
+              widget.app.patternSetIrregular(which, k, parsed);
+            }
+          },
+          leading: IosPressable(
+            onTap: () => widget.app.patternSetIrregular(which, k, null),
+            child: iosGlyph(IosGlyph.xmarkCircleFill,
+                size: 17, color: IosColors.tertiaryLabel),
+          ),
+        ),
+      iosStackedRow(
+        child: IosButton(
+          label: which == 'C'
+              ? t.lblAddIrregularAngle
+              : t.lblAddIrregularDistance,
+          glyph: IosGlyph.plus,
+          style: IosButtonStyle.tinted,
+          height: 34,
+          expand: true,
+          onTap: () {
             for (var k = 1; k < count; k++) {
               if (!map.containsKey(k)) {
                 // Seeded with the even offset, so adding one changes nothing
                 // until it is edited — an Inventor-shaped "make this one
                 // different", not a jump.
-                widget.app.patternSetIrregular(which, k, _evenOffset(s, which, k));
+                widget.app
+                    .patternSetIrregular(which, k, _evenOffset(s, which, k));
                 setState(() {});
                 return;
               }
             }
-          })),
+          },
+        ),
+      ),
     ];
   }
 
@@ -450,11 +418,8 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
         k;
   }
 
-  TextEditingController _irrController(String key, double value) {
-    final c = _irr.putIfAbsent(
-        key, () => TextEditingController(text: _fmt(value)));
-    return c;
-  }
+  TextEditingController _irrController(String key, double value) =>
+      _irr.putIfAbsent(key, () => TextEditingController(text: _fmt(value)));
 
   /// The count a direction currently holds, for bounding the irregular
   /// entries. A field mid-edit can be anything, so an unparsable one means
@@ -470,7 +435,7 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
       v == v.roundToDouble() ? Fmt.fixed(v, 0) : Fmt.fixed(v, 2);
 
   /// Direction A / B of a rectangular pattern.
-  Widget _directionSection(String title, PartPatternSession s,
+  Widget _directionSection(String title, PartPatternSession s, AppL10n t,
       {required bool first}) {
     final app = widget.app;
     final field = first ? PatternField.dirA : PatternField.dirB;
@@ -492,435 +457,163 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
     final mid = first ? s.midplaneA : s.midplaneB;
     final distribution = first ? s.distributionA : s.distributionB;
     final path = first ? s.pathA : s.pathB;
-    return panelSection(
-        title,
-        open,
-        () => setState(() => first ? _aOpen = !_aOpen : _bOpen = !_bOpen),
-        [
-          panelRow(L.of(context).lblDirection, _axisQuickRow(field)),
-          panelRow(
-              '',
-              Row(children: [
-                Expanded(
-                  child: _pickButton(
-                      label: path != null
-                          ? '${path.sketchName} curve'
-                          : (ref?.label ?? L.of(context).lblSelectDir),
-                      active: s.active == field,
-                      hint: L.of(context).hintTapEdgeOrAxis,
-                      onTap: () => app.patternPick(field),
-                      onClear: (ref == null && path == null)
-                          ? null
-                          : () => _changed(() {
-                                if (a != null) {
-                                  if (first) {
-                                    a.refDirA = null;
-                                    s.dirA = null;
-                                  } else {
-                                    a.refDirB = null;
-                                    s.dirB = null;
-                                  }
-                                } else if (first) {
-                                  s.dirA = null;
-                                  s.pathA = null;
-                                  s.startPickedA = false;
-                                  s.startA = 0;
-                                } else {
-                                  s.dirB = null;
-                                  s.pathB = null;
-                                  s.startPickedB = false;
-                                  s.startB = 0;
-                                }
-                              })),
-                ),
-                const SizedBox(width: 4),
-                _iconToggle(Icons.swap_horiz, L.of(context).lblFlip, flip,
-                    () => _changed(() {
-                          if (first) {
-                            s.flipA = !s.flipA;
-                          } else {
-                            s.flipB = !s.flipB;
-                          }
-                        })),
-                const SizedBox(width: 3),
-                _iconToggle(Icons.align_horizontal_center, L.of(context).lblMidplane, mid,
-                    () => _changed(() {
-                          if (first) {
-                            s.midplaneA = !s.midplaneA;
-                          } else {
-                            s.midplaneB = !s.midplaneB;
-                          }
-                        })),
-              ])),
-          panelRow(
-              L.of(context).lblNumber,
-              panelValueField(count, 'ul', (v) {
-                _changed(() {
-                  if (first) {
-                    s.exprCountA = v;
-                  } else {
-                    s.exprCountB = v;
-                  }
-                });
-              }, app: app)),
-          panelRow(
-              L.of(context).lblDistribution,
-              _segmented([
-                (L.of(context).lblSpacing, distribution == PatternDistribution.spacing,
-                    () => _changed(() {
-                          if (first) {
-                            s.distributionA = PatternDistribution.spacing;
-                          } else {
-                            s.distributionB = PatternDistribution.spacing;
-                          }
-                        })),
-                (L.of(context).lblDistance, distribution == PatternDistribution.distance,
-                    () => _changed(() {
-                          if (first) {
-                            s.distributionA = PatternDistribution.distance;
-                          } else {
-                            s.distributionB = PatternDistribution.distance;
-                          }
-                        })),
-                // Inventor's third option exists only for a row that runs
-                // along a CURVE — there is nothing to fit to on a straight
-                // direction, and an option that cannot act is a lie.
-                if (path != null)
-                  (L.of(context).lblCurveLength,
-                      distribution == PatternDistribution.curveLength,
-                      () => _changed(() {
-                            if (first) {
-                              s.distributionA = PatternDistribution.curveLength;
-                            } else {
-                              s.distributionB = PatternDistribution.curveLength;
-                            }
-                          })),
-              ])),
-          if (distribution != PatternDistribution.curveLength)
-            panelRow(
-                distribution == PatternDistribution.spacing
-                    ? L.of(context).lblSpacing
-                    : L.of(context).lblDistance,
-                panelValueField(dist, 'mm', (v) {
-                  _changed(() {
-                    if (first) {
-                      s.exprDistanceA = v;
+    final label = ref?.label;
+
+    return iosSection(
+      header: title,
+      open: open,
+      onToggle: () => setState(() => first ? _aOpen = !_aOpen : _bOpen = !_bOpen),
+      children: [
+        iosPickRow(
+          label: t.lblDirection,
+          value: path != null ? '${path.sketchName} curve' : label,
+          hint: t.hintTapEdgeOrAxis,
+          armed: s.active == field,
+          filled: ref != null || path != null,
+          onTap: () => app.patternPick(field),
+          onClear: (ref == null && path == null)
+              ? null
+              : () => _changed(() {
+                    if (a != null) {
+                      if (first) {
+                        a.refDirA = null;
+                        s.dirA = null;
+                      } else {
+                        a.refDirB = null;
+                        s.dirB = null;
+                      }
+                    } else if (first) {
+                      s.dirA = null;
+                      s.pathA = null;
+                      s.startPickedA = false;
+                      s.startA = 0;
                     } else {
-                      s.exprDistanceB = v;
+                      s.dirB = null;
+                      s.pathB = null;
+                      s.startPickedB = false;
+                      s.startB = 0;
                     }
-                  });
-                }, app: app)),
-          // Inventor's Orientation Method belongs to a row on a PATH: only
-          // there can a copy follow the curve instead of keeping its attitude.
-          if (path != null && first)
-            panelRow(
-                L.of(context).lblOrientation,
-                _segmented([
-                  (L.of(context).lblIdentical, s.orientation == PatternOrient.fixed,
-                      () => _changed(
-                          () => s.orientation = PatternOrient.fixed)),
-                  (L.of(context).lblDirectionA, s.orientation == PatternOrient.rotational,
-                      () => _changed(
-                          () => s.orientation = PatternOrient.rotational)),
-                ])),
-          ..._irregularRows(s, first ? 'A' : 'B', _countOf(first ? s.exprCountA : s.exprCountB), 'mm'),
-        ]);
-  }
-
-  /// Orientation section of a circular pattern.
-  Widget _orientationSection(PartPatternSession s) {
-    final app = widget.app;
-    return panelSection(
-        L.of(context).lblOrientation, _aOpen, () => setState(() => _aOpen = !_aOpen), [
-      panelRow(L.of(context).lblDirection, _axisQuickRow(PatternField.axis)),
-      panelRow(
-          '',
-          Row(children: [
-            Expanded(
-              child: _pickButton(
-                  label: s.axis?.label ?? L.of(context).lblSelectDir,
-                  active: s.active == PatternField.axis,
-                  hint: L.of(context).hintTapCircularEdge,
-                  onTap: () => app.patternPick(PatternField.axis),
-                  onClear:
-                      s.axis == null ? null : () => _changed(() => s.axis = null)),
-            ),
-            const SizedBox(width: 4),
-            _iconToggle(Icons.swap_horiz, L.of(context).lblFlip, s.flipC,
-                () => _changed(() => s.flipC = !s.flipC)),
-          ])),
-      panelRow(
-          L.of(context).lblCount,
-          panelValueField(_countC, 'ul',
-              (v) => _changed(() => s.exprCountC = v),
-              app: app)),
-      panelRow(
-          L.of(context).lblDistribution,
-          _segmented([
-            // Inventor's names for the circular pair. "Incremental" is the
-            // angle BETWEEN occurrences, "Fitted" the total they fill.
-            (L.of(context).lblIncremental, s.distributionC == PatternDistribution.spacing,
-                () => _changed(
-                    () => s.distributionC = PatternDistribution.spacing)),
-            (L.of(context).btnFitted, s.distributionC == PatternDistribution.distance,
-                () => _changed(
-                    () => s.distributionC = PatternDistribution.distance)),
-          ])),
-      panelRow(
-          L.of(context).lblAngle,
-          panelValueField(_angleC, 'deg',
-              (v) => _changed(() => s.exprAngleC = v),
-              app: app)),
-      panelRow(
-          L.of(context).lblOrientation,
-          _segmented([
-            (L.of(context).lblRotational, s.orientation == PatternOrient.rotational,
-                () => _changed(() => s.orientation = PatternOrient.rotational)),
-            (L.of(context).lblFixed, s.orientation == PatternOrient.fixed,
-                () => _changed(() => s.orientation = PatternOrient.fixed)),
-          ])),
-      ..._irregularRows(s, 'C', _countOf(s.exprCountC), 'deg'),
-    ]);
-  }
-
-  /// Placement section of a sketch-driven pattern.
-  Widget _placementSection(PartPatternSession s) {
-    final app = widget.app;
-    final p = app.currentPart;
-    final cs = p == null || s.pointSketch.isEmpty
-        ? null
-        : p.sketchByName(s.pointSketch);
-    final n = cs == null ? 0 : sketchPatternPoints(cs.model).length;
-    return panelSection(
-        L.of(context).secPlacement, _aOpen, () => setState(() => _aOpen = !_aOpen), [
-      panelRow(
-          L.of(context).lblSketchPoint,
-          _pickButton(
-              label: s.pointSketch.isEmpty
-                  ? L.of(context).lblSelectPoint
-                  : L.of(context).lblPointCount(s.pointSketch, n),
-              active: s.active == PatternField.pointSketch,
-              hint: L.of(context).hintTapSketchPoint,
-              onTap: () => app.patternPick(PatternField.pointSketch))),
-      panelRow(
-          L.of(context).lblBasePoint,
-          _pickButton(
-              label: s.basePicked
-                  ? L.of(context)
-                      .lblCoords(Fmt.fixed(s.baseX, 2), Fmt.fixed(s.baseY, 2))
-                  : L.of(context).lblSelectPoint,
-              active: s.active == PatternField.basePoint,
-              hint: L.of(context).hintTapOriginalPoint,
-              onTap: () => app.patternPick(PatternField.basePoint),
-              onClear: s.basePicked
-                  ? () => _changed(() => s.basePicked = false)
-                  : null)),
-      // Inventor's Variable Orientation: Identical keeps every copy parallel
-      // to the parent, Follow Face turns it to the surface it lands on.
-      panelRow(
-          L.of(context).lblOrientation,
-          _segmented([
-            (L.of(context).lblIdentical, s.orientFace == null,
-                () => _changed(() => s.orientFace = null)),
-            (L.of(context).lblFollowFace, s.orientFace != null,
-                () => app.patternPick(PatternField.orientFace)),
-          ])),
-      if (s.orientFace != null || s.active == PatternField.orientFace)
-        panelRow(
-            L.of(context).lblFaceField,
-            _pickButton(
-                label: s.orientFace == null
-                    ? L.of(context).lblSelectFaceBtn
-                    : L.of(context).lblFaceField,
-                active: s.active == PatternField.orientFace,
-                hint: L.of(context).hintTapFaceToFollow,
-                onTap: () => app.patternPick(PatternField.orientFace),
-                onClear: s.orientFace == null
-                    ? null
-                    : () => _changed(() => s.orientFace = null))),
-    ]);
-  }
-
-  /// Mirror plane section.
-  Widget _mirrorSection(PartPatternSession s) {
-    final app = widget.app;
-    final a = asm;
-    final label = a != null ? a.refPlane?.label : s.plane?.label;
-    final picked = a != null ? a.refPlane != null : s.plane != null;
-    return panelSection(
-        L.of(context).lblMirrorPlane, _aOpen, () => setState(() => _aOpen = !_aOpen), [
-      panelRow(
-          L.of(context).lblPlaneField,
-          _pickButton(
-              label: label ?? L.of(context).lblMirrorPlane,
-              active: s.active == PatternField.plane,
-              hint: L.of(context).hintTapFaceOrPlane,
-              onTap: () => app.patternPick(PatternField.plane),
-              onClear: !picked
-                  ? null
-                  : () => _changed(() {
-                        if (a != null) {
-                          a.refPlane = null;
-                          s.plane = null;
-                        } else {
-                          s.plane = null;
-                        }
-                      }))),
-      // Inventor's three origin-plane shortcuts, right in the dialog.
-      panelRow(
-          '',
-          Row(children: [
-            for (final key in const ['yz', 'xz', 'xy']) ...[
-              Expanded(
-                child: _smallButton(
-                    '${key.toUpperCase()} Plane',
-                    label == '${key.toUpperCase()} Plane',
-                    () => _pickOriginPlane(key)),
-              ),
-              if (key != 'xy') const SizedBox(width: 3),
-            ],
-          ])),
-    ]);
-  }
-
-  /// Inventor's Output Geometry. A PART's: Creation Method decides whether a
-  /// termination is re-resolved where each copy lands, and Remove Original
-  /// deletes half a solid. Neither exists for a component — a copy of a
-  /// component is the same component — so an assembly shows the warning line
-  /// in its place.
-  Widget _outputGeometry(PartPatternSession s) {
-    final a = asm;
-    if (a != null) {
-      final dropped = widget.app.asmPatternDroppedRelationships();
-      if (dropped == 0) return const SizedBox.shrink();
-      return Padding(
-        padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
-        child: Text(L.of(context).msgRelationshipsDropped(dropped),
-            style: ts(11.5, T.warnText)),
-      );
-    }
-    return _partOutputGeometry(s);
-  }
-
-  Widget _partOutputGeometry(PartPatternSession s) => panelSection(
-          L.of(context).secOutputGeometry, _outOpen, () => setState(() => _outOpen = !_outOpen), [
-        panelRow(
-            L.of(context).lblCreationMethod,
-            _segmented([
-              (L.of(context).lblIdentical, s.compute == PatternCompute.identical,
-                  () => _changed(() => s.compute = PatternCompute.identical)),
-              (L.of(context).lblAdjust, s.compute == PatternCompute.adjust,
-                  () => _changed(() => s.compute = PatternCompute.adjust)),
-            ])),
-        // Inventor offers Remove Original only when a SOLID is being
-        // mirrored; removing the original of a feature mirror would mean
-        // deleting a feature that this one is built on.
-        if (s.mode == PatternKind.mirror && s.patternSolid)
-          panelRow(
-              L.of(context).lblRemoveOriginal,
-              _smallButton(L.of(context).lblKeepMirroredHalf, s.removeOriginal,
-                  () => _changed(() => s.removeOriginal = !s.removeOriginal))),
-      ]);
-
-  // ---- the rail ----------------------------------------------------------
-
-  Widget _rail(PartPatternSession s) => Container(
-        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
-        decoration: BoxDecoration(
-          color: T.panel,
-          border: Border.all(color: T.sep),
-          borderRadius: BorderRadius.circular(6),
+                  }),
         ),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          _railButton(Icons.grid_on, L.of(context).patRectangular,
-              s.mode == PatternKind.rectangular,
-              () => widget.app.switchPattern(PatternKind.rectangular)),
-          _railButton(Icons.blur_circular, L.of(context).patCircular,
-              s.mode == PatternKind.circular,
-              () => widget.app.switchPattern(PatternKind.circular)),
-          // M248 — Sketch Driven is a PART command. An assembly has no
-          // sketches of its own, and driving one from a sketch inside a
-          // component needs that sketch picked THROUGH the occurrence, which
-          // is a different feature nothing offers. Left out rather than shown
-          // dead, because the rail's other entries all work.
-          if (asm == null)
-            _railButton(Icons.scatter_plot, L.of(context).patSketchDriven,
-                s.mode == PatternKind.sketchDriven,
-                () => widget.app.switchPattern(PatternKind.sketchDriven)),
-          _railButton(Icons.flip, L.of(context).patMirror, s.mode == PatternKind.mirror,
-              () => widget.app.switchPattern(PatternKind.mirror)),
-          // Inventor's two Input Geometry modes — a PART's. An assembly has no
-          // bodies, so there is no solid to pattern and no switch to draw.
-          if (asm == null) ...[
-            Container(
-                height: 1,
-                width: 22,
-                margin: const EdgeInsets.symmetric(vertical: 5),
-                color: T.panelSep),
-            _railButton(Icons.category_outlined, L.of(context).lblPatternFeatures,
-                !s.patternSolid, () => widget.app.patternSetSolidMode(false)),
-            _railButton(Icons.view_in_ar, L.of(context).lblPatternSolid,
-                s.patternSolid, () => widget.app.patternSetSolidMode(true)),
-          ],
-        ]),
-      );
-
-  Widget _railButton(
-          IconData icon, String tip, bool active, VoidCallback onTap) =>
-      Tooltip(
-        message: tip,
-        child: GestureDetector(
-          onTap: onTap,
-          child: Container(
-            width: 30,
-            height: 30,
-            margin: const EdgeInsets.only(bottom: 3),
-            decoration: BoxDecoration(
-              color: active ? T.chipBg : T.bg,
-              border: Border.all(
-                  color: active ? T.accent : T.panelSep),
-              borderRadius: BorderRadius.circular(4),
-            ),
-            child: Icon(icon, size: 16, color: active ? T.accent : T.text),
+        // The three origin axes, which Inventor puts next to the selector
+        // precisely because they are what most patterns run along.
+        _axisQuickRow(field, label, t),
+        iosSwitchRow(
+          label: t.lblFlip,
+          value: flip,
+          onChanged: (v) => _changed(() {
+            if (first) {
+              s.flipA = v;
+            } else {
+              s.flipB = v;
+            }
+          }),
+        ),
+        iosSwitchRow(
+          label: t.lblMidplane,
+          value: mid,
+          onChanged: (v) => _changed(() {
+            if (first) {
+              s.midplaneA = v;
+            } else {
+              s.midplaneB = v;
+            }
+          }),
+        ),
+        iosValueRow(
+          app: app,
+          label: t.lblNumber,
+          controller: count,
+          unit: 'ul',
+          onChanged: (v) => _changed(() {
+            if (first) {
+              s.exprCountA = v;
+            } else {
+              s.exprCountB = v;
+            }
+          }),
+        ),
+        iosStackedRow(
+          label: t.lblDistribution,
+          child: IosSegmented<PatternDistribution>(
+            value: distribution,
+            onChanged: (d) => _changed(() {
+              if (first) {
+                s.distributionA = d;
+              } else {
+                s.distributionB = d;
+              }
+            }),
+            segments: [
+              IosSegment(
+                  value: PatternDistribution.spacing, label: t.lblSpacing),
+              IosSegment(
+                  value: PatternDistribution.distance,
+                  label: t.lblTotalDistance),
+              // Inventor's third option exists only for a row that runs along
+              // a CURVE — there is nothing to fit to on a straight direction,
+              // and an option that cannot act is a lie.
+              if (path != null)
+                IosSegment(
+                    value: PatternDistribution.curveLength,
+                    label: t.lblCurveLength),
+            ],
           ),
         ),
-      );
-
-  // ---- small pieces ------------------------------------------------------
-
-  /// The direction row's quick picks: the three origin axes, which Inventor
-  /// puts next to the selector precisely because they are what most patterns
-  /// run along.
-  Widget _axisQuickRow(PatternField field) {
-    final s = sess;
-    final a = asm;
-    final label = a != null
-        ? switch (field) {
-            PatternField.dirA => a.refDirA?.label,
-            PatternField.dirB => a.refDirB?.label,
-            _ => a.refAxis?.label,
-          }
-        : switch (field) {
-            PatternField.dirA => s.dirA?.label,
-            PatternField.dirB => s.dirB?.label,
-            _ => s.axis?.label,
-          };
-    return Row(children: [
-      Expanded(
-        child: _smallButton(
-            L.of(context).lblPick, s.active == field, () => widget.app.patternPick(field)),
-      ),
-      for (final k in const ['x', 'y', 'z']) ...[
-        const SizedBox(width: 3),
-        SizedBox(
-          width: 30,
-          child: _smallButton(k.toUpperCase(),
-              label == '${k.toUpperCase()} Axis',
-              () => _pickOriginAxis(field, k)),
-        ),
+        if (distribution != PatternDistribution.curveLength)
+          iosValueRow(
+            app: app,
+            label: distribution == PatternDistribution.spacing
+                ? t.lblSpacing
+                : t.lblTotalDistance,
+            controller: dist,
+            unit: 'mm',
+            onChanged: (v) => _changed(() {
+              if (first) {
+                s.exprDistanceA = v;
+              } else {
+                s.exprDistanceB = v;
+              }
+            }),
+          ),
+        // Inventor's Orientation Method belongs to a row on a PATH: only there
+        // can a copy follow the curve instead of keeping its attitude.
+        if (path != null && first)
+          iosStackedRow(
+            label: t.lblOrientation,
+            child: IosSegmented<PatternOrient>(
+              value: s.orientation,
+              onChanged: (o) => _changed(() => s.orientation = o),
+              segments: [
+                IosSegment(value: PatternOrient.fixed, label: t.lblIdentical),
+                IosSegment(
+                    value: PatternOrient.rotational, label: t.lblDirectionA),
+              ],
+            ),
+          ),
+        ..._irregularRows(s, t, first ? 'A' : 'B',
+            _countOf(first ? s.exprCountA : s.exprCountB), 'mm'),
       ],
-    ]);
+    );
   }
+
+  /// The three origin-axis quick picks, as a segmented control: they are
+  /// mutually exclusive with each other and with a picked edge, which is
+  /// exactly what a segmented control says.
+  Widget _axisQuickRow(PatternField field, String? label, AppL10n t) =>
+      iosStackedRow(
+        child: IosSegmented<String>(
+          value: label != null && label.endsWith(' Axis')
+              ? label.substring(0, 1).toLowerCase()
+              : '',
+          onChanged: (k) => _pickOriginAxis(field, k),
+          segments: const [
+            IosSegment(value: 'x', label: 'X'),
+            IosSegment(value: 'y', label: 'Y'),
+            IosSegment(value: 'z', label: 'Z'),
+          ],
+        ),
+      );
 
   void _pickOriginAxis(PatternField field, String key) {
     final app = widget.app;
@@ -946,148 +639,308 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
     app.patternPlanePicked(fr.origin, fr.n, '${key.toUpperCase()} Plane');
   }
 
-  Widget _pickButton(
-      {required String label,
-      required bool active,
-      required String hint,
-      required VoidCallback onTap,
-      VoidCallback? onClear}) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        height: 26,
-        alignment: Alignment.centerLeft,
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-        decoration: BoxDecoration(
-          color: T.field,
-          border: Border.all(
-              color: active ? T.accent : T.panelSep,
-              width: active ? 1.4 : 1),
-          borderRadius: BorderRadius.circular(3),
+  /// Orientation section of a circular pattern.
+  Widget _orientationSection(PartPatternSession s, AppL10n t) {
+    final app = widget.app;
+    return iosSection(
+      header: t.lblOrientation,
+      open: _aOpen,
+      onToggle: () => setState(() => _aOpen = !_aOpen),
+      children: [
+        iosPickRow(
+          label: t.lblDirection,
+          value: s.axis?.label,
+          hint: t.hintTapCircularEdge,
+          armed: s.active == PatternField.axis,
+          filled: s.axis != null,
+          onTap: () => app.patternPick(PatternField.axis),
+          onClear: s.axis == null ? null : () => _changed(() => s.axis = null),
         ),
-        child: Row(children: [
-          Icon(Icons.north_west, size: 12, color: active ? T.accent : T.dim),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Text(active ? hint : label,
-                overflow: TextOverflow.ellipsis,
-                style: ts(12, active ? T.accent : T.text)),
+        _axisQuickRow(PatternField.axis, s.axis?.label, t),
+        iosSwitchRow(
+          label: t.lblFlip,
+          value: s.flipC,
+          onChanged: (v) => _changed(() => s.flipC = v),
+        ),
+        iosValueRow(
+          app: app,
+          label: t.lblCount,
+          controller: _countC,
+          unit: 'ul',
+          onChanged: (v) => _changed(() => s.exprCountC = v),
+        ),
+        iosStackedRow(
+          label: t.lblDistribution,
+          child: IosSegmented<PatternDistribution>(
+            value: s.distributionC,
+            onChanged: (d) => _changed(() => s.distributionC = d),
+            // Inventor's names for the circular pair. "Incremental" is the
+            // angle BETWEEN occurrences, "Fitted" the total they fill.
+            segments: [
+              IosSegment(
+                  value: PatternDistribution.spacing, label: t.lblIncremental),
+              IosSegment(
+                  value: PatternDistribution.distance, label: t.btnFitted),
+            ],
           ),
-          if (onClear != null)
-            GestureDetector(
-              onTap: onClear,
-              child: Icon(Icons.cancel_outlined,
-                  size: 13, color: T.dim),
-            ),
-        ]),
-      ),
+        ),
+        iosValueRow(
+          app: app,
+          label: t.lblAngle,
+          controller: _angleC,
+          unit: 'deg',
+          onChanged: (v) => _changed(() => s.exprAngleC = v),
+        ),
+        iosStackedRow(
+          label: t.lblOrientation,
+          child: IosSegmented<PatternOrient>(
+            value: s.orientation,
+            onChanged: (o) => _changed(() => s.orientation = o),
+            segments: [
+              IosSegment(
+                  value: PatternOrient.rotational, label: t.lblRotational),
+              IosSegment(value: PatternOrient.fixed, label: t.lblFixed),
+            ],
+          ),
+        ),
+        ..._irregularRows(s, t, 'C', _countOf(s.exprCountC), 'deg'),
+      ],
     );
   }
 
-  Widget _chip(String label, VoidCallback onRemove) => Container(
-        padding: const EdgeInsets.fromLTRB(6, 2, 3, 2),
-        decoration: BoxDecoration(
-          color: T.chipBg,
-          border: Border.all(color: T.accent),
-          borderRadius: BorderRadius.circular(3),
-        ),
-        child: Row(mainAxisSize: MainAxisSize.min, children: [
-          Text(label, style: ts(11, T.text)),
-          const SizedBox(width: 3),
-          GestureDetector(
-            onTap: onRemove,
-            child: Icon(Icons.close, size: 11, color: T.dim),
-          ),
-        ]),
-      );
-
-  Widget _segmented(List<(String, bool, VoidCallback)> items) =>
-      Row(children: [
-        for (var i = 0; i < items.length; i++) ...[
-          if (i > 0) const SizedBox(width: 3),
-          Expanded(
-              child: _smallButton(items[i].$1, items[i].$2, items[i].$3)),
-        ]
-      ]);
-
-  Widget _smallButton(String label, bool active, VoidCallback onTap) =>
-      GestureDetector(
-        onTap: onTap,
-        child: Container(
-          height: 24,
-          alignment: Alignment.center,
-          padding: const EdgeInsets.symmetric(horizontal: 4),
-          decoration: BoxDecoration(
-            color: active ? T.chipBg : T.bg,
-            border:
-                Border.all(color: active ? T.accent : T.panelSep),
-            borderRadius: BorderRadius.circular(3),
-          ),
-          child: Text(label,
-              overflow: TextOverflow.ellipsis, style: ts(11.5, T.text)),
-        ),
-      );
-
-  Widget _iconToggle(
-          IconData icon, String tip, bool active, VoidCallback onTap) =>
-      Tooltip(
-        message: tip,
-        child: GestureDetector(
-          onTap: onTap,
-          child: Container(
-            width: 26,
-            height: 26,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: active ? T.chipBg : T.bg,
-              border: Border.all(
-                  color: active ? T.accent : T.panelSep),
-              borderRadius: BorderRadius.circular(3),
-            ),
-            child: Icon(icon, size: 14, color: active ? T.accent : T.text),
-          ),
-        ),
-      );
-
-  Widget _footer(PartPatternSession s) {
+  /// Placement section of a sketch-driven pattern.
+  Widget _placementSection(PartPatternSession s, AppL10n t) {
     final app = widget.app;
-    final ready = s.previewError == null;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-      child: Row(children: [
-        Expanded(
-          child: Opacity(
-            opacity: ready ? 1 : 0.45,
-            child: GestureDetector(
-              onTap: ready ? () => app.applyPattern() : null,
-              child: Container(
-                height: 28,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                    color: T.accent, borderRadius: BorderRadius.circular(3)),
-                child: Text(L.of(context).ok,
-                    style: ts(12.5, T.text, w: FontWeight.w600)),
-              ),
-            ),
+    final p = app.currentPart;
+    final cs = p == null || s.pointSketch.isEmpty
+        ? null
+        : p.sketchByName(s.pointSketch);
+    final n = cs == null ? 0 : sketchPatternPoints(cs.model).length;
+    return iosSection(
+      header: t.secPlacement,
+      open: _aOpen,
+      onToggle: () => setState(() => _aOpen = !_aOpen),
+      children: [
+        iosPickRow(
+          label: t.lblSketchPoint,
+          value: s.pointSketch.isEmpty
+              ? null
+              : t.lblPointCount(s.pointSketch, n),
+          hint: s.active == PatternField.pointSketch
+              ? t.hintTapSketchPoint
+              : t.lblSelectPoint,
+          armed: s.active == PatternField.pointSketch,
+          filled: s.pointSketch.isNotEmpty,
+          onTap: () => app.patternPick(PatternField.pointSketch),
+        ),
+        iosPickRow(
+          label: t.lblBasePoint,
+          value: s.basePicked
+              ? t.lblCoords(Fmt.fixed(s.baseX, 2), Fmt.fixed(s.baseY, 2))
+              : null,
+          hint: s.active == PatternField.basePoint
+              ? t.hintTapOriginalPoint
+              : t.lblSelectPoint,
+          armed: s.active == PatternField.basePoint,
+          filled: s.basePicked,
+          onTap: () => app.patternPick(PatternField.basePoint),
+          onClear:
+              s.basePicked ? () => _changed(() => s.basePicked = false) : null,
+        ),
+        // Inventor's Variable Orientation: Identical keeps every copy parallel
+        // to the parent, Follow Face turns it to the surface it lands on.
+        iosStackedRow(
+          label: t.lblOrientation,
+          child: IosSegmented<bool>(
+            value: s.orientFace != null,
+            onChanged: (follow) => follow
+                ? app.patternPick(PatternField.orientFace)
+                : _changed(() => s.orientFace = null),
+            segments: [
+              IosSegment(value: false, label: t.lblIdentical),
+              IosSegment(value: true, label: t.lblFollowFace),
+            ],
           ),
         ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: GestureDetector(
-            onTap: app.cancelPattern,
-            child: Container(
-              height: 28,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: T.bg,
-                border: Border.all(color: T.panelSep),
-                borderRadius: BorderRadius.circular(3),
-              ),
-              child: Text(L.of(context).cancel, style: ts(12.5, T.text)),
-            ),
+        if (s.orientFace != null || s.active == PatternField.orientFace)
+          iosPickRow(
+            label: t.lblFaceField,
+            value: s.orientFace == null ? null : t.lblFaceField,
+            hint: s.active == PatternField.orientFace
+                ? t.hintTapFaceToFollow
+                : t.lblSelectFaceBtn,
+            armed: s.active == PatternField.orientFace,
+            filled: s.orientFace != null,
+            onTap: () => app.patternPick(PatternField.orientFace),
+            onClear: s.orientFace == null
+                ? null
+                : () => _changed(() => s.orientFace = null),
+          ),
+      ],
+    );
+  }
+
+  /// Mirror plane section.
+  Widget _mirrorSection(PartPatternSession s, AppL10n t) {
+    final app = widget.app;
+    final a = asm;
+    final label = a != null ? a.refPlane?.label : s.plane?.label;
+    final picked = a != null ? a.refPlane != null : s.plane != null;
+    return iosSection(
+      header: t.lblMirrorPlane,
+      open: _aOpen,
+      onToggle: () => setState(() => _aOpen = !_aOpen),
+      children: [
+        iosPickRow(
+          label: t.lblPlaneField,
+          value: label,
+          hint: s.active == PatternField.plane
+              ? t.hintTapFaceOrPlane
+              : t.lblMirrorPlane,
+          armed: s.active == PatternField.plane,
+          filled: picked,
+          onTap: () => app.patternPick(PatternField.plane),
+          onClear: !picked
+              ? null
+              : () => _changed(() {
+                    if (a != null) {
+                      a.refPlane = null;
+                      s.plane = null;
+                    } else {
+                      s.plane = null;
+                    }
+                  }),
+        ),
+        // Inventor's three origin-plane shortcuts, right in the dialog.
+        iosStackedRow(
+          child: IosSegmented<String>(
+            value: label != null && label.endsWith(' Plane')
+                ? label.substring(0, 2).toLowerCase()
+                : '',
+            onChanged: _pickOriginPlane,
+            segments: const [
+              IosSegment(value: 'yz', label: 'YZ'),
+              IosSegment(value: 'xz', label: 'XZ'),
+              IosSegment(value: 'xy', label: 'XY'),
+            ],
           ),
         ),
-      ]),
+      ],
+    );
+  }
+
+  /// Inventor's Output Geometry. A PART's: Creation Method decides whether a
+  /// termination is re-resolved where each copy lands, and Remove Original
+  /// deletes half a solid. Neither exists for a component — a copy of a
+  /// component is the same component — so an assembly shows the warning line
+  /// in its place.
+  Widget _outputGeometry(PartPatternSession s, AppL10n t) {
+    final a = asm;
+    if (a != null) {
+      final dropped = widget.app.asmPatternDroppedRelationships();
+      if (dropped == 0) return const SizedBox.shrink();
+      return iosStatusLine(t.msgRelationshipsDropped(dropped), warning: true);
+    }
+    return iosSection(
+      header: t.secOutputGeometry,
+      open: _outOpen,
+      onToggle: () => setState(() => _outOpen = !_outOpen),
+      children: [
+        iosStackedRow(
+          label: t.lblCreationMethod,
+          child: IosSegmented<PatternCompute>(
+            value: s.compute,
+            onChanged: (c) => _changed(() => s.compute = c),
+            segments: [
+              IosSegment(value: PatternCompute.identical, label: t.lblIdentical),
+              IosSegment(value: PatternCompute.adjust, label: t.lblAdjust),
+            ],
+          ),
+        ),
+        // Inventor offers Remove Original only when a SOLID is being mirrored;
+        // removing the original of a feature mirror would mean deleting a
+        // feature that this one is built on.
+        if (s.mode == PatternKind.mirror && s.patternSolid)
+          iosSwitchRow(
+            label: t.lblRemoveOriginal,
+            value: s.removeOriginal,
+            onChanged: (v) => _changed(() => s.removeOriginal = v),
+          ),
+      ],
+    );
+  }
+
+  // ---- the rail ----------------------------------------------------------
+
+  /// The four pattern commands and the two Input Geometry modes, in their own
+  /// card beside the panel — Inventor's rail, drawn as a cluster of iOS
+  /// toggles.
+  Widget _rail(PartPatternSession s, AppL10n t) {
+    final app = widget.app;
+    final a = asm;
+    return IosPanel(
+      width: 60,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            for (final (kind, icon) in [
+              (PatternKind.rectangular, PT['rect']!),
+              (PatternKind.circular, PT['circ']!),
+              // M248 — Sketch Driven is a PART command. An assembly has no
+              // sketches of its own, and driving one from a sketch inside a
+              // component needs that sketch picked THROUGH the occurrence,
+              // which is a different feature nothing offers. Left out rather
+              // than shown dead, because the rail's other entries all work.
+              if (a == null) (PatternKind.sketchDriven, PT['sketch']!),
+              (PatternKind.mirror, PT['mirror']!),
+            ])
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: IosIconToggle(
+                  on: s.mode == kind,
+                  tooltip: patternKindDisplay(t, kind),
+                  size: const Size(44, 40),
+                  onTap: () => app.switchPattern(kind),
+                  child: iosSvg(icon, 22),
+                ),
+              ),
+            // Inventor's two Input Geometry modes — a PART's. An assembly has
+            // no bodies, so there is no solid to pattern and no switch.
+            if (a == null) ...[
+              Container(
+                height: IosMetrics.hairline,
+                width: 28,
+                margin: const EdgeInsets.symmetric(vertical: 6),
+                color: IosColors.separator,
+              ),
+              for (final (solid, icon, name) in [
+                (false, _featuresIcon, t.lblPatternFeatures),
+                (true, _solidIcon, t.lblPatternSolid),
+              ])
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: IosIconToggle(
+                    on: s.patternSolid == solid,
+                    tooltip: name,
+                    size: const Size(44, 40),
+                    onTap: () => app.patternSetSolidMode(solid),
+                    child: iosSvg(icon, 22),
+                  ),
+                ),
+            ],
+          ]),
+        ),
+      ],
     );
   }
 }
+
+/// The two Input Geometry modes, drawn here rather than in svg_icons.dart
+/// because this rail is the only place either is used — the same rule the
+/// extrude panel's direction glyphs follow.
+const _featuresIcon =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18"><rect x="2.5" y="2.5" width="6" height="6" rx="1" fill="#3D9BE9" fill-opacity=".55" stroke="#1a5f95" stroke-width=".9"/><rect x="9.5" y="9.5" width="6" height="6" rx="1" fill="#3D9BE9" fill-opacity=".55" stroke="#1a5f95" stroke-width=".9"/><rect x="9.5" y="2.5" width="6" height="6" rx="1" fill="none" stroke="#9aa0a6" stroke-width=".9" stroke-dasharray="2 1.4"/><rect x="2.5" y="9.5" width="6" height="6" rx="1" fill="none" stroke="#9aa0a6" stroke-width=".9" stroke-dasharray="2 1.4"/></svg>';
+
+const _solidIcon =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18"><path d="M9 2 L15.5 5.5 L15.5 12.5 L9 16 L2.5 12.5 L2.5 5.5 Z" fill="#3D9BE9" fill-opacity=".5" stroke="#1a5f95" stroke-width="1"/><path d="M2.5 5.5 L9 9 L15.5 5.5 M9 9 L9 16" fill="none" stroke="#1a5f95" stroke-width=".9"/></svg>';

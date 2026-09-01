@@ -1,21 +1,32 @@
 // M225 — Inventor's Hole panel.
 //
-// Chrome and field widgets from properties_panel.dart, exactly as the extrude
-// and fillet panels use them: three panels that looked alike by copy were the
-// reason that file exists, and a fourth copy would undo it.
-//
 // The panel shows exactly what the FEATURE can do: placements, a diameter, the
 // four mouth shapes (M226) and how deep. Threads and the drill-point angle are
 // each a second set of numbers and are still not offered — an empty section
 // that promised them would be the dead control M216 spent a commit removing.
-import 'package:flutter/material.dart';
+//
+// M338 — drawn as an iOS panel (widgets/ios_kit.dart). Two changes beyond the
+// chrome are worth naming:
+//
+//   * THE SHAPE IS A MENU ROW, not a four-way switch. "Plansenkung" and
+//     "Kegelsenkung" are eleven and twelve characters; four of them share
+//     308 pt in a segmented control and every one comes out an ellipsis. A
+//     pop-up row shows the whole name of the chosen shape and, when tapped,
+//     the whole name of every alternative — in a real UIMenu on the device.
+//   * THE SHAPE NAMES ARE LOCALISED. This panel called `holeTypeShort` and
+//     `holeTypeLabel`, which are part_model's ENGLISH domain vocabulary and
+//     are English by design (S12-i18n §4.7). `holeTypeShortDisplay` and
+//     `holeTypeDisplay` in l10n/cad_terms.dart exist for exactly this and
+//     were never wired up here; a German UI has been reading "C'bore depth"
+//     since M226.
+import 'package:flutter/widgets.dart';
 
 import '../app_state.dart';
-import '../part_model.dart'
-    show FeatureExtent, HoleType, holeTypeLabel, holeTypeShort;
-import '../theme.dart';
+import '../ios_design.dart';
+import '../part_model.dart' show FeatureExtent, HoleType;
 import 'dialog_dock.dart';
-import 'properties_panel.dart';
+import 'ios_kit.dart';
+import '../l10n/cad_terms.dart';
 import '../l10n/l.dart';
 
 class HoleDialog extends StatefulWidget {
@@ -36,6 +47,8 @@ class _HoleDialogState extends State<HoleDialog> {
   bool _placeOpen = true, _shapeOpen = true;
   Offset? _pos;
   String? _syncedFor;
+
+  static const _size = Size(IosMetrics.panelWidth, 520);
 
   @override
   void dispose() {
@@ -68,201 +81,137 @@ class _HoleDialogState extends State<HoleDialog> {
     final s = app.holeSession;
     if (s == null) return const SizedBox.shrink();
     _syncOnce(s);
+    final t = L.of(context);
     final n = s.places.length;
     final through = s.extent == FeatureExtent.throughAll;
+    final sunk = s.type == HoleType.counterbore || s.type == HoleType.spotface;
 
-    const w = 300.0, h = 420.0;
     final vp = MediaQuery.sizeOf(context);
-    final pos = _pos ?? DialogDock.spot(vp, const Size(w, h));
+    final pos = _pos ?? DialogDock.spot(vp, _size);
     return Positioned(
       left: pos.dx,
       top: pos.dy,
-      child: Material(
-        color: Colors.transparent,
-        child: Container(
-          width: w,
-          decoration: BoxDecoration(
-            color: T.panel,
-            border: Border.all(color: T.sep),
-            borderRadius: BorderRadius.circular(6),
-            boxShadow: [
-              BoxShadow(
-                  color: T.scrim,
-                  blurRadius: 24,
-                  offset: Offset(0, 6)),
+      child: IosPanel(
+        width: _size.width,
+        nav: IosNavBar(
+          title: s.editing?.name ?? t.btnHole,
+          onDrag: (d) => setState(() => _pos = pos + d),
+          leading: IosBarButton(label: t.cancel, onTap: app.cancelHole),
+          trailing: IosBarButton(
+              label: t.ok, prominent: true, onTap: n > 0 ? app.applyHole : null),
+        ),
+        children: [
+          iosSection(
+            header: t.secPlacement,
+            open: _placeOpen,
+            onToggle: () => setState(() => _placeOpen = !_placeOpen),
+            children: [
+              // The panel is ALWAYS picking while it is open: a hole has
+              // nothing else to tap in 3D, so a separate "select" mode would
+              // be a button whose only job is to be on.
+              iosPickRow(
+                label: t.lblPoints,
+                value: n == 0
+                    ? null
+                    : t.lblPointsCount(n) +
+                        (s.sketchName == null ? '' : ' · ${s.sketchName}'),
+                hint: t.hintTapSketchPointsIn3d,
+                armed: n == 0,
+                filled: n > 0,
+              ),
             ],
           ),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            GestureDetector(
-              onPanUpdate: (d) => setState(() => _pos = pos + d.delta),
-              child: Container(
-                padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
-                decoration: BoxDecoration(
-                  color: T.fly,
-                  border: Border(bottom: BorderSide(color: T.panelSep)),
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(6)),
-                ),
-                child: Row(children: [
-                  Text(L.of(context).dlgProperties,
-                      style: ts(13, T.text, w: FontWeight.w600)),
-                  const SizedBox(width: 6),
-                  GestureDetector(
-                    onTap: app.cancelHole,
-                    child: Text('✕', style: ts(11.5, T.dim)),
-                  ),
-                  const Spacer(),
-                  Icon(Icons.menu, size: 14, color: T.dim),
-                ]),
+          iosSection(
+            header: t.btnHole,
+            open: _shapeOpen,
+            onToggle: () => setState(() => _shapeOpen = !_shapeOpen),
+            children: [
+              IosMenuRow<HoleType>(
+                label: t.lblType,
+                value: s.type,
+                cancelLabel: t.cancel,
+                choices: [
+                  for (final h in HoleType.values)
+                    IosMenuChoice(h, holeTypeDisplay(t, h)),
+                ],
+                onChanged: (v) => app.setHole(type: v),
               ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-              child: Row(children: [
-                Text(s.editing?.name ?? L.of(context).btnHole,
-                    style: ts(12.5, T.accent)),
-                const Spacer(),
-                Icon(Icons.visibility_outlined, size: 14, color: T.dim),
-              ]),
-            ),
-            panelSection(L.of(context).secPlacement, _placeOpen,
-                () => setState(() => _placeOpen = !_placeOpen), [
-              panelRow(
-                  L.of(context).lblPoints,
-                  panelPickField(
-                    icon: Icons.control_point,
-                    // The panel is ALWAYS picking while it is open: a hole has
-                    // nothing else to tap in 3D, so a separate "select" mode
-                    // would be a button whose only job is to be on.
-                    active: true,
-                    label: n == 0
-                        ? L.of(context).hintTapSketchPointsIn3d
-                        : '$n point${n == 1 ? '' : 's'}'
-                            '${s.sketchName == null ? '' : ' on ${s.sketchName}'}',
-                  )),
-            ]),
-            panelSection(L.of(context).btnHole, _shapeOpen,
-                () => setState(() => _shapeOpen = !_shapeOpen), [
-              // M226 — Inventor's four shapes. Spotface is drawn like a
-              // counterbore and kept apart because it MEANS something else.
-              panelRow(
-                  L.of(context).lblType,
-                  Row(children: [
-                    for (final t in HoleType.values) ...[
-                      if (t != HoleType.values.first) const SizedBox(width: 4),
-                      _seg(holeTypeShort(t), s.type == t,
-                          () => app.setHole(type: t)),
-                    ],
-                  ])),
-              panelRow(
-                  L.of(context).lblDiameter,
-                  panelValueField(_dia, 'mm',
-                      (v) => app.setHole(exprDia: v), app: app)),
-              if (s.type == HoleType.counterbore ||
-                  s.type == HoleType.spotface) ...[
-                panelRow(
-                    '${holeTypeLabel(s.type)} ⌀',
-                    panelValueField(_cbDia, 'mm',
-                        (v) => app.setHole(exprCbDia: v), app: app)),
-                panelRow(
-                    '${holeTypeLabel(s.type)} depth',
-                    panelValueField(_cbDepth, 'mm',
-                        (v) => app.setHole(exprCbDepth: v), app: app)),
+              iosValueRow(
+                app: app,
+                label: t.lblDiameter,
+                controller: _dia,
+                unit: 'mm',
+                onChanged: (v) => app.setHole(exprDia: v),
+              ),
+              if (sunk) ...[
+                iosValueRow(
+                  app: app,
+                  label: '${holeTypeShortDisplay(t, s.type)} ⌀',
+                  controller: _cbDia,
+                  unit: 'mm',
+                  onChanged: (v) => app.setHole(exprCbDia: v),
+                ),
+                iosValueRow(
+                  app: app,
+                  label: '${holeTypeShortDisplay(t, s.type)} ${t.lblDepth}',
+                  controller: _cbDepth,
+                  unit: 'mm',
+                  onChanged: (v) => app.setHole(exprCbDepth: v),
+                ),
               ],
               if (s.type == HoleType.countersink) ...[
-                panelRow(
-                    L.of(context).lblCountersinkDia,
-                    panelValueField(_csDia, 'mm',
-                        (v) => app.setHole(exprCsDia: v), app: app)),
-                panelRow(
-                    L.of(context).lblAngle,
-                    panelValueField(_csAngle, 'deg',
-                        (v) => app.setHole(exprCsAngle: v), app: app)),
+                iosValueRow(
+                  app: app,
+                  label: t.lblCountersinkDia,
+                  controller: _csDia,
+                  unit: 'mm',
+                  onChanged: (v) => app.setHole(exprCsDia: v),
+                ),
+                iosValueRow(
+                  app: app,
+                  label: t.lblAngle,
+                  controller: _csAngle,
+                  unit: 'deg',
+                  onChanged: (v) => app.setHole(exprCsAngle: v),
+                ),
               ],
-              panelRow(
-                  L.of(context).lblTermination,
-                  Row(children: [
-                    _seg(L.of(context).lblDistance, !through,
-                        () => app.setHole(extent: FeatureExtent.distance)),
-                    const SizedBox(width: 6),
-                    _seg(L.of(context).extThroughAll, through,
-                        () => app.setHole(extent: FeatureExtent.throughAll)),
-                  ])),
+              iosStackedRow(
+                label: t.lblTermination,
+                child: IosSegmented<bool>(
+                  value: through,
+                  onChanged: (v) => app.setHole(
+                      extent: v
+                          ? FeatureExtent.throughAll
+                          : FeatureExtent.distance),
+                  segments: [
+                    IosSegment(value: false, label: t.lblDistance),
+                    IosSegment(value: true, label: t.extThroughAll),
+                  ],
+                ),
+              ),
               if (!through)
-                panelRow(
-                    L.of(context).lblDepth,
-                    panelValueField(_depth, 'mm',
-                        (v) => app.setHole(exprDepth: v), app: app)),
-              panelRow(
-                  L.of(context).lblDirection,
-                  Row(children: [
-                    _seg(L.of(context).lblIntoPart, !s.flip, () => app.setHole(flip: false)),
-                    const SizedBox(width: 6),
-                    _seg(L.of(context).lblFlipped, s.flip, () => app.setHole(flip: true)),
-                  ])),
-            ]),
-            _footer(app, n),
-          ]),
-        ),
+                iosValueRow(
+                  app: app,
+                  label: t.lblDepth,
+                  controller: _depth,
+                  unit: 'mm',
+                  onChanged: (v) => app.setHole(exprDepth: v),
+                ),
+              iosStackedRow(
+                label: t.lblDirection,
+                child: IosSegmented<bool>(
+                  value: s.flip,
+                  onChanged: (v) => app.setHole(flip: v),
+                  segments: [
+                    IosSegment(value: false, label: t.lblIntoPart),
+                    IosSegment(value: true, label: t.lblFlipped),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
-    );
-  }
-
-  Widget _seg(String label, bool on, VoidCallback onTap) => Expanded(
-        child: GestureDetector(
-          onTap: onTap,
-          child: Container(
-            height: 26,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: on ? T.accent : T.fly,
-              border: Border.all(
-                  color: on ? T.accent : T.panelSep),
-              borderRadius: BorderRadius.circular(3),
-            ),
-            child: Text(label,
-                style: ts(11.5, on ? T.onAccent : T.text)),
-          ),
-        ),
-      );
-
-  Widget _footer(AppState app, int n) {
-    final ready = n > 0;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-      child: Row(children: [
-        Expanded(
-          child: Opacity(
-            opacity: ready ? 1 : 0.45,
-            child: GestureDetector(
-              onTap: ready ? () => app.applyHole() : null,
-              child: Container(
-                height: 28,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                    color: T.accent, borderRadius: BorderRadius.circular(3)),
-                child: Text(L.of(context).ok,
-                    style: ts(12.5, T.text, w: FontWeight.w600)),
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: GestureDetector(
-            onTap: app.cancelHole,
-            child: Container(
-              height: 28,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: T.bg,
-                border: Border.all(color: T.panelSep),
-                borderRadius: BorderRadius.circular(3),
-              ),
-              child: Text(L.of(context).cancel, style: ts(12.5, T.text)),
-            ),
-          ),
-        ),
-      ]),
     );
   }
 }

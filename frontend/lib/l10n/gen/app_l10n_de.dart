@@ -2025,7 +2025,7 @@ class AppL10nDe extends AppL10n {
   }
 
   @override
-  String get btnAddEdgeSet => '+ Kantengruppe';
+  String get btnAddEdgeSet => 'Kantengruppe';
 
   @override
   String get lblSwapFaces => 'Die beiden Flächen tauschen';
@@ -3068,10 +3068,10 @@ class AppL10nDe extends AppL10n {
   }
 
   @override
-  String get lblAddIrregularAngle => '+ Abweichender Winkel';
+  String get lblAddIrregularAngle => 'Abweichender Winkel';
 
   @override
-  String get lblAddIrregularDistance => '+ Abweichender Abstand';
+  String get lblAddIrregularDistance => 'Abweichender Abstand';
 
   @override
   String get lblSelectDir => 'Richtung…';
@@ -3692,16 +3692,16 @@ class AppL10nDe extends AppL10n {
   String get grpAsmSolution => 'Lösung';
 
   @override
-  String get lblAsmOffset => 'Versatz:';
+  String get lblAsmOffset => 'Versatz';
 
   @override
-  String get lblAsmAngle => 'Winkel:';
+  String get lblAsmAngle => 'Winkel';
 
   @override
-  String get lblAsmRatio => 'Verhältnis:';
+  String get lblAsmRatio => 'Verhältnis';
 
   @override
-  String get lblAsmDistance => 'Abstand:';
+  String get lblAsmDistance => 'Abstand';
 
   @override
   String get cbAsmPickPartFirst => 'Bauteil zuerst wählen';
@@ -4122,4 +4122,77 @@ class AppL10nDe extends AppL10n {
 
   @override
   String get cyclesWarmupFailed => 'Der Renderer konnte nicht gestartet werden';
+
+  @override
+  String get lblEndRadius => 'Endradius';
+
+  @override
+  String lblProfileCount(int n) {
+    String _temp0 = intl.Intl.pluralLogic(
+      n,
+      locale: localeName,
+      other: '$n Profile',
+      one: 'Ein Profil',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String lblSectionCount(int n) {
+    String _temp0 = intl.Intl.pluralLogic(
+      n,
+      locale: localeName,
+      other: '$n Querschnitte',
+      one: 'Ein Querschnitt',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String lblPointsCount(int n) {
+    String _temp0 = intl.Intl.pluralLogic(
+      n,
+      locale: localeName,
+      other: '$n Punkte',
+      one: 'Ein Punkt',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get hintTapToFinish => '· zum Beenden tippen';
+
+  @override
+  String get hintTerminationNeedsBody =>
+      'Bis zum Nächsten, Bis und Durch alle brauchen einen vorhandenen Körper.';
+
+  @override
+  String lblFeatureCount(int n) {
+    String _temp0 = intl.Intl.pluralLogic(
+      n,
+      locale: localeName,
+      other: '$n Elemente',
+      one: 'Ein Element',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String lblSelectedCount(int n) {
+    String _temp0 = intl.Intl.pluralLogic(
+      n,
+      locale: localeName,
+      other: '$n gewählt',
+      one: '1 gewählt',
+      zero: 'nichts gewählt',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get lblTotalDistance => 'Gesamtabstand';
+
+  @override
+  String get hintEndRadiusOptional =>
+      'Endradius leer lassen für eine konstante Verrundung; mit einem Wert läuft der Radius entlang jeder Kante der Gruppe.';
 }

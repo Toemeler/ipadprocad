@@ -10270,3 +10270,157 @@ nicht gibt.
   nehmen (x,y)-PAARE, `extrudeProfileArcs`/`revolve`/`sweep`/`loft`/`coil`
   nehmen (x,y,bulge)-TRIPEL. Die falsche wirft nicht — sie gibt null zurueck,
   und die Operation liest sich als kostenlos.
+
+---
+
+## M338 — Jeder Werkzeug-Dialog ist eine iOS-Fläche
+
+### Was der Auftrag war
+
+„Mach jeden einzelnen Werkzeug-Dialog, so wie den Extrusions-Dialog, iOS-nativ.
+Lies die Apple-Designregeln. Jeder Knopf bleibt, aber iOS-nativ."
+
+### Der Befund
+
+Die Dialoge waren Transkriptionen von Autodesk-Inventor-Fenstern: 11–12 pt
+Beschriftungen, 24–26 pt Zeilen, 3 pt Ecken, Haarlinien-Kästen um
+Steuerungsgruppen, OK / Abbrechen / Übernehmen in einer Fußzeile, `▾`/`▸`/`✕`
+als Text-Glyphen. Das ist eine treue Zeichnung eines Win32-Fensters — und auf
+einem iPad der einzige Teil der App, der nicht zur Plattform gehört. Das Band,
+der Modellbrowser, die Registerleiste, die Schnellwerkzeugleiste und der ganze
+Einstellungs-Bildschirm sind seit M106/M107/M149/M192/M261 echtes UIKit.
+
+### Was gebaut wurde
+
+**`lib/ios_design.dart` — die Maße.** Die Dynamic-Type-Rampe bei der Größe
+„Large" mit Apples eigenen Werten (Größe / Zeilenabstand / Laufweite: Body
+17/22/−0,41; Footnote 13/18/−0,08 …), die iOS-Metriken (44 pt Ziel, 44 pt
+Zeile, 16 pt Rand), die semantischen Farbrollen und — weil Apples abgerundetes
+Rechteck keines ist — `RoundedSuperellipseBorder`, die echte Squircle-Kurve,
+die Flutter seit 3.35 zeichnet.
+
+Drei Entscheidungen darin sind keine Transkription:
+
+1. **Die Farben sind die der App, die ROLLEN sind Apples.** systemBlue und
+   systemGray6 hätten die WCAG-Arbeit aus M236 und die Akzentwahl aus M237
+   weggeworfen und ein Fenster in zwei Schemata gerendert.
+2. **Die Füllungen sind durchsichtig, keine Palettenplätze.** Auf Ember sind
+   `T.fly` und `T.field` DIESELBE Farbe, ein Segmentregler auf einer Karte
+   wäre also unsichtbar gewesen. Die Füllungen sind `T.text` bei Apples
+   Alphawerten — Apples Mechanismus, der Farbton der App.
+3. **Der Daumen eines Segmentreglers muss HELLER sein als seine Schiene.** Auf
+   Dunkel heißt das +0,34 Alpha über der Karte; das ist der Schritt, den
+   Apples #636366 über seiner #3C3C3E-Schiene macht.
+
+**`lib/widgets/ios_kit.dart` — die Steuerelemente.** Panel (mit `GlassPanel`,
+also Apples echtem UIGlassEffect, als Fläche — dieselbe Plattform-Ansicht, die
+das Band seit M146 benutzt), Navigationsleiste, eingerückte gruppierte Listen,
+Zeilen, Auswahlzeilen, Wertzeilen, Segmentregler, Toggle-Gruppen, Schalter,
+Schieberegler, Knöpfe in vier Gewichten, Chips, Statuszeilen und ein
+Pop-up-Zeilen-Typ, der auf dem Gerät ein **echtes UIMenu** über
+`NativeMenu.menu` öffnet. Dazu ein knappes Dutzend SF-Symbole, gezeichnet statt
+importiert: Materials Chevron ist schwerer und eckiger als SFs.
+
+**Was NICHT angefasst wurde:** die Zahl bleibt ein Flutter-`TextField` mit
+`kValueKeyboard` in einem `ScrubField`. M172s Ziehen, M179s Pencil-Regel,
+M180s Vertrag („keine Zahl in der App ist unziehbar") und M206s eigener
+Zahlenblock funktionieren unverändert, und der Test, der sie festnagelt, liest
+dasselbe Widget wie vorher.
+
+### Die zwanzig Dateien
+
+extrude · edge_feature (Verrundung/Fase) · hole · combine · split ·
+pattern_panel_3d · pattern_dialog (2D-Anordnung, 2D-Verrundung/Fase, Polygon) ·
+constraint · joint · drive · create_component · make_part · gear · parameters ·
+freehand · text_editor_window · work_plane_offset_field · value_pad ·
+native_prompts (Rückfall jetzt Cupertino) · ios_kit.
+
+`properties_panel.dart` ist gelöscht: `ios_kit.dart` ist, was es war — ein Ort
+für die Chrome, damit fünf Fenster sie nicht fünfmal tragen.
+
+### Was seine Form geändert hat, nicht nur seinen Anstrich
+
+* **OK und Abbrechen sind in der Navigationsleiste** (Abbrechen führend, die
+  bestätigende Aktion folgend — HIG, Sheets). Ein dritter Verb — Übernehmen,
+  Inventors „+" — steht als beschrifteter Knopf in der Fußzeile.
+* **Der Titel ist der BEFEHL.** „Eigenschaften" mit einer Brotkrume darunter
+  wurde zu „Extrusion" mit „Sketch1" als Unterzeile.
+* **Kästchen wurden Schalter**, und die GANZE Zeile schaltet — was SwiftUIs
+  `Toggle` in einem `Form` tut, und was ein 51-pt-Schalter als einziges Ziel
+  auf einer 308-pt-Zeile sonst kostet.
+* **Radios wurden Segmentregler.** iOS hat keinen Radioknopf.
+* **Die nummerierten Auswahlknöpfe der Baugruppen-Dialoge sagen jetzt, WAS
+  drin ist.** Sie waren 36-pt-Kästchen mit „↖1"; welche Fläche man gewählt
+  hatte, stand nirgends.
+* **Die drei Bild-Kästchen** (Bauteil zuerst, Vorschau, Vorhersage) tragen ihre
+  Namen. Die Wörter lagen im Tooltip, und ein Tooltip ist auf einem
+  Touchscreen nirgends. Dasselbe für das „?"-Abzeichen der 2D-Anordnung, dessen
+  Satz jetzt die Fußnote der Sektion ist.
+* **Die Endbedingung ist ein Menü.** „Abstand" war nie ein Knopf — das FELD war
+  die Option, und drei Symbole schalteten darum herum; woran man war, stand in
+  einer Rahmenfarbe. Alle vier sind jetzt eine Zeile, die die geltende nennt.
+* **Das Inventor-`>>`-Schubfach ist eine faltbare Sektion.** Derselbe Knopf,
+  derselbe Inhalt, in der Form, in der iOS eine Sektion faltet.
+* **Ein Panel, das höher wird als das Fenster, SCROLLT.** Vorher lief es unten
+  aus dem Bild.
+
+### Was verschwunden ist, und warum
+
+Vier Glyphen hatten kein `onTap` und hatten nie eines: die Lupe und das
+Hamburger-Menü in der Titelleiste, das Auge und der Würfel in der Brotkrume.
+Sie waren aus Inventors Fensterrahmen abgezeichnet. In einer Navigationsleiste
+liest sich jede Glyphe als Knopf — ein totes Element ist dort eine Lüge, und
+M216 hat schon einmal einen Commit damit verbracht, eines zu entfernen. Ebenso
+das `?` der Baugruppen-Dialoge: diese App hat kein Hilfebuch zu öffnen.
+
+Was NICHT verschwunden ist: alles, was etwas tut, und alles, was Inventor hat
+und diese App noch nicht baut (Begrenzungsfüllung, Pfadmodus, Unterdrücken,
+Adaptivität, Kollisionsprüfung). Das steht weiterhin da, gedimmt, mit dem
+Grund darunter statt in einem Tooltip.
+
+### Nebenbefunde, mitgenommen
+
+* **Die Bohrungs-Formen waren englisch.** Das Panel rief `holeTypeShort` /
+  `holeTypeLabel` — part_models englisches Domänenvokabular. Seit M226 las eine
+  deutsche Oberfläche „C'bore depth". `holeTypeShortDisplay` /
+  `holeTypeDisplay` gab es in `l10n/cad_terms.dart` genau dafür.
+* **„Abstand | Abstand".** Inventors zwei Verteilungsarten heißen auf Englisch
+  „Spacing" und „Distance", auf Deutsch beide „Abstand". Der Gesamtabstand hat
+  jetzt ein eigenes Wort (`lblTotalDistance`).
+* **Die Baugruppen-Beschriftungen trugen Win32-Doppelpunkte** („Versatz:").
+* **Vier Strings waren hart englisch** (`' — tap to finish'`, `'$n Feature(s)'`,
+  `'to (optional)'`, `'nothing selected'`). Sie kamen durch das
+  l10n-Ratschen-Sieb, weil sie klein oder mit `$` beginnend waren.
+
+### Der Test
+
+`test/m338_ios_dialogs_test.dart`, 32 Fälle in drei Gruppen:
+
+1. **Das Ratschen.** Ein Quelltext-Scan: eine Datei der Dialogschicht darf
+   `package:flutter/material.dart` nur über eine enge `show`-Klausel
+   importieren, und nur für die sechs Dinge, für die Cupertino keine Antwort
+   hat (allen voran `TextField`, weil M180s Vertrag auf genau diesem Widget
+   festgenagelt ist). Und kein `Icons.` mehr.
+2. **Die zwanzig Panels.** Jedes wird gepumpt und nach den drei Dingen gefragt,
+   die ein Panel haben muss: der Name des Befehls, der Weg hinaus, der Weg zum
+   Bestätigen.
+3. **Die Verträge des Kits.** Die Typrampe sind Apples Zahlen; ein
+   Segmentregler antwortet auch auf einen Tipper auf das schon gewählte Segment
+   (die Endbedingungs-Zeile hing daran); eine Schalterzeile schaltet aus ihrer
+   BESCHRIFTUNG; ein zu hohes Panel scrollt statt überzulaufen.
+
+Der Lauf: **3141 Tests grün** (vorher 3109), `flutter analyze` **62 Issues, 0
+Errors** — dieselbe Zahl wie vorher, keine neue Warnung in `lib/`.
+
+### Noch NICHT auf Hardware
+
+Alles hier ist auf einem Linux-Runner gerendert und geprüft worden, mit einer
+Ersatzschrift. Zwei Dinge sind erst auf dem Gerät zu beurteilen:
+
+1. **Das Glas unter einem GEZOGENEN Panel.** `GlassPanel` ist eine
+   Plattform-Ansicht; das Band und der Browser bewegen sich nicht. Wenn die
+   UIKit-Fläche der Flutter-Zeichnung beim Ziehen um einen Frame hinterherläuft,
+   ist das eine Zeile in `IosPanel` (die Rückfall-Fläche statt des Glases).
+2. **Die Schrift.** Die Rampe ist für SF Pro Text gerechnet; der Runner
+   zeichnet DejaVu, das breiter läuft. Beschriftungen, die hier auf zwei Zeilen
+   umbrechen, sollten auf dem Gerät auf eine passen.

@@ -26,7 +26,7 @@ import 'package:prototype/constraints.dart';
 import 'package:prototype/ffi/qcad_engine.dart';
 import 'package:prototype/part_model.dart';
 import 'package:prototype/theme.dart';
-import 'package:prototype/widgets/properties_panel.dart';
+import 'package:prototype/widgets/ios_kit.dart';
 import 'package:prototype/widgets/scrub_field.dart';
 import 'package:prototype/widgets/work_plane_offset_field.dart';
 
@@ -78,7 +78,11 @@ void main() {
       final c = TextEditingController(text: '12');
       await t.pumpWidget(MaterialApp(
         home: Scaffold(
-          body: panelValueField(c, 'mm', (_) {}, app: app),
+          // M338 — the feature panels' value row moved to ios_kit.dart when
+          // the dialogs became iOS-native. Same TextField, same rule.
+          body: iosValueRow(
+              app: app, label: 'mm', controller: c, unit: 'mm',
+              onChanged: (_) {}),
         ),
       ));
       expect(_handwriting(t), everyElement(isFalse));

@@ -89,7 +89,7 @@ void main() {
     // Pre-filled with the next free name so Create alone is enough.
     expect(find.text(app.suggestedSketchName()), findsOneWidget);
 
-    await t.enterText(find.byType(TextField), 'Bracket');
+    await t.enterText(find.byType(EditableText), 'Bracket');
     await t.tap(find.text(L.current.create));
     await t.pumpAndSettle();
 
@@ -126,7 +126,7 @@ void main() {
     await t.pumpAndSettle();
     await t.tap(find.text(L.current.galleryNew2dSketch));
     await t.pumpAndSettle();
-    await t.enterText(find.byType(TextField), 'Taken');
+    await t.enterText(find.byType(EditableText), 'Taken');
     await t.tap(find.text(L.current.create));
     await t.pumpAndSettle();
 
