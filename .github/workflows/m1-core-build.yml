@@ -557,7 +557,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: cycles-dist
-          key: cycles-dist-v1-${{ hashFiles('backend/cycles/shim/**') }}-${{ hashFiles('.github/workflows/m1-core-build.yml') }}
+          key: cycles-dist-v2-${{ hashFiles('backend/cycles/shim/**') }}-${{ hashFiles('backend/cycles/assets/**') }}-${{ hashFiles('.github/workflows/m1-core-build.yml') }}
 
       - name: Clone Blender's ios branch (shallow, no LFS)
         if: steps.dist.outputs.cache-hit != 'true'
@@ -722,6 +722,22 @@ jobs:
           # followed to a fixed point.
           bash ci/harvest_cycles_dylibs.sh shim_probe.bin blender/lib/ios_arm64 cycles-dist/dylib
           echo "== dylibs harvested"
+          # M344 — AND OpenImageIO HAS TO BE AMONG THEM.
+          #
+          # It was always linked, and until M344 nothing called it: the shim
+          # built its scenes out of numbers. It loads the HDRI and every PBR
+          # texture now, and it is a DYLIB rather than an archive — one of the
+          # four in this package that are — so `-dead_strip_dylibs` is entitled
+          # to drop it if the link decides nothing reached it. If that ever
+          # happens the app still builds, still launches and still renders, and
+          # every textured surface silently comes out flat. That is a failure
+          # nobody could attribute from a device, so it is named here.
+          ls cycles-dist/dylib | grep -qi 'OpenImageIO' \
+            || { echo "CYCLES OIIO CHECK: FAIL — no OpenImageIO dylib was harvested."; \
+                 echo "  Cycles loads the HDRI and every texture through it (scene/image_oiio.cpp)."; \
+                 echo "  Without it every textured surface renders flat, silently."; \
+                 echo "  Harvested:"; ls cycles-dist/dylib; exit 1; }
+          echo "== OpenImageIO is in the distribution"
           # The kernel tree. Everything, because the Metal include walker
           # follows #include "..." across kernel/, util/ and further, and a
           # header it cannot find is left in the source verbatim and then
@@ -730,6 +746,26 @@ jobs:
           rsync -a --exclude '.git' --exclude 'shim' blender/intern/cycles/ cycles-dist/source/
           echo "== kernel source copied"
           test -f cycles-dist/source/kernel/device/metal/kernel.metal
+          # M344 — the optional render assets, beside the kernel tree.
+          #
+          # NOT Flutter assets, and the reason is in backend/cycles/assets/
+          # README.md: Cycles loads images through OpenImageIO from a PATH, on
+          # a background thread, and a Flutter asset is a byte range inside a
+          # bundle that only the Dart side can address. The resource root the
+          # shim is already given is the one directory in the bundle the
+          # renderer is entitled to assume the layout of, so they go there.
+          #
+          # `|| true` on the copy and no `test` after it: the directory is
+          # empty in this repository, every file in it is optional, and a build
+          # without them is the app that shipped rather than a broken one.
+          # cycles_assets.dart and the shim's own fopen check agree from the
+          # other two sides.
+          mkdir -p cycles-dist/assets
+          rsync -a --exclude 'README.md' --exclude 'SOURCES.md' \
+                --exclude '.gitattributes' \
+                backend/cycles/assets/ cycles-dist/assets/ || true
+          echo "== render assets: $(find cycles-dist/assets -type f | wc -l) file(s)"
+          find cycles-dist/assets -type f | head -20
           echo "--- distribution ---"
           du -sh cycles-dist/lib cycles-dist/deps cycles-dist/dylib cycles-dist/source
           lipo -info cycles-dist/lib/libcycles_shim.a
@@ -1345,6 +1381,19 @@ jobs:
             test -f "$APP/cycles/source/kernel/device/metal/kernel.metal" \
               || { echo "CYCLES KERNEL CHECK: FAIL (kernel source not in the bundle)"; exit 1; }
             echo "CYCLES KERNEL CHECK: PASS ($(du -sh "$APP/cycles" | cut -f1) bundled)"
+            # M344 — the render assets, beside the kernel tree under the same
+            # resource root. Optional: this repository ships none of them and a
+            # build without them renders the M332 rig and M337 flat surfaces,
+            # which is the app that shipped. So no `test` and no failure — only
+            # a line saying what went in, because "the HDRI is not in the
+            # bundle" and "the HDRI is not in the repository" look identical
+            # from the device and this is the only place that can tell them
+            # apart.
+            if [ -d "$GITHUB_WORKSPACE/cycles-dist/assets" ]; then
+              rsync -a "$GITHUB_WORKSPACE/cycles-dist/assets/" "$APP/cycles/assets/"
+            fi
+            NAST="$(find "$APP/cycles/assets" -type f 2>/dev/null | wc -l | tr -d ' ')"
+            echo "CYCLES ASSETS: ${NAST:-0} file(s) bundled$([ "${NAST:-0}" = 0 ] && echo ' (renders with the analytic rig — see backend/cycles/assets/README.md)')"
             bash "$GITHUB_WORKSPACE/ci/embed_cycles_dylibs.sh" \
               "$GITHUB_WORKSPACE/cycles-dist/dylib" "$APP"
             # And the shim must be reachable BY NAME: Dart resolves it with

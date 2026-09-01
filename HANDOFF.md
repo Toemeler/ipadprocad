@@ -10526,3 +10526,185 @@ zurückgenommen; Einrückung von Hand nachziehen.
 Unverändert die zwei aus M338 (das `UIGlassEffect`-Material unter iOS 26, die
 `NativeMenu`-Blätter an Zeilen verankert) und neu: der Klick und VoiceOver sind
 im Test-Harness geprüft, nicht an einem Gerät gehört bzw. gehört-gelesen.
+
+## M344 — Der Renderer hört auf, ein Foto zu machen, und wird ein Sucher
+
+### Was der Auftrag war
+
+„Cycles soll durchgehend rendern und entrauschen, bis ein perfektes Bild da
+ist. Die Materialien viel realistischer. Und beim Orbiten soll durchgehend
+gerendert werden." Dazu das Angebot, PBR-Texturen und ein HDRI zu liefern.
+
+### Der Befund
+
+Der Cycles-Pfad hatte genau eine Form: Szene bauen, bis zur festen
+Sample-Zahl tracen, zurückkehren, Bild wegwerfen sobald die Kamera sich
+bewegt. Das ist ein FOTO, und der gerenderte Modus war darum herum gebaut —
+450 ms stillhalten, warten, ein Bild bekommen, es verlieren.
+
+Drei Dinge daran lassen sich nicht dadurch beheben, dass man es schneller
+macht:
+
+* **Die Szene wurde jedes Mal neu gebaut.** Jeder Vertex in frische Puffer
+  kopiert, über die FFI-Grenze geschoben und auf die GPU geladen — für eine
+  Kamerabewegung, die zwölf Floats geändert hat.
+* **Es gab kein Bild, bevor alles fertig war.** Ein Pfadverfolger hat nach
+  einem Sample ein brauchbares und nach zwanzig ein gutes Bild, und nichts
+  davon war erreichbar.
+* **Metall sah aus wie graues Plastik in vier Tönungen.** M332 hielt jede
+  Erscheinung bei `metallic 0.15` und schrieb auch auf, warum: „eine Fläche
+  bei metallic 1.0 nimmt ihre Farbe fast vollständig aus dem, was sie
+  spiegelt, und diese Szene hat vier Lichter und einen dunklen Raum zu
+  spiegeln." Das war richtig — und es war ein Argument über die UMGEBUNG,
+  nicht über das Material.
+
+Cycles kann all das seit 2011; genau das ist Blenders gerenderter Sucher. Der
+einzige Grund, warum dieser Shim es nicht konnte, war, dass seine `Session`
+pro Aufruf erzeugt und wieder zerstört wurde.
+
+### Was gebaut wurde
+
+**Eine bleibende Session.** `background = false` und `headless = false` sind
+die zwei Booleans, die Cycles von einem Stapelrenderer in einen Sucher
+verwandeln: der Session-Thread blockiert an einer Bedingungsvariablen statt
+zurückzukehren, eine Kameraänderung ist ein `reset()` statt eines Neubaus,
+und `update_render_tile` liefert Zwischenstände. `cy_live_*` ist das;
+`cy_render` bleibt unverändert im Verhalten und läuft jetzt über denselben
+Szenenbauer, damit die Aufwärmung und der Host-Rendertest weiterhin jede
+Zeile davon abdecken.
+
+**Ein Entrauscher, weil Blenders iOS-Bibliotheken OpenImageDenoise nicht
+mitbringen und nie mitgebracht haben** (deshalb steht `WITH_OPENIMAGEDENOISE
+=OFF` in jedem Cycles-Build dieses Repos: `cycles_integrator` übersetzte
+sonst `denoiser_oidn.cpp` gegen eine Bibliothek, die nicht da ist, und der
+Link scheiterte an `_oidnSetFilterImage`). Also ein kantenerhaltender
+À-trous-Wavelet-Filter (Dammertz u.a., HPG 2010), geführt von den Albedo- und
+Normalen-Pässen, die Cycles ohnehin schreibt.
+
+Er beantwortet den Einwand, den jeder Build dieses Repos mitträgt — dass
+Entrauschen „genau die scharfen Bearbeitungskanten verschmiert, für die der
+Render da ist" — KONSTRUKTIV und nicht hoffnungsvoll: die Farbe wird zuerst
+durch die Albedo geteilt, sodass eine Kante, die daher rührt, dass das Modell
+hier die eine und dort die andere Farbe hat, gar nicht erst in dem Puffer
+liegt, der gefiltert wird. Und er blendet sich aus, während das Bild
+konvergiert — was man am Ende anschaut, ist der rohe Pfadverfolger.
+
+Gemessen statt behauptet: auf einem Testbild aus zwei Albedo-Hälften nimmt er
+das Rauschen um das 386-fache herunter und lässt die Stufe an der Naht bei
+0,411/0,096 gegen wahre 0,400/0,100 stehen. 51 ms bei 480×320 einkernig auf
+einem geteilten CI-Kern, bevor TBB es anfasst.
+
+**Echte Oberflächen und eine echte Umgebung.** Eine Materialtabelle mit
+Basisfarbe-, Rauheits-, Metall-, Höhen- und Verdeckungskarten,
+box-projiziert im Objektraum — eine CAD-Tesselierung hat keine UVs und wird
+nie welche haben — in einem Maßstab, der in MILLIMETERN festliegt, damit ein
+Winkel und die Platte, auf der er sitzt, dieselbe Körnung zeigen. Dazu
+Klarlack, Spiegelstufe, Anisotropie und Sheen am Principled BSDF.
+
+Und ein equirektanguläres HDRI als LICHT. Vier analytische Lichter können
+eine Fläche beleuchten, sich aber nicht in ihr spiegeln — deshalb sieht
+Metall unter jedem analytischen Rig aus wie graues Plastik. Die eigene
+Viewport-Farbe der App bleibt das, was die KAMERA sieht, sodass das Bild
+weiterhin auf dem Grund landet, den der Rest der App zeichnet; Cycles kann
+Kamerastrahlen von Lichtstrahlen unterscheiden, also stimmt beides
+gleichzeitig.
+
+**Damit werden Metalle Metalle.** Die Zahl hängt jetzt davon ab, ob es eine
+Umgebung gibt; der Rückfall ist exakt der Wert, der ausgeliefert wurde. Und
+die Palettenfarbe eines Metalls — eine BILDSCHIRMfarbe, Messing bei linear
+0,53 — wird auf eine Reflektanz angehoben, die ein Metall tatsächlich
+zurückgibt, mit unverändertem Farbton: bei metallic 1.0 IST die Basisfarbe
+F0, und poliertes Aluminium liegt bei etwa 0,91.
+
+**Stahl ist eine Erscheinung wie die anderen.** Vorher war es die ABWESENHEIT
+einer — womit der häufigste Körper jeder Baugruppe der einzige war, der
+weder einen Textursatz tragen noch ein echtes Metall werden konnte. Der
+Rückfall im Shim bleibt als dokumentierter Vertrag für ein Mesh, das kein
+Material nennt; genau dort kommt das noch vor (Aufwärmung, Rendertest).
+
+**Ein bleibender Isolate** (`cycles_live.dart`) hält die Session, solange der
+gerenderte Modus an ist, und nimmt zwei Arten von Nachricht. Die SZENE ist
+jeder Vertex und geht, wenn sich das MODELL ändert. Die ANSICHT sind zwölf
+Floats und geht bei jedem Frame eines Orbits. Die beiden auseinanderzuhalten
+ist das ganze Leistungsargument, und es gibt einen Test dafür, dass ein Orbit
+über dreißig Kamerapositionen die Szene genau einmal neu baut.
+
+**Die Veraltet-Regel spaltet sich.** M299 sagte, jede Änderung mache das Bild
+zur Lüge — richtig, solange der Ersatz vier Sekunden entfernt war. Falsch,
+wenn er vierzig Millisekunden entfernt ist, und aus demselben Grund: ein Bild
+davon, wo die Kamera einen Frame früher stand, IST ein Frame, und es
+herunterzunehmen wäre kein Ehrlichsein, sondern ein Flackern bei jedem Frame
+eines Orbits. Eine MODELLänderung nimmt es weiterhin sofort herunter — es
+gibt keine Bildrate, bei der ein Bild eines seither bearbeiteten Modells
+richtig ist.
+
+**Der Settle-Timer bleibt und tut etwas anderes.** Er entscheidet nicht mehr,
+OB gerendert wird, sondern WIE GROSS: 480 auf der langen Seite, während die
+Kamera sich bewegt, 900 wenn sie steht. Weniger PIXEL statt weniger Samples,
+weil das Auge einer bewegten Form nicht folgen und gleichzeitig Details
+auflösen kann — Rauschen aber sehr wohl sieht.
+
+**Adaptives Sampling** ist an. Das ist es, was „bis ein perfektes Bild da
+ist" praktisch bedeutet: Cycles misst den eigenen Fehler jedes Pixels, hört
+bei den fertigen auf und WEISS, wann es fertig ist, statt nur bis zu einer
+Zahl gezählt zu haben. Damit hört auch die GPU auf, wenn es nichts mehr zu
+verbessern gibt.
+
+### Der Boden
+
+Er hing an der Kamera — an der Bildebene (also am Zoom) und daran, ob man von
+oben draufsah. Beides hätte in einem lebenden Renderer bedeutet, die Geometrie
+bei jedem Frame einer Zoomgeste neu hochzuladen. Die Größe kommt jetzt
+großzügig aus dem Modell allein; übrig bleibt EIN Bit — darüber oder darunter
+—, und das steht in der Szenensignatur. Über den Horizont zu fahren baut die
+Szene einmal neu, jeder andere Frame eines Orbits nicht.
+
+### Die Anlagen, und warum sie fehlen dürfen
+
+`backend/cycles/assets/` mit einer README, die genau sagt, welche Dateien
+gebraucht werden und warum (`studio.hdr`, equirektangular, 2K, Studio und
+nicht Außenaufnahme; Textursätze pro Erscheinung mit `basecolor`,
+`roughness`, `metallic`, `height`, `ao`; **eine HÖHEN-, keine
+Normalenkarte**, weil eine Tangentenbasis UVs braucht und eine Box-Projektion
+für jede ihrer drei Achsen eine andere hätte).
+
+Das Verzeichnis ist LEER, und das ist der Vertrag: Ein Build aus einem
+frischen Klon rendert das M332-Rig und die M337-Flächen — die App, die
+ausgeliefert wurde. Drei Seiten halten das ein: `cycles_assets.dart` liefert
+für alles Fehlende null, der Shim prüft jeden Pfad noch einmal mit `fopen`,
+bevor er einen Knoten baut, und der CI-Schritt scheitert nicht an einem leeren
+Verzeichnis.
+
+### Die Tests
+
+* `render_test.c` bekommt zwei neue Gruppen: **die lebende Session** (ein
+  Frame kommt heraus, ein zweites Abfragen ohne Warten meldet „nichts Neues",
+  sie konvergiert und sagt es, und sie rahmt dasselbe wie `cy_render`) und
+  **der Entrauscher an Kanten**, auf von Hand gebauten Puffern, ganz ohne GPU
+  — das ist der Grund, warum `cycles_denoise.cpp` keinen einzigen ccl-Typ
+  nennt.
+* `m299_cycles_render_test.dart`: neu geschrieben um die zwei Regeln —
+  Kamerabewegung behält das Bild, Modelländerung nicht — und darum, WELCHER
+  Push eine Änderung verdient.
+* `m304_cycles_session_test.dart`: ein `_FakeDriver` statt eines Runners;
+  der Orbit-über-dreißig-Positionen-Test lebt hier.
+* `m344_cycles_assets_test.dart`: was passiert, wenn nichts da ist.
+
+3222 Dart-Tests grün.
+
+### Noch NICHT auf Hardware
+
+Alles davon. Das C++ übersetzt zum ersten Mal in der CI und läuft zum ersten
+Mal auf einem Gerät — wie immer bei diesem Teil des Repos. Drei Stellen, an
+denen ich beim nächsten Mal zuerst nachsehen würde:
+
+1. **Die Bildrate beim Orbiten.** Der Entrauscher kostet auf diesem CI-Kern
+   51 ms bei 480×320 einkernig; mit TBB und iPad-Kernen sollten daraus
+   einstellige Millisekunden werden, aber gemessen ist das nicht.
+2. **Die Speicherspitze.** Ein 2K-HDRI sind rund 24 MB als Float-RGB, dazu
+   die Textursätze und die Framepuffer. Der iOS-Jetsam-Deckel ist das, was
+   hier zuerst reißen würde.
+3. **`refine_bump_nodes`.** Die Höhenkarte hängt an einem `BumpNode`, dessen
+   Subgraph Cycles beim Finalisieren dreimal kopiert — drei Bildabfragen pro
+   Schattierung. Auf einem Teil mit sechs texturierten Erscheinungen ist das
+   die teuerste Stelle des ganzen Shaders.

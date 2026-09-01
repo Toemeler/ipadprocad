@@ -1,0 +1,8 @@
+# The render assets are binaries: never diffed, never merged, never
+# line-ending-converted. A .hdr that git decided was text is a .hdr that
+# loads as noise.
+*.hdr binary
+*.exr binary
+*.jpg binary
+*.jpeg binary
+*.png binary

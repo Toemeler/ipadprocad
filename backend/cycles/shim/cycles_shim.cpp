@@ -1103,6 +1103,18 @@ std::atomic<bool> g_pass_failed{false};
 /* Which view is current. Written under the shim's own lock, read on the render
  * thread inside the output driver. */
 std::atomic<uint64_t> g_generation{1};
+/* The image size the current view asked for.
+ *
+ * NEEDED BECAUSE A RESET IS NOT INSTANT. Session::reset queues a delayed reset
+ * and the render thread applies it at the next safe point, so between a call
+ * to cy_live_view that changes the size and the frame that honours it there
+ * are one or two frames STILL AT THE OLD SIZE — and they carry the new
+ * generation, because the driver stamps that when it captures. The caller has
+ * by then sized its buffer for the new one. Without this check the first frame
+ * of every resize is either refused as too large (which is how an ordinary
+ * zoom would have looked like a renderer failure) or shown at the wrong scale. */
+std::atomic<int> g_want_width{0};
+std::atomic<int> g_want_height{0};
 
 /* Copies frames out of Cycles, finished or not.
  *
@@ -1137,6 +1149,10 @@ class LiveOutput : public ccl::OutputDriver {
     const int w = tile.size.x;
     const int h = tile.size.y;
     if (w <= 0 || h <= 0) {
+      return;
+    }
+    /* A frame from before the last resize took effect. See g_want_width. */
+    if (w != g_want_width.load() || h != g_want_height.load()) {
       return;
     }
     const size_t n = (size_t)w * (size_t)h;
@@ -1300,6 +1316,10 @@ ccl::SessionParams make_session_params(const ccl::DeviceInfo &device,
 
 ccl::BufferParams make_buffer_params(const int width, const int height)
 {
+  /* The output driver's filter, set here rather than at the two call sites so
+   * a third one cannot forget it. */
+  g_want_width.store(width);
+  g_want_height.store(height);
   ccl::BufferParams p;
   p.width = width;
   p.height = height;
@@ -1653,8 +1673,13 @@ int cy_live_frame(unsigned char *rgba_out, const int capacity, CyFrame *info)
     finished = g_frame.finished;
     const size_t n = (size_t)w * (size_t)h;
     if (capacity < (int)(n * 4) || g_frame.color.size() < n * 4) {
-      set_error("the frame is larger than the buffer offered for it");
-      return -1;
+      /* NOT an error. The size filter in the driver makes this very nearly
+       * unreachable, and if it is reached the honest answer is "nothing you
+       * can use yet" — the next frame will be the right size. Reporting a
+       * failure here would turn an ordinary zoom into a renderer that had
+       * stopped. Marked seen so the caller does not spin on it. */
+      g_live.seen = g_frame.serial;
+      return 0;
     }
     /* Copied out from under the lock so the denoiser — which is the expensive
      * part — runs with the render thread free to keep producing frames. */
