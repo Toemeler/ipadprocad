@@ -76,6 +76,14 @@ jobs:
       - name: Patch Cycles for iOS kernel loading (anchor check)
         run: python3 backend/cycles/patches/ios_metal.py
 
+      # And the one edit this build needs for itself. The `ios` branch does not
+      # compile for macOS: it removed MetalInfo::get_device_vendor and left one
+      # call to it in the half of device/metal/kernel.mm that only a macOS
+      # build reaches. See the script for why saying "yes, it is an Apple GPU"
+      # is the honest fix rather than a way round a real dependency.
+      - name: Patch Cycles to compile for the macOS host (anchor check)
+        run: python3 backend/cycles/patches/host_macos.py
+
       - name: Configure and build (host, arm64)
         run: |
           set -o pipefail
@@ -181,6 +189,7 @@ jobs:
           name: cycles-render-test
           path: |
             configure.log
+            b_*.log
             link.log
             render.log
           if-no-files-found: warn
@@ -198,4 +207,14 @@ jobs:
             || echo "(configure succeeded — the failure is in a later step)"
           echo "--- last of configure.log ---"
           tail -20 configure.log 2>/dev/null || true
+          # Whichever target the loop died on: its log is the only one that
+          # ends without a "Build files" line, and it is where the compiler
+          # errors are. Repeated here because the loop's own grep lands
+          # upstream of the artifact upload, out of reach of a log tail.
+          for f in b_*.log; do
+            [ -e "$f" ] || continue
+            grep -qE "error:|FAILED:" "$f" || continue
+            echo "--- $f ---"
+            grep -nE "error:|fatal error:|FAILED:" "$f" | head -20
+          done
           echo "=============================================="
