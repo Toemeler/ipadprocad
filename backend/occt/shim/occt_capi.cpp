@@ -200,14 +200,14 @@ struct occt_shape
      * per remesh. */
     mutable std::vector<double> face_area;
 
-    /* M333 — the deflection multiplier that last covered every face.
+    /* M333/M336 — the DEFLECTION that last covered every face of this shape.
      *
-     * The ladder in occt_shape_mesh can cost a couple of seconds on a model
-     * BRepMesh struggles with, and the app re-tessellates on every zoom. A
-     * multiplier that worked once almost always works again at a different
-     * base deflection, so it is tried first and the search runs only when it
-     * stops working. Mutable for the same reason face_area is: the shape is
-     * immutable, and this is a cache of how to draw it. */
+     * An absolute length, not a multiple of what was asked for: see
+     * meshrecon::TessellateCovered for why the difference is two minutes of a
+     * frozen device. Finding it costs up to nine whole-shape tessellations, so
+     * it is found once, at the first draw, and reused on every zoom after.
+     * Mutable for the same reason face_area is: the shape is immutable, and
+     * this is a cache of how to draw it. */
     mutable double mesh_factor = 0.0;
 };
 

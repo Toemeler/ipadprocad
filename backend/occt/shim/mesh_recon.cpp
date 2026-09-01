@@ -8422,6 +8422,22 @@ static const size_t kMeshRungs = sizeof(kMeshLadder) / sizeof(kMeshLadder[0]);
 /* A face drawn to less than this much of itself is torn, not merely chorded. */
 static const double kMeshCoverBar = 0.95;
 
+/* How long the search for a working multiplier may take, in milliseconds.
+ *
+ * M336. The search is up to nine whole-shape tessellations, and the app calls
+ * this on the thread it draws from, once per zoom. Measured on the whale at
+ * the deflection the app asks for after the first zoom: one tessellation costs
+ * 469 ms and the search costs 11,553 ms. The device froze, and it was this.
+ *
+ * The search now happens once per shape (see `factor`), which is the real fix;
+ * this is the guarantee that does not depend on an argument. Because it is
+ * paid once, at the first draw — which happens inside the import, behind the
+ * wait card — it can afford to be generous: four seconds finds every fixture
+ * measured its best rung (a tighter budget of 1.5 s cut the ellipsoid off at
+ * the fourth rung and cost it five points of coverage), and still cannot be
+ * talked into two minutes by a shape nobody has measured yet. */
+const double kMeshSearchBudgetMs = 4000.0;
+
 /* And the whole shape is done when it draws this much of its own area.
  *
  * The number to judge a pass on is AREA DRAWN, not the count of faces with no
@@ -8488,10 +8504,12 @@ int TessellateCovered(const TopoDS_Shape &s, double lin, double ang,
         cover = tot > 0 ? got / tot : 1.0;
     };
 
-    auto meshWhole = [&](double f) {
+    /* Takes an ABSOLUTE deflection, not a multiple of the requested one — see
+     * the note on what is remembered. */
+    auto meshAt = [&](double d) {
         try {
             BRepTools::Clean(s);
-            BRepMesh_IncrementalMesh again(s, lin * f, Standard_False, ang,
+            BRepMesh_IncrementalMesh again(s, d, Standard_False, ang,
                                            Standard_True);
             (void)again;
         } catch (const Standard_Failure &) {
@@ -8499,37 +8517,85 @@ int TessellateCovered(const TopoDS_Shape &s, double lin, double ang,
         }
     };
 
-    meshWhole(1.0);
-    grade();
-
-    /* What worked last time, before searching again. */
-    if ((cover < kMeshDoneCover || empty > 0) && factor > 0 && factor != 1.0) {
-        meshWhole(factor);
+    /* A shape that has already found a deflection that covers it REUSES it,
+     * and does not go looking again.
+     *
+     * M336 — this is the freeze. The old code re-ran the whole search whenever
+     * the shape did not reach the coverage bar, and the whale never reaches
+     * it: BRepMesh gives up on one to four of its 305 faces at EVERY
+     * deflection, so "did we reach the bar?" was false every time and the
+     * ladder ran on every zoom. Nine whole-shape tessellations of an 83k
+     * triangle model, on the thread the app draws from, is eleven and a half
+     * seconds of a dead device — and the next gesture queues another.
+     *
+     * The multiplier describes the SHAPE's pathology, not the deflection, so
+     * one search answers for all of them. First call pays; every zoom after it
+     * costs exactly one tessellation, which is what it cost before any of this
+     * existed. */
+    /* What is remembered is an ABSOLUTE deflection, not a multiplier.
+     *
+     * A multiplier was the first attempt and it was far worse than the bug it
+     * fixed: the whale settles on 0.13x at the coarse deflection the model is
+     * first drawn at, and 0.13x of the deflection the app asks for when zoomed
+     * right in is 0.00026 mm — 107,975 triangles and 127 SECONDS for one
+     * re-tessellation. The pathology sits at a particular size relative to the
+     * shape; it is not a ratio to be carried into every zoom.
+     *
+     * So: mesh at the requested deflection, or at the one already known to
+     * cover this shape, whichever is FINER. A request finer than that needs no
+     * help — it is already past the size BRepMesh was failing at — and it then
+     * costs exactly what a plain tessellation costs, which is what a zoom cost
+     * before any of this existed. */
+    if (factor > 0) {
+        meshAt(std::min(lin, factor));
         grade();
+        return empty;
     }
 
-    if (cover < kMeshDoneCover || empty > 0) {
-        double bestF = 1.0, bestCover = cover;
-        double lastTried = 1.0;
+    meshAt(lin);
+    grade();
+    if (empty == 0 && cover >= kMeshDoneCover) {
+        factor = lin;
+        return empty;
+    }
+
+    {
+        const std::chrono::steady_clock::time_point started =
+            std::chrono::steady_clock::now();
+        double bestLin = lin, bestCover = cover;
+        int bestEmpty = empty;
+        double lastTried = lin;
         for (size_t k = 0; k < kMeshRungs; ++k) {
             if (kMeshLadder[k] == 1.0)
                 continue; /* measured already */
-            meshWhole(kMeshLadder[k]);
-            lastTried = kMeshLadder[k];
+            /* Checked BEFORE the rung, not after: a budget that only stops
+             * once it is already over is not a budget. */
+            const double spent = std::chrono::duration<double, std::milli>(
+                                     std::chrono::steady_clock::now() - started)
+                                     .count();
+            if (spent > kMeshSearchBudgetMs)
+                break;
+            meshAt(lin * kMeshLadder[k]);
+            lastTried = lin * kMeshLadder[k];
             grade();
-            if (cover > bestCover) {
+            /* Fewest empty faces first, then most area drawn. An empty face is
+             * a hole the size of the face and is unambiguous; the per-face
+             * coverage behind `cover` is not — on a trimmed B-spline it reads
+             * anywhere from 0.2% to 218% of the same face — so it decides only
+             * between passes that are equal on the count that means something. */
+            if (empty < bestEmpty ||
+                (empty == bestEmpty && cover > bestCover)) {
+                bestEmpty = empty;
                 bestCover = cover;
-                bestF = kMeshLadder[k];
+                bestLin = lin * kMeshLadder[k];
             }
-            if (cover >= kMeshDoneCover && empty == 0)
+            if (empty == 0 && cover >= kMeshDoneCover)
                 break;
         }
-        if (lastTried != bestF)
-            meshWhole(bestF);
-        factor = bestF;
+        if (lastTried != bestLin)
+            meshAt(bestLin);
+        factor = bestLin;
         grade();
-    } else if (factor == 0.0) {
-        factor = 1.0;
     }
     return empty;
 }

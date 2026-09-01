@@ -158,11 +158,19 @@ bool Cancelled_ForTest();
  * again for the WHOLE SHAPE cannot do that — every edge is discretised once,
  * by the pass that meshed both its faces.
  *
- * Meshes `s` in place. `factor` carries the multiplier that last worked, in
- * and out: pass 0 the first time and the same variable afterwards, and a shape
- * that needed the search pays for it once rather than on every zoom. Returns
- * the number of faces still left with no triangles at all — 0 on every fixture
- * measured. Never throws. */
+ * Meshes `s` in place. `factor` carries the DEFLECTION that last covered this
+ * shape, in and out: pass 0 the first time and the same variable afterwards.
+ * An absolute length, not a multiple of `lin` — a multiplier carried into a
+ * zoomed-in request means a tessellation nobody asked for, and on the whale
+ * that was 107,975 triangles and 127 seconds for one re-draw. The shape is
+ * meshed at `lin` or at that remembered deflection, whichever is finer, so a
+ * request already past the size BRepMesh was failing at costs exactly what a
+ * plain tessellation costs.
+ *
+ * The search for a working deflection therefore happens ONCE per shape, at the
+ * first (coarsest) draw, and is bounded by a time budget on top of that. Every
+ * later zoom is a single tessellation. Returns the number of faces left with
+ * no triangles at all. Never throws. */
 int TessellateCovered(const TopoDS_Shape &s, double lin, double ang,
                       std::vector<double> &faceArea, double &factor);
 

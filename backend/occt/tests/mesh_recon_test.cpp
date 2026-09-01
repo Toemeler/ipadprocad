@@ -32,6 +32,7 @@
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepFilletAPI_MakeFillet.hxx>
 #include <BRepMesh_IncrementalMesh.hxx>
+#include <BRepTools.hxx>
 #include <BRep_Tool.hxx>
 #include <BRepGProp.hxx>
 #include <GProp_GProps.hxx>
@@ -1640,6 +1641,88 @@ int main()
             chk((tag + "a stale request cannot poison the next run").c_str(),
                 !out3.IsNull() && err3 != meshrecon::kCancelledMessage,
                 "err was \"" + err3 + "\"");
+        }
+    }
+
+    /* ---- M336: a zoom must not cost what the first draw cost ------------
+     *
+     * The app re-tessellates on every zoom, on the thread it draws from, and
+     * it asks for a finer deflection each time. The search for a deflection
+     * that covers a shape costs up to nine whole-shape tessellations; running
+     * it per zoom froze an iPad for two minutes on a re-draw, and the next
+     * gesture queued another.
+     *
+     * So this measures what the APP does — one shape, the remembered
+     * deflection carried across calls, the deflections taken from the device
+     * log — and holds every zoom after the first to roughly the cost of a
+     * plain tessellation. */
+    {
+        std::printf("== re-tessellating is a zoom, not a search ==\n");
+
+        gp_GTrsf g;
+        g.SetValue(1, 1, 1.0);
+        g.SetValue(2, 2, 0.55);
+        g.SetValue(3, 3, 1.9);
+        std::vector<double> xyz;
+        std::vector<int> tri;
+        Tessellate(BRepBuilderAPI_GTransform(BRepPrimAPI_MakeSphere(50.).Shape(),
+                                             g, Standard_True).Shape(),
+                   0.15, xyz, tri);
+        meshrecon::Params p = meshrecon::Defaults();
+        meshrecon::Report r;
+        std::string err;
+        TopoDS_Shape out = meshrecon::Reconstruct(
+            xyz.data(), (int)(xyz.size() / 3), tri.data(),
+            (int)(tri.size() / 3), p, r, err);
+        chk("zoom: it converts", !out.IsNull(), err);
+        if (!out.IsNull()) {
+            /* kCoarseLinDeflection, then what the app asked for as the user
+             * zoomed in, from prototype_log.txt. */
+            const double defl[] = {0.6, 0.1, 1.8e-2, 5.59e-3};
+            std::vector<double> areas;
+            double factor = 0;
+            double firstMs = 0, worstZoomMs = 0, worstPlainMs = 0;
+            for (int i = 0; i < 4; ++i) {
+                /* What a plain tessellation of the same shape costs, for the
+                 * comparison to be against something real rather than a
+                 * number somebody picked. */
+                BRepTools::Clean(out);
+                auto t0 = std::chrono::steady_clock::now();
+                try {
+                    BRepMesh_IncrementalMesh im(out, defl[i], Standard_False,
+                                                0.35, Standard_True);
+                } catch (...) {
+                }
+                const double plain = std::chrono::duration<double, std::milli>(
+                    std::chrono::steady_clock::now() - t0).count();
+
+                BRepTools::Clean(out);
+                t0 = std::chrono::steady_clock::now();
+                meshrecon::TessellateCovered(out, defl[i], 0.35, areas, factor);
+                const double got = std::chrono::duration<double, std::milli>(
+                    std::chrono::steady_clock::now() - t0).count();
+                if (i == 0) {
+                    firstMs = got;
+                } else {
+                    worstZoomMs = std::max(worstZoomMs, got);
+                    worstPlainMs = std::max(worstPlainMs, plain);
+                }
+            }
+            chk("zoom: the first draw searches, and is bounded",
+                firstMs < 12000.0, std::to_string(firstMs) + " ms");
+            /* Four times a plain tessellation, plus a floor so a fixture that
+             * meshes in single-digit milliseconds is not judged on jitter.
+             * Measured before the fix, on the whale: 24x, and 127 seconds. */
+            const double ceiling = std::max(worstPlainMs * 4.0, 250.0);
+            chk("zoom: every later draw costs about a plain tessellation",
+                worstZoomMs <= ceiling,
+                std::to_string(worstZoomMs) + " ms against a plain " +
+                    std::to_string(worstPlainMs) + " ms");
+            chk("zoom: and the deflection it settled on is remembered",
+                factor > 0, std::to_string(factor));
+            std::printf("   first draw %.0f ms, worst zoom %.0f ms "
+                        "(plain %.0f ms), settled on %.4f mm\n",
+                        firstMs, worstZoomMs, worstPlainMs, factor);
         }
     }
 
