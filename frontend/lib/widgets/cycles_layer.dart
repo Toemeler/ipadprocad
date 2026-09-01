@@ -27,6 +27,7 @@ import '../app_state.dart';
 import '../cycles_render.dart';
 import '../cycles_scene.dart';
 import '../cycles_session.dart';
+import '../cycles_warmup.dart';
 import '../cycles_view.dart';
 import '../l10n/l.dart';
 import '../part_render.dart' show Cam3;
@@ -61,7 +62,18 @@ class _CyclesLayerState extends State<CyclesLayer> {
   bool _decoding = false;
 
   @override
+  void initState() {
+    super.initState();
+    CyclesWarmup.instance.addListener(_warmupChanged);
+  }
+
+  void _warmupChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
   void dispose() {
+    CyclesWarmup.instance.removeListener(_warmupChanged);
     _settle?.cancel();
     _decoded?.dispose();
     super.dispose();
@@ -125,7 +137,14 @@ class _CyclesLayerState extends State<CyclesLayer> {
 
     final dpr = MediaQuery.devicePixelRatioOf(context);
     final (w, h) = cyclesImageSize(widget.size.width, widget.size.height, dpr);
-    final wanted = cyclesWanted(app);
+    // Rendered mode being ON is a different question from whether a render can
+    // START. On a cold install the Metal kernels are still being compiled from
+    // source (M320), and a render begun into that blocks for the whole compile
+    // with nothing on screen. So the mode decides what to SHOW and the warm-up
+    // decides whether to RENDER.
+    final warmup = CyclesWarmup.instance;
+    final mode = cyclesWanted(app);
+    final wanted = mode && warmup.ready;
     final changed = session.offer(
       wanted: wanted,
       scene: cyclesSceneKey(app),
@@ -160,7 +179,13 @@ class _CyclesLayerState extends State<CyclesLayer> {
               filterQuality: FilterQuality.medium,
             ),
           ),
-        if (wanted)
+        if (mode && !warmup.ready)
+          Positioned(
+            right: 12,
+            bottom: 12,
+            child: _CyclesWarmupPanel(warmup),
+          )
+        else if (wanted)
           Positioned(
             right: 12,
             bottom: 12,
@@ -231,6 +256,101 @@ class _CyclesBadge extends StatelessWidget {
               style: TextStyle(
                   color: tone, fontSize: 10.5, fontWeight: FontWeight.w500)),
         ]),
+      ),
+    );
+  }
+}
+
+/// What the renderer is doing while it cannot yet render.
+///
+/// Bigger than the badge, deliberately. The badge reports something that takes
+/// seconds; this reports something that takes minutes, once per install, and
+/// during which rendered mode shows the ordinary shaded view and would
+/// otherwise look simply broken. It says three things: that the renderer is
+/// being prepared, WHICH STEP Cycles is on in Cycles' own words, and that it
+/// will not happen again.
+class _CyclesWarmupPanel extends StatelessWidget {
+  const _CyclesWarmupPanel(this.warmup);
+
+  final CyclesWarmup warmup;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = L.of(context);
+    final failed = warmup.phase == CyclesWarmupPhase.failed;
+    // Cycles' own status sentence — "Loading render kernels (may take a few
+    // minutes the first time)", then the sample count. Untranslated on
+    // purpose: it comes out of the renderer at runtime, and a paraphrase would
+    // be a second thing to keep true.
+    final step = warmup.status;
+    final p = warmup.progress;
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 260),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: T.panel.withValues(alpha: 0.88),
+          borderRadius: BorderRadius.circular(7),
+          border: Border.all(color: T.sep),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(11, 9, 11, 10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(mainAxisSize: MainAxisSize.min, children: [
+                if (!failed)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 7),
+                    child: SizedBox(
+                      width: 10,
+                      height: 10,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 1.5, color: T.accent),
+                    ),
+                  ),
+                Flexible(
+                  child: Text(
+                    failed ? t.cyclesWarmupFailed : t.cyclesWarmupTitle,
+                    style: TextStyle(
+                        color: T.text,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ]),
+              if (step.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(step,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: T.dim, fontSize: 10.5)),
+                ),
+              // Only when Cycles is actually counting. A bar that sits at zero
+              // for ninety seconds is worse than no bar at all.
+              if (!failed && p >= 0 && p <= 1)
+                Padding(
+                  padding: const EdgeInsets.only(top: 7),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(2),
+                    child: LinearProgressIndicator(
+                      value: p,
+                      minHeight: 3,
+                      backgroundColor: T.sep,
+                      color: T.accent,
+                    ),
+                  ),
+                ),
+              if (!failed)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(t.cyclesWarmupOnce,
+                      style: TextStyle(color: T.dim, fontSize: 10)),
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }

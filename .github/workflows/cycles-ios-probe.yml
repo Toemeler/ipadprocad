@@ -132,6 +132,15 @@ jobs:
           cat backend/cycles/shim/append.cmake >> blender/intern/cycles/CMakeLists.txt
           tail -5 blender/intern/cycles/CMakeLists.txt
 
+      # M320 — the iOS Metal kernel-loading fixes, from Toemeler/blender-iOS-ipa.
+      # Without them the first render compiles for minutes and NOTHING PERSISTS,
+      # so every launch pays it again; with them it is paid once per install.
+      # See backend/cycles/patches/ios_metal.py for what each edit is and which
+      # on-device failure found it. Self-verifying: any anchor that does not
+      # match exactly once fails the build rather than silently doing nothing.
+      - name: Patch Cycles for iOS kernel loading
+        run: python3 backend/cycles/patches/ios_metal.py
+
       - name: Configure (iOS device, arm64)
         run: |
           set -o pipefail

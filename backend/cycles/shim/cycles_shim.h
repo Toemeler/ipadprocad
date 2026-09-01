@@ -49,8 +49,13 @@ typedef struct {
   float world[3];
 } CyView;
 
-/* Is there a device to render on? 0 when Cycles found none, which on iOS means
- * neither Metal nor the CPU fallback came up. */
+/* Is there a GPU to render on? 0 when no Metal device came up.
+ *
+ * METAL OR NOTHING. There is a CPU device in Cycles and this deliberately does
+ * not use it: the same image that takes an iPad's GPU a few seconds takes its
+ * CPU minutes, and a rendered mode that silently becomes a four-minute wait is
+ * worse than one that says it cannot run. If there is no Metal device, there
+ * is no renderer. */
 int cy_available(void);
 
 /* Human-readable device description, for the log and the bug report. Never
@@ -66,6 +71,39 @@ const char *cy_device_name(void);
  * this has to point at it before the first render. Called once at startup.
  */
 void cy_set_resource_path(const char *path);
+
+/* Compiles the Metal kernels, and nothing else.
+ *
+ * The Metal backend has no precompiled kernels; it builds them from the source
+ * above, on the device, and that is tens of seconds to minutes the first time.
+ * Afterwards the result is in a binary archive on disk and a launch costs
+ * nothing. So this exists to get that over with AT STARTUP, in the background,
+ * rather than the first time somebody switches to rendered mode and watches a
+ * spinner for two minutes.
+ *
+ * It is a real render — a single sample of a single triangle at 32x32 — because
+ * that is what makes Cycles walk its own load_kernels path and populate the
+ * archive. Anything less compiles a different set of kernels than the one the
+ * app will use.
+ *
+ * BLOCKING, for minutes on a cold install. Call it off the UI thread. Returns 1
+ * when the device is ready to render. */
+int cy_preload(void);
+
+/* 1 once cy_preload has succeeded in this process. Cheap; call it freely. */
+int cy_kernels_ready(void);
+
+/* What Cycles is doing right now, copied into [out] as a NUL-terminated string.
+ *
+ * Cycles' own progress status, which during a cold start is the sentence
+ * "Loading render kernels (may take a few minutes the first time)" and during a
+ * render is the sample count. Readable from any thread and from any isolate —
+ * it is one process, and this is a mutex-guarded copy rather than a pointer
+ * into a std::string that another thread is writing. */
+void cy_status(char *out, int len);
+
+/* How far along, 0..1, or -1 when nothing is running. */
+float cy_progress(void);
 
 /* Render [meshes] from [view] into [rgba_out], which must hold
  * width * height * 4 bytes. Returns 1 on success, 0 on failure; the reason is

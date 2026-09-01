@@ -57,17 +57,29 @@ typedef _RenderN = Int32 Function(
     Pointer<CyMeshS>, Int32, Pointer<CyViewS>, Pointer<Uint8>);
 typedef _RenderD = int Function(
     Pointer<CyMeshS>, int, Pointer<CyViewS>, Pointer<Uint8>);
+typedef _StatusN = Void Function(Pointer<Uint8>, Int32);
+typedef _StatusD = void Function(Pointer<Uint8>, int);
+typedef _ProgressN = Float Function();
+typedef _ProgressD = double Function();
+
+/// How long a status line can be. Cycles' own are one sentence.
+const int _kStatusMax = 256;
 
 /// The renderer, or null when this build has none linked.
 class CyclesFfi {
   CyclesFfi._(this._available, this._deviceName, this._setPath, this._render,
-      this._lastError);
+      this._lastError, this._preload, this._kernelsReady, this._status,
+      this._progress);
 
   final _AvailD _available;
   final _StrD _deviceName;
   final _SetPathD _setPath;
   final _RenderD _render;
   final _StrD _lastError;
+  final _AvailD _preload;
+  final _AvailD _kernelsReady;
+  final _StatusD _status;
+  final _ProgressD _progress;
 
   static CyclesFfi? _instance;
   static bool _tried = false;
@@ -84,6 +96,10 @@ class CyclesFfi {
         lib.lookupFunction<_SetPathN, _SetPathD>('cy_set_resource_path'),
         lib.lookupFunction<_RenderN, _RenderD>('cy_render'),
         lib.lookupFunction<_StrN, _StrD>('cy_last_error'),
+        lib.lookupFunction<_AvailN, _AvailD>('cy_preload'),
+        lib.lookupFunction<_AvailN, _AvailD>('cy_kernels_ready'),
+        lib.lookupFunction<_StatusN, _StatusD>('cy_status'),
+        lib.lookupFunction<_ProgressN, _ProgressD>('cy_progress'),
       );
       Log.i('cycles', 'shim linked; device ${_instance!.deviceName}');
     } catch (e) {
@@ -102,6 +118,31 @@ class CyclesFfi {
   }
 
   bool get available => _available() != 0;
+
+  /// True once the Metal kernels are compiled and a render would start at once.
+  bool get kernelsReady => _kernelsReady() != 0;
+
+  /// Compiles the Metal kernels. BLOCKING, for minutes on a cold install —
+  /// runs on its own isolate. Returns false when the device cannot render.
+  bool preload() => _preload() != 0;
+
+  /// What Cycles is doing right now, or '' when nothing is running.
+  ///
+  /// Safe to call from the UI isolate while a render runs on another: the shim
+  /// copies the string out under a mutex rather than handing back a pointer
+  /// into one another thread is rewriting.
+  String get status {
+    final buf = calloc<Uint8>(_kStatusMax);
+    try {
+      _status(buf, _kStatusMax);
+      return buf.cast<Utf8>().toDartString();
+    } finally {
+      calloc.free(buf);
+    }
+  }
+
+  /// How far along, 0..1, or negative when nothing is running.
+  double get progress => _progress();
   String get deviceName => _deviceName().toDartString();
   String get lastError => _lastError().toDartString();
 

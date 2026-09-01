@@ -24,6 +24,7 @@
 // rather than offering a render that cannot happen.
 import 'dart:io';
 
+import 'cycles_warmup.dart';
 import 'ffi/cycles_engine.dart';
 import 'log.dart';
 
@@ -84,6 +85,12 @@ void initCycles() {
   ffi.setResourcePath(root);
   _ready = true;
   Log.i('cycles', 'ready: device ${ffi.deviceName}, resources $root');
+  // M320 — and start compiling the Metal kernels NOW, on another isolate.
+  // They take minutes on a cold install and nothing on every launch after,
+  // and the only question is whether that wait lands here, while a document
+  // is being opened, or on the first person to switch to rendered mode.
+  // Strictly after setResourcePath: the compiler needs the source tree.
+  CyclesWarmup.instance.start();
 }
 
 /// For tests, which must not inherit another case's answer.

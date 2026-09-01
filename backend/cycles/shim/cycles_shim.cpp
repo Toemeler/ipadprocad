@@ -48,7 +48,10 @@
 
 #include "cycles_shim.h"
 
+#include <atomic>
+#include <cstdlib>
 #include <cstring>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -132,33 +135,66 @@ template<typename M> auto mesh_tag_positions(M *m, long) -> decltype(m->tag_vert
 std::string g_error;
 std::string g_device = "none";
 bool g_probed = false;
+/* Read from the UI isolate while a render writes it from another. One process,
+ * so this is an ordinary data race and an atomic is the ordinary fix. */
+std::atomic<bool> g_kernels_ready{false};
+
+/* The step Cycles is on, for the UI.
+ *
+ * Written from Cycles' own threads through the progress callback and read from
+ * the UI isolate, so it is a mutex-guarded copy rather than a std::string
+ * somebody else is reassigning underneath the reader. */
+std::mutex g_status_mutex;
+std::string g_status;
+float g_progress = -1.0f;
+
+void set_status(const std::string &s, float p)
+{
+  std::lock_guard<std::mutex> lock(g_status_mutex);
+  g_status = s;
+  g_progress = p;
+}
+
+/* Reports [session]'s progress into the globals above, for the life of the
+ * session. Cycles calls this from its own threads. */
+void watch_progress(ccl::Session *session)
+{
+  ccl::Session *s = session;
+  session->progress.set_update_callback([s]() {
+    ccl::string status, substatus;
+    s->progress.get_status(status, substatus);
+    if (!substatus.empty()) {
+      status += ", " + substatus;
+    }
+    set_status(std::string(status.c_str()), (float)s->progress.get_progress());
+  });
+}
 
 void set_error(const char *msg)
 {
   g_error = msg ? msg : "";
 }
 
-/* The device to render on: Metal if the machine has one, the CPU otherwise.
+/* The device to render on: Metal, or nothing.
  *
- * Metal is preferred rather than required. An iPad always has one, but the CPU
- * device is what makes this testable on a CI runner and in the simulator, and
- * a renderer that refuses to run anywhere it cannot be fast is a renderer
- * nobody can debug.
+ * METAL IS REQUIRED, not preferred. Cycles has a CPU device and falling back to
+ * it is the wrong behaviour here: the same image an iPad's GPU produces in a
+ * few seconds takes its CPU minutes, on battery, while the app appears hung.
+ * A rendered mode that silently becomes a four-minute wait is worse than one
+ * that says it cannot run — and on the machines this app ships to, there is
+ * always a Metal device, so the fallback only ever fires when something is
+ * already wrong.
  */
 bool pick_device(ccl::DeviceInfo &out)
 {
   const ccl::vector<ccl::DeviceInfo> devices = ccl::Device::available_devices();
-  if (devices.empty()) {
-    return false;
-  }
   for (const ccl::DeviceInfo &info : devices) {
     if (info.type == ccl::DEVICE_METAL) {
       out = info;
       return true;
     }
   }
-  out = devices.front();
-  return true;
+  return false;
 }
 
 /* Copies the finished frame out of Cycles and into the caller's buffer.
@@ -249,6 +285,27 @@ void cy_set_resource_path(const char *path)
     return;
   }
   ccl::path_init(path, path);
+
+  /* AND THE KERNEL CACHE, which is a separate directory and the one that
+   * decides whether the minutes-long first compile is paid once or on every
+   * single launch.
+   *
+   * Cycles writes its compiled Metal binary archives under
+   * path_cache_get("kernels"), which resolves to $XDG_CACHE_HOME or, failing
+   * that, $HOME/.cache — see util/path.cpp, path_xdg_cache_get. On iOS $HOME
+   * is the app container ROOT, which the sandbox forbids writing to, so the
+   * directory can never be created and every archive save fails. Metal reports
+   * that as "Invalid URL", which is why it reads like a Metal bug and is not
+   * one. Library/Caches is the sanctioned writable location.
+   *
+   * Discovered the hard way by Toemeler/blender-iOS-ipa (build-30). Their fix
+   * patches Cycles; this needs no patch, because the environment variable is
+   * checked first. */
+  const char *home = getenv("HOME");
+  if (home != nullptr && getenv("XDG_CACHE_HOME") == nullptr) {
+    const std::string caches = std::string(home) + "/Library/Caches";
+    setenv("XDG_CACHE_HOME", caches.c_str(), 1);
+  }
 }
 
 const char *cy_last_error(void)
@@ -269,7 +326,7 @@ int cy_render(const CyMesh *meshes,
 
   ccl::DeviceInfo device;
   if (!pick_device(device)) {
-    set_error("no Cycles device is available");
+    set_error("no Metal device — this build renders on the GPU only");
     return 0;
   }
 
@@ -288,6 +345,7 @@ int cy_render(const CyMesh *meshes,
   ccl::unique_ptr<ccl::Session> session = ccl::make_unique<ccl::Session>(session_params,
                                                                         scene_params);
   ccl::Scene *scene = session->scene.get();
+  watch_progress(session.get());
 
   /* ---- camera ---------------------------------------------------------- */
   ccl::Camera *cam = scene->camera;
@@ -428,7 +486,75 @@ int cy_render(const CyMesh *meshes,
     }
     return 0;
   }
+  /* A frame came back, so the kernels are compiled and in the archive. Any
+   * render proves this, not just cy_preload's. */
+  g_kernels_ready.store(true);
+  set_status("", -1.0f);
   return 1;
+}
+
+int cy_kernels_ready(void)
+{
+  return g_kernels_ready.load() ? 1 : 0;
+}
+
+void cy_status(char *out, int len)
+{
+  if (out == nullptr || len <= 0) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(g_status_mutex);
+  const size_t n = g_status.size() < (size_t)(len - 1) ? g_status.size() : (size_t)(len - 1);
+  memcpy(out, g_status.data(), n);
+  out[n] = '\0';
+}
+
+float cy_progress(void)
+{
+  std::lock_guard<std::mutex> lock(g_status_mutex);
+  return g_progress;
+}
+
+int cy_preload(void)
+{
+  if (g_kernels_ready.load()) {
+    return 1;
+  }
+  /* One triangle, one sample, 32x32. Small enough to be over the moment the
+   * kernels exist, and a REAL render rather than a device probe, because it is
+   * the render path that walks load_kernels, compiles the pipelines and writes
+   * the binary archive. A cheaper warm-up would compile a different set of
+   * kernels than the app then asks for, and the wait would simply move. */
+  const float verts[9] = {0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f};
+  const int tris[3] = {0, 1, 2};
+  CyMesh mesh;
+  mesh.verts = verts;
+  mesh.vert_count = 3;
+  mesh.normals = nullptr;
+  mesh.tris = tris;
+  mesh.tri_count = 1;
+
+  CyView view;
+  memset(&view, 0, sizeof(view));
+  /* Identity basis, eye pulled back along +Z, matching cyclesCameraMatrix. */
+  view.matrix[0] = 1.0f;
+  view.matrix[5] = 1.0f;
+  view.matrix[10] = 1.0f;
+  view.matrix[11] = 4.0f;
+  view.half_width = 2.0f;
+  view.half_height = 2.0f;
+  view.width = 32;
+  view.height = 32;
+  view.samples = 1;
+  view.world[0] = view.world[1] = view.world[2] = 0.8f;
+
+  std::vector<unsigned char> scratch((size_t)view.width * view.height * 4);
+  set_status("Preparing the renderer", 0.0f);
+  const int ok = cy_render(&mesh, 1, &view, scratch.data());
+  if (!ok) {
+    set_status("", -1.0f);
+  }
+  return ok;
 }
 
 }  /* extern "C" */

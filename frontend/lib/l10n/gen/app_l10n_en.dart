@@ -28,56 +28,45 @@ class AppL10nEn extends AppL10n {
       '“System” follows your iPad’s setting.';
 
   @override
-  String get bugAutofix =>
-      'Let the automation fix it';
+  String get bugAutofix => 'Let the automation fix it';
 
   @override
-  String get bugAutofixOn =>
-      'The report goes straight to the fix automation.';
+  String get bugAutofixOn => 'The report goes straight to the fix automation.';
 
   @override
   String get bugAutofixOff =>
       'The report waits for a session you start yourself.';
 
   @override
-  String get settingsAccent =>
-      'Accent colour';
+  String get settingsAccent => 'Accent colour';
 
   @override
   String get settingsAccentFooter =>
       '“Scheme” uses the colour of the chosen appearance. Every colour here is checked for legibility.';
 
   @override
-  String get accentScheme =>
-      'Scheme';
+  String get accentScheme => 'Scheme';
 
   @override
-  String get accentTeal =>
-      'Teal';
+  String get accentTeal => 'Teal';
 
   @override
-  String get accentBlue =>
-      'Blue';
+  String get accentBlue => 'Blue';
 
   @override
-  String get accentIndigo =>
-      'Indigo';
+  String get accentIndigo => 'Indigo';
 
   @override
-  String get accentMagenta =>
-      'Magenta';
+  String get accentMagenta => 'Magenta';
 
   @override
-  String get accentAmber =>
-      'Amber';
+  String get accentAmber => 'Amber';
 
   @override
-  String get accentGreen =>
-      'Green';
+  String get accentGreen => 'Green';
 
   @override
-  String get accentRed =>
-      'Red';
+  String get accentRed => 'Red';
 
   @override
   String get settingsBackdrop => 'Backdrop';
@@ -3988,4 +3977,13 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get cyclesFailed => 'Cycles failed';
+
+  @override
+  String get cyclesWarmupTitle => 'Preparing renderer';
+
+  @override
+  String get cyclesWarmupOnce => 'This happens once per install.';
+
+  @override
+  String get cyclesWarmupFailed => 'The renderer could not start';
 }

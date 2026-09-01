@@ -6780,6 +6780,24 @@ abstract class AppL10n {
   /// In de, this message translates to:
   /// **'Cycles fehlgeschlagen'**
   String get cyclesFailed;
+
+  /// M320 — Cycles uebersetzt seine Metal-Kernel beim ersten Start aus dem Quelltext; das dauert Minuten und passiert genau einmal pro Installation. Wer in dieser Zeit auf Gerendert schaltet, muss erfahren, dass gewartet wird und nicht dass etwas kaputt ist.
+  ///
+  /// In de, this message translates to:
+  /// **'Renderer wird vorbereitet'**
+  String get cyclesWarmupTitle;
+
+  /// M320 — der Satz, der aus einer Minute Warten eine ertraegliche Minute macht: es passiert nicht wieder.
+  ///
+  /// In de, this message translates to:
+  /// **'Das geschieht einmal pro Installation.'**
+  String get cyclesWarmupOnce;
+
+  /// M320 — kein Metal-Geraet oder ein fehlgeschlagener Kernel-Build. Der Grund steht darunter.
+  ///
+  /// In de, this message translates to:
+  /// **'Der Renderer konnte nicht gestartet werden'**
+  String get cyclesWarmupFailed;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

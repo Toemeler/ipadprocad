@@ -1113,5 +1113,8 @@
   "cyclesBadge": "Cycles",
   "cyclesPreparing": "Cycles · preparing kernels",
   "cyclesSamples": "Cycles · {samples} spp",
-  "cyclesFailed": "Cycles failed"
+  "cyclesFailed": "Cycles failed",
+  "cyclesWarmupTitle": "Preparing renderer",
+  "cyclesWarmupOnce": "This happens once per install.",
+  "cyclesWarmupFailed": "The renderer could not start"
 }

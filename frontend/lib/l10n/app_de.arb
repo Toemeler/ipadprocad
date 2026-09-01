@@ -3579,5 +3579,17 @@
   "cyclesFailed": "Cycles fehlgeschlagen",
   "@cyclesFailed": {
     "description": "M304 — ein Fehlschlag, der nichts anzeigt, ist von einem Modus, der nichts tut, nicht zu unterscheiden."
+  },
+  "cyclesWarmupTitle": "Renderer wird vorbereitet",
+  "@cyclesWarmupTitle": {
+    "description": "M320 — Cycles uebersetzt seine Metal-Kernel beim ersten Start aus dem Quelltext; das dauert Minuten und passiert genau einmal pro Installation. Wer in dieser Zeit auf Gerendert schaltet, muss erfahren, dass gewartet wird und nicht dass etwas kaputt ist."
+  },
+  "cyclesWarmupOnce": "Das geschieht einmal pro Installation.",
+  "@cyclesWarmupOnce": {
+    "description": "M320 — der Satz, der aus einer Minute Warten eine ertraegliche Minute macht: es passiert nicht wieder."
+  },
+  "cyclesWarmupFailed": "Der Renderer konnte nicht gestartet werden",
+  "@cyclesWarmupFailed": {
+    "description": "M320 — kein Metal-Geraet oder ein fehlgeschlagener Kernel-Build. Der Grund steht darunter."
   }
 }
