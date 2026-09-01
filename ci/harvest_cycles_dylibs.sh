@@ -42,6 +42,18 @@ while [ -n "${QUEUE// /}" ]; do
   shift
   QUEUE="$*"
   case "$SEEN" in *" $name "*) continue ;; esac
+  # NEVER libtbbmalloc_proxy. It is not a library anything calls — it exists
+  # to REPLACE the process's malloc/free with TBB's, by dyld interposition,
+  # purely by being loaded. Blender ships it in the package and does not link
+  # it. Build 616 did, because the link passes every dylib in the package and
+  # ld records a load command for each, and the app then died the first time
+  # a part was opened: launch was fine, and the first heavy allocation
+  # (OCCT meshing) was not. Nothing here wants another allocator.
+  case "$name" in
+    libtbbmalloc_proxy.dylib)
+      echo "CYCLES DYLIBS: refusing $name (it interposes malloc; see the note above)"
+      continue ;;
+  esac
   SEEN="$SEEN$name "
   f="$(find "$ROOT" -name "$name" -not -path '*/python/*' -type f 2>/dev/null | head -1)"
   if [ -z "$f" ]; then

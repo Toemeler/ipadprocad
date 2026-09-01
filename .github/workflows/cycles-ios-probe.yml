@@ -294,7 +294,7 @@ jobs:
           # visible at once — and repeating them only earns duplicate-library
           # warnings.
           ARCH=$(find blender/lib/ios_arm64 -name '*.a' -not -path '*/python/*' -not -path '*/openpgl/*' 2>/dev/null | tr '\n' ' ')
-          DYLIB=$(find blender/lib/ios_arm64 -name '*.dylib' -not -path '*/python/*' 2>/dev/null | tr '\n' ' ')
+          DYLIB=$(find blender/lib/ios_arm64 -name '*.dylib' -not -path '*/python/*' -not -name 'libtbbmalloc_proxy.dylib' 2>/dev/null | tr '\n' ' ')
           DEPS="$ARCH $ARCH $ARCH $DYLIB"
           echo "deps: $(echo $ARCH | wc -w) archives, $(echo $DYLIB | wc -w) dylibs"
           # force_load per Cycles archive rather than a global -all_load: the
@@ -351,7 +351,7 @@ jobs:
           SDK=$(xcrun --sdk iphoneos --show-sdk-path)
           test -f build_ios/lib/Release/libcycles_shim.a || exit 0
           ARCH=$(find blender/lib/ios_arm64 -name '*.a' -not -path '*/python/*' -not -path '*/openpgl/*' 2>/dev/null | tr '\n' ' ')
-          DYLIB=$(find blender/lib/ios_arm64 -name '*.dylib' -not -path '*/python/*' 2>/dev/null | tr '\n' ' ')
+          DYLIB=$(find blender/lib/ios_arm64 -name '*.dylib' -not -path '*/python/*' -not -name 'libtbbmalloc_proxy.dylib' 2>/dev/null | tr '\n' ' ')
           DEPS="$ARCH $ARCH $ARCH $DYLIB"
           set +e
           xcrun --sdk iphoneos clang++ -target arm64-apple-ios16.0 -isysroot "$SDK" \

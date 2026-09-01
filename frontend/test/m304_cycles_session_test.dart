@@ -110,7 +110,7 @@ void main() {
     test('builds the job once, not once per frame', () {
       var built = 0;
       final s = CyclesSession(
-          available: true, runner: (_) async => Uint8List(4));
+          available: true, runner: (_) async => (Uint8List(4), 'stub'));
       bool offer(String camera) => s.offer(
             wanted: true,
             scene: 'sig',
@@ -137,7 +137,7 @@ void main() {
 
     test('does nothing whatsoever without a renderer linked', () {
       var built = 0;
-      final s = CyclesSession(available: false, runner: (_) async => null);
+      final s = CyclesSession(available: false, runner: (_) async => (null, 'stub says no'));
       final changed = s.offer(
         wanted: true,
         scene: 'sig',
@@ -158,7 +158,7 @@ void main() {
     test('leaving rendered mode drops the queued job as well as the image',
         () {
       final s =
-          CyclesSession(available: true, runner: (_) async => Uint8List(4));
+          CyclesSession(available: true, runner: (_) async => (Uint8List(4), 'stub'));
       s.offer(
           wanted: true,
           scene: 'sig',
@@ -181,7 +181,7 @@ void main() {
 
     test('a zero-size viewport is not a render request', () {
       final s =
-          CyclesSession(available: true, runner: (_) async => Uint8List(4));
+          CyclesSession(available: true, runner: (_) async => (Uint8List(4), 'stub'));
       expect(
           s.offer(
               wanted: true,
@@ -202,7 +202,7 @@ void main() {
         available: true,
         runner: (j) async {
           ran = j;
-          return Uint8List.fromList(List.filled(4 * 4 * 4, 200));
+          return (Uint8List.fromList(List.filled(4 * 4 * 4, 200)), 'Apple M-stub');
         },
       );
       s.offer(
@@ -222,7 +222,7 @@ void main() {
 
     test('a renderer that returns nothing is a failure, not a blank picture',
         () async {
-      final s = CyclesSession(available: true, runner: (_) async => null);
+      final s = CyclesSession(available: true, runner: (_) async => (null, 'stub says no'));
       s.offer(
           wanted: true,
           scene: 'sig',
@@ -235,8 +235,33 @@ void main() {
       expect(s.render.image, isNull);
     });
 
+    test('what the renderer said comes back across the isolate', () async {
+      // The note is carried rather than logged where it is produced, because
+      // Log.init() runs on the UI isolate and a fresh one has no log file —
+      // cy_last_error() would be missing from the log in exactly the case
+      // where somebody is reading the log to find out why a render failed.
+      final bad = CyclesSession(
+          available: true, runner: (_) async => (null, 'no Metal device'));
+      bad.offer(
+          wanted: true, scene: 's', camera: 'c', width: 4, height: 4,
+          buildJob: _job);
+      await bad.pump();
+      expect(bad.note, 'no Metal device');
+      expect(bad.render.phase, CyclesPhase.failed);
+
+      final good = CyclesSession(
+          available: true,
+          runner: (_) async => (Uint8List(4 * 4 * 4), 'Apple M4 (GPU)'));
+      good.offer(
+          wanted: true, scene: 's', camera: 'c', width: 4, height: 4,
+          buildJob: _job);
+      await good.pump();
+      expect(good.note, 'Apple M4 (GPU)',
+          reason: 'on success the note names the device that rendered');
+    });
+
     test('nothing to pump when nothing was offered', () {
-      final s = CyclesSession(available: true, runner: (_) async => null);
+      final s = CyclesSession(available: true, runner: (_) async => (null, 'stub says no'));
       expect(s.pump(), isNull);
     });
   });

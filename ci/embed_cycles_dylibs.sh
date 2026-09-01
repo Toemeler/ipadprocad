@@ -35,6 +35,19 @@ if [ ${#DYLIBS[@]} -eq 0 ]; then
   exit 0
 fi
 
+# A tripwire, not a filter. If this ever reappears in the harvested set,
+# something upstream changed and the app is about to get a different malloc
+# than the one Flutter, Qt and OCCT were built against — which is what build
+# 616 shipped, and it crashed on the first part opened.
+for f in "${DYLIBS[@]}"; do
+  case "$(basename "$f")" in
+    libtbbmalloc_proxy.dylib)
+      echo "CYCLES DYLIBS: FAIL — libtbbmalloc_proxy.dylib must never be bundled;"
+      echo "  it replaces the process allocator by being loaded. See M319."
+      exit 1 ;;
+  esac
+done
+
 mkdir -p "$FW"
 for f in "${DYLIBS[@]}"; do
   # -L follows the symlinks the package uses for versioned names, so what

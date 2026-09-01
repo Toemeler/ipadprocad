@@ -668,7 +668,7 @@ jobs:
           # machined part.
           ARCH=$(find blender/lib/ios_arm64 -name '*.a' \
                    -not -path '*/python/*' -not -path '*/openpgl/*' | tr '\n' ' ')
-          DYLIB=$(find blender/lib/ios_arm64 -name '*.dylib' -not -path '*/python/*' | tr '\n' ' ')
+          DYLIB=$(find blender/lib/ios_arm64 -name '*.dylib' -not -path '*/python/*' -not -name 'libtbbmalloc_proxy.dylib' | tr '\n' ' ')
           DEPS="$ARCH $ARCH $ARCH $DYLIB"
           # Three times: Apple's linker walks archives once, in the order
           # given, and `find` emits them in directory order, so a library

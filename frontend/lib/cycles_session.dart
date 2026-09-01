@@ -73,26 +73,43 @@ class CyclesJob {
   }
 }
 
+/// The result of one render: the pixels, and what the renderer had to say.
+///
+/// The note travels BACK ACROSS THE ISOLATE rather than being logged where it
+/// is produced, and that is the whole point of the type. Log.init() runs on
+/// the UI isolate; in a fresh one the log file handle does not exist, so
+/// Log.w there goes to the device console and into a buffer nobody reads —
+/// which is to say `cy_last_error()`, the one string that explains a failed
+/// render, would be missing from the log file in exactly the situation where
+/// somebody is reading the log file to find out why the render failed.
+typedef CyclesOutcome = (Uint8List? rgba, String note);
+
 /// Runs [job] through the shim. Top-level so it can be the body of an isolate.
 ///
-/// Returns null when this binary has no renderer, or when Cycles failed; the
-/// reason is logged rather than thrown, because a failed render must never be
-/// able to take the app down with it.
-Uint8List? renderCyclesJob(CyclesJob job) {
+/// Never throws: a failed render must not be able to take the app down with
+/// it, so the reason comes back as text.
+CyclesOutcome renderCyclesJob(CyclesJob job) {
   final ffi = CyclesFfi.instance;
-  if (ffi == null) return null;
-  final out = ffi.render(
-    meshes: job.meshes,
-    matrix: job.matrix,
-    halfWidth: job.halfWidth,
-    halfHeight: job.halfHeight,
-    width: job.width,
-    height: job.height,
-    samples: job.samples,
-    world: job.world,
-  );
-  if (out == null) Log.w('cycles', 'render failed: ${ffi.lastError}');
-  return out;
+  if (ffi == null) return (null, 'no renderer linked into this binary');
+  try {
+    final out = ffi.render(
+      meshes: job.meshes,
+      matrix: job.matrix,
+      halfWidth: job.halfWidth,
+      halfHeight: job.halfHeight,
+      width: job.width,
+      height: job.height,
+      samples: job.samples,
+      world: job.world,
+    );
+    if (out == null) {
+      final why = ffi.lastError;
+      return (null, why.isEmpty ? 'the renderer produced no image' : why);
+    }
+    return (out, ffi.deviceName);
+  } catch (e) {
+    return (null, '$e');
+  }
 }
 
 /// Drives [CyclesRender] with real jobs on a real isolate.
@@ -102,7 +119,7 @@ Uint8List? renderCyclesJob(CyclesJob job) {
 class CyclesSession {
   CyclesSession({
     int samples = kCyclesSamples,
-    Future<Uint8List?> Function(CyclesJob)? runner,
+    Future<CyclesOutcome> Function(CyclesJob)? runner,
     bool? available,
   })  : _runner = runner ?? _runOnIsolate,
         _samples = samples {
@@ -113,7 +130,7 @@ class CyclesSession {
     );
   }
 
-  final Future<Uint8List?> Function(CyclesJob) _runner;
+  final Future<CyclesOutcome> Function(CyclesJob) _runner;
   final int _samples;
 
   /// The state machine. Read [CyclesRender.image] to draw, [busy] for the
@@ -174,10 +191,24 @@ class CyclesSession {
     return f;
   }
 
-  Future<Uint8List?> _render(CyclesKey key) {
+  /// What the renderer said about the last attempt, successful or not.
+  ///
+  /// The device name when it worked, `cy_last_error()` when it did not.
+  String get note => _note;
+  String _note = '';
+
+  Future<Uint8List?> _render(CyclesKey key) async {
     final j = _job;
-    if (j == null) return Future.value(null);
-    return _runner(j);
+    if (j == null) return null;
+    final (rgba, note) = await _runner(j);
+    _note = note;
+    // Logged HERE, on the isolate that has the log file open.
+    if (rgba == null) {
+      Log.w('cycles', 'render failed: $note');
+    } else {
+      Log.i('cycles', 'render done on $note (${rgba.length ~/ 1024} KiB)');
+    }
+    return rgba;
   }
 
   void reset() {
@@ -186,5 +217,5 @@ class CyclesSession {
   }
 }
 
-Future<Uint8List?> _runOnIsolate(CyclesJob job) =>
+Future<CyclesOutcome> _runOnIsolate(CyclesJob job) =>
     Isolate.run(() => renderCyclesJob(job));
