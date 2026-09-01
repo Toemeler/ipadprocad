@@ -183,8 +183,14 @@ class _CyclesBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // The first render of a run also compiles Metal's kernels from source —
+    // tens of seconds, once. Saying "$samples spp" through that wait is
+    // indistinguishable from a hang, so it says what is actually happening.
+    final first = !render.everRendered;
     final (label, tone) = switch (render.phase) {
       CyclesPhase.pending => ('Cycles', T.dim),
+      CyclesPhase.rendering when first =>
+        ('Cycles · preparing kernels', T.text),
       CyclesPhase.rendering => ('Cycles · $samples spp', T.text),
       CyclesPhase.shown => ('Cycles · $samples spp', T.dim),
       CyclesPhase.failed => ('Cycles failed', T.dim),

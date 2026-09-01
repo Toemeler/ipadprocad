@@ -195,13 +195,30 @@ class CyclesRender {
       return;
     }
     _image = CyclesImage(key, rgba, samples);
+    _everRendered = true;
     _phase = CyclesPhase.shown;
   }
 
   /// The render in flight, for the log and for tests.
   CyclesKey? get running => _running;
 
+  /// True once this session has produced at least one image.
+  ///
+  /// The FIRST render of a run is not like the others: Cycles' Metal backend
+  /// has no precompiled kernels, so it compiles them from source on the device
+  /// before it can trace a single ray — tens of seconds, once, cached
+  /// afterwards. A progress affordance that says the same thing for a
+  /// forty-second first render and a three-second second one is telling the
+  /// user the app has hung.
+  bool get everRendered => _everRendered;
+  bool _everRendered = false;
+
   /// Forget everything. Leaving a document, or losing the renderer.
+  ///
+  /// [everRendered] deliberately survives: it is a fact about the PROCESS —
+  /// whether Metal has compiled its kernels yet — not about this document, and
+  /// a new session per document would otherwise promise a long wait that is
+  /// not going to happen.
   void reset() {
     _wanted = null;
     _running = null;

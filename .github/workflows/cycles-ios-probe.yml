@@ -399,12 +399,35 @@ jobs:
           fi
           if [ -f shim_probe.bin ]; then
             echo "shim links:    YES"
+            lipo -info shim_probe.bin
+            otool -L shim_probe.bin | head -30
           else
             echo "shim links:    NO — unresolved:"
             grep -oE '"[^"]+", referenced from' shim_link.log \
               | sed -E 's/^"//; s/", referenced from$//' \
-              | cut -c1-60 | sort -u | head -30 || true
+              | cut -c1-60 | sort -u | head -20 || true
+            # Run 10's unresolved list came back EMPTY: adding the dylibs
+            # resolved every symbol and the link then failed for some other
+            # reason entirely, which the deduplicating filter above cannot
+            # show. Whatever ld actually said goes here.
+            echo "--- what ld actually said ---"
+            tail -12 shim_link.log || true
           fi
+          # WHAT THE APP WILL HAVE TO EMBED. Four of Cycles' dependencies are
+          # dylibs, so the IPA has to carry them in Runner.app/Frameworks and
+          # the Runner has to find them at load time. Whether that is a plain
+          # copy or a copy plus install_name surgery is decided by the install
+          # names they were built with — and whether it is possible at all is
+          # decided by the platform they were built for.
+          echo "--- install names and platform of the dylibs Cycles needs ---"
+          for d in opencolorio/lib/libOpenColorIO imath/lib/libImath \
+                   tbb/lib/libtbb openimageio/lib/libOpenImageIO \
+                   openimageio/lib/libOpenImageIO_Util openexr/lib/libOpenEXR; do
+            f="blender/lib/ios_arm64/$d.dylib"
+            [ -f "$f" ] || continue
+            echo "$(basename $f): id=$(otool -D "$f" | tail -1)"
+            otool -l "$f" | grep -A3 -E "LC_BUILD_VERSION|LC_VERSION_MIN" | grep -E "platform|minos|sdk" | head -3
+          done
           echo "--- what form do the four missing libraries take? ---"
           find blender/lib/ios_arm64 -not -path '*/python/*' \
             \( -iname '*openimageio*' -o -iname '*opencolorio*' -o -iname '*tbb*' \
