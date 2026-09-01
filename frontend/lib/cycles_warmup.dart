@@ -30,6 +30,7 @@
 // through, so the shim writes the status into a C global and the UI polls it.
 // Both isolates are one process, so they see the same global.
 import 'dart:async';
+import 'dart:io';
 import 'dart:isolate';
 
 import 'ffi/cycles_engine.dart';
@@ -53,6 +54,22 @@ enum CyclesWarmupPhase {
 
 /// Runs the shim's kernel compilation. Top-level so it can be an isolate body.
 bool preloadCyclesKernels() => CyclesFfi.instance?.preload() ?? false;
+
+/// How many times a warm-up may die before it is left alone.
+///
+/// The warm-up runs at launch and calls into a renderer. If it takes the
+/// process down, it will do so again on the next launch, and the next — an app
+/// that cannot be opened at all, in exchange for a feature nobody had asked
+/// for yet. Build 619 was exactly that: a null dereference in the shim's world
+/// setup, reached for the first time by the warm-up, on every single start.
+///
+/// So each attempt leaves a breadcrumb before it begins and clears it when it
+/// finishes, however it finishes. A breadcrumb still on disk at startup means
+/// the previous attempt did not return, and after [kCyclesWarmupAttempts] of
+/// those the warm-up stops trying. Two rather than one, because a user killing
+/// the app mid-compile looks identical to a crash and should not cost them the
+/// feature.
+const int kCyclesWarmupAttempts = 2;
 
 /// The one warm-up, for the life of the process.
 ///
@@ -107,11 +124,31 @@ class CyclesWarmup {
       Log.i('cycles', 'kernels already compiled');
       return;
     }
+    final crumb = _breadcrumb();
+    final attempts = _readAttempts(crumb);
+    if (attempts >= kCyclesWarmupAttempts) {
+      _phase = CyclesWarmupPhase.failed;
+      _status = 'the renderer stopped the app while preparing itself';
+      // Loud, and flushed: this is the line that explains why rendered mode is
+      // unavailable on an app that is otherwise working perfectly.
+      Log.w(
+          'cycles',
+          'kernel compilation has failed to return $attempts times; not trying '
+              'again. Delete ${crumb?.path} to re-arm it.');
+      return;
+    }
+    _writeAttempt(crumb, attempts + 1);
+
     _phase = CyclesWarmupPhase.compiling;
     _status = 'Preparing the renderer';
-    Log.i('cycles', 'compiling Metal kernels in the background');
+    // milestone, not i: this is the last line before control crosses into a
+    // renderer that has twice now been able to end the process, and an
+    // ordinary buffered line would not survive that to say how far it got.
+    Log.milestone('cycles',
+        'compiling Metal kernels in the background (attempt ${attempts + 1})');
     _poll = Timer.periodic(const Duration(milliseconds: 400), (_) => _tick());
     Isolate.run(preloadCyclesKernels).then(_finished).catchError((Object e) {
+      _clearAttempts(_breadcrumb());
       _stopPolling();
       _phase = CyclesWarmupPhase.failed;
       _status = '$e';
@@ -121,6 +158,10 @@ class CyclesWarmup {
   }
 
   void _finished(bool ok) {
+    // Cleared however it ended. A warm-up that returned did not crash, and a
+    // clean failure is a fact about the device, not a reason to stop trying
+    // after the next update.
+    _clearAttempts(_breadcrumb());
     _stopPolling();
     _progress = -1;
     if (ok) {
@@ -139,6 +180,43 @@ class CyclesWarmup {
   void _stopPolling() {
     _poll?.cancel();
     _poll = null;
+  }
+
+  /// Where the attempt counter lives.
+  ///
+  /// Library/Caches, because it is writable, survives a relaunch, and is the
+  /// same place the compiled kernels themselves go — if the system clears it
+  /// under storage pressure, the kernels and the counter go together, which is
+  /// exactly the pairing you want.
+  File? _breadcrumb() {
+    final home = Platform.environment['HOME'];
+    if (home == null || home.isEmpty) return null;
+    return File('$home/Library/Caches/cycles_warmup_attempts');
+  }
+
+  int _readAttempts(File? f) {
+    try {
+      if (f == null || !f.existsSync()) return 0;
+      return int.tryParse(f.readAsStringSync().trim()) ?? 0;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  void _writeAttempt(File? f, int n) {
+    try {
+      f?.parent.createSync(recursive: true);
+      f?.writeAsStringSync('$n', flush: true);
+    } catch (_) {
+      // A warm-up that cannot leave a breadcrumb still runs; it just cannot
+      // protect the next launch. Better than not running.
+    }
+  }
+
+  void _clearAttempts(File? f) {
+    try {
+      if (f != null && f.existsSync()) f.deleteSync();
+    } catch (_) {}
   }
 
   void _tick() {

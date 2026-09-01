@@ -32,6 +32,19 @@ void main() {
     });
   });
 
+  group('the attempt breadcrumb', () {
+    // The warm-up runs at launch and calls into a renderer. When it took the
+    // process down (build 619: a null dereference in the shim's world setup,
+    // reached for the first time BY the warm-up), it did so on every single
+    // start — an app that could not be opened at all, in exchange for a
+    // feature nobody had asked for yet.
+    test('gives up after the allowed number of attempts', () {
+      expect(kCyclesWarmupAttempts, greaterThanOrEqualTo(2),
+          reason: 'a user killing the app mid-compile looks exactly like a '
+              'crash and must not cost them the feature on the first one');
+    });
+  });
+
   group('reporting', () {
     test('listeners hear every step, because that is the whole point', () {
       var beats = 0;

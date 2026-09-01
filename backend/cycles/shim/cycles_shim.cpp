@@ -387,7 +387,29 @@ int cy_render(const CyMesh *meshes,
    * arbitrary directions far better than a fixed sun does — and there is no
    * direction from which the part goes dark. A sun and a fill are the obvious
    * next step and are additive on this. */
-  {
+  /* WHAT IS NOT DONE HERE, and what it cost. The obvious-looking pair
+   *
+   *     scene->background->set_shader(world);
+   *     scene->background->tag_update(scene);
+   *
+   * segfaulted on device, in Background::tag_update, and took build 619 down
+   * at launch (EXC_BAD_ACCESS at 0x29, thread DartWorker, cy_preload ->
+   * cy_render -> Background::tag_update). They are also unnecessary:
+   *
+   *     Shader *Background::get_shader(const Scene *scene)
+   *     {
+   *       return (use_shader) ? ((shader) ? shader : scene->default_background)
+   *                           : scene->default_empty;
+   *     }
+   *
+   * use_shader defaults to true and shader defaults to null, so the world IS
+   * default_background already. Setting the graph on it is the whole job; the
+   * Background node needs no telling. Cycles' own standalone scene reader does
+   * exactly this and no more.
+   *
+   * The bug shipped in build 616 as well. Nothing had ever called cy_render on
+   * a device until the warm-up did, so it had simply never run. */
+  if (scene->default_background != nullptr) {
     ccl::unique_ptr<ccl::ShaderGraph> graph = ccl::make_unique<ccl::ShaderGraph>();
     ccl::BackgroundNode *bg = graph->create_node<ccl::BackgroundNode>();
     bg->set_color(ccl::make_float3(view->world[0], view->world[1], view->world[2]));
@@ -396,8 +418,6 @@ int cy_render(const CyMesh *meshes,
     ccl::Shader *world = scene->default_background;
     world->set_graph(std::move(graph));
     world->tag_update(scene);
-    scene->background->set_shader(world);
-    scene->background->tag_update(scene);
   }
 
   /* ---- geometry -------------------------------------------------------- */
@@ -550,6 +570,7 @@ int cy_preload(void)
 
   std::vector<unsigned char> scratch((size_t)view.width * view.height * 4);
   set_status("Preparing the renderer", 0.0f);
+
   const int ok = cy_render(&mesh, 1, &view, scratch.data());
   if (!ok) {
     set_status("", -1.0f);
