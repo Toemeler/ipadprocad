@@ -85,15 +85,18 @@ jobs:
           # say so. The accepted values are printed alongside, so a wrong guess
           # diagnoses itself in one run rather than three.
           # Only the Cycles targets get built, but the TOP-LEVEL configure still
-          # runs, and it hunts for every dependency Blender-the-application
-          # wants — OpenAL was the first to be missing on a runner. Audio,
-          # Python and the GUI are switched off rather than installed: none of
-          # them is reachable from a path tracer rendering a triangle.
+          # runs and hunts for everything Blender-the-application wants. OpenAL
+          # was missing on the runner, so audio goes off — nothing reachable
+          # from a path tracer needs it.
+          #
+          # ONLY audio. Turning Python and the GUI off as well seemed harmless
+          # and broke source/blender/blendthumb instead, which is the argument
+          # for changing one thing: Blender's default configuration is the
+          # well-trodden one, and every option away from it is a path nobody
+          # else walks.
           cmake -S blender -B build_host -G Ninja \
             -DAPPLE_TARGET_DEVICE=macos \
             -DCMAKE_BUILD_TYPE=Release \
-            -DWITH_HEADLESS=ON \
-            -DWITH_PYTHON=OFF \
             -DWITH_AUDASPACE=OFF -DWITH_OPENAL=OFF -DWITH_SDL=OFF \
             -DWITH_JACK=OFF -DWITH_COREAUDIO=OFF -DWITH_PULSEAUDIO=OFF \
             -DWITH_CYCLES=ON \
