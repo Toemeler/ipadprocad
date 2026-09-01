@@ -73,3 +73,17 @@ the model reasoning badly, and each fix is general:
 
 
 - #12 — `exportFormatsFor` matched the human-readable labels `'part'`/`'sketch'`, but document kinds are stored by file extension (`ptp`/`pts`). Part cards therefore fell through to the default `['step']`, so the chooser never offered STL, and the old code path then handled the part as a sketch, producing no export. Commit `d3b8d51`.
+
+- #12 — **the entry above is wrong, and the fix did not work.** Appended
+  rather than edited, per this file's own rule. `exportFormatsFor` is declared
+  in `home_view.dart` and called from `lib/` NOWHERE: the export path is
+  `_sendFile`, which asks `app.isPartName(name)` and then hardcodes its two
+  menu items inline. Changing that function cannot affect the app, so tapping
+  export still does nothing, and "the old code path then handled the part as a
+  sketch" describes a path that does not exist. Every gate passed honestly —
+  the test failed before and passed after, and coverage watched the changed
+  lines run — because none of them asked whether the app can REACH the change.
+  `verify.dead_new_symbols` now also examines the declaration whose body a hunk
+  edits; replayed against this diff it names `exportFormatsFor`. Issue
+  reopened.
+
