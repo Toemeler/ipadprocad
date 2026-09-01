@@ -618,6 +618,7 @@ jobs:
             -DWITH_OPENVDB=OFF -DWITH_NANOVDB=OFF \
             -DWITH_ALEMBIC=OFF -DWITH_USD=OFF \
             -DWITH_CYCLES_OSL=OFF \
+            -DWITH_CYCLES_PATH_GUIDING=OFF \
             -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO \
             -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED=NO \
             -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY="" \
@@ -651,8 +652,18 @@ jobs:
           # OpenColorIO, Imath and TBB — ship only as dynamic libraries in
           # this package, which is what runs 6 through 9 kept reading as
           # "missing" (M309, M310).
-          DEPS=$(find blender/lib/ios_arm64 \( -name '*.a' -o -name '*.dylib' \) \
-                   -not -path '*/python/*' | tr '\n' ' ')
+          # Archives three times, dylibs once: Apple's linker walks each
+          # archive once in the order given and never revisits one that came
+          # before its user, while a dylib exposes its whole symbol table at
+          # once. openpgl is excluded because it vendors a copy of Embree's
+          # allocator and defines embree::alignedMalloc a second time —
+          # WITH_CYCLES_PATH_GUIDING=OFF above means nothing references it
+          # anyway, and path guiding does nothing for a clay render of a
+          # machined part.
+          ARCH=$(find blender/lib/ios_arm64 -name '*.a' \
+                   -not -path '*/python/*' -not -path '*/openpgl/*' | tr '\n' ' ')
+          DYLIB=$(find blender/lib/ios_arm64 -name '*.dylib' -not -path '*/python/*' | tr '\n' ' ')
+          DEPS="$ARCH $ARCH $ARCH $DYLIB"
           # Three times: Apple's linker walks archives once, in the order
           # given, and `find` emits them in directory order, so a library
           # listed before its user is never revisited. There is no
@@ -660,7 +671,7 @@ jobs:
           xcrun --sdk iphoneos clang++ -target arm64-apple-ios16.0 -isysroot "$SDK" \
             -I backend/cycles/shim backend/cycles/shim/shim_probe.c \
             -Wl,-force_load,cycles-dist/lib/libcycles_shim.a \
-            cycles-dist/lib/*.a $DEPS $DEPS $DEPS -lc++ -lz \
+            cycles-dist/lib/*.a $DEPS -lc++ -lz \
             -framework Metal -framework Foundation -framework CoreGraphics -framework IOKit \
             -framework AudioToolbox -framework AVFoundation -framework CoreAudio \
             -framework CoreMedia -framework VideoToolbox \
