@@ -12,7 +12,10 @@
 // what the viewport frames, and no convention has been guessed.
 import 'dart:math' as math;
 
+import 'dart:typed_data';
+
 import 'package:flutter/painting.dart' show Size;
+import 'package:prototype/ffi/occt_engine.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/cycles_view.dart';
 import 'package:prototype/part_model.dart';
@@ -152,6 +155,8 @@ void main() {
     });
   });
 
+  _sceneTests();
+
   group('the reach', () {
     test('is the furthest point from the origin', () {
       expect(cyclesReach([const Vec3(3, 4, 0), const Vec3(1, 1, 1)]),
@@ -167,6 +172,72 @@ void main() {
       for (final v in m) {
         expect(v.isFinite, isTrue);
       }
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// M300 — the scene handed over, and the key that decides when it is stale.
+// ---------------------------------------------------------------------------
+
+KernelSolid _tri({bool normals = true}) {
+  final pos = Float64List.fromList([0, 0, 0, 10, 0, 0, 0, 10, 0]);
+  final nor = Float64List.fromList([0, 0, 1, 0, 0, 1, 0, 0, 1]);
+  return KernelSolid(
+      OcctMeshData(
+        pos,
+        normals ? nor : Float64List(0),
+        Int32List.fromList([0, 1, 2]),
+        Int32List.fromList([0]),
+        Float64List(0),
+        triFaces: Int32List.fromList([0]),
+      ),
+      1,
+      null);
+}
+
+void _sceneTests() {
+  group('the meshes handed to Cycles', () {
+    test('narrow to 32-bit once, here, and keep their shape', () {
+      final out = cyclesMeshes([_tri()]);
+      expect(out.length, 1);
+      final (v, n, t) = out.first;
+      expect(v, isA<Float32List>());
+      expect(v.length, 9);
+      expect(v[3], closeTo(10, 1e-6));
+      expect(n, isNotNull);
+      expect(n!.length, 9);
+      expect(t, isA<Int32List>());
+      expect(t, [0, 1, 2]);
+    });
+
+    test('a solid with no normals travels without them', () {
+      // Partial or absent normals are not made up: Cycles would smooth-shade
+      // some triangles and not others, and the seam reads as a modelling
+      // error. The shim flat-shades when normals is null.
+      final (_, n, _) = cyclesMeshes([_tri(normals: false)]).first;
+      expect(n, isNull);
+    });
+
+    test('a degenerate solid is skipped, not sent as garbage', () {
+      final empty = KernelSolid(
+          OcctMeshData(Float64List(0), Float64List(0), Int32List(0),
+              Int32List.fromList([0]), Float64List(0)),
+          0,
+          null);
+      expect(cyclesMeshes([empty]), isEmpty);
+    });
+  });
+
+  group('the camera key', () {
+    test('changes when the view changes, and only then', () {
+      final a = cyclesCameraKey(_cam());
+      expect(cyclesCameraKey(_cam()), a, reason: 'same camera, same key');
+      expect(cyclesCameraKey(_cam(az: 0.71)), isNot(a));
+      expect(cyclesCameraKey(_cam(halfH: 31)), isNot(a));
+      expect(cyclesCameraKey(_cam(ox: 1)), isNot(a));
+      expect(cyclesCameraKey(_cam(roll: 0.1)), isNot(a),
+          reason: 'roll turns the image even though dir is unchanged');
     });
   });
 }

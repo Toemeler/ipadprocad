@@ -33,8 +33,9 @@
 // The half-extents follow from the same two lines: half-height is halfH and
 // half-width is halfH * aspect, which is exactly what `project` divides by.
 import 'dart:math' as math;
+import 'dart:typed_data';
 
-import 'part_model.dart' show Vec3;
+import 'part_model.dart' show KernelSolid, Vec3;
 import 'part_render.dart' show Cam3;
 
 /// How far behind the model the eye is put, as a multiple of the scene's own
@@ -104,4 +105,63 @@ Vec3 _norm(Vec3 v) {
   final n = math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
   if (!n.isFinite || n < 1e-12) return const Vec3(0, 0, 1);
   return Vec3(v.x / n, v.y / n, v.z / n);
+}
+
+
+/// One mesh, in the form the shim's CyMesh takes: 32-bit positions, optional
+/// 32-bit normals, 32-bit triangle indices.
+typedef CyclesMesh = (Float32List verts, Float32List? normals, Int32List tris);
+
+/// [solids] as Cycles meshes.
+///
+/// The app keeps 64-bit positions because the kernel does; Cycles is 32-bit
+/// throughout (packed_float3), so the narrowing happens once, here, rather
+/// than being discovered at the FFI boundary. On a model of any size a CAD
+/// program can hold, single precision is nowhere near the limit — the meshes
+/// are already a tessellation.
+///
+/// Normals travel only when the solid has them for every vertex. A partial
+/// normal array is worse than none: Cycles would smooth-shade some triangles
+/// and not others, and the seam reads as a modelling error.
+List<CyclesMesh> cyclesMeshes(Iterable<KernelSolid> solids) {
+  final out = <CyclesMesh>[];
+  for (final s in solids) {
+    final m = s.mesh;
+    final pos = m.positions;
+    final idx = m.indices;
+    if (pos.isEmpty || idx.isEmpty || pos.length % 3 != 0 || idx.length % 3 != 0) {
+      continue;
+    }
+    final verts = Float32List(pos.length);
+    for (var i = 0; i < pos.length; i++) {
+      verts[i] = pos[i].toDouble();
+    }
+    Float32List? normals;
+    final nor = m.normals;
+    if (nor.length == pos.length) {
+      normals = Float32List(nor.length);
+      for (var i = 0; i < nor.length; i++) {
+        normals[i] = nor[i].toDouble();
+      }
+    }
+    final tris = Int32List(idx.length);
+    for (var i = 0; i < idx.length; i++) {
+      tris[i] = idx[i];
+    }
+    out.add((verts, normals, tris));
+  }
+  return out;
+}
+
+/// Everything about a camera that changes the picture, as a string for the
+/// render key.
+///
+/// The six numbers Cam3 is built from, and the size it was built for. Not the
+/// matrix: it is derived from these, and a signature computed from a derived
+/// value is one more place for the two to disagree.
+String cyclesCameraKey(Cam3 cam) {
+  String f(double v) => v.toStringAsFixed(6);
+  return '${f(cam.dir.x)},${f(cam.dir.y)},${f(cam.dir.z)};'
+      '${f(cam.s.x)},${f(cam.s.y)},${f(cam.s.z)};'
+      '${f(cam.halfH)},${f(cam.ox)},${f(cam.oy)}';
 }
