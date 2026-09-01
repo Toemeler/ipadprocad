@@ -111,6 +111,15 @@ jobs:
             | tail -40
           echo "--- lib/ios_arm64 ---"
           ls lib/ios_arm64 2>/dev/null || echo "MISSING: no iOS libraries were fetched"
+          # Which static libraries are actually in there, by name. Run 7's link
+          # wanted Imath, OpenColorIO, OpenVDB and TBB and could not find them;
+          # whether that is because they are absent or because the `find` the
+          # link steps use does not reach them is a question one listing
+          # answers, and it costs a second.
+          echo "--- archives available to link against ---"
+          find lib/ios_arm64 -name '*.a' -not -path '*/python/*' 2>/dev/null \
+            | xargs -n1 basename | sort -u | tr '\n' ' '
+          echo
 
       # M298 — the shim becomes a Cycles target rather than a thing compiled
       # beside Cycles with flags guessed from the outside. See append.cmake for
@@ -130,6 +139,11 @@ jobs:
             -DAPPLE_TARGET_DEVICE=ios \
             -DWITH_CYCLES=ON \
             -DWITH_OPENIMAGEDENOISE=OFF \
+            -DWITH_OPENVDB=OFF \
+            -DWITH_NANOVDB=OFF \
+            -DWITH_ALEMBIC=OFF \
+            -DWITH_USD=OFF \
+            -DWITH_CYCLES_OSL=OFF \
             -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO \
             -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED=NO \
             -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY="" \
@@ -160,11 +174,33 @@ jobs:
           # because the list above is worth more than a clean early exit.
           for t in cycles_util cycles_graph cycles_bvh cycles_subd \
                    cycles_scene cycles_integrator cycles_session \
-                   cycles_device cycles_kernel cycles_shim; do
+                   cycles_device cycles_kernel; do
             echo "=== $t ==="
             cmake --build build_ios --config Release --target "$t" -- -quiet -jobs 3 \
-              2>&1 | tail -25 || echo "FAILED: $t"
+              2>&1 | tail -8 || echo "FAILED: $t"
           done
+
+      # THE SHIM GETS ITS OWN STEP, AND ITS OWN LOG.
+      #
+      # Runs 6 and 7 both failed here, and both times the error was buried in
+      # the middle of a twelve-hundred-line job log — behind the nine
+      # libraries' output and in front of the link probe's thousand lines of
+      # undefined symbols. Reading it cost more than the build did. The
+      # compile errors are the only thing this job produces that cannot be
+      # guessed, so they are captured on their own and printed filtered to the
+      # lines that actually say `error:`.
+      - name: Build the shim
+        id: shim
+        continue-on-error: true
+        run: |
+          cmake --build build_ios --config Release --target cycles_shim \
+            -- -quiet -jobs 3 > shim_build.log 2>&1 || true
+          if [ -f build_ios/lib/Release/libcycles_shim.a ]; then
+            echo "shim: COMPILED"
+          else
+            echo "shim: FAILED — errors below"
+            grep -E "error:|fatal error:" shim_build.log | head -40 || true
+          fi
 
       - name: Harvest whatever archives exist
         if: always()
@@ -191,6 +227,17 @@ jobs:
       # a compile line that would need include paths and feature defines
       # guessed correctly first. A failure prints the missing symbols, and the
       # missing symbols name the library that is not being fetched.
+      # WHY THE DEPENDENCY LIST IS REPEATED THREE TIMES, in both link steps.
+      #
+      # Apple's linker walks static archives once, in the order given, pulling
+      # only the members that resolve something already undefined. `find`
+      # produces them in directory order, so a library that comes before its
+      # user is walked before anything needs it and is never revisited. Run 7's
+      # missing Imath, OpenColorIO and TBB symbols look exactly like absent
+      # libraries and may simply be libraries that arrived too early. There is
+      # no --start-group on this platform; repeating the list is how it is
+      # done, and it costs nothing but argv.
+      #
       # RUN 6 ANSWERED THIS ONE, AND IT DID NOT CLOSE. Everything resolved
       # except OpenImageDenoise:
       #
@@ -202,7 +249,12 @@ jobs:
       # denoise — so `cycles_integrator` was compiling a denoiser against a
       # library that is not there. `-DWITH_OPENIMAGEDENOISE=OFF` above drops
       # those two translation units instead of hunting for an iOS build of a
-      # denoiser this app has no use for: at CAD sample counts on a static
+      # denoiser this app has no use for. OpenVDB, NanoVDB, Alembic, USD and
+      # OSL go off beside it for the same reason and a stronger one: this
+      # renders triangles out of a CAD kernel. There are no volumes, no
+      # cached point clouds and no shader scripts to be had, so every one of
+      # those is a dependency chain carried into an iPad app to compile code
+      # nothing will ever call: at CAD sample counts on a static
       # viewport, converging is cheaper than denoising, and a denoiser would
       # smear exactly the crisp machined edges the render is for.
       #
@@ -236,7 +288,7 @@ jobs:
           for a in out/*.a; do FORCE="$FORCE -Wl,-force_load,$a"; done
           set +e
           xcrun --sdk iphoneos clang -target arm64-apple-ios16.0 -isysroot "$SDK" \
-            probe.c $FORCE $DEPS \
+            probe.c $FORCE $DEPS $DEPS $DEPS \
             -lc++ -lz -framework Metal -framework Foundation \
             -framework CoreGraphics -framework IOKit \
             -o probe.bin 2> link.log
@@ -244,14 +296,18 @@ jobs:
           set -e
           echo "link exit: $RC"
           if [ $RC -eq 0 ]; then
-            echo "LINKED. Every symbol in the nine Cycles archives resolved."
-            lipo -info probe.bin
-            ls -la probe.bin
+            echo "all-archive link: CLOSED"
           else
-            echo "=== unresolved symbols (first 60) ==="
-            grep -E "Undefined symbols|_[A-Za-z_]" link.log | head -60 || true
-            echo "=== full log tail ==="
-            tail -30 link.log
+            # Only WHICH symbols are missing, deduplicated — not every
+            # instantiation that references each. A thousand OpenVDB template
+            # names in the job log say nothing the first three did not, and
+            # -force_load asks a harsher question than the app does anyway.
+            echo "all-archive link: open (informational — the shim link below"
+            echo "                  is the one that decides anything)"
+            echo "--- unresolved, deduplicated ---"
+            grep -oE '"[^"]+", referenced from' link.log \
+              | sed -E 's/^"//; s/", referenced from$//' \
+              | cut -c1-70 | sort -u | head -25 || true
           fi
           echo "=== Metal device present in libcycles_device.a? ==="
           nm -gU out/libcycles_device.a 2>/dev/null | grep -ci metal || echo 0
@@ -280,7 +336,7 @@ jobs:
           xcrun --sdk iphoneos clang++ -target arm64-apple-ios16.0 -isysroot "$SDK" \
             -I backend/cycles/shim backend/cycles/shim/shim_probe.c \
             -Wl,-force_load,build_ios/lib/Release/libcycles_shim.a \
-            out/*.a $DEPS -lc++ -lz \
+            out/*.a $DEPS $DEPS $DEPS -lc++ -lz \
             -framework Metal -framework Foundation -framework CoreGraphics -framework IOKit \
             -o shim_probe.bin 2> shim_link.log
           RC=$?
@@ -291,8 +347,12 @@ jobs:
             lipo -info shim_probe.bin
             ls -la shim_probe.bin
           else
-            echo "=== unresolved (first 80) ==="
-            head -80 shim_link.log
+            echo "=== unresolved, deduplicated ==="
+            grep -oE '"[^"]+", referenced from' shim_link.log \
+              | sed -E 's/^"//; s/", referenced from$//' \
+              | cut -c1-70 | sort -u | head -30 || true
+            echo "=== tail ==="
+            tail -4 shim_link.log
           fi
 
       - name: Upload the probe result
@@ -306,5 +366,6 @@ jobs:
             configure.log
             link.log
             shim_link.log
+            shim_build.log
           if-no-files-found: warn
           retention-days: 14

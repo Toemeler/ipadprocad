@@ -77,10 +77,17 @@ namespace {
  *
  *   old (4.x, and the `ios` branch this ships against)
  *       Mesh::verts, an `array<float3>` node socket
- *       -> mesh->get_verts_for_write()
+ *       -> mesh->get_verts().data(), tagged with tag_verts_modified()
  *   new (Cycles main)
  *       Geometry::position, a packed_float3 buffer
- *       -> mesh->get_position_for_write()
+ *       -> mesh->get_position_for_write(), which tags for you
+ *
+ * NOTE ON THE OLD NAME: it is `get_verts()`, NOT `get_verts_for_write()`.
+ * NODE_SOCKET_API_ARRAY generates exactly two accessors — a const one from
+ * NODE_SOCKET_API_BASE_METHODS and a non-const `type_ &get_##name()` — and no
+ * `_for_write` variant at all; that spelling arrived with the packed buffers.
+ * Run 7 was spent on that guess. The tagging is therefore explicit here, since
+ * the plain accessor does not do it.
  *
  * Run 6 of the probe found out the hard way: one error, on this one line,
  * with the other 320 lines of this file compiling clean. Pinning the shim to
@@ -100,9 +107,23 @@ auto mesh_positions(M *m, int) -> decltype(m->get_position_for_write())
   return m->get_position_for_write();
 }
 
-template<typename M> auto mesh_positions(M *m, long) -> decltype(m->get_verts_for_write().data())
+template<typename M> auto mesh_positions(M *m, long) -> decltype(m->get_verts().data())
 {
-  return m->get_verts_for_write().data();
+  return m->get_verts().data();
+}
+
+/* Same two trees, same trick, for marking the positions dirty. The new API's
+ * `_for_write` accessor tags on the way out; the old one's plain reference
+ * does not, and geometry that is never tagged is geometry the scene manager
+ * does not upload. */
+template<typename M> auto mesh_tag_positions(M *m, int) -> decltype(m->tag_position_modified())
+{
+  return m->tag_position_modified();
+}
+
+template<typename M> auto mesh_tag_positions(M *m, long) -> decltype(m->tag_verts_modified())
+{
+  return m->tag_verts_modified();
 }
 
 std::string g_error;
@@ -304,6 +325,8 @@ int cy_render(const CyMesh *meshes,
       P[v] = ccl::make_float3(
           src.verts[v * 3 + 0], src.verts[v * 3 + 1], src.verts[v * 3 + 2]);
     }
+
+    mesh_tag_positions(mesh, 0);
 
     /* The caller's normals, as the vertex-normal attribute Cycles shades
      * with. Without this, `smooth` below would make Cycles average the face
