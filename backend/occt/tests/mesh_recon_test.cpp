@@ -1649,6 +1649,43 @@ int main()
                 std::to_string(empty) + " empty of " +
                     std::to_string(areas.size()));
 
+            /* And no face left HALF drawn, which looks exactly the same on
+             * screen and which counting empty faces cannot see: measured, an
+             * ellipsoid whose every face had triangles was still missing 9.5%
+             * of its own area, one face of it rendered at 1% of itself. */
+            double drawn = 0, want = 0, worstFace = 1e9;
+            {
+                size_t fi = 0;
+                for (TopExp_Explorer ex(out, TopAbs_FACE); ex.More();
+                     ex.Next(), ++fi) {
+                    const double a = fi < areas.size() ? areas[fi] : 0.0;
+                    if (!(a > 0))
+                        continue;
+                    TopLoc_Location loc;
+                    const Handle(Poly_Triangulation) t =
+                        BRep_Tool::Triangulation(TopoDS::Face(ex.Current()), loc);
+                    double had = 0;
+                    if (!t.IsNull()) {
+                        const gp_Trsf &tr = loc.Transformation();
+                        for (int i = 1; i <= t->NbTriangles(); ++i) {
+                            int n1, n2, n3;
+                            t->Triangle(i).Get(n1, n2, n3);
+                            const gp_Pnt A = t->Node(n1).Transformed(tr);
+                            const gp_Pnt B = t->Node(n2).Transformed(tr);
+                            const gp_Pnt C = t->Node(n3).Transformed(tr);
+                            had += 0.5 * gp_Vec(A, B).Crossed(gp_Vec(A, C))
+                                             .Magnitude();
+                        }
+                    }
+                    drawn += had;
+                    want += a;
+                    worstFace = std::min(worstFace, had / a);
+                }
+            }
+            chk((tag + "the body is drawn whole").c_str(),
+                want > 0 && drawn >= want * 0.99,
+                std::to_string(100.0 * drawn / want) + "% of its own area");
+
             /* The seams, as the renderer would show them: for every edge with
              * two faces, how far is a node one face put on it from the nearest
              * node the OTHER face put there? Zero when both were meshed by the
@@ -1703,8 +1740,11 @@ int main()
                     std::to_string(shared) + " seams");
             chk((tag + "no seam is split by a millimetre").c_str(),
                 splitLen <= 0.0, std::to_string(splitLen) + " mm split");
-            std::printf("   %-34s %3d faces, %4d seams, worst gap %.4f mm\n",
-                        c.name, (int)areas.size(), shared, worstGap);
+            std::printf("   %-34s %3d faces, %4d seams, worst gap %.4f mm, "
+                        "%.2f%% drawn (worst face %.1f%%)\n",
+                        c.name, (int)areas.size(), shared, worstGap,
+                        want > 0 ? 100.0 * drawn / want : 0.0,
+                        100.0 * worstFace);
         }
     }
 

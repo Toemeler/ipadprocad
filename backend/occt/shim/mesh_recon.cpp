@@ -8204,11 +8204,23 @@ static const double kMeshLadder[] = {1.0, 1.37, 0.73, 2.11, 0.41,
                                      4.0, 0.19, 0.13, 0.09};
 static const size_t kMeshRungs = sizeof(kMeshLadder) / sizeof(kMeshLadder[0]);
 
-/* Under a chord even a perfect tessellation reports less area than the surface
- * has — 98.6% across the whole whale at the deflection the app asks for. This
- * bar sits below what chords cost and well above the 88.3% and 94.6% of the
- * faces that were genuinely torn. */
+/* A face drawn to less than this much of itself is torn, not merely chorded. */
 static const double kMeshCoverBar = 0.95;
+
+/* And the whole shape is done when it draws this much of its own area.
+ *
+ * The number to judge a pass on is AREA DRAWN, not the count of faces with no
+ * triangles at all: a face BRepMesh renders at 1% of itself is a hole exactly
+ * as big as the face, and counting it as present is how the first version of
+ * this ladder settled for 94.6% coverage on an ellipsoid when a rung four
+ * places further down drew 99.7%. Coverage already counts an empty face as
+ * zero, so it is the one measure that sees both failures.
+ *
+ * 99.5% is above every healthy fixture measured — the broomholder and TOKA
+ * report 100.12% at the first rung and stop there, paying nothing — and below
+ * every defective one, so only a shape that really is missing something goes
+ * looking. */
+static const double kMeshDoneCover = 0.995;
 
 } // namespace
 
@@ -8276,26 +8288,26 @@ int TessellateCovered(const TopoDS_Shape &s, double lin, double ang,
     grade();
 
     /* What worked last time, before searching again. */
-    if (empty > 0 && factor > 0 && factor != 1.0) {
+    if ((cover < kMeshDoneCover || empty > 0) && factor > 0 && factor != 1.0) {
         meshWhole(factor);
         grade();
     }
 
-    if (empty > 0) {
+    if (cover < kMeshDoneCover || empty > 0) {
         double bestF = 1.0, bestCover = cover;
-        int bestEmpty = empty;
         double lastTried = 1.0;
-        for (size_t k = 0; k < kMeshRungs && bestEmpty > 0; ++k) {
+        for (size_t k = 0; k < kMeshRungs; ++k) {
             if (kMeshLadder[k] == 1.0)
                 continue; /* measured already */
             meshWhole(kMeshLadder[k]);
             lastTried = kMeshLadder[k];
             grade();
-            if (empty < bestEmpty || (empty == bestEmpty && cover > bestCover)) {
-                bestEmpty = empty;
+            if (cover > bestCover) {
                 bestCover = cover;
                 bestF = kMeshLadder[k];
             }
+            if (cover >= kMeshDoneCover && empty == 0)
+                break;
         }
         if (lastTried != bestF)
             meshWhole(bestF);
