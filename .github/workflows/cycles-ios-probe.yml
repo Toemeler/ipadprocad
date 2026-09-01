@@ -174,7 +174,8 @@ jobs:
           # because the list above is worth more than a clean early exit.
           for t in cycles_util cycles_graph cycles_bvh cycles_subd \
                    cycles_scene cycles_integrator cycles_session \
-                   cycles_device cycles_kernel; do
+                   cycles_device cycles_kernel \
+                   bf_intern_guardedalloc bf_intern_sky; do
             echo "=== $t ==="
             cmake --build build_ios --config Release --target "$t" -- -quiet -jobs 3 \
               2>&1 | tail -8 || echo "FAILED: $t"
@@ -206,7 +207,8 @@ jobs:
         if: always()
         run: |
           mkdir -p out
-          find build_ios -name "libcycles*.a" -print -exec cp {} out/ \; || true
+          find build_ios \( -name "libcycles*.a" -o -name "libbf_intern_guardedalloc.a" \
+                            -o -name "libbf_intern_sky.a" \) -print -exec cp {} out/ \; || true
           echo "=== harvested ==="
           ls -la out || true
           for f in out/*.a; do [ -e "$f" ] || continue; echo "--- $f"; lipo -info "$f" || true; done
@@ -291,6 +293,8 @@ jobs:
             probe.c $FORCE $DEPS $DEPS $DEPS \
             -lc++ -lz -framework Metal -framework Foundation \
             -framework CoreGraphics -framework IOKit \
+            -framework AudioToolbox -framework AVFoundation -framework CoreAudio \
+            -framework CoreMedia -framework VideoToolbox \
             -o probe.bin 2> link.log
           RC=$?
           set -e
@@ -338,6 +342,8 @@ jobs:
             -Wl,-force_load,build_ios/lib/Release/libcycles_shim.a \
             out/*.a $DEPS $DEPS $DEPS -lc++ -lz \
             -framework Metal -framework Foundation -framework CoreGraphics -framework IOKit \
+            -framework AudioToolbox -framework AVFoundation -framework CoreAudio \
+            -framework CoreMedia -framework VideoToolbox \
             -o shim_probe.bin 2> shim_link.log
           RC=$?
           set -e
@@ -354,6 +360,33 @@ jobs:
             echo "=== tail ==="
             tail -4 shim_link.log
           fi
+
+      # LAST, ON PURPOSE. Every reading of this job so far has been a fight to
+      # find three facts inside a thousand lines that scrolled past them. They
+      # are reprinted here, at the end, where a tail finds them.
+      - name: Summary
+        if: always()
+        run: |
+          echo "=================== SUMMARY ==================="
+          if [ -f build_ios/lib/Release/libcycles_shim.a ]; then
+            echo "shim compiled: YES"
+          else
+            echo "shim compiled: NO"
+            grep -E "error:|fatal error:" shim_build.log | head -20 || true
+          fi
+          if [ -f shim_probe.bin ]; then
+            echo "shim links:    YES"
+          else
+            echo "shim links:    NO — unresolved:"
+            grep -oE '"[^"]+", referenced from' shim_link.log \
+              | sed -E 's/^"//; s/", referenced from$//' \
+              | cut -c1-60 | sort -u | head -30 || true
+          fi
+          echo "--- dependency archives present (basenames) ---"
+          find blender/lib/ios_arm64 -name '*.a' -not -path '*/python/*' 2>/dev/null \
+            | xargs -n1 basename | sort -u | tr '\n' ' '
+          echo
+          echo "=============================================="
 
       - name: Upload the probe result
         if: always()

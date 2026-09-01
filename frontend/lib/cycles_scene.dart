@@ -12,9 +12,9 @@
 // standstill — so the placement is baked into the vertices and the scene
 // arrives as world-space triangles. One convention instead of two.
 import 'app_state.dart';
+import 'cycles_boot.dart';
 import 'cycles_session.dart';
 import 'cycles_view.dart';
-import 'ffi/cycles_engine.dart';
 import 'part_render.dart' show Cam3;
 import 'reality_assembly.dart' show assemblyPieces, assemblySceneSignature;
 import 'reality_scene.dart' show sceneSignature, visibleSolids;
@@ -24,8 +24,7 @@ import 'reality_scene.dart' show sceneSignature, visibleSolids;
 /// Rendered mode, and a renderer to do it with. Every other display mode is a
 /// WORKING view — shaded, wireframe, hidden-line — where the point is to see
 /// the model's structure quickly, and a photograph of it would be in the way.
-bool cyclesWanted(AppState app) =>
-    app.displayMode.isRendered && CyclesFfi.instance != null;
+bool cyclesWanted(AppState app) => app.displayMode.isRendered && cyclesReady;
 
 /// The signature of what is currently drawable, part or assembly.
 ///

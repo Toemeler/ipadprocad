@@ -507,6 +507,179 @@ jobs:
   #    needs a window and a render loop, i.e. the device. A green check here
   #    means "the RealityKit preview path exists", not "the preview is right".
   # ---------------------------------------------------------------------------
+  # ---------------------------------------------------------------------------
+  # M307 — Cycles for iOS, built beside everything else rather than in the way.
+  # ---------------------------------------------------------------------------
+  #
+  # This is the job that puts a path tracer in the IPA. It runs IN PARALLEL
+  # with the Qt/OCCT/Flutter work in m5-flutter-ipa, so on a cache miss it
+  # costs ten minutes of a second runner and nearly nothing of wall time, and
+  # on a cache hit it costs seconds.
+  #
+  # WHY IT BUILDS INSIDE BLENDER'S TREE: intern/cycles is Apache-2.0 and is
+  # meant to be embedded, but its CMake still expects Blender's top level to
+  # have found Embree, TBB, OpenImageIO and OpenColorIO first. Blender's `ios`
+  # branch already configures and builds for iOS device; borrowing it is a
+  # dozen lines, and configuring Cycles standalone for iOS is a project.
+  # M294..M305 are the record of getting this to work; the probe workflow is
+  # where it was worked out.
+  #
+  # WHAT IT PRODUCES, in cycles-dist/:
+  #   lib/     the nine Cycles archives plus libcycles_shim.a
+  #   deps/    ONLY the dependency archives the link actually pulled from,
+  #            discovered with `-Wl,-t` rather than guessed — lib/ios_arm64
+  #            holds 275 archives and most of them are for a Blender this app
+  #            is not building
+  #   source/  intern/cycles itself. NOT optional and not a debugging
+  #            convenience: the Metal backend compiles its kernels from source
+  #            at runtime (device_impl.mm, path_source_replace_includes), so
+  #            these files are as much a runtime dependency as the archives.
+  cycles-ios:
+    name: Cycles for iOS (arm64)
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      # Keyed on the shim and on this job's own definition. Blender's ref is
+      # pinned below, so nothing else can change the output.
+      - name: Cache the built Cycles distribution
+        id: dist
+        uses: actions/cache@v4
+        with:
+          path: cycles-dist
+          key: cycles-dist-v1-${{ hashFiles('backend/cycles/shim/**') }}-${{ hashFiles('.github/workflows/m1-core-build.yml') }}
+
+      - name: Clone Blender's ios branch (shallow, no LFS)
+        if: steps.dist.outputs.cache-hit != 'true'
+        run: |
+          set -o pipefail
+          REF=d9b6fe34ddce527d93b97c0bf42ad92cebac4e4e
+          GIT_LFS_SKIP_SMUDGE=1 git clone --depth 2 --branch ios \
+            https://projects.blender.org/blender/blender.git blender 2>&1 | tail -3
+          cd blender
+          git checkout "$REF" 2>/dev/null || { git fetch --depth 1 origin "$REF"; git checkout "$REF"; }
+          git log --oneline -1
+
+      - name: Cache the precompiled iOS dependency libraries
+        if: steps.dist.outputs.cache-hit != 'true'
+        uses: actions/cache@v4
+        with:
+          path: |
+            blender/lib/ios_arm64
+            blender/lib/macos_arm64
+          key: blender-ios-libs-m294-v1
+
+      - name: Fetch the iOS dependency libraries
+        if: steps.dist.outputs.cache-hit != 'true'
+        working-directory: blender
+        run: |
+          python3 ./build_files/utils/make_update.py --no-blender --use-ios-libraries 2>&1 | tail -5
+          ls lib/ios_arm64 >/dev/null || { echo "no iOS libraries were fetched"; exit 1; }
+
+      # The shim is a Cycles TARGET rather than something compiled beside
+      # Cycles with flags copied out of the Xcode project. add_definitions()
+      # and include_directories() are directory-scoped, so it gets exactly
+      # what cycles_scene gets, by construction. M298 is why that matters:
+      # around two dozen WITH_* defines change STRUCT LAYOUTS, and a set that
+      # is merely close enough to compile links and then misreads memory.
+      - name: Graft the shim into Cycles' tree
+        if: steps.dist.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p blender/intern/cycles/shim
+          cp backend/cycles/shim/cycles_shim.cpp backend/cycles/shim/cycles_shim.h \
+             blender/intern/cycles/shim/
+          cat backend/cycles/shim/append.cmake >> blender/intern/cycles/CMakeLists.txt
+
+      - name: Configure and build
+        if: steps.dist.outputs.cache-hit != 'true'
+        run: |
+          set -o pipefail
+          # The five features that are OFF are off because this renders
+          # triangles out of a CAD kernel: no volumes, no cached point clouds,
+          # no shader scripts, and no denoiser (a CAD viewport renders a
+          # static scene where converging is affordable, and denoising smears
+          # exactly the crisp machined edges the render exists to show).
+          # Each one left ON is a dependency chain carried into an iPad app to
+          # compile code nothing will ever call.
+          cmake -S blender -B build_ios -G Xcode \
+            -DAPPLE_TARGET_DEVICE=ios \
+            -DWITH_CYCLES=ON \
+            -DWITH_OPENIMAGEDENOISE=OFF \
+            -DWITH_OPENVDB=OFF -DWITH_NANOVDB=OFF \
+            -DWITH_ALEMBIC=OFF -DWITH_USD=OFF \
+            -DWITH_CYCLES_OSL=OFF \
+            -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO \
+            -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED=NO \
+            -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY="" \
+            -DCMAKE_XCODE_ATTRIBUTE_DEVELOPMENT_TEAM="" > configure.log 2>&1 \
+            || { tail -30 configure.log; exit 1; }
+          for t in cycles_util cycles_graph cycles_bvh cycles_subd \
+                   cycles_scene cycles_integrator cycles_session \
+                   cycles_device cycles_kernel cycles_shim; do
+            cmake --build build_ios --config Release --target "$t" -- -quiet -jobs 3 \
+              > "build_$t.log" 2>&1 \
+              || { echo "FAILED: $t"; grep -E "error:|fatal error:" "build_$t.log" | head -30; exit 1; }
+            echo "built $t"
+          done
+
+      # WHICH dependency archives, decided by the linker instead of by me.
+      # `-Wl,-t` traces every file the link actually loaded, archive members
+      # included; the archives named there are exactly the ones the app will
+      # need and nothing else. If the trace comes back empty the link did not
+      # happen and the job fails here rather than shipping an IPA that cannot
+      # resolve a symbol.
+      - name: Harvest the distribution
+        if: steps.dist.outputs.cache-hit != 'true'
+        run: |
+          set -o pipefail
+          SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+          mkdir -p cycles-dist/lib cycles-dist/deps
+          find build_ios -name "libcycles*.a" -exec cp {} cycles-dist/lib/ \;
+          test -f cycles-dist/lib/libcycles_shim.a
+          DEPS=$(find blender/lib/ios_arm64 -name '*.a' -not -path '*/python/*' | tr '\n' ' ')
+          # Three times: Apple's linker walks archives once, in the order
+          # given, and `find` emits them in directory order, so a library
+          # listed before its user is never revisited. There is no
+          # --start-group here.
+          xcrun --sdk iphoneos clang++ -target arm64-apple-ios16.0 -isysroot "$SDK" \
+            -I backend/cycles/shim backend/cycles/shim/shim_probe.c \
+            -Wl,-force_load,cycles-dist/lib/libcycles_shim.a \
+            cycles-dist/lib/*.a $DEPS $DEPS $DEPS -lc++ -lz \
+            -framework Metal -framework Foundation -framework CoreGraphics -framework IOKit \
+            -Wl,-t -o shim_probe.bin > trace.log 2>&1 \
+            || { echo "the shim does not link:"; \
+                 grep -oE '"[^"]+", referenced from' trace.log | sed -E 's/^"//; s/", referenced from$//' | cut -c1-70 | sort -u | head -30; \
+                 tail -5 trace.log; exit 1; }
+          grep -oE "$PWD/blender/lib/ios_arm64/[^(]*\.a" trace.log | sort -u > used.txt
+          echo "dependency archives the link actually used: $(wc -l < used.txt)"
+          xargs -I{} cp {} cycles-dist/deps/ < used.txt
+          # The kernel tree. Everything, because the Metal include walker
+          # follows #include "..." across kernel/, util/ and further, and a
+          # header it cannot find is left in the source verbatim and then
+          # fails inside the shader compiler with an error naming nothing.
+          mkdir -p cycles-dist/source
+          rsync -a --exclude '.git' --exclude 'shim' blender/intern/cycles/ cycles-dist/source/
+          test -f cycles-dist/source/kernel/device/metal/kernel.metal
+          echo "--- distribution ---"
+          du -sh cycles-dist/lib cycles-dist/deps cycles-dist/source
+          lipo -info cycles-dist/lib/libcycles_shim.a
+          nm -gU cycles-dist/lib/libcycles_shim.a | grep -cE "_cy_" || true
+
+      - name: Report what is being shipped
+        run: |
+          echo "cache hit: ${{ steps.dist.outputs.cache-hit }}"
+          ls cycles-dist/lib cycles-dist/deps | head -40
+          du -sh cycles-dist
+
+      - name: Upload the Cycles distribution
+        uses: actions/upload-artifact@v4
+        with:
+          retention-days: 3
+          name: cycles-ios-dist
+          path: cycles-dist
+          if-no-files-found: error
+
   m5-flutter-ipa:
     name: M5 Flutter iOS build + unsigned IPA
     # Gated on the fast Dart job. Without this the iOS build kept grinding for
@@ -515,7 +688,7 @@ jobs:
     # and burning a macOS runner for nothing. build-core-ios and the simulator
     # smoke test stay independent — they are native and a Dart error says
     # nothing about them.
-    needs: dart-checks
+    needs: [dart-checks, cycles-ios]
     # macos-26 (Tahoe, Xcode 26.x) — NOT cosmetic and NOT optional:
     #
     #  1. The native context menu is a real UIMenu, so its APPEARANCE comes
@@ -539,6 +712,22 @@ jobs:
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
+
+      # M307 — the path tracer, built in parallel by the cycles-ios job.
+      # Downloaded before anything else so a missing artifact fails in ten
+      # seconds rather than fifty minutes into an Xcode build.
+      - name: Download the Cycles distribution
+        uses: actions/download-artifact@v4
+        with:
+          name: cycles-ios-dist
+          path: cycles-dist
+      - name: Check the Cycles distribution arrived intact
+        run: |
+          test -f cycles-dist/lib/libcycles_shim.a || { echo "no shim archive"; exit 1; }
+          test -f cycles-dist/source/kernel/device/metal/kernel.metal \
+            || { echo "no kernel source tree — the Metal device would have nothing to compile"; exit 1; }
+          echo "Cycles: $(ls cycles-dist/lib | wc -l) archives, $(ls cycles-dist/deps | wc -l) deps"
+          du -sh cycles-dist
 
       # M119 fix — ccache must exist in THIS job. The install step went into
       # build-core-ios, but the C++ builds carrying the launcher flags live
@@ -744,7 +933,17 @@ jobs:
           flutter pub get
           # Qt-iOS prebuilt objects require minos 14.0 -> raise everywhere.
           # (Target-level pbxproj settings override xcconfig, so patch pbxproj.)
-          sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = [0-9.]*/IPHONEOS_DEPLOYMENT_TARGET = 14.0/g' ios/Runner.xcodeproj/project.pbxproj
+          #
+          # M307 raised the floor from 14.0 to 16.0, and it is a real change:
+          # the Cycles objects are built by Blender's iOS branch at 16.0, and
+          # linking a 16.0 object into a 14.0 app is not a warning to live
+          # with — it is code that may call an API the deployment target says
+          # is absent. Forcing Cycles down to 14 instead was the alternative,
+          # and it means fighting the Metal backend, which is written against
+          # iOS 16 features on purpose. iOS 16 shipped in 2022; every iPad
+          # that could usefully path-trace a model runs it, and the ones that
+          # do not could not have run this anyway.
+          sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = [0-9.]*/IPHONEOS_DEPLOYMENT_TARGET = 16.0/g' ios/Runner.xcodeproj/project.pbxproj
           # Generate the CocoaPods setup without compiling, then pin platform.
           # --build-name/--build-number: siehe den Release-Schritt unten. Die
           # beiden `flutter build ios`-Aufrufe MUESSEN die gleiche Version
@@ -757,8 +956,11 @@ jobs:
             --dart-define=BUG_RELAY_URL=${{ vars.BUG_RELAY_URL }} \
             --dart-define=BUG_RELAY_SECRET=${{ secrets.BUG_RELAY_SECRET }}
           if [ -f ios/Podfile ]; then
-            sed -i '' "s/^# platform :ios.*/platform :ios, '14.0'/" ios/Podfile
-            sed -i '' "s/^platform :ios.*/platform :ios, '14.0'/" ios/Podfile
+            # 16.0 to match the app target (M307). A Podfile platform below
+            # the app's is the one place the two can disagree without an
+            # error, and the pods then build objects the Runner refuses.
+            sed -i '' "s/^# platform :ios.*/platform :ios, '16.0'/" ios/Podfile
+            sed -i '' "s/^platform :ios.*/platform :ios, '16.0'/" ios/Podfile
           fi
           } 2>&1 | tee ../ci-m5-scaffold.log
 
@@ -885,10 +1087,26 @@ jobs:
           QTLIBS="$(python3 "$GITHUB_WORKSPACE/ci/parse_link_txt.py" "$LINKCMD" "$BUILD")"
           echo "parsed link inputs ($(echo "$QTLIBS" | wc -w) tokens):"
           echo "$QTLIBS" | tr ' ' '\n' | sed '/^$/d'
-          printf '_qcad_*\n_slvs_*\n_occt_*\n' > ios/Flutter/qcad_symbols.exp
+          # M307 — Cycles. force_load the SHIM (nothing in the app references
+          # it at link time — Dart finds it with dlsym, so ld would drop the
+          # whole archive as unreachable), then the nine Cycles archives and
+          # the dependency set the cycles-ios job proved is sufficient. The
+          # deps are repeated: Apple's linker walks static archives once, in
+          # the order given, and never revisits one that came before its user.
+          CYC="$GITHUB_WORKSPACE/cycles-dist"
+          CYCLIBS="$(ls "$CYC/lib"/libcycles_*.a | grep -v libcycles_shim | tr '\n' ' ')"
+          CYCDEPS="$(ls "$CYC/deps"/*.a 2>/dev/null | tr '\n' ' ')"
+          echo "Cycles on the link line: $(echo "$CYCLIBS" | wc -w) archives, $(echo "$CYCDEPS" | wc -w) deps"
+          CYCLES="-force_load $CYC/lib/libcycles_shim.a $CYCLIBS $CYCDEPS $CYCDEPS"
+          # _cy_* joins the export list for the same reason the other three
+          # families are on it: DynamicLibrary.process() resolves through the
+          # binary's export trie, and a symbol not listed here is stripped out
+          # of it even though the code is linked in. That failure looks exactly
+          # like "Cycles was never built".
+          printf '_qcad_*\n_slvs_*\n_occt_*\n_cy_*\n' > ios/Flutter/qcad_symbols.exp
           cat > ios/Flutter/ffi.xcconfig <<XC
-          OTHER_LDFLAGS = \$(inherited) -force_load $CORE/libprototype.a -force_load $SLVS/libslvs.a -force_load $OCCT/build-ios/libocct_capi.a $OCCTLIBS $QTLIBS -framework UIKit -framework Foundation -framework CoreFoundation -framework CoreGraphics -framework CoreText -framework CoreServices -framework Security -framework SystemConfiguration -framework CFNetwork -framework Metal -framework MetalKit -framework QuartzCore -framework ImageIO -framework UniformTypeIdentifiers -framework IOSurface -framework OpenGLES -framework IOKit -framework RealityKit -framework ARKit -lz -lc++ -Wl,-exported_symbols_list,\$(SRCROOT)/Flutter/qcad_symbols.exp
-          IPHONEOS_DEPLOYMENT_TARGET = 14.0
+          OTHER_LDFLAGS = \$(inherited) -force_load $CORE/libprototype.a -force_load $SLVS/libslvs.a -force_load $OCCT/build-ios/libocct_capi.a $OCCTLIBS $CYCLES $QTLIBS -framework UIKit -framework Foundation -framework CoreFoundation -framework CoreGraphics -framework CoreText -framework CoreServices -framework Security -framework SystemConfiguration -framework CFNetwork -framework Metal -framework MetalKit -framework QuartzCore -framework ImageIO -framework UniformTypeIdentifiers -framework IOSurface -framework OpenGLES -framework IOKit -framework RealityKit -framework ARKit -lz -lc++ -Wl,-exported_symbols_list,\$(SRCROOT)/Flutter/qcad_symbols.exp
+          IPHONEOS_DEPLOYMENT_TARGET = 16.0
           XC
           # strip the heredoc's leading indentation xcconfig can't handle
           sed -i '' 's/^          //' ios/Flutter/ffi.xcconfig
@@ -1025,6 +1243,27 @@ jobs:
             echo "KEYBOARD BAR CHECK: FAIL (suppressor missing — iPadOS would cover the tab bar)"; exit 1
           fi
           nm -gU "$APP/Runner" | grep _qcad_ | head -20 || echo "(symbol table stripped — export check via strings only)"
+          # M307 — the kernel tree goes INTO the bundle, next to the binary.
+          # Cycles' Metal backend compiles its kernels from source at runtime
+          # (device_impl.mm: path_source_replace_includes(source,
+          # path_get("source"))), so these files are a runtime dependency
+          # exactly as much as the archives are. `cycles/source` because
+          # path_get("source") joins "source" onto the resource root, and
+          # cycles_boot.dart hands it Runner.app/cycles.
+          mkdir -p "$APP/cycles"
+          rsync -a "$GITHUB_WORKSPACE/cycles-dist/source/" "$APP/cycles/source/"
+          test -f "$APP/cycles/source/kernel/device/metal/kernel.metal" \
+            || { echo "CYCLES KERNEL CHECK: FAIL (kernel source not in the bundle)"; exit 1; }
+          echo "CYCLES KERNEL CHECK: PASS ($(du -sh "$APP/cycles" | cut -f1) of kernel source bundled)"
+          # And the shim itself must be reachable by name: Dart resolves it
+          # with dlsym through the export trie, so a link that succeeded but
+          # left the symbols unexported looks identical to no Cycles at all.
+          NCY="$(nm -gU "$APP/Runner" 2>/dev/null | grep -c ' _cy_' || true)"
+          if [ "${NCY:-0}" -ge 5 ]; then
+            echo "CYCLES LINK CHECK: PASS ($NCY _cy_* symbols exported in Runner)"
+          else
+            echo "CYCLES LINK CHECK: FAIL (only ${NCY:-0} _cy_* symbols exported, want >= 5)"; exit 1
+          fi
           rm -rf Payload && mkdir Payload
           cp -R "$APP" Payload/
           zip -qry ../prototype-unsigned.ipa Payload

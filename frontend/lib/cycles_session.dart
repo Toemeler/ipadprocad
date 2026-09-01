@@ -35,6 +35,7 @@
 import 'dart:isolate';
 import 'dart:typed_data';
 
+import 'cycles_boot.dart';
 import 'cycles_render.dart';
 import 'cycles_view.dart';
 import 'ffi/cycles_engine.dart';
@@ -108,7 +109,7 @@ class CyclesSession {
     render = CyclesRender(
       renderer: _render,
       samples: samples,
-      available: available ?? CyclesFfi.instance != null,
+      available: available ?? cyclesReady,
     );
   }
 

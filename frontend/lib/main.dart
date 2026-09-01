@@ -13,6 +13,7 @@ import 'perf_document.dart';
 import 'ffi/perf_hook.dart';
 import 'package:reality_view/perf_hook.dart';
 
+import 'cycles_boot.dart';
 import 'app_state.dart';
 import 'backdrop.dart';
 import 'ribbon_dock.dart';
@@ -117,6 +118,13 @@ void main() {
       ]).then((_) => Log.i('main', 'orientation set'),
           onError: (e, st) => Log.e('main', 'orientation failed', e, st));
     });
+    // M306 — find out at LAUNCH whether this build can path-trace, rather
+    // than at the first render. The Metal backend compiles its kernels from
+    // source on the device, so a build carrying the Cycles libraries but not
+    // the kernel tree fails inside a shader compiler with an error that names
+    // nothing; this checks for the tree, logs the file if it is missing, and
+    // leaves rendered mode as the RealityKit view it has always been.
+    Log.step('main', 'initCycles', initCycles);
     final app = Log.step('main', 'AppState()', () => AppState());
     // M236 — adopt the iPad's own light/dark setting and start listening for
     // changes BEFORE the first frame, so the app never paints one scheme and
