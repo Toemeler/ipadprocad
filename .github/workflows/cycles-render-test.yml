@@ -1,0 +1,156 @@
+# M322 — DOES A RENDER ACTUALLY PRODUCE THE RIGHT PICTURE?
+#
+# Everything else in this repo's Cycles pipeline proves the code COMPILES and
+# LINKS for iOS. Nothing ran it. The Dart tests use a fake renderer, the iOS
+# probe cannot execute an iOS binary, and the first machine ever to call
+# cy_render was a user's iPad — where three lines of C++ around the world
+# shader dereferenced null and took the app down at launch (M321). One run of
+# the thing would have caught it in seconds.
+#
+# So this builds Cycles and the shim for the RUNNER, natively, and renders a
+# known scene. It is not an iOS test and cannot be: iOS binaries do not
+# execute on a Mac. But the bug it exists to catch was in scene construction,
+# camera setup and the output driver, which are the same code everywhere. The
+# iOS-specific parts — kernel loading, the Metal binary archive, memory caps —
+# are guarded by WITH_APPLE_CROSSPLATFORM and are the probe's business.
+#
+# It is a separate workflow, and NOT in the IPA's dependency chain, for the
+# same reason the probe is: a renderer that regresses must be able to say so
+# without stopping the app from shipping.
+name: Cycles render test (M322)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "backend/cycles/**"
+      - ".github/workflows/cycles-render-test.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  render:
+    name: Render a known scene and check the pixels
+    runs-on: macos-15
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clone Blender's ios branch (shallow, no LFS)
+        run: |
+          set -o pipefail
+          REF=d9b6fe34ddce527d93b97c0bf42ad92cebac4e4e
+          GIT_LFS_SKIP_SMUDGE=1 git clone --depth 2 --branch ios \
+            https://projects.blender.org/blender/blender.git blender 2>&1 | tail -3
+          cd blender
+          git checkout "$REF" 2>/dev/null || { git fetch --depth 1 origin "$REF"; git checkout "$REF"; }
+          git log --oneline -1
+
+      # The HOST libraries this time, not the iOS ones: this build runs here.
+      - name: Cache the precompiled macOS dependency libraries
+        uses: actions/cache@v4
+        with:
+          path: blender/lib/macos_arm64
+          key: blender-macos-libs-m322-v1
+
+      - name: Fetch the macOS dependency libraries
+        working-directory: blender
+        run: |
+          python3 ./build_files/utils/make_update.py --no-blender 2>&1 | tail -5
+          ls lib/macos_arm64 >/dev/null || { echo "no macOS libraries were fetched"; exit 1; }
+
+      - name: Graft the shim into Cycles' tree
+        run: |
+          mkdir -p blender/intern/cycles/shim
+          cp backend/cycles/shim/cycles_shim.cpp backend/cycles/shim/cycles_shim.h \
+             blender/intern/cycles/shim/
+          cat backend/cycles/shim/append.cmake >> blender/intern/cycles/CMakeLists.txt
+
+      # Applied here too, even though every edit is inside
+      # `#ifdef WITH_APPLE_CROSSPLATFORM` and compiles to nothing on macOS.
+      # The point is that the anchors still MATCH: if an edit stops applying
+      # because the tree moved, this says so in three minutes instead of the
+      # iOS build silently losing its binary archive.
+      - name: Patch Cycles for iOS kernel loading (anchor check)
+        run: python3 backend/cycles/patches/ios_metal.py
+
+      - name: Configure and build (host, arm64)
+        run: |
+          set -o pipefail
+          cmake -S blender -B build_host -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DWITH_CYCLES=ON \
+            -DWITH_OPENIMAGEDENOISE=OFF \
+            -DWITH_OPENVDB=OFF -DWITH_NANOVDB=OFF \
+            -DWITH_ALEMBIC=OFF -DWITH_USD=OFF \
+            -DWITH_CYCLES_OSL=OFF \
+            -DWITH_CYCLES_PATH_GUIDING=OFF > configure.log 2>&1 \
+            || { tail -40 configure.log; exit 1; }
+          for t in cycles_util cycles_graph cycles_bvh cycles_subd \
+                   cycles_scene cycles_integrator cycles_session \
+                   cycles_device cycles_kernel \
+                   bf_intern_guardedalloc bf_intern_sky cycles_shim; do
+            cmake --build build_host --target "$t" -j 3 > "b_$t.log" 2>&1 \
+              || { echo "FAILED: $t"; grep -E "error:|fatal error:" "b_$t.log" | head -30; exit 1; }
+            echo "built $t"
+          done
+
+      - name: Link the render test
+        run: |
+          set -o pipefail
+          mkdir -p out
+          find build_host \( -name "libcycles*.a" -o -name "libbf_intern_guardedalloc.a" \
+                          -o -name "libbf_intern_sky.a" \) -exec cp {} out/ \;
+          ls -la out
+          ARCH=$(find blender/lib/macos_arm64 -name '*.a' \
+                   -not -path '*/python/*' -not -path '*/openpgl/*' | tr '\n' ' ')
+          DYLIB=$(find blender/lib/macos_arm64 -name '*.dylib' \
+                   -not -path '*/python/*' -not -name 'libtbbmalloc_proxy.dylib' | tr '\n' ' ')
+          echo "deps: $(echo $ARCH | wc -w) archives, $(echo $DYLIB | wc -w) dylibs"
+          clang++ -std=c++17 -O1 \
+            -I backend/cycles/shim backend/cycles/shim/render_test.c \
+            out/*.a $ARCH $ARCH $ARCH $DYLIB -lc++ -lz \
+            -framework Metal -framework Foundation -framework CoreGraphics \
+            -framework IOKit -framework AudioToolbox -framework AVFoundation \
+            -framework CoreAudio -framework CoreMedia -framework VideoToolbox \
+            -framework AppKit \
+            -Wl,-dead_strip_dylibs -o render_test 2> link.log \
+            || { echo "link failed:"; \
+                 grep -oE '"[^"]+", referenced from' link.log \
+                   | sed -E 's/^"//; s/", referenced from$//' | cut -c1-70 | sort -u | head -25; \
+                 tail -10 link.log; exit 1; }
+          echo "linked"
+
+      # THE POINT. cy_set_resource_path is given intern/cycles, because the
+      # Metal backend compiles its kernels from `<path>/source/kernel/...` —
+      # so the tree is staged the way the app bundle stages it.
+      - name: Render
+        run: |
+          set -o pipefail
+          mkdir -p res
+          rsync -a --exclude '.git' --exclude 'shim' blender/intern/cycles/ res/source/
+          test -f res/source/kernel/device/metal/kernel.metal
+          set +e
+          ./render_test "$PWD/res" 2>&1 | tee render.log
+          RC=${PIPESTATUS[0]}
+          set -e
+          echo "render test exit: $RC"
+          if [ "$RC" = "2" ]; then
+            echo "::warning::no GPU device on this runner — the render path was not exercised"
+            exit 0
+          fi
+          exit "$RC"
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cycles-render-test
+          path: |
+            configure.log
+            link.log
+            render.log
+          if-no-files-found: warn
+          retention-days: 7
