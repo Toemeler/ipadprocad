@@ -6978,6 +6978,18 @@ abstract class AppL10n {
   /// In de, this message translates to:
   /// **'Endradius leer lassen für eine konstante Verrundung; mit einem Wert läuft der Radius entlang jeder Kante der Gruppe.'**
   String get hintEndRadiusOptional;
+
+  /// M341 — VoiceOver-Name des Loesch-Knopfes in einer Auswahlzeile. Der Knopf zeigt nur ein Glyph, also muss der Name sagen, WAS geloescht wird.
+  ///
+  /// In de, this message translates to:
+  /// **'{name} löschen'**
+  String a11yClearNamed(String name);
+
+  /// M341 — VoiceOver-Name des X an einem Chip.
+  ///
+  /// In de, this message translates to:
+  /// **'{name} entfernen'**
+  String a11yRemoveNamed(String name);
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

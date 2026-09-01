@@ -10424,3 +10424,105 @@ Ersatzschrift. Zwei Dinge sind erst auf dem Gerät zu beurteilen:
 2. **Die Schrift.** Die Rampe ist für SF Pro Text gerechnet; der Runner
    zeichnet DejaVu, das breiter läuft. Beschriftungen, die hier auf zwei Zeilen
    umbrechen, sollten auf dem Gerät auf eine passen.
+
+## M341 — Die Dialoge lassen sich auch BENUTZEN
+
+### Was der Auftrag war
+
+„Weitermachen, bis es produktionsreif ist und echte Apple-Qualität hat."
+
+### Der Befund
+
+M338 hat die Flächen nach Apples Maßen gezeichnet. Was es nicht getan hat: sie
+benutzbar zu machen in dem Sinn, den Apple meint. Drei Löcher, und alle drei
+sind in einem Screenshot unsichtbar — deshalb sind sie durchgerutscht.
+
+**Erstens: VoiceOver bekam gar nichts.** Jedes antippbare Ding im Bausatz war
+ein blanker `GestureDetector`. Null `Semantics` in `ios_kit.dart` und
+`ios_design.dart`. Das ist nicht falsch, sondern STUMM — und deswegen fällt es
+weder beim Testen noch beim Ansehen auf. Der Rest der App macht es längst
+richtig (`quick_tools`, `home_view`, der Ansichtswürfel wickeln ihre Knöpfe von
+Hand in `Semantics`); der neue Bausatz war der einzige Teil ohne.
+
+**Zweitens: kein Gefühl.** Die App klickt seit M172 an einer überfahrenen
+Scrub-Raste und seit M206 an einer Pad-Taste (`HapticFeedback.selectionClick`,
+sieben Stellen). iOS selbst klickt an einem Segmentregler, einem Picker und
+einem Schalter. Der Bausatz klickte nirgends — was die Steuerungen wie Bilder
+wirken lässt statt wie Teile.
+
+**Drittens: Dynamic Type nur zur Hälfte.** Die Zeilen wachsen von selbst, weil
+sie auf `minHeight` stehen — das war beim Bauen richtig entschieden. Die
+Steuerungen mit GEZEICHNETER Höhe konnten es nicht: der Segmentregler (32 pt,
+`maxLines: 1`) und der Knopf. Und die Navigationsleiste lief bei 3,1× um 126 pt
+über: „Abbrechen" und „OK" sind zusammen breiter als eine 340-pt-Fläche, der
+Titel hatte keinen Platz mehr.
+
+### Was gebaut wurde
+
+**VoiceOver, an EINER Stelle.** `Semantics` steckt jetzt in `IosPressable`, dem
+Wrapper, durch den jeder Knopf, jede Zeile, jeder Chip und jedes Segment
+ohnehin läuft. Damit kann in dieser Datei keine Steuerung mehr entstehen, ohne
+dass eine bedienbare mitkommt — besser als die Hand-Verpackung im Rest der App,
+die genau die Stellen vergisst, die niemandem auffallen. `semanticLabel` ist
+für die Steuerungen ohne eigene Schrift; ein gesetztes Label SCHLIESST die
+Kind-Semantik aus, damit ein beschriftetes Ding einmal vorgelesen wird und
+nicht zweimal. Die Glyphen-Knöpfe borgen sich ihren `tooltip` — der ist schon
+der übersetzte Name, also mussten null Aufrufstellen angefasst werden.
+
+**Der Schalter ist EIN Knoten.** `iosSwitchRow` erreichte VoiceOver sonst als
+Knopf, der einen Schalter enthält: zwei Dinge zum Durchwischen für eine
+Steuerung, und das falsche Verb auf beiden. Jetzt `excludeSemantics` plus ein
+selbst gesetzter `toggled`-Knoten.
+
+**Der Klick.** `iosClick()` am Segmentregler, an der Bildumschaltung und am
+Schalter — an allen drei Wegen des Schalters (Schalter, Zeilentipp, VoiceOver),
+damit es einmal klickt und egal ist, worüber man kam. AUSDRÜCKLICH NICHT an
+gewöhnlichen Knöpfen: iOS lässt „Abbrechen" und „OK" stumm, und ein Tick bei
+jedem Tipp hört auf zu bedeuten, dass sich etwas geändert hat.
+
+**`IosMetrics.growth()` und `isAccessibilitySize()`.** Die gezeichneten Höhen
+wachsen mit der Textgröße, GEDECKELT — und der Deckel ist der ehrliche Teil.
+Apples eigene dichte Chrome skaliert auch nicht auf 3,1×: eine Tab-Leiste
+behält ihre Größe und zeigt die große Beschriftung stattdessen in einem Popup.
+Eine 340-pt-Fläche hat keinen Platz für einen dreiteiligen Segmentregler bei
+40 pt. Also: Segmentregler bis 1,4× (und seine Beschriftung per
+`MediaQuery.withClampedTextScaling` auf denselben Wert, damit Spur und Wort
+sich nie widersprechen können), Knopf bis 1,6×, und die Zeilen ringsum — also
+das meiste einer Fläche — gehen den ganzen Weg.
+
+**Die Navigationsleiste bricht um.** Ab 1,5× (knapp unter AX1) steht der Titel
+oben und die Knöpfe darunter, so wie UIKit es macht. Die Wörter zu schrumpfen
+wäre die eine Stelle der App, an der größere Schrift kleinere Schrift ergibt.
+
+### Der Test
+
+`test/m341_accessibility_test.dart`, 31 Fälle in vier Gruppen: VoiceOver
+(Segment nennt Name/Knopf/Auswahl, Glyph borgt Tooltip, Schalter ist ein
+Knoten, Deaktiviertes wird nicht als Knopf angeboten, Klapp-Kopf sagt seinen
+Zustand), das Gefühl (Segment tickt, Schalter tickt EINMAL, gewöhnlicher Knopf
+bleibt stumm), Dynamic Type (Regler wächst, hört am Deckel auf, Beschriftung
+mitgedeckelt) und — die wichtigste Gruppe — **jede Fläche bei 3,1×**.
+
+Die letzte Gruppe ist die, die sich gelohnt hat: der Bausatz bestand jeden
+Einzeltest, während die Navigationsleiste auf einer echten Fläche um 126 pt
+überlief. Gegenprobe gemacht — mit ausgebautem Umbruch fallen 12 der 16 Flächen
+um, mit Umbruch keine. Ein Test, der ohne den Fix nicht rot wird, beweist
+nichts.
+
+### Zwei Fallen, für das nächste Mal
+
+**`MediaQueryData(textScaler: …)` ist eine Falle.** Ein frisches
+`MediaQueryData` hat `size == Size.zero`, also rechnet die Fläche ihre eigene
+Maximalhöhe aus Unsinn aus und der Test erfindet Überläufe, die die App nicht
+hat. Immer `MediaQuery.of(context).copyWith(textScaler: …)`.
+
+**`dart format` NICHT laufen lassen.** Dieses Repo ist nicht
+`dart format`-sauber (auch unberührte Dateien ändern sich) und die CI prüft es
+nicht. Einmal versehentlich über zwei Fremddateien gelaufen und
+zurückgenommen; Einrückung von Hand nachziehen.
+
+### Noch NICHT auf Hardware
+
+Unverändert die zwei aus M338 (das `UIGlassEffect`-Material unter iOS 26, die
+`NativeMenu`-Blätter an Zeilen verankert) und neu: der Klick und VoiceOver sind
+im Test-Harness geprüft, nicht an einem Gerät gehört bzw. gehört-gelesen.

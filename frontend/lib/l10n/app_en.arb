@@ -1146,5 +1146,21 @@
   "lblFeatureCount": "{n, plural, =1{One feature} other{{n} features}}",
   "lblSelectedCount": "{n, plural, =0{nothing selected} =1{1 selected} other{{n} selected}}",
   "lblTotalDistance": "Distance",
-  "hintEndRadiusOptional": "Leave the end radius blank for a constant fillet; with a value the radius varies along each edge of the set."
+  "hintEndRadiusOptional": "Leave the end radius blank for a constant fillet; with a value the radius varies along each edge of the set.",
+  "a11yClearNamed": "Clear {name}",
+  "@a11yClearNamed": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "a11yRemoveNamed": "Remove {name}",
+  "@a11yRemoveNamed": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  }
 }

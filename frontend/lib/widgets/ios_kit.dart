@@ -50,13 +50,15 @@ import 'dart:math' as math;
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart'
     show Material, MaterialType, Tooltip, InputDecoration, InputBorder, TextField;
-import 'package:flutter/services.dart' show FilteringTextInputFormatter;
+import 'package:flutter/services.dart'
+    show FilteringTextInputFormatter, HapticFeedback;
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:native_menu/native_menu.dart';
 
 import '../app_state.dart';
 import '../icon_theme.dart';
 import '../ios_design.dart';
+import '../l10n/l.dart';
 import '../scrub.dart';
 import '../theme.dart';
 import 'scrub_field.dart';
@@ -292,6 +294,17 @@ Widget iosSvg(String source, double size) =>
 /// One wrapper for every tappable thing in this file, so the feel is the same
 /// everywhere and no control can be forgotten. The 0.4 is `CupertinoButton`'s
 /// own pressed opacity, and the 100 ms fade is its animation.
+///
+/// M341 — and one place where every tappable thing becomes a BUTTON to
+/// VoiceOver. Wrapping each call site by hand is what the rest of this app
+/// does (quick_tools, home_view, the view cube), and the sites it missed are
+/// the ones nobody notices, because a `GestureDetector` is silent rather than
+/// wrong. Doing it here means a control cannot be added to this file without
+/// an accessible one arriving with it.
+///
+/// [semanticLabel] is for the controls with no text of its own to borrow — a
+/// glyph button. Giving one EXCLUDES the child's own semantics, so a labelled
+/// control reads once, not twice.
 class IosPressable extends StatefulWidget {
   const IosPressable({
     super.key,
@@ -300,6 +313,10 @@ class IosPressable extends StatefulWidget {
     this.onLongPress,
     this.opacity = 0.4,
     this.behavior = HitTestBehavior.opaque,
+    this.semanticLabel,
+    this.selected,
+    this.expanded,
+    this.isButton = true,
   });
 
   final Widget child;
@@ -307,6 +324,20 @@ class IosPressable extends StatefulWidget {
   final VoidCallback? onLongPress;
   final double opacity;
   final HitTestBehavior behavior;
+
+  /// Spoken instead of the child, for a control that draws a glyph.
+  final String? semanticLabel;
+
+  /// Adds "selected" to the announcement. Null for controls that are not
+  /// one-of-a-set — a plain button is never "not selected", it just is.
+  final bool? selected;
+
+  /// Reads as "expanded" / "collapsed". For the disclosure headers.
+  final bool? expanded;
+
+  /// False for a row that is a container rather than a button, so VoiceOver
+  /// does not offer to activate something inert.
+  final bool isButton;
 
   @override
   State<IosPressable> createState() => _IosPressableState();
@@ -322,21 +353,44 @@ class _IosPressableState extends State<IosPressable> {
   @override
   Widget build(BuildContext context) {
     final live = widget.onTap != null || widget.onLongPress != null;
-    return GestureDetector(
-      behavior: widget.behavior,
-      onTap: widget.onTap,
-      onLongPress: widget.onLongPress,
-      onTapDown: live ? (_) => _set(true) : null,
-      onTapUp: live ? (_) => _set(false) : null,
-      onTapCancel: live ? () => _set(false) : null,
-      child: AnimatedOpacity(
-        duration: const Duration(milliseconds: 100),
-        opacity: _down && live ? widget.opacity : 1,
-        child: widget.child,
+    return MergeSemantics(
+      child: Semantics(
+        button: widget.isButton && live,
+        enabled: live,
+        label: widget.semanticLabel,
+        selected: widget.selected,
+        expanded: widget.expanded,
+        excludeSemantics: widget.semanticLabel != null,
+        onTap: widget.onTap,
+        onLongPress: widget.onLongPress,
+        child: GestureDetector(
+          behavior: widget.behavior,
+          onTap: widget.onTap,
+          onLongPress: widget.onLongPress,
+          onTapDown: live ? (_) => _set(true) : null,
+          onTapUp: live ? (_) => _set(false) : null,
+          onTapCancel: live ? () => _set(false) : null,
+          child: AnimatedOpacity(
+            duration: const Duration(milliseconds: 100),
+            opacity: _down && live ? widget.opacity : 1,
+            child: widget.child,
+          ),
+        ),
       ),
     );
   }
 }
+
+/// The tick a discrete choice makes.
+///
+/// M341 — the app has clicked on a crossed scrub detent and a pad key since
+/// M172 and M206, and iOS itself clicks on a segmented control, a picker and a
+/// switch. The kit was the one part with no feel at all, which reads as the
+/// controls being pictures rather than parts.
+///
+/// Deliberately NOT on plain buttons: iOS leaves Cancel and OK silent, and a
+/// tick on every tap stops meaning "something changed".
+void iosClick() => HapticFeedback.selectionClick();
 
 // ===========================================================================
 // the panel
@@ -500,16 +554,47 @@ class IosNavBar extends StatelessWidget {
               bottom: BorderSide(
                   color: IosColors.separator, width: IosMetrics.hairline)),
         ),
-        child: Row(children: [
-          // The two edges take their natural width and the title takes the
-          // rest, CENTRED inside it. A Stack would centre on the whole bar and
-          // let a long German title slide under the buttons.
-          if (leading != null) leading!,
-          Expanded(child: Center(child: labels)),
-          if (trailing != null) trailing!,
-        ]),
+        child: _bar(context, labels),
       ),
     );
+  }
+
+  /// One line normally; two at the accessibility text sizes.
+  ///
+  /// A panel is a fixed 340 pt, so at 3.1× "Cancel" and "OK" alone are wider
+  /// than the bar — the title had nowhere to go and the row overflowed by 126
+  /// pt. UIKit answers this the same way: past a certain size a navigation
+  /// bar stops being one line and puts its buttons under the title. Shrinking
+  /// the words instead would be the one place in the app where asking for
+  /// bigger text gives you smaller text.
+  Widget _bar(BuildContext context, Widget labels) {
+    // A heading either way, so VoiceOver's rotor can jump straight to "which
+    // panel am I in" instead of walking the whole bar.
+    final title = Semantics(header: true, child: labels);
+    if (IosMetrics.isAccessibilitySize(context)) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+              padding: const EdgeInsets.only(top: 6, bottom: 2),
+              child: title),
+          Row(children: [
+            if (leading != null) Flexible(child: leading!),
+            const Spacer(),
+            if (trailing != null) Flexible(child: trailing!),
+          ]),
+        ],
+      );
+    }
+    return Row(children: [
+      // The two edges take their natural width and the title takes the rest,
+      // CENTRED inside it. A Stack would centre on the whole bar and let a
+      // long German title slide under the buttons.
+      if (leading != null) leading!,
+      Expanded(child: Center(child: title)),
+      if (trailing != null) trailing!,
+    ]);
   }
 }
 
@@ -586,6 +671,9 @@ class IosBarGlyphButton extends StatelessWidget {
             : IosColors.tint;
     Widget w = IosPressable(
       onTap: onTap,
+      // A glyph has no text to lend VoiceOver, and the tooltip is already
+      // this control's name in the user's language.
+      semanticLabel: tooltip,
       child: SizedBox(
         width: IosMetrics.hit,
         height: IosMetrics.hit,
@@ -637,6 +725,7 @@ Widget iosSection({
           ? label
           : IosPressable(
               onTap: onToggle,
+              expanded: expanded,
               child: Row(children: [
                 Expanded(child: label),
                 iosGlyph(expanded ? IosGlyph.chevronUp : IosGlyph.chevronDown,
@@ -888,17 +977,25 @@ class IosSegmented<T> extends StatelessWidget {
   final ValueChanged<T> onChanged;
   final double height;
 
+  /// A segmented control is the densest thing in the kit — three or four
+  /// labels sharing one 308 pt track — so it takes the smaller cap. Past this
+  /// the words stop fitting side by side however tall the track gets.
+  static const double _maxGrowth = 1.4;
+
   @override
   Widget build(BuildContext context) {
     if (segments.isEmpty) return SizedBox(height: height);
     final selected = segments.indexWhere((s) => s.value == value);
     const inset = IosMetrics.segmentInset;
+    // The track grows with the labels, and the labels stop where the track
+    // does, so the two can never disagree and clip.
+    final track = height * IosMetrics.growth(context, max: _maxGrowth);
 
-    return LayoutBuilder(builder: (context, bc) {
+    final control = LayoutBuilder(builder: (context, bc) {
       final total = bc.maxWidth.isFinite ? bc.maxWidth : 300.0;
       final seg = total / segments.length;
       return SizedBox(
-        height: height,
+        height: track,
         child: Stack(children: [
           Positioned.fill(
             child: DecoratedBox(
@@ -914,8 +1011,8 @@ class IosSegmented<T> extends StatelessWidget {
             if (selected != i && selected != i - 1)
               Positioned(
                 left: seg * i,
-                top: height * 0.22,
-                bottom: height * 0.22,
+                top: track * 0.22,
+                bottom: track * 0.22,
                 width: IosMetrics.hairline,
                 child: ColoredBox(color: IosColors.separator),
               ),
@@ -926,7 +1023,7 @@ class IosSegmented<T> extends StatelessWidget {
               left: seg * selected + inset,
               top: inset,
               width: seg - inset * 2,
-              height: height - inset * 2,
+              height: track - inset * 2,
               child: DecoratedBox(
                 decoration: ShapeDecoration(
                   color: IosColors.segmentThumb,
@@ -942,6 +1039,8 @@ class IosSegmented<T> extends StatelessWidget {
         ]),
       );
     });
+    return MediaQuery.withClampedTextScaling(
+        maxScaleFactor: _maxGrowth, child: control);
   }
 
   Widget _label(IosSegment<T> s, bool on) {
@@ -965,7 +1064,16 @@ class IosSegmented<T> extends StatelessWidget {
           );
     content = IosPressable(
       opacity: 0.5,
-      onTap: s.enabled ? () => onChanged(s.value) : null,
+      onTap: s.enabled
+          ? () {
+              iosClick();
+              onChanged(s.value);
+            }
+          : null,
+      // A picture segment has only its tooltip to be called by; a worded one
+      // lends VoiceOver the word already drawn in it.
+      semanticLabel: s.label == null ? s.tooltip : null,
+      selected: on,
       child: SizedBox.expand(child: content),
     );
     return s.tooltip == null
@@ -1040,7 +1148,14 @@ class IosIconToggle extends StatelessWidget {
   Widget build(BuildContext context) {
     Widget w = IosPressable(
       opacity: 0.5,
-      onTap: enabled ? onTap : null,
+      onTap: enabled && onTap != null
+          ? () {
+              iosClick();
+              onTap!();
+            }
+          : null,
+      semanticLabel: tooltip,
+      selected: on,
       child: Container(
         width: size.width,
         height: size.height,
@@ -1136,7 +1251,9 @@ class IosButton extends StatelessWidget {
     Widget w = IosPressable(
       onTap: onTap,
       child: Container(
-        height: height,
+        // A button may widen, so its label takes the larger cap; only the
+        // pill's drawn height has to be told to keep up.
+        height: height * IosMetrics.growth(context),
         constraints: const BoxConstraints(minWidth: IosMetrics.hit),
         padding: EdgeInsets.symmetric(horizontal: small ? 10 : 16),
         alignment: Alignment.center,
@@ -1196,6 +1313,8 @@ class IosCircleButton extends StatelessWidget {
     Widget w = IosPressable(
       opacity: 0.5,
       onTap: onTap,
+      semanticLabel: tooltip,
+      selected: on ? true : null,
       child: Container(
         width: diameter,
         height: diameter,
@@ -1253,6 +1372,15 @@ Widget iosSwitchRow({
   String? tooltip,
   Widget? leading,
 }) {
+  // One wrapper for all three ways this row can be flipped — the switch, the
+  // row's own tap, and VoiceOver's activation — so the tick happens once and
+  // happens whichever way you got here.
+  final fire = onChanged == null
+      ? null
+      : (bool v) {
+          iosClick();
+          onChanged(v);
+        };
   final row = iosRow(
     label: label,
     leading: leading,
@@ -1260,7 +1388,7 @@ Widget iosSwitchRow({
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: CupertinoSwitch(
         value: value,
-        onChanged: onChanged,
+        onChanged: fire,
         activeTrackColor: IosColors.tint,
         inactiveTrackColor: IosColors.systemFill,
       ),
@@ -1273,10 +1401,23 @@ Widget iosSwitchRow({
     // on a Mac. The press feedback is deliberately faint: the switch's own
     // animation is the feedback, and a row that dimmed like a button would
     // read as one.
-    onTap: onChanged == null ? null : () => onChanged(!value),
+    onTap: fire == null ? null : () => fire(!value),
     pressOpacity: 0.85,
   );
-  return tooltip == null ? row : Tooltip(message: tooltip, child: row);
+  final out = tooltip == null ? row : Tooltip(message: tooltip, child: row);
+  // ONE node, and a switch rather than a button. Left alone this row would
+  // reach VoiceOver as a button that happens to contain a switch — two things
+  // to swipe through and the wrong verb on both. `excludeSemantics` drops the
+  // parts and states the whole: name, on or off, and a tap that flips it.
+  return Semantics(
+    container: true,
+    toggled: value,
+    enabled: onChanged != null,
+    label: label,
+    onTap: fire == null ? null : () => fire(!value),
+    excludeSemantics: true,
+    child: out,
+  );
 }
 
 /// A slider with its value read out above it, the arrangement iOS uses when a
@@ -1567,14 +1708,19 @@ Widget iosPickRow({
           style: IosText.subheadline.on(colour)),
     ),
     if (onClear != null && filled)
-      IosPressable(
-        onTap: onClear,
-        child: Padding(
-          padding: const EdgeInsets.only(left: 8),
-          child: iosGlyph(IosGlyph.xmarkCircleFill,
-              size: 17, color: IosColors.tertiaryLabel),
-        ),
-      ),
+      // Builder, so the label can be looked up in the user's language without
+      // 27 call sites having to hand this function a context.
+      Builder(builder: (context) {
+        return IosPressable(
+          onTap: onClear,
+          semanticLabel: L.of(context).a11yClearNamed(label),
+          child: Padding(
+            padding: const EdgeInsets.only(left: 8),
+            child: iosGlyph(IosGlyph.xmarkCircleFill,
+                size: 17, color: IosColors.tertiaryLabel),
+          ),
+        );
+      }),
   ]);
 
   // The caption shows while the row is ARMED (it is then an instruction) and
@@ -1623,11 +1769,14 @@ Widget iosChip(String label, VoidCallback onRemove) => Container(
               style: IosText.footnote.on(IosColors.tint)),
         ),
         const SizedBox(width: 4),
-        IosPressable(
-          onTap: onRemove,
-          child: iosGlyph(IosGlyph.xmarkCircleFill,
-              size: 15, color: IosColors.tint),
-        ),
+        Builder(builder: (context) {
+          return IosPressable(
+            onTap: onRemove,
+            semanticLabel: L.of(context).a11yRemoveNamed(label),
+            child: iosGlyph(IosGlyph.xmarkCircleFill,
+                size: 15, color: IosColors.tint),
+          );
+        }),
       ]),
     );
 

@@ -4201,4 +4201,14 @@ class AppL10nDe extends AppL10n {
   @override
   String get hintEndRadiusOptional =>
       'Endradius leer lassen für eine konstante Verrundung; mit einem Wert läuft der Radius entlang jeder Kante der Gruppe.';
+
+  @override
+  String a11yClearNamed(String name) {
+    return '$name löschen';
+  }
+
+  @override
+  String a11yRemoveNamed(String name) {
+    return '$name entfernen';
+  }
 }

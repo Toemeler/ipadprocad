@@ -4151,4 +4151,14 @@ class AppL10nEn extends AppL10n {
   @override
   String get hintEndRadiusOptional =>
       'Leave the end radius blank for a constant fillet; with a value the radius varies along each edge of the set.';
+
+  @override
+  String a11yClearNamed(String name) {
+    return 'Clear $name';
+  }
+
+  @override
+  String a11yRemoveNamed(String name) {
+    return 'Remove $name';
+  }
 }

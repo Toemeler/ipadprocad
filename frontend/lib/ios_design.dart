@@ -286,6 +286,38 @@ class IosMetrics {
   /// does not fit what an 11 pt Win32 label did.
   static const double panelWidth = 340;
   static const double widePanelWidth = 440;
+
+  /// M341 — how much taller a control with a FIXED height has to be for the
+  /// text size the user chose.
+  ///
+  /// Most of this kit did not need the number: a row is built on a
+  /// `minHeight`, so it already grows with its label and the panel scrolls
+  /// when the sum stops fitting. The controls that cannot grow on their own
+  /// are the ones whose box is drawn rather than measured — a segmented
+  /// control's track and a button's pill — and left alone those clip their
+  /// labels at the larger sizes and show nothing at the accessibility ones.
+  ///
+  /// It is CAPPED, and the cap is the honest part. iOS's own dense chrome
+  /// does not scale to 3.1× either: a tab bar keeps its size and shows the
+  /// large label in a popup instead. A 340 pt panel has no room for a
+  /// three-segment control at 40 pt, so the kit grows these to the cap and
+  /// keeps them legible, while the rows around them — which is most of what
+  /// a panel is — go all the way.
+  static double growth(BuildContext context, {double max = 1.6}) {
+    final scaled = MediaQuery.textScalerOf(context).scale(17) / 17;
+    return scaled.clamp(1.0, max);
+  }
+
+  /// Whether the user is in one of iOS's ACCESSIBILITY text sizes, where a
+  /// layout is expected to change shape rather than just stretch.
+  ///
+  /// The five accessibility sizes begin around 1.6× body, and the platform
+  /// treats the step as a different layout rather than a bigger one: a
+  /// navigation bar puts its buttons on a second line, a list row stacks its
+  /// value under its label. 1.5 is the threshold this app changes at — just
+  /// below AX1, so the change has happened by the time the text needs it.
+  static bool isAccessibilitySize(BuildContext context) =>
+      MediaQuery.textScalerOf(context).scale(17) / 17 >= 1.5;
 }
 
 /// The corner. Apple's rounded rectangle is a superellipse, and Flutter draws

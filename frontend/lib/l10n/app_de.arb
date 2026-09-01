@@ -935,7 +935,12 @@
   "msgMeshBuilding": "{count, plural, =1{Ein Dreieck}other{{count} Dreiecke}}",
   "@msgMeshBuilding": {
     "description": "Untertitel der Fortschrittskarte auf dem 1:1-Weg.",
-    "placeholders": { "count": { "type": "int", "format": "decimalPattern" } }
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "format": "decimalPattern"
+      }
+    }
   },
   "askMeshImportTitle": "Wie soll dieses Modell importiert werden?",
   "@askMeshImportTitle": {
@@ -945,8 +950,13 @@
   "@askMeshImportBody": {
     "description": "Was in der Datei steckt, damit die Wahl auf Zahlen und nicht auf Vermutungen beruht. {size} ist die Diagonale.",
     "placeholders": {
-      "count": { "type": "int", "format": "decimalPattern" },
-      "size": { "type": "String" }
+      "count": {
+        "type": "int",
+        "format": "decimalPattern"
+      },
+      "size": {
+        "type": "String"
+      }
     }
   },
   "askMeshImportConvert": "Als CAD-Körper",
@@ -967,26 +977,49 @@
   },
   "askMeshImportTooManyFaceted": "Für „Als Netz“ sind das zu viele Dreiecke (Grenze {limit}).",
   "meshStageReading": "Modell wird gelesen",
-  "@meshStageReading": { "description": "Fortschrittskarte, Schritt 1 (OCCT_MS_WELDING)." },
+  "@meshStageReading": {
+    "description": "Fortschrittskarte, Schritt 1 (OCCT_MS_WELDING)."
+  },
   "meshStageFinding": "Flächen werden gesucht",
-  "@meshStageFinding": { "description": "Schritt 2 (OCCT_MS_SEGMENTING)." },
+  "@meshStageFinding": {
+    "description": "Schritt 2 (OCCT_MS_SEGMENTING)."
+  },
   "meshStageFitting": "Flächen werden angepasst",
-  "@meshStageFitting": { "description": "Schritt 3 (OCCT_MS_FITTING). Der laengste Schritt." },
+  "@meshStageFitting": {
+    "description": "Schritt 3 (OCCT_MS_FITTING). Der laengste Schritt."
+  },
   "meshStageShaping": "Rundungen werden geformt",
-  "@meshStageShaping": { "description": "Schritt 4 (OCCT_MS_FREEFORM)." },
+  "@meshStageShaping": {
+    "description": "Schritt 4 (OCCT_MS_FREEFORM)."
+  },
   "meshStageBuilding": "Flächen werden gebaut",
-  "@meshStageBuilding": { "description": "Schritt 5 und 7 (OCCT_MS_BUILDING, OCCT_MS_FACETED)." },
+  "@meshStageBuilding": {
+    "description": "Schritt 5 und 7 (OCCT_MS_BUILDING, OCCT_MS_FACETED)."
+  },
   "meshStageFinishing": "Wird fertiggestellt",
-  "@meshStageFinishing": { "description": "Schritt 6 (OCCT_MS_SEWING). Nicht „vernaeht“ — das ist der Algorithmus, nicht die Sache." },
+  "@meshStageFinishing": {
+    "description": "Schritt 6 (OCCT_MS_SEWING). Nicht „vernaeht“ — das ist der Algorithmus, nicht die Sache."
+  },
   "meshStageSimplifying": "Wird vereinfacht",
-  "@meshStageSimplifying": { "description": "Schritt 8 (OCCT_MS_MERGING)." },
+  "@meshStageSimplifying": {
+    "description": "Schritt 8 (OCCT_MS_MERGING)."
+  },
   "actionCancelling": "Wird abgebrochen …",
-  "@actionCancelling": { "description": "Der Abbrechen-Knopf, nachdem er gedrueckt wurde. Bis zu vier Sekunden lang, weil OCCTs Flaechen-Zusammenfassung sich nicht unterbrechen laesst." },
+  "@actionCancelling": {
+    "description": "Der Abbrechen-Knopf, nachdem er gedrueckt wurde. Bis zu vier Sekunden lang, weil OCCTs Flaechen-Zusammenfassung sich nicht unterbrechen laesst."
+  },
   "msgMeshImportCancelled": "Import abgebrochen.",
-  "@msgMeshImportCancelled": { "description": "Nach einem Abbruch. Kein Fehler — deshalb ohne Fehlerton und ohne Details." },
+  "@msgMeshImportCancelled": {
+    "description": "Nach einem Abbruch. Kein Fehler — deshalb ohne Fehlerton und ohne Details."
+  },
   "@askMeshImportTooManyFaceted": {
     "description": "Statt der zweiten Wahl, wenn das Netz ueber kMaxFacetedTriangles liegt. Die Wahl wird gar nicht erst angeboten, weil der Kern sie danach ablehnen wuerde.",
-    "placeholders": { "limit": { "type": "int", "format": "decimalPattern" } }
+    "placeholders": {
+      "limit": {
+        "type": "int",
+        "format": "decimalPattern"
+      }
+    }
   },
   "@msgMeshUnreadable": {
     "description": "Rechte, ein nicht geladener iCloud-Platzhalter. Der OS-Grund geht ins Log, nicht in die Meldung."
@@ -2831,7 +2864,11 @@
   "msgProjectedFace": "{n, plural, =1{1 Kante projiziert} other{{n} Kanten projiziert}}",
   "@msgProjectedFace": {
     "description": "Rueckmeldung nach dem Projizieren einer ganzen Flaeche.",
-    "placeholders": { "n": { "type": "int" } }
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
   },
   "sectionNone": "Kein Schnitt",
   "@sectionNone": {
@@ -3667,17 +3704,29 @@
   "lblProfileCount": "{n, plural, =1{Ein Profil} other{{n} Profile}}",
   "@lblProfileCount": {
     "description": "M338 — wie viele Profile gewaehlt sind.",
-    "placeholders": { "n": { "type": "int" } }
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
   },
   "lblSectionCount": "{n, plural, =1{Ein Querschnitt} other{{n} Querschnitte}}",
   "@lblSectionCount": {
     "description": "M338 — wie viele Loft-Querschnitte gewaehlt sind.",
-    "placeholders": { "n": { "type": "int" } }
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
   },
   "lblPointsCount": "{n, plural, =1{Ein Punkt} other{{n} Punkte}}",
   "@lblPointsCount": {
     "description": "M338 — wie viele Skizzenpunkte gewaehlt sind.",
-    "placeholders": { "n": { "type": "int" } }
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
   },
   "hintTapToFinish": "· zum Beenden tippen",
   "@hintTapToFinish": {
@@ -3690,12 +3739,20 @@
   "lblFeatureCount": "{n, plural, =1{Ein Element} other{{n} Elemente}}",
   "@lblFeatureCount": {
     "description": "M338 — wie viele Elemente gemustert werden.",
-    "placeholders": { "n": { "type": "int" } }
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
   },
   "lblSelectedCount": "{n, plural, =0{nichts gewählt} =1{1 gewählt} other{{n} gewählt}}",
   "@lblSelectedCount": {
     "description": "M338 — wie viel Geometrie gewählt ist.",
-    "placeholders": { "n": { "type": "int" } }
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
   },
   "lblTotalDistance": "Gesamtabstand",
   "@lblTotalDistance": {
@@ -3704,5 +3761,23 @@
   "hintEndRadiusOptional": "Endradius leer lassen für eine konstante Verrundung; mit einem Wert läuft der Radius entlang jeder Kante der Gruppe.",
   "@hintEndRadiusOptional": {
     "description": "M338 — Fussnote unter der Radius-Sektion der Verrundung."
+  },
+  "a11yClearNamed": "{name} löschen",
+  "@a11yClearNamed": {
+    "description": "M341 — VoiceOver-Name des Loesch-Knopfes in einer Auswahlzeile. Der Knopf zeigt nur ein Glyph, also muss der Name sagen, WAS geloescht wird.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "a11yRemoveNamed": "{name} entfernen",
+  "@a11yRemoveNamed": {
+    "description": "M341 — VoiceOver-Name des X an einem Chip.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
   }
 }
