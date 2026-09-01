@@ -10,7 +10,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:native_menu/native_busy.dart' show NativeBusy;
-import 'package:native_menu/native_menu.dart' show NativeMenu;
+import 'package:native_menu/native_menu.dart' show MeshImportChoice, NativeMenu;
 import 'package:path_provider/path_provider.dart';
 import 'package:reality_view/reality_view.dart' show RealityThumbnailer;
 
@@ -18216,6 +18216,44 @@ class AppState extends ChangeNotifier {
             '${soup.droppedTriangles > 0 ? ', '
                 '${soup.droppedTriangles} dropped' : ''}');
 
+    // M305 — ASK, rather than decide for them.
+    //
+    // A downloaded mesh has two honest destinations and they are not versions
+    // of each other: reverse-engineered surfaces that can be filleted and
+    // dimensioned, or the triangles exactly as they are. Guessing produces the
+    // worse half of both — a minute of waiting for someone who wanted a
+    // faithful copy, or 80,000 faces for someone who wanted geometry to edit.
+    // See ImportChoiceSheet.swift for why the sheet is native.
+    //
+    // Off iOS there is no sheet to ask with, so the conversion is what
+    // happens: it is what this entry point did before the dialog existed, and
+    // refusing to import at all on a host that simply cannot present a sheet
+    // would break the desktop build and the test suite to no purpose. On iOS
+    // a null is a real cancellation and is obeyed.
+    // The 1:1 path makes one face per triangle and the kernel refuses above
+    // kMaxFacetedTriangles. Do not offer it there: a choice that is accepted
+    // and then fails, after a wait, is a worse dialog than one that says up
+    // front why there is only one way in.
+    final canFacet = canImportAsTriangles(soup.triangleCount);
+    final choice = await NativeMenu.importChoice(
+      title: L.current.askMeshImportTitle,
+      message: L.current.askMeshImportBody(
+          soup.triangleCount, soup.diagonal.toStringAsFixed(0)),
+      convertLabel: L.current.askMeshImportConvert,
+      convertDetail: L.current.askMeshImportConvertWhy,
+      facetedLabel: canFacet ? L.current.askMeshImportFaceted : null,
+      facetedDetail: canFacet
+          ? L.current.askMeshImportFacetedWhy
+          : L.current.askMeshImportTooManyFaceted(kMaxFacetedTriangles),
+      cancelLabel: L.current.cancel,
+    );
+    if (choice == null && NativeMenu.isSupported) {
+      Log.milestone('import', 'mesh: cancelled at the import dialog');
+      return 0;
+    }
+    final how = choice ?? MeshImportChoice.convert;
+    Log.milestone('import', 'mesh: importing as ${how.id}');
+
     // The kernel is single-threaded by contract, so the conversion happens on
     // the DART isolate and no Flutter frame is produced until it returns —
     // under a second for a typical model, half a minute for a big one. A
@@ -18223,22 +18261,36 @@ class AppState extends ChangeNotifier {
     // so the card is drawn by UIKit on the platform thread, which stays idle
     // throughout and keeps animating. See NativeBusy / BusyOverlay.swift.
     //
+    // M305 — that card now shows the converter's OWN stage and counters, read
+    // from the platform thread while this isolate is stuck inside the call
+    // that is advancing them (occt_mesh_progress). Nothing needs passing to it
+    // from here; the title and the detail are all this side knows.
+    //
     // Awaited on purpose: the reply arrives only once the platform thread has
     // put the card up, which is what makes it exist BEFORE the blocking call
     // rather than after it. On a host without the plugin this is a no-op and
     // the toast is still the notice.
-    toast(L.current.msgMeshConverting(soup.triangleCount));
-    await NativeBusy.show(L.current.msgMeshConvertTitle,
-        L.current.msgMeshConverting(soup.triangleCount));
+    final busyTitle = how == MeshImportChoice.convert
+        ? L.current.msgMeshConvertTitle
+        : L.current.msgMeshBuildTitle;
+    final busyDetail = how == MeshImportChoice.convert
+        ? L.current.msgMeshConverting(soup.triangleCount)
+        : L.current.msgMeshBuilding(soup.triangleCount);
+    toast(busyDetail);
+    final liveProgress = await NativeBusy.show(busyTitle, busyDetail);
+    Log.milestone('import',
+        'mesh: busy card ${liveProgress ? 'with live progress' : 'indeterminate'}');
 
     final MeshImportOutcome res;
     try {
       Log.milestone('import',
-          'mesh: >> kernel convert (rss ${Log.rssMb() ?? -1} MB)');
+          'mesh: >> kernel ${how.id} (rss ${Log.rssMb() ?? -1} MB)');
       res = partKernel.meshToBrep(soup.vertices, soup.triangles,
-          tolFraction: brepTolFractionFor(soup));
+          mode: how.kernelMode,
+          tolFraction: brepTolFractionFor(soup),
+          maxFacetedTriangles: kMaxFacetedTriangles);
       Log.milestone('import',
-          'mesh: << kernel convert (rss ${Log.rssMb() ?? -1} MB)');
+          'mesh: << kernel ${how.id} (rss ${Log.rssMb() ?? -1} MB)');
     } catch (_) {
       // The card must not outlive the work under any exit, including one the
       // kernel throws.

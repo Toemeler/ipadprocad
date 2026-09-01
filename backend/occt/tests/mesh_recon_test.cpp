@@ -17,7 +17,9 @@
  */
 #include "mesh_recon.h"
 
+#include <atomic>
 #include <chrono>
+#include <thread>
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRepPrimAPI_MakeSphere.hxx>
@@ -1347,6 +1349,172 @@ int main()
                             out.IsNull() ? 0.0 : Volume(out), mv,
                             r.faceted_patches);
             }
+        }
+    }
+
+    /* ---- M305: the progress the busy card reads --------------------------
+     *
+     * The card is UIKit on a thread that is idle while the Dart isolate is
+     * blocked inside Reconstruct, and it polls these three ints. So the thing
+     * to test is exactly what that thread does: poll from ANOTHER thread while
+     * a conversion runs, and check that what comes back is true.
+     *
+     * "True" is four separate promises, and a bar is only honest if all four
+     * hold: it is idle when nothing is running, it names a stage while
+     * something is, `done` never exceeds `total` or goes backwards within a
+     * stage, and it goes back to idle afterwards — including when the
+     * conversion FAILS, or a card that outlives one shows the last thing it
+     * saw for ever. */
+    {
+        std::printf("== the progress counters, read while it runs ==\n");
+
+        int st = -1, dn = -1, tt = -1;
+        meshrecon::Progress(st, dn, tt);
+        chk("progress: idle before anything runs", st == meshrecon::kStageIdle);
+        chk("progress: idle reports no counts", dn == 0 && tt == 0);
+        meshrecon::Progress(st, dn, tt); /* twice: it must not be consuming */
+        chk("progress: reading it does not change it",
+            st == meshrecon::kStageIdle);
+
+        chk("progress: idle has no name",
+            std::string(meshrecon::StageName(meshrecon::kStageIdle)).empty());
+        for (int i = 1; i < meshrecon::kStageCount; ++i)
+            chk("progress: every stage is named",
+                !std::string(meshrecon::StageName(i)).empty(),
+                "stage " + std::to_string(i));
+        /* Out of range must be a name, not a crash: the stage crosses a C ABI
+         * as a plain int and the caller is Swift polling asynchronously, so it
+         * can and will read one this build does not know. */
+        chk("progress: an unknown stage is \"\", not a crash",
+            std::string(meshrecon::StageName(9999)).empty() &&
+                std::string(meshrecon::StageName(-1)).empty());
+
+        /* The plate with fifteen holes and three bosses, not something with
+         * one face. A fixture that converts in one patch would pass every
+         * check below without the counters ever having to move — measured:
+         * against a torus, replacing the accumulate with a bare store (so the
+         * count jumps around instead of rising) was not caught by any of
+         * these. On a part with dozens of patches it is caught at once. */
+        std::vector<double> xyz;
+        std::vector<int> tri;
+        Tessellate(part, 0.05, xyz, tri);
+
+        struct Watch
+        {
+            std::atomic<bool> run;
+            std::atomic<int> polls, seenStages, badCount, wentBackwards;
+            std::atomic<int> countedStages;
+            Watch() : run(true), polls(0), seenStages(0), badCount(0),
+                      wentBackwards(0), countedStages(0) {}
+        };
+
+        for (int mode = 0; mode <= 1; ++mode) {
+            Watch w;
+            std::vector<char> seen(meshrecon::kStageCount, 0);
+            /* Per stage: how often it was seen with a total, and the
+             * furthest the count ever got. A stage that publishes "out of N"
+             * and never approaches N is the failure this change exists to
+             * prevent — a bar with a number on it that is a still picture
+             * anyway — so it is checked for EVERY countable stage and not
+             * merely for one of them. Measured: asking only that one stage
+             * fill let a completely dead tick through, because a different
+             * stage's counter carried the check on its own. */
+            std::vector<int> obs(meshrecon::kStageCount, 0);
+            std::vector<double> best(meshrecon::kStageCount, 0.0);
+            std::vector<char> counted(meshrecon::kStageCount, 0);
+            std::thread poller([&] {
+                int lastStage = -1, lastDone = -1;
+                while (w.run.load()) {
+                    int s = 0, d = 0, t = 0;
+                    meshrecon::Progress(s, d, t);
+                    w.polls.fetch_add(1);
+                    if (s > 0 && s < meshrecon::kStageCount) {
+                        if (!seen[s]) { seen[s] = 1; w.seenStages.fetch_add(1); }
+                        if (t > 0) {
+                            obs[s]++;
+                            const double f = double(d) / double(t);
+                            if (f > best[s]) best[s] = f;
+                            if (!counted[s]) {
+                                counted[s] = 1;
+                                w.countedStages.fetch_add(1);
+                            }
+                        }
+                    }
+                    if (t > 0 && (d < 0 || d > t)) w.badCount.fetch_add(1);
+                    if (s == lastStage && d < lastDone) w.wentBackwards.fetch_add(1);
+                    lastStage = s;
+                    lastDone = d;
+                    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                }
+            });
+            meshrecon::Params p = meshrecon::Defaults();
+            p.mode = mode;
+            meshrecon::Report r;
+            std::string err;
+            TopoDS_Shape out = meshrecon::Reconstruct(
+                xyz.data(), (int)(xyz.size() / 3), tri.data(),
+                (int)(tri.size() / 3), p, r, err);
+            w.run.store(false);
+            poller.join();
+
+            const std::string tag =
+                std::string("progress[mode ") + (mode ? "1 fit" : "0 faceted") + "]: ";
+            chk((tag + "the conversion still works").c_str(), !out.IsNull(), err);
+            chk((tag + "the poller actually got to run").c_str(), w.polls.load() > 10,
+                std::to_string(w.polls.load()) + " polls");
+            chk((tag + "it names at least one stage while working").c_str(),
+                w.seenStages.load() >= 1,
+                std::to_string(w.seenStages.load()) + " stages seen");
+            chk((tag + "done never exceeds total").c_str(), w.badCount.load() == 0,
+                std::to_string(w.badCount.load()) + " impossible reads");
+            chk((tag + "done never goes backwards inside a stage").c_str(),
+                w.wentBackwards.load() == 0,
+                std::to_string(w.wentBackwards.load()) + " reversals");
+            /* A stage that publishes a total and never moves off zero is the
+             * failure this whole change exists to prevent: a bar that has a
+             * number on it and is a still picture anyway. */
+            chk((tag + "at least one stage is countable").c_str(),
+                w.countedStages.load() >= 1,
+                std::to_string(w.countedStages.load()) + " countable stages");
+            {
+                /* Only stages that lasted long enough to be measured: one
+                 * entered and left between two 2 ms polls is seen once, at
+                 * zero, and says nothing about whether its counter works. */
+                std::string stuck;
+                for (int i = 1; i < meshrecon::kStageCount; ++i) {
+                    if (obs[i] < 3 || best[i] >= 0.5) continue;
+                    stuck += std::string(stuck.empty() ? "" : ", ") +
+                             meshrecon::StageName(i) + " reached " +
+                             std::to_string(int(best[i] * 100)) + "% over " +
+                             std::to_string(obs[i]) + " polls";
+                }
+                chk((tag + "every countable stage fills up").c_str(),
+                    stuck.empty(), stuck);
+            }
+
+            meshrecon::Progress(st, dn, tt);
+            chk((tag + "idle again afterwards").c_str(), st == meshrecon::kStageIdle,
+                std::string("stage ") + std::to_string(st));
+        }
+
+        /* A conversion that FAILS must also leave it idle, or the next card
+         * opens on the last stage the last failure reached. The faceted path
+         * refuses above its triangle cap, which is a real refusal on a real
+         * mesh rather than a contrived one. */
+        {
+            meshrecon::Params p = meshrecon::Defaults();
+            p.mode = 0;
+            p.max_faceted_triangles = 4;
+            meshrecon::Report r;
+            std::string err;
+            TopoDS_Shape out = meshrecon::Reconstruct(
+                xyz.data(), (int)(xyz.size() / 3), tri.data(),
+                (int)(tri.size() / 3), p, r, err);
+            chk("progress: the refusal happened", out.IsNull(), err);
+            meshrecon::Progress(st, dn, tt);
+            chk("progress: idle after a refusal too",
+                st == meshrecon::kStageIdle,
+                std::string("stage ") + std::to_string(st));
         }
     }
 

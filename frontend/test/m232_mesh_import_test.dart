@@ -28,6 +28,7 @@ import 'package:prototype/ffi/occt_engine.dart';
 import 'package:prototype/l10n/l.dart';
 import 'package:flutter/services.dart';
 import 'package:native_menu/native_busy.dart';
+import 'package:native_menu/native_menu.dart';
 import 'package:prototype/mesh_io.dart';
 
 /// A unit cube as 12 triangles, corner at the origin, side [s].
@@ -682,6 +683,118 @@ void main() {
       expect(NativeBusy.isShowing, isFalse,
           reason: 'nothing was put up, so nothing may be taken down later');
       await NativeBusy.hide();
+    });
+  });
+
+  // M305 — the question asked before an import, and the answer's journey to
+  // the kernel. The sheet itself is UIKit and cannot be driven from here, so
+  // what is pinned is everything on THIS side of the channel: the wire values,
+  // the mapping to the kernel's mode argument, and the two contracts
+  // app_state leans on (off-iOS there is no sheet; a null on iOS is a
+  // cancellation).
+  group('the import choice', () {
+    test('the two choices carry the ids the Swift sheet replies with', () {
+      expect(MeshImportChoice.convert.id, 'convert');
+      expect(MeshImportChoice.faceted.id, 'faceted');
+      expect(MeshImportChoice.values, hasLength(2),
+          reason: 'a third choice needs a case in ImportChoiceSheet.swift too');
+    });
+
+    test('each maps to the kernel mode occt_brep_from_mesh documents', () {
+      // 1 fits surfaces, 0 keeps triangles. Getting these the wrong way round
+      // is silent: both produce a body, just never the one that was asked for.
+      expect(MeshImportChoice.convert.kernelMode, 1);
+      expect(MeshImportChoice.faceted.kernelMode, 0);
+    });
+
+    test('byId round-trips every choice', () {
+      for (final c in MeshImportChoice.values) {
+        expect(MeshImportChoice.byId(c.id), c);
+      }
+    });
+
+    test('an id nobody sent is null, not a default', () {
+      // A reply this build does not understand must not silently become a
+      // conversion: the caller treats null as "do not import".
+      expect(MeshImportChoice.byId(null), isNull);
+      expect(MeshImportChoice.byId(''), isNull);
+      expect(MeshImportChoice.byId('Convert'), isNull);
+      expect(MeshImportChoice.byId('faceted '), isNull);
+    });
+
+    test('the 1:1 cap is below the cap on what may be imported at all', () {
+      // Otherwise the gate never fires and the branch that refuses to offer
+      // the faceted path is dead code that nobody would notice was dead.
+      expect(kMaxFacetedTriangles, lessThan(kMaxMeshTriangles));
+      // And it must be a real limit, not zero — 0 means "shim default" to the
+      // kernel, which would silently un-cap the path this number gates.
+      expect(kMaxFacetedTriangles, greaterThan(0));
+    });
+
+    test('the gate is inclusive at the cap and shut one past it', () {
+      // Exactly at the cap must WORK: the kernel refuses strictly above it
+      // (`triCount > max_faceted_triangles`), so an off-by-one here would
+      // hide a legal import or, worse, offer an illegal one.
+      expect(canImportAsTriangles(kMaxFacetedTriangles), isTrue);
+      expect(canImportAsTriangles(kMaxFacetedTriangles + 1), isFalse);
+      expect(canImportAsTriangles(1), isTrue);
+      // A mesh with no triangles has nothing to keep 1:1; it never reaches
+      // here today, and if it ever does the answer is no, not a crash.
+      expect(canImportAsTriangles(0), isFalse);
+    });
+
+    test('off iOS there is no sheet, and it says so rather than guessing',
+        () async {
+      // The host test suite and every desktop build land here. app_state
+      // reads this together with NativeMenu.isSupported: null AND supported
+      // is a cancellation, null and NOT supported is "nothing to ask with".
+      expect(NativeMenu.isSupported, isFalse,
+          reason: 'this test asserts the non-iOS branch');
+      expect(
+          await NativeMenu.importChoice(
+            title: 't',
+            convertLabel: 'c',
+            convertDetail: 'cd',
+            facetedLabel: 'f',
+            facetedDetail: 'fd',
+          ),
+          isNull);
+    });
+  });
+
+  group('the busy card reports whether its progress is real', () {
+    const ch = MethodChannel('prototype/native_menu');
+    Object? reply;
+
+    setUp(() {
+      reply = null;
+      NativeBusy.resetForTest();
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(ch, (MethodCall c) async => reply);
+    });
+    tearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(ch, null);
+      NativeBusy.resetForTest();
+    });
+
+    test('true when the binary has occt_mesh_progress in it', () async {
+      reply = true;
+      expect(await NativeBusy.show('t', 'd'), isTrue);
+      expect(NativeBusy.isShowing, isTrue);
+    });
+
+    test('false when it does not — and the card still goes up', () async {
+      reply = false;
+      expect(await NativeBusy.show('t', 'd'), isFalse);
+      expect(NativeBusy.isShowing, isTrue,
+          reason: 'a sweeping card is still a card; only the bar differs');
+    });
+
+    test('an older plugin that returns nothing reads as false', () async {
+      reply = null;
+      expect(await NativeBusy.show('t', 'd'), isFalse);
+      expect(NativeBusy.isShowing, isTrue);
     });
   });
 

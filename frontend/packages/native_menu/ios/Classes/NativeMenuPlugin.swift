@@ -121,11 +121,16 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
         // M259 — the busy card. Shown around a native call the Dart isolate
         // waits inside, where a Flutter progress bar would be a still picture.
         // See BusyOverlay.
+        //
+        // M305 — returns whether the card can show the converter's real
+        // progress, i.e. whether occt_mesh_progress resolved in this binary.
+        // Dart logs it, so a build where the bar only ever swept says so in
+        // its own log rather than needing a device to reproduce on.
         case "busyShow":
             BusyOverlay.shared.show(
                 title: args["title"] as? String ?? "",
                 detail: args["detail"] as? String ?? "")
-            result(nil)
+            result(BusyOverlay.shared.hasRealProgress)
 
         case "busyHide":
             BusyOverlay.shared.hide()
@@ -280,6 +285,27 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
             present(sheet, anchor: NativeMenuPlugin.parseRect(args["anchor"])) {
                 reply(nil)
             }
+
+        // M305 — how to bring a mesh in: reconstructed surfaces, or the
+        // triangles exactly as they are. See ImportChoiceSheet for why the
+        // question is asked at all and why it is asked in UIKit.
+        case "importChoice":
+            var answered = false
+            let reply: (String?) -> Void = { value in
+                if answered { return }
+                answered = true
+                result(value)
+            }
+            let sheet = ImportChoiceSheet.make(
+                title: args["title"] as? String ?? "",
+                message: args["message"] as? String,
+                convertLabel: args["convertLabel"] as? String ?? "Convert",
+                convertDetail: args["convertDetail"] as? String ?? "",
+                facetedLabel: args["facetedLabel"] as? String,
+                facetedDetail: args["facetedDetail"] as? String ?? "",
+                cancelLabel: args["cancelLabel"] as? String ?? "Cancel",
+                reply: reply)
+            if !presentModal(sheet) { reply(nil) }
 
         // M261 — the app's Settings, as a real grouped table. See
         // SettingsSheet.swift for why it is UIKit and not Flutter.

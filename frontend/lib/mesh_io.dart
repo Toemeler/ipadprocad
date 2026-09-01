@@ -52,6 +52,30 @@ const int kMaxMeshFileBytes = 256 * 1024 * 1024;
 /// never be wedged for minutes by one bad download.
 const int kMaxMeshTriangles = 2000000;
 
+/// M305 — largest mesh the 1:1 path will take, in triangles.
+///
+/// That path makes one B-Rep face per triangle, so it is linear in the mesh
+/// and quadratic in the misery: half a million triangles is half a million
+/// faces, which takes minutes to sew and which no later operation can touch.
+/// The shim refuses above this and says so, but a refusal AFTER the user has
+/// chosen is a dialog that offered something it could not do — so this is
+/// what decides whether the choice is offered at all, and it is passed to the
+/// kernel as the cap so the two can never disagree.
+///
+/// Above it the surface fit is not merely the better option, it is the only
+/// one: fitting collapses a flank into one face and does not care how finely
+/// it was tessellated.
+const int kMaxFacetedTriangles = 120000;
+
+/// Whether a mesh of [triangleCount] triangles may be imported 1:1.
+///
+/// A function rather than a comparison written out at the call site, because
+/// the same answer is needed twice — once to decide whether to OFFER the
+/// choice, and once by the kernel to enforce it — and two copies of a
+/// threshold is how they come to disagree.
+bool canImportAsTriangles(int triangleCount) =>
+    triangleCount > 0 && triangleCount <= kMaxFacetedTriangles;
+
 /// True when [path] ends in one of [kMeshExtensions].
 bool isMeshPath(String path) {
   final lower = path.toLowerCase();

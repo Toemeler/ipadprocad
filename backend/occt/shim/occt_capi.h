@@ -846,6 +846,36 @@ occt_shape *occt_brep_from_mesh(const double *xyz, int nv,
                                 int max_faceted,
                                 int *report_ints, double *report_reals);
 
+/* ---- what the converter is doing, while it is doing it ----------------
+ *
+ * M305. occt_brep_from_mesh blocks its caller for as long as it runs — a
+ * second on a small model, half a minute on a big one — so nothing on the
+ * calling thread can report progress. These are for a DIFFERENT thread: the
+ * one drawing the wait indicator, which is idle throughout.
+ *
+ * Safe to call at any time from any thread, including while a conversion is
+ * running and when none is. Never blocks and never allocates.
+ *
+ * `stage` is one of OCCT_MS_*; `done` and `total` describe position within it.
+ * A `total` of 0 means the stage has nothing meaningful to count, and the
+ * caller should show an indeterminate indicator rather than invent a fraction.
+ * Any out-pointer may be NULL. */
+void occt_mesh_progress(int *stage, int *done, int *total);
+
+/* A short English name for a stage, for a caller with no catalogue of its
+ * own. Never NULL; "" for OCCT_MS_IDLE. The storage is static. */
+const char *occt_mesh_stage_name(int stage);
+
+#define OCCT_MS_IDLE        0
+#define OCCT_MS_WELDING     1
+#define OCCT_MS_SEGMENTING  2
+#define OCCT_MS_FITTING     3
+#define OCCT_MS_FREEFORM    4
+#define OCCT_MS_BUILDING    5
+#define OCCT_MS_SEWING      6
+#define OCCT_MS_FACETED     7
+#define OCCT_MS_MERGING     8
+
 #define OCCT_MESH_REPORT_INTS 22
 #define OCCT_MESH_REPORT_REALS 2
 

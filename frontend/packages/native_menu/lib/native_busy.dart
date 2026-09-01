@@ -20,18 +20,26 @@ class NativeBusy {
   /// nested show leaving one behind.
   static bool get isShowing => _up;
 
-  static Future<void> show(String title, String detail) async {
+  /// Returns whether the card can show the converter's REAL progress — that
+  /// is, whether occt_mesh_progress resolved in this binary (see M305 in
+  /// BusyOverlay.swift). False also means "no card at all"; the caller wants
+  /// this only to log it, and must not change what it does on the strength of
+  /// it. Worth logging because "the bar just swept the whole time" is
+  /// otherwise a report with nothing in the bundle to check it against.
+  static Future<bool> show(String title, String detail) async {
     try {
-      await _ch.invokeMethod<void>('busyShow', {
+      final real = await _ch.invokeMethod<bool>('busyShow', {
         'title': title,
         'detail': detail,
       });
       _up = true;
+      return real ?? false;
     } on PlatformException {
       // A missing card must never be the reason an import fails.
     } on MissingPluginException {
       // Host without the plugin (tests, desktop) — nothing to show.
     }
+    return false;
   }
 
   static Future<void> hide() async {

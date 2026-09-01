@@ -5221,6 +5221,23 @@ static void ensure_signal_handlers()
     }
 }
 
+extern "C" void occt_mesh_progress(int *stage, int *done, int *total)
+{
+    /* No OCCT_TRY: this is called from the thread painting the wait card,
+     * possibly many times a second, and it must never throw, never block and
+     * never touch the error slot the converting thread is using. */
+    int st = 0, dn = 0, tt = 0;
+    meshrecon::Progress(st, dn, tt);
+    if (stage) *stage = st;
+    if (done) *done = dn;
+    if (total) *total = tt;
+}
+
+extern "C" const char *occt_mesh_stage_name(int stage)
+{
+    return meshrecon::StageName(stage);
+}
+
 extern "C" occt_shape *occt_brep_from_mesh(const double *xyz, int nv,
                                            const int *tri, int nt,
                                            int mode, double tol_frac,

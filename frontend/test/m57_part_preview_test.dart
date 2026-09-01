@@ -111,7 +111,9 @@ class FakeKernel implements PartKernel {
 
   @override
   MeshImportOutcome meshToBrep(Float64List xyz, Int32List triangles,
-          {double tolFraction = 0}) =>
+          {double tolFraction = 0,
+          int mode = 1,
+          int maxFacetedTriangles = 0}) =>
       const MeshImportOutcome(
           null, MeshToBrepReport.empty(), 'fake kernel: no mesh converter');
   @override

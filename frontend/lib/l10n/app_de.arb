@@ -928,6 +928,48 @@
   "@msgMeshConvertTitle": {
     "description": "Titel der nativen Fortschrittskarte, waehrend ein Netz umgewandelt wird."
   },
+  "msgMeshBuildTitle": "Dreiecke werden übernommen",
+  "@msgMeshBuildTitle": {
+    "description": "Titel der Fortschrittskarte auf dem 1:1-Weg, wo nichts umgewandelt, sondern nur gebaut wird."
+  },
+  "msgMeshBuilding": "{count, plural, =1{Ein Dreieck}other{{count} Dreiecke}}",
+  "@msgMeshBuilding": {
+    "description": "Untertitel der Fortschrittskarte auf dem 1:1-Weg.",
+    "placeholders": { "count": { "type": "int", "format": "decimalPattern" } }
+  },
+  "askMeshImportTitle": "Wie soll dieses Netz importiert werden?",
+  "@askMeshImportTitle": {
+    "description": "Titel des nativen Dialogs beim Import einer STL/OBJ/3MF-Datei."
+  },
+  "askMeshImportBody": "{count, plural, =1{Ein Dreieck}other{{count} Dreiecke}}, {size} mm groß.",
+  "@askMeshImportBody": {
+    "description": "Was in der Datei steckt, damit die Wahl auf Zahlen und nicht auf Vermutungen beruht. {size} ist die Diagonale.",
+    "placeholders": {
+      "count": { "type": "int", "format": "decimalPattern" },
+      "size": { "type": "String" }
+    }
+  },
+  "askMeshImportConvert": "In CAD-Flächen umwandeln",
+  "@askMeshImportConvert": {
+    "description": "Die erste Wahl im Import-Dialog: Rueckfuehrung in echte Flaechen."
+  },
+  "askMeshImportConvertWhy": "Erkennt Ebenen, Zylinder, Kegel, Kugeln, Tori und Freiformflächen. Dauert Sekunden bis Minuten, dafür lässt sich das Ergebnis danach verrunden, bemaßen und weiterbearbeiten.",
+  "@askMeshImportConvertWhy": {
+    "description": "Was die Umwandlung kann und was sie kostet."
+  },
+  "askMeshImportFaceted": "Dreiecke 1:1 übernehmen",
+  "@askMeshImportFaceted": {
+    "description": "Die zweite Wahl im Import-Dialog: das Netz unveraendert als Koerper."
+  },
+  "askMeshImportFacetedWhy": "Jedes Dreieck wird eine Fläche. Exakt wie die Datei, aber CAD-Operationen darauf sind kaum möglich.",
+  "@askMeshImportFacetedWhy": {
+    "description": "Was der 1:1-Weg kann und was er nicht kann."
+  },
+  "askMeshImportTooManyFaceted": "Für den 1:1-Weg sind das zu viele Dreiecke (Grenze {limit}) — jedes würde eine eigene Fläche.",
+  "@askMeshImportTooManyFaceted": {
+    "description": "Statt der zweiten Wahl, wenn das Netz ueber kMaxFacetedTriangles liegt. Die Wahl wird gar nicht erst angeboten, weil der Kern sie danach ablehnen wuerde.",
+    "placeholders": { "limit": { "type": "int", "format": "decimalPattern" } }
+  },
   "@msgMeshUnreadable": {
     "description": "Rechte, ein nicht geladener iCloud-Platzhalter. Der OS-Grund geht ins Log, nicht in die Meldung."
   },

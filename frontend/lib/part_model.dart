@@ -6443,8 +6443,17 @@ abstract class PartKernel {
   /// the caller rather than defaulted inside, because the number that keeps a
   /// thin part's features has to be worked out from the MESH — see
   /// brepTolFractionFor in mesh_io.dart.
+  ///
+  /// M305 — [mode] is what the import dialog asked for: 1 reverse-engineers
+  /// surfaces, 0 keeps the triangles one B-Rep face each. Defaulted to 1 so
+  /// that every caller written before the dialog existed keeps the behaviour
+  /// it was written against; the import path passes the user's answer.
+  ///
+  /// [maxFacetedTriangles] caps the 1:1 path; 0 leaves the shim's own limit.
+  /// Passed from the caller so that the number deciding whether to OFFER that
+  /// path is the same number that enforces it — see kMaxFacetedTriangles.
   MeshImportOutcome meshToBrep(Float64List xyz, Int32List triangles,
-          {double tolFraction = 0}) =>
+          {double tolFraction = 0, int mode = 1, int maxFacetedTriangles = 0}) =>
       const MeshImportOutcome(null, MeshToBrepReport.empty(),
           'this kernel has no mesh converter');
 
@@ -7045,14 +7054,17 @@ class OcctPartKernel implements PartKernel {
 
   @override
   MeshImportOutcome meshToBrep(Float64List xyz, Int32List triangles,
-      {double tolFraction = 0}) {
+      {double tolFraction = 0, int mode = 1, int maxFacetedTriangles = 0}) {
     final ffi = _ffi;
     if (ffi == null) {
       _err = 'no 3D kernel linked (occt_* symbols missing)';
       return MeshImportOutcome(null, const MeshToBrepReport.empty(), _err);
     }
     try {
-      final res = ffi.brepFromMesh(xyz, triangles, tolFraction: tolFraction);
+      final res = ffi.brepFromMesh(xyz, triangles,
+          mode: mode,
+          tolFraction: tolFraction,
+          maxFacetedTriangles: maxFacetedTriangles);
       final sh = res.shape;
       if (sh == null) {
         _err = res.error ?? 'the mesh could not be converted';

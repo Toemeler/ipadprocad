@@ -1813,6 +1813,60 @@ abstract class AppL10n {
   /// **'Netz wird umgewandelt'**
   String get msgMeshConvertTitle;
 
+  /// Titel der Fortschrittskarte auf dem 1:1-Weg, wo nichts umgewandelt, sondern nur gebaut wird.
+  ///
+  /// In de, this message translates to:
+  /// **'Dreiecke werden übernommen'**
+  String get msgMeshBuildTitle;
+
+  /// Untertitel der Fortschrittskarte auf dem 1:1-Weg.
+  ///
+  /// In de, this message translates to:
+  /// **'{count, plural, =1{Ein Dreieck}other{{count} Dreiecke}}'**
+  String msgMeshBuilding(int count);
+
+  /// Titel des nativen Dialogs beim Import einer STL/OBJ/3MF-Datei.
+  ///
+  /// In de, this message translates to:
+  /// **'Wie soll dieses Netz importiert werden?'**
+  String get askMeshImportTitle;
+
+  /// Was in der Datei steckt, damit die Wahl auf Zahlen und nicht auf Vermutungen beruht. {size} ist die Diagonale.
+  ///
+  /// In de, this message translates to:
+  /// **'{count, plural, =1{Ein Dreieck}other{{count} Dreiecke}}, {size} mm groß.'**
+  String askMeshImportBody(int count, String size);
+
+  /// Die erste Wahl im Import-Dialog: Rueckfuehrung in echte Flaechen.
+  ///
+  /// In de, this message translates to:
+  /// **'In CAD-Flächen umwandeln'**
+  String get askMeshImportConvert;
+
+  /// Was die Umwandlung kann und was sie kostet.
+  ///
+  /// In de, this message translates to:
+  /// **'Erkennt Ebenen, Zylinder, Kegel, Kugeln, Tori und Freiformflächen. Dauert Sekunden bis Minuten, dafür lässt sich das Ergebnis danach verrunden, bemaßen und weiterbearbeiten.'**
+  String get askMeshImportConvertWhy;
+
+  /// Die zweite Wahl im Import-Dialog: das Netz unveraendert als Koerper.
+  ///
+  /// In de, this message translates to:
+  /// **'Dreiecke 1:1 übernehmen'**
+  String get askMeshImportFaceted;
+
+  /// Was der 1:1-Weg kann und was er nicht kann.
+  ///
+  /// In de, this message translates to:
+  /// **'Jedes Dreieck wird eine Fläche. Exakt wie die Datei, aber CAD-Operationen darauf sind kaum möglich.'**
+  String get askMeshImportFacetedWhy;
+
+  /// Statt der zweiten Wahl, wenn das Netz ueber kMaxFacetedTriangles liegt. Die Wahl wird gar nicht erst angeboten, weil der Kern sie danach ablehnen wuerde.
+  ///
+  /// In de, this message translates to:
+  /// **'Für den 1:1-Weg sind das zu viele Dreiecke (Grenze {limit}) — jedes würde eine eigene Fläche.'**
+  String askMeshImportTooManyFaceted(int limit);
+
   /// Formal in Ordnung, aber ohne Dreiecke: ein STL nur aus entarteten Facetten, ein OBJ ohne f-Zeilen.
   ///
   /// In de, this message translates to:

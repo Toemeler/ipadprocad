@@ -33,6 +33,7 @@
 #include "mesh_recon.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -111,6 +112,71 @@
 #include <gp_Torus.hxx>
 
 namespace meshrecon {
+
+/* ---- progress ---------------------------------------------------------
+ *
+ * Three atomics and nothing else. They are written by the converting thread
+ * and read by whatever thread is drawing the busy card, so they are relaxed
+ * atomics rather than plain ints: torn reads on a progress bar are harmless,
+ * but a data race is undefined behaviour and this is a library.
+ *
+ * Deliberately global. A conversion is one at a time by contract (the kernel
+ * is single-threaded, which is why the isolate blocks inside it), so there is
+ * nothing to key them by, and a caller who wants them cannot reach into
+ * Reconstruct's locals from another thread anyway. */
+std::atomic<int> g_stage(kStageIdle);
+std::atomic<int> g_done(0);
+std::atomic<int> g_total(0);
+
+void SetStage(int stage, int total)
+{
+    g_done.store(0, std::memory_order_relaxed);
+    g_total.store(total, std::memory_order_relaxed);
+    g_stage.store(stage, std::memory_order_relaxed);
+}
+
+void SetDone(int done)
+{
+    g_done.store(done, std::memory_order_relaxed);
+}
+
+/* Adds to the count. Only the converting thread writes, so this needs no
+ * read-modify-write against anyone; fetch_add is simply the shortest way to
+ * say it without keeping a second copy of the value. */
+void AddDone(int delta)
+{
+    if (delta > 0)
+        g_done.fetch_add(delta, std::memory_order_relaxed);
+}
+
+/* Zeroed on the way out of every exit, so a card that outlives a conversion
+ * shows nothing rather than the last thing it saw. */
+struct StageGuard
+{
+    ~StageGuard() { SetStage(kStageIdle, 0); }
+};
+
+void Progress(int &stage, int &done, int &total)
+{
+    stage = g_stage.load(std::memory_order_relaxed);
+    done = g_done.load(std::memory_order_relaxed);
+    total = g_total.load(std::memory_order_relaxed);
+}
+
+const char *StageName(int stage)
+{
+    switch (stage) {
+    case kStageWelding: return "Reading the mesh";
+    case kStageSegmenting: return "Finding the surfaces";
+    case kStageFitting: return "Fitting surfaces";
+    case kStageFreeform: return "Covering the freeform parts";
+    case kStageBuilding: return "Building the faces";
+    case kStageSewing: return "Sewing the solid";
+    case kStageFaceted: return "Building the triangles";
+    case kStageMerging: return "Merging flat faces";
+    default: return "";
+    }
+}
 
 Params Defaults()
 {
@@ -2494,6 +2560,45 @@ bool SplitAtCrease(const Mesh &m, const std::vector<int> &tris, int minTris,
  * angle off the fitted surface — all get in. */
 const double kGrowNormalGate = 0.99;
 
+/* Publishes the triangles that finished patches have retired.
+ *
+ * Fitting is the long stage and one run inside it can be most of the mesh: on
+ * the whale, sixteen runs take seven of the ten seconds and ONE of them is
+ * six of those seven. A counter that ticks per run therefore sits still for
+ * six seconds, which is a worse lie than the indeterminate sweep it replaced,
+ * because a stopped bar reads as a hang. Counting the TRIANGLES each finished
+ * patch retires moves it whenever anything is genuinely finished, at every
+ * depth of the recursion, and needs no estimate of anything.
+ *
+ * Converting thread only. `out` is append-only, so walking from the cursor is
+ * exact however the recursion interleaves, and it cannot double-count: each
+ * patch is passed exactly once. Calling it more often than necessary costs a
+ * size comparison, so the call sites err towards more.
+ *
+ * The watched vector is remembered because the splitter is ALSO run on a
+ * scratch vector — DissolveUnexplained re-splits a trimmed patch into a local
+ * one — and counting that as progress would advance a stage that has already
+ * ended, against a total that was never about it. Anything but the vector
+ * RetireFrom named is ignored. */
+static const void *g_retireWatch = 0;
+static size_t g_retireCursor = 0;
+
+void RetireFrom(const std::vector<Patch> &out)
+{
+    g_retireWatch = &out;
+    g_retireCursor = out.size();
+}
+
+void Retire(const std::vector<Patch> &out)
+{
+    if (&out != g_retireWatch)
+        return;
+    int add = 0;
+    for (; g_retireCursor < out.size(); ++g_retireCursor)
+        add += static_cast<int>(out[g_retireCursor].tris.size());
+    AddDone(add);
+}
+
 /* Splits one patch that fitted nothing into sub-patches that do, by growing a
  * region from a seed while a running fit keeps holding.
  *
@@ -2644,6 +2749,7 @@ void SplitByFit(const Mesh &m, const std::vector<int> &tris, double tol,
             /* Too small to say anything about; it will be emitted faceted. */
         }
         out.push_back(pa);
+        Retire(out);
     }
 }
 
@@ -3055,6 +3161,7 @@ void SplitByRansac(const Mesh &m, const std::vector<int> &tris, double tol,
                  pa.fit.q[0], pa.fit.q[1], pa.fit.q[2], pa.fit.q[3],
                  pa.fit.q[4], pa.fit.q[5], pa.fit.q[6], pa.fit.q[7]);
         out.push_back(pa);
+        Retire(out); /* a whole extraction can be seconds; tick per surface */
         for (int i : best) {
             taken[i] = 1;
             remaining--;
@@ -3145,6 +3252,7 @@ void SplitPatch(const Mesh &m, const std::vector<int> &tris, double tol,
                 double scale, int minTris, int origin, int depth,
                 std::vector<Patch> &out)
 {
+    Retire(out);
     PatchData pd;
     PatchPoints(m, tris, pd, 4000);
     Patch pa;
@@ -3177,6 +3285,7 @@ void SplitPatch(const Mesh &m, const std::vector<int> &tris, double tol,
     const size_t before = out.size();
     std::vector<int> rest;
     SplitByRansac(m, tris, tol, scale, minTris, origin, out, rest);
+    Retire(out);
     MR_TRACE("      ransac %d tri -> %d surfaces, %d left\n", (int)tris.size(),
              (int)(out.size() - before), (int)rest.size());
     if (rest.empty())
@@ -3202,11 +3311,13 @@ void SplitPatch(const Mesh &m, const std::vector<int> &tris, double tol,
             SplitByFit(m, rest, tol, scale, minTris, origin, out);
         if (out.size() == before)
             out.push_back(pa);
+        Retire(out);
         return;
     }
     SplitByFit(m, tris, tol, scale, minTris, origin, out);
     if (out.size() == before)
         out.push_back(pa);
+    Retire(out);
 }
 
 /* Weight on the angular half of the boundary score, as a fraction of the part's
@@ -6783,6 +6894,15 @@ void FreeformSurfaces(const Mesh &m, std::vector<Patch> &patches, double tol,
         origins.push_back(it->first);
     std::sort(origins.begin(), origins.end()); /* a TOTAL order */
 
+    /* Counted in triangles for the same reason fitting is: the whale's loose
+     * area arrives as a handful of runs and one of them is nearly all of it. */
+    {
+        int looseTotal = 0;
+        for (int org : origins)
+            looseTotal += static_cast<int>(loose[org].size());
+        SetStage(kStageFreeform, looseTotal);
+    }
+
     std::vector<Patch> add;
     std::vector<char> consumed(m.triCount(), 0);
     std::vector<char> mine(m.triCount(), 0);
@@ -6790,8 +6910,11 @@ void FreeformSurfaces(const Mesh &m, std::vector<Patch> &patches, double tol,
 
     for (int org : origins) {
         std::vector<int> &tris = loose[org];
-        if (static_cast<int>(tris.size()) < kFreeformMinRegion)
+        const size_t addWas = add.size();
+        if (static_cast<int>(tris.size()) < kFreeformMinRegion) {
+            AddDone(static_cast<int>(tris.size())); /* dealt with, by refusing */
             continue;
+        }
         std::sort(tris.begin(), tris.end()); /* a TOTAL order */
         for (int t : tris)
             mine[t] = 1;
@@ -7059,8 +7182,18 @@ void FreeformSurfaces(const Mesh &m, std::vector<Patch> &patches, double tol,
                 add.push_back(np);
                 for (int t : np.tris)
                     consumed[t] = 1;
+                AddDone(static_cast<int>(np.tris.size()));
                 ++made;
             }
+        }
+        /* Triangles this run could not cover are still done being TRIED, and
+         * the bar counts work, not success — otherwise it stops short of its
+         * own total on every model with a bit the fitter gives up on. */
+        {
+            int covered = 0;
+            for (size_t i = addWas; i < add.size(); ++i)
+                covered += static_cast<int>(add[i].tris.size());
+            AddDone(static_cast<int>(tris.size()) - covered);
         }
     }
     if (add.empty())
@@ -7762,6 +7895,7 @@ TopoDS_Shape AssembleShell(const std::vector<TopoDS_Face> &faces)
 TopoDS_Shape SewAndSolidify(const std::vector<TopoDS_Face> &faces, double tol,
                             Report &rep)
 {
+    SetStage(kStageSewing, 0);
     if (faces.empty())
         return TopoDS_Shape();
     TopoDS_Shape sewn;
@@ -7939,6 +8073,8 @@ TopoDS_Shape FacetedShell(const Mesh &m, int &faceCount)
     TopoDS_Shell shell;
     bb.MakeShell(shell);
     for (int t = 0; t < m.triCount(); ++t) {
+        if ((t & 255) == 0)
+            SetDone(t); /* every 256th: the store is cheap, the branch cheaper */
         try {
             const int v[3] = {m.tri[t * 3], m.tri[t * 3 + 1], m.tri[t * 3 + 2]};
             TopoDS_Wire w;
@@ -8002,6 +8138,7 @@ TopoDS_Shape BuildFaceted(const Mesh &m, double tol, Report &rep)
     rep.patches = 1;
     rep.faceted_patches = 1;
     rep.faces_built = built;
+    SetStage(kStageSewing, 0);
     TopoDS_Shape out = Solidify(shell, rep);
     if (out.IsNull())
         return out;
@@ -8014,6 +8151,7 @@ TopoDS_Shape BuildFaceted(const Mesh &m, double tol, Report &rep)
      * neighbouring pairs flat with each other to within a quarter of a degree,
      * and a coarser one a third of them. The merge earns its time there too. */
     try {
+        SetStage(kStageMerging, 0);
         ShapeUpgrade_UnifySameDomain uni(out, Standard_True, Standard_True,
                                          Standard_False);
         uni.Build();
@@ -8059,6 +8197,9 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
         return TopoDS_Shape();
     }
 
+    StageGuard stageGuard;
+    SetStage(kStageWelding, 0);
+
     const double scale = m.diagonal;
     const double tol = std::max(scale * prm.tol_frac, 1e-9);
 
@@ -8092,6 +8233,7 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
             err = buf;
             return TopoDS_Shape();
         }
+        SetStage(kStageFaceted, m.triCount());
         TopoDS_Shape out = BuildFaceted(m, tol, rep);
         if (out.IsNull())
             err = "the faces would not sew into a shell";
@@ -8105,6 +8247,7 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
     std::unordered_set<int> freeform;
     try {
         MR_STAGE("start");
+        SetStage(kStageSegmenting, 0);
         const double sharpDeg = FeatureAngleDeg(m, prm.sharp_deg);
         MR_TRACE("  feature angle: %.1f deg (default %.1f)\n", sharpDeg,
                  prm.sharp_deg);
@@ -8114,6 +8257,9 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
         for (int t = 0; t < m.triCount(); ++t)
             byPatch[patchOf[t]].push_back(t);
 
+        /* Counted in triangles, not in runs: see Retire. */
+        SetStage(kStageFitting, m.triCount());
+        RetireFrom(patches);
         for (int i = 0; i < rawPatches; ++i) {
             if (byPatch[i].empty())
                 continue;
@@ -8123,6 +8269,7 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
              * first and the running fit after. */
             SplitPatch(m, byPatch[i], tol, scale, prm.min_patch_triangles, i, 0,
                        patches);
+            Retire(patches);
         }
         MR_STAGE("split");
 #ifdef MESHRECON_TRACE
@@ -8427,6 +8574,7 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
     {
         int madeFree = 0;
         try {
+            SetStage(kStageFreeform, 0);
             FreeformSurfaces(m, patches, tol, madeFree);
         } catch (const Standard_Failure &) {
         } catch (const std::exception &) {
@@ -8534,7 +8682,9 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
 
         int facetedTriangles = 0;
         std::vector<std::vector<int>> deferred;
+        SetStage(kStageBuilding, static_cast<int>(patches.size()));
         for (size_t i = 0; i < patches.size(); ++i) {
+            SetDone(static_cast<int>(i));
             bool built = false;
             const size_t before = faces.size();
             if (!surfs[i].IsNull()) {

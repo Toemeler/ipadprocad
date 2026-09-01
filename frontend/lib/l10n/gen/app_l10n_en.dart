@@ -965,6 +965,65 @@ class AppL10nEn extends AppL10n {
   String get msgMeshConvertTitle => 'Converting mesh';
 
   @override
+  String get msgMeshBuildTitle => 'Building the triangles';
+
+  @override
+  String msgMeshBuilding(int count) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$countString triangles',
+      one: 'One triangle',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get askMeshImportTitle => 'How should this mesh be imported?';
+
+  @override
+  String askMeshImportBody(int count, String size) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$countString triangles',
+      one: 'One triangle',
+    );
+    return '$_temp0, $size mm across.';
+  }
+
+  @override
+  String get askMeshImportConvert => 'Convert to CAD surfaces';
+
+  @override
+  String get askMeshImportConvertWhy =>
+      'Recognises planes, cylinders, cones, spheres, tori and freeform surfaces. Takes seconds to minutes, and the result can be filleted, dimensioned and edited.';
+
+  @override
+  String get askMeshImportFaceted => 'Keep the triangles 1:1';
+
+  @override
+  String get askMeshImportFacetedWhy =>
+      'Every triangle becomes a face. Exactly like the file, but CAD operations on it are barely possible.';
+
+  @override
+  String askMeshImportTooManyFaceted(int limit) {
+    final intl.NumberFormat limitNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String limitString = limitNumberFormat.format(limit);
+
+    return 'That is too many triangles to keep 1:1 (limit $limitString) — each one would become its own face.';
+  }
+
+  @override
   String get msgMeshNoGeometry => 'That file contains no usable geometry.';
 
   @override

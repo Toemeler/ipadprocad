@@ -975,6 +975,65 @@ class AppL10nDe extends AppL10n {
   String get msgMeshConvertTitle => 'Netz wird umgewandelt';
 
   @override
+  String get msgMeshBuildTitle => 'Dreiecke werden übernommen';
+
+  @override
+  String msgMeshBuilding(int count) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$countString Dreiecke',
+      one: 'Ein Dreieck',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get askMeshImportTitle => 'Wie soll dieses Netz importiert werden?';
+
+  @override
+  String askMeshImportBody(int count, String size) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$countString Dreiecke',
+      one: 'Ein Dreieck',
+    );
+    return '$_temp0, $size mm groß.';
+  }
+
+  @override
+  String get askMeshImportConvert => 'In CAD-Flächen umwandeln';
+
+  @override
+  String get askMeshImportConvertWhy =>
+      'Erkennt Ebenen, Zylinder, Kegel, Kugeln, Tori und Freiformflächen. Dauert Sekunden bis Minuten, dafür lässt sich das Ergebnis danach verrunden, bemaßen und weiterbearbeiten.';
+
+  @override
+  String get askMeshImportFaceted => 'Dreiecke 1:1 übernehmen';
+
+  @override
+  String get askMeshImportFacetedWhy =>
+      'Jedes Dreieck wird eine Fläche. Exakt wie die Datei, aber CAD-Operationen darauf sind kaum möglich.';
+
+  @override
+  String askMeshImportTooManyFaceted(int limit) {
+    final intl.NumberFormat limitNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String limitString = limitNumberFormat.format(limit);
+
+    return 'Für den 1:1-Weg sind das zu viele Dreiecke (Grenze $limitString) — jedes würde eine eigene Fläche.';
+  }
+
+  @override
   String get msgMeshNoGeometry =>
       'Diese Datei enthält keine brauchbare Geometrie.';
 

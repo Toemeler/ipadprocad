@@ -18,6 +18,36 @@ export 'glass_toolbar.dart';
 export 'native_touches.dart';
 import 'package:flutter/services.dart';
 
+/// What to do with a mesh file at import: reconstruct it, or keep it.
+///
+/// The ids are the wire values the platform channel carries, and they are also
+/// what gets written into a log line, so they are spelled out rather than
+/// being an index into this list — inserting a case must not change what an
+/// old log meant.
+enum MeshImportChoice {
+  /// Reverse-engineer surfaces: planes, cylinders, cones, spheres, tori and
+  /// fitted B-splines. Slower, and the result is editable CAD.
+  convert('convert'),
+
+  /// One B-Rep face per triangle, exactly as the file has them. Faithful to
+  /// the last vertex, and not much use for CAD operations afterwards.
+  faceted('faceted');
+
+  const MeshImportChoice(this.id);
+  final String id;
+
+  /// The kernel's `mode` argument. 1 fits surfaces, 0 keeps triangles; see
+  /// occt_brep_from_mesh.
+  int get kernelMode => this == MeshImportChoice.convert ? 1 : 0;
+
+  static MeshImportChoice? byId(String? id) {
+    for (final c in MeshImportChoice.values) {
+      if (c.id == id) return c;
+    }
+    return null;
+  }
+}
+
 /// One row in a native menu.
 class NativeMenuItem {
   /// Returned verbatim to the selection handler.
@@ -398,6 +428,47 @@ class NativeMenu {
     _log('menu [${[for (final i in items) i.id].join(', ')}]'
         ' → ${chosen ?? 'cancelled or not presented'}');
     return chosen;
+  }
+
+  /// How a mesh should be brought in: reconstructed as CAD surfaces, or kept
+  /// as the triangles it already is.
+  ///
+  /// Returns [MeshImportChoice.convert], [MeshImportChoice.faceted], or null
+  /// when the user cancelled — and also when there is no native sheet to show
+  /// (a test host, desktop), which is why the caller must treat null as "do
+  /// not import" rather than as a signal to pick one itself. Silently
+  /// choosing on the user's behalf is the exact outcome the sheet exists to
+  /// prevent; a caller that wants a default off-iOS should say so at the call
+  /// site, where the choice is visible.
+  ///
+  /// A null [facetedLabel] leaves that choice OUT — for a mesh the 1:1 path
+  /// cannot take. [facetedDetail] then carries the reason instead of that
+  /// choice's description, and appears in the body on its own. Offering a
+  /// button the kernel is going to refuse is worse than not offering it.
+  ///
+  /// No anchor, unlike [menu]: this is a centred alert, not a popover. It is
+  /// asked straight after the Files picker closes, when there is no button it
+  /// could point at. See ImportChoiceSheet.swift.
+  static Future<MeshImportChoice?> importChoice({
+    required String title,
+    String? message,
+    required String convertLabel,
+    required String convertDetail,
+    required String? facetedLabel,
+    required String facetedDetail,
+    String cancelLabel = 'Cancel',
+  }) async {
+    if (!isSupported) return null;
+    final id = await _invoke<String>('importChoice', {
+      'title': title,
+      'message': message,
+      'convertLabel': convertLabel,
+      'convertDetail': convertDetail,
+      if (facetedLabel != null) 'facetedLabel': facetedLabel,
+      'facetedDetail': facetedDetail,
+      'cancelLabel': cancelLabel,
+    });
+    return MeshImportChoice.byId(id);
   }
 
   /// System share sheet. [anchor] is required on iPad: UIKit raises if a

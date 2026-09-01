@@ -66,6 +66,41 @@ struct Params
 
 Params Defaults();
 
+/* ---- what the converter is doing, while it is doing it ------------------
+ *
+ * M305. The kernel call blocks the Dart isolate, so nothing on that side can
+ * report anything until it returns — which is the whole reason the busy card
+ * is drawn by UIKit on the platform thread. That thread is idle and can read
+ * these, so this is where honest progress has to come from.
+ *
+ * Only countable things are published. A weighted percentage across stages
+ * would need weights nobody has measured, and a bar filling at a guessed rate
+ * is caught out by the first model that does not match the guess. Instead:
+ * which stage, and where within it, when the stage has something to count.
+ * `total` of 0 means this stage cannot be counted and the bar should sweep. */
+enum Stage
+{
+    kStageIdle = 0,
+    kStageWelding,   /* reading the mesh, welding vertices */
+    kStageSegmenting,/* finding the smooth patches */
+    kStageFitting,   /* fitting a surface per patch — counts patches */
+    kStageFreeform,  /* covering what fits no primitive — counts runs */
+    kStageBuilding,  /* building the B-Rep faces — counts patches */
+    kStageSewing,    /* sewing, healing, solidifying */
+    kStageFaceted,   /* the 1:1 path — counts triangles */
+    kStageMerging,   /* merging coplanar faces after the 1:1 path */
+    kStageCount
+};
+
+/* Reads the current stage and its counters. Safe to call from any thread at
+ * any time, including when no conversion is running (stage comes back
+ * kStageIdle). Never blocks. */
+void Progress(int &stage, int &done, int &total);
+
+/* The stage's name, in English, for a caller with no message catalogue. Never
+ * null; returns "" for kStageIdle. */
+const char *StageName(int stage);
+
 /* What actually happened. Filled in even when the conversion fails, because
  * "it produced 4000 faceted patches" is the explanation for a slow, useless
  * result and the user is entitled to it. */
