@@ -105,16 +105,12 @@ List<NativeMenuItem> newDocMenuItems(AppL10n t) => [
 /// M289 — which file formats a card's Export action may offer, before the
 /// destination is ever chosen. 3D parts can write both STL and STEP; sketches
 /// only DXF, assemblies only STEP.
-List<String> exportFormatsFor(String kind) {
-  final k = kind.toLowerCase();
-  if (k.endsWith('.ptp') || k == 'part' || k == 'ptp') {
-    return ['stl', 'step'];
-  }
-  if (k.endsWith('.pts') || k == 'sketch' || k == 'pts') {
-    return ['dxf'];
-  }
-  return ['step'];
-}
+List<String> exportFormatsFor(String kind) => switch (kind) {
+      'part' || 'ptp' => ['stl', 'step'],
+      'sketch' || 'pts' => ['dxf'],
+      kAssemblyDocKind => ['step'],
+      _ => ['step'],
+    };
 
 /// M272 — how strongly a card's name leans toward its kind's hue.
 ///
@@ -497,34 +493,29 @@ class _HomeViewState extends State<HomeView> {
   }
 
   Future<void> _sendFile(String name, {required bool share}) async {
-    final formats = exportFormatsFor(name);
+    final isPart = widget.app.isPartName(name);
     String? path;
-    if (!share && formats.length > 1) {
-      // M289 — ask which format before the location, for part cards
-      // (and anything else that can write more than one).
+    if (isPart && !share) {
+      // M289 — ask STL or STEP before the location, for part cards.
       final t = L.of(context);
       final box = context.findRenderObject();
-      final chooserAnchor = box is RenderBox
+      final anchor = box is RenderBox
           ? box.localToGlobal(Offset.zero) & box.size
           : Rect.zero;
       final items = [
-        for (final f in formats)
-          NativeMenuItem(
-            id: f,
-            title: f.toUpperCase(),
-            symbol: f == 'stl' ? 'doc' : 'cube',
-          ),
+        NativeMenuItem(id: 'stl', title: 'STL', symbol: 'doc'),
+        NativeMenuItem(id: 'step', title: 'STEP', symbol: 'doc'),
       ];
       String? format;
       if (NativeMenu.isSupported) {
         format = await NativeMenu.menu(
-            items: items, anchor: chooserAnchor, cancelLabel: t.cancel);
+            items: items, anchor: anchor, cancelLabel: t.cancel);
       } else {
         format = await showMenu<String>(
           context: context,
           color: T.fly,
           position: RelativeRect.fromRect(
-              chooserAnchor, Offset.zero & MediaQuery.sizeOf(context)),
+              anchor, Offset.zero & MediaQuery.sizeOf(context)),
           items: [
             for (final item in items)
               PopupMenuItem<String>(
@@ -538,18 +529,12 @@ class _HomeViewState extends State<HomeView> {
       path = switch (format) {
         'stl' => await widget.app.partExportStl(name),
         'step' => await widget.app.partExportStep(name),
-        'dxf' => await widget.app.sketchExportPath(name),
         _ => null,
       };
     } else {
-      // Single format: go straight, respecting what the document can write.
-      if (formats.contains('stl')) {
-        path = await widget.app.partExportStl(name);
-      } else if (formats.contains('step')) {
-        path = await widget.app.partExportStep(name);
-      } else {
-        path = await widget.app.sketchExportPath(name);
-      }
+      path = isPart
+          ? await widget.app.partExportStep(name)
+          : await widget.app.sketchExportPath(name);
     }
     if (path == null || !mounted) return;
     // iPad refuses to present these sheets without a popover anchor.
