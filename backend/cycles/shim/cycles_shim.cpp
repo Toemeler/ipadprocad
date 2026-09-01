@@ -302,17 +302,29 @@ const float kRigScale = kSunStrength / kRigSun;
 const float kSunAngle = 0.05f;
 
 /* How much of the visible background the SURFACES see, against the 1.0 the
- * camera sees. A floor under the rig rather than a look: at the viewport's
- * grey it is worth about 0.07 linear on a fully exposed face, which is under
- * half of what the dimmest of the four lights contributes and so cannot
- * flatten anything, while still keeping a deep bore from going to pure
- * black. */
+ * camera sees.
+ *
+ * A FRACTION, so what it is actually worth depends entirely on the palette,
+ * and the two schemes are nowhere near each other: Chalk's viewport is
+ * 0xFCFBF8, linear 0.96, and this puts about 0.036 on a steel face — a real if
+ * modest lift. The dark scheme's is 0x201D19, linear 0.012, and this puts
+ * 0.0005 on the same face, which is nothing at all.
+ *
+ * That is the right behaviour and not a gap to close. The number the camera
+ * sees has to be the viewport's colour exactly, or the render does not sit on
+ * the ground the app draws; and a room whose walls are that dark really does
+ * bounce nothing. What keeps the model from having black faces under the dark
+ * scheme is not this at all, it is the other two things the rig has:
+ *
+ *   * the HEADLIGHT is camera-locked, so every surface facing the viewer is
+ *     lit by the key whichever way the model is turned. There is no such thing
+ *     as a black face pointing at you;
+ *   * the FLOOR bounces. RealityKit's directional rig has no equivalent — it
+ *     has no global illumination at all — so an underside in shadow there is
+ *     as dark as this ambient would leave it, and here the sun's light comes
+ *     back up off the ground. On this one point the path tracer is not at
+ *     parity with the working view, it is better than it. */
 const float kWorldAmbient = 0.15f;
-
-ccl::float3 rig_dir(const float x, const float y, const float z)
-{
-  return ccl::make_float3(x, y, z);
-}
 
 /* One Emission shader for the whole rig.
  *
@@ -753,13 +765,13 @@ int cy_render(const CyMesh *meshes,
      * Column 2 of the camera-to-world basis IS that direction — Cycles'
      * Camera::matrix is (right, up, FORWARD, eye) — so the light that follows
      * the camera needs no separate input and cannot fall out of step with it. */
-    const ccl::float3 head_from = -rig_dir(m[2], m[6], m[10]);
+    const ccl::float3 head_from = -ccl::make_float3(m[2], m[6], m[10]);
     add_distant_light(scene, rig, head_from, kRigHead * kRigScale, true, 0.0f);
-    add_distant_light(scene, rig, rig_dir(7.0f, 14.0f, 9.0f),
+    add_distant_light(scene, rig, ccl::make_float3(7.0f, 14.0f, 9.0f),
                       kRigSun * kRigScale, true, kSunAngle);
-    add_distant_light(scene, rig, rig_dir(-3.0f, 6.0f, -4.0f),
+    add_distant_light(scene, rig, ccl::make_float3(-3.0f, 6.0f, -4.0f),
                       kRigFill * kRigScale, false, 0.0f);
-    add_distant_light(scene, rig, rig_dir(-9.0f, 7.0f, -12.0f),
+    add_distant_light(scene, rig, ccl::make_float3(-9.0f, 7.0f, -12.0f),
                       kRigRim * kRigScale, false, 0.0f);
   }
 
