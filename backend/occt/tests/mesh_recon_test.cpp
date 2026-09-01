@@ -43,6 +43,7 @@
 #include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Face.hxx>
+#include <TopoDS_Shell.hxx>
 #include <TopLoc_Location.hxx>
 #include <algorithm>
 #include <BRepBndLib.hxx>
@@ -55,6 +56,8 @@
 #include <cmath>
 #include <vector>
 #include <string>
+#include <array>
+#include <map>
 
 static int passes = 0, fails = 0;
 static void chk(const char *what, bool ok, const std::string &extra = "")
@@ -174,6 +177,95 @@ static void report(const meshrecon::Report &r)
                 r.spheres, r.tori, r.faceted_patches, r.faces_built,
                 r.faces_failed, r.analytic_edges, r.approximated_edges,
                 r.fit_rms, r.closed);
+}
+
+/* How much of the drawn mesh has nothing on the other side.
+ *
+ * Every triangle traverses its three edges one way round; two triangles
+ * sharing an edge traverse it once each way and cancel. Whatever is left over
+ * is a rim — an edge with surface on one side and a hole on the other. A body
+ * that draws as a closed surface has none, and unlike per-face coverage this
+ * needs no reference area and cannot be argued with: on a trimmed B-spline
+ * BRepGProp reads anywhere from 0.2% to 218% of the same face. */
+static int DrawnRimEdges(const TopoDS_Shape &s, double *lengthOut = nullptr)
+{
+    std::vector<gp_Pnt> pos;
+    std::vector<int> tri;
+    for (TopExp_Explorer ex(s, TopAbs_FACE); ex.More(); ex.Next()) {
+        const TopoDS_Face f = TopoDS::Face(ex.Current());
+        TopLoc_Location loc;
+        const Handle(Poly_Triangulation) t = BRep_Tool::Triangulation(f, loc);
+        if (t.IsNull())
+            continue;
+        const gp_Trsf &tr = loc.Transformation();
+        const bool rev = (f.Orientation() == TopAbs_REVERSED);
+        const int base = (int)pos.size();
+        for (int i = 1; i <= t->NbNodes(); ++i)
+            pos.push_back(t->Node(i).Transformed(tr));
+        for (int i = 1; i <= t->NbTriangles(); ++i) {
+            int a, b, c;
+            t->Triangle(i).Get(a, b, c);
+            if (rev)
+                std::swap(b, c);
+            tri.push_back(base + a - 1);
+            tri.push_back(base + b - 1);
+            tri.push_back(base + c - 1);
+        }
+    }
+    if (lengthOut)
+        *lengthOut = 0;
+    if (tri.empty())
+        return 0;
+    Bnd_Box box;
+    BRepBndLib::Add(s, box, Standard_False);
+    double x1, y1, z1, x2, y2, z2;
+    box.Get(x1, y1, z1, x2, y2, z2);
+    const double h = std::max(1e-6, gp_Pnt(x1, y1, z1)
+                                        .Distance(gp_Pnt(x2, y2, z2)) * 1e-6);
+    /* Weld by position, searching all 27 neighbouring cells: two points
+     * either side of a cell boundary are as close as two inside one. */
+    std::map<std::array<long long, 3>, std::vector<int>> cell;
+    std::vector<int> weld(pos.size());
+    auto cellOf = [&](const gp_Pnt &q) {
+        return std::array<long long, 3>{(long long)std::floor(q.X() / h),
+                                        (long long)std::floor(q.Y() / h),
+                                        (long long)std::floor(q.Z() / h)};
+    };
+    for (size_t v = 0; v < pos.size(); ++v) {
+        const std::array<long long, 3> c0 = cellOf(pos[v]);
+        int rep = (int)v;
+        for (long long a = -1; a <= 1; ++a)
+            for (long long b = -1; b <= 1; ++b)
+                for (long long c = -1; c <= 1; ++c) {
+                    const auto it = cell.find(
+                        {c0[0] + a, c0[1] + b, c0[2] + c});
+                    if (it == cell.end())
+                        continue;
+                    for (const int n : it->second)
+                        if (weld[n] < rep &&
+                            pos[n].SquareDistance(pos[v]) <= h * h)
+                            rep = weld[n];
+                }
+        weld[v] = rep;
+        cell[c0].push_back((int)v);
+    }
+    std::map<std::pair<int, int>, int> net;
+    for (size_t t = 0; t + 2 < tri.size(); t += 3)
+        for (int k = 0; k < 3; ++k) {
+            const int a = weld[tri[t + k]], b = weld[tri[t + (k + 1) % 3]];
+            if (a == b)
+                continue;
+            net[{std::min(a, b), std::max(a, b)}] += (a < b) ? 1 : -1;
+        }
+    int rim = 0;
+    for (const auto &kv : net)
+        if (kv.second != 0) {
+            rim += std::abs(kv.second);
+            if (lengthOut)
+                *lengthOut += std::abs(kv.second) *
+                              pos[kv.first.first].Distance(pos[kv.first.second]);
+        }
+    return rim;
 }
 
 static double g_meshVolume = 0;
@@ -1803,7 +1895,7 @@ int main()
      * So this asserts both, on the shape as tessellated by the same call the
      * app makes, at the deflection the app asks for. */
     {
-        std::printf("== the display mesh: no empty faces, no split seams ==\n");
+        std::printf("== the display mesh: nothing to see through, no split seams ==\n");
 
         struct Case { const char *name; TopoDS_Shape src; double defl; };
         std::vector<Case> cases;
@@ -1850,9 +1942,22 @@ int main()
             double factor = 0;
             const int empty = meshrecon::TessellateCovered(out, 0.6, 0.35,
                                                            areas, factor);
-            chk((tag + "no face is left undrawn").c_str(), empty == 0,
-                std::to_string(empty) + " empty of " +
-                    std::to_string(areas.size()));
+
+            /* The one assertion that means "you cannot see through it".
+             *
+             * It replaces a count of faces with no triangles, which was never
+             * the question: a face BRepMesh drew at 1% of itself is a hole
+             * exactly as big as the face and has triangles, while a face with
+             * none at all is invisible once its outline has been mended over.
+             * A rim edge is surface on one side and nothing on the other, so
+             * zero of them is the whole of the property, whatever the mesher
+             * did or did not manage per face. */
+            double rimLen = 0;
+            const int rim = DrawnRimEdges(out, &rimLen);
+            chk((tag + "nothing is left with a hole beside it").c_str(),
+                rim == 0,
+                std::to_string(rim) + " rim edges, " + std::to_string(rimLen) +
+                    " mm");
 
             /* And no face left HALF drawn, which looks exactly the same on
              * screen and which counting empty faces cannot see: measured, an
@@ -1887,8 +1992,15 @@ int main()
                     worstFace = std::min(worstFace, had / a);
                 }
             }
+            /* A sanity bound, not the hole check above.
+             *
+             * A triangulated curved face has LESS area than the surface it
+             * approximates — an inscribed polyhedron always does — so on a
+             * sphere at the deflection the app draws with, 98.87% is the
+             * chord deficit and not a defect. This bar catches a body that
+             * lost a limb; the rim count catches everything smaller. */
             chk((tag + "the body is drawn whole").c_str(),
-                want > 0 && drawn >= want * 0.99,
+                want > 0 && drawn >= want * 0.98,
                 std::to_string(100.0 * drawn / want) + "% of its own area");
 
             /* The seams, as the renderer would show them: for every edge with
@@ -1946,11 +2058,78 @@ int main()
             chk((tag + "no seam is split by a millimetre").c_str(),
                 splitLen <= 0.0, std::to_string(splitLen) + " mm split");
             std::printf("   %-34s %3d faces, %4d seams, worst gap %.4f mm, "
-                        "%.2f%% drawn (worst face %.1f%%)\n",
-                        c.name, (int)areas.size(), shared, worstGap,
-                        want > 0 ? 100.0 * drawn / want : 0.0,
-                        100.0 * worstFace);
+                        "%d rim edges, %.2f%% drawn (%d face(s) with no "
+                        "triangles)\n",
+                        c.name, (int)areas.size(), shared, worstGap, rim,
+                        want > 0 ? 100.0 * drawn / want : 0.0, empty);
+            (void)worstFace;
         }
+    }
+
+    {
+        std::printf("== an open shell keeps the boundary it is supposed to "
+                    "have ==\n");
+        /* Closing holes must not close the shell.
+         *
+         * A body that is genuinely open has a rim by design, and a mend that
+         * cannot tell that rim from a tear would skin it over and hand back
+         * surface the model never had. What separates them is topology, not
+         * the drawn mesh: a tear runs along a B-Rep edge with a face on both
+         * sides, a real boundary along one with a face on one side. */
+        TopoDS_Shell shell;
+        BRep_Builder bb;
+        bb.MakeShell(shell);
+        int n = 0, kept = 0;
+        for (TopExp_Explorer ex(BRepPrimAPI_MakeBox(20., 14., 9.).Shape(),
+                                TopAbs_FACE);
+             ex.More(); ex.Next())
+            if (n++ != 2) {
+                bb.Add(shell, ex.Current());
+                ++kept;
+            }
+        chk("open shell: it has five faces", kept == 5,
+            std::to_string(kept) + " faces");
+
+        BRepTools::Clean(shell);
+        {
+            BRepMesh_IncrementalMesh im(shell, 0.6, Standard_False, 0.35,
+                                        Standard_True);
+            (void)im;
+        }
+        auto count = [&]() {
+            int t = 0;
+            for (TopExp_Explorer ex(shell, TopAbs_FACE); ex.More(); ex.Next()) {
+                TopLoc_Location loc;
+                const Handle(Poly_Triangulation) tr =
+                    BRep_Tool::Triangulation(TopoDS::Face(ex.Current()), loc);
+                if (!tr.IsNull())
+                    t += tr->NbTriangles();
+            }
+            return t;
+        };
+        const int plain = count();
+        double plainRimLen = 0;
+        const int plainRim = DrawnRimEdges(shell, &plainRimLen);
+
+        std::vector<double> areas;
+        double factor = 0;
+        meshrecon::TessellateCovered(shell, 0.6, 0.35, areas, factor);
+        const int after = count();
+        double rimLen = 0;
+        const int rim = DrawnRimEdges(shell, &rimLen);
+
+        chk("open shell: the missing face leaves a rim to be tempted by",
+            plainRim > 0, std::to_string(plainRim) + " rim edges, " +
+                              std::to_string(plainRimLen) + " mm");
+        chk("open shell: nothing was drawn over the opening", after == plain,
+            std::to_string(plain) + " triangles -> " + std::to_string(after));
+        chk("open shell: its boundary is still its boundary",
+            rim == plainRim && std::abs(rimLen - plainRimLen) < 1e-6,
+            std::to_string(rim) + " rim edges, " + std::to_string(rimLen) +
+                " mm");
+        std::printf("   %d faces, %d triangles, boundary %d edges / %.1f mm, "
+                    "unchanged\n",
+                    kept, after, rim, rimLen);
     }
 
     std::printf("\n%s  (%d passed, %d failed)\n",

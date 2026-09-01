@@ -93,10 +93,13 @@
 #include <TColStd_Array1OfReal.hxx>
 #include <TColgp_Array1OfPnt.hxx>
 #include <TColgp_Array2OfPnt.hxx>
+#include <Poly_PolygonOnTriangulation.hxx>
+#include <Poly_Triangulation.hxx>
 #include <queue>
 #include <TopExp.hxx>
 #include <TopTools_DataMapOfShapeInteger.hxx>
 #include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
+#include <TopTools_ListIteratorOfListOfShape.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Compound.hxx>
@@ -8389,6 +8392,660 @@ TopoDS_Shape BuildFaceted(const Mesh &m, double tol, Report &rep)
 
 /* ---- tessellating a reconstructed body so it has no holes ---------------- */
 
+/* ---- mending a torn display mesh ---------------------------------------- */
+
+/* Why any of this is needed.
+ *
+ * BRepMesh leaves part of a fitted face undrawn, and no setting fixes it.
+ * Measured on the fine ellipsoid (66 faces from 12,430 source triangles): 833
+ * of 18,218 face-boundary segments have no triangle at all, on 28 of the 66
+ * faces. Every deflection from 0.03 to 3.0 leaves between 420 and 2,596 of
+ * them; each of the 28 fails identically when meshed as the only face in a
+ * shape, so it is deterministic and per-face, not a race; capping every
+ * tolerance at 0.05 mm changes 833 to 797 and makes the shape invalid; the
+ * Delabella triangulator instead of Watson gives 689; switching off the
+ * surface-deflection control gives 661. None of them is zero.
+ *
+ * The cause is in the faces. All 28 that fail have a UV boundary loop that
+ * CROSSES ITSELF, one to four times, and all 38 that succeed have one that
+ * does not — no exceptions either way. A self-crossing boundary has no
+ * inside, so the mesher's classification drops the triangles it cannot place,
+ * which is exactly the ones along the rim.
+ *
+ * The loops are not merely badly projected: they close to 0.0e+00, and
+ * re-deriving every UV by walking the loop and projecting each point from the
+ * previous one's parameter — the standard cure for a pcurve that jumps —
+ * removes none of the crossings and adds more (28 faces still crossing, one
+ * going from 2 to 13). The two segments that cross in UV are 0.1 to 5.9 mm
+ * apart in 3D. So the fitted surface really does fold back over its own
+ * trimmed region, and no pcurve on it can be simple. Splitting those patches
+ * until they stop folding would mean many more faces, which is the opposite
+ * of what a converter is for.
+ *
+ * What is left is to mend the picture. A hole is bounded by nodes that are
+ * already drawn and already shared with the face on the other side, so
+ * closing it needs no new geometry and cannot open a crack: only triangles.
+ *
+ * Nothing here touches the B-Rep. The solid stays the one that was sewn and
+ * checked; this adds triangles to the display mesh hanging off its faces. */
+
+/* One drawn mesh, gathered across every face, in the winding the renderer
+ * will use — a REVERSED face has its triangles flipped on the way out, so
+ * they are flipped on the way in here. */
+struct DrawnMesh
+{
+    std::vector<gp_Pnt> pos; /* node positions, world space */
+    std::vector<int> ofFace; /* which face each node came from */
+    std::vector<int> ofNode; /* its 1-based index inside that face */
+    std::vector<int> tri;    /* three node indices per triangle */
+    std::vector<int> triFace;
+    std::vector<int> weld;   /* node -> the node standing for its position */
+};
+
+/* A hash grid over the drawn nodes. */
+class NodeGrid
+{
+public:
+    NodeGrid(const std::vector<gp_Pnt> &p, double cell) : pos_(p), cell_(cell)
+    {
+        for (size_t i = 0; i < p.size(); ++i)
+            cells_[key(p[i])].push_back(static_cast<int>(i));
+    }
+
+    /* Every node within one cell of q. All 27 neighbours are searched: two
+     * points either side of a cell boundary are as close as two inside one,
+     * and a grid that only looks in its own cell is a snap, not a weld. */
+    template <class F> void near(const gp_Pnt &q, F &&f) const
+    {
+        const long long i = at(q.X()), j = at(q.Y()), k = at(q.Z());
+        for (long long a = i - 1; a <= i + 1; ++a)
+            for (long long b = j - 1; b <= j + 1; ++b)
+                for (long long c = k - 1; c <= k + 1; ++c) {
+                    const auto it = cells_.find(hash(a, b, c));
+                    if (it == cells_.end())
+                        continue;
+                    for (const int n : it->second)
+                        if (pos_[n].SquareDistance(q) <= cell_ * cell_)
+                            f(n);
+                }
+    }
+
+private:
+    long long at(double v) const
+    {
+        return static_cast<long long>(std::floor(v / cell_));
+    }
+    static long long hash(long long i, long long j, long long k)
+    {
+        return (i * 73856093LL) ^ (j * 19349663LL) ^ (k * 83492791LL);
+    }
+    long long key(const gp_Pnt &q) const
+    {
+        return hash(at(q.X()), at(q.Y()), at(q.Z()));
+    }
+    const std::vector<gp_Pnt> &pos_;
+    double cell_;
+    std::unordered_map<long long, std::vector<int>> cells_;
+};
+
+/* How close two drawn nodes must be to count as the same point.
+ *
+ * Nodes on a shared edge come from one discretisation of that edge and are
+ * identical: measured index to index across a seam, 0.000000 mm. The holes
+ * meanwhile survive a weld anywhere from 1e-6 to 1e-2 mm unchanged — 867 free
+ * edges either way — so any tolerance in that range separates a tear from a
+ * join. Scaled by the model, so a 2 mm part and a 2 m one behave alike. */
+static double WeldTolerance(const TopoDS_Shape &s)
+{
+    Bnd_Box box;
+    try {
+        BRepBndLib::Add(s, box, Standard_False);
+    } catch (const Standard_Failure &) {
+    }
+    if (box.IsVoid())
+        return 1e-4;
+    double x1, y1, z1, x2, y2, z2;
+    box.Get(x1, y1, z1, x2, y2, z2);
+    const double diag = gp_Pnt(x1, y1, z1).Distance(gp_Pnt(x2, y2, z2));
+    return std::min(1e-3, std::max(1e-6, diag * 1e-6));
+}
+
+static bool GatherDrawn(const TopoDS_Shape &s, DrawnMesh &d)
+{
+    int fi = 0;
+    for (TopExp_Explorer ex(s, TopAbs_FACE); ex.More(); ex.Next(), ++fi) {
+        const TopoDS_Face f = TopoDS::Face(ex.Current());
+        TopLoc_Location loc;
+        const Handle(Poly_Triangulation) t = BRep_Tool::Triangulation(f, loc);
+        if (t.IsNull() || t->NbTriangles() < 1)
+            continue;
+        const gp_Trsf &tr = loc.Transformation();
+        const bool rev = (f.Orientation() == TopAbs_REVERSED);
+        const int base = static_cast<int>(d.pos.size());
+        for (int i = 1; i <= t->NbNodes(); ++i) {
+            d.pos.push_back(t->Node(i).Transformed(tr));
+            d.ofFace.push_back(fi);
+            d.ofNode.push_back(i);
+        }
+        for (int i = 1; i <= t->NbTriangles(); ++i) {
+            int a, b, c;
+            t->Triangle(i).Get(a, b, c);
+            if (rev)
+                std::swap(b, c);
+            d.tri.push_back(base + a - 1);
+            d.tri.push_back(base + b - 1);
+            d.tri.push_back(base + c - 1);
+            d.triFace.push_back(fi);
+        }
+    }
+    if (d.tri.empty())
+        return false;
+    NodeGrid grid(d.pos, WeldTolerance(s));
+    d.weld.assign(d.pos.size(), -1);
+    for (size_t v = 0; v < d.pos.size(); ++v) {
+        int rep = static_cast<int>(v);
+        grid.near(d.pos[v], [&](int n) {
+            if (n < rep && d.weld[n] >= 0 && d.weld[n] < rep)
+                rep = d.weld[n];
+        });
+        d.weld[v] = rep;
+    }
+    return true;
+}
+
+/* Cutting up a hole.
+ *
+ * The rim is a closed ring of points lying on one face, so it is near enough
+ * planar to cut up in its own best-fit plane. Ear clipping needs no new
+ * points and moves none of the ones it has — the rim is shared with the face
+ * on the other side, and moving it is the crack this exists to avoid. */
+static void EarClip(const std::vector<gp_Pnt> &pos,
+                    const std::vector<int> &loop, std::vector<int> &out)
+{
+    const size_t n = loop.size();
+    if (n < 3)
+        return;
+    /* Newell's normal, which is right for a rim that is not quite flat, and
+     * which also settles the winding: in the basis built from it the ring
+     * runs anticlockwise, so a clipped ear faces the way its neighbours do. */
+    gp_XYZ nrm(0, 0, 0), mid(0, 0, 0);
+    for (size_t i = 0; i < n; ++i) {
+        const gp_Pnt &a = pos[loop[i]], &b = pos[loop[(i + 1) % n]];
+        nrm += gp_XYZ((a.Y() - b.Y()) * (a.Z() + b.Z()),
+                      (a.Z() - b.Z()) * (a.X() + b.X()),
+                      (a.X() - b.X()) * (a.Y() + b.Y()));
+        mid += a.XYZ();
+    }
+    if (nrm.Modulus() < 1e-24)
+        return; /* a rim with no area encloses nothing */
+    nrm.Normalize();
+    mid /= static_cast<double>(n);
+    const gp_Dir dn(nrm);
+    gp_Dir seed(1, 0, 0);
+    if (std::abs(dn.X()) > 0.9)
+        seed = gp_Dir(0, 1, 0);
+    const gp_Dir e1(seed.XYZ() - dn.XYZ() * (seed.XYZ() * dn.XYZ()));
+    const gp_Dir e2 = dn.Crossed(e1);
+    std::vector<double> u(n), v(n);
+    for (size_t i = 0; i < n; ++i) {
+        const gp_XYZ q = pos[loop[i]].XYZ() - mid;
+        u[i] = q * e1.XYZ();
+        v[i] = q * e2.XYZ();
+    }
+    std::vector<int> live(n);
+    for (size_t i = 0; i < n; ++i)
+        live[i] = static_cast<int>(i);
+    auto cross = [&](int a, int b, int c) {
+        return (u[b] - u[a]) * (v[c] - v[a]) - (v[b] - v[a]) * (u[c] - u[a]);
+    };
+    auto inside = [&](int a, int b, int c, int q) {
+        return cross(a, b, q) > 0 && cross(b, c, q) > 0 && cross(c, a, q) > 0;
+    };
+    size_t guard = 0;
+    while (live.size() > 3 && guard++ <= n * n + 16) {
+        bool cut = false;
+        for (size_t i = 0; i < live.size(); ++i) {
+            const int a = live[(i + live.size() - 1) % live.size()];
+            const int b = live[i];
+            const int c = live[(i + 1) % live.size()];
+            if (cross(a, b, c) <= 0)
+                continue; /* reflex or degenerate: not an ear */
+            bool clear = true;
+            for (const int q : live)
+                if (q != a && q != b && q != c && inside(a, b, c, q)) {
+                    clear = false;
+                    break;
+                }
+            if (!clear)
+                continue;
+            out.push_back(loop[a]);
+            out.push_back(loop[b]);
+            out.push_back(loop[c]);
+            live.erase(live.begin() + static_cast<long>(i));
+            cut = true;
+            break;
+        }
+        if (!cut)
+            break;
+    }
+    if (live.size() == 3) {
+        out.push_back(loop[live[0]]);
+        out.push_back(loop[live[1]]);
+        out.push_back(loop[live[2]]);
+        return;
+    }
+    /* Clipping stalls on a rim whose flattening crosses itself. A fan from
+     * one corner still covers it and still invents no points; it may overlap
+     * itself, which on a shaded solid is invisible, where a hole is not. */
+    for (size_t i = 1; i + 1 < live.size(); ++i) {
+        out.push_back(loop[live[0]]);
+        out.push_back(loop[live[i]]);
+        out.push_back(loop[live[i + 1]]);
+    }
+}
+
+/* Where the shell legitimately stops.
+ *
+ * An open shell HAS a boundary, and filling it in would be a bug rather than
+ * a mend. Its rim is the discretisation of the B-Rep edges only one face
+ * uses; a closed solid has none of those and this returns empty. */
+static void OpenRimNodes(const TopoDS_Shape &s, const DrawnMesh &d,
+                         std::unordered_set<int> &out)
+{
+    TopTools_IndexedDataMapOfShapeListOfShape em;
+    try {
+        TopExp::MapShapesAndAncestors(s, TopAbs_EDGE, TopAbs_FACE, em);
+    } catch (const Standard_Failure &) {
+        return;
+    }
+    std::vector<gp_Pnt> rim;
+    for (int i = 1; i <= em.Extent(); ++i) {
+        const TopoDS_Edge &e = TopoDS::Edge(em.FindKey(i));
+        if (BRep_Tool::Degenerated(e) || em(i).Extent() >= 2)
+            continue;
+        for (TopTools_ListIteratorOfListOfShape it(em(i)); it.More();
+             it.Next()) {
+            TopLoc_Location loc;
+            const Handle(Poly_Triangulation) t =
+                BRep_Tool::Triangulation(TopoDS::Face(it.Value()), loc);
+            if (t.IsNull())
+                continue;
+            const Handle(Poly_PolygonOnTriangulation) pp =
+                BRep_Tool::PolygonOnTriangulation(e, t, loc);
+            if (pp.IsNull())
+                continue;
+            for (int a = pp->Nodes().Lower(); a <= pp->Nodes().Upper(); ++a)
+                rim.push_back(
+                    t->Node(pp->Nodes()(a)).Transformed(loc.Transformation()));
+        }
+    }
+    if (rim.empty())
+        return;
+    NodeGrid grid(d.pos, WeldTolerance(s));
+    for (const gp_Pnt &q : rim)
+        grid.near(q, [&](int n) { out.insert(d.weld[n]); });
+}
+
+/* Somewhere to put the mended triangles.
+ *
+ * A triangulation can only name nodes of its own, so a rim node that came
+ * from the neighbouring face is copied in — same position, so the two faces
+ * still meet exactly. The nodes that were already there keep their indices,
+ * which is what lets the edges' polygons-on-triangulation stay valid: they
+ * hold indices into this very array. */
+class FaceWriter
+{
+public:
+    FaceWriter(const TopoDS_Face &f, const DrawnMesh &d, int face) : d_(d)
+    {
+        TopLoc_Location loc;
+        tri_ = BRep_Tool::Triangulation(f, loc);
+        if (tri_.IsNull())
+            return;
+        inv_ = loc.Transformation().Inverted();
+        rev_ = (f.Orientation() == TopAbs_REVERSED);
+        was_ = tri_->NbNodes();
+        for (size_t v = 0; v < d.pos.size(); ++v)
+            if (d.ofFace[v] == face)
+                mine_.emplace(d.weld[v], d.ofNode[v]);
+    }
+
+    bool ok() const { return !tri_.IsNull() && !mine_.empty(); }
+
+    /* The index this face knows a welded node by, copying it in if it does
+     * not know it yet. */
+    int nodeFor(int rep)
+    {
+        const auto it = mine_.find(rep);
+        if (it != mine_.end())
+            return it->second;
+        const auto add = added_.find(rep);
+        if (add != added_.end())
+            return add->second;
+        const int idx = was_ + static_cast<int>(fresh_.size()) + 1;
+        fresh_.push_back(rep);
+        added_.emplace(rep, idx);
+        return idx;
+    }
+
+    void add(int a, int b, int c) { want_.push_back({a, b, c}); }
+
+    /* Resize once, then write. Returns how many triangles were added. */
+    int flush()
+    {
+        if (want_.empty() || tri_.IsNull())
+            return 0;
+        const bool uv = tri_->HasUVNodes();
+        /* A stale normal array would survive the resize with nothing in its
+         * new entries, and the renderer's ComputeNormals declines to touch a
+         * triangulation that already claims to have them. */
+        if (tri_->HasNormals())
+            tri_->RemoveNormals();
+        if (!fresh_.empty()) {
+            tri_->ResizeNodes(was_ + static_cast<int>(fresh_.size()),
+                              Standard_True);
+            for (size_t i = 0; i < fresh_.size(); ++i) {
+                const int idx = was_ + static_cast<int>(i) + 1;
+                /* A welded node is named by the lowest-numbered node at its
+                 * position, which is itself a node: no lookup needed. */
+                const gp_Pnt p = d_.pos[fresh_[i]].Transformed(inv_);
+                tri_->SetNode(idx, p);
+                if (uv)
+                    tri_->SetUVNode(idx, nearestUv(p));
+            }
+        }
+        const int had = tri_->NbTriangles();
+        tri_->ResizeTriangles(had + static_cast<int>(want_.size()),
+                              Standard_True);
+        for (size_t i = 0; i < want_.size(); ++i) {
+            const int *t = want_[i].n;
+            /* Stored the way this face stores triangles: a REVERSED face has
+             * its winding flipped on the way to the renderer, so the mended
+             * ones are pre-flipped to come out facing the same way. */
+            tri_->SetTriangle(had + static_cast<int>(i) + 1,
+                              rev_ ? Poly_Triangle(t[0], t[2], t[1])
+                                   : Poly_Triangle(t[0], t[1], t[2]));
+        }
+        return static_cast<int>(want_.size());
+    }
+
+private:
+    struct Tri
+    {
+        int n[3];
+    };
+    /* A copied-in node needs a UV of its own, because that is what the
+     * renderer builds its normal from. It sits on this face's rim, so the
+     * nearest node the face already has is at most one triangle away and its
+     * parameter is the right neighbourhood to borrow. */
+    gp_Pnt2d nearestUv(const gp_Pnt &p) const
+    {
+        double best = 1e300;
+        gp_Pnt2d uv(0, 0);
+        for (int i = 1; i <= was_; ++i) {
+            const double dd = tri_->Node(i).SquareDistance(p);
+            if (dd < best) {
+                best = dd;
+                uv = tri_->UVNode(i);
+            }
+        }
+        return uv;
+    }
+    const DrawnMesh &d_;
+    Handle(Poly_Triangulation) tri_;
+    gp_Trsf inv_;
+    bool rev_ = false;
+    int was_ = 0;
+    std::unordered_map<int, int> mine_;  /* welded node -> index in this face */
+    std::unordered_map<int, int> added_; /* welded node -> index just made */
+    std::vector<int> fresh_;
+    std::vector<Tri> want_;
+};
+
+/* Is there anything to mend?
+ *
+ * Gathering and welding a whole model is not free — measured on a 1:1 import
+ * of the whale, 82,573 faces and 83,140 triangles, it costs 500 to 1,000 ms —
+ * and a faceted body never tears, so on that path it would be a tax for
+ * nothing. This asks the same question per face, without a weld and without
+ * leaving the face: a triangulation that covers its face uses each segment of
+ * its own boundary exactly once and every other edge exactly twice. Anything
+ * else is a hole or a fold. Returns at the first sign of one, so a body that
+ * IS torn pays almost nothing to find out.
+ *
+ * Equivalent to counting the rims, not an approximation of it: the two faces
+ * on an edge discretise it into the same nodes, so per-face bookkeeping that
+ * balances everywhere balances globally too. */
+static bool FacesLookWhole(const TopoDS_Shape &s)
+{
+    std::unordered_map<long long, int> edge;
+    std::unordered_set<long long> onBoundary;
+    for (TopExp_Explorer ex(s, TopAbs_FACE); ex.More(); ex.Next()) {
+        const TopoDS_Face f = TopoDS::Face(ex.Current());
+        TopLoc_Location loc;
+        const Handle(Poly_Triangulation) t = BRep_Tool::Triangulation(f, loc);
+        if (t.IsNull() || t->NbTriangles() < 1)
+            return false; /* a face drawn as nothing at all */
+        edge.clear();
+        onBoundary.clear();
+        const long long span = t->NbNodes() + 1;
+        auto key = [span](int a, int b) {
+            return static_cast<long long>(std::min(a, b)) * span +
+                   std::max(a, b);
+        };
+        for (int i = 1; i <= t->NbTriangles(); ++i) {
+            int n[3];
+            t->Triangle(i).Get(n[0], n[1], n[2]);
+            for (int k = 0; k < 3; ++k)
+                if (n[k] != n[(k + 1) % 3])
+                    ++edge[key(n[k], n[(k + 1) % 3])];
+        }
+        for (TopExp_Explorer ee(f, TopAbs_EDGE); ee.More(); ee.Next()) {
+            const TopoDS_Edge e = TopoDS::Edge(ee.Current());
+            if (BRep_Tool::Degenerated(e))
+                continue;
+            const Handle(Poly_PolygonOnTriangulation) pp =
+                BRep_Tool::PolygonOnTriangulation(e, t, loc);
+            if (pp.IsNull())
+                return false; /* a boundary this face never laid down */
+            const auto &nn = pp->Nodes();
+            for (int a = nn.Lower(); a < nn.Upper(); ++a) {
+                if (nn(a) == nn(a + 1))
+                    continue;
+                const long long k = key(nn(a), nn(a + 1));
+                onBoundary.insert(k);
+                const auto it = edge.find(k);
+                if (it == edge.end() || it->second != 1)
+                    return false; /* undrawn, or drawn from both sides */
+            }
+        }
+        for (const auto &kv : edge)
+            if (kv.second != 2 && !onBoundary.count(kv.first))
+                return false; /* a fold, or a tear inside the face */
+    }
+    return true;
+}
+
+/* Close every hole in the drawn mesh. Returns the rim edges still open. */
+static int MendTornFaces(const TopoDS_Shape &s, int *filled)
+{
+    if (filled)
+        *filled = 0;
+    if (FacesLookWhole(s))
+        return 0;
+    DrawnMesh d;
+    if (!GatherDrawn(s, d))
+        return 0;
+
+    /* Where the drawn surface stops.
+     *
+     * Not "edges only one triangle uses". 133 edges of a single ellipsoid are
+     * used by three or more — the mesher overlaps as well as tears — and an
+     * edge used three times has an unmatched side just as an edge used once
+     * does, while a rim assembled from the count alone comes out unbalanced
+     * and strands the walk that follows it.
+     *
+     * So count DIRECTIONS. Every triangle traverses its three edges one way
+     * round; a matched pair of triangles traverses their shared edge once
+     * each way and cancels. What is left over — the net, per edge — is the
+     * boundary of the drawn surface, and it is closed at every node whatever
+     * the mesher did, because each triangle contributes as much arriving as
+     * leaving. That is what makes the walk below unable to strand. */
+    struct Use
+    {
+        int net = 0;  /* traversals low->high minus high->low */
+        int face = -1;
+    };
+    std::unordered_map<long long, Use> use;
+    const long long span = static_cast<long long>(d.pos.size()) + 1;
+    for (size_t t = 0; t + 2 < d.tri.size(); t += 3)
+        for (int k = 0; k < 3; ++k) {
+            const int a = d.weld[d.tri[t + k]];
+            const int b = d.weld[d.tri[t + (k + 1) % 3]];
+            if (a == b)
+                continue;
+            Use &u = use[static_cast<long long>(std::min(a, b)) * span +
+                         std::max(a, b)];
+            u.net += (a < b) ? 1 : -1;
+            if (u.face < 0)
+                u.face = d.triFace[t / 3];
+        }
+
+    std::unordered_set<int> openRim;
+    OpenRimNodes(s, d, openRim);
+
+    /* A triangle walks its edge one way, so the hole beside it runs the
+     * other. Following that direction keeps the mended triangles wound like
+     * the ones they join. */
+    struct Step
+    {
+        int to, face;
+    };
+    std::unordered_map<int, std::vector<Step>> next;
+    int rim = 0;
+    for (const auto &kv : use) {
+        if (kv.second.net == 0)
+            continue;
+        const int lo = static_cast<int>(kv.first / span);
+        const int hi = static_cast<int>(kv.first % span);
+        if (openRim.count(lo) && openRim.count(hi))
+            continue; /* the shell's own edge, not a tear */
+        /* n traversals low->high unanswered means the hole beside them runs
+         * high->low, and the other way about. */
+        const int n = kv.second.net;
+        for (int i = 0; i < std::abs(n); ++i) {
+            if (n > 0)
+                next[hi].push_back({lo, kv.second.face});
+            else
+                next[lo].push_back({hi, kv.second.face});
+            ++rim;
+        }
+    }
+    if (rim == 0)
+        return 0;
+
+    /* Walking the rims into loops.
+     *
+     * Not "follow until you get back where you started": several holes can
+     * meet at one node, and a walk that guesses a branch there strands itself
+     * — measured, 47 to 128 walks per pass ended nowhere and left between 199
+     * and 1,846 rim edges unclosed. Every rim node has as many edges leaving
+     * as arriving, so the rim graph is a union of cycles and needs no
+     * guessing: walk anywhere, and the moment the path meets a node it has
+     * already visited, cut the closed piece out and carry on from there. Each
+     * edge is used once and nothing is stranded. */
+    std::vector<std::vector<int>> loops;
+    std::vector<int> loopFace;
+    int stranded = 0;
+    std::vector<int> path, faceOfStep;
+    std::unordered_map<int, int> onPath;
+    for (auto &start : next) {
+        while (!start.second.empty()) {
+            path.assign(1, start.first);
+            faceOfStep.assign(1, -1);
+            onPath.clear();
+            onPath.emplace(start.first, 0);
+            for (;;) {
+                const auto it = next.find(path.back());
+                if (it == next.end() || it->second.empty())
+                    break;
+                const Step step = it->second.back();
+                it->second.pop_back();
+                const auto seen = onPath.find(step.to);
+                if (seen == onPath.end()) {
+                    onPath.emplace(step.to, static_cast<int>(path.size()));
+                    path.push_back(step.to);
+                    faceOfStep.push_back(step.face);
+                    continue;
+                }
+                /* Closed: everything from where it was seen to here. */
+                const int k = seen->second;
+                if (static_cast<int>(path.size()) - k >= 3) {
+                    std::map<int, int> votes;
+                    ++votes[step.face];
+                    for (size_t i = static_cast<size_t>(k) + 1;
+                         i < path.size(); ++i)
+                        ++votes[faceOfStep[i]];
+                    int best = -1, most = 0;
+                    for (const auto &v : votes)
+                        if (v.first >= 0 && v.second > most) {
+                            most = v.second;
+                            best = v.first;
+                        }
+                    loops.push_back(
+                        std::vector<int>(path.begin() + k, path.end()));
+                    loopFace.push_back(best);
+                }
+                for (size_t i = static_cast<size_t>(k) + 1; i < path.size();
+                     ++i)
+                    onPath.erase(path[i]);
+                path.resize(static_cast<size_t>(k) + 1);
+                faceOfStep.resize(static_cast<size_t>(k) + 1);
+            }
+            stranded += static_cast<int>(path.size()) - 1;
+        }
+    }
+    MR_TRACE("      mend: %d rim edges -> %d loops, %d edges stranded\n", rim,
+             (int)loops.size(), stranded);
+    if (loops.empty())
+        return rim;
+
+    /* One writer per face, so each triangulation is resized once. */
+    std::vector<TopoDS_Face> faces;
+    for (TopExp_Explorer ex(s, TopAbs_FACE); ex.More(); ex.Next())
+        faces.push_back(TopoDS::Face(ex.Current()));
+    std::map<int, FaceWriter *> writers;
+    int made = 0, left = rim;
+    for (size_t i = 0; i < loops.size(); ++i) {
+        const int fi = loopFace[i];
+        if (fi < 0 || fi >= static_cast<int>(faces.size()))
+            continue;
+        std::vector<int> cut;
+        EarClip(d.pos, loops[i], cut);
+        if (cut.size() < 3)
+            continue;
+        auto it = writers.find(fi);
+        if (it == writers.end())
+            it = writers.emplace(fi, new FaceWriter(faces[fi], d, fi)).first;
+        if (!it->second->ok())
+            continue;
+        for (size_t k = 0; k + 2 < cut.size(); k += 3)
+            it->second->add(it->second->nodeFor(cut[k]),
+                            it->second->nodeFor(cut[k + 1]),
+                            it->second->nodeFor(cut[k + 2]));
+        left -= static_cast<int>(loops[i].size());
+    }
+    for (auto &w : writers) {
+        made += w.second->flush();
+        delete w.second;
+    }
+    MR_TRACE("      mend: %d triangles added, %d rim edges left open\n", made,
+             left);
+    if (filled)
+        *filled = made;
+    return std::max(0, left);
+}
+
 /* The area a face's triangles actually cover. A face BRepMesh gave up on
  * covers a fraction of itself and reports success, so "has a triangulation" is
  * not the question; "how much of it is drawn" is. */
@@ -8506,6 +9163,7 @@ int TessellateCovered(const TopoDS_Shape &s, double lin, double ang,
 
     /* Takes an ABSOLUTE deflection, not a multiple of the requested one — see
      * the note on what is remembered. */
+    int rimsOpen = 0, mended = 0;
     auto meshAt = [&](double d) {
         try {
             BRepTools::Clean(s);
@@ -8514,6 +9172,21 @@ int TessellateCovered(const TopoDS_Shape &s, double lin, double ang,
             (void)again;
         } catch (const Standard_Failure &) {
         } catch (...) {
+        }
+        /* Then close what it tore. `rimsOpen` is the count of drawn edges
+         * with a triangle on one side only and nothing legitimate on the
+         * other — zero on a body that draws as a closed surface, and the one
+         * measure here that needs no reference area and cannot be argued
+         * with. Per-face coverage, the measure this used to be judged on,
+         * reads anywhere from 0.2% to 218% of the same trimmed B-spline. */
+        rimsOpen = 0;
+        mended = 0;
+        try {
+            rimsOpen = MendTornFaces(s, &mended);
+        } catch (const Standard_Failure &) {
+            rimsOpen = 0;
+        } catch (...) {
+            rimsOpen = 0;
         }
     };
 
@@ -8554,7 +9227,17 @@ int TessellateCovered(const TopoDS_Shape &s, double lin, double ang,
 
     meshAt(lin);
     grade();
-    if (empty == 0 && cover >= kMeshDoneCover) {
+    /* Judged on the rims alone, not on empty faces.
+     *
+     * A face the mesher produced nothing for used to send this looking for a
+     * coarser deflection, and finding one cost the WHOLE model its
+     * resolution: the fine ellipsoid asked for 0.6, met one empty face, and
+     * settled at 1.266 — 12,658 triangles where 0.6 gives 18,119, to flatten
+     * one face of 235 mm out of 39,077. Since the mend fills an empty face's
+     * outline along with every other hole, an empty face is no longer a hole
+     * you can see through, and trading the model's fineness away to avoid one
+     * is a bad bargain. It stays a tie-break below, not a reason to search. */
+    if (rimsOpen == 0) {
         factor = lin;
         return empty;
     }
@@ -8563,7 +9246,7 @@ int TessellateCovered(const TopoDS_Shape &s, double lin, double ang,
         const std::chrono::steady_clock::time_point started =
             std::chrono::steady_clock::now();
         double bestLin = lin, bestCover = cover;
-        int bestEmpty = empty;
+        int bestEmpty = empty, bestRims = rimsOpen;
         double lastTried = lin;
         for (size_t k = 0; k < kMeshRungs; ++k) {
             if (kMeshLadder[k] == 1.0)
@@ -8578,18 +9261,22 @@ int TessellateCovered(const TopoDS_Shape &s, double lin, double ang,
             meshAt(lin * kMeshLadder[k]);
             lastTried = lin * kMeshLadder[k];
             grade();
-            /* Fewest empty faces first, then most area drawn. An empty face is
-             * a hole the size of the face and is unambiguous; the per-face
-             * coverage behind `cover` is not — on a trimmed B-spline it reads
-             * anywhere from 0.2% to 218% of the same face — so it decides only
-             * between passes that are equal on the count that means something. */
-            if (empty < bestEmpty ||
-                (empty == bestEmpty && cover > bestCover)) {
+            /* Fewest rim edges the mend could not close, then fewest empty
+             * faces, then most area drawn. The first two are counts of holes
+             * and are exact; the per-face coverage behind `cover` is not — on
+             * a trimmed B-spline it reads anywhere from 0.2% to 218% of the
+             * same face — so it decides only between passes that tie on both
+             * of the measures that mean something. */
+            if (rimsOpen < bestRims ||
+                (rimsOpen == bestRims && empty < bestEmpty) ||
+                (rimsOpen == bestRims && empty == bestEmpty &&
+                 cover > bestCover)) {
                 bestEmpty = empty;
+                bestRims = rimsOpen;
                 bestCover = cover;
                 bestLin = lin * kMeshLadder[k];
             }
-            if (empty == 0 && cover >= kMeshDoneCover)
+            if (rimsOpen == 0)
                 break;
         }
         if (lastTried != bestLin)
