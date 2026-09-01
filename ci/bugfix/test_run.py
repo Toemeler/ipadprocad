@@ -847,13 +847,78 @@ class PostPushTest(unittest.TestCase):
                                return_value='Bugfix #9: a thing'), \
              mock.patch.object(postpush, 'failing_steps', return_value=[]), \
              mock.patch.object(postpush, 'previously_failing',
-                               return_value=True), \
+                               return_value=(set(), True)), \
              mock.patch.object(postpush, 'api',
                                side_effect=lambda *a, **k: calls.append(a) or
                                {'workflow_id': 1}):
             self.assertEqual(postpush.main(), 0)
         # Only the workflow lookup; no comment, no reopen, no label.
         self.assertLessEqual(len(calls), 1, calls)
+
+    def _run(self, steps, previous_jobs, prev_conclusion='failure'):
+        """postpush.main() against a previous run with these job outcomes."""
+        import postpush
+        calls = []
+
+        def fake_api(path, body=None, method=None):
+            calls.append((path, body))
+            if path.endswith(f'/runs/{postpush.RUN_ID}'):
+                return {'workflow_id': 1}
+            if '/workflows/1/runs' in path:
+                return {'workflow_runs': [{'id': 77,
+                                           'conclusion': prev_conclusion}]}
+            if path.endswith('/runs/77/jobs'):
+                return {'jobs': [{'name': n, 'conclusion': c}
+                                 for n, c in previous_jobs.items()]}
+            return {}
+
+        with mock.patch.object(postpush, 'commit_subject',
+                               return_value='Bugfix #9: a thing'), \
+             mock.patch.object(postpush, 'failing_steps', return_value=steps), \
+             mock.patch.object(postpush, 'api', side_effect=fake_api):
+            code = postpush.main()
+        posted = [b for p, b in calls if p.endswith('/comments')]
+        return code, posted
+
+    def test_a_job_that_was_green_and_is_now_red_reopens(self):
+        """The case a whole-run comparison could not see.
+
+        `Core + C-API Build (iOS)` carries five jobs. While one of them sat
+        chronically red — `l10n_no_hardcoded_test` did, for weeks — the old
+        check read "the workflow was already failing" on EVERY push and stayed
+        silent, including for a fix that broke the Swift build. The guard whose
+        entire purpose is to catch that had been disarmed by an unrelated test.
+        """
+        code, posted = self._run(
+            steps=[('M5 Flutter iOS build + unsigned IPA', 'Build the IPA'),
+                   ('Dart analyze + host tests (fast)', 'Host tests')],
+            previous_jobs={'M5 Flutter iOS build + unsigned IPA': 'success',
+                           'Dart analyze + host tests (fast)': 'failure'})
+        self.assertEqual(len(posted), 1)
+        body = posted[0]['body']
+        self.assertIn('**M5 Flutter iOS build + unsigned IPA**', body)
+        # The chronically red one is named, but not blamed.
+        self.assertIn('not counted against this commit', body)
+
+    def test_all_jobs_already_red_stays_silent(self):
+        code, posted = self._run(
+            steps=[('Dart analyze + host tests (fast)', 'Host tests')],
+            previous_jobs={'Dart analyze + host tests (fast)': 'failure'})
+        self.assertEqual(code, 0)
+        self.assertEqual(posted, [])
+
+    def test_a_job_skipped_last_time_is_not_treated_as_green(self):
+        """Skipped is not evidence of health.
+
+        The IPA job is gated on the Dart job, so while Dart was red the IPA
+        was SKIPPED, never run. Reading that as "it passed before" would blame
+        the first commit that got far enough to actually build it.
+        """
+        code, posted = self._run(
+            steps=[('M5 Flutter iOS build + unsigned IPA', 'Build the IPA')],
+            previous_jobs={'M5 Flutter iOS build + unsigned IPA': 'skipped'})
+        self.assertEqual(code, 0)
+        self.assertEqual(posted, [])
 
     def test_the_subject_is_matched_at_line_start(self):
         # A commit BODY mentioning "Bugfix #3:" must not claim issue 3.
