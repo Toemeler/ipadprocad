@@ -39,6 +39,7 @@ Cam3 _cam({double az = 0.7, double pol = 0.9, double halfH = 30,
 }
 
 void main() {
+  _floorTests();
   group('the matrix agrees with the viewport', () {
     test('on every camera, for points all over the model', () {
       // The whole verification. Four cameras that differ in every degree of
@@ -319,6 +320,85 @@ void _materialTests() {
       final m = cyclesMeshAt(_tri(), null, material: mat);
       expect(m!.$4, mat);
       expect(cyclesMeshAt(_tri(), null)!.$4, isNull);
+    });
+  });
+}
+
+// M333 — the rendered view's floor, as geometry.
+void _floorTests() {
+  group('the floor', () {
+    List<CyclesMesh> box(double lowY) {
+      final v = Float32List.fromList([
+        -5, lowY, -5, //
+        5, lowY, -5, //
+        5, lowY + 10, 5, //
+      ]);
+      return [(v, null, Int32List.fromList([0, 1, 2]), null)];
+    }
+
+    test('sits just under the lowest point of the model, not under the origin',
+        () {
+      // M276's fix on the RealityKit side, and the same reasoning: a floor at
+      // -sceneRadius sits well below anything and the shadow comes out spread
+      // wide and detached, reading as a stain rather than as contact.
+      final f = cyclesFloorMesh(box(20), argb: 0xFF808080,
+          halfWidth: 10, halfHeight: 10)!;
+      final ys = [for (var i = 1; i < f.$1.length; i += 3) f.$1[i]];
+      expect(ys.every((y) => y == ys.first), isTrue,
+          reason: 'the floor is level');
+      expect(ys.first, lessThan(20.0));
+      expect(ys.first, greaterThan(19.9), reason: 'just under, not far under');
+    });
+
+    test('its normal points UP', () {
+      // A floor wound the other way is lit from underneath and renders black.
+      // Checked as the actual cross product rather than by reading the winding
+      // back off the vertex list, because the winding is the thing under test.
+      final f = cyclesFloorMesh(box(0), argb: 0xFF808080,
+          halfWidth: 10, halfHeight: 10)!;
+      final v = f.$1;
+      final t = f.$3;
+      double px(int i, int c) => v[t[i] * 3 + c];
+      final ax = px(1, 0) - px(0, 0),
+          ay = px(1, 1) - px(0, 1),
+          az = px(1, 2) - px(0, 2);
+      final bx = px(2, 0) - px(0, 0),
+          by = px(2, 1) - px(0, 1),
+          bz = px(2, 2) - px(0, 2);
+      final ny = az * bx - ax * bz;
+      expect(ny, greaterThan(0.0));
+      // And flat: no x or z component.
+      expect(ay * bz - az * by, closeTo(0, 1e-6));
+      expect(ax * by - ay * bx, closeTo(0, 1e-6));
+    });
+
+    test('grows with the frame, not only with the model', () {
+      // M277 — a floor sized from the scene alone is smaller than the frame
+      // the moment you zoom out past the part, and its edge walking into view
+      // takes the shadow with it.
+      double span(double half) {
+        final f = cyclesFloorMesh(box(0), argb: 0xFF808080,
+            halfWidth: half, halfHeight: half)!;
+        final xs = [for (var i = 0; i < f.$1.length; i += 3) f.$1[i]];
+        return xs.reduce(math.max) - xs.reduce(math.min);
+      }
+
+      expect(span(200), greaterThan(span(10)));
+    });
+
+    test('is fully rough and not metallic, like the RealityKit ground', () {
+      final f = cyclesFloorMesh(box(0), argb: 0xFF808080,
+          halfWidth: 10, halfHeight: 10)!;
+      expect(f.$4!.roughness, 1.0);
+      expect(f.$4!.metallic, 0.0);
+      // And it carries the palette's colour, converted like every other one.
+      expect(f.$4!.r, closeTo(cyclesLinear(0x80), 1e-9));
+    });
+
+    test('an empty scene has nothing to stand on', () {
+      expect(cyclesFloorMesh(const [], argb: 0xFF808080,
+          halfWidth: 10, halfHeight: 10), isNull);
+      expect(cyclesMeshLowY(const []), isNull);
     });
   });
 }

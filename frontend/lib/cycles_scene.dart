@@ -19,6 +19,7 @@ import 'materials.dart' show materialArgb;
 import 'part_render.dart' show Cam3;
 import 'reality_assembly.dart' show assemblyPieces, assemblySceneSignature;
 import 'reality_scene.dart' show sceneSignature, visibleSolids;
+import 'theme.dart' show T;
 
 /// True when a path-traced image is the right thing to be showing.
 ///
@@ -26,6 +27,20 @@ import 'reality_scene.dart' show sceneSignature, visibleSolids;
 /// WORKING view — shaded, wireframe, hidden-line — where the point is to see
 /// the model's structure quickly, and a photograph of it would be in the way.
 bool cyclesWanted(AppState app) => app.displayMode.isRendered && cyclesReady;
+
+/// M333 — whether the render includes the ground plane.
+///
+/// The same document setting the RealityKit view reads (PartModel.showFloor,
+/// AssemblyModel.showFloor, pushed as `floor` in the payload), so the toggle
+/// in the ribbon means one thing rather than two. It is already part of
+/// [cyclesSceneKey] — both scene signatures write it — so turning it off
+/// invalidates the image on screen exactly as a geometry change would, with
+/// nothing extra to remember here.
+bool cyclesFloorWanted(AppState app) {
+  final a = app.currentAssembly;
+  if (a != null) return a.showFloor;
+  return app.currentPart?.showFloor ?? false;
+}
 
 /// The signature of what is currently drawable, part or assembly.
 ///
@@ -85,11 +100,26 @@ List<CyclesMesh> cyclesSceneMeshes(AppState app) {
 /// render key changed. See [CyclesSession.offer].
 CyclesJob cyclesSceneJob(AppState app, Cam3 cam, int width, int height,
     {int samples = kCyclesSamples}) {
-  final meshes = cyclesSceneMeshes(app);
+  // Copied into a growable list: cyclesSceneMeshes returns a const empty one
+  // when there is nothing open, and the floor below appends. That case cannot
+  // reach the append today — an empty scene has no lowest point, so there is
+  // no floor to add — but that is a fact two functions away, and this is one
+  // line.
+  final meshes = [...cyclesSceneMeshes(app)];
   final (halfW, halfH) = cyclesViewplane(cam);
+  // ORDER MATTERS. The camera is placed from the reach of the MODEL, and the
+  // floor is four times that across — computing the camera after adding it
+  // would pull the eye back far enough to lose the part. The floor is sized
+  // from the same list, before it is in it, for the same reason.
+  final matrix = cyclesCameraMatrix(cam, cyclesMeshReach(meshes));
+  if (cyclesFloorWanted(app)) {
+    final floor = cyclesFloorMesh(meshes,
+        argb: T.floor.toARGB32(), halfWidth: halfW, halfHeight: halfH);
+    if (floor != null) meshes.add(floor);
+  }
   return CyclesJob(
     meshes: meshes,
-    matrix: cyclesCameraMatrix(cam, cyclesMeshReach(meshes)),
+    matrix: matrix,
     halfWidth: halfW,
     halfHeight: halfH,
     width: width,

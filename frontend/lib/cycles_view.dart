@@ -344,6 +344,105 @@ const int kCyclesSamples = 48;
 /// Taken from the CONVERTED meshes rather than the solids, so an assembly's
 /// placements are already baked in — the reach of a part sitting a metre off
 /// the assembly origin is a metre, not the size of the part.
+/// M333 — the RENDERED view's floor, as a mesh.
+///
+/// WHY IT IS A MESH AND NOT SHIM CODE. It is one quad. Building it here costs
+/// nothing across the FFI boundary that a body does not already cost, it is
+/// testable without a GPU, and it takes the palette's colour through exactly
+/// the path every other appearance takes. A floor built in C++ would need the
+/// colour, the size and the toggle pushed across as three new fields for a
+/// shape the app can describe in twelve numbers.
+///
+/// WHY THERE IS ONE AT ALL. The RealityKit rendered view has had one since
+/// M276, and a shadow with nothing to fall on is not a shadow — the sun in the
+/// shim's rig casts, and without a floor the only thing it can darken is the
+/// part's own undercuts. A part floating in a flat void also reads as an
+/// ICON rather than as an object resting on something, which is most of what
+/// makes the rendered mode feel different from the working ones.
+
+/// The lowest Y in the scene, or null when there is nothing in it.
+///
+/// The world is Y-UP (see RealityPartView.commonInit — the sketch planes make
+/// it look otherwise, but the camera basis, the ViewCube's top face and
+/// PartCamera.dir all agree on +Y), so this is what the model is standing on.
+double? cyclesMeshLowY(List<CyclesMesh> meshes) {
+  double? low;
+  for (final (v, _, _, _) in meshes) {
+    for (var i = 1; i < v.length; i += 3) {
+      final y = v[i];
+      if (!y.isFinite) continue;
+      if (low == null || y < low) low = y;
+    }
+  }
+  return low;
+}
+
+/// How far across the floor reaches, as a multiple of what it has to cover.
+///
+/// M277's lesson on the RealityKit side: a floor sized from the SCENE alone is
+/// smaller than the frame the moment you zoom out past the part, and its edge
+/// walking into view takes the shadow with it. So the reach is the scene or
+/// the viewplane, whichever is bigger.
+const double kCyclesFloorSpan = 4.0;
+
+/// How far below the model's lowest point the floor sits, as a fraction of the
+/// scene's size.
+///
+/// Not a fudge. A floor exactly coplanar with a flat bottom face is a depth
+/// tie, and a depth tie shimmers. A ten-thousandth of the scene is far below a
+/// pixel at any zoom and is the difference between "touching" and
+/// "flickering" — the same epsilon, for the same reason, as applyGround's.
+const double kCyclesFloorDrop = 1e-4;
+
+/// The floor under [meshes], or null when there is nothing to stand on.
+///
+/// [meshes] must be the MODEL's meshes only: the floor is sized from them, and
+/// sizing it from a list that already contains a floor grows it without limit.
+/// For the same reason the caller must compute the camera before adding this —
+/// see [cyclesSceneJob].
+CyclesMesh? cyclesFloorMesh(
+  List<CyclesMesh> meshes, {
+  required int argb,
+  required double halfWidth,
+  required double halfHeight,
+}) {
+  final low = cyclesMeshLowY(meshes);
+  if (low == null) return null;
+  final radius = cyclesMeshReach(meshes);
+  final frame = math.sqrt(halfWidth * halfWidth + halfHeight * halfHeight);
+  final reach = math.max(radius, frame);
+  final side = math.max(2.0, reach * kCyclesFloorSpan);
+  if (!side.isFinite) return null;
+  final y = low - math.max(1e-4, radius * kCyclesFloorDrop);
+  if (!y.isFinite) return null;
+  final h = side / 2;
+
+  /// Wound so that (v1-v0) x (v2-v0) is +Y: a floor whose normal points at the
+  /// ground is lit from underneath and comes out black.
+  final verts = Float32List.fromList([
+    -h, y, h, //
+    h, y, h, //
+    h, y, -h, //
+    -h, y, -h,
+  ]);
+  final tris = Int32List.fromList([0, 1, 2, 0, 2, 3]);
+  return (
+    verts,
+    null,
+    tris,
+    CyclesMaterial(
+      cyclesLinear(argb >> 16),
+      cyclesLinear(argb >> 8),
+      cyclesLinear(argb),
+      // Fully rough and not at all metallic, exactly as
+      // PartScene.groundMaterial has it: the floor is there to CATCH a shadow,
+      // and anything it does beyond that competes with the model.
+      roughness: 1.0,
+      metallic: 0.0,
+    ),
+  );
+}
+
 double cyclesMeshReach(List<CyclesMesh> meshes) {
   var r2 = 0.0;
   for (final (v, _, _, _) in meshes) {
