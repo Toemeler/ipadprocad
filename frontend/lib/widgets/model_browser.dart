@@ -8,6 +8,7 @@
 // rolled back (dimmed, not drawn, not editable); right-click / long-press it
 // for Move to Top / Move to End / Delete all layers below, and any layer row
 // offers "Move End of Sketch here" (Inventor 2013's Move EOP Marker).
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/gestures.dart';
@@ -18,6 +19,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:native_menu/native_menu.dart';
 
 import '../app_state.dart';
+import '../clipboard.dart';
 import '../asm_constraints.dart';
 import '../l10n/cad_terms.dart';
 import '../asm_pattern.dart';
@@ -143,6 +145,13 @@ class _ModelBrowserState extends State<ModelBrowser> {
             title: L.of(context).ctxMakePart,
             symbol: 'shippingbox'),
       ],
+      // M345 — the clipboard's half of Make Part: a COPY rather than a link.
+      [
+        NativeMenuItem(
+            id: 'bdCopy', title: L.of(context).btnCopy, symbol: 'doc.on.doc'),
+        NativeMenuItem(
+            id: 'bdCut', title: L.of(context).btnCut, symbol: 'scissors'),
+      ],
       [
         NativeMenuItem(
             id: 'bdDelete',
@@ -178,6 +187,19 @@ class _ModelBrowserState extends State<ModelBrowser> {
         if (canUnshareSketch(part, cs))
           NativeMenuItem(
               id: 'skUnshare', title: L.of(context).ctxUnshare, symbol: 'square.slash'),
+      ],
+      // M345 — the same three entries the native browser's sketch row carries.
+      // Cut only when nothing is built on it, exactly like Delete.
+      [
+        NativeMenuItem(
+            id: 'skCopy', title: L.of(context).btnCopy, symbol: 'doc.on.doc'),
+        if (!consumed)
+          NativeMenuItem(
+              id: 'skCut', title: L.of(context).btnCut, symbol: 'scissors'),
+        NativeMenuItem(
+            id: 'skToDocument',
+            title: L.of(context).ctxSketchToDocument,
+            symbol: 'square.and.arrow.down.on.square'),
       ],
     ];
   }
@@ -272,6 +294,16 @@ class _ModelBrowserState extends State<ModelBrowser> {
             id: 'eophere',
             title: L.of(context).ctxMoveEosHere,
             symbol: 'arrow.up.and.down.text.horizontal'),
+      ],
+      // M345 — the clipboard, on a layer row.
+      [
+        NativeMenuItem(
+            id: 'lyCopy', title: L.of(context).btnCopy, symbol: 'doc.on.doc'),
+        if (app.clipboard is SketchClip)
+          NativeMenuItem(
+              id: 'lyPaste',
+              title: L.of(context).btnPaste,
+              symbol: 'doc.on.clipboard'),
       ],
       if (!base)
         [
@@ -435,6 +467,16 @@ class _ModelBrowserState extends State<ModelBrowser> {
         case 'skUnshare':
           app.unshareSketch(cs);
           break;
+        // M345
+        case 'skCopy':
+          app.copyChildSketch(name);
+          break;
+        case 'skCut':
+          app.copyChildSketch(name, cut: true);
+          break;
+        case 'skToDocument':
+          unawaited(app.sketchDocumentFromChild(name));
+          break;
       }
       return;
     }
@@ -481,6 +523,13 @@ class _ModelBrowserState extends State<ModelBrowser> {
           break;
         case 'bdDelete':
           _confirmDeleteBody(name);
+          break;
+        // M345
+        case 'bdCopy':
+          app.copyBody(name);
+          break;
+        case 'bdCut':
+          app.copyBody(name, cut: true);
           break;
       }
       return;
@@ -539,6 +588,13 @@ class _ModelBrowserState extends State<ModelBrowser> {
         break;
       case 'delete':
         _confirmDelete(layer);
+        break;
+      // M345 — a layer is a thing to copy AND a place to paste into.
+      case 'lyCopy':
+        app.copyLayer(layer);
+        break;
+      case 'lyPaste':
+        app.pasteIntoLayer(layer);
         break;
     }
   }

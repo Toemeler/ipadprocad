@@ -3779,5 +3779,301 @@
         "type": "String"
       }
     }
+  },
+  "btnCut": "Ausschneiden",
+  "@btnCut": {
+    "description": "M345 — Inventor DE: „Ausschneiden“. Beschriftung des Knopfes und des Kontextmenue-Eintrags."
+  },
+  "btnPaste": "Einfügen",
+  "@btnPaste": {
+    "description": "M345 — Inventor DE: „Einfügen“."
+  },
+  "ctxPasteHere": "Hier einfügen",
+  "@ctxPasteHere": {
+    "description": "M345 — Einfügen AN DER ZEIGERPOSITION, im Gegensatz zum gewoehnlichen Einfuegen, das die Koordinaten der Kopie behaelt."
+  },
+  "ctxPasteSketchHere": "Skizze hier einfügen",
+  "@ctxPasteSketchHere": {
+    "description": "M345 — auf einer Ebenen-Zeile des Modellbrowsers: die kopierte Skizze wird als neue Skizze auf dieser Ebene angelegt."
+  },
+  "ctxPartFromSketch": "Bauteil aus Skizze",
+  "@ctxPartFromSketch": {
+    "description": "M345 — Galerie-Karte einer 2D-Skizze: legt ein Bauteil an, dessen erste Skizze diese ist."
+  },
+  "ctxSketchToDocument": "Als 2D-Skizze speichern",
+  "@ctxSketchToDocument": {
+    "description": "M345 — Skizzen-Zeile im Bauteil: legt aus dieser Skizze ein eigenes 2D-Dokument an."
+  },
+  "msgSelectThenCopy": "Erst etwas auswählen, dann kopieren.",
+  "@msgSelectThenCopy": {
+    "description": "M345 — Kopieren wirkt auf die Auswahl."
+  },
+  "msgSelectBodyToCopy": "Volumenkörper zum Kopieren wählen.",
+  "@msgSelectBodyToCopy": {
+    "description": "M345 — im Bauteil ohne Auswahl."
+  },
+  "msgCopiedEntities": "{n, plural, =1{1 Objekt kopiert} other{{n} Objekte kopiert}}",
+  "@msgCopiedEntities": {
+    "description": "M345 — Bestätigung nach Strg+C in einer Skizze.",
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "msgCutEntities": "{n, plural, =1{1 Objekt ausgeschnitten} other{{n} Objekte ausgeschnitten}}",
+  "@msgCutEntities": {
+    "description": "M345 — Bestätigung nach Strg+X in einer Skizze.",
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "msgCopiedSketch": "Skizze „{name}“ kopiert.",
+  "@msgCopiedSketch": {
+    "description": "M345",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgCutSketch": "Skizze „{name}“ ausgeschnitten.",
+  "@msgCutSketch": {
+    "description": "M345",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgCopiedBody": "Volumenkörper „{name}“ kopiert.",
+  "@msgCopiedBody": {
+    "description": "M345",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgCutBody": "Volumenkörper „{name}“ ausgeschnitten.",
+  "@msgCutBody": {
+    "description": "M345",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgCopiedComponent": "Komponente „{name}“ kopiert.",
+  "@msgCopiedComponent": {
+    "description": "M345",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgCutComponent": "Komponente „{name}“ ausgeschnitten.",
+  "@msgCutComponent": {
+    "description": "M345",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgCopiedDocument": "Dokument „{name}“ kopiert.",
+  "@msgCopiedDocument": {
+    "description": "M345",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgCopyBodyFailed": "Der Volumenkörper konnte nicht kopiert werden: {reason}",
+  "@msgCopyBodyFailed": {
+    "description": "M345 — der Kern hat den Körper nicht als STEP herausgeschrieben; ohne Datei gaebe es nichts einzufuegen.",
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "msgNoSuchBody": "„{name}“ gibt es in diesem Bauteil nicht.",
+  "@msgNoSuchBody": {
+    "description": "M345",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgClipboardEmpty": "Die Zwischenablage ist leer.",
+  "@msgClipboardEmpty": {
+    "description": "M345 — Einfügen ohne vorheriges Kopieren."
+  },
+  "msgClipboardBodyGone": "Der kopierte Volumenkörper ist nicht mehr da — bitte neu kopieren.",
+  "@msgClipboardBodyGone": {
+    "description": "M345 — die STEP-Datei der Zwischenablage fehlt (Cache geleert, App neu gestartet)."
+  },
+  "msgPastedEntities": "{n, plural, =1{1 Objekt eingefügt} other{{n} Objekte eingefügt}}",
+  "@msgPastedEntities": {
+    "description": "M345",
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "msgPastedSketchOnPlane": "Skizze „{name}“ eingefügt.",
+  "@msgPastedSketchOnPlane": {
+    "description": "M345 — eine eingefuegte Skizze wird als neue Skizze des Bauteils angelegt und bekommt dessen naechsten Namen.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgPastedSketchDocument": "2D-Skizze „{name}“ angelegt.",
+  "@msgPastedSketchDocument": {
+    "description": "M345",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgPastedBody": "„{name}“ als neuer Volumenkörper eingefügt.",
+  "@msgPastedBody": {
+    "description": "M345",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgPastedBodyAsComponent": "„{name}“ angelegt und in der Baugruppe platziert.",
+  "@msgPastedBodyAsComponent": {
+    "description": "M345 — eine Baugruppe nimmt keine nackten Koerper auf, also entsteht beim Einfuegen ein Bauteil-Dokument, das platziert wird.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgPastedComponent": "„{name}“ eingefügt.",
+  "@msgPastedComponent": {
+    "description": "M345",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgPastedDocument": "„{name}“ eingefügt.",
+  "@msgPastedDocument": {
+    "description": "M345 — Einfuegen in der Galerie ist ein Duplikat.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgPastedDerived": "Abgeleiteter Volumenkörper aus „{name}“ — mit dem Ursprung verknüpft.",
+  "@msgPastedDerived": {
+    "description": "M345 — ein eingefuegtes BAUTEIL wird abgeleitet (Inventors Ableiten), nicht kopiert; der Satz sagt es, weil es die eine Ausnahme von 'eine Kopie ist eine Kopie' ist.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgPasteBodyFailed": "Der Volumenkörper konnte nicht eingefügt werden: {reason}",
+  "@msgPasteBodyFailed": {
+    "description": "M345",
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "msgPasteBodyNotSaved": "Der eingefügte Volumenkörper konnte nicht im Dokument abgelegt werden.",
+  "@msgPasteBodyNotSaved": {
+    "description": "M345 — ohne Datei im Dokument kaeme der Koerper beim naechsten Oeffnen leer zurueck."
+  },
+  "msgPasteComponentNeedsAssembly": "Eine Komponente gehört in eine Baugruppe — dort einfügen.",
+  "@msgPasteComponentNeedsAssembly": {
+    "description": "M345"
+  },
+  "msgAssemblyTakesNoSketch": "Eine Baugruppe nimmt Komponenten auf, keine Skizzen.",
+  "@msgAssemblyTakesNoSketch": {
+    "description": "M345 — sagt, wo das Kopierte stattdessen hingehoert."
+  },
+  "msgCannotPasteHere": "Das lässt sich hier nicht einfügen.",
+  "@msgCannotPasteHere": {
+    "description": "M345 — letzter Ausweg; die Faelle, die etwas Genaueres sagen koennen, sagen es."
+  },
+  "msgCannotDeriveFromItself": "Ein Bauteil kann sich nicht selbst ableiten.",
+  "@msgCannotDeriveFromItself": {
+    "description": "M345"
+  },
+  "msgNoBodyIn": "„{name}“ hat keinen Volumenkörper zum Ableiten.",
+  "@msgNoBodyIn": {
+    "description": "M345",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgNoSuchDocument": "„{name}“ gibt es nicht mehr.",
+  "@msgNoSuchDocument": {
+    "description": "M345 — das kopierte Dokument wurde inzwischen geloescht oder umbenannt.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgSelectPlaneForPaste": "Ebene oder Fläche antippen, auf der die eingefügte Skizze liegen soll.",
+  "@msgSelectPlaneForPaste": {
+    "description": "M345 — dieselbe Auswahl wie beim Start einer 2D-Skizze, nur dass die Skizze fertig ankommt."
+  },
+  "msgPasteDroppedExpressions": "{n, plural, =1{Eine Formel wurde nicht übernommen — ihr Parameter kam nicht mit.} other{{n} Formeln wurden nicht übernommen — ihre Parameter kamen nicht mit.}}",
+  "@msgPasteDroppedExpressions": {
+    "description": "M345 — die Bemassung behaelt ihren WERT und hoert auf, gerechnet zu werden.",
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "msgPartFromSketch": "Bauteil „{part}“ aus Skizze „{sketch}“ erstellt.",
+  "@msgPartFromSketch": {
+    "description": "M345 — die Skizze bleibt, wo sie ist; das Bauteil bekommt eine Kopie.",
+    "placeholders": {
+      "part": {
+        "type": "String"
+      },
+      "sketch": {
+        "type": "String"
+      }
+    }
+  },
+  "msgNotASketch": "„{name}“ ist keine 2D-Skizze.",
+  "@msgNotASketch": {
+    "description": "M345",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgFinishSketchToPaste": "Zuerst die Skizze beenden — ein Volumenkörper gehört ins Bauteil, nicht in die Skizze.",
+  "@msgFinishSketchToPaste": {
+      "description": "M345 — Einfuegen eines Koerpers oder Bauteils, waehrend der 2D-Editor im Bauteil offen ist."
   }
 }

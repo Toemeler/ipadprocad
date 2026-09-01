@@ -813,6 +813,14 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
   Future<void> _onMenu(String id, String item) async {
     Log.i('browser', 'menu $id -> $item');
     final part = app.currentPart;
+    // M345 — an ORIGIN PLANE row carries exactly one menu entry, and only
+    // while there is a sketch on the clipboard: paste it here. Ahead of the
+    // prefix chain below because the origin rows have no branch of their own
+    // in it — until now they had no menu at all.
+    if (id.startsWith(kIdOrigin) && item == 'pasteSketch') {
+      app.pasteSketchOnto(id.substring(kIdOrigin.length));
+      return;
+    }
     if (id.startsWith(kIdComponent)) {
       final o = _component(id);
       if (o == null) return;
@@ -822,6 +830,13 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
           break;
         case 'cpDelete':
           app.deleteOccurrence(o);
+          break;
+        // M345
+        case 'cpCopy':
+          app.copyComponent(o);
+          break;
+        case 'cpCut':
+          app.copyComponent(o, cut: true);
           break;
         // M250 — Inventor's Edit on a component: open its part with the rest
         // of the assembly around it.
@@ -956,6 +971,13 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
         case 'bdMakePart':
           app.openMakePart(name); // M255
           break;
+        // M345 — the clipboard's half of Make Part: a COPY rather than a link.
+        case 'bdCopy':
+          app.copyBody(name);
+          break;
+        case 'bdCut':
+          app.copyBody(name, cut: true);
+          break;
         case 'bdDelete':
           app.deleteBody(name);
           break;
@@ -1003,6 +1025,9 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
       switch (item) {
         case 'wpSketch': // M181
           app.startSketchOnWorkPlane(w);
+          break;
+        case 'pasteSketch': // M345
+          app.pasteSketchOnto(kWorkPlaneKey, w.frame);
           break;
         case 'wpOffset':
           // M254 — one call that also NOTIFIES. See editWorkPlaneValue for
@@ -1069,6 +1094,16 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
         case 'skDelete':
           app.deleteChildSketch(cs);
           break;
+        // M345
+        case 'skCopy':
+          app.copyChildSketch(n);
+          break;
+        case 'skCut':
+          app.copyChildSketch(n, cut: true);
+          break;
+        case 'skToDocument':
+          await app.sketchDocumentFromChild(n);
+          break;
       }
       return;
     }
@@ -1091,6 +1126,14 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
           break;
         case 'delete':
           app.deleteLayer(layer);
+          break;
+        // M345 — a layer is the closest thing a sketch has to a group, so it
+        // is both a thing to copy and a place to paste into.
+        case 'lyCopy':
+          app.copyLayer(layer);
+          break;
+        case 'lyPaste':
+          app.pasteIntoLayer(layer);
           break;
       }
     }

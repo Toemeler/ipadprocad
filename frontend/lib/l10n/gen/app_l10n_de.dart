@@ -4211,4 +4211,212 @@ class AppL10nDe extends AppL10n {
   String a11yRemoveNamed(String name) {
     return '$name entfernen';
   }
+
+  @override
+  String get btnCut => 'Ausschneiden';
+
+  @override
+  String get btnPaste => 'Einfügen';
+
+  @override
+  String get ctxPasteHere => 'Hier einfügen';
+
+  @override
+  String get ctxPasteSketchHere => 'Skizze hier einfügen';
+
+  @override
+  String get ctxPartFromSketch => 'Bauteil aus Skizze';
+
+  @override
+  String get ctxSketchToDocument => 'Als 2D-Skizze speichern';
+
+  @override
+  String get msgSelectThenCopy => 'Erst etwas auswählen, dann kopieren.';
+
+  @override
+  String get msgSelectBodyToCopy => 'Volumenkörper zum Kopieren wählen.';
+
+  @override
+  String msgCopiedEntities(int n) {
+    String _temp0 = intl.Intl.pluralLogic(
+      n,
+      locale: localeName,
+      other: '$n Objekte kopiert',
+      one: '1 Objekt kopiert',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String msgCutEntities(int n) {
+    String _temp0 = intl.Intl.pluralLogic(
+      n,
+      locale: localeName,
+      other: '$n Objekte ausgeschnitten',
+      one: '1 Objekt ausgeschnitten',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String msgCopiedSketch(String name) {
+    return 'Skizze „$name“ kopiert.';
+  }
+
+  @override
+  String msgCutSketch(String name) {
+    return 'Skizze „$name“ ausgeschnitten.';
+  }
+
+  @override
+  String msgCopiedBody(String name) {
+    return 'Volumenkörper „$name“ kopiert.';
+  }
+
+  @override
+  String msgCutBody(String name) {
+    return 'Volumenkörper „$name“ ausgeschnitten.';
+  }
+
+  @override
+  String msgCopiedComponent(String name) {
+    return 'Komponente „$name“ kopiert.';
+  }
+
+  @override
+  String msgCutComponent(String name) {
+    return 'Komponente „$name“ ausgeschnitten.';
+  }
+
+  @override
+  String msgCopiedDocument(String name) {
+    return 'Dokument „$name“ kopiert.';
+  }
+
+  @override
+  String msgCopyBodyFailed(String reason) {
+    return 'Der Volumenkörper konnte nicht kopiert werden: $reason';
+  }
+
+  @override
+  String msgNoSuchBody(String name) {
+    return '„$name“ gibt es in diesem Bauteil nicht.';
+  }
+
+  @override
+  String get msgClipboardEmpty => 'Die Zwischenablage ist leer.';
+
+  @override
+  String get msgClipboardBodyGone =>
+      'Der kopierte Volumenkörper ist nicht mehr da — bitte neu kopieren.';
+
+  @override
+  String msgPastedEntities(int n) {
+    String _temp0 = intl.Intl.pluralLogic(
+      n,
+      locale: localeName,
+      other: '$n Objekte eingefügt',
+      one: '1 Objekt eingefügt',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String msgPastedSketchOnPlane(String name) {
+    return 'Skizze „$name“ eingefügt.';
+  }
+
+  @override
+  String msgPastedSketchDocument(String name) {
+    return '2D-Skizze „$name“ angelegt.';
+  }
+
+  @override
+  String msgPastedBody(String name) {
+    return '„$name“ als neuer Volumenkörper eingefügt.';
+  }
+
+  @override
+  String msgPastedBodyAsComponent(String name) {
+    return '„$name“ angelegt und in der Baugruppe platziert.';
+  }
+
+  @override
+  String msgPastedComponent(String name) {
+    return '„$name“ eingefügt.';
+  }
+
+  @override
+  String msgPastedDocument(String name) {
+    return '„$name“ eingefügt.';
+  }
+
+  @override
+  String msgPastedDerived(String name) {
+    return 'Abgeleiteter Volumenkörper aus „$name“ — mit dem Ursprung verknüpft.';
+  }
+
+  @override
+  String msgPasteBodyFailed(String reason) {
+    return 'Der Volumenkörper konnte nicht eingefügt werden: $reason';
+  }
+
+  @override
+  String get msgPasteBodyNotSaved =>
+      'Der eingefügte Volumenkörper konnte nicht im Dokument abgelegt werden.';
+
+  @override
+  String get msgPasteComponentNeedsAssembly =>
+      'Eine Komponente gehört in eine Baugruppe — dort einfügen.';
+
+  @override
+  String get msgAssemblyTakesNoSketch =>
+      'Eine Baugruppe nimmt Komponenten auf, keine Skizzen.';
+
+  @override
+  String get msgCannotPasteHere => 'Das lässt sich hier nicht einfügen.';
+
+  @override
+  String get msgCannotDeriveFromItself =>
+      'Ein Bauteil kann sich nicht selbst ableiten.';
+
+  @override
+  String msgNoBodyIn(String name) {
+    return '„$name“ hat keinen Volumenkörper zum Ableiten.';
+  }
+
+  @override
+  String msgNoSuchDocument(String name) {
+    return '„$name“ gibt es nicht mehr.';
+  }
+
+  @override
+  String get msgSelectPlaneForPaste =>
+      'Ebene oder Fläche antippen, auf der die eingefügte Skizze liegen soll.';
+
+  @override
+  String msgPasteDroppedExpressions(int n) {
+    String _temp0 = intl.Intl.pluralLogic(
+      n,
+      locale: localeName,
+      other:
+          '$n Formeln wurden nicht übernommen — ihre Parameter kamen nicht mit.',
+      one: 'Eine Formel wurde nicht übernommen — ihr Parameter kam nicht mit.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String msgPartFromSketch(String part, String sketch) {
+    return 'Bauteil „$part“ aus Skizze „$sketch“ erstellt.';
+  }
+
+  @override
+  String msgNotASketch(String name) {
+    return '„$name“ ist keine 2D-Skizze.';
+  }
+
+  @override
+  String get msgFinishSketchToPaste =>
+      'Zuerst die Skizze beenden — ein Volumenkörper gehört ins Bauteil, nicht in die Skizze.';
 }

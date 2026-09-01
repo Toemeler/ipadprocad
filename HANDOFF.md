@@ -10745,3 +10745,220 @@ würde:
    Subgraph Cycles beim Finalisieren dreimal kopiert — drei Bildabfragen pro
    Schattierung. Auf einem Teil mit sechs texturierten Erscheinungen ist das
    die teuerste Stelle des ganzen Shaders.
+
+## M345 — Kopieren und Einfügen, überall, mit allem
+
+### Was der Auftrag war
+
+„Ich möchte eine Skizze in ein Bauteil umwandeln können und eine Skizze in
+einem Bauteil in eine einzelne 2D-Skizze. Ich möchte Skizzen in einem Bauteil
+in eine andere Skizze kopieren können oder einfach auf eine Ebene. Denk über
+den Ablauf nach. Ich möchte einen Teil einer Skizze kopieren können. Ich
+möchte einen Volumenkörper in ein anderes Bauteil oder in eine Baugruppe
+kopieren. Denk auch an andere Fälle. Kopieren/Einfügen soll in der ganzen App
+funktionieren. Überall mit allem."
+
+### Der Befund
+
+Die App hatte **keine Zwischenablage**. Kein Strg+C, kein Menüeintrag, kein
+Knopf; `Clipboard` kam in `lib/` genau dreimal vor, und jedes Mal ging es
+darum, einen Pfad oder einen Issue-Link in die *System*-Zwischenablage zu
+legen (Bug-Report). Was es stattdessen gab, waren fünf Befehle, die je einen
+Ausschnitt davon abdeckten und einander nicht kannten:
+
+* `Tool.mcopy` — Inventors Verschieben/Kopieren-Werkzeug. Es dupliziert
+  Geometrie **innerhalb einer Skizze** über eine Transformation und nimmt
+  dabei **keine Bedingungen mit**.
+* `copySelectedComponent` — kopiert eine Komponente innerhalb **einer**
+  Baugruppe.
+* `duplicateDocument` — dupliziert eine ganze Datei in der Galerie.
+* `Make Part` (M255) — macht aus einem Volumenkörper ein Bauteil-Dokument,
+  aber als **Verknüpfung**, nicht als Kopie.
+* `importStepIntoPart` (M111) — liest fremde Geometrie als Körper ein.
+
+Zwischen zwei Dokumenten ging nichts. Eine Skizze, die im falschen Dokument
+lag, war dort gefangen.
+
+### Was gebaut wurde
+
+**`lib/clipboard.dart` — das Modell und die zwei reinen Operationen.** Eine
+`sealed class ClipContent` mit fünf Nutzlasten (Skizzengeometrie, ein
+Volumenkörper, eine Komponente, ein Dokument), `sketchClip(...)`, das eine
+Kopie aus einer Skizze **herausnimmt**, und `mergeSketchClip(...)`, das eine
+wieder **hineinlegt**. Kein AppState, kein Kern, keine Datei, kein Widget —
+womit die interessante Hälfte von Copy/Paste ohne Gerät prüfbar ist.
+
+**Ein Befehlsblock in `app_state.dart`.** Ein `paste()`, das entscheidet, was
+die Nutzlast **an diesem Ort** bedeutet:
+
+|                      | in einer 2D-Skizze | im Bauteil          | in der Baugruppe        | in der Galerie      |
+|----------------------|--------------------|---------------------|-------------------------|---------------------|
+| Skizzengeometrie     | in diese Skizze    | Skizze auf eine Ebene | —                     | neues 2D-Dokument   |
+| Volumenkörper        | (Skizze beenden)   | neuer Körper        | Bauteil **und** Komponente | neues Bauteil    |
+| Komponente           | —                  | —                   | zweites Exemplar        | —                   |
+| Bauteil-Dokument     | —                  | abgeleiteter Körper | Komponente              | Duplikat            |
+| Skizzen-Dokument     | in diese Skizze    | Skizze auf eine Ebene | —                     | Duplikat            |
+
+Jedes Feld mit einem Strich **sagt beim Versuch, wo das Kopierte hingehört**
+(„Eine Baugruppe nimmt Komponenten auf, keine Skizzen"). Ein ausgegrautes
+Einfügen, das sich nie erklärt, ist der Fehlermodus, gegen den diese Tabelle
+geschrieben ist.
+
+**Die zwei Umwandlungen**, wörtlich aus dem Auftrag:
+
+* `partFromSketch` — aus einem 2D-Dokument wird ein Bauteil, dessen erste
+  Skizze auf XY genau diese ist.
+* `sketchDocumentFromChild` — aus einer Skizze im Bauteil wird ein eigenes
+  2D-Dokument, „Bracket Sketch1" genannt, weil die Galerie **ein** Regal für
+  alle Dokumente ist und eine Karte namens „Sketch1" nichts darüber sagt, aus
+  welchem Bauteil sie kam.
+
+Beide **kopieren** und löschen die Quelle nicht: die Skizze im Bauteil ist
+das, worauf die Elemente gebaut sind, und ein Umwandeln, das sie herausnimmt,
+hätte jedes Element mitgenommen. Dasselbe Argument, das M255 dafür anführt,
+das Ursprungsbauteil nicht zu leeren.
+
+### Die Entscheidungen, die keine Übersetzung sind
+
+**1. Eine eingefügte Kopie behält ihre Koordinaten.** Nicht „an der
+Zeigerposition". Ein Profil, das von einer Ebene auf eine andere wandert, muss
+dort landen, wo seine Bohrungen noch fluchten; „wo gerade der Finger war" ist
+genau das, was das verliert. Die Ausnahme heißt `pasteHere` (Umschalt+V, und
+der Menüeintrag „Hier einfügen") und sagt es im Namen. Was eingefügt wurde,
+ist danach **ausgewählt** — die nächste Geste verschiebt genau das.
+
+**2. Eine Bedingung kommt nur mit, wenn BEIDE Enden mitkommen.** Inventors
+Regel und die einzig sichere: eine Bemaßung, deren anderes Ende nicht kopiert
+wurde, hat nichts zu messen, und sie auf das umzuhängen, was im Ziel zufällig
+an diesem Index liegt, ist die Art, wie ein Einfügen eine Zeichnung
+stillschweigend verformt. Die Ausnahme ist der **projizierte Mittelpunkt**
+(`kProjCenter`): den hat jede Skizze, also bedeutet die Referenz im Ziel
+dasselbe wie in der Quelle — und genau das erdet ein eingefügtes Profil, statt
+es schweben zu lassen.
+
+**3. Eine Projektion, deren Quelle nicht mitkam, ist keine mehr.** M32s gelbe,
+quellverfolgende Geometrie ist über einen **Index** definiert. Ein
+mitgenommener Tag zeigte im Ziel auf irgendetwas. Die beiden **Achsen**-
+Projektionen bleiben: X- und Y-Achse hat jede Skizze.
+
+**4. Parameter kollidieren, und die EINGEHENDE weicht.** Zwei Skizzen haben
+beide ein `d0`. Beim Einfügen wird die ankommende Bemaßung umbenannt (nie die
+des Ziels, auf die dortige Formeln zeigen können) und jede mitgereiste Formel
+folgt der Umbenennung. Eine Formel, deren Parameter **nicht** mitkam, wird
+fallengelassen — die Bemaßung behält ihren **Wert** und hört auf, gerechnet zu
+werden. Eine Zahl, die falsch wird, sobald sich etwas anderes ändert, ist
+schlimmer als eine Zahl, die nur eine Zahl ist. Es gibt eine Meldung dafür.
+
+**5. Ein Fix-Anker wird neu abgelesen, nicht umgerechnet.** Ein Fix auf einer
+ENTITÄT verankert die rohe Parameterliste, deren Aufbau je Typ verschieden ist
+(die dritte Zahl eines Kreises ist ein Radius, die vierte und fünfte eines
+Bogens sind Winkel). Beim verschobenen Einfügen wird der Anker aus der bereits
+verschobenen Geometrie gelesen: dieselbe Antwort ohne eine Tabelle von
+Sonderfällen.
+
+**6. Ein kopierter Körper wird als STEP-Datei kopiert, sofort.** Nicht als
+Zeiger in den Kern des Ursprungsdokuments. Drei Dinge folgen daraus, und alle
+drei sind der Punkt: die Kopie überlebt, dass ihr Ursprung geschlossen,
+geändert oder **gelöscht** wird; dieselbe Kopie lässt sich beliebig oft
+einfügen; und was dabei entsteht, ist ein gewöhnlicher importierter Körper
+(M111), den das Bauteilformat schon speichern und wieder lesen kann. Ein Kern,
+der die Datei nicht schreiben kann, lässt das **Kopieren** scheitern und sagt
+es — eine Zwischenablage, die still einen Körper hält, der sich nicht einfügen
+lässt, ist schlimmer.
+
+**7. Eine Kopie ist eine Kopie — mit genau einer Ausnahme.** Ein eingefügtes
+**Bauteil-Dokument** wird abgeleitet (Inventors Ableiten, M255s
+`DeriveFeature`), also verknüpft. Wer ein Dokument statt eines Körpers
+benennt, meint das Dokument, und ein Dokument ist das, was weiter bearbeitet
+wird. Der Toast sagt es.
+
+**8. Bilder reisen als Dateien mit.** Ein `SketchImage` benennt seine Datei
+**relativ zum Dokument**; ein Einfügen, das nur den Datensatz mitnimmt, malt
+nichts. Die Bytes werden unter frischem Namen ins Zieldokument kopiert (zwei
+Dokumente dürfen beide eine `img_1730.png` haben, die nicht dasselbe Bild
+ist), und ein Bild, dessen Datei fort ist, wird weggelassen statt als graues
+Rechteck eingefügt.
+
+**9. Eine Ebene ist beides: etwas zum Kopieren und ein Ziel.** Sie ist das
+Nächste, was eine Skizze an einer Gruppe hat.
+
+### Wo die Befehle sind
+
+* **Tastatur** — Strg/Cmd+C, X, V in beiden Viewports; Umschalt+V fügt an der
+  Zeigerposition ein.
+* **Die Schnellwerkzeugleiste** — Kopieren/Ausschneiden/Einfügen erscheinen
+  (wie Löschen seit M193), sobald es etwas zu kopieren bzw. einzufügen gibt.
+  Sie stehen bei Rückgängig/Wiederholen, weil sie **Bearbeiten**-Befehle sind
+  und kein Werkzeug.
+* **Der Modellbrowser** — auf der Skizzen-, Körper-, Komponenten- und
+  Ebenenzeile; „Skizze hier einfügen" auf den drei Ursprungsebenen und auf
+  jeder Arbeitsebene, und nur solange eine Skizze in der Zwischenablage liegt.
+* **Der 3D-Viewport** — der Long-Press auf eine Skizze hat Kopieren und „Als
+  2D-Skizze speichern" dazubekommen.
+* **Die Galerie** — Kopieren auf jeder Karte, „Bauteil aus Skizze" auf einer
+  2D-Karte, Einfügen im „+"-Menü (nur wenn etwas da ist).
+* **Der Plan-Pick** — Einfügen im Bauteil ohne genannte Ebene **schärft den
+  Ebenen-Pick**: der nächste Tipp auf eine Ursprungsebene, eine Fläche oder
+  eine Arbeitsebene wird zur neuen Skizze. Esc legt ihn wieder hin.
+
+**Nicht im Ribbon**, und das ist eine Entscheidung: im Ändern-Panel steht seit
+M6 ein „Kopieren", und das ist das **Transformationswerkzeug** (`Tool.mcopy`).
+Zwei gleich beschriftete Knöpfe auf einem Schirm sind schlimmer als ein gut
+platzierter — und die Schnellwerkzeugleiste ist permanent sichtbar.
+
+### Was NICHT gebaut wurde, und warum
+
+* **Ein einzelnes Element (Extrusion, Bohrung) kopieren.** Ein Element ist
+  über seine Skizze, seine Flächen und seine Kanten definiert; in ein anderes
+  Bauteil kopiert, zeigt jede dieser Referenzen ins Leere. Inventor bietet es
+  auch nicht an. Ein Körper ist die Einheit, die für sich steht.
+* **Arbeitsebenen/-achsen/-punkte.** Dieselbe Begründung: eine Ebene *ist*
+  ihre Konstruktion aus anderer Geometrie.
+* **Ein Stapel.** Die Zwischenablage hält **eine** Nutzlast, wie eine
+  System-Zwischenablage. Eine benannte Bibliothek kopierter Geometrie ist ein
+  anderes Feature mit einem eigenen Browser; eine halbe davon hier hätte der
+  App zwei Orte gegeben, an denen Geometrie wartet.
+* **Die SYSTEM-Zwischenablage.** Zwischen zwei Apps hat der Austausch ein
+  Format (DXF, STEP) und den Weg dafür gibt es seit M111/M177/M214. Hier geht
+  es um dieselbe App.
+
+### Der Test
+
+`test/m345_clipboard_test.dart`, 59 Fälle in sieben Gruppen. Zwei Drittel
+davon prüfen **nicht**, ob Geometrie ankommt — das ist die leichte Hälfte —
+sondern was mit allem passiert, was an Geometrie **hängt**, wenn sie eine
+Dokumentgrenze überquert: Bedingungen mit einem Ende draußen, Projektionen,
+`d0` gegen `d0`, Formeln ohne ihren Parameter, Ebenen, die das Ziel nicht
+kennt, Anker.
+
+Der Kern-Fake der Körper-Gruppe schreibt und liest eine **echte Datei** —
+denn „die Kopie überlebt ihren Ursprung" ist eine Aussage über eine Datei, und
+ein Fake, der den Körper im Speicher hält, bewiese nichts. Ein Fall macht
+genau das: kopieren, das Ursprungsbauteil **löschen**, einfügen.
+
+Vier bestehende Verträge wurden angefasst, alle mit einem Grund im Diff: die
+Kontextmenüs der Galerie und des 3D-Long-Press (neue Einträge), die Liste der
+Schnellwerkzeug-Ids und die zwei l10n-Ratschen. Für `btnCut` gibt es eine
+**benannte, gedeckelte** Ausnahme im Längen-Gate: „Cut" ist drei Zeichen,
+„Ausschneiden" zwölf, beides ist das Wort, das Apple selbst in den zwei
+Sprachen ausliefert, und ein kürzeres richtiges Deutsch für die
+Zwischenablage-Operation gibt es nicht. Die Ausnahme ist eine Map auf eine
+harte Zeichenzahl und hat einen eigenen Test, der verhindert, dass sie zum
+Loch wird.
+
+Der Lauf: **flutter analyze 0 Fehler**, Suite grün.
+
+### Noch NICHT auf Hardware
+
+Alles hier ist auf einem Linux-Runner geprüft, ohne OCCT und ohne UIKit. Drei
+Dinge sind erst auf dem Gerät zu beurteilen:
+
+1. **Der STEP-Weg eines kopierten Körpers.** Der Test-Kern schreibt JSON. Der
+   echte Kern schreibt STEP — `exportStep`/`importStepSolids` sind seit
+   M111/M214 in Benutzung, aber nicht auf diesem Pfad.
+2. **Die neuen Menüzeilen im UIKit-Browser.** Die Zeilen und ihre Ids sind im
+   Host-Test gepinnt; wie sie im echten `UIMenu` sitzen (und ob
+   `doc.on.clipboard` auf der Ziel-iOS-Version existiert), sagt erst das
+   Gerät.
+3. **Umschalt+V** auf einer echten Tastatur; im Test wird `pasteHere` direkt
+   gerufen.

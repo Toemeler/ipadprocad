@@ -1542,6 +1542,28 @@ class _Viewport2DState extends State<Viewport2D>
               app.redo();
               return KeyEventResult.handled;
             }
+            // M345 — the clipboard. Copy takes the selection, or the whole
+            // sketch when nothing is selected; paste keeps the copied
+            // coordinates (see SketchClip) and selects what arrived, so the
+            // very next drag moves it.
+            if (ctrl && k == LogicalKeyboardKey.keyC) {
+              app.copyCurrent();
+              return KeyEventResult.handled;
+            }
+            if (ctrl && k == LogicalKeyboardKey.keyX) {
+              app.copyCurrent(cut: true);
+              return KeyEventResult.handled;
+            }
+            if (ctrl && k == LogicalKeyboardKey.keyV) {
+              // Shift pastes AT THE CURSOR, which is the one case where a
+              // paste is allowed to move the geometry (M345).
+              if (HardwareKeyboard.instance.isShiftPressed) {
+                unawaited(app.pasteHere());
+              } else {
+                unawaited(app.paste());
+              }
+              return KeyEventResult.handled;
+            }
             if (!ctrl && !HardwareKeyboard.instance.isAltPressed) {
               final t = k == LogicalKeyboardKey.keyD
                   ? Tool.dimension

@@ -67,18 +67,21 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('menu contract', () {
-    test('five items in two sections, delete destructive and alone', () {
+    test('six items in two sections, delete destructive and alone', () {
       // Pinned in English; the German titles are covered by
       // l10n_completeness_test and l10n_length_test.
       final groups = sketchMenuGroups(L.stringsFor(kEn));
       expect(groups, hasLength(2),
           reason: 'a second section is what separates Delete visually');
+      // M345 — Copy sits next to Duplicate, which is the same idea with a
+      // different destination: Duplicate makes the copy now, Copy waits to be
+      // told where it goes.
       expect([for (final i in groups[0]) i.id],
-          ['rename', 'duplicate', 'export', 'share']);
+          ['rename', 'duplicate', 'copy', 'export', 'share']);
       expect([for (final i in groups[1]) i.id], ['delete']);
 
       final all = [for (final g in groups) ...g];
-      expect(all, hasLength(5));
+      expect(all, hasLength(6));
       // UIKit colours a destructive row red on its own; nothing else may claim
       // the flag or the whole menu turns into a wall of red.
       expect(all.where((i) => i.destructive).map((i) => i.id), ['delete']);
@@ -86,6 +89,16 @@ void main() {
         expect(i.title, isNotEmpty);
         expect(i.symbol, isNotNull, reason: '${i.id} needs an SF Symbol');
       }
+    });
+
+    test('a SKETCH card grows the two entries only a sketch can answer', () {
+      // M345 — "Create Part from Sketch" is a 2D document's command; a part
+      // card must not carry a row that could only ever fail (M157).
+      final ids = [
+        for (final g in sketchMenuGroups(L.stringsFor(kEn), isSketch: true))
+          for (final i in g) i.id
+      ];
+      expect(ids, containsAllInOrder(['duplicate', 'copy', 'toPart']));
     });
   });
 

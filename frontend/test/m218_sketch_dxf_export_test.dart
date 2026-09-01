@@ -77,12 +77,22 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('the menu contract', () {
-    test('four items, in the order the sheet shows them', () {
+    test('six items, in the order the sheet shows them', () {
       final items = sketch3dMenuItems(L.stringsFor(kEn));
+      // M345 — the last two are the clipboard's: a sketch caught by a long
+      // press in 3D is the sketch the user is pointing at, so the two commands
+      // that take it somewhere else belong here as much as on its browser row.
       expect(items.map((i) => i.id).toList(),
-          ['skEdit', 'skVisible', 'skExportDxf', 'skShareDxf']);
-      expect(items.map((i) => i.title).toList(),
-          ['Edit Sketch', 'Hide', 'Export DXF…', 'Share DXF…']);
+          ['skEdit', 'skVisible', 'skExportDxf', 'skShareDxf', 'skCopy',
+           'skToDocument']);
+      expect(items.map((i) => i.title).toList(), [
+        'Edit Sketch',
+        'Hide',
+        'Export DXF…',
+        'Share DXF…',
+        'Copy',
+        'Save as 2D Sketch',
+      ]);
     });
 
     test('Edit and Hide keep the model browser ids', () {

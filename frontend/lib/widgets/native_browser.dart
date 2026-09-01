@@ -13,6 +13,7 @@ import 'package:flutter/material.dart';
 import 'package:native_menu/native_menu.dart';
 
 import '../app_state.dart';
+import '../clipboard.dart';
 import '../asm_constraints.dart';
 import '../asm_work_features.dart';
 import '../asm_pattern.dart';
@@ -104,6 +105,38 @@ List<(String, String, String)> get kOriginRows => [
       ('cp', t.nodeCenterPoint, 'smallcircle.filled.circle'),
     ];
 
+/// M345 — the clipboard section every row that can be copied carries.
+///
+/// One builder rather than five copies of two rows: Copy and Cut mean the same
+/// thing everywhere, they are always their own section (they neither change
+/// how a thing looks, like the rows above them, nor destroy it, like Delete
+/// below), and a menu that spelled them out per row is a menu where they drift
+/// apart. The ids are per KIND, because the row already knows what it is and
+/// the host has to route the tap without guessing.
+List<GlassMenuItem> clipSection(String copyId, String cutId,
+        {bool cut = true}) =>
+    [
+      GlassMenuItem(id: copyId, title: t.btnCopy, symbol: 'doc.on.doc'),
+      if (cut)
+        GlassMenuItem(id: cutId, title: t.btnCut, symbol: 'scissors'),
+    ];
+
+/// M345 — "Paste Sketch Here" on a plane row, offered only while the
+/// clipboard actually holds sketch geometry.
+///
+/// Offered rather than dimmed: an empty clipboard is not a state of the plane,
+/// and a row that is dark on every plane in a document nobody has copied
+/// anything in is noise on seven rows of the Origin folder.
+List<GlassMenuItem> pasteSketchSection(AppState app) =>
+    app.clipboard is SketchClip
+        ? [
+            GlassMenuItem(
+                id: 'pasteSketch',
+                title: t.ctxPasteSketchHere,
+                symbol: 'doc.on.clipboard')
+          ]
+        : const [];
+
 /// M250 — the context menu on the View node: Inventor's right-click New.
 List<List<GlassMenuItem>> _viewRepsMenu() => [
       [
@@ -189,6 +222,7 @@ List<List<GlassMenuItem>> _componentMenu(AssemblyOccurrence o) {
           title: t.ctxGrounded,
           symbol: o.grounded ? 'pin.fill' : 'pin'),
     ],
+    clipSection('cpCopy', 'cpCut'),
     [
       GlassMenuItem(
           id: 'cpDelete',
@@ -683,6 +717,12 @@ List<GlassRow> _buildRows(
     if (expanded.contains('origin')) {
       for (final (key, label, sym) in kOriginRows) {
         final on = part.vis[key] == true;
+        // M345 — the three origin PLANES are a destination for a pasted
+        // sketch. The axes and the centre point are not: a sketch needs a
+        // plane, and offering the row on a line would be a menu entry that
+        // could only ever fail.
+        final isPlane = key == 'xy' || key == 'yz' || key == 'xz';
+        final paste = isPlane ? pasteSketchSection(app) : const <GlassMenuItem>[];
         rows.add(GlassRow(
           id: '$kIdOrigin$key',
           label: label,
@@ -691,6 +731,7 @@ List<GlassRow> _buildRows(
           hasEye: true,
           eyeOn: on,
           dim: !on,
+          menu: paste.isEmpty ? const [] : [paste],
         ));
       }
     }
@@ -844,7 +885,7 @@ List<GlassRow> _buildRows(
         eyeOn: on,
         dim: !on || i >= s.eosAfter,
         selected: layer == app.editingLayer,
-        menu: _layerMenu(),
+        menu: _layerMenu(app),
       ));
     }
     if (s.eosAfter >= s.layers.length) rows.add(_eosRow());
@@ -910,6 +951,7 @@ List<List<GlassMenuItem>> _bodyMenu(AppState app, bool on) => [
             symbol: on ? 'eye.slash' : 'eye'),
         GlassMenuItem(id: 'bdRename', title: t.rename, symbol: 'pencil'),
       ],
+      clipSection('bdCopy', 'bdCut'),
       [
         // M255 — Inventor's Make Part, and its own section: the two above
         // change how this body LOOKS, this one creates two documents and
@@ -978,6 +1020,8 @@ List<List<GlassMenuItem>> _workPlaneMenu(AppState app, WorkPlane w,
               id: 'wpSketch',
               title: t.ctxCreateSketch,
               symbol: 'square.on.square'),
+        // M345 — and the same thing with the clipboard's sketch in it.
+        if (!inAssembly) ...pasteSketchSection(app),
         if (w.offsetEditable)
           GlassMenuItem(
               id: 'wpOffset', title: t.ctxEditOffset, symbol: 'ruler'),
@@ -1057,6 +1101,19 @@ List<List<GlassMenuItem>> _sketchMenu(PartModel part, ChildSketch cs) {
           title: cs.visible ? t.hide : t.ctxShow,
           symbol: cs.visible ? 'eye.slash' : 'eye'),
     ],
+    // M345 — Cut only when nothing is built on it: cutting a consumed sketch
+    // would take the feature with it, which is the same rule its Delete
+    // follows and the reason Delete is absent from a consumed sketch too.
+    [
+      ...clipSection('skCopy', 'skCut', cut: !consumed),
+      // M345 — "this sketch, as a document of its own". Beside Copy because
+      // it is the same idea with a destination: a 2D document rather than the
+      // clipboard.
+      GlassMenuItem(
+          id: 'skToDocument',
+          title: t.ctxSketchToDocument,
+          symbol: 'square.and.arrow.down.on.square'),
+    ],
     [
       if (consumed && !cs.shared)
         GlassMenuItem(
@@ -1079,11 +1136,20 @@ List<List<GlassMenuItem>> _sketchMenu(PartModel part, ChildSketch cs) {
   ];
 }
 
-List<List<GlassMenuItem>> _layerMenu() => [
+List<List<GlassMenuItem>> _layerMenu(AppState app) => [
       [
         GlassMenuItem(id: 'edit', title: t.ctxEditLayer, symbol: 'pencil'),
         GlassMenuItem(id: 'rename', title: t.rename, symbol: 'character.cursor.ibeam'),
         GlassMenuItem(id: 'move', title: t.ctxMoveSelectionHere, symbol: 'arrow.right.doc.on.clipboard'),
+      ],
+      // M345 — Copy takes the whole layer; Paste puts the clipboard ON this
+      // layer, whichever layer is being edited. That is what makes a layer row
+      // a destination as well as a thing.
+      [
+        GlassMenuItem(id: 'lyCopy', title: t.btnCopy, symbol: 'doc.on.doc'),
+        if (app.clipboard is SketchClip)
+          GlassMenuItem(
+              id: 'lyPaste', title: t.btnPaste, symbol: 'doc.on.clipboard'),
       ],
       [
         GlassMenuItem(

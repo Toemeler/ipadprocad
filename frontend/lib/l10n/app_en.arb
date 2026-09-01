@@ -1162,5 +1162,225 @@
         "type": "String"
       }
     }
-  }
+  },
+  "btnCut": "Cut",
+  "btnPaste": "Paste",
+  "ctxPasteHere": "Paste Here",
+  "ctxPasteSketchHere": "Paste Sketch Here",
+  "ctxPartFromSketch": "Create Part from Sketch",
+  "ctxSketchToDocument": "Save as 2D Sketch",
+  "msgSelectThenCopy": "Select something first, then copy.",
+  "msgSelectBodyToCopy": "Select a solid body to copy.",
+  "msgCopiedEntities": "{n, plural, =1{1 object copied} other{{n} objects copied}}",
+  "@msgCopiedEntities": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "msgCutEntities": "{n, plural, =1{1 object cut} other{{n} objects cut}}",
+  "@msgCutEntities": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "msgCopiedSketch": "Sketch “{name}” copied.",
+  "@msgCopiedSketch": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgCutSketch": "Sketch “{name}” cut.",
+  "@msgCutSketch": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgCopiedBody": "Solid body “{name}” copied.",
+  "@msgCopiedBody": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgCutBody": "Solid body “{name}” cut.",
+  "@msgCutBody": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgCopiedComponent": "Component “{name}” copied.",
+  "@msgCopiedComponent": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgCutComponent": "Component “{name}” cut.",
+  "@msgCutComponent": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgCopiedDocument": "Document “{name}” copied.",
+  "@msgCopiedDocument": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgCopyBodyFailed": "The solid body could not be copied: {reason}",
+  "@msgCopyBodyFailed": {
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "msgNoSuchBody": "There is no “{name}” in this part.",
+  "@msgNoSuchBody": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgClipboardEmpty": "There is nothing to paste.",
+  "msgClipboardBodyGone": "The copied body is no longer there — copy it again.",
+  "msgPastedEntities": "{n, plural, =1{1 object pasted} other{{n} objects pasted}}",
+  "@msgPastedEntities": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "msgPastedSketchOnPlane": "Sketch “{name}” pasted.",
+  "@msgPastedSketchOnPlane": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgPastedSketchDocument": "2D sketch “{name}” created.",
+  "@msgPastedSketchDocument": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgPastedBody": "“{name}” pasted as a new solid body.",
+  "@msgPastedBody": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgPastedBodyAsComponent": "“{name}” created and placed in the assembly.",
+  "@msgPastedBodyAsComponent": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgPastedComponent": "“{name}” pasted.",
+  "@msgPastedComponent": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgPastedDocument": "“{name}” pasted.",
+  "@msgPastedDocument": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgPastedDerived": "Derived body from “{name}” — linked to its origin.",
+  "@msgPastedDerived": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgPasteBodyFailed": "The solid body could not be pasted: {reason}",
+  "@msgPasteBodyFailed": {
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "msgPasteBodyNotSaved": "The pasted body could not be stored inside the document.",
+  "msgPasteComponentNeedsAssembly": "A component belongs in an assembly — paste it there.",
+  "msgAssemblyTakesNoSketch": "An assembly holds components, not sketches.",
+  "msgCannotPasteHere": "That cannot be pasted here.",
+  "msgCannotDeriveFromItself": "A part cannot be derived from itself.",
+  "msgNoBodyIn": "“{name}” has no solid body to derive from.",
+  "@msgNoBodyIn": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgNoSuchDocument": "“{name}” no longer exists.",
+  "@msgNoSuchDocument": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgSelectPlaneForPaste": "Tap the plane or face the pasted sketch should sit on.",
+  "msgPasteDroppedExpressions": "{n, plural, =1{One expression did not come along — its parameter was not copied.} other{{n} expressions did not come along — their parameters were not copied.}}",
+  "@msgPasteDroppedExpressions": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "msgPartFromSketch": "Part “{part}” created from sketch “{sketch}”.",
+  "@msgPartFromSketch": {
+    "placeholders": {
+      "part": {
+        "type": "String"
+      },
+      "sketch": {
+        "type": "String"
+      }
+    }
+  },
+  "msgNotASketch": "“{name}” is not a 2D sketch.",
+  "@msgNotASketch": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "msgFinishSketchToPaste": "Finish the sketch first — a solid body belongs to the part, not to a sketch."
 }

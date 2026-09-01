@@ -229,6 +229,11 @@ void main() {
             QuickToolId.dimension,
             QuickToolId.trim,
             QuickToolId.delete,
+            // M345 — the clipboard's three, which the bar grows with a
+            // selection and with something on the clipboard.
+            QuickToolId.copy,
+            QuickToolId.cut,
+            QuickToolId.paste,
             QuickToolId.bug,
           ],
           contains(i.id),

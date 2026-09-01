@@ -4161,4 +4161,212 @@ class AppL10nEn extends AppL10n {
   String a11yRemoveNamed(String name) {
     return 'Remove $name';
   }
+
+  @override
+  String get btnCut => 'Cut';
+
+  @override
+  String get btnPaste => 'Paste';
+
+  @override
+  String get ctxPasteHere => 'Paste Here';
+
+  @override
+  String get ctxPasteSketchHere => 'Paste Sketch Here';
+
+  @override
+  String get ctxPartFromSketch => 'Create Part from Sketch';
+
+  @override
+  String get ctxSketchToDocument => 'Save as 2D Sketch';
+
+  @override
+  String get msgSelectThenCopy => 'Select something first, then copy.';
+
+  @override
+  String get msgSelectBodyToCopy => 'Select a solid body to copy.';
+
+  @override
+  String msgCopiedEntities(int n) {
+    String _temp0 = intl.Intl.pluralLogic(
+      n,
+      locale: localeName,
+      other: '$n objects copied',
+      one: '1 object copied',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String msgCutEntities(int n) {
+    String _temp0 = intl.Intl.pluralLogic(
+      n,
+      locale: localeName,
+      other: '$n objects cut',
+      one: '1 object cut',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String msgCopiedSketch(String name) {
+    return 'Sketch “$name” copied.';
+  }
+
+  @override
+  String msgCutSketch(String name) {
+    return 'Sketch “$name” cut.';
+  }
+
+  @override
+  String msgCopiedBody(String name) {
+    return 'Solid body “$name” copied.';
+  }
+
+  @override
+  String msgCutBody(String name) {
+    return 'Solid body “$name” cut.';
+  }
+
+  @override
+  String msgCopiedComponent(String name) {
+    return 'Component “$name” copied.';
+  }
+
+  @override
+  String msgCutComponent(String name) {
+    return 'Component “$name” cut.';
+  }
+
+  @override
+  String msgCopiedDocument(String name) {
+    return 'Document “$name” copied.';
+  }
+
+  @override
+  String msgCopyBodyFailed(String reason) {
+    return 'The solid body could not be copied: $reason';
+  }
+
+  @override
+  String msgNoSuchBody(String name) {
+    return 'There is no “$name” in this part.';
+  }
+
+  @override
+  String get msgClipboardEmpty => 'There is nothing to paste.';
+
+  @override
+  String get msgClipboardBodyGone =>
+      'The copied body is no longer there — copy it again.';
+
+  @override
+  String msgPastedEntities(int n) {
+    String _temp0 = intl.Intl.pluralLogic(
+      n,
+      locale: localeName,
+      other: '$n objects pasted',
+      one: '1 object pasted',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String msgPastedSketchOnPlane(String name) {
+    return 'Sketch “$name” pasted.';
+  }
+
+  @override
+  String msgPastedSketchDocument(String name) {
+    return '2D sketch “$name” created.';
+  }
+
+  @override
+  String msgPastedBody(String name) {
+    return '“$name” pasted as a new solid body.';
+  }
+
+  @override
+  String msgPastedBodyAsComponent(String name) {
+    return '“$name” created and placed in the assembly.';
+  }
+
+  @override
+  String msgPastedComponent(String name) {
+    return '“$name” pasted.';
+  }
+
+  @override
+  String msgPastedDocument(String name) {
+    return '“$name” pasted.';
+  }
+
+  @override
+  String msgPastedDerived(String name) {
+    return 'Derived body from “$name” — linked to its origin.';
+  }
+
+  @override
+  String msgPasteBodyFailed(String reason) {
+    return 'The solid body could not be pasted: $reason';
+  }
+
+  @override
+  String get msgPasteBodyNotSaved =>
+      'The pasted body could not be stored inside the document.';
+
+  @override
+  String get msgPasteComponentNeedsAssembly =>
+      'A component belongs in an assembly — paste it there.';
+
+  @override
+  String get msgAssemblyTakesNoSketch =>
+      'An assembly holds components, not sketches.';
+
+  @override
+  String get msgCannotPasteHere => 'That cannot be pasted here.';
+
+  @override
+  String get msgCannotDeriveFromItself =>
+      'A part cannot be derived from itself.';
+
+  @override
+  String msgNoBodyIn(String name) {
+    return '“$name” has no solid body to derive from.';
+  }
+
+  @override
+  String msgNoSuchDocument(String name) {
+    return '“$name” no longer exists.';
+  }
+
+  @override
+  String get msgSelectPlaneForPaste =>
+      'Tap the plane or face the pasted sketch should sit on.';
+
+  @override
+  String msgPasteDroppedExpressions(int n) {
+    String _temp0 = intl.Intl.pluralLogic(
+      n,
+      locale: localeName,
+      other:
+          '$n expressions did not come along — their parameters were not copied.',
+      one: 'One expression did not come along — its parameter was not copied.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String msgPartFromSketch(String part, String sketch) {
+    return 'Part “$part” created from sketch “$sketch”.';
+  }
+
+  @override
+  String msgNotASketch(String name) {
+    return '“$name” is not a 2D sketch.';
+  }
+
+  @override
+  String get msgFinishSketchToPaste =>
+      'Finish the sketch first — a solid body belongs to the part, not to a sketch.';
 }

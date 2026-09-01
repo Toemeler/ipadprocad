@@ -6990,6 +6990,258 @@ abstract class AppL10n {
   /// In de, this message translates to:
   /// **'{name} entfernen'**
   String a11yRemoveNamed(String name);
+
+  /// M345 — Inventor DE: „Ausschneiden“. Beschriftung des Knopfes und des Kontextmenue-Eintrags.
+  ///
+  /// In de, this message translates to:
+  /// **'Ausschneiden'**
+  String get btnCut;
+
+  /// M345 — Inventor DE: „Einfügen“.
+  ///
+  /// In de, this message translates to:
+  /// **'Einfügen'**
+  String get btnPaste;
+
+  /// M345 — Einfügen AN DER ZEIGERPOSITION, im Gegensatz zum gewoehnlichen Einfuegen, das die Koordinaten der Kopie behaelt.
+  ///
+  /// In de, this message translates to:
+  /// **'Hier einfügen'**
+  String get ctxPasteHere;
+
+  /// M345 — auf einer Ebenen-Zeile des Modellbrowsers: die kopierte Skizze wird als neue Skizze auf dieser Ebene angelegt.
+  ///
+  /// In de, this message translates to:
+  /// **'Skizze hier einfügen'**
+  String get ctxPasteSketchHere;
+
+  /// M345 — Galerie-Karte einer 2D-Skizze: legt ein Bauteil an, dessen erste Skizze diese ist.
+  ///
+  /// In de, this message translates to:
+  /// **'Bauteil aus Skizze'**
+  String get ctxPartFromSketch;
+
+  /// M345 — Skizzen-Zeile im Bauteil: legt aus dieser Skizze ein eigenes 2D-Dokument an.
+  ///
+  /// In de, this message translates to:
+  /// **'Als 2D-Skizze speichern'**
+  String get ctxSketchToDocument;
+
+  /// M345 — Kopieren wirkt auf die Auswahl.
+  ///
+  /// In de, this message translates to:
+  /// **'Erst etwas auswählen, dann kopieren.'**
+  String get msgSelectThenCopy;
+
+  /// M345 — im Bauteil ohne Auswahl.
+  ///
+  /// In de, this message translates to:
+  /// **'Volumenkörper zum Kopieren wählen.'**
+  String get msgSelectBodyToCopy;
+
+  /// M345 — Bestätigung nach Strg+C in einer Skizze.
+  ///
+  /// In de, this message translates to:
+  /// **'{n, plural, =1{1 Objekt kopiert} other{{n} Objekte kopiert}}'**
+  String msgCopiedEntities(int n);
+
+  /// M345 — Bestätigung nach Strg+X in einer Skizze.
+  ///
+  /// In de, this message translates to:
+  /// **'{n, plural, =1{1 Objekt ausgeschnitten} other{{n} Objekte ausgeschnitten}}'**
+  String msgCutEntities(int n);
+
+  /// M345
+  ///
+  /// In de, this message translates to:
+  /// **'Skizze „{name}“ kopiert.'**
+  String msgCopiedSketch(String name);
+
+  /// M345
+  ///
+  /// In de, this message translates to:
+  /// **'Skizze „{name}“ ausgeschnitten.'**
+  String msgCutSketch(String name);
+
+  /// M345
+  ///
+  /// In de, this message translates to:
+  /// **'Volumenkörper „{name}“ kopiert.'**
+  String msgCopiedBody(String name);
+
+  /// M345
+  ///
+  /// In de, this message translates to:
+  /// **'Volumenkörper „{name}“ ausgeschnitten.'**
+  String msgCutBody(String name);
+
+  /// M345
+  ///
+  /// In de, this message translates to:
+  /// **'Komponente „{name}“ kopiert.'**
+  String msgCopiedComponent(String name);
+
+  /// M345
+  ///
+  /// In de, this message translates to:
+  /// **'Komponente „{name}“ ausgeschnitten.'**
+  String msgCutComponent(String name);
+
+  /// M345
+  ///
+  /// In de, this message translates to:
+  /// **'Dokument „{name}“ kopiert.'**
+  String msgCopiedDocument(String name);
+
+  /// M345 — der Kern hat den Körper nicht als STEP herausgeschrieben; ohne Datei gaebe es nichts einzufuegen.
+  ///
+  /// In de, this message translates to:
+  /// **'Der Volumenkörper konnte nicht kopiert werden: {reason}'**
+  String msgCopyBodyFailed(String reason);
+
+  /// M345
+  ///
+  /// In de, this message translates to:
+  /// **'„{name}“ gibt es in diesem Bauteil nicht.'**
+  String msgNoSuchBody(String name);
+
+  /// M345 — Einfügen ohne vorheriges Kopieren.
+  ///
+  /// In de, this message translates to:
+  /// **'Die Zwischenablage ist leer.'**
+  String get msgClipboardEmpty;
+
+  /// M345 — die STEP-Datei der Zwischenablage fehlt (Cache geleert, App neu gestartet).
+  ///
+  /// In de, this message translates to:
+  /// **'Der kopierte Volumenkörper ist nicht mehr da — bitte neu kopieren.'**
+  String get msgClipboardBodyGone;
+
+  /// M345
+  ///
+  /// In de, this message translates to:
+  /// **'{n, plural, =1{1 Objekt eingefügt} other{{n} Objekte eingefügt}}'**
+  String msgPastedEntities(int n);
+
+  /// M345 — eine eingefuegte Skizze wird als neue Skizze des Bauteils angelegt und bekommt dessen naechsten Namen.
+  ///
+  /// In de, this message translates to:
+  /// **'Skizze „{name}“ eingefügt.'**
+  String msgPastedSketchOnPlane(String name);
+
+  /// M345
+  ///
+  /// In de, this message translates to:
+  /// **'2D-Skizze „{name}“ angelegt.'**
+  String msgPastedSketchDocument(String name);
+
+  /// M345
+  ///
+  /// In de, this message translates to:
+  /// **'„{name}“ als neuer Volumenkörper eingefügt.'**
+  String msgPastedBody(String name);
+
+  /// M345 — eine Baugruppe nimmt keine nackten Koerper auf, also entsteht beim Einfuegen ein Bauteil-Dokument, das platziert wird.
+  ///
+  /// In de, this message translates to:
+  /// **'„{name}“ angelegt und in der Baugruppe platziert.'**
+  String msgPastedBodyAsComponent(String name);
+
+  /// M345
+  ///
+  /// In de, this message translates to:
+  /// **'„{name}“ eingefügt.'**
+  String msgPastedComponent(String name);
+
+  /// M345 — Einfuegen in der Galerie ist ein Duplikat.
+  ///
+  /// In de, this message translates to:
+  /// **'„{name}“ eingefügt.'**
+  String msgPastedDocument(String name);
+
+  /// M345 — ein eingefuegtes BAUTEIL wird abgeleitet (Inventors Ableiten), nicht kopiert; der Satz sagt es, weil es die eine Ausnahme von 'eine Kopie ist eine Kopie' ist.
+  ///
+  /// In de, this message translates to:
+  /// **'Abgeleiteter Volumenkörper aus „{name}“ — mit dem Ursprung verknüpft.'**
+  String msgPastedDerived(String name);
+
+  /// M345
+  ///
+  /// In de, this message translates to:
+  /// **'Der Volumenkörper konnte nicht eingefügt werden: {reason}'**
+  String msgPasteBodyFailed(String reason);
+
+  /// M345 — ohne Datei im Dokument kaeme der Koerper beim naechsten Oeffnen leer zurueck.
+  ///
+  /// In de, this message translates to:
+  /// **'Der eingefügte Volumenkörper konnte nicht im Dokument abgelegt werden.'**
+  String get msgPasteBodyNotSaved;
+
+  /// M345
+  ///
+  /// In de, this message translates to:
+  /// **'Eine Komponente gehört in eine Baugruppe — dort einfügen.'**
+  String get msgPasteComponentNeedsAssembly;
+
+  /// M345 — sagt, wo das Kopierte stattdessen hingehoert.
+  ///
+  /// In de, this message translates to:
+  /// **'Eine Baugruppe nimmt Komponenten auf, keine Skizzen.'**
+  String get msgAssemblyTakesNoSketch;
+
+  /// M345 — letzter Ausweg; die Faelle, die etwas Genaueres sagen koennen, sagen es.
+  ///
+  /// In de, this message translates to:
+  /// **'Das lässt sich hier nicht einfügen.'**
+  String get msgCannotPasteHere;
+
+  /// M345
+  ///
+  /// In de, this message translates to:
+  /// **'Ein Bauteil kann sich nicht selbst ableiten.'**
+  String get msgCannotDeriveFromItself;
+
+  /// M345
+  ///
+  /// In de, this message translates to:
+  /// **'„{name}“ hat keinen Volumenkörper zum Ableiten.'**
+  String msgNoBodyIn(String name);
+
+  /// M345 — das kopierte Dokument wurde inzwischen geloescht oder umbenannt.
+  ///
+  /// In de, this message translates to:
+  /// **'„{name}“ gibt es nicht mehr.'**
+  String msgNoSuchDocument(String name);
+
+  /// M345 — dieselbe Auswahl wie beim Start einer 2D-Skizze, nur dass die Skizze fertig ankommt.
+  ///
+  /// In de, this message translates to:
+  /// **'Ebene oder Fläche antippen, auf der die eingefügte Skizze liegen soll.'**
+  String get msgSelectPlaneForPaste;
+
+  /// M345 — die Bemassung behaelt ihren WERT und hoert auf, gerechnet zu werden.
+  ///
+  /// In de, this message translates to:
+  /// **'{n, plural, =1{Eine Formel wurde nicht übernommen — ihr Parameter kam nicht mit.} other{{n} Formeln wurden nicht übernommen — ihre Parameter kamen nicht mit.}}'**
+  String msgPasteDroppedExpressions(int n);
+
+  /// M345 — die Skizze bleibt, wo sie ist; das Bauteil bekommt eine Kopie.
+  ///
+  /// In de, this message translates to:
+  /// **'Bauteil „{part}“ aus Skizze „{sketch}“ erstellt.'**
+  String msgPartFromSketch(String part, String sketch);
+
+  /// M345
+  ///
+  /// In de, this message translates to:
+  /// **'„{name}“ ist keine 2D-Skizze.'**
+  String msgNotASketch(String name);
+
+  /// M345 — Einfuegen eines Koerpers oder Bauteils, waehrend der 2D-Editor im Bauteil offen ist.
+  ///
+  /// In de, this message translates to:
+  /// **'Zuerst die Skizze beenden — ein Volumenkörper gehört ins Bauteil, nicht in die Skizze.'**
+  String get msgFinishSketchToPaste;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

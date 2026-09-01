@@ -24,6 +24,8 @@
 // (GlassToolBar.swift). Same split as the tab bar and the model browser, for
 // the same reason: every expensive bug in this project has lived on the
 // Flutter/UIKit boundary.
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:native_menu/native_menu.dart';
 
@@ -49,6 +51,9 @@ class QuickToolId {
   static const dimension = 'dimension';
   static const trim = 'trim';
   static const delete = 'delete';
+  static const copy = 'copy';
+  static const cut = 'cut';
+  static const paste = 'paste';
   static const bug = 'bug';
 }
 
@@ -140,6 +145,28 @@ const _modifyRing = {Tool.split, Tool.trim, Tool.extendT};
 ///
 /// Otherwise the buttons never move: they grey out instead of vanishing,
 /// because a target that shifts under the thumb cannot be hit without looking.
+/// M345 — is there something HERE to copy?
+///
+/// One question per document kind, and each one is the thing the user is
+/// looking at: the selected component of an assembly, the selection (or, with
+/// none, the sketch itself) in the 2D sketcher, the selected body of a part.
+bool quickCanCopy(AppState app) {
+  if (app.currentAssembly != null) return app.currentAssembly!.selected != null;
+  if (app.current != null) return true;
+  return app.currentPart != null && app.selectedBody != null;
+}
+
+/// Cut is copy plus a deletion, so it is offered only where the deletion is
+/// possible: a sketch needs a deletable selection or a sketch of its own to
+/// remove, and a 2D document cannot cut ITSELF.
+bool quickCanCut(AppState app) {
+  if (app.currentAssembly != null) return app.currentAssembly!.selected != null;
+  if (app.current != null) {
+    return app.canDeleteSelection || app.activeChild != null;
+  }
+  return app.currentPart != null && app.selectedBody != null;
+}
+
 List<GlassToolItem> buildQuickTools(AppState app) {
   if (app.isHome) return _withBugReport(const []);
   final items = <GlassToolItem>[];
@@ -179,6 +206,35 @@ List<GlassToolItem> buildQuickTools(AppState app) {
       enabled: quickCanRedo(app),
     ),
   ]);
+  // M345 — the clipboard, above the drawing tools and below Undo/Redo: it is
+  // an EDIT command, which is the group Undo and Redo belong to, and it is not
+  // a tool. Like Delete (M193) these APPEAR rather than sit dark, for the same
+  // reason: outside a document with something in it they have no meaning at
+  // all, and three permanently dead buttons is a third of this bar.
+  final clip = <GlassToolItem>[
+    if (quickCanCopy(app))
+      GlassToolItem(
+        id: QuickToolId.copy,
+        symbol: 'doc.on.doc',
+        label: L.current.btnCopy,
+      ),
+    if (quickCanCut(app))
+      GlassToolItem(
+        id: QuickToolId.cut,
+        symbol: 'scissors',
+        label: L.current.btnCut,
+      ),
+    if (app.canPaste)
+      GlassToolItem(
+        id: QuickToolId.paste,
+        symbol: 'doc.on.clipboard',
+        label: L.current.btnPaste,
+      ),
+  ];
+  if (clip.isNotEmpty) {
+    items.add(const GlassToolItem.separator('sepClip'));
+    items.addAll(clip);
+  }
   if (!app.inEditMode) return _withBugReport(items);
   items.addAll([
     const GlassToolItem.separator('sep2'),
@@ -355,6 +411,15 @@ void runQuickTool(AppState app, String id, {BuildContext? context}) {
       // Extend. Outside it, it enters Trim.
       if (!app.cycleModifyTool()) app.selectTool(Tool.trim);
       break;
+    case QuickToolId.copy:
+      app.copyCurrent();
+      break;
+    case QuickToolId.cut:
+      app.copyCurrent(cut: true);
+      break;
+    case QuickToolId.paste:
+      unawaited(app.paste());
+      break;
     case QuickToolId.delete:
       app.deleteSelection();
       break;
@@ -461,6 +526,9 @@ class QuickToolsBar extends StatelessWidget {
       QuickToolId.dimension: Icons.straighten,
       QuickToolId.trim: Icons.content_cut,
       QuickToolId.delete: Icons.delete_outline,
+      QuickToolId.copy: Icons.copy_outlined,
+      QuickToolId.cut: Icons.content_cut,
+      QuickToolId.paste: Icons.content_paste_outlined,
       QuickToolId.bug: Icons.bug_report,
     };
     return Semantics(

@@ -85,6 +85,17 @@ List<NativeMenuItem> sketch3dMenuItems(AppL10n t) => [
           id: 'skShareDxf',
           title: t.ctxShareDxf,
           symbol: 'square.and.arrow.up'),
+      // M345 — a sketch caught by a long press in 3D is the sketch the user is
+      // pointing at, so the two commands that take it somewhere else belong
+      // here as much as they do on its browser row. Cut does not: it can be
+      // refused (a consumed sketch) and this list is built without the part to
+      // ask, and a menu entry that toasts a refusal is the thing M157 spent a
+      // commit removing.
+      NativeMenuItem(id: 'skCopy', title: t.btnCopy, symbol: 'doc.on.doc'),
+      NativeMenuItem(
+          id: 'skToDocument',
+          title: t.ctxSketchToDocument,
+          symbol: 'square.and.arrow.down.on.square'),
     ];
 
 class Viewport3D extends StatefulWidget {
@@ -149,6 +160,22 @@ class _Viewport3DState extends State<Viewport3D>
     }
     if (ctrl && k == LogicalKeyboardKey.keyY) {
       widget.app.redoPart();
+      return true;
+    }
+    // M345 — the clipboard, in 3D. What Copy takes follows the document: the
+    // selected body of a part, the selected component of an assembly. Paste
+    // is the one command in app_state, which decides what the payload means
+    // where it lands.
+    if (ctrl && k == LogicalKeyboardKey.keyC) {
+      widget.app.copyCurrent();
+      return true;
+    }
+    if (ctrl && k == LogicalKeyboardKey.keyX) {
+      widget.app.copyCurrent(cut: true);
+      return true;
+    }
+    if (ctrl && k == LogicalKeyboardKey.keyV) {
+      unawaited(widget.app.paste());
       return true;
     }
     if (k == LogicalKeyboardKey.escape) {
@@ -425,6 +452,13 @@ class _Viewport3DState extends State<Viewport3D>
         break;
       case 'skShareDxf':
         await _sendSketchDxf(cs, anchor, share: true);
+        break;
+      // M345
+      case 'skCopy':
+        app.copyChildSketch(cs.model.name);
+        break;
+      case 'skToDocument':
+        await app.sketchDocumentFromChild(cs.model.name);
         break;
     }
   }

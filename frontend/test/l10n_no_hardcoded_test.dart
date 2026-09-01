@@ -57,6 +57,12 @@ const Map<String, Set<String>> kAllowed = {
     'Offset \${d.toStringAsFixed(2)} mm from \$wpCreateLabel',
     'Offset \${workPlaneOffset.toStringAsFixed(2)} mm from \$label',
     'Part\$n',
+    // M345 — the base name a document made out of the clipboard falls back to
+    // when the copy carries none, and the feature label of a pasted body
+    // ('Paste1' in the browser). Same footing as 'Sketch\$n' and
+    // 'Import\${p.features.length + 1}' above: both are written into the
+    // document, so translating one is a data change.
+    'Paste',
     'Plane',
     // M242 — the LABEL of the reference vector a directed Angle captures when
     // it is created. It is an AsmRef.label, which is written into the .pas
@@ -66,6 +72,7 @@ const Map<String, Set<String>> kAllowed = {
     'Reference Vector',
     'Revolution',
     'Scale',
+    'Sketch',
     'Sketch\$_newN',
     'Sketch\$n',
     'Solid\${p.solidN + 1}',

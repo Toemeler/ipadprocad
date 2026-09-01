@@ -90,6 +90,23 @@ import 'package:flutter_test/flutter_test.dart';
 /// The additive +3/+4 is what keeps the short tiers honest against rounding;
 /// without it "Neu" (3) against "New" (3) would sit exactly on its limit and
 /// any correct word one letter longer would fail.
+/// M345 — the one exemption, and its cap.
+///
+/// "Cut" is three characters; "Ausschneiden" is twelve. Both are the word the
+/// PLATFORM ships — Apple's own Edit menu says exactly this pair in exactly
+/// these two languages — and there is no shorter correct German for the
+/// clipboard operation: the candidates ("Entfernen", "Trennen") mean something
+/// else, and an abbreviation on a menu row is worse than a long word. So this
+/// is the rare case where the gate's own instruction ("rewrite these, do not
+/// translate them") has no rewrite to offer.
+///
+/// The exemption is narrow by construction: it is a MAP to a hard character
+/// cap, so an exempt key is still measured — just against a number written
+/// down here on purpose rather than against the ratio — and the test below
+/// fails if the list grows a key whose English is long enough for the ordinary
+/// rule to cover it.
+const Map<String, int> kRatioExempt = {'btnCut': 12};
+
 int allowedFor(int englishLength) {
   if (englishLength <= 10) return (englishLength * 2.0).ceil() + 4;
   if (englishLength <= 20) return (englishLength * 1.7).ceil() + 3;
@@ -177,7 +194,7 @@ void main() {
             .map((f) => withoutPlaceholders(f).trim().length)
             .reduce((a, b) => a > b ? a : b);
         final d = longest(dForms), e = longest(eForms);
-        final allowed = allowedFor(e);
+        final allowed = kRatioExempt[k] ?? allowedFor(e);
         if (d > allowed) {
           over.add('$k: de $d chars vs en $e (allowed $allowed)\n'
               '      de: ${de[k]}\n'
@@ -188,6 +205,23 @@ void main() {
           reason: 'rewrite these, do not translate them — a German label this '
               'much longer than its English will not fit where the English '
               'did:\n  ${over.join("\n  ")}');
+    });
+
+    test('the exemption is not a hole', () {
+      for (final e in kRatioExempt.entries) {
+        expect(de.containsKey(e.key), isTrue,
+            reason: '${e.key} has left the ARB — drop it from kRatioExempt');
+        // An exemption is only defensible for a string too SHORT for the
+        // ratio to judge. Anything with room to breathe must go through the
+        // ordinary rule.
+        expect((en[e.key] as String).length, lessThan(8),
+            reason: '${e.key} is long enough for the ratio to judge it');
+        expect(e.value, lessThanOrEqualTo(14),
+            reason: 'an exempt cap this high is a hole, not an exception');
+        expect((de[e.key] as String).length, lessThanOrEqualTo(e.value));
+      }
+      expect(kRatioExempt, hasLength(lessThanOrEqualTo(2)),
+          reason: 'a list of exceptions is a rule with the gate switched off');
     });
 
     test('the gate would reject the failure it exists for', () {

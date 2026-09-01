@@ -29,6 +29,7 @@ import 'reality_assembly.dart';
 import 'constraints.dart';
 import 'diag.dart';
 import 'face_project.dart';
+import 'clipboard.dart';
 import 'cycles_session.dart';
 import 'display_mode.dart';
 import 'doc_file.dart';
@@ -7390,6 +7391,13 @@ class AppState extends ChangeNotifier {
           wp?.name ?? '${key.toUpperCase()} Plane');
       return;
     }
+    // M345 — ...and likewise for a paste that is waiting for its plane. Same
+    // shape as the two above: the pick is an INPUT to a command that is
+    // already running, not a request to start an empty sketch.
+    if (_pasteOnPickedPlane(
+        wp == null ? key : kWorkPlaneKey, wp?.frame)) {
+      return;
+    }
     pickPlane = false;
     if (_planesAutoShown) {
       p.vis['yz'] = p.vis['xz'] = p.vis['xy'] = false;
@@ -7434,6 +7442,9 @@ class AppState extends ChangeNotifier {
   void startSketchOnWorkPlane(WorkPlane w, {bool alreadyArmed = false}) {
     final p = currentPart;
     if (p == null) return;
+    // M345 — a paste armed on a plane lands here too when the plane is named
+    // from the browser rather than tapped in the viewport.
+    if (_pasteOnPickedPlane(kWorkPlaneKey, w.frame)) return;
     if (!alreadyArmed) {
       // Reached from the browser rather than mid-pick: whatever else was
       // armed is not what the user meant any more.
@@ -9286,6 +9297,8 @@ class AppState extends ChangeNotifier {
       _splitPlaneInput(frame, 'Face');
       return;
     }
+    // M345 — and so does a paste waiting for a plane. A face is a plane.
+    if (_pasteOnPickedPlane('face', frame, ref)) return;
     pickPlane = false;
     p.vis['yz'] = p.vis['xz'] = p.vis['xy'] = false;
     final fn = frame.n;
@@ -9559,6 +9572,7 @@ class AppState extends ChangeNotifier {
   /// right when it was the only 3D session and has been quietly wrong since
   /// M136 added the second.
   void cancel3DCommands() {
+    _pastePlaneArmed = false; // M345 — an armed paste is a 3D command too
     cancelMakePart(); // M255
     cancelExtrude();
     cancelEdgeFeature();
@@ -12634,6 +12648,11 @@ class AppState extends ChangeNotifier {
       // its ribbon entry again. Ahead of [pickPlane] because the two are
       // never both set and this one is the newer arming.
       cancelWorkFeature();
+    } else if (_pastePlaneArmed) {
+      // M345 — an armed paste is put down before the plain plane pick, for the
+      // same reason the work-feature branch above sits ahead of it: it is the
+      // newer arming, and it owns the pick that is running.
+      cancelPastePlanePick();
     } else if (pickPlane) {
       cancelPlanePick();
     } else if (selectedBody != null) {
@@ -13748,7 +13767,13 @@ class AppState extends ChangeNotifier {
   }
 
   /// The C-API is add-only, so edits rebuild the document from scratch.
-  void _rebuildEngine(SketchModel s, List<Geo> gsIn) {
+  ///
+  /// M345 — [active] false rebuilds a sketch that is NOT the one on screen (a
+  /// paste into a sketch the user is not standing in). Everything below is a
+  /// property of the sketch it is given and is right either way; the DOF
+  /// analysis is not — [analysis] belongs to [current], and overwriting it
+  /// with another sketch's answer would mis-colour the one being looked at.
+  void _rebuildEngine(SketchModel s, List<Geo> gsIn, {bool active = true}) {
     // Ellipses stay CANONICAL: after a grip drag or a solve, the minor vertex
     // may have drifted off the perpendicular — the renderer orthogonalizes,
     // but the stored point would float off the curve. Snap it back onto the
@@ -13824,7 +13849,7 @@ class AppState extends ChangeNotifier {
     // M41: expressions referencing driven (reference) parameters follow the
     // fresh measurements; guarded so the chase's own solves do not recurse.
     if (!_inExprChase) _chaseExpressions(s);
-    analysis = _analysisCache.of(s.geometry, s.constraints);
+    if (active) analysis = _analysisCache.of(s.geometry, s.constraints);
     // UNDO JOURNAL (M39): every committed mutation funnels through this
     // rebuild (the C-API is add-only), so this one call records the whole
     // app's edits — draw, drag, trim, fillet, patterns, dimensions,
@@ -19744,6 +19769,1060 @@ class AppState extends ChangeNotifier {
     } catch (e) {
       debugPrint('preview write failed: $e');
     }
+  }
+
+  // ==== M345 — COPY & PASTE ==============================================
+  //
+  // "Copy paste should work over the whole app. Everywhere with everything."
+  //
+  // ONE CLIPBOARD, FIVE PAYLOADS, ONE PASTE. [clipboard] holds a single typed
+  // [ClipContent] (clipboard.dart says why it is typed and why there is only
+  // one), every Copy in the app fills it, and [paste] is the ONE command that
+  // empties it. What a paste MEANS is decided by the pair (payload, place):
+  //
+  //                    | in a 2D sketch      | in a part          | in an assembly     | in the gallery
+  //   sketch geometry  | into that sketch    | a sketch on a plane| —                  | a new 2D document
+  //   a solid body     | (finish the sketch) | a new body         | a part + component | a new part document
+  //   a component      | —                   | —                  | another occurrence | —
+  //   a part document  | —                   | a derived body     | a component        | a duplicate
+  //   a sketch document| into that sketch    | a sketch on a plane| —                  | a duplicate
+  //
+  // Every cell that is a dash says so, in words, at the moment it is tried —
+  // "an assembly holds components, not sketches" tells the user where the
+  // thing they copied does go. A disabled Paste that never explains itself is
+  // the failure mode this table was written to avoid.
+  //
+  // WHAT A COPY IS. A copy is a COPY: independent geometry, not a link. That
+  // is the difference between this and M255's Make Part, which is a link and
+  // says so in its name. Pasting a whole part DOCUMENT is the one deliberate
+  // exception — that is Inventor's Derive, it is what the user asked for by
+  // naming a document rather than a body, and the toast says it is linked.
+  //
+  // WHERE A PASTE LANDS. At the coordinates it was copied from. See
+  // [SketchClip] for why that is right for a CAD document and why "at the
+  // cursor" is the exception ([pasteHere]) rather than the rule.
+
+  ClipContent? _clip;
+
+  /// What is on the clipboard, or null when nothing has been copied.
+  ClipContent? get clipboard => _clip;
+
+  /// True while a paste is waiting for the plane its sketch should land on.
+  ///
+  /// Armed by [paste] in a part with sketch geometry on the clipboard, and
+  /// read by [planePicked], [facePicked] and [startSketchOnWorkPlane] — the
+  /// three ways a plane is named in this app, so the paste can be aimed at an
+  /// origin plane, a solid face or a work plane without any of them growing a
+  /// command of their own.
+  bool _pastePlaneArmed = false;
+
+  bool get pastingOntoPlane => _pastePlaneArmed;
+
+  /// Puts [c] on the clipboard and says so.
+  void _clipTake(ClipContent c, {required bool cut}) {
+    _clip = c;
+    Log.i('clip', '${cut ? 'cut' : 'copy'} ${c.runtimeType} "${c.label}"');
+    notifyListeners();
+  }
+
+  /// True when the clipboard holds something this document could take. Reads
+  /// like the Paste row: the menus use it to decide whether to OFFER Paste,
+  /// which is different from what happens when it is pressed (that says why,
+  /// out loud — see the table above).
+  bool get canPaste {
+    final c = _clip;
+    if (c == null) return false;
+    if (isHome) return c is DocumentClip || c is SketchClip || c is BodyClip;
+    if (currentAssembly != null) {
+      return c is ComponentClip || c is BodyClip || c is DocumentClip;
+    }
+    // A SKETCH being open decides before the part does, and the order is the
+    // whole rule: inside a part with the 2D editor open, the thing in front of
+    // the user is the sketch, and a body pasted into it would land in the part
+    // behind their back.
+    if (current != null) return c is SketchClip || _isSketchDoc(c);
+    if (currentPart != null) return c is! ComponentClip;
+    return false;
+  }
+
+  bool _isSketchDoc(ClipContent c) =>
+      c is DocumentClip && !isPartName(c.name) && !isAssemblyName(c.name);
+
+  // ---- copy: out of a 2D sketch ------------------------------------------
+
+  /// Copies the selected sketch entities. [cut] deletes them afterwards.
+  ///
+  /// A constraint comes along only when BOTH of its ends were selected — see
+  /// [sketchClip]. That is why copying "half a rectangle" gives you two lines
+  /// and no dimensions between them and its other half: the alternative is a
+  /// dimension pointing at whatever entity happens to occupy that index in the
+  /// sketch it lands in.
+  bool copySelection({bool cut = false}) {
+    final s = current;
+    if (s == null) return false;
+    final sel = <int>{
+      for (final i in selection)
+        if (i >= 0 && i < s.geometry.length) i
+    };
+    if (sel.isEmpty) {
+      toast(L.current.msgSelectThenCopy);
+      return false;
+    }
+    _clipTake(
+        sketchClip(
+          geometry: s.geometry,
+          constraints: s.constraints,
+          layers: s.layers,
+          sourceDoc: curTab ?? s.name,
+          sourceSketch: s.name,
+          entities: sel,
+        ),
+        cut: cut);
+    if (cut) {
+      final n = deleteSelection();
+      if (n > 0) toast(L.current.msgCutEntities(n));
+      return n > 0;
+    }
+    toast(L.current.msgCopiedEntities(sel.length));
+    return true;
+  }
+
+  /// Copies the WHOLE sketch that is open — the browser's Copy on a sketch
+  /// row, and Ctrl+C with nothing selected.
+  bool copyWholeSketch(SketchModel s, {String? plane}) {
+    _clipTake(
+        sketchClip(
+          geometry: s.geometry,
+          constraints: s.constraints,
+          layers: s.layers,
+          sourceDoc: curTab ?? s.name,
+          sourceSketch: s.name,
+          userParams: s.userParams,
+          texts: s.texts,
+          images: _clipImages(curTab ?? s.name, s),
+          hidden: s.hiddenLayers,
+          locked: s.lockedLayers,
+          plane: plane,
+        ),
+        cut: false);
+    toast(L.current.msgCopiedSketch(s.name));
+    return true;
+  }
+
+  /// Copies one of the open part's child sketches. [cut] deletes it, which is
+  /// refused (with a reason) while a feature consumes it — the same rule its
+  /// Delete follows, for the same reason.
+  bool copyChildSketch(String name, {bool cut = false}) {
+    final p = currentPart;
+    final cs = p?.sketchByName(name);
+    if (p == null || cs == null) return false;
+    _clipTake(
+        sketchClip(
+          geometry: cs.model.geometry,
+          constraints: cs.model.constraints,
+          layers: cs.model.layers,
+          sourceDoc: p.name,
+          sourceSketch: cs.model.name,
+          userParams: cs.model.userParams,
+          texts: cs.model.texts,
+          images: _clipImages(p.name, cs.model),
+          hidden: cs.model.hiddenLayers,
+          locked: cs.model.lockedLayers,
+          plane: cs.plane,
+        ),
+        cut: cut);
+    if (cut) {
+      if (!deleteChildSketch(cs)) return false; // it said why
+      toast(L.current.msgCutSketch(name));
+      return true;
+    }
+    toast(L.current.msgCopiedSketch(name));
+    return true;
+  }
+
+  /// The images of [s], with the absolute path of each one's file resolved
+  /// against the document [doc] it lives in.
+  ///
+  /// Not [imagePath], which resolves against the CURRENT tab: a sketch can be
+  /// copied out of a document that is not the one on screen (a gallery card),
+  /// and a picture is not a thing to guess the location of.
+  List<ClipImage> _clipImages(String doc, SketchModel s) {
+    if (s.images.isEmpty || _docsDir == null) return const [];
+    final stage = _stage(doc).path;
+    return [
+      for (final i in s.images)
+        ClipImage(
+            i,
+            File('$stage/images/${i.file}').existsSync()
+                ? '$stage/images/${i.file}'
+                : File('$stage/${i.file}').existsSync()
+                    ? '$stage/${i.file}'
+                    : null)
+    ];
+  }
+
+  // ---- copy: a solid body ------------------------------------------------
+
+  /// Copies a solid body of the open part.
+  ///
+  /// The B-Rep is written to a STEP file NOW, in the app's cache, and the clip
+  /// points at that file. Three things follow from it, and all three are the
+  /// point: the copy survives its origin being closed, edited or deleted; the
+  /// same clip can be pasted any number of times; and what a paste produces is
+  /// an ordinary imported body (M111), which the part format already knows how
+  /// to save and re-read.
+  bool copyBody(String bodyName, {bool cut = false}) {
+    final p = currentPart;
+    if (p == null || _docsDir == null) return false;
+    final solid = bodySolid(p, bodyName);
+    if (solid == null) {
+      toast(L.current.msgNoSuchBody(bodyName));
+      return false;
+    }
+    final dir = Directory('${_cacheRoot.path}/clipboard');
+    try {
+      if (dir.existsSync()) dir.deleteSync(recursive: true);
+      dir.createSync(recursive: true);
+    } catch (e) {
+      Log.w('clip', 'could not clear the clipboard folder: $e');
+    }
+    final step = '${dir.path}/body.step';
+    if (!partKernel.exportStep([solid], step) || !File(step).existsSync()) {
+      // Without a file there is nothing to paste that would survive a
+      // restart, and a clipboard that quietly holds a body which cannot be
+      // pasted is worse than a copy that failed loudly.
+      toast(L.current.msgCopyBodyFailed(partKernel.lastError));
+      Log.w('clip', 'STEP export of "$bodyName" failed: ${partKernel.lastError}');
+      return false;
+    }
+    _clipTake(
+        BodyClip(
+            sourceDoc: p.name,
+            bodyName: bodyName,
+            stepPath: step,
+            volume: solid.volume),
+        cut: cut);
+    if (cut) {
+      if (deleteBody(bodyName) == 0) return false;
+      toast(L.current.msgCutBody(bodyName));
+      return true;
+    }
+    toast(L.current.msgCopiedBody(bodyName));
+    return true;
+  }
+
+  // ---- copy: an assembly component ---------------------------------------
+
+  /// Copies a placed component. The clip is the OCCURRENCE — the document it
+  /// is an instance of, and where it sat — so a paste is a second instance of
+  /// the same part rather than a second part.
+  bool copyComponent(AssemblyOccurrence o, {bool cut = false}) {
+    final a = currentAssembly;
+    if (a == null) return false;
+    if (o.isPatternElement) {
+      // Same rule as [copySelectedComponent]: a copy of an element would be an
+      // ordinary component that happened to look like one, and the next
+      // regeneration would leave it behind.
+      toast(L.current.msgCannotCopyAnElement);
+      return false;
+    }
+    _clipTake(
+        ComponentClip(
+            source: o.source,
+            sourceKind: o.sourceKind,
+            placement: o.placement,
+            sourceAssembly: a.name),
+        cut: cut);
+    if (cut) {
+      deleteOccurrence(o);
+      toast(L.current.msgCutComponent(o.id));
+      return true;
+    }
+    toast(L.current.msgCopiedComponent(o.id));
+    return true;
+  }
+
+  // ---- copy: a whole document (the gallery) ------------------------------
+
+  /// Copies a document off the gallery. The clip is its NAME and kind — a
+  /// document is a file, and a copy of one is a thing the paste makes, not a
+  /// thing the clipboard carries.
+  bool copyDocument(String name) {
+    if (!docNameExists(name)) return false;
+    final kind = isAssemblyName(name)
+        ? kAssemblyDocKind
+        : isPartName(name)
+            ? 'part'
+            : 'sketch';
+    _clipTake(DocumentClip(name, kind), cut: false);
+    toast(L.current.msgCopiedDocument(name));
+    return true;
+  }
+
+  /// Copy for whatever is in front of the user right now — what Ctrl+C means.
+  ///
+  /// The order is the order of the thing they are most likely looking at: a
+  /// selection inside the sketch they are editing, then the sketch, then the
+  /// body or component that is selected in 3D.
+  bool copyCurrent({bool cut = false}) {
+    final a = currentAssembly;
+    if (a != null) {
+      final o = a.selected;
+      if (o == null) {
+        toast(L.current.msgSelectComponentToCopy);
+        return false;
+      }
+      return copyComponent(o, cut: cut);
+    }
+    final s = current;
+    if (s != null) {
+      if (selection.isNotEmpty) return copySelection(cut: cut);
+      // Nothing selected: the thing in front of the user is the SKETCH. A cut
+      // of a whole child sketch is its deletion, which has a command that
+      // knows the rules (a consumed sketch cannot go); a 2D DOCUMENT has no
+      // "cut itself" — there is nothing left to be standing in afterwards —
+      // so that one copies and says so.
+      final cs = _activeChildSketch();
+      if (cs != null) return copyChildSketch(cs.model.name, cut: cut);
+      return copyWholeSketch(s);
+    }
+    final p = currentPart;
+    if (p != null) {
+      final b = selectedBody;
+      if (b == null) {
+        toast(L.current.msgSelectBodyToCopy);
+        return false;
+      }
+      return copyBody(b, cut: cut);
+    }
+    return false;
+  }
+
+  // ---- paste -------------------------------------------------------------
+
+  /// The one Paste. See the table at the head of this section.
+  ///
+  /// Returns how many things it made (0 when it did nothing, having said why).
+  Future<int> paste() => _paste();
+
+  /// Paste AT THE CURSOR — the deliberate exception to "a paste keeps its
+  /// coordinates" ([SketchClip]). Only sketch geometry has a cursor to land
+  /// at; everything else falls through to the ordinary paste.
+  Future<int> pasteHere([Offset? at]) => _paste(at: at ?? lastPointerWorld);
+
+  Future<int> _paste({Offset? at}) async {
+    final c = _clip;
+    if (c == null) {
+      toast(L.current.msgClipboardEmpty);
+      return 0;
+    }
+    switch (c) {
+      case SketchClip():
+        return _pasteSketchClip(c, at: at);
+      case BodyClip():
+        return _pasteBodyClip(c);
+      case ComponentClip():
+        return _pasteComponentClip(c);
+      case DocumentClip():
+        return _pasteDocumentClip(c, at: at);
+    }
+  }
+
+  /// Sketch geometry: into the open sketch, onto a plane of the open part, or
+  /// as a new 2D document in the gallery.
+  Future<int> _pasteSketchClip(SketchClip clip, {Offset? at}) async {
+    if (current != null) {
+      final n = pasteIntoSketch(clip,
+          delta: at == null ? Offset.zero : at - _clipAnchor(clip));
+      if (n > 0) toast(L.current.msgPastedEntities(n));
+      return n;
+    }
+    if (currentPart != null) {
+      // Nothing has been named to paste onto, so ask for it — with the three
+      // ways of naming a plane already live (an origin plane, a face, a work
+      // plane), rather than a fourth picker of its own.
+      startPastePlanePick();
+      return 0;
+    }
+    if (currentAssembly != null) {
+      toast(L.current.msgAssemblyTakesNoSketch);
+      return 0;
+    }
+    final name = await newSketchDocumentFrom(clip);
+    return name == null ? 0 : 1;
+  }
+
+  /// Where a "paste here" measures from: the middle of the copied geometry, so
+  /// the cursor ends up in the middle of what arrives.
+  Offset _clipAnchor(SketchClip clip) => clip.bounds?.center ?? Offset.zero;
+
+  /// A solid body: a new body in the open part, a part plus a component in an
+  /// assembly, a new part document in the gallery.
+  Future<int> _pasteBodyClip(BodyClip clip) async {
+    if (currentPart != null && current != null) {
+      toast(L.current.msgFinishSketchToPaste);
+      return 0;
+    }
+    final p = currentPart;
+    if (p != null) {
+      final n = _readClipBodies(clip, into: p, doc: curTab!);
+      if (n > 0) {
+        applyEndOfPart(p);
+        p.dirty = true;
+        await savePart(curTab!);
+        toast(L.current.msgPastedBody(clip.bodyName));
+        notifyListeners();
+      }
+      return n;
+    }
+    final made = await newPartDocumentFrom(clip);
+    if (made == null) return 0;
+    final a = currentAssembly;
+    if (a == null) return 1;
+    final wasEmpty = a.isEmpty;
+    final occ = await placeComponent(made, at: Placement.identity);
+    if (occ == null) return 0;
+    if (wasEmpty) a.needsFit = true;
+    toast(L.current.msgPastedBodyAsComponent(made));
+    unawaited(saveAssembly(a.name));
+    return 1;
+  }
+
+  /// A component: another occurrence of the same document, in whichever
+  /// assembly is open — the one it came from or a different one.
+  Future<int> _pasteComponentClip(ComponentClip clip) async {
+    final a = currentAssembly;
+    if (a == null) {
+      toast(L.current.msgPasteComponentNeedsAssembly);
+      return 0;
+    }
+    if (!docNameExists(clip.source)) {
+      toast(L.current.msgAsmNoSuchPart(clip.source));
+      return 0;
+    }
+    // Clear of what is already there, from where the original sat: pasting a
+    // component exactly on top of the one it was copied from is a placement
+    // nobody can see and nobody wants. Same arithmetic as Copy Components.
+    final occ = await placeComponent(clip.source,
+        at: Placement(clip.placement.rot,
+            clip.placement.at + nextPlacement(a, null), clip.placement.reflect));
+    if (occ == null) return 0;
+    toast(L.current.msgPastedComponent(occ.id));
+    return 1;
+  }
+
+  /// A whole document. In the gallery that is a duplicate; in an assembly a
+  /// placed component; in a part a DERIVED body (Inventor's Derive — a link,
+  /// and the toast says so); in a sketch, the sketch's own geometry.
+  Future<int> _pasteDocumentClip(DocumentClip clip, {Offset? at}) async {
+    if (!docNameExists(clip.name)) {
+      toast(L.current.msgNoSuchDocument(clip.name));
+      return 0;
+    }
+    final isSketchDoc = !isPartName(clip.name) && !isAssemblyName(clip.name);
+    if (isSketchDoc && (current != null || currentPart != null)) {
+      final sk = await _sketchClipOfDocument(clip.name);
+      if (sk == null) return 0;
+      return _pasteSketchClip(sk, at: at);
+    }
+    if (currentAssembly != null) {
+      if (isSketchDoc) {
+        toast(L.current.msgAssemblyTakesNoSketch);
+        return 0;
+      }
+      final occ = await placeComponent(clip.name);
+      if (occ == null) return 0;
+      toast(L.current.msgPastedComponent(occ.id));
+      return 1;
+    }
+    final p = currentPart;
+    if (p != null && isPartName(clip.name)) {
+      if (current != null) {
+        toast(L.current.msgFinishSketchToPaste);
+        return 0;
+      }
+      return _deriveInto(p, clip.name);
+    }
+    if (isHome) {
+      final copy = await duplicateDocument(clip.name);
+      if (copy == null) return 0;
+      toast(L.current.msgPastedDocument(copy));
+      return 1;
+    }
+    toast(L.current.msgCannotPasteHere);
+    return 0;
+  }
+
+  /// Inventor's Derive: [source]'s first solid body, LINKED, as a body of [p].
+  ///
+  /// Reached by pasting a part document into a part. Deliberately a link and
+  /// not a copy — the user named a document rather than a body, and a document
+  /// is the thing that goes on being edited. M255 built all of this; here it
+  /// is reached from the clipboard instead of from Make Part's dialog.
+  Future<int> _deriveInto(PartModel p, String source) async {
+    if (source == p.name) {
+      toast(L.current.msgCannotDeriveFromItself);
+      return 0;
+    }
+    if (_sourceModel(source) == null) {
+      try {
+        _componentModels[source] = await _loadPartModel(source);
+      } catch (e, st) {
+        Log.e('clip', 'could not load "$source" to derive from', e, st);
+      }
+    }
+    final origin = _sourceModel(source);
+    final body = origin == null ? null : _firstBodyOf(origin);
+    if (origin == null || body == null) {
+      toast(L.current.msgNoBodyIn(source));
+      return 0;
+    }
+    _partCheckpoint(p);
+    final link = DeriveFeature(
+      name: source,
+      bodyName: p.nextSolidName(),
+      sourceDoc: source,
+      sourceBody: body,
+    )..seq = p.nextSeq();
+    link.source = origin;
+    p.appendFeature(link);
+    applyEndOfPart(p);
+    if (recomputeAllFeatures(p, partKernel)) _syncSolidProjections(p);
+    p.dirty = true;
+    if (curTab != null) await savePart(curTab!);
+    toast(L.current.msgPastedDerived(source));
+    notifyListeners();
+    return 1;
+  }
+
+  String? _firstBodyOf(PartModel p) {
+    for (final f in p.features) {
+      if (f.solid != null && !f.consumedByJoin) return f.bodyName;
+    }
+    return null;
+  }
+
+  // ---- paste: the sketch side --------------------------------------------
+
+  /// Merges [clip] into the sketch that is open. Returns how many entities
+  /// arrived, and SELECTS them — the next gesture then moves what was just
+  /// pasted and nothing else.
+  int pasteIntoSketch(SketchClip clip,
+      {Offset delta = Offset.zero, String? onLayer}) {
+    final s = current;
+    if (s == null) return 0;
+    final layer = onLayer ?? (inEditMode ? editingLayer : null);
+    if (layer != null && layerLocked(layer)) {
+      toast(L.current.msgLayerLocked(layer));
+      return 0;
+    }
+    if (layer != null && layerRolledBack(layer)) {
+      toast(L.current.msgTargetBelowEos(layer));
+      return 0;
+    }
+    final n = _applySketchClip(s, clip,
+        doc: curTab ?? s.name,
+        delta: delta,
+        // In edit mode everything lands on the layer the user has open: this
+        // is where they are working, and geometry arriving on a layer they
+        // cannot see is geometry they will report as lost.
+        forceLayer: layer);
+    if (n > 0 && curTab != null) {
+      if (currentPart != null) {
+        savePart(curTab!);
+      } else {
+        saveSketch(curTab!);
+      }
+    }
+    return n;
+  }
+
+  /// Copies everything on one layer — the layer row's Copy.
+  ///
+  /// A layer is the closest thing a sketch has to a group, so this is how a
+  /// whole sub-drawing travels without having to be rubber-banded first.
+  bool copyLayer(String layer, {bool cut = false}) {
+    final s = current;
+    if (s == null) return false;
+    final ents = <int>{
+      for (var i = 0; i < s.geometry.length; i++)
+        if (s.geometry[i].layer == layer) i
+    };
+    if (ents.isEmpty) {
+      toast(L.current.msgSelectThenCopy);
+      return false;
+    }
+    _clipTake(
+        sketchClip(
+          geometry: s.geometry,
+          constraints: s.constraints,
+          layers: s.layers,
+          sourceDoc: curTab ?? s.name,
+          sourceSketch: s.name,
+          entities: ents,
+        ),
+        cut: cut);
+    toast(L.current.msgCopiedEntities(ents.length));
+    return true;
+  }
+
+  /// Pastes onto ONE named layer — the layer row's Paste, which is how a paste
+  /// is aimed at a layer that is not the one being edited.
+  int pasteIntoLayer(String layer) {
+    final c = _clip;
+    if (c is! SketchClip) {
+      toast(c == null
+          ? L.current.msgClipboardEmpty
+          : L.current.msgCannotPasteHere);
+      return 0;
+    }
+    final n = pasteIntoSketch(c, onLayer: layer);
+    if (n > 0) toast(L.current.msgPastedEntities(n));
+    return n;
+  }
+
+  /// Pastes the clipboard's sketch onto a named plane — an origin plane by
+  /// key, or a work plane (or face) by frame. The browser's "Paste Sketch
+  /// Here"; the viewport's version of the same thing goes through
+  /// [startPastePlanePick].
+  int pasteSketchOnto(String plane, [PlaneFrame? frame, SketchFaceSel? ref]) {
+    final c = _clip;
+    if (c is! SketchClip) {
+      toast(c == null
+          ? L.current.msgClipboardEmpty
+          : L.current.msgCannotPasteHere);
+      return 0;
+    }
+    final n = pasteSketchOnPlane(c, plane, frame, ref);
+    if (n > 0) notifyListeners();
+    return n;
+  }
+
+  /// The one implementation of "put this clip into this sketch".
+  ///
+  /// [fresh] is a sketch that was created FOR the clip (a paste onto a plane,
+  /// a new document): it adopts the source's layer order, eye/lock state and
+  /// user parameters, because there is nothing there to disagree with. A paste
+  /// into an existing sketch adopts none of that — it merges.
+  int _applySketchClip(
+    SketchModel s,
+    SketchClip clip, {
+    required String doc,
+    Offset delta = Offset.zero,
+    String? forceLayer,
+    bool fresh = false,
+    bool active = true,
+  }) {
+    if (clip.geometry.isEmpty && clip.texts.isEmpty) {
+      toast(L.current.msgClipboardEmpty);
+      return 0;
+    }
+    if (fresh) {
+      for (final l in clip.layers) {
+        if (!s.layers.contains(l)) s.layers.add(l);
+      }
+      s.hiddenLayers.addAll(clip.hidden);
+      s.lockedLayers.addAll(clip.locked);
+      for (final u in clip.userParams) {
+        if (!s.userParams.any((e) => e.name == u.name)) {
+          s.userParams.add(UserParam(u.name, u.value, u.expr));
+        }
+      }
+    } else if (forceLayer == null) {
+      // Keep each entity on the layer it was drawn on; create the ones this
+      // sketch does not have yet, live (above the End-of-Sketch marker) —
+      // pasted geometry that arrives rolled back is invisible for a reason
+      // nobody would guess.
+      for (final l in clip.layers) {
+        if (!s.layers.contains(l)) s.insertLayerAboveMarker(l);
+      }
+    }
+    final taken = <String>{
+      for (final c in s.constraints)
+        if (c.paramName != null) c.paramName!,
+      for (final u in s.userParams) u.name,
+    };
+    final res = mergeSketchClip(
+      geometry: s.geometry,
+      constraints: s.constraints,
+      clip: clip,
+      delta: delta,
+      layer: forceLayer,
+      takenNames: taken,
+    );
+    s.constraints
+      ..clear()
+      ..addAll(res.constraints);
+    s.texts.addAll(res.texts);
+    _adoptImages(s, clip, doc, delta);
+    _rebuildEngine(s, res.geometry, active: active);
+    // The expression chase inside that rebuild can rebuild again through the
+    // ordinary (active) path, so put the CURRENT sketch's analysis back rather
+    // than leaving another sketch's answer in it.
+    if (!active) _reanalyze();
+    if (active) {
+      selection
+        ..clear()
+        ..addAll(res.pasted);
+      snap = null;
+    }
+    if (res.renamedParams.isNotEmpty) {
+      Log.i('clip',
+          'renamed on paste: ${res.renamedParams.entries.map((e) => "${e.key}->${e.value}").join(", ")}');
+    }
+    if (res.droppedExpressions > 0) {
+      Log.i('clip',
+          '${res.droppedExpressions} expression(s) dropped: their parameters did not come along');
+      toast(L.current.msgPasteDroppedExpressions(res.droppedExpressions));
+    }
+    Log.i('clip',
+        'pasted ${res.pasted.length} entities into "${s.name}" of "$doc"');
+    return res.pasted.length;
+  }
+
+  /// Copies the clip's pictures into the target document and adds the records.
+  ///
+  /// A [SketchImage] names a file relative to the document it lives in, so
+  /// pasting the record alone would draw nothing. The bytes are copied under a
+  /// fresh name (two documents can both hold an "img_1730.png" that is not the
+  /// same picture), and an image whose file has gone is dropped rather than
+  /// pasted as an empty rectangle.
+  void _adoptImages(
+      SketchModel s, SketchClip clip, String doc, Offset delta) {
+    if (clip.images.isEmpty || _docsDir == null) return;
+    final dir = Directory('${_stage(doc).path}/images');
+    if (!dir.existsSync()) dir.createSync(recursive: true);
+    for (final ci in clip.images) {
+      final src = ci.path;
+      if (src == null || !File(src).existsSync()) {
+        Log.w('clip', 'image "${ci.image.file}" is gone — not pasted');
+        continue;
+      }
+      final ext = ci.image.file.contains('.')
+          ? ci.image.file.split('.').last
+          : 'img';
+      var name = 'img_${DateTime.now().microsecondsSinceEpoch}.$ext';
+      var n = 2;
+      while (File('${dir.path}/$name').existsSync()) {
+        name = 'img_${DateTime.now().microsecondsSinceEpoch}_$n.$ext';
+        n++;
+      }
+      try {
+        File(src).copySync('${dir.path}/$name');
+      } catch (e) {
+        Log.w('clip', 'could not copy image "${ci.image.file}": $e');
+        continue;
+      }
+      s.images.add(SketchImage(name, ci.image.x + delta.dx,
+          ci.image.y + delta.dy, ci.image.w, ci.image.h,
+          layer: ci.image.layer));
+    }
+  }
+
+  // ---- paste onto a plane -------------------------------------------------
+
+  /// Arms the plane pick for a paste: the next origin plane, solid face or
+  /// work plane named becomes a NEW sketch holding the clip.
+  void startPastePlanePick() {
+    final p = currentPart;
+    if (p == null) return;
+    cancel3DCommands(); // M230 — one armed command at a time
+    _pastePlaneArmed = true;
+    _planesAutoShown = true;
+    p.vis['yz'] = p.vis['xz'] = p.vis['xy'] = true;
+    pickPlane = true;
+    toast(L.current.msgSelectPlaneForPaste);
+    notifyListeners();
+  }
+
+  void cancelPastePlanePick() {
+    if (!_pastePlaneArmed) return;
+    _pastePlaneArmed = false;
+    cancelPlanePick();
+  }
+
+  /// The armed paste, now that a plane has been named. Called by the three
+  /// pick paths; returns true when it consumed the pick.
+  bool _pasteOnPickedPlane(String plane, PlaneFrame? frame,
+      [SketchFaceSel? ref]) {
+    if (!_pastePlaneArmed) return false;
+    _pastePlaneArmed = false;
+    final p = currentPart;
+    final clip = _clip;
+    if (p == null || clip is! SketchClip) {
+      cancelPlanePick();
+      return true;
+    }
+    pickPlane = false;
+    if (_planesAutoShown) {
+      p.vis['yz'] = p.vis['xz'] = p.vis['xy'] = false;
+    }
+    _planesAutoShown = false;
+    final n = pasteSketchOnPlane(clip, plane, frame, ref);
+    if (n > 0) notifyListeners();
+    return true;
+  }
+
+  /// Creates a child sketch on [plane] holding [clip], and returns how many
+  /// entities it holds.
+  ///
+  /// It does NOT open the 2D editor. Every other way of making a sketch does,
+  /// because an empty sketch is only useful once you are drawing in it; this
+  /// one arrives finished, and the next thing the user wants is to extrude it.
+  int pasteSketchOnPlane(SketchClip clip, String plane,
+      [PlaneFrame? frame, SketchFaceSel? ref]) {
+    final p = currentPart;
+    if (p == null) return 0;
+    _partCheckpoint(p); // one paste = one step of the part journal
+    final sk = SketchModel(p.nextSketchName());
+    p.appendChildSketch(
+        ChildSketch(sk, plane, frame, true, false, p.nextSeq(), ref));
+    _admitNewSketchRow(p);
+    final n = _applySketchClip(sk, clip,
+        doc: p.name, fresh: true, active: false);
+    sk.resetHistory(); // the pasted state is this sketch's baseline
+    p.dirty = true;
+    if (curTab != null) savePart(curTab!);
+    Log.i('clip',
+        'pasted sketch "${sk.name}" on $plane of "${p.name}" ($n entities)');
+    toast(L.current.msgPastedSketchOnPlane(sk.name));
+    return n;
+  }
+
+  // ---- new documents out of a clip ---------------------------------------
+
+  /// A new 2D sketch document holding [clip], opened.
+  Future<String?> newSketchDocumentFrom(SketchClip clip, {String? name}) async {
+    final want = (name ?? clip.sourceSketch).trim();
+    final clean = _freeDocumentName(want.isEmpty ? 'Sketch' : want);
+    final bad = validateSketchName(clean);
+    if (bad != null) {
+      toast(bad);
+      return null;
+    }
+    await openSketch(clean); // creates it: there is no file yet
+    final s = sketches[clean];
+    if (s == null) return null;
+    _applySketchClip(s, clip, doc: clean, fresh: true);
+    s.resetHistory();
+    await saveSketch(clean);
+    Log.i('clip', 'new sketch document "$clean" from "${clip.sourceSketch}"');
+    toast(L.current.msgPastedSketchDocument(clean));
+    notifyListeners();
+    return clean;
+  }
+
+  /// A new part document holding [clip]'s body, NOT opened.
+  ///
+  /// Not opened for the same reason Make Part does not open the part it makes:
+  /// the paste that asked for this is on its way somewhere else (an assembly,
+  /// or back to the gallery), and a part tab appearing on the way there is a
+  /// document nobody asked to edit.
+  Future<String?> newPartDocumentFrom(BodyClip clip, {String? name}) async {
+    final clean = _freeDocumentName(name ?? clip.bodyName);
+    if (!await createNamedPart(clean, open: false)) {
+      toast(L.current.msgNameTaken(clean));
+      return null;
+    }
+    final made = parts[clean];
+    if (made == null) return null;
+    final n = _readClipBodies(clip, into: made, doc: clean);
+    if (n == 0) {
+      await deletePart(clean); // nothing in it: do not leave an empty document
+      return null;
+    }
+    applyEndOfPart(made);
+    made.dirty = true;
+    await savePart(clean);
+    // M245's invariant: a document not open in a tab lives in the shared map.
+    final model = parts.remove(clean);
+    if (model != null) _componentModels[clean] = model;
+    Log.i('clip', 'new part document "$clean" from body "${clip.bodyName}"');
+    return clean;
+  }
+
+  /// Reads the clip's STEP into [into] as imported bodies, copying the file
+  /// into that document so it can be read again after a restart.
+  ///
+  /// Returns how many bodies arrived. The STEP holds exactly the one body that
+  /// was copied, but the loop is over what the file actually contains: a
+  /// kernel is free to hand back a compound, and inventing a count here is how
+  /// a paste silently loses geometry.
+  int _readClipBodies(BodyClip clip,
+      {required PartModel into, required String doc}) {
+    if (!File(clip.stepPath).existsSync()) {
+      toast(L.current.msgClipboardBodyGone);
+      return 0;
+    }
+    final solids = partKernel.importStepSolids(clip.stepPath);
+    if (solids.isEmpty) {
+      toast(L.current.msgPasteBodyFailed(partKernel.lastError));
+      return 0;
+    }
+    String? rel;
+    try {
+      final dir = _partImportDir(doc);
+      var base = 'pasted_${DateTime.now().millisecondsSinceEpoch}';
+      while (File('${dir.path}/$base.step').existsSync()) {
+        base = '${base}_2';
+      }
+      File(clip.stepPath).copySync('${dir.path}/$base.step');
+      rel = 'imports/$base.step';
+    } catch (e) {
+      Log.w('clip', 'could not stash the pasted STEP: $e');
+    }
+    if (rel == null) {
+      for (final s in solids) {
+        s.dispose();
+      }
+      toast(L.current.msgPasteBodyNotSaved);
+      return 0;
+    }
+    _partCheckpoint(into);
+    for (final solid in solids) {
+      into.appendFeature(ExtrudeFeature(
+        name: into.nextFeatureName('Paste'),
+        bodyName: into.nextSolidName(),
+        sketchName: '',
+        profiles: const [],
+        output: 'new',
+      )
+        ..imported = true
+        ..importPath = rel
+        ..solid = solid
+        ..seq = into.nextSeq());
+    }
+    recomputeAllFeatures(into, partKernel);
+    Log.i('clip',
+        'pasted ${solids.length} body/bodies from "${clip.sourceDoc}" into "$doc"');
+    return solids.length;
+  }
+
+  /// [want], or the first free "want 2", "want 3", … in the gallery.
+  String _freeDocumentName(String want) {
+    final base = want.trim().isEmpty ? 'Sketch' : want.trim();
+    if (!docNameExists(base)) return base;
+    var n = 2;
+    while (docNameExists('$base $n')) {
+      n++;
+    }
+    return '$base $n';
+  }
+
+  /// The geometry of sketch DOCUMENT [name] as a clip, loading it if it is not
+  /// open. The model is disposed again unless the document was already open —
+  /// reading a document must not leave it in the session.
+  Future<SketchClip?> _sketchClipOfDocument(String name) async {
+    final open = sketches[name];
+    if (open != null) {
+      return sketchClip(
+        geometry: open.geometry,
+        constraints: open.constraints,
+        layers: open.layers,
+        sourceDoc: name,
+        sourceSketch: name,
+        userParams: open.userParams,
+        texts: open.texts,
+        images: _clipImages(name, open),
+        hidden: open.hiddenLayers,
+        locked: open.lockedLayers,
+      );
+    }
+    if (_docsDir == null) return null;
+    _ensureStaged(name);
+    final model = await _loadSketchIn(_stage(name), name, base: kSketchBase);
+    try {
+      return sketchClip(
+        geometry: model.geometry,
+        constraints: model.constraints,
+        layers: model.layers,
+        sourceDoc: name,
+        sourceSketch: name,
+        userParams: model.userParams,
+        texts: model.texts,
+        images: _clipImages(name, model),
+        hidden: model.hiddenLayers,
+        locked: model.lockedLayers,
+      );
+    } finally {
+      model.dispose();
+    }
+  }
+
+  // ---- the two conversions ------------------------------------------------
+
+  /// "Turn this 2D sketch into a part": a new part document whose first sketch
+  /// IS this document's, on the XY plane, ready to extrude.
+  ///
+  /// The sketch document is left alone. A convert that deleted it would be
+  /// destroying the only copy of a drawing to produce a document defined in
+  /// terms of it — the same argument M255 makes for not emptying the origin of
+  /// a Make Part, and the reason this is called "part from sketch" rather than
+  /// "convert".
+  Future<String?> partFromSketch(String sketchDoc, {String? partName}) async {
+    if (isPartName(sketchDoc) || isAssemblyName(sketchDoc)) {
+      toast(L.current.msgNotASketch(sketchDoc));
+      return null;
+    }
+    final clip = await _sketchClipOfDocument(sketchDoc);
+    if (clip == null) {
+      toast(L.current.msgNoSuchDocument(sketchDoc));
+      return null;
+    }
+    final clean = _freeDocumentName(partName ?? sketchDoc);
+    final bad = validateSketchName(clean);
+    if (bad != null) {
+      toast(bad);
+      return null;
+    }
+    if (!await createNamedPart(clean)) {
+      toast(L.current.msgNameTaken(clean));
+      return null;
+    }
+    final p = parts[clean];
+    if (p == null) return null;
+    final sk = SketchModel(p.nextSketchName());
+    p.appendChildSketch(ChildSketch(sk, 'xy', null, true, false, p.nextSeq()));
+    _applySketchClip(sk, clip, doc: clean, fresh: true, active: false);
+    sk.resetHistory();
+    p.camera.orientToPlane('xy');
+    p.dirty = true;
+    await savePart(clean);
+    Log.i('clip', 'part "$clean" from sketch document "$sketchDoc"');
+    toast(L.current.msgPartFromSketch(clean, sketchDoc));
+    notifyListeners();
+    return clean;
+  }
+
+  /// "Turn this sketch in a part into a 2D sketch": a new sketch DOCUMENT
+  /// holding a copy of the part's child sketch, opened.
+  ///
+  /// A copy, and the part keeps its own — the sketch inside a part is what its
+  /// features are built on, and a convert that moved it out would delete every
+  /// feature that consumes it.
+  Future<String?> sketchDocumentFromChild(String childName,
+      {String? docName}) async {
+    final p = currentPart;
+    final cs = p?.sketchByName(childName);
+    if (p == null || cs == null) return null;
+    final clip = sketchClip(
+      geometry: cs.model.geometry,
+      constraints: cs.model.constraints,
+      layers: cs.model.layers,
+      sourceDoc: p.name,
+      sourceSketch: cs.model.name,
+      userParams: cs.model.userParams,
+      texts: cs.model.texts,
+      images: _clipImages(p.name, cs.model),
+      hidden: cs.model.hiddenLayers,
+      locked: cs.model.lockedLayers,
+      plane: cs.plane,
+    );
+    // "<Part> <Sketch1>" rather than "Sketch1": the gallery is one shelf for
+    // every document in the app, and a card called "Sketch1" says nothing
+    // about which part it came out of.
+    final want = docName ?? '${p.name} ${cs.model.name}';
+    return newSketchDocumentFrom(clip, name: want);
   }
 }
 

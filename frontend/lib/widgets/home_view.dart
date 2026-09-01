@@ -12,6 +12,7 @@
 // publish the cards' hit rectangles to the native side and act on the item id
 // that comes back. Off iOS every one of those calls is inert, so the host test
 // suite and desktop runs behave exactly as before.
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -46,13 +47,24 @@ const double _kThumbRadius = 14; // matches the card's BorderRadius
 ///
 /// Top-level so tests can assert the contract without a device. It takes the
 /// strings rather than reading a global, so a test can pin BOTH languages.
-List<List<NativeMenuItem>> sketchMenuGroups(AppL10n t) => [
+/// M345 — [isSketch] adds the two entries that only make sense on a 2D
+/// document: Copy (the clipboard's version of Duplicate, which can be pasted
+/// into a part or an open sketch as well as back into the gallery) and "Create
+/// Part from Sketch". Defaulted so the existing callers — and the tests that
+/// pin this contract — read exactly as they did.
+List<List<NativeMenuItem>> sketchMenuGroups(AppL10n t, {bool isSketch = false}) => [
       [
         NativeMenuItem(id: 'rename', title: t.rename, symbol: 'pencil'),
         NativeMenuItem(
             id: 'duplicate',
             title: t.duplicate,
             symbol: 'plus.square.on.square'),
+        NativeMenuItem(id: 'copy', title: t.btnCopy, symbol: 'doc.on.doc'),
+        if (isSketch)
+          NativeMenuItem(
+              id: 'toPart',
+              title: t.ctxPartFromSketch,
+              symbol: 'cube'),
         NativeMenuItem(
             id: 'export',
             title: t.exportEllipsis,
@@ -72,7 +84,7 @@ List<List<NativeMenuItem>> sketchMenuGroups(AppL10n t) => [
 /// values the Flutter fallback (showMenu) returns, so the native and non-native
 /// paths funnel into one branch in [_showNewMenu]. Top-level + const so a test
 /// can pin the contract (ids, order, labels) without a device.
-List<NativeMenuItem> newDocMenuItems(AppL10n t) => [
+List<NativeMenuItem> newDocMenuItems(AppL10n t, {bool canPaste = false}) => [
       NativeMenuItem(
           id: '2d', title: t.galleryNew2dSketch, symbol: 'square.on.square'),
       NativeMenuItem(id: '3d', title: t.galleryNew3dPart, symbol: 'cube'),
@@ -90,6 +102,13 @@ List<NativeMenuItem> newDocMenuItems(AppL10n t) => [
       // opens in place, a STEP or DXF is converted. Which one happens follows
       // from the file, not from a menu the user has to get right first.
       NativeMenuItem(id: 'import', title: t.openEllipsis, symbol: 'folder'),
+      // M345 — and a fourth: whatever is on the clipboard, as a document. It
+      // belongs here because that is what a paste in the gallery IS — a new
+      // document — and only while there is something to paste, so the "+" of
+      // a session that has copied nothing reads exactly as it always did.
+      if (canPaste)
+        NativeMenuItem(
+            id: 'paste', title: t.btnPaste, symbol: 'doc.on.clipboard'),
       // M261 — and NOTHING ELSE. Language (M234) and Appearance (M236) used to
       // sit here, each noting that the "+" was "the app's only menu that
       // belongs to the APP rather than to a document". That was true of the
@@ -215,7 +234,7 @@ class _HomeViewState extends State<HomeView> {
             Rect.fromLTWH(full.left, full.top, full.width, full.width / _kCardAspect),
         cornerRadius: _kThumbRadius,
         previewImagePath: s.preview?.path,
-        groups: sketchMenuGroups(L.of(context)),
+        groups: sketchMenuGroups(L.of(context), isSketch: s.kind == 'sketch'),
       ));
     }
     final payload = jsonEncode([for (final t in targets) t.toMap()]);
@@ -243,6 +262,13 @@ class _HomeViewState extends State<HomeView> {
         break;
       case 'delete':
         _confirmDelete(sketch);
+        break;
+      // M345
+      case 'copy':
+        widget.app.copyDocument(sketch);
+        break;
+      case 'toPart':
+        unawaited(widget.app.partFromSketch(sketch));
         break;
     }
   }
@@ -338,7 +364,9 @@ class _HomeViewState extends State<HomeView> {
     String? choice;
     if (NativeMenu.isSupported) {
       choice = await NativeMenu.menu(
-          items: newDocMenuItems(t), anchor: anchor, cancelLabel: t.cancel);
+          items: newDocMenuItems(t, canPaste: widget.app.canPaste),
+          anchor: anchor,
+          cancelLabel: t.cancel);
     } else {
       choice = await showMenu<String>(
         context: context,
@@ -383,6 +411,16 @@ class _HomeViewState extends State<HomeView> {
               Text(t.openEllipsis, style: ts(12.5, T.text)),
             ]),
           ),
+          if (widget.app.canPaste)
+            PopupMenuItem(
+              value: 'paste',
+              height: 40,
+              child: Row(children: [
+                const Icon(Icons.content_paste_outlined, size: 18),
+                const SizedBox(width: 10),
+                Text(t.btnPaste, style: ts(12.5, T.text)),
+              ]),
+            ),
         ],
       );
     }
@@ -395,6 +433,8 @@ class _HomeViewState extends State<HomeView> {
       await _promptNewAssembly();
     } else if (choice == 'import') {
       await _importDocument();
+    } else if (choice == 'paste') {
+      await widget.app.paste(); // M345
     }
   }
 
