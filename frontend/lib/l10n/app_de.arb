@@ -3558,5 +3558,26 @@
         "type": "String"
       }
     }
+  },
+  "cyclesBadge": "Cycles",
+  "@cyclesBadge": {
+    "description": "M304 — das Abzeichen ueber dem Viewport, waehrend der Pfadverfolger noch wartet. \"Cycles\" ist der Name des Renderers und bleibt in jeder Sprache stehen."
+  },
+  "cyclesPreparing": "Cycles · Kernel werden übersetzt",
+  "@cyclesPreparing": {
+    "description": "M304 — der erste Lauf uebersetzt Metals Kernel aus dem Quelltext, was zehnersekunden dauert. Waehrenddessen \"spp\" zu zeigen ist von einem Haenger nicht zu unterscheiden."
+  },
+  "cyclesSamples": "Cycles · {samples} spp",
+  "@cyclesSamples": {
+    "description": "M304 — Fortschritt des Pfadverfolgers. \"spp\" (samples per pixel) ist der Fachbegriff und wird nicht uebersetzt.",
+    "placeholders": {
+      "samples": {
+        "type": "int"
+      }
+    }
+  },
+  "cyclesFailed": "Cycles fehlgeschlagen",
+  "@cyclesFailed": {
+    "description": "M304 — ein Fehlschlag, der nichts anzeigt, ist von einem Modus, der nichts tut, nicht zu unterscheiden."
   }
 }

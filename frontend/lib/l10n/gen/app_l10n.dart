@@ -6756,6 +6756,30 @@ abstract class AppL10n {
   /// In de, this message translates to:
   /// **'Abgeleiteter Körper — „{name}“ wird geöffnet.'**
   String msgDerivedEditOrigin(String name);
+
+  /// M304 — das Abzeichen ueber dem Viewport, waehrend der Pfadverfolger noch wartet. "Cycles" ist der Name des Renderers und bleibt in jeder Sprache stehen.
+  ///
+  /// In de, this message translates to:
+  /// **'Cycles'**
+  String get cyclesBadge;
+
+  /// M304 — der erste Lauf uebersetzt Metals Kernel aus dem Quelltext, was zehnersekunden dauert. Waehrenddessen "spp" zu zeigen ist von einem Haenger nicht zu unterscheiden.
+  ///
+  /// In de, this message translates to:
+  /// **'Cycles · Kernel werden übersetzt'**
+  String get cyclesPreparing;
+
+  /// M304 — Fortschritt des Pfadverfolgers. "spp" (samples per pixel) ist der Fachbegriff und wird nicht uebersetzt.
+  ///
+  /// In de, this message translates to:
+  /// **'Cycles · {samples} spp'**
+  String cyclesSamples(int samples);
+
+  /// M304 — ein Fehlschlag, der nichts anzeigt, ist von einem Modus, der nichts tut, nicht zu unterscheiden.
+  ///
+  /// In de, this message translates to:
+  /// **'Cycles fehlgeschlagen'**
+  String get cyclesFailed;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

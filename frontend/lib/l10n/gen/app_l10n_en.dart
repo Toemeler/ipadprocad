@@ -3974,4 +3974,18 @@ class AppL10nEn extends AppL10n {
   String msgDerivedEditOrigin(String name) {
     return 'A derived body — opening “$name”.';
   }
+
+  @override
+  String get cyclesBadge => 'Cycles';
+
+  @override
+  String get cyclesPreparing => 'Cycles · preparing kernels';
+
+  @override
+  String cyclesSamples(int samples) {
+    return 'Cycles · $samples spp';
+  }
+
+  @override
+  String get cyclesFailed => 'Cycles failed';
 }

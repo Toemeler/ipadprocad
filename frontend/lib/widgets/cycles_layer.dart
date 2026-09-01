@@ -27,6 +27,7 @@ import '../app_state.dart';
 import '../cycles_render.dart';
 import '../cycles_scene.dart';
 import '../cycles_view.dart';
+import '../l10n/l.dart';
 import '../part_render.dart' show Cam3;
 import '../theme.dart';
 
@@ -187,13 +188,13 @@ class _CyclesBadge extends StatelessWidget {
     // tens of seconds, once. Saying "$samples spp" through that wait is
     // indistinguishable from a hang, so it says what is actually happening.
     final first = !render.everRendered;
+    final t = L.of(context);
     final (label, tone) = switch (render.phase) {
-      CyclesPhase.pending => ('Cycles', T.dim),
-      CyclesPhase.rendering when first =>
-        ('Cycles · preparing kernels', T.text),
-      CyclesPhase.rendering => ('Cycles · $samples spp', T.text),
-      CyclesPhase.shown => ('Cycles · $samples spp', T.dim),
-      CyclesPhase.failed => ('Cycles failed', T.dim),
+      CyclesPhase.pending => (t.cyclesBadge, T.dim),
+      CyclesPhase.rendering when first => (t.cyclesPreparing, T.text),
+      CyclesPhase.rendering => (t.cyclesSamples(samples), T.text),
+      CyclesPhase.shown => (t.cyclesSamples(samples), T.dim),
+      CyclesPhase.failed => (t.cyclesFailed, T.dim),
       CyclesPhase.idle => ('', T.dim),
     };
     if (label.isEmpty) return const SizedBox.shrink();

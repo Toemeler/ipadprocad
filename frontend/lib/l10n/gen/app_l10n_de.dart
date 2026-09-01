@@ -4023,4 +4023,18 @@ class AppL10nDe extends AppL10n {
   String msgDerivedEditOrigin(String name) {
     return 'Abgeleiteter Körper — „$name“ wird geöffnet.';
   }
+
+  @override
+  String get cyclesBadge => 'Cycles';
+
+  @override
+  String get cyclesPreparing => 'Cycles · Kernel werden übersetzt';
+
+  @override
+  String cyclesSamples(int samples) {
+    return 'Cycles · $samples spp';
+  }
+
+  @override
+  String get cyclesFailed => 'Cycles fehlgeschlagen';
 }
