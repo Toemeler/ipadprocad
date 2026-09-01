@@ -62,9 +62,33 @@ BUNDLE_FILES = (
 )
 
 # The report is written at the END of the session, so the interesting lines are
-# the last ones. 60 is enough to carry the failure and its lead-up without
-# carrying the whole 8,000-line session.
-LOG_TAIL_LINES = 60
+# the last ones.
+#
+# A FIXED tail is the wrong shape, though, and issue #12 is what proved it. The
+# app logged forty lines at launch, the user then spent fifty seconds tapping
+# Export and getting nothing, and the last sixty lines were therefore the whole
+# of the COLD START — FFI probes, smoke tests, "time to first frame" — handed
+# to the model under a heading promising "the session, ending at the moment the
+# report was filed". It read like evidence and contained none, and three
+# consecutive attempts invented a root cause rather than notice.
+#
+# So the window is the last BURST of activity instead: walk back from the
+# report until the log goes quiet, and say plainly, in the pack, how long it
+# had been quiet. Silence before a report is itself a finding — it rules out
+# every explanation that would have written a line.
+LOG_TAIL_MIN = 25
+LOG_TAIL_MAX = 160
+
+# A pause this long means the app was sitting idle: whatever comes after it is
+# a new burst of activity, and whatever comes before is the previous one.
+LOG_IDLE_GAP = 2.0
+
+# ISO stamps as `Log._write` emits them: `2026-08-31T23:32:04.828282 [INFO ] `.
+LOG_STAMP_RE = re.compile(r'^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?)\s')
+
+# The reporter's own lines. They mark when the user gave up, not what went
+# wrong, so the gap is measured to the last line BEFORE them.
+LOG_REPORT_TAG = re.compile(r'\]\s*bug:')
 
 # A raw pointer stream, only worth its tokens when the complaint is that a
 # gesture did the wrong thing.
@@ -238,13 +262,89 @@ def bundle_evidence(zf, issue_text):
             out.append(f'### {name}\n```\n{text.strip()}\n```')
     log = _read(zf, 'log.txt', 400000)
     if log:
-        tail = '\n'.join(log.splitlines()[-LOG_TAIL_LINES:])
-        out.append(f'### log.txt (last {LOG_TAIL_LINES} lines)\n```\n{tail}\n```')
+        out.append(log_evidence(log))
     if any(w in issue_text.lower() for w in GESTURE_WORDS):
         g = _read(zf, 'gestures.txt', 2500)
         if g:
             out.append(f'### gestures.txt\n```\n{g.strip()}\n```')
     return '\n\n'.join(out) if out else '_(bundle contained nothing readable)_'
+
+
+def _stamp(line):
+    """Seconds-since-epoch-ish for a log line, or None when it carries no time.
+
+    Only differences are ever used, so a naive parse is enough and a line that
+    straddles midnight is not worth the calendar arithmetic: the fallback is
+    simply "no gap known", which reads as no claim rather than a wrong one.
+    """
+    m = LOG_STAMP_RE.match(line)
+    if not m:
+        return None
+    text = m.group(1)
+    try:
+        h, mi, rest = text.split('T')[1].split(':')
+        day = int(text.split('T')[0].split('-')[2])
+        return day * 86400 + int(h) * 3600 + int(mi) * 60 + float(rest)
+    except (ValueError, IndexError):
+        return None
+
+
+def log_evidence(log):
+    """The last burst of logged activity, and an honest note about the rest.
+
+    The heading a fixed tail carried — "the session, ending at the moment the
+    report was filed" — is a promise the file often cannot keep. When the app
+    recorded nothing while the user was doing the thing they are complaining
+    about, saying so is worth more than sixty lines of launch chatter, because
+    it converts an absence the model would otherwise paper over into a fact it
+    can reason from.
+    """
+    lines = [l for l in log.splitlines() if l.strip()]
+    if not lines:
+        return '### log.txt\n_(empty)_'
+
+    # Where the reporter takes over. Everything from there on is the user's own
+    # description, which the issue text already carries.
+    report_at = len(lines)
+    for i in range(len(lines) - 1, -1, -1):
+        if LOG_REPORT_TAG.search(lines[i]):
+            report_at = i
+        elif report_at < len(lines):
+            break
+    body = lines[:report_at] or lines
+
+    # The silence between the app's last word and the report.
+    filed = next((_stamp(l) for l in lines[report_at:] if _stamp(l)), None)
+    last = next((_stamp(l) for l in reversed(body) if _stamp(l)), None)
+    quiet = filed - last if (filed is not None and last is not None
+                             and filed >= last) else None
+
+    # Walk back to the start of the burst the report interrupted.
+    start = max(0, len(body) - LOG_TAIL_MAX)
+    seen = None
+    for i in range(len(body) - 1, start, -1):
+        t = _stamp(body[i])
+        if t is None:
+            continue
+        if seen is not None and seen - t >= LOG_IDLE_GAP \
+                and len(body) - i >= LOG_TAIL_MIN:
+            # The gap sits BETWEEN i and i+1, so line i is the tail of the
+            # previous burst, not the head of this one.
+            start = i + 1
+            break
+        seen = t
+
+    window = body[start:]
+    head = f'### log.txt (the last {len(window)} lines the app wrote)'
+    if quiet is not None and quiet >= LOG_IDLE_GAP:
+        head += (f'\n\n**The log does not contain the fault.** The app wrote'
+                 f' NOTHING for the {quiet:.0f} seconds before the report was'
+                 f' filed, so the action being complained about is not in here'
+                 f' — that code path is uninstrumented. This is evidence, not'
+                 f' a gap to fill in: it rules out every explanation that would'
+                 f' have written a line, and it means the log CANNOT tell you'
+                 f' which branch ran. Do not assert one as though it had.')
+    return f'{head}\n```\n' + '\n'.join(window) + '\n```'
 
 
 def repo_map(index):
@@ -272,7 +372,10 @@ Every report ships the same diagnostic bundle:
   `state.txt` is the file worth reading for this fault.
 - `state.txt` — every feature with its parameters and its solid or error, every
   picked edge fingerprint, every sketch with its geometry and constraints.
-- `log.txt` — the session, ending at the moment the report was filed.
+- `log.txt` — the last burst of activity before the report. It covers only
+  what the app INSTRUMENTS; a code path with no logging in it leaves no trace,
+  and the section says so explicitly when the app was silent before the report.
+  Silence there is a fact about the code, not a licence to assume.
 - `reality.txt` — the last scene Dart handed the native renderer.
 - `mesh.txt` — triangle and vertex counts of what was actually drawn.
 - `gestures.txt` — the raw pointer stream, before the gesture arena resolved

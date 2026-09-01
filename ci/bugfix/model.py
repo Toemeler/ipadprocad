@@ -164,7 +164,41 @@ slice is a few dozen lines of a file that can be twenty thousand, and naming
 what you want now gets you that part. What you cannot do is ask the same
 question about the same file twice — if a grep for those words came back
 without it, that is the answer: it does not exist, and building it is your
-job.'''
+job.
+
+WHEN THE EVIDENCE CANNOT DECIDE
+
+Almost always it can. A report with a state dump, a log and the source in
+front of you is a bug you can fix, and "I need more information" is the wrong
+answer to a hard one. Build the fix.
+
+There is one case where shipping is worse than stopping: when two or more
+DIFFERENT faults would each produce exactly the symptom described, and nothing
+you have been given separates them. Then a fix is a guess. A guess that passes
+its own test is the worst outcome available, because it closes the issue and
+leaves the fault in place — the user hits it again and now believes it was
+looked at.
+
+This happens most often when the log section says the app recorded nothing
+before the report. That silence means the code path is not instrumented, so
+the log cannot tell you which branch ran. It is not an invitation to assume
+one.
+
+When that is genuinely the situation, answer with this and nothing else:
+
+<cannot-fix>
+Symptom: what the user sees, in one line.
+Candidate A: a fault that would produce it, and the code that would do it.
+Candidate B: a different fault that would produce it just as well.
+Missing: the one observation that would tell them apart, and where it would
+come from — a log line that does not exist yet, a device, a file.
+</cannot-fix>
+
+Both candidates must be real readings of code you have been shown, not two
+phrasings of one idea. This is not for a fix that is large, in Swift, or
+tedious — only for one the evidence does not determine. Used honestly it is
+worth more than a fix; used to avoid work it is the worst answer in this
+document.'''
 
 
 def ask(prefix, body, history=None, timeout=300):

@@ -154,6 +154,28 @@ def close(number, body=None):
         pass
 
 
+def hand_off(number, body):
+    """Give the issue to a person, because the evidence could not decide it.
+
+    Distinct from `block`, which means the run tried and failed. This means the
+    run declined on purpose: two or more different faults would produce the
+    reported symptom and nothing in the bundle separates them. Shipping a guess
+    there is worse than shipping nothing, because a guess closes the issue and
+    leaves the fault in place — which is exactly what happened three times on
+    #12 before anyone noticed the log held no record of the action at all.
+
+    `needs-session` is the same label the report form's autofix checkbox puts
+    on, so both roads to "a human should take this" end in one queue.
+    """
+    comment(number, body)
+    for label in (WORKING, BLOCKED):
+        try:
+            _request('DELETE', f'/repos/{REPO}/issues/{number}/labels/{label}')
+        except urllib.error.HTTPError:
+            pass
+    _request('POST', f'/repos/{REPO}/issues/{number}/labels', {'labels': [MANUAL]})
+
+
 def block(number, body):
     """Hand the issue back to a human, with what was found."""
     comment(number, body)

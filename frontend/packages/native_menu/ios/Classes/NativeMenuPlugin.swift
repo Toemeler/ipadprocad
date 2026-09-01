@@ -222,7 +222,7 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
                 style: .default) { [weak alert] _ in
                     reply(alert?.textFields?.first?.text ?? "")
                 })
-            if !presentModal(alert) { reply(nil) }
+            presentModal(alert) { reply(nil) }
 
         case "confirm":
             let alert = UIAlertController(
@@ -242,7 +242,7 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
             alert.addAction(UIAlertAction(
                 title: args["confirmLabel"] as? String ?? "OK",
                 style: destructive ? .destructive : .default) { _ in reply(true) })
-            if !presentModal(alert) { reply(false) }
+            presentModal(alert) { reply(false) }
 
         case "menu":
             // A tap-to-choose action sheet (the gallery "+"). On iPad this is a
@@ -277,7 +277,7 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
             sheet.addAction(UIAlertAction(
                 title: args["cancelLabel"] as? String ?? "Cancel",
                 style: .cancel) { _ in reply(nil) })
-            if !present(sheet, anchor: NativeMenuPlugin.parseRect(args["anchor"])) {
+            present(sheet, anchor: NativeMenuPlugin.parseRect(args["anchor"])) {
                 reply(nil)
             }
 
@@ -417,6 +417,36 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
         return made
     }
 
+    // MARK: - Menu selection delivery
+
+    /// The action the user picked, held until the menu has finished going
+    /// away. See `presentWhenFree` for why delivering it any earlier means
+    /// the sheet it asks for is silently dropped.
+    private var pendingSelection: (target: String, item: String)?
+
+    /// Belt for the brace: if UIKit never tells us the menu ended, the choice
+    /// must still reach Dart rather than being swallowed. Comfortably longer
+    /// than a context menu's dismissal, and only ever reached when the
+    /// delegate callback did not arrive.
+    private static let selectionFallbackDelay: TimeInterval = 0.6
+
+    private func chooseFromMenu(target: String, item: String) {
+        pendingSelection = (target, item)
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + NativeMenuPlugin.selectionFallbackDelay
+        ) { [weak self] in
+            self?.deliverSelection()
+        }
+    }
+
+    /// Hands the held choice to Dart, at most once.
+    private func deliverSelection() {
+        guard let choice = pendingSelection else { return }
+        pendingSelection = nil
+        channel.invokeMethod(
+            "selected", arguments: ["target": choice.target, "item": choice.item])
+    }
+
     // MARK: - Interaction lifecycle
 
     /// Attach only while targets exist; detach the moment the list goes empty.
@@ -462,36 +492,91 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
     // MARK: - Presentation helpers
 
     /// iPad REQUIRES a popover anchor for these sheets — presenting without one
-    /// raises NSGenericException and kills the app. Returns false when there is
-    /// no view controller to present from (so a caller whose FlutterResult fires
-    /// from the sheet's actions can reply instead of leaking it).
+    /// raises NSGenericException and kills the app.
+    ///
+    /// Returns false when there is no view controller to present from at all.
+    /// `onUnavailable` covers the same case AND the deferred one below, where
+    /// the hierarchy never came free: a caller whose FlutterResult fires from
+    /// the sheet's own actions must hear about both, or Dart waits forever on
+    /// a sheet that is not coming.
     @discardableResult
-    private func present(_ vc: UIViewController, anchor: CGRect?) -> Bool {
+    private func present(_ vc: UIViewController, anchor: CGRect?,
+                         onUnavailable: (() -> Void)? = nil) -> Bool {
         guard let host = NativeMenuPlugin.flutterHostView(),
-              var top = NativeMenuPlugin.keyRootViewController() else { return false }
+              NativeMenuPlugin.keyRootViewController() != nil else {
+            onUnavailable?()
+            return false
+        }
         if let pop = vc.popoverPresentationController {
             pop.sourceView = host
             pop.sourceRect = anchor ?? CGRect(
                 x: host.bounds.midX, y: host.bounds.midY, width: 1, height: 1)
             pop.permittedArrowDirections = [.up, .down]
         }
-        while let presented = top.presentedViewController, !presented.isBeingDismissed {
-            top = presented
-        }
-        top.present(vc, animated: true, completion: nil)
+        presentWhenFree(vc, onGiveUp: onUnavailable)
         return true
     }
 
     /// Presents something that does NOT need a popover anchor (alerts).
-    /// Returns false when there is nothing to present from.
+    /// Returns false when there is nothing to present from; `onUnavailable`
+    /// also fires if the deferred attempt below gives up.
     @discardableResult
-    private func presentModal(_ vc: UIViewController) -> Bool {
-        guard var top = NativeMenuPlugin.keyRootViewController() else { return false }
-        while let presented = top.presentedViewController, !presented.isBeingDismissed {
+    private func presentModal(_ vc: UIViewController,
+                              onUnavailable: (() -> Void)? = nil) -> Bool {
+        guard NativeMenuPlugin.keyRootViewController() != nil else {
+            onUnavailable?()
+            return false
+        }
+        presentWhenFree(vc, onGiveUp: onUnavailable)
+        return true
+    }
+
+    /// How often to look again while a dismissal is in flight, and for how
+    /// long. A context menu takes about a third of a second to go away; the
+    /// ceiling is generous enough to outlast that on a loaded frame and short
+    /// enough that a caller waiting on the answer is never stuck.
+    private static let presentRetryInterval: TimeInterval = 0.05
+    private static let presentRetryLimit = 24 // 1.2 s
+
+    /// Presents `vc` once the view-controller hierarchy is free to accept it.
+    ///
+    /// UIKit REFUSES `present` on a controller that is still finishing a
+    /// dismissal, and it refuses it SILENTLY — the sheet simply never
+    /// appears. The gallery context menu hit that on every action: UIKit
+    /// invokes a `UIAction` handler while the menu is still animating away,
+    /// so by the time Dart came back asking for the STL/STEP sheet, the
+    /// export picker, the rename alert or the delete confirmation, the root
+    /// controller was still busy tearing the menu down and every one of them
+    /// was dropped on the floor. The menu looked completely dead: Duplicate
+    /// was the only action that worked, and it is the only one that presents
+    /// nothing (#12).
+    ///
+    /// Walking PAST a dismissing controller — which is what the old loop did
+    /// — does not help, because the controller underneath is the one still
+    /// presenting it. The only correct move is to wait for the transition to
+    /// end and present then.
+    private func presentWhenFree(_ vc: UIViewController, attempt: Int = 0,
+                                 onGiveUp: (() -> Void)? = nil) {
+        guard var top = NativeMenuPlugin.keyRootViewController() else {
+            onGiveUp?()
+            return
+        }
+        while let presented = top.presentedViewController {
+            if presented.isBeingDismissed {
+                guard attempt < NativeMenuPlugin.presentRetryLimit else {
+                    onGiveUp?()
+                    return
+                }
+                DispatchQueue.main.asyncAfter(
+                    deadline: .now() + NativeMenuPlugin.presentRetryInterval
+                ) { [weak self] in
+                    self?.presentWhenFree(vc, attempt: attempt + 1, onGiveUp: onGiveUp)
+                }
+                return
+            }
             top = presented
         }
         top.present(vc, animated: true, completion: nil)
-        return true
     }
 
     /// The window the app is actually showing, by the same sweep
@@ -623,6 +708,22 @@ extension NativeMenuPlugin: UIContextMenuInteractionDelegate {
         return buildPreview(for: configuration)
     }
 
+    /// The menu is going away. Its action handler has already run and parked
+    /// the user's choice; releasing it here — after the dismissal animation,
+    /// not during it — is what lets the sheet that choice asks for actually
+    /// appear.
+    public func contextMenuInteraction(
+        _ interaction: UIContextMenuInteraction,
+        willEndFor configuration: UIContextMenuConfiguration,
+        animator: UIContextMenuInteractionAnimating?
+    ) {
+        guard let animator else {
+            deliverSelection()
+            return
+        }
+        animator.addCompletion { [weak self] in self?.deliverSelection() }
+    }
+
     private func buildMenu(for t: Target) -> UIMenu {
         var children: [UIMenuElement] = []
         for group in t.groups {
@@ -632,8 +733,8 @@ extension NativeMenuPlugin: UIContextMenuInteractionDelegate {
                 let image = item.symbol.flatMap { UIImage(systemName: $0) }
                 return UIAction(title: item.title, image: image, attributes: attributes) {
                     [weak self] _ in
-                    self?.channel.invokeMethod(
-                        "selected", arguments: ["target": t.id, "item": item.id])
+                    // HELD, not sent: this runs while the menu is dismissing.
+                    self?.chooseFromMenu(target: t.id, item: item.id)
                 }
             }
             if actions.isEmpty { continue }

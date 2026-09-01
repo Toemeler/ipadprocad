@@ -226,6 +226,23 @@ class NativeMenu {
     _invoke<bool>('pencilInterest', {'on': handler != null});
   }
 
+  /// Where this package narrates what the user picked and what the native
+  /// side answered. The app installs its logger here at start-up; in tests and
+  /// off iOS it stays null and nothing is recorded.
+  ///
+  /// This exists because of #12. Export from a gallery card did nothing, and
+  /// the diagnostic bundle filed against it recorded FIFTY SECONDS of silence
+  /// between the app's last log line and the report — the whole interaction
+  /// happened in the dark, so neither a person nor the bug-fix pipeline could
+  /// tell how far the tap had got. Every native surface answers through here
+  /// now, so the next report says which action was picked and what came back.
+  static void Function(String message)? trace;
+
+  static void _log(String message) {
+    final sink = trace;
+    if (sink != null) sink(message);
+  }
+
   static void _wire() {
     if (_wired || !isSupported) return;
     _wired = true;
@@ -247,7 +264,13 @@ class NativeMenu {
       final cut = target.indexOf(_sep);
       final scope = cut < 0 ? '' : target.substring(0, cut);
       final id = cut < 0 ? target : target.substring(cut + 1);
-      _handlers[scope]?.call(id, item);
+      final handler = _handlers[scope];
+      // An unclaimed scope is silent otherwise, and looks exactly like a menu
+      // that did nothing — which is the fault this trace was added for.
+      _log(handler == null
+          ? 'picked "$item" on $scope/$id — NO HANDLER for scope "$scope"'
+          : 'picked "$item" on $scope/$id');
+      handler?.call(id, item);
       return null;
     });
   }
@@ -366,12 +389,15 @@ class NativeMenu {
     String cancelLabel = 'Cancel',
   }) async {
     if (!isSupported) return null;
-    return _invoke<String>('menu', {
+    final chosen = await _invoke<String>('menu', {
       'items': [for (final i in items) i.toMap()],
       'anchor': NativeMenuTarget._rect(anchor),
       if (title != null) 'title': title,
       'cancelLabel': cancelLabel,
     });
+    _log('menu [${[for (final i in items) i.id].join(', ')}]'
+        ' → ${chosen ?? 'cancelled or not presented'}');
+    return chosen;
   }
 
   /// System share sheet. [anchor] is required on iPad: UIKit raises if a
@@ -385,11 +411,15 @@ class NativeMenu {
 
   static Future<bool> _sheet(String method, String path, Rect anchor) async {
     if (!isSupported) return false;
-    return await _invoke<bool>(method, {
+    final ok = await _invoke<bool>(method, {
           'path': path,
           'anchor': NativeMenuTarget._rect(anchor),
         }) ??
         false;
+    // `false` here means UIKit had nowhere to present from, or the file was
+    // not there — both look identical on screen: nothing opens.
+    _log('$method ${path.split('/').last} → ${ok ? 'presented' : 'REFUSED'}');
+    return ok;
   }
 
   /// M214 — thermal state, physical footprint, memory headroom and per-thread
@@ -418,8 +448,12 @@ class NativeMenu {
   static Future<T?> _invoke<T>(String method, Map<String, Object?> args) async {
     try {
       return await _ch.invokeMethod<T>(method, args);
-    } on PlatformException {
-      return null; // never let a menu problem take down a frame
+    } on PlatformException catch (e) {
+      // Never let a menu problem take down a frame — but do not let it vanish
+      // either. Swallowed here, this was indistinguishable from a tap that
+      // never happened.
+      _log('$method failed: ${e.code} ${e.message ?? ''}');
+      return null;
     } on MissingPluginException {
       return null; // plugin absent (unexpected host) — stay silent
     }

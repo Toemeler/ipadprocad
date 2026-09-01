@@ -126,6 +126,10 @@ void main() {
     // leaves rendered mode as the RealityKit view it has always been.
     Log.step('main', 'initCycles', initCycles);
     final app = Log.step('main', 'AppState()', () => AppState());
+    // Every native menu pick and every sheet the OS did or did not present,
+    // into the same log the bug reporter ships. Installed before the first
+    // frame so nothing a user can reach happens off the record.
+    NativeMenu.trace = (message) => Log.i('menu', message);
     // M236 — adopt the iPad's own light/dark setting and start listening for
     // changes BEFORE the first frame, so the app never paints one scheme and
     // then snaps to the other. Only a property read and a callback: the

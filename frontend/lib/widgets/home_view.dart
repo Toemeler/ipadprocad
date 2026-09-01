@@ -494,6 +494,11 @@ class _HomeViewState extends State<HomeView> {
 
   Future<void> _sendFile(String name, {required bool share}) async {
     final isPart = widget.app.isPartName(name);
+    // Which branch this takes decides everything the user sees next, and it is
+    // not visible from the channel trace. #12 was reported as "export does
+    // nothing" with no way to tell whether the card was even classified as a
+    // part, let alone whether a file came out.
+    Log.i('gallery', '${share ? 'share' : 'export'} "$name" (part=$isPart)');
     String? path;
     if (isPart && !share) {
       // M289 — ask STL or STEP before the location, for part cards.
@@ -536,7 +541,11 @@ class _HomeViewState extends State<HomeView> {
           ? await widget.app.partExportStep(name)
           : await widget.app.sketchExportPath(name);
     }
-    if (path == null || !mounted) return;
+    if (path == null || !mounted) {
+      Log.w('gallery', 'nothing to send for "$name":'
+          ' ${path == null ? 'no file was written' : 'view is gone'}');
+      return;
+    }
     // iPad refuses to present these sheets without a popover anchor.
     final anchor = _globalRect(_keyFor(name)) ??
         Rect.fromLTWH(MediaQuery.of(context).size.width / 2,

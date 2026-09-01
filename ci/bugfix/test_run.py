@@ -1722,3 +1722,162 @@ class UnrunStandsDownTest(unittest.TestCase):
         for reason in ('your test reads the source file and asserts',
                        'and nothing in the app calls it'):
             self.assertFalse(any(m in reason for m in verify.SOFT_REJECTIONS))
+
+
+class LogEvidenceTest(unittest.TestCase):
+    """The log window must never imply it holds what it does not.
+
+    Issue #12 was reported as "export does nothing". The bundle's log ended
+    fifty seconds before the report with the last line of a cold start, and the
+    pack handed the model sixty lines of FFI probes under a heading promising
+    the session up to the moment of the report. Three attempts in a row then
+    asserted which branch of the export code had run — from a file that could
+    not possibly say. The absence has to be stated, or it reads as evidence.
+    """
+
+    LAUNCH = ['2026-09-01T10:00:%02d.000000 [INFO ] main: boot step %d' % (i, i)
+              for i in range(40)]
+    REPORT = ['2026-09-01T10:05:02.000000 [INFO ] bug: === BUG REPORT REQUESTED ===',
+              '2026-09-01T10:05:02.000100 [INFO ] bug: description: export does nothing']
+
+    def evidence(self, lines):
+        import pack
+        return pack.log_evidence('\n'.join(lines))
+
+    def test_silence_before_the_report_is_stated_outright(self):
+        out = self.evidence(self.LAUNCH + self.REPORT)
+        self.assertIn('does not contain the fault', out)
+        self.assertIn('uninstrumented', out)
+        self.assertIn('Do not assert one', out)
+
+    def test_the_silence_is_measured(self):
+        out = self.evidence(self.LAUNCH + self.REPORT)
+        # 10:00:39 -> 10:05:02 is 263 s.
+        self.assertIn('263 seconds', out)
+
+    def test_a_logged_action_raises_no_warning(self):
+        acted = self.LAUNCH + [
+            '2026-09-01T10:05:00.000000 [INFO ] menu: picked "export" on gallery/Flange',
+            '2026-09-01T10:05:01.000000 [INFO ] gallery: export "Flange" (part=true)',
+        ] + self.REPORT
+        out = self.evidence(acted)
+        self.assertNotIn('does not contain the fault', out)
+        self.assertIn('picked "export"', out)
+
+    def test_the_window_is_the_burst_not_a_fixed_tail(self):
+        import pack
+        # Two hours of idle, then a long burst of user activity.
+        old = ['2026-09-01T08:00:%02d.000000 [INFO ] main: yesterday %d' % (i, i)
+               for i in range(40)]
+        burst = ['2026-09-01T10:05:%02d.000000 [INFO ] ui: step %d' % (i % 60, i)
+                 for i in range(30)]
+        out = self.evidence(old + burst + self.REPORT)
+        self.assertNotIn('yesterday', out)
+        self.assertIn('ui: step 0', out)
+
+    def test_the_window_is_bounded(self):
+        import pack
+        chatty = ['2026-09-01T10:05:00.%06d [INFO ] ui: step %d' % (i, i)
+                  for i in range(400)]
+        out = self.evidence(chatty + self.REPORT)
+        body = out.split('```')[1].strip().splitlines()
+        self.assertLessEqual(len(body), pack.LOG_TAIL_MAX)
+
+    def test_an_empty_log_says_so_rather_than_crashing(self):
+        self.assertIn('empty', self.evidence(['   ', '']))
+
+    def test_the_guide_no_longer_promises_the_moment_of_the_report(self):
+        import pack
+        self.assertNotIn('ending at the moment the report was filed',
+                         pack.BUNDLE_GUIDE)
+
+
+DECLINE = '''<cannot-fix>
+Symptom: tapping Export on a gallery card does nothing at all, and the
+STL/STEP chooser never appears.
+Candidate A: the card is not classified as a part, so `_sendFile` takes the
+sketch branch, `sketchExportPath` returns null and the method returns before
+presenting anything.
+Candidate B: the classification is right and the file is written, but UIKit
+refuses to present the sheet because the context menu is still dismissing, so
+the picker never appears.
+Missing: one log line inside `_sendFile` saying which branch ran. The bundle's
+log stops fifty seconds before the report, so neither reading can be ruled out.
+</cannot-fix>'''
+
+
+class DeclineTest(unittest.TestCase):
+    """The pipeline must be able to say "this report does not decide it".
+
+    Three runs on #12 shipped a fix apiece on a premise the bundle could not
+    support, because the only outcomes available were a fix or a crash. Each
+    one closed the issue, and the export button still did nothing. Declining is
+    the correct answer to a report whose evidence does not separate two faults
+    — but only when the model has looked, and only when it names what would
+    settle it, or the exit becomes the cheap way out of every hard round.
+    """
+
+    def drive(self, replies, max_rounds=4):
+        h = Harness(replies)
+        handed = []
+        with mock.patch.object(run.model, 'ask', h.ask), \
+             mock.patch.object(run.gh, 'ensure_labels'), \
+             mock.patch.object(run.gh, 'claim', return_value=True), \
+             mock.patch.object(run.gh, 'issue',
+                               return_value={'title': 'export does nothing',
+                                             'body': ''}), \
+             mock.patch.object(run.gh, 'close',
+                               side_effect=lambda n, b=None: h.closed.append(n)), \
+             mock.patch.object(run.gh, 'block',
+                               side_effect=lambda n, b: h.blocked.append(b)), \
+             mock.patch.object(run.gh, 'hand_off',
+                               side_effect=lambda n, b: handed.append(b)), \
+             mock.patch.object(run.edits_mod, 'apply', return_value=[]), \
+             mock.patch.object(run.verify, 'gate', return_value=(True, '', '')), \
+             mock.patch.object(run.verify, 'full_verification',
+                               return_value=(True, '', '')), \
+             mock.patch.object(run, 'git_reset'), \
+             mock.patch.object(run, 'ship',
+                               side_effect=lambda *a, **k: h.shipped.append(a) or 'abc1234'), \
+             mock.patch('sys.argv', ['run.py', '--issue', '12',
+                                     '--max-rounds', str(max_rounds)]):
+            code = run.main()
+        return code, h, handed
+
+    def test_a_reasoned_refusal_is_handed_to_a_person(self):
+        expand = '<expand path="frontend/lib/widgets/home_view.dart">_sendFile</expand>'
+        code, h, handed = self.drive([expand, DECLINE])
+        self.assertEqual(code, 0)
+        self.assertEqual(h.shipped, [])
+        self.assertEqual(h.blocked, [])
+        self.assertEqual(len(handed), 1)
+        self.assertIn('does not separate two different', handed[0])
+        self.assertIn('Candidate B', handed[0])
+
+    def test_refusing_before_looking_is_sent_back(self):
+        code, h, handed = self.drive([DECLINE, answer()])
+        self.assertEqual(handed, [])
+        self.assertEqual(len(h.shipped), 1)
+        self.assertIn('asked for nothing', h.asked[1])
+
+    def test_a_shapeless_refusal_is_sent_back_for_the_missing_halves(self):
+        vague = '<cannot-fix>\nI cannot tell what is wrong here.\n</cannot-fix>'
+        code, h, handed = self.drive([vague, vague, answer()])
+        self.assertEqual(handed, [])
+        self.assertEqual(len(h.shipped), 1)
+        self.assertIn('not usable as written', h.asked[2])
+
+    def test_a_refusal_alongside_a_real_fix_is_ignored(self):
+        # Edits win: the tag is an exit, not an annotation.
+        code, h, handed = self.drive([answer() + '\n' + DECLINE])
+        self.assertEqual(handed, [])
+        self.assertEqual(len(h.shipped), 1)
+
+    def test_the_declaration_must_name_two_candidates(self):
+        one = ('<cannot-fix>\nSymptom: x does nothing.\n'
+               'Candidate A: the branch is wrong and returns early before it '
+               'ever reaches the presentation, which is a long enough sentence '
+               'to clear the length floor on its own without any help at all.\n'
+               'Missing: a log line.\n</cannot-fix>')
+        self.assertEqual(run.declined(one), '')
+        self.assertIsNone(run.declined('just prose'))

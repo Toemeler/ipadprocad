@@ -223,6 +223,37 @@ def _needles_of(text):
                          if w.lower() not in STOP_WORDS}))
 
 
+# The declined-on-purpose answer. See model.SYSTEM, "WHEN THE EVIDENCE CANNOT
+# DECIDE" — and #12, where three consecutive runs shipped a fix built on a
+# premise the bundle could not support, because there was no way to say "this
+# report does not determine an answer".
+CANNOT_FIX_RE = re.compile(r'<cannot-fix>(.*?)</cannot-fix>', re.S | re.I)
+
+# What the declaration has to contain to be honoured. Two DIFFERENT candidate
+# faults and the observation that separates them: the whole point is that
+# naming them is real work, so declining is never the cheap way out of a round.
+DECLINE_PARTS = ('symptom:', 'candidate a:', 'candidate b:', 'missing:')
+DECLINE_MIN_CHARS = 200
+
+
+def declined(reply):
+    """The model's reasoned refusal, or None.
+
+    Returns the text only when it is shaped like the contract asks. A reply
+    that merely contains the tag is sent back for the missing halves rather
+    than accepted: an unstructured "I cannot tell" is the answer this exit
+    exists to prevent, not the one it exists to allow.
+    """
+    m = CANNOT_FIX_RE.search(reply)
+    if not m:
+        return None
+    text = m.group(1).strip()
+    low = text.lower()
+    if len(text) < DECLINE_MIN_CHARS or any(p not in low for p in DECLINE_PARTS):
+        return ''
+    return text
+
+
 def serve_expands(index, expands, query, already):
     """Answer an `expand` request with more source, still for free.
 
@@ -529,6 +560,42 @@ def main():
             print(f'  round {round_no}: reply began:\n    | {head}')
         history += [{'role': 'user', 'content': issue_body},
                     {'role': 'assistant', 'content': reply}]
+
+        refusal = declined(reply) if not parsed else None
+        if refusal is not None:
+            if round_no < 2:
+                note(round_no, 'declined on the first look')
+                issue_body = (
+                    'Not yet. You have seen one pack and asked for nothing. '
+                    'Before this report can be handed to a person, use your '
+                    '`expand` rounds on the code that would tell the '
+                    'candidates apart. If it still does not decide after '
+                    'looking, say so again and it will be taken.')
+                continue
+            if not refusal:
+                note(round_no, 'declined without naming what would decide it')
+                issue_body = (
+                    'Your `<cannot-fix>` is not usable as written. It has to '
+                    'name TWO different faults that would each produce this '
+                    'symptom, and the one observation that would tell them '
+                    'apart, under the exact labels `Symptom:`, `Candidate A:`, '
+                    '`Candidate B:` and `Missing:`. If you cannot fill those '
+                    'in, then the evidence does decide and you should be '
+                    'writing the fix.')
+                continue
+            git_reset()
+            print(f'handed to a person — ${spent:.4f}')
+            if not args.dry_run:
+                gh.hand_off(number, (
+                    'Automated fixing **declined this one on purpose**. The '
+                    'evidence in the report does not separate two different '
+                    'faults that would both produce the symptom, so any fix '
+                    'would be a guess — and a guess that passes its own test '
+                    'closes the issue with the fault still in it.\n\n'
+                    f'{refusal}\n\n'
+                    f'Files the retriever ranked highest: {", ".join(ranked)}.'
+                    f'{FOOTER}'))
+            return 0
 
         if truncated and not parsed:
             if not reply.strip():
