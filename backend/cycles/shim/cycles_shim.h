@@ -7,9 +7,11 @@
  * Blender proper, which is GPL, is touched.
  *
  * Deliberately narrow. Everything the app already has — triangle soup, vertex
- * normals, an orthographic camera — goes in; RGBA8 comes out. No shader graphs,
- * no lights, no scene format: see cycles_shim.cpp for why the first version is
- * a clay render under a uniform world.
+ * normals, an orthographic camera — goes in; sRGB-encoded RGBA8 comes out. No
+ * scene format, and no lights ACROSS THE BOUNDARY: the rig is fixed and lives
+ * in cycles_shim.cpp, where it is a copy of the one RealityKit's rendered mode
+ * already uses. Only the world colour crosses, because only it changes with
+ * the palette.
  *
  * BLOCKING. One call renders one image and returns when it is done. The caller
  * runs it off the UI thread; a progressive display driver is a later question
@@ -59,7 +61,13 @@ typedef struct {
   int width;
   int height;
   int samples;
-  /* Uniform world colour. The whole light rig, for now. */
+  /* The viewport's own background, LINEAR 0..1.
+   *
+   * What the CAMERA sees behind the model, so the render sits on the same
+   * ground the rest of the app draws. It is also a small ambient on the
+   * surfaces — a fraction of this, set in cycles_shim.cpp — but it is no
+   * longer the light rig: a uniform world lights every face identically
+   * whichever way it points, which is a silhouette, not a render. */
   float world[3];
 } CyView;
 

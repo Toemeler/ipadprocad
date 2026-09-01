@@ -52,6 +52,7 @@
 #include <cstdlib>
 #include <cstdint>
 #include <map>
+#include <cmath>
 #include <cstring>
 #include <mutex>
 #include <string>
@@ -61,6 +62,7 @@
 #include "scene/attribute.h"
 #include "scene/background.h"
 #include "scene/camera.h"
+#include "scene/light.h"
 #include "scene/mesh.h"
 #include "scene/object.h"
 #include "scene/pass.h"
@@ -188,6 +190,153 @@ ccl::Shader *surface_for(ccl::Scene *scene, ShaderCache &cache, const CyMesh &m)
   return shader;
 }
 
+/* ---------------------------------------------------------------------------
+ * M332 — THE LIGHT RIG, AND WHY A UNIFORM WORLD COULD NEVER HAVE WORKED
+ * ---------------------------------------------------------------------------
+ *
+ * The first version lit the scene with a constant-colour world and argued it
+ * was a lightbox. A lightbox is a real thing and that argument is half right:
+ * a uniform environment does read shape out of OCCLUSION, so pockets, bores
+ * and inside corners darken.
+ *
+ * What it cannot do is the other half. Under a uniform environment the
+ * radiance leaving an unoccluded diffuse surface is the same NO MATTER WHICH
+ * WAY IT FACES — the integral over the hemisphere does not depend on the
+ * normal. So every outer face of a part comes out at one identical tone: a
+ * boss and the plate it stands on are the same grey, a cylinder is a flat
+ * rectangle, a chamfer is invisible. The picture is a silhouette with some
+ * dirt in the corners, and it is the thing the user saw and called grey.
+ *
+ * THE RIG IS RealityKit's, deliberately. The app already has a rendered mode
+ * and this is meant to be a better photograph of the same scene, not a
+ * different scene. RealityPartView.applyLighting() has been tuned against
+ * real parts for several milestones, so its four directions and its ratios
+ * are copied here rather than invented again:
+ *
+ *     headlight  620 lux, camera-locked   key
+ *     sun        950 lux, from ( 7, 14,  9)   casts the shadow
+ *     fill       380 lux, from (-3,  6, -4)
+ *     rim        380 lux, from (-9,  7,-12)
+ *
+ * The world is Y-UP; those vectors are in that frame, unchanged from the
+ * Swift.
+ *
+ * FROM LUX TO STRENGTH. A Cycles distant light with `normalize` on — the
+ * default — has a `strength` that IS irradiance in W/m^2: the eval_fac of
+ * 1/(pi sin^2(A/2)) and the cone solid angle of 4 pi sin^2(A/4) cancel to 1
+ * for any angle, so the number means the same thing whether the sun is a
+ * point or a disk. RealityKit's lux are on a different scale entirely, so
+ * what carries over is the RATIO; kSunStrength fixes the one absolute value.
+ *
+ * 1.7 puts a face square to the sun at 0.8 * 1.7 / pi = 0.43 linear on its
+ * own, and a top face taking sun, fill and rim together at about 0.7 — bright
+ * without clipping, and with the dark side landing near 0.19, which is the
+ * contrast a solid needs to read as solid.
+ *
+ * SHADOWS FROM TWO OF THE FOUR. The sun casts, because that is the shadow the
+ * floor is there to catch. The headlight casts, and costs nothing to: it sits
+ * at the camera, so every shadow it throws is behind the geometry that threw
+ * it. Fill and rim do not, which is both what a RealityKit directional
+ * without a shadow component does and what makes them fills — their entire
+ * job is to lift a face the key cannot reach, and a fill that is itself
+ * occluded lifts nothing. */
+const float kRigHead = 620.0f;
+const float kRigSun = 950.0f;
+const float kRigFill = 380.0f;
+const float kRigRim = 380.0f;
+
+const float kSunStrength = 1.7f;
+const float kRigScale = kSunStrength / kRigSun;
+
+/* A soft-ish sun: ~2.9 degrees against the real one's 0.53. A CAD render wants
+ * the contact shadow to say "resting on" rather than to be a crisp cutout, and
+ * at this width the penumbra is a few pixels and costs almost no noise at the
+ * sample counts this app renders at. */
+const float kSunAngle = 0.05f;
+
+/* How much of the visible background the SURFACES see, against the 1.0 the
+ * camera sees. A floor under the rig rather than a look: at the viewport's
+ * grey it is worth about 0.07 linear on a fully exposed face, which is under
+ * half of what the dimmest of the four lights contributes and so cannot
+ * flatten anything, while still keeping a deep bore from going to pure
+ * black. */
+const float kWorldAmbient = 0.15f;
+
+ccl::float3 rig_dir(const float x, const float y, const float z)
+{
+  return ccl::make_float3(x, y, z);
+}
+
+/* One Emission shader for the whole rig.
+ *
+ * NOT OPTIONAL. `scene->default_light` — what a Light with no shader of its
+ * own falls back to in LightManager::device_update — is an EmissionNode with
+ * its strength set to 0.0f (scene/shader.cpp, "default light"). It is a
+ * placeholder that emits nothing, so a light left holding it is a light that
+ * is off, and the whole rig would have rendered exactly the flat frame it
+ * replaced. */
+ccl::Shader *rig_shader(ccl::Scene *scene)
+{
+  ccl::unique_ptr<ccl::ShaderGraph> graph = ccl::make_unique<ccl::ShaderGraph>();
+  ccl::EmissionNode *emission = graph->create_node<ccl::EmissionNode>();
+  emission->set_color(ccl::make_float3(1.0f, 1.0f, 1.0f));
+  emission->set_strength(1.0f);
+  graph->connect(emission->output("Emission"), graph->output()->input("Surface"));
+
+  ccl::Shader *shader = scene->create_node<ccl::Shader>();
+  shader->name = ccl::ustring("rig_light");
+  shader->set_graph(std::move(graph));
+  shader->tag_update(scene);
+  return shader;
+}
+
+/* Add one distant light shining FROM [from] towards the origin.
+ *
+ * A Light is a Geometry in this tree and carries no direction of its own:
+ * LightManager walks scene->objects, skips anything whose geometry is not a
+ * light, and takes the direction the light TRAVELS as -column2 of the object's
+ * transform. So a light with no Object is a light that does not exist, and the
+ * basis below puts +Z back along [from] — the Blender convention, where a lamp
+ * shines down its local -Z.
+ *
+ * Columns 0 and 1 are an arbitrary orthonormal completion. They are read only
+ * for AREA lights (Light::area) and for portals, so any pair will do; they are
+ * built properly anyway rather than left as garbage that a later light type
+ * would silently inherit. */
+void add_distant_light(ccl::Scene *scene,
+                       ccl::Shader *shader,
+                       const ccl::float3 &from,
+                       const float strength,
+                       const bool cast_shadow,
+                       const float angle)
+{
+  if (strength <= 0.0f || ccl::len(from) <= 0.0f) {
+    return;
+  }
+  const ccl::float3 z = ccl::normalize(from);
+  const float zy = z.y < 0.0f ? -z.y : z.y;
+  const ccl::float3 up = zy < 0.99f ? ccl::make_float3(0.0f, 1.0f, 0.0f) :
+                                      ccl::make_float3(1.0f, 0.0f, 0.0f);
+  const ccl::float3 x = ccl::normalize(ccl::cross(up, z));
+  const ccl::float3 y = ccl::cross(z, x);
+
+  ccl::Light *light = scene->create_node<ccl::Light>();
+  light->set_light_type(ccl::LIGHT_DISTANT);
+  light->set_strength(ccl::make_float3(strength, strength, strength));
+  light->set_angle(angle);
+  light->set_cast_shadow(cast_shadow);
+  ccl::array<ccl::Node *> used_shaders;
+  used_shaders.push_back_slow(shader);
+  light->set_used_shaders(used_shaders);
+  light->tag_update(scene);
+
+  ccl::Object *object = scene->create_node<ccl::Object>();
+  object->set_geometry(light);
+  object->set_tfm(ccl::make_transform(x.x, y.x, z.x, 0.0f,
+                                      x.y, y.y, z.y, 0.0f,
+                                      x.z, y.z, z.z, 0.0f));
+}
+
 std::string g_error;
 std::string g_device = "none";
 bool g_probed = false;
@@ -260,6 +409,40 @@ bool pick_device(ccl::DeviceInfo &out)
  * same one the reference OIIO driver does — Cycles' buffer is bottom-up and
  * every image surface the app has is top-down.
  */
+/* M332 — LINEAR IN, sRGB OUT, and the second half of that was missing.
+ *
+ * `get_pass_pixels("combined", ...)` hands back SCENE-REFERRED LINEAR
+ * radiance: sample-averaged and exposure-applied, but with no display
+ * transform — that is Blender's job, through OCIO, and Cycles standalone's own
+ * driver leaves it to OIIO's file format. This driver had neither, so a linear
+ * value went straight into a byte that Flutter then draws as sRGB.
+ *
+ * That is not a subtle error. A surface at half the world's brightness is
+ * linear 0.5, which sRGB writes as 188; writing 128 instead renders it at
+ * about a fifth of the light it reflects. Every midtone came out crushed and
+ * the whole image muddy — and it was ASYMMETRIC, because cyclesLinear() in
+ * Dart has been decoding every material colour sRGB -> linear on the way in
+ * since M304. Colour went in through a curve and came out through none.
+ *
+ * The constants are the sRGB standard's, and they are exactly the inverse of
+ * the ones in cyclesLinear. */
+float srgb_encode(const float v)
+{
+  if (v <= 0.0f) {
+    return 0.0f;
+  }
+  if (v >= 1.0f) {
+    return 1.0f;
+  }
+  return (v <= 0.0031308f) ? v * 12.92f : 1.055f * powf(v, 1.0f / 2.4f) - 0.055f;
+}
+
+unsigned char quantise(const float v)
+{
+  const float c = v <= 0.0f ? 0.0f : (v >= 1.0f ? 1.0f : v);
+  return (unsigned char)(c * 255.0f + 0.5f);
+}
+
 class BufferOutput : public ccl::OutputDriver {
  public:
   BufferOutput(unsigned char *dst, const int width, const int height)
@@ -289,10 +472,14 @@ class BufferOutput : public ccl::OutputDriver {
     for (int y = 0; y < h; y++) {
       const float *src = px.data() + size_t(h - 1 - y) * size_t(w) * 4;
       unsigned char *dst = dst_ + size_t(y) * size_t(w) * 4;
-      for (int x = 0; x < w * 4; x++) {
-        const float v = src[x];
-        const float c = v <= 0.0f ? 0.0f : (v >= 1.0f ? 1.0f : v);
-        dst[x] = (unsigned char)(c * 255.0f + 0.5f);
+      for (int x = 0; x < w; x++) {
+        /* COLOUR IS ENCODED, ALPHA IS NOT. Alpha is a coverage fraction, not a
+         * light measurement, and running it through a transfer curve turns a
+         * half-covered edge pixel into a 3/4-covered one. */
+        dst[x * 4 + 0] = quantise(srgb_encode(src[x * 4 + 0]));
+        dst[x * 4 + 1] = quantise(srgb_encode(src[x * 4 + 1]));
+        dst[x * 4 + 2] = quantise(srgb_encode(src[x * 4 + 2]));
+        dst[x * 4 + 3] = quantise(src[x * 4 + 3]);
       }
     }
     wrote_ = true;
@@ -465,15 +652,68 @@ int cy_render(const CyMesh *meshes,
    *
    * The bug shipped in build 616 as well. Nothing had ever called cy_render on
    * a device until the warm-up did, so it had simply never run. */
+  /* ---- M332: THE BACKGROUND YOU SEE AND THE LIGHT IT CASTS ARE NOT THE
+   * SAME NUMBER ----------------------------------------------------------
+   *
+   * They were, and that is the second half of why the render came out flat. A
+   * world set to the viewport's own grey is a mid-brightness environment
+   * lighting every surface from every direction at once, and at that strength
+   * it does not merely coexist with the rig below — it SWAMPS it, adding the
+   * same value to every face and washing the modelling back out. Turning it
+   * down instead would have fixed the light and left the render sitting on a
+   * near-black background that looks nothing like the viewport it replaces.
+   *
+   * The two jobs separate cleanly, because Cycles can tell which ray is
+   * asking. A camera ray gets the viewport's grey at full strength, so the
+   * image sits on the background the rest of the app is drawing. Every other
+   * ray — the ones that carry light onto surfaces — gets a small fraction of
+   * it, enough to keep a cavity from going pure black and to tint the shadows
+   * with the room, and far too little to flatten anything. */
   if (scene->default_background != nullptr) {
+    const ccl::float3 world_color = ccl::make_float3(
+        view->world[0], view->world[1], view->world[2]);
+
     ccl::unique_ptr<ccl::ShaderGraph> graph = ccl::make_unique<ccl::ShaderGraph>();
-    ccl::BackgroundNode *bg = graph->create_node<ccl::BackgroundNode>();
-    bg->set_color(ccl::make_float3(view->world[0], view->world[1], view->world[2]));
-    bg->set_strength(1.0f);
-    graph->connect(bg->output("Background"), graph->output()->input("Surface"));
+
+    ccl::BackgroundNode *seen = graph->create_node<ccl::BackgroundNode>();
+    seen->set_color(world_color);
+    seen->set_strength(1.0f);
+
+    ccl::BackgroundNode *ambient = graph->create_node<ccl::BackgroundNode>();
+    ambient->set_color(world_color);
+    ambient->set_strength(kWorldAmbient);
+
+    /* MixClosureNode takes Closure1 at Fac 0 and Closure2 at Fac 1 — its own
+     * constant_fold is the statement of that, bypassing to Closure1 when the
+     * factor is <= 0. "Is Camera Ray" is 1 for the rays that draw the picture,
+     * so the visible background is Closure2 and the ambient is Closure1. */
+    ccl::LightPathNode *path = graph->create_node<ccl::LightPathNode>();
+    ccl::MixClosureNode *mix = graph->create_node<ccl::MixClosureNode>();
+    graph->connect(path->output("Is Camera Ray"), mix->input("Fac"));
+    graph->connect(ambient->output("Background"), mix->input("Closure1"));
+    graph->connect(seen->output("Background"), mix->input("Closure2"));
+    graph->connect(mix->output("Closure"), graph->output()->input("Surface"));
+
     ccl::Shader *world = scene->default_background;
     world->set_graph(std::move(graph));
     world->tag_update(scene);
+  }
+
+  /* ---- the light rig --------------------------------------------------- */
+  {
+    ccl::Shader *rig = rig_shader(scene);
+    /* The headlight sits at the camera and shines along its view direction.
+     * Column 2 of the camera-to-world basis IS that direction — Cycles'
+     * Camera::matrix is (right, up, FORWARD, eye) — so the light that follows
+     * the camera needs no separate input and cannot fall out of step with it. */
+    const ccl::float3 head_from = -rig_dir(m[2], m[6], m[10]);
+    add_distant_light(scene, rig, head_from, kRigHead * kRigScale, true, 0.0f);
+    add_distant_light(scene, rig, rig_dir(7.0f, 14.0f, 9.0f),
+                      kRigSun * kRigScale, true, kSunAngle);
+    add_distant_light(scene, rig, rig_dir(-3.0f, 6.0f, -4.0f),
+                      kRigFill * kRigScale, false, 0.0f);
+    add_distant_light(scene, rig, rig_dir(-9.0f, 7.0f, -12.0f),
+                      kRigRim * kRigScale, false, 0.0f);
   }
 
   /* ---- geometry -------------------------------------------------------- */

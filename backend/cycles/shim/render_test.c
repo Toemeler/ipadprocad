@@ -21,6 +21,14 @@
  *   * the image is not uniform. A black frame is what a scene with no world
  *     shader produces (M309), and a frame that is entirely background is what
  *     geometry silently dropped on the floor looks like;
+ *   * the background comes out sRGB-ENCODED. Writing linear radiance into a
+ *     byte that is then drawn as sRGB (M332) is invisible to every check that
+ *     compares one region against another, because it darkens both;
+ *   * SHADING DEPENDS ON THE NORMAL. This is the one that would have caught
+ *     the version of this renderer that had no lights at all: under a uniform
+ *     world every unoccluded diffuse surface has the same radiance whichever
+ *     way it faces, so a part renders as a flat silhouette. Two surfaces that
+ *     differ ONLY in their normal must not come out the same tone;
  *   * the object lands in the RIGHT QUADRANT. The camera convention is four
  *     things that must agree at once — the basis columns, the viewplane, the
  *     eye offset, and the output driver's vertical flip — and getting any one
@@ -32,6 +40,7 @@
  */
 #include "cycles_shim.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -129,9 +138,10 @@ int main(int argc, char **argv)
   view.width = TW;
   view.height = TH;
   view.samples = 16;
-  /* A bright uniform world: it is both the light and the background, so the
-   *background reads near 0.8 and a 0.8-albedo surface under it reads near
-   * 0.64. Distinguishable without being a knife edge. */
+  /* The world, LINEAR. Since M332 this is the background the CAMERA sees and
+   * only a small ambient on the surfaces; the light comes from the fixed rig
+   * in the shim. 0.8 linear is a bright background at sRGB 231, which is what
+   * the encode check below is written against. */
   view.world[0] = view.world[1] = view.world[2] = 0.8f;
 
   unsigned char *rgba = (unsigned char *)calloc((size_t)TW * TH * 4, 1);
@@ -158,17 +168,99 @@ int main(int argc, char **argv)
    * device that worked perfectly, with no error anywhere. */
   check(tl > 20.0, "the background is lit, not black");
 
-  /* Not uniform. Geometry that never reached the scene leaves a frame that is
-   * entirely background and otherwise looks fine. */
-  check(tr < tl - 10.0, "the object is visibly darker than the background");
+  /* The background is a world of LINEAR 0.8, and 0.8 linear is 231 in sRGB,
+   * not 204. Writing the linear value straight into the byte — which is what
+   * the driver did until M332 — is a whole-image error that no region-against-
+   * region check can see, because it darkens the object by the same curve.
+   * 215 sits between the two answers with room either side. */
+  check(tl > 215.0, "the background is sRGB-encoded, not raw linear");
 
-  /* And it is in the right corner. */
-  check(tl > tr + 10.0, "top-left is background, not object");
-  check(bl > tr + 10.0, "bottom-left is background (vertical flip is right)");
-  check(br > tr + 10.0, "bottom-right is background (horizontal axis is right)");
+  /* Not uniform. Geometry that never reached the scene leaves a frame that is
+   * entirely background and otherwise looks fine.
+   *
+   * DIFFERENT, not darker. Which way round it goes is a fact about the rig —
+   * a face square to the key light can easily be brighter than the background
+   * — and pinning the sign here would make a lighting change look like a
+   * geometry failure. What the check is for is that the quad is THERE. */
+  check(fabs(tr - tl) > 10.0, "the object is visibly distinct from the background");
+
+  /* And it is in the right corner.
+   *
+   * Stated as "the other three agree with each other and the fourth does not",
+   * which pins the position without pinning whether the object is lighter or
+   * darker than the background. If the quad landed in any other corner, one of
+   * the three would be the object and they would stop agreeing. */
+  check(fabs(tl - bl) < 6.0 && fabs(tl - br) < 6.0,
+        "the three background quadrants agree with each other");
+  check(fabs(tr - bl) > 10.0, "bottom-left is background (vertical flip is right)");
+  check(fabs(tr - br) > 10.0, "bottom-right is background (horizontal axis is right)");
 
   /* The kernels are compiled by now, by definition. */
   check(cy_kernels_ready() == 1, "cy_kernels_ready is set after a render");
+
+  /* ---- M332: does the light depend on which way a surface faces? --------
+   *
+   * THE TEST THIS FILE WAS MISSING. Everything above passes perfectly on a
+   * renderer with no lights at all: a uniform world lights an unoccluded
+   * diffuse surface to the same radiance whichever way its normal points, so
+   * a part comes out as one flat tone with occlusion in the corners, and the
+   * quadrant checks — which only ever ask "is this region different from that
+   * one" — see nothing wrong at all.
+   *
+   * Two quads that are GEOMETRICALLY IDENTICAL apart from their position, and
+   * differ only in the vertex normals handed to the shim: the left one tilted
+   * towards the sky, the right one towards the ground. Both still face the
+   * camera (positive z in the normal), so neither is back-facing and the
+   * difference cannot come from one of them being culled.
+   *
+   * Under the rig the left quad catches the sun almost square on and the right
+   * one is entirely in its own shade, lit by the headlight and the ambient
+   * alone. Under a uniform world they are the same number to within noise. */
+  {
+    const float up_n[12] = {
+        0.0f, 0.707f, 0.707f, 0.0f, 0.707f, 0.707f,
+        0.0f, 0.707f, 0.707f, 0.0f, 0.707f, 0.707f,
+    };
+    const float down_n[12] = {
+        0.0f, -0.707f, 0.707f, 0.0f, -0.707f, 0.707f,
+        0.0f, -0.707f, 0.707f, 0.0f, -0.707f, 0.707f,
+    };
+    const float left_q[12] = {
+        -9.0f, -9.0f, 0.0f, -1.0f, -9.0f, 0.0f, -1.0f, 9.0f, 0.0f, -9.0f, 9.0f, 0.0f,
+    };
+    const float right_q[12] = {
+        1.0f, -9.0f, 0.0f, 9.0f, -9.0f, 0.0f, 9.0f, 9.0f, 0.0f, 1.0f, 9.0f, 0.0f,
+    };
+    CyMesh faces[2];
+    memset(faces, 0, sizeof(faces));
+    for (int i = 0; i < 2; i++) {
+      faces[i].verts = i ? right_q : left_q;
+      faces[i].vert_count = 4;
+      faces[i].normals = i ? down_n : up_n;
+      faces[i].tris = tris;
+      faces[i].tri_count = 2;
+    }
+
+    unsigned char *lit = (unsigned char *)calloc((size_t)TW * TH * 4, 1);
+    if (lit == NULL) {
+      printf("FAIL: out of memory\n");
+      free(rgba);
+      return 1;
+    }
+    const int ok_lit = cy_render(faces, 2, &view, lit);
+    check(ok_lit == 1, "a scene with per-vertex normals renders");
+    if (ok_lit) {
+      const double up = quadrant(lit, 1, 1);
+      const double down = quadrant(lit, 0, 1);
+      printf("facing up=%.1f facing down=%.1f\n", up, down);
+      /* Around 223 against 149 as the rig stands. 25 is loose enough that the
+       * strengths can be retuned without rewriting the test, and far tighter
+       * than the zero difference a world-only renderer produces. */
+      check(up > down + 25.0,
+            "a surface facing the sky is brighter than one facing the ground");
+    }
+    free(lit);
+  }
 
   /* ---- and now the materials -------------------------------------------
    *

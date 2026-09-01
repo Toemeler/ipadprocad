@@ -165,13 +165,31 @@ double cyclesLinear(int channel) {
 
 /// The four ids [kMaterials] calls metals.
 ///
-/// They differ from the pigments only in FINISH here, not in `metallic`. A
-/// fully metallic surface under a uniform world reflects that world uniformly
-/// and comes out as a flat card with no modelling at all — worse than the
-/// diffuse it replaced. Metals become worth switching on when the world stops
-/// being uniform; until then they read as metal through a tighter specular,
-/// which a lower roughness gives.
+/// They differ from the pigments in FINISH — a tighter specular from a lower
+/// roughness — and not in how metallic they are. M332 gave the renderer four
+/// directional lights and a real environment, which is what a metal needs to
+/// reflect, so the old reason for holding `metallic` at zero (a uniform world
+/// reflects uniformly, and a fully metallic surface under one is a flat card)
+/// is gone. What replaces it is PARITY, not caution: see [kCyclesMetallic].
 const Set<String> kCyclesMetals = {'aluminium', 'graphite', 'brass', 'copper'};
+
+/// A TRACE of metal on every appearance, exactly as the RealityKit rendered
+/// view does it (PartScene.rendered, metallic 0.15).
+///
+/// The reasoning there applies here and is worth not re-deriving: a surface at
+/// metallic 1.0 takes essentially all of its colour from what it reflects, and
+/// what this scene has to reflect is four lights and a dim room. A brass part
+/// would come out dark and colourless — the appearance the user picked would
+/// have almost no say in how it looks, which is the opposite of the point.
+/// 0.15 gives the highlight the body's own tint without staking the surface on
+/// an environment that is not rich enough to carry it.
+///
+/// The same number for pigments and metals, again as RealityKit has it. The
+/// four metal ids are already distinguished by roughness, and doubling up two
+/// signals on one distinction only makes brass and red look like different
+/// KINDS of thing rather than the same plastic-or-metal question answered
+/// twice.
+const double kCyclesMetallic = 0.15;
 
 /// The material for a body painted [id] with packed [argb], or null for steel.
 CyclesMaterial? cyclesMaterial(String? id, int? argb) {
@@ -181,6 +199,7 @@ CyclesMaterial? cyclesMaterial(String? id, int? argb) {
     cyclesLinear(argb >> 8),
     cyclesLinear(argb),
     roughness: kCyclesMetals.contains(id) ? 0.25 : 0.5,
+    metallic: kCyclesMetallic,
   );
 }
 

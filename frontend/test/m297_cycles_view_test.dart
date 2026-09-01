@@ -291,16 +291,27 @@ void _materialTests() {
       expect(m.g, greaterThan(m.b));
     });
 
-    test('metals differ in FINISH, not in metallic', () {
-      // A fully metallic surface under a uniform world reflects it uniformly
-      // and comes out a flat card with no modelling — worse than the diffuse
-      // it replaced. They read as metal through a tighter specular instead,
-      // and become worth switching on when the world stops being uniform.
+    test('metals differ in FINISH, not in how metallic they are', () {
+      // M332 — the world stopped being uniform, so the old reason for holding
+      // metallic at zero went with it, and what remains is parity: RealityKit's
+      // rendered view puts a TRACE of metal (0.15) on every appearance and
+      // stakes none of them on an environment of four lights and a dim room.
+      // A brass part at metallic 1.0 would take its colour from what it
+      // reflects and the appearance the user picked would barely show.
+      //
+      // The same trace on both, so the metals are still told apart by finish
+      // alone — two signals for one distinction would make brass and red look
+      // like different kinds of thing rather than the same question answered
+      // twice.
       final brass = cyclesMaterial('brass', 0xFFC2A462)!;
       final red = cyclesMaterial('red', 0xFFC05B54)!;
       expect(brass.roughness, lessThan(red.roughness));
-      expect(brass.metallic, 0.0);
-      expect(red.metallic, 0.0);
+      expect(brass.metallic, kCyclesMetallic);
+      expect(red.metallic, kCyclesMetallic);
+      // A trace, not a metal: past about a third the base colour stops
+      // carrying the surface.
+      expect(kCyclesMetallic, greaterThan(0.0));
+      expect(kCyclesMetallic, lessThan(0.35));
     });
 
     test('a mesh carries the material it was built with', () {
