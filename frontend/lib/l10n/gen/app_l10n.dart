@@ -133,6 +133,24 @@ abstract class AppL10n {
   /// **'„System“ folgt der Einstellung des iPads.'**
   String get settingsAppearanceFooter;
 
+  /// Kontrollkästchen im Fehlerbericht: soll die Automatik den Fehler beheben?
+  ///
+  /// In de, this message translates to:
+  /// **'Automatisch beheben lassen'**
+  String get bugAutofix;
+
+  /// Hinweis unter dem Kontrollkästchen, wenn es aktiv ist.
+  ///
+  /// In de, this message translates to:
+  /// **'Der Bericht wird sofort an die Fix-Automatik übergeben.'**
+  String get bugAutofixOn;
+
+  /// Hinweis unter dem Kontrollkästchen, wenn es deaktiviert ist.
+  ///
+  /// In de, this message translates to:
+  /// **'Der Bericht wartet auf eine Sitzung, die du selbst startest.'**
+  String get bugAutofixOff;
+
   /// Abschnittstitel: die Farbe für Auswahl, aktiven Tab und Fokus.
   ///
   /// In de, this message translates to:

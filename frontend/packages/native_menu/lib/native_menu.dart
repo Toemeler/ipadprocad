@@ -159,6 +159,25 @@ class NativeMenu {
     }
   }
 
+  /// A PNG of the whole window, or null where there is no window to grab.
+  ///
+  /// Flutter can only screenshot what Flutter drew, and on this app that is a
+  /// minority of the screen — the 3D body is a RealityKit platform view and
+  /// the ribbon, tab bar and model browser are UIKit glass. A bug report about
+  /// any of those used to arrive with a picture that did not contain them.
+  ///
+  /// Swallows failures like the rest of this class: a report with no picture
+  /// is worth much more than no report.
+  static Future<Uint8List?> screenshot() async {
+    if (!isSupported) return null;
+    try {
+      return await _ch.invokeMethod<Uint8List>('screenshot');
+    } catch (_) {
+      // Older host build without the method, or no plugin at all.
+      return null;
+    }
+  }
+
   /// Bug report #11 — the accent the user chose, for the glass chrome.
   ///
   /// TWO colours, not one, and not the resolved one. UIKit resolves against

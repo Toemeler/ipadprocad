@@ -28,6 +28,18 @@ class AppL10nEn extends AppL10n {
       '“System” follows your iPad’s setting.';
 
   @override
+  String get bugAutofix =>
+      'Let the automation fix it';
+
+  @override
+  String get bugAutofixOn =>
+      'The report goes straight to the fix automation.';
+
+  @override
+  String get bugAutofixOff =>
+      'The report waits for a session you start yourself.';
+
+  @override
   String get settingsAccent =>
       'Accent colour';
 

@@ -28,6 +28,18 @@ class AppL10nDe extends AppL10n {
       '„System“ folgt der Einstellung des iPads.';
 
   @override
+  String get bugAutofix =>
+      'Automatisch beheben lassen';
+
+  @override
+  String get bugAutofixOn =>
+      'Der Bericht wird sofort an die Fix-Automatik übergeben.';
+
+  @override
+  String get bugAutofixOff =>
+      'Der Bericht wartet auf eine Sitzung, die du selbst startest.';
+
+  @override
   String get settingsAccent =>
       'Akzentfarbe';
 

@@ -41,6 +41,12 @@ WORKING = 'openhands-working'
 BLOCKED = 'openhands-blocked'
 REPORT = 'bug-report'
 
+# What the relay files a report under when the reporter cleared the "let the
+# automation fix it" box. Nothing here ever claims it — `bugfix.yml` runs only
+# for REPORT — so the label exists to be VISIBLE: an issue nobody is working on
+# should say so rather than look like one that was missed.
+MANUAL = 'needs-session'
+
 
 def _request(method, path, body=None, retries=3):
     url = path if path.startswith('http') else f'{API}{path}'
@@ -82,7 +88,9 @@ def ensure_labels():
     """Idempotent, and cheap enough to just always run."""
     for name, color, desc in (
             (WORKING, 'ededed', 'an automated run is working on this issue'),
-            (BLOCKED, 'b60205', 'automation could not safely fix this; needs a human')):
+            (BLOCKED, 'b60205', 'automation could not safely fix this; needs a human'),
+            (MANUAL, '5319e7',
+             'reported with automatic fixing off; waiting for a session')):
         try:
             _request('GET', f'/repos/{REPO}/labels/{name}')
         except urllib.error.HTTPError:

@@ -151,6 +151,36 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
                 dark: NativeMenuPlugin.color(args["dark"]) ?? binder.accentDark)
             result(nil)
 
+        // A REAL screenshot of the window, not of Flutter's layer tree.
+        //
+        // `RenderRepaintBoundary.toImage` on the Dart side can only see what
+        // Flutter drew. On this app that is a minority of the screen: the 3D
+        // body is a RealityKit platform view the OS composites separately, and
+        // the ribbon, tab bar, tool bar and model browser are UIKit glass. A
+        // bug report about any of them arrived with a picture that did not
+        // contain them.
+        //
+        // `drawHierarchy(afterScreenUpdates:)` renders the window as the
+        // compositor sees it, which is the only capture that includes both.
+        // `layer.render(in:)` is the older spelling and is NOT equivalent — it
+        // walks the layer tree and misses exactly the Metal-backed content
+        // this exists to catch.
+        case "screenshot":
+            guard let window = NativeMenuPlugin.keyWindow() else {
+                return result(nil)
+            }
+            let format = UIGraphicsImageRendererFormat.default()
+            // 2x is plenty to read a label and keeps a full-screen iPad grab
+            // near a megabyte; the bundle carries it over a phone connection.
+            format.scale = min(2.0, window.screen.scale)
+            let image = UIGraphicsImageRenderer(
+                bounds: window.bounds, format: format
+            ).image { _ in
+                window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+            }
+            guard let png = image.pngData() else { return result(nil) }
+            result(FlutterStandardTypedData(bytes: png))
+
         case "setTargets":
             let raw = args["targets"] as? [[String: Any]] ?? []
             targets = raw.compactMap { NativeMenuPlugin.parseTarget($0) }
@@ -462,6 +492,21 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
         }
         top.present(vc, animated: true, completion: nil)
         return true
+    }
+
+    /// The window the app is actually showing, by the same sweep
+    /// `keyRootViewController` uses. Split out because the screenshot needs
+    /// the WINDOW rather than its root controller.
+    static func keyWindow() -> UIWindow? {
+        var window: UIWindow?
+        for scene in UIApplication.shared.connectedScenes {
+            guard let ws = scene as? UIWindowScene else { continue }
+            if let key = ws.windows.first(where: { $0.isKeyWindow }) {
+                return key
+            }
+            if window == nil { window = ws.windows.first }
+        }
+        return window ?? (UIApplication.shared.delegate?.window ?? nil)
     }
 
     private static func keyRootViewController() -> UIViewController? {

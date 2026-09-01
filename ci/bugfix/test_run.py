@@ -1522,3 +1522,50 @@ class UnreachableChangeTest(unittest.TestCase):
                                 '  await menu(items: const [1, 2]);\n  //x'),
             extra='class W {\n  void initState() {\n    final z = 1;\n  }\n}\n')
         self.assertNotIn('initState', verify.dead_new_symbols(root))
+
+
+class ManualLabelTest(unittest.TestCase):
+    """The report dialog's checkbox decides whether this pipeline may run.
+
+    The relay files an opt-OUT report under a different label, and
+    `bugfix.yml` runs only for `bug-report` — so the switch is the label, and
+    nothing here has to know about the checkbox at all. What must hold is that
+    the two names differ and that the manual one exists, because an issue
+    nobody is working on should SAY so rather than look like one that was
+    missed.
+    """
+
+    def test_the_two_labels_are_not_the_same(self):
+        import gh
+        self.assertNotEqual(gh.MANUAL, gh.REPORT)
+
+    def test_the_manual_label_is_created_alongside_the_others(self):
+        import gh
+        made = []
+
+        def fake(method, path, body=None, retries=3):
+            if method == 'GET':                 # nothing exists yet
+                raise urllib.error.HTTPError(path, 404, 'no', None, None)
+            if method == 'POST' and body:
+                made.append(body['name'])
+            return {}
+
+        with mock.patch.object(gh, '_request', side_effect=fake):
+            gh.ensure_labels()
+        self.assertIn(gh.MANUAL, made)
+        self.assertIn(gh.WORKING, made)
+
+    def test_the_workflow_still_gates_on_the_autofix_label_only(self):
+        wf = (pathlib.Path(run.__file__).resolve().parents[2]
+              / '.github' / 'workflows' / 'bugfix.yml').read_text()
+        self.assertIn("contains(github.event.issue.labels.*.name, 'bug-report')",
+                      wf)
+        self.assertNotIn('needs-session', wf,
+                         'the manual label must not be a trigger anywhere')
+
+    def test_the_relay_defaults_to_autofix_when_the_field_is_absent(self):
+        """An older build sends no field; it must not park the report."""
+        js = (pathlib.Path(run.__file__).resolve().parents[2]
+              / 'relay' / 'worker.js').read_text()
+        self.assertIn("form.get('autofix') ?? '1'", js)
+        self.assertIn("env.MANUAL_LABEL || 'needs-session'", js)

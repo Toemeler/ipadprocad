@@ -7,6 +7,10 @@ REPO_OWNER = "toemeler"
 REPO_NAME = "ipadprocad"
 REPORT_BRANCH = "bug-reports"
 ISSUE_LABEL = "bug-report"
+# What a report filed with "let the automation fix it" CLEARED is labelled.
+# `.github/workflows/bugfix.yml` runs only for ISSUE_LABEL, so anything else
+# keeps ci/bugfix off the issue and leaves it for a session a person starts.
+MANUAL_LABEL = "needs-session"
 
 # Secrets — set these with `wrangler secret put <NAME>`, never write them
 # here or anywhere else that gets committed:

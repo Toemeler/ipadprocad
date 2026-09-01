@@ -61,6 +61,12 @@ Future<BugUploadResult> uploadBugReport({
   required Uint8List zipBytes,
   required String stem,
   required String description,
+  /// False when the reporter cleared the box in the dialog. The relay turns
+  /// this into the LABEL on the issue, and the label is what decides whether
+  /// `ci/bugfix` may claim it — see `.github/workflows/bugfix.yml`. Sent as
+  /// '1'/'0' because a multipart field is a string either way, and an absent
+  /// field must mean "yes" for older builds.
+  bool autofix = true,
   Duration timeout = const Duration(seconds: 20),
 }) async {
   if (!bugUploadConfigured) {
@@ -70,6 +76,7 @@ Future<BugUploadResult> uploadBugReport({
     final req = http.MultipartRequest('POST', Uri.parse(bugRelayUrl))
       ..fields['stem'] = stem
       ..fields['description'] = description
+      ..fields['autofix'] = autofix ? '1' : '0'
       ..files.add(http.MultipartFile.fromBytes('bundle', zipBytes,
           filename: '$stem.zip'));
     if (bugRelaySecret.isNotEmpty) {

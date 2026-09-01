@@ -42,15 +42,16 @@ class BugReport {
   /// so the user is never left wondering whether the tap registered.
   static Future<void> open(BuildContext context, AppState app) async {
     if (!enabled) return;
-    final text = await showDialog<String>(
+    final answer = await showDialog<BugReportRequest>(
       context: context,
       barrierDismissible: false,
       builder: (_) => const _BugDialog(),
     );
-    if (text == null) return; // cancelled
+    if (answer == null) return; // cancelled
     if (!context.mounted) return;
     await Future<void>.delayed(const Duration(milliseconds: 120));
-    final result = await captureBugReport(app, text);
+    final result =
+        await captureBugReport(app, answer.text, autofix: answer.autofix);
     if (!context.mounted) return;
     await showDialog<void>(
       context: context,
@@ -63,6 +64,20 @@ class BugReport {
   }
 }
 
+/// What the report dialog came back with.
+///
+/// A record rather than a bare String since the checkbox arrived: the fix
+/// automation is opt-OUT, and which way the box was left has to travel with
+/// the words all the way to the label on the issue.
+class BugReportRequest {
+  const BugReportRequest(this.text, {required this.autofix});
+  final String text;
+
+  /// True — the default — means the issue is filed for the automated fixer.
+  /// False means it is filed for a person, and `ci/bugfix` never claims it.
+  final bool autofix;
+}
+
 class _BugDialog extends StatefulWidget {
   const _BugDialog();
 
@@ -72,6 +87,10 @@ class _BugDialog extends StatefulWidget {
 
 class _BugDialogState extends State<_BugDialog> {
   final _c = TextEditingController();
+
+  /// ON by default. Most reports are the automation's to take, and a default
+  /// that has to be switched ON is a default nobody uses.
+  bool _autofix = true;
 
   @override
   void dispose() {
@@ -112,6 +131,42 @@ class _BugDialogState extends State<_BugDialog> {
                     borderSide: BorderSide(color: T.sep)),
               ),
             ),
+            const SizedBox(height: 8),
+            // A row rather than a CheckboxListTile: this dialog is 460 wide
+            // and the tile's own padding would push the label away from the
+            // box far enough to read as two separate controls.
+            InkWell(
+              onTap: () => setState(() => _autofix = !_autofix),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Checkbox(
+                      value: _autofix,
+                      onChanged: (v) => setState(() => _autofix = v ?? true),
+                      side: BorderSide(color: T.sep),
+                      activeColor: T.accent,
+                      checkColor: T.onAccent,
+                    ),
+                    const SizedBox(width: 4),
+                    Flexible(
+                      child: Text(L.of(context).bugAutofix,
+                          style: ts(12, T.text)),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(left: 4, top: 2),
+              child: Text(
+                _autofix
+                    ? L.of(context).bugAutofixOn
+                    : L.of(context).bugAutofixOff,
+                style: ts(11, T.dim),
+              ),
+            ),
           ],
         ),
       ),
@@ -126,7 +181,8 @@ class _BugDialogState extends State<_BugDialog> {
           // Deliberately NOT disabled on empty text: the state dump is the
           // valuable half and it is complete either way, so a wordless report
           // still beats no report.
-          onPressed: () => Navigator.of(context).pop(_c.text),
+          onPressed: () => Navigator.of(context)
+              .pop(BugReportRequest(_c.text, autofix: _autofix)),
           child: Text(L.of(context).btnSaveReport, style: ts(13, T.onAccent)),
         ),
       ],

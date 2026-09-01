@@ -47,6 +47,10 @@ export default {
 
     const stem = sanitizeStem(String(form.get('stem') ?? ''));
     const description = String(form.get('description') ?? '');
+    // The checkbox in the report dialog, which is opt-OUT. Absent means YES:
+    // a build from before the box existed still wants the automation, and a
+    // missing field must never silently park a report nobody is watching.
+    const autofix = String(form.get('autofix') ?? '1') !== '0';
     const file = form.get('bundle');
     if (!(file instanceof File)) {
       return json({ error: 'missing "bundle" file field' }, 400);
@@ -99,14 +103,23 @@ export default {
         '',
         `Bundle: ${fileUrl}`,
         `Raw zip: ${rawUrl}`,
+        ...(autofix ? [] : ['', 'Reported with automatic fixing turned OFF.']),
       ].join('\n');
+
+      // THE LABEL IS THE SWITCH. `.github/workflows/bugfix.yml` runs only for
+      // `bug-report`, and `gh.claim` swaps that label away as it takes the
+      // issue — so filing under any other name is what keeps `ci/bugfix` off
+      // it and leaves it for a session a person starts.
+      const label = autofix
+        ? env.ISSUE_LABEL
+        : (env.MANUAL_LABEL || 'needs-session');
 
       const issueRes = await gh(`/repos/${owner}/${repo}/issues`, {
         method: 'POST',
         body: JSON.stringify({
           title: `Bug report: ${title}`,
           body,
-          labels: env.ISSUE_LABEL ? [env.ISSUE_LABEL] : undefined,
+          labels: label ? [label] : undefined,
         }),
       });
       if (!issueRes.ok) {

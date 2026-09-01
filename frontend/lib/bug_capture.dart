@@ -39,13 +39,23 @@ import 'reality_scene.dart';
 /// RepaintBoundary wrapping the whole app body in main.dart.
 final GlobalKey screenshotKey = GlobalKey(debugLabel: 'bug-screenshot');
 
-/// PNG of whatever Flutter has rendered, or null.
+/// A PNG of the screen, or null.
 ///
-/// On iOS the 3D body is a RealityKit PLATFORM VIEW: the OS composites it
-/// outside Flutter's layer tree, so it is absent from this image however the
-/// capture is done. 2D sketches are a CustomPainter and come out complete.
-/// The bundle says which, next to the file, so an empty-looking viewport is
-/// never mistaken for a missing body.
+/// TWO CAPTURES, AND THE NATIVE ONE IS THE REAL SCREENSHOT.
+///
+/// `RenderRepaintBoundary.toImage` can only see what Flutter drew, and on this
+/// app that is a minority of the screen: the 3D body is a RealityKit platform
+/// view the OS composites outside Flutter's layer tree, and the ribbon, tab
+/// bar, tool bar and model browser are UIKit glass. Reports about any of them
+/// used to arrive with a picture that did not contain them — the reader saw an
+/// empty viewport and a blank frame and had to be told, in prose beside the
+/// file, that this was an artefact of the capture rather than the bug.
+///
+/// So on iOS the window is grabbed natively first (`drawHierarchy`, which
+/// renders what the compositor shows) and the Flutter boundary is the
+/// FALLBACK — for the host tests, for a desktop run, and for a host build too
+/// old to know the method. [nativeScreenshot] says which one this was, so the
+/// bundle can still be honest about what is missing when it is the fallback.
 /// [timeout] exists because toImage can simply never complete: it hands the
 /// work to the rasterizer and waits, and where there is no rasterizer to
 /// answer — a headless test, and by extension a backgrounded or
@@ -53,10 +63,31 @@ final GlobalKey screenshotKey = GlobalKey(debugLabel: 'bug-screenshot');
 /// a bound meant the bug button could hang the app while reporting a hang,
 /// which is the worst possible failure for this particular feature. Found by
 /// the widget test below, which hung for ten minutes.
+/// True when the last [captureScreenshot] came from the window rather than
+/// from Flutter's layer tree — i.e. when the picture actually shows the 3D
+/// body and the native chrome.
+bool nativeScreenshot = false;
+
 Future<Uint8List?> captureScreenshot({
   double pixelRatio = 1.5,
   Duration timeout = const Duration(seconds: 4),
 }) async {
+  nativeScreenshot = false;
+  // The whole window, where there is one. Bounded like the Flutter path
+  // below: a report about a hang must never hang on reporting it.
+  try {
+    final native = await NativeMenu.screenshot().timeout(timeout,
+        onTimeout: () {
+      Log.w('bug', 'native screenshot timed out; falling back to Flutter');
+      return null;
+    });
+    if (native != null && native.isNotEmpty) {
+      nativeScreenshot = true;
+      return native;
+    }
+  } catch (e) {
+    Log.w('bug', 'native screenshot failed: $e; falling back to Flutter');
+  }
   try {
     final ctx = screenshotKey.currentContext;
     if (ctx == null) return null;
@@ -168,7 +199,8 @@ class BugCaptureResult {
 ///
 /// [description] is what the user typed. Everything else is gathered here.
 Future<BugCaptureResult> captureBugReport(
-    AppState app, String description) async {
+    AppState app, String description,
+    {bool autofix = true}) async {
   final when = DateTime.now();
   try {
     // Get the log on disk BEFORE reading it, or the bundle ships a log that
@@ -246,7 +278,10 @@ Future<BugCaptureResult> captureBugReport(
       gestureText: GestureTrace.dump().join('\n'),
       realityText: RealityPush.dump().join('\n'),
       hasScreenshot: png != null,
-      screenshotOmits3D: Platform.isIOS,
+      // Only the FALLBACK omits the 3D body and the glass chrome. A native
+      // grab shows the screen, so saying otherwise beside it would send the
+      // reader looking for a missing body that is right there in the picture.
+      screenshotOmits3D: Platform.isIOS && !nativeScreenshot,
     );
 
     // Added here rather than in buildBundle because it needs the scene layer,
@@ -459,6 +494,7 @@ Future<BugCaptureResult> captureBugReport(
         zipBytes: out.readAsBytesSync(),
         stem: stem,
         description: description,
+        autofix: autofix,
       );
       if (upload.ok) {
         Log.i('bug', 'bug bundle uploaded: ${upload.issueUrl}');

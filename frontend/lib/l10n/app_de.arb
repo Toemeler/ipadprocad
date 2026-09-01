@@ -32,6 +32,18 @@
   "@settingsAppearanceFooter": {
     "description": "Fusszeile unter der Darstellung."
   },
+  "bugAutofix": "Automatisch beheben lassen",
+  "@bugAutofix": {
+    "description": "Kontrollkästchen im Fehlerbericht: soll die Automatik den Fehler beheben?"
+  },
+  "bugAutofixOn": "Der Bericht wird sofort an die Fix-Automatik übergeben.",
+  "@bugAutofixOn": {
+    "description": "Hinweis unter dem Kontrollkästchen, wenn es aktiv ist."
+  },
+  "bugAutofixOff": "Der Bericht wartet auf eine Sitzung, die du selbst startest.",
+  "@bugAutofixOff": {
+    "description": "Hinweis unter dem Kontrollkästchen, wenn es deaktiviert ist."
+  },
   "settingsAccent": "Akzentfarbe",
   "@settingsAccent": {
     "description": "Abschnittstitel: die Farbe für Auswahl, aktiven Tab und Fokus."
