@@ -1622,3 +1622,103 @@ class ExpandCostTest(unittest.TestCase):
         """Saying it costs $0.0441/M here and a round anywhere else."""
         import model
         self.assertNotIn('DECIDE THAT FIRST', model.ask.__doc__ or '')
+
+
+class UnrunChangeTest(unittest.TestCase):
+    """"How much of the diff ran" was the wrong question, twice.
+
+    Both wrong fixes for #12 changed a pure function AND the widget path that
+    is meant to call it, then tested only the pure function — about a quarter
+    of the added lines, clearing a floor of 0.20 by a whisker. The sharp
+    question is whether there is code you changed that your test never entered
+    at all. `_sendFile` was rewritten in both attempts and entered by neither.
+    """
+
+    SRC = ('List<String> exportFormatsFor(String kind) {\n'      # 1
+           "  if (kind == 'ptp') {\n"                            # 2
+           "    return ['stl', 'step'];\n"                       # 3
+           '  }\n'                                               # 4
+           "  return ['step'];\n"                                # 5
+           '}\n'                                                 # 6
+           '\n'                                                  # 7
+           'Future<void> sendFile(String name) async {\n'        # 8
+           '  final formats = exportFormatsFor(name);\n'         # 9
+           '  if (formats.length > 1) {\n'                       # 10
+           '    await chooser(formats);\n'                       # 11
+           '  }\n'                                               # 12
+           '}\n')                                                # 13
+
+    def build(self, counts):
+        """A repo whose diff added lines 2,3,9,10, with lcov saying `counts`."""
+        tmp = pathlib.Path(tempfile.mkdtemp())
+        lib = tmp / 'frontend/lib/widgets'
+        lib.mkdir(parents=True)
+        (tmp / 'frontend/coverage').mkdir(parents=True)
+        f = lib / 'home_view.dart'
+        f.write_text('\n')
+        for cmd in (['git', 'init', '-q', '.'],
+                    ['git', 'config', 'user.email', 't@e'],
+                    ['git', 'config', 'user.name', 't'],
+                    ['git', 'add', '-A'], ['git', 'commit', '-qm', 'base']):
+            subprocess.run(cmd, cwd=tmp, capture_output=True)
+        f.write_text(self.SRC)
+        lcov = ['SF:lib/widgets/home_view.dart']
+        lcov += [f'DA:{n},{c}' for n, c in counts.items()]
+        lcov.append('end_of_record')
+        (tmp / 'frontend/coverage/lcov.info').write_text('\n'.join(lcov) + '\n')
+        return tmp
+
+    def test_a_changed_function_the_test_never_enters_is_named(self):
+        import verify
+        # exportFormatsFor ran; sendFile did not — #12's shape exactly.
+        root = self.build({2: 5, 3: 5, 9: 0, 10: 0, 11: 0})
+        self.assertEqual(verify.unrun_changes([], root),
+                         ['lib/widgets/home_view.dart:sendFile'])
+
+    def test_when_the_test_drives_both_it_passes(self):
+        import verify
+        root = self.build({2: 5, 3: 5, 9: 2, 10: 2, 11: 1})
+        self.assertEqual(verify.unrun_changes([], root), [])
+
+    def test_one_executed_line_is_enough_to_count_as_entered(self):
+        """A branch not taken is not the same as a function never called."""
+        import verify
+        root = self.build({2: 5, 3: 5, 9: 1, 10: 1, 11: 0})
+        self.assertEqual(verify.unrun_changes([], root), [])
+
+    def test_no_coverage_data_never_blocks(self):
+        import verify
+        root = self.build({2: 5, 3: 5, 9: 0, 10: 0})
+        (root / 'frontend/coverage/lcov.info').unlink()
+        self.assertEqual(verify.unrun_changes([], root), [],
+                         'absence of evidence must not block a fix')
+
+    def test_the_ratio_gate_would_have_let_this_through(self):
+        """Why the ratio was not enough, stated as a number."""
+        import verify
+        root = self.build({2: 5, 3: 5, 9: 0, 10: 0, 11: 0})
+        added = verify.added_lib_lines(root)
+        executable = {2, 3, 9, 10, 11}
+        changed = added['lib/widgets/home_view.dart'] & executable
+        ran = {2, 3}
+        self.assertGreater(len(ran) / len(changed), verify.COVERAGE_FLOOR,
+                           'the ratio clears the floor; the sharp rule does not')
+
+
+class UnrunStandsDownTest(unittest.TestCase):
+    def test_it_is_a_soft_rejection(self):
+        """A path behind `NativeMenu.isSupported` cannot be entered on Linux.
+
+        One refusal is the round that matters — both of #12's wrong fixes
+        would have been sent back on it, and neither had an excuse — but a
+        gate that CANNOT be satisfied would burn the whole budget instead.
+        """
+        import verify
+        self.assertTrue(any(m in 'your test never runs `x`'
+                            for m in verify.SOFT_REJECTIONS))
+
+    def test_the_always_avoidable_gates_are_still_hard(self):
+        import verify
+        for reason in ('your test reads the source file and asserts',
+                       'and nothing in the app calls it'):
+            self.assertFalse(any(m in reason for m in verify.SOFT_REJECTIONS))

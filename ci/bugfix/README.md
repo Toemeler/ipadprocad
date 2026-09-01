@@ -115,7 +115,7 @@ reaches a pack as about ninety of them.
 | `edits.py` | Search/replace block format, parsing and all-or-nothing application. Enforces forbidden paths. |
 | `verify.py` | `analyze`, `test`, and the test-first gate. |
 | `run.py` | The loop: ask → gate → verify → ship, or escalate, or block. |
-| `test_*.py` | 185 tests. Run by the workflow *before* the model is called. |
+| `test_*.py` | 192 tests. Run by the workflow *before* the model is called. |
 
 ## Turning it off for one report
 
@@ -229,6 +229,16 @@ next step is always a re-run rather than an archaeology session.
 - **Prefix drift is silent.** A timestamp or an issue number accidentally
   placed ahead of the pack in `model.SYSTEM` costs 30× on every call and breaks
   nothing visibly. If the printed cost per run climbs, look there first.
+- **A change to a path the test never enters is a guess about that path.**
+  Both wrong fixes for issue #12 changed a pure function AND the widget path
+  meant to call it, tested only the pure function — about a quarter of the
+  added lines, clearing `COVERAGE_FLOOR` by a whisker — and both invented a
+  premise about the shape of a document name that entering `_sendFile` once
+  would have disproved. `verify.unrun_changes()` asks the sharper question:
+  is there a declaration you edited whose changed lines never executed at all?
+  It names it, which is a better rejection than any percentage. Soft, like the
+  floor: a path behind `NativeMenu.isSupported` cannot be entered from Linux,
+  so it refuses once and then stands down.
 - **A change to app code must be reachable FROM app code.** Issue #12's first
   shipped fix changed two lines inside `exportFormatsFor`, a function declared
   in `home_view.dart` and called by its own tests and nothing else — the real

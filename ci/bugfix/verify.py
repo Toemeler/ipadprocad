@@ -369,7 +369,14 @@ COVERAGE_FLOOR = 0.20
 #
 # The other two quality gates — a test that greps its own diff, a helper with
 # no callers — are ALWAYS avoidable and are never stood down.
-SOFT_REJECTIONS = ('regression pin', 'not exercising the fix')
+#
+# `never runs` joins the soft list for the same reason the coverage floor is
+# soft: a function behind `if (NativeMenu.isSupported)` cannot be entered from
+# a Linux host however the test is written, and a gate that cannot be satisfied
+# is a gate that burns the whole budget. It gets ONE refusal, which is the
+# round that matters — both wrong fixes for issue #12 would have been sent back
+# on it, and neither had an excuse.
+SOFT_REJECTIONS = ('regression pin', 'not exercising the fix', 'never runs')
 
 LCOV_SF_RE = re.compile(r'^SF:(.+)$')
 LCOV_DA_RE = re.compile(r'^DA:(\d+),(\d+)')
@@ -452,6 +459,62 @@ def coverage_of_change(test_paths, root=ROOT):
     return hit, total
 
 
+def _decl_at(lines, line_no):
+    """The declaration whose body contains 1-based `line_no`. -> name or None."""
+    for i in range(min(line_no, len(lines)) - 1, -1, -1):
+        found = DECL_NAME_RE.match(lines[i])
+        if found:
+            return found.group(1) or found.group(2)
+    return None
+
+
+def unrun_changes(test_paths, root=ROOT):
+    """Declarations this change edits that the test never ENTERS. -> [names]
+
+    WHY A RATIO WAS THE WRONG SHAPE, measured on issue #12's two attempts.
+
+    `coverage_of_change` asks what FRACTION of the added lines ran. Both wrong
+    fixes for #12 changed a pure function AND the widget path that is supposed
+    to call it, then tested only the pure function — about a quarter of the
+    added lines, which cleared a floor of 0.20 by a whisker. Twice.
+
+    The sharp question is not "how much of the diff ran" but "is there code you
+    changed that your test never entered at all". `_sendFile` was rewritten in
+    both attempts and entered by neither, and saying exactly that is a better
+    rejection than any percentage: a fix whose author never runs the path it
+    edits is guessing about what flows through it, which is precisely how both
+    attempts invented a premise about the shape of a document name.
+
+    Framework lifecycle methods are exempt, as everywhere else — nothing calls
+    `build` explicitly, and a widget test enters it without naming it.
+    """
+    added = added_lib_lines(root)
+    if not added:
+        return []
+    lcov = pathlib.Path(root) / 'frontend' / 'coverage' / 'lcov.info'
+    if not lcov.is_file():
+        return []            # no data is not evidence of absence
+    data = _parse_lcov(lcov.read_text(encoding='utf-8', errors='ignore'))
+    cold = []
+    for path, changed in sorted(added.items()):
+        counts = data.get(path)
+        if not counts:
+            continue         # the file is not in the report at all
+        text = (root / 'frontend' / path).read_text(
+            encoding='utf-8', errors='replace').splitlines()
+        entered, seen = {}, {}
+        for line in changed:
+            if line not in counts:
+                continue     # not executable: a comment, a brace, a blank
+            name = _decl_at(text, line) or '(top level)'
+            seen[name] = True
+            entered[name] = entered.get(name, False) or counts[line] > 0
+        for name, ran in sorted(entered.items()):
+            if not ran and name not in FRAMEWORK_CALLED:
+                cold.append(f'{path}:{name}')
+    return cold
+
+
 def gate(apply_tests, apply_code, revert, test_paths, allow_weak=False,
          code_paths=()):
     """The test-first gate. -> (ok, reason, log)
@@ -525,6 +588,19 @@ def gate(apply_tests, apply_code, revert, test_paths, allow_weak=False,
                 '')
 
     hit, total = coverage_of_change(test_paths)
+    # Named first, because "you never ran `_sendFile`" is a better sentence
+    # than any percentage, and it reuses the lcov the line above just wrote.
+    cold = unrun_changes(test_paths)
+    if cold and not allow_weak:
+        return (False,
+                'your test never runs ' + ', '.join(f'`{c}`' for c in cold[:3])
+                + ', and you changed ' + ('them' if len(cold) > 1 else 'it')
+                + '. A fix whose author never enters the path it edits is '
+                'guessing about what flows through it. Drive that path in the '
+                'test — pump the widget and perform the interaction the report '
+                'describes, or call the function with the values the app '
+                'really passes it.',
+                '')
     if total and hit / total < COVERAGE_FLOOR and not allow_weak:
         return (False,
                 f'your test runs only {hit} of the {total} executable lines '
