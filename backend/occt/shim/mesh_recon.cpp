@@ -59,6 +59,7 @@
 #include <BRepCheck_Analyzer.hxx>
 #include <BRepGProp.hxx>
 #include <BRepLib.hxx>
+#include <BRepMesh_IncrementalMesh.hxx>
 #include <BRepTools.hxx>
 #include <ElSLib.hxx>
 #include <GProp_GProps.hxx>
@@ -1655,6 +1656,14 @@ const int kMaxSewFaces = 20000;
  * nothing to protect — the faceted build is no heavier than what the fitted
  * pass already produced, and it closes. */
 const int kFittedIsFacetedPercent = 95;
+
+/* M333 — how much of a shape must be carried by FITTED surfaces before the
+ * result counts as a reading of it rather than an attempt at one.
+ *
+ * Two thirds, which every organic fixture clears by a wide margin (the
+ * ellipsoids sit at 99.8-100% and the fused pair at 98.4%) and which nothing
+ * that fell apart could. It is a floor, not a threshold to tune. */
+const int kFittedIsReadingPercent = 66;
 
 /* Above this the faceted fallback is not a rescue, it is a freeze.
  *
@@ -8162,7 +8171,142 @@ TopoDS_Shape BuildFaceted(const Mesh &m, double tol, Report &rep)
     return out;
 }
 
+
+/* ---- tessellating a reconstructed body so it has no holes ---------------- */
+
+/* The area a face's triangles actually cover. A face BRepMesh gave up on
+ * covers a fraction of itself and reports success, so "has a triangulation" is
+ * not the question; "how much of it is drawn" is. */
+static double MeshedArea(const TopoDS_Face &f)
+{
+    TopLoc_Location loc;
+    const Handle(Poly_Triangulation) t = BRep_Tool::Triangulation(f, loc);
+    if (t.IsNull())
+        return 0.0;
+    const gp_Trsf &tr = loc.Transformation();
+    double a = 0;
+    for (int i = 1; i <= t->NbTriangles(); ++i) {
+        int n1, n2, n3;
+        t->Triangle(i).Get(n1, n2, n3);
+        const gp_Pnt A = t->Node(n1).Transformed(tr);
+        const gp_Pnt B = t->Node(n2).Transformed(tr);
+        const gp_Pnt C = t->Node(n3).Transformed(tr);
+        a += 0.5 * gp_Vec(A, B).Crossed(gp_Vec(A, C)).Magnitude();
+    }
+    return a;
+}
+
+/* Spans an order of magnitude either side of what was asked for. A spread, not
+ * a tuning: choosing the values to hit one model's lucky deflection would be
+ * fitting a fixture rather than fixing a bug. 1.0 comes first so a shape that
+ * meshes cleanly — which is nearly all of them — pays nothing at all. */
+static const double kMeshLadder[] = {1.0, 1.37, 0.73, 2.11, 0.41,
+                                     4.0, 0.19, 0.13, 0.09};
+static const size_t kMeshRungs = sizeof(kMeshLadder) / sizeof(kMeshLadder[0]);
+
+/* Under a chord even a perfect tessellation reports less area than the surface
+ * has — 98.6% across the whole whale at the deflection the app asks for. This
+ * bar sits below what chords cost and well above the 88.3% and 94.6% of the
+ * faces that were genuinely torn. */
+static const double kMeshCoverBar = 0.95;
+
 } // namespace
+
+int TessellateCovered(const TopoDS_Shape &s, double lin, double ang,
+                      std::vector<double> &faceArea, double &factor)
+{
+    if (s.IsNull() || !(lin > 0))
+        return 0;
+
+    /* Areas are a property of the shape, which is immutable here, so they are
+     * measured once; the tessellation is rebuilt on every zoom. Measured on the
+     * whale, BRepGProp over 362 faces costs 150 ms and summing the triangles
+     * costs 0.8 ms — the expensive half is paid once per shape, the cheap half
+     * per remesh. */
+    if (faceArea.empty()) {
+        for (TopExp_Explorer ex(s, TopAbs_FACE); ex.More(); ex.Next()) {
+            double a = 0;
+            try {
+                GProp_GProps g;
+                BRepGProp::SurfaceProperties(TopoDS::Face(ex.Current()), g);
+                a = g.Mass();
+            } catch (const Standard_Failure &) {
+            } catch (...) {
+            }
+            faceArea.push_back(a);
+        }
+    }
+
+    /* `empty` is faces with no triangles at all — a hole. `torn` is faces
+     * below the bar. A pass is judged on empty first and coverage second: a
+     * whole face missing is a hole, a slightly under-covered one is a chord. */
+    int empty = 0, torn = 0;
+    double cover = 0;
+    auto grade = [&]() {
+        empty = torn = 0;
+        double got = 0, tot = 0;
+        size_t fi = 0;
+        for (TopExp_Explorer ex(s, TopAbs_FACE); ex.More(); ex.Next(), ++fi) {
+            const double want = fi < faceArea.size() ? faceArea[fi] : 0.0;
+            if (!(want > 0))
+                continue;
+            const double have = MeshedArea(TopoDS::Face(ex.Current()));
+            got += have;
+            tot += want;
+            if (have <= 0)
+                ++empty;
+            else if (have < want * kMeshCoverBar)
+                ++torn;
+        }
+        cover = tot > 0 ? got / tot : 1.0;
+    };
+
+    auto meshWhole = [&](double f) {
+        try {
+            BRepTools::Clean(s);
+            BRepMesh_IncrementalMesh again(s, lin * f, Standard_False, ang,
+                                           Standard_True);
+            (void)again;
+        } catch (const Standard_Failure &) {
+        } catch (...) {
+        }
+    };
+
+    meshWhole(1.0);
+    grade();
+
+    /* What worked last time, before searching again. */
+    if (empty > 0 && factor > 0 && factor != 1.0) {
+        meshWhole(factor);
+        grade();
+    }
+
+    if (empty > 0) {
+        double bestF = 1.0, bestCover = cover;
+        int bestEmpty = empty;
+        double lastTried = 1.0;
+        for (size_t k = 0; k < kMeshRungs && bestEmpty > 0; ++k) {
+            if (kMeshLadder[k] == 1.0)
+                continue; /* measured already */
+            meshWhole(kMeshLadder[k]);
+            lastTried = kMeshLadder[k];
+            grade();
+            if (empty < bestEmpty || (empty == bestEmpty && cover > bestCover)) {
+                bestEmpty = empty;
+                bestCover = cover;
+                bestF = kMeshLadder[k];
+            }
+        }
+        if (lastTried != bestF)
+            meshWhole(bestF);
+        factor = bestF;
+        grade();
+    } else if (factor == 0.0) {
+        factor = 1.0;
+    }
+    return empty;
+}
+
 
 TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
                          const Params &prm, Report &rep, std::string &err)
@@ -8519,45 +8663,6 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
         }
     }
 
-    /* Nothing at all was recognised: then this is a mesh, and it should be
-     * built as one piece rather than as a mosaic of faceted patches. The
-     * difference is not cosmetic — each faceted patch is emitted with its own
-     * vertices, so 183 of them meet along seams that sewing has to rediscover,
-     * and a squashed ellipsoid came back 0.02% light where one faceted shell
-     * reproduces the mesh's volume exactly. */
-    {
-        bool anyFit = false;
-        for (const Patch &pa : patches)
-            if (pa.fit.kind != kNone) {
-                anyFit = true;
-                break;
-            }
-        if (!anyFit && m.triCount() <= prm.max_faceted_triangles) {
-            Report fr;
-            ClearReport(fr);
-            fr.triangles_in = rep.triangles_in;
-            fr.vertices_in = rep.vertices_in;
-            fr.triangles_used = rep.triangles_used;
-            fr.vertices_welded = rep.vertices_welded;
-            fr.non_manifold_edges = rep.non_manifold_edges;
-            fr.boundary_edges = rep.boundary_edges;
-            fr.flipped_triangles = rep.flipped_triangles;
-            fr.diagonal = rep.diagonal;
-            fr.patches = rep.patches;
-            TopoDS_Shape alt;
-            try {
-                alt = BuildFaceted(m, tol, fr);
-            } catch (const Standard_Failure &) {
-            } catch (const std::exception &) {
-            } catch (...) {
-            }
-            if (!alt.IsNull()) {
-                rep = fr;
-                MR_STAGE("faceted (nothing recognised)");
-                return alt;
-            }
-        }
-    }
     /* A patch with no surface among patches that have one usually belongs to
      * them; see DissolveUnexplained. */
     {
@@ -8588,6 +8693,82 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
                     patchOf[t] = static_cast<int>(i);
         }
         MR_STAGE("freeform surfaces");
+    }
+
+    /* Nothing at all was recognised, AND nothing could be covered by a fitted
+     * surface either: then this really is a mesh, and it should be built as
+     * one piece rather than as a mosaic of faceted patches. The difference is
+     * not cosmetic — each faceted patch is emitted with its own vertices, so
+     * 183 of them meet along seams that sewing has to rediscover, and a
+     * squashed ellipsoid came back 0.02% light where one faceted shell
+     * reproduces the mesh's volume exactly.
+     *
+     * M333 — the test used to be "no patch fitted a PRIMITIVE", and it used to
+     * be made here, before the freeform fit ran. That was right when it was
+     * written and became wrong the moment there were freeform surfaces: a
+     * smooth organic model has no plane, cylinder, cone, sphere or torus
+     * anywhere in it, so the test passed on every one of them and the
+     * conversion returned one B-Rep face per triangle without ever trying to
+     * fit a surface. Measured: a tessellated ellipsoid 100x55x190 came back as
+     * 12,420 faces from 12,430 triangles, and six other smooth fixtures the
+     * same. The whale escaped only because the flat plate it is mounted on
+     * gave it six planes and a cylinder.
+     *
+     * So the question is asked AFTER the freeform pass, and it asks what it
+     * always meant: is there a surface reconstruction here worth having?
+     *
+     * The old test — is there any ANALYTIC surface? — is kept exactly as it
+     * was, because it is still the right question about a part: one recognised
+     * hole is a feature the faceted build would lose, whatever else happened.
+     * What is added is the second way to answer yes, for the shapes that have
+     * no such feature and never will: did the freeform fit carry the mesh?
+     * That is measured in the one unit that matters — how much of it a fitted
+     * surface holds — with the SAME number the fallback at the end uses, so
+     * the two cannot disagree about what a reading is.
+     *
+     * Measured on the fixtures either side of the line: a coarse ellipsoid of
+     * 594 triangles fits only 34.8% of itself and is better off as one faceted
+     * shell, which is what it got before and still gets; a finely tessellated
+     * one fits 99.8% and is not. */
+    {
+        bool anyAnalytic = false;
+        int fittedTris = 0;
+        for (const Patch &pa : patches) {
+            if (pa.fit.kind == kNone)
+                continue;
+            fittedTris += static_cast<int>(pa.tris.size());
+            if (pa.fit.kind != kFreeform)
+                anyAnalytic = true;
+        }
+        const bool reading =
+            m.triCount() > 0 &&
+            fittedTris * 100 >= m.triCount() * kFittedIsReadingPercent;
+        const bool anyFit = anyAnalytic || reading;
+        if (!anyFit && m.triCount() <= prm.max_faceted_triangles) {
+            Report fr;
+            ClearReport(fr);
+            fr.triangles_in = rep.triangles_in;
+            fr.vertices_in = rep.vertices_in;
+            fr.triangles_used = rep.triangles_used;
+            fr.vertices_welded = rep.vertices_welded;
+            fr.non_manifold_edges = rep.non_manifold_edges;
+            fr.boundary_edges = rep.boundary_edges;
+            fr.flipped_triangles = rep.flipped_triangles;
+            fr.diagonal = rep.diagonal;
+            fr.patches = rep.patches;
+            TopoDS_Shape alt;
+            try {
+                alt = BuildFaceted(m, tol, fr);
+            } catch (const Standard_Failure &) {
+            } catch (const std::exception &) {
+            } catch (...) {
+            }
+            if (!alt.IsNull()) {
+                rep = fr;
+                MR_STAGE("faceted (nothing recognised)");
+                return alt;
+            }
+        }
     }
 
     /* The count of RECOGNISED surfaces, taken before anything is cut: two
@@ -8968,11 +9149,45 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
         m.triCount() > 0 &&
         facetedTris * 100 >= m.triCount() * kFittedIsFacetedPercent;
 
+    /* M333 — a freeform reconstruction is a feature of the part too.
+     *
+     * recognisedFeatures asks for an EXACT analytic fit. That is the right
+     * question about a hole or a fillet and the wrong one about a smooth body:
+     * a B-spline fitted to a flank has a residual near tolerance by
+     * construction and never near zero, so a model with no plane, cylinder,
+     * cone, sphere or torus anywhere in it — which is every organic model
+     * there is — could not answer yes however well it had been reconstructed.
+     *
+     * Measured, before this: a tessellated ellipsoid 100x55x190 fitted 59
+     * freeform surfaces covering all but 22 of its 12,428 triangles, missed
+     * closing by 8 edges out of thousands, and was thrown away for 12,420
+     * faceted faces. Six other smooth fixtures the same. The whale escaped
+     * only because the flat plate it is mounted on gave it an exact plane.
+     *
+     * What the fallback protects against is a result that is the faceted build
+     * wearing a fitted one's clothes, and fittedIsFaceted measures exactly
+     * that, from the other side. So a reconstruction that covered the shape in
+     * fitted surfaces is worth keeping even when it does not close, whether
+     * those surfaces are analytic or not.
+     *
+     * The volume check is untouched and is what still catches a result that is
+     * the wrong part: it fires on its own, whatever this says. */
+    int freeformTris = 0;
+    for (const Patch &pa : patches)
+        if (pa.fit.kind == kFreeform)
+            freeformTris += static_cast<int>(pa.tris.size());
+    const bool fittedIsReading =
+        m.triCount() > 0 &&
+        (m.triCount() - facetedTris) * 100 >=
+            m.triCount() * kFittedIsReadingPercent &&
+        freeformTris > 0;
+
     /* What the open fitted shell is worth keeping FOR: a feature of the part
      * that the faceted build would lose. When the fitted result is itself one
      * face per triangle there is no such thing — the whale's lone eleven-facet
      * cylinder is 0.013% of it — and nothing is being protected. */
-    const bool worthKeeping = recognisedFeatures && !fittedIsFaceted;
+    const bool worthKeeping =
+        (recognisedFeatures || fittedIsReading) && !fittedIsFaceted;
 
     /* And the ceiling exists so the faceted build cannot be an ESCALATION over
      * a light fitted result. Where the fitted result is already one face per
@@ -8982,9 +9197,10 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
         (fittedIsFaceted || m.triCount() <= kMaxAutoFacetedTriangles);
 
     MR_TRACE("  fallback: closed=%d faceted %d of %d tri (%d%% bar) "
-             "features=%d worthKeeping=%d affordable=%d\n",
+             "features=%d reading=%d worthKeeping=%d affordable=%d\n",
              rep.closed, facetedTris, m.triCount(), kFittedIsFacetedPercent,
-             (int)recognisedFeatures, (int)worthKeeping, (int)affordable);
+             (int)recognisedFeatures, (int)fittedIsReading, (int)worthKeeping,
+             (int)affordable);
 
     /* Is the answer still the part we were given?
      *

@@ -52,7 +52,7 @@ const int kMaxMeshFileBytes = 256 * 1024 * 1024;
 /// never be wedged for minutes by one bad download.
 const int kMaxMeshTriangles = 2000000;
 
-/// M305 — largest mesh the 1:1 path will take, in triangles.
+/// M333 — largest mesh the 1:1 path will take, in triangles.
 ///
 /// That path makes one B-Rep face per triangle, so it is linear in the mesh
 /// and quadratic in the misery: half a million triangles is half a million

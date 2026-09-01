@@ -21,7 +21,7 @@ class NativeBusy {
   static bool get isShowing => _up;
 
   /// Returns whether the card can show the converter's REAL progress — that
-  /// is, whether occt_mesh_progress resolved in this binary (see M305 in
+  /// is, whether occt_mesh_progress resolved in this binary (see M333 in
   /// BusyOverlay.swift). False also means "no card at all"; the caller wants
   /// this only to log it, and must not change what it does on the strength of
   /// it. Worth logging because "the bar just swept the whole time" is

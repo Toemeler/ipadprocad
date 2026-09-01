@@ -18216,7 +18216,7 @@ class AppState extends ChangeNotifier {
             '${soup.droppedTriangles > 0 ? ', '
                 '${soup.droppedTriangles} dropped' : ''}');
 
-    // M305 — ASK, rather than decide for them.
+    // M333 — ASK, rather than decide for them.
     //
     // A downloaded mesh has two honest destinations and they are not versions
     // of each other: reverse-engineered surfaces that can be filleted and
@@ -18261,7 +18261,7 @@ class AppState extends ChangeNotifier {
     // so the card is drawn by UIKit on the platform thread, which stays idle
     // throughout and keeps animating. See NativeBusy / BusyOverlay.swift.
     //
-    // M305 — that card now shows the converter's OWN stage and counters, read
+    // M333 — that card now shows the converter's OWN stage and counters, read
     // from the platform thread while this isolate is stuck inside the call
     // that is advancing them (occt_mesh_progress). Nothing needs passing to it
     // from here; the title and the detail are all this side knows.

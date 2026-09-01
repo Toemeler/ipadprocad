@@ -36,6 +36,9 @@
 #include <BRepGProp.hxx>
 #include <GProp_GProps.hxx>
 #include <Poly_Triangulation.hxx>
+#include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
+#include <TopExp.hxx>
+#include <Poly_PolygonOnTriangulation.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Face.hxx>
@@ -1352,7 +1355,7 @@ int main()
         }
     }
 
-    /* ---- M305: the progress the busy card reads --------------------------
+    /* ---- M333: the progress the busy card reads --------------------------
      *
      * The card is UIKit on a thread that is idle while the Dart isolate is
      * blocked inside Reconstruct, and it polls these three ints. So the thing
@@ -1515,6 +1518,193 @@ int main()
             chk("progress: idle after a refusal too",
                 st == meshrecon::kStageIdle,
                 std::string("stage ") + std::to_string(st));
+        }
+    }
+
+    /* ---- M333: a smooth body has no primitives, and must still convert ----
+     *
+     * The converter used to ask "did anything fit a plane, cylinder, cone,
+     * sphere or torus?" and, when the answer was no, return one B-Rep face per
+     * triangle without ever trying to fit a surface. Every organic model
+     * answers no. Measured before the fix: this fixture came back as 12,420
+     * faces from 12,430 triangles.
+     *
+     * The fixture is deliberately FINE. A coarse organic mesh fits badly and
+     * is genuinely better off faceted — the ellipsoid above is that case and
+     * still takes it — so a test built on a coarse one would pass without ever
+     * exercising the freeform path. */
+    {
+        std::printf("== organic and finely tessellated: it must fit surfaces ==\n");
+        gp_GTrsf g;
+        g.SetValue(1, 1, 1.0);
+        g.SetValue(2, 2, 0.55);
+        g.SetValue(3, 3, 1.9);
+        const TopoDS_Shape src =
+            BRepBuilderAPI_GTransform(BRepPrimAPI_MakeSphere(50.).Shape(), g,
+                                      Standard_True)
+                .Shape();
+        std::vector<double> xyz;
+        std::vector<int> tri;
+        Tessellate(src, 0.15, xyz, tri);
+        const int nTri = (int)(tri.size() / 3);
+        const double mv = MeshVolume(xyz, tri);
+        meshrecon::Params p = meshrecon::Defaults();
+        meshrecon::Report r;
+        std::string err;
+        const auto t0 = std::chrono::steady_clock::now();
+        TopoDS_Shape out = meshrecon::Reconstruct(
+            xyz.data(), (int)(xyz.size() / 3), tri.data(), nTri, p, r, err);
+        const double ms = std::chrono::duration<double, std::milli>(
+                              std::chrono::steady_clock::now() - t0).count();
+        report(r);
+        std::printf("   %.0f ms for %d triangles\n", ms, nTri);
+        chk("organic: it converts", !out.IsNull(), err);
+        if (!out.IsNull()) {
+            chk("organic: freeform surfaces were fitted", r.freeform > 0,
+                std::to_string(r.freeform) + " freeform patches");
+            /* The number that says "surfaces" rather than "triangles with
+             * seams". A fiftieth of the triangle count is far above what a
+             * good reconstruction needs (this one uses 66 faces for 12,430
+             * triangles, a two-hundredth) and far below what the faceted build
+             * would produce, so it separates the two without being a target. */
+            int nFaces = 0;
+            for (TopExp_Explorer ex(out, TopAbs_FACE); ex.More(); ex.Next())
+                ++nFaces;
+            chk("organic: the result is surfaces, not a mosaic",
+                nFaces * 50 <= nTri,
+                std::to_string(nFaces) + " faces for " + std::to_string(nTri) +
+                    " triangles");
+            chk("organic: it closes", r.closed == 1);
+            /* Fitting is an approximation, so the volume moves — but only by
+             * about what the tolerance allows, never by the quarter that says
+             * it is a different part. */
+            const double got = Volume(out);
+            chk("organic: it is still the same body",
+                mv > 0 && std::fabs(got - mv) / mv < 0.02,
+                std::to_string(got) + " vs mesh " + std::to_string(mv));
+        }
+    }
+
+    /* ---- M333: the tessellation the renderer is actually handed -----------
+     *
+     * A converted body is only as good as the triangles drawn from it, and two
+     * separate things can go wrong there, both of them invisible to every
+     * check above because they live in the DISPLAY mesh and not in the B-Rep:
+     *
+     *   a face BRepMesh gives up on is a hole you can see through;
+     *   a face healed on its own is a crack you can see through, because the
+     *   edge it shares is then polygonised twice at two deflections.
+     *
+     * So this asserts both, on the shape as tessellated by the same call the
+     * app makes, at the deflection the app asks for. */
+    {
+        std::printf("== the display mesh: no empty faces, no split seams ==\n");
+
+        struct Case { const char *name; TopoDS_Shape src; double defl; };
+        std::vector<Case> cases;
+        cases.push_back({"the plate with holes and bosses", part, 0.05});
+        cases.push_back({"a torus", BRepPrimAPI_MakeTorus(20., 6.).Shape(), 0.02});
+        cases.push_back({"a sphere", BRepPrimAPI_MakeSphere(12.).Shape(), 0.05});
+        {   /* The one that needs the ladder: a finely tessellated ellipsoid
+             * reconstructs into trimmed B-splines, and BRepMesh gives up on
+             * some of them at the deflection the app asks for. Without an
+             * organic fixture here this whole check passes on shapes that
+             * never had the defect — measured: with only the three analytic
+             * cases above, replacing the whole-shape ladder with the per-face
+             * healing it replaces did not fail a single assertion. */
+            gp_GTrsf g;
+            g.SetValue(1, 1, 1.0);
+            g.SetValue(2, 2, 0.55);
+            g.SetValue(3, 3, 1.9);
+            cases.push_back({"a finely tessellated ellipsoid",
+                             BRepBuilderAPI_GTransform(
+                                 BRepPrimAPI_MakeSphere(50.).Shape(), g,
+                                 Standard_True).Shape(),
+                             0.15});
+        }
+
+        for (const Case &c : cases) {
+            std::vector<double> xyz;
+            std::vector<int> tri;
+            Tessellate(c.src, c.defl, xyz, tri);
+            meshrecon::Params p = meshrecon::Defaults();
+            meshrecon::Report r;
+            std::string err;
+            TopoDS_Shape out = meshrecon::Reconstruct(
+                xyz.data(), (int)(xyz.size() / 3), tri.data(),
+                (int)(tri.size() / 3), p, r, err);
+            const std::string tag = std::string("display[") + c.name + "]: ";
+            chk((tag + "it converts").c_str(), !out.IsNull(), err);
+            if (out.IsNull())
+                continue;
+
+            /* kCoarseLinDeflection / kCoarseAngDeflection from
+             * part_model.dart. Measuring at any other setting measures a
+             * picture nobody is shown. */
+            std::vector<double> areas;
+            double factor = 0;
+            const int empty = meshrecon::TessellateCovered(out, 0.6, 0.35,
+                                                           areas, factor);
+            chk((tag + "no face is left undrawn").c_str(), empty == 0,
+                std::to_string(empty) + " empty of " +
+                    std::to_string(areas.size()));
+
+            /* The seams, as the renderer would show them: for every edge with
+             * two faces, how far is a node one face put on it from the nearest
+             * node the OTHER face put there? Zero when both were meshed by the
+             * same pass; a visible gash when they were not. */
+            double worstGap = 0, splitLen = 0;
+            int shared = 0;
+            TopTools_IndexedDataMapOfShapeListOfShape em;
+            TopExp::MapShapesAndAncestors(out, TopAbs_EDGE, TopAbs_FACE, em);
+            for (int i = 1; i <= em.Extent(); ++i) {
+                const TopoDS_Edge &e = TopoDS::Edge(em.FindKey(i));
+                if (BRep_Tool::Degenerated(e) || em(i).Extent() != 2)
+                    continue;
+                const TopoDS_Face f1 = TopoDS::Face(em(i).First());
+                const TopoDS_Face f2 = TopoDS::Face(em(i).Last());
+                TopLoc_Location l1, l2;
+                Handle(Poly_Triangulation) t1 = BRep_Tool::Triangulation(f1, l1);
+                Handle(Poly_Triangulation) t2 = BRep_Tool::Triangulation(f2, l2);
+                if (t1.IsNull() || t2.IsNull())
+                    continue;
+                Handle(Poly_PolygonOnTriangulation) p1 =
+                    BRep_Tool::PolygonOnTriangulation(e, t1, l1);
+                Handle(Poly_PolygonOnTriangulation) p2 =
+                    BRep_Tool::PolygonOnTriangulation(e, t2, l2);
+                if (p1.IsNull() || p2.IsNull())
+                    continue;
+                ++shared;
+                double gap = 0;
+                for (int a = p1->Nodes().Lower(); a <= p1->Nodes().Upper(); ++a) {
+                    const gp_Pnt pa = t1->Node(p1->Nodes()(a)).Transformed(l1);
+                    double best = 1e300;
+                    for (int b = p2->Nodes().Lower(); b <= p2->Nodes().Upper();
+                         ++b)
+                        best = std::min(
+                            best,
+                            pa.Distance(t2->Node(p2->Nodes()(b)).Transformed(l2)));
+                    gap = std::max(gap, best);
+                }
+                worstGap = std::max(worstGap, gap);
+                if (gap > 1.0) {
+                    GProp_GProps g;
+                    BRepGProp::LinearProperties(e, g);
+                    splitLen += g.Mass();
+                }
+            }
+            chk((tag + "there are shared seams to check").c_str(), shared > 0,
+                std::to_string(shared) + " two-faced edges");
+            /* A tenth of the deflection. Meshing the whole shape at once makes
+             * both faces use the SAME nodes on a shared edge, so the honest
+             * expectation is zero and the slack is only for the arithmetic. */
+            chk((tag + "no seam is split").c_str(), worstGap <= 0.06,
+                "worst " + std::to_string(worstGap) + " mm over " +
+                    std::to_string(shared) + " seams");
+            chk((tag + "no seam is split by a millimetre").c_str(),
+                splitLen <= 0.0, std::to_string(splitLen) + " mm split");
+            std::printf("   %-34s %3d faces, %4d seams, worst gap %.4f mm\n",
+                        c.name, (int)areas.size(), shared, worstGap);
         }
     }
 

@@ -686,7 +686,7 @@ void main() {
     });
   });
 
-  // M305 — the question asked before an import, and the answer's journey to
+  // M333 — the question asked before an import, and the answer's journey to
   // the kernel. The sheet itself is UIKit and cannot be driven from here, so
   // what is pinned is everything on THIS side of the channel: the wire values,
   // the mapping to the kernel's mode argument, and the two contracts

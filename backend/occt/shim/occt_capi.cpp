@@ -199,6 +199,16 @@ struct occt_shape
      * 0.8 ms — so the expensive half is paid once per shape and the cheap half
      * per remesh. */
     mutable std::vector<double> face_area;
+
+    /* M333 — the deflection multiplier that last covered every face.
+     *
+     * The ladder in occt_shape_mesh can cost a couple of seconds on a model
+     * BRepMesh struggles with, and the app re-tessellates on every zoom. A
+     * multiplier that worked once almost always works again at a different
+     * base deflection, so it is tried first and the search runs only when it
+     * stops working. Mutable for the same reason face_area is: the shape is
+     * immutable, and this is a cache of how to draw it. */
+    mutable double mesh_factor = 0.0;
 };
 
 static occt_shape *wrap(const TopoDS_Shape &s, const char *where)
@@ -1371,133 +1381,25 @@ extern "C" occt_mesh *occt_mesh_create(const occt_shape *shape,
         set_err("occt_mesh_create", "deflections must be > 0");
         return nullptr;
     }
-    /* Triangulate in place (results are cached on the faces). */
-    /* v10: mesh the faces IN PARALLEL (last argument). A gear prism carries
-     * 442-827 faces and each is tessellated independently, so this is
-     * embarrassingly parallel; on device the single-threaded mesher cost
-     * 397-2580 ms per call and blocked the UI thread for all of it. */
-    BRepMesh_IncrementalMesh mesher(shape->s, lin_deflection,
-                                    Standard_False, ang_deflection,
-                                    Standard_True);
-    (void)mesher;
-
-    /* M282 — a face the mesher refused is a hole you can see through.
+    /* Triangulate in place (results are cached on the faces).
      *
-     * BRepMesh gives up on some trimmed B-splines and says nothing: it returns
-     * no triangulation for that face and the loop below, which has always
-     * skipped an untriangulated face, quietly leaves it out of the model. The
-     * shape is not at fault — on the whale the three faces this happened to
-     * were valid, their wires closed in 3D and in uv, and they were the
-     * SIMPLEST surfaces in the model (4x5, 5x4 and 4x6 control nets) while
-     * faces four times as complicated meshed without complaint. Nor is it a
-     * property that can be designed out upstream: the same face meshes at
-     * deflection 0.60, fails at 0.15 and meshes again at 0.0375, and the app
-     * changes deflection every time the user zooms.
+     * v10: the faces are meshed IN PARALLEL. A gear prism carries 442-827
+     * faces and each is tessellated independently, so this is embarrassingly
+     * parallel; on device the single-threaded mesher cost 397-2580 ms per call
+     * and blocked the UI thread for all of it. TessellateCovered passes that
+     * flag through on every pass it makes.
      *
-     * So ask again, differently. Nudging the deflection is enough to get past
-     * it, and a face drawn at a slightly different deflection costs a hairline
-     * seam where its neighbours' nodes no longer coincide — which is a trade
-     * worth making. Measured on the whale at the deflection the app asked for:
-     * three faces recovered, none left empty, the worst gap in the display
-     * mesh down from 5.18 mm to 3.42 mm, cracks wider than a millimetre down
-     * from 122.6 mm to 34.0 mm, and the edges with no neighbour at all down
-     * from 74 to 20. What it costs is seams a few microns wide.
+     * M282 / M304 / M333 — a face the mesher refused is a hole you can see
+     * through, and healing that face alone is a crack you can see through. The
+     * measurement, the ladder and the reasons are in
+     * meshrecon::TessellateCovered; they live there rather than here because
+     * they are geometry that has to be tested, and this file is a C ABI. What
+     * belongs here is only the cache: which multiplier worked for THIS shape.
      *
      * Nothing here touches the B-Rep. The solid stays the one that was sewn,
      * checked and closed; only the triangles handed to the renderer change. */
-    {
-        /* M304 — "has triangles" was the wrong question.
-         *
-         * M282 asked whether a refused face had any triangles at all, and
-         * recovered the three faces of the whale that had none. It missed the
-         * larger half of the same defect: a face BRepMesh gives up on PART of
-         * the way through keeps the triangles it managed and reports success.
-         * Face 253 of the whale came back with five triangles covering 0.1% of
-         * its 68 mm2 — indistinguishable, to that test, from a healthy face.
-         * Measured across the model: three faces with no triangles at all,
-         * 366 mm2; twelve faces under-covered, 547 mm2. The bigger hole was
-         * the one that passed.
-         *
-         * So compare what was drawn against what should have been. The catch
-         * is that a chord always cuts the corner off a curved face, so even a
-         * perfect tessellation under-reports — 98.6% across this whole model at
-         * the deflection the app asks for. The bar therefore sits at 95%, well
-         * below what chords cost and well above the 88.3% and 94.6% of the
-         * faces that are genuinely torn.
-         *
-         * A face that misses the bar is re-meshed at a nudged deflection until
-         * it clears it. If none of them does, it is put back the way it was, so
-         * a face flagged by mistake costs a little time and changes nothing. */
-        static const double kNudge[] = {1.37, 0.73, 2.11, 0.41, 4.0, 0.19};
-        static const double kCoverBar = 0.95;
-
-        auto meshedArea = [](const TopoDS_Face &f) -> double {
-            TopLoc_Location loc;
-            const Handle(Poly_Triangulation) t = BRep_Tool::Triangulation(f, loc);
-            if (t.IsNull())
-                return 0.0;
-            const gp_Trsf &tr = loc.Transformation();
-            double a = 0;
-            for (int i = 1; i <= t->NbTriangles(); ++i) {
-                int n1, n2, n3;
-                t->Triangle(i).Get(n1, n2, n3);
-                const gp_Pnt A = t->Node(n1).Transformed(tr);
-                const gp_Pnt B = t->Node(n2).Transformed(tr);
-                const gp_Pnt C = t->Node(n3).Transformed(tr);
-                a += 0.5 * gp_Vec(A, B).Crossed(gp_Vec(A, C)).Magnitude();
-            }
-            return a;
-        };
-
-        if (shape->face_area.empty()) {
-            for (TopExp_Explorer ex(shape->s, TopAbs_FACE); ex.More(); ex.Next()) {
-                double a = 0;
-                try {
-                    GProp_GProps g;
-                    BRepGProp::SurfaceProperties(TopoDS::Face(ex.Current()), g);
-                    a = g.Mass();
-                } catch (const Standard_Failure &) {
-                } catch (...) {
-                }
-                shape->face_area.push_back(a);
-            }
-        }
-
-        size_t fi = 0;
-        for (TopExp_Explorer ex(shape->s, TopAbs_FACE); ex.More(); ex.Next(), ++fi) {
-            const TopoDS_Face f = TopoDS::Face(ex.Current());
-            const double want = fi < shape->face_area.size() ? shape->face_area[fi] : 0.0;
-            if (!(want > 0))
-                continue;
-            if (meshedArea(f) >= want * kCoverBar)
-                continue;
-            bool healed = false;
-            for (size_t k = 0; k < sizeof(kNudge) / sizeof(kNudge[0]) && !healed; ++k) {
-                try {
-                    BRepTools::Clean(f);
-                    BRepMesh_IncrementalMesh retry(f, lin_deflection * kNudge[k],
-                                                   Standard_False, ang_deflection,
-                                                   Standard_True);
-                    (void)retry;
-                } catch (const Standard_Failure &) {
-                } catch (...) {
-                }
-                healed = meshedArea(f) >= want * kCoverBar;
-            }
-            if (!healed) {
-                /* Nothing did better. Put it back as it was, so this can only
-                 * ever add coverage and never take any away. */
-                try {
-                    BRepTools::Clean(f);
-                    BRepMesh_IncrementalMesh back(f, lin_deflection, Standard_False,
-                                                  ang_deflection, Standard_True);
-                    (void)back;
-                } catch (const Standard_Failure &) {
-                } catch (...) {
-                }
-            }
-        }
-    }
+    meshrecon::TessellateCovered(shape->s, lin_deflection, ang_deflection,
+                                 shape->face_area, shape->mesh_factor);
 
     std::vector<double> verts, norms, edge_pts, edge_curves;
     std::vector<int> tris, edge_starts;

@@ -6444,7 +6444,7 @@ abstract class PartKernel {
   /// thin part's features has to be worked out from the MESH — see
   /// brepTolFractionFor in mesh_io.dart.
   ///
-  /// M305 — [mode] is what the import dialog asked for: 1 reverse-engineers
+  /// M333 — [mode] is what the import dialog asked for: 1 reverse-engineers
   /// surfaces, 0 keeps the triangles one B-Rep face each. Defaulted to 1 so
   /// that every caller written before the dialog existed keeps the behaviour
   /// it was written against; the import path passes the user's answer.

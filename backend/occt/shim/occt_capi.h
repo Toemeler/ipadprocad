@@ -848,7 +848,7 @@ occt_shape *occt_brep_from_mesh(const double *xyz, int nv,
 
 /* ---- what the converter is doing, while it is doing it ----------------
  *
- * M305. occt_brep_from_mesh blocks its caller for as long as it runs — a
+ * M333. occt_brep_from_mesh blocks its caller for as long as it runs — a
  * second on a small model, half a minute on a big one — so nothing on the
  * calling thread can report progress. These are for a DIFFERENT thread: the
  * one drawing the wait indicator, which is idle throughout.

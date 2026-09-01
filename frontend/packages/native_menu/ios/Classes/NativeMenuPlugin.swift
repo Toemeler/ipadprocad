@@ -122,7 +122,7 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
         // waits inside, where a Flutter progress bar would be a still picture.
         // See BusyOverlay.
         //
-        // M305 — returns whether the card can show the converter's real
+        // M333 — returns whether the card can show the converter's real
         // progress, i.e. whether occt_mesh_progress resolved in this binary.
         // Dart logs it, so a build where the bar only ever swept says so in
         // its own log rather than needing a device to reproduce on.
@@ -286,7 +286,7 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
                 reply(nil)
             }
 
-        // M305 — how to bring a mesh in: reconstructed surfaces, or the
+        // M333 — how to bring a mesh in: reconstructed surfaces, or the
         // triangles exactly as they are. See ImportChoiceSheet for why the
         // question is asked at all and why it is asked in UIKit.
         case "importChoice":

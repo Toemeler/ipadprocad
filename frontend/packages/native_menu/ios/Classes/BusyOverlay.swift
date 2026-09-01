@@ -10,7 +10,7 @@
 //
 // Flutter's platform thread is a DIFFERENT thread from the Dart UI thread, and
 // it is idle for the whole conversion. A UIKit view on top of the FlutterView
-// therefore animates normally, and — the point of M305 — it can READ the
+// therefore animates normally, and — the point of M333 — it can READ the
 // converter's progress counters while the isolate is stuck inside the call
 // that is advancing them. Dart cannot; this thread can. That is the entire
 // reason this is Swift.
@@ -101,7 +101,7 @@ final class BusyOverlay {
 
     /// Resolved once, on first use. A build without the kernel leaves these
     /// nil for good and the card stays indeterminate, which is exactly what it
-    /// was before M305 — a missing symbol must cost the bar, never the import.
+    /// was before M333 — a missing symbol must cost the bar, never the import.
     private static let progressFn: ProgressFn? = {
         guard let sym = dlsym(rtldDefault, "occt_mesh_progress") else {
             return nil

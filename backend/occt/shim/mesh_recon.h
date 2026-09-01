@@ -31,6 +31,7 @@
 
 #include <TopoDS_Shape.hxx>
 #include <string>
+#include <vector>
 
 namespace meshrecon {
 
@@ -68,7 +69,7 @@ Params Defaults();
 
 /* ---- what the converter is doing, while it is doing it ------------------
  *
- * M305. The kernel call blocks the Dart isolate, so nothing on that side can
+ * M333. The kernel call blocks the Dart isolate, so nothing on that side can
  * report anything until it returns — which is the whole reason the busy card
  * is drawn by UIKit on the platform thread. That thread is idle and can read
  * these, so this is where honest progress has to come from.
@@ -100,6 +101,29 @@ void Progress(int &stage, int &done, int &total);
 /* The stage's name, in English, for a caller with no message catalogue. Never
  * null; returns "" for kStageIdle. */
 const char *StageName(int stage);
+
+/* ---- tessellating a reconstructed body so it has no holes ---------------
+ *
+ * M333. BRepMesh gives up on some trimmed B-splines and says nothing: no
+ * triangulation for that face, or a few triangles covering a fraction of it,
+ * and success reported either way. The failure is erratic in the deflection —
+ * measured over a 20-step sweep of the whale, the count of empty faces went
+ * 1, 4, 3, 2, 2, 1, 1, 2, 1, 0, 1, 2, 2, 3, 2, ... — so it is a bug to search
+ * around, not a function to solve.
+ *
+ * Asking again for the offending FACE recovers it and splits the edges it
+ * shares: two faces polygonising one edge at two deflections do not agree, and
+ * on the whale that was 442 mm of edge split by more than a millimetre. Asking
+ * again for the WHOLE SHAPE cannot do that — every edge is discretised once,
+ * by the pass that meshed both its faces.
+ *
+ * Meshes `s` in place. `factor` carries the multiplier that last worked, in
+ * and out: pass 0 the first time and the same variable afterwards, and a shape
+ * that needed the search pays for it once rather than on every zoom. Returns
+ * the number of faces still left with no triangles at all — 0 on every fixture
+ * measured. Never throws. */
+int TessellateCovered(const TopoDS_Shape &s, double lin, double ang,
+                      std::vector<double> &faceArea, double &factor);
 
 /* What actually happened. Filled in even when the conversion fails, because
  * "it produced 4000 faceted patches" is the explanation for a slow, useless
