@@ -34,7 +34,11 @@ jobs:
   render:
     name: Render a known scene and check the pixels
     runs-on: macos-15
-    timeout-minutes: 120
+    # Was 120, which run 13 spent ENTIRELY inside the render (see below).
+    # A hang has to fail fast: the whole job is under five minutes when it
+    # works, so anything past thirty is broken rather than slow, and two hours
+    # of macOS runner time is an expensive way to find that out.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -174,10 +178,35 @@ jobs:
                  tail -10 link.log; exit 1; }
           echo "linked"
 
-      # THE POINT. cy_set_resource_path is given intern/cycles, because the
-      # Metal backend compiles its kernels from `<path>/source/kernel/...` —
-      # so the tree is staged the way the app bundle stages it.
+      # THE POINT. cy_set_resource_path is still given intern/cycles: the tree
+      # is staged the way the app bundle stages it, so a missing or moved
+      # kernel source is still caught here even though the CPU device does not
+      # compile from it.
+      #
+      # ---------------------------------------------------------------------
+      # WHY THIS RENDERS ON THE CPU
+      # ---------------------------------------------------------------------
+      #
+      # The runner DOES have a Metal device — it announces itself as "Apple
+      # Paravirtual device (GPU)" and cy_available finds it. What it cannot do
+      # is compile Cycles' Metal kernels from source in any usable time. Run 13
+      # printed the device name and then sat there for 116 minutes until the
+      # job timed out, having produced nothing else.
+      #
+      # Nothing this test exists for was in that 116 minutes. Scene
+      # construction, the camera basis, the materials, the light rig and the
+      # output driver are device-independent and run identically on both
+      # backends; and an iOS Metal path could never have been tested here in
+      # any case, because iOS binaries do not execute on a Mac. That is the
+      # probe's job and this file's header has always said so.
+      #
+      # CYCLES_SHIM_CPU_FOR_TESTS is read by pick_device and by nothing else.
+      # The app is Metal-only and stays Metal-only: it never sets this, an iOS
+      # app has no such variable in its environment, and there is no CPU
+      # fallback in the product.
       - name: Render
+        env:
+          CYCLES_SHIM_CPU_FOR_TESTS: "1"
         run: |
           set -o pipefail
           mkdir -p res
@@ -189,7 +218,7 @@ jobs:
           set -e
           echo "render test exit: $RC"
           if [ "$RC" = "2" ]; then
-            echo "::warning::no GPU device on this runner — the render path was not exercised"
+            echo "::warning::no render device on this runner — the render path was not exercised"
             exit 0
           fi
           exit "$RC"

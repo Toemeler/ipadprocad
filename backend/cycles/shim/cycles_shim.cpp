@@ -449,11 +449,44 @@ void set_error(const char *msg)
  * always a Metal device, so the fallback only ever fires when something is
  * already wrong.
  */
+/* M342 — THE APP IS GPU-ONLY, and this does not change that.
+ *
+ * Metal or nothing, as asked. There is no CPU fallback in the product and
+ * there must not be one: a path tracer on an iPad's CPU is not a slower
+ * rendered mode, it is a frozen app, and a fallback that quietly produced one
+ * would be worse than the mode simply saying it cannot run.
+ *
+ * CYCLES_SHIM_CPU_FOR_TESTS is not that fallback. It is never set by the app —
+ * an iOS app launched normally has no such variable in its environment, and
+ * nothing in this repository writes one — and it exists for exactly one
+ * caller: the host render test in .github/workflows/cycles-render-test.yml.
+ *
+ * WHY THAT TEST NEEDS IT. The GitHub macOS runner does have a Metal device; it
+ * reports itself as "Apple Paravirtual device (GPU)". What it cannot do in any
+ * usable time is COMPILE Cycles' Metal kernels from source, which is the work
+ * ios_metal.py exists to make survivable on an iPad and which on three
+ * paravirtualised cores simply does not finish — run 13 sat on it for 116
+ * minutes and hit the job timeout having printed the device name and nothing
+ * else.
+ *
+ * That cost buys nothing the test was ever for. It exists to check scene
+ * construction, the camera basis, materials, the light rig and the output
+ * driver, every one of which is device-independent code that runs identically
+ * on both backends. It could never have tested the iOS Metal path anyway —
+ * iOS binaries do not execute on a Mac, which is why the probe and the
+ * WITH_APPLE_CROSSPLATFORM guards exist and why this workflow's own header
+ * says the kernel loading is the probe's business.
+ *
+ * So the test asks for the CPU device explicitly and gets a render in
+ * milliseconds, and the shipping app never reads this at all. */
 bool pick_device(ccl::DeviceInfo &out)
 {
+  const bool cpu_for_tests = getenv("CYCLES_SHIM_CPU_FOR_TESTS") != nullptr;
+  const ccl::DeviceType wanted = cpu_for_tests ? ccl::DEVICE_CPU :
+                                                 ccl::DEVICE_METAL;
   const ccl::vector<ccl::DeviceInfo> devices = ccl::Device::available_devices();
   for (const ccl::DeviceInfo &info : devices) {
-    if (info.type == ccl::DEVICE_METAL) {
+    if (info.type == wanted) {
       out = info;
       return true;
     }
@@ -628,7 +661,9 @@ int cy_render(const CyMesh *meshes,
 
   ccl::DeviceInfo device;
   if (!pick_device(device)) {
-    set_error("no Metal device — this build renders on the GPU only");
+    set_error(getenv("CYCLES_SHIM_CPU_FOR_TESTS") != nullptr ?
+                  "no CPU device — the host render test cannot run" :
+                  "no Metal device — this build renders on the GPU only");
     return 0;
   }
 

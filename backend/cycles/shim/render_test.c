@@ -100,7 +100,9 @@ int main(int argc, char **argv)
   }
 
   if (!cy_available()) {
-    printf("SKIP: no GPU device available (%s)\n", cy_device_name());
+    /* Either backend: the workflow renders on the CPU device (see its Render
+     * step for why), a developer running this by hand gets Metal. */
+    printf("SKIP: no render device available (%s)\n", cy_device_name());
     return 2;
   }
   printf("device: %s\n", cy_device_name());
