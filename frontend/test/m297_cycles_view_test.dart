@@ -415,6 +415,20 @@ void _floorTests() {
           isNotNull);
     });
 
+    test('the world colour is the palette, converted, not a constant', () {
+      // M336 — nobody was setting it, so every render used CyclesJob's
+      // fallback 0.8 grey whatever the scheme was: a bright rectangle in the
+      // middle of a charcoal viewport. The same trap setViewportColor and
+      // setFloorColor exist to avoid.
+      final w = cyclesWorld(0xFF2A2E33);
+      expect(w.length, 3);
+      expect(w[0], closeTo(cyclesLinear(0x2A), 1e-9));
+      expect(w[1], closeTo(cyclesLinear(0x2E), 1e-9));
+      expect(w[2], closeTo(cyclesLinear(0x33), 1e-9));
+      // Linear, not the sRGB bytes: a dark charcoal is far darker in linear.
+      expect(w[0], lessThan(0x2A / 255));
+    });
+
     test('an empty scene has nothing to stand on', () {
       expect(
           cyclesFloorMesh(const [],

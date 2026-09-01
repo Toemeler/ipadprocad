@@ -360,6 +360,21 @@ const int kCyclesSamples = 48;
 /// ICON rather than as an object resting on something, which is most of what
 /// makes the rendered mode feel different from the working ones.
 
+/// M336 — a colour as the shim wants the world: three LINEAR channels.
+///
+/// The render's background, and through it the small ambient the surfaces
+/// see. It comes from the palette rather than from a constant here for the
+/// same reason RealityAppearance.setViewportColor exists: the app has two
+/// schemes, and a frozen grey is right in one and wrong in the other. That is
+/// exactly how the viewport background came to be charcoal under Chalk's cream
+/// chrome, and how a path-traced image would come to sit as a bright grey
+/// rectangle in the middle of a charcoal viewport.
+List<double> cyclesWorld(int argb) => [
+      cyclesLinear(argb >> 16),
+      cyclesLinear(argb >> 8),
+      cyclesLinear(argb),
+    ];
+
 /// The lowest Y in the scene, or null when there is nothing in it.
 ///
 /// The world is Y-UP (see RealityPartView.commonInit — the sketch planes make

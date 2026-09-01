@@ -129,5 +129,8 @@ CyclesJob cyclesSceneJob(AppState app, Cam3 cam, int width, int height,
     width: width,
     height: height,
     samples: samples,
+    // The viewport's own colour, so the image lands on the ground the rest of
+    // the app is already drawing instead of on CyclesJob's fallback grey.
+    world: cyclesWorld(T.viewport.toARGB32()),
   );
 }
