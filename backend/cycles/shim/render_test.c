@@ -53,6 +53,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #define TW 96
 #define TH 96
@@ -385,9 +386,26 @@ int main(int argc, char **argv)
       memset(&info, 0, sizeof(info));
       int got = 0;
       int done = 0;
-      /* Bounded: a spin that never ends is a hung CI job, and eight samples of
-       * a 96x96 image is milliseconds even on a paravirtualised CPU. */
-      for (int i = 0; i < 20000 && !done; i++) {
+
+      /* WAITING, NOT SPINNING, and run 15 is why this is spelled out.
+       *
+       * The first version of this loop counted iterations — twenty thousand of
+       * them, on the theory that eight samples of a 96x96 image is
+       * milliseconds. It is. But an iteration of this loop is a mutex and an
+       * integer compare, so twenty thousand of them are over in about ten
+       * milliseconds, and the whole loop finished before the session thread had
+       * woken up. The report was "0 frames, 0/8 samples", which reads exactly
+       * like a renderer that produces nothing and was in fact a test that never
+       * waited.
+       *
+       * A poll interval and a WALL-CLOCK deadline instead. The interval is what
+       * the app uses; the deadline is generous because this runs on three
+       * paravirtualised cores and the first render of the process also loads
+       * the kernels. */
+      const double kPollMs = 5.0;
+      const double kDeadlineMs = 60000.0;
+      double waited = 0.0;
+      while (!done && waited < kDeadlineMs) {
         const int r = cy_live_frame(live, TW * TH * 4, &info);
         if (r < 0) {
           printf("  live frame error: %s\n", cy_last_error());
@@ -397,9 +415,26 @@ int main(int argc, char **argv)
           got++;
         }
         done = info.done;
+        if (done) {
+          break;
+        }
+        struct timespec ts;
+        ts.tv_sec = 0;
+        ts.tv_nsec = (long)(kPollMs * 1000000.0);
+        nanosleep(&ts, NULL);
+        waited += kPollMs;
       }
-      printf("live: %d frames, %d/%d samples, done=%d denoised=%d\n",
-             got, info.samples, info.target, info.done, info.denoised);
+      printf("live: %d frames, %d/%d samples, done=%d denoised=%d after %.0f ms\n",
+             got, info.samples, info.target, info.done, info.denoised, waited);
+      if (got == 0) {
+        /* The one failure this test cannot diagnose from pixels. Whatever the
+         * shim last complained about, and whatever Cycles thinks it is doing,
+         * are the only two things that can say why nothing came out. */
+        char status[256];
+        cy_status(status, (int)sizeof(status));
+        printf("  no frames. last error: \"%s\"  status: \"%s\"  progress: %.2f\n",
+               cy_last_error(), status, (double)cy_progress());
+      }
       check(got > 0, "the live session produced at least one frame");
       check(info.width == TW && info.height == TH,
             "the live frame is the size that was asked for");
