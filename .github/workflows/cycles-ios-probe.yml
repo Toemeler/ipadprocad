@@ -287,9 +287,15 @@ jobs:
           # this package at all. Everything else Cycles wanted (embree, pugixml,
           # openpgl, the image codecs) is right there as a .a. So either they
           # ship as dylibs or they are absent, and a `find` for both answers it.
-          DEPS=$(find blender/lib/ios_arm64 \( -name '*.a' -o -name '*.dylib' \) \
-                   -not -path '*/python/*' 2>/dev/null | tr '\n' ' ')
-          echo "dependency libraries found: $(echo $DEPS | wc -w)"
+          # Archives are repeated three times because Apple's linker walks
+          # each once, in order, and never revisits one that came before its
+          # user. Dylibs need no such thing — their whole symbol table is
+          # visible at once — and repeating them only earns duplicate-library
+          # warnings.
+          ARCH=$(find blender/lib/ios_arm64 -name '*.a' -not -path '*/python/*' 2>/dev/null | tr '\n' ' ')
+          DYLIB=$(find blender/lib/ios_arm64 -name '*.dylib' -not -path '*/python/*' 2>/dev/null | tr '\n' ' ')
+          DEPS="$ARCH $ARCH $ARCH $DYLIB"
+          echo "deps: $(echo $ARCH | wc -w) archives, $(echo $DYLIB | wc -w) dylibs"
           # force_load per Cycles archive rather than a global -all_load: the
           # question is whether the CYCLES objects resolve, and dragging every
           # object of every dependency in as well only invents work and more
@@ -298,7 +304,7 @@ jobs:
           for a in out/*.a; do FORCE="$FORCE -Wl,-force_load,$a"; done
           set +e
           xcrun --sdk iphoneos clang -target arm64-apple-ios16.0 -isysroot "$SDK" \
-            probe.c $FORCE $DEPS $DEPS $DEPS \
+            probe.c $FORCE $DEPS \
             -lc++ -lz -framework Metal -framework Foundation \
             -framework CoreGraphics -framework IOKit \
             -framework AudioToolbox -framework AVFoundation -framework CoreAudio \
@@ -343,12 +349,14 @@ jobs:
           set -o pipefail
           SDK=$(xcrun --sdk iphoneos --show-sdk-path)
           test -f build_ios/lib/Release/libcycles_shim.a || exit 0
-          DEPS=$(find blender/lib/ios_arm64 \( -name '*.a' -o -name '*.dylib' \) -not -path '*/python/*' 2>/dev/null | tr '\n' ' ')
+          ARCH=$(find blender/lib/ios_arm64 -name '*.a' -not -path '*/python/*' 2>/dev/null | tr '\n' ' ')
+          DYLIB=$(find blender/lib/ios_arm64 -name '*.dylib' -not -path '*/python/*' 2>/dev/null | tr '\n' ' ')
+          DEPS="$ARCH $ARCH $ARCH $DYLIB"
           set +e
           xcrun --sdk iphoneos clang++ -target arm64-apple-ios16.0 -isysroot "$SDK" \
             -I backend/cycles/shim backend/cycles/shim/shim_probe.c \
             -Wl,-force_load,build_ios/lib/Release/libcycles_shim.a \
-            out/*.a $DEPS $DEPS $DEPS -lc++ -lz \
+            out/*.a $DEPS -lc++ -lz \
             -framework Metal -framework Foundation -framework CoreGraphics -framework IOKit \
             -framework AudioToolbox -framework AVFoundation -framework CoreAudio \
             -framework CoreMedia -framework VideoToolbox \
@@ -391,6 +399,11 @@ jobs:
         if: always()
         run: |
           echo "=================== SUMMARY ==================="
+          # Answered and no longer printed: the shim compiles (run 8); the
+          # four libraries that would not resolve are dylibs, not absent
+          # (run 9); they carry @rpath install names and are built for iOS
+          # with minos 15.0, so the app can embed them with a plain copy
+          # (run 11). What is left is one question.
           if [ -f build_ios/lib/Release/libcycles_shim.a ]; then
             echo "shim compiled: YES"
           else
@@ -400,42 +413,14 @@ jobs:
           if [ -f shim_probe.bin ]; then
             echo "shim links:    YES"
             lipo -info shim_probe.bin
-            otool -L shim_probe.bin | head -30
+            echo "--- what it loads at runtime ---"
+            otool -L shim_probe.bin | tail -n +2 | awk '{print $1}' | head -30
           else
-            echo "shim links:    NO — unresolved:"
+            echo "shim links:    NO"
+            echo "--- undefined, if any ---"
             grep -oE '"[^"]+", referenced from' shim_link.log \
-              | sed -E 's/^"//; s/", referenced from$//' \
-              | cut -c1-60 | sort -u | head -20 || true
-            # Run 10's unresolved list came back EMPTY: adding the dylibs
-            # resolved every symbol and the link then failed for some other
-            # reason entirely, which the deduplicating filter above cannot
-            # show. Whatever ld actually said goes here.
+              | sed -E 's/^"//; s/", referenced from$//' | cut -c1-60 | sort -u | head -12 || true
             echo "--- what ld actually said ---"
-            tail -12 shim_link.log || true
+            grep -vE "^ld: warning: (ignoring duplicate|object file)" shim_link.log | tail -15 || true
           fi
-          # WHAT THE APP WILL HAVE TO EMBED. Four of Cycles' dependencies are
-          # dylibs, so the IPA has to carry them in Runner.app/Frameworks and
-          # the Runner has to find them at load time. Whether that is a plain
-          # copy or a copy plus install_name surgery is decided by the install
-          # names they were built with — and whether it is possible at all is
-          # decided by the platform they were built for.
-          echo "--- install names and platform of the dylibs Cycles needs ---"
-          for d in opencolorio/lib/libOpenColorIO imath/lib/libImath \
-                   tbb/lib/libtbb openimageio/lib/libOpenImageIO \
-                   openimageio/lib/libOpenImageIO_Util openexr/lib/libOpenEXR; do
-            f="blender/lib/ios_arm64/$d.dylib"
-            [ -f "$f" ] || continue
-            echo "$(basename $f): id=$(otool -D "$f" | tail -1)"
-            otool -l "$f" | grep -A3 -E "LC_BUILD_VERSION|LC_VERSION_MIN" | grep -E "platform|minos|sdk" | head -3
-          done
-          echo "--- what form do the four missing libraries take? ---"
-          find blender/lib/ios_arm64 -not -path '*/python/*' \
-            \( -iname '*openimageio*' -o -iname '*opencolorio*' -o -iname '*tbb*' \
-               -o -iname '*imath*' -o -iname '*openexr*' \) 2>/dev/null \
-            | grep -vE '/(include|share|doc)/' | head -30
-          echo "--- dylibs and frameworks present ---"
-          find blender/lib/ios_arm64 \( -name '*.dylib' -o -name '*.framework' -o -name '*.xcframework' \) \
-            -not -path '*/python/*' 2>/dev/null | xargs -n1 basename 2>/dev/null | sort -u | tr '\n' ' '
-          echo
           echo "=============================================="
-

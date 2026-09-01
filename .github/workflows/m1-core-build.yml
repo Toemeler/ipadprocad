@@ -643,10 +643,16 @@ jobs:
         run: |
           set -o pipefail
           SDK=$(xcrun --sdk iphoneos --show-sdk-path)
-          mkdir -p cycles-dist/lib cycles-dist/deps
-          find build_ios -name "libcycles*.a" -exec cp {} cycles-dist/lib/ \;
+          mkdir -p cycles-dist/lib cycles-dist/deps cycles-dist/dylib
+          find build_ios \( -name "libcycles*.a" -o -name "libbf_intern_guardedalloc.a" \
+                          -o -name "libbf_intern_sky.a" \) -exec cp {} cycles-dist/lib/ \;
           test -f cycles-dist/lib/libcycles_shim.a
-          DEPS=$(find blender/lib/ios_arm64 -name '*.a' -not -path '*/python/*' | tr '\n' ' ')
+          # .dylib as well as .a. Four of Cycles' dependencies — OpenImageIO,
+          # OpenColorIO, Imath and TBB — ship only as dynamic libraries in
+          # this package, which is what runs 6 through 9 kept reading as
+          # "missing" (M309, M310).
+          DEPS=$(find blender/lib/ios_arm64 \( -name '*.a' -o -name '*.dylib' \) \
+                   -not -path '*/python/*' | tr '\n' ' ')
           # Three times: Apple's linker walks archives once, in the order
           # given, and `find` emits them in directory order, so a library
           # listed before its user is never revisited. There is no
@@ -656,13 +662,19 @@ jobs:
             -Wl,-force_load,cycles-dist/lib/libcycles_shim.a \
             cycles-dist/lib/*.a $DEPS $DEPS $DEPS -lc++ -lz \
             -framework Metal -framework Foundation -framework CoreGraphics -framework IOKit \
+            -framework AudioToolbox -framework AVFoundation -framework CoreAudio \
+            -framework CoreMedia -framework VideoToolbox \
             -Wl,-t -o shim_probe.bin > trace.log 2>&1 \
             || { echo "the shim does not link:"; \
                  grep -oE '"[^"]+", referenced from' trace.log | sed -E 's/^"//; s/", referenced from$//' | cut -c1-70 | sort -u | head -30; \
                  tail -5 trace.log; exit 1; }
           grep -oE "$PWD/blender/lib/ios_arm64/[^(]*\.a" trace.log | sort -u > used.txt
-          echo "dependency archives the link actually used: $(wc -l < used.txt)"
+          grep -oE "$PWD/blender/lib/ios_arm64/[^ ]*\.dylib" trace.log | sort -u > used_dylib.txt
+          echo "the link used $(wc -l < used.txt) archives and $(wc -l < used_dylib.txt) dylibs"
           xargs -I{} cp {} cycles-dist/deps/ < used.txt
+          # -L: the package uses symlinks for versioned names, and a bundle
+          # cannot ship a link to a path that will not be there.
+          xargs -I{} cp -L {} cycles-dist/dylib/ < used_dylib.txt
           # The kernel tree. Everything, because the Metal include walker
           # follows #include "..." across kernel/, util/ and further, and a
           # header it cannot find is left in the source verbatim and then
@@ -671,7 +683,7 @@ jobs:
           rsync -a --exclude '.git' --exclude 'shim' blender/intern/cycles/ cycles-dist/source/
           test -f cycles-dist/source/kernel/device/metal/kernel.metal
           echo "--- distribution ---"
-          du -sh cycles-dist/lib cycles-dist/deps cycles-dist/source
+          du -sh cycles-dist/lib cycles-dist/deps cycles-dist/dylib cycles-dist/source
           lipo -info cycles-dist/lib/libcycles_shim.a
           nm -gU cycles-dist/lib/libcycles_shim.a | grep -cE "_cy_" || true
 
@@ -1118,8 +1130,13 @@ jobs:
             CYC="$GITHUB_WORKSPACE/cycles-dist"
             CYCLIBS="$(ls "$CYC/lib"/*.a | grep -v libcycles_shim | tr '\n' ' ')"
             CYCDEPS="$(ls "$CYC/deps"/*.a 2>/dev/null | tr '\n' ' ')"
+            # The dylibs are linked from where they sit now; ci/embed_cycles_dylibs.sh
+            # copies them into the bundle and rewrites the load commands to
+            # @rpath afterwards, because their install names are the build
+            # machine's absolute paths and an iPad has no such directory.
+            CYCDYL="$(ls "$CYC/dylib"/*.dylib 2>/dev/null | tr '\n' ' ')"
             echo "Cycles on the link line: $(echo "$CYCLIBS" | wc -w) archives, $(echo "$CYCDEPS" | wc -w) deps"
-            CYCLES="-force_load $CYC/lib/libcycles_shim.a $CYCLIBS $CYCDEPS $CYCDEPS -framework AudioToolbox -framework AVFoundation -framework CoreAudio -framework CoreMedia -framework VideoToolbox"
+            CYCLES="-force_load $CYC/lib/libcycles_shim.a $CYCLIBS $CYCDEPS $CYCDEPS $CYCDYL -framework AudioToolbox -framework AVFoundation -framework CoreAudio -framework CoreMedia -framework VideoToolbox"
             CYCEXP='_cy_*\n'
           fi
           # _cy_* joins the export list for the same reason the other three
@@ -1280,6 +1297,8 @@ jobs:
             test -f "$APP/cycles/source/kernel/device/metal/kernel.metal" \
               || { echo "CYCLES KERNEL CHECK: FAIL (kernel source not in the bundle)"; exit 1; }
             echo "CYCLES KERNEL CHECK: PASS ($(du -sh "$APP/cycles" | cut -f1) bundled)"
+            bash "$GITHUB_WORKSPACE/ci/embed_cycles_dylibs.sh" \
+              "$GITHUB_WORKSPACE/cycles-dist/dylib" "$APP"
             # And the shim must be reachable BY NAME: Dart resolves it with
             # dlsym through the export trie, so a link that succeeded but left
             # the symbols unexported is indistinguishable from no Cycles.
