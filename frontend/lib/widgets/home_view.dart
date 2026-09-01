@@ -105,12 +105,20 @@ List<NativeMenuItem> newDocMenuItems(AppL10n t) => [
 /// M289 — which file formats a card's Export action may offer, before the
 /// destination is ever chosen. 3D parts can write both STL and STEP; sketches
 /// only DXF, assemblies only STEP.
-List<String> exportFormatsFor(String kind) => switch (kind) {
-      'part' || 'ptp' => ['stl', 'step'],
-      'sketch' || 'pts' => ['dxf'],
-      kAssemblyDocKind => ['step'],
-      _ => ['step'],
-    };
+List<String> exportFormatsFor(String nameOrPath) {
+  final kind = switch (nameOrPath) {
+    'part' || 'ptp' => 'part',
+    'sketch' || 'pts' => 'sketch',
+    kAssemblyDocKind => kAssemblyDocKind,
+    _ => kindOfPath(nameOrPath),
+  };
+  return switch (kind) {
+    'part' => const ['stl', 'step'],
+    'sketch' => const ['dxf'],
+    kAssemblyDocKind => const ['step'],
+    _ => const ['step'],
+  };
+}
 
 /// M272 — how strongly a card's name leans toward its kind's hue.
 ///
@@ -236,10 +244,10 @@ class _HomeViewState extends State<HomeView> {
         widget.app.duplicateDocument(sketch);
         break;
       case 'export':
-        _sendFile(sketch, share: false);
+        sendFile(sketch, share: false);
         break;
       case 'share':
-        _sendFile(sketch, share: true);
+        sendFile(sketch, share: true);
         break;
       case 'delete':
         _confirmDelete(sketch);
@@ -492,10 +500,12 @@ class _HomeViewState extends State<HomeView> {
     await app.createNamedAssembly(name);
   }
 
-  Future<void> _sendFile(String name, {required bool share}) async {
-    final isPart = widget.app.isPartName(name);
+  /// Exported for the regression test: the gallery export path must be
+  /// reachable by document name, not by a dotted-name classifier.
+  Future<void> sendFile(String name, {required bool share}) async {
+    final formats = exportFormatsFor(name);
     String? path;
-    if (isPart && !share) {
+    if (formats.length > 1 && !share) {
       // M289 — ask STL or STEP before the location, for part cards.
       final t = L.of(context);
       final box = context.findRenderObject();
@@ -532,9 +542,15 @@ class _HomeViewState extends State<HomeView> {
         _ => null,
       };
     } else {
-      path = isPart
-          ? await widget.app.partExportStep(name)
-          : await widget.app.sketchExportPath(name);
+      if (formats.length > 1) {
+        path = await widget.app.partExportStep(name);
+      } else {
+        path = switch (formats.single) {
+          'dxf' => await widget.app.sketchExportPath(name),
+          'step' => await widget.app.partExportStep(name),
+          _ => null,
+        };
+      }
     }
     if (path == null || !mounted) return;
     // iPad refuses to present these sheets without a popover anchor.
