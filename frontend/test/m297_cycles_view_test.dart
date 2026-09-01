@@ -72,9 +72,13 @@ void main() {
   });
 
   group('the matrix is a camera', () {
-    test('its basis is orthonormal and right-handed', () {
-      // Cycles applies it as a rigid transform; a basis that is not
-      // orthonormal skews the image, and one that is left-handed mirrors it.
+    test('its basis is orthonormal, and LEFT-handed as Cycles expects', () {
+      // Cycles applies it as a rigid transform, so a basis that is not
+      // orthonormal skews the image. The handedness is not a free choice and
+      // not a bug: Blender builds this matrix as `tfm * scale(1, 1, -1)`
+      // (intern/cycles/blender/camera.cpp), which reflects a right-handed
+      // object matrix. Asserting right-handedness here is what let M297 ship
+      // a camera pointing the wrong way for four builds.
       final m = cyclesCameraMatrix(_cam(), 40);
       final x = Vec3(m[0], m[4], m[8]);
       final y = Vec3(m[1], m[5], m[9]);
@@ -86,22 +90,31 @@ void main() {
       expect(y.dot(z).abs(), lessThan(1e-9));
       expect(z.dot(x).abs(), lessThan(1e-9));
       final cross = x.cross(y);
-      expect(cross.x, closeTo(z.x, 1e-9));
-      expect(cross.y, closeTo(z.y, 1e-9));
-      expect(cross.z, closeTo(z.z, 1e-9));
+      expect(cross.x, closeTo(-z.x, 1e-9));
+      expect(cross.y, closeTo(-z.y, 1e-9));
+      expect(cross.z, closeTo(-z.z, 1e-9));
     });
 
-    test('Z is +dir, so the camera looks AT the model', () {
-      // The error this test exists for. Cycles looks down its own -Z, so the
-      // matrix's Z column must be the direction the eye is displaced IN, not
-      // the direction it looks. Taking -dir renders the far side.
+    test('Z is the direction the camera LOOKS, which is -dir', () {
+      // The error this test exists for, and the one it originally asserted.
+      //
+      // Cam3.dir points from the model TOWARDS the eye. Cycles' third column
+      // is the forward direction: the kernel shoots orthographic rays along
+      // +Z of this matrix (kernel/camera/camera.h, D = (0,0,1)) and
+      // projection_orthographic() contains no flip to undo it.
+      //
+      // Getting this backwards does not render the far side of the model, as
+      // the first version of this test claimed. It renders NO model: every ray
+      // leaves the eye going away from the scene and terminates on the world,
+      // and the result is a frame of perfectly uniform background that looks
+      // like a display bug rather than a camera bug.
       final c = _cam();
       final m = cyclesCameraMatrix(c, 40);
       final z = Vec3(m[2], m[6], m[10]);
       final d = c.dir;
       final n = math.sqrt(d.dot(d));
-      expect(z.dot(Vec3(d.x / n, d.y / n, d.z / n)), closeTo(1, 1e-9),
-          reason: 'Z must be +dir; -dir would render the model from behind');
+      expect(z.dot(Vec3(d.x / n, d.y / n, d.z / n)), closeTo(-1, 1e-9),
+          reason: 'Z must be -dir; +dir points every ray away from the model');
     });
 
     test('the eye is outside the model, whichever way it is turned', () {

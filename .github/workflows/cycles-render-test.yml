@@ -79,7 +79,16 @@ jobs:
       - name: Configure and build (host, arm64)
         run: |
           set -o pipefail
+          brew list ninja >/dev/null 2>&1 || brew install ninja
+          # The `ios` branch defaults to an iOS build and then refuses to
+          # configure without lib/ios_arm64. This build runs HERE, so it has to
+          # say so. The accepted values are printed alongside, so a wrong guess
+          # diagnoses itself in one run rather than three.
+          echo "--- APPLE_TARGET_DEVICE, as the tree defines it ---"
+          grep -rn "APPLE_TARGET_DEVICE" blender/CMakeLists.txt \
+            blender/build_files/cmake/platform/platform_apple.cmake 2>/dev/null | head -12
           cmake -S blender -B build_host -G Ninja \
+            -DAPPLE_TARGET_DEVICE=macos \
             -DCMAKE_BUILD_TYPE=Release \
             -DWITH_CYCLES=ON \
             -DWITH_OPENIMAGEDENOISE=OFF \

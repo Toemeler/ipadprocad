@@ -49,8 +49,25 @@ static void check(int ok, const char *what)
   }
 }
 
-/* Mean luminance of a quadrant, 0..255. Sampled over an area rather than at a
- * point so a single stray sample cannot decide the result. */
+/* Mean value of one channel over a quadrant, 0..255. Sampled over an area
+ * rather than at a point so a single stray sample cannot decide the result.
+ * channel < 0 means luminance. */
+static double quadrant_ch(const unsigned char *rgba, int left, int top, int channel)
+{
+  const int x0 = left ? TW / 8 : TW * 5 / 8;
+  const int y0 = top ? TH / 8 : TH * 5 / 8;
+  double sum = 0.0;
+  int n = 0;
+  for (int y = y0; y < y0 + TH / 4; y++) {
+    for (int x = x0; x < x0 + TW / 4; x++) {
+      const unsigned char *p = rgba + ((size_t)y * TW + x) * 4;
+      sum += channel < 0 ? (p[0] + p[1] + p[2]) / 3.0 : p[channel];
+      n++;
+    }
+  }
+  return n ? sum / n : 0.0;
+}
+
 static double quadrant(const unsigned char *rgba, int left, int top)
 {
   const int x0 = left ? TW / 8 : TW * 5 / 8;
@@ -102,7 +119,10 @@ int main(int argc, char **argv)
    * exactly what cyclesCameraMatrix builds in Dart, with dir = +z. */
   view.matrix[0] = 1.0f;  /* s.x */
   view.matrix[5] = 1.0f;  /* u.y */
-  view.matrix[10] = 1.0f; /* d.z */
+  /* Third column is the FORWARD direction: the eye is at z=+40 and the quad is
+   * at z=0, so the camera looks along -z. Getting this sign wrong renders a
+   * frame of pure background — see cycles_view.dart. */
+  view.matrix[10] = -1.0f; /* forward.z */
   view.matrix[11] = 40.0f; /* eye.z */
   view.half_width = 10.0f;
   view.half_height = 10.0f;
@@ -149,6 +169,53 @@ int main(int argc, char **argv)
 
   /* The kernels are compiled by now, by definition. */
   check(cy_kernels_ready() == 1, "cy_kernels_ready is set after a render");
+
+  /* ---- and now the materials -------------------------------------------
+   *
+   * Two quads, one red and one blue, in the left and right halves. Before
+   * M323 every body in the scene was handed scene->default_surface, so an
+   * aluminium bracket and a copper bus-bar came out the same grey — a render
+   * of somebody else's model. The check is per CHANNEL, because a bug that
+   * makes both bodies the same colour still passes any luminance test. */
+  /* Full height, so the sampled quadrants sit wholly inside one body or the
+   * other and a partial-coverage average cannot soften the verdict. */
+  const float lverts[12] = {
+      -9.0f, -9.0f, 0.0f, -1.0f, -9.0f, 0.0f, -1.0f, 9.0f, 0.0f, -9.0f, 9.0f, 0.0f,
+  };
+  const float rverts[12] = {
+      1.0f, -9.0f, 0.0f, 9.0f, -9.0f, 0.0f, 9.0f, 9.0f, 0.0f, 1.0f, 9.0f, 0.0f,
+  };
+  CyMesh two[2];
+  memset(two, 0, sizeof(two));
+  for (int i = 0; i < 2; i++) {
+    two[i].verts = i ? rverts : lverts;
+    two[i].vert_count = 4;
+    two[i].tris = tris;
+    two[i].tri_count = 2;
+    two[i].has_material = 1;
+    two[i].roughness = 0.5f;
+    two[i].metallic = 0.0f;
+  }
+  two[0].color[0] = 0.6f; /* left: red */
+  two[1].color[2] = 0.6f; /* right: blue */
+
+  unsigned char *mat = (unsigned char *)calloc((size_t)TW * TH * 4, 1);
+  if (mat == NULL) {
+    printf("FAIL: out of memory\n");
+    free(rgba);
+    return 1;
+  }
+  const int ok2 = cy_render(two, 2, &view, mat);
+  check(ok2 == 1, "a two-material scene renders");
+  if (ok2) {
+    const double lr = quadrant_ch(mat, 1, 1, 0), lb = quadrant_ch(mat, 1, 1, 2);
+    const double rr = quadrant_ch(mat, 0, 1, 0), rb = quadrant_ch(mat, 0, 1, 2);
+    printf("left R=%.1f B=%.1f | right R=%.1f B=%.1f\n", lr, lb, rr, rb);
+    check(lr > lb + 10.0, "the red body is red");
+    check(rb > rr + 10.0, "the blue body is blue");
+    check(lr > rr + 10.0, "the two bodies are not the same colour");
+  }
+  free(mat);
 
   free(rgba);
   printf(failures ? "RENDER TEST: FAIL (%d)\n" : "RENDER TEST: PASS (%d failures)\n",

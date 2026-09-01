@@ -50,6 +50,8 @@
 
 #include <atomic>
 #include <cstdlib>
+#include <cstdint>
+#include <map>
 #include <cstring>
 #include <mutex>
 #include <string>
@@ -130,6 +132,60 @@ template<typename M> auto mesh_tag_positions(M *m, int) -> decltype(m->tag_posit
 template<typename M> auto mesh_tag_positions(M *m, long) -> decltype(m->tag_verts_modified())
 {
   return m->tag_verts_modified();
+}
+
+/* THE BODY'S APPEARANCE, as a Cycles shader.
+ *
+ * Every mesh used to get scene->default_surface — one grey clay for the whole
+ * model, ignoring the materials the app has stored per body since M272. A
+ * render in which an aluminium bracket and a copper bus-bar come out the same
+ * colour is not a render of the user's model.
+ *
+ * CACHED BY APPEARANCE, not per mesh. An assembly is routinely hundreds of
+ * pieces drawn from a handful of materials, and a Shader per piece means a
+ * ShaderGraph per piece for Cycles to compile and deduplicate. The key is the
+ * quantised colour and finish, which is exactly as fine as the difference a
+ * viewer could see.
+ *
+ * A mesh with no material keeps default_surface — steel is the ABSENCE of a
+ * material, not a material that happens to be grey, and the default surface is
+ * the one Cycles has already built. */
+using ShaderCache = std::map<uint64_t, ccl::Shader *>;
+
+uint64_t appearance_key(const CyMesh &m)
+{
+  const auto q = [](float v) -> uint64_t {
+    const float c = v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v);
+    return (uint64_t)(c * 1023.0f + 0.5f);
+  };
+  return (q(m.color[0]) << 40) | (q(m.color[1]) << 30) | (q(m.color[2]) << 20) |
+         (q(m.roughness) << 10) | q(m.metallic);
+}
+
+ccl::Shader *surface_for(ccl::Scene *scene, ShaderCache &cache, const CyMesh &m)
+{
+  if (!m.has_material) {
+    return scene->default_surface;
+  }
+  const uint64_t key = appearance_key(m);
+  const ShaderCache::const_iterator it = cache.find(key);
+  if (it != cache.end()) {
+    return it->second;
+  }
+
+  ccl::unique_ptr<ccl::ShaderGraph> graph = ccl::make_unique<ccl::ShaderGraph>();
+  ccl::PrincipledBsdfNode *bsdf = graph->create_node<ccl::PrincipledBsdfNode>();
+  bsdf->set_base_color(ccl::make_float3(m.color[0], m.color[1], m.color[2]));
+  bsdf->set_roughness(m.roughness);
+  bsdf->set_metallic(m.metallic);
+  graph->connect(bsdf->output("BSDF"), graph->output()->input("Surface"));
+
+  ccl::Shader *shader = scene->create_node<ccl::Shader>();
+  shader->name = ccl::ustring("body");
+  shader->set_graph(std::move(graph));
+  shader->tag_update(scene);
+  cache[key] = shader;
+  return shader;
 }
 
 std::string g_error;
@@ -421,6 +477,7 @@ int cy_render(const CyMesh *meshes,
   }
 
   /* ---- geometry -------------------------------------------------------- */
+  ShaderCache shaders;
   for (int i = 0; i < mesh_count; i++) {
     const CyMesh &src = meshes[i];
     if (src.vert_count <= 0 || src.tri_count <= 0 || src.verts == nullptr ||
@@ -431,7 +488,7 @@ int cy_render(const CyMesh *meshes,
     ccl::Mesh *mesh = scene->create_node<ccl::Mesh>();
 
     ccl::array<ccl::Node *> used_shaders;
-    used_shaders.push_back_slow(scene->default_surface);
+    used_shaders.push_back_slow(surface_for(scene, shaders, src));
     mesh->set_used_shaders(used_shaders);
 
     mesh->resize_mesh(src.vert_count, src.tri_count);

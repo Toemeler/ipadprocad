@@ -29,6 +29,20 @@ typedef struct {
   const float *normals; /* xyz per vertex, or NULL for flat shading */
   const int *tris;      /* 3 indices per triangle */
   int tri_count;
+
+  /* The body's appearance, or 0 for the renderer's default steel.
+   *
+   * A flag rather than a sentinel colour, because black is a colour a body may
+   * legitimately be and "no material" has to stay distinguishable from it —
+   * the same distinction materialArgb() draws on the Dart side by returning
+   * null instead of a steel-coloured value. */
+  int has_material;
+  /* Base colour, LINEAR 0..1, not sRGB. The conversion happens in Dart, where
+   * it can be tested; a renderer handed sRGB values renders everything too
+   * bright and washed out in a way that looks like a lighting problem. */
+  float color[3];
+  float roughness; /* 0 mirror-smooth .. 1 fully rough */
+  float metallic;  /* 0 dielectric .. 1 metal */
 } CyMesh;
 
 /* The view, and how hard to work on it. */

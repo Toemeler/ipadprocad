@@ -19,16 +19,35 @@
 // with the eye at `+dir * D` — see Cam3's own note, and `facesCamera`, which
 // is `n·dir > 0`.
 //
-// Cycles' camera is Blender's: it looks down its own -Z, with +Y up and +X
-// right, and `Camera::matrix` is CAMERA-TO-WORLD. So the basis columns are
+// Cycles' camera matrix is CAMERA-TO-WORLD, and its third column is the
+// FORWARD direction — the way the camera looks. Not the backward vector.
 //
 //     X = s        (screen right)
 //     Y = u        (screen up)
-//     Z = dir      (BACKWARDS along the view, because the view is -Z)
+//     Z = -dir     (FORWARD along the view: Cam3's dir points at the eye)
 //
-// and the translation is the eye. Getting Z as -dir instead is the classic
-// error and renders the model from behind — which on a symmetric part is a
-// picture that looks almost right.
+// This is worth being explicit about, because "a Blender camera looks down its
+// own -Z" is true of the Blender OBJECT and not of what Cycles is handed.
+// Blender flips it on the way in:
+//
+//     /* Note the blender camera points along the negative z-axis. */
+//     result = tfm * transform_scale(1.0f, 1.0f, -1.0f);
+//                                — intern/cycles/blender/camera.cpp
+//
+// and the kernel then shoots orthographic rays along +Z of that matrix:
+//
+//     float3 D = make_float3(0.0f, 0.0f, 1.0f);
+//                                — intern/cycles/kernel/camera/camera.h
+//
+// with projection_orthographic() containing no flip of its own. So the third
+// column must be where the camera is pointing. Getting it backwards does NOT
+// render the model from behind — it renders no model at all, because every ray
+// leaves the eye travelling away from the scene and hits the world. A full
+// frame of flat background is the signature, and it is the one this got wrong
+// for its first four builds on device.
+//
+// The basis is therefore LEFT-handed, by construction, exactly as Blender's
+// own multiplication by scale(1,1,-1) makes it. That is not a bug to fix.
 //
 // The half-extents follow from the same two lines: half-height is halfH and
 // half-width is halfH * aspect, which is exactly what `project` divides by.
@@ -63,9 +82,9 @@ List<double> cyclesCameraMatrix(Cam3 cam, double reach) {
   final back = (reach.isFinite && reach > 0 ? reach : 1.0) * kCyclesEyePullback;
   final eye = s * cam.ox + u * cam.oy + d * back;
   return [
-    s.x, u.x, d.x, eye.x, //
-    s.y, u.y, d.y, eye.y, //
-    s.z, u.z, d.z, eye.z, //
+    s.x, u.x, -d.x, eye.x, //
+    s.y, u.y, -d.y, eye.y, //
+    s.z, u.z, -d.z, eye.z, //
   ];
 }
 
