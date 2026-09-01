@@ -624,9 +624,15 @@ jobs:
             -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY="" \
             -DCMAKE_XCODE_ATTRIBUTE_DEVELOPMENT_TEAM="" > configure.log 2>&1 \
             || { tail -30 configure.log; exit 1; }
+          # bf_intern_guardedalloc and bf_intern_sky are Blender's, not
+          # Cycles': built inside Blender's tree, Cycles allocates through
+          # MEM_mallocN and calls the Nishita sky model. Leaving them out is
+          # what run 610's cycles-ios job failed on, with four undefined
+          # symbols that name them exactly.
           for t in cycles_util cycles_graph cycles_bvh cycles_subd \
                    cycles_scene cycles_integrator cycles_session \
-                   cycles_device cycles_kernel cycles_shim; do
+                   cycles_device cycles_kernel \
+                   bf_intern_guardedalloc bf_intern_sky cycles_shim; do
             cmake --build build_ios --config Release --target "$t" -- -quiet -jobs 3 \
               > "build_$t.log" 2>&1 \
               || { echo "FAILED: $t"; grep -E "error:|fatal error:" "build_$t.log" | head -30; exit 1; }
