@@ -15,8 +15,13 @@
 # followed to a fixed point, because a bundled dylib that cannot find ITS
 # dylib fails at load time with the same nothing-useful message.
 #
+# WRITTEN FOR BASH 3.2, which is what /bin/bash is on a macOS runner: no
+# associative arrays and no mapfile. The seen-set is a space-delimited string,
+# which for thirty names is not worth a data structure. M314's job failed
+# silently on `declare -A`.
+#
 # Usage: harvest_cycles_dylibs.sh <binary> <search-root> <out-dir>
-set -euo pipefail
+set -eu
 
 BIN="${1:?usage: harvest_cycles_dylibs.sh <binary> <search-root> <out-dir>}"
 ROOT="${2:?}"
@@ -24,33 +29,32 @@ OUT="${3:?}"
 mkdir -p "$OUT"
 
 rpath_deps() {
-  otool -L "$1" | tail -n +2 | awk '{print $1}' \
-    | sed -n 's|^@rpath/||p'
+  otool -L "$1" | tail -n +2 | awk '{print $1}' | sed -n 's|^@rpath/||p'
 }
 
-find_lib() {
-  find "$ROOT" -name "$1" -not -path '*/python/*' -type f 2>/dev/null | head -1
-}
+QUEUE="$(rpath_deps "$BIN" | tr '\n' ' ')"
+SEEN=" "
+COUNT=0
 
-declare -a QUEUE=()
-while IFS= read -r n; do [ -n "$n" ] && QUEUE+=("$n"); done < <(rpath_deps "$BIN")
-
-declare -A SEEN=()
-while [ ${#QUEUE[@]} -gt 0 ]; do
-  name="${QUEUE[0]}"
-  QUEUE=("${QUEUE[@]:1}")
-  [ -n "${SEEN[$name]:-}" ] && continue
-  SEEN[$name]=1
-  f="$(find_lib "$name")"
+while [ -n "${QUEUE// /}" ]; do
+  set -- $QUEUE
+  name="$1"
+  shift
+  QUEUE="$*"
+  case "$SEEN" in *" $name "*) continue ;; esac
+  SEEN="$SEEN$name "
+  f="$(find "$ROOT" -name "$name" -not -path '*/python/*' -type f 2>/dev/null | head -1)"
   if [ -z "$f" ]; then
-    echo "CYCLES DYLIBS: $name is required and is not in $ROOT" >&2
+    echo "CYCLES DYLIBS: FAIL — $name is required and is not in $ROOT"
     exit 1
   fi
+  # -L: the package uses symlinks for versioned names, and a bundle cannot
+  # ship a link to a path that will not be there.
   cp -Lf "$f" "$OUT/$name"
   chmod u+w "$OUT/$name"
-  while IFS= read -r d; do [ -n "$d" ] && QUEUE+=("$d"); done < <(rpath_deps "$f")
+  COUNT=$((COUNT + 1))
+  QUEUE="$QUEUE $(rpath_deps "$OUT/$name" | tr '\n' ' ')"
 done
 
-echo "CYCLES DYLIBS: ${#SEEN[@]} needed"
-ls -la "$OUT" | tail -n +2
+echo "CYCLES DYLIBS: $COUNT needed ->$SEEN"
 du -sh "$OUT"
