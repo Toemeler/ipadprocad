@@ -179,6 +179,44 @@ FRAMEWORK_CALLED = frozenset((
     'reassemble', 'deactivate', 'activate', 'didChangeAppLifecycleState'))
 
 
+# The same shapes as ADDED_DECL_RE, without the diff's `+`.
+DECL_NAME_RE = re.compile(
+    r'^\s*(?:(?:static|final|const|abstract|late|external)\s+)*'
+    r'(?:class|mixin|extension|enum|typedef)\s+(\w+)'
+    r'|^\s*(?:(?:static|external)\s+)*'
+    r'(?:Future<[^>]*>|void|bool|int|double|String|num|dynamic|'
+    r'List<[^>]*>|Map<[^>]*>|Set<[^>]*>|[A-Z]\w*<[^>]*>|[A-Z]\w*\??)'
+    r'\s+(?:get\s+|set\s+)?(\w+)\s*[({=]')
+
+
+def _enclosing_decls(root=ROOT):
+    """The declarations whose BODIES this change edits. -> {name}
+
+    Why this is separate from the added/removed scan: issue #12's shipped fix
+    changed two lines INSIDE `exportFormatsFor`. It added no declaration and
+    removed no reference, so nothing looked at the function itself — and the
+    function has no caller in `lib/` at all.
+    """
+    diff = subprocess.run(['git', 'diff', '--unified=0', '--', 'frontend/lib'],
+                          cwd=root, capture_output=True, text=True).stdout
+    names, text = set(), []
+    for line in diff.splitlines():
+        if line.startswith('+++ b/'):
+            path = root / line[6:].strip()
+            text = (path.read_text(encoding='utf-8', errors='replace')
+                    .splitlines() if path.exists() else [])
+        elif line.startswith('@@') and text:
+            m = re.match(r'@@ -\S+ \+(\d+)', line)
+            if not m:
+                continue
+            for i in range(min(int(m.group(1)), len(text)) - 1, -1, -1):
+                found = DECL_NAME_RE.match(text[i])
+                if found:
+                    names.add(found.group(1) or found.group(2))
+                    break
+    return names
+
+
 def dead_new_symbols(root=ROOT):
     """New declarations in lib/ that nothing in lib/ ever calls. -> [names]
 
@@ -222,21 +260,51 @@ def dead_new_symbols(root=ROOT):
         if line.startswith('-') and not line.startswith('---'):
             for word in re.findall(r'[A-Za-z_]\w{3,}', line[1:]):
                 names.add(word)
+    # AND THE DECLARATIONS THIS CHANGE EDITED THE INSIDE OF.
+    #
+    # Issue #12 is why. Its fix changed two lines within `exportFormatsFor` —
+    # adding no declaration and removing no reference, so neither scan above
+    # looked at the function — and `exportFormatsFor` is called from `lib/`
+    # exactly nowhere. The test called it, the coverage gate saw the changed
+    # lines execute, the test-first gate saw it fail then pass, and the shipped
+    # commit could not affect the app at all. A change to app code has to be
+    # reachable FROM app code; otherwise it is a change to the test suite
+    # wearing a fix's commit message.
+    names |= _enclosing_decls(root)
     if not names:
         return []
     dead = []
     for name in sorted(names):
+        if name in FRAMEWORK_CALLED:
+            continue
+        # LINES, not a count, because a count cannot tell a CALL from a
+        # MENTION: a doc comment naming the function reads as a second
+        # occurrence and the old "exactly one" rule then saw a caller. That is
+        # not what let issue #12 through — there the enclosing declaration was
+        # simply never examined — but it is the same rule being credulous, and
+        # `exportFormatsFor` carries a doc comment two lines long.
         hits = subprocess.run(
-            ['git', 'grep', '-w', '--no-color', '-c', name, '--', 'frontend/lib'],
+            ['git', 'grep', '-w', '-n', '--no-color', name, '--', 'frontend/lib'],
             cwd=root, capture_output=True, text=True).stdout
-        total = sum(int(l.rsplit(':', 1)[1]) for l in hits.splitlines() if ':' in l)
-        # Exactly one occurrence means a declaration with no callers. ZERO
-        # means the word is not a symbol in lib/ at all — most words on a
-        # removed line are not — so it is not evidence of anything.
-        if total == 1:
+        callers, declared = 0, False
+        for hit in hits.splitlines():
+            body = hit.split(':', 2)[-1]
+            if COMMENT_LINE_RE.match(body):
+                continue
+            found = DECL_NAME_RE.match(body)
+            if not declared and found and (found.group(1) or found.group(2)) == name:
+                declared = True   # the declaration is not a use of itself
+                continue
+            callers += 1
+        # No CODE line other than the declaration mentions it. A name that is
+        # not declared in lib/ at all is not evidence of anything — most words
+        # on a removed line are not symbols — so `declared` is required.
+        if declared and callers == 0:
             dead.append(name)
     return dead
 
+
+COMMENT_LINE_RE = re.compile(r'\s*(?://|///|/\*|\*)')
 
 SOURCE_READ_RE = re.compile(r'readAsString|loadString|File\s*\(')
 STRING_LITERAL_RE = re.compile(r"'([^'\n]{12,})'|\"([^\"\n]{12,})\"")

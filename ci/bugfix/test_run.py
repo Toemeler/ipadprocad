@@ -1448,3 +1448,77 @@ class DerivedValueRuleTest(unittest.TestCase):
         self.assertIn('WHERE IT LIVES', rules)
         self.assertIn('galleryChrome', rules)
         self.assertIn('icon_theme.dart', rules)
+
+
+class UnreachableChangeTest(unittest.TestCase):
+    """Issue #12 shipped a fix to a function nothing in the app calls.
+
+    `exportFormatsFor` is declared in `home_view.dart` and referenced only by
+    its own tests; the real export path hardcodes its two items. The fix
+    changed two lines INSIDE it, so it added no declaration and removed no
+    reference — and every gate passed. The test failed before and passed after,
+    the coverage gate watched the changed lines execute, and the commit could
+    not affect the app at all.
+
+    A change to app code has to be reachable FROM app code. Otherwise it is a
+    change to the test suite wearing a fix's commit message.
+    """
+
+    def repo(self, edit, extra=''):
+        tmp = pathlib.Path(tempfile.mkdtemp())
+        (tmp / 'frontend/lib/widgets').mkdir(parents=True)
+        base = ('/// Which formats a card offers.\n'
+                'List<String> exportFormatsFor(String kind) => switch (kind) {\n'
+                "      'part' => ['stl', 'step'],\n"
+                '      _ => [],\n'
+                '    };\n'
+                '\n'
+                'Future<void> sendFile(String name) async {\n'
+                '  await menu(items: const [1, 2]);\n'
+                '}\n'
+                '\n'
+                'void onTap(String name) {\n'
+                '  sendFile(name);\n'
+                '}\n' + extra)
+        f = tmp / 'frontend/lib/widgets/home_view.dart'
+        f.write_text(base)
+        for cmd in (['git', 'init', '-q', '.'],
+                    ['git', 'config', 'user.email', 't@e'],
+                    ['git', 'config', 'user.name', 't'],
+                    ['git', 'add', '-A'],
+                    ['git', 'commit', '-qm', 'base']):
+            subprocess.run(cmd, cwd=tmp, capture_output=True)
+        f.write_text(edit(base))
+        return tmp
+
+    def test_editing_a_function_nothing_calls_is_caught(self):
+        import verify
+        root = self.repo(lambda s: s.replace("'part' => ['stl', 'step'],",
+                                             "'part' || 'ptp' => ['stl', 'step'],"))
+        self.assertEqual(verify._enclosing_decls(root), {'exportFormatsFor'})
+        self.assertIn('exportFormatsFor', verify.dead_new_symbols(root))
+
+    def test_editing_a_function_the_app_calls_is_fine(self):
+        import verify
+        root = self.repo(lambda s: s.replace('await menu(items: const [1, 2]);',
+                                             'await menu(items: const [1, 2, 3]);'))
+        self.assertEqual(verify._enclosing_decls(root), {'sendFile'})
+        self.assertNotIn('sendFile', verify.dead_new_symbols(root),
+                         '`onTap` calls it, so the change can reach the app')
+
+    def test_a_doc_comment_is_not_a_caller(self):
+        """A mention in prose must not read as a use."""
+        import verify
+        root = self.repo(
+            lambda s: s.replace("'part' => ['stl', 'step'],",
+                                "'part' || 'ptp' => ['stl', 'step'],"),
+            extra='// exportFormatsFor is described again down here.\n')
+        self.assertIn('exportFormatsFor', verify.dead_new_symbols(root))
+
+    def test_a_framework_lifecycle_method_is_exempt(self):
+        import verify
+        root = self.repo(
+            lambda s: s.replace('  await menu(items: const [1, 2]);',
+                                '  await menu(items: const [1, 2]);\n  //x'),
+            extra='class W {\n  void initState() {\n    final z = 1;\n  }\n}\n')
+        self.assertNotIn('initState', verify.dead_new_symbols(root))

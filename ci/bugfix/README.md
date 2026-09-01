@@ -92,7 +92,7 @@ workflow log rather than on next month's invoice.
 | `edits.py` | Search/replace block format, parsing and all-or-nothing application. Enforces forbidden paths. |
 | `verify.py` | `analyze`, `test`, and the test-first gate. |
 | `run.py` | The loop: ask → gate → verify → ship, or escalate, or block. |
-| `test_*.py` | 173 tests. Run by the workflow *before* the model is called. |
+| `test_*.py` | 177 tests. Run by the workflow *before* the model is called. |
 
 ## Setup
 
@@ -196,6 +196,14 @@ next step is always a re-run rather than an archaeology session.
 - **Prefix drift is silent.** A timestamp or an issue number accidentally
   placed ahead of the pack in `model.SYSTEM` costs 30× on every call and breaks
   nothing visibly. If the printed cost per run climbs, look there first.
+- **A change to app code must be reachable FROM app code.** Issue #12's first
+  shipped fix changed two lines inside `exportFormatsFor`, a function declared
+  in `home_view.dart` and called by its own tests and nothing else — the real
+  export path hardcodes its two items. Every gate passed: the test failed
+  before and passed after, and the coverage gate watched the changed lines
+  execute. `dead_new_symbols` now also examines the declaration whose body a
+  hunk edits, not only ones the diff adds or orphans, and counts CODE lines
+  rather than occurrences so a doc comment cannot read as a caller.
 - **A miss on the anchor is not a wrong fix.** A SEARCH that does not match is
   mechanical, so it gets a bounded exemption from the fix budget
   (`MAX_APPLY_ROUNDS`) the way `expand` does. Issue #11 lost five of nineteen
