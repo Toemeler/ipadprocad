@@ -15,6 +15,7 @@ import 'app_state.dart';
 import 'cycles_boot.dart';
 import 'cycles_session.dart';
 import 'cycles_view.dart';
+import 'materials.dart' show materialArgb;
 import 'part_render.dart' show Cam3;
 import 'reality_assembly.dart' show assemblyPieces, assemblySceneSignature;
 import 'reality_scene.dart' show sceneSignature, visibleSolids;
@@ -40,20 +41,41 @@ String cyclesSceneKey(AppState app) {
   return sceneSignature(app, p);
 }
 
-/// The meshes of whatever is on screen, in world coordinates.
+/// The meshes of whatever is on screen, in world coordinates, each carrying
+/// the appearance its body was given.
+///
+/// SELECTION AND HOVER ARE NOT APPEARANCES and deliberately do not travel. The
+/// working views tint the selected body because selection is a question you
+/// just asked; a render is a picture of the model, and a part that comes out
+/// orange because a browser row happened to be highlighted is a picture of the
+/// UI. Only the material — the fact set once — reaches the renderer.
 List<CyclesMesh> cyclesSceneMeshes(AppState app) {
   final a = app.currentAssembly;
   if (a != null) {
     final out = <CyclesMesh>[];
-    for (final (_, _, at, s) in assemblyPieces(a, app: app)) {
-      final m = cyclesMeshAt(s, at);
+    for (final (_, o, at, s) in assemblyPieces(a, app: app)) {
+      final m = cyclesMeshAt(s, at,
+          material: cyclesMaterial(o.material, materialArgb(o.material)));
       if (m != null) out.add(m);
     }
     return out;
   }
   final p = app.currentPart;
   if (p == null) return const [];
-  return cyclesMeshes([for (final (_, s) in visibleSolids(app, p)) s]);
+  // visibleSolids keys by FEATURE; materials are stored per BODY, and a body
+  // is the name several features build into — the same indirection
+  // _bodyRowTint walks for the shaded view.
+  final byFeature = <String, String?>{
+    for (final f in p.features) f.name: p.bodyMaterials[f.bodyName],
+  };
+  final out = <CyclesMesh>[];
+  for (final (id, s) in visibleSolids(app, p)) {
+    final mid = byFeature[id];
+    final m = cyclesMeshAt(s, null,
+        material: cyclesMaterial(mid, materialArgb(mid)));
+    if (m != null) out.add(m);
+  }
+  return out;
 }
 
 /// The job that renders what [app] is showing, seen through [cam], at

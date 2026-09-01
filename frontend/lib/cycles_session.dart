@@ -66,7 +66,7 @@ class CyclesJob {
   /// Total triangles, for the log and for a budget test.
   int get triangles {
     var n = 0;
-    for (final (_, _, t) in meshes) {
+    for (final (_, _, t, _) in meshes) {
       n += t.length ~/ 3;
     }
     return n;

@@ -128,9 +128,71 @@ Vec3 _norm(Vec3 v) {
 }
 
 
+/// A body's appearance, in the form Cycles shades with.
+///
+/// LINEAR colour, not sRGB. The app stores materials as sRGB hex, which is what
+/// a screen wants and not what a renderer integrates; handing sRGB straight to
+/// a path tracer makes everything too bright and washed out in a way that
+/// reads as a lighting problem rather than a colour-space one.
+class CyclesMaterial {
+  const CyclesMaterial(this.r, this.g, this.b,
+      {this.roughness = 0.5, this.metallic = 0.0});
+
+  final double r;
+  final double g;
+  final double b;
+  final double roughness;
+  final double metallic;
+
+  @override
+  bool operator ==(Object other) =>
+      other is CyclesMaterial &&
+      other.r == r &&
+      other.g == g &&
+      other.b == b &&
+      other.roughness == roughness &&
+      other.metallic == metallic;
+
+  @override
+  int get hashCode => Object.hash(r, g, b, roughness, metallic);
+}
+
+/// sRGB 0..255 to linear 0..1.
+double cyclesLinear(int channel) {
+  final c = (channel & 0xFF) / 255.0;
+  return c <= 0.04045 ? c / 12.92 : math.pow((c + 0.055) / 1.055, 2.4).toDouble();
+}
+
+/// The four ids [kMaterials] calls metals.
+///
+/// They differ from the pigments only in FINISH here, not in `metallic`. A
+/// fully metallic surface under a uniform world reflects that world uniformly
+/// and comes out as a flat card with no modelling at all — worse than the
+/// diffuse it replaced. Metals become worth switching on when the world stops
+/// being uniform; until then they read as metal through a tighter specular,
+/// which a lower roughness gives.
+const Set<String> kCyclesMetals = {'aluminium', 'graphite', 'brass', 'copper'};
+
+/// The material for a body painted [id] with packed [argb], or null for steel.
+CyclesMaterial? cyclesMaterial(String? id, int? argb) {
+  if (argb == null) return null;
+  return CyclesMaterial(
+    cyclesLinear(argb >> 16),
+    cyclesLinear(argb >> 8),
+    cyclesLinear(argb),
+    roughness: kCyclesMetals.contains(id) ? 0.25 : 0.5,
+  );
+}
+
 /// One mesh, in the form the shim's CyMesh takes: 32-bit positions, optional
-/// 32-bit normals, 32-bit triangle indices.
-typedef CyclesMesh = (Float32List verts, Float32List? normals, Int32List tris);
+/// 32-bit normals, 32-bit triangle indices, and the body's appearance (null
+/// for the renderer's own default surface).
+typedef CyclesMesh = (
+  Float32List verts,
+  Float32List? normals,
+  Int32List tris,
+  CyclesMaterial? material
+);
 
 /// [solids] as Cycles meshes.
 ///
@@ -167,7 +229,8 @@ List<CyclesMesh> cyclesMeshes(Iterable<KernelSolid> solids) {
 /// two-sided so it would still draw, but the geometric normal it derives from
 /// the winding would face into the solid — which is what decides shadow
 /// terminator and which side a ray considers front, so it is not cosmetic.
-CyclesMesh? cyclesMeshAt(KernelSolid solid, Placement? at) {
+CyclesMesh? cyclesMeshAt(KernelSolid solid, Placement? at,
+    {CyclesMaterial? material}) {
   final m = solid.mesh;
   final pos = m.positions;
   final idx = m.indices;
@@ -213,7 +276,7 @@ CyclesMesh? cyclesMeshAt(KernelSolid solid, Placement? at) {
     tris[i + 1] = flip ? idx[i + 2] : idx[i + 1];
     tris[i + 2] = flip ? idx[i + 1] : idx[i + 2];
   }
-  return (verts, normals, tris);
+  return (verts, normals, tris, material);
 }
 
 /// Everything about a camera that changes the picture, as a string for the
@@ -264,7 +327,7 @@ const int kCyclesSamples = 48;
 /// the assembly origin is a metre, not the size of the part.
 double cyclesMeshReach(List<CyclesMesh> meshes) {
   var r2 = 0.0;
-  for (final (v, _, _) in meshes) {
+  for (final (v, _, _, _) in meshes) {
     for (var i = 0; i + 2 < v.length; i += 3) {
       final d = v[i] * v[i] + v[i + 1] * v[i + 1] + v[i + 2] * v[i + 2];
       if (d.isFinite && d > r2) r2 = d;

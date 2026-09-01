@@ -56,7 +56,7 @@ void main() {
     test('is moved into world coordinates', () {
       final m = cyclesMeshAt(_tri(), const Placement(Quat.identity, Vec3(5, 0, 0)));
       expect(m, isNotNull);
-      final (v, _, _) = m!;
+      final (v, _, _, _) = m!;
       expect(v[0], closeTo(5, 1e-6));
       expect(v[3], closeTo(15, 1e-6));
     });
@@ -67,7 +67,7 @@ void main() {
       // did not pick up the translation.
       final rot = Quat.axisAngle(const Vec3(1, 0, 0), 1.5707963267948966);
       final m = cyclesMeshAt(_tri(), Placement(rot, const Vec3(100, 100, 100)));
-      final (_, n, _) = m!;
+      final (_, n, _, _) = m!;
       expect(n, isNotNull);
       final len = math.sqrt(n![0] * n[0] + n[1] * n[1] + n[2] * n[2]);
       expect(len, closeTo(1.0, 1e-5));

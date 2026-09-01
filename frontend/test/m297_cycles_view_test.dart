@@ -169,6 +169,7 @@ void main() {
   });
 
   _sceneTests();
+  _materialTests();
 
   group('the reach', () {
     test('is the furthest point from the origin', () {
@@ -214,7 +215,7 @@ void _sceneTests() {
     test('narrow to 32-bit once, here, and keep their shape', () {
       final out = cyclesMeshes([_tri()]);
       expect(out.length, 1);
-      final (v, n, t) = out.first;
+      final (v, n, t, _) = out.first;
       expect(v, isA<Float32List>());
       expect(v.length, 9);
       expect(v[3], closeTo(10, 1e-6));
@@ -228,7 +229,7 @@ void _sceneTests() {
       // Partial or absent normals are not made up: Cycles would smooth-shade
       // some triangles and not others, and the seam reads as a modelling
       // error. The shim flat-shades when normals is null.
-      final (_, n, _) = cyclesMeshes([_tri(normals: false)]).first;
+      final (_, n, _, _) = cyclesMeshes([_tri(normals: false)]).first;
       expect(n, isNull);
     });
 
@@ -251,6 +252,62 @@ void _sceneTests() {
       expect(cyclesCameraKey(_cam(ox: 1)), isNot(a));
       expect(cyclesCameraKey(_cam(roll: 0.1)), isNot(a),
           reason: 'roll turns the image even though dir is unchanged');
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// M323 — the body's appearance reaches the renderer.
+// ---------------------------------------------------------------------------
+
+void _materialTests() {
+  group('materials', () {
+    test('sRGB becomes linear, because a path tracer integrates linear light',
+        () {
+      // Handing sRGB straight to a renderer makes everything too bright in a
+      // way that reads as a lighting bug rather than a colour-space one.
+      expect(cyclesLinear(0), closeTo(0.0, 1e-9));
+      expect(cyclesLinear(255), closeTo(1.0, 1e-9));
+      // Mid grey is the case that gives it away: 0.5 sRGB is 0.21 linear.
+      expect(cyclesLinear(128), closeTo(0.2158, 1e-3));
+      expect(cyclesLinear(128), lessThan(128 / 255));
+    });
+
+    test('steel is the absence of a material, not a grey one', () {
+      // materialArgb returns null for steel so the renderer keeps its own
+      // default surface — a body with "no tint" and one tinted steel-coloured
+      // are different things on the wire.
+      expect(cyclesMaterial(null, null), isNull);
+      expect(cyclesMaterial('steel', null), isNull);
+    });
+
+    test('a painted body carries its colour, converted', () {
+      // brass, 0xFFC2A462
+      final m = cyclesMaterial('brass', 0xFFC2A462)!;
+      expect(m.r, closeTo(cyclesLinear(0xC2), 1e-9));
+      expect(m.g, closeTo(cyclesLinear(0xA4), 1e-9));
+      expect(m.b, closeTo(cyclesLinear(0x62), 1e-9));
+      expect(m.r, greaterThan(m.g));
+      expect(m.g, greaterThan(m.b));
+    });
+
+    test('metals differ in FINISH, not in metallic', () {
+      // A fully metallic surface under a uniform world reflects it uniformly
+      // and comes out a flat card with no modelling — worse than the diffuse
+      // it replaced. They read as metal through a tighter specular instead,
+      // and become worth switching on when the world stops being uniform.
+      final brass = cyclesMaterial('brass', 0xFFC2A462)!;
+      final red = cyclesMaterial('red', 0xFFC05B54)!;
+      expect(brass.roughness, lessThan(red.roughness));
+      expect(brass.metallic, 0.0);
+      expect(red.metallic, 0.0);
+    });
+
+    test('a mesh carries the material it was built with', () {
+      final mat = cyclesMaterial('blue', 0xFF5D82AF);
+      final m = cyclesMeshAt(_tri(), null, material: mat);
+      expect(m!.$4, mat);
+      expect(cyclesMeshAt(_tri(), null)!.$4, isNull);
     });
   });
 }

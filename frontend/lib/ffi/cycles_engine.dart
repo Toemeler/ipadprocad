@@ -13,6 +13,7 @@ import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 
+import '../cycles_view.dart' show CyclesMesh;
 import '../log.dart';
 
 // ---- the C surface, mirrored ------------------------------------------------
@@ -28,6 +29,18 @@ final class CyMeshS extends Struct {
   external Pointer<Int32> tris;
   @Int32()
   external int triCount;
+  // M323 — the body's appearance. A field added to cycles_shim.h and not here
+  // is not a missing feature, it is a struct read past its end: Dart sizes the
+  // array from THIS declaration, so the shim would index into the next
+  // element's memory. The two are reviewed together for that reason.
+  @Int32()
+  external int hasMaterial;
+  @Array(3)
+  external Array<Float> color;
+  @Float()
+  external double roughness;
+  @Float()
+  external double metallic;
 }
 
 final class CyViewS extends Struct {
@@ -162,8 +175,7 @@ class CyclesFfi {
   /// BLOCKING, for as long as the sample count takes. The caller runs it off
   /// the UI thread.
   Uint8List? render({
-    required List<(Float32List verts, Float32List? normals, Int32List tris)>
-        meshes,
+    required List<CyclesMesh> meshes,
     required List<double> matrix,
     required double halfWidth,
     required double halfHeight,
@@ -177,7 +189,7 @@ class CyclesFfi {
     try {
       final meshArr = arena<CyMeshS>(meshes.isEmpty ? 1 : meshes.length);
       for (var i = 0; i < meshes.length; i++) {
-        final (v, n, t) = meshes[i];
+        final (v, n, t, mat) = meshes[i];
         final vp = arena<Float>(v.length);
         vp.asTypedList(v.length).setAll(0, v);
         final tp = arena<Int32>(t.length);
@@ -194,6 +206,12 @@ class CyclesFfi {
         } else {
           meshArr[i].normals = nullptr;
         }
+        meshArr[i].hasMaterial = mat == null ? 0 : 1;
+        meshArr[i].color[0] = mat?.r ?? 0.0;
+        meshArr[i].color[1] = mat?.g ?? 0.0;
+        meshArr[i].color[2] = mat?.b ?? 0.0;
+        meshArr[i].roughness = mat?.roughness ?? 0.5;
+        meshArr[i].metallic = mat?.metallic ?? 0.0;
       }
       final view = arena<CyViewS>();
       for (var i = 0; i < 12; i++) {
