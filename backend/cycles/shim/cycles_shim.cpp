@@ -149,9 +149,12 @@ template<typename M> auto mesh_tag_positions(M *m, long) -> decltype(m->tag_vert
  * quantised colour and finish, which is exactly as fine as the difference a
  * viewer could see.
  *
- * A mesh with no material keeps default_surface — steel is the ABSENCE of a
- * material, not a material that happens to be grey, and the default surface is
- * the one Cycles has already built. */
+ * A mesh with no material still means STEEL — the absence of a material, not a
+ * material that happens to be grey. What changed in M337 is what steel looks
+ * like: it is now built here, from the app's own colour, rather than taken
+ * from Cycles' default_surface, which is a bare Principled BSDF at 0.8 and
+ * three times too bright. It shares the cache under a key no colour can
+ * reach. */
 using ShaderCache = std::map<uint64_t, ccl::Shader *>;
 
 uint64_t appearance_key(const CyMesh &m)
@@ -164,10 +167,64 @@ uint64_t appearance_key(const CyMesh &m)
          (q(m.roughness) << 10) | q(m.metallic);
 }
 
+/* M337 — THE RENDERER'S OWN STEEL, and why default_surface is not it.
+ *
+ * `scene->default_surface` is a bare PrincipledBsdfNode, and a bare one has a
+ * base colour of 0.8 — near white. The app's steel is Colors.steel, 0x86898D,
+ * which is linear 0.25: a mid grey, and a THIRD of the brightness. An
+ * unpainted body is the default and the commonest case, so this was the first
+ * thing anyone would see, and what they would see is a part in white clay next
+ * to a working view showing it in grey metal.
+ *
+ * The numbers are Materials.rendered(Colors.steel) exactly — the material an
+ * untinted body gets in the RealityKit rendered view, which is where the 0.45
+ * roughness and the 0.15 metallic come from rather than from the working
+ * view's matte 0.9. Written out linear because that is what the shim takes
+ * everywhere; the sRGB bytes they came from are in the comment so the two
+ * files can still be compared.
+ *
+ * Kept as "no material means the renderer's steel" rather than moving the
+ * colour into Dart, because that is the contract cycles_shim.h states and
+ * because render_test can check the tone that actually comes out, which no
+ * Dart test can. */
+const float kSteelLinear[3] = {0.238398f, 0.250158f, 0.266356f}; /* 0x86898D */
+const float kSteelRoughness = 0.45f;
+const float kSteelMetallic = 0.15f;
+
+/* A key no real appearance can collide with: appearance_key packs five
+ * 10-bit quantities into the low 50 bits. */
+const uint64_t kSteelKey = (uint64_t)1 << 60;
+
+ccl::Shader *build_surface(ccl::Scene *scene,
+                           const float color[3],
+                           const float roughness,
+                           const float metallic)
+{
+  ccl::unique_ptr<ccl::ShaderGraph> graph = ccl::make_unique<ccl::ShaderGraph>();
+  ccl::PrincipledBsdfNode *bsdf = graph->create_node<ccl::PrincipledBsdfNode>();
+  bsdf->set_base_color(ccl::make_float3(color[0], color[1], color[2]));
+  bsdf->set_roughness(roughness);
+  bsdf->set_metallic(metallic);
+  graph->connect(bsdf->output("BSDF"), graph->output()->input("Surface"));
+
+  ccl::Shader *shader = scene->create_node<ccl::Shader>();
+  shader->name = ccl::ustring("body");
+  shader->set_graph(std::move(graph));
+  shader->tag_update(scene);
+  return shader;
+}
+
 ccl::Shader *surface_for(ccl::Scene *scene, ShaderCache &cache, const CyMesh &m)
 {
   if (!m.has_material) {
-    return scene->default_surface;
+    const ShaderCache::const_iterator steel = cache.find(kSteelKey);
+    if (steel != cache.end()) {
+      return steel->second;
+    }
+    ccl::Shader *shader = build_surface(
+        scene, kSteelLinear, kSteelRoughness, kSteelMetallic);
+    cache[kSteelKey] = shader;
+    return shader;
   }
   const uint64_t key = appearance_key(m);
   const ShaderCache::const_iterator it = cache.find(key);
@@ -175,17 +232,7 @@ ccl::Shader *surface_for(ccl::Scene *scene, ShaderCache &cache, const CyMesh &m)
     return it->second;
   }
 
-  ccl::unique_ptr<ccl::ShaderGraph> graph = ccl::make_unique<ccl::ShaderGraph>();
-  ccl::PrincipledBsdfNode *bsdf = graph->create_node<ccl::PrincipledBsdfNode>();
-  bsdf->set_base_color(ccl::make_float3(m.color[0], m.color[1], m.color[2]));
-  bsdf->set_roughness(m.roughness);
-  bsdf->set_metallic(m.metallic);
-  graph->connect(bsdf->output("BSDF"), graph->output()->input("Surface"));
-
-  ccl::Shader *shader = scene->create_node<ccl::Shader>();
-  shader->name = ccl::ustring("body");
-  shader->set_graph(std::move(graph));
-  shader->tag_update(scene);
+  ccl::Shader *shader = build_surface(scene, m.color, m.roughness, m.metallic);
   cache[key] = shader;
   return shader;
 }

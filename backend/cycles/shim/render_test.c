@@ -184,6 +184,21 @@ int main(int argc, char **argv)
    * geometry failure. What the check is for is that the quad is THERE. */
   check(fabs(tr - tl) > 10.0, "the object is visibly distinct from the background");
 
+  /* M337 — an unpainted body is STEEL, not white clay.
+   *
+   * The quad above has no material, so it takes the renderer's default. That
+   * used to be Cycles' own default_surface: a bare Principled BSDF, base
+   * colour 0.8, near white. The app's steel is 0x86898D — linear 0.25, a
+   * third of the brightness — and an unpainted body is the commonest thing
+   * there is, so this was what a user would see first and it did not match the
+   * working view at all.
+   *
+   * The window is wide because the exact number depends on the rig, and narrow
+   * enough to exclude both a 0.8 clay (which lands near 205 here) and a body
+   * that came out black. */
+  check(tr > 60.0 && tr < 175.0,
+        "an unpainted body renders as the app's steel, not as white clay");
+
   /* And it is in the right corner.
    *
    * Stated as "the other three agree with each other and the fourth does not",
