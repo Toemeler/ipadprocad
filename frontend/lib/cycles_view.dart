@@ -37,6 +37,7 @@ import 'dart:typed_data';
 
 import 'part_model.dart' show KernelSolid, Vec3;
 import 'part_render.dart' show Cam3;
+import 'quat.dart' show Placement;
 
 /// How far behind the model the eye is put, as a multiple of the scene's own
 /// reach.
@@ -126,31 +127,74 @@ typedef CyclesMesh = (Float32List verts, Float32List? normals, Int32List tris);
 List<CyclesMesh> cyclesMeshes(Iterable<KernelSolid> solids) {
   final out = <CyclesMesh>[];
   for (final s in solids) {
-    final m = s.mesh;
-    final pos = m.positions;
-    final idx = m.indices;
-    if (pos.isEmpty || idx.isEmpty || pos.length % 3 != 0 || idx.length % 3 != 0) {
-      continue;
-    }
-    final verts = Float32List(pos.length);
+    final m = cyclesMeshAt(s, null);
+    if (m != null) out.add(m);
+  }
+  return out;
+}
+
+/// [solid] as a Cycles mesh with [at] applied, or null when it has nothing to
+/// draw.
+///
+/// An assembly's solids are in their own part's coordinates and the occurrence
+/// places them, so the placement is baked into the vertices here. Cycles could
+/// carry it on the Object transform instead, and that is what the RealityKit
+/// path does — but that path re-places entities on every drag frame and this
+/// one renders once from a standstill, so there is nothing to save and one
+/// fewer convention to get wrong. Pass null for a part's own solids, which are
+/// already in world coordinates.
+///
+/// A MIRRORED placement reverses triangle winding. Cycles' shading is
+/// two-sided so it would still draw, but the geometric normal it derives from
+/// the winding would face into the solid — which is what decides shadow
+/// terminator and which side a ray considers front, so it is not cosmetic.
+CyclesMesh? cyclesMeshAt(KernelSolid solid, Placement? at) {
+  final m = solid.mesh;
+  final pos = m.positions;
+  final idx = m.indices;
+  if (pos.isEmpty || idx.isEmpty || pos.length % 3 != 0 || idx.length % 3 != 0) {
+    return null;
+  }
+  final verts = Float32List(pos.length);
+  if (at == null) {
     for (var i = 0; i < pos.length; i++) {
       verts[i] = pos[i].toDouble();
     }
-    Float32List? normals;
-    final nor = m.normals;
-    if (nor.length == pos.length) {
-      normals = Float32List(nor.length);
+  } else {
+    for (var i = 0; i + 2 < pos.length; i += 3) {
+      final w = at.apply(Vec3(
+          pos[i].toDouble(), pos[i + 1].toDouble(), pos[i + 2].toDouble()));
+      verts[i] = w.x;
+      verts[i + 1] = w.y;
+      verts[i + 2] = w.z;
+    }
+  }
+  Float32List? normals;
+  final nor = m.normals;
+  if (nor.length == pos.length) {
+    normals = Float32List(nor.length);
+    if (at == null) {
       for (var i = 0; i < nor.length; i++) {
         normals[i] = nor[i].toDouble();
       }
+    } else {
+      for (var i = 0; i + 2 < nor.length; i += 3) {
+        final w = at.applyDir(Vec3(
+            nor[i].toDouble(), nor[i + 1].toDouble(), nor[i + 2].toDouble()));
+        normals[i] = w.x;
+        normals[i + 1] = w.y;
+        normals[i + 2] = w.z;
+      }
     }
-    final tris = Int32List(idx.length);
-    for (var i = 0; i < idx.length; i++) {
-      tris[i] = idx[i];
-    }
-    out.add((verts, normals, tris));
   }
-  return out;
+  final tris = Int32List(idx.length);
+  final flip = at != null && at.mirrored;
+  for (var i = 0; i + 2 < idx.length; i += 3) {
+    tris[i] = idx[i];
+    tris[i + 1] = flip ? idx[i + 2] : idx[i + 1];
+    tris[i + 2] = flip ? idx[i + 1] : idx[i + 2];
+  }
+  return (verts, normals, tris);
 }
 
 /// Everything about a camera that changes the picture, as a string for the
@@ -164,4 +208,48 @@ String cyclesCameraKey(Cam3 cam) {
   return '${f(cam.dir.x)},${f(cam.dir.y)},${f(cam.dir.z)};'
       '${f(cam.s.x)},${f(cam.s.y)},${f(cam.s.z)};'
       '${f(cam.halfH)},${f(cam.ox)},${f(cam.oy)}';
+}
+
+/// The largest image a Cycles render will produce, on its long side.
+///
+/// A path tracer is not a rasteriser: cost is pixels times samples, and the
+/// viewport at native iPad resolution is 5.6 megapixels. At any sample count
+/// worth having, that is a minute of work for a picture the user asked for by
+/// switching a display mode. 900 on the long side is a third of a megapixel,
+/// it fills the viewport well enough on a Retina panel once scaled, and it
+/// lands in seconds rather than minutes.
+const int kCyclesMaxSide = 900;
+
+/// How many samples one render takes.
+///
+/// One number, not a range: a preview that is sometimes 16 samples and
+/// sometimes 512 is two different pictures of the same model, and the user
+/// has no way to tell which one they are looking at. 48 is past the point
+/// where a studio-lit CAD body with no caustics still looks noisy.
+const int kCyclesSamples = 48;
+
+/// The pixel size to render [size] logical points at, capped at
+/// [kCyclesMaxSide] and never zero.
+(int, int) cyclesImageSize(double width, double height, double dpr) {
+  final w = width * dpr, h = height * dpr;
+  if (!w.isFinite || !h.isFinite || w < 1 || h < 1) return (1, 1);
+  final long = math.max(w, h);
+  final k = long > kCyclesMaxSide ? kCyclesMaxSide / long : 1.0;
+  return (math.max(1, (w * k).round()), math.max(1, (h * k).round()));
+}
+
+/// The furthest any vertex of [meshes] is from the origin.
+///
+/// Taken from the CONVERTED meshes rather than the solids, so an assembly's
+/// placements are already baked in — the reach of a part sitting a metre off
+/// the assembly origin is a metre, not the size of the part.
+double cyclesMeshReach(List<CyclesMesh> meshes) {
+  var r2 = 0.0;
+  for (final (v, _, _) in meshes) {
+    for (var i = 0; i + 2 < v.length; i += 3) {
+      final d = v[i] * v[i] + v[i + 1] * v[i + 1] + v[i + 2] * v[i + 2];
+      if (d.isFinite && d > r2) r2 = d;
+    }
+  }
+  return math.sqrt(r2);
 }

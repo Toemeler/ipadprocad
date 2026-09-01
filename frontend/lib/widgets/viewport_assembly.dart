@@ -59,6 +59,7 @@ import '../section_view.dart';
 import '../assembly.dart';
 import '../l10n/l.dart';
 import '../log.dart';
+import 'cycles_layer.dart';
 import '../mouse_nav.dart';
 import '../part_model.dart';
 import '../part_render.dart';
@@ -368,6 +369,10 @@ class _ViewportAssemblyState extends State<ViewportAssembly>
                         size: Size.infinite,
                       ),
               ),
+              // M304 — the path-traced image, when rendered mode has one.
+              // Over the shaded scene and under the decorations, exactly as in
+              // viewport3d: see the note there.
+              Positioned.fill(child: CyclesLayer(app: app, cam: cam, size: size)),
               // Screen-space decorations. On iOS the scene is RealityKit and
               // _AssemblyPainter never runs, so anything that is pure HUD has
               // to be drawn here or it would be visible on the host and

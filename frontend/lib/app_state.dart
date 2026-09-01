@@ -28,6 +28,7 @@ import 'reality_assembly.dart';
 import 'constraints.dart';
 import 'diag.dart';
 import 'face_project.dart';
+import 'cycles_session.dart';
 import 'display_mode.dart';
 import 'doc_file.dart';
 import 'doc_ref.dart';
@@ -14052,6 +14053,29 @@ class AppState extends ChangeNotifier {
   }
 
   // ---- M273: how the model is drawn ----
+
+  CyclesSession? _cycles;
+  Object? _cyclesDoc;
+
+  /// M304 — the Cycles renderer for the document that is open.
+  ///
+  /// One per document, rebuilt when the document changes, because everything
+  /// it holds — the queued key, the image on screen — is about THAT model. A
+  /// session carried across a tab switch would show the last part's render
+  /// over the next part for as long as it took the new key to be offered.
+  ///
+  /// On a build with no Cycles libraries linked, and in every host test, the
+  /// session reports [CyclesSession.available] false and does nothing at all;
+  /// rendered mode is then exactly the RealityKit view it has always been.
+  CyclesSession get cycles {
+    final Object? doc = currentAssembly ?? currentPart;
+    if (_cycles == null || !identical(_cyclesDoc, doc)) {
+      _cycles?.reset();
+      _cyclesDoc = doc;
+      _cycles = CyclesSession();
+    }
+    return _cycles!;
+  }
 
   /// The display mode of whatever document is open, or the working view.
   DisplayMode get displayMode =>

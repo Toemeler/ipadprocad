@@ -20,6 +20,7 @@ import 'package:reality_view/reality_view.dart';
 
 import '../app_state.dart';
 import '../log.dart';
+import 'cycles_layer.dart';
 import '../part_pick.dart';
 import '../pick_math.dart';
 import '../perf.dart';
@@ -545,6 +546,11 @@ class _Viewport3DState extends State<Viewport3D>
                         size: Size.infinite,
                       ),
               ),
+              // M304 — the path-traced image, when rendered mode has one.
+              // Over the shaded render and UNDER the decorations: a hover ring
+              // or a plane label is a thing you are doing right now, and a
+              // photograph of the model is not a reason to stop seeing it.
+              Positioned.fill(child: CyclesLayer(app: app, cam: cam, size: size)),
               // Screen-space decorations (iOS only — the CPU painter draws its
               // own): profile regions, hover rings, plane label.
               if (RealityView.isSupported)

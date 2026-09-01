@@ -128,6 +128,13 @@ class CyclesRender {
   bool get busy =>
       _phase == CyclesPhase.pending || _phase == CyclesPhase.rendering;
 
+  /// True when [key] is already the scene being waited for or shown.
+  ///
+  /// [request] answers this too, but only by acting on it. A caller that has
+  /// expensive work to do ONLY when the scene changed — building a job out of
+  /// every vertex in the model — needs to ask before committing to it.
+  bool wants(CyclesKey key) => _wanted == key;
+
   /// The scene is now [key]. Called on every rebuild; cheap and idempotent.
   ///
   /// Returns true when the caller should repaint.
