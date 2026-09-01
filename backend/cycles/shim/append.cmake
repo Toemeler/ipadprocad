@@ -22,3 +22,16 @@
 # construction, with nothing written down twice.
 add_library(cycles_shim STATIC shim/cycles_shim.cpp)
 target_include_directories(cycles_shim PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+# M344 — and the denoiser, which is a second translation unit on purpose.
+#
+# It names no Cycles type and includes no Cycles header except `util/tbb.h`,
+# and that one through `__has_include` so it is optional. Keeping it separate
+# is what lets the host render test link it on its own and check, with hand-made
+# buffers and no GPU, the one property that decides whether a denoiser is
+# usable on a CAD render: that it does not blur an edge.
+#
+# Listed as a second source of the SAME target rather than as a library of its
+# own, because it is one file with one caller and a second CMake target would
+# be a second thing for three workflows to remember to build.
+target_sources(cycles_shim PRIVATE shim/cycles_denoise.cpp)

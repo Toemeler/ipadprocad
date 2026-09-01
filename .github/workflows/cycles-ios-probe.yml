@@ -128,6 +128,7 @@ jobs:
         run: |
           mkdir -p blender/intern/cycles/shim
           cp backend/cycles/shim/cycles_shim.cpp backend/cycles/shim/cycles_shim.h \
+             backend/cycles/shim/cycles_denoise.cpp backend/cycles/shim/cycles_denoise.h \
              blender/intern/cycles/shim/
           cat backend/cycles/shim/append.cmake >> blender/intern/cycles/CMakeLists.txt
           tail -5 blender/intern/cycles/CMakeLists.txt

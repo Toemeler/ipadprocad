@@ -36,9 +36,18 @@
  *     upside down is the failure most likely to be shrugged off as "close
  *     enough" by everything except a test that knows where the triangle was.
  *
+ *   * M344: THE DENOISER DOES NOT BLUR AN EDGE. It is the property the whole
+ *     filter turns on and the one nobody can eyeball on a device: a filter
+ *     that removes noise and also removes the chamfer is worse than no filter.
+ *     Checked here on hand-made buffers, with no GPU involved at all, which is
+ *     why cycles_denoise.cpp names no Cycles type;
+ *   * M344: THE LIVE SESSION PRODUCES FRAMES. cy_live_* is the path the app
+ *     actually uses, and until this it had never been called by anything.
+ *
  * Exit: 0 pass, 1 fail, 2 skipped (no GPU on this machine).
  */
 #include "cycles_shim.h"
+#include "cycles_denoise.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -123,6 +132,7 @@ int main(int argc, char **argv)
   mesh.normals = NULL;
   mesh.tris = tris;
   mesh.tri_count = 2;
+  mesh.material = -1; /* the renderer's own steel */
 
   CyView view;
   memset(&view, 0, sizeof(view));
@@ -140,11 +150,21 @@ int main(int argc, char **argv)
   view.width = TW;
   view.height = TH;
   view.samples = 16;
+
   /* The world, LINEAR. Since M332 this is the background the CAMERA sees and
    * only a small ambient on the surfaces; the light comes from the fixed rig
    * in the shim. 0.8 linear is a bright background at sRGB 231, which is what
-   * the encode check below is written against. */
-  view.world[0] = view.world[1] = view.world[2] = 0.8f;
+   * the encode check below is written against.
+   *
+   * M344 moved it out of CyView and into CyEnv, with no HDRI, which is the
+   * configuration a build without the optional asset set renders in — so this
+   * test covers exactly what ships by default. */
+  CyEnv env;
+  memset(&env, 0, sizeof(env));
+  env.world[0] = env.world[1] = env.world[2] = 0.8f;
+  env.ambient = 0.15f;
+  env.rig = 1.0f;
+  env.hdri_strength = 1.0f;
 
   unsigned char *rgba = (unsigned char *)calloc((size_t)TW * TH * 4, 1);
   if (rgba == NULL) {
@@ -152,7 +172,7 @@ int main(int argc, char **argv)
     return 1;
   }
 
-  const int ok = cy_render(&mesh, 1, &view, rgba);
+  const int ok = cy_render(&mesh, 1, NULL, 0, &env, &view, rgba);
   check(ok == 1, "cy_render reports success");
   if (!ok) {
     printf("  error: %s\n", cy_last_error());
@@ -256,6 +276,7 @@ int main(int argc, char **argv)
       faces[i].normals = i ? down_n : up_n;
       faces[i].tris = tris;
       faces[i].tri_count = 2;
+      faces[i].material = -1;
     }
 
     unsigned char *lit = (unsigned char *)calloc((size_t)TW * TH * 4, 1);
@@ -264,7 +285,7 @@ int main(int argc, char **argv)
       free(rgba);
       return 1;
     }
-    const int ok_lit = cy_render(faces, 2, &view, lit);
+    const int ok_lit = cy_render(faces, 2, NULL, 0, &env, &view, lit);
     check(ok_lit == 1, "a scene with per-vertex normals renders");
     if (ok_lit) {
       const double up = quadrant(lit, 1, 1);
@@ -295,18 +316,25 @@ int main(int argc, char **argv)
       1.0f, -9.0f, 0.0f, 9.0f, -9.0f, 0.0f, 9.0f, 9.0f, 0.0f, 1.0f, 9.0f, 0.0f,
   };
   CyMesh two[2];
+  CyMaterial paint[2];
   memset(two, 0, sizeof(two));
+  memset(paint, 0, sizeof(paint));
   for (int i = 0; i < 2; i++) {
     two[i].verts = i ? rverts : lverts;
     two[i].vert_count = 4;
     two[i].tris = tris;
     two[i].tri_count = 2;
-    two[i].has_material = 1;
-    two[i].roughness = 0.5f;
-    two[i].metallic = 0.0f;
+    /* M344: an INDEX into the material table, not a copy of the material.
+     * A table entry no mesh names is a shader that is never built, and an
+     * index past the end falls back to steel rather than being read. */
+    two[i].material = i;
+    paint[i].roughness = 0.5f;
+    paint[i].metallic = 0.0f;
+    paint[i].specular = 0.5f;
+    paint[i].texture_scale = 1.0f;
   }
-  two[0].color[0] = 0.6f; /* left: red */
-  two[1].color[2] = 0.6f; /* right: blue */
+  paint[0].color[0] = 0.6f; /* left: red */
+  paint[1].color[2] = 0.6f; /* right: blue */
 
   unsigned char *mat = (unsigned char *)calloc((size_t)TW * TH * 4, 1);
   if (mat == NULL) {
@@ -314,7 +342,7 @@ int main(int argc, char **argv)
     free(rgba);
     return 1;
   }
-  const int ok2 = cy_render(two, 2, &view, mat);
+  const int ok2 = cy_render(two, 2, paint, 2, &env, &view, mat);
   check(ok2 == 1, "a two-material scene renders");
   if (ok2) {
     const double lr = quadrant_ch(mat, 1, 1, 0), lb = quadrant_ch(mat, 1, 1, 2);
@@ -325,6 +353,159 @@ int main(int argc, char **argv)
     check(lr > rr + 10.0, "the two bodies are not the same colour");
   }
   free(mat);
+
+  /* ---- M344: the live session ------------------------------------------
+   *
+   * cy_live_* is the path the app uses for every frame it draws, and before
+   * this test nothing had ever called it. What is checked is the contract, not
+   * the picture — the picture is the same scene builder the checks above have
+   * already been through:
+   *
+   *   * a frame comes out at all, at the size that was asked for;
+   *   * polling again without waiting reports "nothing new" rather than
+   *     handing back the same frame twice, which is what lets the app poll at
+   *     whatever rate it likes;
+   *   * it converges: sampling reaches the target and says so, rather than
+   *     counting forever. `done` is Cycles' own answer and not a comparison
+   *     here, because the sample count visible when a frame is captured always
+   *     lags the scheduler by one work item — see FrameStore::finished.
+   */
+  {
+    CyEnv live_env = env;
+    CyView live_view = view;
+    live_view.samples = 8;
+
+    check(cy_live_open() == 1, "the live session opens");
+    if (cy_live_is_open()) {
+      check(cy_live_scene(&mesh, 1, NULL, 0, &live_env) == 1, "the live scene uploads");
+      check(cy_live_view(&live_view) == 1, "the live camera is accepted");
+
+      unsigned char *live = (unsigned char *)calloc((size_t)TW * TH * 4, 1);
+      CyFrame info;
+      memset(&info, 0, sizeof(info));
+      int got = 0;
+      int done = 0;
+      /* Bounded: a spin that never ends is a hung CI job, and eight samples of
+       * a 96x96 image is milliseconds even on a paravirtualised CPU. */
+      for (int i = 0; i < 20000 && !done; i++) {
+        const int r = cy_live_frame(live, TW * TH * 4, &info);
+        if (r < 0) {
+          printf("  live frame error: %s\n", cy_last_error());
+          break;
+        }
+        if (r == 1) {
+          got++;
+        }
+        done = info.done;
+      }
+      printf("live: %d frames, %d/%d samples, done=%d denoised=%d\n",
+             got, info.samples, info.target, info.done, info.denoised);
+      check(got > 0, "the live session produced at least one frame");
+      check(info.width == TW && info.height == TH,
+            "the live frame is the size that was asked for");
+      check(done == 1, "the live session converges and says so");
+
+      memset(&info, 0, sizeof(info));
+      check(cy_live_frame(live, TW * TH * 4, &info) == 0,
+            "polling again with nothing new returns no frame");
+
+      /* The same quadrant test as the one-shot: same scene, same camera, so
+       * the quad has to land in the same corner. A live session that framed
+       * the model differently from cy_render would be two renderers. */
+      const double ltr = quadrant(live, 0, 1);
+      const double ltl = quadrant(live, 1, 1);
+      check(fabs(ltr - ltl) > 10.0, "the live frame has the object in it");
+      check(fabs(ltl - tl) < 25.0,
+            "the live background matches the one-shot's");
+
+      free(live);
+      cy_live_close();
+      check(cy_live_is_open() == 0, "the live session closes");
+    }
+  }
+
+  /* ---- M344: does the denoiser keep an edge? ---------------------------
+   *
+   * THE ONE PROPERTY THAT DECIDES WHETHER IT MAY SHIP. Every Cycles build in
+   * this repo carries a comment saying a denoiser "smears exactly the crisp
+   * machined edges the render exists to show", and that objection is answered
+   * by construction (albedo demodulation) rather than by hope — so it is
+   * checked, on buffers built here, with no renderer involved.
+   *
+   * The image is two flat halves of different albedo under identical lighting,
+   * with noise on top. A blur would pull the halves towards each other across
+   * the seam; the filter must leave the step exactly where it was while
+   * removing the noise inside each half.
+   */
+  {
+    const int W = 64, H = 64;
+    float *color = (float *)malloc((size_t)W * H * 4 * sizeof(float));
+    float *albedo = (float *)malloc((size_t)W * H * 3 * sizeof(float));
+    float *normal = (float *)malloc((size_t)W * H * 3 * sizeof(float));
+    /* A cheap deterministic hash, so the test is the same on every machine. */
+    unsigned int seed = 12345u;
+    for (int y = 0; y < H; y++) {
+      for (int x = 0; x < W; x++) {
+        const size_t i = (size_t)y * W + x;
+        const float base = x < W / 2 ? 0.8f : 0.2f;
+        seed = seed * 1664525u + 1013904223u;
+        const float n = ((float)((seed >> 8) & 0xFFFF) / 65535.0f - 0.5f) * 0.30f;
+        for (int k = 0; k < 3; k++) {
+          color[i * 4 + k] = base * 0.5f + n;
+          albedo[i * 3 + k] = base;
+          normal[i * 3 + k] = k == 2 ? 1.0f : 0.0f;
+        }
+        color[i * 4 + 3] = 1.0f;
+      }
+    }
+    /* What the two halves should come out at, and what the seam step is. */
+    const double want_left = 0.8 * 0.5, want_right = 0.2 * 0.5;
+
+    double noise_before = 0.0;
+    for (int y = 8; y < H - 8; y++) {
+      for (int x = 8; x < W / 2 - 8; x++) {
+        const double d = color[((size_t)y * W + x) * 4] - want_left;
+        noise_before += d * d;
+      }
+    }
+
+    cyshim::denoise(color, albedo, normal, W, H, 8, 1.0f, NULL);
+
+    double noise_after = 0.0;
+    for (int y = 8; y < H - 8; y++) {
+      for (int x = 8; x < W / 2 - 8; x++) {
+        const double d = color[((size_t)y * W + x) * 4] - want_left;
+        noise_after += d * d;
+      }
+    }
+    /* The two pixels either side of the seam. A blur would have brought them
+     * together; the demodulation means the filter never saw the difference. */
+    const size_t mid = (size_t)(H / 2) * W + (W / 2);
+    const double left = color[(mid - 1) * 4];
+    const double right = color[mid * 4];
+    printf("denoise: noise %.5f -> %.5f, seam %.3f | %.3f (want %.3f | %.3f)\n",
+           noise_before, noise_after, left, right, want_left, want_right);
+
+    check(noise_after < noise_before * 0.35, "the denoiser removes most of the noise");
+    check(left > want_left - 0.06 && left < want_left + 0.06,
+          "the bright side keeps its own value");
+    check(right > want_right - 0.06 && right < want_right + 0.06,
+          "the dark side keeps its own value");
+    check(left - right > 0.25, "the edge across the seam survives");
+
+    /* And it must be OFF once the render has converged, or the picture the
+     * user finally looks at would depend on a constant in cycles_denoise.cpp. */
+    check(cyshim::denoise_strength_for(1, 64) == 1.0f,
+          "a nearly-unsampled frame is fully denoised");
+    check(cyshim::denoise_strength_for(64, 64) == 0.0f,
+          "a converged frame is not denoised at all");
+    check(cyshim::denoise_strength_for(48, 64) == 0.0f,
+          "the fade is over well before the target");
+
+    free(color);
+    free(albedo);
+    free(normal);
+  }
 
   free(rgba);
   printf(failures ? "RENDER TEST: FAIL (%d)\n" : "RENDER TEST: PASS (%d failures)\n",
