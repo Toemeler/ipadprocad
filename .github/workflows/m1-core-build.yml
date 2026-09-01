@@ -538,6 +538,15 @@ jobs:
     name: Cycles for iOS (arm64)
     runs-on: macos-15
     timeout-minutes: 90
+    # NON-BLOCKING, and it stays that way until a device has actually
+    # rendered. The IPA was shipping long before there was a path tracer and
+    # must keep shipping if this job breaks: every consumer downstream —
+    # cycles_boot's launch check, CyclesSession.available, cyclesWanted — is
+    # already written to treat an absent renderer as the normal case, because
+    # that is what every host test and every build before now has been. A red
+    # Cycles job costing the whole build its IPA would be the tail wagging the
+    # dog.
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -717,17 +726,27 @@ jobs:
       # Downloaded before anything else so a missing artifact fails in ten
       # seconds rather than fifty minutes into an Xcode build.
       - name: Download the Cycles distribution
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           name: cycles-ios-dist
           path: cycles-dist
-      - name: Check the Cycles distribution arrived intact
+      # Both halves or neither. An IPA with the archives linked but no kernel
+      # tree in the bundle is the exact build M306 exists to keep from
+      # shipping: it launches, it looks fine, and it fails inside a shader
+      # compiler. Half a renderer is worse than none, so the answer here is
+      # one flag that the link and the bundle steps both read.
+      - name: Is there a renderer to ship?
+        id: cycles
         run: |
-          test -f cycles-dist/lib/libcycles_shim.a || { echo "no shim archive"; exit 1; }
-          test -f cycles-dist/source/kernel/device/metal/kernel.metal \
-            || { echo "no kernel source tree — the Metal device would have nothing to compile"; exit 1; }
-          echo "Cycles: $(ls cycles-dist/lib | wc -l) archives, $(ls cycles-dist/deps | wc -l) deps"
-          du -sh cycles-dist
+          if [ -f cycles-dist/lib/libcycles_shim.a ] \
+             && [ -f cycles-dist/source/kernel/device/metal/kernel.metal ]; then
+            echo "have=1" >> "$GITHUB_OUTPUT"
+            echo "CYCLES: $(ls cycles-dist/lib | wc -l) archives, $(ls cycles-dist/deps 2>/dev/null | wc -l) deps, $(du -sh cycles-dist | cut -f1)"
+          else
+            echo "have=0" >> "$GITHUB_OUTPUT"
+            echo "CYCLES: not in this build — rendered mode stays RealityKit"
+          fi
 
       # M119 fix — ccache must exist in THIS job. The install step went into
       # build-core-ios, but the C++ builds carrying the launcher flags live
@@ -1093,17 +1112,22 @@ jobs:
           # the dependency set the cycles-ios job proved is sufficient. The
           # deps are repeated: Apple's linker walks static archives once, in
           # the order given, and never revisits one that came before its user.
-          CYC="$GITHUB_WORKSPACE/cycles-dist"
-          CYCLIBS="$(ls "$CYC/lib"/libcycles_*.a | grep -v libcycles_shim | tr '\n' ' ')"
-          CYCDEPS="$(ls "$CYC/deps"/*.a 2>/dev/null | tr '\n' ' ')"
-          echo "Cycles on the link line: $(echo "$CYCLIBS" | wc -w) archives, $(echo "$CYCDEPS" | wc -w) deps"
-          CYCLES="-force_load $CYC/lib/libcycles_shim.a $CYCLIBS $CYCDEPS $CYCDEPS"
+          CYCLES=""
+          CYCEXP=""
+          if [ "${{ steps.cycles.outputs.have }}" = "1" ]; then
+            CYC="$GITHUB_WORKSPACE/cycles-dist"
+            CYCLIBS="$(ls "$CYC/lib"/*.a | grep -v libcycles_shim | tr '\n' ' ')"
+            CYCDEPS="$(ls "$CYC/deps"/*.a 2>/dev/null | tr '\n' ' ')"
+            echo "Cycles on the link line: $(echo "$CYCLIBS" | wc -w) archives, $(echo "$CYCDEPS" | wc -w) deps"
+            CYCLES="-force_load $CYC/lib/libcycles_shim.a $CYCLIBS $CYCDEPS $CYCDEPS -framework AudioToolbox -framework AVFoundation -framework CoreAudio -framework CoreMedia -framework VideoToolbox"
+            CYCEXP='_cy_*\n'
+          fi
           # _cy_* joins the export list for the same reason the other three
           # families are on it: DynamicLibrary.process() resolves through the
           # binary's export trie, and a symbol not listed here is stripped out
           # of it even though the code is linked in. That failure looks exactly
           # like "Cycles was never built".
-          printf '_qcad_*\n_slvs_*\n_occt_*\n_cy_*\n' > ios/Flutter/qcad_symbols.exp
+          printf "_qcad_*\n_slvs_*\n_occt_*\n${CYCEXP}" > ios/Flutter/qcad_symbols.exp
           cat > ios/Flutter/ffi.xcconfig <<XC
           OTHER_LDFLAGS = \$(inherited) -force_load $CORE/libprototype.a -force_load $SLVS/libslvs.a -force_load $OCCT/build-ios/libocct_capi.a $OCCTLIBS $CYCLES $QTLIBS -framework UIKit -framework Foundation -framework CoreFoundation -framework CoreGraphics -framework CoreText -framework CoreServices -framework Security -framework SystemConfiguration -framework CFNetwork -framework Metal -framework MetalKit -framework QuartzCore -framework ImageIO -framework UniformTypeIdentifiers -framework IOSurface -framework OpenGLES -framework IOKit -framework RealityKit -framework ARKit -lz -lc++ -Wl,-exported_symbols_list,\$(SRCROOT)/Flutter/qcad_symbols.exp
           IPHONEOS_DEPLOYMENT_TARGET = 16.0
@@ -1250,19 +1274,23 @@ jobs:
           # exactly as much as the archives are. `cycles/source` because
           # path_get("source") joins "source" onto the resource root, and
           # cycles_boot.dart hands it Runner.app/cycles.
-          mkdir -p "$APP/cycles"
-          rsync -a "$GITHUB_WORKSPACE/cycles-dist/source/" "$APP/cycles/source/"
-          test -f "$APP/cycles/source/kernel/device/metal/kernel.metal" \
-            || { echo "CYCLES KERNEL CHECK: FAIL (kernel source not in the bundle)"; exit 1; }
-          echo "CYCLES KERNEL CHECK: PASS ($(du -sh "$APP/cycles" | cut -f1) of kernel source bundled)"
-          # And the shim itself must be reachable by name: Dart resolves it
-          # with dlsym through the export trie, so a link that succeeded but
-          # left the symbols unexported looks identical to no Cycles at all.
-          NCY="$(nm -gU "$APP/Runner" 2>/dev/null | grep -c ' _cy_' || true)"
-          if [ "${NCY:-0}" -ge 5 ]; then
-            echo "CYCLES LINK CHECK: PASS ($NCY _cy_* symbols exported in Runner)"
+          if [ "${{ steps.cycles.outputs.have }}" = "1" ]; then
+            mkdir -p "$APP/cycles"
+            rsync -a "$GITHUB_WORKSPACE/cycles-dist/source/" "$APP/cycles/source/"
+            test -f "$APP/cycles/source/kernel/device/metal/kernel.metal" \
+              || { echo "CYCLES KERNEL CHECK: FAIL (kernel source not in the bundle)"; exit 1; }
+            echo "CYCLES KERNEL CHECK: PASS ($(du -sh "$APP/cycles" | cut -f1) bundled)"
+            # And the shim must be reachable BY NAME: Dart resolves it with
+            # dlsym through the export trie, so a link that succeeded but left
+            # the symbols unexported is indistinguishable from no Cycles.
+            NCY="$(nm -gU "$APP/Runner" 2>/dev/null | grep -c ' _cy_' || true)"
+            if [ "${NCY:-0}" -ge 5 ]; then
+              echo "CYCLES LINK CHECK: PASS ($NCY _cy_* symbols exported in Runner)"
+            else
+              echo "CYCLES LINK CHECK: FAIL (only ${NCY:-0} _cy_* symbols exported, want >= 5)"; exit 1
+            fi
           else
-            echo "CYCLES LINK CHECK: FAIL (only ${NCY:-0} _cy_* symbols exported, want >= 5)"; exit 1
+            echo "CYCLES: skipped (no distribution in this build)"
           fi
           rm -rf Payload && mkdir Payload
           cp -R "$APP" Payload/
