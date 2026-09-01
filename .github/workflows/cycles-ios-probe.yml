@@ -361,7 +361,7 @@ jobs:
             -framework Metal -framework Foundation -framework CoreGraphics -framework IOKit \
             -framework AudioToolbox -framework AVFoundation -framework CoreAudio \
             -framework CoreMedia -framework VideoToolbox \
-            -o shim_probe.bin 2> shim_link.log
+            -Wl,-dead_strip_dylibs -o shim_probe.bin 2> shim_link.log
           RC=$?
           set -e
           echo "link exit: $RC"

@@ -675,17 +675,19 @@ jobs:
             -framework Metal -framework Foundation -framework CoreGraphics -framework IOKit \
             -framework AudioToolbox -framework AVFoundation -framework CoreAudio \
             -framework CoreMedia -framework VideoToolbox \
-            -Wl,-t -o shim_probe.bin > trace.log 2>&1 \
+            -Wl,-dead_strip_dylibs -Wl,-t -o shim_probe.bin > trace.log 2>&1 \
             || { echo "the shim does not link:"; \
                  grep -oE '"[^"]+", referenced from' trace.log | sed -E 's/^"//; s/", referenced from$//' | cut -c1-70 | sort -u | head -30; \
                  tail -5 trace.log; exit 1; }
           grep -oE "$PWD/blender/lib/ios_arm64/[^(]*\.a" trace.log | sort -u > used.txt
-          grep -oE "$PWD/blender/lib/ios_arm64/[^ ]*\.dylib" trace.log | sort -u > used_dylib.txt
-          echo "the link used $(wc -l < used.txt) archives and $(wc -l < used_dylib.txt) dylibs"
+          echo "the link pulled from $(wc -l < used.txt) archives"
           xargs -I{} cp {} cycles-dist/deps/ < used.txt
-          # -L: the package uses symlinks for versioned names, and a bundle
-          # cannot ship a link to a path that will not be there.
-          xargs -I{} cp -L {} cycles-dist/dylib/ < used_dylib.txt
+          # The dylibs are read back out of the LINKED BINARY rather than out
+          # of the trace: -dead_strip_dylibs above has already discarded the
+          # ones nothing referenced, and what survives in the load commands is
+          # exactly what the app must carry. Their own dependencies are
+          # followed to a fixed point.
+          bash ci/harvest_cycles_dylibs.sh shim_probe.bin blender/lib/ios_arm64 cycles-dist/dylib
           # The kernel tree. Everything, because the Metal include walker
           # follows #include "..." across kernel/, util/ and further, and a
           # header it cannot find is left in the source verbatim and then
