@@ -96,17 +96,25 @@ class _CyclesLayerState extends State<CyclesLayer> {
     // RealityKit has to take the path-traced image DOWN on the same frame, not
     // whenever the model next changes.
     RenderEngines.engine.addListener(_repaint);
-    widget.app.cycles.onChanged = _frameLanded;
+    _session = widget.app.cycles..addListener(_frameLanded);
   }
+
+  /// The session this widget is subscribed to.
+  ///
+  /// Held rather than looked up, because AppState builds a NEW session per
+  /// document and dispose has to unsubscribe from the one it subscribed to.
+  /// Reaching for `app.cycles` in dispose would remove the listener from
+  /// whichever session is current by then, leaving the old one holding a
+  /// closure over a dead widget.
+  CyclesSession? _session;
 
   @override
   void didUpdateWidget(CyclesLayer old) {
     super.didUpdateWidget(old);
-    // The session is per DOCUMENT and this widget outlives a document switch,
-    // so the callback has to follow. A session still holding a dead widget's
-    // closure would repaint nothing and look exactly like a renderer that had
-    // stopped.
-    widget.app.cycles.onChanged = _frameLanded;
+    final now = widget.app.cycles;
+    if (identical(now, _session)) return;
+    _session?.removeListener(_frameLanded);
+    _session = now..addListener(_frameLanded);
   }
 
   void _repaint() {
@@ -123,7 +131,7 @@ class _CyclesLayerState extends State<CyclesLayer> {
   void dispose() {
     CyclesWarmup.instance.removeListener(_repaint);
     RenderEngines.engine.removeListener(_repaint);
-    widget.app.cycles.onChanged = null;
+    _session?.removeListener(_frameLanded);
     _settle?.cancel();
     _decoded?.dispose();
     super.dispose();

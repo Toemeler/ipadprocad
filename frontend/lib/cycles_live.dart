@@ -67,6 +67,7 @@ class CyclesLiveFrame {
     required this.target,
     required this.done,
     required this.denoised,
+    this.epoch = 0,
   });
 
   final Uint8List rgba;
@@ -76,6 +77,18 @@ class CyclesLiveFrame {
   final int target;
   final bool done;
   final bool denoised;
+
+  /// Which scene this is a frame OF.
+  ///
+  /// THE ONE THING A FRAME CANNOT BE LATE ABOUT. A frame of the previous
+  /// CAMERA is what a frame is, and is shown; a frame of the previous MODEL is
+  /// the wrong answer at any frame rate. The window is small — one turn of the
+  /// worker's event loop, between the UI sending a scene and the worker
+  /// applying it — but it is real: a poll that was already queued when the
+  /// message arrived answers with the old picture, and the UI has by then
+  /// adopted the new key. So the worker stamps every frame with the scene it
+  /// was last told about, and the session drops anything older.
+  final int epoch;
 }
 
 /// What the session drives. One real implementation and one fake, so the state
@@ -96,7 +109,10 @@ abstract class CyclesDriver {
   void open();
 
   /// Replace the geometry and the world. Expensive.
-  void setScene(List<CyclesMesh> meshes, CyclesEnv env);
+  ///
+  /// [epoch] identifies the scene; every frame produced from it comes back
+  /// carrying it. See [CyclesLiveFrame.epoch].
+  void setScene(List<CyclesMesh> meshes, CyclesEnv env, int epoch);
 
   /// Point the camera. Cheap; may be called every frame.
   void setView({
@@ -117,9 +133,10 @@ abstract class CyclesDriver {
 // is a compile error rather than a null at the far end.
 
 class _SceneMsg {
-  const _SceneMsg(this.meshes, this.env);
+  const _SceneMsg(this.meshes, this.env, this.epoch);
   final List<CyclesMesh> meshes;
   final CyclesEnv env;
+  final int epoch;
 }
 
 class _ViewMsg {
@@ -139,7 +156,7 @@ class _CloseMsg {
 
 class _FrameMsg {
   const _FrameMsg(this.bytes, this.width, this.height, this.samples, this.target,
-      this.done, this.denoised);
+      this.done, this.denoised, this.epoch);
 
   /// MOVED, not copied. A viewport-sized frame is a megabyte or two and one
   /// arrives every few tens of milliseconds; sending a plain Uint8List would
@@ -153,6 +170,7 @@ class _FrameMsg {
   final int target;
   final bool done;
   final bool denoised;
+  final int epoch;
 }
 
 class _NoteMsg {
@@ -196,12 +214,16 @@ class CyclesLive implements CyclesDriver {
     Isolate.spawn(_cyclesWorker, rx.sendPort,
             debugName: 'cycles', errorsAreFatal: false)
         .then((iso) {
+      // CLEARED ON BOTH PATHS. A close() that lands while the spawn is still
+      // in flight used to leave this true forever, and `open` is guarded on
+      // it — so rendered mode would come back on and never render again, with
+      // nothing in the log to say why.
+      _starting = false;
       if (_closed) {
         iso.kill(priority: Isolate.immediate);
         return;
       }
       _isolate = iso;
-      _starting = false;
     }).catchError((Object e) {
       _starting = false;
       Log.w('cycles', 'could not start the render isolate: $e');
@@ -235,6 +257,7 @@ class CyclesLive implements CyclesDriver {
         target: msg.target,
         done: msg.done,
         denoised: msg.denoised,
+        epoch: msg.epoch,
       ));
       return;
     }
@@ -244,8 +267,8 @@ class CyclesLive implements CyclesDriver {
   }
 
   @override
-  void setScene(List<CyclesMesh> meshes, CyclesEnv env) {
-    final m = _SceneMsg(meshes, env);
+  void setScene(List<CyclesMesh> meshes, CyclesEnv env, int epoch) {
+    final m = _SceneMsg(meshes, env, epoch);
     final tx = _tx;
     if (tx == null) {
       _pendingScene = m;
@@ -313,6 +336,7 @@ void _cyclesWorker(SendPort toMain) {
   var width = 0;
   var height = 0;
   var opened = false;
+  var epoch = 0;
   Timer? poll;
 
   void stopPolling() {
@@ -339,6 +363,7 @@ void _cyclesWorker(SendPort toMain) {
       f.target,
       f.done,
       f.denoised,
+      epoch,
     ));
     if (f.done) {
       // Finished. Nothing more will change until the camera or the model does,
@@ -389,6 +414,10 @@ void _cyclesWorker(SendPort toMain) {
     }
     if (msg is _SceneMsg) {
       if (!ensureOpen()) return;
+      // Stamped BEFORE the upload, so a frame produced during it — there are
+      // none, because liveScene blocks this isolate, but the ordering is the
+      // point — belongs to the new scene and not the old.
+      epoch = msg.epoch;
       try {
         if (!ffi.liveScene(msg.meshes, msg.env)) {
           toMain.send(_NoteMsg(ffi.lastError, true));

@@ -57,11 +57,14 @@ class _FakeDriver implements CyclesDriver {
   @override
   void close() => closes++;
 
+  int lastEpoch = 0;
+
   @override
-  void setScene(List<CyclesMesh> meshes, CyclesEnv env) {
+  void setScene(List<CyclesMesh> meshes, CyclesEnv env, int epoch) {
     scenes++;
     lastMeshes = meshes;
     lastEnv = env;
+    lastEpoch = epoch;
   }
 
   @override
@@ -80,8 +83,14 @@ class _FakeDriver implements CyclesDriver {
     lastSamples = samples;
   }
 
-  /// Deliver a frame as the render isolate would.
-  void land({int samples = 8, bool done = false, int w = 4, int h = 4}) =>
+  /// Deliver a frame as the render isolate would, stamped with whichever
+  /// scene it was last given unless the caller names an older one.
+  void land(
+          {int samples = 8,
+          bool done = false,
+          int w = 4,
+          int h = 4,
+          int? epoch}) =>
       _frame?.call(CyclesLiveFrame(
         rgba: Uint8List(w * h * 4),
         width: w,
@@ -90,6 +99,7 @@ class _FakeDriver implements CyclesDriver {
         target: kCyclesSamples,
         done: done,
         denoised: !done,
+        epoch: epoch ?? lastEpoch,
       ));
 
   void say(String text, {bool failed = false}) => _note?.call(text, failed);
@@ -367,7 +377,7 @@ void main() {
       var repaints = 0;
       final d = _FakeDriver();
       final s = CyclesSession(available: true, driver: d)
-        ..onChanged = () => repaints++;
+        ..addListener(() => repaints++);
       s.offer(
           wanted: true,
           scene: 'sig',
@@ -388,6 +398,38 @@ void main() {
 
       d.land(samples: kCyclesSamples, done: true);
       expect(s.render.phase, CyclesPhase.shown);
+    });
+
+    test('a frame of the PREVIOUS model is dropped, not shown as this one', () {
+      // The window is one turn of the worker's event loop: a poll that was
+      // already queued when the scene message arrived answers with the old
+      // picture, and the UI has by then adopted the new key. A frame of the
+      // previous CAMERA is what a frame is and is shown; a frame of the
+      // previous MODEL is the wrong answer at any frame rate.
+      final d = _FakeDriver();
+      final s = CyclesSession(available: true, driver: d);
+      void offer(String scene) => s.offer(
+            wanted: true,
+            scene: scene,
+            camera: 'cam',
+            width: 4,
+            height: 4,
+            buildScene: _scene,
+            buildView: _view,
+          );
+      offer('sig-a');
+      final stale = d.lastEpoch;
+      d.land(samples: 8);
+      expect(s.render.image, isNotNull);
+
+      offer('sig-b');
+      expect(s.render.image, isNull, reason: 'the model changed');
+      d.land(samples: 8, epoch: stale);
+      expect(s.render.image, isNull,
+          reason: 'a frame of sig-a must not come back as sig-b');
+
+      d.land(samples: 8);
+      expect(s.render.image, isNotNull);
     });
 
     test('what the renderer said about itself is kept', () {

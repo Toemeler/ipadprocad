@@ -92,8 +92,31 @@ class CyclesSession {
   /// The scene last pushed, kept for its reach and for the log.
   CyclesScene? _scene;
 
-  /// Fires when a frame lands, so the viewport can repaint without polling.
-  void Function()? onChanged;
+  /// Which scene the renderer is holding, counted up on every push.
+  ///
+  /// A frame stamped with an older one is a picture of a model that has since
+  /// been edited, and there is no frame rate at which showing it is right.
+  /// See [CyclesLiveFrame.epoch] for the window this closes.
+  int _epoch = 0;
+
+  /// Fires when a frame lands, so a viewport can repaint without polling.
+  ///
+  /// A LIST, not one callback. Both viewports build a CyclesLayer and there is
+  /// a frame or two during a document switch where both are mounted; with a
+  /// single slot the second overwrites the first, and then the first's dispose
+  /// clears it — leaving a live session nobody is listening to and a viewport
+  /// that has stopped updating for no visible reason. The same shape
+  /// CyclesWarmup already uses, for the same reason.
+  final List<void Function()> _listeners = [];
+
+  void addListener(void Function() fn) => _listeners.add(fn);
+  void removeListener(void Function() fn) => _listeners.remove(fn);
+
+  void _notify() {
+    for (final fn in List.of(_listeners)) {
+      fn();
+    }
+  }
 
   /// The sample count images from this session converge to.
   int get samples => _samples;
@@ -149,8 +172,9 @@ class CyclesSession {
       case CyclesPush.scene:
         final s = buildScene();
         _scene = s;
+        _epoch++;
         _driver.open();
-        _driver.setScene(s.meshes, s.env);
+        _driver.setScene(s.meshes, s.env, _epoch);
         Log.i(
             'cycles',
             'scene ${s.meshes.length} meshes, ${s.triangles} tris, '
@@ -184,15 +208,19 @@ class CyclesSession {
   CyclesViewParams Function(CyclesScene)? _buildView;
 
   void _frame(CyclesLiveFrame f) {
+    // A frame of a model that has since been edited. It was in flight when the
+    // scene changed; the state machine has already taken the old picture down
+    // and must not be handed it back.
+    if (f.epoch != _epoch) return;
     if (!render.accept(f)) return;
-    onChanged?.call();
+    _notify();
   }
 
   void _takeNote(String text, bool failed) {
     _noteText = text;
     if (failed) {
       Log.w('cycles', 'renderer failed: $text');
-      if (render.fail(text)) onChanged?.call();
+      if (render.fail(text)) _notify();
       return;
     }
     Log.i('cycles', 'renderer on $text');
