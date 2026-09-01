@@ -691,12 +691,15 @@ jobs:
           # after a link that had succeeded — seven seconds and not one line
           # of output. A pipeline that can fail without saying so is worse
           # than one that fails.
-          grep -oE "$PWD/blender/lib/ios_arm64/[^(]*\.a" trace.log | sort -u > used.txt || true
+          # NOT anchored on $PWD. ld's trace echoes the paths it was GIVEN,
+          # and they are given relative — run 614 matched nothing and said so,
+          # printing a trace full of `blender/lib/ios_arm64/...`.
+          grep -oE "blender/lib/ios_arm64/[^ (]*\.a" trace.log | sort -u > used.txt || true
           echo "== the link pulled from $(wc -l < used.txt) archives"
           if [ ! -s used.txt ]; then
             echo "no archive paths in the trace; here is what it looks like:"
-            grep -n "ios_arm64" trace.log | head -5
-            head -5 trace.log
+            { grep -n "ios_arm64" trace.log || true; } | head -5 || true
+            head -5 trace.log || true
             exit 1
           fi
           xargs -I{} cp {} cycles-dist/deps/ < used.txt
