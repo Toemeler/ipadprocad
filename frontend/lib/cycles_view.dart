@@ -394,18 +394,38 @@ const double kCyclesFloorSpan = 4.0;
 /// "flickering" — the same epsilon, for the same reason, as applyGround's.
 const double kCyclesFloorDrop = 1e-4;
 
-/// The floor under [meshes], or null when there is nothing to stand on.
+/// The floor under [meshes], or null when there is nothing to stand on or the
+/// camera is not looking down at it.
 ///
 /// [meshes] must be the MODEL's meshes only: the floor is sized from them, and
 /// sizing it from a list that already contains a floor grows it without limit.
 /// For the same reason the caller must compute the camera before adding this —
 /// see [cyclesSceneJob].
+///
+/// [forwardY] is the Y component of the direction the camera LOOKS, which is
+/// column 2 of the matrix [cyclesCameraMatrix] builds.
+///
+/// A CYCLES TRIANGLE IS DOUBLE-SIDED AND REALITYKIT'S PLANE IS NOT. Every
+/// RealityKit material in this app except the outline ribbon leaves
+/// `faceCulling` at its default, so orbiting under the model there shows the
+/// part through a floor that is simply not drawn from beneath. Give the same
+/// scene to Cycles and the floor is solid from both sides: the frame fills
+/// with floor colour and the part vanishes. Which is, once again, a render
+/// that comes out a flat tone for a reason that has nothing to do with the
+/// model.
+///
+/// Culling per face is not something a mesh can ask Cycles for, and the
+/// alternative — a Transparent BSDF mixed on the Backfacing output — would
+/// make the floor a shader special case for a question the caller can answer
+/// exactly. It looks down or it does not.
 CyclesMesh? cyclesFloorMesh(
   List<CyclesMesh> meshes, {
   required int argb,
   required double halfWidth,
   required double halfHeight,
+  required double forwardY,
 }) {
+  if (!(forwardY < 0)) return null;
   final low = cyclesMeshLowY(meshes);
   if (low == null) return null;
   final radius = cyclesMeshReach(meshes);

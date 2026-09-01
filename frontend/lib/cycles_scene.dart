@@ -114,7 +114,11 @@ CyclesJob cyclesSceneJob(AppState app, Cam3 cam, int width, int height,
   final matrix = cyclesCameraMatrix(cam, cyclesMeshReach(meshes));
   if (cyclesFloorWanted(app)) {
     final floor = cyclesFloorMesh(meshes,
-        argb: T.floor.toARGB32(), halfWidth: halfW, halfHeight: halfH);
+        argb: T.floor.toARGB32(),
+        halfWidth: halfW,
+        halfHeight: halfH,
+        // Column 2 of the row-major 3x4 is the direction the camera looks.
+        forwardY: matrix[6]);
     if (floor != null) meshes.add(floor);
   }
   return CyclesJob(

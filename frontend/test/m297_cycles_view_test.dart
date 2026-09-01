@@ -342,7 +342,7 @@ void _floorTests() {
       // -sceneRadius sits well below anything and the shadow comes out spread
       // wide and detached, reading as a stain rather than as contact.
       final f = cyclesFloorMesh(box(20), argb: 0xFF808080,
-          halfWidth: 10, halfHeight: 10)!;
+          halfWidth: 10, halfHeight: 10, forwardY: -1)!;
       final ys = [for (var i = 1; i < f.$1.length; i += 3) f.$1[i]];
       expect(ys.every((y) => y == ys.first), isTrue,
           reason: 'the floor is level');
@@ -355,7 +355,7 @@ void _floorTests() {
       // Checked as the actual cross product rather than by reading the winding
       // back off the vertex list, because the winding is the thing under test.
       final f = cyclesFloorMesh(box(0), argb: 0xFF808080,
-          halfWidth: 10, halfHeight: 10)!;
+          halfWidth: 10, halfHeight: 10, forwardY: -1)!;
       final v = f.$1;
       final t = f.$3;
       double px(int i, int c) => v[t[i] * 3 + c];
@@ -378,7 +378,7 @@ void _floorTests() {
       // takes the shadow with it.
       double span(double half) {
         final f = cyclesFloorMesh(box(0), argb: 0xFF808080,
-            halfWidth: half, halfHeight: half)!;
+            halfWidth: half, halfHeight: half, forwardY: -1)!;
         final xs = [for (var i = 0; i < f.$1.length; i += 3) f.$1[i]];
         return xs.reduce(math.max) - xs.reduce(math.min);
       }
@@ -388,16 +388,38 @@ void _floorTests() {
 
     test('is fully rough and not metallic, like the RealityKit ground', () {
       final f = cyclesFloorMesh(box(0), argb: 0xFF808080,
-          halfWidth: 10, halfHeight: 10)!;
+          halfWidth: 10, halfHeight: 10, forwardY: -1)!;
       expect(f.$4!.roughness, 1.0);
       expect(f.$4!.metallic, 0.0);
       // And it carries the palette's colour, converted like every other one.
       expect(f.$4!.r, closeTo(cyclesLinear(0x80), 1e-9));
     });
 
+    test('is not drawn when the camera looks UP at it', () {
+      // A Cycles triangle is double-sided; RealityKit's plane is not. Orbiting
+      // under the model there shows the part through an undrawn floor, and
+      // here it would fill the frame with floor colour instead — a flat tone
+      // for a reason that has nothing to do with the model.
+      expect(
+          cyclesFloorMesh(box(0),
+              argb: 0xFF808080, halfWidth: 10, halfHeight: 10, forwardY: 0.5),
+          isNull);
+      // Edge-on is nothing to draw either way.
+      expect(
+          cyclesFloorMesh(box(0),
+              argb: 0xFF808080, halfWidth: 10, halfHeight: 10, forwardY: 0),
+          isNull);
+      expect(
+          cyclesFloorMesh(box(0),
+              argb: 0xFF808080, halfWidth: 10, halfHeight: 10, forwardY: -0.01),
+          isNotNull);
+    });
+
     test('an empty scene has nothing to stand on', () {
-      expect(cyclesFloorMesh(const [], argb: 0xFF808080,
-          halfWidth: 10, halfHeight: 10), isNull);
+      expect(
+          cyclesFloorMesh(const [],
+              argb: 0xFF808080, halfWidth: 10, halfHeight: 10, forwardY: -1),
+          isNull);
       expect(cyclesMeshLowY(const []), isNull);
     });
   });
