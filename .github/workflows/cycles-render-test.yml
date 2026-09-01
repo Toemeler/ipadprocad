@@ -147,7 +147,19 @@ jobs:
                    -not -path '*/python/*' -not -path '*/openpgl/*' | tr '\n' ' ')
           DYLIB=$(find blender/lib/macos_arm64 -name '*.dylib' \
                    -not -path '*/python/*' -not -name 'libtbbmalloc_proxy.dylib' | tr '\n' ' ')
-          echo "deps: $(echo $ARCH | wc -w) archives, $(echo $DYLIB | wc -w) dylibs"
+          # WHERE THE DYLIBS WILL BE AT RUN TIME. Passing a dylib on the link
+          # line records its INSTALL NAME, not the path it was found at, and
+          # every one of Blender's is "@rpath/libFoo.dylib". With no LC_RPATH
+          # to resolve that against, the binary links perfectly and then dies
+          # in dyld before main with "no LC_RPATH's found" — which is what run
+          # 10 did, having otherwise got all the way to running the test.
+          #
+          # One rpath per directory that actually holds a dylib, and absolute,
+          # because a relative @rpath entry resolves against the working
+          # directory of whoever runs the binary rather than against the binary.
+          RPATH=$(for d in $DYLIB; do dirname "$d"; done | sort -u \
+                    | sed "s|^|-Wl,-rpath,$PWD/|" | tr '\n' ' ')
+          echo "deps: $(echo $ARCH | wc -w) archives, $(echo $DYLIB | wc -w) dylibs, $(echo $RPATH | wc -w) rpaths"
           clang++ -std=c++17 -O1 \
             -I backend/cycles/shim backend/cycles/shim/render_test.c \
             out/*.a $ARCH $ARCH $ARCH $DYLIB -lc++ -lz \
@@ -155,7 +167,7 @@ jobs:
             -framework IOKit -framework AudioToolbox -framework AVFoundation \
             -framework CoreAudio -framework CoreMedia -framework VideoToolbox \
             -framework AppKit \
-            -Wl,-dead_strip_dylibs -o render_test 2> link.log \
+            $RPATH -Wl,-dead_strip_dylibs -o render_test 2> link.log \
             || { echo "link failed:"; \
                  grep -oE '"[^"]+", referenced from' link.log \
                    | sed -E 's/^"//; s/", referenced from$//' | cut -c1-70 | sort -u | head -25; \
@@ -217,4 +229,10 @@ jobs:
             echo "--- $f ---"
             grep -nE "error:|fatal error:|FAILED:" "$f" | head -20
           done
+          # And the render itself, which is the only step whose output is the
+          # actual point of this workflow.
+          if [ -s render.log ]; then
+            echo "--- render.log ---"
+            tail -30 render.log
+          fi
           echo "=============================================="
