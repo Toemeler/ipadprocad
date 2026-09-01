@@ -80,6 +80,7 @@ jobs:
         run: python3 -m unittest discover -s ci/bugfix -p 'test_*.py'
 
       - name: Fix
+        id: fix
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -91,3 +92,20 @@ jobs:
         run: |
           python3 ci/bugfix/run.py --issue "${{ github.event.inputs.issue || github.event.issue.number }}" \
             ${{ github.event_name == 'workflow_dispatch' && '--force' || '' }}
+
+      # Ein Job, der GETOETET wird — `timeout-minutes`, ein abgebrochener
+      # Workflow, ein verlorener Runner — erreicht kein `except` in run.py.
+      # Das Issue behaelt dann `openhands-working`, also die Aussage "ein Lauf
+      # haelt das hier", waehrend keiner mehr laeuft; und `gh.claim` verweigert
+      # genau diesen Zustand, sodass auch der workflow_dispatch-Neustart nicht
+      # mehr greift. Auf jedem normalen Ende ist das hier ein No-op: shipped,
+      # blocked und handed-off nehmen das Label selbst wieder ab.
+      - name: Issue nie beansprucht zuruecklassen
+        if: always() && steps.fix.outcome != 'success'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          python3 ci/bugfix/gh.py release \
+            "${{ github.event.inputs.issue || github.event.issue.number }}" \
+            "der Job endete als '${{ steps.fix.outcome || 'abgebrochen' }}' (Lauf ${{ github.run_id }})"

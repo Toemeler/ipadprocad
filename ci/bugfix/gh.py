@@ -184,3 +184,48 @@ def block(number, body):
     except urllib.error.HTTPError:
         pass
     _request('POST', f'/repos/{REPO}/issues/{number}/labels', {'labels': [BLOCKED]})
+
+
+def labels(number):
+    """The label names currently on an issue."""
+    d = issue(number)
+    return {l['name'] for l in d.get('labels', []) if isinstance(l, dict)}
+
+
+def release_if_claimed(number, why):
+    """Unstick an issue whose run died where no `except` could see it.
+
+    `run.py` guards its own failures, but a job that is KILLED — the 60-minute
+    `timeout-minutes`, a cancelled workflow, an evicted runner — never reaches
+    a Python handler. The issue keeps `openhands-working`, which says a run
+    holds it while none does; and because `claim` refuses an issue in that
+    state, the `workflow_dispatch` re-run that exists for exactly this case
+    refuses too, unless someone knows to pass `--force`.
+
+    So this is called from an `if: always()` step. It is a no-op on every
+    normal ending, because shipping, blocking and handing off all take
+    `openhands-working` off themselves — an issue still wearing it is, by
+    construction, one whose run did not finish.
+
+    Returns True when it actually released something.
+    """
+    if WORKING not in labels(number):
+        return False
+    block(number, (
+        f'The fix run did not finish: {why}\n\nNothing was pushed and `main` '
+        'is untouched. The issue is unblocked for a re-run — start the **Bug '
+        'report autofix** workflow with this number, or put the `bug-report` '
+        'label back on.'))
+    return True
+
+
+if __name__ == '__main__':
+    # `python3 ci/bugfix/gh.py release <issue> <why>` — the always() step.
+    import sys
+    if len(sys.argv) >= 3 and sys.argv[1] == 'release':
+        n = int(sys.argv[2])
+        reason = ' '.join(sys.argv[3:]) or 'the job ended without completing'
+        print(f'#{n}: released' if release_if_claimed(n, reason)
+              else f'#{n}: was not left claimed — nothing to do')
+    else:
+        raise SystemExit('usage: gh.py release <issue> [why]')

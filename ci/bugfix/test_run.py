@@ -1946,3 +1946,48 @@ class DeclineTest(unittest.TestCase):
                'Missing: a log line.\n</cannot-fix>')
         self.assertEqual(run.declined(one), '')
         self.assertIsNone(run.declined('just prose'))
+
+
+class ReleaseIfClaimedTest(unittest.TestCase):
+    """No ending may leave an issue saying a run holds it while none does.
+
+    `run.py` guards its own exceptions, but a KILLED job — the 60-minute
+    timeout, a cancelled workflow, an evicted runner — never reaches a Python
+    handler. The issue keeps `openhands-working`; no second `labeled` event is
+    coming because the relay files each report once; and `gh.claim` refuses an
+    issue in exactly that state, so the workflow_dispatch re-run added for this
+    case refuses too. The `if: always()` step in bugfix.yml calls this.
+    """
+
+    def run_release(self, label_names):
+        import gh
+        calls = []
+        with mock.patch.object(gh, 'issue', return_value={
+                'labels': [{'name': n} for n in label_names]}), \
+             mock.patch.object(gh, '_request',
+                               side_effect=lambda m, p, b=None, **k:
+                               calls.append((m, p)) or {}):
+            released = gh.release_if_claimed(7, 'the job was cancelled')
+        return released, calls
+
+    def test_a_claimed_issue_is_released_and_blocked(self):
+        released, calls = self.run_release(['openhands-working'])
+        self.assertTrue(released)
+        self.assertIn(('POST', '/repos/Toemeler/ipadprocad/issues/7/comments'),
+                      calls)
+        self.assertIn(('DELETE',
+                       '/repos/Toemeler/ipadprocad/issues/7/labels/openhands-working'),
+                      calls)
+        self.assertIn(('POST', '/repos/Toemeler/ipadprocad/issues/7/labels'),
+                      calls)
+
+    def test_a_normal_ending_is_untouched(self):
+        # shipped / blocked / handed off all take the label off themselves, so
+        # its absence IS the signal that the run finished. Commenting again
+        # here would put a second notice on every issue the pipeline closes.
+        for labels in ([], ['openhands-blocked'], ['needs-session'],
+                       ['bug-report']):
+            with self.subTest(labels=labels):
+                released, calls = self.run_release(labels)
+                self.assertFalse(released)
+                self.assertEqual(calls, [])
