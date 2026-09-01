@@ -94,11 +94,21 @@ jobs:
           # for changing one thing: Blender's default configuration is the
           # well-trodden one, and every option away from it is a path nobody
           # else walks.
+          #
+          # blendthumb then turned out to be broken on this branch REGARDLESS —
+          # its Apple branch links bf_blenloader_core, which this tree does not
+          # define, so the configure died at blendthumb/CMakeLists.txt:72 with
+          # the Python and GUI options back at their defaults. It builds a
+          # QuickLook extension that extracts previews from .blend files. There
+          # is no path from a path tracer to it, and WITH_BLENDER_THUMBNAILER
+          # gates the whole add_subdirectory, so it comes out cleanly rather
+          # than being worked around.
           cmake -S blender -B build_host -G Ninja \
             -DAPPLE_TARGET_DEVICE=macos \
             -DCMAKE_BUILD_TYPE=Release \
             -DWITH_AUDASPACE=OFF -DWITH_OPENAL=OFF -DWITH_SDL=OFF \
             -DWITH_JACK=OFF -DWITH_COREAUDIO=OFF -DWITH_PULSEAUDIO=OFF \
+            -DWITH_BLENDER_THUMBNAILER=OFF \
             -DWITH_CYCLES=ON \
             -DWITH_OPENIMAGEDENOISE=OFF \
             -DWITH_OPENVDB=OFF -DWITH_NANOVDB=OFF \
@@ -106,7 +116,7 @@ jobs:
             -DWITH_CYCLES_OSL=OFF \
             -DWITH_CYCLES_PATH_GUIDING=OFF > configure.log 2>&1 \
             || { { echo "--- what CMake objected to ---"; \
-                    { grep -nE "CMake Error|Could NOT find|missing:" configure.log || true; } | head -25; \
+                    { grep -nE -A4 "CMake Error|Could NOT find|missing:" configure.log || true; } | head -40; \
                     echo "--- tail ---"; tail -12 configure.log; } > configure_err.txt 2>&1; \
                  cat configure_err.txt; exit 1; }
           for t in cycles_util cycles_graph cycles_bvh cycles_subd \
