@@ -2,59 +2,94 @@
 // without a renderer.
 //
 // ---------------------------------------------------------------------------
-// THE SHAPE OF THE PROBLEM
+// THE SHAPE OF THE PROBLEM, AND HOW M344 CHANGED IT
 // ---------------------------------------------------------------------------
 //
-// RealityKit's rendered mode draws every frame. A path tracer cannot: one
-// image at viewport size and a useful sample count is seconds of work, not
-// milliseconds. So "rendered mode uses Cycles" cannot mean "Cycles draws the
-// viewport". It means:
+// M299 stated the problem like this: a path tracer cannot draw the viewport,
+// because one image is seconds of work, so rendered mode means "the viewport
+// keeps showing what it always showed while you move; when you STOP, a render
+// starts; when it lands it is shown; the moment anything changes it is stale
+// and goes away."
 //
-//   * the viewport keeps showing what it always showed while you move;
-//   * when you STOP moving, a render starts;
-//   * when it lands, it is shown over the viewport;
-//   * the moment anything changes — camera, geometry, section — the image is
-//     stale and goes away.
+// The first half of that was a fact about a ONE-SHOT renderer, not about path
+// tracing. A resident session (M344) has a usable image after one sample and a
+// good one after twenty, and it follows the camera. So the rules are now:
 //
-// That last rule is the one worth stating: a path-traced image of a model you
+//   * the path-traced image is on screen the whole time, and refines;
+//   * moving the camera restarts sampling and the image keeps up;
+//   * changing the MODEL takes the image down at once.
+//
+// ---------------------------------------------------------------------------
+// AND WHY THOSE LAST TWO ARE DIFFERENT
+// ---------------------------------------------------------------------------
+//
+// M299's rule was that any change makes the image a lie. That was right when
+// the replacement was four seconds away: "a wrong picture that lingers for
+// four seconds is read as the answer."
+//
+// It is wrong when the replacement is forty milliseconds away, and for the
+// same reason. An image of the camera position you were at one frame ago is
+// what every renderer on earth shows — it is what a frame IS — and taking it
+// down for those forty milliseconds would not be honesty, it would be a
+// flicker on every frame of an orbit.
+//
+// A GEOMETRY change is not like that. A path-traced picture of a model you
 // have since edited is not a nicer picture of your model, it is a picture of a
-// different model, and leaving it up is worse than not rendering at all.
+// different model, and there is no frame rate at which showing it is right. So
+// the scene half of the key drops the image and the camera half does not.
 //
 // ---------------------------------------------------------------------------
 // AND IT MUST BE INERT WITHOUT A RENDERER
 // ---------------------------------------------------------------------------
 //
-// The Cycles libraries are not in the app yet. Every build until they are —
-// and every host test, forever — has no shim to call, and this has to be
-// nothing at all in that case: [available] false, no request ever started,
-// rendered mode exactly the RealityKit view it is today. That is what lets
-// this ship ahead of the renderer instead of waiting for it.
+// Every host test, forever, has no shim to call, and this has to be nothing at
+// all in that case: [available] false, no request ever started, rendered mode
+// exactly the RealityKit view it is today.
 import 'dart:typed_data';
+
+import 'cycles_live.dart' show CyclesLiveFrame;
 
 /// What the viewport is showing over the model, if anything.
 enum CyclesPhase {
   /// No render wanted, or none possible.
   idle,
 
-  /// The camera settled and a render is queued but not started.
-  pending,
-
-  /// A render is running.
+  /// Sampling, with or without a picture on screen yet.
   rendering,
 
-  /// A finished image is on screen and still valid.
+  /// Sampling has finished and the image will not improve.
   shown,
 
-  /// The last attempt failed. The reason is in [CyclesRender.error].
+  /// The renderer stopped. The reason is in [CyclesRender.error].
   failed,
+}
+
+/// What [CyclesRender.request] decided has to be sent to the renderer.
+///
+/// The whole point of M344's split: a camera move is twelve floats and a
+/// model change is every vertex in the document, and the caller must be able
+/// to tell them apart before it pays for either.
+enum CyclesPush {
+  /// Nothing changed.
+  nothing,
+
+  /// The camera, the image size or the sample target. Cheap.
+  view,
+
+  /// The geometry, the materials or the world, and the camera with them.
+  /// Expensive.
+  scene,
+
+  /// Rendered mode is off. Shut the renderer down.
+  stop,
 }
 
 /// Everything about the scene that changes the picture.
 ///
-/// The image is thrown away when this changes, so it has to name every input:
-/// the camera (where you are looking), the scene signature (the geometry, the
-/// section, the visibility) and the size (the image is that many pixels).
-/// Anything missing here is a stale image nobody can explain.
+/// Split in two on purpose. [scene] is the geometry, the section, the
+/// visibility and the appearance — everything a model edit touches. [camera],
+/// [width] and [height] are the view. Which half changed decides both what is
+/// pushed to the renderer and whether the image on screen survives.
 class CyclesKey {
   const CyclesKey(this.scene, this.camera, this.width, this.height);
 
@@ -62,6 +97,10 @@ class CyclesKey {
   final String camera;
   final int width;
   final int height;
+
+  /// True when [other] is a picture of the same MODEL, however the camera has
+  /// moved since.
+  bool sameScene(CyclesKey other) => other.scene == scene;
 
   @override
   bool operator ==(Object other) =>
@@ -78,32 +117,42 @@ class CyclesKey {
   String toString() => '$scene|$camera|${width}x$height';
 }
 
-/// The rendered image, and which scene it is of.
+/// The rendered image, and how far along it is.
 class CyclesImage {
-  const CyclesImage(this.key, this.rgba, this.samples);
-  final CyclesKey key;
-  final Uint8List rgba;
-  final int samples;
-}
-
-/// Drives one render at a time and decides when the picture on screen is a lie.
-///
-/// Deliberately free of Flutter, AppState and FFI: what it needs is a function
-/// that turns a key into pixels, which the app supplies and a test fakes.
-class CyclesRender {
-  CyclesRender({
-    required this.renderer,
+  const CyclesImage({
+    required this.key,
+    required this.rgba,
+    required this.width,
+    required this.height,
     required this.samples,
-    this.available = true,
+    required this.target,
+    required this.done,
+    required this.denoised,
   });
 
-  /// Produces the image for [key], or null on failure. Runs off the UI thread;
-  /// this class never touches it except through the future.
-  final Future<Uint8List?> Function(CyclesKey key) renderer;
+  final CyclesKey key;
+  final Uint8List rgba;
+  final int width;
+  final int height;
 
-  /// How hard to work. One number, because a preview that is sometimes 16
-  /// samples and sometimes 512 is two different pictures of one model.
+  /// How many samples this frame averages, and the count it is heading for.
   final int samples;
+  final int target;
+
+  /// Sampling has finished.
+  final bool done;
+
+  /// The a-trous filter was applied. False once it has converged, so a
+  /// finished image is always the raw path trace.
+  final bool denoised;
+}
+
+/// Decides what the renderer is asked for and what the viewport draws.
+///
+/// Deliberately free of Flutter, AppState, FFI and isolates: what it needs is
+/// a key in and a frame back, which the app supplies and a test fakes.
+class CyclesRender {
+  CyclesRender({this.available = true});
 
   /// False when this build has no renderer linked. Everything below then does
   /// nothing at all.
@@ -111,96 +160,102 @@ class CyclesRender {
 
   CyclesPhase _phase = CyclesPhase.idle;
   CyclesKey? _wanted;
-  CyclesKey? _running;
   CyclesImage? _image;
   String _error = '';
+  bool _everRendered = false;
 
   CyclesPhase get phase => _phase;
   String get error => _error;
 
+  /// The scene being rendered, or null when the mode is off.
+  CyclesKey? get wanted => _wanted;
+
   /// The image to draw over the viewport, or null.
   ///
-  /// Null the instant the scene moves away from it: [request] clears it rather
-  /// than leaving a picture of a model that no longer exists.
+  /// It may be of a slightly older CAMERA than [wanted] — that is what a frame
+  /// is — but never of an older MODEL.
   CyclesImage? get image => _image;
 
-  /// True while something is queued or running, for the progress affordance.
-  bool get busy =>
-      _phase == CyclesPhase.pending || _phase == CyclesPhase.rendering;
+  /// True while sampling is still going, for the progress affordance.
+  bool get busy => _phase == CyclesPhase.rendering;
 
-  /// True when [key] is already the scene being waited for or shown.
+  /// True when [key] is already the scene being rendered.
   ///
-  /// [request] answers this too, but only by acting on it. A caller that has
-  /// expensive work to do ONLY when the scene changed — building a job out of
-  /// every vertex in the model — needs to ask before committing to it.
+  /// [request] answers this too, but only by acting on it. A caller with
+  /// expensive work to do ONLY when the scene changed needs to ask before
+  /// committing to it.
   bool wants(CyclesKey key) => _wanted == key;
 
   /// The scene is now [key]. Called on every rebuild; cheap and idempotent.
   ///
-  /// Returns true when the caller should repaint.
-  bool request(CyclesKey? key) {
-    if (!available) return false;
+  /// Returns what to push and whether the viewport needs repainting.
+  (CyclesPush, bool) request(CyclesKey? key) {
+    if (!available) return (CyclesPush.nothing, false);
     if (key == null) {
-      // Rendered mode is off, or there is nothing to render.
       final had = _image != null || _phase != CyclesPhase.idle;
       _wanted = null;
       _image = null;
       _phase = CyclesPhase.idle;
-      return had;
+      return (had ? CyclesPush.stop : CyclesPush.nothing, had);
     }
-    if (_wanted == key) return false;
+    final was = _wanted;
+    if (was == key) return (CyclesPush.nothing, false);
     _wanted = key;
-    // Whatever is on screen is of a different scene. It goes now, not when the
-    // replacement arrives: a wrong picture that lingers for four seconds is
-    // read as the answer.
+    _error = '';
+    _phase = CyclesPhase.rendering;
+    if (was != null && was.sameScene(key)) {
+      // The camera moved. Whatever is on screen is a picture of this model
+      // from where the camera was a frame ago, which is what every frame of
+      // every renderer is. It stays until the next one lands.
+      return (CyclesPush.view, true);
+    }
+    // The model changed. A path-traced image of a model that no longer exists
+    // is not a stale frame, it is the wrong answer.
     final had = _image != null;
     _image = null;
-    _error = '';
-    _phase = CyclesPhase.pending;
-    return had || true;
+    return (CyclesPush.scene, had || true);
   }
 
-  /// Starts the queued render if nothing is running. Returns the future for
-  /// the caller to await, or null when there was nothing to start.
-  Future<void>? pump() {
-    if (!available) return null;
-    if (_phase != CyclesPhase.pending) return null;
+  /// A frame arrived. Returns true when the viewport should repaint.
+  ///
+  /// The frame is NOT checked against the key, and that is deliberate: the
+  /// renderer only ever renders what it was last told, so a frame in flight
+  /// during a camera move is a frame of the previous camera and is exactly
+  /// what should be shown until the next one. What protects against showing
+  /// the wrong MODEL is [request], which drops the image on the frame the
+  /// scene changes — before any frame of the new one can arrive.
+  bool accept(CyclesLiveFrame frame) {
+    if (!available) return false;
     final key = _wanted;
-    if (key == null) return null;
-    _running = key;
-    _phase = CyclesPhase.rendering;
-    return _finish(key);
-  }
-
-  Future<void> _finish(CyclesKey key) async {
-    Uint8List? rgba;
-    try {
-      rgba = await renderer(key);
-    } catch (e) {
-      rgba = null;
-      _error = '$e';
-    }
-    // The scene moved while we rendered. The result is of a model that is no
-    // longer on screen, so it is discarded rather than shown — and the render
-    // that IS wanted is left queued.
-    if (_wanted != key) {
-      _running = null;
-      _phase = _wanted == null ? CyclesPhase.idle : CyclesPhase.pending;
-      return;
-    }
-    _running = null;
-    if (rgba == null) {
-      _phase = CyclesPhase.failed;
-      if (_error.isEmpty) _error = 'the renderer produced no image';
-      return;
-    }
-    _image = CyclesImage(key, rgba, samples);
+    if (key == null) return false;
+    if (frame.rgba.length < frame.width * frame.height * 4) return false;
+    _image = CyclesImage(
+      key: key,
+      rgba: frame.rgba,
+      width: frame.width,
+      height: frame.height,
+      samples: frame.samples,
+      target: frame.target,
+      done: frame.done,
+      denoised: frame.denoised,
+    );
     _everRendered = true;
-    _phase = CyclesPhase.shown;
+    _phase = frame.done ? CyclesPhase.shown : CyclesPhase.rendering;
+    return true;
   }
 
-  /// The render in flight, for the log and for tests.
-  CyclesKey? get running => _running;
+  /// The renderer said it could not go on.
+  ///
+  /// The image is KEPT. A session that dies after producing a picture leaves a
+  /// true picture of the model on screen, and taking it down would turn one
+  /// failure into two.
+  bool fail(String why) {
+    if (!available) return false;
+    if (_phase == CyclesPhase.failed && _error == why) return false;
+    _error = why;
+    _phase = CyclesPhase.failed;
+    return true;
+  }
 
   /// True once this session has produced at least one image.
   ///
@@ -208,10 +263,9 @@ class CyclesRender {
   /// has no precompiled kernels, so it compiles them from source on the device
   /// before it can trace a single ray — tens of seconds, once, cached
   /// afterwards. A progress affordance that says the same thing for a
-  /// forty-second first render and a three-second second one is telling the
-  /// user the app has hung.
+  /// forty-second first render and a live one is telling the user the app has
+  /// hung.
   bool get everRendered => _everRendered;
-  bool _everRendered = false;
 
   /// Forget everything. Leaving a document, or losing the renderer.
   ///
@@ -221,7 +275,6 @@ class CyclesRender {
   /// not going to happen.
   void reset() {
     _wanted = null;
-    _running = null;
     _image = null;
     _error = '';
     _phase = CyclesPhase.idle;

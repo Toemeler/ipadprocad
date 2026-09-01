@@ -54,6 +54,7 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'cycles_assets.dart' show CyclesTextureSet, CyclesAssets;
 import 'part_model.dart' show KernelSolid, Vec3;
 import 'part_render.dart' show Cam3;
 import 'quat.dart' show Placement;
@@ -134,15 +135,67 @@ Vec3 _norm(Vec3 v) {
 /// a screen wants and not what a renderer integrates; handing sRGB straight to
 /// a path tracer makes everything too bright and washed out in a way that
 /// reads as a lighting problem rather than a colour-space one.
+///
+/// M344 — AND EVERYTHING ELSE A SURFACE IS. Until now this was three numbers,
+/// and they were nearly the same three for every appearance in the list: a
+/// colour, a roughness that took one of two values, and a metallic that was
+/// 0.15 for brass and for violet alike. That is a coloured object, not a
+/// material. What is added here is what separates them — a clear coat, a
+/// specular level, a texture set, a relief — and all of it is optional, so an
+/// appearance that says nothing about them renders exactly as it did.
 class CyclesMaterial {
-  const CyclesMaterial(this.r, this.g, this.b,
-      {this.roughness = 0.5, this.metallic = 0.0});
+  const CyclesMaterial(
+    this.r,
+    this.g,
+    this.b, {
+    this.roughness = 0.5,
+    this.metallic = 0.0,
+    this.specular = 0.5,
+    this.coat = 0.0,
+    this.coatRoughness = 0.06,
+    this.anisotropy = 0.0,
+    this.sheen = 0.0,
+    this.textures = CyclesTextureSet.none,
+    this.textureScale = kCyclesTextureScale,
+    this.bumpStrength = kCyclesBumpStrength,
+    this.bumpDistance = kCyclesBumpDistance,
+  });
 
   final double r;
   final double g;
   final double b;
   final double roughness;
   final double metallic;
+
+  /// Index-of-refraction level, 0..1, 0.5 being an ordinary dielectric.
+  final double specular;
+
+  /// Clear-coat weight — a thin smooth layer over the pigment. It is the
+  /// second, sharper highlight sitting on top of the diffuse one, and it is
+  /// most of what makes paint look like paint rather than like plastic.
+  final double coat;
+  final double coatRoughness;
+
+  /// Directional reflection, for brushed and turned finishes. Left at zero
+  /// everywhere for now: Cycles takes the tangent from the mesh, a CAD
+  /// tessellation has none, and what it would fall back to is a generated
+  /// radial frame that is right on a turned face and arbitrary anywhere else.
+  final double anisotropy;
+
+  /// The soft rim a bead-blasted or fabric surface has.
+  final double sheen;
+
+  /// The texture set, or [CyclesTextureSet.none].
+  final CyclesTextureSet textures;
+
+  /// How many MILLIMETRES one tile of the texture covers. See
+  /// [kCyclesTextureScale].
+  final double textureScale;
+
+  /// Relief from the height map: how much of it to apply, and how far its
+  /// white end stands above its black end, in millimetres.
+  final double bumpStrength;
+  final double bumpDistance;
 
   @override
   bool operator ==(Object other) =>
@@ -151,10 +204,21 @@ class CyclesMaterial {
       other.g == g &&
       other.b == b &&
       other.roughness == roughness &&
-      other.metallic == metallic;
+      other.metallic == metallic &&
+      other.specular == specular &&
+      other.coat == coat &&
+      other.coatRoughness == coatRoughness &&
+      other.anisotropy == anisotropy &&
+      other.sheen == sheen &&
+      other.textureScale == textureScale &&
+      other.bumpStrength == bumpStrength &&
+      other.bumpDistance == bumpDistance &&
+      other.textures == textures;
 
   @override
-  int get hashCode => Object.hash(r, g, b, roughness, metallic);
+  int get hashCode => Object.hash(r, g, b, roughness, metallic, specular, coat,
+      coatRoughness, anisotropy, sheen, textureScale, bumpStrength,
+      bumpDistance, textures);
 }
 
 /// sRGB 0..255 to linear 0..1.
@@ -164,42 +228,181 @@ double cyclesLinear(int channel) {
 }
 
 /// The four ids [kMaterials] calls metals.
-///
-/// They differ from the pigments in FINISH — a tighter specular from a lower
-/// roughness — and not in how metallic they are. M332 gave the renderer four
-/// directional lights and a real environment, which is what a metal needs to
-/// reflect, so the old reason for holding `metallic` at zero (a uniform world
-/// reflects uniformly, and a fully metallic surface under one is a flat card)
-/// is gone. What replaces it is PARITY, not caution: see [kCyclesMetallic].
 const Set<String> kCyclesMetals = {'aluminium', 'graphite', 'brass', 'copper'};
 
-/// A TRACE of metal on every appearance, exactly as the RealityKit rendered
-/// view does it (PartScene.rendered, metallic 0.15).
+/// The id an unpainted body's finish is looked up under. Not a material the
+/// user can pick — [materialArgb] returns null for it — but a real name, so
+/// steel can carry a texture set like every other appearance.
+const String kCyclesSteelId = 'steel';
+
+/// How many millimetres one tile of a PBR texture covers.
 ///
-/// The reasoning there applies here and is worth not re-deriving: a surface at
-/// metallic 1.0 takes essentially all of its colour from what it reflects, and
-/// what this scene has to reflect is four lights and a dim room. A brass part
-/// would come out dark and colourless — the appearance the user picked would
-/// have almost no say in how it looks, which is the opposite of the point.
-/// 0.15 gives the highlight the body's own tint without staking the surface on
-/// an environment that is not rich enough to carry it.
+/// IN WORLD UNITS RATHER THAN AS A REPEAT COUNT, and that is the whole
+/// difference between a triplanar projection that reads as a finish and one
+/// that reads as a texture stuck on. The bodies are real objects at real
+/// sizes: a brushed grain is a fixed physical scale, and a bracket and the
+/// plate it bolts to have to show the same one. A repeat count would make the
+/// small part's grain coarse and the big part's fine.
 ///
-/// The same number for pigments and metals, again as RealityKit has it. The
-/// four metal ids are already distinguished by roughness, and doubling up two
-/// signals on one distinction only makes brass and red look like different
-/// KINDS of thing rather than the same plastic-or-metal question answered
-/// twice.
-const double kCyclesMetallic = 0.15;
+/// Forty millimetres is about a hand's width of surface per tile, which is
+/// where a machining or casting texture stops being something you can count.
+const double kCyclesTextureScale = 40.0;
+
+/// How much of the height map to apply, and how far its white end stands above
+/// its black end, in millimetres.
+///
+/// A twentieth of a millimetre is real machining relief — a fine turned finish
+/// is a few microns, a coarse milled one a few hundredths — and it is far
+/// below anything the tessellation could carry as geometry, which is exactly
+/// why it is worth having as a bump.
+const double kCyclesBumpStrength = 0.8;
+const double kCyclesBumpDistance = 0.05;
+
+/// M344 — THE TRACE OF METAL IS GONE, AND THE REASON IT EXISTED WENT WITH IT.
+///
+/// M332 held every appearance at metallic 0.15, metals included, and said why:
+///
+///   "a surface at metallic 1.0 takes essentially all of its colour from what
+///    it reflects, and what this scene has to reflect is four lights and a dim
+///    room. A brass part would come out dark and colourless."
+///
+/// That was correct, and it was an argument about the ENVIRONMENT, not about
+/// the material. A part made of brass is metallic 1.0; it was held at 0.15
+/// because the renderer had nothing for it to be metallic against.
+///
+/// It does now. With an HDRI loaded there is a room to reflect, and a metal
+/// rendered as a metal is the largest single visible difference in M344 — it
+/// is why the four appearances the app calls metals stop looking like grey
+/// plastic in four tints.
+///
+/// So the number depends on whether there is an environment, and the fallback
+/// is exactly the value that shipped. A build with no HDRI renders what M343
+/// rendered.
+const double kCyclesMetallicNoEnvironment = 0.15;
+
+/// How bright a metal's own reflectance is allowed to be, as a maximum linear
+/// channel.
+///
+/// WHY THE PALETTE COLOUR IS NOT USED AS-IS FOR A METAL. At metallic 1.0 the
+/// base colour is F0 — the fraction of light the surface returns head-on — and
+/// for a real metal that is high: polished aluminium is about 0.91 flat, brass
+/// around 0.95 in red falling to 0.43 in blue. The app's palette is a set of
+/// SCREEN colours chosen so a shaded solid reads well, and its brass is linear
+/// 0.53/0.37/0.13. Given to a metal, that is not brass, it is brass in deep
+/// shade: the part comes out tarnished and dim under a studio that is lighting
+/// everything else correctly.
+///
+/// So a metal's colour is lifted to this level with its hue and its chroma
+/// intact. The appearance the user picked still decides WHICH metal it is; the
+/// renderer decides how much light a metal reflects. Below 1.0 because nothing
+/// is a perfect mirror, and a part at F0 = 1 reads as chrome whatever tint it
+/// carries.
+const double kCyclesMetalReflectance = 0.9;
 
 /// The material for a body painted [id] with packed [argb], or null for steel.
-CyclesMaterial? cyclesMaterial(String? id, int? argb) {
+///
+/// [environment] is whether the scene has an HDRI to reflect. It changes what
+/// a metal IS, not merely how it is lit — see [kCyclesMetallicNoEnvironment].
+CyclesMaterial? cyclesMaterial(String? id, int? argb,
+    {bool environment = false, CyclesTextureSet? textures}) {
   if (argb == null) return null;
-  return CyclesMaterial(
+  return cyclesSurface(
+    id,
     cyclesLinear(argb >> 16),
     cyclesLinear(argb >> 8),
     cyclesLinear(argb),
-    roughness: kCyclesMetals.contains(id) ? 0.25 : 0.5,
-    metallic: kCyclesMetallic,
+    environment: environment,
+    textures: textures ?? CyclesAssets.instance.texturesFor(id),
+  );
+}
+
+/// The steel an unpainted body renders as.
+///
+/// It has a shape here as well as in the shim because the two answer different
+/// questions. The shim's is the fallback for a mesh that arrives naming no
+/// material at all — the contract cycles_shim.h states — and this is the one
+/// the app builds when it wants steel to carry a texture set like every other
+/// appearance. They are the same colour, deliberately: 0x86898D, the palette's.
+CyclesMaterial cyclesSteel(
+        {bool environment = false, CyclesTextureSet? textures}) =>
+    cyclesSurface(
+      kCyclesSteelId,
+      cyclesLinear(0x86),
+      cyclesLinear(0x89),
+      cyclesLinear(0x8D),
+      environment: environment,
+      textures: textures ?? CyclesAssets.instance.texturesFor(kCyclesSteelId),
+    );
+
+/// The finish for appearance [id] over a linear colour.
+///
+/// THE ONE PLACE THAT DECIDES WHAT EACH APPEARANCE IS MADE OF. Two families:
+///
+///   METALS reflect their environment and have no diffuse component at all.
+///   Their colour becomes reflectance, lifted to [kCyclesMetalReflectance];
+///   their ROUGHNESS is what separates them — a polished copper bus-bar is
+///   nearly a mirror, cast graphite is nothing like one.
+///
+///   PIGMENTS are a coloured dielectric under a thin clear layer. The coat is
+///   what makes them read as painted or anodised rather than as coloured
+///   plastic: it puts a second, much sharper highlight on top of the soft
+///   diffuse one, and the eye reads the pair as a finish.
+///
+/// Steel is a metal, and treating it as one is why an unpainted body stops
+/// looking like clay. It is the roughest of them: a machined surface, not a
+/// polished one.
+CyclesMaterial cyclesSurface(
+  String? id,
+  double r,
+  double g,
+  double b, {
+  bool environment = false,
+  CyclesTextureSet textures = CyclesTextureSet.none,
+}) {
+  final metal = id == kCyclesSteelId || kCyclesMetals.contains(id);
+  if (!metal) {
+    return CyclesMaterial(
+      r,
+      g,
+      b,
+      roughness: 0.42,
+      metallic: 0.0,
+      specular: 0.5,
+      // A clear coat, and a tight one. Automotive paint and anodising are both
+      // essentially a lacquer, and 0.06 is where its highlight is sharp enough
+      // to read as a separate thing from the diffuse without becoming a mirror.
+      coat: 0.55,
+      coatRoughness: 0.06,
+      textures: textures,
+    );
+  }
+  final roughness = switch (id) {
+    'copper' => 0.20,
+    'brass' => 0.24,
+    'aluminium' => 0.30,
+    'graphite' => 0.52,
+    _ => 0.38, // steel: machined, not polished
+  };
+  if (!environment) {
+    // No room to reflect. Exactly what M332 shipped, for exactly its reasons.
+    return CyclesMaterial(
+      r,
+      g,
+      b,
+      roughness: roughness,
+      metallic: kCyclesMetallicNoEnvironment,
+      textures: textures,
+    );
+  }
+  final peak = math.max(r, math.max(g, b));
+  final k = peak > 1e-6 ? kCyclesMetalReflectance / peak : 1.0;
+  return CyclesMaterial(
+    (r * k).clamp(0.0, 1.0),
+    (g * k).clamp(0.0, 1.0),
+    (b * k).clamp(0.0, 1.0),
+    roughness: roughness,
+    metallic: 1.0,
+    textures: textures,
   );
 }
 
@@ -321,21 +524,49 @@ String cyclesCameraKey(Cam3 cam) {
 /// lands in seconds rather than minutes.
 const int kCyclesMaxSide = 900;
 
-/// How many samples one render takes.
+/// The long side to render at WHILE THE CAMERA IS MOVING.
 ///
-/// One number, not a range: a preview that is sometimes 16 samples and
-/// sometimes 512 is two different pictures of the same model, and the user
-/// has no way to tell which one they are looking at. 48 is past the point
-/// where a studio-lit CAD body with no caustics still looks noisy.
-const int kCyclesSamples = 48;
+/// M344 — THE ONE KNOB AN ORBIT TURNS. A path tracer that follows the camera
+/// has a frame budget like any other renderer, and the honest way to meet it
+/// is fewer pixels, not fewer samples: at 480 the image is a quarter of the
+/// work, the first sample lands in tens of milliseconds instead of hundreds,
+/// and it is scaled up over a viewport the user is dragging — where the eye is
+/// tracking the SHAPE moving and cannot resolve fine detail anyway. Cutting
+/// samples instead would keep the sharpness nobody can see and spend the
+/// budget on noise everybody can.
+///
+/// Cycles has its own version of this (SessionParams.use_resolution_divider,
+/// which renders early samples small and scales them up) and the shim turns it
+/// off, because doing it here is strictly better: the pixels that are skipped
+/// are never allocated, never crossed over the FFI boundary and never
+/// denoised.
+const int kCyclesMovingSide = 480;
+
+/// How many samples a render converges to.
+///
+/// M344 — A TARGET, NOT A COUNT. Sampling is progressive now: the image is on
+/// screen from the first sample and improves until it reaches this, at which
+/// point Cycles stops and the GPU goes quiet. So the number no longer decides
+/// how long you wait for a picture, only how good the one you are already
+/// looking at gets — which is why it is far higher than the 48 that was the
+/// whole wait before it.
+///
+/// 256 is where a studio-lit CAD body under an HDRI, with adaptive sampling
+/// and the firefly clamps the shim sets, stops changing in any way the eye can
+/// see. Adaptive sampling means most pixels are finished long before it.
+const int kCyclesSamples = 256;
 
 /// The pixel size to render [size] logical points at, capped at
 /// [kCyclesMaxSide] and never zero.
-(int, int) cyclesImageSize(double width, double height, double dpr) {
+///
+/// [moving] drops the cap to [kCyclesMovingSide] for the frames of an orbit.
+(int, int) cyclesImageSize(double width, double height, double dpr,
+    {bool moving = false}) {
   final w = width * dpr, h = height * dpr;
   if (!w.isFinite || !h.isFinite || w < 1 || h < 1) return (1, 1);
+  final cap = moving ? kCyclesMovingSide : kCyclesMaxSide;
   final long = math.max(w, h);
-  final k = long > kCyclesMaxSide ? kCyclesMaxSide / long : 1.0;
+  final k = long > cap ? cap / long : 1.0;
   return (math.max(1, (w * k).round()), math.max(1, (h * k).round()));
 }
 
@@ -375,6 +606,111 @@ List<double> cyclesWorld(int argb) => [
       cyclesLinear(argb),
     ];
 
+/// How much of the analytic rig is left once an HDRI is doing the lighting.
+///
+/// NOT ZERO, and the reason is the one thing an environment map cannot do. It
+/// lights beautifully and casts nothing sharp: every shadow it throws is the
+/// soft average of a whole room, so a part rendered under one alone FLOATS —
+/// there is no contact shadow with a direction, and a direction is the cue
+/// that says "resting on the table". A fifth of the rig keeps the sun's shadow
+/// and the headlight's modelling and is far too little to compete with the
+/// environment for what the specular reflects.
+const double kCyclesRigWithEnvironment = 0.2;
+
+/// How bright the environment is, against the map as captured.
+///
+/// One, because a studio HDRI is already exposed for exactly this: it was shot
+/// to light a product. A multiplier here would be a second exposure control
+/// fighting the first, and the place to fix a dark map is the map.
+const double kCyclesHdriStrength = 1.0;
+
+/// How much of the visible background the surfaces see when there is no HDRI.
+///
+/// A FRACTION, so what it is worth depends entirely on the palette, and the
+/// two schemes are nowhere near each other: Chalk's viewport is 0xFCFBF8,
+/// linear 0.96, and this puts about 0.036 on a steel face — a real if modest
+/// lift. The dark scheme's is 0x201D19, linear 0.012, and this puts 0.0005 on
+/// the same face, which is nothing at all.
+///
+/// That is the right behaviour and not a gap to close. The number the camera
+/// sees has to be the viewport's colour exactly, or the render does not sit on
+/// the ground the app draws; and a room whose walls are that dark really does
+/// bounce nothing. What keeps the model from having black faces under the dark
+/// scheme is the camera-locked headlight and the floor bounce, not this.
+const double kCyclesAmbient = 0.15;
+
+/// The world a render happens in: what lights it, and what is behind it.
+///
+/// The two are DELIBERATELY SEPARATE, and that separation is what lets an HDRI
+/// ship at all. `world` is the app's own viewport colour and is what the
+/// camera sees, so a path-traced image lands on exactly the ground the rest of
+/// the app is drawing rather than as a bright rectangle in the middle of a
+/// charcoal viewport. The HDRI is what every OTHER ray sees, which is to say
+/// it is the light. Cycles can tell the two kinds of ray apart, so both are
+/// true at once.
+class CyclesEnv {
+  const CyclesEnv({
+    this.hdri,
+    this.hdriStrength = kCyclesHdriStrength,
+    this.hdriRotation = 0.0,
+    this.hdriVisible = false,
+    this.world = const [0.8, 0.8, 0.8],
+    this.ambient = kCyclesAmbient,
+    this.rig = 1.0,
+  });
+
+  /// An equirectangular .hdr or .exr, or null for none.
+  final String? hdri;
+  final double hdriStrength;
+
+  /// Turn the environment about the world's up axis, radians. The one control
+  /// that matters on a studio map: it aims the softbox.
+  final double hdriRotation;
+
+  /// Show the environment behind the model instead of the viewport's colour.
+  final bool hdriVisible;
+
+  /// The viewport's own background, LINEAR.
+  final List<double> world;
+  final double ambient;
+
+  /// 0..1 on the four analytic lights.
+  final double rig;
+
+  bool get hasHdri => hdri != null && hdri!.isNotEmpty;
+
+  @override
+  bool operator ==(Object other) =>
+      other is CyclesEnv &&
+      other.hdri == hdri &&
+      other.hdriStrength == hdriStrength &&
+      other.hdriRotation == hdriRotation &&
+      other.hdriVisible == hdriVisible &&
+      other.ambient == ambient &&
+      other.rig == rig &&
+      other.world.length == world.length &&
+      other.world[0] == world[0] &&
+      other.world[1] == world[1] &&
+      other.world[2] == world[2];
+
+  @override
+  int get hashCode => Object.hash(hdri, hdriStrength, hdriRotation, hdriVisible,
+      ambient, rig, world[0], world[1], world[2]);
+}
+
+/// The world for a viewport whose background is [argb], using whatever
+/// environment map this build has.
+CyclesEnv cyclesEnvFor(int argb, {String? hdri}) {
+  final map = hdri ?? CyclesAssets.instance.hdri;
+  final lit = map != null && map.isNotEmpty;
+  return CyclesEnv(
+    hdri: lit ? map : null,
+    world: cyclesWorld(argb),
+    ambient: kCyclesAmbient,
+    rig: lit ? kCyclesRigWithEnvironment : 1.0,
+  );
+}
+
 /// The lowest Y in the scene, or null when there is nothing in it.
 ///
 /// The world is Y-UP (see RealityPartView.commonInit — the sketch planes make
@@ -392,13 +728,23 @@ double? cyclesMeshLowY(List<CyclesMesh> meshes) {
   return low;
 }
 
-/// How far across the floor reaches, as a multiple of what it has to cover.
+/// How far across the floor reaches, as a multiple of the model's own radius.
 ///
 /// M277's lesson on the RealityKit side: a floor sized from the SCENE alone is
 /// smaller than the frame the moment you zoom out past the part, and its edge
-/// walking into view takes the shadow with it. So the reach is the scene or
-/// the viewplane, whichever is bigger.
-const double kCyclesFloorSpan = 4.0;
+/// walking into view takes the shadow with it. M333 answered that by sizing it
+/// from the scene OR the viewplane, whichever was bigger.
+///
+/// M344 — AND THE VIEWPLANE HAD TO GO. A floor whose size depends on the zoom
+/// is a floor that changes whenever the camera does, and in a live renderer
+/// that means re-uploading the geometry on every frame of a pinch — which is
+/// exactly the cost the scene/view split exists to avoid.
+///
+/// So it is sized from the model alone, and generously: twelve times the
+/// part's own radius is past any zoom at which the part is still recognisable,
+/// and a quad costs nothing whatever size it is. The edge that M277 saw
+/// walking into view is now further away than the part is interesting.
+const double kCyclesFloorSpan = 12.0;
 
 /// How far below the model's lowest point the floor sits, as a fraction of the
 /// scene's size.
@@ -415,10 +761,14 @@ const double kCyclesFloorDrop = 1e-4;
 /// [meshes] must be the MODEL's meshes only: the floor is sized from them, and
 /// sizing it from a list that already contains a floor grows it without limit.
 /// For the same reason the caller must compute the camera before adding this —
-/// see [cyclesSceneJob].
+/// see [cyclesSceneData].
 ///
-/// [forwardY] is the Y component of the direction the camera LOOKS, which is
-/// column 2 of the matrix [cyclesCameraMatrix] builds.
+/// [lookingDown] is whether the camera is above the floor, which is the Y
+/// component of the direction the camera LOOKS being negative — column 2 of
+/// the matrix [cyclesCameraMatrix] builds. It is the ONE thing about the
+/// camera the geometry depends on, and it is a single bit, so it travels in
+/// the scene key: crossing the horizon rebuilds the scene, and nothing else
+/// about an orbit does.
 ///
 /// A CYCLES TRIANGLE IS DOUBLE-SIDED AND REALITYKIT'S PLANE IS NOT. Every
 /// RealityKit material in this app except the outline ribbon leaves
@@ -436,17 +786,13 @@ const double kCyclesFloorDrop = 1e-4;
 CyclesMesh? cyclesFloorMesh(
   List<CyclesMesh> meshes, {
   required int argb,
-  required double halfWidth,
-  required double halfHeight,
-  required double forwardY,
+  required bool lookingDown,
 }) {
-  if (!(forwardY < 0)) return null;
+  if (!lookingDown) return null;
   final low = cyclesMeshLowY(meshes);
   if (low == null) return null;
   final radius = cyclesMeshReach(meshes);
-  final frame = math.sqrt(halfWidth * halfWidth + halfHeight * halfHeight);
-  final reach = math.max(radius, frame);
-  final side = math.max(2.0, reach * kCyclesFloorSpan);
+  final side = math.max(2.0, radius * kCyclesFloorSpan);
   if (!side.isFinite) return null;
   final y = low - math.max(1e-4, radius * kCyclesFloorDrop);
   if (!y.isFinite) return null;

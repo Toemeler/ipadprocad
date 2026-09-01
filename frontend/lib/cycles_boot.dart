@@ -24,9 +24,11 @@
 // rather than offering a render that cannot happen.
 import 'dart:io';
 
+import 'cycles_assets.dart';
 import 'cycles_warmup.dart';
 import 'ffi/cycles_engine.dart';
 import 'log.dart';
+import 'materials.dart' show materialIds;
 
 /// The directory Cycles is given as its resource root, or null off iOS.
 ///
@@ -85,6 +87,12 @@ void initCycles() {
   ffi.setResourcePath(root);
   _ready = true;
   Log.i('cycles', 'ready: device ${ffi.deviceName}, resources $root');
+  // M344 — the optional HDRI and PBR texture sets, if this build carries them.
+  // One directory walk, here, once: the alternative is a stat per appearance
+  // per render, and there are thirty renders a second during an orbit. Nothing
+  // it finds is required and nothing it misses is an error — see
+  // cycles_assets.dart.
+  CyclesAssets.instance.scan(root, materialIds: materialIds);
   // M320 — and start compiling the Metal kernels NOW, on another isolate.
   // They take minutes on a cold install and nothing on every launch after,
   // and the only question is whether that wait lands here, while a document

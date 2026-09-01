@@ -6,20 +6,66 @@
 // before the libraries land — the lookup fails and [CyclesFfi.instance] is
 // null. Nothing in the app may assume a renderer exists.
 //
-// The blocking call is deliberate and belongs off the UI thread; see
-// cycles_shim.h. What runs it is [AppState], not this file.
+// M344 — AND NOW THERE ARE TWO WAYS IN.
+//
+//   * [render] is the one-shot: build a scene, block until the sample count is
+//     reached, hand back pixels. It is what the kernel warm-up uses.
+//   * [liveScene], [liveView] and [liveFrame] drive the resident session: the
+//     scene is uploaded when it changes, the camera whenever it moves, and
+//     frames are pulled out as they converge. It is what the viewport uses,
+//     from one long-lived isolate — see cycles_live.dart.
+//
+// Both block, and neither belongs on the UI thread.
 import 'dart:ffi';
 import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 
-import '../cycles_view.dart' show CyclesMesh;
+import '../cycles_view.dart' show CyclesEnv, CyclesMaterial, CyclesMesh;
 import '../log.dart';
 
 // ---- the C surface, mirrored ------------------------------------------------
 // Kept structurally identical to backend/cycles/shim/cycles_shim.h. A field
 // added there and not here is a silently misread struct, so the two are
 // reviewed together.
+
+/// M344 — the material TABLE's element. See cycles_shim.h for why the
+/// appearance stopped travelling inside CyMesh: a copy per mesh worked while
+/// an appearance was five numbers, and stops working the moment one carries
+/// five file paths.
+final class CyMaterialS extends Struct {
+  @Array(3)
+  external Array<Float> color;
+  @Float()
+  external double roughness;
+  @Float()
+  external double metallic;
+  @Float()
+  external double specular;
+  @Float()
+  external double coat;
+  @Float()
+  external double coatRoughness;
+  @Float()
+  external double anisotropy;
+  @Float()
+  external double sheen;
+  @Array(3)
+  external Array<Float> emission;
+  @Float()
+  external double emissionStrength;
+  external Pointer<Utf8> baseMap;
+  external Pointer<Utf8> roughnessMap;
+  external Pointer<Utf8> metallicMap;
+  external Pointer<Utf8> bumpMap;
+  external Pointer<Utf8> aoMap;
+  @Float()
+  external double textureScale;
+  @Float()
+  external double bumpStrength;
+  @Float()
+  external double bumpDistance;
+}
 
 final class CyMeshS extends Struct {
   external Pointer<Float> verts;
@@ -29,18 +75,29 @@ final class CyMeshS extends Struct {
   external Pointer<Int32> tris;
   @Int32()
   external int triCount;
-  // M323 — the body's appearance. A field added to cycles_shim.h and not here
-  // is not a missing feature, it is a struct read past its end: Dart sizes the
-  // array from THIS declaration, so the shim would index into the next
-  // element's memory. The two are reviewed together for that reason.
+
+  /// Index into the material table, or -1 for the renderer's own steel. A
+  /// field added to cycles_shim.h and not here is not a missing feature, it is
+  /// a struct read past its end: Dart sizes the array from THIS declaration,
+  /// so the shim would index into the next element's memory.
   @Int32()
-  external int hasMaterial;
+  external int material;
+}
+
+final class CyEnvS extends Struct {
+  external Pointer<Utf8> hdri;
+  @Float()
+  external double hdriStrength;
+  @Float()
+  external double hdriRotation;
+  @Int32()
+  external int hdriVisible;
   @Array(3)
-  external Array<Float> color;
+  external Array<Float> world;
   @Float()
-  external double roughness;
+  external double ambient;
   @Float()
-  external double metallic;
+  external double rig;
 }
 
 final class CyViewS extends Struct {
@@ -56,20 +113,43 @@ final class CyViewS extends Struct {
   external int height;
   @Int32()
   external int samples;
-  @Array(3)
-  external Array<Float> world;
+}
+
+final class CyFrameS extends Struct {
+  @Int32()
+  external int width;
+  @Int32()
+  external int height;
+  @Int32()
+  external int samples;
+  @Int32()
+  external int target;
+  @Int32()
+  external int done;
+  @Int32()
+  external int denoised;
 }
 
 typedef _AvailN = Int32 Function();
 typedef _AvailD = int Function();
+typedef _VoidN = Void Function();
+typedef _VoidD = void Function();
 typedef _StrN = Pointer<Utf8> Function();
 typedef _StrD = Pointer<Utf8> Function();
 typedef _SetPathN = Void Function(Pointer<Utf8>);
 typedef _SetPathD = void Function(Pointer<Utf8>);
-typedef _RenderN = Int32 Function(
-    Pointer<CyMeshS>, Int32, Pointer<CyViewS>, Pointer<Uint8>);
-typedef _RenderD = int Function(
-    Pointer<CyMeshS>, int, Pointer<CyViewS>, Pointer<Uint8>);
+typedef _RenderN = Int32 Function(Pointer<CyMeshS>, Int32, Pointer<CyMaterialS>,
+    Int32, Pointer<CyEnvS>, Pointer<CyViewS>, Pointer<Uint8>);
+typedef _RenderD = int Function(Pointer<CyMeshS>, int, Pointer<CyMaterialS>, int,
+    Pointer<CyEnvS>, Pointer<CyViewS>, Pointer<Uint8>);
+typedef _SceneN = Int32 Function(
+    Pointer<CyMeshS>, Int32, Pointer<CyMaterialS>, Int32, Pointer<CyEnvS>);
+typedef _SceneD = int Function(
+    Pointer<CyMeshS>, int, Pointer<CyMaterialS>, int, Pointer<CyEnvS>);
+typedef _ViewN = Int32 Function(Pointer<CyViewS>);
+typedef _ViewD = int Function(Pointer<CyViewS>);
+typedef _FrameN = Int32 Function(Pointer<Uint8>, Int32, Pointer<CyFrameS>);
+typedef _FrameD = int Function(Pointer<Uint8>, int, Pointer<CyFrameS>);
 typedef _StatusN = Void Function(Pointer<Uint8>, Int32);
 typedef _StatusD = void Function(Pointer<Uint8>, int);
 typedef _ProgressN = Float Function();
@@ -78,11 +158,52 @@ typedef _ProgressD = double Function();
 /// How long a status line can be. Cycles' own are one sentence.
 const int _kStatusMax = 256;
 
+/// One frame out of the live session: the pixels, and how far along it is.
+class CyclesFrame {
+  const CyclesFrame({
+    required this.rgba,
+    required this.width,
+    required this.height,
+    required this.samples,
+    required this.target,
+    required this.done,
+    required this.denoised,
+  });
+
+  final Uint8List rgba;
+  final int width;
+  final int height;
+
+  /// How many samples this frame averages, and the count it is heading for.
+  final int samples;
+  final int target;
+
+  /// Sampling has finished; this picture will not improve.
+  final bool done;
+
+  /// The a-trous filter was applied to it. False once it has converged.
+  final bool denoised;
+}
+
 /// The renderer, or null when this build has none linked.
 class CyclesFfi {
-  CyclesFfi._(this._available, this._deviceName, this._setPath, this._render,
-      this._lastError, this._preload, this._kernelsReady, this._status,
-      this._progress);
+  CyclesFfi._(
+    this._available,
+    this._deviceName,
+    this._setPath,
+    this._render,
+    this._lastError,
+    this._preload,
+    this._kernelsReady,
+    this._status,
+    this._progress,
+    this._liveOpen,
+    this._liveClose,
+    this._liveIsOpen,
+    this._liveScene,
+    this._liveView,
+    this._liveFrame,
+  );
 
   final _AvailD _available;
   final _StrD _deviceName;
@@ -93,6 +214,12 @@ class CyclesFfi {
   final _AvailD _kernelsReady;
   final _StatusD _status;
   final _ProgressD _progress;
+  final _AvailD _liveOpen;
+  final _VoidD _liveClose;
+  final _AvailD _liveIsOpen;
+  final _SceneD _liveScene;
+  final _ViewD _liveView;
+  final _FrameD _liveFrame;
 
   static CyclesFfi? _instance;
   static bool _tried = false;
@@ -113,6 +240,12 @@ class CyclesFfi {
         lib.lookupFunction<_AvailN, _AvailD>('cy_kernels_ready'),
         lib.lookupFunction<_StatusN, _StatusD>('cy_status'),
         lib.lookupFunction<_ProgressN, _ProgressD>('cy_progress'),
+        lib.lookupFunction<_AvailN, _AvailD>('cy_live_open'),
+        lib.lookupFunction<_VoidN, _VoidD>('cy_live_close'),
+        lib.lookupFunction<_AvailN, _AvailD>('cy_live_is_open'),
+        lib.lookupFunction<_SceneN, _SceneD>('cy_live_scene'),
+        lib.lookupFunction<_ViewN, _ViewD>('cy_live_view'),
+        lib.lookupFunction<_FrameN, _FrameD>('cy_live_frame'),
       );
       Log.i('cycles', 'shim linked; device ${_instance!.deviceName}');
     } catch (e) {
@@ -182,56 +315,203 @@ class CyclesFfi {
     required int width,
     required int height,
     required int samples,
-    List<double> world = const [0.8, 0.8, 0.8],
+    CyclesEnv env = const CyclesEnv(),
   }) {
     if (matrix.length != 12 || width <= 0 || height <= 0) return null;
     final arena = Arena();
     try {
-      final meshArr = arena<CyMeshS>(meshes.isEmpty ? 1 : meshes.length);
-      for (var i = 0; i < meshes.length; i++) {
-        final (v, n, t, mat) = meshes[i];
-        final vp = arena<Float>(v.length);
-        vp.asTypedList(v.length).setAll(0, v);
-        final tp = arena<Int32>(t.length);
-        tp.asTypedList(t.length).setAll(0, t);
-        meshArr[i]
-          ..verts = vp
-          ..vertCount = v.length ~/ 3
-          ..tris = tp
-          ..triCount = t.length ~/ 3;
-        if (n != null && n.length == v.length) {
-          final np = arena<Float>(n.length);
-          np.asTypedList(n.length).setAll(0, n);
-          meshArr[i].normals = np;
-        } else {
-          meshArr[i].normals = nullptr;
-        }
-        meshArr[i].hasMaterial = mat == null ? 0 : 1;
-        meshArr[i].color[0] = mat?.r ?? 0.0;
-        meshArr[i].color[1] = mat?.g ?? 0.0;
-        meshArr[i].color[2] = mat?.b ?? 0.0;
-        meshArr[i].roughness = mat?.roughness ?? 0.5;
-        meshArr[i].metallic = mat?.metallic ?? 0.0;
-      }
-      final view = arena<CyViewS>();
-      for (var i = 0; i < 12; i++) {
-        view.ref.matrix[i] = matrix[i];
-      }
-      view.ref
-        ..halfWidth = halfWidth
-        ..halfHeight = halfHeight
-        ..width = width
-        ..height = height
-        ..samples = samples;
-      for (var i = 0; i < 3; i++) {
-        view.ref.world[i] = i < world.length ? world[i] : 0.8;
-      }
+      final (meshArr, matArr, matCount) = _packScene(arena, meshes);
+      final envPtr = _packEnv(arena, env);
+      final view = _packView(
+          arena, matrix, halfWidth, halfHeight, width, height, samples);
       final out = arena<Uint8>(width * height * 4);
-      final ok = _render(meshArr, meshes.length, view, out);
+      final ok = _render(
+          meshArr, meshes.length, matArr, matCount, envPtr, view, out);
       if (ok == 0) return null;
       return Uint8List.fromList(out.asTypedList(width * height * 4));
     } finally {
       arena.releaseAll();
     }
+  }
+
+  // ---- the live session -----------------------------------------------------
+
+  /// Brings up the resident session. Idempotent.
+  bool liveOpen() => _liveOpen() != 0;
+
+  /// Tears it down and gives the GPU memory back.
+  void liveClose() => _liveClose();
+
+  bool get liveIsOpen => _liveIsOpen() != 0;
+
+  /// Replaces the geometry, the materials and the world. Expensive; sampling
+  /// restarts.
+  bool liveScene(List<CyclesMesh> meshes, CyclesEnv env) {
+    final arena = Arena();
+    try {
+      final (meshArr, matArr, matCount) = _packScene(arena, meshes);
+      return _liveScene(
+              meshArr, meshes.length, matArr, matCount, _packEnv(arena, env)) !=
+          0;
+    } finally {
+      arena.releaseAll();
+    }
+  }
+
+  /// Points the camera somewhere else. Cheap; sampling restarts.
+  bool liveView({
+    required List<double> matrix,
+    required double halfWidth,
+    required double halfHeight,
+    required int width,
+    required int height,
+    required int samples,
+  }) {
+    if (matrix.length != 12 || width <= 0 || height <= 0) return false;
+    final arena = Arena();
+    try {
+      return _liveView(_packView(
+              arena, matrix, halfWidth, halfHeight, width, height, samples)) !=
+          0;
+    } finally {
+      arena.releaseAll();
+    }
+  }
+
+  /// The most recent frame, or null when there is nothing newer than the last
+  /// one this returned.
+  ///
+  /// [width] and [height] size the buffer offered to the shim; they are what
+  /// the last [liveView] asked for. A frame larger than that is refused rather
+  /// than truncated.
+  CyclesFrame? liveFrame(int width, int height) {
+    if (width <= 0 || height <= 0) return null;
+    final n = width * height * 4;
+    final arena = Arena();
+    try {
+      final out = arena<Uint8>(n);
+      final info = arena<CyFrameS>();
+      final r = _liveFrame(out, n, info);
+      if (r != 1) return null;
+      final f = info.ref;
+      final px = f.width * f.height * 4;
+      if (px <= 0 || px > n) return null;
+      return CyclesFrame(
+        rgba: Uint8List.fromList(out.asTypedList(px)),
+        width: f.width,
+        height: f.height,
+        samples: f.samples,
+        target: f.target,
+        done: f.done != 0,
+        denoised: f.denoised != 0,
+      );
+    } finally {
+      arena.releaseAll();
+    }
+  }
+
+  // ---- packing --------------------------------------------------------------
+
+  /// The meshes and their material table, deduplicated.
+  ///
+  /// ONE TABLE ENTRY PER DISTINCT APPEARANCE, which is what the index in
+  /// CyMesh is for. An assembly is routinely hundreds of pieces drawn from a
+  /// handful of appearances, and a table with one row per piece would make the
+  /// shim build one Shader — and one ImageHandle per texture file — for each
+  /// of them.
+  (Pointer<CyMeshS>, Pointer<CyMaterialS>, int) _packScene(
+      Arena arena, List<CyclesMesh> meshes) {
+    final table = <CyclesMaterial, int>{};
+    for (final (_, _, _, mat) in meshes) {
+      if (mat != null) table.putIfAbsent(mat, () => table.length);
+    }
+    final meshArr = arena<CyMeshS>(meshes.isEmpty ? 1 : meshes.length);
+    for (var i = 0; i < meshes.length; i++) {
+      final (v, n, t, mat) = meshes[i];
+      final vp = arena<Float>(v.length);
+      vp.asTypedList(v.length).setAll(0, v);
+      final tp = arena<Int32>(t.length);
+      tp.asTypedList(t.length).setAll(0, t);
+      meshArr[i]
+        ..verts = vp
+        ..vertCount = v.length ~/ 3
+        ..tris = tp
+        ..triCount = t.length ~/ 3
+        ..material = mat == null ? -1 : table[mat]!;
+      if (n != null && n.length == v.length) {
+        final np = arena<Float>(n.length);
+        np.asTypedList(n.length).setAll(0, n);
+        meshArr[i].normals = np;
+      } else {
+        meshArr[i].normals = nullptr;
+      }
+    }
+    final matArr = arena<CyMaterialS>(table.isEmpty ? 1 : table.length);
+    table.forEach((mat, i) {
+      matArr[i]
+        ..roughness = mat.roughness
+        ..metallic = mat.metallic
+        ..specular = mat.specular
+        ..coat = mat.coat
+        ..coatRoughness = mat.coatRoughness
+        ..anisotropy = mat.anisotropy
+        ..sheen = mat.sheen
+        ..emissionStrength = 0.0
+        ..textureScale = mat.textureScale
+        ..bumpStrength = mat.bumpStrength
+        ..bumpDistance = mat.bumpDistance
+        ..baseMap = _str(arena, mat.textures.base)
+        ..roughnessMap = _str(arena, mat.textures.roughness)
+        ..metallicMap = _str(arena, mat.textures.metallic)
+        ..bumpMap = _str(arena, mat.textures.height)
+        ..aoMap = _str(arena, mat.textures.occlusion);
+      matArr[i].color[0] = mat.r;
+      matArr[i].color[1] = mat.g;
+      matArr[i].color[2] = mat.b;
+      matArr[i].emission[0] = 0.0;
+      matArr[i].emission[1] = 0.0;
+      matArr[i].emission[2] = 0.0;
+    });
+    return (meshArr, matArr, table.length);
+  }
+
+  Pointer<CyEnvS> _packEnv(Arena arena, CyclesEnv env) {
+    final p = arena<CyEnvS>();
+    p.ref
+      ..hdri = _str(arena, env.hdri)
+      ..hdriStrength = env.hdriStrength
+      ..hdriRotation = env.hdriRotation
+      ..hdriVisible = env.hdriVisible ? 1 : 0
+      ..ambient = env.ambient
+      ..rig = env.rig;
+    for (var i = 0; i < 3; i++) {
+      p.ref.world[i] = i < env.world.length ? env.world[i] : 0.8;
+    }
+    return p;
+  }
+
+  Pointer<CyViewS> _packView(Arena arena, List<double> matrix, double halfWidth,
+      double halfHeight, int width, int height, int samples) {
+    final view = arena<CyViewS>();
+    for (var i = 0; i < 12; i++) {
+      view.ref.matrix[i] = matrix[i];
+    }
+    view.ref
+      ..halfWidth = halfWidth
+      ..halfHeight = halfHeight
+      ..width = width
+      ..height = height
+      ..samples = samples;
+    return view;
+  }
+
+  /// A NUL-terminated copy of [s] in [arena], or null.
+  ///
+  /// Allocated in the arena rather than with `toNativeUtf8()` on its own so
+  /// the lifetime is the CALL's, not the caller's memory to remember. The shim
+  /// copies what it needs — a ustring on the node — before returning.
+  Pointer<Utf8> _str(Arena arena, String? s) {
+    if (s == null || s.isEmpty) return nullptr;
+    return s.toNativeUtf8(allocator: arena);
   }
 }

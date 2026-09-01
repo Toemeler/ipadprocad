@@ -1,67 +1,47 @@
 // M304 — the piece that actually makes rendered mode call Cycles.
 //
-// Everything before this was a half: M297 worked out the camera arithmetic,
-// M299 worked out when an image is valid and when it is a lie, M303 worked out
-// the mesh format. None of them ever ran the renderer. This does.
+// M344 — AND WHAT IT DRIVES NOW.
 //
-// ---------------------------------------------------------------------------
-// WHY THE RENDER RUNS IN ANOTHER ISOLATE
-// ---------------------------------------------------------------------------
+// It used to build a whole job — every vertex, the camera, the world — and
+// hand it to a fresh isolate that rendered it once and exited. The job was the
+// unit, and there was only one kind of it.
 //
-// `cy_render` blocks for as long as the sample count takes — seconds. On the
-// UI isolate that is seconds of frozen viewport, and the user cannot even
-// leave rendered mode to escape it. So the FFI call happens in an isolate
-// spawned per render.
+// There are two now, and keeping them apart is the entire performance
+// argument of the live renderer:
 //
-// This is why [CyclesJob] exists as a plain data class instead of the renderer
-// reaching into AppState: everything the render needs has to be COPYABLE, and
-// AppState is not. The job is built on the UI isolate, at the moment the key
-// changes, and then it is the only thing that crosses.
+//   THE SCENE is every vertex in the document, its materials and its world. It
+//   is megabytes, it is an upload to the GPU, and it is rebuilt only when the
+//   model changes.
 //
-// The shim's symbols are looked up per isolate, but they resolve to the same
-// statically linked code in the same process, and `cy_set_resource_path`
-// writes a C++ global that every isolate then sees. So the background isolate
-// needs no setup of its own.
+//   THE VIEW is twelve floats, two half-extents and an image size. It is sent
+//   on every frame of an orbit and costs nothing.
 //
-// ---------------------------------------------------------------------------
-// AND WHY THE JOB IS BUILT LAZILY
-// ---------------------------------------------------------------------------
-//
-// [offer] is called from `build`, which runs on every frame of every drag.
-// Building a job copies every vertex of the model into fresh 32-bit buffers —
-// megabytes. So [offer] takes a THUNK, and calls it only on the frame where
-// the key actually changed, which is the frame where a render is going to
-// start anyway.
-import 'dart:isolate';
-import 'dart:typed_data';
-
+// [CyclesRender] decides which of the two a rebuild needs; this class builds
+// it and hands it to a [CyclesDriver]. The driver is an interface so the whole
+// path above it can be tested with no renderer, no isolate and no GPU.
 import 'cycles_boot.dart';
+import 'cycles_live.dart';
 import 'cycles_render.dart';
 import 'cycles_view.dart';
-import 'ffi/cycles_engine.dart';
 import 'log.dart';
 
-/// Everything one render needs, in a form another isolate can be handed.
-class CyclesJob {
-  const CyclesJob({
+/// Everything the renderer needs that does not change when the camera moves.
+///
+/// [reach] travels with the meshes because the camera needs it — the eye is
+/// pulled back past the scene so nothing is clipped — and it is a property of
+/// the GEOMETRY, not of the view. Recomputing it per camera push would mean
+/// walking every vertex on every frame of an orbit, which is the one thing the
+/// split exists to avoid.
+class CyclesScene {
+  const CyclesScene({
     required this.meshes,
-    required this.matrix,
-    required this.halfWidth,
-    required this.halfHeight,
-    required this.width,
-    required this.height,
-    required this.samples,
-    this.world = const [0.8, 0.8, 0.8],
+    required this.env,
+    required this.reach,
   });
 
   final List<CyclesMesh> meshes;
-  final List<double> matrix;
-  final double halfWidth;
-  final double halfHeight;
-  final int width;
-  final int height;
-  final int samples;
-  final List<double> world;
+  final CyclesEnv env;
+  final double reach;
 
   /// Total triangles, for the log and for a budget test.
   int get triangles {
@@ -73,85 +53,69 @@ class CyclesJob {
   }
 }
 
-/// The result of one render: the pixels, and what the renderer had to say.
-///
-/// The note travels BACK ACROSS THE ISOLATE rather than being logged where it
-/// is produced, and that is the whole point of the type. Log.init() runs on
-/// the UI isolate; in a fresh one the log file handle does not exist, so
-/// Log.w there goes to the device console and into a buffer nobody reads —
-/// which is to say `cy_last_error()`, the one string that explains a failed
-/// render, would be missing from the log file in exactly the situation where
-/// somebody is reading the log file to find out why the render failed.
-typedef CyclesOutcome = (Uint8List? rgba, String note);
+/// Where the camera is, in the form the shim takes.
+class CyclesViewParams {
+  const CyclesViewParams({
+    required this.matrix,
+    required this.halfWidth,
+    required this.halfHeight,
+  });
 
-/// Runs [job] through the shim. Top-level so it can be the body of an isolate.
-///
-/// Never throws: a failed render must not be able to take the app down with
-/// it, so the reason comes back as text.
-CyclesOutcome renderCyclesJob(CyclesJob job) {
-  final ffi = CyclesFfi.instance;
-  if (ffi == null) return (null, 'no renderer linked into this binary');
-  try {
-    final out = ffi.render(
-      meshes: job.meshes,
-      matrix: job.matrix,
-      halfWidth: job.halfWidth,
-      halfHeight: job.halfHeight,
-      width: job.width,
-      height: job.height,
-      samples: job.samples,
-      world: job.world,
-    );
-    if (out == null) {
-      final why = ffi.lastError;
-      return (null, why.isEmpty ? 'the renderer produced no image' : why);
-    }
-    return (out, ffi.deviceName);
-  } catch (e) {
-    return (null, '$e');
-  }
+  final List<double> matrix;
+  final double halfWidth;
+  final double halfHeight;
 }
 
-/// Drives [CyclesRender] with real jobs on a real isolate.
+/// Drives [CyclesRender] with a real renderer on a real isolate.
 ///
 /// One per document viewport. The app owns it; the widget offers it scenes and
 /// draws whatever image it is holding.
 class CyclesSession {
   CyclesSession({
     int samples = kCyclesSamples,
-    Future<CyclesOutcome> Function(CyclesJob)? runner,
+    CyclesDriver? driver,
     bool? available,
-  })  : _runner = runner ?? _runOnIsolate,
-        _samples = samples {
-    render = CyclesRender(
-      renderer: _render,
-      samples: samples,
-      available: available ?? cyclesReady,
-    );
+  })  : _samples = samples,
+        _driver = driver ?? CyclesLive() {
+    render = CyclesRender(available: available ?? cyclesReady);
+    _driver.onFrame = _frame;
+    _driver.onNote = _takeNote;
   }
 
-  final Future<CyclesOutcome> Function(CyclesJob) _runner;
   final int _samples;
+  final CyclesDriver _driver;
 
   /// The state machine. Read [CyclesRender.image] to draw, [busy] for the
   /// progress affordance.
   late final CyclesRender render;
 
-  CyclesJob? _job;
+  /// The scene last pushed, kept for its reach and for the log.
+  CyclesScene? _scene;
 
-  /// How many samples the images this session produces were rendered at.
+  /// Fires when a frame lands, so the viewport can repaint without polling.
+  void Function()? onChanged;
+
+  /// The sample count images from this session converge to.
   int get samples => _samples;
 
   bool get available => render.available;
 
-  /// The job the last started render is running, for the log and for tests.
-  CyclesJob? get job => _job;
+  /// The scene the renderer is currently holding, for the log and for tests.
+  CyclesScene? get scene => _scene;
+
+  /// What the renderer said about itself: the device it is running on, or why
+  /// it stopped.
+  String get note => _noteText;
+  String _noteText = '';
 
   /// The scene, as of this frame.
   ///
   /// [wanted] is false whenever a Cycles image would be wrong to show at all —
   /// not rendered mode, no renderer linked, nothing to draw, a sketch open.
-  /// [buildJob] is called only when the key changed, so it may be expensive.
+  ///
+  /// [buildScene] is called only when the SCENE key changed, so it may be
+  /// expensive. [buildView] is called whenever anything changed, so it may not
+  /// be: it is twelve floats and it runs on every frame of an orbit.
   ///
   /// Returns true when the caller should repaint.
   bool offer({
@@ -160,62 +124,85 @@ class CyclesSession {
     required String camera,
     required int width,
     required int height,
-    required CyclesJob Function() buildJob,
+    required CyclesScene Function() buildScene,
+    required CyclesViewParams Function(CyclesScene scene) buildView,
   }) {
     if (!render.available) return false;
     if (!wanted || width < 1 || height < 1) {
-      _job = null;
-      return render.request(null);
+      final (push, repaint) = render.request(null);
+      if (push == CyclesPush.stop) {
+        _scene = null;
+        _driver.close();
+        Log.i('cycles', 'renderer stopped');
+      }
+      return repaint;
     }
+    // Held so the scene branch below can push a view too: a scene with no
+    // camera renders nothing, so the two always travel together on a rebuild.
+    _buildView = buildView;
     final key = CyclesKey(scene, camera, width, height);
-    if (render.wants(key)) return false;
-    final changed = render.request(key);
-    // Built here rather than in `pump`, so the cost lands on the frame that
-    // already decided the picture is stale — and so a settle timer that never
-    // fires (the user kept moving) never paid it.
-    _job = buildJob();
-    return changed;
-  }
-
-  /// Starts the queued render if one is queued and none is running.
-  Future<void>? pump() {
-    final f = render.pump();
-    if (f != null) {
-      final j = _job;
-      Log.i(
-          'cycles',
-          'render start ${render.running} '
-              '${j == null ? '' : '${j.meshes.length} meshes, ${j.triangles} tris, '}'
-              '$_samples spp');
+    final (push, repaint) = render.request(key);
+    switch (push) {
+      case CyclesPush.nothing:
+      case CyclesPush.stop:
+        break;
+      case CyclesPush.scene:
+        final s = buildScene();
+        _scene = s;
+        _driver.open();
+        _driver.setScene(s.meshes, s.env);
+        Log.i(
+            'cycles',
+            'scene ${s.meshes.length} meshes, ${s.triangles} tris, '
+                '${s.env.hasHdri ? 'hdri' : 'no hdri'}, $_samples spp');
+        _pushView(width, height);
+      case CyclesPush.view:
+        _pushView(width, height);
     }
-    return f;
+    return repaint;
   }
 
-  /// What the renderer said about the last attempt, successful or not.
-  ///
-  /// The device name when it worked, `cy_last_error()` when it did not.
-  String get note => _note;
-  String _note = '';
+  void _pushView(int width, int height) {
+    final s = _scene;
+    if (s == null) return;
+    final v = _buildView;
+    if (v == null) return;
+    final p = v(s);
+    _driver.setView(
+      matrix: p.matrix,
+      halfWidth: p.halfWidth,
+      halfHeight: p.halfHeight,
+      width: width,
+      height: height,
+      samples: _samples,
+    );
+  }
 
-  Future<Uint8List?> _render(CyclesKey key) async {
-    final j = _job;
-    if (j == null) return null;
-    final (rgba, note) = await _runner(j);
-    _note = note;
-    // Logged HERE, on the isolate that has the log file open.
-    if (rgba == null) {
-      Log.w('cycles', 'render failed: $note');
-    } else {
-      Log.i('cycles', 'render done on $note (${rgba.length ~/ 1024} KiB)');
+  /// The current frame's view builder. Set at the top of [offer] and read only
+  /// inside that same call, so it can never be stale — it is a parameter that
+  /// two branches need, not state.
+  CyclesViewParams Function(CyclesScene)? _buildView;
+
+  void _frame(CyclesLiveFrame f) {
+    if (!render.accept(f)) return;
+    onChanged?.call();
+  }
+
+  void _takeNote(String text, bool failed) {
+    _noteText = text;
+    if (failed) {
+      Log.w('cycles', 'renderer failed: $text');
+      if (render.fail(text)) onChanged?.call();
+      return;
     }
-    return rgba;
+    Log.i('cycles', 'renderer on $text');
   }
 
+  /// Stop rendering and forget everything. Leaving a document.
   void reset() {
-    _job = null;
+    _scene = null;
+    _buildView = null;
     render.reset();
+    _driver.close();
   }
 }
-
-Future<CyclesOutcome> _runOnIsolate(CyclesJob job) =>
-    Isolate.run(() => renderCyclesJob(job));

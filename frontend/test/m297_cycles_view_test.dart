@@ -292,27 +292,50 @@ void _materialTests() {
       expect(m.g, greaterThan(m.b));
     });
 
-    test('metals differ in FINISH, not in how metallic they are', () {
-      // M332 — the world stopped being uniform, so the old reason for holding
-      // metallic at zero went with it, and what remains is parity: RealityKit's
-      // rendered view puts a TRACE of metal (0.15) on every appearance and
-      // stakes none of them on an environment of four lights and a dim room.
-      // A brass part at metallic 1.0 would take its colour from what it
-      // reflects and the appearance the user picked would barely show.
-      //
-      // The same trace on both, so the metals are still told apart by finish
-      // alone — two signals for one distinction would make brass and red look
-      // like different kinds of thing rather than the same question answered
-      // twice.
+    test('with nothing to reflect, a metal is still only a trace of one', () {
+      // M332's rule, unchanged, and it is the fallback every build without the
+      // optional HDRI renders under: a surface at metallic 1.0 takes its
+      // colour from what it reflects, and four lights and a dim room are not
+      // enough to carry brass. The metals are told apart by FINISH here.
       final brass = cyclesMaterial('brass', 0xFFC2A462)!;
       final red = cyclesMaterial('red', 0xFFC05B54)!;
       expect(brass.roughness, lessThan(red.roughness));
-      expect(brass.metallic, kCyclesMetallic);
-      expect(red.metallic, kCyclesMetallic);
+      expect(brass.metallic, kCyclesMetallicNoEnvironment);
       // A trace, not a metal: past about a third the base colour stops
       // carrying the surface.
-      expect(kCyclesMetallic, greaterThan(0.0));
-      expect(kCyclesMetallic, lessThan(0.35));
+      expect(kCyclesMetallicNoEnvironment, greaterThan(0.0));
+      expect(kCyclesMetallicNoEnvironment, lessThan(0.35));
+    });
+
+    test('with an HDRI to reflect, a metal becomes a metal', () {
+      // M344 — the change the environment map exists to make. The old rule was
+      // an argument about the SCENE, not about the material: brass held at
+      // 0.15 because there was nothing for it to be metallic against. There is
+      // now.
+      final brass = cyclesMaterial('brass', 0xFFC2A462, environment: true)!;
+      final red = cyclesMaterial('red', 0xFFC05B54, environment: true)!;
+      expect(brass.metallic, 1.0);
+      // A pigment is not a metal whatever the environment is. What makes it
+      // read as paint is the clear coat, not a trace of metal.
+      expect(red.metallic, 0.0);
+      expect(red.coat, greaterThan(0.0));
+      // And the reflectance is lifted to something a metal actually returns:
+      // the palette's brass is a screen colour, and handed to a metal as-is it
+      // is brass in deep shade.
+      final peak = math.max(brass.r, math.max(brass.g, brass.b));
+      expect(peak, closeTo(kCyclesMetalReflectance, 1e-6));
+      // With its hue intact — it is still brass, not white.
+      expect(brass.r, greaterThan(brass.b * 2));
+    });
+
+    test('steel is a metal too, and the roughest of them', () {
+      // The commonest body in any assembly, and the reason an unpainted part
+      // stopped looking like clay. Machined, not polished.
+      final steel = cyclesSteel(environment: true);
+      final copper = cyclesMaterial('copper', 0xFFB87A5A, environment: true)!;
+      expect(steel.metallic, 1.0);
+      expect(steel.roughness, greaterThan(copper.roughness));
+      expect(steel.coat, 0.0);
     });
 
     test('a mesh carries the material it was built with', () {
@@ -320,6 +343,13 @@ void _materialTests() {
       final m = cyclesMeshAt(_tri(), null, material: mat);
       expect(m!.$4, mat);
       expect(cyclesMeshAt(_tri(), null)!.$4, isNull);
+      // Two meshes built with the same appearance carry EQUAL materials, which
+      // is what lets the FFI layer collapse them into one table row and the
+      // shim into one Shader. Identity would not do: cyclesMaterial builds a
+      // fresh one per body.
+      final again = cyclesMaterial('blue', 0xFF5D82AF);
+      expect(again, mat);
+      expect(again.hashCode, mat.hashCode);
     });
   });
 }
@@ -341,8 +371,7 @@ void _floorTests() {
       // M276's fix on the RealityKit side, and the same reasoning: a floor at
       // -sceneRadius sits well below anything and the shadow comes out spread
       // wide and detached, reading as a stain rather than as contact.
-      final f = cyclesFloorMesh(box(20), argb: 0xFF808080,
-          halfWidth: 10, halfHeight: 10, forwardY: -1)!;
+      final f = cyclesFloorMesh(box(20), argb: 0xFF808080, lookingDown: true)!;
       final ys = [for (var i = 1; i < f.$1.length; i += 3) f.$1[i]];
       expect(ys.every((y) => y == ys.first), isTrue,
           reason: 'the floor is level');
@@ -354,8 +383,7 @@ void _floorTests() {
       // A floor wound the other way is lit from underneath and renders black.
       // Checked as the actual cross product rather than by reading the winding
       // back off the vertex list, because the winding is the thing under test.
-      final f = cyclesFloorMesh(box(0), argb: 0xFF808080,
-          halfWidth: 10, halfHeight: 10, forwardY: -1)!;
+      final f = cyclesFloorMesh(box(0), argb: 0xFF808080, lookingDown: true)!;
       final v = f.$1;
       final t = f.$3;
       double px(int i, int c) => v[t[i] * 3 + c];
@@ -372,23 +400,28 @@ void _floorTests() {
       expect(ax * by - ay * bx, closeTo(0, 1e-6));
     });
 
-    test('grows with the frame, not only with the model', () {
+    test('is far wider than the part, and does not depend on the zoom', () {
       // M277 — a floor sized from the scene alone is smaller than the frame
       // the moment you zoom out past the part, and its edge walking into view
-      // takes the shadow with it.
-      double span(double half) {
-        final f = cyclesFloorMesh(box(0), argb: 0xFF808080,
-            halfWidth: half, halfHeight: half, forwardY: -1)!;
+      // takes the shadow with it. M333 answered that with the viewplane;
+      // M344 cannot, because a floor whose size depends on the camera is
+      // geometry re-uploaded on every frame of a pinch. So it is sized
+      // generously from the model instead — past any zoom at which the part is
+      // still recognisable.
+      double span(List<CyclesMesh> m) {
+        final f = cyclesFloorMesh(m, argb: 0xFF808080, lookingDown: true)!;
         final xs = [for (var i = 0; i < f.$1.length; i += 3) f.$1[i]];
         return xs.reduce(math.max) - xs.reduce(math.min);
       }
 
-      expect(span(200), greaterThan(span(10)));
+      final radius = cyclesMeshReach(box(0));
+      expect(span(box(0)), greaterThan(radius * 10));
+      // And it grows with the MODEL, which is the half that was always right.
+      expect(span(box(0)), lessThan(span(box(200))));
     });
 
     test('is fully rough and not metallic, like the RealityKit ground', () {
-      final f = cyclesFloorMesh(box(0), argb: 0xFF808080,
-          halfWidth: 10, halfHeight: 10, forwardY: -1)!;
+      final f = cyclesFloorMesh(box(0), argb: 0xFF808080, lookingDown: true)!;
       expect(f.$4!.roughness, 1.0);
       expect(f.$4!.metallic, 0.0);
       // And it carries the palette's colour, converted like every other one.
@@ -400,23 +433,14 @@ void _floorTests() {
       // under the model there shows the part through an undrawn floor, and
       // here it would fill the frame with floor colour instead — a flat tone
       // for a reason that has nothing to do with the model.
-      expect(
-          cyclesFloorMesh(box(0),
-              argb: 0xFF808080, halfWidth: 10, halfHeight: 10, forwardY: 0.5),
+      expect(cyclesFloorMesh(box(0), argb: 0xFF808080, lookingDown: false),
           isNull);
-      // Edge-on is nothing to draw either way.
-      expect(
-          cyclesFloorMesh(box(0),
-              argb: 0xFF808080, halfWidth: 10, halfHeight: 10, forwardY: 0),
-          isNull);
-      expect(
-          cyclesFloorMesh(box(0),
-              argb: 0xFF808080, halfWidth: 10, halfHeight: 10, forwardY: -0.01),
+      expect(cyclesFloorMesh(box(0), argb: 0xFF808080, lookingDown: true),
           isNotNull);
     });
 
     test('the world colour is the palette, converted, not a constant', () {
-      // M336 — nobody was setting it, so every render used CyclesJob's
+      // M336 — nobody was setting it, so every render used the shim's
       // fallback 0.8 grey whatever the scheme was: a bright rectangle in the
       // middle of a charcoal viewport. The same trap setViewportColor and
       // setFloorColor exist to avoid.
@@ -430,9 +454,7 @@ void _floorTests() {
     });
 
     test('an empty scene has nothing to stand on', () {
-      expect(
-          cyclesFloorMesh(const [],
-              argb: 0xFF808080, halfWidth: 10, halfHeight: 10, forwardY: -1),
+      expect(cyclesFloorMesh(const [], argb: 0xFF808080, lookingDown: true),
           isNull);
       expect(cyclesMeshLowY(const []), isNull);
     });

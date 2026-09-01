@@ -6,18 +6,32 @@
 // apart before (M292's section cache is what that costs).
 //
 // ---------------------------------------------------------------------------
-// WHY IT WAITS BEFORE STARTING
+// M344 — WHAT THE WAIT USED TO BE FOR, AND WHY THERE ISN'T ONE
 // ---------------------------------------------------------------------------
 //
-// A render is seconds of GPU work whose result is thrown away the moment the
-// camera moves again. Starting one on every frame of an orbit would spend the
-// whole drag rendering images nobody ever sees, and heat the device doing it.
-// So the key is offered on every build — that part is cheap, and it is what
-// takes a stale image DOWN immediately — but the render itself only starts
-// once the scene has held still for [kCyclesSettle].
+// This file used to open with a note explaining that a render is seconds of
+// GPU work thrown away the moment the camera moves again, so the render only
+// started once the scene had held still for 450 ms.
 //
-// The timer is restarted, not merely armed, on every change: a slow continuous
-// orbit must not accumulate enough quiet frames to trip it.
+// That was true of a one-shot renderer and it is not true of a resident one.
+// Sampling restarts on a camera move — it does not start over from a cold
+// scene — so the work an orbit throws away is the handful of samples since the
+// last frame, which is milliseconds. Waiting for a standstill now buys nothing
+// and costs the whole point: a path tracer that follows you round the model.
+//
+// So the camera is pushed on every frame, and the timer that is left does
+// something else entirely.
+//
+// ---------------------------------------------------------------------------
+// THE ONE THING A STANDSTILL STILL DECIDES: HOW BIG THE IMAGE IS
+// ---------------------------------------------------------------------------
+//
+// A path tracer has a frame budget like anything else, and the honest way to
+// meet it during an orbit is fewer PIXELS, not fewer samples — the eye is
+// tracking a shape in motion and cannot resolve fine detail, but it can see
+// noise perfectly well. So the image is rendered at [kCyclesMovingSide] while
+// the camera is moving and at [kCyclesMaxSide] once it stops, and the timer
+// below is what notices that it stopped.
 import 'dart:async';
 import 'dart:ui' as ui;
 
@@ -34,13 +48,14 @@ import '../part_render.dart' show Cam3;
 import '../render_engine.dart';
 import '../theme.dart';
 
-/// How long the scene has to hold still before a render starts.
+/// How long the camera has to hold still before the image is re-rendered at
+/// full resolution.
 ///
 /// Long enough that letting go of an orbit does not immediately commit the
-/// device to seconds of path tracing you are about to invalidate; short enough
-/// that stopping to look at something starts producing the picture without you
-/// wondering whether the mode did anything.
-const Duration kCyclesSettle = Duration(milliseconds: 450);
+/// device to four times the pixels you are about to invalidate; short enough
+/// that stopping to look at something sharpens it before you have finished
+/// looking.
+const Duration kCyclesSettle = Duration(milliseconds: 350);
 
 /// Draws the path-traced image of the current document over the viewport, and
 /// nothing at all when there is no renderer or the mode is not rendered.
@@ -59,60 +74,93 @@ class CyclesLayer extends StatefulWidget {
 class _CyclesLayerState extends State<CyclesLayer> {
   Timer? _settle;
   ui.Image? _decoded;
-  CyclesImage? _decodedOf;
+  int _decodedSerial = -1;
+  int _serial = 0;
   bool _decoding = false;
+
+  /// True while the camera is still being moved, which is what decides the
+  /// image size. Set by every camera change, cleared by [kCyclesSettle].
+  bool _moving = false;
+
+  /// The camera key the last build saw, so a change can be noticed here
+  /// rather than being asked of the session — which cannot answer, because by
+  /// the time it has been offered the key it has already adopted it.
+  String _lastCamera = '';
 
   @override
   void initState() {
     super.initState();
-    CyclesWarmup.instance.addListener(_warmupChanged);
+    CyclesWarmup.instance.addListener(_repaint);
     // M340 — and the renderer choice, which is a preference living outside
     // AppState and so does not arrive through a document rebuild. Switching to
     // RealityKit has to take the path-traced image DOWN on the same frame, not
     // whenever the model next changes.
-    RenderEngines.engine.addListener(_warmupChanged);
+    RenderEngines.engine.addListener(_repaint);
+    widget.app.cycles.onChanged = _frameLanded;
   }
 
-  void _warmupChanged() {
+  @override
+  void didUpdateWidget(CyclesLayer old) {
+    super.didUpdateWidget(old);
+    // The session is per DOCUMENT and this widget outlives a document switch,
+    // so the callback has to follow. A session still holding a dead widget's
+    // closure would repaint nothing and look exactly like a renderer that had
+    // stopped.
+    widget.app.cycles.onChanged = _frameLanded;
+  }
+
+  void _repaint() {
     if (mounted) setState(() {});
+  }
+
+  /// A frame arrived from the render isolate.
+  void _frameLanded() {
+    if (!mounted) return;
+    setState(() => _serial++);
   }
 
   @override
   void dispose() {
-    CyclesWarmup.instance.removeListener(_warmupChanged);
-    RenderEngines.engine.removeListener(_warmupChanged);
+    CyclesWarmup.instance.removeListener(_repaint);
+    RenderEngines.engine.removeListener(_repaint);
+    widget.app.cycles.onChanged = null;
     _settle?.cancel();
     _decoded?.dispose();
     super.dispose();
   }
 
-  void _arm() {
+  /// The camera moved. Render small until it stops.
+  void _armSettle() {
+    if (!_moving) {
+      // Deliberately not a setState: this build is already producing the frame
+      // that will use the smaller size, and the flag is read below.
+      _moving = true;
+    }
     _settle?.cancel();
     _settle = Timer(kCyclesSettle, () {
       if (!mounted) return;
-      final f = widget.app.cycles.pump();
-      if (f == null) return;
-      setState(() {}); // rendering now: show the badge
-      f.then((_) {
-        if (mounted) setState(() {});
-      });
+      setState(() => _moving = false);
     });
   }
 
-  /// RGBA8 to a texture, once per image.
+  /// RGBA8 to a texture, once per frame.
   ///
   /// Decoding is asynchronous and this is called from build, so the first
-  /// build after a render lands draws nothing and the decode's own setState
-  /// draws the picture a frame later. That frame is invisible next to the
-  /// seconds the render took.
-  void _decode(CyclesImage img) {
+  /// build after a frame lands draws the previous one and the decode's own
+  /// setState draws the new one a frame later. At a path tracer's frame rate
+  /// that is invisible.
+  ///
+  /// A frame that arrives while a decode is in flight is DROPPED rather than
+  /// queued. It is the right thing for a viewport — the next one is a few
+  /// milliseconds behind it and strictly better — and a queue here would turn
+  /// a slow decode into unbounded latency.
+  void _decode(CyclesImage img, int serial) {
     if (_decoding) return;
     _decoding = true;
-    final key = img.key;
     ui.decodeImageFromPixels(
       img.rgba,
-      img.key.width,
-      img.key.height,
+      img.width,
+      img.height,
       ui.PixelFormat.rgba8888,
       (image) {
         _decoding = false;
@@ -120,17 +168,10 @@ class _CyclesLayerState extends State<CyclesLayer> {
           image.dispose();
           return;
         }
-        // The scene moved while we were decoding. Same rule as the render
-        // itself: an image of a model that is no longer on screen is not shown.
-        final now = widget.app.cycles.render.image;
-        if (now == null || now.key != key) {
-          image.dispose();
-          return;
-        }
         setState(() {
           _decoded?.dispose();
           _decoded = image;
-          _decodedOf = now;
+          _decodedSerial = serial;
         });
       },
     );
@@ -142,8 +183,16 @@ class _CyclesLayerState extends State<CyclesLayer> {
     final session = app.cycles;
     if (!session.available) return const SizedBox.shrink();
 
+    final camera = cyclesCameraKey(widget.cam);
+    if (camera != _lastCamera) {
+      _lastCamera = camera;
+      _armSettle();
+    }
+
     final dpr = MediaQuery.devicePixelRatioOf(context);
-    final (w, h) = cyclesImageSize(widget.size.width, widget.size.height, dpr);
+    final (w, h) =
+        cyclesImageSize(widget.size.width, widget.size.height, dpr,
+            moving: _moving);
     // Rendered mode being ON is a different question from whether a render can
     // START. On a cold install the Metal kernels are still being compiled from
     // source (M320), and a render begun into that blocks for the whole compile
@@ -154,31 +203,28 @@ class _CyclesLayerState extends State<CyclesLayer> {
     final wanted = mode && warmup.ready;
     final changed = session.offer(
       wanted: wanted,
-      scene: cyclesSceneKey(app),
-      camera: cyclesCameraKey(widget.cam),
+      scene: cyclesSceneKey(app, widget.cam),
+      camera: camera,
       width: w,
       height: h,
-      buildJob: () =>
-          cyclesSceneJob(app, widget.cam, w, h, samples: session.samples),
+      buildScene: () => cyclesSceneData(app, widget.cam),
+      buildView: (scene) => cyclesViewParams(widget.cam, scene.reach),
     );
-    if (changed) {
-      // The texture belongs to an image that has just been discarded.
+    if (changed && session.render.image == null) {
+      // The model changed, so the texture belongs to a picture of a model that
+      // no longer exists.
       _decoded?.dispose();
       _decoded = null;
-      _decodedOf = null;
+      _decodedSerial = -1;
     }
-    if (session.render.phase == CyclesPhase.pending) {
-      _arm();
-    } else if (!wanted) {
-      _settle?.cancel();
-    }
+    if (!wanted) _settle?.cancel();
 
     final img = session.render.image;
-    if (img != null && !identical(img, _decodedOf)) _decode(img);
+    if (img != null && _decodedSerial != _serial) _decode(img, _serial);
 
     return IgnorePointer(
       child: Stack(children: [
-        if (_decoded != null && _decodedOf != null)
+        if (_decoded != null)
           Positioned.fill(
             child: RawImage(
               image: _decoded,
@@ -209,6 +255,12 @@ class _CyclesLayerState extends State<CyclesLayer> {
 /// indistinguishable from one that is not running, and a failure that shows
 /// nothing is indistinguishable from a mode that does nothing. Both have to be
 /// legible without being a dialog.
+///
+/// M344 — AND IT COUNTS UP NOW. The number used to be a constant, because
+/// every image was rendered at exactly one sample count and the badge was
+/// telling you which. It is a live count against a target, which is the one
+/// thing somebody watching a progressive render wants to know and the only
+/// honest way to say "this is still getting better".
 class _CyclesBadge extends StatelessWidget {
   const _CyclesBadge(this.session);
 
@@ -217,25 +269,24 @@ class _CyclesBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final render = session.render;
-    final samples = session.samples;
+    final img = render.image;
     // The device the last render actually ran on, which is the one thing
-    // somebody looking at this wants to know and cannot otherwise find out:
-    // the shim prefers Metal and falls back to the CPU, and a CPU render on
-    // an iPad is the difference between four seconds and four minutes. Long
-    // names are trimmed — "Apple M4 (GPU - 10 cores)" is more than a badge.
+    // somebody looking at this wants to know and cannot otherwise find out.
+    // Long names are trimmed — "Apple M4 (GPU - 10 cores)" is more than a badge.
     final dev = render.phase == CyclesPhase.shown && session.note.isNotEmpty
         ? ' · ${session.note.length > 20 ? '${session.note.substring(0, 19)}…' : session.note}'
         : '';
     // The first render of a run also compiles Metal's kernels from source —
-    // tens of seconds, once. Saying "$samples spp" through that wait is
+    // tens of seconds, once. Saying "0 spp" through that wait is
     // indistinguishable from a hang, so it says what is actually happening.
     final first = !render.everRendered;
     final t = L.of(context);
     final (label, tone) = switch (render.phase) {
-      CyclesPhase.pending => (t.cyclesBadge, T.dim),
       CyclesPhase.rendering when first => (t.cyclesPreparing, T.text),
-      CyclesPhase.rendering => (t.cyclesSamples(samples), T.text),
-      CyclesPhase.shown => ('${t.cyclesSamples(samples)}$dev', T.dim),
+      CyclesPhase.rendering =>
+        (t.cyclesSamples(img?.samples ?? 0), T.text),
+      CyclesPhase.shown =>
+        ('${t.cyclesSamples(img?.samples ?? session.samples)}$dev', T.dim),
       CyclesPhase.failed => (t.cyclesFailed, T.dim),
       CyclesPhase.idle => ('', T.dim),
     };
