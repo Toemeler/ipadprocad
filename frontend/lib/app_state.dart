@@ -10,7 +10,8 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:native_menu/native_busy.dart' show NativeBusy;
-import 'package:native_menu/native_menu.dart' show MeshImportChoice, NativeMenu;
+import 'package:native_menu/native_menu.dart'
+    show MeshImportChoice, MeshStage, NativeMenu;
 import 'package:path_provider/path_provider.dart';
 import 'package:reality_view/reality_view.dart' show RealityThumbnailer;
 
@@ -18277,7 +18278,22 @@ class AppState extends ChangeNotifier {
         ? L.current.msgMeshConverting(soup.triangleCount)
         : L.current.msgMeshBuilding(soup.triangleCount);
     toast(busyDetail);
-    final liveProgress = await NativeBusy.show(busyTitle, busyDetail);
+    final liveProgress = await NativeBusy.show(
+      busyTitle,
+      busyDetail,
+      // The card is UIKit and has no localisations of its own.
+      stages: MeshStage.names(
+        reading: L.current.meshStageReading,
+        finding: L.current.meshStageFinding,
+        fitting: L.current.meshStageFitting,
+        shaping: L.current.meshStageShaping,
+        building: L.current.meshStageBuilding,
+        finishing: L.current.meshStageFinishing,
+        simplifying: L.current.meshStageSimplifying,
+      ),
+      cancelTitle: L.current.cancel,
+      cancellingTitle: L.current.actionCancelling,
+    );
     Log.milestone('import',
         'mesh: busy card ${liveProgress ? 'with live progress' : 'indeterminate'}');
 
@@ -18301,7 +18317,15 @@ class AppState extends ChangeNotifier {
     final solid = res.solid;
     if (solid == null) {
       await NativeBusy.hide();
-      toast(_meshConvertFailure(res));
+      // A cancellation is not a failure. The user knows what they did and why
+      // there is no body; repeating it back as an error message, in the tone
+      // reserved for something going wrong, is the app arguing with them.
+      if (res.error == kMeshCancelled) {
+        Log.milestone('import', 'mesh: cancelled by the user');
+        toast(L.current.msgMeshImportCancelled);
+      } else {
+        toast(_meshConvertFailure(res));
+      }
       return 0;
     }
 

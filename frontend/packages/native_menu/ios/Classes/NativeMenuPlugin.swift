@@ -129,7 +129,10 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
         case "busyShow":
             BusyOverlay.shared.show(
                 title: args["title"] as? String ?? "",
-                detail: args["detail"] as? String ?? "")
+                detail: args["detail"] as? String ?? "",
+                stages: args["stages"] as? [String] ?? [],
+                cancelTitle: args["cancelTitle"] as? String ?? "",
+                cancellingTitle: args["cancellingTitle"] as? String ?? "")
             result(BusyOverlay.shared.hasRealProgress)
 
         case "busyHide":

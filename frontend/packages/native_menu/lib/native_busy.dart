@@ -26,11 +26,28 @@ class NativeBusy {
   /// this only to log it, and must not change what it does on the strength of
   /// it. Worth logging because "the bar just swept the whole time" is
   /// otherwise a report with nothing in the bundle to check it against.
-  static Future<bool> show(String title, String detail) async {
+  /// [stages] are the stage names in the user's language, INDEXED BY STAGE
+  /// NUMBER (see MeshStage). Index 0 is idle and is never shown, so it may be
+  /// empty. A short list, or an empty entry, falls back to the kernel's own
+  /// English rather than showing a blank line.
+  ///
+  /// [cancelTitle] adds a Cancel button. Omit it and there is none — which is
+  /// also what happens on a build whose kernel cannot be asked to stop, since
+  /// a button that does nothing is worse than no button.
+  static Future<bool> show(
+    String title,
+    String detail, {
+    List<String> stages = const [],
+    String cancelTitle = '',
+    String cancellingTitle = '',
+  }) async {
     try {
       final real = await _ch.invokeMethod<bool>('busyShow', {
         'title': title,
         'detail': detail,
+        'stages': stages,
+        'cancelTitle': cancelTitle,
+        'cancellingTitle': cancellingTitle,
       });
       _up = true;
       return real ?? false;

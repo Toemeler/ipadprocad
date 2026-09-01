@@ -1521,6 +1521,128 @@ int main()
         }
     }
 
+    /* ---- M335: one bar, and a way out ------------------------------------
+     *
+     * Both are properties of a RUNNING conversion, so both are watched from a
+     * second thread — exactly how the busy card sees them. */
+    {
+        std::printf("== the bar runs once, and Cancel stops it ==\n");
+
+        std::vector<double> xyz;
+        std::vector<int> tri;
+        Tessellate(part, 0.05, xyz, tri);
+        const int nTri = (int)(tri.size() / 3);
+
+        for (int mode = 1; mode >= 0; --mode) {
+            const std::string tag =
+                std::string("bar[mode ") + (mode ? "1 fit" : "0 mesh") + "]: ";
+
+            /* A whole run: the bar rises, never retreats, and never passes the
+             * ceiling the current stage published. */
+            std::atomic<bool> go(true);
+            std::atomic<int> back(0), peak(0), polls(0), overCeil(0),
+                ceilBack(0);
+            std::thread watch([&] {
+                int last = -1, lastC = -1, lastStage = -1;
+                while (go.load()) {
+                    const int o = meshrecon::Overall();
+                    const int c = meshrecon::Ceiling();
+                    polls.fetch_add(1);
+                    if (last >= 0 && o < last && o != 0) back.fetch_add(1);
+                    if (c > 0 && o > c) overCeil.fetch_add(1);
+                    /* The spans must PARTITION the bar: each stage starts
+                     * where the one before it ended. A stage whose span runs
+                     * past the next stage's start is the bug this caught —
+                     * the 1:1 path's sewing was given the whole of the rest of
+                     * the bar, so it would have raced to 100% and left the
+                     * coplanar merge, a third of the job, with nowhere to go.
+                     * Nothing about the numbers retreats when that happens, so
+                     * it has to be checked at the seam. */
+                    int st = 0, dn = 0, tt = 0;
+                    meshrecon::Progress(st, dn, tt);
+                    if (st > 0 && st != lastStage) {
+                        /* `o` at a stage change is its span's start, because
+                         * SetStage zeroes the count before publishing. */
+                        if (lastC > 0 && o < lastC - 1) ceilBack.fetch_add(1);
+                        lastStage = st;
+                    }
+                    if (o > peak.load()) peak.store(o);
+                    last = o;
+                    if (c > 0) lastC = c;
+                    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                }
+            });
+            meshrecon::Params p = meshrecon::Defaults();
+            p.mode = mode;
+            meshrecon::Report r;
+            std::string err;
+            TopoDS_Shape out = meshrecon::Reconstruct(
+                xyz.data(), (int)(xyz.size() / 3), tri.data(), nTri, p, r, err);
+            go.store(false);
+            watch.join();
+
+            chk((tag + "it converts").c_str(), !out.IsNull(), err);
+            chk((tag + "the watcher got to run").c_str(), polls.load() > 10,
+                std::to_string(polls.load()) + " polls");
+            chk((tag + "the bar never goes backwards").c_str(), back.load() == 0,
+                std::to_string(back.load()) + " retreats");
+            chk((tag + "the bar never passes its ceiling").c_str(),
+                overCeil.load() == 0,
+                std::to_string(overCeil.load()) + " overruns");
+            chk((tag + "the stages' spans do not overlap").c_str(),
+                ceilBack.load() == 0,
+                std::to_string(ceilBack.load()) + " ceiling retreats");
+            chk((tag + "the bar actually advances").c_str(), peak.load() >= 400,
+                std::to_string(peak.load()) + "/1000");
+            chk((tag + "and is back to nothing afterwards").c_str(),
+                meshrecon::Overall() == 0,
+                std::to_string(meshrecon::Overall()));
+            std::printf("   %-9s peaked at %d.%d%%\n",
+                        mode ? "fitted:" : "1:1:", peak.load() / 10,
+                        peak.load() % 10);
+
+            /* And Cancel: asked part-way, it must stop, hand back nothing, and
+             * SAY it was cancelled rather than blaming the step it interrupted
+             * — the app tells the two apart by that word. */
+            std::atomic<bool> go2(true);
+            std::thread killer([&] {
+                while (go2.load()) {
+                    if (meshrecon::Overall() >= 200) {
+                        meshrecon::RequestCancel();
+                        return;
+                    }
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                }
+            });
+            meshrecon::Report r2;
+            std::string err2;
+            TopoDS_Shape out2 = meshrecon::Reconstruct(
+                xyz.data(), (int)(xyz.size() / 3), tri.data(), nTri, p, r2, err2);
+            go2.store(false);
+            killer.join();
+            chk((tag + "cancelling gives back no body").c_str(), out2.IsNull(),
+                "a body survived a cancellation");
+            chk((tag + "and says it was cancelled").c_str(),
+                err2 == meshrecon::kCancelledMessage, "err was \"" + err2 + "\"");
+            chk((tag + "the request does not outlive its run").c_str(),
+                !meshrecon::Cancelled_ForTest(),
+                "the next import would be cancelled before it started");
+            chk((tag + "and the bar is reset").c_str(),
+                meshrecon::Overall() == 0 && meshrecon::Ceiling() == 0);
+
+            /* A cancellation asked for when nothing is running must not arm
+             * itself against the next conversion. */
+            meshrecon::RequestCancel();
+            meshrecon::Report r3;
+            std::string err3;
+            TopoDS_Shape out3 = meshrecon::Reconstruct(
+                xyz.data(), (int)(xyz.size() / 3), tri.data(), nTri, p, r3, err3);
+            chk((tag + "a stale request cannot poison the next run").c_str(),
+                !out3.IsNull() && err3 != meshrecon::kCancelledMessage,
+                "err was \"" + err3 + "\"");
+        }
+    }
+
     /* ---- M333: a smooth body has no primitives, and must still convert ----
      *
      * The converter used to ask "did anything fit a plane, cylinder, cone,

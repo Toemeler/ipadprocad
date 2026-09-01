@@ -30,6 +30,7 @@ import 'package:flutter/services.dart';
 import 'package:native_menu/native_busy.dart';
 import 'package:native_menu/native_menu.dart';
 import 'package:prototype/mesh_io.dart';
+import 'package:prototype/part_model.dart' show MeshImportOutcome;
 
 /// A unit cube as 12 triangles, corner at the origin, side [s].
 List<List<double>> _cubeTris(double s) {
@@ -261,6 +262,14 @@ int? _detailCountFor(void Function() f) {
     return e.count;
   }
 }
+
+/// The repository root, from the directory `flutter test` runs in.
+///
+/// A test that reads a C header has to find it, and Dart's cwd for a test is
+/// the package (frontend/), not the checkout.
+String _repoRoot() => Directory.current.path.endsWith('frontend')
+    ? Directory.current.parent.path
+    : Directory.current.path;
 
 void main() {
   group('STL', () {
@@ -762,20 +771,90 @@ void main() {
     });
   });
 
+  // M335 — the two things that make a long import bearable: a way out, and a
+  // bar that means something. What is testable on this side is the contract
+  // with the kernel and the card; the bar's own arithmetic is C++ and is
+  // tested there.
+  group('cancelling an import', () {
+    test('the word the kernel uses is the word this side matches', () {
+      // occt_capi.h spells it OCCT_MESH_CANCELLED and mesh_recon.cpp spells it
+      // kCancelledMessage. If they ever drift, a cancellation starts being
+      // reported to the user as a conversion failure — a real message, with a
+      // real explanation, for something they did on purpose.
+      expect(kMeshCancelled, 'cancelled');
+      final header = File('${_repoRoot()}/backend/occt/shim/occt_capi.h')
+          .readAsStringSync();
+      expect(header, contains('#define OCCT_MESH_CANCELLED "$kMeshCancelled"'),
+          reason: 'the C header and mesh_io.dart disagree about the word');
+    });
+
+    test('a cancelled conversion is not reported as a failure', () {
+      // The outcome carries the kernel's word; app_state branches on it.
+      const res = MeshImportOutcome(
+          null, MeshToBrepReport.empty(), kMeshCancelled);
+      expect(res.solid, isNull);
+      expect(res.error, kMeshCancelled);
+    });
+  });
+
+  group('the stage names the card is given', () {
+    test('there is one for every stage the kernel can report', () {
+      // The card indexes this list by the kernel's stage NUMBER, so a short
+      // list is a blank line under the bar on some models and not others.
+      final names = MeshStage.names(
+        reading: 'a', finding: 'b', fitting: 'c', shaping: 'd',
+        building: 'e', finishing: 'f', simplifying: 'g',
+      );
+      expect(names, hasLength(MeshStage.values.length));
+      expect(names.first, isEmpty, reason: 'idle is never shown');
+      for (var i = 1; i < names.length; i++) {
+        expect(names[i], isNotEmpty, reason: 'stage $i has no name');
+      }
+    });
+
+    test('the 1:1 path names its build step the same as the fitted one', () {
+      // Two different stage numbers, one thing happening as far as anyone
+      // waiting is concerned.
+      final names = MeshStage.names(
+        reading: 'a', finding: 'b', fitting: 'c', shaping: 'd',
+        building: 'BUILD', finishing: 'f', simplifying: 'g',
+      );
+      expect(names[MeshStage.building.index], 'BUILD');
+      expect(names[MeshStage.buildingFaceted.index], 'BUILD');
+    });
+  });
+
   group('the busy card reports whether its progress is real', () {
     const ch = MethodChannel('prototype/native_menu');
     Object? reply;
 
+    final calls = <MethodCall>[];
     setUp(() {
       reply = null;
+      calls.clear();
       NativeBusy.resetForTest();
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-          .setMockMethodCallHandler(ch, (MethodCall c) async => reply);
+          .setMockMethodCallHandler(ch, (MethodCall c) async {
+        calls.add(c);
+        return reply;
+      });
     });
     tearDown(() {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(ch, null);
       NativeBusy.resetForTest();
+    });
+
+    test('a Cancel title and the stage names reach the card', () async {
+      reply = true;
+      await NativeBusy.show('t', 'd',
+          stages: const ['', 'one', 'two'],
+          cancelTitle: 'Cancel',
+          cancellingTitle: 'Cancelling…');
+      final m = calls.single.arguments as Map;
+      expect(m['stages'], ['', 'one', 'two']);
+      expect(m['cancelTitle'], 'Cancel');
+      expect(m['cancellingTitle'], 'Cancelling…');
     });
 
     test('true when the binary has occt_mesh_progress in it', () async {

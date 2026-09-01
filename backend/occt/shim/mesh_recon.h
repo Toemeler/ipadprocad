@@ -102,6 +102,47 @@ void Progress(int &stage, int &done, int &total);
  * null; returns "" for kStageIdle. */
 const char *StageName(int stage);
 
+/* Where the bar is over the WHOLE conversion, in thousandths (0..1000).
+ *
+ * M335. One bar, not one per stage: a bar that empties and refills four times
+ * cannot be read. Each stage owns a span of this, and the spans were measured
+ * across four models spanning 1,138 to 83,178 triangles — see SpanOf. It never
+ * goes backwards and never reaches 1000 before the conversion returns.
+ *
+ * Safe from any thread at any time; 0 when nothing is running. */
+int Overall();
+
+/* The furthest the CURRENT stage could take the bar — the top of its span.
+ *
+ * A stage that can count itself makes Overall() exact and this is only a
+ * bound. A stage that cannot (merging coplanar faces is a third of a 1:1
+ * conversion and OCCT offers no way in) leaves Overall() at the bottom of its
+ * span, and whoever draws the bar should ease it towards this on elapsed time
+ * without passing it — so the estimate lives in the drawing, where being wrong
+ * costs a bar that moves at the wrong speed, and not in the measurement, where
+ * it would be a lie about the work. 0 when nothing is running. */
+int Ceiling();
+
+/* Asks the running conversion to stop.
+ *
+ * Safe from any thread, including while nothing is running. The conversion
+ * abandons its work at the next point where doing so is cheap and safe —
+ * between patches, between regions, and inside OCCT's sewing, which is the
+ * longest single call and cannot be interrupted any other way — and returns a
+ * null shape with `err` set, exactly as a refusal does. Nothing is left half
+ * built, and the request is consumed by the run it stops, so it can never
+ * cancel the next one. */
+void RequestCancel();
+
+/* The exact `err` a cancelled conversion reports, so a caller can tell a
+ * cancellation from a failure: one deserves a message and the other does not. */
+extern const char *const kCancelledMessage;
+
+/* Whether a cancellation is still pending. Only a test has any use for this:
+ * the request is consumed by the run it stops, and this is how that is
+ * checked rather than assumed. */
+bool Cancelled_ForTest();
+
 /* ---- tessellating a reconstructed body so it has no holes ---------------
  *
  * M333. BRepMesh gives up on some trimmed B-splines and says nothing: no

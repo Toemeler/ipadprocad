@@ -983,7 +983,7 @@ class AppL10nEn extends AppL10n {
   }
 
   @override
-  String get askMeshImportTitle => 'How should this mesh be imported?';
+  String get askMeshImportTitle => 'How should this model be imported?';
 
   @override
   String askMeshImportBody(int count, String size) {
@@ -1001,18 +1001,18 @@ class AppL10nEn extends AppL10n {
   }
 
   @override
-  String get askMeshImportConvert => 'Convert to CAD surfaces';
+  String get askMeshImportConvert => 'As a CAD body';
 
   @override
   String get askMeshImportConvertWhy =>
-      'Recognises planes, cylinders, cones, spheres, tori and freeform surfaces. Takes seconds to minutes, and the result can be filleted, dimensioned and edited.';
+      'Surfaces you can fillet, dimension and edit. Takes a moment.';
 
   @override
-  String get askMeshImportFaceted => 'Keep the triangles 1:1';
+  String get askMeshImportFaceted => 'As a mesh';
 
   @override
   String get askMeshImportFacetedWhy =>
-      'Every triangle becomes a face. Exactly like the file, but CAD operations on it are barely possible.';
+      'Exactly like the file, unconverted. Barely editable.';
 
   @override
   String askMeshImportTooManyFaceted(int limit) {
@@ -1020,8 +1020,35 @@ class AppL10nEn extends AppL10n {
         intl.NumberFormat.decimalPattern(localeName);
     final String limitString = limitNumberFormat.format(limit);
 
-    return 'That is too many triangles to keep 1:1 (limit $limitString) — each one would become its own face.';
+    return 'Too many triangles for “As a mesh” (limit $limitString).';
   }
+
+  @override
+  String get meshStageReading => 'Reading the model';
+
+  @override
+  String get meshStageFinding => 'Finding surfaces';
+
+  @override
+  String get meshStageFitting => 'Fitting surfaces';
+
+  @override
+  String get meshStageShaping => 'Shaping curves';
+
+  @override
+  String get meshStageBuilding => 'Building faces';
+
+  @override
+  String get meshStageFinishing => 'Finishing';
+
+  @override
+  String get meshStageSimplifying => 'Simplifying';
+
+  @override
+  String get actionCancelling => 'Cancelling…';
+
+  @override
+  String get msgMeshImportCancelled => 'Import cancelled.';
 
   @override
   String get msgMeshNoGeometry => 'That file contains no usable geometry.';

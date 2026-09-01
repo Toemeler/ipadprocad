@@ -17,35 +17,36 @@
 //
 // WHERE THE NUMBERS COME FROM
 // ---------------------------
-// occt_mesh_progress(), a three-int snapshot of the running conversion:
-// which stage, how far into it, and out of how much. See occt_capi.h. Nothing
-// here estimates, weights or extrapolates anything:
+// occt_mesh_overall(), two ints describing one bar over the WHOLE conversion.
+// See occt_capi.h. `permille` is where the work has actually got to and never
+// goes backwards; `ceiling` is the furthest the current stage could take it.
 //
-//   * total > 0  — a real count of real work units (triangles resolved into
-//                  surfaces, faces built). The bar fills to done/total and the
-//                  label says so.
-//   * total == 0 — the stage is one opaque call the kernel gives no windows
-//                  into (sewing a shell, merging coplanar faces). The bar
-//                  SWEEPS. A sweep is the honest picture of "working, position
-//                  unknown"; a bar creeping forward on a guessed rate is a lie
-//                  that gets caught by the first model that does not match it.
-//   * total > 0 but nothing finished yet — also a SWEEP, until the first unit
-//                  lands. Every stage begins with setup that retires nothing:
-//                  measured on the whale, the freeform stage knows its total
-//                  1.2 s before it covers its first triangle. A determinate
-//                  bar pinned at 0% for over a second is indistinguishable
-//                  from a hang, and a sweep says the same true thing without
-//                  looking stuck.
+//   * they move together — the stage counts itself (triangles resolved into
+//     surfaces, faces built, OCCT's own progress through the sewing), and the
+//     bar is simply the truth.
+//   * ceiling is ahead — the stage is one opaque call OCCT gives no way into,
+//     and merging coplanar faces is a THIRD of a 1:1 conversion. The bar eases
+//     towards the ceiling on elapsed time and never reaches it, so the guess
+//     lives here, in the drawing, where being wrong costs a bar that moves at
+//     the wrong speed. In the numbers it would be a lie about the work.
 //
-// Deliberately NOT one bar across the whole conversion. That would need a
-// weight per stage, and those weights depend on the model: on a whale the
-// fitting is three quarters of the time and on a prismatic bracket it is a
-// tenth. Per-stage is what is actually known.
+// One bar and not one per stage. A bar that empties and refills four times
+// cannot be read: nobody can tell the fourth 20% from the first. The stage
+// spans behind `permille` were measured across four models spanning 1,138 to
+// 83,178 triangles — see SpanOf in mesh_recon.cpp.
 //
-// The symbol is resolved with dlsym rather than linked. A build of this plugin
-// that is not sitting next to the kernel then still shows an honest sweeping
-// card instead of failing to link, and the "is there a converter here?"
-// question is answered once at runtime instead of at every call site.
+// CANCELLING
+// ----------
+// The conversion blocks the Dart isolate, so without a button here the user's
+// only control over a long import is to force quit. The button calls
+// occt_mesh_cancel(), which the converter answers within 5 ms while fitting
+// and 127 ms while building — the one exception being OCCT's coplanar-face
+// merge, which cannot be interrupted at all, so the card says "Cancelling…"
+// and means it rather than pretending the tap did nothing.
+//
+// The symbols are resolved with dlsym rather than linked. A build of this
+// plugin that is not sitting next to the kernel then still shows an honest
+// sweeping card with no Cancel button, instead of failing to link.
 import Darwin   // dlsym
 import Flutter
 import UIKit
@@ -66,7 +67,6 @@ final class BusyOverlay {
 
     /// What the last poll said, so the card only relayouts when it changed.
     private var lastStage = -1
-    private var lastFrac = -1.0
     private var sweeping = true
 
     /// The last percentage put on screen, so the label is only rewritten when
@@ -74,13 +74,33 @@ final class BusyOverlay {
     /// a minute that is a few hundred string builds instead of a thousand.
     private var lastShownPercent = -1
 
+    /// Where the bar is drawn, which is at or ahead of what the converter has
+    /// actually finished — see the note on `ceiling` above. Only ever rises.
+    private var shown = 0.0
+
+    /// When the current stage began, for easing across an opaque one.
+    private var stageStarted: CFTimeInterval = 0
+
+    private var cancelButton: UIButton?
+    private var cancelling = false
+    private var cancelTitle = ""
+    private var cancellingTitle = ""
+
+    /// Stage names in the user's language, indexed by stage number; empty when
+    /// the caller sent none, in which case the kernel's own English is used.
+    private var stageNames: [String] = []
+
     private init() {}
 
     /// Whether this binary actually has the converter's progress counters in
     /// it. Reported back through busyShow so it lands in the milestone log and
     /// therefore in a bug report: "the bar swept the whole way" then has an
     /// answer in the bundle instead of needing a device to reproduce on.
-    var hasRealProgress: Bool { BusyOverlay.progressFn != nil }
+    var hasRealProgress: Bool { BusyOverlay.overallFn != nil }
+
+    /// Whether this binary can be asked to stop. Without it there is no
+    /// Cancel button, because a button that does nothing is worse than none.
+    var canCancel: Bool { BusyOverlay.cancelFn != nil }
 
     // MARK: - The kernel's progress counters
 
@@ -90,6 +110,10 @@ final class BusyOverlay {
                         UnsafeMutablePointer<Int32>?) -> Void
     private typealias StageNameFn =
         @convention(c) (Int32) -> UnsafePointer<CChar>?
+    private typealias OverallFn =
+        @convention(c) (UnsafeMutablePointer<Int32>?,
+                        UnsafeMutablePointer<Int32>?) -> Void
+    private typealias CancelFn = @convention(c) () -> Void
 
     /// RTLD_DEFAULT. A C macro — `((void *) -2)` — so it does not come across
     /// into Swift and has to be spelled out. It searches the main executable
@@ -114,6 +138,23 @@ final class BusyOverlay {
         }
         return unsafeBitCast(sym, to: StageNameFn.self)
     }()
+    private static let overallFn: OverallFn? = {
+        guard let sym = dlsym(rtldDefault, "occt_mesh_overall") else { return nil }
+        return unsafeBitCast(sym, to: OverallFn.self)
+    }()
+    private static let cancelFn: CancelFn? = {
+        guard let sym = dlsym(rtldDefault, "occt_mesh_cancel") else { return nil }
+        return unsafeBitCast(sym, to: CancelFn.self)
+    }()
+
+    /// The whole-conversion bar: where it is, and how far this stage could
+    /// take it. Nil when this binary has no converter in it.
+    private static func overall() -> (at: Double, ceiling: Double)? {
+        guard let fn = overallFn else { return nil }
+        var p: Int32 = 0, c: Int32 = 0
+        fn(&p, &c)
+        return (Double(p) / 1000.0, Double(c) / 1000.0)
+    }
 
     /// One snapshot, or nil when there is no converter in this binary.
     private static func poll() -> (stage: Int, done: Int, total: Int)? {
@@ -131,8 +172,12 @@ final class BusyOverlay {
     // MARK: - Presentation
 
     /// Puts the card up. Safe to call twice — the second call re-labels.
-    func show(title: String, detail: String) {
+    func show(title: String, detail: String, stages: [String] = [],
+              cancelTitle: String = "", cancellingTitle: String = "") {
         assert(Thread.isMainThread)
+        stageNames = stages
+        self.cancelTitle = cancelTitle
+        self.cancellingTitle = cancellingTitle
         if let t = titleLabel, let d = detailLabel, host != nil {
             t.text = title
             d.text = detail
@@ -211,7 +256,27 @@ final class BusyOverlay {
         footer.alignment = .firstBaseline
         footer.translatesAutoresizingMaskIntoConstraints = false
 
-        let stack = UIStackView(arrangedSubviews: [title1, detail1, track1, footer])
+        /* The way out. Only built when the kernel in this binary can actually
+         * be asked to stop — a Cancel that does nothing is worse than none. */
+        var rows: [UIView] = [title1, detail1, track1, footer]
+        var button: UIButton?
+        if canCancel && !cancelTitle.isEmpty {
+            let b = UIButton(type: .system)
+            b.setTitle(cancelTitle, for: .normal)
+            b.titleLabel?.font = .preferredFont(forTextStyle: .body)
+            b.addTarget(self, action: #selector(cancelTapped), for: .touchUpInside)
+            b.translatesAutoresizingMaskIntoConstraints = false
+            b.heightAnchor.constraint(equalToConstant: 34).isActive = true
+            let rule = UIView()
+            rule.backgroundColor = UIColor.label.withAlphaComponent(0.12)
+            rule.translatesAutoresizingMaskIntoConstraints = false
+            rule.heightAnchor.constraint(equalToConstant: 1).isActive = true
+            rows.append(rule)
+            rows.append(b)
+            button = b
+        }
+
+        let stack = UIStackView(arrangedSubviews: rows)
         stack.axis = .vertical
         stack.spacing = 8
         stack.setCustomSpacing(16, after: detail1)
@@ -245,10 +310,13 @@ final class BusyOverlay {
         elapsedLabel = elapsed
         track = track1
         bar = bar1
+        cancelButton = button
         started = CACurrentMediaTime()
+        stageStarted = started
         lastStage = -1
-        lastFrac = -1
         lastShownPercent = -1
+        shown = 0
+        cancelling = false
         sweeping = false
         beginSweep() // until the first poll says otherwise
 
@@ -282,6 +350,9 @@ final class BusyOverlay {
     }
 
     /// Determinate: the bar is the fraction, filled from the left.
+    ///
+    /// Monotonicity is the caller's business — `shown` in tick() only rises —
+    /// so this draws exactly what it is given.
     private func setFraction(_ f: Double) {
         guard let t = track, let b = bar else { return }
         if sweeping {
@@ -289,33 +360,54 @@ final class BusyOverlay {
             b.layer.removeAnimation(forKey: "sweep")
         }
         let w = max(t.bounds.width, 1)
-        let clamped = min(max(f, 0), 1)
-        // Never let it go backwards WITHIN a stage. The counters do not, but a
-        // stage change resets them, and a bar that jumps back reads as work
-        // being undone. lastFrac is reset by the caller when the stage changes.
-        let shown = max(clamped, lastFrac < 0 ? 0 : lastFrac)
-        lastFrac = shown
+        let v = min(max(f, 0), 1)
         // A short animation rather than a jump: the ticks arrive in bursts (a
         // whole surface's triangles retire at once) and an instant step of ten
         // per cent looks like a glitch where a 120 ms slide looks like work.
         UIView.animate(withDuration: 0.12, delay: 0,
                        options: [.curveEaseOut, .beginFromCurrentState]) {
-            b.frame = CGRect(x: 0, y: 0, width: w * CGFloat(shown), height: 6)
+            b.frame = CGRect(x: 0, y: 0, width: w * CGFloat(v), height: 6)
         }
     }
 
-    @objc private func tick() {
-        let seconds = CACurrentMediaTime() - started
-        elapsedLabel?.text = String(format: "%.1f s", seconds)
+    @objc private func cancelTapped() {
+        guard !cancelling, let fn = BusyOverlay.cancelFn else { return }
+        cancelling = true
+        fn()
+        /* The button stays on screen and stops responding, relabelled. The
+         * converter answers within milliseconds almost everywhere, but OCCT's
+         * coplanar-face merge cannot be interrupted at all, and up to four
+         * seconds of "nothing happened" after a tap is what makes an app feel
+         * broken. Saying "Cancelling…" is the difference between waiting and
+         * wondering. */
+        cancelButton?.isEnabled = false
+        if !cancellingTitle.isEmpty {
+            cancelButton?.setTitle(cancellingTitle, for: .normal)
+        }
+    }
 
-        guard let p = BusyOverlay.poll() else { return } // no converter here
-        // Stage 0 is idle: either the call has not started yet or it has
-        // finished and the card is about to come down. Keep sweeping rather
-        // than snapping the bar to empty.
+    /// The stage's name in the user's language, or the kernel's English when
+    /// the caller sent no catalogue.
+    private func nameOf(_ stage: Int) -> String {
+        if stage >= 0 && stage < stageNames.count && !stageNames[stage].isEmpty {
+            return stageNames[stage]
+        }
+        return BusyOverlay.stageName(stage)
+    }
+
+    @objc private func tick() {
+        let now = CACurrentMediaTime()
+        elapsedLabel?.text = String(format: "%.1f s", now - started)
+
+        guard let p = BusyOverlay.poll(), let o = BusyOverlay.overall() else {
+            return // no converter in this binary: the sweep stands
+        }
+
+        // Idle: the call has not started yet, or it has finished and the card
+        // is about to come down. Keep sweeping rather than snapping to empty.
         if p.stage <= 0 {
             if lastStage != 0 {
                 lastStage = 0
-                lastFrac = -1
                 lastShownPercent = -1
                 stageLabel?.text = ""
                 sweeping = false
@@ -325,30 +417,38 @@ final class BusyOverlay {
         }
         if p.stage != lastStage {
             lastStage = p.stage
-            lastFrac = -1
-            lastShownPercent = -1
-            stageLabel?.text = BusyOverlay.stageName(p.stage)
-            // Every stage starts as a sweep. It becomes a bar below, the
-            // moment there is something real to draw with.
-            sweeping = false
-            beginSweep()
+            stageStarted = now
+            stageLabel?.text = nameOf(p.stage)
         }
-        // `lastFrac >= 0` means this stage already went determinate, so it
-        // stays that way: a counter that pauses must not throw the bar away
-        // and start sweeping again from wherever it had got to.
-        guard p.total > 0, p.done > 0 || lastFrac >= 0 else {
-            if !sweeping { beginSweep() }
-            return
+
+        // Where the work has really got to — and, for a stage that cannot
+        // count itself, an eased guess at where it is inside that stage.
+        //
+        // `total == 0` is the test, NOT `ceiling > at`: a counted stage also
+        // has room left in its span until it finishes, and easing there put
+        // the bar ahead of work that was reporting itself perfectly well.
+        // Measured on the 1:1 path, where the first 45% is counted per
+        // triangle: the bar sat a fifth of the model ahead of the truth for
+        // five seconds.
+        //
+        // 2.5 s is the time constant, near the measured length of the two
+        // stages this applies to on a large model (1.7 s sewing, 4.5 s
+        // merging). Being wrong costs a bar that approaches the top of the
+        // stage too fast or too slowly, never one that arrives before the work.
+        var want = o.at
+        if p.total <= 0 && o.ceiling > o.at {
+            let t = now - stageStarted
+            want = o.at + (o.ceiling - o.at) * (1.0 - exp(-t / 2.5))
         }
-        setFraction(Double(p.done) / Double(p.total))
-        // A PERCENTAGE, not the raw counts: the unit changes from stage to
-        // stage — triangles resolved here, faces built there — and a bare
-        // "69 / 110" under "Building the faces" invites reading it as
-        // something it is not. A percentage of a stage is unambiguous.
-        let pct = Int((lastFrac * 100).rounded())
+        // Only ever forward. The converter's own number never retreats, and
+        // the eased part must not either when a stage finally reports.
+        if want > shown { shown = min(want, 0.999) }
+        setFraction(shown)
+
+        let pct = Int((shown * 100).rounded())
         if pct != lastShownPercent {
             lastShownPercent = pct
-            stageLabel?.text = "\(BusyOverlay.stageName(p.stage))  \(pct)%"
+            stageLabel?.text = "\(nameOf(p.stage))  \(pct)%"
         }
     }
 
@@ -356,6 +456,21 @@ final class BusyOverlay {
         assert(Thread.isMainThread)
         ticker?.invalidate()
         ticker = nil
+        // Finish the bar before taking it away.
+        //
+        // The work is done by the time this is called, so whatever the bar was
+        // showing is now behind. A card that vanishes at 84% leaves the last
+        // impression of the import being that it did not finish — and the two
+        // stages OCCT gives no way into are exactly the ones that end early.
+        // Filling it costs the length of one fade.
+        if host != nil && !sweeping {
+            shown = 1.0
+            setFraction(1.0)
+            stageLabel?.text = lastStage > 0 ? nameOf(lastStage) : ""
+        }
+        cancelButton = nil
+        cancelling = false
+        stageNames = []
         guard let dim = host else { return }
         host = nil
         card = nil
@@ -366,10 +481,11 @@ final class BusyOverlay {
         track = nil
         bar = nil
         lastStage = -1
-        lastFrac = -1
         lastShownPercent = -1
+        shown = 0
         sweeping = false
-        UIView.animate(withDuration: 0.18, animations: { dim.alpha = 0 }) { _ in
+        UIView.animate(withDuration: 0.18, delay: 0.10, options: [],
+                       animations: { dim.alpha = 0 }) { _ in
             dim.removeFromSuperview()
         }
     }

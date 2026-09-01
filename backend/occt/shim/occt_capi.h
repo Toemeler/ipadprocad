@@ -866,6 +866,35 @@ void occt_mesh_progress(int *stage, int *done, int *total);
  * own. Never NULL; "" for OCCT_MS_IDLE. The storage is static. */
 const char *occt_mesh_stage_name(int stage);
 
+/* ---- one bar for the whole conversion, and a way out of it -------------
+ *
+ * M335. `permille` is where the bar is over the WHOLE conversion, 0..1000,
+ * and it never goes backwards. `ceiling` is the furthest the current stage
+ * could take it: for a stage that can count itself the two move together, and
+ * for one that cannot — merging coplanar faces is a third of a 1:1 conversion
+ * and OCCT offers no way in — `permille` sits at the bottom of the stage's
+ * span and `ceiling` is the top. Ease between them on elapsed time, and never
+ * past the ceiling: the estimate then lives in the drawing, where being wrong
+ * costs a bar that moves at the wrong speed, instead of in the measurement,
+ * where it would be a lie about the work. Both are 0 when nothing is running.
+ * Either out-pointer may be NULL. */
+void occt_mesh_overall(int *permille, int *ceiling);
+
+/* Asks a running conversion to stop. Safe from any thread, and when none is
+ * running. The conversion abandons its work at the next point where that is
+ * cheap and safe and returns no shape, with the error text
+ * OCCT_MESH_CANCELLED, so a caller can tell a cancellation from a failure.
+ *
+ * How soon, measured on an 83k-triangle model: within 5 ms while fitting
+ * surfaces, 127 ms while building a 1:1 body — and up to four seconds if it
+ * lands inside ShapeUpgrade_UnifySameDomain, which OCCT gives no way to
+ * interrupt. The request is consumed by the run it stops and can never cancel
+ * the next one. */
+void occt_mesh_cancel(void);
+
+/* The exact error text a cancelled conversion reports. */
+#define OCCT_MESH_CANCELLED "cancelled"
+
 #define OCCT_MS_IDLE        0
 #define OCCT_MS_WELDING     1
 #define OCCT_MS_SEGMENTING  2

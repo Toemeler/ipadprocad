@@ -18,6 +18,46 @@ export 'glass_toolbar.dart';
 export 'native_touches.dart';
 import 'package:flutter/services.dart';
 
+/// The converter's steps, in the order they run, numbered as the kernel
+/// numbers them (OCCT_MS_* in occt_capi.h).
+///
+/// The busy card is UIKit and has no localisations of its own, so the app
+/// hands it a name per stage — [NativeBusy.show]'s `stages`, indexed by these
+/// values. The kernel's own English is the fallback.
+enum MeshStage {
+  idle,
+  reading,
+  finding,
+  fitting,
+  shaping,
+  building,
+  finishing,
+  buildingFaceted,
+  simplifying;
+
+  /// The list [NativeBusy.show] wants: one name per stage, in order.
+  static List<String> names({
+    required String reading,
+    required String finding,
+    required String fitting,
+    required String shaping,
+    required String building,
+    required String finishing,
+    required String simplifying,
+  }) =>
+      [
+        '', // idle is never shown
+        reading,
+        finding,
+        fitting,
+        shaping,
+        building,
+        finishing,
+        building, // the 1:1 path builds faces too, and says so the same way
+        simplifying,
+      ];
+}
+
 /// What to do with a mesh file at import: reconstruct it, or keep it.
 ///
 /// The ids are the wire values the platform channel carries, and they are also

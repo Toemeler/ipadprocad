@@ -1828,7 +1828,7 @@ abstract class AppL10n {
   /// Titel des nativen Dialogs beim Import einer STL/OBJ/3MF-Datei.
   ///
   /// In de, this message translates to:
-  /// **'Wie soll dieses Netz importiert werden?'**
+  /// **'Wie soll dieses Modell importiert werden?'**
   String get askMeshImportTitle;
 
   /// Was in der Datei steckt, damit die Wahl auf Zahlen und nicht auf Vermutungen beruht. {size} ist die Diagonale.
@@ -1840,32 +1840,86 @@ abstract class AppL10n {
   /// Die erste Wahl im Import-Dialog: Rueckfuehrung in echte Flaechen.
   ///
   /// In de, this message translates to:
-  /// **'In CAD-Flächen umwandeln'**
+  /// **'Als CAD-Körper'**
   String get askMeshImportConvert;
 
   /// Was die Umwandlung kann und was sie kostet.
   ///
   /// In de, this message translates to:
-  /// **'Erkennt Ebenen, Zylinder, Kegel, Kugeln, Tori und Freiformflächen. Dauert Sekunden bis Minuten, dafür lässt sich das Ergebnis danach verrunden, bemaßen und weiterbearbeiten.'**
+  /// **'Flächen zum Verrunden, Bemaßen und Bearbeiten. Dauert einen Moment.'**
   String get askMeshImportConvertWhy;
 
   /// Die zweite Wahl im Import-Dialog: das Netz unveraendert als Koerper.
   ///
   /// In de, this message translates to:
-  /// **'Dreiecke 1:1 übernehmen'**
+  /// **'Als Netz'**
   String get askMeshImportFaceted;
 
   /// Was der 1:1-Weg kann und was er nicht kann.
   ///
   /// In de, this message translates to:
-  /// **'Jedes Dreieck wird eine Fläche. Exakt wie die Datei, aber CAD-Operationen darauf sind kaum möglich.'**
+  /// **'Genau wie die Datei, ohne Umwandlung. Kaum bearbeitbar.'**
   String get askMeshImportFacetedWhy;
 
   /// Statt der zweiten Wahl, wenn das Netz ueber kMaxFacetedTriangles liegt. Die Wahl wird gar nicht erst angeboten, weil der Kern sie danach ablehnen wuerde.
   ///
   /// In de, this message translates to:
-  /// **'Für den 1:1-Weg sind das zu viele Dreiecke (Grenze {limit}) — jedes würde eine eigene Fläche.'**
+  /// **'Für „Als Netz“ sind das zu viele Dreiecke (Grenze {limit}).'**
   String askMeshImportTooManyFaceted(int limit);
+
+  /// Fortschrittskarte, Schritt 1 (OCCT_MS_WELDING).
+  ///
+  /// In de, this message translates to:
+  /// **'Modell wird gelesen'**
+  String get meshStageReading;
+
+  /// Schritt 2 (OCCT_MS_SEGMENTING).
+  ///
+  /// In de, this message translates to:
+  /// **'Flächen werden gesucht'**
+  String get meshStageFinding;
+
+  /// Schritt 3 (OCCT_MS_FITTING). Der laengste Schritt.
+  ///
+  /// In de, this message translates to:
+  /// **'Flächen werden angepasst'**
+  String get meshStageFitting;
+
+  /// Schritt 4 (OCCT_MS_FREEFORM).
+  ///
+  /// In de, this message translates to:
+  /// **'Rundungen werden geformt'**
+  String get meshStageShaping;
+
+  /// Schritt 5 und 7 (OCCT_MS_BUILDING, OCCT_MS_FACETED).
+  ///
+  /// In de, this message translates to:
+  /// **'Flächen werden gebaut'**
+  String get meshStageBuilding;
+
+  /// Schritt 6 (OCCT_MS_SEWING). Nicht „vernaeht“ — das ist der Algorithmus, nicht die Sache.
+  ///
+  /// In de, this message translates to:
+  /// **'Wird fertiggestellt'**
+  String get meshStageFinishing;
+
+  /// Schritt 8 (OCCT_MS_MERGING).
+  ///
+  /// In de, this message translates to:
+  /// **'Wird vereinfacht'**
+  String get meshStageSimplifying;
+
+  /// Der Abbrechen-Knopf, nachdem er gedrueckt wurde. Bis zu vier Sekunden lang, weil OCCTs Flaechen-Zusammenfassung sich nicht unterbrechen laesst.
+  ///
+  /// In de, this message translates to:
+  /// **'Wird abgebrochen …'**
+  String get actionCancelling;
+
+  /// Nach einem Abbruch. Kein Fehler — deshalb ohne Fehlerton und ohne Details.
+  ///
+  /// In de, this message translates to:
+  /// **'Import abgebrochen.'**
+  String get msgMeshImportCancelled;
 
   /// Formal in Ordnung, aber ohne Dreiecke: ein STL nur aus entarteten Facetten, ein OBJ ohne f-Zeilen.
   ///

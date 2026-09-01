@@ -55,6 +55,9 @@
 #include <BRepBndLib.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
+#include <Message_ProgressIndicator.hxx>
+#include <Message_ProgressScope.hxx>
+#include <Message_ProgressRange.hxx>
 #include <BRepBuilderAPI_Sewing.hxx>
 #include <BRepCheck_Analyzer.hxx>
 #include <BRepGProp.hxx>
@@ -129,16 +132,135 @@ std::atomic<int> g_stage(kStageIdle);
 std::atomic<int> g_done(0);
 std::atomic<int> g_total(0);
 
+/* ---- one bar, not five ---------------------------------------------------
+ *
+ * A bar per stage means a bar that empties and refills four times, and a user
+ * watching it cannot tell the fourth 20% from the first. So the stages own
+ * SPANS of a single 0..1, and the bar only ever moves forward.
+ *
+ * The spans are measured, not guessed. Per-stage share of the total, over four
+ * models spanning 1,138 to 83,178 triangles (whale / broomholder / TOKA /
+ * a tessellated ellipsoid):
+ *
+ *   fitting surfaces  49.1  62.8  69.2  80.2 %      building faces   2.1 - 12.7 %
+ *   covering freeform  0.0   3.9  11.3   0.1 %      sewing          15.2 - 34.1 %
+ *
+ * and the 1:1 path, which is steadier still:
+ *
+ *   building triangles 40.1  42.1  46.3  48.0 %     merging  33.1 - 43.6 %
+ *   sewing             14.8  15.5  17.2  17.3 %
+ *
+ * The spans below are the medians of those, rounded. A model that does not
+ * match them makes the bar move unevenly, which is what an uneven job looks
+ * like; it can never make it go backwards or reach the end early, because a
+ * stage is clamped to its own span. */
+struct Span { double a, b; };
+
+Span SpanOf(int stage)
+{
+    switch (stage) {
+    case kStageWelding:    return {0.000, 0.005};
+    case kStageSegmenting: return {0.005, 0.010};
+    case kStageFitting:    return {0.010, 0.660};
+    case kStageFreeform:   return {0.660, 0.720};
+    case kStageBuilding:   return {0.720, 0.800};
+    case kStageFaceted:    return {0.000, 0.450};
+    case kStageMerging:    return {0.610, 1.000};
+    /* Sewing ends both paths, and starts wherever the path before it ended. */
+    case kStageSewing:     return {0.800, 1.000};
+    default:               return {0.0, 0.0};
+    }
+}
+
+/* Where the bar is, over the whole conversion, as thousandths.
+ *
+ * Thousandths rather than a double so the whole snapshot stays plain ints
+ * across the C ABI, and because no bar on any screen resolves better. */
+std::atomic<int> g_overall(0);
+
+/* How far the CURRENT stage could possibly take it — the top of its span.
+ *
+ * A stage that can count itself publishes a position and this is only a bound.
+ * A stage that cannot — merging coplanar faces is 33-44% of a 1:1 conversion
+ * and OCCT offers no way in — would otherwise freeze the bar for a third of
+ * the job. So this side publishes what it actually knows, which is "somewhere
+ * between here and there", and the side DRAWING the bar eases across that gap
+ * on elapsed time without ever passing it. The estimate then lives in the
+ * presentation, where a wrong one costs a bar that moves at the wrong speed,
+ * rather than in the measurement, where it would be a lie about the work. */
+std::atomic<int> g_ceiling(0);
+
+/* Sewing ends the fitted path and sits in the middle of the 1:1 one, so its
+ * span depends on which is running — and only Reconstruct knows that, so it
+ * says. Fitted: 0.80 to the end. 1:1: 0.45 to 0.61, with the coplanar-face
+ * merge taking the rest, which is what the measurements above show. */
+std::atomic<int> g_sewFrom(800);
+std::atomic<int> g_sewTo(1000);
+
+void PublishOverall()
+{
+    const int st = g_stage.load(std::memory_order_relaxed);
+    if (st <= kStageIdle || st >= kStageCount) {
+        g_overall.store(0, std::memory_order_relaxed);
+        g_ceiling.store(0, std::memory_order_relaxed);
+        return;
+    }
+    Span sp = SpanOf(st);
+    if (st == kStageSewing) {
+        sp.a = g_sewFrom.load(std::memory_order_relaxed) / 1000.0;
+        sp.b = g_sewTo.load(std::memory_order_relaxed) / 1000.0;
+    }
+    const int tot = g_total.load(std::memory_order_relaxed);
+    const int dn = g_done.load(std::memory_order_relaxed);
+    double f = 0;
+    if (tot > 0)
+        f = std::min(1.0, std::max(0.0, double(dn) / double(tot)));
+    g_ceiling.store(int(sp.b * 1000.0 + 0.5), std::memory_order_relaxed);
+    const int want = int((sp.a + (sp.b - sp.a) * f) * 1000.0 + 0.5);
+    /* Never backwards. A stage that publishes a total larger than it turns out
+     * to need would otherwise pull the bar back when the next stage starts
+     * lower, and a bar that retreats reads as work being undone. */
+    int cur = g_overall.load(std::memory_order_relaxed);
+    if (want > cur)
+        g_overall.store(want, std::memory_order_relaxed);
+}
+
+/* ---- cancelling ----------------------------------------------------------
+ *
+ * The conversion blocks its caller for as long as it runs, so "wait or force
+ * quit" is the whole of the user's control over it without this. The flag is
+ * set from the thread drawing the card and read by the converting thread at
+ * every point where abandoning the work is cheap and safe: between patches,
+ * between regions, and — through OCCT's own Message_ProgressIndicator — inside
+ * the sewing, which is the single longest call and cannot be interrupted any
+ * other way.
+ *
+ * Nothing is half-written when it fires: Reconstruct returns a null shape and
+ * the caller sees a cancellation, exactly as it sees a refusal. */
+std::atomic<bool> g_cancel(false);
+
+/* The exact words a cancelled run reports. The app matches on them to tell a
+ * cancellation from a failure — one deserves a message and the other does not
+ * — so they are a constant and not a literal typed twice. */
+extern const char *const kCancelledMessage = "cancelled";
+
+bool Cancelled()
+{
+    return g_cancel.load(std::memory_order_relaxed);
+}
+
 void SetStage(int stage, int total)
 {
     g_done.store(0, std::memory_order_relaxed);
     g_total.store(total, std::memory_order_relaxed);
     g_stage.store(stage, std::memory_order_relaxed);
+    PublishOverall();
 }
 
 void SetDone(int done)
 {
     g_done.store(done, std::memory_order_relaxed);
+    PublishOverall();
 }
 
 /* Adds to the count. Only the converting thread writes, so this needs no
@@ -146,15 +268,35 @@ void SetDone(int done)
  * say it without keeping a second copy of the value. */
 void AddDone(int delta)
 {
-    if (delta > 0)
+    if (delta > 0) {
         g_done.fetch_add(delta, std::memory_order_relaxed);
+        PublishOverall();
+    }
 }
 
 /* Zeroed on the way out of every exit, so a card that outlives a conversion
  * shows nothing rather than the last thing it saw. */
 struct StageGuard
 {
-    ~StageGuard() { SetStage(kStageIdle, 0); }
+    /* Cleared on the way IN as well as out.
+     *
+     * The flag is set by a person tapping a button, and a tap that lands in
+     * the moment between one conversion finishing and the next one starting
+     * would otherwise cancel a run that had not begun when they asked — they
+     * would see the next import they started die instantly for no reason.
+     * A cancellation belongs to the run that was on screen when it was asked
+     * for, and to no other. */
+    StageGuard() { g_cancel.store(false, std::memory_order_relaxed); }
+
+    ~StageGuard()
+    {
+        SetStage(kStageIdle, 0);
+        g_overall.store(0, std::memory_order_relaxed);
+        g_ceiling.store(0, std::memory_order_relaxed);
+        /* A cancellation is consumed by the run it stopped. Leaving it set
+         * would cancel the NEXT import before it drew a triangle. */
+        g_cancel.store(false, std::memory_order_relaxed);
+    }
 };
 
 void Progress(int &stage, int &done, int &total)
@@ -164,17 +306,45 @@ void Progress(int &stage, int &done, int &total)
     total = g_total.load(std::memory_order_relaxed);
 }
 
+int Overall()
+{
+    return g_overall.load(std::memory_order_relaxed);
+}
+
+int Ceiling()
+{
+    return g_ceiling.load(std::memory_order_relaxed);
+}
+
+void RequestCancel()
+{
+    g_cancel.store(true, std::memory_order_relaxed);
+}
+
+bool Cancelled_ForTest()
+{
+    return g_cancel.load(std::memory_order_relaxed);
+}
+
+/* What to put under the bar.
+ *
+ * These are read by someone waiting for their model, not by whoever wrote the
+ * pipeline: "sewing the solid" and "merging coplanar faces" name the algorithm
+ * and tell that person nothing they can act on. What helps is knowing roughly
+ * where the work is, in the words they would use about their own model. The
+ * app has its own translations keyed off the stage NUMBER; this is the
+ * fallback for a caller that has none. */
 const char *StageName(int stage)
 {
     switch (stage) {
-    case kStageWelding: return "Reading the mesh";
-    case kStageSegmenting: return "Finding the surfaces";
+    case kStageWelding: return "Reading the model";
+    case kStageSegmenting: return "Finding surfaces";
     case kStageFitting: return "Fitting surfaces";
-    case kStageFreeform: return "Covering the freeform parts";
-    case kStageBuilding: return "Building the faces";
-    case kStageSewing: return "Sewing the solid";
-    case kStageFaceted: return "Building the triangles";
-    case kStageMerging: return "Merging flat faces";
+    case kStageFreeform: return "Shaping curved areas";
+    case kStageBuilding: return "Building faces";
+    case kStageSewing: return "Finishing";
+    case kStageFaceted: return "Building faces";
+    case kStageMerging: return "Simplifying";
     default: return "";
     }
 }
@@ -2868,6 +3038,8 @@ void SplitByRansac(const Mesh &m, const std::vector<int> &tris, double tol,
     const int trials = kRansacLadderSteps * kRansacTrialsPerSize;
     std::vector<int> pool;
     for (int round = 0; round < kRansacRounds && remaining >= minTris; ++round) {
+        if (Cancelled())
+            break;
         pool.clear();
         for (int i = 0; i < n; ++i)
             if (!taken[i] && !barred[i])
@@ -2877,6 +3049,8 @@ void SplitByRansac(const Mesh &m, const std::vector<int> &tris, double tol,
         bestRms = 1e300;
         bestStart = -1;
         for (int trial = 0; trial < trials; ++trial) {
+            if ((trial & 31) == 0 && Cancelled())
+                break;
             const int want = kRansacSeedLadder[trial % kRansacLadderSteps];
             /* Draw the seed from what is actually LEFT.
              *
@@ -3261,6 +3435,8 @@ void SplitPatch(const Mesh &m, const std::vector<int> &tris, double tol,
                 double scale, int minTris, int origin, int depth,
                 std::vector<Patch> &out)
 {
+    if (Cancelled())
+        return;
     Retire(out);
     PatchData pd;
     PatchPoints(m, tris, pd, 4000);
@@ -6918,6 +7094,8 @@ void FreeformSurfaces(const Mesh &m, std::vector<Patch> &patches, double tol,
     std::vector<int> label(m.triCount(), -1);
 
     for (int org : origins) {
+        if (Cancelled())
+            return;
         std::vector<int> &tris = loose[org];
         const size_t addWas = add.size();
         if (static_cast<int>(tris.size()) < kFreeformMinRegion) {
@@ -7901,10 +8079,35 @@ TopoDS_Shape AssembleShell(const std::vector<TopoDS_Face> &faces)
     return sh;
 }
 
+/* OCCT's own progress, wired to ours — and its own way of being stopped.
+ *
+ * Sewing is 15-34% of a fitted conversion and 15-17% of a faceted one, it is
+ * one call, and until now it was the longest stretch with nothing to show and
+ * no way out. BRepBuilderAPI_Sewing::Perform takes a Message_ProgressRange, so
+ * both problems have the same answer: hand it an indicator that publishes what
+ * it reports and answers UserBreak from the cancel flag. OCCT then unwinds the
+ * sewing itself, at a point of its own choosing where its data structures are
+ * consistent — which is the only safe way to interrupt it. */
+class ShimProgress : public Message_ProgressIndicator
+{
+public:
+    Standard_Boolean UserBreak() Standard_OVERRIDE { return Cancelled(); }
+
+    void Show(const Message_ProgressScope &, const Standard_Boolean) Standard_OVERRIDE
+    {
+        /* GetPosition is 0..1 over the whole range. A thousand steps is finer
+         * than any bar resolves and keeps the published pair as plain ints. */
+        const double p = GetPosition();
+        SetDone(int(std::min(1.0, std::max(0.0, p)) * 1000.0 + 0.5));
+    }
+};
+
 TopoDS_Shape SewAndSolidify(const std::vector<TopoDS_Face> &faces, double tol,
                             Report &rep)
 {
-    SetStage(kStageSewing, 0);
+    /* 1000, not 0: sewing reports a real fraction of itself now, so this is a
+     * counted stage like the others rather than one the bar has to sweep. */
+    SetStage(kStageSewing, 1000);
     if (faces.empty())
         return TopoDS_Shape();
     TopoDS_Shape sewn;
@@ -7913,7 +8116,10 @@ TopoDS_Shape SewAndSolidify(const std::vector<TopoDS_Face> &faces, double tol,
                                   Standard_True, Standard_False);
         for (const TopoDS_Face &f : faces)
             sew.Add(f);
-        sew.Perform();
+        Handle(ShimProgress) pi = new ShimProgress;
+        sew.Perform(pi->Start());
+        if (Cancelled())
+            return TopoDS_Shape();
         sewn = sew.SewedShape();
     } catch (const Standard_Failure &) {
         sewn = TopoDS_Shape();
@@ -8082,8 +8288,11 @@ TopoDS_Shape FacetedShell(const Mesh &m, int &faceCount)
     TopoDS_Shell shell;
     bb.MakeShell(shell);
     for (int t = 0; t < m.triCount(); ++t) {
-        if ((t & 255) == 0)
+        if ((t & 255) == 0) {
+            if (Cancelled())
+                break;
             SetDone(t); /* every 256th: the store is cheap, the branch cheaper */
+        }
         try {
             const int v[3] = {m.tri[t * 3], m.tri[t * 3 + 1], m.tri[t * 3 + 2]};
             TopoDS_Wire w;
@@ -8134,7 +8343,7 @@ TopoDS_Shape BuildFaceted(const Mesh &m, double tol, Report &rep)
     TopoDS_Shell shell;
     try {
         const TopoDS_Shape sh = FacetedShell(m, built);
-        if (sh.IsNull())
+        if (sh.IsNull() || Cancelled())
             return TopoDS_Shape();
         shell = TopoDS::Shell(sh);
     } catch (const Standard_Failure &) {
@@ -8159,8 +8368,14 @@ TopoDS_Shape BuildFaceted(const Mesh &m, double tol, Report &rep)
      * measured, a finely tessellated ellipsoid has 9 to 13 per cent of its
      * neighbouring pairs flat with each other to within a quarter of a degree,
      * and a coarser one a third of them. The merge earns its time there too. */
+    if (Cancelled())
+        return TopoDS_Shape();
     try {
         SetStage(kStageMerging, 0);
+        /* The one step with no way in and no way out: OCCT offers
+         * ShapeUpgrade_UnifySameDomain no progress range and no UserBreak, so
+         * a cancellation arriving here is answered only when it returns. The
+         * check above is what keeps that window to this call alone. */
         ShapeUpgrade_UnifySameDomain uni(out, Standard_True, Standard_True,
                                          Standard_False);
         uni.Build();
@@ -8354,6 +8569,8 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
     }
 
     StageGuard stageGuard;
+    g_sewFrom.store(800, std::memory_order_relaxed);
+    g_sewTo.store(1000, std::memory_order_relaxed);
     SetStage(kStageWelding, 0);
 
     const double scale = m.diagonal;
@@ -8390,7 +8607,15 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
             return TopoDS_Shape();
         }
         SetStage(kStageFaceted, m.triCount());
+        /* Which span sewing gets: it ends both paths and starts where the path
+         * before it ended. */
+        g_sewFrom.store(450, std::memory_order_relaxed);
+        g_sewTo.store(610, std::memory_order_relaxed);
         TopoDS_Shape out = BuildFaceted(m, tol, rep);
+        if (Cancelled()) {
+            err = kCancelledMessage;
+            return TopoDS_Shape();
+        }
         if (out.IsNull())
             err = "the faces would not sew into a shell";
         return out;
@@ -8417,6 +8642,8 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
         SetStage(kStageFitting, m.triCount());
         RetireFrom(patches);
         for (int i = 0; i < rawPatches; ++i) {
+            if (Cancelled())
+                break;
             if (byPatch[i].empty())
                 continue;
             /* A patch that fits nothing is several surfaces in one: met at a
@@ -8426,6 +8653,10 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
             SplitPatch(m, byPatch[i], tol, scale, prm.min_patch_triangles, i, 0,
                        patches);
             Retire(patches);
+        }
+        if (Cancelled()) {
+            err = kCancelledMessage;
+            return TopoDS_Shape();
         }
         MR_STAGE("split");
 #ifdef MESHRECON_TRACE
@@ -8706,6 +8937,10 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
         }
         MR_STAGE("freeform surfaces");
     }
+    if (Cancelled()) {
+        err = kCancelledMessage;
+        return TopoDS_Shape();
+    }
 
     /* Nothing at all was recognised, AND nothing could be covered by a fitted
      * surface either: then this really is a mesh, and it should be built as
@@ -8877,6 +9112,8 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
         std::vector<std::vector<int>> deferred;
         SetStage(kStageBuilding, static_cast<int>(patches.size()));
         for (size_t i = 0; i < patches.size(); ++i) {
+            if (Cancelled())
+                break;
             SetDone(static_cast<int>(i));
             bool built = false;
             const size_t before = faces.size();
@@ -9020,6 +9257,12 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
     std::string err1 = err;
     Report rep1 = rep;
     TopoDS_Shape out = assemble(patches, patchOf, rep1, err1);
+    /* Before the "did it close?" reasoning below, which would otherwise blame
+     * an interrupted build for not closing and try the whole thing again. */
+    if (Cancelled()) {
+        err = kCancelledMessage;
+        return TopoDS_Shape();
+    }
     MR_TRACE("  whole: null=%d closed=%d shells=%d built=%d failed=%d "
              "faceted=%d\n",
              (int)out.IsNull(), rep1.closed, rep1.shells, rep1.faces_built,
@@ -9304,6 +9547,15 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
                       "closed",
                       100.0 * kVolumeDivergenceBar, tol);
         err = buf;
+        return TopoDS_Shape();
+    }
+    /* A run that was cancelled hands back nothing, however far it had got.
+     * Checked last and in one place: every loop above breaks out on the flag,
+     * so what is in `out` at this point is a body built from part of the mesh,
+     * and a part of the model is the one answer worse than no answer — the
+     * user would keep it. */
+    if (Cancelled()) {
+        err = kCancelledMessage;
         return TopoDS_Shape();
     }
     return out;

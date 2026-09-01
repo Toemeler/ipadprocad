@@ -76,6 +76,14 @@ const int kMaxFacetedTriangles = 120000;
 bool canImportAsTriangles(int triangleCount) =>
     triangleCount > 0 && triangleCount <= kMaxFacetedTriangles;
 
+/// The exact error a cancelled conversion reports.
+///
+/// Spelled once here and matched against, because a cancellation is not a
+/// failure and the two want opposite treatment: one gets a quiet note, the
+/// other an explanation. Kept in step with OCCT_MESH_CANCELLED in occt_capi.h
+/// by the test that pins them together.
+const String kMeshCancelled = 'cancelled';
+
 /// True when [path] ends in one of [kMeshExtensions].
 bool isMeshPath(String path) {
   final lower = path.toLowerCase();

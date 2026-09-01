@@ -993,7 +993,7 @@ class AppL10nDe extends AppL10n {
   }
 
   @override
-  String get askMeshImportTitle => 'Wie soll dieses Netz importiert werden?';
+  String get askMeshImportTitle => 'Wie soll dieses Modell importiert werden?';
 
   @override
   String askMeshImportBody(int count, String size) {
@@ -1011,18 +1011,18 @@ class AppL10nDe extends AppL10n {
   }
 
   @override
-  String get askMeshImportConvert => 'In CAD-Flächen umwandeln';
+  String get askMeshImportConvert => 'Als CAD-Körper';
 
   @override
   String get askMeshImportConvertWhy =>
-      'Erkennt Ebenen, Zylinder, Kegel, Kugeln, Tori und Freiformflächen. Dauert Sekunden bis Minuten, dafür lässt sich das Ergebnis danach verrunden, bemaßen und weiterbearbeiten.';
+      'Flächen zum Verrunden, Bemaßen und Bearbeiten. Dauert einen Moment.';
 
   @override
-  String get askMeshImportFaceted => 'Dreiecke 1:1 übernehmen';
+  String get askMeshImportFaceted => 'Als Netz';
 
   @override
   String get askMeshImportFacetedWhy =>
-      'Jedes Dreieck wird eine Fläche. Exakt wie die Datei, aber CAD-Operationen darauf sind kaum möglich.';
+      'Genau wie die Datei, ohne Umwandlung. Kaum bearbeitbar.';
 
   @override
   String askMeshImportTooManyFaceted(int limit) {
@@ -1030,8 +1030,35 @@ class AppL10nDe extends AppL10n {
         intl.NumberFormat.decimalPattern(localeName);
     final String limitString = limitNumberFormat.format(limit);
 
-    return 'Für den 1:1-Weg sind das zu viele Dreiecke (Grenze $limitString) — jedes würde eine eigene Fläche.';
+    return 'Für „Als Netz“ sind das zu viele Dreiecke (Grenze $limitString).';
   }
+
+  @override
+  String get meshStageReading => 'Modell wird gelesen';
+
+  @override
+  String get meshStageFinding => 'Flächen werden gesucht';
+
+  @override
+  String get meshStageFitting => 'Flächen werden angepasst';
+
+  @override
+  String get meshStageShaping => 'Rundungen werden geformt';
+
+  @override
+  String get meshStageBuilding => 'Flächen werden gebaut';
+
+  @override
+  String get meshStageFinishing => 'Wird fertiggestellt';
+
+  @override
+  String get meshStageSimplifying => 'Wird vereinfacht';
+
+  @override
+  String get actionCancelling => 'Wird abgebrochen …';
+
+  @override
+  String get msgMeshImportCancelled => 'Import abgebrochen.';
 
   @override
   String get msgMeshNoGeometry =>
