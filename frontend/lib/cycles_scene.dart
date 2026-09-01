@@ -17,6 +17,7 @@ import 'cycles_session.dart';
 import 'cycles_view.dart';
 import 'materials.dart' show materialArgb;
 import 'part_render.dart' show Cam3;
+import 'render_engine.dart';
 import 'reality_assembly.dart' show assemblyPieces, assemblySceneSignature;
 import 'reality_scene.dart' show sceneSignature, visibleSolids;
 import 'theme.dart' show T;
@@ -26,7 +27,8 @@ import 'theme.dart' show T;
 /// Rendered mode, and a renderer to do it with. Every other display mode is a
 /// WORKING view — shaded, wireframe, hidden-line — where the point is to see
 /// the model's structure quickly, and a photograph of it would be in the way.
-bool cyclesWanted(AppState app) => app.displayMode.isRendered && cyclesReady;
+bool cyclesWanted(AppState app) =>
+    app.displayMode.isRendered && cyclesReady && RenderEngines.isCycles;
 
 /// M333 — whether the render includes the ground plane.
 ///
@@ -36,11 +38,7 @@ bool cyclesWanted(AppState app) => app.displayMode.isRendered && cyclesReady;
 /// [cyclesSceneKey] — both scene signatures write it — so turning it off
 /// invalidates the image on screen exactly as a geometry change would, with
 /// nothing extra to remember here.
-bool cyclesFloorWanted(AppState app) {
-  final a = app.currentAssembly;
-  if (a != null) return a.showFloor;
-  return app.currentPart?.showFloor ?? false;
-}
+bool cyclesFloorWanted(AppState app) => app.showFloor;
 
 /// The signature of what is currently drawable, part or assembly.
 ///

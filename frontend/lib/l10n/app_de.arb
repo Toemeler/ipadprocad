@@ -3623,6 +3623,14 @@
   "@cyclesBadge": {
     "description": "M304 — das Abzeichen ueber dem Viewport, waehrend der Pfadverfolger noch wartet. \"Cycles\" ist der Name des Renderers und bleibt in jeder Sprache stehen."
   },
+  "rendererRealtime": "Echtzeit (RealityKit)",
+  "@rendererRealtime": {
+    "description": "M340 — Auswahl im Anzeigemodus-Band: der Renderer, der jedes Bild zeichnet und der Kamera sofort folgt. Nur im gerenderten Modus sichtbar. RealityKit ist ein Produktname und bleibt stehen."
+  },
+  "rendererRaytraced": "Raytracing (Cycles)",
+  "@rendererRaytraced": {
+    "description": "M340 — Auswahl im Anzeigemodus-Band: der Pfadverfolger, der ein Bild berechnet, sobald die Kamera stillsteht. Nur im gerenderten Modus sichtbar. Cycles ist ein Produktname und bleibt stehen."
+  },
   "cyclesPreparing": "Cycles · Kernel werden übersetzt",
   "@cyclesPreparing": {
     "description": "M304 — der erste Lauf uebersetzt Metals Kernel aus dem Quelltext, was zehnersekunden dauert. Waehrenddessen \"spp\" zu zeigen ist von einem Haenger nicht zu unterscheiden."

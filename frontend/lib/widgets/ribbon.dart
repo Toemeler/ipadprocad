@@ -17,6 +17,8 @@ import '../l10n/l.dart';
 import '../log.dart';
 import '../perf.dart';
 import '../menus.dart';
+import '../cycles_boot.dart' show cyclesReady;
+import '../render_engine.dart';
 import '../ribbon_dock.dart';
 import '../section_view.dart';
 import '../part_model.dart' show FaceEditKind, PatternKind, WorkPlaneKind;
@@ -1085,6 +1087,12 @@ class _RibbonState extends State<Ribbon> {
                 if (app.displayMode.isRendered) ...[
                   const SizedBox(height: 4),
                   _FloorToggle(app: app),
+                  // M340 — and WHICH renderer draws it. Only here, only in
+                  // rendered mode, and only when there are two to choose from.
+                  if (cyclesReady) ...[
+                    const SizedBox(height: 4),
+                    _RendererChip(onOpen: toggleOver),
+                  ],
                 ],
                 // M291 — and the section view, under the two that say how the
                 // model is DRAWN. It is the third question this panel answers:
@@ -1441,6 +1449,12 @@ class _RibbonState extends State<Ribbon> {
                 if (app.displayMode.isRendered) ...[
                   const SizedBox(height: 4),
                   _FloorToggle(app: app),
+                  // M340 — and WHICH renderer draws it. Only here, only in
+                  // rendered mode, and only when there are two to choose from.
+                  if (cyclesReady) ...[
+                    const SizedBox(height: 4),
+                    _RendererChip(onOpen: toggleOver),
+                  ],
                 ],
                 // M292 — and the section view here too. The commands, the
                 // planes, the flips and the offsets are the same value on both
@@ -2968,6 +2982,93 @@ class _SectionChipState extends State<_SectionChip> {
                           '', t.sectionFlip2, () => app.flipSectionPlane(1)),
                   ])
               : null,
+          child: chip,
+        ),
+      ),
+    );
+  }
+}
+
+/// M340 — WHICH RENDERER draws the rendered view, under the mode that turns it
+/// on.
+///
+/// Shown only while [DisplayMode] is rendered, exactly like the floor toggle
+/// above it and for the same reason: the working views do not path-trace
+/// anything, so in them this is a control that does nothing. And shown only
+/// when there IS a second renderer — a build with no Cycles in it, or a device
+/// whose libraries did not load, offers no choice, and a chip with one entry
+/// is a worse way of saying that than no chip at all.
+///
+/// The same chip shape as Material, Display Mode and Section rather than a
+/// pair of buttons, for the reason _DisplayModeChip gives: it SAYS which
+/// renderer you are on, which two lit buttons only do by which of them is lit.
+///
+/// It does not go dim while Cycles is still compiling its kernels. Switching
+/// TO Cycles during the warm-up is exactly when you would want to — the layer
+/// puts up the progress panel and the render starts when it can — and a
+/// control that silently refuses for thirty seconds is worse than one that
+/// works and tells you to wait.
+class _RendererChip extends StatefulWidget {
+  final void Function(String id, BuildContext anchor, List<OverItem> items)
+      onOpen;
+  const _RendererChip({required this.onOpen});
+
+  @override
+  State<_RendererChip> createState() => _RendererChipState();
+}
+
+class _RendererChipState extends State<_RendererChip> {
+  bool _h = false;
+
+  /// The user-visible name of a renderer. In the ARB, like every other string
+  /// — the enum's own ids are 'realitykit'/'cycles' and are storage keys.
+  String _name(AppL10n t, RenderEngine e) => switch (e) {
+        RenderEngine.realityKit => t.rendererRealtime,
+        RenderEngine.cycles => t.rendererRaytraced,
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    final t = L.of(context);
+    final cur = RenderEngines.current;
+    final chip = Container(
+      padding: const EdgeInsets.fromLTRB(8, 6, 6, 6),
+      decoration: BoxDecoration(
+        color: _h ? T.hover7 : T.hover6,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(
+            color: _h ? T.accent.withValues(alpha: 0.45) : T.border10),
+      ),
+      // A floor, not a fixed width, like every other chip in this panel (M235).
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        ConstrainedBox(
+          constraints: const BoxConstraints(minWidth: 112),
+          child: Text(_name(t, cur),
+              softWrap: false,
+              style:
+                  ts(12, cur == RenderEngine.cycles ? T.accent : T.text)),
+        ),
+        const SizedBox(width: 6),
+        Text('\u25BC', style: ts(8, T.dim)),
+      ]),
+    );
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _h = true),
+      onExit: (_) => setState(() => _h = false),
+      child: Builder(
+        builder: (ctx) => GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => widget.onOpen('ov-renderer', ctx, [
+            for (final e in RenderEngine.values)
+              OverItem('', _name(t, e), () {
+                RenderEngines.set(e);
+                // This rebuilds the LABEL. The viewport rebuilds itself:
+                // RenderEngines.engine is a ValueNotifier and CyclesLayer
+                // listens to it, the same way it listens to the warm-up.
+                if (mounted) setState(() {});
+              }, active: e == cur),
+          ]),
           child: chip,
         ),
       ),

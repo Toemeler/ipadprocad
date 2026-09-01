@@ -64,6 +64,7 @@ import 'text_geometry.dart';
 import 'theme.dart';
 import 'tools.dart';
 import 'vector_font.dart';
+import 'render_engine.dart';
 import 'ribbon_dock.dart';
 import 'work_features.dart';
 
@@ -1771,6 +1772,7 @@ class AppState extends ChangeNotifier {
     // is read after the appearance and backdrop so its default (the flush top
     // band) never paints over a scheme that has not been adopted yet.
     RibbonDock.attachStore(RibbonStore(_cacheRoot));
+    RenderEngines.attachStore(RenderEngineStore(_cacheRoot));
     final probe = Log.step(
         'state', 'Engine.create (backend probe)', () => Engine.create());
     backendReal = probe.isRealBackend;

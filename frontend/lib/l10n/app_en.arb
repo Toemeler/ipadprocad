@@ -1129,6 +1129,8 @@
   "msgMakePartNoBody": "“{name}” is not built any more.",
   "msgDerivedEditOrigin": "A derived body — opening “{name}”.",
   "cyclesBadge": "Cycles",
+  "rendererRealtime": "Real-time (RealityKit)",
+  "rendererRaytraced": "Ray-traced (Cycles)",
   "cyclesPreparing": "Cycles · preparing kernels",
   "cyclesSamples": "Cycles · {samples} spp",
   "cyclesFailed": "Cycles failed",

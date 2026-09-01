@@ -4054,6 +4054,12 @@ class AppL10nEn extends AppL10n {
   String get cyclesBadge => 'Cycles';
 
   @override
+  String get rendererRealtime => 'Real-time (RealityKit)';
+
+  @override
+  String get rendererRaytraced => 'Ray-traced (Cycles)';
+
+  @override
   String get cyclesPreparing => 'Cycles · preparing kernels';
 
   @override

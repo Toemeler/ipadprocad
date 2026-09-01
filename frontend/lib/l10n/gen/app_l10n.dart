@@ -6871,6 +6871,18 @@ abstract class AppL10n {
   /// **'Cycles'**
   String get cyclesBadge;
 
+  /// M340 — Auswahl im Anzeigemodus-Band: der Renderer, der jedes Bild zeichnet und der Kamera sofort folgt. Nur im gerenderten Modus sichtbar. RealityKit ist ein Produktname und bleibt stehen.
+  ///
+  /// In de, this message translates to:
+  /// **'Echtzeit (RealityKit)'**
+  String get rendererRealtime;
+
+  /// M340 — Auswahl im Anzeigemodus-Band: der Pfadverfolger, der ein Bild berechnet, sobald die Kamera stillsteht. Nur im gerenderten Modus sichtbar. Cycles ist ein Produktname und bleibt stehen.
+  ///
+  /// In de, this message translates to:
+  /// **'Raytracing (Cycles)'**
+  String get rendererRaytraced;
+
   /// M304 — der erste Lauf uebersetzt Metals Kernel aus dem Quelltext, was zehnersekunden dauert. Waehrenddessen "spp" zu zeigen ist von einem Haenger nicht zu unterscheiden.
   ///
   /// In de, this message translates to:

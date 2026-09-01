@@ -31,6 +31,7 @@ import '../cycles_warmup.dart';
 import '../cycles_view.dart';
 import '../l10n/l.dart';
 import '../part_render.dart' show Cam3;
+import '../render_engine.dart';
 import '../theme.dart';
 
 /// How long the scene has to hold still before a render starts.
@@ -65,6 +66,11 @@ class _CyclesLayerState extends State<CyclesLayer> {
   void initState() {
     super.initState();
     CyclesWarmup.instance.addListener(_warmupChanged);
+    // M340 — and the renderer choice, which is a preference living outside
+    // AppState and so does not arrive through a document rebuild. Switching to
+    // RealityKit has to take the path-traced image DOWN on the same frame, not
+    // whenever the model next changes.
+    RenderEngines.engine.addListener(_warmupChanged);
   }
 
   void _warmupChanged() {
@@ -74,6 +80,7 @@ class _CyclesLayerState extends State<CyclesLayer> {
   @override
   void dispose() {
     CyclesWarmup.instance.removeListener(_warmupChanged);
+    RenderEngines.engine.removeListener(_warmupChanged);
     _settle?.cancel();
     _decoded?.dispose();
     super.dispose();
