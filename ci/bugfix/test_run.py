@@ -151,21 +151,48 @@ class RunTest(unittest.TestCase):
         self.assertIn('does not exist yet', h.asked[2])
         self.assertIn('building', h.asked[3].lower())
 
-    def test_a_repeated_expand_is_told_it_is_a_repeat(self):
+    def test_the_same_request_twice_is_told_it_is_a_repeat(self):
+        """Issue #9's loop: the same file, the same words, four rounds."""
         e = '<expand path="frontend/lib/theme.dart">floor</expand>'
         code, h = self.drive([e, e, answer()], max_rounds=3)
-        self.assertIn('already been shown', h.asked[2])
+        self.assertIn('asked for exactly this before', h.asked[2])
         self.assertIn('build it', h.asked[2])
 
-    def test_a_packed_file_is_never_re_served(self):
-        # The pack's own five files are already in front of the model.
+    def test_a_different_part_of_the_same_file_is_served(self):
+        """The change that #12 paid $0.077 to discover was missing.
+
+        `app_state.dart` is 19,550 lines and reaches a pack as about ninety of
+        them. Asking for a different part of it is a legitimate request, and
+        answering "it does not exist yet, so build it" is both false and an
+        invitation to reinvent code that is already there.
+        """
         import rank
         index = rank.Index()
-        already = {'frontend/lib/theme.dart'}
-        text = run.serve_expands(
+        already = {}
+        first = run.serve_expands(
             index, [edits_mod.Expand('frontend/lib/theme.dart', 'floor')],
             'q', already)
-        self.assertIn('already been shown', text)
+        self.assertNotIn('asked for exactly this before', first)
+
+        second = run.serve_expands(
+            index, [edits_mod.Expand('frontend/lib/theme.dart', 'accent')],
+            'q', already)
+        self.assertNotIn('asked for exactly this before', second)
+        self.assertIn('rawAccent', second, 'it must serve the part now asked for')
+
+        again = run.serve_expands(
+            index, [edits_mod.Expand('frontend/lib/theme.dart', 'accent')],
+            'q', already)
+        self.assertIn('asked for exactly this before', again)
+
+    def test_the_pack_does_not_make_its_own_files_unaskable(self):
+        code, h = self.drive(
+            ['<expand path="frontend/lib/theme.dart">accent</expand>',
+             answer()], max_rounds=2)
+        self.assertEqual(code, 0)
+        self.assertNotIn('asked for exactly this before', h.asked[1],
+                         'theme.dart is in the pack, and that must not make a '
+                         'request for a different part of it a repeat')
 
     def test_truncated_answer_asks_for_a_smaller_edit(self):
         # A cut-off answer is not a formatting mistake, and saying so is what
@@ -373,7 +400,7 @@ class ExpandServingTest(unittest.TestCase):
         index = rank.Index()
         text = run.serve_expands(
             index, [edits_mod.Expand('frontend/lib/theme.dart', 'floor')],
-            'floor colour', set())
+            'floor colour', {})
         self.assertIn('frontend/lib/theme.dart', text)
         self.assertIn('```', text)
 
@@ -381,7 +408,7 @@ class ExpandServingTest(unittest.TestCase):
         import rank
         index = rank.Index()
         text = run.serve_expands(
-            index, [edits_mod.Expand('frontend/lib/nope.dart', 'x')], 'q', set())
+            index, [edits_mod.Expand('frontend/lib/nope.dart', 'x')], 'q', {})
         self.assertIn('no such file', text)
 
 
@@ -1569,3 +1596,29 @@ class ManualLabelTest(unittest.TestCase):
               / 'relay' / 'worker.js').read_text()
         self.assertIn("form.get('autofix') ?? '1'", js)
         self.assertIn("env.MANUAL_LABEL || 'needs-session'", js)
+
+
+class ExpandCostTest(unittest.TestCase):
+    """98% of what a round costs is thinking, and expand rounds think hardest.
+
+    Measured on issue #12: 89% of the $0.3583 was output tokens, and 98.3% of
+    those were reasoning. Its two `expand` rounds — which produced no code at
+    all — cost 26,645 output tokens, $0.1055, 29% of the run. The model was
+    reasoning its way to a fix before noticing it needed a file, and every bit
+    of that was re-derived next round with the file in hand.
+    """
+
+    def test_the_prefix_says_to_decide_early_and_stop(self):
+        import model
+        self.assertIn('DECIDE THAT FIRST', model.SYSTEM)
+        self.assertIn('cheapest round in the run', model.SYSTEM)
+
+    def test_the_prefix_says_a_different_part_may_be_asked_for(self):
+        import model
+        self.assertIn('DIFFERENT part of a file you have already been shown',
+                      model.SYSTEM)
+
+    def test_it_is_all_in_the_cached_prefix(self):
+        """Saying it costs $0.0441/M here and a round anywhere else."""
+        import model
+        self.assertNotIn('DECIDE THAT FIRST', model.ask.__doc__ or '')

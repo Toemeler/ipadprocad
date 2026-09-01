@@ -218,15 +218,44 @@ def failed_paths(errors):
     return seen
 
 
+def _needles_of(text):
+    return tuple(sorted({w.lower() for w in re.findall(r'\w{3,}', text or '')
+                         if w.lower() not in STOP_WORDS}))
+
+
 def serve_expands(index, expands, query, already):
     """Answer an `expand` request with more source, still for free.
 
-    `already` is the set of paths served in earlier rounds. Re-serving one
-    cannot tell the model anything it does not have, and on issue #9 that loop
-    consumed every round — so a repeat is answered with the fact itself: what
-    you were looking for is not in there.
+    `already` maps a path to the REQUESTS it has answered for that path, not
+    merely to the fact that the path was touched.
+
+    THAT DISTINCTION IS WORTH REAL MONEY, and issue #12 is the measurement.
+    `already` used to be a set of paths, seeded with the pack — so an expand
+    for a file already IN the pack was refused outright. `app_state.dart` is
+    19,550 lines and appears in a pack as about ninety of them, and the model
+    asking for a different part of it was told:
+
+        What you were looking for is not in there — treat that as the answer:
+        it does not exist yet, so build it.
+
+    which is false, and invites inventing code that already exists. #12's
+    second round spent 19,519 output tokens — $0.077, a fifth of the whole run
+    — asking for more of two files it already had, and was given nothing.
+
+    So a request is new when its NEEDLES are new for that path. The loop this
+    guard was built for (issue #9 asking for `occt_engine.dart` four times
+    running) is the same request repeated, and is still refused — and
+    MAX_EXPAND_ROUNDS bounds it regardless.
     """
-    fresh = [e for e in expands[:3] if e.path not in already]
+    fresh, repeats = [], []
+    for e in expands[:3]:
+        key = _needles_of(e.query)
+        if key in already.get(e.path, set()):
+            repeats.append(e.path)
+        else:
+            fresh.append(e)
+            already.setdefault(e.path, set()).add(key)
+
     # An expand names what it wants. Grep for it rather than re-running the
     # ranking that already missed it — see Index.grep.
     def served(e):
@@ -236,16 +265,15 @@ def serve_expands(index, expands, query, already):
         if chunks:
             return pack.render_slices(e.path, index.header_lines(e.path) + chunks)
         return slices_for(index, [e.path], f'{query} {e.query}')
-    repeats = [e.path for e in expands[:3] if e.path in already]
     parts = []
     if fresh:
         parts.append('\n\n'.join(served(e) for e in fresh))
-        already.update(e.path for e in fresh)
     if repeats:
         parts.append(
-            'You have already been shown ' + ', '.join(repeats) + '. What you '
-            'were looking for is not in there — treat that as the answer: it '
-            'does not exist yet, so build it.')
+            'You have asked for exactly this before, in ' + ', '.join(repeats)
+            + ', and been shown what matched. What you are looking for is not '
+            'in there — treat that as the answer: it does not exist yet, so '
+            'build it.')
     return ('You asked to see more.\n\n' + '\n\n'.join(parts)
             + '\n\nNow answer with the fix.')
 
@@ -452,7 +480,9 @@ def main():
     # looping. A weak pin that ships is still better than no fix; a weak pin
     # nobody was asked to improve is the thing worth preventing.
     weak_pin_rejections = 0
-    expanded, expand_rounds = set(ranked), 0
+    # Requests answered, per path — NOT the pack's file list. Seeding this
+    # with the pack made every file in it unaskable; see serve_expands.
+    expanded, expand_rounds = {}, 0
     apply_rounds = 0
     # Why the last round ended. Seeded rather than left empty: issue #9's
     # re-run blocked with a BLANK "Last failure" because every early `continue`

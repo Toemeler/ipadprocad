@@ -488,7 +488,7 @@ class TestGrepExpand(unittest.TestCase):
         text = run.serve_expands(
             self.index,
             [edits_mod.Expand('frontend/lib/theme.dart', 'accent colour')],
-            'accent', set())
+            'accent', {})
         self.assertIn('rawAccent: Color(0xFF2FA9A2)', text)
         self.assertIn('rawAccent: Color(0xFF0F6A70)', text)
 

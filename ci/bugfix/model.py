@@ -148,9 +148,23 @@ IF THE PACK DOES NOT CONTAIN THE CULPRIT, do not guess. Ask for one more slice:
 
 You get at most TWO rounds of `expand`, then you must answer with a fix. Ask
 for everything you need in one go — several `expand` tags in the same reply are
-fine. Do not ask for a file you have already been shown; if what you were given
-does not contain the thing you were looking for, that is the answer: it does
-not exist, and building it is your job.'''
+fine.
+
+DECIDE THAT FIRST, AND SPEND NOTHING ELSE ON THAT ROUND. Read the pack, see
+whether what you need is in it, and if it is not, emit the `expand` tags and
+STOP. Do not reason out the fix before asking: the next round hands you the
+same problem WITH the file, and everything you worked out beforehand is
+re-derived there. Measured on issue #12, the two rounds that only asked for
+source cost 26,645 output tokens — a fifth of the whole run — of which 98 %
+was thinking that was thrown away. A round that ends in an `expand` should be
+the cheapest round in the run, not the most expensive.
+
+You may ask for a DIFFERENT part of a file you have already been shown: a
+slice is a few dozen lines of a file that can be twenty thousand, and naming
+what you want now gets you that part. What you cannot do is ask the same
+question about the same file twice — if a grep for those words came back
+without it, that is the answer: it does not exist, and building it is your
+job.'''
 
 
 def ask(prefix, body, history=None, timeout=300):

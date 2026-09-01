@@ -82,6 +82,29 @@ than the best case: hard bugs escalate, and an escalation round is ~$0.015.
 The pipeline prints its own cost per run, so a regression shows up in the
 workflow log rather than on next month's invoice.
 
+### Where the money actually goes
+
+Measured on issue #12, which shipped in five rounds for $0.3583:
+
+| | tokens | cost | share |
+|---|---:|---:|---:|
+| output | 80,691 | $0.3194 | **89 %** |
+| … of which REASONING | 79,343 | — | 98.3 % of output |
+| input, after the prefix caches | — | $0.0389 | 11 % |
+
+**The pack is the cheap half.** Widening a slice by a thousand lines is about
+a cent; a round is five to ten. Tuning retrieval is worth doing because it
+removes ROUNDS, not because the tokens themselves matter — and an improvement
+that adds a round to save context is a straight loss.
+
+The corollary is that the expensive rounds are the ones that think hardest for
+the least. #12's two `expand` rounds produced no code and cost $0.1055, 29 %
+of the run, 98 % of it reasoning that was re-derived the moment the file
+arrived. The prefix now tells the model to decide about expanding FIRST and
+stop, and `serve_expands` no longer refuses a request for a different part of
+a file that is already in the pack — `app_state.dart` is 19,550 lines and
+reaches a pack as about ninety of them.
+
 ## Files
 
 | | |
@@ -92,7 +115,7 @@ workflow log rather than on next month's invoice.
 | `edits.py` | Search/replace block format, parsing and all-or-nothing application. Enforces forbidden paths. |
 | `verify.py` | `analyze`, `test`, and the test-first gate. |
 | `run.py` | The loop: ask → gate → verify → ship, or escalate, or block. |
-| `test_*.py` | 181 tests. Run by the workflow *before* the model is called. |
+| `test_*.py` | 185 tests. Run by the workflow *before* the model is called. |
 
 ## Turning it off for one report
 
