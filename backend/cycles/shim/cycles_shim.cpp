@@ -53,6 +53,7 @@
 #include <vector>
 
 #include "device/device.h"
+#include "scene/attribute.h"
 #include "scene/camera.h"
 #include "scene/mesh.h"
 #include "scene/object.h"
@@ -68,6 +69,41 @@
 #include "util/unique_ptr.h"
 
 namespace {
+
+/* WHERE THE VERTEX POSITIONS LIVE, IN TWO CYCLES TREES AT ONCE.
+ *
+ * Cycles moved the vertex-position storage out of Mesh and into Geometry
+ * partway through Blender 5.x development:
+ *
+ *   old (4.x, and the `ios` branch this ships against)
+ *       Mesh::verts, an `array<float3>` node socket
+ *       -> mesh->get_verts_for_write()
+ *   new (Cycles main)
+ *       Geometry::position, a packed_float3 buffer
+ *       -> mesh->get_position_for_write()
+ *
+ * Run 6 of the probe found out the hard way: one error, on this one line,
+ * with the other 320 lines of this file compiling clean. Pinning the shim to
+ * either name buys a build that breaks the next time the branch is rebased,
+ * and every attempt costs an eight-minute macOS runner. So ask the compiler
+ * which one the tree has. The `int`/`long` tag is the ordinary trick: the
+ * `int` overload is the better match and wins wherever its return type
+ * substitutes, and only the overload actually chosen is instantiated, so the
+ * other one naming a member that does not exist is not an error.
+ *
+ * Both element types accept a float3 by assignment (packed_float3 has an
+ * implicit converting constructor), so the caller does not have to care which
+ * one it got back. */
+template<typename M>
+auto mesh_positions(M *m, int) -> decltype(m->get_position_for_write())
+{
+  return m->get_position_for_write();
+}
+
+template<typename M> auto mesh_positions(M *m, long) -> decltype(m->get_verts_for_write().data())
+{
+  return m->get_verts_for_write().data();
+}
 
 std::string g_error;
 std::string g_device = "none";
@@ -263,10 +299,24 @@ int cy_render(const CyMesh *meshes,
     mesh->set_used_shaders(used_shaders);
 
     mesh->resize_mesh(src.vert_count, src.tri_count);
-    ccl::packed_float3 *P = mesh->get_position_for_write();
+    auto *P = mesh_positions(mesh, 0);
     for (int v = 0; v < src.vert_count; v++) {
       P[v] = ccl::make_float3(
           src.verts[v * 3 + 0], src.verts[v * 3 + 1], src.verts[v * 3 + 2]);
+    }
+
+    /* The caller's normals, as the vertex-normal attribute Cycles shades
+     * with. Without this, `smooth` below would make Cycles average the face
+     * normals it computed itself, and on a CAD body that rounds off every
+     * edge that is supposed to be sharp — the tessellator already knows which
+     * edges are which and has told us in `normals`. */
+    if (src.normals != nullptr) {
+      ccl::Attribute *attr = mesh->attributes.add(ccl::ATTR_STD_VERTEX_NORMAL);
+      ccl::float3 *N = attr->data_float3();
+      for (int v = 0; v < src.vert_count; v++) {
+        N[v] = ccl::normalize(ccl::make_float3(
+            src.normals[v * 3 + 0], src.normals[v * 3 + 1], src.normals[v * 3 + 2]));
+      }
     }
 
     ccl::array<int> &tris = mesh->get_triangles();

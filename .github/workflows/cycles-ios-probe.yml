@@ -129,6 +129,7 @@ jobs:
           cmake -S blender -B build_ios -G Xcode \
             -DAPPLE_TARGET_DEVICE=ios \
             -DWITH_CYCLES=ON \
+            -DWITH_OPENIMAGEDENOISE=OFF \
             -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO \
             -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED=NO \
             -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY="" \
@@ -190,6 +191,24 @@ jobs:
       # a compile line that would need include paths and feature defines
       # guessed correctly first. A failure prints the missing symbols, and the
       # missing symbols name the library that is not being fetched.
+      # RUN 6 ANSWERED THIS ONE, AND IT DID NOT CLOSE. Everything resolved
+      # except OpenImageDenoise:
+      #
+      #   "_oidnSetFilterImage", referenced from:
+      #       ccl::OIDNDenoiseContext::denoise_pass(ccl::PassType)
+      #           in libcycles_integrator.a[5](denoiser_oidn.o)
+      #
+      # `lib/ios_arm64` does not ship OIDN — Blender's own iOS branch does not
+      # denoise — so `cycles_integrator` was compiling a denoiser against a
+      # library that is not there. `-DWITH_OPENIMAGEDENOISE=OFF` above drops
+      # those two translation units instead of hunting for an iOS build of a
+      # denoiser this app has no use for: at CAD sample counts on a static
+      # viewport, converging is cheaper than denoising, and a denoiser would
+      # smear exactly the crisp machined edges the render is for.
+      #
+      # The 15.0-vs-16.0 warnings in the same log were the other finding: the
+      # Blender tree builds its objects at iOS 16, so the probes link at 16
+      # too. Warnings only, but they would have become the app's problem.
       - name: Link probe — do the archives resolve against the iOS deps?
         id: link
         continue-on-error: true
@@ -216,7 +235,7 @@ jobs:
           FORCE=""
           for a in out/*.a; do FORCE="$FORCE -Wl,-force_load,$a"; done
           set +e
-          xcrun --sdk iphoneos clang -target arm64-apple-ios15.0 -isysroot "$SDK" \
+          xcrun --sdk iphoneos clang -target arm64-apple-ios16.0 -isysroot "$SDK" \
             probe.c $FORCE $DEPS \
             -lc++ -lz -framework Metal -framework Foundation \
             -framework CoreGraphics -framework IOKit \
@@ -258,7 +277,7 @@ jobs:
           test -f build_ios/lib/Release/libcycles_shim.a || exit 0
           DEPS=$(find blender/lib/ios_arm64 -name '*.a' -not -path '*/python/*' 2>/dev/null | tr '\n' ' ')
           set +e
-          xcrun --sdk iphoneos clang++ -target arm64-apple-ios15.0 -isysroot "$SDK" \
+          xcrun --sdk iphoneos clang++ -target arm64-apple-ios16.0 -isysroot "$SDK" \
             -I backend/cycles/shim backend/cycles/shim/shim_probe.c \
             -Wl,-force_load,build_ios/lib/Release/libcycles_shim.a \
             out/*.a $DEPS -lc++ -lz \
