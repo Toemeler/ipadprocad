@@ -87,3 +87,5 @@ the model reasoning badly, and each fix is general:
   edits; replayed against this diff it names `exportFormatsFor`. Issue
   reopened.
 
+
+- #12 — `exportFormatsFor` was never called by the gallery export action; the action still branched on `isPartName(name)`, which returns false for dotted names like `flange.ptp`. Part cards therefore skipped the STL/STEP chooser and fell into the sketch export path, producing no file. The format chooser also only existed for non-share part exports, with hardcoded items. Commit `0e0f480`.
