@@ -84,12 +84,18 @@ jobs:
           # configure without lib/ios_arm64. This build runs HERE, so it has to
           # say so. The accepted values are printed alongside, so a wrong guess
           # diagnoses itself in one run rather than three.
-          echo "--- APPLE_TARGET_DEVICE, as the tree defines it ---"
-          grep -rn "APPLE_TARGET_DEVICE" blender/CMakeLists.txt \
-            blender/build_files/cmake/platform/platform_apple.cmake 2>/dev/null | head -12
+          # Only the Cycles targets get built, but the TOP-LEVEL configure still
+          # runs, and it hunts for every dependency Blender-the-application
+          # wants — OpenAL was the first to be missing on a runner. Audio,
+          # Python and the GUI are switched off rather than installed: none of
+          # them is reachable from a path tracer rendering a triangle.
           cmake -S blender -B build_host -G Ninja \
             -DAPPLE_TARGET_DEVICE=macos \
             -DCMAKE_BUILD_TYPE=Release \
+            -DWITH_HEADLESS=ON \
+            -DWITH_PYTHON=OFF \
+            -DWITH_AUDASPACE=OFF -DWITH_OPENAL=OFF -DWITH_SDL=OFF \
+            -DWITH_JACK=OFF -DWITH_COREAUDIO=OFF -DWITH_PULSEAUDIO=OFF \
             -DWITH_CYCLES=ON \
             -DWITH_OPENIMAGEDENOISE=OFF \
             -DWITH_OPENVDB=OFF -DWITH_NANOVDB=OFF \
