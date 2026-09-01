@@ -105,9 +105,10 @@ jobs:
             -DWITH_ALEMBIC=OFF -DWITH_USD=OFF \
             -DWITH_CYCLES_OSL=OFF \
             -DWITH_CYCLES_PATH_GUIDING=OFF > configure.log 2>&1 \
-            || { echo "--- what CMake objected to ---"; \
-                 { grep -nE "CMake Error|Could NOT find|missing:|not found" configure.log || true; } | head -25; \
-                 echo "--- tail ---"; tail -12 configure.log; exit 1; }
+            || { { echo "--- what CMake objected to ---"; \
+                    { grep -nE "CMake Error|Could NOT find|missing:" configure.log || true; } | head -25; \
+                    echo "--- tail ---"; tail -12 configure.log; } > configure_err.txt 2>&1; \
+                 cat configure_err.txt; exit 1; }
           for t in cycles_util cycles_graph cycles_bvh cycles_subd \
                    cycles_scene cycles_integrator cycles_session \
                    cycles_device cycles_kernel \
@@ -162,6 +163,17 @@ jobs:
             exit 0
           fi
           exit "$RC"
+
+      # LAST, so a tail of the job log finds it. The upload step alone is
+      # thirty lines of blob-storage chatter, and a failure printed before it
+      # scrolls out of reach of every cheap way to read this log — which cost
+      # three rounds of not being able to see why configure failed.
+      - name: Why it failed
+        if: failure()
+        run: |
+          echo "=================== FAILURE ==================="
+          cat configure_err.txt 2>/dev/null || echo "(configure succeeded; see the steps above)"
+          echo "=============================================="
 
       - name: Upload logs
         if: always()
