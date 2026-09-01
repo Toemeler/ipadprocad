@@ -92,7 +92,17 @@ workflow log rather than on next month's invoice.
 | `edits.py` | Search/replace block format, parsing and all-or-nothing application. Enforces forbidden paths. |
 | `verify.py` | `analyze`, `test`, and the test-first gate. |
 | `run.py` | The loop: ask → gate → verify → ship, or escalate, or block. |
-| `test_*.py` | 177 tests. Run by the workflow *before* the model is called. |
+| `test_*.py` | 181 tests. Run by the workflow *before* the model is called. |
+
+## Turning it off for one report
+
+The report dialog carries a "let the automation fix it" checkbox, ON by
+default. Cleared, the relay files the issue under `needs-session` instead of
+`bug-report` — and `.github/workflows/bugfix.yml` runs only for `bug-report`,
+so nothing here ever claims it. The label is the whole switch; this pipeline
+does not know the checkbox exists. An absent `autofix` field means yes, so a
+build from before the box shipped still gets the automation rather than
+silently parking a report nobody is watching.
 
 ## Setup
 
