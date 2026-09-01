@@ -54,12 +54,15 @@
 
 #include "device/device.h"
 #include "scene/attribute.h"
+#include "scene/background.h"
 #include "scene/camera.h"
 #include "scene/mesh.h"
 #include "scene/object.h"
 #include "scene/pass.h"
 #include "scene/scene.h"
 #include "scene/shader.h"
+#include "scene/shader_graph.h"
+#include "scene/shader_nodes.h"
 #include "session/buffers.h"
 #include "session/output_driver.h"
 #include "session/session.h"
@@ -304,6 +307,40 @@ int cy_render(const CyMesh *meshes,
   cam->set_viewplane_top(view->half_height);
   cam->need_flags_update = true;
   cam->update(scene);
+
+  /* ---- the world, which is also the only light -------------------------
+   *
+   * NOT OPTIONAL, and the reason is worth stating: Cycles' `default_background`
+   * ships with an EMPTY graph —
+   *
+   *     unique_ptr<ShaderGraph> graph = make_unique<ShaderGraph>();
+   *     Shader *shader = scene->create_node<Shader>();
+   *     shader->name = "default_background";
+   *     shader->set_graph(std::move(graph));
+   *                                        — intern/cycles/scene/shader.cpp
+   *
+   * so a scene that does not build one renders black, with no error, on a
+   * device that worked perfectly. Every geometry bug would have been debugged
+   * through that.
+   *
+   * A uniform background is the whole lighting rig, and deliberately so. It is
+   * a lightbox: the shape reads from occlusion rather than from a key light
+   * that has to be aimed, which suits a CAD body being inspected from
+   * arbitrary directions far better than a fixed sun does — and there is no
+   * direction from which the part goes dark. A sun and a fill are the obvious
+   * next step and are additive on this. */
+  {
+    ccl::unique_ptr<ccl::ShaderGraph> graph = ccl::make_unique<ccl::ShaderGraph>();
+    ccl::BackgroundNode *bg = graph->create_node<ccl::BackgroundNode>();
+    bg->set_color(ccl::make_float3(view->world[0], view->world[1], view->world[2]));
+    bg->set_strength(1.0f);
+    graph->connect(bg->output("Background"), graph->output()->input("Surface"));
+    ccl::Shader *world = scene->default_background;
+    world->set_graph(std::move(graph));
+    world->tag_update(scene);
+    scene->background->set_shader(world);
+    scene->background->tag_update(scene);
+  }
 
   /* ---- geometry -------------------------------------------------------- */
   for (int i = 0; i < mesh_count; i++) {

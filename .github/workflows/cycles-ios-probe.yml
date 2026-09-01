@@ -280,8 +280,16 @@ jobs:
           # which carry HOST numpy — the very macOS-vs-iOS mismatch the
           # blender-iOS-ipa pipeline has to fix for its own build. Cycles needs
           # none of Python; excluding that tree is both the fix and the truth.
-          DEPS=$(find blender/lib/ios_arm64 -name '*.a' -not -path '*/python/*' 2>/dev/null | tr '\n' ' ')
-          echo "dependency archives found: $(echo $DEPS | wc -w)"
+          # ARCHIVES AND DYLIBS BOTH. Run 9 settled what runs 7 and 8 could
+          # only guess at: lib/ios_arm64 contains no libOpenImageIO.a, no
+          # libOpenColorIO.a, no libtbb.a and no libImath.a — the four
+          # libraries whose symbols were missing are not static archives in
+          # this package at all. Everything else Cycles wanted (embree, pugixml,
+          # openpgl, the image codecs) is right there as a .a. So either they
+          # ship as dylibs or they are absent, and a `find` for both answers it.
+          DEPS=$(find blender/lib/ios_arm64 \( -name '*.a' -o -name '*.dylib' \) \
+                   -not -path '*/python/*' 2>/dev/null | tr '\n' ' ')
+          echo "dependency libraries found: $(echo $DEPS | wc -w)"
           # force_load per Cycles archive rather than a global -all_load: the
           # question is whether the CYCLES objects resolve, and dragging every
           # object of every dependency in as well only invents work and more
@@ -335,7 +343,7 @@ jobs:
           set -o pipefail
           SDK=$(xcrun --sdk iphoneos --show-sdk-path)
           test -f build_ios/lib/Release/libcycles_shim.a || exit 0
-          DEPS=$(find blender/lib/ios_arm64 -name '*.a' -not -path '*/python/*' 2>/dev/null | tr '\n' ' ')
+          DEPS=$(find blender/lib/ios_arm64 \( -name '*.a' -o -name '*.dylib' \) -not -path '*/python/*' 2>/dev/null | tr '\n' ' ')
           set +e
           xcrun --sdk iphoneos clang++ -target arm64-apple-ios16.0 -isysroot "$SDK" \
             -I backend/cycles/shim backend/cycles/shim/shim_probe.c \
@@ -361,6 +369,21 @@ jobs:
             tail -4 shim_link.log
           fi
 
+      - name: Upload the probe result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cycles-ios-probe
+          path: |
+            out
+            targets.txt
+            configure.log
+            link.log
+            shim_link.log
+            shim_build.log
+          if-no-files-found: warn
+          retention-days: 14
+
       # LAST, ON PURPOSE. Every reading of this job so far has been a fight to
       # find three facts inside a thousand lines that scrolled past them. They
       # are reprinted here, at the end, where a tail finds them.
@@ -382,23 +405,14 @@ jobs:
               | sed -E 's/^"//; s/", referenced from$//' \
               | cut -c1-60 | sort -u | head -30 || true
           fi
-          echo "--- dependency archives present (basenames) ---"
-          find blender/lib/ios_arm64 -name '*.a' -not -path '*/python/*' 2>/dev/null \
-            | xargs -n1 basename | sort -u | tr '\n' ' '
+          echo "--- what form do the four missing libraries take? ---"
+          find blender/lib/ios_arm64 -not -path '*/python/*' \
+            \( -iname '*openimageio*' -o -iname '*opencolorio*' -o -iname '*tbb*' \
+               -o -iname '*imath*' -o -iname '*openexr*' \) 2>/dev/null \
+            | grep -vE '/(include|share|doc)/' | head -30
+          echo "--- dylibs and frameworks present ---"
+          find blender/lib/ios_arm64 \( -name '*.dylib' -o -name '*.framework' -o -name '*.xcframework' \) \
+            -not -path '*/python/*' 2>/dev/null | xargs -n1 basename 2>/dev/null | sort -u | tr '\n' ' '
           echo
           echo "=============================================="
 
-      - name: Upload the probe result
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: cycles-ios-probe
-          path: |
-            out
-            targets.txt
-            configure.log
-            link.log
-            shim_link.log
-            shim_build.log
-          if-no-files-found: warn
-          retention-days: 14
