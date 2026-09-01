@@ -685,21 +685,36 @@ jobs:
             || { echo "the shim does not link:"; \
                  grep -oE '"[^"]+", referenced from' trace.log | sed -E 's/^"//; s/", referenced from$//' | cut -c1-70 | sort -u | head -30; \
                  tail -5 trace.log; exit 1; }
-          grep -oE "$PWD/blender/lib/ios_arm64/[^(]*\.a" trace.log | sort -u > used.txt
-          echo "the link pulled from $(wc -l < used.txt) archives"
+          echo "== linked; trace is $(wc -l < trace.log) lines"
+          # `|| true` on both: grep exits 1 when it matches nothing, and this
+          # step runs under `bash -e`. Run 612 died exactly there, silently,
+          # after a link that had succeeded — seven seconds and not one line
+          # of output. A pipeline that can fail without saying so is worse
+          # than one that fails.
+          grep -oE "$PWD/blender/lib/ios_arm64/[^(]*\.a" trace.log | sort -u > used.txt || true
+          echo "== the link pulled from $(wc -l < used.txt) archives"
+          if [ ! -s used.txt ]; then
+            echo "no archive paths in the trace; here is what it looks like:"
+            grep -n "ios_arm64" trace.log | head -5
+            head -5 trace.log
+            exit 1
+          fi
           xargs -I{} cp {} cycles-dist/deps/ < used.txt
+          echo "== copied $(ls cycles-dist/deps | wc -l) archives"
           # The dylibs are read back out of the LINKED BINARY rather than out
           # of the trace: -dead_strip_dylibs above has already discarded the
           # ones nothing referenced, and what survives in the load commands is
           # exactly what the app must carry. Their own dependencies are
           # followed to a fixed point.
           bash ci/harvest_cycles_dylibs.sh shim_probe.bin blender/lib/ios_arm64 cycles-dist/dylib
+          echo "== dylibs harvested"
           # The kernel tree. Everything, because the Metal include walker
           # follows #include "..." across kernel/, util/ and further, and a
           # header it cannot find is left in the source verbatim and then
           # fails inside the shader compiler with an error naming nothing.
           mkdir -p cycles-dist/source
           rsync -a --exclude '.git' --exclude 'shim' blender/intern/cycles/ cycles-dist/source/
+          echo "== kernel source copied"
           test -f cycles-dist/source/kernel/device/metal/kernel.metal
           echo "--- distribution ---"
           du -sh cycles-dist/lib cycles-dist/deps cycles-dist/dylib cycles-dist/source
