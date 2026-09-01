@@ -125,4 +125,21 @@ void _selectionTests() {
     app.escape3D();
     expect(app.selectedBody, isNull);
   });
+
+  // M284 — a part's light push carries no solid tints at all (see
+  // buildOverlaysPayload); the ONLY way a tint reaches the device is a full
+  // rebuild, so anything that changes what a solid looks like has to move
+  // the signature or the highlight simply never updates on screen.
+  test('previewing a material moves the signature, like the selection', () {
+    final app = AppState();
+    final p = PartModel('P');
+    final base = sceneSignature(app, p);
+    expect(base, contains('prevmat:;'), reason: 'nothing hovered -> empty');
+    app.setPreviewMaterial('brass');
+    expect(sceneSignature(app, p), isNot(base),
+        reason: 'the preview tint must force a rebuild or the swatch hover '
+            'never shows in 3D');
+    app.clearPreviewMaterial('brass');
+    expect(sceneSignature(app, p), base);
+  });
 }

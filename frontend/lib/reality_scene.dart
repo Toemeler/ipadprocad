@@ -1072,6 +1072,14 @@ String sceneSignature(AppState app, PartModel p) {
       for (final e in (p.bodyMaterials.keys.toList()..sort()))
         '$e=${p.bodyMaterials[e]}'
     ].join(','))
+    // M284 — the appearance-menu PREVIEW is a tint too, and like the ones
+    // above it is baked into the mesh build rather than riding the light
+    // push. Without this line, hovering a swatch changed app.previewMaterial
+    // but never moved the signature, so no rebuild was pushed and the body
+    // sat under the selection highlight exactly as before — the M98 lesson,
+    // yet again.
+    ..write(';prevmat:')
+    ..write(app.previewMaterial ?? '')
     // M273 — the display mode changes every material AND whether the edge
     // overlay exists, so it is the heaviest rebuild there is.
     ..write(';view:')
