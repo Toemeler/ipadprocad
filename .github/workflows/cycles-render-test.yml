@@ -164,17 +164,6 @@ jobs:
           fi
           exit "$RC"
 
-      # LAST, so a tail of the job log finds it. The upload step alone is
-      # thirty lines of blob-storage chatter, and a failure printed before it
-      # scrolls out of reach of every cheap way to read this log — which cost
-      # three rounds of not being able to see why configure failed.
-      - name: Why it failed
-        if: failure()
-        run: |
-          echo "=================== FAILURE ==================="
-          cat configure_err.txt 2>/dev/null || echo "(configure succeeded; see the steps above)"
-          echo "=============================================="
-
       - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -186,3 +175,17 @@ jobs:
             render.log
           if-no-files-found: warn
           retention-days: 7
+
+      # LAST IN THE FILE, which is what actually matters — steps run in the
+      # order they are written, and putting this above the upload (as the first
+      # attempt did) left it buried under thirty lines of blob-storage chatter
+      # exactly as before. Every cheap way of reading a job log reads the end.
+      - name: Why it failed
+        if: failure()
+        run: |
+          echo "=================== FAILURE ==================="
+          cat configure_err.txt 2>/dev/null \
+            || echo "(configure succeeded — the failure is in a later step)"
+          echo "--- last of configure.log ---"
+          tail -20 configure.log 2>/dev/null || true
+          echo "=============================================="
