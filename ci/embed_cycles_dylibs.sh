@@ -63,19 +63,34 @@ for t in "${TARGETS[@]}"; do
   done
 done
 
-# The one thing worth failing the build over: a load command still naming a
-# path that will not exist on the device. Anything left pointing at the build
-# machine, or at a directory outside the bundle, is an app that cannot launch.
+# The two things worth failing the build over, both of which produce an app
+# that will not launch and neither of which is visible until a device tries.
+#
+#   1. a load command still naming a path that will not exist on the device —
+#      the build machine's directory, or anywhere outside the bundle;
+#   2. a load command that IS bundle-relative and names a file that is not in
+#      the bundle. This is the one the first check misses, and it is the more
+#      likely of the two: the embedded set is computed from a probe binary,
+#      and if the app ever needs one more library than the probe did, every
+#      name is correctly spelled and one file is simply absent.
+#
+# Frameworks other than the dylibs (Flutter's, the plugins') are left alone —
+# they are not ours to place — so only @rpath entries naming a plain .dylib
+# are required to be present.
 BAD=0
 for t in "${TARGETS[@]}"; do
   [ -f "$t" ] || continue
   while read -r dep; do
     case "$dep" in
+      @rpath/*.dylib)
+        base="${dep#@rpath/}"
+        [ -f "$FW/$base" ] || { echo "CYCLES DYLIBS: $(basename "$t") loads $dep and it is not in the bundle"; BAD=1; }
+        ;;
       @rpath/*|@executable_path/*|@loader_path/*) ;;
       /usr/lib/*|/System/*) ;;
       *) echo "CYCLES DYLIBS: $(basename "$t") still loads $dep"; BAD=1 ;;
     esac
   done < <(otool -L "$t" | tail -n +2 | awk '{print $1}')
 done
-[ "$BAD" -eq 0 ] || { echo "CYCLES DYLIBS: FAIL (unrewritten load commands above)"; exit 1; }
-echo "CYCLES DYLIBS: PASS (every load command is bundle-relative)"
+[ "$BAD" -eq 0 ] || { echo "CYCLES DYLIBS: FAIL (see the load commands above)"; exit 1; }
+echo "CYCLES DYLIBS: PASS (every load command is bundle-relative and present)"
