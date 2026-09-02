@@ -221,6 +221,21 @@ class CyclesSession {
   void _pushView(int width, int height) {
     final s = _scene;
     if (s == null) return;
+    // Restarted here rather than in `offer`, because this is the call that
+    // actually resets the session: everything before it may or may not have
+    // decided to push, and a clock started on a decision that did not push
+    // would time the wrong thing.
+    //
+    // NOT FOR A PARKED PUSH. M354 parks the tracer during a gesture by asking
+    // for a single sample, and that frame converges in microseconds by design.
+    // Timing it would put two lines in the log for every drag and bury the one
+    // render anybody wants the numbers for.
+    if (_target > 1) {
+      _clock = Stopwatch()..start();
+      _firstFrameLogged = false;
+    } else {
+      _clock = null;
+    }
     final v = _buildView;
     if (v == null) return;
     final p = v(s);
@@ -251,7 +266,48 @@ class CyclesSession {
     // and must not be handed it back.
     if (f.epoch != _epoch) return;
     if (!render.accept(f)) return;
+    _timeIt(f);
     _notify();
+  }
+
+  /// When the view being rendered was pushed, for [_timeIt].
+  Stopwatch? _clock;
+  bool _firstFrameLogged = false;
+
+  /// M356 — TWO NUMBERS PER RENDER, BECAUSE NOTHING ELSE COMES BACK FROM THE
+  /// DEVICE.
+  ///
+  /// Every judgement about this renderer's speed so far has been made here,
+  /// from arithmetic, and every one of them has been checked by a person
+  /// saying "it is still slow". That is not a feedback loop. These two lines
+  /// turn "it feels laggy" into something with units in it:
+  ///
+  ///   * TIME TO FIRST PIXEL. How long after letting go of the camera anything
+  ///     appears. It is the number the settle delay is traded against and the
+  ///     one a person actually feels.
+  ///   * TIME TO CONVERGENCE, with the sample count reached and the size. A
+  ///     render that stops at 300 samples of 4096 has converged; one that
+  ///     stops at 12 has hit something else, and the two are indistinguishable
+  ///     from a description.
+  ///
+  /// Logged rather than shown: the badge is for the person using the app, and
+  /// this is for whoever is asked why it is slow.
+  void _timeIt(CyclesLiveFrame f) {
+    final c = _clock;
+    if (c == null) return;
+    if (!_firstFrameLogged) {
+      _firstFrameLogged = true;
+      Log.i('cycles',
+          'first pixel in ${c.elapsedMilliseconds} ms (${f.width}x${f.height})');
+    }
+    if (f.done) {
+      Log.i(
+          'cycles',
+          'converged in ${c.elapsedMilliseconds} ms at ${f.samples}/${f.target} spp '
+              '(${f.width}x${f.height})');
+      c.stop();
+      _clock = null;
+    }
   }
 
   void _takeNote(String text, bool failed) {
