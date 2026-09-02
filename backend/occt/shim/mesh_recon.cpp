@@ -63,6 +63,8 @@
 #include <BRepGProp.hxx>
 #include <BRepLib.hxx>
 #include <BRepMesh_IncrementalMesh.hxx>
+#include <BRepTopAdaptor_FClass2d.hxx>
+#include <Precision.hxx>
 #include <BRepTools.hxx>
 #include <ElSLib.hxx>
 #include <GProp_GProps.hxx>
@@ -83,6 +85,7 @@
 #include <GeomAPI_PointsToBSpline.hxx>
 #include <GeomAPI_ProjectPointOnCurve.hxx>
 #include <GeomAPI_ProjectPointOnSurf.hxx>
+#include <ShapeAnalysis_Surface.hxx>
 #include <ShapeBuild_ReShape.hxx>
 #include <ShapeFix_Edge.hxx>
 #include <ShapeFix_Face.hxx>
@@ -8775,21 +8778,50 @@ private:
         int n[3];
     };
     /* A copied-in node needs a UV of its own, because that is what the
-     * renderer builds its normal from. It sits on this face's rim, so the
-     * nearest node the face already has is at most one triangle away and its
-     * parameter is the right neighbourhood to borrow. */
+     * renderer builds its normal from — and what says whether the triangle is
+     * inside the face at all.
+     *
+     * Not the nearest node's parameter outright: measured, that left 169 of
+     * the mend's own triangles classifying outside the face's trimming loop.
+     * Not a projection either — NextValueOfUV, seeded from that same nearest
+     * node, made it 434, because on a patch that folds a projection finds
+     * another branch however close it starts. What cannot jump is an AVERAGE
+     * of parameters that are already right: the three nearest nodes the face
+     * already has, weighted by distance. A copied node sits between them, on
+     * the rim, and so does the parameter.
+     */
     gp_Pnt2d nearestUv(const gp_Pnt &p) const
     {
-        double best = 1e300;
-        gp_Pnt2d uv(0, 0);
+        double bd[3] = {1e300, 1e300, 1e300};
+        int bi[3] = {-1, -1, -1};
         for (int i = 1; i <= was_; ++i) {
             const double dd = tri_->Node(i).SquareDistance(p);
-            if (dd < best) {
-                best = dd;
-                uv = tri_->UVNode(i);
+            if (dd < bd[0]) {
+                bd[2] = bd[1]; bi[2] = bi[1];
+                bd[1] = bd[0]; bi[1] = bi[0];
+                bd[0] = dd;    bi[0] = i;
+            } else if (dd < bd[1]) {
+                bd[2] = bd[1]; bi[2] = bi[1];
+                bd[1] = dd;    bi[1] = i;
+            } else if (dd < bd[2]) {
+                bd[2] = dd;    bi[2] = i;
             }
         }
-        return uv;
+        if (bi[0] < 0)
+            return gp_Pnt2d(0, 0);
+        double wu = 0, wv = 0, ws = 0;
+        for (int k = 0; k < 3; ++k) {
+            if (bi[k] < 0)
+                continue;
+            const double w = 1.0 / std::max(1e-12, std::sqrt(bd[k]));
+            const gp_Pnt2d q = tri_->UVNode(bi[k]);
+            wu += w * q.X();
+            wv += w * q.Y();
+            ws += w;
+        }
+        if (!(ws > 0))
+            return tri_->UVNode(bi[0]);
+        return gp_Pnt2d(wu / ws, wv / ws);
     }
     const DrawnMesh &d_;
     Handle(Poly_Triangulation) tri_;
@@ -8801,6 +8833,73 @@ private:
     std::vector<int> fresh_;
     std::vector<Tri> want_;
 };
+
+/* Throw away the triangles the mesher drew outside the face.
+ *
+ * A triangulation carries a UV for every node and the face carries its own
+ * trimming loop, so a triangle whose centre classifies OUT of that loop is
+ * surface the face does not own — drawn anyway, on top of whatever the
+ * neighbour that DOES own it has drawn there. Measured on the whale, 170 of
+ * 10,720 triangles, 112 mm of surface, on the same faces that were caught
+ * passing through other faces.
+ *
+ * The classifier used is the one the mesher itself trims with, so this only
+ * ever removes what that mesher should not have emitted by its own account.
+ * Whatever hole is left behind is closed by the mend below, which runs after
+ * it and is the whole reason removing them is safe. */
+static int DropOutsideTrim(const TopoDS_Shape &s,
+                           const std::vector<char> &suspect)
+{
+    int dropped = 0;
+    int fidx = -1;
+    for (TopExp_Explorer ex(s, TopAbs_FACE); ex.More(); ex.Next()) {
+        ++fidx;
+        /* Only where the mesher already showed it was struggling.
+         *
+         * Classifying every triangle of every face costs four times a plain
+         * tessellation, and this runs on the thread the app draws from, once
+         * per zoom — which is the freeze M336 was about. A face that covers
+         * its own boundary cleanly did not confuse the trimmer and has
+         * nothing out there; the ones that did are exactly the list
+         * FacesLookWhole already has to build. */
+        if (fidx >= static_cast<int>(suspect.size()) || !suspect[fidx])
+            continue;
+        const TopoDS_Face f = TopoDS::Face(ex.Current());
+        TopLoc_Location loc;
+        const Handle(Poly_Triangulation) t = BRep_Tool::Triangulation(f, loc);
+        if (t.IsNull() || !t->HasUVNodes() || t->NbTriangles() < 1)
+            continue;
+        try {
+            BRepTopAdaptor_FClass2d cls(f, Precision::PConfusion());
+            std::vector<Poly_Triangle> keep;
+            keep.reserve(t->NbTriangles());
+            for (int i = 1; i <= t->NbTriangles(); ++i) {
+                int a, b, c;
+                t->Triangle(i).Get(a, b, c);
+                const gp_Pnt2d ua = t->UVNode(a), ub = t->UVNode(b),
+                               uc = t->UVNode(c);
+                const gp_Pnt2d mid((ua.X() + ub.X() + uc.X()) / 3.0,
+                                   (ua.Y() + ub.Y() + uc.Y()) / 3.0);
+                if (cls.Perform(mid) == TopAbs_OUT) {
+                    ++dropped;
+                    continue;
+                }
+                keep.push_back(t->Triangle(i));
+            }
+            if (keep.empty() ||
+                keep.size() == static_cast<size_t>(t->NbTriangles()))
+                continue; /* nothing to do, or nothing left worth doing */
+            if (t->HasNormals())
+                t->RemoveNormals();
+            t->ResizeTriangles(static_cast<int>(keep.size()), Standard_False);
+            for (size_t i = 0; i < keep.size(); ++i)
+                t->SetTriangle(static_cast<int>(i) + 1, keep[i]);
+        } catch (const Standard_Failure &) {
+        } catch (...) {
+        }
+    }
+    return dropped;
+}
 
 /* Is there anything to mend?
  *
@@ -8816,16 +8915,31 @@ private:
  * Equivalent to counting the rims, not an approximation of it: the two faces
  * on an edge discretise it into the same nodes, so per-face bookkeeping that
  * balances everywhere balances globally too. */
-static bool FacesLookWhole(const TopoDS_Shape &s)
+static bool FacesLookWhole(const TopoDS_Shape &s,
+                           std::vector<char> *suspect = nullptr)
 {
+    int fidx = -1;
+    bool whole = true;
     std::unordered_map<long long, int> edge;
     std::unordered_set<long long> onBoundary;
     for (TopExp_Explorer ex(s, TopAbs_FACE); ex.More(); ex.Next()) {
+        ++fidx;
+        if (suspect)
+            suspect->push_back(0);
+        auto flag = [&]() {
+            whole = false;
+            if (suspect)
+                (*suspect)[fidx] = 1;
+            return suspect == nullptr; /* stop early only if nobody is listing */
+        };
         const TopoDS_Face f = TopoDS::Face(ex.Current());
         TopLoc_Location loc;
         const Handle(Poly_Triangulation) t = BRep_Tool::Triangulation(f, loc);
-        if (t.IsNull() || t->NbTriangles() < 1)
-            return false; /* a face drawn as nothing at all */
+        if (t.IsNull() || t->NbTriangles() < 1) {
+            if (flag())
+                return false; /* a face drawn as nothing at all */
+            continue;
+        }
         edge.clear();
         onBoundary.clear();
         const long long span = t->NbNodes() + 1;
@@ -8846,8 +8960,11 @@ static bool FacesLookWhole(const TopoDS_Shape &s)
                 continue;
             const Handle(Poly_PolygonOnTriangulation) pp =
                 BRep_Tool::PolygonOnTriangulation(e, t, loc);
-            if (pp.IsNull())
-                return false; /* a boundary this face never laid down */
+            if (pp.IsNull()) {
+                if (flag())
+                    return false; /* a boundary this face never laid down */
+                break;
+            }
             const auto &nn = pp->Nodes();
             for (int a = nn.Lower(); a < nn.Upper(); ++a) {
                 if (nn(a) == nn(a + 1))
@@ -8855,15 +8972,21 @@ static bool FacesLookWhole(const TopoDS_Shape &s)
                 const long long k = key(nn(a), nn(a + 1));
                 onBoundary.insert(k);
                 const auto it = edge.find(k);
-                if (it == edge.end() || it->second != 1)
-                    return false; /* undrawn, or drawn from both sides */
+                if (it == edge.end() || it->second != 1) {
+                    if (flag())
+                        return false; /* undrawn, or drawn from both sides */
+                    break;
+                }
             }
         }
         for (const auto &kv : edge)
-            if (kv.second != 2 && !onBoundary.count(kv.first))
-                return false; /* a fold, or a tear inside the face */
+            if (kv.second != 2 && !onBoundary.count(kv.first)) {
+                if (flag())
+                    return false; /* a fold, or a tear inside the face */
+                break;
+            }
     }
-    return true;
+    return whole;
 }
 
 /* Close every hole in the drawn mesh. Returns the rim edges still open. */
@@ -8871,8 +8994,6 @@ static int MendTornFaces(const TopoDS_Shape &s, int *filled)
 {
     if (filled)
         *filled = 0;
-    if (FacesLookWhole(s))
-        return 0;
     DrawnMesh d;
     if (!GatherDrawn(s, d))
         return 0;
@@ -9182,7 +9303,13 @@ int TessellateCovered(const TopoDS_Shape &s, double lin, double ang,
         rimsOpen = 0;
         mended = 0;
         try {
-            rimsOpen = MendTornFaces(s, &mended);
+            std::vector<char> suspect;
+            const bool whole = FacesLookWhole(s, &suspect);
+            const int shed = whole ? 0 : DropOutsideTrim(s, suspect);
+            MR_TRACE("      dropped %d triangles drawn outside their face\n",
+                     shed);
+            (void)shed;
+            rimsOpen = whole ? 0 : MendTornFaces(s, &mended);
         } catch (const Standard_Failure &) {
             rimsOpen = 0;
         } catch (...) {

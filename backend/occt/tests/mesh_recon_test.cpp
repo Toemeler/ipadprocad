@@ -52,6 +52,8 @@
 #include <Bnd_Box.hxx>
 #include <gp_GTrsf.hxx>
 #include <BRepAdaptor_Surface.hxx>
+#include <BRepTopAdaptor_FClass2d.hxx>
+#include <Precision.hxx>
 #include <Geom_Surface.hxx>
 #include <GeomLProp_SLProps.hxx>
 #include <cstdio>
@@ -268,6 +270,62 @@ static int DrawnRimEdges(const TopoDS_Shape &s, double *lengthOut = nullptr)
                               pos[kv.first.first].Distance(pos[kv.first.second]);
         }
     return rim;
+}
+
+/* Do two triangles pass through one another? Moller's test, with the coplanar
+ * case excluded — two triangles lying in one plane are not what is being
+ * looked for here. */
+static bool TrianglesCross(const gp_Pnt &p1, const gp_Pnt &q1, const gp_Pnt &r1,
+                           const gp_Pnt &p2, const gp_Pnt &q2, const gp_Pnt &r2)
+{
+    const gp_Vec n1 = gp_Vec(p1, q1).Crossed(gp_Vec(p1, r1));
+    const gp_Vec n2 = gp_Vec(p2, q2).Crossed(gp_Vec(p2, r2));
+    if (n1.Magnitude() < 1e-20 || n2.Magnitude() < 1e-20)
+        return false;
+    const gp_Dir d1(n1), d2(n2);
+    const double e = 1e-9;
+    double s2[3], s1[3];
+    const gp_Pnt B[3] = {p2, q2, r2};
+    const gp_Pnt A[3] = {p1, q1, r1};
+    for (int i = 0; i < 3; ++i)
+        s2[i] = gp_Vec(p1, B[i]).Dot(gp_Vec(d1));
+    if ((s2[0] > e && s2[1] > e && s2[2] > e) ||
+        (s2[0] < -e && s2[1] < -e && s2[2] < -e))
+        return false;
+    for (int i = 0; i < 3; ++i)
+        s1[i] = gp_Vec(p2, A[i]).Dot(gp_Vec(d2));
+    if ((s1[0] > e && s1[1] > e && s1[2] > e) ||
+        (s1[0] < -e && s1[1] < -e && s1[2] < -e))
+        return false;
+    if (std::abs(s1[0]) <= e && std::abs(s1[1]) <= e && std::abs(s1[2]) <= e)
+        return false; /* coplanar */
+    const gp_Vec D = gp_Vec(d1).Crossed(gp_Vec(d2));
+    const double ax = std::abs(D.X()), ay = std::abs(D.Y()), az = std::abs(D.Z());
+    const int k = (ax > ay) ? ((ax > az) ? 0 : 2) : ((ay > az) ? 1 : 2);
+    auto axis = [k](const gp_Pnt &v) {
+        return k == 0 ? v.X() : k == 1 ? v.Y() : v.Z();
+    };
+    auto span = [&](const gp_Pnt *V, const double *s, double &lo, double &hi) {
+        double t[2];
+        int n = 0;
+        for (int i = 0; i < 3 && n < 2; ++i) {
+            const int j = (i + 1) % 3;
+            if ((s[i] > 0 && s[j] < 0) || (s[i] < 0 && s[j] > 0))
+                t[n++] = axis(V[i]) +
+                         s[i] / (s[i] - s[j]) * (axis(V[j]) - axis(V[i]));
+            else if (std::abs(s[i]) <= 1e-15)
+                t[n++] = axis(V[i]);
+        }
+        if (n < 2)
+            return false;
+        lo = std::min(t[0], t[1]);
+        hi = std::max(t[0], t[1]);
+        return true;
+    };
+    double lo1, hi1, lo2, hi2;
+    if (!span(A, s1, lo1, hi1) || !span(B, s2, lo2, hi2))
+        return false;
+    return std::min(hi1, hi2) - std::max(lo1, lo2) > e;
 }
 
 static double g_meshVolume = 0;
@@ -2132,6 +2190,163 @@ int main()
         std::printf("   %d faces, %d triangles, boundary %d edges / %.1f mm, "
                     "unchanged\n",
                     kept, after, rim, rimLen);
+    }
+
+    {
+        std::printf("== no face is drawn through another ==\n");
+        /* The defect a person actually sees and names: "spots where the mesh
+         * goes into each other". Two triangles of DIFFERENT faces that cross
+         * through one another, counted directly.
+         *
+         * Pairs that merely touch along the boundary the two faces share are
+         * not crossings — that is how a mesh works — so vertices are welded by
+         * POSITION first: they are emitted per face and carry different
+         * indices at identical points, and comparing indices counted every
+         * neighbour in the model (52.71% of the whale, which was the test
+         * being wrong, not the model). */
+        gp_GTrsf g;
+        g.SetValue(1, 1, 1.0);
+        g.SetValue(2, 2, 0.55);
+        g.SetValue(3, 3, 1.9);
+        std::vector<double> xyz;
+        std::vector<int> tri;
+        Tessellate(BRepBuilderAPI_GTransform(BRepPrimAPI_MakeSphere(50.).Shape(),
+                                             g, Standard_True).Shape(),
+                   0.15, xyz, tri);
+        meshrecon::Params p = meshrecon::Defaults();
+        meshrecon::Report r;
+        std::string err;
+        const TopoDS_Shape out = meshrecon::Reconstruct(
+            xyz.data(), (int)(xyz.size() / 3), tri.data(),
+            (int)(tri.size() / 3), p, r, err);
+        chk("through: the ellipsoid converts", !out.IsNull(), err);
+        if (!out.IsNull()) {
+            std::vector<double> areas;
+            double factor = 0;
+            meshrecon::TessellateCovered(out, 0.6, 0.35, areas, factor);
+            std::vector<gp_Pnt> P;
+            std::vector<int> T, F;
+            int fi = 0;
+            for (TopExp_Explorer ex(out, TopAbs_FACE); ex.More(); ex.Next(), ++fi) {
+                TopLoc_Location loc;
+                const Handle(Poly_Triangulation) t =
+                    BRep_Tool::Triangulation(TopoDS::Face(ex.Current()), loc);
+                if (t.IsNull())
+                    continue;
+                const gp_Trsf tr = loc.Transformation();
+                const int b0 = (int)P.size();
+                for (int i = 1; i <= t->NbNodes(); ++i)
+                    P.push_back(t->Node(i).Transformed(tr));
+                for (int i = 1; i <= t->NbTriangles(); ++i) {
+                    int a, b, c;
+                    t->Triangle(i).Get(a, b, c);
+                    T.push_back(b0 + a - 1);
+                    T.push_back(b0 + b - 1);
+                    T.push_back(b0 + c - 1);
+                    F.push_back(fi);
+                }
+            }
+            const int nt = (int)F.size();
+            /* weld by position */
+            std::vector<int> weld(P.size());
+            {
+                Bnd_Box bb;
+                for (const gp_Pnt &q : P)
+                    bb.Add(q);
+                double x0, y0, z0, x1, y1, z1;
+                bb.Get(x0, y0, z0, x1, y1, z1);
+                const double h = std::max(
+                    1e-7, gp_Pnt(x0, y0, z0).Distance(gp_Pnt(x1, y1, z1)) * 1e-6);
+                std::map<std::array<long long, 3>, std::vector<int>> cell;
+                for (size_t v = 0; v < P.size(); ++v) {
+                    const std::array<long long, 3> c0 = {
+                        (long long)std::floor(P[v].X() / h),
+                        (long long)std::floor(P[v].Y() / h),
+                        (long long)std::floor(P[v].Z() / h)};
+                    int rep = (int)v;
+                    for (long long a = -1; a <= 1; ++a)
+                        for (long long b = -1; b <= 1; ++b)
+                            for (long long c = -1; c <= 1; ++c) {
+                                const auto it = cell.find(
+                                    {c0[0] + a, c0[1] + b, c0[2] + c});
+                                if (it == cell.end())
+                                    continue;
+                                for (const int n : it->second)
+                                    if (weld[n] < rep &&
+                                        P[n].SquareDistance(P[v]) <= h * h)
+                                        rep = weld[n];
+                            }
+                    weld[v] = rep;
+                    cell[c0].push_back((int)v);
+                }
+            }
+            /* a grid, so this is not quadratic in eleven thousand triangles */
+            Bnd_Box bb2;
+            for (const gp_Pnt &q : P)
+                bb2.Add(q);
+            double a0, b0, c0, a1, b1, c1;
+            bb2.Get(a0, b0, c0, a1, b1, c1);
+            const double cell =
+                std::max(1e-6, gp_Pnt(a0, b0, c0).Distance(gp_Pnt(a1, b1, c1)) / 96.0);
+            std::map<std::array<long long, 3>, std::vector<int>> grid;
+            for (int t = 0; t < nt; ++t) {
+                long long lo[3], hi[3];
+                for (int k = 0; k < 3; ++k) {
+                    double mn = 1e300, mx = -1e300;
+                    for (int q = 0; q < 3; ++q) {
+                        const gp_Pnt &v = P[T[t * 3 + q]];
+                        const double x = (k == 0 ? v.X() : k == 1 ? v.Y() : v.Z());
+                        mn = std::min(mn, x);
+                        mx = std::max(mx, x);
+                    }
+                    lo[k] = (long long)std::floor(mn / cell);
+                    hi[k] = (long long)std::floor(mx / cell);
+                }
+                for (long long x = lo[0]; x <= hi[0]; ++x)
+                    for (long long y = lo[1]; y <= hi[1]; ++y)
+                        for (long long z = lo[2]; z <= hi[2]; ++z)
+                            grid[{x, y, z}].push_back(t);
+            }
+            long long pairs = 0;
+            int badTri = 0;
+            std::vector<char> hit(nt, 0);
+            for (const auto &kv : grid)
+                for (size_t i = 0; i < kv.second.size(); ++i)
+                    for (size_t j = i + 1; j < kv.second.size(); ++j) {
+                        const int x = kv.second[i], y = kv.second[j];
+                        if (F[x] == F[y])
+                            continue;
+                        bool share = false;
+                        for (int u = 0; u < 3 && !share; ++u)
+                            for (int v = 0; v < 3; ++v)
+                                if (weld[T[x * 3 + u]] == weld[T[y * 3 + v]]) {
+                                    share = true;
+                                    break;
+                                }
+                        if (share)
+                            continue;
+                        if (!TrianglesCross(P[T[x * 3]], P[T[x * 3 + 1]],
+                                            P[T[x * 3 + 2]], P[T[y * 3]],
+                                            P[T[y * 3 + 1]], P[T[y * 3 + 2]]))
+                            continue;
+                        ++pairs;
+                        if (!hit[x]) { hit[x] = 1; ++badTri; }
+                        if (!hit[y]) { hit[y] = 1; ++badTri; }
+                    }
+            chk("through: there is a body to check", nt > 5000,
+                std::to_string(nt) + " triangles");
+            /* Measured: 2,558 pairs before the out-of-trim triangles were
+             * dropped, 1,985 after. The bar is between them, so a return to
+             * drawing surface a face does not own fails here. It is not zero,
+             * and saying so is the point: patches that meet nearly tangentially
+             * still interleave a little past their seam, 1.4 mm at the median
+             * on this body, and that is not fixed. */
+            chk("through: faces are not drawn through each other", pairs <= 2300,
+                std::to_string(pairs) + " crossing pairs over " +
+                    std::to_string(badTri) + " triangles");
+            std::printf("   ellipsoid: %lld crossing pairs over %d of %d "
+                        "triangles\n", pairs, badTri, nt);
+        }
     }
 
     {
