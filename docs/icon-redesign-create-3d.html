@@ -1,0 +1,369 @@
+<title>Create Panel, Redrawn</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{
+  --ground:#EDEBE6; --sheet:#F5F4F0; --ink:#1C1E20; --dim:#6E6A62; --faint:#918C82;
+  --rule:#DCD8D0; --rule2:#C9C4BA; --accent:#0F6A70; --copper:#A0561F;
+  --stage:#2C2823; --stage-ink:#EDE6D9; --stage-rule:#3A342D; --stage-dim:#A09686;
+  --f-disp:"IBM Plex Sans Condensed","Helvetica Neue",Arial,sans-serif;
+  --f-body:"IBM Plex Sans","Helvetica Neue",Arial,sans-serif;
+  --f-mono:"IBM Plex Mono","SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --ground:#1F1C18; --sheet:#24211D; --ink:#EDE6D9; --dim:#A09686; --faint:#8E8578;
+  --rule:#3A342D; --rule2:#4A433A; --accent:#2FA9A2; --copper:#D98A4A;}}
+:root[data-theme="dark"]{
+  --ground:#1F1C18; --sheet:#24211D; --ink:#EDE6D9; --dim:#A09686; --faint:#8E8578;
+  --rule:#3A342D; --rule2:#4A433A; --accent:#2FA9A2; --copper:#D98A4A;}
+body.stage-light{--stage:#F5F4F0; --stage-ink:#1C1E20; --stage-rule:#DCD8D0; --stage-dim:#6E6A62;}
+
+*{box-sizing:border-box}
+body{background:var(--ground);color:var(--ink);font-family:var(--f-body);font-size:15px;
+  line-height:1.55;-webkit-font-smoothing:antialiased}
+h1,h2,h3{font-family:var(--f-disp);font-weight:600;text-wrap:balance;margin:0}
+code,.mono{font-family:var(--f-mono)}
+main{max-width:1120px;margin:0 auto;padding:34px 28px 96px}
+
+.masthead{border-bottom:2px solid var(--ink);padding-bottom:20px;margin-bottom:28px}
+.eyebrow{font-family:var(--f-disp);font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--faint);margin:0 0 6px}
+h1{font-size:clamp(30px,4.4vw,44px);line-height:1.03;letter-spacing:-.015em}
+.lede{max-width:64ch;color:var(--dim);margin:12px 0 0;font-size:16px}
+
+h2.sec{font-size:22px;border-top:2px solid var(--ink);padding-top:11px;margin:46px 0 6px}
+h2.sec + .sub{color:var(--dim);font-size:14px;margin:0 0 18px;max-width:70ch}
+
+/* rules block */
+.rules{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));margin-bottom:8px}
+.rules div{background:var(--sheet);border:1px solid var(--rule);padding:12px 14px}
+.rules dt{font-family:var(--f-disp);font-size:11.5px;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--faint);margin-bottom:3px}
+.rules dd{margin:0;font-size:13.6px;color:var(--dim)}
+.rules b{color:var(--ink);font-family:var(--f-mono);font-size:13px;font-weight:500}
+.sw{display:flex;gap:8px;margin-top:9px;align-items:center;flex-wrap:wrap}
+.sw i{width:15px;height:15px;border-radius:2px;display:inline-block;border:1px solid rgba(128,128,128,.35)}
+.sw span{font-family:var(--f-mono);font-size:11px;color:var(--faint)}
+
+/* ribbon mock */
+.mocks{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(330px,1fr))}
+.mockwrap > p{font-family:var(--f-disp);font-size:11.5px;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--faint);margin:0 0 8px}
+.rb{background:var(--stage);border:1px solid var(--stage-rule);padding:10px 12px 6px;
+  color:var(--stage-ink);overflow-x:auto}
+.rb-body{display:flex;gap:14px;align-items:flex-start}
+.rb-big{display:flex;flex-direction:column;align-items:center;gap:5px;width:64px;padding:5px 2px}
+.rb-big span{font-size:11px;color:var(--stage-ink);text-align:center;line-height:1.2}
+.rb-col{display:flex;flex-direction:column;gap:2px;padding-top:2px}
+.rb-row{display:flex;align-items:center;gap:7px;padding:3px 6px 3px 2px}
+.rb-row span{font-size:11.5px;white-space:nowrap}
+.rb-dim{opacity:.55}
+.rb-over{border-left:1px solid var(--stage-rule);padding-left:11px}
+.rb-oh{font-family:var(--f-mono);font-size:9.5px;color:var(--stage-dim);margin:0 0 2px;
+  letter-spacing:.06em}
+.rb-title{font-family:var(--f-disp);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--stage-dim);text-align:center;margin:6px 0 0;border-top:1px solid var(--stage-rule);
+  padding-top:5px}
+
+/* comparison cards */
+.cmps{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(340px,1fr))}
+.cmp{background:var(--sheet);border:1px solid var(--rule);padding:14px 16px 15px}
+.cmp header{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:11px}
+.cmp h3{font-size:18px}
+.meta{font-family:var(--f-mono);font-size:11.5px;color:var(--faint)}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.side{min-width:0}
+.sl{font-family:var(--f-disp);font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;
+  margin:0 0 6px;color:var(--faint)}
+.side.new .sl{color:var(--accent)}
+.shots{background:var(--stage);border:1px solid var(--stage-rule);padding:12px;
+  display:flex;align-items:center;justify-content:center;gap:14px;min-height:124px}
+.atsize{display:flex;flex-direction:column;align-items:center;gap:5px}
+.atsize em{font-family:var(--f-mono);font-size:9.5px;font-style:normal;color:var(--stage-dim)}
+.why{margin:11px 0 0;font-size:13.4px;color:var(--dim)}
+.art{line-height:0;color:var(--stage-ink)}
+.art svg{display:block;width:var(--px);height:var(--px)}
+
+/* code */
+pre{background:var(--sheet);border:1px solid var(--rule);padding:14px 16px;overflow-x:auto;
+  font-family:var(--f-mono);font-size:12px;line-height:1.6;margin:0;color:var(--ink)}
+
+/* controls */
+.bar{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--ground) 92%,transparent);
+  backdrop-filter:blur(10px);border-bottom:1px solid var(--rule2);padding:9px 0;margin-bottom:22px;
+  display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.barlab{font-family:var(--f-disp);font-size:11.5px;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--faint)}
+.seg{display:flex;border:1px solid var(--rule2);border-radius:3px;overflow:hidden}
+.seg button{font-family:var(--f-disp);font-size:12.5px;background:transparent;color:var(--dim);
+  border:0;border-right:1px solid var(--rule2);padding:5px 11px;cursor:pointer}
+.seg button:last-child{border-right:0}
+.seg button[aria-pressed="true"]{background:var(--accent);color:#fff}
+.seg button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.ask{background:var(--sheet);border:1px solid var(--rule);border-left:3px solid var(--accent);
+  padding:14px 16px;margin-top:34px}
+.ask h3{font-size:16px;margin-bottom:6px}
+.ask ul{margin:0;padding-left:18px;color:var(--dim);font-size:13.8px}
+.ask li{margin:3px 0}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+
+<main>
+<header class="masthead">
+  <p class="eyebrow">iPadProCAD · Part ribbon · Create panel</p>
+  <h1>Create panel, redrawn</h1>
+  <p class="lede">Eight icons on one grid, one stroke weight and three colours. Accent marks what the command <em>does</em>; the neutrals are the geometry it does it to. Everything below is the real SVG, at the real ribbon size, next to what is shipping today.</p>
+</header>
+
+<div class="bar">
+  <span class="barlab">Render</span>
+  <div class="seg" id="mode">
+    <button data-m="source" aria-pressed="true">Source</button>
+    <button data-m="ember" aria-pressed="false">Ember (dark)</button>
+    <button data-m="chalk" aria-pressed="false">Chalk (light)</button>
+  </div>
+  <span class="barlab" style="margin-left:auto">All eight — 24×24 · 1.5 stroke · 3 colours</span>
+</div>
+
+<h2 class="sec">The panel, in place</h2>
+<p class="sub">Both mocks are the real Create panel: two 34 px buttons, three 18 px rows, three more behind the ▾. Same layout, same sizes, same ribbon ground — only the artwork changes.</p>
+<div class="mocks">
+  <div class="mockwrap"><p>Proposed</p><div class="rb"><div class="rb-body"><div class="rb-big"><div class="art " id="a32" style="--px:34px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 11 L12 7.5 L19 11 L12 14.5 Z" stroke="#C9CDD2"/><path d="M5 11 V17 L12 20.5 L19 17 V11" stroke="#C9CDD2"/><path d="M12 14.5 V20.5" stroke="#9AA0A6"/><path d="M12 8.5 V3" stroke="#3D9BE9"/><path d="M9.5 5.3 L12 2.8 L14.5 5.3" stroke="#3D9BE9"/></svg></div><span>Extrude</span></div><div class="rb-big"><div class="art " id="a33" style="--px:34px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 V4.6" stroke="#9AA0A6"/><path d="M12 19.6 V22" stroke="#9AA0A6"/><ellipse cx="12" cy="7.5" rx="6.5" ry="2.7" stroke="#C9CDD2"/><path d="M5.5 7.5 V16.5" stroke="#C9CDD2"/><path d="M18.5 7.5 V16.5" stroke="#C9CDD2"/><path d="M5.5 16.5 A6.5 2.7 0 0 0 18.5 16.5" stroke="#C9CDD2"/><path d="M16.6 7.5 A4.6 1.9 0 1 0 12 9.4" stroke="#3D9BE9"/><path d="M10.4 8.5 L12 9.4 L10.4 10.4" stroke="#3D9BE9"/></svg></div><span>Revolve</span></div><div class="rb-col"><div class="rb-row"><div class="art " id="a34" style="--px:18px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15.4 C 10 15.4, 10 3.9, 20 3.9" stroke="#C9CDD2"/><path d="M4 20.6 C 10 20.6, 10 9.1, 20 9.1" stroke="#C9CDD2"/><path d="M4 15.4 V20.6" stroke="#C9CDD2"/><path d="M20 3.9 V9.1" stroke="#C9CDD2"/><path d="M4 18 C 10 18, 10 6.5, 20 6.5" stroke="#3D9BE9"/></svg></div><span>Sweep</span></div><div class="rb-row"><div class="art " id="a35" style="--px:18px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="9.5" cy="18" rx="6.5" ry="2.8" stroke="#C9CDD2"/><ellipse cx="15" cy="6" rx="4" ry="1.8" stroke="#C9CDD2"/><path d="M3 18 L11 6" stroke="#3D9BE9"/><path d="M16 18 L19 6" stroke="#3D9BE9"/></svg></div><span>Loft</span></div><div class="rb-row"><div class="art " id="a36" style="--px:18px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 4.5 A6.5 2.4 0 0 1 18.5 6.7 A6.5 2.4 0 0 1 5.5 8.9 A6.5 2.4 0 0 1 18.5 11.1 A6.5 2.4 0 0 1 5.5 13.3 A6.5 2.4 0 0 1 18.5 15.5 A6.5 2.4 0 0 1 5.5 17.7" stroke="#3D9BE9"/></svg></div><span>Coil</span></div></div><div class="rb-col rb-over"><p class="rb-oh">▾ overflow</p><div class="rb-row rb-dim"><div class="art " id="a37" style="--px:18px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 12.5 L12 7.5 L21.5 12.5 L12 17.5 Z" stroke="#C9CDD2"/><path d="M7.5 9 L12 6.6 L16.5 9 L12 11.4 Z" stroke="#3D9BE9"/><path d="M7.5 9 V12.5" stroke="#3D9BE9"/><path d="M16.5 9 V12.5" stroke="#3D9BE9"/><path d="M12 11.4 V14.9" stroke="#3D9BE9"/></svg></div><span>Emboss</span></div><div class="rb-row rb-dim"><div class="art " id="a38" style="--px:18px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3.5 H12 L15.5 7 V20.5 H3 Z" stroke="#C9CDD2"/><path d="M12 3.5 V7 H15.5" stroke="#C9CDD2"/><path d="M5.5 13 L9 11 L12.5 13 L9 15 Z" stroke="#9AA0A6"/><path d="M5.5 13 V16 L9 18 L12.5 16 V13" stroke="#9AA0A6"/><path d="M9 15 V18" stroke="#9AA0A6"/><path d="M17 12 H21.5" stroke="#3D9BE9"/><path d="M19.4 9.9 L21.7 12 L19.4 14.1" stroke="#3D9BE9"/></svg></div><span>Derive</span></div><div class="rb-row rb-dim"><div class="art " id="a39" style="--px:18px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 17 L11.5 12.6 L21.5 17 L12.5 21.4 Z" stroke="#C9CDD2"/><rect x="7.5" y="2.5" width="10" height="8" rx="1.5" stroke="#3D9BE9"/><circle cx="10.3" cy="5.4" r="1" stroke="#3D9BE9"/><path d="M8.4 9.6 L11 6.6 L12.9 8.6 L14.6 7 L16.6 9.6" stroke="#3D9BE9"/></svg></div><span>Decal</span></div></div></div><p class="rb-title">Create</p></div></div>
+  <div class="mockwrap"><p>Current</p><div class="rb"><div class="rb-body"><div class="rb-big"><div class="art " id="a40" style="--px:34px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 34 34" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M17 6 L28 12 L17 18 L6 12 Z" fill="#CDE6F7" stroke="#3f7cb2" stroke-width=".9"/><path d="M6 12 L17 18 L17 30 L6 24 Z" fill="#7FB8E2" stroke="#3f7cb2" stroke-width=".9"/><path d="M28 12 L17 18 L17 30 L28 24 Z" fill="#A6D0EC" stroke="#3f7cb2" stroke-width=".9"/><path d="M12 13 L12 3 M12 3 L9.7 5.5 M12 3 L14.3 5.5" stroke="#46B04A" stroke-width="1.8" fill="none"/><path d="M20 15 L20 5 M20 5 L17.7 7.5 M20 5 L22.3 7.5" stroke="#46B04A" stroke-width="1.8" fill="none"/></svg></div><span>Extrude</span></div><div class="rb-big"><div class="art " id="a41" style="--px:34px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 34 34" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M6 26 A 18 18 0 0 1 24 8 L24 14 A 12 12 0 0 0 12 26 Z" fill="#A6D0EC" stroke="#3f7cb2" stroke-width=".9"/><path d="M6 26 A 18 18 0 0 1 24 8 L22.4 10.1 A 15.4 15.4 0 0 0 8.1 25 Z" fill="#CDE6F7" stroke="none"/><path d="M19 5 A 13 13 0 0 1 30 13" fill="none" stroke="#46B04A" stroke-width="1.8"/><path d="M30 13 L27.4 11.9 M30 13 L28.7 15.7" stroke="#46B04A" stroke-width="1.8" fill="none"/></svg></div><span>Revolve</span></div><div class="rb-col"><div class="rb-row"><div class="art " id="a42" style="--px:18px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M3 15 C 7 6, 11 14, 15 4" stroke="#C4C9CE" stroke-width="1.3" fill="none"/><rect x="1.6" y="12.6" width="4.2" height="4.2" fill="#3D9BE9"/></svg></div><span>Sweep</span></div><div class="rb-row"><div class="art " id="a43" style="--px:18px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" fill="none" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="6" cy="13.5" rx="4" ry="1.6" fill="#3D9BE9" stroke="#1a5f95" stroke-width=".5"/><ellipse cx="12" cy="5" rx="2.8" ry="1.1" fill="#54B0E8" stroke="#1a5f95" stroke-width=".5"/><path d="M2.2 13.3 L9.4 5 M9.9 13.7 L14.6 5" stroke="#C4C9CE" stroke-width=".9"/></svg></div><span>Loft</span></div><div class="rb-row"><div class="art " id="a44" style="--px:18px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4 C 15 2.5, 15 6, 4 6.5 C 15 7, 15 10.5, 4 11 C 15 11.5, 15 15, 4 15.5" stroke="#3D9BE9" stroke-width="1.5" fill="none"/></svg></div><span>Coil</span></div></div><div class="rb-col rb-over"><p class="rb-oh">▾ overflow</p><div class="rb-row rb-dim"><div class="art " id="a45" style="--px:18px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="9" width="14" height="5.5" fill="none" stroke="#C4C9CE" stroke-width="1.1"/><path d="M6 9 V5 h6 v4" stroke="#3D9BE9" stroke-width="1.4" fill="none"/></svg></div><span>Emboss</span></div><div class="rb-row rb-dim"><div class="art " id="a46" style="--px:18px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4.5" width="6.5" height="6.5" fill="#54B0E8" stroke="#1a5f95" stroke-width=".5"/><rect x="8.5" y="8" width="6.5" height="6.5" fill="#3D9BE9" stroke="#1a5f95" stroke-width=".5"/><path d="M8 5.5 h3.5 M11.5 5.5 l-1.6-1.1 M11.5 5.5 l-1.6 1.1" stroke="#C4C9CE" stroke-width="1"/></svg></div><span>Derive</span></div><div class="rb-row rb-dim"><div class="art " id="a47" style="--px:18px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4" width="13" height="10" rx="1" fill="none" stroke="#C4C9CE" stroke-width="1.1"/><circle cx="6" cy="7" r="1.3" fill="#E8C63F"/><path d="M3.5 13 L7 8.8 L9.4 11 L12 7.2 L15 13 Z" fill="#3D9BE9"/></svg></div><span>Decal</span></div></div></div><p class="rb-title">Create</p></div></div>
+</div>
+
+<h2 class="sec">The rules</h2>
+<p class="sub">Four decisions do most of the work. They are what make eight separate drawings read as one panel, and they are the part worth agreeing on before the artwork.</p>
+<div class="rules">
+  <div><dt>One grid</dt><dd><b>24 × 24</b> for all eight, scaled to 34 or 18 by the ribbon. Today the panel mixes a 34 grid and an 18 grid, so the same line weight arrives at two different thicknesses.</dd></div>
+  <div><dt>One weight</dt><dd><b>1.5</b>, round caps and joins, no fills. Today these eight use eight different stroke widths between 0.5 and 1.8, plus twelve filled shapes.</dd></div>
+  <div><dt>Accent = the operation</dt><dd>The arrow, the axis, the path, the helix, the raise. The eye lands on the one thing that separates Extrude from Sweep instead of on a blue cube that all of them share.</dd></div>
+  <div><dt>Three colours</dt><dd>Down from ten in this panel alone, and from four near-identical blues. All three survive <code>themedIcon()</code> — the greys ride the ink ramp, the blue lands on the accent.
+    <span class="sw"><i style="background:#C9CDD2"></i><span>#C9CDD2</span><i style="background:#9AA0A6"></i><span>#9AA0A6</span><i style="background:#3D9BE9"></i><span>#3D9BE9</span></span></dd></div>
+</div>
+
+<h2 class="sec">One at a time</h2>
+<p class="sub">Left is the proposal at 96 px and again at the size the ribbon actually draws it. Right is what ships today, same two sizes. Judge the small one — that is the only size a user ever sees.</p>
+<div class="cmps"><article class="cmp">
+  <header><h3>Extrude</h3><span class="meta">CR['extrude'] · renders at 34 px</span></header>
+  <div class="pair">
+    <div class="side new"><p class="sl">New — 24 grid</p>
+      <div class="shots"><div class="art " id="a0" style="--px:96px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 11 L12 7.5 L19 11 L12 14.5 Z" stroke="#C9CDD2"/><path d="M5 11 V17 L12 20.5 L19 17 V11" stroke="#C9CDD2"/><path d="M12 14.5 V20.5" stroke="#9AA0A6"/><path d="M12 8.5 V3" stroke="#3D9BE9"/><path d="M9.5 5.3 L12 2.8 L14.5 5.3" stroke="#3D9BE9"/></svg></div><div class="atsize"><div class="art " id="a1" style="--px:34px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 11 L12 7.5 L19 11 L12 14.5 Z" stroke="#C9CDD2"/><path d="M5 11 V17 L12 20.5 L19 17 V11" stroke="#C9CDD2"/><path d="M12 14.5 V20.5" stroke="#9AA0A6"/><path d="M12 8.5 V3" stroke="#3D9BE9"/><path d="M9.5 5.3 L12 2.8 L14.5 5.3" stroke="#3D9BE9"/></svg></div><em>34 px</em></div></div></div>
+    <div class="side old"><p class="sl">Current</p>
+      <div class="shots"><div class="art " id="a2" style="--px:96px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 34 34" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M17 6 L28 12 L17 18 L6 12 Z" fill="#CDE6F7" stroke="#3f7cb2" stroke-width=".9"/><path d="M6 12 L17 18 L17 30 L6 24 Z" fill="#7FB8E2" stroke="#3f7cb2" stroke-width=".9"/><path d="M28 12 L17 18 L17 30 L28 24 Z" fill="#A6D0EC" stroke="#3f7cb2" stroke-width=".9"/><path d="M12 13 L12 3 M12 3 L9.7 5.5 M12 3 L14.3 5.5" stroke="#46B04A" stroke-width="1.8" fill="none"/><path d="M20 15 L20 5 M20 5 L17.7 7.5 M20 5 L22.3 7.5" stroke="#46B04A" stroke-width="1.8" fill="none"/></svg></div><div class="atsize"><div class="art " id="a3" style="--px:34px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 34 34" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M17 6 L28 12 L17 18 L6 12 Z" fill="#CDE6F7" stroke="#3f7cb2" stroke-width=".9"/><path d="M6 12 L17 18 L17 30 L6 24 Z" fill="#7FB8E2" stroke="#3f7cb2" stroke-width=".9"/><path d="M28 12 L17 18 L17 30 L28 24 Z" fill="#A6D0EC" stroke="#3f7cb2" stroke-width=".9"/><path d="M12 13 L12 3 M12 3 L9.7 5.5 M12 3 L14.3 5.5" stroke="#46B04A" stroke-width="1.8" fill="none"/><path d="M20 15 L20 5 M20 5 L17.7 7.5 M20 5 L22.3 7.5" stroke="#46B04A" stroke-width="1.8" fill="none"/></svg></div><em>34 px</em></div></div></div>
+  </div>
+  <p class="why">A closed profile and the solid it becomes, with the arrow leaving the face it was pushed from. The old one drew five filled polygons and two green arrows in a 34 px box; at ribbon size that is mud.</p>
+</article>
+<article class="cmp">
+  <header><h3>Revolve</h3><span class="meta">CR['revolve'] · renders at 34 px</span></header>
+  <div class="pair">
+    <div class="side new"><p class="sl">New — 24 grid</p>
+      <div class="shots"><div class="art " id="a4" style="--px:96px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 V4.6" stroke="#9AA0A6"/><path d="M12 19.6 V22" stroke="#9AA0A6"/><ellipse cx="12" cy="7.5" rx="6.5" ry="2.7" stroke="#C9CDD2"/><path d="M5.5 7.5 V16.5" stroke="#C9CDD2"/><path d="M18.5 7.5 V16.5" stroke="#C9CDD2"/><path d="M5.5 16.5 A6.5 2.7 0 0 0 18.5 16.5" stroke="#C9CDD2"/><path d="M16.6 7.5 A4.6 1.9 0 1 0 12 9.4" stroke="#3D9BE9"/><path d="M10.4 8.5 L12 9.4 L10.4 10.4" stroke="#3D9BE9"/></svg></div><div class="atsize"><div class="art " id="a5" style="--px:34px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 V4.6" stroke="#9AA0A6"/><path d="M12 19.6 V22" stroke="#9AA0A6"/><ellipse cx="12" cy="7.5" rx="6.5" ry="2.7" stroke="#C9CDD2"/><path d="M5.5 7.5 V16.5" stroke="#C9CDD2"/><path d="M18.5 7.5 V16.5" stroke="#C9CDD2"/><path d="M5.5 16.5 A6.5 2.7 0 0 0 18.5 16.5" stroke="#C9CDD2"/><path d="M16.6 7.5 A4.6 1.9 0 1 0 12 9.4" stroke="#3D9BE9"/><path d="M10.4 8.5 L12 9.4 L10.4 10.4" stroke="#3D9BE9"/></svg></div><em>34 px</em></div></div></div>
+    <div class="side old"><p class="sl">Current</p>
+      <div class="shots"><div class="art " id="a6" style="--px:96px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 34 34" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M6 26 A 18 18 0 0 1 24 8 L24 14 A 12 12 0 0 0 12 26 Z" fill="#A6D0EC" stroke="#3f7cb2" stroke-width=".9"/><path d="M6 26 A 18 18 0 0 1 24 8 L22.4 10.1 A 15.4 15.4 0 0 0 8.1 25 Z" fill="#CDE6F7" stroke="none"/><path d="M19 5 A 13 13 0 0 1 30 13" fill="none" stroke="#46B04A" stroke-width="1.8"/><path d="M30 13 L27.4 11.9 M30 13 L28.7 15.7" stroke="#46B04A" stroke-width="1.8" fill="none"/></svg></div><div class="atsize"><div class="art " id="a7" style="--px:34px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 34 34" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M6 26 A 18 18 0 0 1 24 8 L24 14 A 12 12 0 0 0 12 26 Z" fill="#A6D0EC" stroke="#3f7cb2" stroke-width=".9"/><path d="M6 26 A 18 18 0 0 1 24 8 L22.4 10.1 A 15.4 15.4 0 0 0 8.1 25 Z" fill="#CDE6F7" stroke="none"/><path d="M19 5 A 13 13 0 0 1 30 13" fill="none" stroke="#46B04A" stroke-width="1.8"/><path d="M30 13 L27.4 11.9 M30 13 L28.7 15.7" stroke="#46B04A" stroke-width="1.8" fill="none"/></svg></div><em>34 px</em></div></div></div>
+  </div>
+  <p class="why">The solid a profile makes when it is spun, the axis it was spun about showing above and below it, and the turn itself drawn on the face where you would see it. Three attempts: a quarter-ring read as a hook, and a thin one read as a comma.</p>
+</article>
+<article class="cmp">
+  <header><h3>Sweep</h3><span class="meta">CR['sweep'] · renders at 18 px</span></header>
+  <div class="pair">
+    <div class="side new"><p class="sl">New — 24 grid</p>
+      <div class="shots"><div class="art " id="a8" style="--px:96px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15.4 C 10 15.4, 10 3.9, 20 3.9" stroke="#C9CDD2"/><path d="M4 20.6 C 10 20.6, 10 9.1, 20 9.1" stroke="#C9CDD2"/><path d="M4 15.4 V20.6" stroke="#C9CDD2"/><path d="M20 3.9 V9.1" stroke="#C9CDD2"/><path d="M4 18 C 10 18, 10 6.5, 20 6.5" stroke="#3D9BE9"/></svg></div><div class="atsize"><div class="art " id="a9" style="--px:18px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15.4 C 10 15.4, 10 3.9, 20 3.9" stroke="#C9CDD2"/><path d="M4 20.6 C 10 20.6, 10 9.1, 20 9.1" stroke="#C9CDD2"/><path d="M4 15.4 V20.6" stroke="#C9CDD2"/><path d="M20 3.9 V9.1" stroke="#C9CDD2"/><path d="M4 18 C 10 18, 10 6.5, 20 6.5" stroke="#3D9BE9"/></svg></div><em>18 px</em></div></div></div>
+    <div class="side old"><p class="sl">Current</p>
+      <div class="shots"><div class="art " id="a10" style="--px:96px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M3 15 C 7 6, 11 14, 15 4" stroke="#C4C9CE" stroke-width="1.3" fill="none"/><rect x="1.6" y="12.6" width="4.2" height="4.2" fill="#3D9BE9"/></svg></div><div class="atsize"><div class="art " id="a11" style="--px:18px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M3 15 C 7 6, 11 14, 15 4" stroke="#C4C9CE" stroke-width="1.3" fill="none"/><rect x="1.6" y="12.6" width="4.2" height="4.2" fill="#3D9BE9"/></svg></div><em>18 px</em></div></div></div>
+  </div>
+  <p class="why">The profile at each end drawn as a flat section, the swept body between them, the path in accent running down the middle. The old glyph was a squiggle with an unexplained blue square on it.</p>
+</article>
+<article class="cmp">
+  <header><h3>Loft</h3><span class="meta">CR['loft'] · renders at 18 px</span></header>
+  <div class="pair">
+    <div class="side new"><p class="sl">New — 24 grid</p>
+      <div class="shots"><div class="art " id="a12" style="--px:96px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="9.5" cy="18" rx="6.5" ry="2.8" stroke="#C9CDD2"/><ellipse cx="15" cy="6" rx="4" ry="1.8" stroke="#C9CDD2"/><path d="M3 18 L11 6" stroke="#3D9BE9"/><path d="M16 18 L19 6" stroke="#3D9BE9"/></svg></div><div class="atsize"><div class="art " id="a13" style="--px:18px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="9.5" cy="18" rx="6.5" ry="2.8" stroke="#C9CDD2"/><ellipse cx="15" cy="6" rx="4" ry="1.8" stroke="#C9CDD2"/><path d="M3 18 L11 6" stroke="#3D9BE9"/><path d="M16 18 L19 6" stroke="#3D9BE9"/></svg></div><em>18 px</em></div></div></div>
+    <div class="side old"><p class="sl">Current</p>
+      <div class="shots"><div class="art " id="a14" style="--px:96px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" fill="none" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="6" cy="13.5" rx="4" ry="1.6" fill="#3D9BE9" stroke="#1a5f95" stroke-width=".5"/><ellipse cx="12" cy="5" rx="2.8" ry="1.1" fill="#54B0E8" stroke="#1a5f95" stroke-width=".5"/><path d="M2.2 13.3 L9.4 5 M9.9 13.7 L14.6 5" stroke="#C4C9CE" stroke-width=".9"/></svg></div><div class="atsize"><div class="art " id="a15" style="--px:18px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" fill="none" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="6" cy="13.5" rx="4" ry="1.6" fill="#3D9BE9" stroke="#1a5f95" stroke-width=".5"/><ellipse cx="12" cy="5" rx="2.8" ry="1.1" fill="#54B0E8" stroke="#1a5f95" stroke-width=".5"/><path d="M2.2 13.3 L9.4 5 M9.9 13.7 L14.6 5" stroke="#C4C9CE" stroke-width=".9"/></svg></div><em>18 px</em></div></div></div>
+  </div>
+  <p class="why">Two profiles, two accent rails between them. The most reducible of the eight — and the one the old set drew with two filled ellipses in three different blues.</p>
+</article>
+<article class="cmp">
+  <header><h3>Coil</h3><span class="meta">CR['coil'] · renders at 18 px</span></header>
+  <div class="pair">
+    <div class="side new"><p class="sl">New — 24 grid</p>
+      <div class="shots"><div class="art " id="a16" style="--px:96px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 4.5 A6.5 2.4 0 0 1 18.5 6.7 A6.5 2.4 0 0 1 5.5 8.9 A6.5 2.4 0 0 1 18.5 11.1 A6.5 2.4 0 0 1 5.5 13.3 A6.5 2.4 0 0 1 18.5 15.5 A6.5 2.4 0 0 1 5.5 17.7" stroke="#3D9BE9"/></svg></div><div class="atsize"><div class="art " id="a17" style="--px:18px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 4.5 A6.5 2.4 0 0 1 18.5 6.7 A6.5 2.4 0 0 1 5.5 8.9 A6.5 2.4 0 0 1 18.5 11.1 A6.5 2.4 0 0 1 5.5 13.3 A6.5 2.4 0 0 1 18.5 15.5 A6.5 2.4 0 0 1 5.5 17.7" stroke="#3D9BE9"/></svg></div><em>18 px</em></div></div></div>
+    <div class="side old"><p class="sl">Current</p>
+      <div class="shots"><div class="art " id="a18" style="--px:96px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4 C 15 2.5, 15 6, 4 6.5 C 15 7, 15 10.5, 4 11 C 15 11.5, 15 15, 4 15.5" stroke="#3D9BE9" stroke-width="1.5" fill="none"/></svg></div><div class="atsize"><div class="art " id="a19" style="--px:18px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4 C 15 2.5, 15 6, 4 6.5 C 15 7, 15 10.5, 4 11 C 15 11.5, 15 15, 4 15.5" stroke="#3D9BE9" stroke-width="1.5" fill="none"/></svg></div><em>18 px</em></div></div></div>
+  </div>
+  <p class="why">Three interlocking turns and nothing else — no axis, because a helix does not need one explained. The old spring was drawn with straight return lines, which at 18 px read as a fir tree rather than a coil.</p>
+</article>
+<article class="cmp">
+  <header><h3>Emboss</h3><span class="meta">CR['emboss'] · renders at 18 px</span></header>
+  <div class="pair">
+    <div class="side new"><p class="sl">New — 24 grid</p>
+      <div class="shots"><div class="art " id="a20" style="--px:96px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 12.5 L12 7.5 L21.5 12.5 L12 17.5 Z" stroke="#C9CDD2"/><path d="M7.5 9 L12 6.6 L16.5 9 L12 11.4 Z" stroke="#3D9BE9"/><path d="M7.5 9 V12.5" stroke="#3D9BE9"/><path d="M16.5 9 V12.5" stroke="#3D9BE9"/><path d="M12 11.4 V14.9" stroke="#3D9BE9"/></svg></div><div class="atsize"><div class="art " id="a21" style="--px:18px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 12.5 L12 7.5 L21.5 12.5 L12 17.5 Z" stroke="#C9CDD2"/><path d="M7.5 9 L12 6.6 L16.5 9 L12 11.4 Z" stroke="#3D9BE9"/><path d="M7.5 9 V12.5" stroke="#3D9BE9"/><path d="M16.5 9 V12.5" stroke="#3D9BE9"/><path d="M12 11.4 V14.9" stroke="#3D9BE9"/></svg></div><em>18 px</em></div></div></div>
+    <div class="side old"><p class="sl">Current</p>
+      <div class="shots"><div class="art " id="a22" style="--px:96px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="9" width="14" height="5.5" fill="none" stroke="#C4C9CE" stroke-width="1.1"/><path d="M6 9 V5 h6 v4" stroke="#3D9BE9" stroke-width="1.4" fill="none"/></svg></div><div class="atsize"><div class="art " id="a23" style="--px:18px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="9" width="14" height="5.5" fill="none" stroke="#C4C9CE" stroke-width="1.1"/><path d="M6 9 V5 h6 v4" stroke="#3D9BE9" stroke-width="1.4" fill="none"/></svg></div><em>18 px</em></div></div></div>
+  </div>
+  <p class="why">A face, and a shape standing off it by exactly the amount the walls show. The raise is accent because the raise is the feature. The old icon was a rectangle with a bump.</p>
+</article>
+<article class="cmp">
+  <header><h3>Derive</h3><span class="meta">CR['derive'] · renders at 18 px</span></header>
+  <div class="pair">
+    <div class="side new"><p class="sl">New — 24 grid</p>
+      <div class="shots"><div class="art " id="a24" style="--px:96px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3.5 H12 L15.5 7 V20.5 H3 Z" stroke="#C9CDD2"/><path d="M12 3.5 V7 H15.5" stroke="#C9CDD2"/><path d="M5.5 13 L9 11 L12.5 13 L9 15 Z" stroke="#9AA0A6"/><path d="M5.5 13 V16 L9 18 L12.5 16 V13" stroke="#9AA0A6"/><path d="M9 15 V18" stroke="#9AA0A6"/><path d="M17 12 H21.5" stroke="#3D9BE9"/><path d="M19.4 9.9 L21.7 12 L19.4 14.1" stroke="#3D9BE9"/></svg></div><div class="atsize"><div class="art " id="a25" style="--px:18px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3.5 H12 L15.5 7 V20.5 H3 Z" stroke="#C9CDD2"/><path d="M12 3.5 V7 H15.5" stroke="#C9CDD2"/><path d="M5.5 13 L9 11 L12.5 13 L9 15 Z" stroke="#9AA0A6"/><path d="M5.5 13 V16 L9 18 L12.5 16 V13" stroke="#9AA0A6"/><path d="M9 15 V18" stroke="#9AA0A6"/><path d="M17 12 H21.5" stroke="#3D9BE9"/><path d="M19.4 9.9 L21.7 12 L19.4 14.1" stroke="#3D9BE9"/></svg></div><em>18 px</em></div></div></div>
+    <div class="side old"><p class="sl">Current</p>
+      <div class="shots"><div class="art " id="a26" style="--px:96px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4.5" width="6.5" height="6.5" fill="#54B0E8" stroke="#1a5f95" stroke-width=".5"/><rect x="8.5" y="8" width="6.5" height="6.5" fill="#3D9BE9" stroke="#1a5f95" stroke-width=".5"/><path d="M8 5.5 h3.5 M11.5 5.5 l-1.6-1.1 M11.5 5.5 l-1.6 1.1" stroke="#C4C9CE" stroke-width="1"/></svg></div><div class="atsize"><div class="art " id="a27" style="--px:18px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4.5" width="6.5" height="6.5" fill="#54B0E8" stroke="#1a5f95" stroke-width=".5"/><rect x="8.5" y="8" width="6.5" height="6.5" fill="#3D9BE9" stroke="#1a5f95" stroke-width=".5"/><path d="M8 5.5 h3.5 M11.5 5.5 l-1.6-1.1 M11.5 5.5 l-1.6 1.1" stroke="#C4C9CE" stroke-width="1"/></svg></div><em>18 px</em></div></div></div>
+  </div>
+  <p class="why">A document, the body inside it, and the accent arrow taking it out. Derive is the only Create command that reaches into another file, and it should be the only icon with a document in it.</p>
+</article>
+<article class="cmp">
+  <header><h3>Decal</h3><span class="meta">CR['decal'] · renders at 18 px</span></header>
+  <div class="pair">
+    <div class="side new"><p class="sl">New — 24 grid</p>
+      <div class="shots"><div class="art " id="a28" style="--px:96px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 17 L11.5 12.6 L21.5 17 L12.5 21.4 Z" stroke="#C9CDD2"/><rect x="7.5" y="2.5" width="10" height="8" rx="1.5" stroke="#3D9BE9"/><circle cx="10.3" cy="5.4" r="1" stroke="#3D9BE9"/><path d="M8.4 9.6 L11 6.6 L12.9 8.6 L14.6 7 L16.6 9.6" stroke="#3D9BE9"/></svg></div><div class="atsize"><div class="art " id="a29" style="--px:18px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 17 L11.5 12.6 L21.5 17 L12.5 21.4 Z" stroke="#C9CDD2"/><rect x="7.5" y="2.5" width="10" height="8" rx="1.5" stroke="#3D9BE9"/><circle cx="10.3" cy="5.4" r="1" stroke="#3D9BE9"/><path d="M8.4 9.6 L11 6.6 L12.9 8.6 L14.6 7 L16.6 9.6" stroke="#3D9BE9"/></svg></div><em>18 px</em></div></div></div>
+    <div class="side old"><p class="sl">Current</p>
+      <div class="shots"><div class="art " id="a30" style="--px:96px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4" width="13" height="10" rx="1" fill="none" stroke="#C4C9CE" stroke-width="1.1"/><circle cx="6" cy="7" r="1.3" fill="#E8C63F"/><path d="M3.5 13 L7 8.8 L9.4 11 L12 7.2 L15 13 Z" fill="#3D9BE9"/></svg></div><div class="atsize"><div class="art " id="a31" style="--px:18px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4" width="13" height="10" rx="1" fill="none" stroke="#C4C9CE" stroke-width="1.1"/><circle cx="6" cy="7" r="1.3" fill="#E8C63F"/><path d="M3.5 13 L7 8.8 L9.4 11 L12 7.2 L15 13 Z" fill="#3D9BE9"/></svg></div><em>18 px</em></div></div></div>
+  </div>
+  <p class="why">An image and the face it lands on. The image mark is the one place in the set where a literal picture beats a geometric one — everybody already reads it.</p>
+</article></div>
+
+<h2 class="sec">The code</h2>
+<p class="sub">Ready to drop into <code>lib/svg_icons.dart</code> — nothing else in the file changes, and every key keeps its name so no call site moves. Not applied yet.</p>
+<pre>// Create panel (3D part features) — M__ redraw.
+//
+// One 24-px grid for the whole panel, one stroke weight (1.5), three
+// colours. ACCENT marks what the command DOES; the two neutrals are the
+// geometry it does it to. Every colour survives themedIcon(): the greys
+// are under 12% saturation so they ride the palette&#x27;s ink ramp, and the
+// blue sits at hue 207 so it lands on T.accent in both schemes.
+const CE = &#x27;#C9CDD2&#x27;; // geometry, primary
+const CS = &#x27;#9AA0A6&#x27;; // geometry, secondary
+const CA = &#x27;#3D9BE9&#x27;; // the operation
+
+String S24(String inner) =&gt;
+    &#x27;&lt;svg xmlns=&quot;http://www.w3.org/2000/svg&quot; viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; &#x27;
+    &#x27;stroke-width=&quot;1.5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;&gt;&#x27;
+    &#x27;\$inner&lt;/svg&gt;&#x27;;
+
+final Map&lt;String, String&gt; CR = {
+  // A closed profile and the solid it becomes, with the arrow leaving the face it was pushed from.
+  &#x27;extrude&#x27;: S24(
+      &#x27;&lt;path d=&quot;M5 11 L12 7.5 L19 11 L12 14.5 Z&quot; stroke=&quot;\$CE&quot;/&gt;&#x27;
+      &#x27;&lt;path d=&quot;M5 11 V17 L12 20.5 L19 17 V11&quot; stroke=&quot;\$CE&quot;/&gt;&#x27;
+      &#x27;&lt;path d=&quot;M12 14.5 V20.5&quot; stroke=&quot;\$CS&quot;/&gt;&#x27;
+      &#x27;&lt;path d=&quot;M12 8.5 V3&quot; stroke=&quot;\$CA&quot;/&gt;&#x27;
+      &#x27;&lt;path d=&quot;M9.5 5.3 L12 2.8 L14.5 5.3&quot; stroke=&quot;\$CA&quot;/&gt;&#x27;),
+  // The solid a profile makes when it is spun, the axis it was spun about showing above and below it, and the turn itself drawn on the face where you would see it.
+  &#x27;revolve&#x27;: S24(
+      &#x27;&lt;path d=&quot;M12 2 V4.6&quot; stroke=&quot;\$CS&quot;/&gt;&#x27;
+      &#x27;&lt;path d=&quot;M12 19.6 V22&quot; stroke=&quot;\$CS&quot;/&gt;&#x27;
+      &#x27;&lt;ellipse cx=&quot;12&quot; cy=&quot;7.5&quot; rx=&quot;6.5&quot; ry=&quot;2.7&quot; stroke=&quot;\$CE&quot;/&gt;&#x27;
+      &#x27;&lt;path d=&quot;M5.5 7.5 V16.5&quot; stroke=&quot;\$CE&quot;/&gt;&#x27;
+      &#x27;&lt;path d=&quot;M18.5 7.5 V16.5&quot; stroke=&quot;\$CE&quot;/&gt;&#x27;
+      &#x27;&lt;path d=&quot;M5.5 16.5 A6.5 2.7 0 0 0 18.5 16.5&quot; stroke=&quot;\$CE&quot;/&gt;&#x27;
+      &#x27;&lt;path d=&quot;M16.6 7.5 A4.6 1.9 0 1 0 12 9.4&quot; stroke=&quot;\$CA&quot;/&gt;&#x27;
+      &#x27;&lt;path d=&quot;M10.4 8.5 L12 9.4 L10.4 10.4&quot; stroke=&quot;\$CA&quot;/&gt;&#x27;),
+  // The profile at each end drawn as a flat section, the swept body between them, the path in accent running down the middle.
+  &#x27;sweep&#x27;: S24(
+      &#x27;&lt;path d=&quot;M4 15.4 C 10 15.4, 10 3.9, 20 3.9&quot; stroke=&quot;\$CE&quot;/&gt;&#x27;
+      &#x27;&lt;path d=&quot;M4 20.6 C 10 20.6, 10 9.1, 20 9.1&quot; stroke=&quot;\$CE&quot;/&gt;&#x27;
+      &#x27;&lt;path d=&quot;M4 15.4 V20.6&quot; stroke=&quot;\$CE&quot;/&gt;&#x27;
+      &#x27;&lt;path d=&quot;M20 3.9 V9.1&quot; stroke=&quot;\$CE&quot;/&gt;&#x27;
+      &#x27;&lt;path d=&quot;M4 18 C 10 18, 10 6.5, 20 6.5&quot; stroke=&quot;\$CA&quot;/&gt;&#x27;),
+  // Two profiles, two accent rails between them.
+  &#x27;loft&#x27;: S24(
+      &#x27;&lt;ellipse cx=&quot;9.5&quot; cy=&quot;18&quot; rx=&quot;6.5&quot; ry=&quot;2.8&quot; stroke=&quot;\$CE&quot;/&gt;&#x27;
+      &#x27;&lt;ellipse cx=&quot;15&quot; cy=&quot;6&quot; rx=&quot;4&quot; ry=&quot;1.8&quot; stroke=&quot;\$CE&quot;/&gt;&#x27;
+      &#x27;&lt;path d=&quot;M3 18 L11 6&quot; stroke=&quot;\$CA&quot;/&gt;&#x27;
+      &#x27;&lt;path d=&quot;M16 18 L19 6&quot; stroke=&quot;\$CA&quot;/&gt;&#x27;),
+  // Three interlocking turns and nothing else — no axis, because a helix does not need one explained.
+  &#x27;coil&#x27;: S24(
+      &#x27;&lt;path d=&quot;M5.5 4.5 A6.5 2.4 0 0 1 18.5 6.7 A6.5 2.4 0 0 1 5.5 8.9 A6.5 2.4 0 0 1 18.5 11.1 A6.5 2.4 0 0 1 5.5 13.3 A6.5 2.4 0 0 1 18.5 15.5 A6.5 2.4 0 0 1 5.5 17.7&quot; stroke=&quot;\$CA&quot;/&gt;&#x27;),
+  // A face, and a shape standing off it by exactly the amount the walls show.
+  &#x27;emboss&#x27;: S24(
+      &#x27;&lt;path d=&quot;M2.5 12.5 L12 7.5 L21.5 12.5 L12 17.5 Z&quot; stroke=&quot;\$CE&quot;/&gt;&#x27;
+      &#x27;&lt;path d=&quot;M7.5 9 L12 6.6 L16.5 9 L12 11.4 Z&quot; stroke=&quot;\$CA&quot;/&gt;&#x27;
+      &#x27;&lt;path d=&quot;M7.5 9 V12.5&quot; stroke=&quot;\$CA&quot;/&gt;&#x27;
+      &#x27;&lt;path d=&quot;M16.5 9 V12.5&quot; stroke=&quot;\$CA&quot;/&gt;&#x27;
+      &#x27;&lt;path d=&quot;M12 11.4 V14.9&quot; stroke=&quot;\$CA&quot;/&gt;&#x27;),
+  // A document, the body inside it, and the accent arrow taking it out.
+  &#x27;derive&#x27;: S24(
+      &#x27;&lt;path d=&quot;M3 3.5 H12 L15.5 7 V20.5 H3 Z&quot; stroke=&quot;\$CE&quot;/&gt;&#x27;
+      &#x27;&lt;path d=&quot;M12 3.5 V7 H15.5&quot; stroke=&quot;\$CE&quot;/&gt;&#x27;
+      &#x27;&lt;path d=&quot;M5.5 13 L9 11 L12.5 13 L9 15 Z&quot; stroke=&quot;\$CS&quot;/&gt;&#x27;
+      &#x27;&lt;path d=&quot;M5.5 13 V16 L9 18 L12.5 16 V13&quot; stroke=&quot;\$CS&quot;/&gt;&#x27;
+      &#x27;&lt;path d=&quot;M9 15 V18&quot; stroke=&quot;\$CS&quot;/&gt;&#x27;
+      &#x27;&lt;path d=&quot;M17 12 H21.5&quot; stroke=&quot;\$CA&quot;/&gt;&#x27;
+      &#x27;&lt;path d=&quot;M19.4 9.9 L21.7 12 L19.4 14.1&quot; stroke=&quot;\$CA&quot;/&gt;&#x27;),
+  // An image and the face it lands on.
+  &#x27;decal&#x27;: S24(
+      &#x27;&lt;path d=&quot;M2.5 17 L11.5 12.6 L21.5 17 L12.5 21.4 Z&quot; stroke=&quot;\$CE&quot;/&gt;&#x27;
+      &#x27;&lt;rect x=&quot;7.5&quot; y=&quot;2.5&quot; width=&quot;10&quot; height=&quot;8&quot; rx=&quot;1.5&quot; stroke=&quot;\$CA&quot;/&gt;&#x27;
+      &#x27;&lt;circle cx=&quot;10.3&quot; cy=&quot;5.4&quot; r=&quot;1&quot; stroke=&quot;\$CA&quot;/&gt;&#x27;
+      &#x27;&lt;path d=&quot;M8.4 9.6 L11 6.6 L12.9 8.6 L14.6 7 L16.6 9.6&quot; stroke=&quot;\$CA&quot;/&gt;&#x27;),
+};</pre>
+
+<div class="ask">
+  <h3>What I need from you</h3>
+  <ul>
+    <li><b>Extrude and Revolve</b> carry the panel — if those two are right the rest follow. Are they?</li>
+    <li><b>Coil</b> is the one I am least sure of: four turns is readable but busy at 18 px. Three?</li>
+    <li><b>Derive</b> is the only icon with a document in it. Right metaphor, or should it be two bodies?</li>
+    <li><b>Decal</b> uses a literal picture mark. Too generic next to seven geometric icons?</li>
+    <li>Is the accent doing too little? I kept it to one element per icon on purpose — say if you want more colour.</li>
+  </ul>
+</div>
+</main>
+
+<script>
+const SRC = ["<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 11 L12 7.5 L19 11 L12 14.5 Z\" stroke=\"#C9CDD2\"/><path d=\"M5 11 V17 L12 20.5 L19 17 V11\" stroke=\"#C9CDD2\"/><path d=\"M12 14.5 V20.5\" stroke=\"#9AA0A6\"/><path d=\"M12 8.5 V3\" stroke=\"#3D9BE9\"/><path d=\"M9.5 5.3 L12 2.8 L14.5 5.3\" stroke=\"#3D9BE9\"/></svg>", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 11 L12 7.5 L19 11 L12 14.5 Z\" stroke=\"#C9CDD2\"/><path d=\"M5 11 V17 L12 20.5 L19 17 V11\" stroke=\"#C9CDD2\"/><path d=\"M12 14.5 V20.5\" stroke=\"#9AA0A6\"/><path d=\"M12 8.5 V3\" stroke=\"#3D9BE9\"/><path d=\"M9.5 5.3 L12 2.8 L14.5 5.3\" stroke=\"#3D9BE9\"/></svg>", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 34 34\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M17 6 L28 12 L17 18 L6 12 Z\" fill=\"#CDE6F7\" stroke=\"#3f7cb2\" stroke-width=\".9\"/><path d=\"M6 12 L17 18 L17 30 L6 24 Z\" fill=\"#7FB8E2\" stroke=\"#3f7cb2\" stroke-width=\".9\"/><path d=\"M28 12 L17 18 L17 30 L28 24 Z\" fill=\"#A6D0EC\" stroke=\"#3f7cb2\" stroke-width=\".9\"/><path d=\"M12 13 L12 3 M12 3 L9.7 5.5 M12 3 L14.3 5.5\" stroke=\"#46B04A\" stroke-width=\"1.8\" fill=\"none\"/><path d=\"M20 15 L20 5 M20 5 L17.7 7.5 M20 5 L22.3 7.5\" stroke=\"#46B04A\" stroke-width=\"1.8\" fill=\"none\"/></svg>", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 34 34\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M17 6 L28 12 L17 18 L6 12 Z\" fill=\"#CDE6F7\" stroke=\"#3f7cb2\" stroke-width=\".9\"/><path d=\"M6 12 L17 18 L17 30 L6 24 Z\" fill=\"#7FB8E2\" stroke=\"#3f7cb2\" stroke-width=\".9\"/><path d=\"M28 12 L17 18 L17 30 L28 24 Z\" fill=\"#A6D0EC\" stroke=\"#3f7cb2\" stroke-width=\".9\"/><path d=\"M12 13 L12 3 M12 3 L9.7 5.5 M12 3 L14.3 5.5\" stroke=\"#46B04A\" stroke-width=\"1.8\" fill=\"none\"/><path d=\"M20 15 L20 5 M20 5 L17.7 7.5 M20 5 L22.3 7.5\" stroke=\"#46B04A\" stroke-width=\"1.8\" fill=\"none\"/></svg>", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 2 V4.6\" stroke=\"#9AA0A6\"/><path d=\"M12 19.6 V22\" stroke=\"#9AA0A6\"/><ellipse cx=\"12\" cy=\"7.5\" rx=\"6.5\" ry=\"2.7\" stroke=\"#C9CDD2\"/><path d=\"M5.5 7.5 V16.5\" stroke=\"#C9CDD2\"/><path d=\"M18.5 7.5 V16.5\" stroke=\"#C9CDD2\"/><path d=\"M5.5 16.5 A6.5 2.7 0 0 0 18.5 16.5\" stroke=\"#C9CDD2\"/><path d=\"M16.6 7.5 A4.6 1.9 0 1 0 12 9.4\" stroke=\"#3D9BE9\"/><path d=\"M10.4 8.5 L12 9.4 L10.4 10.4\" stroke=\"#3D9BE9\"/></svg>", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 2 V4.6\" stroke=\"#9AA0A6\"/><path d=\"M12 19.6 V22\" stroke=\"#9AA0A6\"/><ellipse cx=\"12\" cy=\"7.5\" rx=\"6.5\" ry=\"2.7\" stroke=\"#C9CDD2\"/><path d=\"M5.5 7.5 V16.5\" stroke=\"#C9CDD2\"/><path d=\"M18.5 7.5 V16.5\" stroke=\"#C9CDD2\"/><path d=\"M5.5 16.5 A6.5 2.7 0 0 0 18.5 16.5\" stroke=\"#C9CDD2\"/><path d=\"M16.6 7.5 A4.6 1.9 0 1 0 12 9.4\" stroke=\"#3D9BE9\"/><path d=\"M10.4 8.5 L12 9.4 L10.4 10.4\" stroke=\"#3D9BE9\"/></svg>", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 34 34\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M6 26 A 18 18 0 0 1 24 8 L24 14 A 12 12 0 0 0 12 26 Z\" fill=\"#A6D0EC\" stroke=\"#3f7cb2\" stroke-width=\".9\"/><path d=\"M6 26 A 18 18 0 0 1 24 8 L22.4 10.1 A 15.4 15.4 0 0 0 8.1 25 Z\" fill=\"#CDE6F7\" stroke=\"none\"/><path d=\"M19 5 A 13 13 0 0 1 30 13\" fill=\"none\" stroke=\"#46B04A\" stroke-width=\"1.8\"/><path d=\"M30 13 L27.4 11.9 M30 13 L28.7 15.7\" stroke=\"#46B04A\" stroke-width=\"1.8\" fill=\"none\"/></svg>", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 34 34\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M6 26 A 18 18 0 0 1 24 8 L24 14 A 12 12 0 0 0 12 26 Z\" fill=\"#A6D0EC\" stroke=\"#3f7cb2\" stroke-width=\".9\"/><path d=\"M6 26 A 18 18 0 0 1 24 8 L22.4 10.1 A 15.4 15.4 0 0 0 8.1 25 Z\" fill=\"#CDE6F7\" stroke=\"none\"/><path d=\"M19 5 A 13 13 0 0 1 30 13\" fill=\"none\" stroke=\"#46B04A\" stroke-width=\"1.8\"/><path d=\"M30 13 L27.4 11.9 M30 13 L28.7 15.7\" stroke=\"#46B04A\" stroke-width=\"1.8\" fill=\"none\"/></svg>", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4 15.4 C 10 15.4, 10 3.9, 20 3.9\" stroke=\"#C9CDD2\"/><path d=\"M4 20.6 C 10 20.6, 10 9.1, 20 9.1\" stroke=\"#C9CDD2\"/><path d=\"M4 15.4 V20.6\" stroke=\"#C9CDD2\"/><path d=\"M20 3.9 V9.1\" stroke=\"#C9CDD2\"/><path d=\"M4 18 C 10 18, 10 6.5, 20 6.5\" stroke=\"#3D9BE9\"/></svg>", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4 15.4 C 10 15.4, 10 3.9, 20 3.9\" stroke=\"#C9CDD2\"/><path d=\"M4 20.6 C 10 20.6, 10 9.1, 20 9.1\" stroke=\"#C9CDD2\"/><path d=\"M4 15.4 V20.6\" stroke=\"#C9CDD2\"/><path d=\"M20 3.9 V9.1\" stroke=\"#C9CDD2\"/><path d=\"M4 18 C 10 18, 10 6.5, 20 6.5\" stroke=\"#3D9BE9\"/></svg>", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 18 18\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 15 C 7 6, 11 14, 15 4\" stroke=\"#C4C9CE\" stroke-width=\"1.3\" fill=\"none\"/><rect x=\"1.6\" y=\"12.6\" width=\"4.2\" height=\"4.2\" fill=\"#3D9BE9\"/></svg>", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 18 18\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 15 C 7 6, 11 14, 15 4\" stroke=\"#C4C9CE\" stroke-width=\"1.3\" fill=\"none\"/><rect x=\"1.6\" y=\"12.6\" width=\"4.2\" height=\"4.2\" fill=\"#3D9BE9\"/></svg>", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><ellipse cx=\"9.5\" cy=\"18\" rx=\"6.5\" ry=\"2.8\" stroke=\"#C9CDD2\"/><ellipse cx=\"15\" cy=\"6\" rx=\"4\" ry=\"1.8\" stroke=\"#C9CDD2\"/><path d=\"M3 18 L11 6\" stroke=\"#3D9BE9\"/><path d=\"M16 18 L19 6\" stroke=\"#3D9BE9\"/></svg>", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><ellipse cx=\"9.5\" cy=\"18\" rx=\"6.5\" ry=\"2.8\" stroke=\"#C9CDD2\"/><ellipse cx=\"15\" cy=\"6\" rx=\"4\" ry=\"1.8\" stroke=\"#C9CDD2\"/><path d=\"M3 18 L11 6\" stroke=\"#3D9BE9\"/><path d=\"M16 18 L19 6\" stroke=\"#3D9BE9\"/></svg>", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 18 18\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><ellipse cx=\"6\" cy=\"13.5\" rx=\"4\" ry=\"1.6\" fill=\"#3D9BE9\" stroke=\"#1a5f95\" stroke-width=\".5\"/><ellipse cx=\"12\" cy=\"5\" rx=\"2.8\" ry=\"1.1\" fill=\"#54B0E8\" stroke=\"#1a5f95\" stroke-width=\".5\"/><path d=\"M2.2 13.3 L9.4 5 M9.9 13.7 L14.6 5\" stroke=\"#C4C9CE\" stroke-width=\".9\"/></svg>", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 18 18\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><ellipse cx=\"6\" cy=\"13.5\" rx=\"4\" ry=\"1.6\" fill=\"#3D9BE9\" stroke=\"#1a5f95\" stroke-width=\".5\"/><ellipse cx=\"12\" cy=\"5\" rx=\"2.8\" ry=\"1.1\" fill=\"#54B0E8\" stroke=\"#1a5f95\" stroke-width=\".5\"/><path d=\"M2.2 13.3 L9.4 5 M9.9 13.7 L14.6 5\" stroke=\"#C4C9CE\" stroke-width=\".9\"/></svg>", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5.5 4.5 A6.5 2.4 0 0 1 18.5 6.7 A6.5 2.4 0 0 1 5.5 8.9 A6.5 2.4 0 0 1 18.5 11.1 A6.5 2.4 0 0 1 5.5 13.3 A6.5 2.4 0 0 1 18.5 15.5 A6.5 2.4 0 0 1 5.5 17.7\" stroke=\"#3D9BE9\"/></svg>", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5.5 4.5 A6.5 2.4 0 0 1 18.5 6.7 A6.5 2.4 0 0 1 5.5 8.9 A6.5 2.4 0 0 1 18.5 11.1 A6.5 2.4 0 0 1 5.5 13.3 A6.5 2.4 0 0 1 18.5 15.5 A6.5 2.4 0 0 1 5.5 17.7\" stroke=\"#3D9BE9\"/></svg>", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 18 18\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4 4 C 15 2.5, 15 6, 4 6.5 C 15 7, 15 10.5, 4 11 C 15 11.5, 15 15, 4 15.5\" stroke=\"#3D9BE9\" stroke-width=\"1.5\" fill=\"none\"/></svg>", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 18 18\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4 4 C 15 2.5, 15 6, 4 6.5 C 15 7, 15 10.5, 4 11 C 15 11.5, 15 15, 4 15.5\" stroke=\"#3D9BE9\" stroke-width=\"1.5\" fill=\"none\"/></svg>", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M2.5 12.5 L12 7.5 L21.5 12.5 L12 17.5 Z\" stroke=\"#C9CDD2\"/><path d=\"M7.5 9 L12 6.6 L16.5 9 L12 11.4 Z\" stroke=\"#3D9BE9\"/><path d=\"M7.5 9 V12.5\" stroke=\"#3D9BE9\"/><path d=\"M16.5 9 V12.5\" stroke=\"#3D9BE9\"/><path d=\"M12 11.4 V14.9\" stroke=\"#3D9BE9\"/></svg>", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M2.5 12.5 L12 7.5 L21.5 12.5 L12 17.5 Z\" stroke=\"#C9CDD2\"/><path d=\"M7.5 9 L12 6.6 L16.5 9 L12 11.4 Z\" stroke=\"#3D9BE9\"/><path d=\"M7.5 9 V12.5\" stroke=\"#3D9BE9\"/><path d=\"M16.5 9 V12.5\" stroke=\"#3D9BE9\"/><path d=\"M12 11.4 V14.9\" stroke=\"#3D9BE9\"/></svg>", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 18 18\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"2\" y=\"9\" width=\"14\" height=\"5.5\" fill=\"none\" stroke=\"#C4C9CE\" stroke-width=\"1.1\"/><path d=\"M6 9 V5 h6 v4\" stroke=\"#3D9BE9\" stroke-width=\"1.4\" fill=\"none\"/></svg>", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 18 18\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"2\" y=\"9\" width=\"14\" height=\"5.5\" fill=\"none\" stroke=\"#C4C9CE\" stroke-width=\"1.1\"/><path d=\"M6 9 V5 h6 v4\" stroke=\"#3D9BE9\" stroke-width=\"1.4\" fill=\"none\"/></svg>", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 3.5 H12 L15.5 7 V20.5 H3 Z\" stroke=\"#C9CDD2\"/><path d=\"M12 3.5 V7 H15.5\" stroke=\"#C9CDD2\"/><path d=\"M5.5 13 L9 11 L12.5 13 L9 15 Z\" stroke=\"#9AA0A6\"/><path d=\"M5.5 13 V16 L9 18 L12.5 16 V13\" stroke=\"#9AA0A6\"/><path d=\"M9 15 V18\" stroke=\"#9AA0A6\"/><path d=\"M17 12 H21.5\" stroke=\"#3D9BE9\"/><path d=\"M19.4 9.9 L21.7 12 L19.4 14.1\" stroke=\"#3D9BE9\"/></svg>", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 3.5 H12 L15.5 7 V20.5 H3 Z\" stroke=\"#C9CDD2\"/><path d=\"M12 3.5 V7 H15.5\" stroke=\"#C9CDD2\"/><path d=\"M5.5 13 L9 11 L12.5 13 L9 15 Z\" stroke=\"#9AA0A6\"/><path d=\"M5.5 13 V16 L9 18 L12.5 16 V13\" stroke=\"#9AA0A6\"/><path d=\"M9 15 V18\" stroke=\"#9AA0A6\"/><path d=\"M17 12 H21.5\" stroke=\"#3D9BE9\"/><path d=\"M19.4 9.9 L21.7 12 L19.4 14.1\" stroke=\"#3D9BE9\"/></svg>", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 18 18\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"2\" y=\"4.5\" width=\"6.5\" height=\"6.5\" fill=\"#54B0E8\" stroke=\"#1a5f95\" stroke-width=\".5\"/><rect x=\"8.5\" y=\"8\" width=\"6.5\" height=\"6.5\" fill=\"#3D9BE9\" stroke=\"#1a5f95\" stroke-width=\".5\"/><path d=\"M8 5.5 h3.5 M11.5 5.5 l-1.6-1.1 M11.5 5.5 l-1.6 1.1\" stroke=\"#C4C9CE\" stroke-width=\"1\"/></svg>", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 18 18\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"2\" y=\"4.5\" width=\"6.5\" height=\"6.5\" fill=\"#54B0E8\" stroke=\"#1a5f95\" stroke-width=\".5\"/><rect x=\"8.5\" y=\"8\" width=\"6.5\" height=\"6.5\" fill=\"#3D9BE9\" stroke=\"#1a5f95\" stroke-width=\".5\"/><path d=\"M8 5.5 h3.5 M11.5 5.5 l-1.6-1.1 M11.5 5.5 l-1.6 1.1\" stroke=\"#C4C9CE\" stroke-width=\"1\"/></svg>", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M2.5 17 L11.5 12.6 L21.5 17 L12.5 21.4 Z\" stroke=\"#C9CDD2\"/><rect x=\"7.5\" y=\"2.5\" width=\"10\" height=\"8\" rx=\"1.5\" stroke=\"#3D9BE9\"/><circle cx=\"10.3\" cy=\"5.4\" r=\"1\" stroke=\"#3D9BE9\"/><path d=\"M8.4 9.6 L11 6.6 L12.9 8.6 L14.6 7 L16.6 9.6\" stroke=\"#3D9BE9\"/></svg>", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M2.5 17 L11.5 12.6 L21.5 17 L12.5 21.4 Z\" stroke=\"#C9CDD2\"/><rect x=\"7.5\" y=\"2.5\" width=\"10\" height=\"8\" rx=\"1.5\" stroke=\"#3D9BE9\"/><circle cx=\"10.3\" cy=\"5.4\" r=\"1\" stroke=\"#3D9BE9\"/><path d=\"M8.4 9.6 L11 6.6 L12.9 8.6 L14.6 7 L16.6 9.6\" stroke=\"#3D9BE9\"/></svg>", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 18 18\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"2.5\" y=\"4\" width=\"13\" height=\"10\" rx=\"1\" fill=\"none\" stroke=\"#C4C9CE\" stroke-width=\"1.1\"/><circle cx=\"6\" cy=\"7\" r=\"1.3\" fill=\"#E8C63F\"/><path d=\"M3.5 13 L7 8.8 L9.4 11 L12 7.2 L15 13 Z\" fill=\"#3D9BE9\"/></svg>", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 18 18\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"2.5\" y=\"4\" width=\"13\" height=\"10\" rx=\"1\" fill=\"none\" stroke=\"#C4C9CE\" stroke-width=\"1.1\"/><circle cx=\"6\" cy=\"7\" r=\"1.3\" fill=\"#E8C63F\"/><path d=\"M3.5 13 L7 8.8 L9.4 11 L12 7.2 L15 13 Z\" fill=\"#3D9BE9\"/></svg>", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 11 L12 7.5 L19 11 L12 14.5 Z\" stroke=\"#C9CDD2\"/><path d=\"M5 11 V17 L12 20.5 L19 17 V11\" stroke=\"#C9CDD2\"/><path d=\"M12 14.5 V20.5\" stroke=\"#9AA0A6\"/><path d=\"M12 8.5 V3\" stroke=\"#3D9BE9\"/><path d=\"M9.5 5.3 L12 2.8 L14.5 5.3\" stroke=\"#3D9BE9\"/></svg>", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 2 V4.6\" stroke=\"#9AA0A6\"/><path d=\"M12 19.6 V22\" stroke=\"#9AA0A6\"/><ellipse cx=\"12\" cy=\"7.5\" rx=\"6.5\" ry=\"2.7\" stroke=\"#C9CDD2\"/><path d=\"M5.5 7.5 V16.5\" stroke=\"#C9CDD2\"/><path d=\"M18.5 7.5 V16.5\" stroke=\"#C9CDD2\"/><path d=\"M5.5 16.5 A6.5 2.7 0 0 0 18.5 16.5\" stroke=\"#C9CDD2\"/><path d=\"M16.6 7.5 A4.6 1.9 0 1 0 12 9.4\" stroke=\"#3D9BE9\"/><path d=\"M10.4 8.5 L12 9.4 L10.4 10.4\" stroke=\"#3D9BE9\"/></svg>", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4 15.4 C 10 15.4, 10 3.9, 20 3.9\" stroke=\"#C9CDD2\"/><path d=\"M4 20.6 C 10 20.6, 10 9.1, 20 9.1\" stroke=\"#C9CDD2\"/><path d=\"M4 15.4 V20.6\" stroke=\"#C9CDD2\"/><path d=\"M20 3.9 V9.1\" stroke=\"#C9CDD2\"/><path d=\"M4 18 C 10 18, 10 6.5, 20 6.5\" stroke=\"#3D9BE9\"/></svg>", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><ellipse cx=\"9.5\" cy=\"18\" rx=\"6.5\" ry=\"2.8\" stroke=\"#C9CDD2\"/><ellipse cx=\"15\" cy=\"6\" rx=\"4\" ry=\"1.8\" stroke=\"#C9CDD2\"/><path d=\"M3 18 L11 6\" stroke=\"#3D9BE9\"/><path d=\"M16 18 L19 6\" stroke=\"#3D9BE9\"/></svg>", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5.5 4.5 A6.5 2.4 0 0 1 18.5 6.7 A6.5 2.4 0 0 1 5.5 8.9 A6.5 2.4 0 0 1 18.5 11.1 A6.5 2.4 0 0 1 5.5 13.3 A6.5 2.4 0 0 1 18.5 15.5 A6.5 2.4 0 0 1 5.5 17.7\" stroke=\"#3D9BE9\"/></svg>", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M2.5 12.5 L12 7.5 L21.5 12.5 L12 17.5 Z\" stroke=\"#C9CDD2\"/><path d=\"M7.5 9 L12 6.6 L16.5 9 L12 11.4 Z\" stroke=\"#3D9BE9\"/><path d=\"M7.5 9 V12.5\" stroke=\"#3D9BE9\"/><path d=\"M16.5 9 V12.5\" stroke=\"#3D9BE9\"/><path d=\"M12 11.4 V14.9\" stroke=\"#3D9BE9\"/></svg>", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 3.5 H12 L15.5 7 V20.5 H3 Z\" stroke=\"#C9CDD2\"/><path d=\"M12 3.5 V7 H15.5\" stroke=\"#C9CDD2\"/><path d=\"M5.5 13 L9 11 L12.5 13 L9 15 Z\" stroke=\"#9AA0A6\"/><path d=\"M5.5 13 V16 L9 18 L12.5 16 V13\" stroke=\"#9AA0A6\"/><path d=\"M9 15 V18\" stroke=\"#9AA0A6\"/><path d=\"M17 12 H21.5\" stroke=\"#3D9BE9\"/><path d=\"M19.4 9.9 L21.7 12 L19.4 14.1\" stroke=\"#3D9BE9\"/></svg>", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M2.5 17 L11.5 12.6 L21.5 17 L12.5 21.4 Z\" stroke=\"#C9CDD2\"/><rect x=\"7.5\" y=\"2.5\" width=\"10\" height=\"8\" rx=\"1.5\" stroke=\"#3D9BE9\"/><circle cx=\"10.3\" cy=\"5.4\" r=\"1\" stroke=\"#3D9BE9\"/><path d=\"M8.4 9.6 L11 6.6 L12.9 8.6 L14.6 7 L16.6 9.6\" stroke=\"#3D9BE9\"/></svg>", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 34 34\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M17 6 L28 12 L17 18 L6 12 Z\" fill=\"#CDE6F7\" stroke=\"#3f7cb2\" stroke-width=\".9\"/><path d=\"M6 12 L17 18 L17 30 L6 24 Z\" fill=\"#7FB8E2\" stroke=\"#3f7cb2\" stroke-width=\".9\"/><path d=\"M28 12 L17 18 L17 30 L28 24 Z\" fill=\"#A6D0EC\" stroke=\"#3f7cb2\" stroke-width=\".9\"/><path d=\"M12 13 L12 3 M12 3 L9.7 5.5 M12 3 L14.3 5.5\" stroke=\"#46B04A\" stroke-width=\"1.8\" fill=\"none\"/><path d=\"M20 15 L20 5 M20 5 L17.7 7.5 M20 5 L22.3 7.5\" stroke=\"#46B04A\" stroke-width=\"1.8\" fill=\"none\"/></svg>", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 34 34\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M6 26 A 18 18 0 0 1 24 8 L24 14 A 12 12 0 0 0 12 26 Z\" fill=\"#A6D0EC\" stroke=\"#3f7cb2\" stroke-width=\".9\"/><path d=\"M6 26 A 18 18 0 0 1 24 8 L22.4 10.1 A 15.4 15.4 0 0 0 8.1 25 Z\" fill=\"#CDE6F7\" stroke=\"none\"/><path d=\"M19 5 A 13 13 0 0 1 30 13\" fill=\"none\" stroke=\"#46B04A\" stroke-width=\"1.8\"/><path d=\"M30 13 L27.4 11.9 M30 13 L28.7 15.7\" stroke=\"#46B04A\" stroke-width=\"1.8\" fill=\"none\"/></svg>", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 18 18\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 15 C 7 6, 11 14, 15 4\" stroke=\"#C4C9CE\" stroke-width=\"1.3\" fill=\"none\"/><rect x=\"1.6\" y=\"12.6\" width=\"4.2\" height=\"4.2\" fill=\"#3D9BE9\"/></svg>", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 18 18\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><ellipse cx=\"6\" cy=\"13.5\" rx=\"4\" ry=\"1.6\" fill=\"#3D9BE9\" stroke=\"#1a5f95\" stroke-width=\".5\"/><ellipse cx=\"12\" cy=\"5\" rx=\"2.8\" ry=\"1.1\" fill=\"#54B0E8\" stroke=\"#1a5f95\" stroke-width=\".5\"/><path d=\"M2.2 13.3 L9.4 5 M9.9 13.7 L14.6 5\" stroke=\"#C4C9CE\" stroke-width=\".9\"/></svg>", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 18 18\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4 4 C 15 2.5, 15 6, 4 6.5 C 15 7, 15 10.5, 4 11 C 15 11.5, 15 15, 4 15.5\" stroke=\"#3D9BE9\" stroke-width=\"1.5\" fill=\"none\"/></svg>", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 18 18\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"2\" y=\"9\" width=\"14\" height=\"5.5\" fill=\"none\" stroke=\"#C4C9CE\" stroke-width=\"1.1\"/><path d=\"M6 9 V5 h6 v4\" stroke=\"#3D9BE9\" stroke-width=\"1.4\" fill=\"none\"/></svg>", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 18 18\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"2\" y=\"4.5\" width=\"6.5\" height=\"6.5\" fill=\"#54B0E8\" stroke=\"#1a5f95\" stroke-width=\".5\"/><rect x=\"8.5\" y=\"8\" width=\"6.5\" height=\"6.5\" fill=\"#3D9BE9\" stroke=\"#1a5f95\" stroke-width=\".5\"/><path d=\"M8 5.5 h3.5 M11.5 5.5 l-1.6-1.1 M11.5 5.5 l-1.6 1.1\" stroke=\"#C4C9CE\" stroke-width=\"1\"/></svg>", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 18 18\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"2.5\" y=\"4\" width=\"13\" height=\"10\" rx=\"1\" fill=\"none\" stroke=\"#C4C9CE\" stroke-width=\"1.1\"/><circle cx=\"6\" cy=\"7\" r=\"1.3\" fill=\"#E8C63F\"/><path d=\"M3.5 13 L7 8.8 L9.4 11 L12 7.2 L15 13 Z\" fill=\"#3D9BE9\"/></svg>"];
+const PAL = {
+  ember:{dark:true , ink:'#EDE6D9', accent:'#2FA9A2', ok:'#4E9B4A', ref:'#D98A4A', err:'#F0675F'},
+  chalk:{dark:false, ink:'#1C1E20', accent:'#0F6A70', ok:'#26762F', ref:'#A0561F', err:'#AB2A3C'}
+};
+const clamp=(v,a,b)=>v<a?a:v>b?b:v;
+function toHsl(hex){
+  const n=parseInt(hex.slice(1),16), r=(n>>16&255)/255, g=(n>>8&255)/255, b=(n&255)/255;
+  const mx=Math.max(r,g,b), mn=Math.min(r,g,b), l=(mx+mn)/2;
+  let h=0,s=0;
+  if(mx!==mn){const d=mx-mn;
+    s = l>0.5 ? d/(2-mx-mn) : d/(mx+mn);
+    h = mx===r ? (g-b)/d+(g<b?6:0) : mx===g ? (b-r)/d+2 : (r-g)/d+4;
+    h*=60;}
+  return {h,s,l};
+}
+function toHex(h,s,l){
+  const c=(1-Math.abs(2*l-1))*s, x=c*(1-Math.abs((h/60)%2-1)), m=l-c/2;
+  let r,g,b;
+  if(h<60){[r,g,b]=[c,x,0];} else if(h<120){[r,g,b]=[x,c,0];}
+  else if(h<180){[r,g,b]=[0,c,x];} else if(h<240){[r,g,b]=[0,x,c];}
+  else if(h<300){[r,g,b]=[x,0,c];} else {[r,g,b]=[c,0,x];}
+  const f=v=>Math.round((v+m)*255).toString(16).padStart(2,'0');
+  return '#'+f(r)+f(g)+f(b);
+}
+function mapColor(hex,p){
+  const c=toHsl(hex), light=!p.dark;
+  if(c.s<0.12) return toHex(toHsl(p.ink).h, 0.04, clamp(light?1-c.l:c.l, 0.12, 0.92));
+  const h=c.h;
+  const t = (h>=175&&h<265)?p.accent : (h>=75&&h<175)?p.ok : (h>=18&&h<75)?p.ref : p.err;
+  const T=toHsl(t);
+  const l = light ? clamp(0.16+c.l*0.30,0.16,0.46) : clamp(c.l,0.32,0.82);
+  return toHex(T.h, clamp(T.s*0.85+c.s*0.15,0.25,0.95), l);
+}
+const RE=/#([0-9a-fA-F]{6})\b/g;
+const cache={source:SRC};
+function themed(name){
+  if(cache[name]) return cache[name];
+  const p=PAL[name], memo=new Map();
+  cache[name]=SRC.map(s=>s.replace(RE,m=>{
+    if(!memo.has(m)) memo.set(m,mapColor(m,p));
+    return memo.get(m);}));
+  return cache[name];
+}
+function setMode(name){
+  const list=themed(name);
+  for(let i=0;i<list.length;i++){const el=document.getElementById('a'+i); if(el) el.innerHTML=list[i];}
+  document.body.classList.toggle('stage-light', name==='chalk');
+  for(const b of document.querySelectorAll('#mode button'))
+    b.setAttribute('aria-pressed', String(b.dataset.m===name));
+}
+for(const b of document.querySelectorAll('#mode button'))
+  b.addEventListener('click',()=>setMode(b.dataset.m));
+</script>
