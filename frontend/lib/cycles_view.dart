@@ -631,6 +631,31 @@ const int kCyclesSamples = 4096;
 /// own the sample cap as well.
 const int kCyclesMovingSamples = 24;
 
+/// The side of the throwaway frame the renderer is parked on during a drag.
+///
+/// M354 — WHILE THE CAMERA MOVES THE VIEWPORT IS REALITYKIT, AND THE PATH
+/// TRACER HAS TO ACTUALLY STOP.
+///
+/// Not pushing a new view is not enough. If the camera is grabbed while a
+/// render is still converging, Cycles goes on tracing the view it already has
+/// — at full resolution, towards [kCyclesSamples] — which is exactly the
+/// moment the GPU is needed for something else. The session has to be told to
+/// abandon it.
+///
+/// Closing the session would do it and costs far too much: it drops the
+/// geometry, so the next standstill re-uploads every vertex and rebuilds the
+/// BVH, once per gesture. Instead the session is PARKED — pushed a view it can
+/// finish immediately, one sample of a frame this size. Pushing it calls
+/// Session::reset, which cancels the render in flight; the tracer then does a
+/// few thousand paths, reports finished, and the session sits idle with the
+/// GPU free until the camera stops.
+///
+/// It is one push per GESTURE, not per frame: the parked request does not
+/// change while the drag continues, so the session sees the same key and does
+/// nothing. Nobody ever sees this frame — the layer draws RealityKit for as
+/// long as the camera is moving.
+const int kCyclesParkedSide = 64;
+
 /// Everything a moving camera changes about the request, in one place.
 ///
 /// M347 — THE TWO HALVES OF THE BUDGET, SO THEY CANNOT DRIFT APART. Until now

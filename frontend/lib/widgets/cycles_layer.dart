@@ -16,38 +16,49 @@
 // That was true of a one-shot renderer and it is not true of a resident one.
 // Sampling restarts on a camera move — it does not start over from a cold
 // scene — so the work an orbit throws away is the handful of samples since the
-// last frame, which is milliseconds. Waiting for a standstill now buys nothing
-// and costs the whole point: a path tracer that follows you round the model.
+// last frame, which is milliseconds.
 //
-// So the camera is pushed on every frame, and the timer that is left does
-// something else entirely.
+// M354 — AND THE CONCLUSION DRAWN FROM THAT WAS STILL WRONG. The reasoning
+// above is about wasted WORK, and it is correct: following the camera wastes
+// almost nothing. What it does not account for is CONTENTION, which is not a
+// question of how much work the tracer does but of whether it is doing any.
+// The wait is back, for a reason the original note could not have had — see
+// below — and the camera is no longer pushed on every frame.
 //
 // ---------------------------------------------------------------------------
-// WHAT A STANDSTILL DECIDES: HOW BIG THE IMAGE IS, AND HOW LONG IT IS WORKED ON
+// WHAT A STANDSTILL DECIDES: WHICH RENDERER THE VIEWPORT IS
 // ---------------------------------------------------------------------------
 //
-// A path tracer has a frame budget like anything else, and the honest way to
-// meet it during an orbit is fewer PIXELS, not fewer samples — the eye is
-// tracking a shape in motion and cannot resolve fine detail, but it can see
-// noise perfectly well. So the image is rendered at [kCyclesMovingSide] while
-// the camera is moving and at the viewport's own device pixels once it stops
-// (M353 removed the cap that used to sit between them), and the timer below is
-// what notices that it stopped.
+// M354, and it replaces three milestones of trying to make an orbit cheap
+// enough to path-trace. The history is worth keeping because the failure was
+// the same each time and none of the fixes were wrong on their own terms:
 //
-// M347 — AND THE SAMPLE TARGET, WHICH THE ABOVE ASSUMED AWAY. "Fewer pixels,
-// not fewer samples" is the right rule for how an orbit's frames should LOOK
-// and the wrong one for how much of the machine they are allowed to take. A
-// tracer aiming at [kCyclesSamples] never finishes a frame of a moving camera
-// and therefore never stops: the GPU is pinned for the whole gesture, and
-// Flutter's compositor — which needs a slice of that same GPU every eight
-// milliseconds — spends the orbit queued behind a path tracer. The frames were
-// smooth; the FRAME RATE was not.
+//   * M344 cut the PIXELS of a moving frame ([kCyclesMovingSide]) — fewer
+//     pixels, not fewer samples, because the eye tracking a shape in motion
+//     cannot resolve detail but can see noise;
+//   * M347 cut the SAMPLES too ([kCyclesMovingSamples]), because a tracer
+//     aiming at the settled target never finishes a frame of a moving camera
+//     and so never stops, pinning the GPU for the whole gesture;
+//   * M353 took out the a-trous filter, which cost 51 ms of CPU on every
+//     frame handed to the display and could not keep up with its own poll.
 //
-// So a moving camera also gets a small target, [kCyclesMovingSamples], which
-// it reaches in tens of milliseconds. The session then idles until the next
-// camera push, and the gap between the two is what the compositor needs. The
-// picture does not suffer for it, because a frame with that few samples is
-// below the denoiser's full-strength band and comes back filtered.
+// Each of those made a moving frame cheaper and the orbit was still not
+// smooth. The reason is upstream of all three: the two renderers were being
+// asked to share one GPU at all. Flutter's compositor needs a slice of it
+// every eight milliseconds, and a path tracer that is RUNNING is a path
+// tracer the compositor queues behind — however little it has been asked to
+// do. Cheap is not the same as absent.
+//
+// So while the camera moves, the path tracer does not run and is not shown.
+// The viewport IS the RealityKit surface, which is what it is for and which
+// was always smooth. The tracer is parked (see [kCyclesParkedSide]) so that
+// whatever was in flight is cancelled, and it stays parked until the camera
+// holds still for [kCyclesSettle]. Then it renders the standstill at the
+// viewport's own device pixels, and only when a frame of THAT camera has
+// landed does the image go up and the surface below go to sleep.
+//
+// The two are exactly complementary: at every moment one of them is drawing
+// the viewport and the other is switched off. Nothing shares the GPU.
 import 'dart:async';
 import 'dart:ui' as ui;
 
@@ -107,9 +118,27 @@ class _CyclesLayerState extends State<CyclesLayer> {
   int _serial = 0;
   bool _decoding = false;
 
-  /// True while the camera is still being moved, which is what decides the
-  /// image size. Set by every camera change, cleared by [kCyclesSettle].
+  /// True while the camera is still being moved.
+  ///
+  /// M354 — AND IT NOW DECIDES WHICH RENDERER IS ON SCREEN, not merely which
+  /// image size. While it is true the layer draws nothing, so the RealityKit
+  /// surface below is what the user orbits, and the path tracer is parked.
   bool _moving = false;
+
+  /// The camera the path tracer is aimed at, which is NOT [_lastCamera] while
+  /// a drag is in progress: it stays on wherever the camera was when the drag
+  /// began, so the parked request does not change on every frame of the
+  /// gesture and the session is pushed once rather than sixty times a second.
+  String _parkCamera = '';
+
+  /// The camera [_decoded] is a picture of.
+  ///
+  /// A texture outlives the camera it was rendered for — that is what a frame
+  /// IS — but after a drag it is a picture of somewhere else entirely, and
+  /// putting it back on screen at the moment the camera stops would be a jump
+  /// to the wrong angle followed by a correction. RealityKit holds the
+  /// viewport until a frame of the CURRENT camera has landed.
+  String _decodedCamera = '';
 
   /// The camera key the last build saw, so a change can be noticed here
   /// rather than being asked of the session — which cannot answer, because by
@@ -205,6 +234,7 @@ class _CyclesLayerState extends State<CyclesLayer> {
   void _decode(CyclesImage img, int serial) {
     if (_decoding) return;
     _decoding = true;
+    final camera = img.key.camera;
     ui.decodeImageFromPixels(
       img.rgba,
       img.width,
@@ -220,6 +250,7 @@ class _CyclesLayerState extends State<CyclesLayer> {
           _decoded?.dispose();
           _decoded = image;
           _decodedSerial = serial;
+          _decodedCamera = camera;
         });
       },
     );
@@ -238,15 +269,54 @@ class _CyclesLayerState extends State<CyclesLayer> {
     }
 
     final camera = cyclesCameraKey(widget.cam);
-    if (camera != _lastCamera) {
+    if (_lastCamera.isEmpty) {
+      // The first build is not a camera MOVE. Arming the settle here would
+      // hold the renderer off for [kCyclesSettle] every time rendered mode is
+      // switched on, for a camera that is not going anywhere.
+      _lastCamera = camera;
+      _parkCamera = camera;
+    } else if (camera != _lastCamera) {
       _lastCamera = camera;
       _armSettle();
     }
 
     final dpr = MediaQuery.devicePixelRatioOf(context);
-    final budget = cyclesFrameBudget(
-        widget.size.width, widget.size.height, dpr,
-        moving: _moving);
+    // M354 — WHAT THE RENDERER IS ASKED FOR, WHICH IS NOTHING USEFUL WHILE THE
+    // CAMERA MOVES.
+    //
+    // The orbit used to be a small path-traced frame: fewer pixels and fewer
+    // samples, on the theory that a cheap enough frame is a fluid one. Three
+    // rounds of making it cheaper did not make it fluid, and the reason is
+    // that the two renderers were being asked to share one GPU at all. A path
+    // tracer that is running is a path tracer the compositor queues behind.
+    //
+    // So it does not run. While the camera moves the request is parked on a
+    // single sample of a [kCyclesParkedSide] frame of wherever the camera was
+    // when the drag started: pushing it cancels whatever was in flight, the
+    // tracer finishes it in microseconds, and the session idles with the GPU
+    // free. RealityKit — which is what the viewport shows for the whole
+    // gesture — gets the machine to itself, which is the only version of this
+    // that can be as smooth as the RealityKit viewport already is.
+    //
+    // The parked request is CONSTANT for the length of the drag, so the
+    // session is pushed once per gesture rather than once per frame.
+    final int wantW, wantH, wantSamples;
+    final String wantCamera;
+    if (_moving) {
+      wantCamera = _parkCamera;
+      wantW = kCyclesParkedSide;
+      wantH = kCyclesParkedSide;
+      wantSamples = 1;
+    } else {
+      _parkCamera = camera;
+      wantCamera = camera;
+      final budget = cyclesFrameBudget(
+          widget.size.width, widget.size.height, dpr,
+          moving: false);
+      wantW = budget.width;
+      wantH = budget.height;
+      wantSamples = budget.samples;
+    }
     // Rendered mode being ON is a different question from whether a render can
     // START. On a cold install the Metal kernels are still being compiled from
     // source (M320), and a render begun into that blocks for the whole compile
@@ -258,18 +328,16 @@ class _CyclesLayerState extends State<CyclesLayer> {
     final changed = session.offer(
       wanted: wanted,
       scene: cyclesSceneKey(app, widget.cam),
-      camera: camera,
-      width: budget.width,
-      height: budget.height,
+      camera: wantCamera,
+      width: wantW,
+      height: wantH,
       buildScene: () => cyclesSceneData(app, widget.cam),
       buildView: (scene) => cyclesViewParams(widget.cam, scene.reach),
-      // M347 — the second half of the moving budget. Fewer pixels was never
-      // enough on its own: at the settled target the tracer keeps the GPU at a
-      // hundred per cent for the whole orbit, working towards 256 samples of a
-      // camera position that is already gone, and the compositor has to take
-      // its eight-millisecond slice out of that. A small target is reached and
-      // the session goes idle, which is where a smooth frame comes from.
-      samples: budget.samples,
+      // M347/M354 — a small target is what lets the session go idle, and
+      // parked it is the smallest there is. One sample finishes at once, and
+      // an idle session is the whole point: the GPU belongs to RealityKit for
+      // as long as the camera is moving.
+      samples: wantSamples,
     );
     if (changed && session.render.image == null) {
       // The model changed, so the texture belongs to a picture of a model that
@@ -277,21 +345,34 @@ class _CyclesLayerState extends State<CyclesLayer> {
       _decoded?.dispose();
       _decoded = null;
       _decodedSerial = -1;
+      _decodedCamera = '';
     }
     if (!wanted) _settle?.cancel();
 
     final img = session.render.image;
     if (img != null && _decodedSerial != _serial) _decode(img, _serial);
 
-    // The path-traced image is opaque and fills the layer, so while there is
-    // one the RealityKit surface below is rendering into the dark. `_decoded`
-    // rather than `img`, because it is the texture that covers anything — the
-    // session has an image a frame before there is one to draw with.
-    _cover(wanted && _decoded != null);
+    // M354 — WHEN THE PATH-TRACED IMAGE IS ON SCREEN AT ALL.
+    //
+    // Never while the camera is moving: that is the whole change, and it is
+    // what makes the orbit RealityKit's. And not for the first moments after
+    // it stops either — a texture from before the drag is a picture of a
+    // different angle, and showing it the instant the camera settles would be
+    // a jump to the wrong view followed by a correction a few hundred
+    // milliseconds later. The surface below is already showing the right
+    // angle; it keeps the viewport until a frame of THIS camera has landed.
+    final showTraced =
+        !_moving && _decoded != null && _decodedCamera == camera;
+
+    // The path-traced image is opaque and fills the layer, so while it is up
+    // the RealityKit surface below would be rendering into the dark. The two
+    // are exactly complementary now: whichever one is not being shown is the
+    // one that is switched off.
+    _cover(wanted && showTraced);
 
     return IgnorePointer(
       child: Stack(children: [
-        if (_decoded != null)
+        if (showTraced)
           Positioned.fill(
             child: RawImage(
               image: _decoded,
