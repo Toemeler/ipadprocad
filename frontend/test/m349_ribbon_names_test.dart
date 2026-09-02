@@ -165,15 +165,24 @@ void main() {
               'unreadable for anyone who does not know the glyph');
     });
 
-    testWidgets('the flyout chips are still there', (t) async {
-      // The chip is the only way to a split button's variants, and the panel
+    testWidgets('every flyout still has a way in', (t) async {
+      // The flyout is the only way to a split button's variants and the panel
       // ▼ the only way to the overflow commands. A thinner ribbon that hid a
       // command would be a different feature.
+      //
+      // M352 changed the AFFORDANCE and this test with it: M349 kept M205's
+      // 46 x 26 chip under every compact button, which is what read as an
+      // empty grey pill in a band with no words in it. The chip is now a
+      // corner ▾ on the cell and a long press (see _CompactCell); what has to
+      // stay true is the COUNT — one opener with the names off for every
+      // opener with them on.
       RibbonDock.set(RibbonPosition.top);
       await _band(t, names: true);
       final withNames = find.byIcon(Icons.arrow_drop_down).evaluate().length;
+      expect(withNames, greaterThan(0));
       await _band(t, names: false);
-      expect(find.byIcon(Icons.arrow_drop_down).evaluate().length, withNames);
+      expect(find.text('▾').evaluate().length, withNames,
+          reason: 'a command that lost its opener is a command that is gone');
       expect(find.text('▼'), findsWidgets, reason: 'the panel expanders stay');
     });
 

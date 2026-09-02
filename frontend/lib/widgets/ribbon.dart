@@ -748,10 +748,41 @@ class _RibbonState extends State<Ribbon> {
     CrossAxisAlignment crossAxisAlignment = CrossAxisAlignment.center,
   }) {
     if (RibbonDock.isVertical) {
+      // M352 — a compact rail PACKS, it does not stretch.
+      //
+      // `stretch` is right when the children are labelled rows: they are all
+      // as wide as the rail anyway, so a tight cross-axis constraint is what
+      // lines their words up. With the words gone the children are 32 pt
+      // squares, and stretching a square to the rail's width is what put the
+      // report's ragged column on screen — every cell a different shape inside
+      // a box it did not fill, each one centring or not according to which
+      // widget drew it.
+      //
+      // A Wrap instead: cells at their own size, two to a row (2 x 32 + 2 =
+      // 66 in the 68 pt a compact panel offers), packed from the top-left.
+      // The rail becomes a grid, which is the shape a wall of unlabelled icons
+      // has to be.
+      if (!RibbonLabels.on) return _wrap(children);
       return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch, children: children);
     }
-    return Row(crossAxisAlignment: crossAxisAlignment, children: children);
+    // M352 — and a compact BAND does not stretch either. `stretch` is what
+    // several of these call sites ask for, and with names on it is right: a
+    // labelled button is as tall as the panel and its word sits on the panel's
+    // baseline. A 32 pt square stretched to the band's height is a square
+    // drawn inside a box three times its size, which is half of "they are not
+    // aligned": the cell's wash, its border and its ▾ all followed the box
+    // rather than the glyph.
+    //
+    // `start`, so every panel's first row of cells sits on the SAME line —
+    // the band's top padding — whatever else the panel holds. Centring put a
+    // one-row panel seven points below its neighbour's, because a panel with a
+    // title has less body to centre in than one without; two y-lines for the
+    // whole band is the horizontal half of the rail's two x-columns.
+    return Row(
+        crossAxisAlignment:
+            RibbonLabels.on ? crossAxisAlignment : CrossAxisAlignment.start,
+        children: children);
   }
 
   // Home: single "Sketch" panel with the big Create New Sketch button.
@@ -794,7 +825,7 @@ class _RibbonState extends State<Ribbon> {
     Widget colActive(List<(String, String, VoidCallback, bool)> rows,
             {double leftPad = 8}) =>
         Padding(
-          padding: EdgeInsets.only(left: leftPad),
+          padding: EdgeInsets.only(left: RibbonLabels.on ? leftPad : 0),
           child: smallStack([
               for (var i = 0; i < rows.length; i++)
                   _SmallRow(
@@ -824,7 +855,7 @@ class _RibbonState extends State<Ribbon> {
     Widget col(List<(String, String, VoidCallback, String?)> rows,
             {double leftPad = 8}) =>
         Padding(
-          padding: EdgeInsets.only(left: leftPad),
+          padding: EdgeInsets.only(left: RibbonLabels.on ? leftPad : 0),
           child: smallStack([
               for (var i = 0; i < rows.length; i++)
                   _SmallRow(
@@ -1100,7 +1131,7 @@ class _RibbonState extends State<Ribbon> {
     Widget asmCol(List<(String, String, VoidCallback, bool)> rows,
             {double leftPad = 8}) =>
         Padding(
-          padding: EdgeInsets.only(left: leftPad),
+          padding: EdgeInsets.only(left: RibbonLabels.on ? leftPad : 0),
           child: smallStack([
               for (var i = 0; i < rows.length; i++)
                   _SmallRow(
@@ -1119,7 +1150,7 @@ class _RibbonState extends State<Ribbon> {
     Widget maybeCol(List<(String, String, VoidCallback?, bool)> rows,
             {double leftPad = 8}) =>
         Padding(
-          padding: EdgeInsets.only(left: leftPad),
+          padding: EdgeInsets.only(left: RibbonLabels.on ? leftPad : 0),
           child: smallStack([
               for (var i = 0; i < rows.length; i++)
                   _SmallRow(
@@ -1137,7 +1168,7 @@ class _RibbonState extends State<Ribbon> {
     Widget wfCol(List<(String, String, VoidCallback, String)> rows,
             {double leftPad = 8}) =>
         Padding(
-          padding: EdgeInsets.only(left: leftPad),
+          padding: EdgeInsets.only(left: RibbonLabels.on ? leftPad : 0),
           child: smallStack([
               for (var i = 0; i < rows.length; i++)
                   _SmallRow(
@@ -1482,11 +1513,13 @@ class _RibbonState extends State<Ribbon> {
                 icon: IC['rect34']!, label: t.btnRectangle,
                 onFly: toggleFly, onStart: _startTool),
             Padding(
-              padding: const EdgeInsets.only(left: 8),
-              child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
+              padding: EdgeInsets.only(left: RibbonLabels.on ? 8 : 0),
+              // M352 — [smallStack], like every other column of small rows.
+              // Left as a hand-rolled Column it stayed three cells DEEP in a
+              // band whose cells had grown to 32, which by itself set the
+              // compact top band 100 pt tall — taller than the named band it
+              // replaced.
+              child: smallStack([
                     // Inventor split-button: tapping the BODY starts the
                     // CURRENT variant (M85 — Chamfer once chosen), the ▼ opens
                     // the flyout. Without the body tap only the 14-px arrow did
@@ -1504,13 +1537,11 @@ class _RibbonState extends State<Ribbon> {
                           onTap: () => _startTool(f.tool),
                           active: _toolGroup[app.tool] == 'fillet');
                     }),
-                    const SizedBox(height: 2),
                     _SmallRow(icon: IC['text18']!, label: t.btnText, flyId: 'text', onFly: toggleFly,
                         // M44: parametric sketch text — tap places, the
                         // dialog takes <Param> placeholders
                         onTap: () => _startTool(Tool.text),
                         active: app.tool == Tool.text),
-                    const SizedBox(height: 2),
                     _SmallRow(icon: IC['point18']!, label: t.btnPoint,
                         onTap: () => _startTool(Tool.point),
                         active: app.tool == Tool.point),
@@ -1531,19 +1562,14 @@ class _RibbonState extends State<Ribbon> {
           label: t.panelPattern,
           arrow: false,
           child: Padding(
-            padding: const EdgeInsets.only(left: 2),
-            child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
+            padding: EdgeInsets.only(left: RibbonLabels.on ? 2 : 0),
+            child: smallStack([
                   _SmallRow(icon: IC['patrect']!, label: t.btnRectangular,
                       onTap: () => _startTool(Tool.patRect),
                       active: app.tool == Tool.patRect),
-                  const SizedBox(height: 2),
                   _SmallRow(icon: IC['patcirc']!, label: t.btnCircular,
                       onTap: () => _startTool(Tool.patCirc),
                       active: app.tool == Tool.patCirc),
-                  const SizedBox(height: 2),
                   _SmallRow(icon: IC['patmir']!, label: t.btnMirror,
                       onTap: () => _startTool(Tool.mirror),
                       active: app.tool == Tool.mirror),
@@ -1567,22 +1593,31 @@ class _RibbonState extends State<Ribbon> {
                 app.toggleShowConstraints, active: app.showConstraints),
           ],
           child: _flow(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            ConstrainedBox(
-              // Was a fixed 66 and it cramped the German: "Bemaßung" asks for
-              // ~94 px where "Dimension" fitted in 66, so the label wrapped.
-              // A floor, like [_Big] and [_BigWide].
-              constraints: const BoxConstraints(minWidth: 66),
-              child: _Hover(
-                activeHighlight: app.tool == Tool.dimension,
+            if (!RibbonLabels.on)
+              // M352 — one cell, like every other command in the band.
+              _CompactCell(
+                glyph: svg(CN['dim']!, RibbonMetrics.compactIcon),
+                tooltip: t.btnDimension,
+                active: app.tool == Tool.dimension,
                 onTap: () => _startTool(Tool.dimension),
-                child: Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: _BigPlainBody(label: t.btnDimension),
+              )
+            else
+              ConstrainedBox(
+                // Was a fixed 66 and it cramped the German: "Bemaßung" asks
+                // for ~94 px where "Dimension" fitted in 66, so the label
+                // wrapped. A floor, like [_Big] and [_BigWide].
+                constraints: const BoxConstraints(minWidth: 66),
+                child: _Hover(
+                  activeHighlight: app.tool == Tool.dimension,
+                  onTap: () => _startTool(Tool.dimension),
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: _BigPlainBody(label: t.btnDimension),
+                  ),
                 ),
               ),
-            ),
             Padding(
-              padding: const EdgeInsets.only(left: 6),
+              padding: EdgeInsets.only(left: RibbonLabels.on ? 6 : 0),
               child: _ConGrid(app: app, onTool: _startTool),
             ),
           ]),
@@ -1605,15 +1640,16 @@ class _RibbonState extends State<Ribbon> {
             OverItem(IN['showfmt']!, t.btnShowFormat, null),
           ],
           child: _flow(crossAxisAlignment: CrossAxisAlignment.center, children: [
-            Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
+            // M352 — through [smallStack] like every other column of small
+            // rows, rather than three hand-rolled Columns: they were the last
+            // panels that did not reflow with the band, so in a compact rail
+            // they stayed stacks of stretched rows beside neighbours that had
+            // become squares.
+            smallStack([
                   _SmallRow(
                       icon: IN['image']!,
                       label: t.btnImage,
                       onTap: () => _pickImage(app)),
-                  const SizedBox(height: 2),
                   _SmallRow(
                       icon: IN['acad']!,
                       label: t.btnAcad,
@@ -1623,15 +1659,11 @@ class _RibbonState extends State<Ribbon> {
                       // already have open.
                       onTap: () => _pickDxfIntoSketch(app)),
                 ]),
-            Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
+            smallStack([
                   _SmallRow(
                       icon: IN['constr']!,
                       label: t.btnConstruction,
                       onTap: app.toggleConstructionSelected),
-                  const SizedBox(height: 2),
                   _SmallRow(
                       icon: IN['constr']!, // unused: iconWidget wins
                       // An icon drawn as type, so it must not wrap the way a
@@ -1649,10 +1681,7 @@ class _RibbonState extends State<Ribbon> {
                       onTap: app.toggleParams,
                       active: app.showParams),
                 ]),
-            Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
+            smallStack([
                   _SmallRow(
                       icon: IN['gear']!,
                       label: t.btnGear,
@@ -1736,7 +1765,7 @@ class _RibbonState extends State<Ribbon> {
 
   Widget _modCol(List<String> keys, List<String> labels, {double leftPad = 8}) {
     return Padding(
-      padding: EdgeInsets.only(left: leftPad),
+      padding: EdgeInsets.only(left: RibbonLabels.on ? leftPad : 0),
       child: smallStack([
           for (var i = 0; i < keys.length; i++)
               _SmallRow(
@@ -1869,11 +1898,26 @@ class _RibbonState extends State<Ribbon> {
         : titleRow;
     final vertical = RibbonDock.isVertical;
     final body = Padding(
-      padding: const EdgeInsets.fromLTRB(10, 6, 10, 2),
+      // M352 — tighter with no names: two cells and their gap have to fit the
+      // rail, and 10 a side is 8 points the rail would have to be wider for.
+      padding: RibbonMetrics.panelPad,
       // A vertical rail has no [IntrinsicHeight] around the whole row of panels,
       // so each panel supplies its own bounded height for its content's
       // `stretch` rows; the panel title sits under it instead of beside it.
-      child: vertical ? IntrinsicHeight(child: child) : child,
+      child: vertical
+          ? IntrinsicHeight(child: child)
+          : names
+              ? child
+              // M352 — a panel whose child is a single cell (New Layer,
+              // Project Geometry) gets it straight from the call site rather
+              // than through _flow, so the Expanded below handed it a TIGHT
+              // height and the 32 pt square came out 80. A min Row gives it
+              // loose height again and puts it on the band's top line with
+              // every other cell.
+              : Row(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [child]),
     );
     final Widget titlePad = (!names && !hasOver)
         ? const SizedBox.shrink()
@@ -1892,7 +1936,14 @@ class _RibbonState extends State<Ribbon> {
       child: vertical
           ? Column(
               mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+              // M352 — a compact rail packs its cells to the leading edge
+              // rather than stretching them to the rail's width. A panel that
+              // holds ONE button (New Layer, Project Geometry) stretched it to
+              // the full 68 while its neighbours stayed 32, which is the same
+              // report from the other side: two cell widths in one column.
+              crossAxisAlignment: RibbonLabels.on
+                  ? CrossAxisAlignment.stretch
+                  : CrossAxisAlignment.start,
               children: [body, titlePad],
             )
           : Column(children: [Expanded(child: body), titlePad]),
@@ -2093,6 +2144,160 @@ class _BigSplit extends StatelessWidget {
   }
 }
 
+/// M352 — ONE CELL, and every control in a nameless band is one.
+///
+/// "They are not aligned and are very weird. It doesn't look good."
+///
+/// The screenshots were of the compact rail, and what they showed was five
+/// different boxes stacked on top of each other. M349/M351 had taken the words
+/// away and shrunk the glyphs to one size, but each control kept the FRAME it
+/// was given when it had a word in it:
+///
+///   _Big        a 52 pt minimum with a 46 x 26 flyout pill under the glyph —
+///               which with no label above it read as an empty grey lozenge.
+///   _BigWide    the same 52, no pill, a different top padding (6 vs 4).
+///   _SmallRow   26 pt tall, glyph + a 14 pt chip column, laid out from the
+///               LEFT while its neighbours centred.
+///   _ConGrid    30 pt squares, on a 1 pt gap.
+///   _ValueIcon  36 pt squares, on no gap at all.
+///
+/// In a horizontal band that is untidy. In a rail, where `_flow` stretches
+/// every child to the full width, it is what the report says: a column of
+/// boxes of five widths, some centred and some not, with grey pills between
+/// them.
+///
+/// So there is one shape now. A [RibbonMetrics.compactCell] square, a
+/// [RibbonMetrics.compactIcon] glyph centred in it, the same wash and the same
+/// corner radius, whatever the control underneath happens to be. A rail is
+/// then a grid of identical squares — which is the only thing a wall of
+/// unlabelled icons can be and still read as deliberate.
+///
+/// THE FLYOUT, and what it costs. M205 made the opener a chip you could see
+/// and hit, because a 7.5 pt arrow in a 40x14 box was a coin toss with a
+/// Pencil. That chip cannot survive here: at 46 x 26 it is bigger than the
+/// cell it would hang under, and it is exactly the "empty pill" the
+/// screenshots show. What replaces it is Inventor's own split-button idiom on
+/// a touch device, and the trade is stated rather than hidden:
+///
+///   * the corner carries a small ▾, so the cell still SAYS it has a list;
+///   * a tap runs the default command, as it always did;
+///   * a LONG PRESS opens the list.
+///
+/// The list is one gesture further away than it was, and the gesture is the
+/// one iOS already uses for "show me the options" everywhere else. The named
+/// band is untouched: turn the names back on and M205's chip is there, at full
+/// size, exactly as it was. A control whose only action IS the list (the
+/// Appearance dropdowns) opens it on a plain tap, because there is no default
+/// to run.
+class _CompactCell extends StatefulWidget {
+  /// Drawn centred at [RibbonMetrics.compactIcon]. A widget rather than an
+  /// icon name because three of these are not SVGs: the Parameters "fx", the
+  /// material swatch, the floor's check.
+  final Widget glyph;
+
+  /// The command's name — the only place it is written, so it is required.
+  /// A picture with no name is unreachable for VoiceOver and unreadable for
+  /// anyone who does not already know the glyph (M349).
+  final String tooltip;
+
+  /// The default command. Null with [onFly] set means the cell IS the opener.
+  final VoidCallback? onTap;
+
+  /// The flyout, on a long press. Given the cell's own context so the menu
+  /// anchors under the cell rather than under the panel.
+  final void Function(BuildContext)? onFly;
+
+  final bool enabled;
+
+  /// Inventor's lit state: the tool this cell starts is the running one.
+  final bool active;
+
+  const _CompactCell({
+    required this.glyph,
+    required this.tooltip,
+    this.onTap,
+    this.onFly,
+    this.enabled = true,
+    this.active = false,
+  });
+
+  @override
+  State<_CompactCell> createState() => _CompactCellState();
+}
+
+class _CompactCellState extends State<_CompactCell> {
+  bool _h = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final on = widget.enabled && (widget.onTap != null || widget.onFly != null);
+    final lit = widget.active;
+    final wash = lit || (_h && on);
+    final bool fly = widget.onFly != null && widget.onTap != null;
+    return Tooltip(
+      message: _flat(widget.tooltip),
+      // A cell whose long press OPENS something must not also pop its own
+      // tooltip on that press — two things answering one gesture. Where the
+      // long press is free it stays the touch way to the name, which is what
+      // M349 promised when it took the words off the buttons. Hover is not
+      // governed by the trigger mode, so a trackpad reads the name either way,
+      // and the semantics label is untouched for VoiceOver.
+      triggerMode:
+          fly ? TooltipTriggerMode.manual : TooltipTriggerMode.longPress,
+      child: MouseRegion(
+        cursor: on ? SystemMouseCursors.click : MouseCursor.defer,
+        onEnter: (_) => setState(() => _h = true),
+        onExit: (_) => setState(() => _h = false),
+        child: Builder(
+          builder: (ctx) => GestureDetector(
+            // Opaque, for the reason _Hover states at length: the glyph is an
+            // SVG in a plain RenderBox that reports no hit, so without this
+            // the cell is dead everywhere except the pixels of the drawing.
+            behavior: HitTestBehavior.opaque,
+            onTap: !on
+                ? null
+                : (widget.onTap ??
+                    (widget.onFly == null ? null : () => widget.onFly!(ctx))),
+            onLongPress: !on || widget.onFly == null || widget.onTap == null
+                ? null
+                : () => widget.onFly!(ctx),
+            child: Container(
+              width: RibbonMetrics.compactCell,
+              height: RibbonMetrics.compactCell,
+              decoration: BoxDecoration(
+                color: lit
+                    ? T.mbActiveBg
+                    : (_h && on ? T.hover7 : Colors.transparent),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(
+                    color: lit
+                        ? T.mbActiveOutline
+                        : (wash ? T.border10 : Colors.transparent)),
+              ),
+              child: Stack(children: [
+                Positioned.fill(
+                    child: Center(child: _dimmable(widget.glyph, on))),
+                // The corner ▾. Bottom-right, outside the glyph's box rather
+                // than under it, so the cell keeps its size and the icon keeps
+                // its centre: this is a MARK that the list exists, not a
+                // target — the whole cell is the target.
+                if (widget.onFly != null)
+                  Positioned(
+                    right: 2,
+                    bottom: 0,
+                    child: Text('▾',
+                        style: ts(9, on ? T.dim : T.dim.withValues(alpha: 0.4),
+                            height: 1.0)),
+                  ),
+              ]),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _Big extends StatelessWidget {
   final String? id;
   final String label;
@@ -2120,6 +2325,22 @@ class _Big extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // M352 — one cell, and the 46 pt pill that used to hang under the glyph
+    // goes with the words that explained it. See [_CompactCell].
+    if (!RibbonLabels.on) {
+      return Builder(builder: (ctx) {
+        return _CompactCell(
+          glyph: svg(icon, RibbonMetrics.compactIcon),
+          tooltip: label,
+          active: active,
+          enabled: enabled,
+          onTap: onDefault,
+          onFly: showDd && id != null && onFly != null
+              ? (c) => onFly!(id!, c)
+              : null,
+        );
+      });
+    }
     return Builder(builder: (ctx) {
       return ConstrainedBox(
         // M235 — a MINIMUM width, not a fixed one.
@@ -2221,6 +2442,16 @@ class _BigWide extends StatelessWidget {
       this.enabled = true});
   @override
   Widget build(BuildContext context) {
+    // M352 — the same square as everything else in a nameless band.
+    if (!RibbonLabels.on) {
+      return _CompactCell(
+        glyph: svg(icon, RibbonMetrics.compactIcon),
+        tooltip: label,
+        active: active,
+        enabled: enabled,
+        onTap: onTap,
+      );
+    }
     return ConstrainedBox(
       // Same change as [_Big], same reason: [width] is the floor the English
       // layout was tuned to, not a cap the German has to fit inside.
@@ -2293,30 +2524,49 @@ String _flat(String label) => label.replaceAll('\n', ' ');
 /// laying the rows out sideways would widen the very thing the compact rail
 /// exists to narrow.
 Widget smallStack(List<Widget> rows) {
-  Widget column(List<Widget> rs) => Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        for (var i = 0; i < rs.length; i++) ...[
-          if (i > 0) const SizedBox(height: 2),
-          rs[i],
-        ]
-      ]);
-  if (RibbonLabels.on || RibbonDock.isVertical) return column(rows);
-  // ONE row, and only the constraint grid is allowed two ("just on the
-  // constraint icons in the sketch mode they can be 2 rowed"). Twelve
-  // constraints in a line would be a panel as wide as the screen; three
+  if (RibbonLabels.on) {
+    return Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (var i = 0; i < rows.length; i++) ...[
+            if (i > 0) const SizedBox(height: 2),
+            rows[i],
+          ]
+        ]);
+  }
+  // M352 — a compact RAIL wraps its cells two to a row, for the reason _flow
+  // gives: the children are squares now, and a column of squares stretched to
+  // the rail's width is the ragged thing the report was about.
+  if (RibbonDock.isVertical) return _wrap(rows);
+  // ONE row on a horizontal band, and only the constraint grid is allowed two
+  // ("just on the constraint icons in the sketch mode they can be 2 rowed").
+  // Twelve constraints in a line would be a panel as wide as the screen; three
   // modify commands in a line are three icons.
   return Row(
       mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         for (var i = 0; i < rows.length; i++) ...[
-          if (i > 0) const SizedBox(width: 2),
+          if (i > 0) SizedBox(width: RibbonMetrics.compactGap),
           rows[i],
         ]
       ]);
 }
+
+/// M352 — cells packed into the rail's width, on the one gap the compact band
+/// uses in both directions.
+///
+/// `WrapAlignment.start`, not centre: a half-full last row that centres itself
+/// under a full one is the "not aligned" the report named. Every cell in a
+/// rail therefore sits on one of two columns, whatever panel it came from.
+Widget _wrap(List<Widget> cells) => Wrap(
+      spacing: RibbonMetrics.compactGap,
+      runSpacing: RibbonMetrics.compactGap,
+      alignment: WrapAlignment.start,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: cells,
+    );
 
 /// A ribbon glyph in its disabled state.
 ///
@@ -2353,6 +2603,20 @@ class _SmallRow extends StatelessWidget {
       this.onTap, this.active = false, this.enabled = true, this.iconWidget});
   @override
   Widget build(BuildContext context) {
+    // M352 — a small row with no word in it is not a row, it is a cell: a
+    // glyph, and a 14 pt chip column beside it that lined up with nothing its
+    // neighbours drew. Same square as the rest of the band now, and the chip
+    // becomes the corner mark and the long press [_CompactCell] documents.
+    if (!RibbonLabels.on) {
+      return _CompactCell(
+        glyph: iconWidget ?? svg(icon, RibbonMetrics.compactIcon),
+        tooltip: label,
+        active: active,
+        enabled: enabled,
+        onTap: onTap,
+        onFly: flyId != null && onFly != null ? (c) => onFly!(flyId!, c) : null,
+      );
+    }
     // M290 — the hit target may shrink in a rail, and only in a rail. It has
     // to be flexible HERE, on the outer row, or the bound never reaches the
     // label: _Hover shrink-wraps to its child's natural width, so a Flexible
@@ -2427,6 +2691,9 @@ class _BigPlainBody extends StatelessWidget {
   const _BigPlainBody({required this.label});
   @override
   Widget build(BuildContext context) {
+    // M352 — Dimension is the one big button whose tap lives at its call site
+    // (it shares the Constrain panel's _Hover), so the cell it becomes is
+    // built there; see the Constrain panel in _sketchRibbonInner.
     return named(
         label,
         Column(mainAxisSize: MainAxisSize.min, children: [
@@ -2510,8 +2777,14 @@ class _ConGrid extends StatelessWidget {
     if (t != null) onTool(t);
   }
 
-  /// The compact cell — see [_cell] for why it is not the compact BUTTON.
-  static const double _compactCell = 30;
+  /// M352 — the compact cell IS the compact button now.
+  ///
+  /// M351 held this at 30 against the band's 32, because two 32 pt squares and
+  /// their gap did not fit the rail's 62 pt of content. M352 makes the rail's
+  /// panel padding tighter (6 a side instead of 10), so 68 is what a compact
+  /// panel offers and 2 x 32 + 2 fits it — which is how the grid finally draws
+  /// the SAME square as its neighbours instead of one that is two points off.
+  static double get _compactCell => RibbonMetrics.compactCell;
 
   /// M349 — the grid reflows when the names are off, because it is what the
   /// band's size is actually made of.
@@ -2527,32 +2800,42 @@ class _ConGrid extends StatelessWidget {
   /// point). In a compact side rail they go TWO wide, because there the
   /// scarce axis is the other one: four columns are 123 pt and the compact
   /// rail is 88.
+  /// M352 — the same gap the rest of the compact band leaves between two
+  /// cells. It was 1 here and 2 everywhere else, which is exactly the kind of
+  /// difference that reads as "not aligned" without being nameable.
+  double get _gap => RibbonLabels.on ? 1 : RibbonMetrics.compactGap;
+
   int get _cols => RibbonLabels.on
       ? 4
       : RibbonDock.isVertical
           ? 2
           : 6;
 
-  Widget _cell((String, String) c) => Tooltip(
-        message: c.$2,
-        child: SizedBox(
-          // M351 — the cell grows with the glyph inside it, so the compact
-          // grid is icons at the band's one size rather than the small ones
-          // blown up inside a box drawn for 18 pt.
-          //
-          // 30, not the 32 of a free-standing compact button: TWO of these
-          // plus their gap have to fit the compact rail, whose panel offers
-          // 62 pt, and 2 x 32 + 1 is 65. Found by the rail overflowing — the
-          // one place in this band where width is not free.
-          width: RibbonLabels.on ? 30 : _compactCell,
-          height: RibbonLabels.on ? 27 : _compactCell,
-          child: _Hover(
-              hoverBg: T.hover7,
-              activeHighlight: _isActive(c.$1),
-              onTap: () => _tap(c.$1),
-              child: Center(child: svg(CN[c.$1]!, RibbonMetrics.smallIcon))),
-        ),
+  Widget _cell((String, String) c) {
+    // M352 — the grid was already the one panel that drew icon-only cells, and
+    // it is now the shape the whole compact band copies rather than a shape of
+    // its own.
+    if (!RibbonLabels.on) {
+      return _CompactCell(
+        glyph: svg(CN[c.$1]!, RibbonMetrics.compactIcon),
+        tooltip: c.$2,
+        active: _isActive(c.$1),
+        onTap: () => _tap(c.$1),
       );
+    }
+    return Tooltip(
+      message: c.$2,
+      child: SizedBox(
+        width: 30,
+        height: 27,
+        child: _Hover(
+            hoverBg: T.hover7,
+            activeHighlight: _isActive(c.$1),
+            onTap: () => _tap(c.$1),
+            child: Center(child: svg(CN[c.$1]!, RibbonMetrics.smallIcon))),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2570,11 +2853,11 @@ class _ConGrid extends StatelessWidget {
       children: [
         for (var row = 0; row < rows; row++)
           Padding(
-            padding: EdgeInsets.only(top: row == 0 ? 0 : 1),
+            padding: EdgeInsets.only(top: row == 0 ? 0 : _gap),
             child: Row(mainAxisSize: MainAxisSize.min, children: [
               for (var col = 0; col < cols; col++)
                 Padding(
-                  padding: EdgeInsets.only(left: col == 0 ? 0 : 1),
+                  padding: EdgeInsets.only(left: col == 0 ? 0 : _gap),
                   child: (row * cols + col) < cons.length
                       ? _cell(cons[row * cols + col])
                       : SizedBox(
@@ -2846,46 +3129,24 @@ class _ValueIcon extends StatefulWidget {
   State<_ValueIcon> createState() => _ValueIconState();
 }
 
+/// M352 — and it is [_CompactCell], like everything else in the band.
+///
+/// M351 gave it a resting fill and a border, to say "this opens something"
+/// once the ▼ had gone. That made the five Appearance controls the only lit
+/// boxes in a band of bare glyphs — the report's "very weird", in the one
+/// panel that had five of them in a row. The corner ▾ says the same thing
+/// without a frame, and it says it the same way a split button does.
 class _ValueIconState extends State<_ValueIcon> {
-  bool _h = false;
-
   @override
-  Widget build(BuildContext context) {
-    final on = widget.enabled;
-    final lit = widget.active;
-    return Tooltip(
-      message: widget.tooltip,
-      child: MouseRegion(
-        cursor: on ? SystemMouseCursors.click : MouseCursor.defer,
-        onEnter: (_) => setState(() => _h = true),
-        onExit: (_) => setState(() => _h = false),
-        child: Builder(
-          builder: (ctx) => GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: on ? () => widget.onTap(ctx) : null,
-            child: Container(
-              width: RibbonMetrics.compactButton,
-              height: RibbonMetrics.compactButton,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: lit
-                    ? T.mbActiveBg
-                    : ((_h && on) ? T.hover7 : T.hover6),
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(
-                    color: lit
-                        ? T.mbActiveOutline
-                        : ((_h && on)
-                            ? T.accent.withValues(alpha: 0.45)
-                            : T.border10)),
-              ),
-              child: _dimmable(widget.glyph, on),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => _CompactCell(
+        glyph: widget.glyph,
+        tooltip: widget.tooltip,
+        enabled: widget.enabled,
+        active: widget.active,
+        // No default command: the list IS what this control does, so a plain
+        // tap opens it (see [_CompactCell]).
+        onFly: (ctx) => widget.onTap(ctx),
+      );
 }
 
 /// M351 — the label inside an Appearance chip, in a shape its box can hold.

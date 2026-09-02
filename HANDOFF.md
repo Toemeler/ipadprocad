@@ -11444,3 +11444,119 @@ Beim Schreiben davon ist noch ein Überlauf aufgefallen, den kein Test gesehen
 hatte: zwei kompakte Rasterzellen zu 32 pt plus Lücke sind 65 und passen nicht
 in die 62 pt, die das Panel einer 88-pt-Schiene lässt. Die Zelle ist jetzt 30.
 
+
+---
+
+## M352 — Eine Zelle, und die Schiene liegt endlich auf einer Linie
+
+> „They are not alligned and are very weird. It doesn't look good."
+> — dazu zwei Bildschirmfotos der kompakten Schiene.
+>
+> Und, während M352 lief:
+> „also i think the icons could be bigger."
+
+### Was auf den Bildern zu sehen war
+
+M349 hat die Wörter weggenommen, M351 hat jede Glyphe auf eine Grösse
+gebracht. Was **niemand** angefasst hatte, war der RAHMEN: jede Steuerung hat
+die Kiste behalten, die sie bekommen hatte, als noch ein Wort darin stand.
+
+| Steuerung | Kiste, kompakt, vor M352 |
+|---|---|
+| `_Big` (Erstellen) | Mindestbreite 52, darunter ein 46 × 26 Chip |
+| `_BigWide` | dieselbe 52, kein Chip, anderer oberer Rand (6 statt 4) |
+| `_SmallRow` | 26 hoch, Glyphe + 14-pt-Chipspalte, **linksbündig** |
+| `_ConGrid` | 30-pt-Quadrate auf 1 pt Lücke |
+| `_ValueIcon` | 36-pt-Quadrate, ständige Füllung und Rahmen, keine Lücke |
+
+Im waagrechten Band ist das unaufgeräumt. In der **Schiene**, wo `_flow` jedes
+Kind auf die volle Breite streckt, ist es genau der Bericht: eine Spalte von
+Kisten in fünf Breiten, teils zentriert, teils nicht, mit grauen Pillen
+dazwischen — der 46-pt-Chip unter einer Schaltfläche ohne Beschriftung darüber
+liest sich als leere Lozenge.
+
+### Eine Form
+
+`_CompactCell`: **36 pt im Quadrat**, eine **28-pt-Glyphe** in der Mitte,
+dieselbe Waschung, derselbe Eckradius — egal welche Steuerung darunter liegt.
+`_Big`, `_BigWide`, `_SmallRow`, `_ConGrid._cell`, die Bemassung und
+`_ValueIcon` gehen alle hindurch, sobald keine Namen geschrieben werden.
+
+Und die Anordnung dazu, damit „ausgerichtet" nicht Glück ist, sondern Bauart:
+
+* **Schiene** — `_flow` und `smallStack` liefern ein `Wrap` (`_wrap`) statt
+  einer gestreckten Spalte. Zwei Zellen und eine Lücke sind 74, ein kompaktes
+  Panel bietet 76: jede Zelle der ganzen Schiene sitzt auf einer von **zwei
+  x-Spalten**, aus welchem Panel sie auch kommt.
+* **Band** — die Reihe richtet mit `CrossAxisAlignment.start` aus statt mit
+  dem `stretch`, das die Aufrufstellen für den benannten Fall verlangen. Jede
+  erste Zellenreihe sitzt auf der **Bandoberkante**; zentriert sassen
+  benachbarte Panels sieben Punkte auseinander, weil ein Panel mit Titel
+  weniger Körper zum Zentrieren hat als eines ohne.
+* Panels, die EINE Schaltfläche direkt (nicht über `_flow`) bekommen — Neuer
+  Layer, Geometrie projizieren — bekamen deren `stretch` bzw. `Expanded` voll
+  ab: 68 × 36 in einer Schiene aus 36ern, 36 × 80 in einem Band aus 36ern.
+  `_panel` gibt ihnen jetzt lockere Constraints.
+
+### Der Ausklapper, und was er kostet
+
+M205 hat aus dem 7,5-pt-Pfeil einen Chip gemacht, den man sehen und treffen
+kann, weil 40 × 14 mit dem Pencil ein Münzwurf war. Dieser Chip **überlebt hier
+nicht**: 46 × 26 ist grösser als die Zelle, unter der er hinge, und er ist die
+leere Pille auf den Bildschirmfotos. Was an seine Stelle tritt, ist Inventors
+eigene Split-Button-Idee auf einem Berührgerät — und der Handel wird
+ausgesprochen, nicht versteckt:
+
+* die Ecke trägt ein kleines **▾**, die Zelle SAGT also weiterhin, dass eine
+  Liste dranhängt;
+* ein **Tippen** startet den Standardbefehl, wie immer;
+* ein **langes Drücken** öffnet die Liste.
+
+Eine Geste weiter weg, und es ist die Geste, die iOS überall sonst für „zeig
+mir die Möglichkeiten" verwendet. Mit Namen an ist M205s Chip unverändert da.
+Eine Steuerung, deren einzige Handlung die Liste IST (die Aussehen-Auswahlen),
+öffnet weiterhin auf ein einfaches Tippen — es gibt keinen Standard zu starten.
+
+### Der Fehler, der dabei sichtbar wurde
+
+Der erste Wurf mass **118 pt** im oberen Band gegen 112 mit Namen: ein
+„kompaktes" Band, das dicker ist als das, welches es ersetzt. Die Zelle war
+nicht die Ursache. Drei Panels — Erstellen (Rundung/Text/Punkt), Anordnung und
+Einfügen — stapelten ihre kleinen Zeilen noch von Hand statt durch
+`smallStack`, blieben also drei Zellen TIEF, während alles daneben eine Reihe
+geworden war. Das allein setzte das Band auf 100. Danach: 86 bei 32 pt Zelle,
+**94 bei 36** — und 36 ist es geworden, weil die Symbole grösser sein sollten.
+
+Merksatz für das nächste Mal, wenn diese Zahl nach dem Stellrad aussieht: die
+Zellgrösse ist es nicht, der Umbruch ist es.
+
+### Die Zahlen
+
+| | mit Namen | M351 | **M352** |
+|---|---|---|---|
+| Skizzen-Band oben | 112 pt | 90 pt | **94 pt** |
+| Schiene rechts | 168 pt | 88 pt | **84 pt** |
+| Symbolgrösse | 34 / 18 | 24 | **28** |
+| Zellgrösse | — | 30 / 32 / 36 | **36, überall** |
+
+Grössere Symbole, schmalere Schiene, vier Punkte mehr Band. Der Panel-Rand
+schrumpft dafür von 6 auf 4 pt je Seite: die Zelle zeichnet ihre Luft selbst
+(28 in 36), das Panel muss sie nicht ein zweites Mal zeichnen.
+
+### Der Test
+
+`test/m352_compact_cell_test.dart`, 17 Fälle, und sie messen alle dasselbe aus
+drei Richtungen: **eine** Grössenmenge über alle Zellen (in allen vier Docks),
+**zwei** x-Spalten in der Schiene, **zwei** y-Linien im Band. Dazu die
+Ausrichtungsfalle der Einzelschaltflächen, das Tippen gegen das lange Drücken,
+die deaktivierte Zelle, die keine von beiden Gesten nimmt, und alle acht
+Dock/Namen-Kombinationen für Skizze UND Bauteil (ein RenderFlex-Überlauf wirft
+im Test, das Pumpen ist die Zusicherung).
+
+Gegengeprüft: mit 36-pt-Zellen ohne die `smallStack`-Umbrüche fallen vier
+Fälle, mit wiederhergestelltem `stretch` fallen sieben.
+
+`m349_ribbon_names_test.dart` hat einen Fall geändert statt ihn zu verlieren:
+gezählt wird weiterhin, dass **jeder** Ausklapper mit Namen einen Ausklapper
+ohne Namen hat — nur ist der Beweis jetzt das ▾ in der Ecke und nicht mehr
+Material's `arrow_drop_down`.

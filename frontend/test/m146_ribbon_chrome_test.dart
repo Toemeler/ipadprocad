@@ -185,7 +185,15 @@ void main() {
 
     testWidgets('a side rail is the rail width and full height', (t) async {
       RibbonDock.set(RibbonPosition.left);
-      await pump(t, Row(children: [
+      // M352 — stretch, for the reason the horizontal case above already
+      // gives: the real layout is RibbonDockLayout's, and a Row that CENTRES
+      // its children measures the CONTENT rather than the edge. This one only
+      // ever passed because the rail's content happened to be taller than the
+      // screen; once M352 packed the compact cells two to a row it came to
+      // 879 against a 900 pt edge, and the harness — not the rail — is what
+      // stopped spanning it.
+      await pump(t, Row(crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
         SizedBox(width: RibbonMetrics.railWidth, child: Ribbon(app: makeApp())),
         const Expanded(child: SizedBox.expand()),
       ]));

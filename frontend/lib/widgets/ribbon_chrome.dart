@@ -86,9 +86,14 @@ class RibbonMetrics {
   /// inside the panel's 20 pt of padding — 76 clears that with room, and the
   /// rail is less than half of what it was.
   static const double railWidthNamed = 168;
-  /// 88: the constraint grid reflows to two 30 pt columns in a compact rail
-  /// (see _ConGrid), and 61 + the panel's 20 pt of padding is what has to fit.
-  static const double railWidthCompact = 88;
+  /// 84: a compact rail is TWO [compactCell] columns and their [compactGap]
+  /// (74) inside the 4 pt a side that [panelPad] gives a nameless panel (8),
+  /// which is 82 — plus two points so a rounding error is not an overflow.
+  /// Every panel in the rail wraps to those two columns (see `_wrap` in
+  /// ribbon.dart), so this is the width of the whole band, not of its widest
+  /// member, and it is still narrower than the 88 M351 needed for cells that
+  /// were smaller than these.
+  static const double railWidthCompact = 84;
 
   static double get railWidth =>
       RibbonLabels.on ? railWidthNamed : railWidthCompact;
@@ -105,12 +110,17 @@ class RibbonMetrics {
   // left is a grid of pictures, and a grid of pictures in two sizes reads as a
   // mistake ("when the names are hidden every icon should be the same size").
   //
-  // 24 is the size that costs neither: the big buttons lose ten points of
-  // height each (the band gets thinner again for it) and the small rows gain
-  // six, which their 26 pt row already had room for.
+  // M352 — 28, up from M351's 24: "I think the icons could be bigger."
+  //
+  // The size is bounded from above by the TOP band, whose height is the
+  // constraint grid's two rows plus the panel's chrome: every point on the
+  // glyph is two on the band, and at 28 the band is 94 pt against the named
+  // band's 112. It is bounded from below by the fact that this is now the
+  // ONLY thing a compact button shows — there is no word under it to carry
+  // the meaning, so the drawing has to.
   static const double bigIconNamed = 34;
   static const double smallIconNamed = 18;
-  static const double compactIcon = 24;
+  static const double compactIcon = 28;
 
   static double get bigIcon =>
       RibbonLabels.on ? bigIconNamed : compactIcon;
@@ -118,9 +128,44 @@ class RibbonMetrics {
   static double get smallIcon =>
       RibbonLabels.on ? smallIconNamed : compactIcon;
 
+  /// M352 — the CELL. One square, for every control in a band that writes no
+  /// names: a create button, a small row, a constraint, an appearance
+  /// dropdown. On the device they were none of those sizes — a big button was
+  /// as wide as its 46 pt flyout pill, a small row as wide as its glyph plus a
+  /// chip, an appearance control 32 — so a rail of them lined up on nothing
+  /// ("they are not aligned and are very weird").
+  ///
+  /// 36: a 28 pt glyph with four points of air on each side.
+  ///
+  /// The number is set by the HORIZONTAL band, not by the rail. On a top dock
+  /// the tallest panel is the constraint grid, so the band is two of these
+  /// plus their gap plus the panel's chrome — 94 pt at 36, against the named
+  /// band's 112. The first cut of M352 reached 118 pt at this same size, and
+  /// the cell was not what was wrong: three panels still stacked their small
+  /// rows three deep instead of reflowing with the band (see `smallStack`).
+  /// Fixing those, rather than shrinking the cell, is what bought the height
+  /// back — which is worth remembering the next time this number looks like
+  /// the one to tune.
+  ///
+  /// It is also what sets [railWidthCompact]: two cells and a gap is 74, and
+  /// a compact panel's padding is 4 a side.
+  static const double compactCell = 36;
+
+  /// Between two cells, in both directions.
+  static const double compactGap = 2;
+
   /// The box one compact icon sits in — the same for every control in the
   /// band, so a row of them lines up whatever they are.
-  static const double compactButton = 32;
+  static const double compactButton = compactCell;
+
+  /// The padding a panel puts around its content. Tighter with no names,
+  /// because two cells and their gap have to fit [railWidthCompact].
+  static EdgeInsets get panelPad => RibbonLabels.on
+      ? const EdgeInsets.fromLTRB(10, 6, 10, 2)
+      // 4 a side rather than 10: the cell draws its own air (a 28 pt glyph in
+      // a 36 pt box), so the panel need not draw it again, and every point
+      // saved here is a point off the rail's width.
+      : const EdgeInsets.fromLTRB(4, 4, 4, 2);
 }
 
 /// The ribbon's background surface: the same glass as the model browser, but
