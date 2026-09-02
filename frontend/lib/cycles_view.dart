@@ -516,13 +516,36 @@ String cyclesCameraKey(Cam3 cam) {
 
 /// The largest image a Cycles render will produce, on its long side.
 ///
-/// A path tracer is not a rasteriser: cost is pixels times samples, and the
-/// viewport at native iPad resolution is 5.6 megapixels. At any sample count
-/// worth having, that is a minute of work for a picture the user asked for by
-/// switching a display mode. 900 on the long side is a third of a megapixel,
-/// it fills the viewport well enough on a Retina panel once scaled, and it
-/// lands in seconds rather than minutes.
-const int kCyclesMaxSide = 900;
+/// M347 — 900 WAS A ONE-SHOT RENDERER'S NUMBER AND IT SHOWED.
+///
+/// It was chosen when a render was a single blocking call: cost is pixels
+/// times samples, so a third of a megapixel "lands in seconds rather than
+/// minutes" and everything above that was a wait nobody had asked for.
+///
+/// Sampling is progressive now. A bigger image does not delay the first
+/// picture — the first sample of a two-megapixel frame arrives about as fast
+/// as the first sample of a small one — it only means more samples are needed
+/// to finish. What 900 bought was therefore never speed to a PICTURE, only
+/// speed to a FINISHED picture, and what it cost was permanent: a 900-pixel
+/// image stretched across the ~1800 device pixels of an iPad Pro viewport is
+/// soft at every sample count, and no amount of waiting sharpens it. That
+/// softness is most of what "it never gets better than this" was describing.
+///
+/// 1440 is four fifths of that viewport's long side — a step the eye reads
+/// immediately against 900's one half — and it is where it is rather than at a
+/// true 1:1 because of MEMORY, which is the one cost that does grow with the
+/// pixel count and does not go away again. The shim keeps the frame, the
+/// albedo and the normal in floats, twice over (the output driver's copy and
+/// the reader's), plus nine floats a pixel of denoiser scratch: about 176
+/// bytes per pixel of CPU buffers, on top of Cycles' own render passes on the
+/// GPU. At 1440 that is around three hundred megabytes and at a true 1:1 it is
+/// closer to five hundred, which is not a number to reach for on a device
+/// nobody has measured this on. Raising it further is a deliberate act with an
+/// arithmetic behind it, which is why the arithmetic is written down here.
+///
+/// The orbit is not affected either way: it renders at [kCyclesMovingSide],
+/// and only a standstill reaches this.
+const int kCyclesMaxSide = 1440;
 
 /// The long side to render at WHILE THE CAMERA IS MOVING.
 ///
@@ -555,6 +578,57 @@ const int kCyclesMovingSide = 480;
 /// and the firefly clamps the shim sets, stops changing in any way the eye can
 /// see. Adaptive sampling means most pixels are finished long before it.
 const int kCyclesSamples = 256;
+
+/// The sample target WHILE THE CAMERA IS MOVING.
+///
+/// M347 — THE OTHER HALF OF THE ORBIT BUDGET, AND THE HALF THAT WAS MISSING.
+///
+/// [kCyclesMovingSide] cut the pixels an orbit renders and left the sample
+/// target at [kCyclesSamples], which means that during an orbit the path
+/// tracer was still working towards 256 samples of every frame it would never
+/// finish. It never got there and it never stopped trying: each camera move
+/// restarted a render that would have taken a quarter of a second of solid GPU
+/// time, so between the first frame of a drag and the last the GPU was pinned
+/// at a hundred per cent — and the compositor, which needs a slice of the same
+/// GPU every eight milliseconds to put a frame on the screen, had to fight it
+/// for one. That is what an orbit that stutters while the model itself is
+/// simple is made of.
+///
+/// A small target ends the fight. The tracer reaches 24 samples in a few tens
+/// of milliseconds, the session goes idle, and the GPU is free until the next
+/// camera push — which at 60 Hz is immediately, but IN BETWEEN, which is where
+/// a frame gets composited. It is the same bargain the resolution ladder
+/// makes and for the same reason: the eye tracking a moving shape cannot
+/// resolve either detail or noise, and 24 samples through the a-trous filter
+/// (which is at full strength this far below the shim's `kDenoiseFull`) reads
+/// as a clean moving picture.
+///
+/// It is Blender's bargain too — `RenderScheduler` caps the samples per work
+/// item while the user is navigating and drops the resolution divider — with
+/// the difference that this app owns its own resolution ladder and so has to
+/// own the sample cap as well.
+const int kCyclesMovingSamples = 24;
+
+/// Everything a moving camera changes about the request, in one place.
+///
+/// M347 — THE TWO HALVES OF THE BUDGET, SO THEY CANNOT DRIFT APART. Until now
+/// only the size knew about navigation; the sample target was a constant, and
+/// the result was an orbit that rendered a quarter of the pixels and then
+/// worked on them for a quarter of a second each. Both halves are the same
+/// decision — how much of the machine a frame nobody will look at for more
+/// than sixteen milliseconds is allowed to take — and a caller that has to
+/// remember to ask two functions the same question will eventually ask only
+/// one.
+({int width, int height, int samples}) cyclesFrameBudget(
+    double width, double height, double dpr,
+    {required bool moving}) {
+  final (w, h) = cyclesImageSize(width, height, dpr, moving: moving);
+  return (
+    width: w,
+    height: h,
+    samples: moving ? kCyclesMovingSamples : kCyclesSamples,
+  );
+}
 
 /// The pixel size to render [size] logical points at, capped at
 /// [kCyclesMaxSide] and never zero.

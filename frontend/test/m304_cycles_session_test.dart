@@ -126,15 +126,32 @@ void main() {
     test('a big one is capped on the long side and keeps its aspect', () {
       final (w, h) = cyclesImageSize(1366, 1024, 2.0);
       expect(w, kCyclesMaxSide);
-      // 2732x2048 scaled by 900/2732.
-      expect(h, 675);
+      // 2732x2048 scaled by kCyclesMaxSide/2732.
+      expect(h, (2048 * kCyclesMaxSide / 2732).round());
       expect(w / h, closeTo(1366 / 1024, 0.01));
     });
 
     test('a portrait viewport is capped on ITS long side', () {
       final (w, h) = cyclesImageSize(1024, 1366, 2.0);
       expect(h, kCyclesMaxSide);
-      expect(w, 675);
+      expect(w, (2048 * kCyclesMaxSide / 2732).round());
+    });
+
+    // M347 — the cap is what decides how sharp a settled render can ever be,
+    // and 900 made an iPad Pro viewport a half-resolution image at every sample
+    // count. Nailed down so a future "let's make it cheaper" has to argue with
+    // the pixel it is giving away.
+    test('a settled render covers most of an iPad Pro viewport 1:1', () {
+      // The part viewport with the ribbon docked at the left, in points.
+      final (w, h) = cyclesImageSize(897, 774, 2.0);
+      expect(w, kCyclesMaxSide);
+      expect(w / (897 * 2.0), greaterThan(0.75));
+    });
+
+    test('an orbit renders small, and the two caps are far apart', () {
+      final (mw, _) = cyclesImageSize(897, 774, 2.0, moving: true);
+      expect(mw, kCyclesMovingSide);
+      expect(kCyclesMovingSide * 2, lessThan(kCyclesMaxSide));
     });
 
     test('a degenerate size never asks for a zero-pixel image', () {

@@ -528,14 +528,42 @@ int main(int argc, char **argv)
           "the dark side keeps its own value");
     check(left - right > 0.25, "the edge across the seam survives");
 
-    /* And it must be OFF once the render has converged, or the picture the
-     * user finally looks at would depend on a constant in cycles_denoise.cpp. */
+    /* And it must be OFF once the frame has been sampled properly, or the
+     * picture the user finally looks at would depend on a constant in
+     * cycles_denoise.cpp.
+     *
+     * M347 — IN SAMPLES, NOT IN FRACTIONS OF A TARGET. The target is a
+     * navigation target during an orbit and a settled one at rest, and a curve
+     * keyed to it filtered hardest exactly where there was least to filter.
+     * The second and third checks below are the ones that used to pass for the
+     * wrong reason: 64 out of 64 was called converged, and it is 64 samples of
+     * path tracing, which is a noisy picture. */
     check(cyshim::denoise_strength_for(1, 64) == 1.0f,
           "a nearly-unsampled frame is fully denoised");
-    check(cyshim::denoise_strength_for(64, 64) == 0.0f,
-          "a converged frame is not denoised at all");
-    check(cyshim::denoise_strength_for(48, 64) == 0.0f,
-          "the fade is over well before the target");
+    check(cyshim::denoise_strength_for(cyshim::kDenoiseFull, 64) == 1.0f,
+          "a frame at the top of the full-strength band is still fully denoised");
+    check(cyshim::denoise_strength_for(cyshim::kDenoiseRaw, 256) == 0.0f,
+          "a well-sampled frame is not denoised at all");
+    check(cyshim::denoise_strength_for(cyshim::kDenoiseRaw + 80, 256) == 0.0f,
+          "and neither is one past it");
+    {
+      /* Monotone, and strictly between the two ends. A curve that is not would
+       * make the image get NOISIER as it converges at some sample count, which
+       * is the one visible failure this function can have. */
+      float prev = 1.0f;
+      int bad = 0;
+      for (int n = 1; n <= cyshim::kDenoiseRaw + 8; n++) {
+        const float f = cyshim::denoise_strength_for(n, 256);
+        if (f > prev + 1e-6f || f < 0.0f || f > 1.0f) {
+          bad++;
+        }
+        prev = f;
+      }
+      check(bad == 0, "the fade never goes back up");
+      check(cyshim::denoise_strength_for((cyshim::kDenoiseFull + cyshim::kDenoiseRaw) / 2,
+                                         256) > 0.4f,
+            "a half-sampled frame keeps half the filter");
+    }
 
     free(color);
     free(albedo);

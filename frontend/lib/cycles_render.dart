@@ -91,12 +91,23 @@ enum CyclesPush {
 /// [width] and [height] are the view. Which half changed decides both what is
 /// pushed to the renderer and whether the image on screen survives.
 class CyclesKey {
-  const CyclesKey(this.scene, this.camera, this.width, this.height);
+  const CyclesKey(this.scene, this.camera, this.width, this.height,
+      [this.samples = 0]);
 
   final String scene;
   final String camera;
   final int width;
   final int height;
+
+  /// How many samples this picture is being sampled TOWARDS.
+  ///
+  /// M347 — part of the key because it is now part of the request. An orbit
+  /// asks for `kCyclesMovingSamples` and a standstill for `kCyclesSamples`,
+  /// and the change from one to the other has to reach the renderer. Today it
+  /// always travels with a size change, so leaving it out would work by
+  /// accident; a key that is missing a field the caller can vary is exactly
+  /// how a push comes to be silently skipped.
+  final int samples;
 
   /// True when [other] is a picture of the same MODEL, however the camera has
   /// moved since.
@@ -108,13 +119,14 @@ class CyclesKey {
       other.scene == scene &&
       other.camera == camera &&
       other.width == width &&
-      other.height == height;
+      other.height == height &&
+      other.samples == samples;
 
   @override
-  int get hashCode => Object.hash(scene, camera, width, height);
+  int get hashCode => Object.hash(scene, camera, width, height, samples);
 
   @override
-  String toString() => '$scene|$camera|${width}x$height';
+  String toString() => '$scene|$camera|${width}x$height@$samples';
 }
 
 /// The rendered image, and how far along it is.
@@ -142,8 +154,11 @@ class CyclesImage {
   /// Sampling has finished.
   final bool done;
 
-  /// The a-trous filter was applied. False once it has converged, so a
-  /// finished image is always the raw path trace.
+  /// The a-trous filter was applied.
+  ///
+  /// M347 — driven by [samples] rather than by [done]: an image sampled past
+  /// the shim's `kDenoiseRaw` is the raw path trace, and one that stopped short
+  /// of it keeps the filter that earned it. See cycles_denoise.h.
   final bool denoised;
 }
 

@@ -52,10 +52,20 @@
  * wide at four samples, where everything is noise, and vanishingly narrow at
  * two hundred, where a difference between neighbours is real.
  *
- * AND IT FADES OUT. `strength` is driven by convergence, and the caller drives
- * it to zero. The image you orbit with is filtered; the image you stop and
- * look at is the raw path trace, pixel for pixel, exactly as M343 rendered it.
- * There is no setting in which this file can damage a finished frame.
+ * AND IT FADES OUT. `strength` is driven by the SAMPLE COUNT, and reaches zero
+ * at [kDenoiseRaw]. The image you orbit with is filtered; the image you stop
+ * and look at, once it has been sampled properly, is the raw path trace, pixel
+ * for pixel, exactly as M343 rendered it.
+ *
+ * M347 — AND IT IS THE COUNT, NOT THE FINISH FLAG. Until M346 the caller also
+ * forced the strength to zero the moment sampling STOPPED, which sounds like
+ * the same thing and is not: adaptive sampling stops a frame when its own
+ * error estimate is satisfied, which on a studio-lit CAD scene is routinely a
+ * third of the way to the target. The filter therefore came off precisely the
+ * frames that still had visible noise, at the moment the user stopped orbiting
+ * and started looking. What the promise above is worth keeping is that a
+ * WELL-SAMPLED frame is untouched, and that is what a sample count can say and
+ * a finish flag cannot.
  */
 #ifndef CYCLES_DENOISE_H
 #define CYCLES_DENOISE_H
@@ -69,6 +79,20 @@ namespace cyshim {
  * that width would cost. That is the whole point of the a-trous decomposition
  * and it is why this is affordable at viewport rates. */
 const int kDenoiseIterations = 3;
+
+/* Where the fade starts and where it ends, in SAMPLES.
+ *
+ * [kDenoiseFull] is roughly where a path-traced CAD frame stops being mostly
+ * noise, and it sits above the navigation target on purpose: every frame of an
+ * orbit is filtered at full strength, which is what makes a moving viewport
+ * read as a picture rather than as static.
+ *
+ * [kDenoiseRaw] is where the filter is off entirely. Well below the settled
+ * target of [kCyclesSamples], so an image that converges normally has been the
+ * raw path trace for a good while before it stops changing — the same argument
+ * the fraction-of-target version made, in units that mean something. */
+const int kDenoiseFull = 32;
+const int kDenoiseRaw = 176;
 
 /* Filter [color] in place.
  *
@@ -108,11 +132,16 @@ void denoise(float *color,
 /* How many floats [denoise] needs as scratch for a [width]x[height] image. */
 size_t denoise_scratch_floats(int width, int height);
 
-/* How hard to filter an image of [samples] out of [target].
+/* How hard to filter an image that averages [samples].
  *
- * 1 while the frame is mostly noise, easing to 0 as it converges, and exactly
- * 0 once it has. Exposed so the shim and its tests agree on one curve rather
- * than each having an opinion, and so the fade can be checked without a GPU. */
+ * 1 while the frame is mostly noise, a straight fade from [kDenoiseFull], and
+ * exactly 0 from [kDenoiseRaw] on. Exposed so the shim and its tests agree on
+ * one curve rather than each having an opinion, and so the fade can be checked
+ * without a GPU.
+ *
+ * [target] is IGNORED and kept only so the call sites need not change with the
+ * curve; see the note in cycles_denoise.cpp for why the target stopped being
+ * the right denominator. */
 float denoise_strength_for(int samples, int target);
 
 }  // namespace cyshim

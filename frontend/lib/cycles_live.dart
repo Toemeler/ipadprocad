@@ -37,8 +37,8 @@
 // The shim's answer instead is `cy_live_frame`, which is cheap when there is
 // nothing new: it compares a serial number under a mutex and returns 0. So the
 // worker polls it, on its own event loop, at a rate nobody has to see — and it
-// STOPS polling the moment the image is finished, which is what keeps a
-// converged viewport from costing anything at all.
+// drops to [kCyclesIdlePoll] the moment the image is finished, which is what
+// keeps a converged viewport from costing anything worth measuring.
 import 'dart:async';
 import 'dart:isolate';
 import 'dart:typed_data';
@@ -56,6 +56,25 @@ import 'log.dart';
 /// not free is the copy and the denoise, and those happen only when a frame
 /// has actually landed.
 const Duration kCyclesPoll = Duration(milliseconds: 14);
+
+/// How often the worker asks after a frame that said it was FINISHED.
+///
+/// M347 — BECAUSE "FINISHED" USED TO BE A ONE-WAY DOOR. The worker stopped
+/// polling outright when a frame came back done, on the reasoning that nothing
+/// more will change until the camera or the model does, and both of those
+/// restart it. That reasoning is sound and its failure mode is total: one
+/// wrong `done` — and there was a race in the shim that produced them, see
+/// restart() in cycles_shim.cpp — and the viewport is finished forever, with a
+/// half-sampled picture on screen and a badge that says it is the final one.
+/// Nothing short of touching the camera brings it back, and the user's report
+/// was exactly that: "it won't get better than this."
+///
+/// A viewport must not have a state it cannot leave. So a finished render
+/// drops to this instead of stopping: five calls a second, each of them a
+/// mutex and an integer compare in C++ that returns 0, which is nothing at all
+/// next to the path tracing it is watching for — and if a frame ever does
+/// arrive after a `done`, it is shown rather than lost.
+const Duration kCyclesIdlePoll = Duration(milliseconds: 200);
 
 /// One frame, as it crosses back from the worker.
 class CyclesLiveFrame {
@@ -338,23 +357,32 @@ void _cyclesWorker(SendPort toMain) {
   var opened = false;
   var epoch = 0;
   Timer? poll;
+  // Which cadence `poll` is running at, so a restart at the same rate is a
+  // no-op and a change of rate actually changes it.
+  Duration? rate;
 
   void stopPolling() {
     poll?.cancel();
     poll = null;
+    rate = null;
   }
 
-  void tick() {
-    if (width <= 0 || height <= 0) return;
+  // One poll. True when the frame that landed said sampling is over.
+  //
+  // It REPORTS rather than acts, so the cadence lives in one place — and so
+  // `tick` and `startPolling` need not name each other, which two local
+  // functions declared in one block cannot do.
+  bool tick() {
+    if (width <= 0 || height <= 0) return false;
     final CyclesFrame? f;
     try {
       f = ffi.liveFrame(width, height);
     } catch (e) {
       stopPolling();
       toMain.send(_NoteMsg('$e', true));
-      return;
+      return false;
     }
-    if (f == null) return;
+    if (f == null) return false;
     toMain.send(_FrameMsg(
       TransferableTypedData.fromList([f.rgba]),
       f.width,
@@ -365,17 +393,21 @@ void _cyclesWorker(SendPort toMain) {
       f.denoised,
       epoch,
     ));
-    if (f.done) {
-      // Finished. Nothing more will change until the camera or the model does,
-      // and both of those restart the polling — so an idle rendered viewport
-      // costs one timer cancellation and then nothing.
-      stopPolling();
-    }
+    return f.done;
   }
 
-  void startPolling() {
-    if (poll != null) return;
-    poll = Timer.periodic(kCyclesPoll, (_) => tick());
+  void startPolling([Duration every = kCyclesPoll]) {
+    if (poll != null && rate == every) return;
+    poll?.cancel();
+    rate = every;
+    poll = Timer.periodic(every, (_) {
+      // Finished. Nothing more will change until the camera or the model does,
+      // and both of those put the fast cadence back — so an idle rendered
+      // viewport costs `kCyclesIdlePoll`, which is a handful of integer
+      // compares a second and no GPU at all. It is not zero on purpose: see
+      // the note on that constant for what stopping outright cost.
+      if (tick()) startPolling(kCyclesIdlePoll);
+    });
   }
 
   bool ensureOpen() {

@@ -264,28 +264,34 @@ float denoise_strength_for(const int samples, const int target)
   if (samples <= 0) {
     return 0.0f;
   }
-  if (target <= 0) {
-    return 1.0f;
-  }
-  /* Full strength for the first tenth of the budget, then a straight fade to
-   * nothing at three-quarters of it.
+  (void)target;
+  /* M347 — HOW MANY SAMPLES IT HAS, NOT HOW MANY IT WAS AIMING AT.
    *
-   * Off well BEFORE the target rather than at it, deliberately. The last
-   * quarter of a render is where the eye is looking for detail, and a frame
-   * that is still 5% filtered at the end is a frame whose sharpness depends on
-   * a constant in this file. Ending the fade early means the image the user
-   * settles on has been the raw path trace for a while by the time it stops
-   * changing, so what they judge the renderer by is the renderer. */
-  const float t = (float)samples / (float)target;
-  const float lo = 0.10f;
-  const float hi = 0.75f;
-  if (t <= lo) {
+   * This used to be a fraction of the target: full strength for the first
+   * tenth of the budget, fading out by three-quarters of it. That made the
+   * filter's job depend on a number that says nothing about the picture.
+   *
+   * Two things broke it. The target CHANGES now — an orbit asks for
+   * [kCyclesMovingSamples] and a standstill for [kCyclesSamples] — and under
+   * the old rule a frame that reached its small navigation target came out
+   * "converged" and therefore unfiltered, which is the noisiest possible
+   * moment to take the filter off. And adaptive sampling stops a frame at its
+   * own error estimate rather than at the target, so the fraction was never
+   * the fraction of the work that had actually been done.
+   *
+   * Noise is a property of the sample count alone, so the curve is too: full
+   * strength up to [kDenoiseFull], a straight fade, and nothing at all from
+   * [kDenoiseRaw] on. The promise the header makes survives in the form that
+   * matters — an image sampled to [kDenoiseRaw] is the raw path trace, pixel
+   * for pixel — and it no longer promises that about an image which has
+   * twenty. */
+  if (samples <= kDenoiseFull) {
     return 1.0f;
   }
-  if (t >= hi) {
+  if (samples >= kDenoiseRaw) {
     return 0.0f;
   }
-  return (hi - t) / (hi - lo);
+  return (float)(kDenoiseRaw - samples) / (float)(kDenoiseRaw - kDenoiseFull);
 }
 
 size_t denoise_scratch_floats(const int width, const int height)

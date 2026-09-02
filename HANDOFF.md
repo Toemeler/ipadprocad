@@ -11040,3 +11040,149 @@ der rechten Kante zeigte.
 Wie das Glas über dem Zeichengrund tatsächlich AUSSIEHT, sagt erst das iPad —
 auf dem Linux-Runner gibt es kein `UIGlassEffect`, dort ist das Band die
 gemalte Rückfallfläche. Die Höhe dagegen ist gemessen und festgenagelt.
+
+## M347 — Der Sucher hört auf, sich festzufahren, und lässt die GPU wieder los
+
+### Was der Auftrag war
+
+„Der Cycles-Render sieht aus wie Mist, und zweitens kann ich nicht orbiten.
+In Blender ist das Orbiten flüssig, es sieht verpixelt aus, aber es ist
+flüssig. Hier ruckelt es wahnsinnig, sobald Cycles an ist. Und es sieht immer
+aus wie Mist, besser als auf dem Screenshot wird es nicht."
+
+Dazu ein Screenshot: ein Wal auf dem Boden, das Abzeichen unten rechts sagt
+**„Cycles · 256 spp · Apple M4 GPU"**, und das Bild ist grobkörnig — auch dort,
+wo es das gar nicht sein kann.
+
+### Der Befund
+
+Der Screenshot ist nachgemessen worden, nicht angeschaut. Im Hintergrund und
+auf dem Boden — eine glatte diffuse Fläche, die bei 256 Samples rauschfrei
+sein MUSS — steht das Rauschen bei rund einem Viertel des eigenen Wertes
+(linear gerechnet), und die Autokorrelation des Rauschens sowie die Breite der
+Silhouettenkante sagen beide dasselbe: das Bild auf dem Schirm ist mit rund
+480 Pixeln auf der langen Seite gerendert, also mit der ORBIT-Auflösung, und
+auf einen ~1800 Pixel breiten Viewport hochgezogen. Ein Bild, das mitten in
+einer Kamerabewegung entstanden ist, stand also still da und behauptete, es
+sei das fertige.
+
+Daraus wurden zwei getrennte Fehler, die dasselbe Gesicht trugen.
+
+**1. Der Sucher rastete ein — und das war eine Wettlaufsituation.** Der
+Ausgabetreiber stempelt jede Aufnahme mit `g_generation.load()`, also mit dem
+Stand IN DEM MOMENT DES KOPIERENS, nicht mit dem, für den die Pixel gerendert
+wurden. `restart()` erhöhte diesen Zähler VOR `session->reset()` — und
+`Session::reset` blockiert über `PathTrace::cancel` so lange, bis der laufende
+`PathTrace::render` zurückgekehrt ist. Genau in dieses Fenster fällt die
+Aufnahme der VORHERIGEN Ansicht, bekommt den NEUEN Stempel und wird vom Leser
+als Bild der neuen Kamera angenommen — mitsamt ihrem `finished`-Flag, das
+klebrig ist. Danach: der Worker beendet sein Pollen (das war eine Einbahn-
+straße), das Abzeichen meldet die Ziel-Samplezahl statt der erreichten, und
+das halbfertige Bild ist das letzte, das je gezeigt wird. Genau der Satz aus
+dem Bericht.
+
+Zwei Dinge machten es unsichtbar statt laut: `info->samples` gab bei einem
+fertigen Bild das ZIEL zurück statt der wirklich gerenderten Zahl — das „256
+spp" auf dem Screenshot ist erfunden —, und der Entrauscher wurde bei
+`finished` auf null gezwungen. Das Bild, das am wenigsten Samples hatte,
+bekam also die geringste Hilfe.
+
+**2. Der Orbit hatte nur ein halbes Budget.** M344 hat die PIXEL einer
+Orbit-Aufnahme gesenkt (`kCyclesMovingSide` = 480) und das Sample-Ziel bei 256
+gelassen — mit der ausdrücklichen Begründung, „weniger Pixel, nicht weniger
+Samples". Für das AUSSEHEN ist das richtig. Für die Auslastung ist es das
+Gegenteil: ein Pfadverfolger, der auf 256 Samples einer bewegten Kamera
+zielt, wird nie fertig und hört darum nie auf. Die GPU steht die ganze Geste
+über auf hundert Prozent, und Flutters Compositor, der alle acht Millisekunden
+eine Scheibe derselben GPU braucht, steht dahinter in der Schlange. Blender
+macht an dieser Stelle das Gegenteil: sein `RenderScheduler` deckelt die
+Samples pro Arbeitspaket, solange navigiert wird.
+
+### Was gebaut wurde
+
+**Die Reihenfolge in `restart()`** — erst `reset()`, dann unter dem
+Frame-Lock den Zähler erhöhen und den Speicher leeren. Das schließt die
+Wettlaufsituation nicht wahrscheinlich, sondern beweisbar: Cycles garantiert
+über `PathTrace::cancel`, dass nach `reset()` keine Aufnahme der alten Ansicht
+mehr unterwegs ist, und jeder Aufruf in den Ausgabetreiber liegt innerhalb von
+`PathTrace::render`. Das verbleibende Fenster läuft andersherum und kostet
+höchstens EIN Bild, das verworfen wird — was sich von selbst korrigiert,
+anders als ein übernommenes Fremdbild.
+
+**`info->samples` sagt die Wahrheit.** Die Ersetzung durch das Ziel ist weg.
+Die eine Zahl im Abzeichen, die hätte sagen können, dass der Render früh
+aufgehört hat, war genau die Zahl, der man das abgewöhnt hatte.
+
+**Der Entrauscher hängt an der Samplezahl, nicht am Ziel und nicht am
+Fertig-Flag** (`kDenoiseFull` = 32, `kDenoiseRaw` = 176). Rauschen ist eine
+Eigenschaft der Samplezahl allein. Das alte Verhältnis-zum-Ziel brach an zwei
+Stellen: das Ziel ist seit diesem Meilenstein nicht mehr eine Zahl, und
+adaptives Sampling beendet ein Bild an seiner eigenen Fehlerschätzung — auf
+einer studiobeleuchteten CAD-Szene regelmäßig bei einem Drittel des Ziels. Das
+Versprechen aus M344 bleibt in der Form, auf die es ankommt: ein Bild mit 176
+Samples ist der rohe Pfadverfolger, Pixel für Pixel. Über ein Bild mit zwanzig
+verspricht es das nicht mehr.
+
+**Ein Sample-Ziel für die Bewegung** (`kCyclesMovingSamples` = 24), zusammen
+mit der Auflösung in einer Entscheidung (`cyclesFrameBudget`). Der Verfolger
+erreicht 24 Samples in einigen zehn Millisekunden, die Session geht LEER, und
+die Lücke bis zum nächsten Kamera-Push ist das, was der Compositor braucht.
+Das Bild leidet nicht darunter: 24 liegt unter `kDenoiseFull`, das Bild kommt
+also voll gefiltert zurück. Das Ziel ist Teil des Schlüssels (`CyclesKey`),
+damit eine Änderung daran auch dann ankommt, wenn sie einmal nicht zufällig
+zusammen mit einer Größenänderung reist.
+
+**`kCyclesMaxSide` von 900 auf 1440.** 900 war die Zahl eines Einmal-
+Renderers („landet in Sekunden statt in Minuten"); bei progressivem Sampling
+kauft eine kleinere Bildgröße keine schnellere ERSTE Aufnahme mehr, sondern
+nur eine schnellere FERTIGE — und kostet dauerhaft Schärfe, die kein Warten
+zurückholt. 1440 sind vier Fünftel der langen Viewport-Kante eines iPad Pro.
+Nicht 1:1, und im Kommentar steht die Rechnung dazu: der Shim hält Bild,
+Albedo und Normale in Floats, doppelt, plus neun Floats pro Pixel
+Entrauscher-Kladde — rund 176 Byte pro Pixel, bei 1440 also etwa 300 MB, bei
+1:1 eher 500 MB. Das ist eine Zahl, die man auf einem Gerät misst, bevor man
+sie nimmt.
+
+**Der Leerlauf-Poll** (`kCyclesIdlePoll` = 200 ms) statt des Anhaltens. Ein
+Sucher darf keinen Zustand haben, aus dem er nicht mehr herauskommt. Fünf
+Aufrufe pro Sekunde, jeder davon ein Mutex und ein Integer-Vergleich in C++.
+
+**Zwei Kleinigkeiten auf dem Weg**, beide pro Bild und beide auf dem UI-Pfad:
+der FFI-Puffer für `cy_live_frame` wird gehalten statt siebzig Mal pro Sekunde
+neu alloziert (bei voller Größe sieben Megabyte je Poll, meistens für ein
+„nichts Neues"), und `RawImage` filtert mit `FilterQuality.low` statt
+`medium` — jede Aufnahme hier wird VERGRÖSSERT, und Mipmaps sind ein Werkzeug
+fürs Verkleinern.
+
+### Die Tests
+
+`m347_cycles_orbit_test.dart`: beide Hälften des Budgets sinken gemeinsam;
+eine Orbit-Aufnahme kostet weniger als ein Zwanzigstel einer stehenden
+(Pixel × Samples); das Bewegungsziel bleibt im Vollstärke-Band des
+Entrauschers; eine gesetzte Aufnahme deckt mehr als drei Viertel der
+Viewport-Kante; das Ziel ist Teil des Schlüssels und eine Änderung daran ist
+ein View-Push und kein Neubau; die Session schiebt das angebotene Ziel und
+meldet die Samplezahl, die ein Bild wirklich hat. Dazu in
+`m304_cycles_session_test.dart` die Größenzusicherungen gegen die neue
+Obergrenze und in `render_test.c` die Entrauscher-Kurve in SAMPLES, inklusive
+Monotonie — eine Kurve, die wieder ansteigt, würde ein Bild beim Konvergieren
+verrauschter machen.
+
+3322 Dart-Tests grün, `flutter analyze` unverändert bei 59 Meldungen / 0
+Fehlern (gegen den Stand vor der Änderung gemessen, nicht behauptet).
+
+### Was es NICHT ist, und wo der nächste Hebel liegt
+
+**Nicht auf Hardware gemessen.** Die Wettlaufsituation ist aus Cycles' Quelle
+bewiesen (`intern/cycles/integrator/path_trace.cpp`, `session/session.cpp`),
+die Kurven und Budgets sind getestet — aber ob der Orbit sich auf dem iPad
+jetzt wie Blender anfühlt, sagt erst das iPad.
+
+**Der ARView läuft weiter mit.** Unter dem pfadverfolgten Bild rendert die
+RealityKit-Fläche jede Frame weiter in voller Auflösung, unsichtbar, auf
+derselben GPU. Das ist nach diesem Meilenstein der größte verbliebene Posten
+und braucht eine native Zeile — den ARView anhalten, solange ein Cycles-Bild
+ihn vollständig verdeckt, und ihn auf der Frame wieder anwerfen, auf der das
+Bild verschwindet. Bewusst NICHT hier gemacht: ob RealityKit sein Zeichnen bei
+`isHidden` wirklich einstellt, ist eine Geräteantwort, und der Fehlerfall
+davon wäre ein leerer Viewport.

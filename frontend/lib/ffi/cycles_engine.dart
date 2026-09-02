@@ -378,6 +378,24 @@ class CyclesFfi {
     }
   }
 
+  /// The buffer [liveFrame] reads into, and the struct it reads back.
+  ///
+  /// M347 — KEPT, NOT ALLOCATED PER CALL. [liveFrame] is polled every
+  /// `kCyclesPoll` — seventy times a second — and it used to take an Arena and
+  /// ask it for width*height*4 bytes before finding out whether there was a
+  /// frame at all. At the settled size that is a seven-megabyte malloc and free
+  /// seventy times a second, almost all of it for polls that return "nothing
+  /// new". The allocator is process-wide: that churn is contended with every
+  /// allocation the UI isolate makes to build a frame, which is the shape of a
+  /// stutter that no single expensive thing explains.
+  ///
+  /// Grown to the largest image ever asked for and then left alone. Not freed:
+  /// the renderer's own buffers for the same image are an order of magnitude
+  /// larger, and a session that has rendered once will render again.
+  Pointer<Uint8> _frameBuf = nullptr;
+  int _frameCap = 0;
+  Pointer<CyFrameS> _frameInfo = nullptr;
+
   /// The most recent frame, or null when there is nothing newer than the last
   /// one this returned.
   ///
@@ -387,27 +405,30 @@ class CyclesFfi {
   CyclesFrame? liveFrame(int width, int height) {
     if (width <= 0 || height <= 0) return null;
     final n = width * height * 4;
-    final arena = Arena();
-    try {
-      final out = arena<Uint8>(n);
-      final info = arena<CyFrameS>();
-      final r = _liveFrame(out, n, info);
-      if (r != 1) return null;
-      final f = info.ref;
-      final px = f.width * f.height * 4;
-      if (px <= 0 || px > n) return null;
-      return CyclesFrame(
-        rgba: Uint8List.fromList(out.asTypedList(px)),
-        width: f.width,
-        height: f.height,
-        samples: f.samples,
-        target: f.target,
-        done: f.done != 0,
-        denoised: f.denoised != 0,
-      );
-    } finally {
-      arena.releaseAll();
+    if (_frameCap < n) {
+      if (_frameBuf != nullptr) calloc.free(_frameBuf);
+      _frameBuf = calloc<Uint8>(n);
+      _frameCap = n;
     }
+    if (_frameInfo == nullptr) _frameInfo = calloc<CyFrameS>();
+    final out = _frameBuf;
+    final info = _frameInfo;
+    final r = _liveFrame(out, n, info);
+    if (r != 1) return null;
+    final f = info.ref;
+    final px = f.width * f.height * 4;
+    if (px <= 0 || px > n) return null;
+    return CyclesFrame(
+      // COPIED, and it has to be: the buffer above is reused by the next poll,
+      // and what leaves here crosses an isolate boundary and is drawn from.
+      rgba: Uint8List.fromList(out.asTypedList(px)),
+      width: f.width,
+      height: f.height,
+      samples: f.samples,
+      target: f.target,
+      done: f.done != 0,
+      denoised: f.denoised != 0,
+    );
   }
 
   // ---- packing --------------------------------------------------------------

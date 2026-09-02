@@ -23,7 +23,7 @@
 // something else entirely.
 //
 // ---------------------------------------------------------------------------
-// THE ONE THING A STANDSTILL STILL DECIDES: HOW BIG THE IMAGE IS
+// WHAT A STANDSTILL DECIDES: HOW BIG THE IMAGE IS, AND HOW LONG IT IS WORKED ON
 // ---------------------------------------------------------------------------
 //
 // A path tracer has a frame budget like anything else, and the honest way to
@@ -32,6 +32,21 @@
 // noise perfectly well. So the image is rendered at [kCyclesMovingSide] while
 // the camera is moving and at [kCyclesMaxSide] once it stops, and the timer
 // below is what notices that it stopped.
+//
+// M347 — AND THE SAMPLE TARGET, WHICH THE ABOVE ASSUMED AWAY. "Fewer pixels,
+// not fewer samples" is the right rule for how an orbit's frames should LOOK
+// and the wrong one for how much of the machine they are allowed to take. A
+// tracer aiming at [kCyclesSamples] never finishes a frame of a moving camera
+// and therefore never stops: the GPU is pinned for the whole gesture, and
+// Flutter's compositor — which needs a slice of that same GPU every eight
+// milliseconds — spends the orbit queued behind a path tracer. The frames were
+// smooth; the FRAME RATE was not.
+//
+// So a moving camera also gets a small target, [kCyclesMovingSamples], which
+// it reaches in tens of milliseconds. The session then idles until the next
+// camera push, and the gap between the two is what the compositor needs. The
+// picture does not suffer for it, because a frame with that few samples is
+// below the denoiser's full-strength band and comes back filtered.
 import 'dart:async';
 import 'dart:ui' as ui;
 
@@ -198,9 +213,9 @@ class _CyclesLayerState extends State<CyclesLayer> {
     }
 
     final dpr = MediaQuery.devicePixelRatioOf(context);
-    final (w, h) =
-        cyclesImageSize(widget.size.width, widget.size.height, dpr,
-            moving: _moving);
+    final budget = cyclesFrameBudget(
+        widget.size.width, widget.size.height, dpr,
+        moving: _moving);
     // Rendered mode being ON is a different question from whether a render can
     // START. On a cold install the Metal kernels are still being compiled from
     // source (M320), and a render begun into that blocks for the whole compile
@@ -213,10 +228,17 @@ class _CyclesLayerState extends State<CyclesLayer> {
       wanted: wanted,
       scene: cyclesSceneKey(app, widget.cam),
       camera: camera,
-      width: w,
-      height: h,
+      width: budget.width,
+      height: budget.height,
       buildScene: () => cyclesSceneData(app, widget.cam),
       buildView: (scene) => cyclesViewParams(widget.cam, scene.reach),
+      // M347 — the second half of the moving budget. Fewer pixels was never
+      // enough on its own: at the settled target the tracer keeps the GPU at a
+      // hundred per cent for the whole orbit, working towards 256 samples of a
+      // camera position that is already gone, and the compositor has to take
+      // its eight-millisecond slice out of that. A small target is reached and
+      // the session goes idle, which is where a smooth frame comes from.
+      samples: budget.samples,
     );
     if (changed && session.render.image == null) {
       // The model changed, so the texture belongs to a picture of a model that
@@ -237,7 +259,15 @@ class _CyclesLayerState extends State<CyclesLayer> {
             child: RawImage(
               image: _decoded,
               fit: BoxFit.fill,
-              filterQuality: FilterQuality.medium,
+              // M347 — LOW, and it is not a downgrade. Every frame here is
+              // MAGNIFIED: the render is at most [kCyclesMaxSide] on its long
+              // side and the viewport is bigger. Mipmaps — the only thing
+              // medium adds over low — are a minification tool and contribute
+              // nothing to an upscale, while building the chain is real work on
+              // the raster thread for a texture that is replaced a few
+              // milliseconds later. Same picture, less of the orbit spent
+              // making it.
+              filterQuality: FilterQuality.low,
             ),
           ),
         if (mode && !warmup.ready)

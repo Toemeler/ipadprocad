@@ -118,8 +118,12 @@ class CyclesSession {
     }
   }
 
-  /// The sample count images from this session converge to.
+  /// The sample count images from this session converge to when the camera is
+  /// STILL. An orbit is pushed a smaller target; see [offer].
   int get samples => _samples;
+
+  /// What the most recent push actually asked for, for the log and for tests.
+  int get target => _target;
 
   bool get available => render.available;
 
@@ -140,6 +144,12 @@ class CyclesSession {
   /// expensive. [buildView] is called whenever anything changed, so it may not
   /// be: it is twelve floats and it runs on every frame of an orbit.
   ///
+  /// [samples] is what this frame is sampling TOWARDS, which is not one number
+  /// any more: an orbit asks for [kCyclesMovingSamples] so the GPU can go idle
+  /// between camera pushes, and a standstill asks for [kCyclesSamples]. Null
+  /// means the session's own settled target, which is what every caller that
+  /// does not navigate wants.
+  ///
   /// Returns true when the caller should repaint.
   bool offer({
     required bool wanted,
@@ -149,6 +159,7 @@ class CyclesSession {
     required int height,
     required CyclesScene Function() buildScene,
     required CyclesViewParams Function(CyclesScene scene) buildView,
+    int? samples,
   }) {
     if (!render.available) return false;
     if (!wanted || width < 1 || height < 1) {
@@ -163,7 +174,9 @@ class CyclesSession {
     // Held so the scene branch below can push a view too: a scene with no
     // camera renders nothing, so the two always travel together on a rebuild.
     _buildView = buildView;
-    final key = CyclesKey(scene, camera, width, height);
+    final target = samples ?? _samples;
+    _target = target;
+    final key = CyclesKey(scene, camera, width, height, target);
     final (push, repaint) = render.request(key);
     switch (push) {
       case CyclesPush.nothing:
@@ -178,7 +191,7 @@ class CyclesSession {
         Log.i(
             'cycles',
             'scene ${s.meshes.length} meshes, ${s.triangles} tris, '
-                '${s.env.hasHdri ? 'hdri' : 'no hdri'}, $_samples spp');
+                '${s.env.hasHdri ? 'hdri' : 'no hdri'}, $target spp');
         _pushView(width, height);
       case CyclesPush.view:
         _pushView(width, height);
@@ -198,9 +211,15 @@ class CyclesSession {
       halfHeight: p.halfHeight,
       width: width,
       height: height,
-      samples: _samples,
+      samples: _target,
     );
   }
+
+  /// The target the LAST push asked for. Set at the top of [offer] alongside
+  /// the key, for the same reason [_buildView] is: two branches need it and it
+  /// is a parameter, not state that can go stale on its own. Starts at the
+  /// settled target, so it reads correctly before anything has been offered.
+  late int _target = _samples;
 
   /// The current frame's view builder. Set at the top of [offer] and read only
   /// inside that same call, so it can never be stale — it is a parameter that

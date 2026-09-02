@@ -1089,6 +1089,13 @@ struct FrameStore {
   void clear()
   {
     const std::lock_guard<std::mutex> lock(mutex);
+    clear_locked();
+  }
+
+  /* The same, for a caller that is already holding [mutex] because it has
+   * something else to do atomically with the clear — see restart(). */
+  void clear_locked()
+  {
     width = 0;
     height = 0;
     samples = 0;
@@ -1379,14 +1386,59 @@ bool open_live()
 /* Hand Cycles the current parameters and restart sampling.
  *
  * EVERY change goes through here — camera, size, geometry, world — because
- * every one of them invalidates the accumulated buffer. Cycles takes the
- * request and applies it on its own thread at the next safe point, which is
- * why this returns immediately and why an orbit can call it every frame. */
+ * every one of them invalidates the accumulated buffer.
+ *
+ * ---------------------------------------------------------------------------
+ * M347 — THE ORDER OF THESE THREE STEPS IS THE WHOLE POINT
+ * ---------------------------------------------------------------------------
+ *
+ * It used to bump the generation FIRST and reset afterwards, and that was a
+ * race with a very bad prize.
+ *
+ * The output driver stamps every capture with `g_generation.load()` — the
+ * generation as of the moment it copies the pixels, not the one the pixels
+ * were rendered for. So a capture belonging to the PREVIOUS view that lands
+ * after the bump is stamped with the NEW one, and the reader, whose only test
+ * is that stamp, adopts it as a frame of the new camera. That alone would be
+ * a frame of the wrong camera, which during an orbit is survivable.
+ *
+ * What is not survivable is the flag it brings with it. `write_render_tile`
+ * fires when the previous view FINISHED, so the frame carries `finished` —
+ * and that is sticky, and it is what the app reads as "sampling is over".
+ * One mis-stamped capture and the viewport latches: the worker stops polling,
+ * the badge reports the target sample count for an image that never reached
+ * it, and the picture on screen — a low-resolution frame from the middle of
+ * an orbit — is the last one that will ever be shown. That is the "it never
+ * gets better than this" report this milestone came from.
+ *
+ * RESETTING FIRST CLOSES IT, and Cycles guarantees this rather than merely
+ * making it likely. `Session::reset` calls `PathTrace::cancel`, which sets the
+ * cancel flag and then blocks on a condition variable until the in-flight
+ * `PathTrace::render` has returned (intern/cycles/integrator/path_trace.cpp).
+ * Every call into an OutputDriver — `write_tile_buffer` and `update_display`
+ * alike — happens inside that `render`. So by the time `reset` returns, no
+ * capture from the old view can still be in flight, and bumping the
+ * generation here means any capture that already landed is stamped with the
+ * OLD one and is dropped, which is what it deserves.
+ *
+ * The remaining window runs the other way and is harmless: between `reset`
+ * returning and the lock below, the render thread may already have applied
+ * the delayed reset and captured a frame of the NEW view, which will be
+ * stamped old and dropped. That costs one frame out of the ten or so a second
+ * the session produces, and it self-corrects on the next one. Adopting a
+ * stale frame does not self-correct — it ends the render.
+ *
+ * The bump and the clear are taken together under the frame lock so a capture
+ * cannot interleave between them and leave a frame of the old view carrying
+ * the new generation. */
 void restart()
 {
-  g_generation.fetch_add(1);
-  g_frame.clear();
   g_live.session->reset(g_live.session_params, g_live.buffer_params);
+  {
+    const std::lock_guard<std::mutex> flock(g_frame.mutex);
+    g_generation.fetch_add(1);
+    g_frame.clear_locked();
+  }
   g_live.session->start();
 }
 
@@ -1698,10 +1750,23 @@ int cy_live_frame(unsigned char *rgba_out, const int capacity, CyFrame *info)
     g_live.seen = g_frame.serial;
   }
 
-  /* Nothing left to gain once sampling has stopped: a finished frame is shown
-   * raw, which is the promise cycles_denoise.h makes. */
-  const float strength = finished ? 0.0f :
-                                    cyshim::denoise_strength_for(samples, g_live.target);
+  /* M347 — THE FILTER FOLLOWS THE SAMPLE COUNT, NOT THE FINISH FLAG.
+   *
+   * It used to be forced to zero the moment sampling stopped, on the argument
+   * that "the image you stop and look at is the raw path trace". That argument
+   * assumed sampling stops at the target. It does not: adaptive sampling ends
+   * a frame the moment its own error estimate is under the threshold, which on
+   * a studio-lit CAD scene is routinely a third of the way through — and the
+   * old rule then took the filter off an image that had precisely the noise
+   * the filter existed for, at exactly the moment the user stopped moving and
+   * started looking at it.
+   *
+   * So the strength is whatever the sample count earns, finished or not.
+   * denoise_strength_for is off entirely by [kDenoiseRaw] samples, so a frame
+   * that really did converge to a high count is still shown raw, pixel for
+   * pixel; a frame that stopped at ninety keeps the filter that made ninety
+   * samples look like a picture. */
+  const float strength = cyshim::denoise_strength_for(samples, g_live.target);
   const bool denoised = strength > 0.0f && have_albedo;
   if (denoised) {
     g_live.ping.resize(cyshim::denoise_scratch_floats(w, h));
@@ -1733,7 +1798,15 @@ int cy_live_frame(unsigned char *rgba_out, const int capacity, CyFrame *info)
 
   info->width = w;
   info->height = h;
-  info->samples = finished && samples < g_live.target ? g_live.target : samples;
+  /* M347 — THE COUNT IT ACTUALLY RENDERED.
+   *
+   * This used to report the TARGET whenever the frame was finished, on the
+   * theory that a finished frame has nothing left to say. What it actually did
+   * was put "256 spp" under an image that had ninety — and when a mis-stamped
+   * capture latched the finish flag early (see restart()), under one that had
+   * a dozen. The one number in the badge that could have said the renderer had
+   * stopped early was the number that had been taught not to. */
+  info->samples = samples;
   info->target = g_live.target;
   info->done = finished ? 1 : 0;
   info->denoised = denoised ? 1 : 0;
