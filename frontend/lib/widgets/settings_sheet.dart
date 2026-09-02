@@ -119,6 +119,7 @@ class SettingsSheet {
         info: settingsInfo(_app),
         backdrop: Backdrops.current.value,
         ribbon: RibbonDock.current,
+        ribbonNames: RibbonLabels.on, // M349
         diagnostics: BugReport.enabled,
       );
 
@@ -165,6 +166,11 @@ class SettingsSheet {
         L.set(Locale(row)); // ignores anything not shipped; see L.set
         break;
       case kSecRibbon:
+        // M349 — one section, two properties: four positions and a checkbox.
+        if (row == kRowRibbonNames) {
+          RibbonLabels.toggle();
+          break;
+        }
         final p = RibbonPosition.byId(row);
         if (p != null) RibbonDock.set(p);
         break;
@@ -313,6 +319,7 @@ class _FallbackDialogState extends State<_FallbackDialog> {
       info: settingsInfo(widget.app),
       backdrop: Backdrops.current.value,
       ribbon: RibbonDock.current,
+      ribbonNames: RibbonLabels.on, // M349
       diagnostics: BugReport.enabled,
     );
     return AlertDialog(
@@ -399,6 +406,11 @@ class _FallbackDialogState extends State<_FallbackDialog> {
         L.set(Locale(row));
         break;
       case kSecRibbon:
+        // M349 — one section, two properties: four positions and a checkbox.
+        if (row == kRowRibbonNames) {
+          RibbonLabels.toggle();
+          break;
+        }
         final p = RibbonPosition.byId(row);
         if (p != null) RibbonDock.set(p);
         break;

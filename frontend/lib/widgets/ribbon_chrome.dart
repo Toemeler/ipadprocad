@@ -55,6 +55,7 @@
 import 'package:flutter/material.dart';
 import 'package:native_menu/native_menu.dart';
 
+import '../ribbon_dock.dart';
 import '../theme.dart';
 
 /// The band's own measurements.
@@ -77,8 +78,20 @@ class RibbonMetrics {
   static const EdgeInsets pad = EdgeInsets.zero;
 
   /// Width of the band when docked left or right (surface C's rail width).
-  /// Wide enough that a small row (icon + German label) does not clip its text.
-  static const double railWidth = 168;
+  ///
+  /// M349 — two widths, because the rail holds two different things. With
+  /// names on it has to fit a small row's icon AND its German label without
+  /// clipping (168, the measured value since M290). With names off the widest
+  /// thing in it is a big button's flyout chip (46) beside a 34 pt glyph
+  /// inside the panel's 20 pt of padding — 76 clears that with room, and the
+  /// rail is less than half of what it was.
+  static const double railWidthNamed = 168;
+  /// 88: the constraint grid reflows to two 30 pt columns in a compact rail
+  /// (see _ConGrid), and 61 + the panel's 20 pt of padding is what has to fit.
+  static const double railWidthCompact = 88;
+
+  static double get railWidth =>
+      RibbonLabels.on ? railWidthNamed : railWidthCompact;
 
   /// Gap between the band and whatever floats beside it. Kept because the
   /// floating panels still space themselves off each other by it.
@@ -92,9 +105,22 @@ class RibbonSurface extends StatelessWidget {
 
   /// True when the native glass is available.
   ///
-  /// It does not decide whether the ribbon floats — since M290 the band always
-  /// takes a row of the layout — only what the band is painted with.
-  static bool get isGlass => GlassPanel.isSupported;
+  /// M350 — it decides two things now: what the band is painted with, and
+  /// whether the document runs UNDER it (see RibbonDockLayout). The two are
+  /// one question — glass wants something to refract, paint must not cover
+  /// live geometry — so they are answered in one place.
+  static bool get isGlass => glassOverride ?? GlassPanel.isSupported;
+
+  /// Tests only: pretend the native material is (or is not) there.
+  ///
+  /// Worth the seam. The painted fallback is a [ColoredBox], which SWALLOWS a
+  /// hit; the real glass is a platform view with interaction switched off,
+  /// which does not. A host test that only ever sees the fallback therefore
+  /// proves nothing about the band's own background on the device — which is
+  /// exactly the class of bug this repository keeps finding on the
+  /// Flutter/UIKit boundary.
+  @visibleForTesting
+  static bool? glassOverride;
 
   @override
   Widget build(BuildContext context) {
@@ -102,17 +128,12 @@ class RibbonSurface extends StatelessWidget {
     // nothing to refract is a lie about the surface, not a cheaper version of
     // it, so the platforms without it get a panel and say so.
     if (!isGlass) return ColoredBox(color: T.panel);
-    // M346 — and the glass is now GLASS, because there is finally something
-    // behind it: the app's ground over a document is the viewport's tone (see
-    // main.dart), so the material blurs the canvas rather than a slab of
-    // T.panel. The seam below is what draws the band's edge; without it a band
-    // on the same ground as the canvas would have no boundary at all.
-    //
-    // What this still is NOT: the MODEL does not run under the band. That
-    // needs the band to float over the viewport, which is the overlay protocol
-    // M290 deleted — seven panels each subtracting an inset, two device bugs,
-    // and the coordinate space of the 2D sketcher moving under the user. It is
-    // its own milestone, not a line here.
+    // M346/M350 — and the glass is GLASS, because there is finally something
+    // behind it to refract: the DOCUMENT runs edge to edge under the band
+    // (RibbonDockLayout), and the app's ground behind that is the viewport's
+    // own tone rather than a slab of T.panel (main.dart). The seam is what
+    // draws the band's edge; without it a band over the canvas would have no
+    // boundary at all.
     return const GlassPanel(cornerRadius: RibbonMetrics.radius);
   }
 }

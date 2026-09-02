@@ -23,6 +23,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/app_state.dart';
+import 'package:prototype/ribbon_dock.dart';
 import 'package:prototype/ffi/qcad_engine.dart';
 import 'package:prototype/widgets/bottom_tabbar.dart';
 import 'package:prototype/widgets/model_browser.dart';
@@ -67,6 +68,12 @@ final panelArrows = find.byWidgetPredicate(
     (w) => w is Text && w.data == '▼' && w.style?.fontSize == 8);
 
 void main() {
+  // M349 — the ribbon's names are off by default now, and this suite reaches
+  // its commands by their WORDS. Which of the two modes a suite drives is a
+  // property of the suite: this one is about what the ribbon offers, so it
+  // drives the ribbon that spells it out.
+  setUp(() => RibbonLabels.set(true));
+  tearDown(RibbonLabels.resetForTest);
   group('M51 regression: the ribbon must build at all', () {
     testWidgets('pumping the ribbon does not recurse', (t) async {
       await pump(t, Ribbon(app: makeApp()));

@@ -4395,4 +4395,11 @@ class AppL10nEn extends AppL10n {
   @override
   String get msgFinishSketchToPaste =>
       'Finish the sketch first — a solid body belongs to the part, not to a sketch.';
+
+  @override
+  String get settingsRibbonNames => 'Display names';
+
+  @override
+  String get settingsRibbonNamesFooter =>
+      'Without names the band is much thinner; every command keeps its name as a tooltip.';
 }

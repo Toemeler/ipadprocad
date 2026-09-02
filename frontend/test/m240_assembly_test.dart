@@ -27,6 +27,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/app_state.dart';
+import 'package:prototype/ribbon_dock.dart';
 import 'package:prototype/assembly.dart';
 import 'package:prototype/doc_file.dart';
 import 'package:prototype/ffi/occt_engine.dart';
@@ -119,6 +120,12 @@ AppState freshApp(String tag) =>
     AppState()..docsDirForTest = Directory.systemTemp.createTempSync(tag);
 
 void main() {
+  // M349 — the ribbon's names are off by default now, and this suite reaches
+  // its commands by their WORDS. Which of the two modes a suite drives is a
+  // property of the suite: this one is about what the ribbon offers, so it
+  // drives the ribbon that spells it out.
+  setUp(() => RibbonLabels.set(true));
+  tearDown(RibbonLabels.resetForTest);
   TestWidgetsFlutterBinding.ensureInitialized();
 
   // -------------------------------------------------------------------------

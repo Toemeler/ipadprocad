@@ -17,6 +17,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/app_state.dart';
+import 'package:prototype/ribbon_dock.dart';
 import 'package:prototype/ffi/qcad_engine.dart';
 import 'package:prototype/widgets/pattern_dialog.dart';
 import 'package:prototype/widgets/ribbon.dart';
@@ -40,6 +41,12 @@ Future<void> _pump(WidgetTester t, Widget w) async {
 }
 
 void main() {
+  // M349 — the ribbon's names are off by default now, and this suite reaches
+  // its commands by their WORDS. Which of the two modes a suite drives is a
+  // property of the suite: this one is about what the ribbon offers, so it
+  // drives the ribbon that spells it out.
+  setUp(() => RibbonLabels.set(true));
+  tearDown(RibbonLabels.resetForTest);
   group('picking Polygon arms the tool at once', () {
     testWidgets('no modal is pushed, and the tool is live', (t) async {
       final app = _app();

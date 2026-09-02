@@ -167,10 +167,16 @@ void main() {
         (t) async {
       // The row it takes is the band's own height: nothing measures it, so
       // nothing can be a frame behind it either.
-      await pump(t, Column(children: [
-        Ribbon(app: makeApp()),
-        const Expanded(child: SizedBox.expand()),
-      ]));
+      // M349 — stretch, because that is what the real layout does
+      // (RibbonDockLayout, pinned in m290_ribbon_dock_test) and because the
+      // band no longer fills a 1600 pt edge by itself: with names off its
+      // content comes to 1096, and a Column that CENTRES its children would
+      // measure the content instead of the edge.
+      await pump(t, Column(crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Ribbon(app: makeApp()),
+          const Expanded(child: SizedBox.expand()),
+        ]));
       final band = t.getSize(find.byType(Ribbon));
       expect(band.height, greaterThan(0));
       expect(band.height, lessThan(400), reason: 'a band, not half the screen');

@@ -42,7 +42,7 @@ import 'dart:ui' show Locale;
 import 'backdrop.dart';
 import 'l10n/l.dart';
 import 'theme.dart';
-import 'ribbon_dock.dart' show RibbonPosition;
+import 'ribbon_dock.dart' show RibbonPosition, kRibbonLabelsDefault;
 
 /// The user-visible name of an appearance. In the ARB, like every other
 /// string — [Palette.name] is 'Chalk'/'Ember', which are internal names.
@@ -164,6 +164,11 @@ const String kSecAccent = 'accent';
 const String kSecBackdrop = 'backdrop';
 const String kSecLanguage = 'language';
 const String kSecRibbon = 'ribbon';
+
+/// M349 — the row inside the ribbon section that is a CHECKBOX rather than one
+/// of four positions. Its own id, because the handler switches on it and the
+/// four dock ids are [RibbonPosition] names.
+const String kRowRibbonNames = 'names';
 const String kSecDiagnostics = 'diagnostics';
 const String kSecAbout = 'about';
 
@@ -233,6 +238,10 @@ List<SettingsSection> buildSettings(
   /// M284 — where the ribbon band is docked. Defaulted so existing callers
   /// keep the flush top band.
   RibbonPosition ribbon = RibbonPosition.top,
+  /// M349 — whether the ribbon writes the name under each command. Defaulted
+  /// to the app's default (off), so a caller that does not care gets the
+  /// screen the user actually has.
+  bool ribbonNames = kRibbonLabelsDefault,
   /// False once the prototype's report-it-now affordance is retired
   /// (BugReport.enabled), and the whole section goes with it rather than
   /// leaving a header over nothing.
@@ -363,7 +372,20 @@ List<SettingsSection> buildSettings(
               kind: SettingsRowKind.check,
               selected: p == ribbon,
             ),
+          // M349 — the names switch, LAST and in the same section: it is the
+          // same object's second property, and a section of its own for one
+          // checkbox is a header that says "Ribbon" twice. The four rows above
+          // it are a choice of one; this one is a yes/no, which the tick
+          // already distinguishes — a checked row among four where exactly one
+          // other is checked reads as what it is.
+          SettingsRow(
+            id: kRowRibbonNames,
+            title: t.settingsRibbonNames,
+            kind: SettingsRowKind.check,
+            selected: ribbonNames,
+          ),
         ],
+        footer: t.settingsRibbonNamesFooter,
       ),
       if (diagnostics)
         SettingsSection(

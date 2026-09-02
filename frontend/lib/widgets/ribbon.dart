@@ -5,6 +5,8 @@
 import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:file_picker/file_picker.dart';
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import '../icon_preview.dart';
 import 'package:native_menu/native_menu.dart' show NativeMenu, NativeMenuItem;
@@ -795,19 +797,14 @@ class _RibbonState extends State<Ribbon> {
             {double leftPad = 8}) =>
         Padding(
           padding: EdgeInsets.only(left: leftPad),
-          child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                for (var i = 0; i < rows.length; i++) ...[
-                  if (i > 0) const SizedBox(height: 2),
+          child: smallStack([
+              for (var i = 0; i < rows.length; i++)
                   _SmallRow(
                       icon: rows[i].$1,
                       label: rows[i].$2,
                       onTap: rows[i].$3,
                       active: rows[i].$4),
-                ]
-              ]),
+            ]),
         );
     // M215 — [flyIds] maps a row's LABEL to a flyout id, so a small row can
     // carry the same drop chip the big split buttons have. _SmallRow has
@@ -830,20 +827,15 @@ class _RibbonState extends State<Ribbon> {
             {double leftPad = 8}) =>
         Padding(
           padding: EdgeInsets.only(left: leftPad),
-          child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                for (var i = 0; i < rows.length; i++) ...[
-                  if (i > 0) const SizedBox(height: 2),
+          child: smallStack([
+              for (var i = 0; i < rows.length; i++)
                   _SmallRow(
                       icon: rows[i].$1,
                       label: rows[i].$2,
                       flyId: rows[i].$4,
                       onFly: rows[i].$4 == null ? null : toggleFly,
                       onTap: rows[i].$3),
-                ]
-              ]),
+            ]),
         );
     final inPlace = app.inPlaceEdit;
     return _orient(children: [
@@ -1145,19 +1137,14 @@ class _RibbonState extends State<Ribbon> {
             {double leftPad = 8}) =>
         Padding(
           padding: EdgeInsets.only(left: leftPad),
-          child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                for (var i = 0; i < rows.length; i++) ...[
-                  if (i > 0) const SizedBox(height: 2),
+          child: smallStack([
+              for (var i = 0; i < rows.length; i++)
                   _SmallRow(
                       icon: rows[i].$1,
                       label: rows[i].$2,
                       onTap: rows[i].$3,
                       active: rows[i].$4),
-                ]
-              ]),
+            ]),
         );
     // M249 — small rows whose callback may be NULL, which is a third state
     // neither [offCol] nor [asmCol] can say: those two mean "not built" and
@@ -1169,20 +1156,15 @@ class _RibbonState extends State<Ribbon> {
             {double leftPad = 8}) =>
         Padding(
           padding: EdgeInsets.only(left: leftPad),
-          child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                for (var i = 0; i < rows.length; i++) ...[
-                  if (i > 0) const SizedBox(height: 2),
+          child: smallStack([
+              for (var i = 0; i < rows.length; i++)
                   _SmallRow(
                       icon: rows[i].$1,
                       label: rows[i].$2,
                       enabled: rows[i].$3 != null,
                       onTap: rows[i].$3,
                       active: rows[i].$4),
-                ]
-              ]),
+            ]),
         );
     // M247 — small rows that are BUILT, each with the drop chip its flyout
     // needs. The part ribbon's `col` in every respect but the file it is
@@ -1192,20 +1174,15 @@ class _RibbonState extends State<Ribbon> {
             {double leftPad = 8}) =>
         Padding(
           padding: EdgeInsets.only(left: leftPad),
-          child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                for (var i = 0; i < rows.length; i++) ...[
-                  if (i > 0) const SizedBox(height: 2),
+          child: smallStack([
+              for (var i = 0; i < rows.length; i++)
                   _SmallRow(
                       icon: rows[i].$1,
                       label: rows[i].$2,
                       flyId: rows[i].$4,
                       onFly: toggleFly,
                       onTap: rows[i].$3),
-                ]
-              ]),
+            ]),
         );
     return _orient(children: [
         // ---- Component: Place (wired) + Create -----------------------------
@@ -1831,12 +1808,8 @@ class _RibbonState extends State<Ribbon> {
   Widget _modCol(List<String> keys, List<String> labels, {double leftPad = 8}) {
     return Padding(
       padding: EdgeInsets.only(left: leftPad),
-      child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            for (var i = 0; i < keys.length; i++) ...[
-              if (i > 0) const SizedBox(height: 2),
+      child: smallStack([
+          for (var i = 0; i < keys.length; i++)
               _SmallRow(
                   icon: MD[keys[i]]!,
                   label: labels[i],
@@ -1844,8 +1817,7 @@ class _RibbonState extends State<Ribbon> {
                       ? null
                       : () => _startTool(_modToolOf[keys[i]]!),
                   active: widget.app.tool == _modToolOf[keys[i]]),
-            ]
-          ]),
+        ]),
     );
   }
 
@@ -1872,11 +1844,19 @@ class _RibbonState extends State<Ribbon> {
     // all) and the whole frame pipeline died in exception handling, which read
     // as broken pan/zoom. Never let a widget-valued variable be reassigned to
     // something that closes over itself.
+    // M349 — the panel's NAME is a name too, so it goes with the others. Its
+    // ▼ does NOT: that arrow is the only way to the overflow commands (see
+    // the note above), and a ribbon that got thinner by making commands
+    // unreachable would be a different feature. A panel with no overflow
+    // therefore contributes no title row at all with names off, and one with
+    // overflow keeps a bare arrow.
+    final bool names = RibbonLabels.on;
+    final bool hasOver = arrow || over != null;
     final titleRow = Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-      Text(label, style: ts(12, T.dim), softWrap: false),
-      if (arrow || over != null) ...[
-        const SizedBox(width: 6),
-        Text('▼', style: ts(8, T.dim)),
+      if (names) Text(label, style: ts(12, T.dim), softWrap: false),
+      if (hasOver) ...[
+        if (names) const SizedBox(width: 6),
+        Text('▼', style: ts(names ? 8 : 10, T.dim)),
       ],
     ]);
     final Widget title = (over != null && overId != null)
@@ -1896,10 +1876,12 @@ class _RibbonState extends State<Ribbon> {
       // `stretch` rows; the panel title sits under it instead of beside it.
       child: vertical ? IntrinsicHeight(child: child) : child,
     );
-    final titlePad = Padding(
-      padding: const EdgeInsets.only(top: 3, bottom: 5),
-      child: title,
-    );
+    final Widget titlePad = (!names && !hasOver)
+        ? const SizedBox.shrink()
+        : Padding(
+            padding: EdgeInsets.only(top: names ? 3 : 1, bottom: names ? 5 : 2),
+            child: names ? title : Tooltip(message: label, child: title),
+          );
     return Container(
       decoration: first
           ? null
@@ -2157,8 +2139,11 @@ class _Big extends StatelessWidget {
         // Pro Text metrics, which cannot be measured on a host test runner --
         // so this is stated as a property of the constraint, not as a claim
         // about which buttons move.
-        constraints: const BoxConstraints(minWidth: 62),
-        child: _Hover(
+        // M349 — with no word under it, the floor is what the flyout chip
+        // needs (46) plus its padding, not what a German label needed.
+        constraints: BoxConstraints(
+            minWidth: RibbonLabels.on ? 62 : 52),
+        child: named(label, _Hover(
           activeHighlight: active,
           onTap: !enabled
               ? null
@@ -2168,6 +2153,7 @@ class _Big extends StatelessWidget {
             padding: const EdgeInsets.only(top: 4),
             child: Column(mainAxisSize: MainAxisSize.min, children: [
               _dimmable(svg(icon, 34), enabled),
+              if (RibbonLabels.on) ...[
               const SizedBox(height: 3),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 5),
@@ -2180,6 +2166,7 @@ class _Big extends StatelessWidget {
                     // way, never because it ran out of room.
                     softWrap: false),
               ),
+              ],
               if (showDd)
                 // No SizedBox gap: the chip carries its own transparent
                 // padding, and stacking a gap on top of it only pushes the
@@ -2192,7 +2179,7 @@ class _Big extends StatelessWidget {
                 ),
             ]),
           ),
-        ),
+        )),
       );
     });
   }
@@ -2238,8 +2225,11 @@ class _BigWide extends StatelessWidget {
     return ConstrainedBox(
       // Same change as [_Big], same reason: [width] is the floor the English
       // layout was tuned to, not a cap the German has to fit inside.
-      constraints: BoxConstraints(minWidth: width),
-      child: _Hover(
+      // M349 — and with the word gone, that floor is a 34 pt glyph's, not a
+      // word's: every wide button in the ribbon is asking for room it no
+      // longer uses, and eleven of them side by side is scroll nobody needs.
+      constraints: BoxConstraints(minWidth: RibbonLabels.on ? width : 52),
+      child: named(label, _Hover(
         onTap: enabled ? onTap : null,
         activeHighlight: active,
         child: Stack(children: [
@@ -2247,6 +2237,7 @@ class _BigWide extends StatelessWidget {
             padding: const EdgeInsets.only(top: 6, bottom: 4),
             child: Column(mainAxisSize: MainAxisSize.min, children: [
               Center(child: _dimmable(svg(icon, 34), enabled)),
+              if (RibbonLabels.on) ...[
               const SizedBox(height: 3),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 5),
@@ -2260,12 +2251,71 @@ class _BigWide extends StatelessWidget {
                     // now stays on one.
                     softWrap: false),
               ),
+              ],
             ]),
           ),
         ]),
-      ),
+      )),
     );
   }
+}
+
+/// M349 — the name of a command, where the ribbon is set to write names.
+///
+/// One helper rather than an `if` at five call sites, because the FALLBACK is
+/// the part that must not be forgotten: with the word gone the button is a
+/// picture, and a picture with no name is unreachable for VoiceOver and
+/// unreadable for anyone who does not already know the glyph. So the name
+/// becomes a tooltip — hover on a trackpad, long press on glass — which is
+/// exactly what the constraint grid has done with its twelve icon-only cells
+/// since M10.
+Widget named(String label, Widget button) => RibbonLabels.on
+    ? button
+    : Tooltip(message: _flat(label), child: button);
+
+/// A label as ONE line, for a tooltip: the deliberate two-line labels carry a
+/// '\n' that a tooltip should not honour.
+String _flat(String label) => label.replaceAll('\n', ' ');
+
+/// M349 — a column of small rows, FOLDED when the ribbon writes no names.
+///
+/// With names on this is exactly the Column it replaced, down to the two-point
+/// gap. With names off on a HORIZONTAL band each row is an 18 pt glyph and its
+/// flyout chip — about 40 pt wide — and stacking four of them makes the band
+/// 104 pt tall to show 40 pt of content. So they fold two deep into as many
+/// columns as they need: height is the scarce axis on a horizontal band and
+/// width is free, because the band scrolls sideways. It is the same trade
+/// [_ConGrid] makes one panel over, for the same reason.
+///
+/// A SIDE RAIL is left alone. There the scarce axis is the other one, and a
+/// fold would widen the very thing the compact rail exists to narrow.
+Widget smallStack(List<Widget> rows) {
+  Widget column(List<Widget> rs) => Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (var i = 0; i < rs.length; i++) ...[
+          if (i > 0) const SizedBox(height: 2),
+          rs[i],
+        ]
+      ]);
+  if (RibbonLabels.on || RibbonDock.isVertical || rows.length < 3) {
+    return column(rows);
+  }
+  const perColumn = 2;
+  final groups = <List<Widget>>[
+    for (var i = 0; i < rows.length; i += perColumn)
+      rows.sublist(i, math.min(i + perColumn, rows.length))
+  ];
+  return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (var g = 0; g < groups.length; g++) ...[
+          if (g > 0) const SizedBox(width: 2),
+          column(groups[g]),
+        ]
+      ]);
 }
 
 /// A ribbon glyph in its disabled state.
@@ -2307,7 +2357,7 @@ class _SmallRow extends StatelessWidget {
     // to be flexible HERE, on the outer row, or the bound never reaches the
     // label: _Hover shrink-wraps to its child's natural width, so a Flexible
     // further in has nothing to shrink against.
-    final Widget hit = _Hover(
+    final Widget hit = named(label, _Hover(
           hoverBorder: false,
           activeHighlight: active,
           onTap: enabled ? onTap : null,
@@ -2319,7 +2369,10 @@ class _SmallRow extends StatelessWidget {
                   height: 18,
                   child: Center(
                       child: _dimmable(iconWidget ?? svg(icon, 18), enabled))),
-              const SizedBox(width: 6),
+              // M349 — no word, no gap before it. A small row with names off
+              // is a glyph and its flyout chip, which is what makes a rail
+              // 76 pt wide instead of 168.
+              if (RibbonLabels.on) const SizedBox(width: 6),
               // M290 — IN A SIDE RAIL THE LABEL MAY SHRINK.
               //
               // A rail is 168 pt wide and these rows are laid out inside it,
@@ -2330,7 +2383,9 @@ class _SmallRow extends StatelessWidget {
               // 36 px.) Flexible only in the rail, deliberately: the
               // horizontal band lives in an unbounded-width scroll view, and a
               // flex child under unbounded constraints is an assertion.
-              if (RibbonDock.isVertical)
+              if (!RibbonLabels.on)
+                const SizedBox.shrink()
+              else if (RibbonDock.isVertical)
                 Flexible(
                   child: Text(label,
                       style: ts(12.5, enabled ? T.text : T.dim),
@@ -2342,7 +2397,7 @@ class _SmallRow extends StatelessWidget {
                     style: ts(12.5, enabled ? T.text : T.dim), softWrap: false),
             ]),
           ),
-        );
+        ));
     return SizedBox(
       height: 26,
       child: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -2370,14 +2425,18 @@ class _BigPlainBody extends StatelessWidget {
   const _BigPlainBody({required this.label});
   @override
   Widget build(BuildContext context) {
-    return Column(mainAxisSize: MainAxisSize.min, children: [
-      svg(CN['dim']!, 34),
-      const SizedBox(height: 3),
-      Text(label,
-          style: ts(11.5, T.text),
-          textAlign: TextAlign.center,
-          softWrap: false),
-    ]);
+    return named(
+        label,
+        Column(mainAxisSize: MainAxisSize.min, children: [
+          svg(CN['dim']!, 34),
+          if (RibbonLabels.on) ...[
+            const SizedBox(height: 3),
+            Text(label,
+                style: ts(11.5, T.text),
+                textAlign: TextAlign.center,
+                softWrap: false),
+          ],
+        ]));
   }
 }
 
@@ -2449,7 +2508,25 @@ class _ConGrid extends StatelessWidget {
     if (t != null) onTool(t);
   }
 
-  static const _cols = 4;
+  /// M349 — the grid reflows when the names are off, because it is what the
+  /// band's size is actually made of.
+  ///
+  /// Measured: with names on, a top band is 112 pt tall and this grid is 84 of
+  /// them (three rows of 28). Hiding the words under the buttons alone took
+  /// the band to 105 — seven points, which is not "thinner", it is a rounding
+  /// error. The grid is the tallest thing in the sketch ribbon and it has to
+  /// move with the rest.
+  ///
+  /// So: on a horizontal band the twelve cells go SIX wide and two deep, which
+  /// trades width (free — the band scrolls sideways) for height (the whole
+  /// point). In a compact side rail they go TWO wide, because there the
+  /// scarce axis is the other one: four columns are 123 pt and the compact
+  /// rail is 88.
+  int get _cols => RibbonLabels.on
+      ? 4
+      : RibbonDock.isVertical
+          ? 2
+          : 6;
 
   Widget _cell((String, String) c) => Tooltip(
         message: c.$2,
@@ -2473,7 +2550,8 @@ class _ConGrid extends StatelessWidget {
     // browser, the viewport and the tab bar off screen. Never index a fixed
     // grid into a variable-length list again.)
     final cons = consOf(L.of(context));
-    final rows = (cons.length + _cols - 1) ~/ _cols;
+    final cols = _cols;
+    final rows = (cons.length + cols - 1) ~/ cols;
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
@@ -2481,11 +2559,11 @@ class _ConGrid extends StatelessWidget {
           Padding(
             padding: EdgeInsets.only(top: row == 0 ? 0 : 1),
             child: Row(mainAxisSize: MainAxisSize.min, children: [
-              for (var col = 0; col < _cols; col++)
+              for (var col = 0; col < cols; col++)
                 Padding(
                   padding: EdgeInsets.only(left: col == 0 ? 0 : 1),
-                  child: (row * _cols + col) < cons.length
-                      ? _cell(cons[row * _cols + col])
+                  child: (row * cols + col) < cons.length
+                      ? _cell(cons[row * cols + col])
                       : const SizedBox(width: 30, height: 27),
                 ),
             ]),

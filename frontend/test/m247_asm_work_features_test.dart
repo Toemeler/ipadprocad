@@ -28,6 +28,7 @@ import 'dart:ui' show Size;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/app_state.dart';
+import 'package:prototype/ribbon_dock.dart';
 import 'package:prototype/asm_constraints.dart';
 import 'package:prototype/asm_pick.dart';
 import 'package:prototype/asm_work_features.dart';
@@ -183,6 +184,12 @@ bool tapAt(AppState app, AssemblyModel a, Cam3 cam, Vec3 world) {
 }
 
 void main() {
+  // M349 — the ribbon's names are off by default now, and this suite reaches
+  // its commands by their WORDS. Which of the two modes a suite drives is a
+  // property of the suite: this one is about what the ribbon offers, so it
+  // drives the ribbon that spells it out.
+  setUp(() => RibbonLabels.set(true));
+  tearDown(RibbonLabels.resetForTest);
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => L.set(kDe));
 

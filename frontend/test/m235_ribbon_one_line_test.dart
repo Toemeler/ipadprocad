@@ -38,6 +38,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/app_state.dart';
+import 'package:prototype/ribbon_dock.dart';
 import 'package:prototype/ffi/qcad_engine.dart';
 import 'package:prototype/l10n/l.dart';
 import 'package:prototype/assembly.dart';
@@ -163,6 +164,11 @@ int _lineCount(RenderParagraph p, String text) {
 
 void main() {
   setUp(resetFlyoutCacheForTest);
+  // M349 — this whole file is about how a LABEL renders, so it drives the
+  // ribbon that has labels. They are off by default now; which of the two
+  // modes a suite about typography drives is a property of the suite.
+  setUp(() => RibbonLabels.set(true));
+  tearDown(RibbonLabels.resetForTest);
   tearDown(() => L.set(kDe));
 
   for (final (name, make) in <(String, AppState Function())>[

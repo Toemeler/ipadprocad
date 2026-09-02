@@ -217,7 +217,13 @@ class PrototypeApp extends StatelessWidget {
           // M284 — and the ribbon band's dock. It changes the whole content
           // Stack's edges, so it rebuilds the app shell the same way a theme
           // switch does.
-          builder: (context, _, __) => ValueListenableBuilder<RibbonPosition>(
+          // M349 — and whether the band writes its names, which changes the
+          // band's HEIGHT (and a rail's width), so it rebuilds the shell for
+          // the same reason the dock does.
+          builder: (context, _, __) => ValueListenableBuilder<bool>(
+            valueListenable: RibbonLabels.show,
+            builder: (context, _____, ______) =>
+                ValueListenableBuilder<RibbonPosition>(
             valueListenable: RibbonDock.position,
             // Bug report #11 — and the accent, for the same reason as the
             // backdrop: it is read at PAINT time through `T.accent`, and its
@@ -225,12 +231,162 @@ class PrototypeApp extends StatelessWidget {
             // whose value is the same Palette object before and after.
             builder: (context, __, ___) => ValueListenableBuilder<Accent>(
               valueListenable: T.accentChoice,
-              builder: (context, _____, ______) => _app(locale, palette),
+              builder: (context, _______, ________) => _app(locale, palette),
             ),
+          ),
           ),
         ),
       ),
     );
+  }
+
+
+  /// M350 — THE DOCUMENT, and nothing that floats over it.
+  ///
+  /// This layer runs edge to edge under the ribbon band where the native glass
+  /// exists (see [RibbonDockLayout]), which is the whole reason it was split
+  /// out: a UIGlassEffect blurs what is BEHIND it, and until now what was
+  /// behind the band was the app's ground colour. Blurred ground colour is
+  /// ground colour, which is why the band read as a painted panel.
+  ///
+  /// The MODEL BROWSER is here rather than in the chrome when there is no
+  /// native panel for it (M108's rule): without glass it is an opaque column
+  /// that takes real width beside the viewport, and floating an opaque tree
+  /// over the model would just hide it.
+  Widget _document(AppState app) {
+    if (app.isHome) return HomeView(app: app);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (!GlassBrowser.isSupported) NativeModelBrowser(app: app),
+        Expanded(
+          // A 3D part shows the part viewport; an open child sketch falls
+          // through to the unchanged 2D sketcher (M56).
+          //
+          // M80 — Inventor keeps the LIVE 3D scene while you sketch; it does
+          // not draw a flat picture of the model. Autodesk's own Slice
+          // Graphics docs give it away: you rotate the model during a sketch,
+          // and model geometry can OCCLUDE the sketch plane. Both need real
+          // depth. So in a part we ALWAYS render Viewport3D, and an open child
+          // sketch simply puts the 2D editor transparently on top with the
+          // camera aimed down its plane.
+          child: app.currentAssembly != null
+              ? ViewportAssembly(app: app)
+              : app.currentPart != null
+                  ? Stack(children: [
+                      Positioned.fill(child: Viewport3D(app: app)),
+                      if (app.activeChild != null)
+                        Positioned.fill(
+                          // Faded in by the camera swing (M88); IgnorePointer
+                          // while invisible so a stray tap cannot land on a
+                          // sketch that is not on screen yet.
+                          child: IgnorePointer(
+                            ignoring: app.sketchOverlayFade < 0.99,
+                            child: Opacity(
+                              opacity: app.sketchOverlayFade,
+                              child: Viewport2D(app: app),
+                            ),
+                          ),
+                        ),
+                    ])
+                  : Viewport2D(app: app),
+        ),
+      ],
+    );
+  }
+
+  /// M350 — everything that floats OVER the document.
+  ///
+  /// Laid out in the box that excludes the band (see [RibbonDockLayout]), so
+  /// none of it can slide under the ribbon and none of it has to know the
+  /// ribbon exists — M290's promise, kept for the panels it was made for.
+  ///
+  /// The modeless dialogues moved in here with the rest. They park against the
+  /// right-hand edge of the CONTENT area (M206's [DialogDock]), and "the
+  /// content area" is precisely this box: they were the one part of the old
+  /// stage that would have gone under a floating band.
+  Widget _chrome(AppState app) {
+    if (app.isHome) {
+      return Stack(children: [
+        if (GlassTabBar.isSupported)
+          Positioned(
+              bottom: 0, left: 0, right: 0, child: BottomTabBar(app: app)),
+        QuickToolsBar(app: app),
+      ]);
+    }
+    return Stack(children: [
+      // The document's own modeless panels, per document kind. Each of them
+      // collects from the viewport it floats over, which is why they are
+      // modeless and why they are ABOVE it and BELOW the standing chrome.
+      if (app.currentAssembly != null) ...[
+        // M249 — one session, two dialogs: Place Joint and Place Constraint
+        // collect identically and share AppState.constraintSession, and the
+        // tab is what says which of them is on screen.
+        if (app.constraintSession?.isJoint == true)
+          JointDialog(app: app)
+        else if (app.constraintSession != null)
+          ConstraintDialog(app: app),
+        // M249 — Drive. Modeless like the other two, and over the viewport
+        // because what it animates is the model behind it.
+        if (app.driveSession != null) DriveDialog(app: app),
+        // M248 — Pattern Component and Mirror Component, in the PART's panel
+        // with an assembly session in it.
+        if (app.asmPatternSession != null) PatternPanel3D(app: app),
+        // M250 — Create In-Place Component. It takes itself away when OK hands
+        // over to the plane pick: the card would otherwise sit on top of the
+        // face you are choosing.
+        if (app.createComponentSession != null)
+          CreateComponentDialog(app: app),
+        // M247 — an assembly has work planes now, and an offset or an angle
+        // plane carries the one number this field edits.
+        WorkPlaneOffsetField(app: app),
+      ] else if (app.currentPart != null) ...[
+        if (app.extrudeSession != null) ExtrudeDialog(app: app),
+        if (app.edgeSession != null) EdgeFeatureDialog(app: app),
+        // M212 — Rectangular / Circular / Sketch Driven / Mirror, one modeless
+        // panel for all four.
+        if (app.patternSession != null) PatternPanel3D(app: app),
+        if (app.holeSession != null) HoleDialog(app: app), // M225
+        if (app.combineSession != null) CombineDialog(app: app), // M227
+        if (app.splitSession != null) SplitDialog(app: app), // M228
+        // M255 — Make Part. It takes nothing from the viewport (the body was
+        // chosen by the long press that opened it), so it stays up until OK
+        // or Cancel.
+        if (app.makePartSession != null) MakePartDialog(app: app),
+        // M169 — the work plane's dynamic offset input. Never modal: the plane
+        // it edits must stay visible while the number changes.
+        WorkPlaneOffsetField(app: app),
+      ],
+      // M116 — the browser is a FLOATING card, not a full-height wall: it
+      // starts at the top of the content area and stops above the tab bar, so
+      // the origin triad in the bottom-left corner stays visible under it.
+      // M146/M290 — and it is anchored to this box, which already excludes the
+      // band on every dock.
+      if (GlassBrowser.isSupported)
+        Positioned.fill(
+          child: Padding(
+            padding:
+                EdgeInsets.only(bottom: BottomTabBar.floatingHeight + 8),
+            child: Align(
+              alignment: Alignment.topLeft,
+              child: SizedBox(
+                height: double.infinity,
+                child: NativeModelBrowser(app: app),
+              ),
+            ),
+          ),
+        ),
+      // M150 — the tab bar floats too. It was the last thing still taking a
+      // row of the Column, which left an opaque strip across the bottom that
+      // the model visibly stopped at.
+      if (GlassTabBar.isSupported)
+        Positioned(
+            bottom: 0, left: 0, right: 0, child: BottomTabBar(app: app)),
+      // M192 — the quick tools on the right edge, always visible. Last in the
+      // Stack: it must sit ABOVE everything it floats over, and it is the
+      // smallest of the floating panels, so it covers least.
+      QuickToolsBar(app: app),
+    ]);
   }
 
   Widget _app(Locale locale, Palette palette) {
@@ -293,20 +449,14 @@ class PrototypeApp extends StatelessWidget {
             // palette's ground here: the strip is behind the SafeArea and the
             // photograph does not run under it.
             // M346 — over a document the ground is the VIEWPORT's, not the
-            // panel's, and that is the other half of "it should be liquid
-            // glass without a background".
+            // panel's.
             //
-            // The band is a row of the layout (M290), so the only thing behind
-            // its glass is this box. UIGlassEffect blurs what is behind it; a
-            // flat T.panel behind it therefore comes out as flat T.panel with
-            // a sheen — which is a painted panel, and is what the band looked
-            // like. On the canvas tone the same material reads as glass lying
-            // ON the drawing, which is what the surface is for.
-            //
-            // It is the same tone the strip behind the status bar needs for
-            // the reason the note below gives, so both follow the viewport now
-            // and the boundary is where it already was: between the canvas and
-            // the chrome, not across the top of the screen.
+            // It is what the strip behind the status bar shows, and (until
+            // M350 put the document under the band) it was what the ribbon's
+            // glass had to refract. Both want the same answer: the tone the
+            // canvas is drawn on, so the boundary is where it already was —
+            // between the canvas and the chrome, not across the top of the
+            // screen.
             return ColoredBox(
               color: app.isHome
                   ? (galleryGround(Backdrops.current.value, T.palette) ??
@@ -333,232 +483,16 @@ class PrototypeApp extends StatelessWidget {
                   Expanded(
                     child: RibbonDockLayout(
                       app: app,
-                      stage: Stack(children: [
-                      Positioned.fill(
-                        child: app.isHome
-                        ? HomeView(app: app)
-                        // M108 — the browser FLOATS over the viewport instead
-                        // of taking a column of its own, so the model runs
-                        // behind the glass and the panel actually has
-                        // something to refract. On platforms without the
-                        // native panel it stays a column, because an opaque
-                        // Flutter tree floating over the model would just hide
-                        // it.
-                        : Stack(children: [
-                            Positioned.fill(
-                                child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                                if (!GlassBrowser.isSupported)
-                                  NativeModelBrowser(app: app),
-                                Expanded(
-                                  // A 3D part shows the part viewport; an
-                                  // open child sketch falls through to the
-                                  // unchanged 2D sketcher (M56).
-                                  // M80 — Inventor keeps the LIVE 3D scene
-                                  // while you sketch; it does not draw a flat
-                                  // picture of the model. Autodesk's own Slice
-                                  // Graphics docs give it away: you rotate the
-                                  // model during a sketch, and model geometry
-                                  // can OCCLUDE the sketch plane. Both need
-                                  // real depth.
-                                  //
-                                  // So in a part we ALWAYS render Viewport3D,
-                                  // and an open child sketch simply puts the
-                                  // 2D editor transparently on top with the
-                                  // camera aimed down its plane. The model is
-                                  // then drawn by the GPU: pan and zoom only
-                                  // move the camera and cost nothing, which is
-                                  // what the CPU underlay could never manage.
-                                  // M240 — an ASSEMBLY is the third case,
-                                  // and it is checked first because it is the
-                                  // simplest to state: an assembly document
-                                  // has no part and no sketch open inside it,
-                                  // so none of the part branch's feature
-                                  // dialogues (extrude, hole, pattern) can
-                                  // apply to it. M247 — the work plane field
-                                  // is the exception, and it is here rather
-                                  // than shared because an assembly's Stack
-                                  // is its own.
-                                  child: app.currentAssembly != null
-                                      // M242 — the assembly gained a floating
-                                      // panel of its own, so the viewport is
-                                      // no longer the whole branch: Place
-                                      // Constraint is modeless and has to sit
-                                      // OVER the viewport it collects from.
-                                      ? Stack(children: [
-                                          Positioned.fill(
-                                              child: ViewportAssembly(app: app)),
-                                          // M249 — one session, two dialogs:
-                                          // Place Joint and Place Constraint
-                                          // collect identically and share
-                                          // AppState.constraintSession, and
-                                          // the tab is what says which of them
-                                          // is on screen. See
-                                          // ConstraintSession.jointType.
-                                          if (app.constraintSession
-                                                  ?.isJoint ==
-                                              true)
-                                            JointDialog(app: app)
-                                          else if (app.constraintSession !=
-                                              null)
-                                            ConstraintDialog(app: app),
-                                          // M249 — Drive. Modeless like the
-                                          // other two, and over the viewport
-                                          // because what it animates is the
-                                          // model behind it.
-                                          if (app.driveSession != null)
-                                            DriveDialog(app: app),
-                                          // M248 — Pattern Component and
-                                          // Mirror Component, in the PART's
-                                          // panel with an assembly session in
-                                          // it. Modeless and over the viewport
-                                          // for the same reason Place
-                                          // Constraint is: it collects its
-                                          // seeds and its plane by pointing.
-                                          if (app.asmPatternSession != null)
-                                            PatternPanel3D(app: app),
-                                          // M250 — Create In-Place
-                                          // Component. Over the viewport
-                                          // like its siblings, and it takes
-                                          // itself away when OK hands over
-                                          // to the plane pick: the card
-                                          // would otherwise sit on top of
-                                          // the face you are choosing.
-                                          if (app.createComponentSession !=
-                                              null)
-                                            CreateComponentDialog(app: app),
-                                          // M247 — an assembly has work
-                                          // planes now, and an offset or an
-                                          // angle plane carries the one number
-                                          // this field edits. The part branch
-                                          // below has mounted it since M169;
-                                          // without it here the field opened
-                                          // on a new assembly plane and never
-                                          // appeared, so the number could be
-                                          // set once and never corrected.
-                                          WorkPlaneOffsetField(app: app),
-                                        ])
-                                      : app.currentPart != null
-                                      ? Stack(children: [
-                                          Positioned.fill(
-                                              child: Viewport3D(app: app)),
-                                          if (app.activeChild != null)
-                                            Positioned.fill(
-                                              // Faded in by the camera swing
-                                              // (M88); IgnorePointer while
-                                              // invisible so a stray tap
-                                              // cannot land on a sketch that
-                                              // is not on screen yet.
-                                              child: IgnorePointer(
-                                                ignoring:
-                                                    app.sketchOverlayFade <
-                                                        0.99,
-                                                child: Opacity(
-                                                  opacity:
-                                                      app.sketchOverlayFade,
-                                                  child: Viewport2D(app: app),
-                                                ),
-                                              ),
-                                            ),
-                                          if (app.extrudeSession != null)
-                                            ExtrudeDialog(app: app),
-                                          if (app.edgeSession != null)
-                                            EdgeFeatureDialog(app: app),
-                                          // M212 — Rectangular / Circular /
-                                          // Sketch Driven / Mirror, one
-                                          // modeless panel for all four.
-                                          if (app.patternSession != null)
-                                            PatternPanel3D(app: app),
-                                          // M225 — Hole.
-                                          if (app.holeSession != null)
-                                            HoleDialog(app: app),
-                                          // M227 — Combine.
-                                          if (app.combineSession != null)
-                                            CombineDialog(app: app),
-                                          // M228 — Split.
-                                          if (app.splitSession != null)
-                                            SplitDialog(app: app),
-                                          // M255 — Make Part. Over the
-                                          // viewport like its siblings; it
-                                          // takes nothing from the viewport
-                                          // (the body was chosen by the
-                                          // long-press that opened it), so it
-                                          // stays up until OK or Cancel.
-                                          if (app.makePartSession != null)
-                                            MakePartDialog(app: app),
-                                          // M169 — the work plane's dynamic
-                                          // offset input. Anchored over the
-                                          // viewport, never modal: the plane
-                                          // it edits must stay visible while
-                                          // the number changes.
-                                          WorkPlaneOffsetField(app: app),
-                                        ])
-                                      : Viewport2D(app: app),
-                                ),
-                              ])),
-                            // M116 — the panel is a FLOATING card, not a
-                            // full-height wall: half the viewport tall,
-                            // anchored top-left, so the origin triad in the
-                            // bottom-left corner stays visible under it. It
-                            // scrolls when the tree outgrows it (UIKit's list
-                            // does that for free).
-                            if (GlassBrowser.isSupported)
-                              // M146 — the card is anchored to the RIBBON,
-                              // not to a fraction of the viewport. The ribbon
-                              // now floats in the same coordinate space, and
-                              // the first device build had the tree running
-                              // underneath it. Starting at the ribbon's bottom
-                              // edge also lets the card reach much further
-                              // down, into the corner the triad used to own
-                              // (the triad moved right, beside the panel).
-                              // M290 — no ribbon inset. The band is a row of
-                              // the layout (RibbonDockLayout), so this box
-                              // already starts beside it on a left dock and
-                              // stops above it on a bottom one.
-                              Positioned.fill(
-                                child: Padding(
-                                  padding: EdgeInsets.only(
-                                      bottom:
-                                          BottomTabBar.floatingHeight + 8),
-                                  child: Align(
-                                    alignment: Alignment.topLeft,
-                                    child: SizedBox(
-                                      height: double.infinity,
-                                      child: NativeModelBrowser(app: app),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                          ]),
-                      ),
-                      // M150 — the tab bar floats too. It was the last thing
-                      // still taking a row of the Column, which left an opaque
-                      // strip across the bottom that the model visibly stopped
-                      // at. Now the viewport runs to the screen edge and the
-                      // bar rests on it, like the ribbon and the browser.
-                      // M290 — bottom: 0, left: 0, right: 0 again. M284 had
-                      // the bar subtract the band's measured thickness on
-                      // three edges, and needed to know whether the band was
-                      // drawn at all (it is not, on the gallery). The band is
-                      // a row of the layout now: this Stack's bottom edge IS
-                      // above a bottom-docked band, and there is nothing to
-                      // special-case on a screen that has no band.
-                      if (GlassTabBar.isSupported)
-                        Positioned(
-                            bottom: 0,
-                            left: 0,
-                            right: 0,
-                            child: BottomTabBar(app: app)),
-                      // M192 — the quick tools (OK, Cancel, Undo, Redo and the
-                      // four everyday sketch tools) on the right edge, always
-                      // visible. Until now the only way to reach OK and Cancel
-                      // with a finger or a Pencil was a 600 ms long press.
-                      // Last in the Stack: it must sit ABOVE the viewport it
-                      // floats over, and it is the smallest of the three
-                      // floating panels, so it covers least.
-                      QuickToolsBar(app: app),
-                    ]),
+                      // M350 — the DOCUMENT, edge to edge. See
+                      // [RibbonDockLayout]: where the native glass exists the
+                      // band floats over this layer, so the material has the
+                      // model to refract instead of a slab of ground colour.
+                      // Only the document is in here; everything that floats
+                      // over it is in [stage] and is laid out in the box that
+                      // EXCLUDES the band, which is what keeps M290's promise
+                      // that no panel has to subtract anything.
+                      bleed: _document(app),
+                      stage: _chrome(app),
                     ),
                   ),
                   if (!GlassTabBar.isSupported) BottomTabBar(app: app),

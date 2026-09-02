@@ -1774,6 +1774,9 @@ class AppState extends ChangeNotifier {
     // is read after the appearance and backdrop so its default (the flush top
     // band) never paints over a scheme that has not been adopted yet.
     RibbonDock.attachStore(RibbonStore(_cacheRoot));
+    // M349 — the band's other preference, out of the same file and read in
+    // the same breath: whether it writes the name under each command.
+    RibbonLabels.attachStore(RibbonStore(_cacheRoot));
     RenderEngines.attachStore(RenderEngineStore(_cacheRoot));
     // M348 — the live icon preview's host, in the same file for the same
     // reason. Empty unless someone has typed one in, and while it is empty

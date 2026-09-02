@@ -1389,5 +1389,7 @@
       }
     }
   },
-  "msgFinishSketchToPaste": "Finish the sketch first — a solid body belongs to the part, not to a sketch."
+  "msgFinishSketchToPaste": "Finish the sketch first — a solid body belongs to the part, not to a sketch.",
+  "settingsRibbonNames": "Display names",
+  "settingsRibbonNamesFooter": "Without names the band is much thinner; every command keeps its name as a tooltip."
 }

@@ -25,6 +25,7 @@ import 'package:prototype/ffi/qcad_engine.dart';
 import 'package:prototype/l10n/l.dart';
 import 'package:prototype/menus.dart';
 import 'package:prototype/widgets/quick_tools.dart';
+import 'package:prototype/ribbon_dock.dart';
 import 'package:prototype/widgets/ribbon.dart';
 
 AppState makeApp() {
@@ -68,6 +69,12 @@ Size chipTarget(WidgetTester t, String label) => t.getSize(find
     .first);
 
 void main() {
+  // M349 — these tests find a split button by its LABEL, so they need the
+  // ribbon that HAS labels. Names are off by default now; a flyout chip is
+  // the same control either way, and which of the two modes this suite drives
+  // is a property of the suite, not of the milestone.
+  setUp(() => RibbonLabels.set(true));
+  tearDown(RibbonLabels.resetForTest);
   setUp(OpenMenus.reset);
 
   group('the opener is a button you can see and hit', () {

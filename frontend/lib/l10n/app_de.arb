@@ -4119,5 +4119,13 @@
   "msgFinishSketchToPaste": "Zuerst die Skizze beenden — ein Volumenkörper gehört ins Bauteil, nicht in die Skizze.",
   "@msgFinishSketchToPaste": {
       "description": "M345 — Einfuegen eines Koerpers oder Bauteils, waehrend der 2D-Editor im Bauteil offen ist."
+  },
+  "settingsRibbonNames": "Namen anzeigen",
+  "@settingsRibbonNames": {
+      "description": "M349 — Kontrollkaestchen im Abschnitt Menueband: schreibt die Befehlsnamen unter die Symbole. Standard AUS."
+  },
+  "settingsRibbonNamesFooter": "Ohne Namen ist das Band deutlich schmaler; jeder Befehl behält seinen Namen als Kurzhinweis.",
+  "@settingsRibbonNamesFooter": {
+      "description": "M349 — Fusszeile des Abschnitts. Sagt, was der Schalter kostet und was er nicht kostet."
   }
 }

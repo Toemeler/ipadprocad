@@ -43,6 +43,7 @@ import 'package:prototype/widgets/ribbon_dock_layout.dart';
 
 const Size _screen = Size(1600, 900);
 const Key _stageKey = Key('stage');
+const Key _bleedKey = Key('bleed');
 
 AppState _document() {
   final app = AppState();
@@ -82,6 +83,7 @@ Future<void> _pump(WidgetTester t, AppState app) async {
         // zero — which would make the assertion below pass for the wrong
         // reason on three of the four docks.
         stage: const SizedBox.expand(key: _stageKey),
+        bleed: const SizedBox.expand(key: _bleedKey),
       ),
     ),
   ));
@@ -196,6 +198,83 @@ void main() {
       expect(band.right, _screen.width);
       expect(band.width, RibbonMetrics.railWidth);
       expect(_rect(t, find.byKey(_stageKey)).right, band.left);
+    });
+  });
+
+  // M350 — the OTHER branch: where the band is glass it floats, and the
+  // document runs under it so the material has something to refract.
+  //
+  // Every test above pins the docked branch, which is what a host without the
+  // native material gets. These pin the one the device gets, through
+  // `RibbonSurface.glassOverride` — otherwise the milestone's whole claim
+  // would be untested on the only platform it happens on.
+  group('with the glass, the band floats and the document runs under it', () {
+    setUp(() => RibbonSurface.glassOverride = true);
+    tearDown(() => RibbonSurface.glassOverride = null);
+
+    for (final dock in RibbonPosition.values) {
+      testWidgets('$dock: the DOCUMENT is the whole screen', (t) async {
+        RibbonDock.set(dock);
+        await _pump(t, _document());
+        expect(_rect(t, find.byKey(_bleedKey)),
+            Rect.fromLTWH(0, 0, _screen.width, _screen.height),
+            reason: 'blurred ground colour is ground colour — the thing '
+                'behind the band has to be the model');
+      });
+
+      testWidgets('$dock: the band lies OVER the document', (t) async {
+        RibbonDock.set(dock);
+        await _pump(t, _document());
+        expect(
+            _rect(t, find.byType(Ribbon))
+                .overlaps(_rect(t, find.byKey(_bleedKey))),
+            isTrue);
+      });
+
+      testWidgets('$dock: and the chrome still clears it', (t) async {
+        // M284's protocol is what this is not. The chrome's box is the row the
+        // band did not take, so nothing measures and nothing subtracts — and
+        // this is the assertion that says so.
+        RibbonDock.set(dock);
+        await _pump(t, _document());
+        final band = _rect(t, find.byType(Ribbon));
+        final stage = _rect(t, find.byKey(_stageKey));
+        expect(band.overlaps(stage), isFalse);
+        expect(band.expandToInclude(stage),
+            Rect.fromLTWH(0, 0, _screen.width, _screen.height));
+      });
+    }
+
+    testWidgets('the band swallows a tap on its own background', (t) async {
+      // Floating, its empty space sits over the viewport, and a Stack lets a
+      // hit fall through whatever does not claim it: without the swallow a tap
+      // on the ribbon's background would orbit the model behind it.
+      // A SHORT ribbon, deliberately: the band's scroll view covers whatever
+      // its panels reach, so with the long one there is no background left to
+      // tap and the test would pass without the swallow.
+      RibbonDock.set(RibbonPosition.right);
+      var hitBelow = 0;
+      await t.binding.setSurfaceSize(_screen);
+      await t.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: RibbonDockLayout(
+            app: _shortRibbon(),
+            stage: const SizedBox.expand(key: _stageKey),
+            bleed: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => hitBelow++,
+              child: const SizedBox.expand(key: _bleedKey),
+            ),
+          ),
+        ),
+      ));
+      await t.pump();
+      final band = _rect(t, find.byType(Ribbon));
+      // The very bottom of the rail: below every panel, so it is the band's
+      // own background and nothing else.
+      await t.tapAt(Offset(band.center.dx, band.bottom - 4));
+      await t.pump();
+      expect(hitBelow, 0);
     });
   });
 

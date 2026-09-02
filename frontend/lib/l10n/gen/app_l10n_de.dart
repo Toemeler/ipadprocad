@@ -4445,4 +4445,11 @@ class AppL10nDe extends AppL10n {
   @override
   String get msgFinishSketchToPaste =>
       'Zuerst die Skizze beenden — ein Volumenkörper gehört ins Bauteil, nicht in die Skizze.';
+
+  @override
+  String get settingsRibbonNames => 'Namen anzeigen';
+
+  @override
+  String get settingsRibbonNamesFooter =>
+      'Ohne Namen ist das Band deutlich schmaler; jeder Befehl behält seinen Namen als Kurzhinweis.';
 }

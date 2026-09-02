@@ -7284,6 +7284,18 @@ abstract class AppL10n {
   /// In de, this message translates to:
   /// **'Zuerst die Skizze beenden — ein Volumenkörper gehört ins Bauteil, nicht in die Skizze.'**
   String get msgFinishSketchToPaste;
+
+  /// M349 — Kontrollkaestchen im Abschnitt Menueband: schreibt die Befehlsnamen unter die Symbole. Standard AUS.
+  ///
+  /// In de, this message translates to:
+  /// **'Namen anzeigen'**
+  String get settingsRibbonNames;
+
+  /// M349 — Fusszeile des Abschnitts. Sagt, was der Schalter kostet und was er nicht kostet.
+  ///
+  /// In de, this message translates to:
+  /// **'Ohne Namen ist das Band deutlich schmaler; jeder Befehl behält seinen Namen als Kurzhinweis.'**
+  String get settingsRibbonNamesFooter;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

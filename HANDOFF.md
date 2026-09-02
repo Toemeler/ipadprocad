@@ -11215,3 +11215,151 @@ beim Abbau.
 Was daran NICHT gemessen ist: dass RealityKit auf dem Gerät tatsächlich
 aufhört zu zeichnen, und wie viel das bringt. Der Beleg dafür ist der
 Kommentar des Standbild-Renderers, nicht ein Profil.
+
+## M349 — Das Band schreibt keine Namen mehr, und wird dafür dünner
+
+### Was der Auftrag war
+
+„Im Band werden derzeit Namen angezeigt. Mach das standardmässig aus, damit
+das Band dünner wird. Aber in den Einstellungen soll es weiterhin ein
+Kontrollkästchen „Namen anzeigen" geben, damit ich es wieder einschalten
+kann."
+
+### Was gebaut wurde
+
+`RibbonLabels` in `ribbon_dock.dart`, neben dem Dock und aus derselben
+`settings.json` gelesen (`ribbonNames`), Vorgabe **aus**. Ein Kontrollkästchen
+im Abschnitt „Menüband" der Einstellungen schaltet es wieder ein — dieselbe
+Zeilenart, die dort schon vier Positionen anbietet, mit einer Fusszeile, die
+sagt, was der Schalter kostet.
+
+### Die Zahlen, weil „dünner" sonst nichts heisst
+
+Auf 1600×900, Skizze im Layer:
+
+| | mit Namen | ohne Namen |
+|---|---|---|
+| Band oben | 112 pt hoch | **90 pt** |
+| Schiene rechts | 168 pt breit | **88 pt** |
+
+Der erste Versuch kam auf **105** — sieben Punkte. Das ist kein „dünner",
+das ist ein Rundungsfehler, und der Grund dafür ist der Befund dieses
+Meilensteins: **nicht die Wörter bestimmen die Höhe des Bandes.** Es sind die
+gestapelten Zeilen. Also sind zwei Dinge mitgegangen:
+
+* **Das Bedingungsraster** (12 Zellen) legt sich um: waagerecht **sechs breit
+  und zwei tief** statt vier und drei — Breite ist auf einem waagerechten Band
+  gratis, weil es seitlich scrollt, Höhe ist die knappe Achse. In einer
+  schmalen Schiene **zwei breit**, weil dort die Knappheit auf der anderen
+  Achse liegt: vier Spalten sind 123 pt und die Schiene ist 88.
+* **Spalten kleiner Zeilen falten sich** zu zweit (`smallStack`). Eine Zeile
+  ohne Wort ist ein 18-pt-Symbol und sein Klapp-Chip, rund 40 pt breit; vier
+  davon übereinander machten das Band 104 pt hoch, um 40 pt Inhalt zu zeigen.
+
+Was jetzt übrig bleibt, ist ehrlich: 34 pt Symbol plus ein 26-pt-Klapp-Chip
+sind **Zielgrössen für den Finger**, keine Zierde. Tiefer geht es nur, indem
+man Trefferflächen verkleinert, und das ist eine andere Entscheidung.
+
+### Was NICHT verschwunden ist
+
+* **Der Name.** Jeder Knopf trägt ihn als **Kurzhinweis** — Zeiger drüber am
+  Trackpad, langer Druck auf Glas. Genau das macht das Bedingungsraster seit
+  M10 mit seinen zwölf symbolonly-Zellen. Ohne das wäre der Knopf ein Bild
+  ohne Namen: für VoiceOver unerreichbar und für jeden unlesbar, der das
+  Symbol nicht schon kennt.
+* **Das ▼ der Panels.** Es ist der einzige Weg zu den Überlaufbefehlen. Das
+  WORT davor geht, der Pfeil bleibt — ein Band, das dünner wird, indem es
+  Befehle unerreichbar macht, wäre ein anderes Feature.
+* **Die Klapp-Chips** der geteilten Knöpfe, in gleicher Zahl.
+
+### Der Test
+
+`test/m349_ribbon_names_test.dart`, 15 Fälle: die Vorgabe (aus), der Speicher
+(und dass eine Datei ohne den Schlüssel auf die VORGABE fällt statt auf false),
+die Zahlen oben als Verhältnis, alle acht Kombinationen aus vier Docks und
+zwei Modi ohne Überlauf (ein RenderFlex-Überlauf wirft im Test — das Pumpen
+IST die Zusicherung), Wort weg / Kurzhinweis da / Chips da, und die vier
+Zeilen der Einstellungen samt Häkchen.
+
+Drei bestehende Suiten drehen den Schalter jetzt in ihrem `setUp` auf AN:
+`m205` (findet geteilte Knöpfe über ihre Beschriftung), `m235` (handelt von
+nichts anderem als davon, wie eine Beschriftung umbricht) und `m146` (dessen
+Column den echten `stretch` nachbaut). Welchen der zwei Modi eine Suite fährt,
+ist eine Eigenschaft der Suite.
+
+## M350 — Das Band ist Glas, weil endlich das Modell dahinter läuft
+
+### Was der Auftrag war
+
+„Mach den Hintergrund des Bandes vollständig Liquid Glass. Kein fester
+Hintergrund."
+
+### Der Befund
+
+`UIGlassEffect` verwischt, **was hinter ihm liegt**. Seit M290 lag hinter dem
+Band nur der Grund der App, und verwischte Grundfarbe ist Grundfarbe — deshalb
+las sich das Band als gemaltes Panel, egal wie gut das Material ist. M346 hat
+diese Farbe von der Panel- auf die Viewport-Farbe umgestellt; näher dran, und
+immer noch kein Glas, denn was eine Viewport-Farbe nicht ist, ist das
+**Modell**.
+
+### Was gebaut wurde
+
+Die Bühne ist in zwei Schichten geteilt, und diese Teilung ist der ganze
+Trick:
+
+* **`bleed`** — das DOKUMENT (2D-Zeichenfläche, 3D-Bauteil, Baugruppe,
+  Galerie). Randlos, unter dem Band. Das ist, was das Glas bricht.
+* **`stage`** — alles, was darüber schwebt: Modellbrowser, Registerleiste,
+  Schnellwerkzeuge und die modelosen Dialoge. Liegt in der Box, die das Band
+  **ausschliesst** — genau wie M290 es hinterlassen hat.
+
+Damit kommt M284s Protokoll **nicht** zurück: nichts misst das Band, nichts
+veröffentlicht eine Dicke, nichts zieht einen Einzug ab, und kein Panel muss
+wissen, dass es ein Band gibt. Die `Column`, die dem Band seine Zeile gibt,
+gibt der Bühne den Rest — ein Layout-Durchgang, kein Frame Verzug, und ein
+Panel, das morgen dazukommt, landet in der Bühne und ist per Konstruktion
+richtig.
+
+Die **modelosen Dialoge** sind mitgewandert. Sie parken an der rechten Kante
+des INHALTSBEREICHS (M206), und dieser Bereich ist genau diese Box — sie waren
+das einzige Stück der alten Bühne, das unter ein schwebendes Band gerutscht
+wäre.
+
+**Das Band schluckt Zeiger.** Schwebend liegt seine Leerfläche über dem
+Viewport, und ein `Stack` lässt Treffer durch, was sie nicht beansprucht: ein
+Tipp auf den Bandhintergrund hätte sonst das Modell dahinter orbitiert. Das
+Glas selbst kann den Treffer nicht nehmen (Plattform-Ansicht mit
+abgeschalteter Interaktion, absichtlich), also sitzt der `Listener` im Layout.
+
+### Warum es am Glas hängt
+
+Ohne das native Material ist das Band eine **gemalte** Fläche, und eine gemalte
+Fläche mit dem Modell darunter wäre ein undurchsichtiger Streifen über lebender
+Geometrie — schlechter als vorher, ohne Gewinn. Ausserhalb von iOS ist das
+Layout deshalb exakt das, was M290 gebaut hat.
+
+### Der Test
+
+`m290_ribbon_dock_test.dart` bekommt eine zweite Gruppe: mit
+`RibbonSurface.glassOverride` wird der Gerätezweig auf dem Runner gefahren und
+für alle vier Docks gezeigt, dass (1) das Dokument der ganze Bildschirm ist,
+(2) das Band darüber liegt und (3) die Chrome es trotzdem freihält — dieselbe
+Nicht-Überlappung, die M290 zugesichert hat.
+
+Der Schalter ist die Naht, die sich gelohnt hat: die gemalte Rückfallfläche ist
+eine `ColoredBox` und **schluckt** einen Treffer, das echte Glas nicht. Ein
+Test, der nur die Rückfallfläche sieht, beweist über den Bandhintergrund auf
+dem Gerät gar nichts. Gegenprobe: mit ausgebautem `Listener` fällt der
+Schluck-Test um, vorher nicht.
+
+### Noch NICHT auf Hardware
+
+Wie das Glas über dem Modell **aussieht**, sagt erst das iPad; auf dem Runner
+gibt es kein `UIGlassEffect`. Zwei Dinge sind dort zu prüfen: dass die
+RealityKit-Plattform-Ansicht wirklich unter der Glas-Plattform-Ansicht
+komponiert wird (der Modellbrowser tut seit M108 genau das, also ist der
+Mechanismus im Haus bewiesen), und dass eine 2D-Skizze, deren Koordinatenraum
+jetzt den ganzen Bildschirm misst statt der um das Band verkleinerten Box,
+sich richtig anfühlt — sie zentriert wie der Modellbrowser es schon immer
+getan hat, aber gesehen hat das noch niemand.
