@@ -123,35 +123,46 @@ void main() {
       expect(cyclesImageSize(400, 300, 2.0), (800, 600));
     });
 
-    test('a big one is capped on the long side and keeps its aspect', () {
-      final (w, h) = cyclesImageSize(1366, 1024, 2.0);
-      expect(w, kCyclesMaxSide);
-      // 2732x2048 scaled by kCyclesMaxSide/2732.
-      expect(h, (2048 * kCyclesMaxSide / 2732).round());
-      expect(w / h, closeTo(1366 / 1024, 0.01));
+    test('a big one renders 1:1 too — M353 removed the cap', () {
+      // The cap existed to bound denoiser memory. There is no denoiser, so a
+      // settled frame is exactly the pixels it will be drawn into and nothing
+      // is resampled on the way to the screen.
+      expect(cyclesImageSize(1366, 1024, 2.0), (2732, 2048));
     });
 
-    test('a portrait viewport is capped on ITS long side', () {
-      final (w, h) = cyclesImageSize(1024, 1366, 2.0);
-      expect(h, kCyclesMaxSide);
-      expect(w, (2048 * kCyclesMaxSide / 2732).round());
+    test('a portrait viewport is 1:1 as well', () {
+      expect(cyclesImageSize(1024, 1366, 2.0), (2048, 2732));
+    });
+
+    test('the guard is above anything a real viewport asks for', () {
+      // kCyclesMaxSide is an allocation guard, not a quality knob: it must not
+      // bind on the largest iPad, and it must still stop a nonsense size.
+      expect(cyclesImageSize(1366, 1024, 2.0).$1, lessThan(kCyclesMaxSide));
+      expect(cyclesImageSize(9000, 9000, 3.0).$1, kCyclesMaxSide);
     });
 
     // M347 — the cap is what decides how sharp a settled render can ever be,
     // and 900 made an iPad Pro viewport a half-resolution image at every sample
     // count. Nailed down so a future "let's make it cheaper" has to argue with
     // the pixel it is giving away.
-    test('a settled render covers most of an iPad Pro viewport 1:1', () {
+    test('a settled render covers an iPad Pro viewport EXACTLY 1:1', () {
       // The part viewport with the ribbon docked at the left, in points.
+      // M347 got this to four fifths of the viewport; M353 gets the last
+      // fifth, which is the difference between a soft image at every sample
+      // count and a sharp one.
       final (w, h) = cyclesImageSize(897, 774, 2.0);
-      expect(w, kCyclesMaxSide);
-      expect(w / (897 * 2.0), greaterThan(0.75));
+      expect(w, (897 * 2.0).round());
+      expect(h, (774 * 2.0).round());
     });
 
-    test('an orbit renders small, and the two caps are far apart', () {
+    test('an orbit still renders small — that half did not change', () {
       final (mw, _) = cyclesImageSize(897, 774, 2.0, moving: true);
       expect(mw, kCyclesMovingSide);
-      expect(kCyclesMovingSide * 2, lessThan(kCyclesMaxSide));
+      // And the gap between the two is now the whole point: a moving frame is
+      // a fraction of a settled one, where before it was under a third.
+      final (sw, sh) = cyclesImageSize(897, 774, 2.0);
+      final (_, mh) = cyclesImageSize(897, 774, 2.0, moving: true);
+      expect(mw * mh * 8, lessThan(sw * sh));
     });
 
     test('a degenerate size never asks for a zero-pixel image', () {

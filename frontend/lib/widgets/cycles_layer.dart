@@ -30,8 +30,9 @@
 // meet it during an orbit is fewer PIXELS, not fewer samples — the eye is
 // tracking a shape in motion and cannot resolve fine detail, but it can see
 // noise perfectly well. So the image is rendered at [kCyclesMovingSide] while
-// the camera is moving and at [kCyclesMaxSide] once it stops, and the timer
-// below is what notices that it stopped.
+// the camera is moving and at the viewport's own device pixels once it stops
+// (M353 removed the cap that used to sit between them), and the timer below is
+// what notices that it stopped.
 //
 // M347 — AND THE SAMPLE TARGET, WHICH THE ABOVE ASSUMED AWAY. "Fewer pixels,
 // not fewer samples" is the right rule for how an orbit's frames should LOOK
@@ -295,14 +296,21 @@ class _CyclesLayerState extends State<CyclesLayer> {
             child: RawImage(
               image: _decoded,
               fit: BoxFit.fill,
-              // M347 — LOW, and it is not a downgrade. Every frame here is
-              // MAGNIFIED: the render is at most [kCyclesMaxSide] on its long
-              // side and the viewport is bigger. Mipmaps — the only thing
-              // medium adds over low — are a minification tool and contribute
-              // nothing to an upscale, while building the chain is real work on
-              // the raster thread for a texture that is replaced a few
-              // milliseconds later. Same picture, less of the orbit spent
-              // making it.
+              // M347/M353 — LOW, and it is not a downgrade.
+              //
+              // A MOVING frame is magnified: it renders at
+              // [kCyclesMovingSide] and is stretched over a viewport several
+              // times wider. Mipmaps — the only thing medium adds over low —
+              // are a minification tool, contribute nothing to an upscale, and
+              // cost real work on the raster thread for a texture that is
+              // replaced a few milliseconds later.
+              //
+              // A SETTLED frame is now 1:1 (M353 removed the resolution cap),
+              // so there is no resampling for any quality to do and the
+              // sampler is a no-op on it. That is the sharpness the cap used
+              // to cost: before, every settled frame was an upscale from four
+              // fifths of the viewport and low was a real, if small,
+              // compromise. It is not one any more.
               filterQuality: FilterQuality.low,
             ),
           ),

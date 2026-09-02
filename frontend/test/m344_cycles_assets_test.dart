@@ -187,7 +187,8 @@ void main() {
       // cannot resolve fine detail but can see noise perfectly well.
       final still = cyclesImageSize(1366, 1024, 2.0);
       final moving = cyclesImageSize(1366, 1024, 2.0, moving: true);
-      expect(still.$1, kCyclesMaxSide);
+      // M353 — a standstill is 1:1; only the orbit is reduced.
+      expect(still.$1, 2732);
       expect(moving.$1, kCyclesMovingSide);
       // Same aspect, so the image scales over the viewport identically.
       expect(moving.$1 / moving.$2, closeTo(still.$1 / still.$2, 0.01));

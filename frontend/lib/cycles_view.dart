@@ -514,38 +514,41 @@ String cyclesCameraKey(Cam3 cam) {
       '${f(cam.halfH)},${f(cam.ox)},${f(cam.oy)}';
 }
 
-/// The largest image a Cycles render will produce, on its long side.
+/// A ceiling on the rendered image's long side that no current device reaches.
 ///
-/// M347 — 900 WAS A ONE-SHOT RENDERER'S NUMBER AND IT SHOWED.
+/// M353 — A STANDSTILL NOW RENDERS AT THE VIEWPORT'S OWN RESOLUTION.
 ///
-/// It was chosen when a render was a single blocking call: cost is pixels
-/// times samples, so a third of a megapixel "lands in seconds rather than
-/// minutes" and everything above that was a wait nobody had asked for.
+/// The history is worth keeping because it is the same mistake twice. 900 was
+/// a one-shot renderer's number: cost is pixels times samples, so a third of a
+/// megapixel "lands in seconds rather than minutes". M347 raised it to 1440 —
+/// four fifths of an iPad Pro viewport's long side — and stopped there for one
+/// reason, MEMORY, with the arithmetic written down: the shim held frame,
+/// albedo and normal in floats, twice over, plus nine floats a pixel of
+/// denoiser scratch. About 176 bytes per pixel, which at a true 1:1 came to
+/// roughly half a gigabyte.
 ///
-/// Sampling is progressive now. A bigger image does not delay the first
-/// picture — the first sample of a two-megapixel frame arrives about as fast
-/// as the first sample of a small one — it only means more samples are needed
-/// to finish. What 900 bought was therefore never speed to a PICTURE, only
-/// speed to a FINISHED picture, and what it cost was permanent: a 900-pixel
-/// image stretched across the ~1800 device pixels of an iPad Pro viewport is
-/// soft at every sample count, and no amount of waiting sharpens it. That
-/// softness is most of what "it never gets better than this" was describing.
+/// Every term in that sum except the frame itself belonged to the denoiser,
+/// and M353 removed the denoiser. What is left is the output driver's copy,
+/// the store's and the reader's — three RGBA float buffers, 48 bytes a pixel,
+/// plus the four bytes of the RGBA8 image that crosses to Dart. Fifty-two
+/// bytes a pixel, under a third of what it was. On a ~1800-pixel viewport
+/// that is about 126 MB, and dropping the two guide passes takes another six
+/// floats a pixel off Cycles' own GPU render buffer at the same time.
 ///
-/// 1440 is four fifths of that viewport's long side — a step the eye reads
-/// immediately against 900's one half — and it is where it is rather than at a
-/// true 1:1 because of MEMORY, which is the one cost that does grow with the
-/// pixel count and does not go away again. The shim keeps the frame, the
-/// albedo and the normal in floats, twice over (the output driver's copy and
-/// the reader's), plus nine floats a pixel of denoiser scratch: about 176
-/// bytes per pixel of CPU buffers, on top of Cycles' own render passes on the
-/// GPU. At 1440 that is around three hundred megabytes and at a true 1:1 it is
-/// closer to five hundred, which is not a number to reach for on a device
-/// nobody has measured this on. Raising it further is a deliberate act with an
-/// arithmetic behind it, which is why the arithmetic is written down here.
+/// So the cap that existed to buy back denoiser memory has nothing left to buy
+/// back, and a render at anything less than 1:1 is soft at every sample count
+/// with no amount of waiting able to sharpen it. A standstill renders at the
+/// device pixels the viewport actually occupies.
+///
+/// This constant survives only as an ALLOCATION GUARD. 4096 is above the long
+/// side of any iPad's full screen, so it never binds on real hardware; it is
+/// here so that a nonsense size — an unlaid-out viewport, an external display
+/// nobody has thought about — cannot ask for a buffer measured in gigabytes.
+/// If it ever binds, that is a bug to look at rather than a limit to raise.
 ///
 /// The orbit is not affected either way: it renders at [kCyclesMovingSide],
 /// and only a standstill reaches this.
-const int kCyclesMaxSide = 1440;
+const int kCyclesMaxSide = 4096;
 
 /// The long side to render at WHILE THE CAMERA IS MOVING.
 ///
@@ -574,10 +577,21 @@ const int kCyclesMovingSide = 480;
 /// looking at gets — which is why it is far higher than the 48 that was the
 /// whole wait before it.
 ///
-/// 256 is where a studio-lit CAD body under an HDRI, with adaptive sampling
-/// and the firefly clamps the shim sets, stops changing in any way the eye can
-/// see. Adaptive sampling means most pixels are finished long before it.
-const int kCyclesSamples = 256;
+/// M353 — 4096, WHICH IS BLENDER'S OWN FINAL-RENDER DEFAULT.
+///
+/// 256 was chosen as "where a studio-lit CAD body stops changing in any way
+/// the eye can see", and with a denoiser smoothing what was left that was
+/// true. Nothing is filtered now, so the only thing standing between the image
+/// and a clean one is samples, and the target has to be high enough that the
+/// path tracer is never the reason a render stopped looking better.
+///
+/// It is a CEILING, not a duration. Adaptive sampling ends each pixel at its
+/// own error estimate, so a flat lit face is finished in tens of samples and
+/// only the soft shadows and glossy reflections spend the rest; a typical CAD
+/// scene stops well short of this and the badge reports where it actually got
+/// to (M347). Raising the ceiling costs nothing on a scene that converges
+/// early and buys everything on one that does not.
+const int kCyclesSamples = 4096;
 
 /// The sample target WHILE THE CAMERA IS MOVING.
 ///
@@ -599,9 +613,17 @@ const int kCyclesSamples = 256;
 /// camera push — which at 60 Hz is immediately, but IN BETWEEN, which is where
 /// a frame gets composited. It is the same bargain the resolution ladder
 /// makes and for the same reason: the eye tracking a moving shape cannot
-/// resolve either detail or noise, and 24 samples through the a-trous filter
-/// (which is at full strength this far below the shim's `kDenoiseFull`) reads
-/// as a clean moving picture.
+/// resolve either detail or noise while it is tracking a moving shape.
+///
+/// M353 — THE OLD JUSTIFICATION NAMED THE FILTER, AND THE FILTER IS GONE. It
+/// used to read "24 samples through the a-trous filter reads as a clean moving
+/// picture". Nothing filters now, so an orbit frame is visibly grainy, and
+/// that is the deliberate trade rather than an oversight: a fluid grainy orbit
+/// is what Blender's viewport does and what was asked for here, and the number
+/// stays where it is because fluidity was the complaint. Raising it is the
+/// first thing to try if a moving frame turns out to be TOO coarse to aim
+/// with — but it is paid for in exactly the stutter this constant exists to
+/// prevent.
 ///
 /// It is Blender's bargain too — `RenderScheduler` caps the samples per work
 /// item while the user is navigating and drops the resolution divider — with
@@ -630,10 +652,12 @@ const int kCyclesMovingSamples = 24;
   );
 }
 
-/// The pixel size to render [size] logical points at, capped at
-/// [kCyclesMaxSide] and never zero.
+/// The pixel size to render [size] logical points at, and never zero.
 ///
-/// [moving] drops the cap to [kCyclesMovingSide] for the frames of an orbit.
+/// A STANDSTILL IS 1:1 — the device pixels the viewport occupies, subject only
+/// to [kCyclesMaxSide], which is an allocation guard no real viewport reaches.
+/// [moving] drops it to [kCyclesMovingSide] for the frames of an orbit, which
+/// is the one place fewer pixels are worth more than sharpness.
 (int, int) cyclesImageSize(double width, double height, double dpr,
     {bool moving = false}) {
   final w = width * dpr, h = height * dpr;

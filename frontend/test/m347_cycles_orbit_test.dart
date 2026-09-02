@@ -126,21 +126,33 @@ void main() {
       expect(movingCost * 20, lessThan(stillCost));
     });
 
-    test('the moving target stays inside the denoiser full-strength band', () {
-      // cycles_denoise.h fades the a-trous filter out from kDenoiseFull (32)
-      // samples upwards. An orbit target above that would be filtered at
-      // partial strength — the noisiest frames getting the least help, which
-      // is the arrangement M346 shipped by tying the strength to the target
-      // rather than to the sample count.
+    test('the moving target is small enough to finish between camera pushes',
+        () {
+      // M353 — THIS TEST USED TO BE ABOUT THE DENOISER, AND THERE IS NONE.
+      //
+      // It read "the moving target stays inside the denoiser full-strength
+      // band", bounding the constant at kDenoiseFull (32) so an orbit frame
+      // got the filter at full strength. Nothing filters now, so that reason
+      // is gone — but the bound is still right for a different and older
+      // reason, and the test exists to keep it rather than to quietly widen.
+      //
+      // An orbit frame has to FINISH inside the gap between two camera pushes.
+      // A target the tracer cannot reach in a few tens of milliseconds means
+      // the GPU never goes idle, and the compositor — which needs a slice of
+      // the same GPU every eight milliseconds — queues behind it. That is the
+      // stutter this budget exists to prevent, and it is unrelated to what
+      // does or does not happen to the pixels afterwards.
       expect(kCyclesMovingSamples, lessThanOrEqualTo(32));
       expect(kCyclesMovingSamples, greaterThan(1));
     });
 
-    test('a settled render is most of an iPad Pro viewport, not half of it', () {
+    test('a settled render is ALL of an iPad Pro viewport', () {
       // 900 on the long side put a half-resolution image under a viewport that
       // is about 1800 device pixels across, and no sample count sharpens that.
+      // M347 got it to four fifths; M353 removed the cap and gets the rest.
       final b = cyclesFrameBudget(897, 774, 2.0, moving: false);
-      expect(b.width / (897 * 2.0), greaterThan(0.75));
+      expect(b.width, (897 * 2.0).round());
+      expect(b.height, (774 * 2.0).round());
     });
   });
 

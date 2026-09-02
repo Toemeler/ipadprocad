@@ -56,7 +56,9 @@
 
 #include "cycles_shim.h"
 
-#include "cycles_denoise.h"
+/* cycles_denoise.h is deliberately NOT included any more (M353). The filter it
+ * declares is still built and still tested by render_test.c; nothing in the
+ * live path calls it. See the note in cy_live_frame. */
 
 #include <atomic>
 #include <cstdint>
@@ -942,20 +944,28 @@ void add_pass(ccl::Scene *scene, const char *name, const ccl::PassType type)
   pass->set_type(type);
 }
 
-/* The three passes the frame is built from.
+/* The one pass the frame is built from.
  *
- * PASS_DENOISING_ALBEDO and PASS_DENOISING_NORMAL are written by the KERNEL,
- * not by a denoiser, and they cost nothing to ask for: Film::get_kernel_features
- * turns on KERNEL_FEATURE_DENOISING as soon as one of them is in the pass list,
- * and from then on every surface hit records what it is made of and which way
- * it faces. That is true whether or not OpenImageDenoise is compiled in, which
- * is what makes an OIDN-free build able to denoise at all — see
- * cycles_denoise.h for what is done with them. */
+ * M353 — THE GUIDE PASSES ARE GONE WITH THE DENOISER THEY GUIDED.
+ *
+ * PASS_DENOISING_ALBEDO and PASS_DENOISING_NORMAL exist to tell a denoiser
+ * what a pixel is made of and which way it faces. Nothing denoises here any
+ * more, so they are two passes nobody reads — and they were never free, which
+ * is the part the old comment had wrong:
+ *
+ *   * asking for either turns on KERNEL_FEATURE_DENOISING
+ *     (Film::get_kernel_features), so every surface hit does the extra work of
+ *     recording both, on the GPU, for every sample;
+ *   * they widen Cycles' render buffer by six floats per pixel, which at a
+ *     full-resolution iPad frame is around 130 MB of GPU memory;
+ *   * and every capture pulled both across with get_pass_pixels — two more
+ *     full-frame reads per displayed frame, on the render thread.
+ *
+ * Restoring them is one line each; see the note in cy_live_frame for the rest
+ * of what turning the filter back on takes. */
 void add_passes(ccl::Scene *scene)
 {
   add_pass(scene, "combined", ccl::PASS_COMBINED);
-  add_pass(scene, "denoising_albedo", ccl::PASS_DENOISING_ALBEDO);
-  add_pass(scene, "denoising_normal", ccl::PASS_DENOISING_NORMAL);
 }
 
 /* M344 — ADAPTIVE SAMPLING, which is what "until a perfect image is there"
@@ -1051,17 +1061,15 @@ unsigned char quantise(const float v)
  * called on the render thread, between path-tracing iterations, and the buffer
  * it reads from is device memory that the next iteration will overwrite. The
  * frame has to be taken out of Cycles' hands right there, under a lock, and
- * handed to the reader later. Three vectors and a memcpy per display update is
- * a few hundred microseconds on a viewport-sized image and it is the price of
+ * handed to the reader later. One vector and a memcpy per display update is a
+ * few hundred microseconds on a viewport-sized image and it is the price of
  * not having a torn frame.
  *
- * The RGBA channel count on `color` is Cycles' own for PASS_COMBINED; albedo
- * and normal are three. */
+ * The RGBA channel count on `color` is Cycles' own for PASS_COMBINED. M353
+ * removed the albedo and normal companions with the denoiser that read them. */
 struct FrameStore {
   std::mutex mutex;
   std::vector<float> color;
-  std::vector<float> albedo;
-  std::vector<float> normal;
   int width = 0;
   int height = 0;
   int samples = 0;
@@ -1174,15 +1182,6 @@ class LiveOutput : public ccl::OutputDriver {
       g_pass_failed.store(true);
       return;
     }
-    albedo_.resize(n * 3);
-    if (!tile.get_pass_pixels("denoising_albedo", 3, albedo_.data())) {
-      albedo_.clear();
-    }
-    normal_.resize(n * 3);
-    if (!tile.get_pass_pixels("denoising_normal", 3, normal_.data())) {
-      normal_.clear();
-    }
-
     /* Cycles' own count, which is the number get_pass_pixels has already
      * divided by. Read after the pixels so it can only ever under-report,
      * never claim more convergence than the image has. */
@@ -1190,8 +1189,6 @@ class LiveOutput : public ccl::OutputDriver {
 
     const std::lock_guard<std::mutex> lock(g_frame.mutex);
     g_frame.color.swap(color_);
-    g_frame.albedo.swap(albedo_);
-    g_frame.normal.swap(normal_);
     g_frame.width = w;
     g_frame.height = h;
     g_frame.samples = samples > 0 ? samples : 1;
@@ -1201,12 +1198,10 @@ class LiveOutput : public ccl::OutputDriver {
   }
 
   ccl::Session *session_;
-  /* Kept between captures so an orbit does not allocate three buffers thirty
-   * times a second. Swapped with the store's, so both sides keep a buffer of
-   * the right size and neither reallocates after the first frame. */
+  /* Kept between captures so an orbit does not allocate a buffer thirty times
+   * a second. Swapped with the store's, so both sides keep a buffer of the
+   * right size and neither reallocates after the first frame. */
   std::vector<float> color_;
-  std::vector<float> albedo_;
-  std::vector<float> normal_;
 };
 
 /* ---------------------------------------------------------------------------
@@ -1271,18 +1266,17 @@ struct Live {
   /* The last frame handed to the caller, so a poll can answer "nothing new"
    * without copying anything. */
   uint64_t seen = 0;
-  /* The frame being converted, and the denoiser's ping-pong space.
+  /* The frame being converted to bytes.
    *
-   * MEMBERS RATHER THAN LOCALS, and it matters: at 900x600 the ping-pong
-   * buffer alone is seventeen megabytes, and an orbit asks for a frame thirty
-   * times a second. Allocating and touching that much memory per frame is more
-   * work than the filter itself, and on iOS it is the kind of allocator
-   * pressure that shows up as a stutter rather than as a slowdown. They grow
-   * once to the largest image asked for and then never again. */
+   * A MEMBER RATHER THAN A LOCAL, and it matters: a full-resolution iPad frame
+   * is over twenty megabytes of floats, and an orbit asks for a frame thirty
+   * times a second. Allocating and touching that much memory per frame is the
+   * kind of allocator pressure that shows up as a stutter rather than as a
+   * slowdown. It grows once to the largest image asked for and never again.
+   *
+   * M353 removed `albedo`, `normal` and the denoiser's `ping` ping-pong space
+   * from beside it — together four times this buffer's size. */
   std::vector<float> work;
-  std::vector<float> albedo;
-  std::vector<float> normal;
-  std::vector<float> ping;
   /* The camera-locked light, so a view change can re-aim it without the caller
    * re-sending the geometry. Null when the scene has not been set, or when the
    * caller asked for no analytic rig at all. */
@@ -1703,8 +1697,6 @@ int cy_live_frame(unsigned char *rgba_out, const int capacity, CyFrame *info)
   int h = 0;
   int samples = 0;
   bool finished = false;
-  bool have_albedo = false;
-  bool have_normal = false;
   {
     const std::lock_guard<std::mutex> flock(g_frame.mutex);
     if (g_frame.width <= 0 || g_frame.height <= 0 || g_frame.serial == g_live.seen ||
@@ -1733,52 +1725,45 @@ int cy_live_frame(unsigned char *rgba_out, const int capacity, CyFrame *info)
       g_live.seen = g_frame.serial;
       return 0;
     }
-    /* Copied out from under the lock so the denoiser — which is the expensive
-     * part — runs with the render thread free to keep producing frames. */
+    /* Copied out from under the lock so the sRGB conversion below runs with
+     * the render thread free to keep producing frames. */
     g_live.work.resize(n * 4);
     memcpy(g_live.work.data(), g_frame.color.data(), n * 4 * sizeof(float));
-    have_albedo = g_frame.albedo.size() >= n * 3;
-    if (have_albedo) {
-      g_live.albedo.resize(n * 3);
-      memcpy(g_live.albedo.data(), g_frame.albedo.data(), n * 3 * sizeof(float));
-    }
-    have_normal = g_frame.normal.size() >= n * 3;
-    if (have_normal) {
-      g_live.normal.resize(n * 3);
-      memcpy(g_live.normal.data(), g_frame.normal.data(), n * 3 * sizeof(float));
-    }
     g_live.seen = g_frame.serial;
   }
 
-  /* M347 — THE FILTER FOLLOWS THE SAMPLE COUNT, NOT THE FINISH FLAG.
+  /* M353 — NOTHING IS FILTERED. THE FRAME IS THE PATH TRACE.
    *
-   * It used to be forced to zero the moment sampling stopped, on the argument
-   * that "the image you stop and look at is the raw path trace". That argument
-   * assumed sampling stops at the target. It does not: adaptive sampling ends
-   * a frame the moment its own error estimate is under the threshold, which on
-   * a studio-lit CAD scene is routinely a third of the way through — and the
-   * old rule then took the filter off an image that had precisely the noise
-   * the filter existed for, at exactly the moment the user stopped moving and
-   * started looking at it.
+   * WHY IT CAME OUT. The a-trous filter was measured at 51 ms per frame at
+   * 480x320, single-threaded, and it ran on EVERY frame handed to the display.
+   * That is not a quality cost, it is a FRAME RATE cost, and it landed in the
+   * two places a user actually looks:
    *
-   * So the strength is whatever the sample count earns, finished or not.
-   * denoise_strength_for is off entirely by [kDenoiseRaw] samples, so a frame
-   * that really did converge to a high count is still shown raw, pixel for
-   * pixel; a frame that stopped at ninety keeps the filter that made ninety
-   * samples look like a picture. */
-  const float strength = cyshim::denoise_strength_for(samples, g_live.target);
-  const bool denoised = strength > 0.0f && have_albedo;
-  if (denoised) {
-    g_live.ping.resize(cyshim::denoise_scratch_floats(w, h));
-    cyshim::denoise(g_live.work.data(),
-                    g_live.albedo.data(),
-                    have_normal ? g_live.normal.data() : nullptr,
-                    w,
-                    h,
-                    samples,
-                    strength,
-                    g_live.ping.data());
-  }
+   *   * during an orbit the worker polls every 14 ms and each frame cost about
+   *     51 ms of CPU, so it could never keep up — frames arrived late and in
+   *     bursts rather than at the rate they were produced;
+   *   * standing still at 1440x1080 the same filter is around 450 ms a frame,
+   *     which is fewer than three updates a second, each a large visible jump.
+   *
+   * Both read as "it only goes in steps", which is what came back from the
+   * device. The strength ramp made it worse than a constant cost would have:
+   * the filter faded out as samples climbed, so consecutive frames differed in
+   * CHARACTER and not merely in noise level — visible even where the change in
+   * noise is not.
+   *
+   * Convergence is the path tracer's alone now, which is the honest reading of
+   * "render until the image is perfect": every pixel on screen is light that
+   * was actually traced, and it only ever gets better.
+   *
+   * TURNING IT BACK ON is four things, all still present and still tested:
+   * re-add the two passes in add_passes, carry albedo and normal through
+   * FrameStore and Live, restore the ping-pong buffer, and call cyshim::denoise
+   * here. cycles_denoise.cpp is still compiled and render_test.c still covers
+   * its edge preservation and the monotonicity of its strength curve, so none
+   * of it has rotted. It should come back as an option with its cost measured
+   * on a device, and most likely only for moving frames, where 51 ms of CPU
+   * buys more than it costs. */
+  const bool denoised = false;
 
   /* Vertical flip: Cycles' buffer is bottom-up and every image surface the app
    * has is top-down. */
