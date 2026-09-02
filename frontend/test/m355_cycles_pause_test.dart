@@ -168,6 +168,15 @@ void main() {
       await touch.moveBy(const Offset(10, 0));
       await tester.pump(kCyclesActivityTail ~/ 2);
       expect(a.busy, isTrue, reason: 'the second move restarted the tail');
+
+      // AND THEN LET IT EXPIRE, which is not tidying up. This test only ever
+      // advanced the clock by half a tail, so the timer was still alive when
+      // the widget tree was disposed and the binding failed the test on
+      // "A Timer is still pending". Ending a gesture is part of the gesture;
+      // a test that never ends one is not describing anything real.
+      await touch.up();
+      await tester.pump(kCyclesActivityTail + const Duration(milliseconds: 20));
+      expect(a.busy, isFalse);
     });
 
     testWidgets('and lets go a fixed time after the last movement',
