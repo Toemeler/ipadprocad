@@ -10962,3 +10962,81 @@ Dinge sind erst auf dem Gerät zu beurteilen:
    Gerät.
 3. **Umschalt+V** auf einer echten Tastatur; im Test wird `pasteHere` direkt
    gerufen.
+
+## M346 — Das Band füllt seine Kante, und das Glas hat endlich etwas dahinter
+
+### Was der Auftrag war
+
+„Das Band geht, wenn es rechts steht, nicht über die volle Höhe. Ausserdem
+soll es Liquid Glass ohne Hintergrund sein. Nicht so wie jetzt."
+
+### Der Befund — zwei Dinge, eine Ursache dahinter
+
+**Erstens: die Höhe.** `RibbonDockLayout` legt das Band in eine `Row` (bzw.
+`Column`), und beide ZENTRIEREN ihre Kinder auf der Querachse. Das Band misst
+sich selbst an seinem Inhalt: seine Bildlaufansicht schrumpft auf ihn
+(`constraints.constrain(child.size)`). Ein Rail, dessen Panels nicht bis unten
+reichen, sass also als Klotz in der MITTE der Kante, mit dem Grund des
+Scaffolds darüber und darunter.
+
+Gemessen auf 1600×900, vor dem Fix:
+
+| Dokument | Höhe des Bandes | Oberkante |
+|---|---|---|
+| Skizze, im Layer (langes Band) | 900 | 0 |
+| Skizze, NICHT im Layer | **104** | **398** |
+| Bauteil | 900 | 0 |
+| Baugruppe | 891 | 4,5 |
+
+Und genau das ist der Grund, warum M290s Testreihe grün war und das Gerät
+nicht: sie hat immer nur das LANGE Band gepumpt. Die Kachel-Zusicherung („Band
+und Bühne teilen sich den Bildschirm") konnte es ohnehin nicht sehen — sie ist
+eine Vereinigung, und ein Band, das innerhalb der vertikalen Ausdehnung der
+Bühne sitzt, vereinigt sich zum selben Rechteck.
+
+**Zweitens: der Hintergrund.** Seit M290 ist das Band eine ZEILE des Layouts,
+kein Overlay mehr. Damit steht hinter seinem Glas nichts als der Grund der App
+— und der war über einem Dokument `T.panel`. `UIGlassEffect` verwischt, was
+hinter ihm liegt; über einer flachen Panelfarbe kommt eine flache Panelfarbe
+mit Glanz heraus. Das ist ein gemaltes Panel, und genau so sah es aus.
+M290s eigener Header hat das vorausgesagt („glass with nothing behind it to
+refract reads as painted grey").
+
+### Was gebaut wurde
+
+* **`CrossAxisAlignment.stretch`** in beiden Zweigen des Dock-Layouts. Die
+  Querachsen-Bedingung wird damit STRAFF, das Band füllt seine Kante, das Glas
+  bedeckt sie, und die Bildlaufansicht ist wieder eine Bildlaufansicht statt
+  eines geschrumpften Blocks. Die beiden waagerechten Docks hatten denselben
+  Fehler auf der Breitenachse — unsichtbar, weil ein Band fast immer breiter
+  als der Bildschirm ist. Auch behoben.
+* **Der Grund über einem Dokument ist der des VIEWPORTS**, nicht der des
+  Panels (`main.dart`). Dasselbe Material liegt damit auf dem Zeichengrund und
+  liest sich als Glas darauf statt als zweite Fläche daneben. Der
+  Haarlinien-Saum an der Innenkante bleibt und ist jetzt das, was die Kante des
+  Bandes überhaupt zeichnet.
+
+### Was es weiterhin NICHT ist
+
+Das MODELL läuft nicht unter dem Band. Dafür müsste das Band über dem Viewport
+schweben, und das ist genau das Overlay-Protokoll, das M290 abgeschafft hat:
+sieben Panels, die je einen Einzug abziehen, zwei Gerätefehler, und der
+Koordinatenraum des 2D-Skizzierers, der sich unter der Hand des Nutzers
+verschiebt (`map()` zentriert auf `size/2`). Das ist ein eigener Meilenstein,
+keine Zeile hier. Der Header von `ribbon_chrome.dart` sagt es an der Stelle,
+an der es jemand liest, der es ändern will.
+
+### Der Test
+
+`m290_ribbon_dock_test.dart` bekommt acht Fälle: jedes der vier Docks mit einem
+LANGEN und einem KURZEN Band. Gegenprobe gemacht — mit ausgebautem `stretch`
+fällt der Kurz-Band-Fall auf allen vier Docks um (oben: `band.left` = 754,6
+statt 0), mit Fix keiner. Ein Test, der ohne den Fix nicht rot wird, beweist
+nichts; der alte Test war grün, während das Gerät ein 104-pt-Band in der Mitte
+der rechten Kante zeigte.
+
+### Noch NICHT auf Hardware
+
+Wie das Glas über dem Zeichengrund tatsächlich AUSSIEHT, sagt erst das iPad —
+auf dem Linux-Runner gibt es kein `UIGlassEffect`, dort ist das Band die
+gemalte Rückfallfläche. Die Höhe dagegen ist gemessen und festgenagelt.

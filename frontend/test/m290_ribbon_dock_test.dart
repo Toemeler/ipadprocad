@@ -53,6 +53,17 @@ AppState _document() {
   return app;
 }
 
+/// A document whose ribbon is SHORT: a sketch that is not in edit mode, where
+/// the band holds two panels instead of eight. The case the full-height bug
+/// actually showed in — see the tests below.
+AppState _shortRibbon() {
+  final app = AppState();
+  app.docsDirForTest = Directory.systemTemp.createTempSync('ipc_m346');
+  app.sketches['t'] = SketchModel('t');
+  app.curTab = 't';
+  return app;
+}
+
 AppState _gallery() {
   final app = AppState();
   app.docsDirForTest = Directory.systemTemp.createTempSync('ipc_m290h');
@@ -105,6 +116,46 @@ void main() {
         expect(band.expandToInclude(stage),
             Rect.fromLTWH(0, 0, _screen.width, _screen.height));
       });
+    }
+
+    // M346 — the band FILLS its edge, and a SHORT ribbon is the case that
+    // proves it.
+    //
+    // The report: "the ribbon when it is on the right it doesn't go over the
+    // full height." A Row centres its children on the cross axis and the band
+    // sizes itself to its content (its scroll view shrink-wraps), so a rail
+    // whose panels do not reach the bottom sat as a slab in the middle of the
+    // edge with the scaffold's ground above and below it.
+    //
+    // Measured on this screen before the fix: a sketch OUTSIDE edit mode came
+    // to 104 pt of a 900 pt edge, starting 398 pt down. In edit mode the same
+    // rail measured the full 900 — which is why every test here passed and the
+    // device did not: the suite only ever pumped the long ribbon. The two
+    // cases are both pumped now.
+    //
+    // The tiling test above could not see it either: "the two boxes tile the
+    // content area" is a union, and a band that sits inside the stage's
+    // vertical span unions to exactly the same rectangle.
+    for (final dock in RibbonPosition.values) {
+      for (final (what, app) in [
+        ('a long ribbon', _document),
+        ('a short one', _shortRibbon),
+      ]) {
+        testWidgets('$dock: the band fills its edge with $what', (t) async {
+          RibbonDock.set(dock);
+          await _pump(t, app());
+          final band = _rect(t, find.byType(Ribbon));
+          if (dock.isVertical) {
+            expect(band.top, 0, reason: 'a rail starts at the top');
+            expect(band.height, _screen.height,
+                reason: 'and runs the whole height — the glass covers the '
+                    'edge, not the middle third of it');
+          } else {
+            expect(band.left, 0);
+            expect(band.width, _screen.width);
+          }
+        });
+      }
     }
 
     testWidgets('top: the stage starts where the band ends', (t) async {

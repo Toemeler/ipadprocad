@@ -47,17 +47,41 @@ class RibbonDockLayout extends StatelessWidget {
     // exactly the question that had to be special-cased before.
     if (app.isHome) return stage;
     final band = Ribbon(app: app);
+    // M346 — CrossAxisAlignment.stretch, and it is the whole of the "the
+    // ribbon on the right does not go over the full height" report.
+    //
+    // A Row and a Column both CENTRE their children on the cross axis by
+    // default, and the band sizes itself to its content: its scroll view
+    // shrink-wraps (a viewport is `constraints.constrain(child.size)`), so a
+    // rail whose panels come to 500 pt sat as a 500 pt slab in the middle of a
+    // 1000 pt screen with the scaffold's ground above and below it. Stretch
+    // makes the cross-axis constraint TIGHT, so the band fills its edge, the
+    // glass covers it, and the scroll view is a scroll view rather than a
+    // shrink-wrapped block.
+    //
+    // The two horizontal docks have the same latent bug on the width axis. It
+    // never showed because a ribbon is nearly always wider than the screen —
+    // which is exactly the kind of thing that surfaces the day someone opens a
+    // document with three panels in it.
     return switch (RibbonDock.current) {
-      RibbonPosition.top => Column(children: [band, Expanded(child: stage)]),
-      RibbonPosition.bottom => Column(children: [Expanded(child: stage), band]),
-      RibbonPosition.left => Row(children: [
-          SizedBox(width: RibbonMetrics.railWidth, child: band),
-          Expanded(child: stage),
-        ]),
-      RibbonPosition.right => Row(children: [
-          Expanded(child: stage),
-          SizedBox(width: RibbonMetrics.railWidth, child: band),
-        ]),
+      RibbonPosition.top => Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [band, Expanded(child: stage)]),
+      RibbonPosition.bottom => Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [Expanded(child: stage), band]),
+      RibbonPosition.left => Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SizedBox(width: RibbonMetrics.railWidth, child: band),
+            Expanded(child: stage),
+          ]),
+      RibbonPosition.right => Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(child: stage),
+            SizedBox(width: RibbonMetrics.railWidth, child: band),
+          ]),
     };
   }
 }

@@ -92,17 +92,27 @@ class RibbonSurface extends StatelessWidget {
 
   /// True when the native glass is available.
   ///
-  /// It no longer decides whether the ribbon floats — since M290 the band
-  /// always takes a row of the layout — only what the band is painted with.
-  /// Worth a look on the device: a docked band has the scaffold behind it
-  /// rather than the model, and M146's own argument for the platform view was
-  /// that glass with nothing behind it to refract reads as painted grey. If it
-  /// does, this is one line.
+  /// It does not decide whether the ribbon floats — since M290 the band always
+  /// takes a row of the layout — only what the band is painted with.
   static bool get isGlass => GlassPanel.isSupported;
 
   @override
   Widget build(BuildContext context) {
+    // No native material: a painted band is the honest fallback. Glass with
+    // nothing to refract is a lie about the surface, not a cheaper version of
+    // it, so the platforms without it get a panel and say so.
     if (!isGlass) return ColoredBox(color: T.panel);
+    // M346 — and the glass is now GLASS, because there is finally something
+    // behind it: the app's ground over a document is the viewport's tone (see
+    // main.dart), so the material blurs the canvas rather than a slab of
+    // T.panel. The seam below is what draws the band's edge; without it a band
+    // on the same ground as the canvas would have no boundary at all.
+    //
+    // What this still is NOT: the MODEL does not run under the band. That
+    // needs the band to float over the viewport, which is the overlay protocol
+    // M290 deleted — seven panels each subtracting an inset, two device bugs,
+    // and the coordinate space of the 2D sketcher moving under the user. It is
+    // its own milestone, not a line here.
     return const GlassPanel(cornerRadius: RibbonMetrics.radius);
   }
 }

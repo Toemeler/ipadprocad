@@ -292,11 +292,26 @@ class PrototypeApp extends StatelessWidget {
             // of the very screen it was chosen for. A picture keeps the
             // palette's ground here: the strip is behind the SafeArea and the
             // photograph does not run under it.
+            // M346 — over a document the ground is the VIEWPORT's, not the
+            // panel's, and that is the other half of "it should be liquid
+            // glass without a background".
+            //
+            // The band is a row of the layout (M290), so the only thing behind
+            // its glass is this box. UIGlassEffect blurs what is behind it; a
+            // flat T.panel behind it therefore comes out as flat T.panel with
+            // a sheen — which is a painted panel, and is what the band looked
+            // like. On the canvas tone the same material reads as glass lying
+            // ON the drawing, which is what the surface is for.
+            //
+            // It is the same tone the strip behind the status bar needs for
+            // the reason the note below gives, so both follow the viewport now
+            // and the boundary is where it already was: between the canvas and
+            // the chrome, not across the top of the screen.
             return ColoredBox(
               color: app.isHome
                   ? (galleryGround(Backdrops.current.value, T.palette) ??
                       T.galleryBg)
-                  : T.panel,
+                  : T.viewport,
               child: SafeArea(
                 bottom: false,
                 child: Column(children: [
