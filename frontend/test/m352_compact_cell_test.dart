@@ -94,6 +94,37 @@ List<Rect> _cells(WidgetTester t) {
   return out;
 }
 
+/// M359 — the cells are laid out SYMMETRICALLY about the band's centre line.
+///
+/// Stated on the centres rather than the edges, because that is what symmetry
+/// is: for every cell centre there is a matching one the same distance the
+/// other side of the band's own middle. A lone cell on the centre matches
+/// itself; a pair straddling it matches each other; a row packed against one
+/// edge — which is what this replaced — matches nothing.
+void _symmetric(WidgetTester t, List<Rect> cells, {required bool horizontal}) {
+  expect(cells, isNotEmpty);
+  final band = t.getTopLeft(find.byType(Ribbon)) & t.getSize(find.byType(Ribbon));
+  // Down a rail the middle is the band's own; across a band the cells centre
+  // in the panel BODY, which is the band less the title strip every compact
+  // panel reserves at its foot (RibbonMetrics.compactTitleH).
+  final mid = horizontal
+      ? band.center.dx
+      : band.top + (band.height - RibbonMetrics.compactTitleH) / 2;
+  double at(Rect c) => horizontal ? c.center.dx : c.center.dy;
+  final centres = {for (final c in cells) (at(c) * 2).round() / 2};
+  for (final c in centres) {
+    final mirror = 2 * mid - c;
+    expect(centres.any((o) => (o - mirror).abs() <= 1.5), isTrue,
+        reason: 'a cell at $c has nothing at ${mirror.toStringAsFixed(1)}; '
+            'centres=$centres, band middle=${mid.toStringAsFixed(1)}');
+  }
+  // And the block as a whole sits on that line, rather than merely being
+  // mirror-shaped somewhere else on the band.
+  final lo = cells.map(at).reduce((a, b) => a < b ? a : b);
+  final hi = cells.map(at).reduce((a, b) => a > b ? a : b);
+  expect(((lo + hi) / 2 - mid).abs(), lessThanOrEqualTo(1.5));
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() {
@@ -138,30 +169,35 @@ void main() {
 
   // -------------------------------------------------------------------------
   group('a grid, not a column of odds and ends', () {
-    testWidgets('a rail puts every cell on one of two columns', (t) async {
+    testWidgets('a rail is symmetric about its own centre line', (t) async {
+      // M352 asserted TWO columns here, packed to the leading edge. M359
+      // replaced that claim on report: a panel with an odd number of commands
+      // left its last cell hanging on the left with a hole beside it, seven
+      // times down the rail — "not 3 on the right and 1 on the left just 2 and
+      // 2". The runs are centred now, so a lone cell sits on the rail's own
+      // centre line and a pair straddles it. Symmetry is the stronger claim,
+      // and it is the one that was actually wanted.
       await _pump(t, _sketch(), names: false, dock: RibbonPosition.right);
-      final xs = {for (final c in _cells(t)) c.left};
-      expect(xs, hasLength(2),
-          reason: 'two columns of 32 and a 2 pt gap is what the rail is '
-              'WIDE for; anything else is a cell that stretched: $xs');
-      final sorted = xs.toList()..sort();
-      // The gap between the two columns IS the cell plus the band's one gap:
-      // no cell is wider than the square, so no column can start later.
-      expect(sorted[1] - sorted[0],
-          RibbonMetrics.compactCell + RibbonMetrics.compactGap);
+      _symmetric(t, _cells(t), horizontal: true);
     });
 
-    testWidgets('a band puts every cell on one of two lines', (t) async {
-      // Two, because the constraint grid is two rows deep by request and
-      // nothing else in the band is deeper than that.
+    testWidgets('a band is symmetric about its own centre line', (t) async {
+      // The same replacement on the other axis. M352 put every cell on the
+      // band's TOP line because centring made neighbouring panels disagree by
+      // seven points: a panel with an overflow " + chevron + " had less body
+      // to centre in than one without. M359 reserves that strip on every
+      // compact panel, so the bodies match and centring lines up — a one-row
+      // panel sits on the band's centre, the constraint grid straddles it.
       await _pump(t, _sketch(), names: false, dock: RibbonPosition.top);
-      final ys = {for (final c in _cells(t)) c.top};
-      expect(ys, hasLength(2), reason: 'panels centred their own content and '
-          'a panel with a title had less to centre in, so neighbouring cells '
-          'sat seven points apart: $ys');
-      final sorted = ys.toList()..sort();
-      expect(sorted[1] - sorted[0],
-          RibbonMetrics.compactCell + RibbonMetrics.compactGap);
+      _symmetric(t, _cells(t), horizontal: false);
+    });
+
+    testWidgets('and a band with no grid in it is ONE row', (t) async {
+      // "most important stuff should be in 1 row" — the part tab has no
+      // eleven-cell grid, so nothing in it wraps: one row of cells, and a band
+      // that is that row plus its chrome.
+      await _pump(t, _part(), names: false, dock: RibbonPosition.top);
+      expect({for (final c in _cells(t)) c.top}, hasLength(1));
     });
 
     testWidgets('a panel holding one button does not stretch it', (t) async {

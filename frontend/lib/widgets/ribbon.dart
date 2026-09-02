@@ -671,7 +671,30 @@ class _RibbonState extends State<Ribbon> {
     // one, so nothing runs behind it and nothing has to be told where it ends.
     // See ribbon_chrome.dart for what that replaced.
     final bool vertical = RibbonDock.isVertical;
-    final content = SingleChildScrollView(
+    // M359 — THE RAIL'S CONTENT SITS IN THE MIDDLE OF THE RAIL.
+    //
+    // "Currently the items in the ribbon are at the top. They should be
+    //  centered and always use all space available."
+    //
+    // A scroll view shrink-wraps its child, so a rail whose panels came to 700
+    // points on a 900 point screen drew them from the top and left 200 points
+    // of empty glass under them. The floor puts the child at the viewport's
+    // own extent so the Column has room to centre in; longer content is
+    // untouched (a minimum never caps) and still scrolls.
+    //
+    // Vertical only, on both docks: "at the top" is a rail's main axis and a
+    // band's cross axis, and both of them are this complaint. A band is not
+    // centred along its WIDTH — panels reading from the leading edge is the
+    // one thing every ribbon in the world agrees on.
+    final content = LayoutBuilder(builder: (ctx, bc) {
+      final Widget body = vertical
+          ? ConstrainedBox(
+              constraints: BoxConstraints(
+                  minHeight: bc.hasBoundedHeight ? bc.maxHeight : 0),
+              child: Center(child: _railBody(app)),
+            )
+          : _bandBody(app);
+      return SingleChildScrollView(
       scrollDirection: vertical ? Axis.vertical : Axis.horizontal,
       // The band is only as wide (or tall) as the screen and its panels
       // routinely overflow, so the scroll must never be disabled by a
@@ -681,14 +704,9 @@ class _RibbonState extends State<Ribbon> {
       physics: const AlwaysScrollableScrollPhysics(
           parent: BouncingScrollPhysics()),
       clipBehavior: Clip.hardEdge,
-      child: app.isHome
-          ? _homeRibbon(app)
-          : app.currentAssembly != null
-              ? _assemblyRibbon(app)
-              : (app.currentPart != null && app.activeChild == null
-                  ? _partRibbon(app)
-                  : _sketchRibbon(app)),
+      child: body,
     );
+    });
 
     // M290 — no RibbonMeasure. The band used to publish its own thickness so
     // seven floating panels could subtract it; it takes a row of the layout
@@ -705,6 +723,20 @@ class _RibbonState extends State<Ribbon> {
       ),
     );
   }
+
+  /// The panels for whichever document is open. One place, so the rail and
+  /// the band cannot drift apart in which ribbon they show.
+  Widget _bandBody(AppState app) => app.isHome
+      ? _homeRibbon(app)
+      : app.currentAssembly != null
+          ? _assemblyRibbon(app)
+          : (app.currentPart != null && app.activeChild == null
+              ? _partRibbon(app)
+              : _sketchRibbon(app));
+
+  /// The same panels, in a rail. Named apart from [_bandBody] only so the
+  /// centring above reads as the one difference it is.
+  Widget _railBody(AppState app) => _bandBody(app);
 
   /// The single hairline that separates the flush band from the viewport, on
   /// the band's inner edge.
@@ -774,14 +806,18 @@ class _RibbonState extends State<Ribbon> {
     // aligned": the cell's wash, its border and its ▾ all followed the box
     // rather than the glyph.
     //
-    // `start`, so every panel's first row of cells sits on the SAME line —
-    // the band's top padding — whatever else the panel holds. Centring put a
-    // one-row panel seven points below its neighbour's, because a panel with a
-    // title has less body to centre in than one without; two y-lines for the
-    // whole band is the horizontal half of the rail's two x-columns.
+    // M359 — CENTRED, now that centring lines up.
+    //
+    // M352 used `start` here because a one-row panel centred itself seven
+    // points below its neighbour's: a panel with an overflow ▼ had less body
+    // to centre in than one without. The title strip is reserved on every
+    // compact panel now (see [_panel]), so the bodies are the same height and
+    // the centres agree — which is what "they should be centered and always
+    // use all space available" asks for, without giving up the one property
+    // M352 bought.
     return Row(
         crossAxisAlignment:
-            RibbonLabels.on ? crossAxisAlignment : CrossAxisAlignment.start,
+            RibbonLabels.on ? crossAxisAlignment : CrossAxisAlignment.center,
         children: children);
   }
 
@@ -1912,19 +1948,40 @@ class _RibbonState extends State<Ribbon> {
               // Project Geometry) gets it straight from the call site rather
               // than through _flow, so the Expanded below handed it a TIGHT
               // height and the 32 pt square came out 80. A min Row gives it
-              // loose height again and puts it on the band's top line with
-              // every other cell.
+              // loose height again.
+              // M359 — and centres it, like every other compact panel.
               : Row(
                   mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [child]),
     );
+    // M359 — IN A COMPACT BAND EVERY PANEL RESERVES THE SAME TITLE STRIP.
+    //
+    // A panel with an overflow ▼ drew one and a panel without drew nothing, so
+    // their bodies were different heights — and a body centred in its own
+    // height puts neighbouring cells on different lines. That was the seven
+    // points M352 fixed by aligning everything to the TOP instead, which is
+    // the arrangement this report is about ("currently the items are at the
+    // top"). Reserving the strip costs the band nothing: its height is set by
+    // the tallest panel, and the tallest panel has a title.
     final Widget titlePad = (!names && !hasOver)
-        ? const SizedBox.shrink()
-        : Padding(
-            padding: EdgeInsets.only(top: names ? 3 : 1, bottom: names ? 5 : 2),
-            child: names ? title : Tooltip(message: label, child: title),
-          );
+        ? (vertical
+            ? const SizedBox.shrink()
+            : const SizedBox(height: RibbonMetrics.compactTitleH))
+        : names
+            ? Padding(
+                padding: const EdgeInsets.only(top: 3, bottom: 5),
+                child: title,
+              )
+            // Exactly [RibbonMetrics.compactTitleH], not "about" it: the reservation above
+            // has to match to the pixel, or the panels that draw a ▼ and the
+            // panels that do not end up with bodies of different heights and
+            // their centred cells land on different lines — which is the fault
+            // being fixed, arriving by the back door.
+            : SizedBox(
+                height: RibbonMetrics.compactTitleH,
+                child: Center(
+                    child: Tooltip(message: label, child: title)));
     return Container(
       decoration: first
           ? null
@@ -1936,16 +1993,22 @@ class _RibbonState extends State<Ribbon> {
       child: vertical
           ? Column(
               mainAxisSize: MainAxisSize.min,
-              // M352 — a compact rail packs its cells to the leading edge
-              // rather than stretching them to the rail's width. A panel that
-              // holds ONE button (New Layer, Project Geometry) stretched it to
-              // the full 68 while its neighbours stayed 32, which is the same
-              // report from the other side: two cell widths in one column.
+              // M352 — a compact rail does not STRETCH its cells: a panel
+              // holding one button (New Layer, Project Geometry) blew it up to
+              // the rail's full width while its neighbours stayed 36.
+              // M359 — and it centres them rather than packing them left. A
+              // panel of one cell and a panel of two are different widths, so
+              // packing left put their contents on different lines down the
+              // rail; centred, every panel is symmetric about the rail's own
+              // centre line and the whole column reads as one.
               crossAxisAlignment: RibbonLabels.on
                   ? CrossAxisAlignment.stretch
-                  : CrossAxisAlignment.start,
+                  : CrossAxisAlignment.center,
               children: [body, titlePad],
             )
+          // M359 — the body CENTRES what it holds. Every panel now reserves
+          // the same title strip, so one centred row of cells lands on the
+          // same line as its neighbour's, and a two-row panel straddles it.
           : Column(children: [Expanded(child: body), titlePad]),
     );
   }
@@ -2507,6 +2570,7 @@ Widget named(String label, Widget button) => RibbonLabels.on
 /// '\n' that a tooltip should not honour.
 String _flat(String label) => label.replaceAll('\n', ' ');
 
+
 /// M349/M351 — a column of small rows, LAID FLAT when the ribbon writes no
 /// names.
 ///
@@ -2545,7 +2609,7 @@ Widget smallStack(List<Widget> rows) {
   // modify commands in a line are three icons.
   return Row(
       mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         for (var i = 0; i < rows.length; i++) ...[
           if (i > 0) SizedBox(width: RibbonMetrics.compactGap),
@@ -2554,19 +2618,54 @@ Widget smallStack(List<Widget> rows) {
       ]);
 }
 
-/// M352 — cells packed into the rail's width, on the one gap the compact band
-/// uses in both directions.
+/// M352/M359 — cells packed into the rail's width, on the one gap the compact
+/// band uses in both directions.
 ///
-/// `WrapAlignment.start`, not centre: a half-full last row that centres itself
-/// under a full one is the "not aligned" the report named. Every cell in a
-/// rail therefore sits on one of two columns, whatever panel it came from.
+/// M352 packed the runs from the leading edge, so every cell in the rail sat
+/// on one of two columns. That is right for the FULL runs and wrong for the
+/// last one: a panel with an odd number of commands left a single cell hanging
+/// on the left with a hole beside it, seven times down the rail.
+///
+///   "always symmetrical if its possible so not 3 on the right and 1 on the
+///    left just 2 and 2 for example"
+///
+/// So the runs are BALANCED first and centred second, and the two are not the
+/// same thing. Centring alone would leave five cells as 2 + 2 + 1; balancing
+/// splits them as 2 + 2 + 1 too, but seven as 3 + 2 + 2 rather than 3 + 3 + 1
+/// — the tail is never more than one short of the run above it. Then each run
+/// is centred, so the short one sits under the middle of the long ones instead
+/// of against an edge.
 Widget _wrap(List<Widget> cells) => Wrap(
       spacing: RibbonMetrics.compactGap,
       runSpacing: RibbonMetrics.compactGap,
-      alignment: WrapAlignment.start,
+      // The whole of the symmetry fix, in one word. A Wrap fills each run and
+      // leaves the remainder in the last one, which at two cells to a run is
+      // already the balanced split (2, 2, ..., 1 or 2) — what was wrong was
+      // only WHERE the short run sat. Centred, it sits under the middle of the
+      // runs above it instead of against the leading edge.
+      //
+      // A Wrap rather than the hand-rolled rows this first tried: these
+      // children are not all one cell wide. The Constrain panel hands _flow
+      // its Dimension button AND the entire constraint grid, and a run of
+      // "two children" there is 112 points in a 68 point panel.
+      alignment: WrapAlignment.center,
+      runAlignment: WrapAlignment.center,
       crossAxisAlignment: WrapCrossAlignment.center,
       children: cells,
     );
+
+/// Where run [i] of [runs] starts, when [n] cells are shared out as evenly as
+/// they go: the first `n % runs` runs take one more than the rest.
+///
+/// A function rather than a list because [_ConGrid] asks the same question and
+/// the two must agree — a grid that balanced differently from the panel beside
+/// it would be the report all over again.
+int _runStart(int n, int runs, int i) {
+  if (runs <= 0) return 0;
+  final base = n ~/ runs;
+  final extra = n % runs;
+  return base * i + (i < extra ? i : extra);
+}
 
 /// A ribbon glyph in its disabled state.
 ///
@@ -2848,23 +2947,49 @@ class _ConGrid extends StatelessWidget {
     final cons = consOf(L.of(context));
     final cols = _cols;
     final rows = (cons.length + cols - 1) ~/ cols;
+    // M359 — BALANCED ROWS, and the short one CENTRED.
+    //
+    // Eleven cells over six columns used to be a row of six and a row of five
+    // hanging off the left, with a blank cell drawn to hold the sixth place.
+    // In a two-column rail the same rule gave five rows of two and a lone cell
+    // on the left — "not 3 on the right and 1 on the left". They are shared
+    // out evenly now (six and five, or two-two-two-two-two-one), and every row
+    // is centred under the one above it, so a panel of constraints reads as a
+    // block rather than as a shape with a corner missing.
+    //
+    // Named mode keeps its blank: three rows of four with a hole in the last
+    // is what the labelled grid has looked like since M10, and the words on
+    // the panels beside it are what that grid lines up against.
+    final bal = !RibbonLabels.on;
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         for (var row = 0; row < rows; row++)
           Padding(
             padding: EdgeInsets.only(top: row == 0 ? 0 : _gap),
-            child: Row(mainAxisSize: MainAxisSize.min, children: [
-              for (var col = 0; col < cols; col++)
-                Padding(
-                  padding: EdgeInsets.only(left: col == 0 ? 0 : _gap),
-                  child: (row * cols + col) < cons.length
-                      ? _cell(cons[row * cols + col])
-                      : SizedBox(
-                          width: RibbonLabels.on ? 30 : _compactCell,
-                          height: RibbonLabels.on ? 27 : _compactCell),
-                ),
-            ]),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: bal
+                  ? [
+                      for (var j = _runStart(cons.length, rows, row);
+                          j < _runStart(cons.length, rows, row + 1);
+                          j++) ...[
+                        if (j > _runStart(cons.length, rows, row))
+                          SizedBox(width: _gap),
+                        _cell(cons[j]),
+                      ],
+                    ]
+                  : [
+                      for (var col = 0; col < cols; col++)
+                        Padding(
+                          padding: EdgeInsets.only(left: col == 0 ? 0 : _gap),
+                          child: (row * cols + col) < cons.length
+                              ? _cell(cons[row * cols + col])
+                              : const SizedBox(width: 30, height: 27),
+                        ),
+                    ],
+            ),
           ),
       ],
     );

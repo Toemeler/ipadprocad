@@ -166,8 +166,14 @@ void main() {
             reason: '${r.tappable - r.named} tappable things carry no name');
       });
 
-      testWidgets('compact: one cell, two lines', (t) async {
-        // M352's claim, in the modes m352 does not itself pump.
+      testWidgets('compact: one cell, and symmetric about the centre line',
+          (t) async {
+        // M352's claim was "one cell size, at most two lines". M359 replaced
+        // the second half of it on report — "always symmetrical if its
+        // possible so not 3 on the right and 1 on the left just 2 and 2" —
+        // and symmetry is the stronger property: a lone cell sits ON the
+        // centre line, a pair straddles it, and a run packed against an edge
+        // (which is what M352 drew) matches nothing.
         for (final dock in RibbonPosition.values) {
           await _pump(t, make(), dock: dock, names: false);
           final cells = <Rect>[];
@@ -185,11 +191,27 @@ void main() {
           expect({for (final c in cells) c.size}, {
             const Size(RibbonMetrics.compactCell, RibbonMetrics.compactCell)
           }, reason: '$dock');
-          final lines =
-              dock.isVertical ? {for (final c in cells) c.left} : {for (final c in cells) c.top};
-          expect(lines.length, lessThanOrEqualTo(2),
-              reason: '$dock: a wall of icons on more than two lines is not '
-                  'a grid, it is a spill: $lines');
+
+          final band =
+              t.getTopLeft(find.byType(Ribbon)) & t.getSize(find.byType(Ribbon));
+          final across = dock.isVertical;
+          // Down a rail the middle is the band's own; across a band the cells
+          // centre in the panel BODY, which is the band less the title strip
+          // every compact panel reserves at its foot.
+          final mid = across
+              ? band.center.dx
+              : band.top + (band.height - RibbonMetrics.compactTitleH) / 2;
+          double at(Rect c) => across ? c.center.dx : c.center.dy;
+          final centres = {for (final c in cells) (at(c) * 2).round() / 2};
+          for (final c in centres) {
+            expect(centres.any((o) => (o - (2 * mid - c)).abs() <= 1.5), isTrue,
+                reason: '$dock: a cell centred at $c has nothing opposite it '
+                    'across ${mid.toStringAsFixed(1)}: $centres');
+          }
+          // At most three lines of cells: the two a wrapped panel takes, and
+          // the one a single-line panel sits on between them.
+          expect(centres.length, lessThanOrEqualTo(3),
+              reason: '$dock: $centres');
         }
       });
     });

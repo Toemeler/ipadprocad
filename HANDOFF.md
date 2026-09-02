@@ -11813,3 +11813,99 @@ gekommen sind:
 41 Fälle, alle grün. Was damit NICHT gesagt ist, steht im Chat: das lange
 Drücken für die Ausklapplisten und das Glas selbst sind Gerätesachen und
 konnten hier nur logisch, nicht am Finger geprüft werden.
+
+---
+
+## M359 — Die Leiste zentriert, was sie hält, und hält es symmetrisch
+
+> „Currently the items in the ribbon are at the top. They should be centered
+> and always use all space available. If its possible they should be under each
+> other and if not they should have 2 rows. But always symmetrical if its
+> possible so not 3 on the right and 1 on the left just 2 and 2 for example.
+> Everywhere its possible. But most important stuff should be in 1 row."
+
+Vier Forderungen, und sie sind trennbar — deshalb stehen sie einzeln im Test.
+
+### 1. Zentriert die Schiene hinunter
+
+Eine Scroll-Ansicht schrumpft auf ihr Kind. Eine Schiene, deren Panels auf
+630 pt kamen, zeichnete sie auf einem 834-pt-Schirm also von oben und liess
+200 pt leeres Glas darunter. Der Inhalt bekommt jetzt die Höhe des Viewports
+als **Untergrenze** — kürzerer Inhalt zentriert sich darin, längerer scrollt
+weiter, weil ein Minimum nie deckelt.
+
+Waagrecht wird NICHT zentriert: Panels, die an der führenden Kante beginnen,
+sind das Einzige, worüber sich jede Ribbon-Leiste der Welt einig ist. „Oben"
+ist die Hauptachse einer Schiene und die Querachse eines Bandes, und beides
+ist dieser Bericht.
+
+### 2. Zentriert quer durchs Band
+
+M352 hat jede Zelle an die **Oberkante** gelegt und den Grund genannt: zentriert
+sassen benachbarte Panels sieben Punkte auseinander, weil ein Panel mit ▼
+weniger Körper zum Zentrieren hat als eines ohne. Das ist jetzt an der Ursache
+behoben — **jedes kompakte Panel reserviert denselben Titelstreifen**
+(`RibbonMetrics.compactTitleH`, 15 pt), gezeichnet oder nicht. Es kostet das
+Band nichts: dessen Höhe bestimmt ohnehin das höchste Panel, und das hat einen
+Titel.
+
+Dazu wurde der kompakte Panel-Rand **symmetrisch** gemacht (4/3/4/3 statt
+4/4/4/2). Die 4-über-2 stammte von der benannten Leiste, wo unter der Glyphe
+ein Wort steht und das Gewicht darüber gehört. Ohne Wort ist dieser eine Punkt
+Unterschied ein Punkt „nicht zentriert" — auf jeder Zelle im Band.
+
+### 3. Symmetrisch statt ausgefranst
+
+Ein Panel mit ungerader Befehlszahl liess seine letzte Zelle an der führenden
+Kante hängen, mit einem Loch daneben — sieben Mal die Schiene hinunter. Läufe
+werden jetzt **zentriert**: eine einzelne Zelle sitzt AUF der Mittellinie, ein
+Paar liegt symmetrisch darum.
+
+Das Bedingungsraster teilt seine elf Zellen ausserdem **gleichmässig** auf
+(sechs und fünf, nicht sechs und eine-mit-Loch), und die kurze Reihe steht
+mittig unter der langen. `_runStart` ist die eine Funktion, die beide Seiten
+fragen — ein Raster, das anders aufteilte als das Panel daneben, wäre der
+Bericht von vorn.
+
+Zwischenschritt, der es nicht ins Ergebnis geschafft hat: die Läufe von Hand
+zu bauen statt `Wrap` zu benutzen. Bei zwei Zellen pro Lauf ist gierig und
+ausgeglichen dasselbe (2,2,…,1 oder 2), und `Wrap` kann etwas, was die
+Handarbeit nicht kann: die Kinder sind **nicht alle eine Zelle breit**. Das
+Bedingungspanel gibt `_flow` seine Bemassungs-Schaltfläche UND das ganze
+Raster, und „zwei Kinder" sind dort 112 pt in einem 68-pt-Panel.
+
+### 4. Eine Reihe, wo eine Reihe passt
+
+Weder das Bauteil- noch das Baugruppen-Band hat ein Elf-Zellen-Raster, also
+bricht dort nichts um: **eine Reihe**, und das Band ist diese Reihe plus
+Chrome. Das Skizzen-Band bleibt zweireihig — wegen des Rasters, das ausdrücklich
+zweireihig sein darf.
+
+| | mit Namen | M352 | **M359** |
+|---|---|---|---|
+| Bauteil-Band oben | 119 pt | 78 pt | **57 pt** |
+| Baugruppen-Band oben | 119 pt | 78 pt | **57 pt** |
+| Skizzen-Band oben | 112 pt | 94 pt | 95 pt |
+| Schiene | 168 pt | 84 pt | 84 pt |
+
+Das Skizzen-Band ist einen Punkt dicker: der reservierte Titelstreifen ist
+genau die Differenz, und er ist der Preis dafür, dass „zentriert" auch
+ausgerichtet ist.
+
+### Der Test
+
+`test/m359_centred_symmetric_test.dart`, 9 Fälle, plus zwei Behauptungen in
+`m352`, die **ersetzt** statt gelöscht wurden: „zwei Linien, an die Kante
+gepackt" ist jetzt „symmetrisch um die eigene Mittellinie", und das ist die
+stärkere Aussage.
+
+Gegengeprüft, einzeln: ohne die Zentrierung der Schiene fällt der Fall mit dem
+halbleeren Rail; ohne den reservierten Titelstreifen fallen die
+Einreihen-Fälle und die Bandsymmetrie; ohne `WrapAlignment.center` fällt die
+Laufzentrierung.
+
+Und beim Gegenprüfen ist der Test selbst einmal durchgefallen: die
+Rail-Symmetrie zunächst über ALLE Zellpositionen zu prüfen, geht auch bei
+linksbündigen Läufen durch — die zwei Spalten spiegeln sich ja gegenseitig,
+egal was in ihnen steht. Falsch war der KURZE Lauf, also muss der kurze Lauf
+gemessen werden: jede Reihe einzeln, ihre Mitte gegen die der Schiene.

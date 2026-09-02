@@ -159,6 +159,17 @@ class RibbonMetrics {
   /// band, so a row of them lines up whatever they are.
   static const double compactButton = compactCell;
 
+  /// M359 — the height a compact panel's title strip takes, DRAWN OR NOT.
+  ///
+  /// The ▼ is a 10 pt glyph in a point of padding, and this is what that comes
+  /// to. A constant rather than a measurement because it is a RESERVATION: a
+  /// panel with no overflow menu holds the space open so that its body is the
+  /// same height as its neighbour's, and a number that had to be measured
+  /// could not be reserved by the panel that does not draw it. Bodies of the
+  /// same height are what makes "centred" line up — centring panels of
+  /// different body heights is what M352 had to abandon.
+  static const double compactTitleH = 15;
+
   /// The padding a panel puts around its content. Tighter with no names,
   /// because two cells and their gap have to fit [railWidthCompact].
   static EdgeInsets get panelPad => RibbonLabels.on
@@ -166,7 +177,12 @@ class RibbonMetrics {
       // 4 a side rather than 10: the cell draws its own air (a 28 pt glyph in
       // a 36 pt box), so the panel need not draw it again, and every point
       // saved here is a point off the rail's width.
-      : const EdgeInsets.fromLTRB(4, 4, 4, 2);
+      //
+      // M359 — and SYMMETRIC top to bottom. It was 4 over 2, inherited from
+      // the named padding where a label sits below the glyph and wants the
+      // weight above it. With the label gone that one point of difference is
+      // one point of "not centred", on every cell in the band.
+      : const EdgeInsets.fromLTRB(4, 3, 4, 3);
 }
 
 /// The ribbon's background surface: the same glass as the model browser, but
