@@ -174,6 +174,29 @@ bool Cancelled_ForTest();
 int TessellateCovered(const TopoDS_Shape &s, double lin, double ang,
                       std::vector<double> &faceArea, double &factor);
 
+/* Let two faces that meet smoothly share one normal where they touch.
+ *
+ * `verts` and `norms` are the renderer's buffers, three doubles each, one entry
+ * per vertex, with vertices emitted PER FACE — so a node on a shared edge
+ * appears once for each face and carries that face's own surface normal. Where
+ * the two agree to within the crease angle they are the same surface cut up,
+ * not an edge, and are given one averaged normal; where they do not, both are
+ * left alone. Changes no geometry: `verts` is read, only `norms` is written.
+ *
+ * `freeform` is one byte per vertex, non-zero when that vertex's face is a
+ * freeform patch, and may be empty — then every pair gets the narrow rule.
+ * Never throws. */
+void ShareNormalsAcrossSeams(const std::vector<double> &verts,
+                             const std::vector<unsigned char> &freeform,
+                             std::vector<double> &norms);
+
+/* How far two faces may disagree at a shared node and still be shaded as one
+ * surface: the wide angle between two freeform patches, which are one surface
+ * cut up, and mere tangency between anything else, whose edges are designed.
+ * Exposed for the tests, which check both. */
+extern const double kCreaseAngleDeg;
+extern const double kTangentAngleDeg;
+
 /* What actually happened. Filled in even when the conversion fails, because
  * "it produced 4000 faceted patches" is the explanation for a slow, useless
  * result and the user is entitled to it. */

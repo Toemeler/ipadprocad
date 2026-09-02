@@ -10314,4 +10314,139 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
     return out;
 }
 
+
+/* Shading across a seam.
+ *
+ * Vertices are emitted PER FACE so a B-Rep edge stays crisp, and that is right
+ * for a box. It is wrong for a converted mesh: a whale comes back as 305
+ * trimmed patches of one smooth animal, and the two patches along a seam get
+ * one normal each, so every one of the 5,323 mm of seam is a hard shading break
+ * however slightly the surfaces actually disagree. Measured on the whale at the
+ * deflection the app draws with, over 5,964 shared nodes, the real kink between
+ * the two faces is 6.3 degrees at the median. A six-degree kink is not an edge;
+ * it is the same surface, cut up. Drawn as an edge it reads as a panel line,
+ * and the model looks assembled out of scraps.
+ *
+ * So a node that two faces share gets ONE normal when they agree to within the
+ * crease angle, and keeps two when they do not. This is what every CAD renderer
+ * does, and it changes no geometry at all: same vertices, same triangles, same
+ * B-Rep. Only the normals handed to the shader.
+ *
+ * Nothing is smoothed across a real edge: TOKA's box corners measure 90 degrees
+ * at the median and stay exactly as crisp as they were, and the outline pass
+ * regardless: the outline pass draws every B-Rep edge either way. */
+const double kCreaseAngleDeg = 30.0;
+const double kTangentAngleDeg = 8.0;
+
+void ShareNormalsAcrossSeams(const std::vector<double> &verts,
+                             const std::vector<unsigned char> &freeform,
+                             std::vector<double> &norms)
+{
+    const size_t n = verts.size() / 3;
+    if (n < 2 || norms.size() != verts.size())
+        return;
+    const bool haveKinds = (freeform.size() == n);
+    /* A tolerance for "the same point". Nodes on a shared edge come from one
+     * discretisation of that edge and are identical, so this only has to be
+     * small enough not to merge neighbours. */
+    double lo[3] = {1e300, 1e300, 1e300}, hi[3] = {-1e300, -1e300, -1e300};
+    for (size_t v = 0; v < n; ++v)
+        for (int k = 0; k < 3; ++k) {
+            lo[k] = std::min(lo[k], verts[v * 3 + k]);
+            hi[k] = std::max(hi[k], verts[v * 3 + k]);
+        }
+    double diag = 0;
+    for (int k = 0; k < 3; ++k)
+        diag += (hi[k] - lo[k]) * (hi[k] - lo[k]);
+    diag = std::sqrt(diag);
+    const double tol = std::min(1e-3, std::max(1e-7, diag * 1e-7));
+
+    /* One bucket lookup per vertex, not twenty-seven: identical points quantise
+     * identically. Two points a whisker apart can still land either side of a
+     * boundary, and then they simply keep their own normals — which is what
+     * they had before this existed, so the worst case is no change. */
+    std::unordered_map<long long, std::vector<int>> at;
+    at.reserve(n * 2);
+    auto cell = [&](size_t v) {
+        const long long i = (long long)std::llround(verts[v * 3] / tol);
+        const long long j = (long long)std::llround(verts[v * 3 + 1] / tol);
+        const long long k = (long long)std::llround(verts[v * 3 + 2] / tol);
+        return (i * 73856093LL) ^ (j * 19349663LL) ^ (k * 83492791LL);
+    };
+    for (size_t v = 0; v < n; ++v)
+        at[cell(v)].push_back((int)v);
+
+    /* How much disagreement is "the same surface, cut up" depends on what the
+     * two faces ARE.
+     *
+     * Between two freeform patches it is a lot: a converted whale is one
+     * animal sliced into 305 of them, and they meet at 6.3 degrees at the
+     * median with a long tail — nothing there is a designed edge, and drawing
+     * any of it as one is what made the model look like scraps.
+     *
+     * Between anything else it is only tangency. A 25 degree chamfer between
+     * two planes IS an edge and has to stay crisp, and so does a 20 degree
+     * cone-to-plane. Those never had this problem to begin with — a modelled
+     * solid's faces are few and its edges are meant — so they get the narrow
+     * rule, which still gains them the one thing they were missing: a fillet
+     * runs tangentially into its neighbour and stops being a shading break. */
+    const double creaseFree = std::cos(kCreaseAngleDeg * M_PI / 180.0);
+    const double creaseElse = std::cos(kTangentAngleDeg * M_PI / 180.0);
+    std::vector<double> out(norms);
+    std::vector<char> done;
+    /* Grouping inside a bucket is quadratic in its size, which is fine for the
+     * handful of faces that really do meet at a node and is not fine for a
+     * bucket a hash collision has filled up. No vertex on a real body is shared
+     * by anything like this many faces, so a bucket past it is a collision and
+     * is left alone — those vertices simply keep the normals they arrived with. */
+    const size_t kMaxAtOneNode = 96;
+    for (auto &kv : at) {
+        std::vector<int> &g = kv.second;
+        if (g.size() < 2 || g.size() > kMaxAtOneNode)
+            continue;
+        done.assign(g.size(), 0);
+        for (size_t a = 0; a < g.size(); ++a) {
+            if (done[a])
+                continue;
+            double sum[3] = {norms[g[a] * 3], norms[g[a] * 3 + 1],
+                             norms[g[a] * 3 + 2]};
+            std::vector<int> grp(1, g[a]);
+            done[a] = 1;
+            for (size_t b = a + 1; b < g.size(); ++b) {
+                if (done[b])
+                    continue;
+                /* The hash can collide; the position decides. */
+                double d = 0;
+                for (int k = 0; k < 3; ++k) {
+                    const double t = verts[g[a] * 3 + k] - verts[g[b] * 3 + k];
+                    d += t * t;
+                }
+                if (d > tol * tol)
+                    continue;
+                double dot = 0;
+                for (int k = 0; k < 3; ++k)
+                    dot += norms[g[a] * 3 + k] * norms[g[b] * 3 + k];
+                const bool bothFree = haveKinds && freeform[g[a]] &&
+                                      freeform[g[b]];
+                if (dot < (bothFree ? creaseFree : creaseElse))
+                    continue; /* a real edge: leave both alone */
+                for (int k = 0; k < 3; ++k)
+                    sum[k] += norms[g[b] * 3 + k];
+                grp.push_back(g[b]);
+                done[b] = 1;
+            }
+            if (grp.size() < 2)
+                continue;
+            const double len =
+                std::sqrt(sum[0] * sum[0] + sum[1] * sum[1] + sum[2] * sum[2]);
+            if (!(len > 1e-12))
+                continue;
+            for (const int v : grp)
+                for (int k = 0; k < 3; ++k)
+                    out[v * 3 + k] = sum[k] / len;
+        }
+    }
+    norms.swap(out);
+}
+
 } // namespace meshrecon

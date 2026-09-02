@@ -1322,6 +1322,16 @@ extern "C" occt_shape *occt_mirror(const occt_shape *shape,
  * as smooth. Orientation matters: a REVERSED face's natural normal points
  * into the solid.
  */
+/* A patch, as opposed to a designed surface. Its boundaries with its
+ * neighbours are where one smooth surface was cut up, not model edges — which
+ * is why they are shaded, and outlined, by a different rule. */
+static bool is_freeform(GeomAbs_SurfaceType t)
+{
+    return t == GeomAbs_BSplineSurface || t == GeomAbs_BezierSurface ||
+           t == GeomAbs_SurfaceOfExtrusion || t == GeomAbs_SurfaceOfRevolution ||
+           t == GeomAbs_OffsetSurface || t == GeomAbs_OtherSurface;
+}
+
 static bool edge_is_smooth(const TopoDS_Edge &e, const TopoDS_Face &f1,
                            const TopoDS_Face &f2, double cos_tol)
 {
@@ -1412,6 +1422,10 @@ extern "C" occt_mesh *occt_mesh_create(const occt_shape *shape,
      * Deriving it later by re-exploring would be guesswork; recording it here,
      * where both numbers are in hand, cannot be wrong. */
     std::vector<int> face_ids;
+    /* One byte per vertex: is its face a freeform patch? Decides how far two
+     * faces may disagree at a shared node and still be shaded as one — see
+     * meshrecon::ShareNormalsAcrossSeams. */
+    std::vector<unsigned char> vert_freeform;
     edge_starts.push_back(0);
 
     /* Faces -> shaded triangles. Vertices are emitted PER FACE, so B-Rep
@@ -1519,7 +1533,12 @@ extern "C" occt_mesh *occt_mesh_create(const occt_shape *shape,
         const bool reversed = (face.Orientation() == TopAbs_REVERSED);
         const int base = (int)(verts.size() / 3);
         const int nn = tri->NbNodes();
+        const unsigned char kind =
+            is_freeform(BRepAdaptor_Surface(face, Standard_False).GetType())
+                ? 1
+                : 0;
         for (int i = 1; i <= nn; ++i) {
+            vert_freeform.push_back(kind);
             gp_Pnt p = tri->Node(i).Transformed(trsf);
             verts.push_back(p.X());
             verts.push_back(p.Y());
@@ -1544,6 +1563,20 @@ extern "C" occt_mesh *occt_mesh_create(const occt_shape *shape,
         }
         ++face_idx;
     }
+
+    /* Now that every face has put its own normals in, let the ones that meet
+     * smoothly agree.
+     *
+     * Vertices are emitted PER FACE so a B-Rep edge stays crisp, which is right
+     * for a box and wrong for a converted mesh: a whale comes back as 305
+     * trimmed patches of one smooth animal and every seam between them becomes
+     * a hard shading break, however slightly the two surfaces disagree. The
+     * measurement, the crease angle and the reasons are in
+     * meshrecon::ShareNormalsAcrossSeams; they live there rather than here
+     * because they are geometry that has to be tested, and this file is a C
+     * ABI. Nothing about the geometry changes — same vertices, same triangles,
+     * same B-Rep, only the normals handed to the shader. */
+    meshrecon::ShareNormalsAcrossSeams(verts, vert_freeform, norms);
 
     /* Edges -> display polylines, discretised straight from the curves so
      * they are smooth regardless of the face tessellation. */
@@ -1597,6 +1630,16 @@ extern "C" occt_mesh *occt_mesh_create(const occt_shape *shape,
                 BRepAdaptor_Surface sb(fb, Standard_False);
                 if (sa.GetType() == sb.GetType() &&
                     edge_is_smooth(edge, fa, fb, 0.990268))
+                    continue;
+                /* Between two patches, whatever is shaded as one surface must
+                 * not also be drawn as a line across it. Without this the two
+                 * halves of the picture contradict each other: a converted
+                 * whale would shade smoothly and still carry a black outline
+                 * along every patch boundary it had just stopped creasing. */
+                if (is_freeform(sa.GetType()) && is_freeform(sb.GetType()) &&
+                    edge_is_smooth(edge, fa, fb,
+                                   std::cos(meshrecon::kCreaseAngleDeg *
+                                            M_PI / 180.0)))
                     continue;
             }
         }

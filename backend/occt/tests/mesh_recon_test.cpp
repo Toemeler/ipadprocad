@@ -52,6 +52,8 @@
 #include <Bnd_Box.hxx>
 #include <gp_GTrsf.hxx>
 #include <BRepAdaptor_Surface.hxx>
+#include <Geom_Surface.hxx>
+#include <GeomLProp_SLProps.hxx>
 #include <cstdio>
 #include <cmath>
 #include <vector>
@@ -2130,6 +2132,234 @@ int main()
         std::printf("   %d faces, %d triangles, boundary %d edges / %.1f mm, "
                     "unchanged\n",
                     kept, after, rim, rimLen);
+    }
+
+    {
+        std::printf("== a seam between two smooth patches is not an edge ==\n");
+        /* The renderer is handed vertices PER FACE, so a node on a shared edge
+         * carries one normal for each face. On a box that is right. On a body
+         * that came from a mesh it is not: the patches are one smooth surface
+         * cut up, and drawing every cut as a shading break is what makes a
+         * converted model look assembled out of scraps.
+         *
+         * Both halves are checked here, because either alone is easy to pass:
+         * a sphere's patches must end up sharing, and a box's corners must not. */
+        struct Buf
+        {
+            std::vector<double> v, n;
+            std::vector<unsigned char> kind;
+            int faces = 0;
+        };
+        auto buffers = [](const TopoDS_Shape &s, double defl) {
+            Buf b;
+            BRepTools::Clean(s);
+            {
+                BRepMesh_IncrementalMesh im(s, defl, Standard_False, 0.35,
+                                            Standard_True);
+                (void)im;
+            }
+            for (TopExp_Explorer ex(s, TopAbs_FACE); ex.More(); ex.Next()) {
+                const TopoDS_Face f = TopoDS::Face(ex.Current());
+                TopLoc_Location loc;
+                const Handle(Poly_Triangulation) t =
+                    BRep_Tool::Triangulation(f, loc);
+                if (t.IsNull() || !t->HasUVNodes())
+                    continue;
+                ++b.faces;
+                const GeomAbs_SurfaceType st =
+                    BRepAdaptor_Surface(f, Standard_False).GetType();
+                const unsigned char kd =
+                    (st == GeomAbs_BSplineSurface ||
+                     st == GeomAbs_BezierSurface || st == GeomAbs_OtherSurface)
+                        ? 1
+                        : 0;
+                const gp_Trsf tr = loc.Transformation();
+                const bool rev = (f.Orientation() == TopAbs_REVERSED);
+                const Handle(Geom_Surface) su = BRep_Tool::Surface(f);
+                for (int i = 1; i <= t->NbNodes(); ++i) {
+                    const gp_Pnt q = t->Node(i).Transformed(tr);
+                    b.v.push_back(q.X());
+                    b.v.push_back(q.Y());
+                    b.v.push_back(q.Z());
+                    b.kind.push_back(kd);
+                    gp_Dir d(0, 0, 1);
+                    const gp_Pnt2d uv = t->UVNode(i);
+                    GeomLProp_SLProps sp(su, uv.X(), uv.Y(), 1, 1e-7);
+                    if (sp.IsNormalDefined())
+                        d = sp.Normal();
+                    if (!loc.IsIdentity())
+                        d.Transform(tr);
+                    const double sg = rev ? -1.0 : 1.0;
+                    b.n.push_back(sg * d.X());
+                    b.n.push_back(sg * d.Y());
+                    b.n.push_back(sg * d.Z());
+                }
+            }
+            return b;
+        };
+        /* Every pair of vertices at the same point, with the angle between
+         * their normals before and after. Asking only for the WORST is not a
+         * test: a sphere has a pole where two nodes face opposite ways, so the
+         * worst is 180 degrees whatever happens to the seams, and an assertion
+         * on it passes while nothing at all has been shared. */
+        struct Pair
+        {
+            double before, after;
+        };
+        auto pairsAt = [](const Buf &b, const std::vector<double> &after) {
+            std::vector<Pair> out;
+            for (size_t i = 0; i < b.v.size() / 3; ++i)
+                for (size_t j = i + 1; j < b.v.size() / 3; ++j) {
+                    double d = 0;
+                    for (int k = 0; k < 3; ++k) {
+                        const double t = b.v[i * 3 + k] - b.v[j * 3 + k];
+                        d += t * t;
+                    }
+                    if (d > 1e-12)
+                        continue;
+                    double d1 = 0, d2 = 0;
+                    for (int k = 0; k < 3; ++k) {
+                        d1 += b.n[i * 3 + k] * b.n[j * 3 + k];
+                        d2 += after[i * 3 + k] * after[j * 3 + k];
+                    }
+                    const double deg = 180.0 / M_PI;
+                    out.push_back({std::acos(std::max(-1.0, std::min(1.0, d1))) * deg,
+                                   std::acos(std::max(-1.0, std::min(1.0, d2))) * deg});
+                }
+            return out;
+        };
+
+        {   /* A converted ellipsoid: many patches of one smooth animal. */
+            gp_GTrsf g;
+            g.SetValue(1, 1, 1.0);
+            g.SetValue(2, 2, 0.55);
+            g.SetValue(3, 3, 1.9);
+            std::vector<double> xyz;
+            std::vector<int> tri;
+            Tessellate(BRepBuilderAPI_GTransform(
+                           BRepPrimAPI_MakeSphere(50.).Shape(), g,
+                           Standard_True).Shape(),
+                       0.15, xyz, tri);
+            meshrecon::Params p = meshrecon::Defaults();
+            meshrecon::Report r;
+            std::string err;
+            const TopoDS_Shape out = meshrecon::Reconstruct(
+                xyz.data(), (int)(xyz.size() / 3), tri.data(),
+                (int)(tri.size() / 3), p, r, err);
+            chk("smooth seams: the ellipsoid converts", !out.IsNull(), err);
+            if (!out.IsNull()) {
+                Buf b = buffers(out, 0.6);
+                std::vector<double> got = b.n;
+                meshrecon::ShareNormalsAcrossSeams(b.v, b.kind, got);
+                const std::vector<Pair> pr = pairsAt(b, got);
+                int smoothPairs = 0, leftBroken = 0, creasePairs = 0,
+                    creaseMoved = 0;
+                double worstLeft = 0, worstSmoothBefore = 0;
+                for (const Pair &q : pr) {
+                    if (q.before < meshrecon::kCreaseAngleDeg) {
+                        ++smoothPairs;
+                        worstSmoothBefore = std::max(worstSmoothBefore, q.before);
+                        /* A hundredth of a degree. Averaging three unit
+                         * vectors and renormalising does not land on exactly
+                         * the same double for each of them. */
+                        if (q.after > 0.01) {
+                            ++leftBroken;
+                            worstLeft = std::max(worstLeft, q.after);
+                        }
+                    } else {
+                        /* Not "unchanged": a node with three faces at it can
+                         * have two of them merge, which moves the angle to the
+                         * third. What must not happen is a crease being shaded
+                         * away, so that is what is asked. */
+                        ++creasePairs;
+                        if (q.after < meshrecon::kTangentAngleDeg)
+                            ++creaseMoved;
+                    }
+                }
+                chk("smooth seams: the patches meet at seams worth smoothing",
+                    smoothPairs > 100 && worstSmoothBefore > 2.0,
+                    std::to_string(smoothPairs) + " pairs under the crease "
+                    "angle, worst " + std::to_string(worstSmoothBefore) + " deg");
+                chk("smooth seams: EVERY one of them is shaded as one surface",
+                    leftBroken == 0,
+                    std::to_string(leftBroken) + " left broken, worst " +
+                        std::to_string(worstLeft) + " deg");
+                chk("smooth seams: and no crease over it is shaded away",
+                    creaseMoved == 0,
+                    std::to_string(creaseMoved) + " of " +
+                        std::to_string(creasePairs) + " creases flattened");
+                chk("smooth seams: the geometry is untouched",
+                    got.size() == b.n.size(), "normal count changed");
+                std::printf("   ellipsoid: %d faces, %d shared pairs — %d under "
+                            "%.0f deg (worst %.1f) all shaded as one, %d over it "
+                            "untouched\n",
+                            b.faces, (int)pr.size(), smoothPairs,
+                            meshrecon::kCreaseAngleDeg, worstSmoothBefore,
+                            creasePairs);
+            }
+        }
+        {   /* A box: every corner is a real edge and must stay one. */
+            const TopoDS_Shape box = BRepPrimAPI_MakeBox(20., 14., 9.).Shape();
+            Buf b = buffers(box, 0.6);
+            std::vector<double> got = b.n;
+            meshrecon::ShareNormalsAcrossSeams(b.v, b.kind, got);
+            const std::vector<Pair> pr = pairsAt(b, got);
+            int moved = 0;
+            double worstBefore = 0;
+            for (const Pair &q : pr) {
+                worstBefore = std::max(worstBefore, q.before);
+                if (std::abs(q.after - q.before) > 1e-6)
+                    ++moved;
+            }
+            chk("real edges: a box's corners are 90 degrees to begin with",
+                worstBefore > 89.0 && worstBefore < 91.0,
+                std::to_string(worstBefore) + " deg");
+            chk("real edges: not one of them is softened",
+                moved == 0 && !pr.empty(),
+                std::to_string(moved) + " of " + std::to_string(pr.size()) +
+                    " pairs disturbed");
+            std::printf("   box:       %d faces, %d shared pairs at %.0f deg, "
+                        "%d disturbed (crease angle %.0f)\n",
+                        b.faces, (int)pr.size(), worstBefore, moved,
+                        meshrecon::kCreaseAngleDeg);
+        }
+        {   /* The case the wide angle would get wrong if it applied to
+             * everything: two ANALYTIC faces meeting at 26 degrees. That is a
+             * chamfer on a modelled part — a designed edge, well under the
+             * crease angle — and it must not be softened. A cone gives it
+             * exactly: with (R1-R2)/h = cot(26 deg) the lateral face's normal
+             * stands 26 degrees off the top disc's, by construction and not by
+             * a boolean that may or may not have cut anything. */
+            const double want = 26.0;
+            const double d = 20.0, h = d * std::tan(want * M_PI / 180.0);
+            const TopoDS_Shape cone =
+                BRepPrimAPI_MakeCone(30., 10., h).Shape();
+            Buf b = buffers(cone, 0.2);
+            std::vector<double> got = b.n;
+            meshrecon::ShareNormalsAcrossSeams(b.v, b.kind, got);
+            const std::vector<Pair> pr = pairsAt(b, got);
+            int chamfer = 0, softened = 0;
+            double worst = 0;
+            for (const Pair &q : pr)
+                if (q.before > meshrecon::kTangentAngleDeg &&
+                    q.before < meshrecon::kCreaseAngleDeg) {
+                    ++chamfer;
+                    worst = std::max(worst, q.before);
+                    if (q.after < meshrecon::kTangentAngleDeg)
+                        ++softened;
+                }
+            chk("real edges: the part really has a shallow chamfer on it",
+                chamfer > 0 && std::abs(worst - want) < 2.0,
+                std::to_string(chamfer) + " pairs, worst " +
+                    std::to_string(worst) + " deg");
+            chk("real edges: 26 degrees between two analytic faces stays crisp",
+                softened == 0,
+                std::to_string(softened) + " of " + std::to_string(chamfer) +
+                    " softened");
+            std::printf("   chamfer:   %d faces, %d pairs at %.1f deg — under "
+                        "the crease angle, over tangency — %d softened\n",
+                        b.faces, chamfer, worst, softened);
+        }
     }
 
     std::printf("\n%s  (%d passed, %d failed)\n",
