@@ -1408,6 +1408,29 @@ jobs:
             NAST="$(find "$APP/cycles/assets" -type f | wc -l | tr -d ' ' || true)"
             echo "CYCLES ASSETS: ${NAST:-0} file(s) bundled$([ "${NAST:-0}" = 0 ] && echo ' (renders with the analytic rig — see backend/cycles/assets/README.md)')"
             find "$APP/cycles/assets" -type f -exec ls -lh {} \; 2>/dev/null | awk '{print "  " $5 "  " $NF}' || true
+            # M344 — and is the environment map actually an ENVIRONMENT map?
+            #
+            # Every property the README asks for is checkable from the file
+            # listing except the only one that decides how the render looks:
+            # whether the light sources are brighter than the walls. A .hdr
+            # that has been through an 8-bit conversion somewhere in its
+            # history loads without complaint, renders without error, and
+            # lights the model exactly as flatly as the uniform world M332
+            # replaced — no highlight streak on a metal edge, because nothing
+            # in the sphere is bright enough to draw one.
+            #
+            # That is invisible here and expensive to find on a device, so it
+            # is measured. It PRINTS and never fails: an asset that lights
+            # badly is a judgement call, and it belongs to whoever chose it.
+            HDRI=""
+            for c in studio.hdr studio.exr; do
+              if [ -f "$APP/cycles/assets/hdri/$c" ]; then
+                HDRI="$APP/cycles/assets/hdri/$c"; break
+              fi
+            done
+            if command -v python3 >/dev/null 2>&1; then
+              python3 "$GITHUB_WORKSPACE/ci/check_hdri.py" "${HDRI:-/none}" || true
+            fi
             bash "$GITHUB_WORKSPACE/ci/embed_cycles_dylibs.sh" \
               "$GITHUB_WORKSPACE/cycles-dist/dylib" "$APP"
             # And the shim must be reachable BY NAME: Dart resolves it with
