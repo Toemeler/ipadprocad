@@ -10692,14 +10692,51 @@ Verzeichnis.
 
 3222 Dart-Tests grün.
 
+### Was die CI tatsächlich gesagt hat
+
+Der Rendertest, zweimal auf dem Zweig gefahren (Läufe 15 und 16), weil er das
+einzige ist, das je einen Cycles-API-Fehler in diesem Repo gefunden hat.
+
+**Lauf 15: übersetzt, linkt, rendert.** Jede Prüfung des Einzelbild-Pfades und
+jede Prüfung des Entrauschers grün — Hintergrund sRGB-kodiert, Objekt im
+richtigen Quadranten, Stahl statt weißem Ton, eine Fläche zum Himmel heller
+als eine zum Boden, rot ist rot und blau ist blau. Das ist der ganze
+Szenenbauer, und er ist derselbe, den die lebende Session benutzt.
+
+Die lebende Session meldete `0 frames, 0/8 samples`. Das liest sich wie ein
+Renderer, der nichts produziert, und war ein Test, der nie gewartet hat: die
+Schleife zählte zwanzigtausend DURCHLÄUFE, und ein Durchlauf ist ein Mutex und
+ein Integer-Vergleich, also war sie nach etwa zehn Millisekunden fertig — bevor
+der Session-Thread aufgewacht war.
+
+**Lauf 16: PASS (0 failures).**
+
+    live: 1 frames, 8/8 samples, done=1 denoised=0 after 5 ms
+
+Sie öffnet, lädt die Szene hoch, nimmt die Kamera an, produziert ein Bild,
+konvergiert, sagt es, rahmt dasselbe wie `cy_render` und schließt sauber.
+`denoised=0`, weil das fertige Bild das rohe Pfadverfolgen ist — der Filter
+ist vor dem Ziel ausgeblendet, wie versprochen.
+
+EIN Bild, nicht viele, und das ist ehrlich zu benennen: 8 Samples eines
+96×96-Bildes auf der CPU sind EIN Arbeitspaket, also kam `write_render_tile`
+zusammen mit `done`. Der progressive Pfad — viele `update_render_tile`-Aufrufe
+auf dem Weg — ist damit nicht durchgespielt. Er ist derselbe Code, aber er ist
+nicht bewiesen.
+
 ### Noch NICHT auf Hardware
 
-Alles davon. Das C++ übersetzt zum ersten Mal in der CI und läuft zum ersten
-Mal auf einem Gerät — wie immer bei diesem Teil des Repos. Drei Stellen, an
-denen ich beim nächsten Mal zuerst nachsehen würde:
+Der iOS-Build und jede Zeile Metal. Der Rendertest baut nativ für den Runner;
+iOS-Binärdateien laufen nicht auf einem Mac, das war schon immer die Aufgabe
+der Sonde. Vier Stellen, an denen ich beim nächsten Mal zuerst nachsehen
+würde:
 
-1. **Die Bildrate beim Orbiten.** Der Entrauscher kostet auf diesem CI-Kern
-   51 ms bei 480×320 einkernig; mit TBB und iPad-Kernen sollten daraus
+0. **Der progressive Pfad selbst.** Siehe oben: die CI hat ein einziges,
+   fertiges Bild gesehen. Dass Zwischenstände ankommen, während gerendert
+   wird, ist auf einem Gerät zu prüfen und nirgends sonst.
+
+1. **Die Bildrate beim Orbiten.** Der Entrauscher kostet auf einem geteilten
+   CI-Kern 51 ms bei 480×320 einkernig; mit TBB und iPad-Kernen sollten daraus
    einstellige Millisekunden werden, aber gemessen ist das nicht.
 2. **Die Speicherspitze.** Ein 2K-HDRI sind rund 24 MB als Float-RGB, dazu
    die Textursätze und die Framepuffer. Der iOS-Jetsam-Deckel ist das, was
