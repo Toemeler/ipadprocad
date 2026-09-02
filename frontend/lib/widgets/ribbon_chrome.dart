@@ -53,6 +53,7 @@
 // stay the Flutter tree they were, and the dock position itself is a value in
 // ribbon_dock.dart rather than a widget concern.
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:native_menu/native_menu.dart';
 
 import '../ribbon_dock.dart';
@@ -206,4 +207,72 @@ class RibbonSurface extends StatelessWidget {
     // boundary at all.
     return const GlassPanel(cornerRadius: RibbonMetrics.radius);
   }
+}
+
+/// M357 — how much of the DOCUMENT the floating band covers.
+///
+/// This is the one number M290 said would not come back, so it is worth being
+/// precise about what it is and what it is not.
+///
+/// M290 made the band a ROW of the layout: the stage gets the remainder, so
+/// every floating panel clears the band without being told, and nothing
+/// measures anything. M350 then split the document out of the stage and ran it
+/// edge to edge UNDER the glass — because a UIGlassEffect blurs what is behind
+/// it, and what was behind it was the app's ground colour.
+///
+/// That split left one thing on the wrong side of the line. The coordinate
+/// triad, the ViewCube and the message toast are drawn INSIDE the viewport, in
+/// the document's coordinate space, and they are not the model: they float
+/// over it exactly like the browser and the tab bar do. So they went under the
+/// band with the geometry — "the triad is behind the ribbon now".
+///
+/// The right endgame is to hoist those three into the stage, where the box is
+/// already correct and no number is needed. It is not this change: the
+/// ViewCube's animation drives the viewport's own repaint (and on iOS the
+/// RealityKit push that runs from its build), so moving it needs a repaint
+/// channel through a path that cannot be exercised off the device. Publishing
+/// the edge is the small, testable half of the fix.
+///
+/// WHY THIS IS NOT M284's PROTOCOL. M284 published a thickness that SEVEN
+/// panels each subtracted, one frame after layout, and its failures were about
+/// that arithmetic being spread out: a new panel that forgot to subtract, the
+/// gallery clearing a band that was not drawn, chrome visibly misplaced after
+/// every dock change. Here:
+///
+///   * there is ONE subscriber, the viewport's floating chrome, and it applies
+///     the inset as a single [Padding] around all of it;
+///   * a panel added tomorrow still goes in the stage and is still right by
+///     construction — this value is not part of how panels are laid out;
+///   * the value is zero unless the band actually FLOATS (no glass, or the
+///     gallery, means the document is inside the stage already), so "clearing
+///     a band that is not drawn" is not expressible;
+///   * and the one frame of lag lands on a triad after a dock change or a
+///     names toggle, not on the layout of the app.
+class RibbonBleed {
+  RibbonBleed._();
+
+  /// The edge the band covers, as an inset into the document layer. Zero
+  /// whenever the band is docked rather than floating.
+  static final ValueNotifier<EdgeInsets> inset =
+      ValueNotifier<EdgeInsets>(EdgeInsets.zero);
+
+  /// Called from the layout once the band has been measured. Deferred, because
+  /// it runs from layout and a notifier fired mid-layout would mark a subtree
+  /// dirty that has already been laid out this frame — the same rule
+  /// NativeModelBrowser.\_publishWidth follows.
+  static void publish(EdgeInsets v) {
+    if (inset.value == v) return;
+    final b = WidgetsBinding.instance;
+    if (b.schedulerPhase == SchedulerPhase.idle ||
+        b.schedulerPhase == SchedulerPhase.postFrameCallbacks) {
+      inset.value = v;
+      return;
+    }
+    b.addPostFrameCallback((_) {
+      if (inset.value != v) inset.value = v;
+    });
+  }
+
+  @visibleForTesting
+  static void resetForTest() => inset.value = EdgeInsets.zero;
 }

@@ -40,6 +40,7 @@ import 'package:native_menu/native_menu.dart'
 import 'bottom_tabbar.dart';
 import 'native_browser_host.dart';
 import '../l10n/l.dart';
+import 'ribbon_chrome.dart';
 
 // M83: the origin planes/axes are no longer a fixed 20 mm square — they frame
 // the part (originPlaneRect / originAxisSpan in part_model.dart). This constant
@@ -919,6 +920,26 @@ class _Viewport3DState extends State<Viewport3D>
             ),
           ),
         ),
+        // M357 — THE VIEWPORT'S OWN FLOATING CHROME, inside the band's edge.
+        //
+        // The cube, the triad and the toast are not the model: they float over
+        // it, exactly as the browser and the tab bar do, and everything that
+        // floats is supposed to clear the band (M290). They did — until M350
+        // ran the document edge to edge under the glass, which took this
+        // Stack's corners out to the screen's corners and put the triad behind
+        // the ribbon.
+        //
+        // One Padding around all three rather than four numbers adjusted in
+        // four places: whatever floats in this viewport tomorrow is inside it
+        // by default, which is the property M290 was defending. The inset is
+        // zero unless the band actually floats, so off iOS this is exactly the
+        // Stack M290 left. See [RibbonBleed].
+        Positioned.fill(
+          child: ValueListenableBuilder<EdgeInsets>(
+            valueListenable: RibbonBleed.inset,
+            builder: (_, bleed, __) => Padding(
+              padding: bleed,
+              child: Stack(children: [
         // ViewCube + Home, top-right.
         //
         // M290 — plain numbers again. M146 put the ribbon into this coordinate
@@ -993,6 +1014,10 @@ class _Viewport3DState extends State<Viewport3D>
               ),
             ),
           ),
+              ]),
+            ),
+          ),
+        ),
       ]);
     });
   }

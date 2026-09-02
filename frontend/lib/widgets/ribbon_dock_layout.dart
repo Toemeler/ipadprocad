@@ -59,6 +59,7 @@
 // claim of the milestone, and a private closure inside a 500-line build method
 // cannot be asserted. m290_ribbon_dock_test.dart measures the boxes.
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 
 import '../app_state.dart';
 import '../ribbon_dock.dart';
@@ -98,7 +99,14 @@ class RibbonDockLayout extends StatelessWidget {
     // new-document affordance there. Both layers come straight back, so the
     // question of clearing a band that is not drawn cannot arise — which is
     // exactly the question that had to be special-cased before.
-    if (app.isHome) return _layered();
+    // No band drawn, so nothing of the document is covered. Published rather
+    // than left stale: switching to the gallery must not leave the last
+    // document's inset behind (which is precisely the shape of bug M290 lists
+    // against M284 — "the gallery clearing a band that was not drawn").
+    if (app.isHome) {
+      RibbonBleed.publish(EdgeInsets.zero);
+      return _layered();
+    }
     // M350 — the band SWALLOWS pointers.
     //
     // Floating, its empty space sits over the viewport, and a Stack lets a hit
@@ -106,9 +114,16 @@ class RibbonDockLayout extends StatelessWidget {
     // background would otherwise orbit the model behind it. The glass itself
     // cannot take the hit (it is a platform view with interaction switched
     // off, deliberately — see GlassPanelView), so the swallow goes here.
-    final band = Listener(
-      behavior: HitTestBehavior.opaque,
-      child: Ribbon(app: app),
+    final Widget band = _Bleed(
+      dock: RibbonDock.current,
+      // Docked, the document is laid out inside the stage and covers nothing
+      // (M290's layout, unchanged off iOS). Only a FLOATING band has an edge
+      // to report.
+      report: floats,
+      child: Listener(
+        behavior: HitTestBehavior.opaque,
+        child: Ribbon(app: app),
+      ),
     );
     // M346 — CrossAxisAlignment.stretch, and it is the whole of the "the
     // ribbon on the right does not go over the full height" report.
@@ -161,4 +176,66 @@ class RibbonDockLayout extends StatelessWidget {
         Positioned.fill(child: bleed),
         Positioned.fill(child: stage),
       ]);
+}
+
+/// M357 — the band, reporting the edge of the document it covers.
+///
+/// A render object rather than a post-frame read off a GlobalKey, for one
+/// reason: the size is known in [performLayout], so the report is made in the
+/// layout that produced it rather than by looking the widget up again a frame
+/// later and hoping it is still the same widget. The NOTIFICATION is still
+/// deferred by one frame ([RibbonBleed.publish]) — a notifier fired mid-layout
+/// would dirty a subtree that has already been laid out — but the measurement
+/// is not guesswork and there is no second widget tree walk.
+///
+/// [report] false publishes zero: off iOS the band takes a row of the layout
+/// and covers nothing, which is M290's arrangement and still the default.
+class _Bleed extends SingleChildRenderObjectWidget {
+  final RibbonPosition dock;
+  final bool report;
+  const _Bleed({required this.dock, required this.report, required Widget child})
+      : super(child: child);
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderBleed(dock, report);
+
+  @override
+  void updateRenderObject(BuildContext context, _RenderBleed r) {
+    r.dock = dock;
+    r.report = report;
+  }
+}
+
+class _RenderBleed extends RenderProxyBox {
+  RibbonPosition _dock;
+  bool _report;
+  _RenderBleed(this._dock, this._report);
+
+  set dock(RibbonPosition v) {
+    if (v == _dock) return;
+    _dock = v;
+    markNeedsLayout();
+  }
+
+  set report(bool v) {
+    if (v == _report) return;
+    _report = v;
+    markNeedsLayout();
+  }
+
+  @override
+  void performLayout() {
+    super.performLayout();
+    if (!_report) {
+      RibbonBleed.publish(EdgeInsets.zero);
+      return;
+    }
+    RibbonBleed.publish(switch (_dock) {
+      RibbonPosition.top => EdgeInsets.only(top: size.height),
+      RibbonPosition.bottom => EdgeInsets.only(bottom: size.height),
+      RibbonPosition.left => EdgeInsets.only(left: size.width),
+      RibbonPosition.right => EdgeInsets.only(right: size.width),
+    });
+  }
 }

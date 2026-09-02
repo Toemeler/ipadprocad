@@ -70,6 +70,7 @@ import '../reality_scene.dart' show RealityPush, logMeshConvention;
 import '../theme.dart';
 import 'bottom_tabbar.dart';
 import 'native_browser_host.dart';
+import 'ribbon_chrome.dart';
 import 'viewport3d.dart'
     show ViewCube, TriadPainter, paintWorkAxesAndPoints;
 
@@ -762,6 +763,16 @@ class _ViewportAssemblyState extends State<ViewportAssembly>
             ),
           ),
         ),
+        // M357 — the viewport's own floating chrome, inside the band's edge.
+        // Same Padding, same reason as the part viewport: the cube, the triad
+        // and the toast float over the model, and M350 ran the model itself
+        // out under the band. See [RibbonBleed].
+        Positioned.fill(
+          child: ValueListenableBuilder<EdgeInsets>(
+            valueListenable: RibbonBleed.inset,
+            builder: (_, bleed, __) => Padding(
+              padding: bleed,
+              child: Stack(children: [
         // ViewCube + Home, top-right. M290 — plain numbers: the band takes a
         // row of the layout, so this corner IS the content area's corner.
         Positioned(
@@ -818,6 +829,10 @@ class _ViewportAssemblyState extends State<ViewportAssembly>
               ),
             ),
           ),
+              ]),
+            ),
+          ),
+        ),
       ]);
     });
   }

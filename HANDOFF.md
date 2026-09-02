@@ -11709,3 +11709,107 @@ Verdächtige ist der Texturupload je Bild auf dem UI-Isolate.
 Render über 2,8 Megapixel gegen 4096 Samples — adaptives Sampling bricht früh
 ab, aber solange er läuft, steht der Compositor wieder an. Beim Orbiten ist
 das gelöst, beim Tippen im Band während der Konvergenz nicht.
+---
+
+## M357 — Die Triade kommt unter dem Band hervor
+
+> „also the triad is behind the ribbon now"
+
+### Wie sie dorthin kam
+
+M290 hat aus dem Band eine **Zeile des Layouts** gemacht: die Bühne bekommt
+den Rest, also hält jedes schwebende Panel — Modellbrowser, Tab-Leiste,
+Schnellwerkzeuge, die modelosen Dialoge — von selbst Abstand, und **nichts
+misst irgendetwas**. M350 hat dann das **Dokument** aus dieser Kiste
+herausgelöst und randlos unter das Glas gelegt, weil ein `UIGlassEffect` das
+verwischt, was HINTER ihm liegt, und hinter ihm lag bis dahin die Grundfarbe
+der App.
+
+Drei Dinge standen bei dieser Trennung auf der falschen Seite. **Triade,
+ViewCube und Meldungs-Toast** werden INNERHALB des Viewports gezeichnet, im
+Koordinatenraum des Dokuments — aber sie sind nicht das Modell. Sie schweben
+darüber, genau wie der Browser, und sind mit der Geometrie unter das Band
+gewandert.
+
+Gegengeprüft, und es ist exakt der Bericht: nimmt man das Polster wieder
+heraus, fallen vier Fälle — Triade unter dem Band bei **unten** und **links**,
+Würfel unter dem Band bei **oben** und **rechts**.
+
+### Die Lösung, und warum sie nicht M284 ist
+
+`RibbonBleed.inset` — eine `EdgeInsets`, die das Band veröffentlicht, und ein
+einziges `Padding` um die schwebende Chrome des Viewports.
+
+M290s Kopfkommentar sagt, diese Zahl komme nicht zurück, deshalb sehr genau:
+
+| M284 | M357 |
+|---|---|
+| **sieben** Panels zogen je eine Kante ab | **ein** Abonnent, ein `Padding` um alles |
+| ein neues Panel konnte das Abziehen vergessen | neue Panels leben in der Bühne und sind per Bauart richtig |
+| die Galerie zog ein Band ab, das nicht da war | der Wert ist null, sobald das Band nicht **schwebt** |
+| Chrome sichtbar verrutscht nach jedem Dockwechsel | ein Frame Verzug, auf einer Triade |
+
+Gemessen wird in `performLayout` eines `RenderProxyBox` (`_Bleed`) — also in
+demselben Layout, das die Grösse erzeugt hat, nicht durch ein späteres
+Nachschlagen über einen `GlobalKey`. Nur die **Benachrichtigung** ist um einen
+Frame verzögert, und zwar zwingend: ein Notifier mitten im Layout macht einen
+Teilbaum schmutzig, der in diesem Frame schon gelegt wurde.
+
+`report: false` — kein Glas, also kein Schweben — veröffentlicht null. Ausserhalb
+von iOS ist das Layout damit unverändert das von M290.
+
+### Was es nicht ist
+
+Das saubere Ende wäre, die drei Elemente in die **Bühne** zu heben: dort
+stimmt die Kiste bereits und es braucht überhaupt keine Zahl. Das ist bewusst
+nicht dieser Schritt. Die Animation des ViewCube treibt das Neuzeichnen des
+Viewports (und auf iOS den RealityKit-Push, der aus dessen `build` läuft), ein
+Umzug bräuchte also einen Repaint-Kanal durch genau den Pfad, der sich ausserhalb
+des Geräts nicht ausprobieren lässt. Die Kante zu veröffentlichen ist die
+kleine, prüfbare Hälfte.
+
+### Der Test
+
+`test/m357_bleed_chrome_test.dart`, 14 Fälle: der Wert ist auf jedem Dock
+null, solange das Band angedockt ist; er ist die **gemessene** Banddicke auf
+genau EINER Kante, wenn es schwebt; er folgt dem Band, wenn die Namen
+ausgehen; er geht in der Galerie auf null zurück. Dann die Sache selbst —
+Triade und Würfel überlappen das Band auf keinem der vier Docks — und die
+Gegenprobe dazu: das **Modell** läuft weiterhin randlos darunter durch, sonst
+wäre M350 rückgängig gemacht statt repariert.
+
+---
+
+## M358 — Und dann die Frage: ist die Leiste in jedem Modus fertig?
+
+> „is the bar now in every mode production ready?"
+
+Die ehrliche Art, das zu beantworten, ist aufzuzählen statt zu argumentieren.
+`test/m358_ribbon_audit_test.dart` pumpt **jeden** Modus, den das Band hat,
+auf **jedem** Dock, in **beiden** Namensmodi:
+
+| Modus | Docks × Namen |
+|---|---|
+| Galerie (kein Band) | 4 × 2 |
+| Skizze, nur betrachtend | 4 × 2 |
+| Skizze, in Bearbeitung | 4 × 2 |
+| Bauteil | 4 × 2 |
+| Baugruppe | 4 × 2 |
+
+Geprüft wird pro Layout, in der Reihenfolge, in der die Fehler historisch
+gekommen sind:
+
+1. **Es legt sich.** Ein RenderFlex-Überlauf wirft im Test, das Pumpen IST die
+   Zusicherung — und das ist keine Formalie: die benannte Schiene lief bis
+   M351 um bis zu 115 px über, die kompakte bis M352 um 3.
+2. **Nichts ist namenlos.** Gezählt: anklickbare Dinge gegen Kurzhinweise.
+   Skizze 36:36, Bauteil 24:24, Baugruppe 19:22, Layerliste 1:1 — kein
+   einziger Knopf ohne Namen, in keinem Modus.
+3. **Es passt an seine Kante.** Voll auf der Dock-Achse (M346), und nie mehr
+   als ein Drittel des Bildschirms auf der anderen.
+4. **Es ist ein Raster.** Kompakt: eine Zellgrösse, höchstens zwei Linien —
+   M352s Behauptung, geprüft für die Modi, die M352 selbst nicht pumpt.
+
+41 Fälle, alle grün. Was damit NICHT gesagt ist, steht im Chat: das lange
+Drücken für die Ausklapplisten und das Glas selbst sind Gerätesachen und
+konnten hier nur logisch, nicht am Finger geprüft werden.
