@@ -151,14 +151,14 @@ class RibbonDockLayout extends StatelessWidget {
       RibbonPosition.left => Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            SizedBox(width: RibbonMetrics.railWidth, child: band),
+            _rail(band),
             Expanded(child: _inner()),
           ]),
       RibbonPosition.right => Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Expanded(child: _inner()),
-            SizedBox(width: RibbonMetrics.railWidth, child: band),
+            _rail(band),
           ]),
     };
     if (!floats) return rows;
@@ -166,6 +166,20 @@ class RibbonDockLayout extends StatelessWidget {
     // is inside [rows], so it still gets the box that excludes the band.
     return Stack(children: [Positioned.fill(child: bleed), rows]);
   }
+
+  /// M360 — the rail, at whatever width its content needs.
+  ///
+  /// [RibbonRail] is a notifier because the width is DECIDED by the ribbon
+  /// inside this box and read by the box itself: the rail measures whether its
+  /// panels could stand in one column, and a one-column rail is 46 points
+  /// against a two-column rail's 84. Listening here rather than rebuilding the
+  /// world keeps that to the one widget whose size it changes.
+  Widget _rail(Widget band) => ValueListenableBuilder<int>(
+        valueListenable: RibbonRail.columns,
+        builder: (_, __, child) =>
+            SizedBox(width: RibbonMetrics.railWidth, child: child),
+        child: band,
+      );
 
   /// What goes in the row the band does NOT take: both layers when the band
   /// is docked, the floating chrome alone when it floats (the document is

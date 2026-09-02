@@ -30,6 +30,75 @@ import '../l10n/l.dart';
 /// directly. The app has exactly one, so there is nothing to disagree with.
 AppL10n get t => L.current;
 
+/// M361 — THE LETTER A FEATURE WEARS IN THE RETRACTED PANEL.
+///
+///   "the icons in the retracted Modell browser should have a letter small on
+///    a corner of the icon. E for extrude and a number. E2, E3 and so on or r
+///    for revolve. ... Also W for workplane"
+///
+/// Retracted, the panel is a column of pictures and nothing else — no labels,
+/// no indentation, no eye. Three extrusions draw the same cube three times,
+/// and the only way to tell the second from the third was to open the panel
+/// and read. The badge is the name, compressed to what fits in a corner: a
+/// letter for the KIND and a number for which one of them this is.
+///
+/// The letters are ENGLISH initials, because that is how they were asked for
+/// (E, R, W) and because the German ones collide hopelessly — Extrusion,
+/// Erhebung; Bohrung, Abrundung; Arbeitsebene, Arbeitsachse, Arbeitspunkt,
+/// Ableiten all start on the same three letters. Where two English initials
+/// collide the rarer command takes two letters rather than an arbitrary
+/// single one: "Sw2" is readable, "U2" for a sweep is a riddle.
+///
+/// The numbering is per LETTER and in tree order, so it is the ordinal you
+/// would count off the panel — not the feature's `seq`, which counts every
+/// kind together and would give a part with two extrusions E1 and E4.
+const Map<String, String> kFeatureBadge = {
+  'extrude': 'E',
+  'revolve': 'R',
+  'hole': 'H',
+  'fillet': 'F',
+  'chamfer': 'C',
+  'pattern': 'P',
+  'loft': 'L',
+  'derive': 'D',
+  'combine': 'B', // Boolean, and B is free where C is not
+  'split': 'T', // Inventor calls it Trim Solid
+  'deleteface': 'X',
+  'direct': 'M', // Move Face
+  'sweep': 'Sw',
+  'coil': 'Co',
+};
+
+/// The letters for the things that are not part features: work geometry and
+/// sketches. Same table, kept apart because they are numbered apart — a
+/// document's third work plane is W3 however many extrusions sit between them.
+const String kBadgeWorkPlane = 'W';
+const String kBadgeWorkAxis = 'A';
+const String kBadgeWorkPoint = 'N'; // P is the pattern's
+const String kBadgeSketch = 'S';
+
+/// Numbers a run of badge letters in the order they are handed over.
+///
+/// Its own object rather than a map built up in place, because the count has
+/// to be per LETTER and per DOCUMENT: two calls for the same part must give
+/// the same answers, and a second part opened beside it must start again at 1.
+class BadgeCounter {
+  final Map<String, int> _n = {};
+
+  /// 'E' -> 'E1', then 'E2', ...
+  String next(String letter) {
+    final i = (_n[letter] ?? 0) + 1;
+    _n[letter] = i;
+    return '$letter$i';
+  }
+
+  /// The badge for a part feature, or null for a kind that has none.
+  String? feature(String kind) {
+    final l = kFeatureBadge[kind];
+    return l == null ? null : next(l);
+  }
+}
+
 /// Row id prefixes, so an event can be routed without ambiguity. Layer names
 /// are arbitrary user text, hence the separators.
 const String kIdLayer = 'ly:';
@@ -404,11 +473,41 @@ List<GlassRow> buildBrowserRows(
   bool collapsed = false,
   String? hoverId,
 }) {
-  final rows = _buildRows(app, expanded: expanded, dragEop: dragEop);
+  final rows = _spaceFolders(_buildRows(app, expanded: expanded, dragEop: dragEop));
   return [
     for (final r in rows)
       (collapsed ? r.compact() : r).hover(hoverId != null && r.id == hoverId)
   ];
+}
+
+/// M361 — a gap where a folder BEGINS and where one ENDS.
+///
+///   "there should be spacing when a folder ends or starts"
+///
+/// The wide panel says this with indentation. The retracted one cannot —
+/// [GlassRow.compact] takes the depth away, because a 34 pt column has no room
+/// to indent in — so a part's timeline ran straight into the seven rows of its
+/// Origin folder as one undifferentiated stack of glyphs. A gap is the only
+/// grouping left when the words and the indentation have both gone.
+///
+/// Two rules, and the second is the one that is easy to forget: a gap above
+/// every folder row (a folder STARTS), and a gap above the first row that
+/// comes back OUT to a shallower depth (a folder ENDED). Without the second,
+/// the last child of a folder and the next sibling of the folder itself are
+/// flush against each other, which reads as if the child belonged to the
+/// timeline.
+///
+/// Never above the first row: a gap at the very top of the panel is not a
+/// separation from anything, it is a misalignment.
+List<GlassRow> _spaceFolders(List<GlassRow> rows) {
+  final out = <GlassRow>[];
+  for (var i = 0; i < rows.length; i++) {
+    final r = rows[i];
+    final starts = r.tint == 'folder';
+    final ends = i > 0 && r.depth < rows[i - 1].depth;
+    out.add(i > 0 && (starts || ends) ? r.spaced() : r);
+  }
+  return out;
 }
 
 /// The work-feature rows of a document, paired with the `seq` the caller
@@ -430,6 +529,10 @@ List<(int, GlassRow)> workFeatureRows(
   required List<WorkPoint> points,
   bool inAssembly = false,
   int depth = 1,
+  // M361 — the panel's letters. Optional so the assembly's own call site and
+  // every existing test keep working unbadged; a null counter simply means no
+  // badge, which is what a row that is never retracted wants.
+  BadgeCounter? badges,
 }) =>
     <(int, GlassRow)>[
       for (final w in planes)
@@ -437,6 +540,7 @@ List<(int, GlassRow)> workFeatureRows(
           w.seq,
           GlassRow(
             id: '$kIdWorkPlane${w.seq}',
+            badge: badges?.next(kBadgeWorkPlane),
             label: w.name,
             symbol: 'squareshape.dashed.squareshape',
             // M247 — red when the last re-solve could not place it: a work
@@ -457,6 +561,7 @@ List<(int, GlassRow)> workFeatureRows(
           a.seq,
           GlassRow(
             id: '$kIdWorkAxis${a.seq}',
+            badge: badges?.next(kBadgeWorkAxis),
             label: a.name,
             symbol: 'line.diagonal',
             tint: workFeatureError(a) != null ? 'red' : 'blue',
@@ -473,6 +578,7 @@ List<(int, GlassRow)> workFeatureRows(
           pt.seq,
           GlassRow(
             id: '$kIdWorkPoint${pt.seq}',
+            badge: badges?.next(kBadgeWorkPoint),
             label: pt.name,
             symbol: pt.grounded ? 'pin.fill' : 'smallcircle.filled.circle',
             tint: workFeatureError(pt) != null ? 'red' : 'blue',
@@ -501,6 +607,10 @@ List<GlassRow> _buildRows(
   int? dragEop,
 }) {
   final rows = <GlassRow>[];
+  // M361 — one counter per document, so the numbers are the ones you would
+  // count off the panel and a second document opened beside this one starts
+  // again at 1.
+  final badges = BadgeCounter();
   final part = app.activeChild == null ? app.currentPart : null;
   final asm = app.currentAssembly;
   final s = app.current;
@@ -640,7 +750,8 @@ List<GlassRow> _buildRows(
         planes: asm.workPlanes,
         axes: asm.workAxes,
         points: asm.workPoints,
-        inAssembly: true)) {
+        inAssembly: true,
+        badges: badges)) {
       rows.add(row);
     }
     return rows;
@@ -757,7 +868,8 @@ List<GlassRow> _buildRows(
     final work = workFeatureRows(app,
         planes: part.workPlanes,
         axes: part.workAxes,
-        points: part.workPoints);
+        points: part.workPoints,
+        badges: badges);
     var nextPlane = 0;
     void planesBefore(int seq) {
       while (nextPlane < work.length && work[nextPlane].$1 < seq) {
@@ -784,6 +896,7 @@ List<GlassRow> _buildRows(
         rows.add(GlassRow(
           id: '$kIdFeature${f.name}',
           label: f.name,
+          badge: badges.feature(f.kind),
           symbol: f.computeError != null
               ? 'exclamationmark.triangle'
               // M255 — a DERIVED body is a link to another document, and the
@@ -849,6 +962,7 @@ List<GlassRow> _buildRows(
         rows.add(GlassRow(
           id: '$kIdSketch${cs.model.name}',
           label: cs.model.name,
+          badge: badges.next(kBadgeSketch),
           // A SHARED sketch is marked, as Inventor marks it — link, because
           // that is what sharing means here.
           symbol: n.sharedCopy ? 'link' : 'square.on.square',

@@ -87,6 +87,16 @@ class RibbonMetrics {
   /// inside the panel's 20 pt of padding — 76 clears that with room, and the
   /// rail is less than half of what it was.
   static const double railWidthNamed = 168;
+  /// 46: ONE [compactCell] column inside the 4 pt a side [panelPad] gives a
+  /// nameless panel, plus two points so a rounding error is not an overflow.
+  ///
+  /// M360 — "they should be under each other not next to each other until
+  /// there's not enough space." One column is the shape a rail wants: a strip
+  /// of commands you read down, half the width of two. It is what the rail
+  /// uses whenever the whole ribbon fits the screen at that width, which
+  /// [RibbonRail] decides by asking the content itself.
+  static const double railWidthCompact1 = 46;
+
   /// 84: a compact rail is TWO [compactCell] columns and their [compactGap]
   /// (74) inside the 4 pt a side that [panelPad] gives a nameless panel (8),
   /// which is 82 — plus two points so a rounding error is not an overflow.
@@ -96,8 +106,11 @@ class RibbonMetrics {
   /// were smaller than these.
   static const double railWidthCompact = 84;
 
-  static double get railWidth =>
-      RibbonLabels.on ? railWidthNamed : railWidthCompact;
+  static double get railWidth => RibbonLabels.on
+      ? railWidthNamed
+      : (RibbonRail.columns.value == 1
+          ? railWidthCompact1
+          : railWidthCompact);
 
   /// Gap between the band and whatever floats beside it. Kept because the
   /// floating panels still space themselves off each other by it.
@@ -291,4 +304,54 @@ class RibbonBleed {
 
   @visibleForTesting
   static void resetForTest() => inset.value = EdgeInsets.zero;
+}
+
+/// M360 — how many columns of cells a compact rail is wide.
+///
+///   "They should be under each other not next to each other until there's not
+///    enough space."
+///
+/// One column is what a rail wants to be: a strip of commands you read down,
+/// half the width of two. Two is what it has to be when one would not fit the
+/// screen — the full sketch ribbon is 33 cells and eight panels, which stacked
+/// singly is some 1300 points against an iPad's 834.
+///
+/// WHY THIS IS A MEASUREMENT AND NOT A COUNT. The obvious version adds the
+/// cells up and multiplies, and it is wrong in the way estimates are wrong:
+/// the panel padding, the separators and the overflow strips are all in that
+/// sum, and the first of them to change silently makes the rule off by a row.
+/// So the content is ASKED. Every compact panel lays its cells out in a Wrap,
+/// and a Wrap can say how tall it would be at any width — so the question
+/// "how tall is this ribbon in one column" is `getMaxIntrinsicHeight` at one
+/// cell's width, answered exactly, by the same widgets that will draw it.
+///
+/// AND WHY THAT CANNOT OSCILLATE. The measurement is taken at a FIXED width —
+/// one column's — whatever the rail is currently doing. It is therefore the
+/// same number in both states, so the decision made from it is stable. A
+/// measurement of the CURRENT layout would flip: one column overflows, so go
+/// to two, which fits, so go back to one, for ever.
+///
+/// The published value lands a frame after the layout that measured it (see
+/// [RibbonBleed] for why a notifier cannot fire mid-layout), which is one
+/// frame of the old rail width after opening a document of a different size.
+class RibbonRail {
+  RibbonRail._();
+
+  static final ValueNotifier<int> columns = ValueNotifier<int>(2);
+
+  static void publish(int v) {
+    if (columns.value == v) return;
+    final b = WidgetsBinding.instance;
+    if (b.schedulerPhase == SchedulerPhase.idle ||
+        b.schedulerPhase == SchedulerPhase.postFrameCallbacks) {
+      columns.value = v;
+      return;
+    }
+    b.addPostFrameCallback((_) {
+      if (columns.value != v) columns.value = v;
+    });
+  }
+
+  @visibleForTesting
+  static void resetForTest() => columns.value = 2;
 }

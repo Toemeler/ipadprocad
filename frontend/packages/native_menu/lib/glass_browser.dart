@@ -54,6 +54,26 @@ class GlassRow {
   /// 'blue' | 'red' | null.
   final String? tint;
 
+  /// M361 — a letter and an ordinal, drawn small in the glyph's corner:
+  /// "E2", "R1", "W3".
+  ///
+  /// The retracted panel is a column of pictures with no words anywhere near
+  /// them, and a part with three extrusions in it draws the same cube three
+  /// times. The badge is what lets those three rows tell each other apart
+  /// without opening the panel, which is the whole job the retracted column
+  /// has ("E for extrude and a number. E2, E3 and so on or r for revolve").
+  /// Null on a row that is not a numbered feature — a folder, an origin entry,
+  /// the End of Part marker.
+  final String? badge;
+
+  /// M361 — leave a gap ABOVE this row.
+  ///
+  /// Set where a folder begins and where one ends. Retracted, the tree has no
+  /// indentation left to say that with ([compact] takes the depth away), so
+  /// without it a part's timeline and the contents of its Origin folder are
+  /// one undifferentiated column of glyphs.
+  final bool gapBefore;
+
   /// Context menu, as sections of items.
   final List<List<GlassMenuItem>> menu;
 
@@ -72,6 +92,8 @@ class GlassRow {
     this.hovered = false,
     this.isEop = false,
     this.tint,
+    this.badge,
+    this.gapBefore = false,
     this.menu = const [],
   }) : title = title ?? label;
 
@@ -104,6 +126,11 @@ class GlassRow {
         hovered: hovered,
         isEop: isEop,
         tint: tint,
+        // M361 — the badge and the gap are the two things retracting must
+        // KEEP rather than strip: they are what a column of unlabelled glyphs
+        // has instead of the words and the indentation it just lost.
+        badge: badge,
+        gapBefore: gapBefore,
         menu: menu,
       );
 
@@ -125,6 +152,31 @@ class GlassRow {
           hovered: on,
           isEop: isEop,
           tint: tint,
+          badge: badge,
+          gapBefore: gapBefore,
+          menu: menu,
+        );
+
+  /// M361 — the same row, with a gap above it. See `_spaceFolders`.
+  GlassRow spaced() => gapBefore
+      ? this
+      : GlassRow(
+          id: id,
+          label: label,
+          title: title,
+          depth: depth,
+          symbol: symbol,
+          hasEye: hasEye,
+          eyeOn: eyeOn,
+          dim: dim,
+          expandable: expandable,
+          expanded: expanded,
+          selected: selected,
+          hovered: hovered,
+          isEop: isEop,
+          tint: tint,
+          badge: badge,
+          gapBefore: true,
           menu: menu,
         );
 
@@ -143,6 +195,8 @@ class GlassRow {
         'hovered': hovered,
         'isEop': isEop,
         if (tint != null) 'tint': tint,
+        if (badge != null) 'badge': badge,
+        if (gapBefore) 'gapBefore': true,
         'menu': [
           for (final g in menu)
             if (g.isNotEmpty) [for (final i in g) i.toMap()]

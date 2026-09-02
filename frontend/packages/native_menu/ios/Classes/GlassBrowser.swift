@@ -36,6 +36,12 @@ struct BrowserRow {
     let hovered: Bool       // M242 — pointer prehighlight
     let isEop: Bool
     let tint: String?       // "blue" | "red" | nil
+    // M361 — "E2", "R1", "W3": the kind and which one it is, drawn small in
+    // the glyph's corner. Retracted there are no labels, so three extrusions
+    // draw the same cube three times and nothing tells them apart.
+    let badge: String?
+    // M361 — leave a gap above this row: a folder starts or one has ended.
+    let gapBefore: Bool
     let menu: [[[String: Any]]]  // sections of items: {id,title,symbol,destructive}
 
     init?(_ m: [String: Any]) {
@@ -55,6 +61,8 @@ struct BrowserRow {
         hovered = (m["hovered"] as? NSNumber)?.boolValue ?? false
         isEop = (m["isEop"] as? NSNumber)?.boolValue ?? false
         tint = m["tint"] as? String
+        badge = m["badge"] as? String
+        gapBefore = (m["gapBefore"] as? NSNumber)?.boolValue ?? false
         menu = (m["menu"] as? [[[String: Any]]]) ?? []
     }
 }
@@ -361,6 +369,66 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
     // M129 — feature-tree palette, matched to the reference screenshots.
     /// Warm amber of a filled container folder.
     static let folderAmber = UIColor(red: 0.88, green: 0.76, blue: 0.44, alpha: 1)
+
+    /// M361 — the space left above a row where a folder starts or one ends.
+    ///
+    /// Six, which is three rows' worth of the 2 pt margins these cells
+    /// otherwise use: enough to read as a break in a column of 20 pt glyphs,
+    /// small enough that the Origin folder's seven entries still fit on a
+    /// screen beside a timeline.
+    static let folderGap: CGFloat = 6
+
+    /// M361 — one glyph with its badge drawn into the corner.
+    ///
+    /// The badge is TEXT ON A FILLED PLATE rather than bare text, and that is
+    /// not decoration: the glyphs behind it are line art with holes in them,
+    /// and an "E2" laid straight over a cube's edges is unreadable at 7 pt.
+    /// The plate is the panel's own ground, so it reads as a hole punched
+    /// through the drawing.
+    ///
+    /// Drawn INSIDE the reserved box rather than hanging off it, which is a
+    /// constraint the configuration imposes rather than a taste: the row caps
+    /// the image at `maximumSize`, so an image drawn larger to make room for
+    /// an overhanging badge is scaled back down — badge, glyph and all — and
+    /// the badged rows come out with visibly smaller glyphs than their
+    /// neighbours. The bottom-trailing corner is where every SF Symbol this
+    /// tree uses has the least ink.
+    ///
+    /// Returns an .alwaysOriginal image: the colours are baked in here, so
+    /// whatever tint the configuration carries no longer applies to it. The
+    /// caller passes the colour it would have tinted with.
+    static func badged(_ base: UIImage, _ text: String,
+                       glyph: UIColor, box: CGSize) -> UIImage {
+        let canvas = CGSize(width: max(box.width, base.size.width),
+                            height: max(box.height, base.size.height))
+        let font = UIFont.systemFont(ofSize: max(6, canvas.height * 0.38),
+                                     weight: .bold)
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: UIColor.label,
+        ]
+        let textSize = (text as NSString).size(withAttributes: attrs)
+        let padX: CGFloat = 1
+        let plate = CGSize(width: min(canvas.width, textSize.width + padX * 2),
+                           height: min(canvas.height, textSize.height))
+        let renderer = UIGraphicsImageRenderer(size: canvas)
+        return renderer.image { _ in
+            // The symbol centred in the box, exactly where an unbadged glyph
+            // sits, so a badge never nudges the column out of line.
+            base.withTintColor(glyph, renderingMode: .alwaysOriginal)
+                .draw(at: CGPoint(x: (canvas.width - base.size.width) / 2,
+                                  y: (canvas.height - base.size.height) / 2))
+            let plateRect = CGRect(x: canvas.width - plate.width,
+                                   y: canvas.height - plate.height,
+                                   width: plate.width, height: plate.height)
+            UIColor.systemBackground.withAlphaComponent(0.9).setFill()
+            UIBezierPath(roundedRect: plateRect,
+                         cornerRadius: plate.height * 0.25).fill()
+            (text as NSString).draw(
+                at: CGPoint(x: plateRect.minX + padX, y: plateRect.minY),
+                withAttributes: attrs)
+        }.withRenderingMode(.alwaysOriginal)
+    }
     /// One indent step, used by the cell's `indentationWidth`.
     static let indentStep: CGFloat = 11
 
@@ -514,14 +582,49 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
                     UIImage.SymbolConfiguration(
                         pointSize: big ? 15 : 11, weight: .regular)
             }
+            let glyphColor: UIColor
             switch r.tint {
-            case "blue": c.imageProperties.tintColor = .systemBlue
-            case "red": c.imageProperties.tintColor = .systemRed
+            case "blue": glyphColor = .systemBlue
+            case "red": glyphColor = .systemRed
             // M129 — Inventor's container folders: a warm filled amber that
             // reads as a FOLDER at 11 pt, where a grey outline just read as
             // another feature glyph.
-            case "folder": c.imageProperties.tintColor = GlassBrowserView.folderAmber
-            default: c.imageProperties.tintColor = r.dim ? .tertiaryLabel : .secondaryLabel
+            case "folder": glyphColor = GlassBrowserView.folderAmber
+            default: glyphColor = r.dim ? .tertiaryLabel : .secondaryLabel
+            }
+            c.imageProperties.tintColor = glyphColor
+            // M361 — THE BADGE, drawn INTO the glyph.
+            //
+            // A composed image rather than a label subview, and the reason is
+            // cell reuse: a UIListContentConfiguration owns its image view, so
+            // a second view added beside it has to be found, positioned and
+            // torn down again on every dequeue — three chances to leave one
+            // behind on the wrong row. An image is a value, and a value
+            // configured onto a reused cell simply replaces the last one.
+            //
+            // The composed image is .alwaysOriginal, so the tint above no
+            // longer applies to it and the colour is baked in here instead —
+            // hence glyphColor being computed before the image rather than
+            // assigned straight onto the configuration.
+            if let badge = r.badge,
+               let base = UIImage(
+                systemName: r.symbol,
+                withConfiguration: c.imageProperties.preferredSymbolConfiguration) {
+                let size = c.imageProperties.reservedLayoutSize
+                let img = GlassBrowserView.badged(
+                    base, badge, glyph: glyphColor, box: size)
+                c.image = img
+                // The composite is the reserved box, so the cap has to be the
+                // box too: left at the symbol's own 16/18 it would scale the
+                // whole thing down and the badged rows would draw smaller
+                // glyphs than their neighbours.
+                c.imageProperties.maximumSize = img.size
+            }
+            // M361 — and the gap where a folder starts or ends. The wide panel
+            // says that with indentation; the retracted one has none to say it
+            // with, so it says it with space.
+            if r.gapBefore {
+                c.directionalLayoutMargins.top += GlassBrowserView.folderGap
             }
             // Indentation is the tree: UIKit owns it, no manual padding.
             self.settle {

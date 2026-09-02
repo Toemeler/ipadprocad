@@ -6,6 +6,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import '../icon_preview.dart';
 import 'package:native_menu/native_menu.dart' show NativeMenu, NativeMenuItem;
 
@@ -691,7 +692,18 @@ class _RibbonState extends State<Ribbon> {
           ? ConstrainedBox(
               constraints: BoxConstraints(
                   minHeight: bc.hasBoundedHeight ? bc.maxHeight : 0),
-              child: Center(child: _railBody(app)),
+              // M360 — and the rail asks its own content whether it could
+              // stand in ONE column. Inside the Center, so what is measured is
+              // the panels rather than the floor above, which would always
+              // "fit" by construction. See [RibbonRail].
+              child: Center(
+                child: RibbonLabels.on
+                    ? _railBody(app)
+                    : _RailFit(
+                        available: bc.hasBoundedHeight ? bc.maxHeight : 0,
+                        child: _railBody(app),
+                      ),
+              ),
             )
           : _bandBody(app);
       return SingleChildScrollView(
@@ -2957,6 +2969,15 @@ class _ConGrid extends StatelessWidget {
     // is centred under the one above it, so a panel of constraints reads as a
     // block rather than as a shape with a corner missing.
     //
+    // M360 — and in a compact RAIL it hands its cells to the same [_wrap]
+    // every other panel uses. Two reasons, and the second is the load-bearing
+    // one: the rail's width is chosen by asking the content how tall it would
+    // be in one column, and only a Wrap can answer that. A hand-laid grid of
+    // rows reports the height of the row count it was BUILT with, which makes
+    // the measurement depend on the answer.
+    if (!RibbonLabels.on && RibbonDock.isVertical) {
+      return _wrap([for (final c in consOf(L.of(context))) _cell(c)]);
+    }
     // Named mode keeps its blank: three rows of four with a hole in the last
     // is what the labelled grid has looked like since M10, and the words on
     // the panels beside it are what that grid lines up against.
@@ -3768,5 +3789,58 @@ class _DisplayModeChipState extends State<_DisplayModeChip> {
         ),
       ),
     );
+  }
+}
+
+/// M360 — the rail, asking its own panels whether they would fit in ONE
+/// column, and publishing the answer.
+///
+/// A render object because the question is a layout question: `Wrap` can say
+/// how tall it would be at a given width, and that is exactly what
+/// "under each other" means — every cell on its own run, at one cell's width.
+/// The query runs at that fixed width whatever the rail is currently drawing,
+/// which is what makes the answer the same in both states and therefore
+/// stable; see [RibbonRail] for the oscillation this avoids.
+///
+/// [available] is passed in rather than read off `constraints`: this sits
+/// inside the scroll view, so its own maximum height is unbounded. The
+/// LayoutBuilder outside the scroll view is where the screen's height is
+/// known.
+class _RailFit extends SingleChildRenderObjectWidget {
+  final double available;
+  const _RailFit({required this.available, required Widget child})
+      : super(child: child);
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderRailFit(available);
+
+  @override
+  void updateRenderObject(BuildContext context, _RenderRailFit r) =>
+      r.available = available;
+}
+
+class _RenderRailFit extends RenderProxyBox {
+  double _available;
+  _RenderRailFit(this._available);
+
+  set available(double v) {
+    if (v == _available) return;
+    _available = v;
+    markNeedsLayout();
+  }
+
+  @override
+  void performLayout() {
+    final c = child;
+    if (c == null || _available <= 0) {
+      super.performLayout();
+      return;
+    }
+    // One column's worth of content: a single cell, which is what a panel
+    // offers inside RibbonMetrics.railWidthCompact1.
+    final one = c.getMaxIntrinsicHeight(RibbonMetrics.compactCell);
+    RibbonRail.publish(one <= _available ? 1 : 2);
+    super.performLayout();
   }
 }

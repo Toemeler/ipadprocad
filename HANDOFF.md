@@ -11909,3 +11909,120 @@ Rail-Symmetrie zunächst über ALLE Zellpositionen zu prüfen, geht auch bei
 linksbündigen Läufen durch — die zwei Spalten spiegeln sich ja gegenseitig,
 egal was in ihnen steht. Falsch war der KURZE Lauf, also muss der kurze Lauf
 gemessen werden: jede Reihe einzeln, ihre Mitte gegen die der Schiene.
+
+---
+
+## M360 — Die Schiene stapelt untereinander, bis der Platz ausgeht
+
+> „They should be under each other not next to each other until there's not
+> enough space."
+
+Eine Spalte ist die Form, die eine Schiene haben will: ein Streifen, den man
+hinunterliest, **46 pt** breit gegen die 84 von zweien. Möglich ist sie nicht
+immer — die volle Skizzenleiste sind 33 Zellen über acht Panels, einzeln
+gestapelt rund 1300 pt gegen die 834 eines iPads. Also ist die Regel ein
+**Passtest**, keine Vorliebe, und dasselbe Dokument beantwortet sie im Hoch-
+und im Querformat verschieden.
+
+| | quer (834 hoch) | hoch (1194 hoch) |
+|---|---|---|
+| Baugruppe | **1 Spalte, 46 pt** | 1 Spalte, 46 pt |
+| Bauteil | 2 Spalten, 84 pt | **1 Spalte, 46 pt** |
+| Skizze | 2 Spalten, 84 pt | 2 Spalten, 84 pt |
+
+### Wie gemessen wird — das ist der ganze Meilenstein
+
+Die naheliegende Fassung zählt die Zellen und multipliziert, und sie ist falsch,
+wie Schätzungen falsch sind: Panel-Ränder, Trenner und Überlaufstreifen stecken
+alle in dieser Summe, und der erste davon, der sich ändert, macht die Regel
+stillschweigend um eine Zeile daneben.
+
+Also wird der **Inhalt gefragt**. Jedes kompakte Panel legt seine Zellen in ein
+`Wrap`, und ein `Wrap` kann sagen, wie hoch es bei einer beliebigen Breite
+wäre. Die Frage „wie hoch ist diese Leiste in einer Spalte" ist damit
+`getMaxIntrinsicHeight` bei der Breite EINER Zelle — exakt beantwortet, von
+genau den Widgets, die es zeichnen werden.
+
+**Und warum das nicht schwingen kann.** Gemessen wird bei einer FESTEN Breite —
+der einer Spalte — egal was die Schiene gerade tut. Die Zahl ist deshalb in
+beiden Zuständen dieselbe, die Entscheidung daraus also stabil. Eine Messung
+des AKTUELLEN Layouts würde ewig kippen: eine Spalte läuft über, also zwei, die
+passen, also eine.
+
+Damit das gilt, gibt das **Bedingungsraster** in einer kompakten Schiene seine
+Zellen an dasselbe `_wrap` wie jedes andere Panel. Ein handgelegtes Raster
+meldet die Höhe der Zeilenzahl, mit der es GEBAUT wurde — womit die Messung vom
+Ergebnis abhinge.
+
+Der veröffentlichte Wert landet einen Frame nach dem Layout, das ihn gemessen
+hat (siehe `RibbonBleed`): ein Frame alte Schienenbreite nach dem Öffnen eines
+anders grossen Dokuments.
+
+`test/m360_rail_columns_test.dart`, 8 Fälle — darunter derselbe Bauteil in
+Hoch- und Querformat (nichts am Dokument ändert sich, nur der Platz), und zwei
+Fälle, die genau das Schwingen ausschliessen: sechs Frames hintereinander
+dieselbe Antwort, und dieselbe Antwort aus beiden Startwerten.
+
+---
+
+## M361 — Der eingeklappte Browser sagt, WELCHE Extrusion jeder Würfel ist
+
+> „the icons in the retracted Modell browser should have a letter small on a
+> corner of the icon. E for extrude and a number. E2, E3 and so on or r for
+> revolve. And there should be spacing when a folder ends or starts. Also W for
+> workplane"
+
+Eingeklappt ist das Panel eine Spalte aus Bildern und sonst nichts: M200 nimmt
+die Beschriftungen, M204 das Aufklappkästchen, `compact()` die Einrückung. Für
+eine 34-pt-Spalte ist das der richtige Handel, aber er kostet die zwei Dinge,
+mit denen ein Baum sagt, was er enthält — die **Namen** und die **Struktur**.
+Drei Extrusionen zeichnen dreimal denselben Würfel, und die sieben Zeilen des
+Ursprung-Ordners laufen als ein einziger Stapel Glyphen aus der Zeitleiste
+weiter.
+
+### Die Abzeichen
+
+Ein Buchstabe für die Art, eine Zahl für welche davon: **E1, E2, R1, W3, S1**.
+
+Die Buchstaben sind **englische** Anfangsbuchstaben — so wurden sie verlangt
+(E, R, W), und die deutschen kollidieren hoffnungslos: Extrusion/Erhebung,
+Bohrung/Abrundung, Arbeitsebene/Arbeitsachse/Arbeitspunkt/Ableiten. Wo zwei
+englische Initialen kollidieren, nimmt der seltenere Befehl **zwei** Buchstaben
+statt eines willkürlichen einzelnen: „Sw2" ist lesbar, „U2" für ein Sweep ist
+ein Rätsel.
+
+Nummeriert wird **pro Buchstabe und in Baumreihenfolge** — es ist die Ordnungs-
+zahl, die man am Panel abzählen würde, nicht die `seq` des Features, die alle
+Arten zusammen zählt und einem Bauteil mit zwei Extrusionen E1 und E4 gäbe.
+Ein Zähler **pro Aufbau**, nicht global: ein zweites danebengeöffnetes Bauteil
+beginnt wieder bei 1, und ein Neuaufbau (jede AppState-Meldung) nummeriert das
+Panel nicht um, während man arbeitet.
+
+### Die Abstände
+
+Ein Spalt, wo ein Ordner **beginnt**, und einer, wo einer **endet**. Die zweite
+Hälfte ist die, die man vergisst: ohne sie stehen das letzte Kind eines Ordners
+und der nächste Geschwisterknoten des Ordners bündig, was sich liest, als
+gehöre das Kind in die Zeitleiste. Nie über der ersten Zeile — ein Spalt am
+Kopf des Panels trennt von nichts.
+
+### Was hier NICHT geprüft werden konnte
+
+Gezeichnet wird das Abzeichen in **Swift**, in die Glyphe hinein
+(`GlassBrowser.badged`) — als komponiertes Bild und nicht als zusätzliche
+Subview, weil eine `UIListContentConfiguration` ihre Bildansicht selbst besitzt
+und eine zweite Ansicht daneben bei jeder Zellwiederverwendung gefunden,
+platziert und wieder abgeräumt werden müsste. Zwei Fallen stecken schon in
+dieser Zeichnung, beide im Kommentar festgehalten: das Bild ist
+`.alwaysOriginal`, die Tönung wird also hier eingebrannt statt von der
+Konfiguration gesetzt; und es wird INNERHALB der reservierten Box gezeichnet,
+weil ein grösseres Bild von `maximumSize` wieder heruntergerechnet würde —
+Abzeichen, Glyphe und alles — und die beschrifteten Zeilen dann sichtbar
+kleinere Symbole hätten als ihre Nachbarn.
+
+Kompiliert werden konnte diese Datei hier nicht (kein Xcode). Was prüfbar ist
+und geprüft wird, ist jede Entscheidung, die dorthin gelangt: welche Zeilen ein
+Abzeichen tragen, was darauf steht, und wo die Spalten fallen.
+
+`test/m361_browser_badges_test.dart`, 14 Fälle. Gegengeprüft: ohne die
+Abzeichenzuweisung und ohne `_spaceFolders` fallen acht davon.
