@@ -75,14 +75,24 @@ import '../part_render.dart' show Cam3;
 import '../render_engine.dart';
 import '../theme.dart';
 
-/// How long the camera has to hold still before the image is re-rendered at
-/// full resolution.
+/// How long the camera has to hold still before the path tracer takes over
+/// from the RealityKit surface.
 ///
-/// Long enough that letting go of an orbit does not immediately commit the
-/// device to four times the pixels you are about to invalidate; short enough
-/// that stopping to look at something sharpens it before you have finished
-/// looking.
-const Duration kCyclesSettle = Duration(milliseconds: 350);
+/// M354 — SHORTER, BECAUSE IT IS NOW THE LATENCY OF THE WHOLE FEATURE. It used
+/// to decide only which SIZE was rendered, with a path-traced image on screen
+/// either way. It now decides when the path-traced image appears at all, so
+/// every millisecond of it is a millisecond of "I let go and nothing
+/// happened".
+///
+/// The tension is real in both directions and this is a judgement, not a
+/// measurement. Too short and the pauses inside a slow drag each start a
+/// full-resolution render — which parking then cancels cheaply, but which
+/// still makes Cycles resize its buffers to a couple of megapixels and back.
+/// Too long and letting go of the model feels like nothing is happening.
+/// 250 ms is above the pauses inside a continuous gesture, which are tens of
+/// milliseconds, and below the point where a person decides the app has not
+/// noticed them.
+const Duration kCyclesSettle = Duration(milliseconds: 250);
 
 /// Draws the path-traced image of the current document over the viewport, and
 /// nothing at all when there is no renderer or the mode is not rendered.
@@ -144,6 +154,18 @@ class _CyclesLayerState extends State<CyclesLayer> {
   /// rather than being asked of the session — which cannot answer, because by
   /// the time it has been offered the key it has already adopted it.
   String _lastCamera = '';
+
+  /// The viewport size the last build saw.
+  ///
+  /// M354 — A RESIZE IS A CAMERA MOVE FOR THIS PURPOSE, and leaving it out
+  /// would have been worse than the orbit ever was. Rotating the iPad, or
+  /// dragging a panel edge, changes this on every frame of the animation, and
+  /// a settled render follows the viewport 1:1 — so without this each of those
+  /// frames pushes a new full-resolution view and makes Cycles reallocate its
+  /// buffers for a couple of megapixels, sixty times a second, while the
+  /// compositor is trying to animate. Treated like any other move: park, show
+  /// the surface, and render once it has stopped.
+  String _lastSize = '';
 
   /// Reported on EVERY build rather than on changes, and the receiver is
   /// expected to drop a repeat.
@@ -268,15 +290,43 @@ class _CyclesLayerState extends State<CyclesLayer> {
       return const SizedBox.shrink();
     }
 
+    // Rendered mode being ON is a different question from whether a render can
+    // START. On a cold install the Metal kernels are still being compiled from
+    // source (M320), and a render begun into that blocks for the whole compile
+    // with nothing on screen. So the mode decides what to SHOW and the warm-up
+    // decides whether to RENDER.
+    //
+    // COMPUTED BEFORE THE CAMERA BLOCK, and M354 is why. [_moving] is cleared
+    // by a timer, and a timer that is cancelled never clears it. Leaving the
+    // mode switch below the budget meant that turning rendered mode off in the
+    // middle of a drag cancelled the settle with [_moving] still true — and
+    // since the tracer is parked for as long as that flag is set, turning the
+    // mode back on without touching the camera left it parked forever: the
+    // surface on screen, the mode on, and nothing ever rendering. It healed
+    // only on the next camera move, which is not a state a viewport is allowed
+    // to have. The flag is cleared with the timer, in one place, before
+    // anything reads it.
+    final warmup = CyclesWarmup.instance;
+    final mode = cyclesWanted(app);
+    final wanted = mode && warmup.ready;
+    if (!wanted) {
+      _settle?.cancel();
+      _settle = null;
+      _moving = false;
+    }
+
     final camera = cyclesCameraKey(widget.cam);
+    final size = '${widget.size.width.round()}x${widget.size.height.round()}';
     if (_lastCamera.isEmpty) {
-      // The first build is not a camera MOVE. Arming the settle here would
-      // hold the renderer off for [kCyclesSettle] every time rendered mode is
-      // switched on, for a camera that is not going anywhere.
+      // The first build is not a MOVE. Arming the settle here would hold the
+      // renderer off for [kCyclesSettle] every time rendered mode is switched
+      // on, for a camera that is not going anywhere.
       _lastCamera = camera;
+      _lastSize = size;
       _parkCamera = camera;
-    } else if (camera != _lastCamera) {
+    } else if (camera != _lastCamera || size != _lastSize) {
       _lastCamera = camera;
+      _lastSize = size;
       _armSettle();
     }
 
@@ -317,14 +367,6 @@ class _CyclesLayerState extends State<CyclesLayer> {
       wantH = budget.height;
       wantSamples = budget.samples;
     }
-    // Rendered mode being ON is a different question from whether a render can
-    // START. On a cold install the Metal kernels are still being compiled from
-    // source (M320), and a render begun into that blocks for the whole compile
-    // with nothing on screen. So the mode decides what to SHOW and the warm-up
-    // decides whether to RENDER.
-    final warmup = CyclesWarmup.instance;
-    final mode = cyclesWanted(app);
-    final wanted = mode && warmup.ready;
     final changed = session.offer(
       wanted: wanted,
       scene: cyclesSceneKey(app, widget.cam),
@@ -347,10 +389,14 @@ class _CyclesLayerState extends State<CyclesLayer> {
       _decodedSerial = -1;
       _decodedCamera = '';
     }
-    if (!wanted) _settle?.cancel();
-
     final img = session.render.image;
-    if (img != null && _decodedSerial != _serial) _decode(img, _serial);
+    // NOT WHILE MOVING. A frame that lands during a drag is the parked
+    // thumbnail, which is never drawn — decoding it would upload a texture
+    // nobody sees and throw away the one from before the drag, which is the
+    // only thing that could have been reused if the camera comes back.
+    if (img != null && !_moving && _decodedSerial != _serial) {
+      _decode(img, _serial);
+    }
 
     // M354 — WHEN THE PATH-TRACED IMAGE IS ON SCREEN AT ALL.
     //

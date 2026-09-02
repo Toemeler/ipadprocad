@@ -183,6 +183,57 @@ void main() {
     });
   });
 
+  group('the ways parking can latch', () {
+    // Both of these are states a viewport is not allowed to have: the mode is
+    // on, the surface is up, and nothing will ever render. Neither is reachable
+    // from the session alone — they live in the layer's flag — so what is
+    // pinned here is the arithmetic the layer depends on, and the layer's own
+    // comment carries the rest.
+
+    test('a parked request and a settled one are never the same key', () {
+      // If they collided, coming out of a park would push nothing and the
+      // tracer would sit on the thumbnail forever.
+      final (w, h) = cyclesImageSize(897, 774, 2.0);
+      expect((kCyclesParkedSide, kCyclesParkedSide) == (w, h), isFalse);
+      expect(1 == kCyclesSamples, isFalse);
+    });
+
+    test('a park followed by the SAME camera still re-renders it', () {
+      // Letting go without having moved anywhere — a tap that registered as a
+      // drag, or a gesture that returned to where it started. The size and the
+      // sample target changed even though the camera did not, so the key
+      // changed, so the standstill is pushed. Without that this would be the
+      // commonest way to end up looking at a surface that never renders.
+      still('cam-a', 1794, 1548);
+      parked('cam-a');
+      still('cam-a', 1794, 1548);
+      expect(d.viewSamples, [kCyclesSamples, 1, kCyclesSamples]);
+      expect(d.viewSizes.last, (1794, 1548));
+    });
+  });
+
+  group('a resize is a move', () {
+    test('every frame of a rotation does not push a full-resolution view', () {
+      // Rotating the iPad changes the viewport size on every frame of the
+      // animation, and a settled render follows the viewport 1:1. Pushing each
+      // one would reallocate Cycles' buffers for a couple of megapixels sixty
+      // times a second while the compositor is animating. The layer arms the
+      // settle on a size change for exactly this reason; here is what that
+      // saves.
+      still('cam-a', 1794, 1548);
+      final before = d.viewSizes.length;
+      // The animation, parked throughout: one push, then nothing.
+      for (var i = 0; i < 40; i++) {
+        parked('cam-a');
+      }
+      expect(d.viewSizes.length, before + 1);
+      // And one full-resolution push when it lands on its final size.
+      still('cam-a', 1548, 1794);
+      expect(d.viewSizes.last, (1548, 1794));
+      expect(d.viewSizes.length, before + 2);
+    });
+  });
+
   group('the frame that is shown', () {
     test('a parked frame is not a picture of where the camera is now', () {
       // The layer will not draw it, and this is the fact it relies on: the
