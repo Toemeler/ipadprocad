@@ -1389,10 +1389,27 @@ jobs:
             # bundle" and "the HDRI is not in the repository" look identical
             # from the device and this is the only place that can tell them
             # apart.
+            #
+            # THE DIRECTORY IS MADE FIRST, AND THE COUNT ENDS IN `|| true`.
+            # Run 648 failed on exactly this line, and the failure is worth
+            # keeping written down because it is the empty case breaking the
+            # check that exists to prove the empty case is harmless.
+            #
+            # actions/upload-artifact DOES NOT UPLOAD EMPTY DIRECTORIES. This
+            # repository ships no assets, so `cycles-dist/assets` is empty when
+            # the Cycles job makes it, is therefore absent from the artifact,
+            # and is absent again after the download. `find` on a path that
+            # does not exist exits 1; this step runs `set -o pipefail` under
+            # `bash -e`, so the pipeline's 1 becomes the assignment's 1 and the
+            # step dies — after every check above it had passed.
+            #
+            # `|| true` is the idiom the rest of this step already uses, for
+            # the same reason, on QTMAIN, HITS and KBDBAR.
+            mkdir -p "$APP/cycles/assets"
             if [ -d "$GITHUB_WORKSPACE/cycles-dist/assets" ]; then
               rsync -a "$GITHUB_WORKSPACE/cycles-dist/assets/" "$APP/cycles/assets/"
             fi
-            NAST="$(find "$APP/cycles/assets" -type f 2>/dev/null | wc -l | tr -d ' ')"
+            NAST="$(find "$APP/cycles/assets" -type f | wc -l | tr -d ' ' || true)"
             echo "CYCLES ASSETS: ${NAST:-0} file(s) bundled$([ "${NAST:-0}" = 0 ] && echo ' (renders with the analytic rig — see backend/cycles/assets/README.md)')"
             bash "$GITHUB_WORKSPACE/ci/embed_cycles_dylibs.sh" \
               "$GITHUB_WORKSPACE/cycles-dist/dylib" "$APP"
