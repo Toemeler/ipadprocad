@@ -26,11 +26,16 @@
 //   reaches the renderer.
 import 'dart:typed_data';
 
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:prototype/app_state.dart';
 import 'package:prototype/cycles_live.dart';
 import 'package:prototype/cycles_render.dart';
 import 'package:prototype/cycles_session.dart';
 import 'package:prototype/cycles_view.dart';
+import 'package:prototype/part_model.dart' show PartCamera;
+import 'package:prototype/part_render.dart' show Cam3;
+import 'package:prototype/widgets/cycles_layer.dart';
 
 /// A driver that records what it was asked for. The session above it needs no
 /// renderer, no isolate and no GPU to be wrong in the ways this file checks.
@@ -223,6 +228,47 @@ void main() {
       expect(s.render.image!.samples, 12);
       expect(s.render.image!.done, isTrue);
       expect(s.render.phase, CyclesPhase.shown);
+    });
+  });
+
+  group('covering the RealityKit surface', () {
+    // The pause exists so the surface below stops rendering full-resolution
+    // frames nobody sees while a path-traced image is over it. Its one
+    // dangerous failure is the reverse: a surface left paused with nothing
+    // over it is a blank viewport, so the layer has to say "not covering"
+    // through every path it can leave by — including the one it takes on every
+    // host test and on every build with no renderer linked, which returns
+    // before it has looked at anything.
+    testWidgets('a layer with no renderer reports that it covers nothing',
+        (tester) async {
+      final seen = <bool>[];
+      await tester.pumpWidget(MaterialApp(
+        home: CyclesLayer(
+          app: AppState(),
+          cam: Cam3(PartCamera(), const Size(800, 600)),
+          size: const Size(800, 600),
+          onCover: seen.add,
+        ),
+      ));
+      expect(seen, isNotEmpty, reason: 'silence leaves the surface as it was');
+      expect(seen.every((v) => v == false), isTrue);
+    });
+
+    testWidgets('and says so again on the way out', (tester) async {
+      final seen = <bool>[];
+      Widget layer() => MaterialApp(
+            home: CyclesLayer(
+              app: AppState(),
+              cam: Cam3(PartCamera(), const Size(800, 600)),
+              size: const Size(800, 600),
+              onCover: seen.add,
+            ),
+          );
+      await tester.pumpWidget(layer());
+      seen.clear();
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+      expect(seen, [false],
+          reason: 'a widget that goes away must not leave the surface paused');
     });
   });
 

@@ -86,8 +86,54 @@ final class RealityPartView: NSObject, FlutterPlatformView {
         case "setCamera":
             RvPerf.time("rv.native.setCamera") { r.setCamera(args) }
             result(nil)
+        case "setPaused":
+            setPaused(args["paused"] as? Bool ?? false, r)
+            result(nil)
         default:
             result(FlutterMethodNotImplemented)
+        }
+    }
+
+    // M347 — STOP DRAWING WHILE SOMETHING ELSE OWNS THE PICTURE.
+    //
+    // In rendered mode with Cycles, a path-traced image covers this surface
+    // completely and every RealityKit frame underneath it is a full-resolution
+    // render nobody will ever see — on the same GPU the path tracer is already
+    // saturating, and the same one Flutter's compositor needs a slice of every
+    // eight milliseconds. It is the largest single piece of work in that
+    // contention that is pure waste.
+    //
+    // THE MECHANISM IS THE VIEW HIERARCHY, not a flag. RealityKit offers no
+    // public pause for a .nonAR ARView — `session.pause()` is AR-only — and
+    // `isHidden` is not documented to stop the render loop.
+    //
+    // Leaving the window IS documented, and this repository found it out the
+    // hard way three milestones before it needed it: the still renderer in
+    // RealityViewPlugin.swift parks its ARView in the key window at zero alpha
+    // precisely because "`ARView.snapshot` drives the real render loop; a view
+    // with no window never gets a frame and the snapshot comes back nil". That
+    // is the same sentence read from the other end. So the pause is
+    // `removeFromSuperview` and the resume is putting it back.
+    //
+    // WHAT IS DELIBERATELY NOT DONE: `isHidden`. A CAMetalLayer keeps its last
+    // presented drawable, so a detached ARView that comes back shows the frame
+    // it went away with until the next one lands — which on a resume is the
+    // right picture of the right model. Hiding it as well would throw that
+    // away and put the container's flat ground on screen instead.
+    //
+    // The scene, the overlays and the camera keep being applied while paused.
+    // They are scene-graph writes, not draw calls, and they are what makes the
+    // frame after a resume correct rather than a frame behind.
+    @available(iOS 15.0, *)
+    private func setPaused(_ want: Bool, _ r: PartRenderer) {
+        let v = r.view
+        if want {
+            guard v.superview != nil else { return }
+            v.removeFromSuperview()
+        } else {
+            guard v.superview == nil else { return }
+            v.frame = container.bounds
+            container.addSubview(v)
         }
     }
 

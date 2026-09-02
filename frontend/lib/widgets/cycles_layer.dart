@@ -76,11 +76,24 @@ const Duration kCyclesSettle = Duration(milliseconds: 350);
 /// nothing at all when there is no renderer or the mode is not rendered.
 class CyclesLayer extends StatefulWidget {
   const CyclesLayer({super.key, required this.app, required this.cam,
-      required this.size});
+      required this.size, this.onCover});
 
   final AppState app;
   final Cam3 cam;
   final Size size;
+
+  /// Called whenever this layer starts or stops COVERING the viewport.
+  ///
+  /// M347 — so the RealityKit surface underneath can stop drawing frames
+  /// nobody will see. It is reported from here rather than worked out by the
+  /// viewport because this is the only place that knows whether a texture
+  /// actually exists yet: [CyclesSession] has an image a frame before there is
+  /// anything decoded to draw with it, and a viewport acting on that would
+  /// take the surface down under a hole.
+  ///
+  /// Called on the frame the fact changes, and with false from dispose — a
+  /// surface left paused by a widget that has gone away is a blank viewport.
+  final void Function(bool covering)? onCover;
 
   @override
   State<CyclesLayer> createState() => _CyclesLayerState();
@@ -101,6 +114,16 @@ class _CyclesLayerState extends State<CyclesLayer> {
   /// rather than being asked of the session — which cannot answer, because by
   /// the time it has been offered the key it has already adopted it.
   String _lastCamera = '';
+
+  /// Reported on EVERY build rather than on changes, and the receiver is
+  /// expected to drop a repeat.
+  ///
+  /// De-duplicating here would be one line and would break the case that
+  /// matters: a platform view is recreated on an app resume or a document
+  /// switch, and the new one comes up drawing. A layer that only spoke on
+  /// changes would have nothing to say to it, and the surface would render
+  /// under the path-traced image for the rest of the session.
+  void _cover(bool now) => widget.onCover?.call(now);
 
   @override
   void initState() {
@@ -144,6 +167,7 @@ class _CyclesLayerState extends State<CyclesLayer> {
 
   @override
   void dispose() {
+    _cover(false);
     CyclesWarmup.instance.removeListener(_repaint);
     RenderEngines.engine.removeListener(_repaint);
     _session?.removeListener(_frameLanded);
@@ -204,7 +228,13 @@ class _CyclesLayerState extends State<CyclesLayer> {
   Widget build(BuildContext context) {
     final app = widget.app;
     final session = app.cycles;
-    if (!session.available) return const SizedBox.shrink();
+    if (!session.available) {
+      // Reported BEFORE the early return. Every host test and every build
+      // without a renderer comes through here, and a surface left paused
+      // because the layer bailed out first would be a blank viewport.
+      _cover(false);
+      return const SizedBox.shrink();
+    }
 
     final camera = cyclesCameraKey(widget.cam);
     if (camera != _lastCamera) {
@@ -251,6 +281,12 @@ class _CyclesLayerState extends State<CyclesLayer> {
 
     final img = session.render.image;
     if (img != null && _decodedSerial != _serial) _decode(img, _serial);
+
+    // The path-traced image is opaque and fills the layer, so while there is
+    // one the RealityKit surface below is rendering into the dark. `_decoded`
+    // rather than `img`, because it is the texture that covers anything — the
+    // session has an image a frame before there is one to draw with.
+    _cover(wanted && _decoded != null);
 
     return IgnorePointer(
       child: Stack(children: [

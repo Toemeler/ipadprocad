@@ -584,7 +584,18 @@ class _Viewport3DState extends State<Viewport3D>
               // Over the shaded render and UNDER the decorations: a hover ring
               // or a plane label is a thing you are doing right now, and a
               // photograph of the model is not a reason to stop seeing it.
-              Positioned.fill(child: CyclesLayer(app: app, cam: cam, size: size)),
+              Positioned.fill(
+                  child: CyclesLayer(
+                      app: app,
+                      cam: cam,
+                      size: size,
+                      // M347 — while the path-traced image covers the
+                      // viewport, the RealityKit surface below it is rendering
+                      // full-resolution frames nobody sees, on the GPU the path
+                      // tracer is already saturating. Reported by the layer, so
+                      // the surface goes down only once there is a texture over
+                      // it and comes back on the frame that texture goes.
+                      onCover: (covering) => _reality?.setPaused(covering))),
               // Screen-space decorations (iOS only — the CPU painter draws its
               // own): profile regions, hover rings, plane label.
               if (RealityView.isSupported)

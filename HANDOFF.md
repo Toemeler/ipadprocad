@@ -11156,7 +11156,7 @@ fürs Verkleinern.
 
 ### Die Tests
 
-`m347_cycles_orbit_test.dart`: beide Hälften des Budgets sinken gemeinsam;
+`m347_cycles_orbit_test.dart` (12 Fälle): beide Hälften des Budgets sinken gemeinsam;
 eine Orbit-Aufnahme kostet weniger als ein Zwanzigstel einer stehenden
 (Pixel × Samples); das Bewegungsziel bleibt im Vollstärke-Band des
 Entrauschers; eine gesetzte Aufnahme deckt mehr als drei Viertel der
@@ -11168,8 +11168,10 @@ Obergrenze und in `render_test.c` die Entrauscher-Kurve in SAMPLES, inklusive
 Monotonie — eine Kurve, die wieder ansteigt, würde ein Bild beim Konvergieren
 verrauschter machen.
 
-3322 Dart-Tests grün, `flutter analyze` unverändert bei 59 Meldungen / 0
-Fehlern (gegen den Stand vor der Änderung gemessen, nicht behauptet).
+3324 Dart-Tests grün, `flutter analyze` unverändert bei 59 Meldungen / 0
+Fehlern (gegen den Stand vor der Änderung gemessen, nicht behauptet). Der
+Swift-Teil ist NICHT übersetzt worden — hier steht kein Xcode — und geht mit
+dem IPA-Lauf zum ersten Mal durch einen Compiler.
 
 ### Was es NICHT ist, und wo der nächste Hebel liegt
 
@@ -11178,11 +11180,38 @@ bewiesen (`intern/cycles/integrator/path_trace.cpp`, `session/session.cpp`),
 die Kurven und Budgets sind getestet — aber ob der Orbit sich auf dem iPad
 jetzt wie Blender anfühlt, sagt erst das iPad.
 
-**Der ARView läuft weiter mit.** Unter dem pfadverfolgten Bild rendert die
-RealityKit-Fläche jede Frame weiter in voller Auflösung, unsichtbar, auf
-derselben GPU. Das ist nach diesem Meilenstein der größte verbliebene Posten
-und braucht eine native Zeile — den ARView anhalten, solange ein Cycles-Bild
-ihn vollständig verdeckt, und ihn auf der Frame wieder anwerfen, auf der das
-Bild verschwindet. Bewusst NICHT hier gemacht: ob RealityKit sein Zeichnen bei
-`isHidden` wirklich einstellt, ist eine Geräteantwort, und der Fehlerfall
-davon wäre ein leerer Viewport.
+**Der ARView läuft NICHT mehr mit** — nachgereicht in derselben Sitzung, weil
+es der größte verbliebene Posten war. Unter dem pfadverfolgten Bild rendert
+die RealityKit-Fläche sonst jede Frame weiter in voller Auflösung, unsichtbar,
+auf derselben GPU, die der Pfadverfolger schon auslastet und von der der
+Compositor alle acht Millisekunden eine Scheibe braucht.
+
+Der MECHANISMUS ist die View-Hierarchie, keine Fahne. RealityKit hat für einen
+`.nonAR`-ARView keine öffentliche Pause (`session.pause()` ist AR-only), und
+ob `isHidden` die Zeichenschleife anhält, ist nirgends zugesichert. Das
+Verlassen des Fensters dagegen schon — und dieses Repo hat es drei
+Meilensteine früher selbst herausgefunden: der Standbild-Renderer in
+`RealityViewPlugin.swift` parkt seinen ARView bei Alpha 0 im Schlüsselfenster,
+genau weil „`ARView.snapshot` treibt die echte Renderschleife; eine View ohne
+Fenster bekommt nie eine Frame". Derselbe Satz, von der anderen Seite gelesen.
+Also: `removeFromSuperview` als Pause, Wiedereinhängen als Fortsetzung.
+`isHidden` bewusst NICHT zusätzlich — ein `CAMetalLayer` behält seine zuletzt
+gezeigte Frame, ein zurückkehrender ARView zeigt also sofort das richtige Bild
+statt des flachen Grundes.
+
+Wer es entscheidet, ist die SCHICHT, nicht der Viewport: nur sie weiß, ob es
+schon eine Textur gibt (die Session hat ein Bild eine Frame früher, als es
+etwas zu zeichnen gibt, und ein Viewport, der darauf reagiert, nähme die
+Fläche unter einem Loch herunter). Gemeldet wird auf JEDER Frame, nicht nur
+bei Änderungen, und der Controller verwirft die Wiederholung — sonst hätte
+eine neu erzeugte Platform-View (App-Resume, Dokumentwechsel) niemanden, der
+ihr sagt, dass sie verdeckt ist. Ein fehlgeschlagener Push wird nicht
+gemerkt, damit die nächste Frame es erneut versucht: eine angehaltene Fläche
+ohne Bild darüber ist der eine Fehlerfall, den das hier nicht haben darf.
+Zwei Tests decken genau den ab — die Schicht meldet „verdeckt nichts" auch
+auf dem Pfad, auf dem sie ohne Renderer sofort zurückkehrt, und noch einmal
+beim Abbau.
+
+Was daran NICHT gemessen ist: dass RealityKit auf dem Gerät tatsächlich
+aufhört zu zeichnen, und wie viel das bringt. Der Beleg dafür ist der
+Kommentar des Standbild-Renderers, nicht ein Profil.

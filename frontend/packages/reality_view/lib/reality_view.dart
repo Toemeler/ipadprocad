@@ -53,6 +53,37 @@ class RealityViewController {
   Future<void> setCamera(Map<String, dynamic> camera) =>
       _invoke('setCamera', camera);
 
+  /// Stop or restart the RealityKit surface's drawing.
+  ///
+  /// M347 — FOR WHEN SOMETHING ELSE IS DRAWING THE VIEWPORT. In rendered mode
+  /// with Cycles a path-traced image covers this surface completely, and every
+  /// RealityKit frame under it is a full-resolution render nobody sees, on the
+  /// GPU the path tracer is already saturating and the compositor is waiting
+  /// for. Paused, the native side takes the ARView out of the view hierarchy,
+  /// which is what actually stands its display link down; it keeps applying
+  /// scenes, overlays and cameras, so the frame after a resume is current.
+  ///
+  /// Safe to call on every frame: a value that is already in effect is not
+  /// sent. What is NOT remembered is a call that failed — a dropped push would
+  /// otherwise leave the surface paused with nothing over it, which is the one
+  /// failure this must not have, so the next frame tries again.
+  Future<void> setPaused(bool paused) async {
+    if (_disposed || _paused == paused) return;
+    try {
+      await _channel.invokeMethod<void>('setPaused', {'paused': paused});
+      _paused = paused;
+    } on MissingPluginException {
+      // No native side (host test / non-iOS, or a build predating the method).
+      // Nothing to keep in sync, so stop asking.
+      _paused = paused;
+    } catch (e) {
+      if (kDebugMode) debugPrint('RealityView.setPaused failed: $e');
+    }
+  }
+
+  /// What native is known to be in, or null before the first successful push.
+  bool? _paused;
+
   /// The single funnel for every push to native — and therefore the one place
   /// worth measuring.
   ///

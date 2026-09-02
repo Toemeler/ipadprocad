@@ -372,7 +372,18 @@ class _ViewportAssemblyState extends State<ViewportAssembly>
               // M304 — the path-traced image, when rendered mode has one.
               // Over the shaded scene and under the decorations, exactly as in
               // viewport3d: see the note there.
-              Positioned.fill(child: CyclesLayer(app: app, cam: cam, size: size)),
+              Positioned.fill(
+                  child: CyclesLayer(
+                      app: app,
+                      cam: cam,
+                      size: size,
+                      // M347 — while the path-traced image covers the
+                      // viewport, the RealityKit surface below it is rendering
+                      // full-resolution frames nobody sees, on the GPU the path
+                      // tracer is already saturating. Reported by the layer, so
+                      // the surface goes down only once there is a texture over
+                      // it and comes back on the frame that texture goes.
+                      onCover: (covering) => _reality?.setPaused(covering))),
               // Screen-space decorations. On iOS the scene is RealityKit and
               // _AssemblyPainter never runs, so anything that is pure HUD has
               // to be drawn here or it would be visible on the host and
