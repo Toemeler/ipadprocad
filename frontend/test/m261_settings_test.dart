@@ -157,10 +157,12 @@ void main() {
 
   // -------------------------------------------------------------------------
   group('M261 — the rest of what belongs in Settings', () {
-    test('Diagnose offers the report and the log, and says what it sends', () {
+    // M348 added the icon preview here: it is a developer affordance and it
+    // belongs behind the same switch the bug button is behind.
+    test('Diagnose offers the report, the log and the icon preview', () {
       final s = _sec(_spec(), kSecDiagnostics);
       expect(s.rows.map((r) => r.id).toList(),
-          [kRowReportProblem, kRowShareLog]);
+          [kRowReportProblem, kRowShareLog, kRowIconPreview]);
       expect(s.rows.every((r) => r.kind == SettingsRowKind.action), isTrue);
       expect(s.rows.every((r) => r.symbol != null), isTrue,
           reason: 'an action row without a glyph reads as a label');

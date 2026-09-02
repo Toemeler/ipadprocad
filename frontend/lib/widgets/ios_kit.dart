@@ -52,12 +52,11 @@ import 'package:flutter/material.dart'
     show Material, MaterialType, Tooltip, InputDecoration, InputBorder, TextField;
 import 'package:flutter/services.dart'
     show FilteringTextInputFormatter, HapticFeedback;
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:native_menu/native_menu.dart';
 
 import '../app_state.dart';
-import '../icon_theme.dart';
 import '../ios_design.dart';
+import '../icon_preview.dart';
 import '../l10n/l.dart';
 import '../scrub.dart';
 import '../theme.dart';
@@ -282,8 +281,7 @@ class _GlyphPainter extends CustomPainter {
 ///
 /// The same two lines `ribbon.dart` has had since M50; repeated here so the
 /// dialog kit does not have to import a 128 kB ribbon to draw a 16 pt picture.
-Widget iosSvg(String source, double size) =>
-    SvgPicture.string(themedIcon(source), width: size, height: size);
+Widget iosSvg(String source, double size) => iconWidget(source, size);
 
 // ===========================================================================
 // press feedback

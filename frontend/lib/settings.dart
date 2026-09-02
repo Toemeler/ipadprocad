@@ -171,6 +171,10 @@ const String kSecAbout = 'about';
 const String kRowReportProblem = 'report';
 const String kRowShareLog = 'log';
 
+/// M348 — the live icon preview's address. A developer affordance; see
+/// `icon_preview.dart` for why it is a setting and not a build constant.
+const String kRowIconPreview = 'iconpreview';
+
 /// M270 — the picture commands. [kBackdropImage] is the row that CARRIES the
 /// chosen picture (and re-opens the picker); these two are the verbs beside it.
 const String kRowChooseImage = 'choose';
@@ -375,6 +379,12 @@ List<SettingsSection> buildSettings(
               id: kRowShareLog,
               title: t.settingsShareLog,
               symbol: 'square.and.arrow.up',
+            ),
+            // Not from the ARB, and see icon_preview_dialog.dart for why.
+            SettingsRow(
+              id: kRowIconPreview,
+              title: 'Icon Preview',
+              symbol: 'photo.on.rectangle',
             ),
           ],
           footer: t.settingsDiagnosticsFooter,

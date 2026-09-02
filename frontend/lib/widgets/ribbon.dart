@@ -6,8 +6,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import '../icon_theme.dart';
-import 'package:flutter_svg/flutter_svg.dart';
+import '../icon_preview.dart';
 import 'package:native_menu/native_menu.dart' show NativeMenu, NativeMenuItem;
 
 import '../app_state.dart';
@@ -31,8 +30,7 @@ import 'pattern_dialog.dart';
 import 'ribbon_chrome.dart';
 import 'scrub_field.dart';
 
-Widget svg(String s, double size) =>
-    SvgPicture.string(themedIcon(s), width: size, height: size);
+Widget svg(String s, double size) => iconWidget(s, size);
 
 /// Descriptor for one flyout entry: icon key, bold line, subtitle, and the
 /// (optional) real tool it activates.

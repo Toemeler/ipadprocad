@@ -39,6 +39,7 @@ import 'ffi/occt_engine.dart';
 import 'ffi/qcad_engine.dart';
 import 'freehand.dart';
 import 'gear.dart';
+import 'icon_preview.dart';
 import 'hud.dart';
 import 'l10n/cad_terms.dart';
 import 'l10n/fmt.dart';
@@ -1774,6 +1775,10 @@ class AppState extends ChangeNotifier {
     // band) never paints over a scheme that has not been adopted yet.
     RibbonDock.attachStore(RibbonStore(_cacheRoot));
     RenderEngines.attachStore(RenderEngineStore(_cacheRoot));
+    // M348 — the live icon preview's host, in the same file for the same
+    // reason. Empty unless someone has typed one in, and while it is empty
+    // every icon in the app is the one it was built with.
+    IconPreview.attachStore(IconPreviewStore(_cacheRoot));
     final probe = Log.step(
         'state', 'Engine.create (backend probe)', () => Engine.create());
     backendReal = probe.isRealBackend;

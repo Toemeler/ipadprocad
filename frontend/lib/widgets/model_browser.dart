@@ -13,7 +13,6 @@ import 'dart:convert';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import '../icon_theme.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:native_menu/native_menu.dart';
@@ -28,6 +27,7 @@ import '../menus.dart';
 import '../log.dart';
 import '../part_model.dart';
 import '../svg_icons.dart';
+import '../icon_preview.dart';
 import '../theme.dart';
 import 'native_prompts.dart';
 import '../l10n/l.dart';
@@ -1628,8 +1628,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
         if (c.isSick && !c.suppressed)
           Tooltip(
               message: app.constraintErrorText(c),
-              child: SvgPicture.string(themedIcon(asmSickIcon),
-                  width: 13, height: 13)),
+              child: iconWidget(asmSickIcon, 13)),
         GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: () => _constraintMenu(app, c),
@@ -2023,7 +2022,7 @@ class _TreeRowState extends State<_TreeRow> {
                         fontSize: 10, color: T.mbDim, fontFamily: 'Menlo')),
               ),
             const SizedBox(width: 6),
-            SvgPicture.string(themedIcon(widget.icon), width: 15, height: 15),
+            iconWidget(widget.icon, 15),
             const SizedBox(width: 6),
             Expanded(
               child: Text(widget.label,

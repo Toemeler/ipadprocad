@@ -957,6 +957,15 @@ jobs:
           /usr/libexec/PlistBuddy -c 'Add :UIFileSharingEnabled bool true' ios/Runner/Info.plist
           /usr/libexec/PlistBuddy -c 'Add :LSSupportsOpeningDocumentsInPlace bool true' ios/Runner/Info.plist
           /usr/libexec/PlistBuddy -c 'Print :UIFileSharingEnabled' ios/Runner/Info.plist
+          # M348 — the live icon preview talks plain HTTP to a PC on the same
+          # Wi-Fi. Two keys, and BOTH are needed: ATS blocks cleartext without
+          # NSAllowsLocalNetworking, and iOS 14+ refuses to route to a local
+          # address at all until the user has answered the Local Network
+          # prompt, which needs a usage string or the prompt never appears.
+          /usr/libexec/PlistBuddy -c 'Add :NSAppTransportSecurity dict' ios/Runner/Info.plist
+          /usr/libexec/PlistBuddy -c 'Add :NSAppTransportSecurity:NSAllowsLocalNetworking bool true' ios/Runner/Info.plist
+          /usr/libexec/PlistBuddy -c 'Add :NSLocalNetworkUsageDescription string Shows icon renders from a computer on this network, for previewing artwork.' ios/Runner/Info.plist
+          /usr/libexec/PlistBuddy -c 'Print :NSAppTransportSecurity:NSAllowsLocalNetworking' ios/Runner/Info.plist
           # M147 — fullscreen: no status bar, from the launch image onward.
           # UIViewControllerBasedStatusBarAppearance must be false, or UIKit
           # asks FlutterViewController instead and UIStatusBarHidden is ignored

@@ -18,8 +18,6 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import '../icon_theme.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:native_menu/native_menu.dart';
 
 import '../app_state.dart';
@@ -28,6 +26,7 @@ import '../doc_ref.dart';
 import '../l10n/l.dart';
 import '../log.dart';
 import '../svg_icons.dart';
+import '../icon_preview.dart';
 import '../theme.dart';
 import 'native_prompts.dart';
 import 'settings_sheet.dart';
@@ -378,7 +377,7 @@ class _HomeViewState extends State<HomeView> {
             value: '2d',
             height: 40,
             child: Row(children: [
-              SvgPicture.string(themedIcon(sketch2dMenuIcon), width: 18, height: 18),
+              iconWidget(sketch2dMenuIcon, 18),
               const SizedBox(width: 10),
               Text(t.galleryNew2dSketch, style: ts(12.5, T.text)),
             ]),
@@ -387,7 +386,7 @@ class _HomeViewState extends State<HomeView> {
             value: '3d',
             height: 40,
             child: Row(children: [
-              SvgPicture.string(themedIcon(part3dMenuIcon), width: 18, height: 18),
+              iconWidget(part3dMenuIcon, 18),
               const SizedBox(width: 10),
               Text(t.galleryNew3dPart, style: ts(12.5, T.text)),
             ]),
@@ -396,8 +395,7 @@ class _HomeViewState extends State<HomeView> {
             value: 'asm',
             height: 40,
             child: Row(children: [
-              SvgPicture.string(themedIcon(assemblyMenuIcon),
-                  width: 18, height: 18),
+              iconWidget(assemblyMenuIcon, 18),
               const SizedBox(width: 10),
               Text(t.galleryNewAssembly, style: ts(12.5, T.text)),
             ]),
@@ -406,7 +404,7 @@ class _HomeViewState extends State<HomeView> {
             value: 'import',
             height: 40,
             child: Row(children: [
-              SvgPicture.string(themedIcon(part3dMenuIcon), width: 18, height: 18),
+              iconWidget(part3dMenuIcon, 18),
               const SizedBox(width: 10),
               Text(t.openEllipsis, style: ts(12.5, T.text)),
             ]),
@@ -924,14 +922,13 @@ class _CardState extends State<_Card> {
   Widget _blank() => Center(
         child: Opacity(
           opacity: 0.5,
-          child: SvgPicture.string(
-              themedIcon(switch (widget.kind) {
+          child: iconWidget(
+              switch (widget.kind) {
                 'part' => partCubeIcon,
                 kAssemblyDocKind => assemblyCubeIcon,
                 _ => sketchCubeIcon,
-              }),
-              width: 30,
-              height: 30),
+              },
+              30),
         ),
       );
 }

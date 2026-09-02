@@ -12,10 +12,8 @@ import 'dart:typed_data';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import '../icon_theme.dart';
 import 'package:flutter/scheduler.dart' show Ticker;
 import 'package:flutter/services.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:reality_view/reality_view.dart';
 
 import '../app_state.dart';
@@ -35,6 +33,7 @@ import '../menus.dart';
 import '../mouse_nav.dart';
 import '../work_features.dart';
 import '../svg_icons.dart' show homeTabIcon;
+import '../icon_preview.dart';
 import '../theme.dart';
 import 'package:native_menu/native_menu.dart'
     show GlassBrowser, NativeMenu, NativeMenuItem;
@@ -3392,7 +3391,7 @@ class _ViewCubeState extends State<ViewCube>
               child: SizedBox(
                   width: 22,
                   height: 22,
-                  child: SvgPicture.string(themedIcon(homeTabIcon))),
+                  child: iconWidget(homeTabIcon)),
             ),
           ),
         ),

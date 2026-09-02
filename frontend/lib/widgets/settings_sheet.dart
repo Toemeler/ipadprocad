@@ -31,6 +31,7 @@ import '../log.dart';
 import '../settings.dart';
 import '../theme.dart';
 import 'bug_button.dart';
+import 'icon_preview_dialog.dart';
 import '../ribbon_dock.dart';
 
 /// The live facts the About section reports.
@@ -268,6 +269,13 @@ class SettingsSheet {
         unawaited(NativeMenu.shareFile(path,
             anchor: Rect.fromLTWH(w / 2, h / 2, 1, 1)));
         break;
+      case kRowIconPreview:
+        // Same shape as the bug report: the sheet goes, the dialog comes up
+        // over the app, and the icons behind it are the ones being judged.
+        NativeMenu.dismissSettings();
+        _close();
+        if (_context.mounted) unawaited(showIconPreviewDialog(_context));
+        break;
     }
   }
 
@@ -398,6 +406,11 @@ class _FallbackDialogState extends State<_FallbackDialog> {
         if (row == kRowReportProblem) {
           Navigator.of(context).pop();
           BugReport.open(context, widget.app);
+          return;
+        }
+        if (row == kRowIconPreview) {
+          Navigator.of(context).pop();
+          unawaited(showIconPreviewDialog(context));
           return;
         }
         return;
