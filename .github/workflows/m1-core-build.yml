@@ -557,7 +557,11 @@ jobs:
         uses: actions/cache@v4
         with:
           path: cycles-dist
-          key: cycles-dist-v2-${{ hashFiles('backend/cycles/shim/**') }}-${{ hashFiles('backend/cycles/assets/**') }}-${{ hashFiles('.github/workflows/m1-core-build.yml') }}
+          # The render assets are NOT in this key and NOT in this cache. They
+          # are read from the checkout by the packaging job, so dropping a 24 MB
+          # HDRI into the repository costs a file copy rather than a full
+          # Blender + Cycles rebuild. Nothing in cycles-dist depends on them.
+          key: cycles-dist-v3-${{ hashFiles('backend/cycles/shim/**') }}-${{ hashFiles('.github/workflows/m1-core-build.yml') }}
 
       - name: Clone Blender's ios branch (shallow, no LFS)
         if: steps.dist.outputs.cache-hit != 'true'
@@ -746,26 +750,15 @@ jobs:
           rsync -a --exclude '.git' --exclude 'shim' blender/intern/cycles/ cycles-dist/source/
           echo "== kernel source copied"
           test -f cycles-dist/source/kernel/device/metal/kernel.metal
-          # M344 — the optional render assets, beside the kernel tree.
+          # M344 — the render assets are deliberately NOT harvested here.
           #
-          # NOT Flutter assets, and the reason is in backend/cycles/assets/
-          # README.md: Cycles loads images through OpenImageIO from a PATH, on
-          # a background thread, and a Flutter asset is a byte range inside a
-          # bundle that only the Dart side can address. The resource root the
-          # shim is already given is the one directory in the bundle the
-          # renderer is entitled to assume the layout of, so they go there.
-          #
-          # `|| true` on the copy and no `test` after it: the directory is
-          # empty in this repository, every file in it is optional, and a build
-          # without them is the app that shipped rather than a broken one.
-          # cycles_assets.dart and the shim's own fopen check agree from the
-          # other two sides.
-          mkdir -p cycles-dist/assets
-          rsync -a --exclude 'README.md' --exclude 'SOURCES.md' \
-                --exclude '.gitattributes' \
-                backend/cycles/assets/ cycles-dist/assets/ || true
-          echo "== render assets: $(find cycles-dist/assets -type f | wc -l) file(s)"
-          find cycles-dist/assets -type f | head -20
+          # They are not built, they are not expensive, and they do not belong
+          # in a cache keyed on the shim: an artifact that carried them would
+          # make every asset change a cache miss and so a full Blender + Cycles
+          # rebuild. The packaging job has the repository checked out and copies
+          # them straight from backend/cycles/assets — one hop instead of three,
+          # and always the working tree's version rather than whatever a cache
+          # entry happened to be built with.
           echo "--- distribution ---"
           du -sh cycles-dist/lib cycles-dist/deps cycles-dist/dylib cycles-dist/source
           lipo -info cycles-dist/lib/libcycles_shim.a
@@ -1390,27 +1383,31 @@ jobs:
             # from the device and this is the only place that can tell them
             # apart.
             #
-            # THE DIRECTORY IS MADE FIRST, AND THE COUNT ENDS IN `|| true`.
-            # Run 648 failed on exactly this line, and the failure is worth
-            # keeping written down because it is the empty case breaking the
-            # check that exists to prove the empty case is harmless.
+            # STRAIGHT FROM THE CHECKOUT, not from cycles-dist.
             #
-            # actions/upload-artifact DOES NOT UPLOAD EMPTY DIRECTORIES. This
-            # repository ships no assets, so `cycles-dist/assets` is empty when
-            # the Cycles job makes it, is therefore absent from the artifact,
-            # and is absent again after the download. `find` on a path that
-            # does not exist exits 1; this step runs `set -o pipefail` under
-            # `bash -e`, so the pipeline's 1 becomes the assignment's 1 and the
-            # step dies — after every check above it had passed.
+            # Run 648 died on this line when the assets came through the
+            # artifact, and the failure is worth keeping written down: the
+            # empty case broke the check that exists to prove the empty case is
+            # harmless. actions/upload-artifact DOES NOT UPLOAD EMPTY
+            # DIRECTORIES, so an empty `cycles-dist/assets` was absent after the
+            # download, `find` on a missing path exits 1, and under `set -o
+            # pipefail` with `bash -e` that 1 killed the step after every check
+            # above it had passed.
             #
-            # `|| true` is the idiom the rest of this step already uses, for
-            # the same reason, on QTMAIN, HITS and KBDBAR.
+            # Reading the checkout removes the whole class: this job runs
+            # actions/checkout, so the directory always exists, and an asset
+            # added to the repository reaches the bundle without invalidating
+            # the Cycles cache. `mkdir -p` first and `|| true` on the count stay
+            # anyway — they are the idiom this step already uses on QTMAIN,
+            # HITS and KBDBAR, and the empty case must never be what fails.
             mkdir -p "$APP/cycles/assets"
-            if [ -d "$GITHUB_WORKSPACE/cycles-dist/assets" ]; then
-              rsync -a "$GITHUB_WORKSPACE/cycles-dist/assets/" "$APP/cycles/assets/"
-            fi
+            rsync -a --exclude 'README.md' --exclude 'SOURCES.md' \
+                  --exclude '.gitattributes' \
+                  "$GITHUB_WORKSPACE/backend/cycles/assets/" \
+                  "$APP/cycles/assets/" || true
             NAST="$(find "$APP/cycles/assets" -type f | wc -l | tr -d ' ' || true)"
             echo "CYCLES ASSETS: ${NAST:-0} file(s) bundled$([ "${NAST:-0}" = 0 ] && echo ' (renders with the analytic rig — see backend/cycles/assets/README.md)')"
+            find "$APP/cycles/assets" -type f -exec ls -lh {} \; 2>/dev/null | awk '{print "  " $5 "  " $NF}' || true
             bash "$GITHUB_WORKSPACE/ci/embed_cycles_dylibs.sh" \
               "$GITHUB_WORKSPACE/cycles-dist/dylib" "$APP"
             # And the shim must be reachable BY NAME: Dart resolves it with
