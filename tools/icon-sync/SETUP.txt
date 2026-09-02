@@ -1,0 +1,89 @@
+iPadProCAD - Icon Preview
+=========================
+
+Draw an icon, save it, look at the iPad. About one second. No build, no
+install, nothing leaves your home network.
+
+Both devices must be on the same Wi-Fi.
+
+
+STEP 1 - Python (once)
+----------------------
+If you do not have Python: https://www.python.org/downloads/
+In the installer, TICK "Add python.exe to PATH". That box matters.
+
+Everything else installs itself.
+
+
+STEP 2 - Blender (once)
+-----------------------
+Render Properties > Film > Transparent      <- tick this
+
+Without it the render has a white background baked in, and the icon
+arrives on the iPad as a white tile on the dark ribbon.
+
+Output Properties > Output Path  ->  the "renders" folder next to this
+file. File format: PNG, RGBA.
+
+
+STEP 3 - Start it
+-----------------
+Double-click START.bat
+
+The first time, Windows will ask about the firewall.
+Tick PRIVATE networks and click Allow. If you miss it, the iPad will not
+be able to reach this PC.
+
+The window prints an address, something like:
+
+    192.168.1.42:8080
+
+
+STEP 4 - The iPad (once per address)
+------------------------------------
+Settings > Diagnostics > Icon Preview
+Type the address, tap Connect.
+
+iOS asks to "find and connect to devices on your local network".
+Say ALLOW. Nothing loads otherwise.
+
+The dialog then says how many icons are live.
+
+
+THAT IS IT
+----------
+Render (F12), save into the "renders" folder, and it is on the iPad.
+Leave the black window open while you work.
+
+
+NAMING THE FILES
+----------------
+The file name decides which icon it replaces.
+
+    CR.extrude.png     -> Create panel, Extrude
+    MO.fillet.png      -> Modify panel, Fillet
+    extrude.png        -> same as CR.extrude.png
+    layerBigIcon.png   -> the New Layer button
+
+The short name works unless two panels use the same word (there is a
+"split" in both MD and MO, a "plane" in both WF and PL) - then use the
+long form.
+
+DELETE a render and that icon goes straight back to the one built into
+the app. That is the quickest way to see whether yours is better.
+
+
+GOOD TO KNOW
+------------
+- Framing does not matter. The script crops away everything that is not
+  artwork, centres it in a square and resizes to 256x256. Render
+  1920x1080 with the icon anywhere you like.
+
+- The address changes if your PC gets a new one from the router. Just
+  retype it on the iPad.
+
+- Nothing ships. Clear the field on the iPad (or tap "Turn off") and the
+  app is back to its built-in icons. It starts that way.
+
+- Previews are PNG, so they do not follow the app's accent colour the
+  way the built-in icons do. Fine for judging shape and size.
