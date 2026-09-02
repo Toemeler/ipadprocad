@@ -151,8 +151,7 @@ class AppL10nDe extends AppL10n {
   String get iconPreviewConnect => 'Verbinden';
 
   @override
-  String get iconPreviewIdle =>
-      'Aus — es werden die eingebauten Icons gezeichnet.';
+  String get iconPreviewIdle => 'Aus — die eingebauten Icons werden gezeigt.';
 
   @override
   String iconPreviewUnreachable(String host, String error) {

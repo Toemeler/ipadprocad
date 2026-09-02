@@ -370,7 +370,7 @@ abstract class AppL10n {
   /// Statuszeile der Icon-Vorschau, solange keine Adresse gesetzt ist.
   ///
   /// In de, this message translates to:
-  /// **'Aus — es werden die eingebauten Icons gezeichnet.'**
+  /// **'Aus — die eingebauten Icons werden gezeigt.'**
   String get iconPreviewIdle;
 
   /// Statuszeile der Icon-Vorschau, wenn der PC nicht antwortet.

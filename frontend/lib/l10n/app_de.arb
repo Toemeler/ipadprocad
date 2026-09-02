@@ -188,7 +188,7 @@
   "@iconPreviewConnect": {
     "description": "Knopf im Dialog der Icon-Vorschau: die eingetippte Adresse uebernehmen."
   },
-  "iconPreviewIdle": "Aus — es werden die eingebauten Icons gezeichnet.",
+  "iconPreviewIdle": "Aus — die eingebauten Icons werden gezeigt.",
   "@iconPreviewIdle": {
     "description": "Statuszeile der Icon-Vorschau, solange keine Adresse gesetzt ist."
   },
