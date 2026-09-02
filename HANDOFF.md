@@ -11560,3 +11560,152 @@ Fälle, mit wiederhergestelltem `stretch` fallen sieben.
 gezählt wird weiterhin, dass **jeder** Ausklapper mit Namen einen Ausklapper
 ohne Namen hat — nur ist der Beweis jetzt das ▾ in der Ecke und nicht mehr
 Material's `arrow_drop_down`.
+
+## M353 — Nichts wird gefiltert, das Bild IST der Pfadverfolger, und es ist 1:1
+
+### Was der Auftrag war
+
+Drei Anweisungen und eine Meldung, und sie stellten sich als dieselbe Änderung
+heraus: „it shouldnt denoise for now", „max samples of 4096 or smth like that",
+„the resolution should be the full available resolution" — und danach: „i cant
+smothly rotate. it is buggy and laggy … right now it only goes in steps."
+
+### Der Befund
+
+**Der Entrauscher war die Bildrate, nicht die Qualität.** Der à-trous-Filter
+wurde in M344 mit **51 ms pro Bild bei 480×320, einfädig** gemessen. Diese Zahl
+stand im Repo und wurde als Qualitätskosten gelesen. Sie sind Bildratenkosten,
+und der Filter lief auf JEDEM Bild, das an die Anzeige ging:
+
+* beim Orbiten pollt der Worker alle 14 ms und jedes Bild kostete ~51 ms CPU —
+  er konnte nie mitkommen, die Bilder kamen zu spät und in Schüben;
+* im Stand bei 1440×1080 ist derselbe Filter rund **450 ms je Bild**, also
+  weniger als drei Aktualisierungen pro Sekunde, jede ein sichtbarer Sprung.
+
+Beides liest sich als „it only goes in steps". Die Stärkerampe machte es
+schlimmer als konstante Kosten: der Filter blendete mit steigender Samplezahl
+aus (`kDenoiseFull` 32 → `kDenoiseRaw` 176), aufeinanderfolgende Bilder
+unterschieden sich also im CHARAKTER und nicht bloss im Rauschen.
+
+### Was gebaut wurde
+
+Der Filter ist aus dem Live-Pfad heraus. Mit ihm gingen
+`PASS_DENOISING_ALBEDO` und `PASS_DENOISING_NORMAL` — die NIE gratis waren,
+was der alte Kommentar falsch hatte: sie schalten `KERNEL_FEATURE_DENOISING`
+ein (jeder Oberflächentreffer schreibt beide, auf der GPU, für jedes Sample),
+sie verbreitern Cycles' Renderpuffer um sechs Floats je Pixel, und jede
+Aufnahme zog beide zusätzlich mit `get_pass_pixels` herüber. Cycles' eigener
+Entrauscher ist nicht aktiv (`use_denoising` wird nie gesetzt), er will sie
+also auch nicht.
+
+**Nichts ist gelöscht.** `cycles_denoise.cpp` wird weiter gebaut,
+`render_test.c` prüft weiter Kantenerhalt und Monotonie der Stärkekurve. Der
+Kommentar in `cy_live_frame` nennt die vier Schritte zum Wiedereinschalten.
+
+**4096 Samples**, Blenders eigener Vorgabewert für den Endrender. Eine
+Obergrenze, keine Dauer: adaptives Sampling beendet jeden Pixel an seiner
+eigenen Fehlerschätzung, und das Abzeichen meldet seit M347 die erreichte Zahl.
+
+**1:1**, weil die Deckelung nichts mehr zu kaufen hatte. `kCyclesMaxSide` war
+aus einem Grund 1440 — Speicher — und M347 hat die Rechnung aufgeschrieben:
+Bild, Albedo und Normale in Floats, doppelt, plus neun Floats je Pixel
+Kladde, rund 176 Byte je Pixel. Jeder Term ausser dem Bild gehörte dem
+Entrauscher. Übrig bleiben drei RGBA-Float-Puffer und das RGBA8 nach Dart: **52
+Byte je Pixel**, also etwa 126 MB auf einem ~1800-Pixel-Viewport. Ein
+stehender Render ist jetzt genau die Gerätepixel, in die er gezeichnet wird,
+und wird auf dem Weg zum Schirm gar nicht mehr abgetastet. `kCyclesMaxSide`
+überlebt nur als Allokationssicherung bei 4096.
+
+### Was es NICHT ist
+
+Nicht auf Hardware gemessen. Die 51 ms sind meine eigene Messung aus M344,
+kein Geräteprofil.
+
+## M354 — Beim Orbiten IST der Viewport RealityKit
+
+### Was der Auftrag war
+
+Nach drei Meilensteinen, die ein bewegtes Bild jeweils billiger machten:
+„While orbiting it is still absolutely buggy slow and not good. Can you just
+show RealityKit while orbiting."
+
+### Der Befund
+
+Jeder der drei Versuche war für sich richtig und keiner half. M344 senkte die
+PIXEL (`kCyclesMovingSide`), M347 zusätzlich die SAMPLES
+(`kCyclesMovingSamples`), M353 nahm den Filter heraus. Der Grund liegt vor
+allen dreien und hat nichts damit zu tun, WIE VIEL der Verfolger arbeitet:
+Flutters Compositor braucht alle acht Millisekunden eine Scheibe der GPU, und
+ein Pfadverfolger, der LÄUFT, ist einer, hinter dem er ansteht — wie wenig er
+auch zu tun bekommen hat. **Billig ist nicht dasselbe wie abwesend.**
+
+### Was gebaut wurde
+
+Der Verfolger läuft während einer Geste nicht und wird nicht gezeigt.
+RealityKit hat die GPU für sich.
+
+**Geparkt, nicht gestoppt.** `wanted: false` schliesst den Treiber und wirft
+die Geometrie weg — jede Geste endete dann in einem Neuupload aller Vertices
+und einem BVH-Neubau. Stattdessen bekommt die Session **ein Sample eines
+64×64-Bildes** (`kCyclesParkedSide`). Dieser Push ist ein `Session::reset` und
+bricht damit den laufenden Render ab — genau darauf kommt es an, denn blosses
+Nicht-Pushen lässt einen halbkonvergierten Render die ganze Geste über in
+voller Auflösung weiterlaufen.
+
+**Ein Push je GESTE, nicht je Bild.** Jeder Push blockiert bis zum Abbruch;
+sechzig pro Sekunde wären ihr eigener Stillstand. Die geparkte Anfrage nennt
+darum die Kamera, bei der die Geste BEGANN, und ändert sich währenddessen
+nicht.
+
+**Was gezeigt wird.** Nie das verfolgte Bild während der Bewegung — und auch
+nicht in den ersten Momenten danach: eine Textur von vor der Geste ist ein
+Bild eines anderen Winkels, und sie im Moment des Loslassens wieder
+hochzunehmen wäre ein Sprung auf die falsche Ansicht mit anschliessender
+Korrektur. Die Fläche darunter behält den Viewport, bis ein Bild DIESER Kamera
+gelandet ist. Die beiden sind exakt komplementär: was nicht zeichnet, ist aus.
+
+### Drei Fehler in der eben geschriebenen Änderung
+
+Durch Lesen gefunden, nicht durch Testen; keiner hätte eine Suite rot gemacht.
+
+1. **Das Parken konnte einrasten.** `if (!wanted) _settle?.cancel()` stand
+   unter dem Budgetblock und löschte `_moving` nicht. Rendered-Modus mitten in
+   einer Geste ausschalten liess die Fahne gesetzt ohne Timer — und wieder
+   einschalten ohne Kamerabewegung liess den Verfolger für immer geparkt:
+   Fläche auf dem Schirm, Modus an, nichts rendert je. Dieselbe Form wie der
+   `_starting`-Fehler aus M344, und dieselbe Regel: ein Viewport darf keinen
+   Zustand haben, aus dem er nicht herauskommt.
+2. **Eine Grössenänderung ist eine Bewegung.** Nur die Kamera schärfte den
+   Timer. Ein stehender Render folgt dem Viewport 1:1 (M353) — das iPad drehen
+   oder eine Panelkante ziehen änderte die Grösse also auf jedem Bild der
+   Animation, jedes davon ein Push in voller Auflösung mit Neuallokation von
+   Cycles' Puffern, sechzig Mal pro Sekunde, während der Compositor animiert.
+3. **Geparkte Bilder wurden dekodiert** — ein Texturupload, den niemand sieht,
+   auf dem UI-Isolate, während genau der Geste, die dieser Meilenstein glatt
+   machen soll.
+
+`kCyclesSettle` ist ausserdem 250 statt 350 ms: früher entschied es nur die
+GRÖSSE bei laufendem Bild, jetzt entscheidet es, ob überhaupt ein
+pfadverfolgtes Bild erscheint — die Zeit wird also als „ich habe losgelassen
+und es passiert nichts" gefühlt.
+
+### Die Tests
+
+`m354_cycles_park_test.dart`, 10 Fälle, auf der Session statt auf dem Widget,
+weil dort die Kosten liegen: eine Geste über sechzig Bilder ist EIN Push; die
+Szene wird einmal hochgeladen und der Treiber über eine Geste nie geschlossen;
+aus dem Park heraus ist ein View-Push und kein Neubau; ein geparkter und ein
+stehender Schlüssel können nie kollidieren; Loslassen ohne Bewegung rendert
+trotzdem neu; vierzig Bilder einer Drehung kosten einen Push.
+
+### Was es NICHT ist
+
+**Nicht auf Hardware gemessen** — und das ist der offene Punkt, nicht eine
+Formalie. Ob der Orbit sich jetzt wie RealityKit allein anfühlt, sagt nur das
+iPad. Falls nicht, war der Verfolger nie die ganze Ursache und der nächste
+Verdächtige ist der Texturupload je Bild auf dem UI-Isolate.
+
+**Und die Konvergenz teilt die GPU weiterhin.** Beim Stillstand läuft ein
+Render über 2,8 Megapixel gegen 4096 Samples — adaptives Sampling bricht früh
+ab, aber solange er läuft, steht der Compositor wieder an. Beim Orbiten ist
+das gelöst, beim Tippen im Band während der Konvergenz nicht.
