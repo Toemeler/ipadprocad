@@ -133,6 +133,18 @@ abstract class CyclesDriver {
   /// carrying it. See [CyclesLiveFrame.epoch].
   void setScene(List<CyclesMesh> meshes, CyclesEnv env, int epoch);
 
+  /// Suspend or resume sampling, keeping the samples already taken.
+  ///
+  /// M355 — NOT THE SAME THING AS PUSHING A CHEAP VIEW (M354). That resets the
+  /// session, which is right when the view is about to change anyway and
+  /// catastrophic otherwise: it throws away every sample accumulated so far,
+  /// so using it to free the GPU during a tap would reset a converging image
+  /// to noise every time the user touched the screen. This comes back to the
+  /// same picture.
+  ///
+  /// Idempotent, and cheap enough to call from a pointer callback.
+  void setPaused(bool paused);
+
   /// Point the camera. Cheap; may be called every frame.
   void setView({
     required List<double> matrix,
@@ -156,6 +168,11 @@ class _SceneMsg {
   final List<CyclesMesh> meshes;
   final CyclesEnv env;
   final int epoch;
+}
+
+class _PauseMsg {
+  const _PauseMsg(this.paused);
+  final bool paused;
 }
 
 class _ViewMsg {
@@ -295,6 +312,15 @@ class CyclesLive implements CyclesDriver {
       return;
     }
     tx.send(m);
+  }
+
+  @override
+  void setPaused(bool paused) {
+    // DROPPED when the worker is not up yet, rather than queued. A pause is a
+    // statement about right now; replaying a stale one at the moment the
+    // renderer finally starts would leave it suspended for no reason, and the
+    // next pointer event will state it again anyway.
+    _tx?.send(_PauseMsg(paused));
   }
 
   @override
@@ -460,6 +486,18 @@ void _cyclesWorker(SendPort toMain) {
         return;
       }
       startPolling();
+      return;
+    }
+    if (msg is _PauseMsg) {
+      // NOT ensureOpen(). Pausing a renderer that has not been brought up is
+      // not a reason to bring it up — that would turn a stray touch during
+      // startup into a kernel compile.
+      if (!opened) return;
+      try {
+        ffi.livePause(msg.paused);
+      } catch (e) {
+        toMain.send(_NoteMsg('$e', true));
+      }
       return;
     }
     if (msg is _ViewMsg) {

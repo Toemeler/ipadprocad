@@ -48,6 +48,13 @@ class _Rec implements CyclesDriver {
   set onNote(void Function(String, bool) fn) {}
   @override
   void open() {}
+
+  // M355 — recorded rather than ignored: a pause that never reaches the
+  // driver is indistinguishable from one that did, and the whole point of
+  // it is that the GPU is actually given up.
+  final List<bool> pauses = [];
+  @override
+  void setPaused(bool paused) => pauses.add(paused);
   @override
   void close() => closes++;
 

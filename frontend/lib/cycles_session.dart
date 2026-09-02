@@ -135,6 +135,25 @@ class CyclesSession {
   String get note => _noteText;
   String _noteText = '';
 
+  /// Suspend or resume sampling, keeping what has been sampled.
+  ///
+  /// M355 — separate from [offer] on purpose. Everything offer decides is a
+  /// property of the SCENE, and a change to any of it restarts sampling. This
+  /// is a property of the MACHINE — whether the compositor needs the GPU more
+  /// than the tracer does this instant — and it must be able to change
+  /// without costing the image. Two different questions, so two entry points.
+  void setPaused(bool paused) {
+    if (!render.available) return;
+    if (paused == _paused) return;
+    _paused = paused;
+    _driver.setPaused(paused);
+  }
+
+  bool _paused = false;
+
+  /// Whether sampling is currently suspended, for the log and for tests.
+  bool get paused => _paused;
+
   /// The scene, as of this frame.
   ///
   /// [wanted] is false whenever a Cycles image would be wrong to show at all —

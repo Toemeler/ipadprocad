@@ -65,6 +65,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
 import '../app_state.dart';
+import '../cycles_activity.dart';
 import '../cycles_render.dart';
 import '../cycles_scene.dart';
 import '../cycles_session.dart';
@@ -181,6 +182,10 @@ class _CyclesLayerState extends State<CyclesLayer> {
   void initState() {
     super.initState();
     CyclesWarmup.instance.addListener(_repaint);
+    // M355 — a pointer moving anywhere in the app suspends sampling, so the
+    // compositor is never queued behind the tracer during an animation. The
+    // listener only has to repaint; the build below turns it into a pause.
+    CyclesActivity.instance.addListener(_repaint);
     // M340 — and the renderer choice, which is a preference living outside
     // AppState and so does not arrive through a document rebuild. Switching to
     // RealityKit has to take the path-traced image DOWN on the same frame, not
@@ -221,6 +226,7 @@ class _CyclesLayerState extends State<CyclesLayer> {
   void dispose() {
     _cover(false);
     CyclesWarmup.instance.removeListener(_repaint);
+    CyclesActivity.instance.removeListener(_repaint);
     RenderEngines.engine.removeListener(_repaint);
     _session?.removeListener(_frameLanded);
     _settle?.cancel();
@@ -314,6 +320,19 @@ class _CyclesLayerState extends State<CyclesLayer> {
       _settle = null;
       _moving = false;
     }
+
+    // M355 — SUSPEND SAMPLING WHILE ANYTHING IS BEING DRAGGED, ANYWHERE.
+    //
+    // Not the same lever as the park below and not the same reason. Parking
+    // resets the session, which is right when the view is about to change and
+    // ruinous otherwise — it would reset a converging image to noise on every
+    // touch. This keeps the samples and gives back the GPU, which is the only
+    // thing the compositor actually needs.
+    //
+    // It is set from build rather than from the listener so there is one place
+    // that decides, and `setPaused` drops a repeat, so the cost of saying it
+    // again on every build is a bool compare.
+    session.setPaused(CyclesActivity.instance.busy);
 
     final camera = cyclesCameraKey(widget.cam);
     final size = '${widget.size.width.round()}x${widget.size.height.round()}';

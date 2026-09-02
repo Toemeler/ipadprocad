@@ -388,6 +388,27 @@ int cy_live_view(const CyView *view);
  */
 int cy_live_frame(unsigned char *rgba_out, int capacity, CyFrame *info);
 
+/* Suspend or resume sampling WITHOUT losing what has been sampled.
+ *
+ * M355 — THE OTHER HALF OF NOT FIGHTING THE COMPOSITOR.
+ *
+ * M354 stopped the tracer during a camera move by pushing it a view it could
+ * finish at once. That works there because the view is about to change anyway,
+ * and it cannot be used for anything else: pushing a view calls Session::reset,
+ * which throws away every sample accumulated so far. Doing that whenever the
+ * user touched the screen would reset a converging image to noise on every
+ * tap.
+ *
+ * A standstill render is minutes of GPU at full resolution, and for all of it
+ * Flutter's compositor is queued behind a path tracer for the slice it needs
+ * every eight milliseconds. So the tracer has to be able to stand down and
+ * come back to the SAME image, which is what Session::set_pause does and what
+ * Blender's own viewport uses it for.
+ *
+ * Idempotent, cheap, and safe to call before the session exists (it does
+ * nothing). Returns 1 when there was a session to tell. */
+int cy_live_pause(int paused);
+
 /* Why the last call failed. Never null. */
 const char *cy_last_error(void);
 

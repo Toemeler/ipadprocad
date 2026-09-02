@@ -131,6 +131,8 @@ final class CyFrameS extends Struct {
 }
 
 typedef _AvailN = Int32 Function();
+typedef _PauseN = Int32 Function(Int32);
+typedef _PauseD = int Function(int);
 typedef _AvailD = int Function();
 typedef _VoidN = Void Function();
 typedef _VoidD = void Function();
@@ -203,6 +205,7 @@ class CyclesFfi {
     this._liveScene,
     this._liveView,
     this._liveFrame,
+    this._livePause,
   );
 
   final _AvailD _available;
@@ -220,6 +223,7 @@ class CyclesFfi {
   final _SceneD _liveScene;
   final _ViewD _liveView;
   final _FrameD _liveFrame;
+  final _PauseD _livePause;
 
   static CyclesFfi? _instance;
   static bool _tried = false;
@@ -246,6 +250,7 @@ class CyclesFfi {
         lib.lookupFunction<_SceneN, _SceneD>('cy_live_scene'),
         lib.lookupFunction<_ViewN, _ViewD>('cy_live_view'),
         lib.lookupFunction<_FrameN, _FrameD>('cy_live_frame'),
+        lib.lookupFunction<_PauseN, _PauseD>('cy_live_pause'),
       );
       Log.i('cycles', 'shim linked; device ${_instance!.deviceName}');
     } catch (e) {
@@ -395,6 +400,13 @@ class CyclesFfi {
   Pointer<Uint8> _frameBuf = nullptr;
   int _frameCap = 0;
   Pointer<CyFrameS> _frameInfo = nullptr;
+
+  /// Suspend or resume sampling without losing what has been sampled.
+  ///
+  /// M355 — the only way to take the GPU back from a converging render and
+  /// give it to the compositor. A view push would do it too and would reset
+  /// the image to noise; this comes back to the same picture.
+  void livePause(bool paused) => _livePause(paused ? 1 : 0);
 
   /// The most recent frame, or null when there is nothing newer than the last
   /// one this returned.

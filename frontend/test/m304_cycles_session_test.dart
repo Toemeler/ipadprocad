@@ -54,6 +54,13 @@ class _FakeDriver implements CyclesDriver {
   @override
   void open() => opens++;
 
+  // M355 — recorded rather than ignored: a pause that never reaches the
+  // driver is indistinguishable from one that did, and the whole point of
+  // it is that the GPU is actually given up.
+  final List<bool> pauses = [];
+  @override
+  void setPaused(bool paused) => pauses.add(paused);
+
   @override
   void close() => closes++;
 

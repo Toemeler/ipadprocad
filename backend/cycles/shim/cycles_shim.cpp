@@ -1799,6 +1799,21 @@ int cy_live_frame(unsigned char *rgba_out, const int capacity, CyFrame *info)
   return 1;
 }
 
+int cy_live_pause(const int paused)
+{
+  /* Called from the worker isolate, the same thread cy_live_view is called
+   * from, so it needs no lock of its own — Session::set_pause takes its own.
+   *
+   * Deliberately NOT gated on whether the session has finished: a finished
+   * session ignores it, and checking would mean reading progress state that
+   * the render thread owns for an answer that does not change what to do. */
+  if (g_live.session == nullptr) {
+    return 0;
+  }
+  g_live.session->set_pause(paused != 0);
+  return 1;
+}
+
 int cy_kernels_ready(void)
 {
   return g_kernels_ready.load() ? 1 : 0;
