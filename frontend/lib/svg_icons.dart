@@ -293,6 +293,66 @@ final Map<String, String> PD = {
 };
 
 
+// ==== M351: the Appearance panel, as glyphs ================================
+//
+// The five controls of the Appearance panel are chips with WORDS in them —
+// a swatch and "Aluminium", "Schattiert mit Kanten", "Halber Schnitt". In a
+// band that writes no names (M349) a 130 pt chip is the widest thing on the
+// ribbon and, in an 88 pt rail, wider than the rail itself: "the dropdowns in
+// Aussehen go over the edge".
+//
+// So they get icons, in the same language as every other icon here: light grey
+// geometry, blue where something is picked, one accent at most. Drawn on an
+// 18 viewBox like the other small glyphs, which scales to whatever size the
+// band is drawing at.
+//
+// The MATERIAL has no icon and does not need one: its value is a colour, and
+// the swatch it already draws IS the glyph.
+final Map<String, String> VW = {
+  // Shaded with edges — the working view: a cube with its edges drawn.
+  'shaded': S(
+      18,
+      '<path d="M9 2.2 L15.4 5.6 L15.4 12.4 L9 15.8 L2.6 12.4 L2.6 5.6 Z" '
+          'fill="#DCE3E9" stroke="$G" stroke-width="1.2"/>'
+          '<path d="M9 2.2 L9 9 L15.4 5.6 M9 9 L2.6 5.6 M9 9 L9 15.8" '
+          'stroke="$G" stroke-width="1.1" fill="none"/>'),
+  // Rendered — the same solid lit and glossy, with a shadow under it. No
+  // edges, because that is precisely the difference between the two modes.
+  'rendered': S(
+      18,
+      '<ellipse cx="9" cy="15" rx="5.4" ry="1.3" fill="$DIM" opacity=".45"/>'
+          '<circle cx="9" cy="8.4" r="5.6" fill="#B9C6D2" stroke="$G" '
+          'stroke-width="1.1"/>'
+          '<path d="M6.4 5.8 a3.6 3.6 0 0 1 3.2-1.5" stroke="#FFFFFF" '
+          'stroke-width="1.4" fill="none" opacity=".85"/>'),
+  // Section view — a cube with a quarter taken out and the cut hatched, which
+  // is how a section is drawn in a technical drawing.
+  'section': S(
+      18,
+      '<path d="M2.6 5.6 L9 2.2 L15.4 5.6 L15.4 12.4 L9 15.8 L2.6 12.4 Z" '
+          'fill="none" stroke="$G" stroke-width="1.2"/>'
+          '<path d="M9 9 L15.4 5.6 L15.4 12.4 L9 15.8 Z" fill="$BL" '
+          'opacity=".22"/>'
+          '<path d="M9 9 L15.4 5.6 M9 9 L9 15.8" stroke="$BL" '
+          'stroke-width="1.2"/>'
+          '<path d="M10.4 12.6 L14.4 10.4 M10.4 14.4 L14.4 12.2" '
+          'stroke="$BL" stroke-width=".9" opacity=".8"/>'),
+  // The renderer — an aperture, which is what chooses how a picture is made.
+  'engine': S(
+      18,
+      '<circle cx="9" cy="9" r="6.2" stroke="$G" stroke-width="1.2"/>'
+          '<path d="M9 2.8 L12.1 8.2 M14.4 12.1 L8.2 12.1 M3.6 12.1 L6.7 6.7" '
+          'stroke="$G" stroke-width="1.1"/>'
+          '<circle cx="9" cy="9" r="1.8" fill="$BL"/>'),
+  // The floor the rendered mode stands the model on.
+  'floor': S(
+      18,
+      '<path d="M1.6 13.2 L9 10 L16.4 13.2 L9 16.4 Z" fill="#DCE3E9" '
+          'stroke="$G" stroke-width="1.1"/>'
+          '<path d="M6.4 9.4 L9 8.2 L11.6 9.4 L11.6 6.2 L9 5 L6.4 6.2 Z" '
+          'fill="none" stroke="$G" stroke-width="1.1"/>'),
+};
+
 // ==== M56: 3D part UI (ported verbatim from the prototype-ui.html dummy) ====
 
 // Create panel (3D part features)

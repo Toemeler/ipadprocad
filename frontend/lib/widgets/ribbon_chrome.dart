@@ -96,6 +96,31 @@ class RibbonMetrics {
   /// Gap between the band and whatever floats beside it. Kept because the
   /// floating panels still space themselves off each other by it.
   static const double gap = 10;
+
+  // ---- M351: ONE icon size, once the names are gone ----------------------
+  //
+  // With names on the band draws two sizes, and they mean something: 34 pt is
+  // a Create button with a word under it, 18 pt is a row in a list of them.
+  // With the words gone that distinction has nothing left to carry — what is
+  // left is a grid of pictures, and a grid of pictures in two sizes reads as a
+  // mistake ("when the names are hidden every icon should be the same size").
+  //
+  // 24 is the size that costs neither: the big buttons lose ten points of
+  // height each (the band gets thinner again for it) and the small rows gain
+  // six, which their 26 pt row already had room for.
+  static const double bigIconNamed = 34;
+  static const double smallIconNamed = 18;
+  static const double compactIcon = 24;
+
+  static double get bigIcon =>
+      RibbonLabels.on ? bigIconNamed : compactIcon;
+
+  static double get smallIcon =>
+      RibbonLabels.on ? smallIconNamed : compactIcon;
+
+  /// The box one compact icon sits in — the same for every control in the
+  /// band, so a row of them lines up whatever they are.
+  static const double compactButton = 32;
 }
 
 /// The ribbon's background surface: the same glass as the model browser, but

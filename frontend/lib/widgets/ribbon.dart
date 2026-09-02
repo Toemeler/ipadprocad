@@ -5,8 +5,6 @@
 import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:file_picker/file_picker.dart';
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 import '../icon_preview.dart';
 import 'package:native_menu/native_menu.dart' show NativeMenu, NativeMenuItem;
@@ -1058,41 +1056,7 @@ class _RibbonState extends State<Ribbon> {
         _panel(
           label: t.panelAppearance,
           arrow: false,
-          // IntrinsicWidth, and it is not decoration: the ribbon is a
-          // horizontal scrollable, so this Column is laid out with an
-          // UNBOUNDED width and `stretch` inside that is an infinite
-          // constraint, not a layout. Intrinsic gives the pair the width of
-          // the WIDER chip, which is also what makes them line up.
-          child: IntrinsicWidth(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _MaterialChip(app: app, onOpen: toggleOver),
-                const SizedBox(height: 4),
-                // M273 — RIGHT UNDER the material, as asked, and in the same
-                // panel because they are the same question asked twice: what
-                // the body looks like, and how the body is drawn.
-                _DisplayModeChip(app: app, onOpen: toggleOver),
-                if (app.displayMode.isRendered) ...[
-                  const SizedBox(height: 4),
-                  _FloorToggle(app: app),
-                  // M340 — and WHICH renderer draws it. Only here, only in
-                  // rendered mode, and only when there are two to choose from.
-                  if (cyclesReady) ...[
-                    const SizedBox(height: 4),
-                    _RendererChip(onOpen: toggleOver),
-                  ],
-                ],
-                // M291 — and the section view, under the two that say how the
-                // model is DRAWN. It is the third question this panel answers:
-                // what colour, how shaded, and how much of it you can see.
-                //
-                const SizedBox(height: 4),
-                _SectionChip(app: app, onOpen: toggleOver),
-              ],
-            ),
-          ),
+          child: _appearanceBody(app),
         ),
     ]);
   }
@@ -1405,42 +1369,7 @@ class _RibbonState extends State<Ribbon> {
         _panel(
           label: t.panelAppearance,
           arrow: false,
-          // IntrinsicWidth, and it is not decoration: the ribbon is a
-          // horizontal scrollable, so this Column is laid out with an
-          // UNBOUNDED width and `stretch` inside that is an infinite
-          // constraint, not a layout. Intrinsic gives the pair the width of
-          // the WIDER chip, which is also what makes them line up.
-          child: IntrinsicWidth(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _MaterialChip(app: app, onOpen: toggleOver),
-                const SizedBox(height: 4),
-                // M273 — RIGHT UNDER the material, as asked, and in the same
-                // panel because they are the same question asked twice: what
-                // the body looks like, and how the body is drawn.
-                _DisplayModeChip(app: app, onOpen: toggleOver),
-                if (app.displayMode.isRendered) ...[
-                  const SizedBox(height: 4),
-                  _FloorToggle(app: app),
-                  // M340 — and WHICH renderer draws it. Only here, only in
-                  // rendered mode, and only when there are two to choose from.
-                  if (cyclesReady) ...[
-                    const SizedBox(height: 4),
-                    _RendererChip(onOpen: toggleOver),
-                  ],
-                ],
-                // M292 — and the section view here too. The commands, the
-                // planes, the flips and the offsets are the same value on both
-                // document types (AppState.documentSection); what differs is
-                // which solids get cut, and that is sectionedPiece's business
-                // rather than this chip's.
-                const SizedBox(height: 4),
-                _SectionChip(app: app, onOpen: toggleOver),
-              ],
-            ),
-          ),
+          child: _appearanceBody(app),
         ),
     ]);
   }
@@ -1821,6 +1750,62 @@ class _RibbonState extends State<Ribbon> {
     );
   }
 
+  /// M351 — the Appearance panel's five controls, in whichever shape the band
+  /// is in. One method, because the part ribbon and the assembly ribbon carry
+  /// the same panel and always have (M272/M292).
+  ///
+  /// NAMES ON: the stack of chips M272/M273/M291 built, inside an
+  /// IntrinsicWidth — and that is not decoration. The ribbon is a horizontal
+  /// scrollable, so this Column is laid out with an UNBOUNDED width, and
+  /// `stretch` inside that is an infinite constraint rather than a layout.
+  /// Intrinsic gives the chips the width of the widest, which is also what
+  /// makes them line up.
+  ///
+  /// NAMES OFF: glyphs at the band's one size, laid out by the same
+  /// [smallStack] every other panel uses — one row on a band, a column in a
+  /// rail. Five chips 130 pt wide and 150 pt tall fit neither shape, which is
+  /// the report this answers: "the dropdowns in Aussehen go over the edge".
+  Widget _appearanceBody(AppState app) {
+    final controls = <Widget>[
+      _MaterialChip(app: app, onOpen: toggleOver),
+      // M273 — RIGHT UNDER the material, as asked, and in the same panel
+      // because they are the same question asked twice: what the body looks
+      // like, and how the body is drawn.
+      _DisplayModeChip(app: app, onOpen: toggleOver),
+      if (app.displayMode.isRendered) ...[
+        _FloorToggle(app: app),
+        // M340 — and WHICH renderer draws it. Only here, only in rendered
+        // mode, and only when there are two to choose from.
+        if (cyclesReady) _RendererChip(onOpen: toggleOver),
+      ],
+      // M291/M292 — and the section view, after the two that say how the model
+      // is DRAWN. It is the third question this panel answers: what colour,
+      // how shaded, and how much of it you can see. The same value on both
+      // document types (AppState.documentSection); what differs is which
+      // solids get cut, and that is sectionedPiece's business, not this
+      // panel's.
+      _SectionChip(app: app, onOpen: toggleOver),
+    ];
+    if (!RibbonLabels.on) return smallStack(controls);
+    final column = Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (var i = 0; i < controls.length; i++) ...[
+          if (i > 0) const SizedBox(height: 4),
+          controls[i],
+        ]
+      ],
+    );
+    // M351 — and NO IntrinsicWidth in a rail. Intrinsic asks a child how wide
+    // it would like to be, and a chip's label answers with the whole word —
+    // which is how the named rail still overflowed by 30 px after the labels
+    // themselves had been taught to ellipsise. In a rail the panel's own width
+    // is the bound, and `stretch` inside it is a layout rather than an
+    // infinity, so the Column can be handed over as it is.
+    return RibbonDock.isVertical ? column : IntrinsicWidth(child: column);
+  }
+
   Widget _panel(
       {required String label,
       required bool arrow,
@@ -1852,8 +1837,22 @@ class _RibbonState extends State<Ribbon> {
     // overflow keeps a bare arrow.
     final bool names = RibbonLabels.on;
     final bool hasOver = arrow || over != null;
+    // M351 — and in a RAIL the title shrinks like everything else in it. A
+    // long German panel name plus its ▼ ran 30 px past a 168 pt rail; the rule
+    // is [_SmallRow]'s, one panel up: Flexible only where the width is
+    // bounded, because a flex child under the band's unbounded width is an
+    // assertion.
     final titleRow = Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-      if (names) Text(label, style: ts(12, T.dim), softWrap: false),
+      if (names)
+        if (RibbonDock.isVertical)
+          Flexible(
+            child: Text(label,
+                style: ts(12, T.dim),
+                softWrap: false,
+                overflow: TextOverflow.ellipsis),
+          )
+        else
+          Text(label, style: ts(12, T.dim), softWrap: false),
       if (hasOver) ...[
         if (names) const SizedBox(width: 6),
         Text('▼', style: ts(names ? 8 : 10, T.dim)),
@@ -2152,7 +2151,7 @@ class _Big extends StatelessWidget {
           child: Padding(
             padding: const EdgeInsets.only(top: 4),
             child: Column(mainAxisSize: MainAxisSize.min, children: [
-              _dimmable(svg(icon, 34), enabled),
+              _dimmable(svg(icon, RibbonMetrics.bigIcon), enabled),
               if (RibbonLabels.on) ...[
               const SizedBox(height: 3),
               Padding(
@@ -2236,7 +2235,7 @@ class _BigWide extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(top: 6, bottom: 4),
             child: Column(mainAxisSize: MainAxisSize.min, children: [
-              Center(child: _dimmable(svg(icon, 34), enabled)),
+              Center(child: _dimmable(svg(icon, RibbonMetrics.bigIcon), enabled)),
               if (RibbonLabels.on) ...[
               const SizedBox(height: 3),
               Padding(
@@ -2277,18 +2276,22 @@ Widget named(String label, Widget button) => RibbonLabels.on
 /// '\n' that a tooltip should not honour.
 String _flat(String label) => label.replaceAll('\n', ' ');
 
-/// M349 — a column of small rows, FOLDED when the ribbon writes no names.
+/// M349/M351 — a column of small rows, LAID FLAT when the ribbon writes no
+/// names.
 ///
 /// With names on this is exactly the Column it replaced, down to the two-point
-/// gap. With names off on a HORIZONTAL band each row is an 18 pt glyph and its
-/// flyout chip — about 40 pt wide — and stacking four of them makes the band
-/// 104 pt tall to show 40 pt of content. So they fold two deep into as many
-/// columns as they need: height is the scarce axis on a horizontal band and
-/// width is free, because the band scrolls sideways. It is the same trade
-/// [_ConGrid] makes one panel over, for the same reason.
+/// gap. With names off on a HORIZONTAL band each row is a glyph and its flyout
+/// chip, and stacking four of them made the band 104 pt tall to show 40 pt of
+/// content — so they go in one row instead: height is the scarce axis on a
+/// horizontal band and width is free, because the band scrolls sideways.
 ///
-/// A SIDE RAIL is left alone. There the scarce axis is the other one, and a
-/// fold would widen the very thing the compact rail exists to narrow.
+/// ONE row, not two. The constraint grid is the single exception, by request
+/// and because twelve icons in a line would be a panel the width of the
+/// screen; see [_ConGrid].
+///
+/// A SIDE RAIL is left alone. There the scarce axis is the other one, and
+/// laying the rows out sideways would widen the very thing the compact rail
+/// exists to narrow.
 Widget smallStack(List<Widget> rows) {
   Widget column(List<Widget> rs) => Column(
       mainAxisAlignment: MainAxisAlignment.center,
@@ -2299,21 +2302,18 @@ Widget smallStack(List<Widget> rows) {
           rs[i],
         ]
       ]);
-  if (RibbonLabels.on || RibbonDock.isVertical || rows.length < 3) {
-    return column(rows);
-  }
-  const perColumn = 2;
-  final groups = <List<Widget>>[
-    for (var i = 0; i < rows.length; i += perColumn)
-      rows.sublist(i, math.min(i + perColumn, rows.length))
-  ];
+  if (RibbonLabels.on || RibbonDock.isVertical) return column(rows);
+  // ONE row, and only the constraint grid is allowed two ("just on the
+  // constraint icons in the sketch mode they can be 2 rowed"). Twelve
+  // constraints in a line would be a panel as wide as the screen; three
+  // modify commands in a line are three icons.
   return Row(
       mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        for (var g = 0; g < groups.length; g++) ...[
-          if (g > 0) const SizedBox(width: 2),
-          column(groups[g]),
+        for (var i = 0; i < rows.length; i++) ...[
+          if (i > 0) const SizedBox(width: 2),
+          rows[i],
         ]
       ]);
 }
@@ -2365,10 +2365,12 @@ class _SmallRow extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 4),
             child: Row(mainAxisSize: MainAxisSize.min, children: [
               SizedBox(
-                  width: 18,
-                  height: 18,
+                  width: RibbonMetrics.smallIcon,
+                  height: RibbonMetrics.smallIcon,
                   child: Center(
-                      child: _dimmable(iconWidget ?? svg(icon, 18), enabled))),
+                      child: _dimmable(
+                          iconWidget ?? svg(icon, RibbonMetrics.smallIcon),
+                          enabled))),
               // M349 — no word, no gap before it. A small row with names off
               // is a glyph and its flyout chip, which is what makes a rail
               // 76 pt wide instead of 168.
@@ -2428,7 +2430,7 @@ class _BigPlainBody extends StatelessWidget {
     return named(
         label,
         Column(mainAxisSize: MainAxisSize.min, children: [
-          svg(CN['dim']!, 34),
+          svg(CN['dim']!, RibbonMetrics.bigIcon),
           if (RibbonLabels.on) ...[
             const SizedBox(height: 3),
             Text(label,
@@ -2508,6 +2510,9 @@ class _ConGrid extends StatelessWidget {
     if (t != null) onTool(t);
   }
 
+  /// The compact cell — see [_cell] for why it is not the compact BUTTON.
+  static const double _compactCell = 30;
+
   /// M349 — the grid reflows when the names are off, because it is what the
   /// band's size is actually made of.
   ///
@@ -2531,13 +2536,21 @@ class _ConGrid extends StatelessWidget {
   Widget _cell((String, String) c) => Tooltip(
         message: c.$2,
         child: SizedBox(
-          width: 30,
-          height: 27,
+          // M351 — the cell grows with the glyph inside it, so the compact
+          // grid is icons at the band's one size rather than the small ones
+          // blown up inside a box drawn for 18 pt.
+          //
+          // 30, not the 32 of a free-standing compact button: TWO of these
+          // plus their gap have to fit the compact rail, whose panel offers
+          // 62 pt, and 2 x 32 + 1 is 65. Found by the rail overflowing — the
+          // one place in this band where width is not free.
+          width: RibbonLabels.on ? 30 : _compactCell,
+          height: RibbonLabels.on ? 27 : _compactCell,
           child: _Hover(
               hoverBg: T.hover7,
               activeHighlight: _isActive(c.$1),
               onTap: () => _tap(c.$1),
-              child: Center(child: svg(CN[c.$1]!, 18))),
+              child: Center(child: svg(CN[c.$1]!, RibbonMetrics.smallIcon))),
         ),
       );
 
@@ -2564,7 +2577,9 @@ class _ConGrid extends StatelessWidget {
                   padding: EdgeInsets.only(left: col == 0 ? 0 : 1),
                   child: (row * cols + col) < cons.length
                       ? _cell(cons[row * cols + col])
-                      : const SizedBox(width: 30, height: 27),
+                      : SizedBox(
+                          width: RibbonLabels.on ? 30 : _compactCell,
+                          height: RibbonLabels.on ? 27 : _compactCell),
                 ),
             ]),
           ),
@@ -2789,6 +2804,113 @@ class _FlyRowState extends State<_FlyRow> {
   }
 }
 
+/// M351 — an Appearance control in a band that writes no names.
+///
+/// "The dropdowns in Aussehen have to be redesigned with icons because they go
+/// over the edge currently." They did, and by a lot: the material chip is a
+/// swatch plus a 90 pt label plus a ▼, the display-mode chip a 112 pt label,
+/// and five of them stacked make a panel 150 pt tall in a band that is 80 —
+/// and 130 pt wide in a rail that is 88.
+///
+/// So in the compact band each of them is what every other control in that
+/// band is: one glyph at [RibbonMetrics.compactIcon], in a box of
+/// [RibbonMetrics.compactButton]. What is lost is the VALUE written out, and
+/// it comes back two ways — the glyph itself says it where there are only two
+/// or three (the display mode, the section, the material's own colour), and
+/// the tooltip names the control and its current setting for the rest.
+///
+/// The chip's own hover wash and border are kept, because they are what says
+/// "this opens something" once the ▼ has gone.
+class _ValueIcon extends StatefulWidget {
+  final Widget glyph;
+
+  /// "Aussehen: Aluminium" — the control AND what it is set to, because the
+  /// glyph can only carry one of the two.
+  final String tooltip;
+  final bool enabled;
+
+  /// Lit, for the two controls that are a state rather than a choice: the
+  /// floor, and a section that is up.
+  final bool active;
+  final void Function(BuildContext) onTap;
+
+  const _ValueIcon({
+    required this.glyph,
+    required this.tooltip,
+    required this.onTap,
+    this.enabled = true,
+    this.active = false,
+  });
+
+  @override
+  State<_ValueIcon> createState() => _ValueIconState();
+}
+
+class _ValueIconState extends State<_ValueIcon> {
+  bool _h = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final on = widget.enabled;
+    final lit = widget.active;
+    return Tooltip(
+      message: widget.tooltip,
+      child: MouseRegion(
+        cursor: on ? SystemMouseCursors.click : MouseCursor.defer,
+        onEnter: (_) => setState(() => _h = true),
+        onExit: (_) => setState(() => _h = false),
+        child: Builder(
+          builder: (ctx) => GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: on ? () => widget.onTap(ctx) : null,
+            child: Container(
+              width: RibbonMetrics.compactButton,
+              height: RibbonMetrics.compactButton,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: lit
+                    ? T.mbActiveBg
+                    : ((_h && on) ? T.hover7 : T.hover6),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(
+                    color: lit
+                        ? T.mbActiveOutline
+                        : ((_h && on)
+                            ? T.accent.withValues(alpha: 0.45)
+                            : T.border10)),
+              ),
+              child: _dimmable(widget.glyph, on),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// M351 — the label inside an Appearance chip, in a shape its box can hold.
+///
+/// The four chips gave their label a FLOOR (90 pt for the material, 112 for
+/// the display mode and the renderer) and switched soft wrapping off, which is
+/// exactly right in the horizontal band: it is a scrollable of unbounded
+/// width, so a floor costs scroll and never layout (M235).
+///
+/// A SIDE RAIL is bounded, and 168 pt of rail minus the panel's 20 pt of
+/// padding cannot hold a 150 pt chip: the named rail overflowed by up to 115
+/// pixels — "the dropdowns in Aussehen go over the edge". So there the label
+/// shrinks and ellipsises instead, which is the rule [_SmallRow] has followed
+/// since M290 and for the same reason. Flexible ONLY in the rail: a flex child
+/// under the band's unbounded width is an assertion, not a layout.
+Widget chipLabel(String text, TextStyle style, {required double floor}) =>
+    RibbonDock.isVertical
+        ? Flexible(
+            child: Text(text,
+                style: style, softWrap: false, overflow: TextOverflow.ellipsis))
+        : ConstrainedBox(
+            constraints: BoxConstraints(minWidth: floor),
+            child: Text(text, softWrap: false, style: style),
+          );
+
 /// M272 — one appearance, as a filled disc.
 ///
 /// A ring around it, and it is not decoration: Aluminium on the light palette
@@ -2797,14 +2919,18 @@ class _FlyRowState extends State<_FlyRow> {
 /// where the user most needs to see it.
 class _Swatch extends StatelessWidget {
   final int argb;
-  const _Swatch({required this.argb});
 
-  static const double size = 14;
+  /// M351 — bigger in the compact band, where the swatch is not a bullet
+  /// beside a word but the control's whole glyph.
+  final double? size;
+  const _Swatch({required this.argb, this.size});
+
+  static const double defaultSize = 14;
 
   @override
   Widget build(BuildContext context) => Container(
-        width: size,
-        height: size,
+        width: size ?? defaultSize,
+        height: size ?? defaultSize,
         decoration: BoxDecoration(
           color: Color(argb),
           shape: BoxShape.circle,
@@ -2863,6 +2989,22 @@ class _MaterialChipState extends State<_MaterialChip> {
     final app = widget.app;
     final on = app.canSetMaterial;
     final cur = app.selectedMaterial;
+    // M351 — compact: the swatch, which is this control's value anyway. No
+    // icon had to be drawn for it, and none should be: the appearance IS a
+    // colour.
+    if (!RibbonLabels.on) {
+      return _ValueIcon(
+        glyph: _Swatch(
+            argb: materialArgb(cur) ?? T.solid.toARGB32(),
+            // The band's ONE icon size, like every glyph beside it: the disc
+            // is not a bullet before a word any more, it is the icon.
+            size: RibbonMetrics.compactIcon),
+        tooltip: '${t.panelAppearance}: '
+            '${on ? materialName(t, cur) : t.matPickBody}',
+        enabled: on,
+        onTap: (ctx) => widget.onOpen('ov-material', ctx, _items(t)),
+      );
+    }
     // The 132 is a FLOOR, not a cap, and that is M235's rule rather than a
     // preference: a fixed box with an ellipsis inside it is exactly the shape
     // that made every long German ribbon label wrap or clip. The chip is as
@@ -2895,11 +3037,9 @@ class _MaterialChipState extends State<_MaterialChip> {
       child: Row(mainAxisSize: MainAxisSize.min, children: [
         _Swatch(argb: materialArgb(cur) ?? T.solid.toARGB32()),
         const SizedBox(width: 8),
-        ConstrainedBox(
-          constraints: const BoxConstraints(minWidth: 90),
-          child: Text(on ? materialName(t, cur) : t.matPickBody,
-              softWrap: false, style: ts(12, on ? T.text : T.dim)),
-        ),
+        chipLabel(on ? materialName(t, cur) : t.matPickBody,
+            ts(12, on ? T.text : T.dim),
+            floor: 90),
         const SizedBox(width: 6),
         Text('▼', style: ts(8, T.dim)),
       ]),
@@ -2932,6 +3072,17 @@ class _FloorToggle extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = L.of(context);
     final on = app.showFloor;
+    // M351 — compact: the same glyph as a button, lit when the floor is there.
+    // A 13 pt checkbox with a word beside it is the one shape in this panel
+    // that has no icon form of its own, so it takes the panel's.
+    if (!RibbonLabels.on) {
+      return _ValueIcon(
+        glyph: svg(VW['floor']!, RibbonMetrics.compactIcon),
+        tooltip: t.viewFloor,
+        active: on,
+        onTap: (_) => app.setShowFloor(!on),
+      );
+    }
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: () => app.setShowFloor(!on),
@@ -3013,6 +3164,31 @@ class _SectionChipState extends State<_SectionChip> {
     // asking them for a plane on its behalf.
     final cur = app.sectionArm ?? app.partSection?.mode;
     final live = app.partSection;
+    List<OverItem> items() => [
+          OverItem('', t.sectionNone, app.endSection, active: cur == null),
+          for (final m in SectionMode.values)
+            OverItem('', _name(t, m), () => app.beginSection(m),
+                active: m == cur),
+          // Flip, one entry per plane the live section actually has. Absent
+          // while a command is still picking, because there is nothing yet to
+          // flip.
+          if (live != null)
+            OverItem('', t.sectionFlip1, () => app.flipSectionPlane(0)),
+          if (live != null && live.planes.length > 1)
+            OverItem('', t.sectionFlip2, () => app.flipSectionPlane(1)),
+        ];
+    // M351 — compact: one glyph, LIT while a section is up. Which of the three
+    // section kinds it is does not fit in an icon and does not need to: the
+    // viewport is showing it, and the tooltip names it.
+    if (!RibbonLabels.on) {
+      return _ValueIcon(
+        glyph: svg(VW['section']!, RibbonMetrics.compactIcon),
+        tooltip: '${t.panelAppearance}: ${_name(t, cur)}',
+        enabled: on,
+        active: cur != null,
+        onTap: (ctx) => widget.onOpen('ov-section', ctx, items()),
+      );
+    }
     final chip = Container(
       padding: const EdgeInsets.fromLTRB(8, 6, 6, 6),
       decoration: BoxDecoration(
@@ -3023,12 +3199,9 @@ class _SectionChipState extends State<_SectionChip> {
       ),
       // The same floor-not-a-cap rule as the two chips above it (M235).
       child: Row(mainAxisSize: MainAxisSize.min, children: [
-        ConstrainedBox(
-          constraints: const BoxConstraints(minWidth: 112),
-          child: Text(_name(t, cur),
-              softWrap: false,
-              style: ts(12, !on ? T.dim : (cur == null ? T.text : T.accent))),
-        ),
+        chipLabel(_name(t, cur),
+            ts(12, !on ? T.dim : (cur == null ? T.text : T.accent)),
+            floor: 112),
         const SizedBox(width: 6),
         Text('▼', style: ts(8, T.dim)),
       ]),
@@ -3040,24 +3213,7 @@ class _SectionChipState extends State<_SectionChip> {
       child: Builder(
         builder: (ctx) => GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onTap: on
-              ? () => widget.onOpen('ov-section', ctx, [
-                    OverItem('', t.sectionNone, app.endSection,
-                        active: cur == null),
-                    for (final m in SectionMode.values)
-                      OverItem('', _name(t, m), () => app.beginSection(m),
-                          active: m == cur),
-                    // Flip, one entry per plane the live section actually has.
-                    // Absent while a command is still picking, because there
-                    // is nothing yet to flip.
-                    if (live != null)
-                      OverItem(
-                          '', t.sectionFlip1, () => app.flipSectionPlane(0)),
-                    if (live != null && live.planes.length > 1)
-                      OverItem(
-                          '', t.sectionFlip2, () => app.flipSectionPlane(1)),
-                  ])
-              : null,
+          onTap: on ? () => widget.onOpen('ov-section', ctx, items()) : null,
           child: chip,
         ),
       ),
@@ -3107,6 +3263,26 @@ class _RendererChipState extends State<_RendererChip> {
   Widget build(BuildContext context) {
     final t = L.of(context);
     final cur = RenderEngines.current;
+    List<OverItem> items() => [
+          for (final e in RenderEngine.values)
+            OverItem('', _name(t, e), () {
+              RenderEngines.set(e);
+              // This rebuilds the LABEL. The viewport rebuilds itself:
+              // RenderEngines.engine is a ValueNotifier and CyclesLayer
+              // listens to it, the same way it listens to the warm-up.
+              if (mounted) setState(() {});
+            }, active: e == cur),
+        ];
+    // M351 — compact: an aperture, lit while the path tracer is the one
+    // drawing (which is what the accent-coloured name said before).
+    if (!RibbonLabels.on) {
+      return _ValueIcon(
+        glyph: svg(VW['engine']!, RibbonMetrics.compactIcon),
+        tooltip: '${t.panelAppearance}: ${_name(t, cur)}',
+        active: cur == RenderEngine.cycles,
+        onTap: (ctx) => widget.onOpen('ov-renderer', ctx, items()),
+      );
+    }
     final chip = Container(
       padding: const EdgeInsets.fromLTRB(8, 6, 6, 6),
       decoration: BoxDecoration(
@@ -3117,13 +3293,9 @@ class _RendererChipState extends State<_RendererChip> {
       ),
       // A floor, not a fixed width, like every other chip in this panel (M235).
       child: Row(mainAxisSize: MainAxisSize.min, children: [
-        ConstrainedBox(
-          constraints: const BoxConstraints(minWidth: 112),
-          child: Text(_name(t, cur),
-              softWrap: false,
-              style:
-                  ts(12, cur == RenderEngine.cycles ? T.accent : T.text)),
-        ),
+        chipLabel(_name(t, cur),
+            ts(12, cur == RenderEngine.cycles ? T.accent : T.text),
+            floor: 112),
         const SizedBox(width: 6),
         Text('\u25BC', style: ts(8, T.dim)),
       ]),
@@ -3135,16 +3307,7 @@ class _RendererChipState extends State<_RendererChip> {
       child: Builder(
         builder: (ctx) => GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onTap: () => widget.onOpen('ov-renderer', ctx, [
-            for (final e in RenderEngine.values)
-              OverItem('', _name(t, e), () {
-                RenderEngines.set(e);
-                // This rebuilds the LABEL. The viewport rebuilds itself:
-                // RenderEngines.engine is a ValueNotifier and CyclesLayer
-                // listens to it, the same way it listens to the warm-up.
-                if (mounted) setState(() {});
-              }, active: e == cur),
-          ]),
+          onTap: () => widget.onOpen('ov-renderer', ctx, items()),
           child: chip,
         ),
       ),
@@ -3171,6 +3334,23 @@ class _DisplayModeChipState extends State<_DisplayModeChip> {
     final app = widget.app;
     final on = app.canSetDisplayMode;
     final cur = app.displayMode;
+    List<OverItem> items() => [
+          for (final m in DisplayMode.values)
+            OverItem('', displayModeName(t, m), () => app.setDisplayMode(m),
+                active: m == cur),
+        ];
+    // M351 — compact: the mode's own glyph, so the band still SAYS which view
+    // you are in — which is the whole reason this is a chip and not two
+    // buttons (M273).
+    if (!RibbonLabels.on) {
+      return _ValueIcon(
+        glyph: svg(VW[cur.isRendered ? 'rendered' : 'shaded']!,
+            RibbonMetrics.compactIcon),
+        tooltip: '${t.panelAppearance}: ${displayModeName(t, cur)}',
+        enabled: on,
+        onTap: (ctx) => widget.onOpen('ov-view', ctx, items()),
+      );
+    }
     final chip = Container(
       padding: const EdgeInsets.fromLTRB(8, 6, 6, 6),
       decoration: BoxDecoration(
@@ -3184,11 +3364,8 @@ class _DisplayModeChipState extends State<_DisplayModeChip> {
       // two reasons _MaterialChip gives: the ribbon is a horizontal scrollable,
       // and M235 exists because fixed label boxes wrap or clip.
       child: Row(mainAxisSize: MainAxisSize.min, children: [
-        ConstrainedBox(
-          constraints: const BoxConstraints(minWidth: 112),
-          child: Text(displayModeName(t, cur),
-              softWrap: false, style: ts(12, on ? T.text : T.dim)),
-        ),
+        chipLabel(displayModeName(t, cur), ts(12, on ? T.text : T.dim),
+            floor: 112),
         const SizedBox(width: 6),
         Text('▼', style: ts(8, T.dim)),
       ]),
@@ -3200,14 +3377,7 @@ class _DisplayModeChipState extends State<_DisplayModeChip> {
       child: Builder(
         builder: (ctx) => GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onTap: on
-              ? () => widget.onOpen('ov-view', ctx, [
-                    for (final m in DisplayMode.values)
-                      OverItem('', displayModeName(t, m),
-                          () => app.setDisplayMode(m),
-                          active: m == cur),
-                  ])
-              : null,
+          onTap: on ? () => widget.onOpen('ov-view', ctx, items()) : null,
           child: chip,
         ),
       ),

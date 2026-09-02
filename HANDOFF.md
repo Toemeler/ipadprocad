@@ -11363,3 +11363,84 @@ Mechanismus im Haus bewiesen), und dass eine 2D-Skizze, deren Koordinatenraum
 jetzt den ganzen Bildschirm misst statt der um das Band verkleinerten Box,
 sich richtig anfühlt — sie zentriert wie der Modellbrowser es schon immer
 getan hat, aber gesehen hat das noch niemand.
+
+## M351 — Eine Symbolgrösse, eine Reihe, und „Aussehen" passt endlich hinein
+
+### Was der Auftrag war
+
+„Wenn die Namen versteckt sind, sollte jedes Symbol im Band gleich gross
+sein. Ausserdem müssen die Dropdowns in Aussehen mit Symbolen neu gestaltet
+werden, weil sie derzeit über den Rand gehen." Dazu, eine Nachricht später:
+„Nur bei den Bedingungssymbolen im Skizzenmodus dürfen es zwei Reihen sein."
+
+### Eine Grösse
+
+Mit Namen zeichnet das Band zwei: **34 pt** für einen Erstellen-Knopf (eine
+Grösse, die nur unter einem Wort Sinn ergibt) und **18 pt** für eine Zeile in
+einer Liste. Ohne die Wörter trägt dieser Unterschied nichts mehr — was übrig
+bleibt, ist ein Raster aus Bildern, und ein Raster aus Bildern in zwei Grössen
+liest sich als Fehler.
+
+Jetzt **24 pt**, überall: `RibbonMetrics.bigIcon` / `smallIcon` antworten mit
+der einen Grösse, sobald die Namen aus sind. Die grossen Knöpfe verlieren
+dabei zehn Punkte Höhe — das Band wird davon noch einmal dünner.
+
+### Eine Reihe, und die eine Ausnahme
+
+`smallStack` legt die kleinen Zeilen jetzt **flach** statt sie zu zweit zu
+falten. Die einzige Ausnahme ist das **Bedingungsraster**, und zwar auf
+Ansage: elf Symbole in einer Linie wären ein Panel so breit wie der
+Bildschirm. Es bleibt bei sechs breit und zwei tief.
+
+### „Aussehen"
+
+Fünf Steuerungen, alle als Chip mit Wörtern darin: Farbfeld plus „Aluminium",
+„Schattiert mit Kanten", „Halber Schnitt". Gemessen: **150 pt hoch** in einem
+Band, das 78 ist, und **30 bis 115 Pixel breiter als eine 168-pt-Schiene**.
+Das Letzte gab es auch MIT Namen — ein geerbter Fehler, kein neuer.
+
+Drei Dinge dagegen:
+
+1. **Kompakt sind es Glyphen** (`_ValueIcon`), in der einen Symbolgrösse, in
+   einer 32-pt-Schaltfläche, gelegt von demselben `smallStack` wie alles
+   andere. Fünf neue Symbole in der Bildsprache des Hauses (`VW` in
+   `svg_icons.dart`): schattiert, gerendert, Schnitt, Renderer, Boden. Das
+   **Material** bekommt keines und braucht keines — sein Wert IST eine Farbe,
+   also ist das Farbfeld das Symbol.
+2. **Der Wert steht im Kurzhinweis**, „Aussehen: Aluminium". Eine Glyphe kann
+   entweder sagen, welche Steuerung sie ist, oder worauf sie steht; die zwei,
+   die einen Zustand haben (Boden, laufender Schnitt), **leuchten** stattdessen.
+3. **Auch mit Namen passt es jetzt in eine Schiene.** Die Beschriftungen
+   kürzen dort mit Auslassungspunkten statt einen Mindestwert zu erzwingen
+   (`chipLabel`), das `IntrinsicWidth` entfällt in der Schiene — es fragt ein
+   Kind, wie breit es gern WÄRE, und die Antwort ist das ganze Wort — und der
+   Panel-Titel kürzt genauso. Dieselbe Regel, die `_SmallRow` seit M290 folgt:
+   `Flexible` nur dort, wo die Breite begrenzt ist.
+
+### Die Zahlen
+
+| | mit Namen | ohne Namen |
+|---|---|---|
+| Bauteil-Band oben | 119 pt | **78 pt** |
+| Skizzen-Band oben | 112 pt | **90 pt** |
+| Schiene rechts | 168 pt | **88 pt** |
+
+Das Skizzen-Band bleibt bei 90, weil das Bedingungsraster mit seinen zwei
+Reihen darin steht — die Ausnahme, die erlaubt wurde.
+
+### Der Test
+
+`test/m351_compact_ribbon_test.dart`, 18 Fälle. Der zentrale ist drei Zeilen
+lang: **jedes** gezeichnete Symbol im kompakten Band einsammeln und verlangen,
+dass die Menge der Grössen genau EIN Element hat. Dazu: die zwei Grössen
+bleiben, solange Namen an sind; `smallStack` legt flach und stapelt wieder;
+das Raster hat zwei Reihen ohne Namen und drei mit; und **alle acht**
+Kombinationen aus vier Docks und zwei Modi werden mit einem BAUTEIL gepumpt —
+ein RenderFlex-Überlauf wirft im Test, das Pumpen ist also die Zusicherung,
+und genau diese Zusicherung wäre vorher an den benannten Schienen
+umgefallen.
+
+Beim Schreiben davon ist noch ein Überlauf aufgefallen, den kein Test gesehen
+hatte: zwei kompakte Rasterzellen zu 32 pt plus Lücke sind 65 und passen nicht
+in die 62 pt, die das Panel einer 88-pt-Schiene lässt. Die Zelle ist jetzt 30.
+
