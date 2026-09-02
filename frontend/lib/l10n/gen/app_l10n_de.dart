@@ -138,6 +138,33 @@ class AppL10nDe extends AppL10n {
       'Ein Bericht enthaelt das offene Dokument und das Protokoll dieser Sitzung.';
 
   @override
+  String get settingsIconPreview => 'Icon-Vorschau';
+
+  @override
+  String get iconPreviewHelp =>
+      'Starte tools/icon-sync/serve.py auf dem PC, auf dem du zeichnest, und tippe die Adresse ein, die es anzeigt. Leer lassen, um die eingebauten Icons zu verwenden.';
+
+  @override
+  String get iconPreviewTurnOff => 'Ausschalten';
+
+  @override
+  String get iconPreviewConnect => 'Verbinden';
+
+  @override
+  String get iconPreviewIdle =>
+      'Aus — es werden die eingebauten Icons gezeichnet.';
+
+  @override
+  String iconPreviewUnreachable(String host, String error) {
+    return '$host ist nicht erreichbar\n$error';
+  }
+
+  @override
+  String iconPreviewLive(int count, String host) {
+    return '$count Icon(s) live von $host';
+  }
+
+  @override
   String get settingsAbout => 'Über';
 
   @override

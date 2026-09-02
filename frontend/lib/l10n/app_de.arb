@@ -172,6 +172,50 @@
   "@settingsDiagnosticsFooter": {
     "description": "Fusszeile der Diagnose: sagt, was mitgeschickt wird."
   },
+  "settingsIconPreview": "Icon-Vorschau",
+  "@settingsIconPreview": {
+    "description": "Diagnosezeile: oeffnet die Live-Vorschau, die Icon-Renderings von einem PC im selben Netz zeigt."
+  },
+  "iconPreviewHelp": "Starte tools/icon-sync/serve.py auf dem PC, auf dem du zeichnest, und tippe die Adresse ein, die es anzeigt. Leer lassen, um die eingebauten Icons zu verwenden.",
+  "@iconPreviewHelp": {
+    "description": "Erklaerung im Dialog der Icon-Vorschau."
+  },
+  "iconPreviewTurnOff": "Ausschalten",
+  "@iconPreviewTurnOff": {
+    "description": "Knopf im Dialog der Icon-Vorschau: zurueck zu den eingebauten Icons."
+  },
+  "iconPreviewConnect": "Verbinden",
+  "@iconPreviewConnect": {
+    "description": "Knopf im Dialog der Icon-Vorschau: die eingetippte Adresse uebernehmen."
+  },
+  "iconPreviewIdle": "Aus — es werden die eingebauten Icons gezeichnet.",
+  "@iconPreviewIdle": {
+    "description": "Statuszeile der Icon-Vorschau, solange keine Adresse gesetzt ist."
+  },
+  "iconPreviewUnreachable": "{host} ist nicht erreichbar\n{error}",
+  "@iconPreviewUnreachable": {
+    "description": "Statuszeile der Icon-Vorschau, wenn der PC nicht antwortet.",
+    "placeholders": {
+      "host": {
+        "type": "String"
+      },
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "iconPreviewLive": "{count} Icon(s) live von {host}",
+  "@iconPreviewLive": {
+    "description": "Statuszeile der Icon-Vorschau: wie viele Icons gerade vom PC kommen.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "host": {
+        "type": "String"
+      }
+    }
+  },
   "settingsAbout": "Über",
   "@settingsAbout": {
     "description": "Abschnittstitel mit Version und Kernen."

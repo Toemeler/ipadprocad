@@ -1,12 +1,8 @@
 // M348 — the one screen that turns the live icon preview on.
-//
-// Deliberately NOT localised. Every other visible string in this app comes
-// from the ARB because the app is German; this one is a developer affordance
-// that exists to point a tablet at a PC on the same desk, and inventing two
-// translations for a field that takes an IP address is ceremony for nobody.
 import 'package:flutter/material.dart';
 
 import '../icon_preview.dart';
+import '../l10n/l.dart';
 import '../theme.dart';
 
 /// Ask for the address of the machine running `tools/icon-sync/serve.py`.
@@ -36,20 +32,19 @@ class _IconPreviewDialogState extends State<_IconPreviewDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final t = L.of(context);
     return AlertDialog(
       backgroundColor: T.panel,
-      title: Text('Icon Preview', style: TextStyle(color: T.text, fontSize: 17)),
+      title: Text(t.settingsIconPreview,
+          style: TextStyle(color: T.text, fontSize: 17)),
       content: ValueListenableBuilder<int>(
         valueListenable: IconPreview.revision,
         builder: (_, __, ___) => Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Run tools/icon-sync/serve.py on the PC you draw on, then type '
-              'the address it prints. Leave empty to use the built-in icons.',
-              style: TextStyle(color: T.dim, fontSize: 13, height: 1.35),
-            ),
+            Text(t.iconPreviewHelp,
+                style: TextStyle(color: T.dim, fontSize: 13, height: 1.35)),
             const SizedBox(height: 14),
             TextField(
               controller: _c,
@@ -61,6 +56,8 @@ class _IconPreviewDialogState extends State<_IconPreviewDialog> {
               onSubmitted: _apply,
               style: TextStyle(color: T.text, fontSize: 15),
               decoration: InputDecoration(
+                // An address, not a sentence: the same in every language, and
+                // localising it would only invite someone to translate it.
                 hintText: '192.168.1.42:8080',
                 hintStyle: TextStyle(color: T.dim),
                 filled: true,
@@ -69,32 +66,35 @@ class _IconPreviewDialogState extends State<_IconPreviewDialog> {
               ),
             ),
             const SizedBox(height: 12),
-            Text(_status(), style: TextStyle(color: _statusColor(), fontSize: 12.5)),
+            Text(_status(t),
+                style: TextStyle(color: _statusColor(), fontSize: 12.5)),
           ],
         ),
       ),
       actions: [
         TextButton(
           onPressed: () => _apply(''),
-          child: Text('Turn off', style: TextStyle(color: T.dim)),
+          child: Text(t.iconPreviewTurnOff, style: TextStyle(color: T.dim)),
         ),
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: Text('Cancel', style: TextStyle(color: T.dim)),
+          child: Text(t.cancel, style: TextStyle(color: T.dim)),
         ),
         TextButton(
           onPressed: () => _apply(_c.text),
-          child: Text('Connect', style: TextStyle(color: T.accent)),
+          child: Text(t.iconPreviewConnect, style: TextStyle(color: T.accent)),
         ),
       ],
     );
   }
 
-  String _status() {
-    if (!IconPreview.active) return 'Off — showing the built-in icons.';
+  String _status(AppL10n t) {
+    if (!IconPreview.active) return t.iconPreviewIdle;
     final err = IconPreview.lastError;
-    if (err != null) return 'Cannot reach ${IconPreview.host.value}\n$err';
-    return '${IconPreview.count} icon(s) live from ${IconPreview.host.value}';
+    if (err != null) {
+      return t.iconPreviewUnreachable(IconPreview.host.value, err);
+    }
+    return t.iconPreviewLive(IconPreview.count, IconPreview.host.value);
   }
 
   Color _statusColor() {

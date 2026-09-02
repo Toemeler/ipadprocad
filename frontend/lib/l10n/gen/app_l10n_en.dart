@@ -137,6 +137,32 @@ class AppL10nEn extends AppL10n {
       'A report includes the open document and this session’s log.';
 
   @override
+  String get settingsIconPreview => 'Icon Preview';
+
+  @override
+  String get iconPreviewHelp =>
+      'Run tools/icon-sync/serve.py on the PC you draw on, then type the address it prints. Leave empty to use the built-in icons.';
+
+  @override
+  String get iconPreviewTurnOff => 'Turn off';
+
+  @override
+  String get iconPreviewConnect => 'Connect';
+
+  @override
+  String get iconPreviewIdle => 'Off — showing the built-in icons.';
+
+  @override
+  String iconPreviewUnreachable(String host, String error) {
+    return 'Cannot reach $host\n$error';
+  }
+
+  @override
+  String iconPreviewLive(int count, String host) {
+    return '$count icon(s) live from $host';
+  }
+
+  @override
   String get settingsAbout => 'About';
 
   @override

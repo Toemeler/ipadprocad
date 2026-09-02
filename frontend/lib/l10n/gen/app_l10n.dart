@@ -343,6 +343,48 @@ abstract class AppL10n {
   /// **'Ein Bericht enthaelt das offene Dokument und das Protokoll dieser Sitzung.'**
   String get settingsDiagnosticsFooter;
 
+  /// Diagnosezeile: oeffnet die Live-Vorschau, die Icon-Renderings von einem PC im selben Netz zeigt.
+  ///
+  /// In de, this message translates to:
+  /// **'Icon-Vorschau'**
+  String get settingsIconPreview;
+
+  /// Erklaerung im Dialog der Icon-Vorschau.
+  ///
+  /// In de, this message translates to:
+  /// **'Starte tools/icon-sync/serve.py auf dem PC, auf dem du zeichnest, und tippe die Adresse ein, die es anzeigt. Leer lassen, um die eingebauten Icons zu verwenden.'**
+  String get iconPreviewHelp;
+
+  /// Knopf im Dialog der Icon-Vorschau: zurueck zu den eingebauten Icons.
+  ///
+  /// In de, this message translates to:
+  /// **'Ausschalten'**
+  String get iconPreviewTurnOff;
+
+  /// Knopf im Dialog der Icon-Vorschau: die eingetippte Adresse uebernehmen.
+  ///
+  /// In de, this message translates to:
+  /// **'Verbinden'**
+  String get iconPreviewConnect;
+
+  /// Statuszeile der Icon-Vorschau, solange keine Adresse gesetzt ist.
+  ///
+  /// In de, this message translates to:
+  /// **'Aus — es werden die eingebauten Icons gezeichnet.'**
+  String get iconPreviewIdle;
+
+  /// Statuszeile der Icon-Vorschau, wenn der PC nicht antwortet.
+  ///
+  /// In de, this message translates to:
+  /// **'{host} ist nicht erreichbar\n{error}'**
+  String iconPreviewUnreachable(String host, String error);
+
+  /// Statuszeile der Icon-Vorschau: wie viele Icons gerade vom PC kommen.
+  ///
+  /// In de, this message translates to:
+  /// **'{count} Icon(s) live von {host}'**
+  String iconPreviewLive(int count, String host);
+
   /// Abschnittstitel mit Version und Kernen.
   ///
   /// In de, this message translates to:

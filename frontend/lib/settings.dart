@@ -380,10 +380,9 @@ List<SettingsSection> buildSettings(
               title: t.settingsShareLog,
               symbol: 'square.and.arrow.up',
             ),
-            // Not from the ARB, and see icon_preview_dialog.dart for why.
             SettingsRow(
               id: kRowIconPreview,
-              title: 'Icon Preview',
+              title: t.settingsIconPreview,
               symbol: 'photo.on.rectangle',
             ),
           ],
