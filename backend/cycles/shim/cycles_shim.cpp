@@ -1806,7 +1806,31 @@ int cy_live_pause(const int paused)
    *
    * Deliberately NOT gated on whether the session has finished: a finished
    * session ignores it, and checking would mean reading progress state that
-   * the render thread owns for an answer that does not change what to do. */
+   * the render thread owns for an answer that does not change what to do.
+   *
+   * HOW THIS COMPOSES WITH restart(), read out of session.cpp at the exact
+   * commit this builds against (d9b6fe3) rather than assumed, because the
+   * interaction is not the obvious one:
+   *
+   *   * `Session::run_wait_for_work` only leaves its wait loop when `!pause_`.
+   *     So a `reset()` issued while paused is DEFERRED — the new view is not
+   *     picked up until the pause lifts. That sounds like a bug and is not:
+   *     during a drag nothing is shown but the RealityKit surface, so there is
+   *     nothing for a deferred view to be late for.
+   *
+   *   * but `Session::reset` calls `path_trace_->cancel()` inside its lock,
+   *     BEFORE any of that, so the render in flight is cancelled immediately
+   *     whether paused or not. That is the half M354's park actually needs.
+   *
+   * The two levers therefore reinforce rather than fight: pause stops the next
+   * work packet from being scheduled, park truncates the one already running.
+   * A pause alone would let the current packet finish first, which at a
+   * settled size is a tenth of a second of GPU the compositor wanted.
+   *
+   * `Session::start()` is idempotent (it returns early when the session thread
+   * is already in SESSION_THREAD_RENDER), which is what makes restart()'s
+   * unconditional start() on every camera move free rather than a thread
+   * leak. */
   if (g_live.session == nullptr) {
     return 0;
   }
