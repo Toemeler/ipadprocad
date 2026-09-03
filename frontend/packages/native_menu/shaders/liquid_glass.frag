@@ -52,11 +52,16 @@ uniform vec4 uShape;
 uniform vec4 uTint;
 
 /// x  specular strength      z  light angle, radians
-/// y  rim width, px          w  chromatic aberration, as a fraction of the
-///                             displacement
+/// y  rim width, px — ONE hairline's width, so the dark contour and the
+///                    bright line beside it are each about this wide
+/// w  chromatic aberration, as a fraction of the displacement
 uniform vec4 uLight;
 
-/// x  saturation   y  brightness   z  inner shadow   w  (unused)
+/// x  saturation
+/// y  lift taper: how fast the tint's screen gives out as the backdrop
+///    brightens. 1 is a plain screen
+/// z  contour: how dark the material's own outer line is
+/// w  tail: how far the rim's light reaches inward, px
 uniform vec4 uGrade;
 
 uniform sampler2D uTex;
@@ -177,39 +182,55 @@ void main() {
   // much; around 1.5 matches the two measured points at once.
   col += uTint.rgb * uTint.a * pow(max(1.0 - col, vec3(0.0)), vec3(uGrade.y));
 
-  // THE RIM, which is two lines and not one.
+  // THE RIM, WHICH IS THREE THINGS AND NOT ONE, and every one of them was
+  // read off the device rather than designed.
   //
-  // Measured across the panel's top edge on the device: background (30,27,23),
-  // then ONE bright pixel at (108,103,97), then (88,84,78), (67,64,59), and a
-  // short tail settling into the interior (58,55,50) about five points in.
-  // Across its right edge, the same boundary is a DARK line instead. So the
-  // edge is lit from one side and shaded on the other, both of them hairlines
-  // — not the soft wide bevel-shading a naive implementation reaches for.
-  float rimW = max(uLight.y, 0.5);
-  float line = 1.0 - smoothstep(0.0, rimW, -d);          // the hairline itself
-  float tail = 1.0 - smoothstep(0.0, max(uGrade.w, 1.0), -d);  // its short falloff
+  // Scan down through the browser's TOP edge on the iPad — light scheme, the
+  // panel over the render, green channel at 2x, and the cleanest of the four
+  // because the backdrop is the same flat 141 above the boundary and below it:
+  //
+  //   ... 141 141 141 | 119 | 247 228 208 206 204 203 202 201 200 199 199 198
+  //       198 197 197 197 196 196 ...
+  //
+  // Three features, in this order from the outside in:
+  //
+  //   1. ONE DARK PIXEL, OUTSIDE the panel. Not a shadow — it is the same
+  //      width on all four edges with no offset — and not a fade, because the
+  //      pixel beside it is the untouched backdrop. A shader clipped to the
+  //      panel cannot reach it, so it is drawn by the widget; see GlassPanel.
+  //      What is left here is the sub-pixel case: a boundary that does not
+  //      land on a pixel edge puts part of that line INSIDE, and uGrade.z
+  //      darkens it there.
+  //   2. A BRIGHT HAIRLINE at the first pixel inside, +51 over the interior,
+  //      falling to +32 at the next and +12 at the one after. Fitted: that is
+  //      a gaussian in the distance from the rim, and the ratios pin its width
+  //      to about one logical pixel. It is there on every edge — top +51,
+  //      bottom +48, left +23 — so it is a raised lens edge catching the whole
+  //      surround, not a light from one corner. The lit side carries a little
+  //      more, and only a little.
+  //   3. A LONG SOFT TAIL inward: +12, +10, +8, +7, +6, +5, +4, +3, +3, +2, +2,
+  //      +1, +1, +1, 0. An exponential with a scale near four logical pixels —
+  //      NOT the S-curve a smoothstep gives, which holds its value for the
+  //      first few pixels and then falls off a cliff. Reproducing 2 and 3 as
+  //      one term is what made the first build's edge read as a soft plastic
+  //      bevel: they are a hairline AND a glow, at ten times the width.
+  float edge = -d;                                  // 0 at the rim, grows in
 
   vec2 lightDir = vec2(cos(uLight.z), sin(uLight.z));
-  float facing = dot(nrm, lightDir);
-  float lit = max(facing, 0.0);
-  float away = max(-facing, 0.0);
+  float lit = max(dot(nrm, lightDir), 0.0);
 
-  // The hairline is DIRECTIONAL — it is the lit edge, and it is only there.
-  col += uLight.x * lit * line;
+  float hairScale = max(uLight.y, 0.5);
+  float hs = edge / hairScale;
+  float hair = exp(-hs * hs);
+  float tail = exp(-edge / max(uGrade.w, 1.0));
 
-  // The tail is mostly NOT. Measured on the device: the lit edge falls off
-  // 50/30/9/7/6 into the interior, and the SHADED edge is +6 over the interior
-  // for a pixel before its dark line. So the bevel catches a little light all
-  // the way round — it is a raised edge, not a bevel on one side — with the
-  // lit side carrying roughly twice as much. Making the whole tail directional
-  // loses that, and the panel's shaded edges then meet the background with no
-  // transition at all.
-  col += uLight.x * tail * (0.10 + 0.12 * lit);
+  col += uLight.x * (0.70 + 0.30 * lit) * hair;
+  col += uLight.x * (0.20 + 0.15 * lit) * tail;
 
-  // And the shaded side's own line, at the boundary only. On the device this
-  // is a hard, dark hairline — (11,10,8) against an interior of (58,54,48) —
-  // not a soft inner shadow.
-  col *= 1.0 - uGrade.z * away * line;
+  // The inside half of the outer contour, and nothing more: zero by half a
+  // device pixel in, so on a panel whose edge lands on a pixel boundary — the
+  // usual case — this costs nothing and GlassPanel's stroke is the whole line.
+  col *= 1.0 - uGrade.z * (1.0 - smoothstep(0.0, 0.5, edge));
 
   fragColor = vec4(col, 1.0);
 }

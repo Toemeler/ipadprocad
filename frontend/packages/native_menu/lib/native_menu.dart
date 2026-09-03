@@ -789,10 +789,91 @@ class GlassPanel extends StatelessWidget {
     // the platform view's corners itself, which is exactly what the
     // `cornerRadius` parameter was for. So the Flutter material takes on the
     // same job, with the superellipse the rest of the app is cut with.
-    if (cornerRadius <= 0) return ClipRect(child: glass);
-    return ClipRSuperellipse(
-      borderRadius: BorderRadius.circular(cornerRadius),
-      child: glass,
+    final Widget clipped = cornerRadius <= 0
+        ? ClipRect(child: glass)
+        : ClipRSuperellipse(
+            borderRadius: BorderRadius.circular(cornerRadius),
+            child: glass,
+          );
+
+    // AND THE CONTOUR, WHICH IS OUTSIDE THE CLIP, and has to be.
+    //
+    // The device draws one dark pixel round the panel — the same width on all
+    // four edges, no offset, and the pixel beside it is the untouched
+    // backdrop, so it is the material's own outer line rather than a shadow.
+    // Scanned across the browser's vertical edges, which resolve it: a
+    // backdrop of 236 comes out 173 and one of 138 comes out 75.
+    //
+    // It is what makes the surface read as an OBJECT over a busy render
+    // instead of a brightened patch of it, and it was the most visible thing
+    // missing from the first build of this material. It cannot come from the
+    // shader: the shader is a backdrop filter and the clip above cuts it at
+    // the panel's edge, which is the one place the line is not.
+    return Stack(
+      clipBehavior: Clip.none,
+      children: <Widget>[
+        clipped,
+        Positioned.fill(
+          child: IgnorePointer(
+            child: ValueListenableBuilder<bool>(
+              valueListenable: NativeMenu.isDarkAppearance,
+              builder: (context, dark, _) => CustomPaint(
+                painter: _GlassContour(
+                  radius: cornerRadius,
+                  opacity: (dark
+                          ? LiquidGlassStyle.dark
+                          : LiquidGlassStyle.light)
+                      .rimShade,
+                  devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
+}
+
+/// The material's own outer line: one device pixel, just outside the panel.
+///
+/// Strokes half a device pixel OUTSIDE the box, so the line lands on the pixel
+/// column beside the panel rather than on its bright specular hairline — the
+/// order the device draws them in. A parent that clips its children costs the
+/// line and nothing else.
+class _GlassContour extends CustomPainter {
+  final double radius;
+  final double opacity;
+  final double devicePixelRatio;
+
+  const _GlassContour({
+    required this.radius,
+    required this.opacity,
+    required this.devicePixelRatio,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (opacity <= 0 || size.isEmpty) return;
+    final double w = 1 / devicePixelRatio;
+    final Rect outer = (Offset.zero & size).inflate(w / 2);
+    final Paint paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = w
+      ..color = Color.fromRGBO(0, 0, 0, opacity);
+    if (radius <= 0) {
+      canvas.drawRect(outer, paint);
+      return;
+    }
+    canvas.drawRSuperellipse(
+      RSuperellipse.fromRectAndRadius(outer, Radius.circular(radius + w / 2)),
+      paint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _GlassContour old) =>
+      old.radius != radius ||
+      old.opacity != opacity ||
+      old.devicePixelRatio != devicePixelRatio;
 }
