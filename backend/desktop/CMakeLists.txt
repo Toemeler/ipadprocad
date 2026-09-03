@@ -116,7 +116,23 @@ target_link_libraries(prototype_native PRIVATE Threads::Threads ${CMAKE_DL_LIBS}
 # and the dlopen smoke below caught it.)
 set(PROTOTYPE_VERSION_SCRIPT "${CMAKE_CURRENT_LIST_DIR}/prototype_native.map")
 target_link_options(prototype_native PRIVATE
-  "-Wl,--version-script=${PROTOTYPE_VERSION_SCRIPT}")
+  "-Wl,--version-script=${PROTOTYPE_VERSION_SCRIPT}"
+  # DT_RPATH, NOT DT_RUNPATH, and the difference is the whole bundle.
+  #
+  # Modern binutils emits DT_RUNPATH by default, and RUNPATH applies ONLY to
+  # the object that carries it. So `$ORIGIN` below found libQt6Core.so.6 next
+  # to this file — and then libQt6Core's OWN dependencies (ICU, pcre2-16,
+  # double-conversion, b2) were looked up in the system paths alone, because
+  # nothing in the chain carried a runpath any more. On the machine that built
+  # this that works, because Qt's dependencies are installed on it; on a
+  # machine with GTK and no Qt the dlopen fails and the app falls back to the
+  # Dart engine.
+  #
+  # DT_RPATH is inherited down the dependency chain, which is exactly the
+  # property needed: one rpath on the object the app opens, and every library
+  # under it resolves out of the bundle. `--disable-new-dtags` is what asks
+  # the linker for the old tag; CMake's INSTALL_RPATH alone does not choose.
+  "-Wl,--disable-new-dtags")
 set_target_properties(prototype_native PROPERTIES
   LINK_DEPENDS "${PROTOTYPE_VERSION_SCRIPT}"
   # No "lib" games and no SONAME version suffix: native_lib.dart opens this by
