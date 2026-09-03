@@ -12,15 +12,38 @@
  * for the same reason: a process that dies inside a kernel has an exit code
  * that says nothing about how far it got.
  */
-#include <dlfcn.h>
 #include <stdio.h>
 #include <string.h>
 
-static void* lib;
+/* The two loaders, behind one pair of names. Dart's own FFI does the same
+ * thing one layer up (DynamicLibrary.open), so keeping the smoke on the
+ * platform's real loader is what makes it the same test on both. */
+#if defined(_WIN32)
+#include <windows.h>
+typedef HMODULE lib_t;
+#define LIB_OPEN(p) LoadLibraryA(p)
+#define LIB_SYM(h, s) ((void*)GetProcAddress((h), (s)))
+#define LIB_DEFAULT "prototype_native.dll"
+static const char* lib_error(void) {
+  /* Good enough for a build gate: the code, not a localised sentence. */
+  static char buf[64];
+  snprintf(buf, sizeof buf, "GetLastError=%lu", (unsigned long)GetLastError());
+  return buf;
+}
+#else
+#include <dlfcn.h>
+typedef void* lib_t;
+#define LIB_OPEN(p) dlopen((p), RTLD_NOW | RTLD_LOCAL)
+#define LIB_SYM(h, s) dlsym((h), (s))
+#define LIB_DEFAULT "./libprototype_native.so"
+static const char* lib_error(void) { return dlerror(); }
+#endif
+
+static lib_t lib;
 static int failures;
 
 static void* need(const char* symbol) {
-  void* p = dlsym(lib, symbol);
+  void* p = LIB_SYM(lib, symbol);
   if (p == NULL) {
     printf("  MISSING %s\n", symbol);
     failures++;
@@ -29,10 +52,10 @@ static void* need(const char* symbol) {
 }
 
 int main(int argc, char** argv) {
-  const char* path = argc > 1 ? argv[1] : "./libprototype_native.so";
-  lib = dlopen(path, RTLD_NOW | RTLD_LOCAL);
+  const char* path = argc > 1 ? argv[1] : LIB_DEFAULT;
+  lib = LIB_OPEN(path);
   if (lib == NULL) {
-    printf("NATIVE SMOKE: FAIL (dlopen %s: %s)\n", path, dlerror());
+    printf("NATIVE SMOKE: FAIL (open %s: %s)\n", path, lib_error());
     return 1;
   }
 

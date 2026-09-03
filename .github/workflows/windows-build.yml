@@ -41,9 +41,190 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # Bump when the OCCT pin or the flag set below changes — the key is what
+  # decides whether a long build runs. Same discipline as the Linux job.
+  OCCT_CACHE_KEY: occt-windows-V7_9_3-r1
+  # The Qt the kernels link against. QCAD needs Core/Concurrent/Gui/Network/
+  # Qml/Svg/Xml, all of which are in the default desktop package plus qtsvg
+  # and qtdeclarative.
+  QT_VERSION: 6.8.3
+
 jobs:
+  occt:
+    name: OpenCASCADE (static, MSVC x64)
+    runs-on: windows-2022
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore the OCCT install tree
+        id: occt-cache
+        uses: actions/cache@v4
+        with:
+          path: backend/occt/install-windows
+          key: ${{ env.OCCT_CACHE_KEY }}
+
+      - name: Fetch the pinned submodule (cache miss only)
+        if: steps.occt-cache.outputs.cache-hit != 'true'
+        run: git submodule update --init --depth 1 -- backend/occt/upstream
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: steps.occt-cache.outputs.cache-hit != 'true'
+        with:
+          arch: x64
+
+      # THE SAME FLAGS AS THE LINUX AND iOS BUILDS, and that is the point: the
+      # shim is written against one OCCT configuration, and a third platform
+      # that quietly turned a module on would be a third set of bugs. Every
+      # USE_* is off — see backend/occt/VENDOR.md.
+      - name: Build (cache miss only)
+        if: steps.occt-cache.outputs.cache-hit != 'true'
+        shell: cmd
+        run: |
+          cmake -S backend/occt/upstream -B backend/occt/build-windows -G Ninja ^
+            -DINSTALL_DIR=%CD%\backend\occt\install-windows ^
+            -DCMAKE_BUILD_TYPE=Release ^
+            -DBUILD_LIBRARY_TYPE=Static ^
+            -DBUILD_MODULE_FoundationClasses=ON ^
+            -DBUILD_MODULE_ModelingData=ON ^
+            -DBUILD_MODULE_ModelingAlgorithms=ON ^
+            -DBUILD_MODULE_DataExchange=ON ^
+            -DBUILD_MODULE_ApplicationFramework=OFF ^
+            -DBUILD_MODULE_Visualization=OFF ^
+            -DBUILD_MODULE_Draw=OFF ^
+            -DBUILD_MODULE_DETools=OFF ^
+            -DBUILD_DOC_Overview=OFF ^
+            -DUSE_FREETYPE=OFF -DUSE_TK=OFF -DUSE_XLIB=OFF -DUSE_FREEIMAGE=OFF ^
+            -DUSE_OPENVR=OFF -DUSE_FFMPEG=OFF -DUSE_RAPIDJSON=OFF -DUSE_DRACO=OFF ^
+            -DUSE_TBB=OFF -DUSE_VTK=OFF || exit /b 1
+          cmake --build backend/occt/build-windows || exit /b 1
+          cmake --install backend/occt/build-windows || exit /b 1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: occt-install-windows
+          path: backend/occt/install-windows
+          retention-days: 5
+
+  kernels:
+    name: CAD kernels (prototype_native.dll)
+    needs: occt
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          modules: qtsvg qtdeclarative
+          cache: true
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: occt-install-windows
+          path: backend/occt/install-windows
+
+      - name: Build the kernel library
+        shell: cmd
+        run: |
+          cmake -S backend/desktop -B frontend/build/native -G Ninja ^
+            -DCMAKE_BUILD_TYPE=Release ^
+            -DPROTOTYPE_WITH_OCCT=ON ^
+            -DCMAKE_PREFIX_PATH="%CD%\backend\occt\install-windows;%QT_ROOT_DIR%" ^
+            || exit /b 1
+          cmake --build frontend/build/native || exit /b 1
+
+      # WHAT WINDOWS NEEDS INSTEAD OF AN RPATH. Qt on Windows is a set of DLLs
+      # and there is no $ORIGIN to point at them, so they travel flat beside
+      # the exe — which is where prototype_native.dll will be too, and where
+      # the loader looks for the dependencies of a DLL loaded from there.
+      #
+      # windeployqt is the tool that knows which ones: it reads the binary's
+      # imports and copies the transitive set, plus the plugin directories Qt
+      # loads by path at run time.
+      - name: Collect what the library needs at run time
+        shell: pwsh
+        run: |
+          $out = "frontend/build/native"
+          if (-not (Test-Path "$out/prototype_native.dll")) {
+            Write-Host "WINDOWS KERNELS: FAIL (no prototype_native.dll)"; exit 1
+          }
+          New-Item -ItemType Directory -Force -Path "$out/deps" | Out-Null
+          & "$env:QT_ROOT_DIR/bin/windeployqt.exe" `
+              --release --no-translations --no-compiler-runtime `
+              --dir "$out/deps" "$out/prototype_native.dll"
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "WINDOWS KERNELS: FAIL (windeployqt)"; exit 1
+          }
+          Get-ChildItem -Recurse "$out/deps" | Select-Object FullName, Length |
+            Format-Table -AutoSize
+
+      # The gate, and the verdict is the MARKER rather than the exit code —
+      # the same discipline as the Linux job, for the same reason: a process
+      # that dies inside a kernel exits non-zero for reasons that say nothing
+      # about how far it got.
+      - name: Kernel smoke verdict
+        shell: pwsh
+        run: |
+          $out = "frontend/build/native"
+          # The DLL's own dependencies are looked up beside it, so the smoke
+          # runs with the collected set on PATH — which is exactly the
+          # arrangement the packaged app has.
+          $env:PATH = (Resolve-Path "$out/deps").Path + ";" + $env:PATH
+          & "$out/prototype_native_smoke.exe" "$out/prototype_native.dll" `
+            2>&1 | Tee-Object -FilePath "$out/native-smoke.log"
+          Get-Content "$out/native-smoke.log"
+          if (-not (Select-String -Path "$out/native-smoke.log" `
+                                  -Pattern "NATIVE SMOKE: PASS" -Quiet)) {
+            Write-Host "WINDOWS KERNELS: FAIL"; exit 1
+          }
+          Write-Host "WINDOWS KERNELS: PASS"
+
+      # Nothing but the three C APIs may leave this library — the same check
+      # the Linux job makes, through the tool this platform has.
+      - name: Exported surface is only the C API
+        shell: pwsh
+        run: |
+          $out = "frontend/build/native"
+          $syms = & dumpbin /EXPORTS "$out/prototype_native.dll" |
+                  Select-String -Pattern '^\s+\d+\s+[0-9A-F]+\s+[0-9A-F]+\s+(\S+)' |
+                  ForEach-Object { $_.Matches[0].Groups[1].Value }
+          Write-Host "exported symbols: $($syms.Count)"
+          $bad = $syms | Where-Object { $_ -notmatch '^(qcad_|slvs_|occt_)' }
+          if ($bad) {
+            Write-Host "WINDOWS KERNELS: FAIL (symbols past the .def)"
+            $bad | Select-Object -First 20 | ForEach-Object { Write-Host "  $_" }
+            exit 1
+          }
+          if ($syms.Count -lt 50) {
+            Write-Host "WINDOWS KERNELS: FAIL (only $($syms.Count) exports — "
+            Write-Host "the .def was derived from an archive that had none)"
+            exit 1
+          }
+          Write-Host "EXPORT CHECK: PASS"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prototype-kernels-windows
+          path: |
+            frontend/build/native/prototype_native.dll
+            frontend/build/native/deps
+            frontend/build/native/native-smoke.log
+          retention-days: 5
+
   app:
     name: Flutter Windows bundle + package
+    needs: kernels
     runs-on: windows-2022
     timeout-minutes: 60
     steps:
@@ -53,6 +234,11 @@ jobs:
         with:
           channel: stable
           cache: true
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: prototype-kernels-windows
+          path: frontend/build/native
 
       - name: flutter pub get
         working-directory: frontend
@@ -76,6 +262,13 @@ jobs:
           $shader = "$dir/data/flutter_assets/packages/native_menu/shaders/liquid_glass.frag"
           if (-not (Test-Path $shader)) {
             Write-Host "BUNDLE: FAIL (the Liquid Glass shader did not travel)"
+            exit 1
+          }
+          if (-not (Test-Path "$dir/prototype_native.dll")) {
+            Write-Host "BUNDLE: FAIL (the kernels did not travel)"; exit 1
+          }
+          if (-not (Test-Path "$dir/Qt6Core.dll")) {
+            Write-Host "BUNDLE: FAIL (Qt did not travel beside the kernels)"
             exit 1
           }
           Write-Host "BUNDLE: PASS"
@@ -111,6 +304,17 @@ jobs:
             Write-Host "the app wrote no log at $log"
           }
           if (-not $ok) { Write-Host "WINDOWS LAUNCH: FAIL (no first frame)"; exit 1 }
+          # The kernels have to be the REAL ones. Without this the job stays
+          # green on a bundle that silently fell back to the Dart engine, which
+          # is precisely the regression the packaging step can introduce.
+          foreach ($needle in @(
+              "REAL backend active (qcad-ffi)",
+              "DART SMOKE: PASS",
+              "renderer: flutter_scene")) {
+            if (-not (Select-String -Path $log -Pattern $needle -SimpleMatch -Quiet)) {
+              Write-Host "WINDOWS LAUNCH: FAIL (missing: $needle)"; exit 1
+            }
+          }
           Write-Host "WINDOWS LAUNCH: PASS"
 
       - name: Package

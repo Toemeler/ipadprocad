@@ -88,15 +88,36 @@ if(PROTOTYPE_WITH_OCCT)
   list(APPEND PROTOTYPE_SHIMS occt_capi)
 endif()
 
-target_link_libraries(prototype_native PRIVATE
-  -Wl,--whole-archive ${PROTOTYPE_SHIMS} -Wl,--no-whole-archive)
+set(PROTOTYPE_QCAD_CYCLE qcadcore qcadentity qcadoperations qcaddxf dxflib)
 
-# The QCAD core's three archives reference each other in a cycle, which GNU ld
-# only resolves inside a group. (Apple's ld64 resolves it by itself and rejects
-# the flags, which is why qcad-core/src/capi/CMakeLists.txt branches on APPLE
-# for its own smoke test — the same cycle, the same fix.)
-target_link_libraries(prototype_native PRIVATE
-  -Wl,--start-group qcadcore qcadentity qcadoperations qcaddxf dxflib -Wl,--end-group)
+if(MSVC)
+  # THE SAME TWO PROBLEMS, IN THE OTHER LINKER'S SPELLING.
+  #
+  # /WHOLEARCHIVE takes a path rather than a flag pair, and it is a LINK
+  # OPTION rather than a library — so the shims are listed twice, once for the
+  # dependency and once for the option. The generator expression is what makes
+  # the second one a real path at build time.
+  #
+  # The QCAD cycle needs nothing: link.exe re-scans its inputs until it stops
+  # resolving anything new, so an archive cycle it can resolve, it does.
+  # (ld64 is the same; only GNU ld needs to be told.)
+  target_link_libraries(prototype_native PRIVATE
+    ${PROTOTYPE_SHIMS} ${PROTOTYPE_QCAD_CYCLE})
+  foreach(shim IN LISTS PROTOTYPE_SHIMS)
+    target_link_options(prototype_native PRIVATE
+      "/WHOLEARCHIVE:$<TARGET_FILE:${shim}>")
+  endforeach()
+else()
+  target_link_libraries(prototype_native PRIVATE
+    -Wl,--whole-archive ${PROTOTYPE_SHIMS} -Wl,--no-whole-archive)
+
+  # The QCAD core's three archives reference each other in a cycle, which GNU
+  # ld only resolves inside a group. (Apple's ld64 resolves it by itself and
+  # rejects the flags, which is why qcad-core/src/capi/CMakeLists.txt branches
+  # on APPLE for its own smoke test — the same cycle, the same fix.)
+  target_link_libraries(prototype_native PRIVATE
+    -Wl,--start-group ${PROTOTYPE_QCAD_CYCLE} -Wl,--end-group)
+endif()
 
 find_package(Qt6 REQUIRED COMPONENTS Core Concurrent Gui Network Qml Svg Xml)
 target_link_libraries(prototype_native PRIVATE
@@ -115,6 +136,41 @@ target_link_libraries(prototype_native PRIVATE Threads::Threads ${CMAKE_DL_LIBS}
 # (Measured, not assumed: the first build with both flags exported 0 symbols
 # and the dlopen smoke below caught it.)
 set(PROTOTYPE_VERSION_SCRIPT "${CMAKE_CURRENT_LIST_DIR}/prototype_native.map")
+if(MSVC)
+  # THE SAME EXPORT SURFACE, DERIVED RATHER THAN DECLARED.
+  #
+  # A .def has no wildcards, so the three prefixes cannot simply be written
+  # down — windows_exports.cmake reads the archives and names what it finds.
+  # See that file for why the two obvious alternatives (an export macro in
+  # three shared headers, or WINDOWS_EXPORT_ALL_SYMBOLS) are both wrong here.
+  #
+  # dumpbin lives beside link.exe, which CMake already knows about; the script
+  # falls back to the bare name for a developer command prompt.
+  get_filename_component(_msvc_bin "${CMAKE_LINKER}" DIRECTORY)
+  set(PROTOTYPE_DEF "${CMAKE_BINARY_DIR}/prototype_native.def")
+  # One ARGUMENT holding a ;-separated list, which the -P script receives as a
+  # CMake list. Built one target at a time because $<TARGET_FILE:> takes a
+  # single target, and passed WITHOUT COMMAND_EXPAND_LISTS, which would split
+  # it back into separate arguments.
+  set(_shim_files "")
+  foreach(shim IN LISTS PROTOTYPE_SHIMS)
+    list(APPEND _shim_files "$<TARGET_FILE:${shim}>")
+  endforeach()
+  add_custom_command(
+    OUTPUT "${PROTOTYPE_DEF}"
+    COMMAND "${CMAKE_COMMAND}"
+            "-DOUT=${PROTOTYPE_DEF}"
+            "-DDUMPBIN=${_msvc_bin}/dumpbin.exe"
+            "-DARCHIVES=${_shim_files}"
+            -P "${CMAKE_CURRENT_LIST_DIR}/windows_exports.cmake"
+    DEPENDS ${PROTOTYPE_SHIMS}
+            "${CMAKE_CURRENT_LIST_DIR}/windows_exports.cmake"
+    COMMENT "Deriving prototype_native.def from the C-API archives"
+    VERBATIM)
+  add_custom_target(prototype_native_def DEPENDS "${PROTOTYPE_DEF}")
+  add_dependencies(prototype_native prototype_native_def)
+  target_link_options(prototype_native PRIVATE "/DEF:${PROTOTYPE_DEF}")
+else()
 target_link_options(prototype_native PRIVATE
   "-Wl,--version-script=${PROTOTYPE_VERSION_SCRIPT}"
   # DT_RPATH, NOT DT_RUNPATH, and the difference is the whole bundle.
@@ -133,6 +189,7 @@ target_link_options(prototype_native PRIVATE
   # under it resolves out of the bundle. `--disable-new-dtags` is what asks
   # the linker for the old tag; CMake's INSTALL_RPATH alone does not choose.
   "-Wl,--disable-new-dtags")
+endif()
 set_target_properties(prototype_native PROPERTIES
   LINK_DEPENDS "${PROTOTYPE_VERSION_SCRIPT}"
   # No "lib" games and no SONAME version suffix: native_lib.dart opens this by
@@ -156,7 +213,17 @@ endif()
 # PROTOTYPE_NATIVE_DIR default), so a plain configure-and-build in build/native
 # lands in the right place with nothing to copy.
 set_target_properties(prototype_native PROPERTIES
-  LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+  LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
+  # On Windows a shared library's .dll is a RUNTIME artefact and its import
+  # library is the ARCHIVE one; pinning all three keeps the output in one place
+  # whichever platform this is, and keeps the multi-config generators from
+  # putting it in a Release/ subdirectory the packaging step does not know
+  # about.
+  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
+  ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
+  RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}"
+  LIBRARY_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}"
+  ARCHIVE_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}")
 
 # ---------------------------------------------------------------------------
 # The gate: a host executable that dlopens the finished library exactly the way
