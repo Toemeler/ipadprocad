@@ -76,9 +76,17 @@ class LiquidGlassStyle {
   final Color tint;
 
   /// Strength of the specular hairline along the rim.
+  ///
+  /// The hairline runs the WHOLE rim rather than the lit side alone — see the
+  /// shader, and the measurement it is fitted to. This is its peak; the side
+  /// facing the light carries about a third more.
   final double specular;
 
-  /// Width of that hairline, in logical pixels.
+  /// The scale of the specular hairline, in logical pixels — a gaussian in the
+  /// distance from the rim, so this is where it has fallen to about a third.
+  ///
+  /// Pinned by the device's own fall-off: +51, +32, +12 on consecutive pixels
+  /// of a 2x screen solves to almost exactly one logical pixel.
   final double rimWidth;
 
   /// Where the light is, in radians. Screen coordinates, so -3π/4 is the
@@ -98,10 +106,21 @@ class LiquidGlassStyle {
   /// and a bright render at once.
   final double liftTaper;
 
-  /// How much the boundary darkens on the side facing away from the light.
+  /// How dark the material's own outer contour is, as a fraction removed.
+  ///
+  /// All the way round, not the shaded side alone: on the device the same dark
+  /// pixel is there on all four edges, and it is what makes the surface read as
+  /// an object over a busy render rather than a brightened patch of it.
+  ///
+  /// It is OUTSIDE the panel — the pixel beside it is the untouched backdrop —
+  /// so [GlassPanel] strokes it round the clip; the shader gets the same value
+  /// and uses it only for the sub-pixel remainder. Measured across the browser's
+  /// vertical edges, which land on whole pixel columns and so resolve the line
+  /// the horizontal edges only blend: 236 -> 173 and 138 -> 75.
   final double rimShade;
 
-  /// How far the specular tail reaches past the hairline, in logical pixels.
+  /// The scale of the rim's inward glow, in logical pixels — an exponential,
+  /// so this is where it has fallen to about a third, not where it ends.
   final double rimFalloff;
 
   const LiquidGlassStyle({
@@ -140,14 +159,20 @@ class LiquidGlassStyle {
     // rgb: the light it adds. a: how much. 0.5 * 0.27 ~= the +0.11 lift
     // measured on the app's own ground.
     tint: Color(0x457F7D75),
-    specular: 0.245,
-    rimWidth: 1.1,
+    // The same 0.18 as the light scheme, and that is a finding rather than a
+    // shortcut: the dark scheme's own measured hairline is 50/30/9 into an
+    // interior of 58, the light one's is 51/32/12 into 196. The edge is a
+    // property of the material, not of the scheme it is tuned for.
+    specular: 0.18,
+    rimWidth: 1.05,
     lightAngle: -2.356194, // -3π/4, the top-left
     chromatic: 0.10,
     saturation: 1.06,
     liftTaper: 1.5,
-    rimShade: 0.90,
-    rimFalloff: 5,
+    // The dark scheme's contour is nearly black — measured (11,10,8) where the
+    // ground outside is (31,28,24).
+    rimShade: 0.55,
+    rimFalloff: 4,
   );
 
   /// The light scheme's. Not the dark one inverted: a light material stays
@@ -160,15 +185,27 @@ class LiquidGlassStyle {
     cornerPower: 4,
     // The same mechanism, turned up: a light material lifts hard, which is
     // what takes a dark render to a pale panel and leaves paper as paper.
-    tint: Color(0xB0FFFFFF),
-    specular: 0.26,
-    rimWidth: 1.1,
+    //
+    // FITTED, on two points measured across the browser's own edges on the
+    // device: a backdrop of 141 comes out 196, and a backdrop of 243 comes out
+    // 249. Solving both at once gives a taper of 1.0 — a PLAIN screen, with no
+    // extra damping — at an alpha of 0.48. (The pair the first build carried,
+    // 0.69 at a taper of 1.35, lands within five levels of both and is wrong
+    // in the middle of the range, where most of a render is.)
+    tint: Color(0x7AFFFFFF),
+    specular: 0.18,
+    rimWidth: 1.05,
     lightAngle: -2.356194,
     chromatic: 0.08,
     saturation: 1.02,
-    liftTaper: 1.35,
-    rimShade: 0.10,
-    rimFalloff: 5,
+    liftTaper: 1.0,
+    // The device's line is not an alpha blend — over a backdrop of 236 it lands
+    // on 173 and over 138 on 75, which is the same 63 levels off both, a slope
+    // of one. Nothing Flutter can stroke does that, so this is the alpha that
+    // splits the difference: a little heavier than the device over paper, a
+    // little lighter over a mid-grey render.
+    rimShade: 0.38,
+    rimFalloff: 4,
   );
 
   LiquidGlassStyle copyWith({

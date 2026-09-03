@@ -202,16 +202,51 @@ void main() {
       // These are not taste. Each was read off an iPad screenshot: the tint
       // from the ground the material lands on (31,28,24 -> 58,55,50), the
       // specular from the 50/30/9 fall-off across the top edge, the rim shade
-      // from the dark hairline on the right edge. Changing one means
-      // re-measuring, not re-guessing — so a diff that touches them has to
-      // touch this too, and say why.
+      // from the dark hairline at the boundary (11,10,8 against a ground of
+      // 31). Changing one means re-measuring, not re-guessing — so a diff that
+      // touches them has to touch this too, and say why.
       const s = LiquidGlassStyle.dark;
       expect(s.tint, const Color(0x457F7D75));
-      expect(s.specular, 0.245);
-      expect(s.rimShade, 0.90);
+      expect(s.specular, 0.18);
+      expect(s.rimShade, 0.55);
       expect(s.liftTaper, 1.5);
-      expect(s.rimWidth, 1.1);
+      expect(s.rimWidth, 1.05);
+      expect(s.rimFalloff, 4);
       expect(s.blurSigma, 26);
+    });
+
+    test('the light material is the one measured off the device', () {
+      // Fitted on the browser's own edges in the light scheme, at 2x:
+      //
+      //   the LIFT, on two points at once — a backdrop of 141 comes out 196
+      //     and one of 243 comes out 249. Solving both gives a PLAIN screen
+      //     (taper 1) at an alpha of 0.48, not the damped one the first build
+      //     carried.
+      //   the HAIRLINE, from +51 / +32 / +12 on consecutive pixels inside the
+      //     top edge — a gaussian about one logical pixel wide.
+      //   the CONTOUR, from the vertical edges, which land on whole pixel
+      //     columns and so resolve the line the horizontal ones only blend:
+      //     236 -> 173 and 138 -> 75.
+      const s = LiquidGlassStyle.light;
+      expect(s.tint, const Color(0x7AFFFFFF));
+      expect(s.liftTaper, 1.0);
+      expect(s.specular, 0.18);
+      expect(s.rimWidth, 1.05);
+      expect(s.rimShade, 0.38);
+      expect(s.rimFalloff, 4);
+      expect(s.blurSigma, 26);
+    });
+
+    test('the edge is a property of the material, not of the scheme', () {
+      // The device's own hairline is 50/30/9 into a dark interior of 58 and
+      // 51/32/12 into a light one of 196 — the same curve at the same
+      // strength. Two schemes that disagree about it would be two materials.
+      expect(LiquidGlassStyle.light.specular,
+          LiquidGlassStyle.dark.specular);
+      expect(LiquidGlassStyle.light.rimWidth,
+          LiquidGlassStyle.dark.rimWidth);
+      expect(LiquidGlassStyle.light.rimFalloff,
+          LiquidGlassStyle.dark.rimFalloff);
     });
 
     test('the refraction stays inside the range the profile is valid over', () {

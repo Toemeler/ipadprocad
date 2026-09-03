@@ -183,6 +183,21 @@ static void my_application_activate(GApplication* application) {
   fl_dart_project_set_dart_entrypoint_arguments(
       project, self->dart_entrypoint_arguments);
 
+  // FLUTTER GPU, which the 3D viewport is drawn with.
+  //
+  // Impeller is already the renderer; this is the separate switch that lets
+  // Dart reach it directly (flutter_gpu / flutter_scene). It is per-PROJECT on
+  // desktop rather than per-platform, so without this line the app builds, the
+  // engine starts, and `GpuView.probe()` fails at the first buffer allocation
+  // — the viewport then falls back to the CPU painter and says so in the log,
+  // which is the one failure mode that looks like a rendering bug rather than
+  // a missing flag.
+  //
+  // The command line has `--enable-flutter-gpu` for `flutter run`, and a
+  // RELEASE build compiles the engine's environment switches out, so a shipped
+  // build has no way to get this except from here.
+  fl_dart_project_set_enable_flutter_gpu(project, TRUE);
+
   FlView* view = fl_view_new(project);
   GdkRGBA background_color;
   // The app paints its own ground on the first frame and the window is not

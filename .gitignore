@@ -30,3 +30,8 @@ build-bench/
 build-occt-shim/
 build-backend/
 bench-out/
+
+# tools/desktop/build_cycles_linux.sh's work tree: a Blender checkout, its
+# CMake build and the patched Cycles inside it. Several gigabytes of a build
+# product, rebuilt by the script from a pinned commit.
+backend/cycles/build-linux/

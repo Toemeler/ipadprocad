@@ -52,6 +52,14 @@
  * cy_set_resource_path must point at its parent before the first render. An
  * app that ships the nine static libraries and not the kernel TREE links,
  * launches, and fails at the first render with nothing that names the cause.
+ *
+ * M371 — that is a METAL statement, not a Cycles one, and the desktop build
+ * does not inherit it. The CPU device's kernels are compiled into the archive
+ * at build time and CUDA's are cubins produced by the same build, so a Linux
+ * bundle needs no `source/` tree at all: `cy_set_resource_path` still wants a
+ * writable directory for the kernel cache, and nothing under it has to exist
+ * beforehand. Adding an OptiX or CUDA backend does not change that either —
+ * neither reads Cycles' source at run time the way Metal does.
  */
 
 #include "cycles_shim.h"
@@ -1572,25 +1580,84 @@ class LiveOutput : public ccl::OutputDriver {
  * nothing else. Nothing the test exists for was in that 116 minutes: scene
  * construction, the camera basis, materials, the light rig and the output
  * driver are device-independent code that runs identically on both backends. */
+/* M371 — THE PREFERENCE ORDER IS PER PLATFORM, and the two platforms disagree
+ * about one thing: whether a CPU is an acceptable answer.
+ *
+ * On an iPad it is not, and the paragraph above says why — the same image the
+ * GPU produces in a few seconds takes the CPU minutes, on battery, while the
+ * app appears hung. There is exactly one GPU backend there and no reason to
+ * ask for anything else.
+ *
+ * On a desktop it is. A workstation CPU with Embree behind it is how most
+ * Cycles renders in the world are actually made; it is slower than a modern
+ * GPU and it is not "appears hung". More to the point it is the only answer
+ * that is always available: a Linux desktop may have NVIDIA, AMD, Intel or
+ * nothing, and a build that renders only on one of those is a build most
+ * people cannot render with. So the desktop asks for the fastest backend it
+ * can find and takes the CPU when it finds none.
+ *
+ * The order is by what each backend actually does. OptiX before CUDA because
+ * on the same NVIDIA card it adds hardware ray traversal on the RT cores;
+ * CUDA before HIP and oneAPI only because they cannot coexist — a machine has
+ * at most one of the three — so the order between them never decides anything.
+ *
+ * WHAT IS COMPILED IN is a separate question from what is preferred, and this
+ * function does not answer it: `Device::available_devices()` returns what the
+ * BUILD has backends for and the MACHINE has hardware for. A CPU-only build
+ * of this shim returns a CPU here and renders; adding
+ * WITH_CYCLES_DEVICE_CUDA to the build makes the same code prefer a GPU with
+ * nothing here to change. */
 bool pick_device(ccl::DeviceInfo &out)
 {
   const bool cpu_for_tests = getenv("CYCLES_SHIM_CPU_FOR_TESTS") != nullptr;
-  const ccl::DeviceType wanted = cpu_for_tests ? ccl::DEVICE_CPU : ccl::DEVICE_METAL;
+
   const ccl::vector<ccl::DeviceInfo> devices = ccl::Device::available_devices();
-  for (const ccl::DeviceInfo &info : devices) {
-    if (info.type == wanted) {
-      out = info;
+  const auto first_of = [&devices](ccl::DeviceType type,
+                                   ccl::DeviceInfo &found) -> bool {
+    for (const ccl::DeviceInfo &info : devices) {
+      if (info.type == type) {
+        found = info;
+        return true;
+      }
+    }
+    return false;
+  };
+
+  if (cpu_for_tests) {
+    return first_of(ccl::DEVICE_CPU, out);
+  }
+
+#if defined(__APPLE__)
+  /* Metal or nothing. See above. */
+  return first_of(ccl::DEVICE_METAL, out);
+#else
+  for (const ccl::DeviceType type : {ccl::DEVICE_OPTIX,
+                                     ccl::DEVICE_CUDA,
+                                     ccl::DEVICE_HIP,
+                                     ccl::DEVICE_ONEAPI,
+                                     ccl::DEVICE_CPU}) {
+    if (first_of(type, out)) {
       return true;
     }
   }
   return false;
+#endif
 }
 
 const char *no_device_reason()
 {
-  return getenv("CYCLES_SHIM_CPU_FOR_TESTS") != nullptr ?
-             "no CPU device — the host render test cannot run" :
-             "no Metal device — this build renders on the GPU only";
+  if (getenv("CYCLES_SHIM_CPU_FOR_TESTS") != nullptr) {
+    return "no CPU device — the host render test cannot run";
+  }
+#if defined(__APPLE__)
+  return "no Metal device — this build renders on the GPU only";
+#else
+  /* Reaching here means Cycles reported no device of ANY kind, CPU included,
+   * which is not a machine without a GPU — it is a build with no device
+   * backend compiled in at all. Saying "no GPU" would send someone looking at
+   * their hardware for a fault in ours. */
+  return "no render device at all — this build has no Cycles device backend";
+#endif
 }
 
 /* ---------------------------------------------------------------------------
@@ -1887,12 +1954,19 @@ void cy_set_resource_path(const char *path)
    *
    * Discovered the hard way by Toemeler/blender-iOS-ipa (build-30). Their fix
    * patches Cycles; this needs no patch, because the environment variable is
-   * checked first. */
+   * checked first.
+   *
+   * M371 — AND IT IS APPLE-ONLY. `$HOME/.cache` is not a sandbox violation on
+   * a Linux desktop, it is the correct answer and the one XDG names; the
+   * override there would only create a `~/Library/Caches` nobody asked for,
+   * in a place that means nothing on that platform. */
+#if defined(__APPLE__)
   const char *home = getenv("HOME");
   if (home != nullptr && getenv("XDG_CACHE_HOME") == nullptr) {
     const std::string caches = std::string(home) + "/Library/Caches";
     setenv("XDG_CACHE_HOME", caches.c_str(), 1);
   }
+#endif
 }
 
 const char *cy_last_error(void)

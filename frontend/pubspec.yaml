@@ -32,6 +32,11 @@ dependencies:
   # Same path-dependency delivery as native_menu.
   reality_view:
     path: packages/reality_view
+  # M372 — the GPU viewport for platforms with no RealityKit. In-repo and
+  # domain-free, exactly as reality_view is: it takes the same payload maps
+  # and knows nothing about parts, sketches or OCCT.
+  gpu_view:
+    path: packages/gpu_view
   flutter_svg: ^2.0.10
   path_provider: ^2.1.2
 

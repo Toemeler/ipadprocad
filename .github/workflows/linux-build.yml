@@ -157,9 +157,114 @@ jobs:
             frontend/build/native/native-smoke.log
           retention-days: 5
 
+  cycles:
+    name: Path tracer (libprototype_cycles.so)
+    runs-on: ubuntu-24.04
+    # Cycles is thirteen static libraries and about half a million lines; the
+    # cache below turns that into a download on every run that does not touch
+    # the shim.
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      # THE PIN IS THE CACHE KEY. The Blender commit decides the API the shim
+      # is written against, and the shim and the build script decide everything
+      # else — so a run that touches none of them can take the library it built
+      # last time. Nothing else in the repo can change this output.
+      - name: Cache key
+        id: key
+        run: |
+          ref=$(grep -oP 'BLENDER_REF:-\K[0-9a-f]{12}' \
+                tools/desktop/build_cycles_linux.sh | head -1)
+          h=$(cat backend/cycles/shim/*.cpp backend/cycles/shim/*.h \
+                  backend/cycles/shim/*.cmake backend/cycles/patches/*.py \
+                  backend/desktop/prototype_cycles.map \
+                  tools/desktop/build_cycles_linux.sh 2>/dev/null \
+              | sha256sum | cut -c1-16)
+          echo "key=cycles-linux-$ref-$h" >> "$GITHUB_OUTPUT"
+          echo "cycles-linux-$ref-$h"
+
+      - name: Restore the built path tracer
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: frontend/build/native
+          key: ${{ steps.key.outputs.key }}
+
+      # Only on a miss, and this is the expensive half. git-lfs is what
+      # make_update.py fetches Blender's precompiled dependency set through;
+      # without it the fetch silently produces an EMPTY lib/linux_x64, which
+      # the build script tests for by content rather than by existence.
+      - name: Install build tools (cache miss only)
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cmake ninja-build g++ git git-lfs \
+            python3 patchelf pkg-config
+          # The fallback set, in case the precompiled one cannot be fetched.
+          # See the script's header for what is lost when it is used: no
+          # OpenImageDenoise (the shim's own a-trous filter takes over, as it
+          # does on iOS) and no OpenColorIO.
+          sudo apt-get install -y -qq libembree-dev libtbb-dev \
+            libopenimageio-dev libopenexr-dev libimath-dev libpugixml-dev \
+            libyaml-cpp-dev libtiff-dev libwebp-dev libzstd-dev \
+            libdeflate-dev libboost-dev libboost-filesystem-dev \
+            libboost-thread-dev libboost-regex-dev libboost-system-dev \
+            libboost-date-time-dev libboost-iostreams-dev \
+            libboost-locale-dev libboost-wave-dev
+
+      - name: Free disk before the build (cache miss only)
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          # Blender's dependency set and its build tree together are larger
+          # than the slack a stock runner has. These four are ~20 GB of things
+          # this job will never open.
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android \
+                      /opt/ghc /usr/local/share/boost || true
+          df -h /
+
+      - name: Build Cycles (cache miss only)
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: tools/desktop/build_cycles_linux.sh
+
+      # The gate the script already runs, repeated so the verdict names itself
+      # in the job summary — and so a CACHE HIT is checked too, which is the
+      # case where a stale or truncated cache entry would otherwise reach the
+      # app silently.
+      - name: Path tracer verdict
+        run: |
+          set -euo pipefail
+          lib=frontend/build/native/libprototype_cycles.so
+          test -f "$lib" || { echo "CYCLES: FAIL (no library)"; exit 1; }
+          echo "size: $(du -h "$lib" | cut -f1)"
+          missing=$(ldd "$lib" | grep "not found" || true)
+          if [ -n "$missing" ]; then
+            echo "CYCLES: FAIL (unresolved at load time)"; echo "$missing"; exit 1
+          fi
+          n=$(nm -D --defined-only "$lib" | awk '{print $3}' | grep -c '^cy_')
+          echo "exports $n cy_ symbols"
+          test "$n" -gt 10 || { echo "CYCLES: FAIL (export surface)"; exit 1; }
+          leaked=$(nm -D --defined-only "$lib" | awk '{print $3}' \
+                   | grep -vE '^(cy_|_init|_fini|_edata|_end|__bss_start)$' \
+                   | grep -v '^$' | head -5 || true)
+          if [ -n "$leaked" ]; then
+            echo "CYCLES: FAIL (symbols escaped the version script)"
+            echo "$leaked"; exit 1
+          fi
+          echo "CYCLES: PASS"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prototype-cycles-linux
+          path: |
+            frontend/build/native/libprototype_cycles.so
+            frontend/build/native/prototype_cycles_probe
+            frontend/build/native/deps
+          retention-days: 5
+
   app:
     name: Flutter Linux bundle + package
-    needs: kernels
+    needs: [kernels, cycles]
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
@@ -183,6 +288,15 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: prototype-kernels-linux
+          path: frontend/build/native
+
+      # INTO THE SAME DIRECTORY, and their `deps/` merge there on purpose:
+      # both libraries want Qt6Core, ICU and a dozen others, and the bundle
+      # holds ONE copy of each beside them. linux/CMakeLists.txt installs
+      # whatever is in this directory.
+      - uses: actions/download-artifact@v4
+        with:
+          name: prototype-cycles-linux
           path: frontend/build/native
 
       - name: flutter pub get
@@ -266,6 +380,19 @@ jobs:
             || { echo "LINUX LAUNCH: FAIL (QCAD core not loaded)"; exit 1; }
           grep -q "DART SMOKE: PASS" /tmp/launch.log \
             || { echo "LINUX LAUNCH: FAIL (backend smoke did not pass)"; exit 1; }
+          # M372 — and the two things the desktop port added, for the same
+          # reason: both degrade SILENTLY and correctly, so nothing but an
+          # assertion here keeps a build that quietly lost them from shipping.
+          #
+          #   the path tracer, which falls back to "rendered mode stays the
+          #     shaded view" when the library is missing;
+          #   the GPU viewport, which falls back to the CPU painter when
+          #     Flutter GPU was not switched on in the runner's DartProject.
+          log="$HOME/.local/share/prototype/logs/prototype_log.txt"
+          grep -q "cycles: ready: device" "$log" \
+            || { echo "LINUX LAUNCH: FAIL (no path tracer)"; exit 1; }
+          grep -q "renderer: flutter_scene" "$log" \
+            || { echo "LINUX LAUNCH: FAIL (no GPU viewport)"; exit 1; }
           echo "LINUX LAUNCH: PASS"
 
       - name: Package

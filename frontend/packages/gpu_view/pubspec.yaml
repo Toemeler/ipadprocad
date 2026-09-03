@@ -1,0 +1,19 @@
+name: gpu_view
+description: >
+  M372 — the shaded 3D viewport for platforms with no RealityKit: the same
+  scene payloads reality_view hands to UIKit, rendered on Flutter GPU.
+version: 0.1.0
+publish_to: 'none'
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+  # 3.47.1 is flutter_scene's floor for a SHIPPING desktop build — before it
+  # there is no DartProject setting to turn Flutter GPU on with, only a
+  # per-run command-line flag.
+  flutter: '>=3.47.1'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_scene: 0.23.0
+  vector_math: ^2.1.4
