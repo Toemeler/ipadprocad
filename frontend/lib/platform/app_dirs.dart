@@ -47,18 +47,30 @@ bool get isDesktopHost =>
 /// the first lines of every launch — the ones that say what the kernels did —
 /// are written somewhere else and then moved.
 ///
-/// Order:
-///   1. `$XDG_DATA_HOME/prototype`      the spec's own answer, when set
-///   2. `$HOME/.local/share/prototype`  the spec's default when it is not
-///   3. `%APPDATA%\prototype`           the same question on Windows
-///   4. `<temp>/prototype`              nothing else worked; named, not loose
+/// Order, most specific first — each platform's OWN convention, not one
+/// convention imposed on all three. A Linux user looks in `~/.local/share`, a
+/// Mac user in `~/Library/Application Support`, and a Windows user in
+/// `%APPDATA%`; putting an XDG path on a Mac would be as wrong as putting a
+/// Mac path on Linux.
+///
+///   Linux    `$XDG_DATA_HOME/prototype`, else `$HOME/.local/share/prototype`
+///   macOS    `$HOME/Library/Application Support/prototype`
+///   Windows  `%APPDATA%\prototype`, else `%LOCALAPPDATA%\prototype`
+///   any      `<temp>/prototype` — nothing else worked; named, not loose
 io.Directory desktopAppDirectory() {
   final env = io.Platform.environment;
   final candidates = <String>[];
 
   if (io.Platform.isWindows) {
-    final appData = env['APPDATA'];
-    if (appData != null && appData.isNotEmpty) candidates.add(appData);
+    for (final key in const ['APPDATA', 'LOCALAPPDATA']) {
+      final v = env[key];
+      if (v != null && v.isNotEmpty) candidates.add(v);
+    }
+  } else if (io.Platform.isMacOS) {
+    final home = env['HOME'];
+    if (home != null && home.isNotEmpty) {
+      candidates.add('$home/Library/Application Support');
+    }
   } else {
     final xdg = env['XDG_DATA_HOME'];
     if (xdg != null && xdg.isNotEmpty) candidates.add(xdg);

@@ -40,7 +40,7 @@ struct _MyApplication {
 
 // State for one window's close handshake. Lives as long as the request does.
 typedef struct {
-  GtkWindow* window;
+  GtkWindow* window;  // weak: NULL once the window is gone by any other route
   guint timeout_id;
   gboolean done;  // the window has been told to close; ignore the loser
 } CloseRequest;
@@ -95,9 +95,16 @@ static void close_request_finish(CloseRequest* request) {
     g_source_remove(request->timeout_id);
     request->timeout_id = 0;
   }
-  // `delete-event` said TRUE and stopped the close, so nothing else will
-  // destroy this window: it has to be done here, and exactly once.
-  gtk_widget_destroy(GTK_WIDGET(request->window));
+  if (request->window != nullptr) {
+    // The weak pointer is dropped BEFORE the destroy, or GTK clears a field of
+    // a struct this function is about to free.
+    GtkWindow* window = request->window;
+    g_object_remove_weak_pointer(G_OBJECT(window),
+                                 reinterpret_cast<gpointer*>(&request->window));
+    // `delete-event` said TRUE and stopped the close, so nothing else will
+    // destroy this window: it has to be done here, and exactly once.
+    gtk_widget_destroy(GTK_WIDGET(window));
+  }
   g_free(request);
 }
 
@@ -132,6 +139,11 @@ static gboolean window_delete_cb(GtkWidget* widget, GdkEvent* event,
 
   CloseRequest* request = g_new0(CloseRequest, 1);
   request->window = GTK_WINDOW(widget);
+  // A weak pointer, so that a window torn down by some other route (the
+  // application quitting while this request is in flight) leaves NULL here
+  // rather than a pointer the timeout would then destroy a second time.
+  g_object_add_weak_pointer(G_OBJECT(widget),
+                            reinterpret_cast<gpointer*>(&request->window));
   request->timeout_id = g_timeout_add(PROTOTYPE_CLOSE_TIMEOUT_MS,
                                       close_request_timed_out, request);
 

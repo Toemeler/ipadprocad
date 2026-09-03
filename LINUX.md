@@ -117,12 +117,12 @@ tools/desktop/                        build + package scripts
 LINUX.md                              this file
 ```
 
-Shared code that had to change at all is listed in full below. It is nine
+Shared code that had to change at all is listed in full below. It is twelve
 places, and every one of them is small, load-bearing and unlikely to move.
 
 ---
 
-## The nine touches in shared code
+## The twelve touches in shared code
 
 Read this list before merging from `main`. If a merge conflicts, it will be in
 one of these.
@@ -175,7 +175,7 @@ git checkout claude/linux-app-port-tcdtrl
 git fetch origin && git merge origin/main
 ```
 
-Expect it to be clean. If it is not, the conflict is in one of the nine
+Expect it to be clean. If it is not, the conflict is in one of the twelve
 touches above, and every one of them is a small edit whose *reason* is written
 next to it in the source — resolve by keeping `main`'s change and re-applying
 the touch, never the other way round.
@@ -276,7 +276,7 @@ one answers `delete-event`. Windows may not need it at all: its embedder
 implements `System.requestAppExit`, and `didRequestAppExit` in `main.dart` is
 already written for that.
 
-Nothing in `frontend/lib` should need a tenth touch.
+Nothing in `frontend/lib` should need a thirteenth touch.
 
 ---
 

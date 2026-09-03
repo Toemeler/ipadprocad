@@ -17,6 +17,11 @@ __pycache__/
 # Written on every verified fix; a build report, not a source.
 frontend/coverage/
 
+# tools/desktop/package_linux.sh's output: a staged bundle, a tarball and an
+# AppImage. Build products of a build product; the CI uploads them as
+# artifacts and nobody should ever be tempted to commit one.
+dist/
+
 # Lane C — local OCCT install/build trees and benchmark output
 backend/occt/install-host/
 backend/occt/build-occt-host/
