@@ -5119,11 +5119,31 @@ int main(void)
                                   "[43] the body came back from its own STEP "
                                   "file invalid — that is the body a reopened "
                                   "part is built from");
-                            check(near_rel(vb, v0, 1e-2),
+                            /* A TENTH OF A PERCENT, not a whole one. This
+                             * body carries a pcurve that runs off its own
+                             * surface — see shape_risks_unreadable_pcurves —
+                             * and the crude answer to that, writing every body
+                             * without its parameter curves, costs exactly this
+                             * measurement: the round trip goes from exact to
+                             * 0.79% light. The bar is what keeps the crude
+                             * answer out. */
+                            check(near_rel(vb, v0, 1e-3),
                                   "[43] the STEP round trip changed the "
                                   "body's volume");
                             check(again != NULL && occt_shape_valid(again) == 1,
                                   "[43] the reopened body cannot be cut");
+                            /* NOT ASSERTED HERE, and worth saying why: that a
+                             * ROUNDED converted body survives its own file.
+                             * That is where this last went wrong — one of the
+                             * broom's three roundable edges produced a body
+                             * STEP read back with a single face 2105 mm across
+                             * on an 85 mm part, and invalid — but this fixture
+                             * cannot carry the check. A smooth closed body has
+                             * no edge to round: measured on the cut ellipsoid,
+                             * all 199 of its edges meet at under 2 degrees and
+                             * not one of them will take a fillet at any radius.
+                             * The rounded case is covered by the shim's own
+                             * broom and whale runs. */
                             occt_free_shape(again);
                             occt_free_shape(d43);
                             occt_free_shape(back);

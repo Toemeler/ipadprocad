@@ -8121,6 +8121,42 @@ bool BuildAnalyticFace(BuildCtx &ctx, const Mesh &m, const Patch &patch,
          * drilled holes: 719 of 3379 edges belonged to one face only after
          * Perform, and 29 of 3030 without it. ShapeFix_Edge adds the pcurve to
          * the edge that is there. */
+        /* WRITING THE PCURVE INSTEAD OF PROJECTING IT — tried, measured, and
+         * not kept. Read this before having the idea again.
+         *
+         * A freeform patch is fitted as a height field over its region's proxy
+         * plane (RegionUvOf), so a point's (u, v) on it is an AFFINE function
+         * of the point, and B-splines are affine-invariant: the pcurve of a
+         * boundary curve is the 2D B-spline of its mapped poles, with the same
+         * knots. Exact, free, and injective wherever the projection is — which
+         * the splitter guarantees, and which was checked: on the whale not one
+         * of 156 fitted regions has a triangle facing more than 79.6 degrees
+         * from its own proxy plane, and not one region vertex needs clamping.
+         * ShapeFix_Edge instead projects each point to the NEAREST point of
+         * the surface, and on a steep patch nearest is not above.
+         *
+         * Built and measured (whale: 508 of 509 pcurves written exactly): the
+         * worst edge tolerance falls 0.909 -> 0.808 and the worst vertex
+         * 1.072 -> 0.808, so nothing is left needing a millimetre, and edges
+         * over 0.3 mm fall 39 -> 15.
+         *
+         * And it does not do what it was for. The wires that cross themselves
+         * go 20 -> 16, and the survivors are the same corners in the same
+         * places — so the projection was never what caused them. Meanwhile the
+         * fine ellipsoid loses a face: its patch 1 trims to 1.59 times its own
+         * mesh area, over the 1.5 screen in FaceIsSound, goes back to being
+         * 197 triangles, and the body stops closing — 64 faces and a solid
+         * became 63 faces, 199 facets and an open shell, with the first draw
+         * at 8.2 s against 1.9 s.
+         *
+         * A tolerance the model does not need, bought with a fixture that no
+         * longer closes, and the thing it was meant to fix still there
+         * afterwards. The crossings come from somewhere else.
+         *
+         * What the projection DOES get wrong is landing outside the surface's
+         * own domain — rarely, and OCCT does not mind, but STEP cannot write
+         * it. That is handled where it shows: see
+         * shape_risks_unreadable_pcurves in occt_capi.cpp. */
         {
             Handle(ShapeFix_Edge) fe = new ShapeFix_Edge;
             for (TopExp_Explorer ex(face, TopAbs_EDGE); ex.More(); ex.Next()) {
