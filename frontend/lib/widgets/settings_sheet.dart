@@ -32,6 +32,7 @@ import '../settings.dart';
 import '../theme.dart';
 import 'bug_button.dart';
 import 'icon_preview_dialog.dart';
+import '../render_samples.dart';
 import '../ribbon_dock.dart';
 
 /// The live facts the About section reports.
@@ -120,6 +121,7 @@ class SettingsSheet {
         backdrop: Backdrops.current.value,
         ribbon: RibbonDock.current,
         ribbonNames: RibbonLabels.on, // M349
+        samples: RenderSamples.current, // M367
         diagnostics: BugReport.enabled,
       );
 
@@ -174,6 +176,12 @@ class SettingsSheet {
         final p = RibbonPosition.byId(row);
         if (p != null) RibbonDock.set(p);
         break;
+      case kSecSamples:
+        // M367 — the row id is the number, so nothing has to map between the
+        // two. RenderSamples.set refuses anything off the ladder, which is
+        // what makes parsing a row id safe rather than trusting.
+        _samples(row);
+        break;
       case kSecDiagnostics:
         _diagnostic(row);
         // The command owns the screen from here: the bug flow opens its own
@@ -186,6 +194,12 @@ class SettingsSheet {
     }
     // The state changed, so the screen has to say so.
     unawaited(_push());
+  }
+
+  /// A sample-count row. The id is the number itself.
+  void _samples(String row) {
+    final n = int.tryParse(row);
+    if (n != null) RenderSamples.set(n);
   }
 
   /// A backdrop row that is not the picker: a colour, "match appearance", or
@@ -321,6 +335,7 @@ class _FallbackDialogState extends State<_FallbackDialog> {
       backdrop: Backdrops.current.value,
       ribbon: RibbonDock.current,
       ribbonNames: RibbonLabels.on, // M349
+      samples: RenderSamples.current, // M367
       diagnostics: BugReport.enabled,
     );
     return AlertDialog(
@@ -414,6 +429,10 @@ class _FallbackDialogState extends State<_FallbackDialog> {
         }
         final p = RibbonPosition.byId(row);
         if (p != null) RibbonDock.set(p);
+        break;
+      case kSecSamples:
+        final n = int.tryParse(row);
+        if (n != null) RenderSamples.set(n);
         break;
       case kSecDiagnostics:
         if (row == kRowReportProblem) {

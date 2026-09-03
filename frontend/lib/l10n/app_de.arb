@@ -3720,14 +3720,21 @@
   "@cyclesPreparing": {
     "description": "M304 — der erste Lauf uebersetzt Metals Kernel aus dem Quelltext, was zehnersekunden dauert. Waehrenddessen \"spp\" zu zeigen ist von einem Haenger nicht zu unterscheiden."
   },
-  "cyclesSamples": "Cycles · {samples} spp",
-  "@cyclesSamples": {
-    "description": "M304 — Fortschritt des Pfadverfolgers. \"spp\" (samples per pixel) ist der Fachbegriff und wird nicht uebersetzt.",
+  "cyclesSamplesOf": "Cycles · {samples}/{target} spp",
+  "@cyclesSamplesOf": {
+    "description": "M367 — Fortschritt gegen das eingestellte Ziel. Das Ziel steht dabei, weil es jetzt eine Einstellung ist: ohne den Nenner sagt eine Zahl nicht, wie weit das Bild noch kommt. \"spp\" (samples per pixel) ist der Fachbegriff und wird nicht uebersetzt.",
     "placeholders": {
       "samples": {
         "type": "int"
+      },
+      "target": {
+        "type": "int"
       }
     }
+  },
+  "cyclesDenoised": "entrauscht",
+  "@cyclesDenoised": {
+    "description": "M367 — steht im Abzeichen, sobald die Abtastung fertig ist und das Bild einmal entrauscht wurde. Es ist der Unterschied zwischen \"das wird noch besser\" und \"das ist das fertige Bild\"."
   },
   "cyclesFailed": "Cycles fehlgeschlagen",
   "@cyclesFailed": {
@@ -4123,6 +4130,23 @@
   "msgFinishSketchToPaste": "Zuerst die Skizze beenden — ein Volumenkörper gehört ins Bauteil, nicht in die Skizze.",
   "@msgFinishSketchToPaste": {
       "description": "M345 — Einfuegen eines Koerpers oder Bauteils, waehrend der 2D-Editor im Bauteil offen ist."
+  },
+  "settingsSamples": "Render-Qualität",
+  "@settingsSamples": {
+    "description": "M367 — Abschnitt in den Einstellungen: wie viele Samples ein pfadverfolgtes Bild bekommt, bevor es entrauscht wird. \"Qualitaet\" und nicht \"Samples\", weil das die Frage ist, die der Nutzer stellt; die Zahlen in den Zeilen sagen das Fachwort."
+  },
+  "settingsSamplesRow": "{samples} Samples",
+  "@settingsSamplesRow": {
+    "description": "M367 — eine Zeile der Sample-Leiter in den Einstellungen.",
+    "placeholders": {
+      "samples": {
+        "type": "int"
+      }
+    }
+  },
+  "settingsSamplesFooter": "Wie lange Cycles an einem Bild rechnet, bevor es stehen bleibt und entrauscht wird. Mehr Samples heißt ein saubereres Bild und längeres Warten; das Bild ist die ganze Zeit über zu sehen und wird Sample für Sample besser.",
+  "@settingsSamplesFooter": {
+    "description": "M367 — der Fuss unter der Sample-Leiter. Sagt beides: was die Zahl kauft und was sie kostet."
   },
   "settingsRibbonNames": "Namen anzeigen",
   "@settingsRibbonNames": {

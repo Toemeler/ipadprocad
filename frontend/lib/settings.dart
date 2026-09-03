@@ -42,6 +42,8 @@ import 'dart:ui' show Locale;
 import 'backdrop.dart';
 import 'l10n/l.dart';
 import 'theme.dart';
+import 'render_samples.dart'
+    show kRenderSampleChoices, kRenderSamplesDefault;
 import 'ribbon_dock.dart' show RibbonPosition, kRibbonLabelsDefault;
 
 /// The user-visible name of an appearance. In the ARB, like every other
@@ -165,6 +167,19 @@ const String kSecBackdrop = 'backdrop';
 const String kSecLanguage = 'language';
 const String kSecRibbon = 'ribbon';
 
+/// M367 — how many samples a path-traced image gets before it is denoised.
+///
+/// It belongs here by this file's own rule: it OUTLIVES THE DOCUMENT. How hard
+/// this iPad should work on a picture is a fact about the machine and about
+/// what you are doing, not about the part — a document that carried "4096
+/// samples" would impose a minute of somebody else's hardware on everyone who
+/// opened it. That is the same argument render_engine.dart makes for the
+/// renderer choice, and the reason that one is in the ribbon and this one is
+/// not: WHICH renderer draws the viewport changes what is on screen this
+/// second, so it sits next to the display mode. HOW LONG it works is a setting
+/// you choose once.
+const String kSecSamples = 'samples';
+
 /// M349 — the row inside the ribbon section that is a CHECKBOX rather than one
 /// of four positions. Its own id, because the handler switches on it and the
 /// four dock ids are [RibbonPosition] names.
@@ -242,6 +257,10 @@ List<SettingsSection> buildSettings(
   /// to the app's default (off), so a caller that does not care gets the
   /// screen the user actually has.
   bool ribbonNames = kRibbonLabelsDefault,
+  /// M367 — the settled sample target a path-traced render aims at. Defaulted
+  /// so every existing caller keeps working, and so a test that pins the other
+  /// sections does not have to know about this one.
+  int samples = kRenderSamplesDefault,
   /// False once the prototype's report-it-now affordance is retired
   /// (BugReport.enabled), and the whole section goes with it rather than
   /// leaving a header over nothing.
@@ -386,6 +405,30 @@ List<SettingsSection> buildSettings(
           ),
         ],
         footer: t.settingsRibbonNamesFooter,
+      ),
+      // M367 — after the interface choices and before Diagnostics, which is
+      // where a reader looking for "how good should the picture be" gets to
+      // after they have finished arranging the app and before they start
+      // reporting problems with it.
+      //
+      // A LADDER OF ROWS, not a slider or a field. The sheet is a UIKit table
+      // of rows with a tick and has never had a numeric control in it; adding
+      // one for this would be a keyboard on a screen that needs none. It is
+      // also the honest shape of the choice — sample counts are useful in
+      // doublings, and nobody wants 137.
+      SettingsSection(
+        id: kSecSamples,
+        header: t.settingsSamples,
+        rows: [
+          for (final n in kRenderSampleChoices)
+            SettingsRow(
+              id: '$n',
+              title: t.settingsSamplesRow(n),
+              kind: SettingsRowKind.check,
+              selected: n == samples,
+            ),
+        ],
+        footer: t.settingsSamplesFooter,
       ),
       if (diagnostics)
         SettingsSection(

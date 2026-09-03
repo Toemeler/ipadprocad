@@ -68,12 +68,20 @@ void main() {
       // Bug report #11 — and Accent sits between them, for the same reason one
       // step finer: Appearance chooses the palette, Accent chooses the one
       // colour inside it that means "you are working on this".
+      //
+      // M367 — and Render quality after the interface choices: it is where a
+      // reader gets to once they have finished arranging the app and before
+      // they start reporting problems with it. It is here rather than in the
+      // ribbon (where the renderer CHOICE is) because it does not change what
+      // is on screen this second — it changes how long the picture keeps
+      // improving, which is a decision you make once.
       expect(_spec().map((s) => s.id).toList(), [
         kSecAppearance,
         kSecAccent,
         kSecBackdrop,
         kSecLanguage,
         kSecRibbon,
+        kSecSamples,
         kSecDiagnostics,
         kSecAbout
       ]);
@@ -181,6 +189,7 @@ void main() {
         kSecBackdrop,
         kSecLanguage,
         kSecRibbon,
+        kSecSamples,
         kSecAbout
       ]);
     });
@@ -217,7 +226,7 @@ void main() {
       // Backdrop. Kept as a number rather than `isNotEmpty` on purpose: the
       // Swift sheet renders whatever comes over the wire, so a section that
       // silently stops being sent is exactly the failure this asserts against.
-      expect(maps, hasLength(7));
+      expect(maps, hasLength(8));
       for (final s in maps) {
         expect(s['id'], isA<String>());
         expect(s['header'], isA<String>());

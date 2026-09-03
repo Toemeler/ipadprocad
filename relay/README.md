@@ -41,6 +41,21 @@ either way.
 - `bundle` — the report's `.zip` (required)
 - `stem` — the filename stem, e.g. `bug-2026-08-28T091233` (required)
 - `description` — what the user typed (may be empty)
+- `autofix` — `'1'`/`'0'`, the report dialog's "let the automation fix it"
+  checkbox. Absent means `'1'`. `'0'` files the issue under `MANUAL_LABEL`
+  (`needs-session`) instead of `ISSUE_LABEL`, which is what keeps `ci/bugfix`
+  off it.
+
+> **This field only works on a Worker that has been redeployed since
+> 2026‑09‑01.** An older deployment ignores it silently — an unknown multipart
+> field is not an error — and files everything under `ISSUE_LABEL`, which is
+> exactly how the checkbox came to do nothing at all for its first days alive.
+> The app therefore ALSO writes `[autofix: off]` into the `description`, which
+> every version of this Worker copies into the issue body untouched, and
+> `.github/workflows/bugfix.yml` reads it back and sets the label. Nothing here
+> has to be redeployed for the checkbox to work; redeploying simply moves the
+> decision one step earlier, and both roads end at the same label. See
+> `ci/bugfix/README.md` → "Why the label needs help getting set".
 
 On success it:
 

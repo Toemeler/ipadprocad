@@ -8121,6 +8121,42 @@ bool BuildAnalyticFace(BuildCtx &ctx, const Mesh &m, const Patch &patch,
          * drilled holes: 719 of 3379 edges belonged to one face only after
          * Perform, and 29 of 3030 without it. ShapeFix_Edge adds the pcurve to
          * the edge that is there. */
+        /* WRITING THE PCURVE INSTEAD OF PROJECTING IT — tried, measured, and
+         * not kept. Read this before having the idea again.
+         *
+         * A freeform patch is fitted as a height field over its region's proxy
+         * plane (RegionUvOf), so a point's (u, v) on it is an AFFINE function
+         * of the point, and B-splines are affine-invariant: the pcurve of a
+         * boundary curve is the 2D B-spline of its mapped poles, with the same
+         * knots. Exact, free, and injective wherever the projection is — which
+         * the splitter guarantees, and which was checked: on the whale not one
+         * of 156 fitted regions has a triangle facing more than 79.6 degrees
+         * from its own proxy plane, and not one region vertex needs clamping.
+         * ShapeFix_Edge instead projects each point to the NEAREST point of
+         * the surface, and on a steep patch nearest is not above.
+         *
+         * Built and measured (whale: 508 of 509 pcurves written exactly): the
+         * worst edge tolerance falls 0.909 -> 0.808 and the worst vertex
+         * 1.072 -> 0.808, so nothing is left needing a millimetre, and edges
+         * over 0.3 mm fall 39 -> 15.
+         *
+         * And it does not do what it was for. The wires that cross themselves
+         * go 20 -> 16, and the survivors are the same corners in the same
+         * places — so the projection was never what caused them. Meanwhile the
+         * fine ellipsoid loses a face: its patch 1 trims to 1.59 times its own
+         * mesh area, over the 1.5 screen in FaceIsSound, goes back to being
+         * 197 triangles, and the body stops closing — 64 faces and a solid
+         * became 63 faces, 199 facets and an open shell, with the first draw
+         * at 8.2 s against 1.9 s.
+         *
+         * A tolerance the model does not need, bought with a fixture that no
+         * longer closes, and the thing it was meant to fix still there
+         * afterwards. The crossings come from somewhere else.
+         *
+         * What the projection DOES get wrong is landing outside the surface's
+         * own domain — rarely, and OCCT does not mind, but STEP cannot write
+         * it. That is handled where it shows: see
+         * shape_risks_unreadable_pcurves in occt_capi.cpp. */
         {
             Handle(ShapeFix_Edge) fe = new ShapeFix_Edge;
             for (TopExp_Explorer ex(face, TopAbs_EDGE); ex.More(); ex.Next()) {
@@ -8593,11 +8629,56 @@ TopoDS_Shape BuildFaceted(const Mesh &m, double tol, Report &rep)
  * re-deriving every UV by walking the loop and projecting each point from the
  * previous one's parameter — the standard cure for a pcurve that jumps —
  * removes none of the crossings and adds more (28 faces still crossing, one
- * going from 2 to 13). The two segments that cross in UV are 0.1 to 5.9 mm
- * apart in 3D. So the fitted surface really does fold back over its own
- * trimmed region, and no pcurve on it can be simple. Splitting those patches
- * until they stop folding would mean many more faces, which is the opposite
- * of what a converter is for.
+ * going from 2 to 13).
+ *
+ * M368 — WHAT THE CROSSINGS ARE NOT. This note used to end "so the fitted
+ * surface really does fold back over its own trimmed region". That is wrong,
+ * and four measurements say so; the mending below is right for other reasons
+ * and stands, but nobody should go looking for a fold.
+ *
+ *   - The regions do not fold. Every fitted region is a graph over its own
+ *     proxy plane with room to spare: on the whale, of 156 of them, not one
+ *     has a single triangle facing more than 79.6 degrees away from that
+ *     plane, and not one region vertex needs the clamp in RegionUvOf.
+ *   - It is not OCCT choosing the pcurve. Written exactly instead — a
+ *     freeform patch is a height field, so (u, v) is an affine function of
+ *     the point and the pcurve is the 2D spline of the mapped poles — the
+ *     crossings go from 20 to 16, at the same corners. (That experiment is
+ *     written up where the pcurves are made; it costs the fine ellipsoid a
+ *     face and is not kept.)
+ *   - It is not the boundary splines bowing off their chains onto each
+ *     other. Holding every fitted boundary curve to a fiftieth of its own
+ *     chain's step — which makes nearly all of them polylines through the
+ *     mesh's own vertices — leaves 16 crossings with identical depths.
+ *   - What is left is small. Every crossing pair is two CONSECUTIVE edges
+ *     leaving one corner, and where their parameter curves meet, their 3D
+ *     curves are 0.007 to 0.19 mm apart — a fraction of a mesh edge (0.73 mm
+ *     here) and well inside the millimetre these bodies are accurate to.
+ *
+ * WHERE TO LOOK NEXT: one of the two edges DOUBLES BACK. Drawn at the scale
+ * of the triangles it came from, the deepest of the whale's crossings is not
+ * two curves brushing past each other — it is one boundary curve running out,
+ * turning through a hairpin inside a fifth of a millimetre, and coming back
+ * across its neighbour. Measured on that edge: 342 degrees of total turn over
+ * 6.5 mm, one step of it 27.7 degrees, its direction reversing to 171 degrees
+ * against its own start, and 0.20 mm of stray from the chord between its own
+ * ends. Its neighbour, by contrast, turns 17 degrees in total and reverses
+ * nowhere.
+ *
+ * And it is not the curve fitting that puts the hairpin there: holding every
+ * boundary to a fiftieth of its chain's step, which makes it a polyline
+ * through the mesh's own vertices, changes neither the count nor the depths.
+ * The chain itself doubles back — the region's boundary has a spur.
+ *
+ * That is a lead and not yet a diagnosis. 14 of the whale's 16 crossing wires
+ * hold an edge that turns past 150 degrees, but so do 116 of its 1,358 edges
+ * in total, and TOKA has 56 such edges and not one of its four crossings
+ * holds one. Turning far is not the same as doubling back, and separating the
+ * two is the next measurement.
+ *
+ * Nothing downstream is left broken by any of it — the solids are valid, and
+ * they cut, round, write and reopen — and the cost of it is the tolerance the
+ * faces carry.
  *
  * What is left is to mend the picture. A hole is bounded by nodes that are
  * already drawn and already shared with the face on the other side, so

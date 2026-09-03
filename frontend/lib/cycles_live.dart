@@ -52,9 +52,28 @@ import 'log.dart';
 /// A little under a display refresh. Faster is pointless — the viewport cannot
 /// show two images in one frame — and slower would add latency to an orbit
 /// that is already waiting on the path tracer. The call is a mutex and an
-/// integer compare when there is nothing new, so an idle poll is free; what is
-/// not free is the copy and the denoise, and those happen only when a frame
-/// has actually landed.
+/// integer compare when there is nothing new, so an idle poll is free.
+///
+/// M367 — THE SAME NUMBER, AND NOW IT IS THE ONE THAT MATTERS.
+///
+/// The old note went on: "what is not free is the copy, and that happens only
+/// when a frame has actually landed". Under Cycles' own display cadence a
+/// settled render landed a frame every one to two seconds, so that was a
+/// footnote. The renderer now produces one frame per SAMPLE, so a frame lands
+/// on very nearly every poll, and this interval has quietly become the thing
+/// that decides how many full-resolution images a second cross the FFI
+/// boundary and the isolate — each of them a copy of a couple of megapixels.
+///
+/// It stays at 14 ms because that is exactly the display's own limit: one
+/// frame per refresh. Delivering more would be work for images the screen
+/// cannot show; delivering fewer would drop samples somebody asked to see. A
+/// path tracer at a full iPad viewport manages tens of samples a second, not
+/// hundreds, so in practice the poll is not the bottleneck and every sample it
+/// traces does reach the screen.
+///
+/// The layer above is what absorbs the rest: [_CyclesLayerState._decode] drops
+/// a frame that arrives while a decode is in flight rather than queueing it,
+/// so a slow texture upload costs a skipped frame and never latency.
 const Duration kCyclesPoll = Duration(milliseconds: 14);
 
 /// How often the worker asks after a frame that said it was FINISHED.

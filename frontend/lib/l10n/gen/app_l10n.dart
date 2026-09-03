@@ -6955,11 +6955,17 @@ abstract class AppL10n {
   /// **'Cycles · Kernel werden übersetzt'**
   String get cyclesPreparing;
 
-  /// M304 — Fortschritt des Pfadverfolgers. "spp" (samples per pixel) ist der Fachbegriff und wird nicht uebersetzt.
+  /// M367 — Fortschritt gegen das eingestellte Ziel. Das Ziel steht dabei, weil es jetzt eine Einstellung ist: ohne den Nenner sagt eine Zahl nicht, wie weit das Bild noch kommt. "spp" (samples per pixel) ist der Fachbegriff und wird nicht uebersetzt.
   ///
   /// In de, this message translates to:
-  /// **'Cycles · {samples} spp'**
-  String cyclesSamples(int samples);
+  /// **'Cycles · {samples}/{target} spp'**
+  String cyclesSamplesOf(int samples, int target);
+
+  /// M367 — steht im Abzeichen, sobald die Abtastung fertig ist und das Bild einmal entrauscht wurde. Es ist der Unterschied zwischen "das wird noch besser" und "das ist das fertige Bild".
+  ///
+  /// In de, this message translates to:
+  /// **'entrauscht'**
+  String get cyclesDenoised;
 
   /// M304 — ein Fehlschlag, der nichts anzeigt, ist von einem Modus, der nichts tut, nicht zu unterscheiden.
   ///
@@ -7308,6 +7314,24 @@ abstract class AppL10n {
   /// In de, this message translates to:
   /// **'Zuerst die Skizze beenden — ein Volumenkörper gehört ins Bauteil, nicht in die Skizze.'**
   String get msgFinishSketchToPaste;
+
+  /// M367 — Abschnitt in den Einstellungen: wie viele Samples ein pfadverfolgtes Bild bekommt, bevor es entrauscht wird. "Qualitaet" und nicht "Samples", weil das die Frage ist, die der Nutzer stellt; die Zahlen in den Zeilen sagen das Fachwort.
+  ///
+  /// In de, this message translates to:
+  /// **'Render-Qualität'**
+  String get settingsSamples;
+
+  /// M367 — eine Zeile der Sample-Leiter in den Einstellungen.
+  ///
+  /// In de, this message translates to:
+  /// **'{samples} Samples'**
+  String settingsSamplesRow(int samples);
+
+  /// M367 — der Fuss unter der Sample-Leiter. Sagt beides: was die Zahl kauft und was sie kostet.
+  ///
+  /// In de, this message translates to:
+  /// **'Wie lange Cycles an einem Bild rechnet, bevor es stehen bleibt und entrauscht wird. Mehr Samples heißt ein saubereres Bild und längeres Warten; das Bild ist die ganze Zeit über zu sehen und wird Sample für Sample besser.'**
+  String get settingsSamplesFooter;
 
   /// M349 — Kontrollkaestchen im Abschnitt Menueband: schreibt die Befehlsnamen unter die Symbole. Standard AUS.
   ///

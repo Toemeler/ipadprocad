@@ -4151,9 +4151,12 @@ class AppL10nDe extends AppL10n {
   String get cyclesPreparing => 'Cycles · Kernel werden übersetzt';
 
   @override
-  String cyclesSamples(int samples) {
-    return 'Cycles · $samples spp';
+  String cyclesSamplesOf(int samples, int target) {
+    return 'Cycles · $samples/$target spp';
   }
+
+  @override
+  String get cyclesDenoised => 'entrauscht';
 
   @override
   String get cyclesFailed => 'Cycles fehlgeschlagen';
@@ -4457,6 +4460,18 @@ class AppL10nDe extends AppL10n {
   @override
   String get msgFinishSketchToPaste =>
       'Zuerst die Skizze beenden — ein Volumenkörper gehört ins Bauteil, nicht in die Skizze.';
+
+  @override
+  String get settingsSamples => 'Render-Qualität';
+
+  @override
+  String settingsSamplesRow(int samples) {
+    return '$samples Samples';
+  }
+
+  @override
+  String get settingsSamplesFooter =>
+      'Wie lange Cycles an einem Bild rechnet, bevor es stehen bleibt und entrauscht wird. Mehr Samples heißt ein saubereres Bild und längeres Warten; das Bild ist die ganze Zeit über zu sehen und wird Sample für Sample besser.';
 
   @override
   String get settingsRibbonNames => 'Namen anzeigen';

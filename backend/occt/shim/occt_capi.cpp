@@ -57,6 +57,10 @@
 #include <ShapeFix_Shape.hxx>
 #include <ShapeFix_ShapeTolerance.hxx>
 #include <BRepBuilderAPI_Copy.hxx>
+#include <TColgp_HArray1OfPnt2d.hxx>
+#include <TColStd_HArray1OfReal.hxx>
+#include <Geom2dAPI_Interpolate.hxx>
+#include <Geom2d_BSplineCurve.hxx>
 #include <BRepGProp.hxx>
 #include <BRepLib.hxx>
 #include <BRepBuilderAPI_TransitionMode.hxx>
@@ -895,7 +899,12 @@ static bool same_body(const TopoDS_Shape &a, const TopoDS_Shape &b)
  * COST. A shape already inside its budget and already valid pays one
  * BRepCheck_Analyzer pass and nothing else — 3 ms for a cut box, which is the
  * case the app is in nearly all of the time. Only a result that is loose or
- * broken pays for the copy, the cap and the second check. */
+ * broken pays for the copy, the cap and the second check. On a converted body
+ * that pass is most of what the boolean costs (whale 194 ms, broom 2.3 s),
+ * and the obvious economy does not work: BRepCheck_Analyzer without its
+ * geometric controls runs three to eight times faster and says all nine whale
+ * cuts are fine, including the five that are not. The geometry is the whole
+ * of what there is to find here. */
 static TopoDS_Shape settle_boolean(const TopoDS_Shape &raw, double budget,
                                    const char *who)
 {
@@ -2172,6 +2181,89 @@ static int step_write_setup(void)
     return (unit && std::strcmp(unit, "MM") == 0) ? 1 : 0;
 }
 
+/* Does any face of this shape carry a parameter curve that runs off its own
+ * surface? If so, the file this body goes into may not be readable.
+ *
+ * M368. A trimmed face is a surface plus the wires that cut it, and the two
+ * have to agree about where the surface EXISTS.
+ * ShapeConstruct_ProjectCurveOnSurface — which is what gives a reconstructed
+ * face its pcurves — approximates, and the approximation can land outside the
+ * surface's own knot range. OCCT then evaluates the B-spline past its data
+ * without complaint, so the face looks and measures fine.
+ *
+ * STEP is where it stops being fine, because there is no way in the format to
+ * say "this curve runs off the end of that surface". Written with that pcurve,
+ * one face of a filleted broom comes back carrying a surface over v in
+ * [14.0, 15.5] and a wire over [0.79, 14.87]: a face 2105 mm across on an
+ * 85 mm part, and invalid — from one of that body's three roundable edges,
+ * and only once the part is reopened, since a converted body is persisted as
+ * its own STEP file.
+ *
+ * This is a RISK FLAG and not a verdict: plenty of bodies carry such a pcurve
+ * and read back perfectly. Two ways of acting on it directly were tried and
+ * neither works — dropping the pcurve makes OCCT's own writer refuse the face
+ * (every transfer failed), and clamping it into the domain still comes back
+ * invalid. What does work is not writing the pcurves at all for that file,
+ * and the only honest way to know whether that is needed is to read the file
+ * back. So this decides who pays for the checking, not what is written. */
+static bool shape_risks_unreadable_pcurves(const TopoDS_Shape &s)
+{
+    if (s.IsNull())
+        return false;
+    try {
+        for (TopExp_Explorer fx(s, TopAbs_FACE); fx.More(); fx.Next()) {
+            const TopoDS_Face f = TopoDS::Face(fx.Current());
+            const Handle(Geom_Surface) su = BRep_Tool::Surface(f);
+            if (su.IsNull())
+                continue;
+            Standard_Real u0 = 0, u1 = 0, v0 = 0, v1 = 0;
+            su->Bounds(u0, u1, v0, v1);
+            if (!std::isfinite(u0) || !std::isfinite(u1) ||
+                !std::isfinite(v0) || !std::isfinite(v1) || !(u1 > u0) ||
+                !(v1 > v0))
+                continue; /* an unbounded plane has no outside to leave */
+            for (TopExp_Explorer ex(f, TopAbs_EDGE); ex.More(); ex.Next()) {
+                const TopoDS_Edge e = TopoDS::Edge(ex.Current());
+                if (BRep_Tool::Degenerated(e))
+                    continue;
+                Standard_Real a = 0, b = 0;
+                const Handle(Geom2d_Curve) c2 =
+                    BRep_Tool::CurveOnSurface(e, f, a, b);
+                if (c2.IsNull() || !(b > a))
+                    continue;
+                const double eps = 1.0e-7;
+                for (int k = 0; k <= 16; ++k) {
+                    const gp_Pnt2d q = c2->Value(a + (b - a) * k / 16.0);
+                    if (q.X() < u0 - eps || q.X() > u1 + eps ||
+                        q.Y() < v0 - eps || q.Y() > v1 + eps)
+                        return true;
+                }
+            }
+        }
+    } catch (const Standard_Failure &) {
+        return false;
+    }
+    return false;
+}
+
+/* Can this file be read back as the solids that went into it? */
+static bool step_file_reads_back(const char *path)
+{
+    try {
+        STEPControl_Reader r;
+        if (r.ReadFile(path) != IFSelect_RetDone || r.TransferRoots() < 1)
+            return false;
+        const TopoDS_Shape back = r.OneShape();
+        if (back.IsNull())
+            return false;
+        return BRepCheck_Analyzer(back).IsValid() == Standard_True;
+    } catch (const Standard_Failure &) {
+        return false;
+    } catch (...) {
+        return false;
+    }
+}
+
 /* M214 — writes `n` bodies as `n` named STEP products.
  *
  * WHY NOT ONE FUSED SOLID (what the Dart side used to do): a part with two
@@ -2201,6 +2293,7 @@ extern "C" int occt_export_step_named(const occt_shape **shapes,
         return 0;
     }
     const char *doc = (product && *product) ? product : "Part";
+    bool risky = false;
 
     STEPControl_Writer writer;
     if (!step_write_setup()) {
@@ -2223,6 +2316,8 @@ extern "C" int occt_export_step_named(const occt_shape **shapes,
          * written into its own representation context. */
         Interface_Static::SetRVal("write.precision.val",
                                   step_shape_precision(shapes[i]->s));
+        if (shape_risks_unreadable_pcurves(shapes[i]->s))
+            risky = true;
         if (writer.Transfer(shapes[i]->s, STEPControl_AsIs)
             != IFSelect_RetDone) {
             /* Name the body that failed. "transfer failed" on a ten-body part
@@ -2259,6 +2354,51 @@ extern "C" int occt_export_step_named(const occt_shape **shapes,
         set_err("occt_export_step_named", "writing the STEP file failed "
                                           "(path not writable?)");
         return 0;
+    }
+
+    /* M368 — A FILE WE CANNOT READ IS NOT AN EXPORT.
+     *
+     * The app persists a converted body AS its STEP file and re-reads it on
+     * every open, so a file that comes back invalid is a body that breaks
+     * when the part is reopened — and a file handed to someone else is worse
+     * still. Where a body carries a pcurve that runs off its own surface (see
+     * above) that is a live possibility, so the file is read back and checked,
+     * and if it does not survive it is written again without the parameter
+     * curves. The reader then derives them itself, inside the surfaces, which
+     * is the whole point.
+     *
+     * Only bodies carrying that risk pay for the check; everything the app
+     * builds itself writes once, as before. The second write is a real cost —
+     * roughly the first write again, plus a read — and it buys a file that has
+     * been read. Measured on the broom's three roundable edges: 2 of 3 came
+     * back valid before this and 3 of 3 after. Writing WITHOUT the pcurves
+     * unconditionally is not the answer either: it costs the fine ellipsoid's
+     * round trip 0.79% of its volume, where with them it is exact. */
+    if (risky && !step_file_reads_back(path)) {
+        STEPControl_Writer second;
+        if (!step_write_setup()) {
+            set_err("occt_export_step_named",
+                    "could not pin the STEP write units to millimetres");
+            return 0;
+        }
+        Interface_Static::SetIVal("write.surfacecurve.mode", 0);
+        for (int i = 0; i < n; ++i) {
+            const char *nm = (names && names[i] && *names[i]) ? names[i] : doc;
+            Interface_Static::SetCVal("write.step.product.name", nm);
+            Interface_Static::SetRVal("write.precision.val",
+                                      step_shape_precision(shapes[i]->s));
+            if (second.Transfer(shapes[i]->s, STEPControl_AsIs)
+                != IFSelect_RetDone)
+                return 1; /* the first file stands; it is what we had before */
+        }
+        Handle(StepData_StepModel) m2 = second.Model();
+        if (!m2.IsNull()) {
+            APIHeaderSection_MakeHeader h2(m2);
+            h2.SetName(new TCollection_HAsciiString(doc));
+            h2.SetOriginatingSystem(
+                new TCollection_HAsciiString(occt_version()));
+        }
+        second.Write(path);
     }
     return 1;
     OCCT_CATCH("occt_export_step_named", 0)

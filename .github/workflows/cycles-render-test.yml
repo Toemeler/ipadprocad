@@ -89,6 +89,26 @@ jobs:
       - name: Patch Cycles to compile for the macOS host (anchor check)
         run: python3 backend/cycles/patches/host_macos.py
 
+      # M367 — the progressive-sampling edits. Three lines in RenderScheduler
+      # that let the viewport show every sample instead of a work item's worth
+      # at a time; see the script for the two knobs and why neither is
+      # reachable from outside Cycles.
+      #
+      # It runs HERE and not only in the iOS build because this is the only
+      # workflow that EXECUTES the result: render_test.c records which sample
+      # counts came out of the live session and fails if the whole render
+      # arrived as one. An anchor check proves the edit applied; that check
+      # proves it did something.
+      - name: Patch Cycles for progressive sampling (anchor check)
+        run: python3 backend/cycles/patches/progressive.py
+
+      # M369 — and the ceiling on what OpenImageDenoise may allocate. Cycles
+      # never sets OIDN's `maxMemoryMB`, so OIDN never tiles below 4.67
+      # megapixels and a viewport-sized frame is allocated whole — which is
+      # what crashed the app at the denoise. See the script.
+      - name: Patch Cycles to bound the denoiser's memory (anchor check)
+        run: python3 backend/cycles/patches/oidn_memory.py
+
       - name: Configure and build (host, arm64)
         run: |
           set -o pipefail
@@ -108,6 +128,22 @@ jobs:
           # well-trodden one, and every option away from it is a path nobody
           # else walks.
           #
+          # M367 — WITH_OPENIMAGEDENOISE IS ON HERE, AND OFF FOR iOS.
+          #
+          # It is not an inconsistency, it is the whole reason this workflow is
+          # worth having. `lib/macos_arm64` ships OpenImageDenoise and
+          # `lib/ios_arm64` does not, so the OIDN path — Cycles' own denoiser,
+          # the one Blender uses, which the shim now turns on through
+          # Integrator::set_use_denoise — can be compiled AND RUN here on every
+          # push, while the iPad build falls back to cycles_denoise.cpp.
+          #
+          # Without this, the denoiser configuration in configure_integrator
+          # would be code that no CI job has ever executed, on a path that
+          # first runs the day lib/ios_arm64 grows the library. The link is
+          # also the check the old comment asked for: run 6 of the iOS probe
+          # failed on `_oidnSetFilterImage` precisely because cycles_integrator
+          # was compiled against a library that was not there.
+          #
           # blendthumb then turned out to be broken on this branch REGARDLESS —
           # its Apple branch links bf_blenloader_core, which this tree does not
           # define, so the configure died at blendthumb/CMakeLists.txt:72 with
@@ -123,7 +159,7 @@ jobs:
             -DWITH_JACK=OFF -DWITH_COREAUDIO=OFF -DWITH_PULSEAUDIO=OFF \
             -DWITH_BLENDER_THUMBNAILER=OFF \
             -DWITH_CYCLES=ON \
-            -DWITH_OPENIMAGEDENOISE=OFF \
+            -DWITH_OPENIMAGEDENOISE=ON \
             -DWITH_OPENVDB=OFF -DWITH_NANOVDB=OFF \
             -DWITH_ALEMBIC=OFF -DWITH_USD=OFF \
             -DWITH_CYCLES_OSL=OFF \
@@ -221,6 +257,28 @@ jobs:
           if [ "$RC" = "2" ]; then
             echo "::warning::no render device on this runner — the render path was not exercised"
             exit 0
+          fi
+          # M367 — AND IT HAS TO HAVE USED CYCLES' OWN DENOISER, not the
+          # fallback.
+          #
+          # `cy_denoiser_name` is a RUNTIME answer now: the shim asks OIDN for
+          # a device and drops to the a-trous filter if it cannot get one,
+          # because OIDN loads its device module by path at run time and a
+          # build that links the library can still be unable to bring it up.
+          # That fallback is the right behaviour and it is also the perfect
+          # place for a regression to hide — every check in render_test.c
+          # passes on either path, so a build that quietly stopped being able
+          # to use OIDN would look exactly like one that could.
+          #
+          # This step configures with -DWITH_OPENIMAGEDENOISE=ON against a
+          # macOS package that ships it, so there is exactly one right answer.
+          if [ "$RC" = "0" ]; then
+            grep -q 'denoiser is OpenImageDenoise' render.log \
+              || { echo "CYCLES DENOISER CHECK: FAIL — this build links"; \
+                   echo "  OpenImageDenoise and could not bring it up, so it fell back"; \
+                   echo "  to the a-trous filter. What the test said:"; \
+                   grep -n 'denoiser' render.log || true; exit 1; }
+            echo "== the render used Cycles' own OpenImageDenoise"
           fi
           exit "$RC"
 

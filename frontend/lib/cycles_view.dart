@@ -58,6 +58,7 @@ import 'cycles_assets.dart' show CyclesTextureSet, CyclesAssets;
 import 'part_model.dart' show KernelSolid, Vec3;
 import 'part_render.dart' show Cam3;
 import 'quat.dart' show Placement;
+import 'render_samples.dart' show kRenderSamplesDefault;
 
 /// How far behind the model the eye is put, as a multiple of the scene's own
 /// reach.
@@ -568,30 +569,37 @@ const int kCyclesMaxSide = 4096;
 /// denoised.
 const int kCyclesMovingSide = 480;
 
-/// How many samples a render converges to.
+/// How many samples a render converges to, when nobody has said otherwise.
 ///
-/// M344 — A TARGET, NOT A COUNT. Sampling is progressive now: the image is on
+/// M344 — A TARGET, NOT A COUNT. Sampling is progressive: the image is on
 /// screen from the first sample and improves until it reaches this, at which
-/// point Cycles stops and the GPU goes quiet. So the number no longer decides
+/// point Cycles stops and the GPU goes quiet. So the number does not decide
 /// how long you wait for a picture, only how good the one you are already
-/// looking at gets — which is why it is far higher than the 48 that was the
-/// whole wait before it.
+/// looking at gets.
 ///
-/// M353 — 4096, WHICH IS BLENDER'S OWN FINAL-RENDER DEFAULT.
+/// M367 — AND IT IS A SETTING NOW, WITH A MUCH LOWER DEFAULT.
 ///
-/// 256 was chosen as "where a studio-lit CAD body stops changing in any way
-/// the eye can see", and with a denoiser smoothing what was left that was
-/// true. Nothing is filtered now, so the only thing standing between the image
-/// and a clean one is samples, and the target has to be high enough that the
-/// path tracer is never the reason a render stopped looking better.
+/// M353 put it at 4096 — Blender's own final-render default — with the
+/// reasoning that "nothing is filtered now, so the only thing standing between
+/// the image and a clean one is samples". Both halves of that changed:
 ///
-/// It is a CEILING, not a duration. Adaptive sampling ends each pixel at its
-/// own error estimate, so a flat lit face is finished in tens of samples and
-/// only the soft shadows and glossy reflections spend the rest; a typical CAD
-/// scene stops well short of this and the badge reports where it actually got
-/// to (M347). Raising the ceiling costs nothing on a scene that converges
-/// early and buys everything on one that does not.
-const int kCyclesSamples = 4096;
+///   * the finished frame is DENOISED (see cycles_shim.h), so the samples only
+///     have to get the image close enough for the denoiser to finish it, which
+///     on a studio-lit CAD scene is the low hundreds and not thousands;
+///   * how hard the machine should work is the user's call, so it is in
+///     Settings. This constant is the default and the fallback, not the value:
+///     what a render actually asks for comes from [RenderSamples.current], and
+///     [cyclesFrameBudget] takes it as a parameter so no code path can read
+///     the setting and the constant and disagree.
+///
+/// Adaptive sampling still ends each pixel at its own error estimate, and the
+/// badge reports where a render actually got to (M347) — the denoiser runs at
+/// that point whether or not it was the ceiling. But it undercuts a number
+/// this small far less than it undercut 4096: Cycles' own minimum works out to
+/// 64 samples at the threshold the shim sets, and the first convergence check
+/// lands at 79, so most of a 128-sample render is spent before anything is
+/// allowed to stop. See render_samples.dart for the arithmetic.
+const int kCyclesSamples = kRenderSamplesDefault;
 
 /// The sample target WHILE THE CAMERA IS MOVING.
 ///
@@ -666,14 +674,25 @@ const int kCyclesParkedSide = 64;
 /// than sixteen milliseconds is allowed to take — and a caller that has to
 /// remember to ask two functions the same question will eventually ask only
 /// one.
+///
+/// M367 — [settled] IS PASSED IN, not read here.
+///
+/// The settled target is a user setting now ([RenderSamples]), and this file
+/// is deliberately free of Flutter, dart:io and anything that reads a
+/// preferences file — it is the arithmetic layer, and it is tested without a
+/// device. Taking the number as an argument keeps it that way and keeps the
+/// two halves of the budget in one place, which is the whole point of this
+/// function. Defaulted to [kCyclesSamples] so a caller that does not care
+/// about the setting — every test that is checking the SIZE — reads the same
+/// as it always did.
 ({int width, int height, int samples}) cyclesFrameBudget(
     double width, double height, double dpr,
-    {required bool moving}) {
+    {required bool moving, int settled = kCyclesSamples}) {
   final (w, h) = cyclesImageSize(width, height, dpr, moving: moving);
   return (
     width: w,
     height: h,
-    samples: moving ? kCyclesMovingSamples : kCyclesSamples,
+    samples: moving ? kCyclesMovingSamples : settled,
   );
 }
 

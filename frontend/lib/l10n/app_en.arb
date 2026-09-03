@@ -1143,7 +1143,8 @@
   "rendererRealtime": "Real-time (RealityKit)",
   "rendererRaytraced": "Ray-traced (Cycles)",
   "cyclesPreparing": "Cycles · preparing kernels",
-  "cyclesSamples": "Cycles · {samples} spp",
+  "cyclesSamplesOf": "Cycles · {samples}/{target} spp",
+  "cyclesDenoised": "denoised",
   "cyclesFailed": "Cycles failed",
   "cyclesWarmupTitle": "Preparing renderer",
   "cyclesWarmupOnce": "This happens once per install.",
@@ -1394,6 +1395,9 @@
     }
   },
   "msgFinishSketchToPaste": "Finish the sketch first — a solid body belongs to the part, not to a sketch.",
+  "settingsSamples": "Render quality",
+  "settingsSamplesRow": "{samples} samples",
+  "settingsSamplesFooter": "How long Cycles works on an image before it stops and denoises it. More samples means a cleaner picture and a longer wait; the image is on screen the whole time and improves sample by sample.",
   "settingsRibbonNames": "Display names",
   "settingsRibbonNamesFooter": "Without names the band is much thinner; every command keeps its name as a tooltip."
 }

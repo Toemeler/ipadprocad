@@ -56,9 +56,18 @@
 
 #include "cycles_shim.h"
 
-/* cycles_denoise.h is deliberately NOT included any more (M353). The filter it
- * declares is still built and still tested by render_test.c; nothing in the
- * live path calls it. See the note in cy_live_frame. */
+/* M367 — the a-trous filter is back, and only as the FALLBACK.
+ *
+ * M344 ran it on every frame of an orbit and M353 took it out because that
+ * cost 51 ms of CPU per displayed frame. Both were right about the same thing:
+ * a filter that runs continuously is a frame-rate cost, not a quality one.
+ *
+ * It runs once now, on the finished frame, and only in a build that has no
+ * OpenImageDenoise — see the denoise block at the end of cy_live_frame, and
+ * cy_denoiser_name for how a build says which one it has. A build that has
+ * OIDN lets Cycles denoise inside the render, which is what Blender does, and
+ * never calls this. */
+#include "cycles_denoise.h"
 
 #include <atomic>
 #include <cstdint>
@@ -90,6 +99,9 @@
 #include "session/buffers.h"
 #include "session/output_driver.h"
 #include "session/session.h"
+/* M367 — for cycles_own_denoiser. `#ifdef`-guarded inside, so this is a
+ * header with no content in a build without OIDN. */
+#include "util/openimagedenoise.h"
 #include "util/path.h"
 #include "util/set.h"
 #include "util/transform.h"
@@ -97,6 +109,129 @@
 #include "util/unique_ptr.h"
 
 namespace {
+
+/* ---------------------------------------------------------------------------
+ * M367 — HOW THE PICTURE ARRIVES, AND WHAT FINISHES IT
+ * ---------------------------------------------------------------------------
+ *
+ * Two decisions, both of them visible to whoever is watching the viewport.
+ *
+ * ONE SAMPLE PER DISPLAY UPDATE. Cycles' RenderScheduler sizes each work
+ * packet from the measured sample rate times a display-update interval that
+ * climbs to two seconds, so a render that has been going for a while traces a
+ * hundred samples and then shows one frame. That is the 24 -> 50 -> 100
+ * stepping the report described. `set_samples_per_update_cap(1)` — which
+ * backend/cycles/patches/progressive.py adds to the scheduler — makes the
+ * packet one sample and the display update unconditional, so the image builds
+ * continuously instead of in jumps.
+ *
+ * A tree without that patch still compiles: CYCLES_SHIM_SAMPLES_PER_UPDATE_CAP
+ * is what the patch defines, and without it the shim simply does not ask.
+ *
+ * AND THEN IT IS DENOISED, ONCE, AT THE END. Not during — see the note on
+ * kDenoiseThreshold — and not by anything of ours if Cycles' own denoiser is
+ * in the build. */
+const int kSamplesPerUpdate = 1;
+
+/* Below this target the frame is not worth denoising and is never looked at.
+ *
+ * The app pushes a one-sample 64x64 view to PARK the tracer during a gesture
+ * (kCyclesParkedSide), and nobody ever sees that frame — the viewport is the
+ * RealityKit surface for the whole drag. Denoising it would be an OIDN
+ * invocation, or an a-trous pass, per gesture, for pixels that go straight in
+ * the bin. Any real render is orders of magnitude above this. */
+const int kDenoiseThreshold = 8;
+
+/* Can this build ACTUALLY use the denoiser Blender uses, on this machine?
+ *
+ * OpenImageDenoise is Cycles' own, it is what a Blender viewport and a Blender
+ * F12 both run, and when it is available the right thing is to let Cycles
+ * drive it: `Integrator::set_use_denoise` makes Film add the albedo and normal
+ * guide passes and a denoised Combined, RenderScheduler schedules the denoise
+ * as the last work item of the render, and
+ * `PathTraceTile::get_pass_pixels("combined")` then hands back the denoised
+ * result. Nothing in this file has to know how it works, which is the whole
+ * argument for using it.
+ *
+ * Where it is not available, the fallback is cycles_denoise.cpp's
+ * edge-avoiding a-trous filter, run ONCE on the finished frame. That is a real
+ * denoiser with a real argument behind it (albedo demodulation, so a CAD
+ * render's material edges cannot be blurred — see cycles_denoise.h) and it is
+ * not OIDN. Which one ran is reported by cy_denoiser_name, so a bug report
+ * never has to guess.
+ *
+ * ---------------------------------------------------------------------------
+ * WHY THIS IS A RUNTIME QUESTION AND NOT AN #ifdef
+ * ---------------------------------------------------------------------------
+ *
+ * Because linking OIDN and being able to USE it are different facts, and the
+ * gap between them is not academic.
+ *
+ * OIDN 2.x is three libraries: an API shim, a core, and one module per compute
+ * device. The core loads the module ITSELF, at run time, by an absolute path
+ * built from its own location — `dlopen(prefix + "libOpenImageDenoise_device_
+ * cpu.dylib")` in core/module.cpp. No load command names it, so nothing that
+ * reads a Mach-O can know it is needed; ci/harvest_cycles_dylibs.sh had to be
+ * told about it by name, and Blender bundles that whole directory rather than
+ * its dependency graph for the same reason.
+ *
+ * If it is missing, `oidnNewDevice` returns null. Cycles turns that into
+ * `Denoiser::set_error`, which is `Device::set_error`, and
+ * `Session::run_main_render_loop` breaks out of its loop the next time it
+ * checks `device->have_error()`. Rendered mode stops, with a picture on screen
+ * and "Cycles failed" under it — from a denoiser, at the end of a render that
+ * had been going perfectly.
+ *
+ * So this asks. `oidnNewDevice` is wrapped in OIDN's own try/catch and returns
+ * null rather than throwing, which makes the question one call and no risk;
+ * asked once, because the answer is a property of the process. A build that
+ * links OIDN and cannot bring it up quietly uses the a-trous filter, says so
+ * through cy_denoiser_name, and renders. */
+bool cycles_own_denoiser()
+{
+#ifdef WITH_OPENIMAGEDENOISE
+  /* Thread-safe by the standard's guarantee on function-local statics, which
+   * matters: this is reached from the app's worker isolate, from cy_preload's
+   * warm-up thread, and from whatever thread first asks for the name. */
+  static const bool usable = []() {
+    const oidn::DeviceRef device = oidn::newDevice();
+    return static_cast<bool>(device);
+  }();
+  return usable;
+#else
+  return false;
+#endif
+}
+
+/* Cycles' Session, with the one knob the scheduler patch adds.
+ *
+ * `Session::render_scheduler_` is PROTECTED, so a derived class can reach it
+ * and nothing else can. That is the whole reason this type exists: it saves
+ * patching session.h and session.cpp to forward one call, and it keeps the
+ * Cycles patch down to the file whose behaviour is actually being changed.
+ *
+ * Held as a unique_ptr<ShimSession> rather than unique_ptr<Session> throughout,
+ * because Session's destructor is not virtual. */
+class ShimSession : public ccl::Session {
+ public:
+  using ccl::Session::Session;
+
+  /* Ask for [cap] samples per work item, or 0 for Cycles' own batching.
+   *
+   * Called after every reset(), not once at construction: the cap deliberately
+   * lives outside the scheduler's `state_` so a reset cannot clear it, but a
+   * caller that depended on that and was wrong would fail silently and
+   * intermittently — the very worst shape for a rendering bug. Saying it again
+   * costs one integer store per camera move. */
+  void set_samples_per_update(const int cap)
+  {
+#ifdef CYCLES_SHIM_SAMPLES_PER_UPDATE_CAP
+    render_scheduler_.set_samples_per_update_cap(cap);
+#else
+    (void)cap;
+#endif
+  }
+};
 
 /* WHERE THE VERTEX POSITIONS LIVE, IN TWO CYCLES TREES AT ONCE.
  *
@@ -937,35 +1072,118 @@ void apply_view(ccl::Scene *scene, const CyView &view)
  * PASSES AND THE INTEGRATOR
  * ------------------------------------------------------------------------- */
 
-void add_pass(ccl::Scene *scene, const char *name, const ccl::PassType type)
+/* M367 — THE MODE IS SET EXPLICITLY, and it is not decoration.
+ *
+ * `Pass`'s mode socket DEFAULTS to PassMode::DENOISED (scene/pass.cpp), which
+ * is why this file never had to say anything about it: with denoising off,
+ * `Film::finalize_passes` rewrote every pass to NOISY on the next device
+ * update and the frame came out of the noisy buffer, which was the only buffer
+ * there was.
+ *
+ * That rewrite is a LATCH, and it is the trap:
+ *
+ *     pass->set_mode(need_denoise ? pass->get_mode() : PassMode::NOISY);
+ *
+ * A pass that has once been through an update with denoising off is NOISY for
+ * good — turning denoising back on preserves `get_mode()`, which is now NOISY.
+ * So a "combined" pass that survived one parked frame would go on naming the
+ * noisy buffer forever, and the denoised result Cycles had just computed would
+ * be sitting in the render buffer with nothing reading it. The picture would
+ * be right, then subtly noisy after the first drag, and nothing would say why.
+ *
+ * set_passes therefore RECREATES the passes when the decision changes rather
+ * than editing them, and this states the mode it wants rather than relying on
+ * a default surviving. */
+void add_pass(ccl::Scene *scene,
+              const char *name,
+              const ccl::PassType type,
+              const ccl::PassMode mode)
 {
   ccl::Pass *pass = scene->create_node<ccl::Pass>();
   pass->set_name(ccl::ustring(name));
   pass->set_type(type);
+  pass->set_mode(mode);
 }
 
-/* The one pass the frame is built from.
+/* The passes the frame is built from.
  *
- * M353 — THE GUIDE PASSES ARE GONE WITH THE DENOISER THEY GUIDED.
+ * M367 — THE GUIDE PASSES ARE BACK IN EXACTLY ONE CONFIGURATION.
  *
- * PASS_DENOISING_ALBEDO and PASS_DENOISING_NORMAL exist to tell a denoiser
- * what a pixel is made of and which way it faces. Nothing denoises here any
- * more, so they are two passes nobody reads — and they were never free, which
- * is the part the old comment had wrong:
+ * PASS_DENOISING_ALBEDO and PASS_DENOISING_NORMAL tell a denoiser what a pixel
+ * is made of and which way it faces, and they are not free. Asking for either
+ * turns on KERNEL_FEATURE_DENOISING (Film::get_kernel_features), so every
+ * surface hit records both on the GPU for every sample, and they widen Cycles'
+ * render buffer by six floats a pixel — around 130 MB at a full-resolution
+ * iPad frame. M353 removed them along with the filter that read them, and that
+ * was right at the time.
  *
- *   * asking for either turns on KERNEL_FEATURE_DENOISING
- *     (Film::get_kernel_features), so every surface hit does the extra work of
- *     recording both, on the GPU, for every sample;
- *   * they widen Cycles' render buffer by six floats per pixel, which at a
- *     full-resolution iPad frame is around 130 MB of GPU memory;
- *   * and every capture pulled both across with get_pass_pixels — two more
- *     full-frame reads per displayed frame, on the render thread.
+ * WHO ADDS THEM NOW DEPENDS ON WHICH DENOISER IS IN THE BUILD, and the two
+ * cases must not both do it:
  *
- * Restoring them is one line each; see the note in cy_live_frame for the rest
- * of what turning the filter back on takes. */
-void add_passes(ccl::Scene *scene)
+ *   * with OpenImageDenoise, `Integrator::set_use_denoise(true)` makes Film
+ *     add both guides AND a denoised Combined pass by itself
+ *     (scene/film.cpp). Adding them here as well would be two passes of the
+ *     same type merged back into one by finalize_passes — harmless, but it
+ *     would hide which half of the code is responsible.
+ *   * without it, nothing adds them, so the a-trous fallback would have
+ *     nothing to demodulate against and would refuse to run (cyshim::denoise
+ *     returns immediately with a null albedo, on purpose). These two lines are
+ *     what make the fallback possible at all.
+ *
+ * [guides] is therefore "this build has no OIDN and the frame will be filtered
+ * here". A parked or moving view passes false and pays none of it.
+ *
+ * DELETES BEFORE IT ADDS, because it is called again when the target sample
+ * count changes and Pass nodes are owned by the scene: adding without deleting
+ * would grow the list by three on every camera move. Deleting them all and
+ * re-adding is what BlenderSync::sync_render_passes does on every sync, so it
+ * is a supported thing to do to a live scene; Film re-adds its own auto passes
+ * on the next device update. */
+void set_passes(ccl::Scene *scene, const bool guides)
 {
-  add_pass(scene, "combined", ccl::PASS_COMBINED);
+  const ccl::vector<ccl::Pass *> &existing = scene->passes;
+  scene->delete_nodes(ccl::set<ccl::Pass *>(existing.begin(), existing.end()));
+
+  /* DENOISED, which asks for the denoised Combined when there is one and falls
+   * back to the noisy buffer when there is not — PathTraceTile::get_pass_pixels
+   * makes that choice per read, from `has_denoised_result()`, so this one pass
+   * is the raw path trace for the whole progressive render and the finished
+   * picture for the last frame of it. */
+  add_pass(scene, "combined", ccl::PASS_COMBINED, ccl::PassMode::DENOISED);
+  if (guides) {
+    /* NOISY, and they have to be: they are the denoiser's INPUT. There is no
+     * denoised albedo, `support_denoise` is false for both, and asking for one
+     * would have finalize_passes quietly rewrite the mode anyway. */
+    add_pass(scene,
+             "denoising_albedo",
+             ccl::PASS_DENOISING_ALBEDO,
+             ccl::PassMode::NOISY);
+    add_pass(scene,
+             "denoising_normal",
+             ccl::PASS_DENOISING_NORMAL,
+             ccl::PassMode::NOISY);
+  }
+}
+
+/* Will the finished frame of a render towards [samples] be denoised at all?
+ *
+ * The one predicate both halves hang off, so they cannot disagree: it decides
+ * whether Cycles' denoiser is switched on, whether the pass list is rebuilt,
+ * whether the guides are written, and what CyFrame.denoised reports. False
+ * only for the one-sample frame the tracer is parked on during a gesture,
+ * which nobody ever sees — see kDenoiseThreshold. */
+bool wants_denoise(const int samples)
+{
+  return samples >= kDenoiseThreshold;
+}
+
+/* Does a render towards [samples] need the guide passes written for it HERE?
+ *
+ * Only the fallback needs them: with OpenImageDenoise in the build,
+ * Integrator::set_use_denoise makes Film add the same two passes itself. */
+bool wants_guide_passes(const int samples)
+{
+  return !cycles_own_denoiser() && wants_denoise(samples);
 }
 
 /* M344 — ADAPTIVE SAMPLING, which is what "until a perfect image is there"
@@ -999,6 +1217,83 @@ void configure_integrator(ccl::Scene *scene, const int samples)
   ig->set_adaptive_min_samples(0);
   ig->set_adaptive_threshold(0.01f);
   ig->set_aa_samples(samples);
+
+  /* M367 — CYCLES' OWN DENOISER, RUN ONCE, AT THE END.
+   *
+   * "When the sample count is reached it should denoise, with the same
+   * denoiser Blender uses" is this block, and almost all of it is Cycles'.
+   * Turning `use_denoise` on has three consequences, none of which this file
+   * has to implement:
+   *
+   *   * Film adds PASS_DENOISING_ALBEDO, PASS_DENOISING_NORMAL and a Combined
+   *     pass in PassMode::DENOISED (scene/film.cpp);
+   *   * RenderScheduler schedules the denoise as the last work item of the
+   *     render — `set_postprocess_render_work` denoises whenever the render is
+   *     done, so an image that CONVERGES EARLY under adaptive sampling is
+   *     denoised at the sample it actually stopped at, not left noisy for
+   *     never having counted to the target;
+   *   * `get_pass_pixels("combined")` then returns the denoised result, because
+   *     the "combined" pass set_passes declares carries PassMode::DENOISED and
+   *     PathTraceTile falls back to the noisy pass only while
+   *     `has_denoised_result()` is false — which is exactly the whole
+   *     progressive render up to that last work item.
+   *
+   * START SAMPLE = THE TARGET, which is what makes it once and at the end.
+   * Cycles' viewport denoiser normally starts at sample 0 and re-denoises on
+   * every display update; with one display update per sample (kSamplesPerUpdate)
+   * that would be a full OIDN pass per sample, and OIDN is tens of milliseconds
+   * on a viewport-sized image. `work_need_denoise` skips every update below the
+   * start sample and sets `ready_to_display` false, which suppresses the
+   * DENOISED result and not the update itself — so the progressive frames keep
+   * arriving, unfiltered, at the rate the tracer produces them.
+   *
+   * BALANCED QUALITY, FAST PREFILTER — and M369 is why they are not the
+   * final-render settings they started as.
+   *
+   * The first version of this block asked for DENOISER_QUALITY_HIGH and
+   * DENOISER_PREFILTER_ACCURATE, on the reasoning that they are what Blender's
+   * F12 uses and that "against a render measured in seconds it is nothing".
+   * That reasoning counted TIME and not MEMORY, and on an iPad the memory is
+   * what there is not enough of. The app crashed at the denoise.
+   *
+   * HIGH is OIDN's large network; BALANCED is the small one, and OIDN offers it
+   * for exactly this — an interactive result at a fraction of the arena.
+   * ACCURATE prefiltering is worse still: it is not one extra pass but two
+   * SEPARATE filters, for albedo and for normal, each a network with its own
+   * allocation (`filter_guiding_pass_if_needed`). FAST instead sets `cleanAux`
+   * false and lets the one beauty filter handle noisy guides internally, which
+   * is what it is designed to do and what a viewport wants.
+   *
+   * The ceiling that makes this safe rather than merely cheaper is in
+   * backend/cycles/patches/oidn_memory.py: Cycles never sets OIDN's
+   * `maxMemoryMB`, so OIDN never tiles below 4.67 megapixels and a full
+   * viewport frame is allocated whole. These two settings cut the constant;
+   * that patch bounds the peak at any resolution. Both were needed.
+   *
+   * GPU when it can. `denoise_use_gpu` is a preference, not an assertion:
+   * Denoiser::create falls back to OIDN on the CPU when the device cannot run
+   * it. `lib/ios_arm64` ships OIDN's CPU device module and no Metal one, so on
+   * an iPad this resolves to OIDN on the CPU — which is seconds on a
+   * full-resolution frame, and affordable precisely because it happens once,
+   * after sampling has stopped, with the GPU idle.
+   *
+   * Nothing here has to handle OIDN being absent: cycles_own_denoiser has
+   * already asked, and where the answer is no this block does not run and the
+   * a-trous fallback takes the frame instead.
+   *
+   * A view with a target below kDenoiseThreshold is the parked frame of a
+   * gesture. Nobody sees it; it is not denoised. */
+  const bool denoise = cycles_own_denoiser() && wants_denoise(samples);
+  ig->set_use_denoise(denoise);
+  if (denoise) {
+    ig->set_denoiser_type(ccl::DENOISER_OPENIMAGEDENOISE);
+    ig->set_denoise_start_sample(samples);
+    ig->set_use_denoise_pass_albedo(true);
+    ig->set_use_denoise_pass_normal(true);
+    ig->set_denoiser_prefilter(ccl::DENOISER_PREFILTER_FAST);
+    ig->set_denoiser_quality(ccl::DENOISER_QUALITY_BALANCED);
+    ig->set_denoise_use_gpu(true);
+  }
 
   ig->set_sample_clamp_indirect(10.0f);
   ig->set_filter_glossy(1.0f);
@@ -1065,11 +1360,21 @@ unsigned char quantise(const float v)
  * few hundred microseconds on a viewport-sized image and it is the price of
  * not having a torn frame.
  *
- * The RGBA channel count on `color` is Cycles' own for PASS_COMBINED. M353
- * removed the albedo and normal companions with the denoiser that read them. */
+ * The RGBA channel count on `color` is Cycles' own for PASS_COMBINED.
+ *
+ * M367 — `albedo` and `normal` are back beside it, and ONLY EVER FILLED FOR A
+ * FINISHED FRAME. That is the whole difference from M344, which read all three
+ * on every displayed frame and paid two extra full-frame device reads thirty
+ * times a second for it. A progressive frame carries colour and nothing else;
+ * the last one carries what the fallback filter needs, once. In a build with
+ * OpenImageDenoise they stay empty — Cycles denoises inside the render and
+ * `color` already has the result. */
 struct FrameStore {
   std::mutex mutex;
   std::vector<float> color;
+  /* Three floats per pixel each, or empty. See `guides` on the capture. */
+  std::vector<float> albedo;
+  std::vector<float> normal;
   int width = 0;
   int height = 0;
   int samples = 0;
@@ -1108,10 +1413,23 @@ struct FrameStore {
     height = 0;
     samples = 0;
     finished = false;
+    /* Emptied rather than resized. A stale albedo from the previous view held
+     * alongside a `finished` that has been cleared could not be read anyway —
+     * the reader only looks when `finished` is set — but leaving it would mean
+     * the one place that decides whether the guides are present (their size)
+     * could answer yes for the wrong frame. */
+    albedo.clear();
+    normal.clear();
   }
 };
 
 FrameStore g_frame;
+/* Do captures need to carry the albedo and normal guides?
+ *
+ * Written under the shim's lock when the view target changes, read on Cycles'
+ * render thread inside the output driver — the same arrangement, and for the
+ * same reason, as g_want_width. */
+std::atomic<bool> g_want_guides{false};
 /* Set by the output driver when the combined pass could not be read, which
  * means the scene has no such pass and no render will ever produce a frame. */
 std::atomic<bool> g_pass_failed{false};
@@ -1182,6 +1500,27 @@ class LiveOutput : public ccl::OutputDriver {
       g_pass_failed.store(true);
       return;
     }
+    /* M367 — THE GUIDES, AND ONLY FOR THE LAST FRAME.
+     *
+     * Two more full-frame reads, which is exactly what M353 removed for being
+     * paid thirty times a second during an orbit. It is not that here: this
+     * runs on the one work item the scheduler marked `tile.write = done()`,
+     * so it happens once per render, and the frame it is for is the one that
+     * stays on screen. In a build with OpenImageDenoise g_want_guides is
+     * never set and neither of these reads exists.
+     *
+     * A read that FAILS is not an error and does not set g_pass_failed: the
+     * passes are there or they are not, and cyshim::denoise declines to run
+     * without an albedo rather than blurring blind. Leaving the vectors empty
+     * is how that is said. */
+    bool guides = false;
+    if (finished && g_want_guides.load()) {
+      albedo_.resize(n * 3);
+      normal_.resize(n * 3);
+      guides = tile.get_pass_pixels("denoising_albedo", 3, albedo_.data()) &&
+               tile.get_pass_pixels("denoising_normal", 3, normal_.data());
+    }
+
     /* Cycles' own count, which is the number get_pass_pixels has already
      * divided by. Read after the pixels so it can only ever under-report,
      * never claim more convergence than the image has. */
@@ -1189,6 +1528,10 @@ class LiveOutput : public ccl::OutputDriver {
 
     const std::lock_guard<std::mutex> lock(g_frame.mutex);
     g_frame.color.swap(color_);
+    if (guides) {
+      g_frame.albedo.swap(albedo_);
+      g_frame.normal.swap(normal_);
+    }
     g_frame.width = w;
     g_frame.height = h;
     g_frame.samples = samples > 0 ? samples : 1;
@@ -1202,6 +1545,11 @@ class LiveOutput : public ccl::OutputDriver {
    * a second. Swapped with the store's, so both sides keep a buffer of the
    * right size and neither reallocates after the first frame. */
   std::vector<float> color_;
+  /* The same, for the guides. These stay at zero size for the whole of a
+   * render and are grown once, on the finished frame, in a build that has no
+   * OpenImageDenoise. */
+  std::vector<float> albedo_;
+  std::vector<float> normal_;
 };
 
 /* ---------------------------------------------------------------------------
@@ -1256,13 +1604,32 @@ const char *no_device_reason()
 std::recursive_mutex g_lock;
 
 struct Live {
-  ccl::unique_ptr<ccl::Session> session;
+  /* ShimSession, not Session, and it is not interchangeable: Session's
+   * destructor is not virtual, so a unique_ptr<Session> owning a ShimSession
+   * would be undefined behaviour on close. */
+  ccl::unique_ptr<ShimSession> session;
   ccl::SessionParams session_params;
   ccl::BufferParams buffer_params;
   bool open = false;
   bool has_view = false;
   bool has_scene = false;
   int target = 0;
+  /* Whether the pass list was built for a render that DENOISES.
+   *
+   * Held so a camera move that does not change the answer does not rebuild the
+   * pass list — every pass added or removed tags the film modified, which is a
+   * kernel-data upload, and a camera move should cost a transform.
+   *
+   * IT IS THE DENOISE DECISION AND NOT THE GUIDE ONE, which matters in a build
+   * WITH OpenImageDenoise, where no guides are ever added here and this would
+   * otherwise never change. `Film::finalize_passes` rewrites a pass to
+   * PassMode::NOISY on any update with denoising off and never rewrites it
+   * back (see add_pass), so a "combined" pass that lived through one parked
+   * frame would name the noisy buffer for the rest of the session and every
+   * settled render after the first drag would be shown undenoised. Rebuilding
+   * on this flag is what makes the pass node fresh at the moment it has to
+   * be. */
+  bool denoising = false;
   /* The last frame handed to the caller, so a poll can answer "nothing new"
    * without copying anything. */
   uint64_t seen = 0;
@@ -1274,9 +1641,16 @@ struct Live {
    * kind of allocator pressure that shows up as a stutter rather than as a
    * slowdown. It grows once to the largest image asked for and never again.
    *
-   * M353 removed `albedo`, `normal` and the denoiser's `ping` ping-pong space
-   * from beside it — together four times this buffer's size. */
+   * M367 — `albedo_work`, `normal_work` and `scratch` are beside it again, and
+   * unlike M344 they cost nothing on a frame that is not the last one: nothing
+   * fills them until a FINISHED frame arrives, and in a build with
+   * OpenImageDenoise they are never allocated at all. */
   std::vector<float> work;
+  /* Albedo and normal for the finished frame, and the a-trous filter's
+   * ping-pong space. Empty in an OpenImageDenoise build. */
+  std::vector<float> albedo_work;
+  std::vector<float> normal_work;
+  std::vector<float> scratch;
   /* The camera-locked light, so a view change can re-aim it without the caller
    * re-sending the geometry. Null when the scene has not been set, or when the
    * caller asked for no analytic rig at all. */
@@ -1342,6 +1716,10 @@ void close_live()
   g_live.has_scene = false;
   g_live.seen = 0;
   g_live.headlight = Lamp();
+  /* M367 — the pass list goes with the scene, so what it was built for has to
+   * go too. Leaving it set would have the next open_live believe the fresh
+   * scene already carried the right passes. */
+  g_live.denoising = false;
   g_frame.clear();
 }
 
@@ -1360,11 +1738,13 @@ bool open_live()
 
   g_live.session_params = make_session_params(device, 64, true);
   ccl::SceneParams scene_params;
-  g_live.session = ccl::make_unique<ccl::Session>(g_live.session_params, scene_params);
+  g_live.session = ccl::make_unique<ShimSession>(g_live.session_params, scene_params);
 
   ccl::Scene *scene = g_live.session->scene.get();
   watch_progress(g_live.session.get());
-  add_passes(scene);
+  g_live.denoising = wants_denoise(g_live.session_params.samples);
+  g_want_guides.store(wants_guide_passes(g_live.session_params.samples));
+  set_passes(scene, wants_guide_passes(g_live.session_params.samples));
   configure_integrator(scene, g_live.session_params.samples);
 
   g_live.session->set_output_driver(
@@ -1428,6 +1808,18 @@ bool open_live()
 void restart()
 {
   g_live.session->reset(g_live.session_params, g_live.buffer_params);
+  /* M367 — AFTER the reset, and every time.
+   *
+   * The cap lives outside RenderScheduler's `state_` precisely so that reset()
+   * cannot clear it, but a renderer that stepped in hundreds again because a
+   * future Cycles moved one field would fail in the least diagnosable way
+   * there is: intermittently, and only on a device. One integer store per
+   * camera move buys that away. */
+  g_live.session->set_samples_per_update(kSamplesPerUpdate);
+  /* Restated here for a second reason: cy_render clears it, and a one-shot
+   * warm-up that ran between two live views must not leave the viewport's
+   * finished frame without the guides its filter needs. */
+  g_want_guides.store(wants_guide_passes(g_live.target));
   {
     const std::lock_guard<std::mutex> flock(g_frame.mutex);
     g_generation.fetch_add(1);
@@ -1459,6 +1851,19 @@ const char *cy_device_name(void)
     cy_available();
   }
   return g_device.c_str();
+}
+
+const char *cy_denoiser_name(void)
+{
+  /* ASKED OF OIDN, not of the build. See cycles_own_denoiser: a build can link
+   * OpenImageDenoise and still be unable to bring it up, because the device
+   * module is loaded by path at run time and is in no load command. This
+   * answers what will ACTUALLY denoise the next finished frame.
+   *
+   * Not asked of the Session, whose denoiser is created lazily on the render
+   * thread and is null until the first render: a name that says "none" until
+   * you have rendered once is worse than no name. */
+  return cycles_own_denoiser() ? "OpenImageDenoise" : "a-trous";
 }
 
 void cy_set_resource_path(const char *path)
@@ -1521,13 +1926,19 @@ int cy_render(const CyMesh *meshes,
       device, view->samples, false);
   ccl::SceneParams scene_params;
 
-  ccl::unique_ptr<ccl::Session> session = ccl::make_unique<ccl::Session>(session_params,
-                                                                        scene_params);
+  ccl::unique_ptr<ShimSession> session = ccl::make_unique<ShimSession>(session_params,
+                                                                       scene_params);
   ccl::Scene *scene = session->scene.get();
   watch_progress(session.get());
 
   apply_view(scene, *view);
-  add_passes(scene);
+  /* THE ONE-SHOT DOES NOT ASK FOR THE GUIDES and does not run the fallback
+   * filter. It is cy_preload's warm-up and the host render test's fixture: one
+   * call, one finished picture, no viewport. Cycles' own denoiser still runs
+   * on it when the build has one, because that is part of what the render test
+   * exists to exercise. */
+  g_want_guides.store(false);
+  set_passes(scene, false);
   configure_integrator(scene, session_params.samples);
 
   CyEnv fallback;
@@ -1669,7 +2080,33 @@ int cy_live_view(const CyView *view)
 
     g_live.session_params.samples = view->samples > 0 ? view->samples : 64;
     g_live.target = g_live.session_params.samples;
-    scene->integrator->set_aa_samples(g_live.session_params.samples);
+
+    /* M367 — THE WHOLE INTEGRATOR, NOT JUST THE SAMPLE COUNT.
+     *
+     * This used to be `set_aa_samples` alone, which was right while the target
+     * was the only thing about a render that a view could change. It is not
+     * any more: the denoiser's START SAMPLE is the target, and whether the
+     * denoiser runs at all depends on whether the target is a real render or
+     * the one-sample frame the tracer is parked on during a gesture. Setting
+     * the count and leaving the denoiser configured for the previous view
+     * would denoise a parked thumbnail and leave a settled render raw.
+     *
+     * Cheap: every one of these is a node socket assignment, and Cycles' own
+     * `socket_modified` bookkeeping means assigning the value it already has
+     * tags nothing. */
+    configure_integrator(scene, g_live.session_params.samples);
+
+    /* The pass list, only when the answer actually changed. Adding or removing
+     * a pass tags the film, and a film update is kernel data; a camera move
+     * should cost a transform. See Live::denoising for why the trigger is the
+     * denoise decision rather than the guide one. */
+    const bool denoising = wants_denoise(g_live.session_params.samples);
+    if (denoising != g_live.denoising) {
+      g_live.denoising = denoising;
+      set_passes(scene, wants_guide_passes(g_live.session_params.samples));
+    }
+    g_want_guides.store(wants_guide_passes(g_live.session_params.samples));
+
     g_live.buffer_params = make_buffer_params(view->width, view->height);
     g_live.has_view = true;
     restart();
@@ -1697,6 +2134,9 @@ int cy_live_frame(unsigned char *rgba_out, const int capacity, CyFrame *info)
   int h = 0;
   int samples = 0;
   bool finished = false;
+  /* Whether this frame arrived with an albedo and a normal beside it, which is
+   * the fallback filter's precondition and nothing else's. */
+  bool guided = false;
   {
     const std::lock_guard<std::mutex> flock(g_frame.mutex);
     if (g_frame.width <= 0 || g_frame.height <= 0 || g_frame.serial == g_live.seen ||
@@ -1729,41 +2169,71 @@ int cy_live_frame(unsigned char *rgba_out, const int capacity, CyFrame *info)
      * the render thread free to keep producing frames. */
     g_live.work.resize(n * 4);
     memcpy(g_live.work.data(), g_frame.color.data(), n * 4 * sizeof(float));
+    /* And the guides, which are present only on a finished frame in a build
+     * with no OpenImageDenoise. Their SIZE is the flag: the driver swaps them
+     * in only when both reads succeeded, and clear_locked empties them with
+     * every view, so a full pair here belongs to this frame and no other. */
+    if (g_frame.albedo.size() >= n * 3 && g_frame.normal.size() >= n * 3) {
+      g_live.albedo_work.resize(n * 3);
+      g_live.normal_work.resize(n * 3);
+      memcpy(g_live.albedo_work.data(), g_frame.albedo.data(), n * 3 * sizeof(float));
+      memcpy(g_live.normal_work.data(), g_frame.normal.data(), n * 3 * sizeof(float));
+      guided = true;
+    }
     g_live.seen = g_frame.serial;
   }
 
-  /* M353 — NOTHING IS FILTERED. THE FRAME IS THE PATH TRACE.
+  /* M367 — THE LAST FRAME IS DENOISED. NO OTHER FRAME IS TOUCHED.
    *
-   * WHY IT CAME OUT. The a-trous filter was measured at 51 ms per frame at
-   * 480x320, single-threaded, and it ran on EVERY frame handed to the display.
-   * That is not a quality cost, it is a FRAME RATE cost, and it landed in the
-   * two places a user actually looks:
+   * THE HISTORY, BECAUSE IT IS THE ARGUMENT. M344 filtered every frame handed
+   * to the display and M353 removed the filter for it: measured at 51 ms per
+   * frame at 480x320 and around 450 ms at 1440x1080, single-threaded, against
+   * a poll that runs every 14 ms. It could never keep up, so frames arrived
+   * late and in bursts — which read as steps, and was reported as steps. A
+   * continuous filter is a frame-rate cost, not a quality one.
    *
-   *   * during an orbit the worker polls every 14 ms and each frame cost about
-   *     51 ms of CPU, so it could never keep up — frames arrived late and in
-   *     bursts rather than at the rate they were produced;
-   *   * standing still at 1440x1080 the same filter is around 450 ms a frame,
-   *     which is fewer than three updates a second, each a large visible jump.
+   * Running it ONCE, on the frame that stays on screen, is a different
+   * proposition entirely. It is not in the path of anything progressive: by
+   * the time it runs, sampling has stopped and the GPU is idle, and the only
+   * thing waiting on it is the last of a render that already took seconds.
    *
-   * Both read as "it only goes in steps", which is what came back from the
-   * device. The strength ramp made it worse than a constant cost would have:
-   * the filter faded out as samples climbed, so consecutive frames differed in
-   * CHARACTER and not merely in noise level — visible even where the change in
-   * noise is not.
+   * WHICH FILTER RUNS. In a build with OpenImageDenoise, none of this: Cycles
+   * has already denoised inside the render (see configure_integrator) and
+   * `g_live.work` holds the result, so `guided` is false because the driver
+   * never asked for the guide passes. This block is the fallback for a build
+   * that has no OIDN — which is every iOS build so far, because lib/ios_arm64
+   * does not ship it.
    *
-   * Convergence is the path tracer's alone now, which is the honest reading of
-   * "render until the image is perfect": every pixel on screen is light that
-   * was actually traced, and it only ever gets better.
+   * FULL STRENGTH, NOT A FADE. denoise_strength_for's curve existed to hand
+   * the image back to the path tracer as it converged, because the filter was
+   * running the whole way. It runs at exactly one moment now and there is no
+   * curve to be on: the frame is finished, and it is either filtered or it is
+   * not. The sample count still goes in — it sets how far the luminance weight
+   * is allowed to reach, and a 512-sample frame is filtered much more
+   * conservatively than a 32-sample one, which is what stops this from
+   * softening an image that did not need it.
    *
-   * TURNING IT BACK ON is four things, all still present and still tested:
-   * re-add the two passes in add_passes, carry albedo and normal through
-   * FrameStore and Live, restore the ping-pong buffer, and call cyshim::denoise
-   * here. cycles_denoise.cpp is still compiled and render_test.c still covers
-   * its edge preservation and the monotonicity of its strength curve, so none
-   * of it has rotted. It should come back as an option with its cost measured
-   * on a device, and most likely only for moving frames, where 51 ms of CPU
-   * buys more than it costs. */
-  const bool denoised = false;
+   * ON THE OIDN PATH THE FLAG IS INFERRED, and the inference is worth stating.
+   * `finished` comes from write_render_tile, and RenderScheduler emits that
+   * work item only after the denoise work in the same iteration
+   * (PathTrace::render_pipeline denoises, then writes the tile, then updates
+   * the display), so a finished frame of a render that asked for denoising has
+   * been through it. The one exception is a CANCELLED render, which keeps the
+   * tile write and drops the denoise — and a cancel is always a view change,
+   * which bumps the generation, so that frame is dropped before it is read. */
+  bool denoised = finished && cycles_own_denoiser() && wants_denoise(g_live.target);
+  if (finished && guided) {
+    g_live.scratch.resize(cyshim::denoise_scratch_floats(w, h));
+    cyshim::denoise(g_live.work.data(),
+                    g_live.albedo_work.data(),
+                    g_live.normal_work.data(),
+                    w,
+                    h,
+                    samples,
+                    1.0f,
+                    g_live.scratch.data());
+    denoised = true;
+  }
 
   /* Vertical flip: Cycles' buffer is bottom-up and every image surface the app
    * has is top-down. */

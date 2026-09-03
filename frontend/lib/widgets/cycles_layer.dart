@@ -74,7 +74,9 @@ import '../cycles_view.dart';
 import '../l10n/l.dart';
 import '../part_render.dart' show Cam3;
 import '../render_engine.dart';
+import '../render_samples.dart';
 import '../theme.dart';
+import 'bottom_tabbar.dart';
 
 /// How long the camera has to hold still before the path tracer takes over
 /// from the RealityKit surface.
@@ -94,6 +96,30 @@ import '../theme.dart';
 /// milliseconds, and below the point where a person decides the app has not
 /// noticed them.
 const Duration kCyclesSettle = Duration(milliseconds: 250);
+
+/// The gap between the render badge and the corner it sits in.
+const double kCyclesBadgeGap = 12;
+
+/// How far above the bottom of the VIEWPORT the render badge starts, given a
+/// floating tab bar [tabBarHeight] points tall.
+///
+/// M367 — THE BADGE WAS UNDER A GLASS BUTTON, and this is the arithmetic that
+/// says it is not.
+///
+/// It used to be a bare `bottom: 12`, which is the bottom of the viewport —
+/// and the viewport is not where the bottom of the screen is. BottomTabBar
+/// floats OVER it (M150), and the trailing end of that bar is an "island": a
+/// separate glass capsule holding the document menu, pinned to the container's
+/// right edge (GlassTabBar.swift, buildIsland). The badge is in the same
+/// corner, so it sat underneath. Liquid glass is translucent, so the text
+/// stayed faintly legible through the button, which reads as a rendering
+/// fault rather than as a layout one.
+///
+/// Taken as a parameter rather than read from [BottomTabBar.floatingHeight] so
+/// the claim can be checked: off iOS that height is zero, so a test that
+/// called it would be asserting `12 == 12` and would have passed just as
+/// happily before this changed.
+double cyclesBadgeBottom(double tabBarHeight) => tabBarHeight + kCyclesBadgeGap;
 
 /// Draws the path-traced image of the current document over the viewport, and
 /// nothing at all when there is no renderer or the mode is not rendered.
@@ -191,6 +217,10 @@ class _CyclesLayerState extends State<CyclesLayer> {
     // RealityKit has to take the path-traced image DOWN on the same frame, not
     // whenever the model next changes.
     RenderEngines.engine.addListener(_repaint);
+    // M367 — and the sample target, for the same reason: it is a preference
+    // living outside AppState, and changing it in Settings has to restart the
+    // render on the next frame rather than whenever the model next changes.
+    RenderSamples.samples.addListener(_repaint);
     _session = widget.app.cycles..addListener(_frameLanded);
   }
 
@@ -228,6 +258,7 @@ class _CyclesLayerState extends State<CyclesLayer> {
     CyclesWarmup.instance.removeListener(_repaint);
     CyclesActivity.instance.removeListener(_repaint);
     RenderEngines.engine.removeListener(_repaint);
+    RenderSamples.samples.removeListener(_repaint);
     _session?.removeListener(_frameLanded);
     _settle?.cancel();
     _decoded?.dispose();
@@ -381,7 +412,7 @@ class _CyclesLayerState extends State<CyclesLayer> {
       wantCamera = camera;
       final budget = cyclesFrameBudget(
           widget.size.width, widget.size.height, dpr,
-          moving: false);
+          moving: false, settled: RenderSamples.current);
       wantW = budget.width;
       wantH = budget.height;
       wantSamples = budget.samples;
@@ -460,16 +491,22 @@ class _CyclesLayerState extends State<CyclesLayer> {
               filterQuality: FilterQuality.low,
             ),
           ),
+        // M367 — ABOVE THE FLOATING TAB BAR, not under its glass. See
+        // [cyclesBadgeBottom] for what was wrong and why the height is passed
+        // in. [BottomTabBar.floatingHeight] is the space that bar claims and
+        // is what the origin triad and the message toast already clear; it is
+        // zero off iOS, where the bar keeps its own row in the Column and the
+        // viewport already stops above it.
         if (mode && !warmup.ready)
           Positioned(
-            right: 12,
-            bottom: 12,
+            right: kCyclesBadgeGap,
+            bottom: cyclesBadgeBottom(BottomTabBar.floatingHeight),
             child: _CyclesWarmupPanel(warmup),
           )
         else if (wanted)
           Positioned(
-            right: 12,
-            bottom: 12,
+            right: kCyclesBadgeGap,
+            bottom: cyclesBadgeBottom(BottomTabBar.floatingHeight),
             child: _CyclesBadge(session),
           ),
       ]),
@@ -489,6 +526,17 @@ class _CyclesLayerState extends State<CyclesLayer> {
 /// telling you which. It is a live count against a target, which is the one
 /// thing somebody watching a progressive render wants to know and the only
 /// honest way to say "this is still getting better".
+///
+/// M367 — AND IT SAYS WHAT IT IS COUNTING TOWARDS, AND WHEN IT HAS STOPPED.
+///
+/// Two changes, both because the render is a different shape now. The target
+/// is a SETTING, so a bare "47 spp" no longer tells anybody how far along that
+/// is — 47 of 64 is nearly done and 47 of 4096 has barely started, and the
+/// badge was showing the same thing for both. And the finished frame is
+/// DENOISED, which is the moment the picture stops changing; "denoised" is the
+/// difference between "wait, this gets better" and "this is the final image",
+/// and without it a render that converged early at 40 of 128 looks like one
+/// that gave up.
 class _CyclesBadge extends StatelessWidget {
   const _CyclesBadge(this.session);
 
@@ -509,12 +557,24 @@ class _CyclesBadge extends StatelessWidget {
     // indistinguishable from a hang, so it says what is actually happening.
     final first = !render.everRendered;
     final t = L.of(context);
+    // WHAT THE FRAME ITSELF SAYS IT WAS AIMING AT, not what the setting says
+    // now. Changing the setting restarts the render, but for the frame or two
+    // before that lands the image on screen is still the old one, and a badge
+    // that had already adopted the new denominator would be reporting a
+    // fraction of a target this picture was never rendered towards.
+    final target = img?.target ?? session.target;
+    final done = img != null && img.samples > 0 && img.denoised
+        ? ' · ${t.cyclesDenoised}'
+        : '';
     final (label, tone) = switch (render.phase) {
       CyclesPhase.rendering when first => (t.cyclesPreparing, T.text),
       CyclesPhase.rendering =>
-        (t.cyclesSamples(img?.samples ?? 0), T.text),
-      CyclesPhase.shown =>
-        ('${t.cyclesSamples(img?.samples ?? session.samples)}$dev', T.dim),
+        (t.cyclesSamplesOf(img?.samples ?? 0, target), T.text),
+      CyclesPhase.shown => (
+          '${t.cyclesSamplesOf(img?.samples ?? session.samples, target)}'
+              '$done$dev',
+          T.dim
+        ),
       CyclesPhase.failed => (t.cyclesFailed, T.dim),
       CyclesPhase.idle => ('', T.dim),
     };

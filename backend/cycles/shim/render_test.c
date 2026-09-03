@@ -43,6 +43,13 @@
  *     why cycles_denoise.cpp names no Cycles type;
  *   * M344: THE LIVE SESSION PRODUCES FRAMES. cy_live_* is the path the app
  *     actually uses, and until this it had never been called by anything.
+ *   * M367: EVERY SAMPLE IS A FRAME. The report was "I see steps -- sample 24,
+ *     then 50, then 100"; the counts a live session actually hands over are
+ *     recorded and checked, because a patch to Cycles' scheduler is the kind
+ *     of change that stops working without stopping applying;
+ *   * M369: A MEGAPIXEL FRAME SURVIVES THE DENOISE. The crash was at the
+ *     denoise, at viewport size, and the live check runs at 96x96 where the
+ *     memory ceiling that fixes it cannot possibly bind.
  *
  * Exit: 0 pass, 1 fail, 2 skipped (no GPU on this machine).
  */
@@ -68,18 +75,24 @@ static void check(int ok, const char *what)
   }
 }
 
-/* Mean value of one channel over a quadrant, 0..255. Sampled over an area
- * rather than at a point so a single stray sample cannot decide the result.
- * channel < 0 means luminance. */
-static double quadrant_ch(const unsigned char *rgba, int left, int top, int channel)
+/* Mean value of one channel over a quadrant of a W x H image, 0..255. Sampled
+ * over an area rather than at a point so a single stray sample cannot decide
+ * the result. channel < 0 means luminance.
+ *
+ * Takes the size rather than reading TW/TH so that M369's megapixel frame can
+ * be framed by the same arithmetic as every other check here; a second copy of
+ * this loop with different constants would be a second definition of "where
+ * the object is". */
+static double quadrant_of(
+    const unsigned char *rgba, int w, int h, int left, int top, int channel)
 {
-  const int x0 = left ? TW / 8 : TW * 5 / 8;
-  const int y0 = top ? TH / 8 : TH * 5 / 8;
+  const int x0 = left ? w / 8 : w * 5 / 8;
+  const int y0 = top ? h / 8 : h * 5 / 8;
   double sum = 0.0;
   int n = 0;
-  for (int y = y0; y < y0 + TH / 4; y++) {
-    for (int x = x0; x < x0 + TW / 4; x++) {
-      const unsigned char *p = rgba + ((size_t)y * TW + x) * 4;
+  for (int y = y0; y < y0 + h / 4; y++) {
+    for (int x = x0; x < x0 + w / 4; x++) {
+      const unsigned char *p = rgba + ((size_t)y * w + x) * 4;
       sum += channel < 0 ? (p[0] + p[1] + p[2]) / 3.0 : p[channel];
       n++;
     }
@@ -87,20 +100,14 @@ static double quadrant_ch(const unsigned char *rgba, int left, int top, int chan
   return n ? sum / n : 0.0;
 }
 
+static double quadrant_ch(const unsigned char *rgba, int left, int top, int channel)
+{
+  return quadrant_of(rgba, TW, TH, left, top, channel);
+}
+
 static double quadrant(const unsigned char *rgba, int left, int top)
 {
-  const int x0 = left ? TW / 8 : TW * 5 / 8;
-  const int y0 = top ? TH / 8 : TH * 5 / 8;
-  double sum = 0.0;
-  int n = 0;
-  for (int y = y0; y < y0 + TH / 4; y++) {
-    for (int x = x0; x < x0 + TW / 4; x++) {
-      const unsigned char *p = rgba + ((size_t)y * TW + x) * 4;
-      sum += (p[0] + p[1] + p[2]) / 3.0;
-      n++;
-    }
-  }
-  return n ? sum / n : 0.0;
+  return quadrant_of(rgba, TW, TH, left, top, -1);
 }
 
 int main(int argc, char **argv)
@@ -374,7 +381,17 @@ int main(int argc, char **argv)
   {
     CyEnv live_env = env;
     CyView live_view = view;
-    live_view.samples = 8;
+    /* M367 — 128, NOT 8, AND THE TARGET IS PART OF THE TEST.
+     *
+     * Eight samples of a 96x96 image is over in tens of milliseconds, which is
+     * long enough to prove a frame comes out and far too short to prove
+     * anything about the CADENCE it comes out at: run 1 of this check polled
+     * eight samples and caught two of them, which is a pass that would also
+     * have passed on an unpatched tree. 128 samples is around a second here,
+     * which is hundreds of polls, and it is also the app's own default target
+     * (kRenderSamplesDefault) — so what the runner exercises is the render the
+     * iPad actually performs. */
+    live_view.samples = 128;
 
     check(cy_live_open() == 1, "the live session opens");
     if (cy_live_is_open()) {
@@ -402,9 +419,37 @@ int main(int argc, char **argv)
        * the app uses; the deadline is generous because this runs on three
        * paravirtualised cores and the first render of the process also loads
        * the kernels. */
-      const double kPollMs = 5.0;
+      /* Faster than the app's own poll (kCyclesPoll, 14 ms), because this is
+       * measuring what the RENDERER produces and must not be limited by how
+       * often it is asked. */
+      const double kPollMs = 2.0;
       const double kDeadlineMs = 60000.0;
       double waited = 0.0;
+      /* M367 — WHICH SAMPLE COUNTS WERE ACTUALLY SEEN.
+       *
+       * The report this milestone came from was "I see steps — sample 24, then
+       * 50, then 100". That is Cycles' RenderScheduler batching a display
+       * update's worth of samples into one work item, and the fix is a cap it
+       * has no setter for, added by backend/cycles/patches/progressive.py.
+       *
+       * A patch is exactly the kind of change that stops applying when the
+       * tree moves and fails silently: the anchor check catches a MISSING
+       * edit, and nothing would catch an edit that applied and did not work.
+       * So the counts are recorded and checked below. */
+      int seen_counts[256];
+      int seen_n = 0;
+      /* How many times two CONSECUTIVE sample counts came out one apart. That
+       * is the literal reading of "I want to see every sample", and it is what
+       * separates a patched scheduler from an unpatched one — see the checks
+       * below for the arithmetic. */
+      int adjacent = 0;
+      /* Taken from a frame that was actually HANDED OVER, not from `info`
+       * after the loop. cy_live_frame fills in samples/target/done even when
+       * it has nothing new to give (that is what lets a caller poll for
+       * convergence cheaply), and on that path there are no pixels and so no
+       * denoise to report. Reading the flag off such a poll would fail this
+       * check for a render that did everything right. */
+      int denoised_final = 0;
       while (!done && waited < kDeadlineMs) {
         const int r = cy_live_frame(live, TW * TH * 4, &info);
         if (r < 0) {
@@ -413,6 +458,15 @@ int main(int argc, char **argv)
         }
         if (r == 1) {
           got++;
+          if (seen_n < 256 && (seen_n == 0 || seen_counts[seen_n - 1] != info.samples)) {
+            if (seen_n > 0 && info.samples == seen_counts[seen_n - 1] + 1) {
+              adjacent++;
+            }
+            seen_counts[seen_n++] = info.samples;
+          }
+          if (info.done) {
+            denoised_final = info.denoised;
+          }
         }
         done = info.done;
         if (done) {
@@ -440,6 +494,55 @@ int main(int argc, char **argv)
             "the live frame is the size that was asked for");
       check(done == 1, "the live session converges and says so");
 
+      /* ---- M367: every sample, and then a denoise -----------------------
+       *
+       * WHAT AN UNPATCHED TREE WOULD PRODUCE, because that is what these two
+       * numbers are chosen against.
+       *
+       * The scheduler always traces the first work item as ONE sample. After
+       * that the packet is `samples-per-second x display-update-interval`,
+       * rounded up to a power of two, and then aligned by adaptive sampling —
+       * which, with `adaptive_min_samples` left at 0 and the threshold at
+       * 0.01, puts the first filter point at sample 79 and every one after it
+       * on a multiple of 16. So an unpatched 128-sample render arrives in
+       * something like 1, 78, 95, 111, 127: a handful of counts, none of them
+       * adjacent.
+       *
+       * With the cap it arrives one sample at a time. Polling cannot see all
+       * of them — cy_live_frame returns what is in the store WHEN IT IS ASKED,
+       * so several samples can land between two polls — but at 2 ms a poll
+       * against a render of about a second, most of them do.
+       *
+       * Hence two checks with wide margins in both directions:
+       *
+       *   * MORE THAN TEN distinct counts. Unpatched gives about five however
+       *     fast the machine is, because the count is set by the filter
+       *     points; patched gives tens.
+       *   * At least one pair of counts ONE APART. Unpatched, the gaps are 16
+       *     or larger from the second work item on, so this cannot happen at
+       *     all. It is the literal property that was asked for.
+       *
+       * The one thing that would fail this honestly is adaptive sampling
+       * converging the whole 96x96 image inside ten samples. It does not — the
+       * printed counts below say where it actually got to. */
+      printf("live: sample counts seen:");
+      for (int i = 0; i < seen_n; i++) {
+        printf(" %d", seen_counts[i]);
+      }
+      printf("\n");
+      printf("live: %d distinct counts, %d of them one apart\n", seen_n, adjacent);
+      check(seen_n > 10,
+            "sampling arrives progressively rather than in a few big batches");
+      check(adjacent > 0, "consecutive samples arrive as consecutive frames");
+
+      /* And the finished frame has been denoised — by Cycles' own
+       * OpenImageDenoise where the build has it, by the a-trous fallback
+       * where it does not. Either way the flag is the app's only way of
+       * knowing the picture is final, so it has to be set. */
+      printf("live: denoiser is %s\n", cy_denoiser_name());
+      check(cy_denoiser_name()[0] != 0, "the build names its denoiser");
+      check(denoised_final == 1, "the finished frame is denoised");
+
       memset(&info, 0, sizeof(info));
       check(cy_live_frame(live, TW * TH * 4, &info) == 0,
             "polling again with nothing new returns no frame");
@@ -456,6 +559,126 @@ int main(int argc, char **argv)
       free(live);
       cy_live_close();
       check(cy_live_is_open() == 0, "the live session closes");
+    }
+  }
+
+  /* ---- M369: a MEGAPIXEL frame survives the denoise --------------------
+   *
+   * WHAT THIS IS FOR. The report was "when it came to denoising the App
+   * crashed", and the diagnosis is written out in
+   * backend/cycles/patches/oidn_memory.py: OIDN only tiles its network above
+   * `defaultMaxTileSize` (2160*2160, 4.67 megapixels), and Cycles never sets
+   * `maxMemoryMB` — so a tablet-sized viewport went through as ONE tile, with
+   * one arena allocated whole, at the end of a render that is already holding
+   * the path state pool, the BVH and the render buffers.
+   *
+   * WHY THE CHECK ABOVE CANNOT COVER IT. That one runs at 96x96. It proves the
+   * cadence and it proves a finished frame comes out denoised, and about this
+   * crash it can prove nothing at all: at nine thousand pixels the ceiling
+   * never binds, and the unbounded code would have passed it just as happily.
+   * A patch whose only test is "the anchor still applied" is a patch that can
+   * stop working in silence.
+   *
+   * So: one more live session, at a size in the range that crashed. 2048x1280
+   * is 2.6 megapixels, and it is chosen deliberately BELOW 4.67 so that the
+   * only thing that can make OIDN tile here is the ceiling M369 adds. On an
+   * unpatched tree this is exactly the single-arena path; on a patched one it
+   * is several tiles with overlap — and the frame that comes out has to be the
+   * same finished, denoised frame either way.
+   *
+   * The sample target is the smallest one that still denoises
+   * (kDenoiseThreshold, 8), because what is under test here is the DENOISE and
+   * not the sampling. The cadence is checked above at the app's real target;
+   * every extra sample at this size is another 2.6 million paths on three
+   * paravirtualised cores, spent proving something already proven.
+   */
+  {
+    const int kBigW = 2048;
+    const int kBigH = 1280;
+    CyEnv big_env = env;
+    CyView big_view = view;
+    big_view.width = kBigW;
+    big_view.height = kBigH;
+    big_view.samples = 8;
+
+    check(cy_live_open() == 1, "the live session reopens for a big frame");
+    if (cy_live_is_open()) {
+      check(cy_live_scene(&mesh, 1, NULL, 0, &big_env) == 1,
+            "the big scene uploads");
+      check(cy_live_view(&big_view) == 1, "the big camera is accepted");
+
+      const size_t big_bytes = (size_t)kBigW * (size_t)kBigH * 4u;
+      unsigned char *big = (unsigned char *)calloc(big_bytes, 1);
+      CyFrame info;
+      memset(&info, 0, sizeof(info));
+      int got = 0;
+      int done = 0;
+      /* Read off a frame that was HANDED OVER, for the reason spelled out at
+       * the 96x96 check: a poll with nothing new fills in the counters and has
+       * no pixels, so it has no denoise to report either. */
+      int denoised_final = 0;
+      /* Polled more slowly and waited for far longer than the small frame.
+       * This is 285 times the pixels, and when the ceiling binds the denoise
+       * runs as several overlapping tiles instead of one pass — so a slow
+       * answer is a pass. What this deadline is here to catch is the frame
+       * that never arrives at all. */
+      const double kBigPollMs = 10.0;
+      const double kBigDeadlineMs = 180000.0;
+      double waited = 0.0;
+      while (!done && waited < kBigDeadlineMs) {
+        const int r = cy_live_frame(big, (int)big_bytes, &info);
+        if (r < 0) {
+          printf("  big live frame error: %s\n", cy_last_error());
+          break;
+        }
+        if (r == 1) {
+          got++;
+          if (info.done) {
+            denoised_final = info.denoised;
+          }
+        }
+        done = info.done;
+        if (done) {
+          break;
+        }
+        struct timespec ts;
+        ts.tv_sec = 0;
+        ts.tv_nsec = (long)(kBigPollMs * 1000000.0);
+        nanosleep(&ts, NULL);
+        waited += kBigPollMs;
+      }
+      printf("big: %dx%d, %d frames, %d/%d samples, done=%d denoised=%d after %.0f ms\n",
+             info.width, info.height, got, info.samples, info.target, info.done,
+             info.denoised, waited);
+      if (got == 0) {
+        char status[256];
+        cy_status(status, (int)sizeof(status));
+        printf("  no big frames. last error: \"%s\"  status: \"%s\"\n",
+               cy_last_error(), status);
+      }
+      check(got > 0, "a megapixel live session produces frames");
+      check(info.width == kBigW && info.height == kBigH,
+            "the big frame is the size that was asked for");
+      check(done == 1, "the megapixel render converges");
+      /* THE CHECK THIS BLOCK EXISTS FOR. Reaching here at all means the
+       * denoiser ran over 2.6 megapixels without taking the process with it;
+       * the flag means it ran and produced a result, rather than falling back
+       * to handing over the noisy buffer. */
+      check(denoised_final == 1, "the megapixel frame comes back denoised");
+
+      /* The same object in the same corner as every other framing of this
+       * scene. A denoise that tiled WRONG — overlap mismatched, a tile written
+       * to the wrong offset — would still set the flag and still converge; it
+       * would show up as a picture that no longer has the model where the
+       * camera put it. */
+      const double btr = quadrant_of(big, kBigW, kBigH, 0, 1, -1);
+      const double btl = quadrant_of(big, kBigW, kBigH, 1, 1, -1);
+      printf("big: quadrants %.1f / %.1f\n", btl, btr);
+      check(fabs(btr - btl) > 10.0, "the megapixel frame has the object in it");
+
+      free(big);
+      cy_live_close();
+      check(cy_live_is_open() == 0, "the big live session closes");
     }
   }
 
@@ -528,44 +751,78 @@ int main(int argc, char **argv)
           "the dark side keeps its own value");
     check(left - right > 0.25, "the edge across the seam survives");
 
-    /* And it must be OFF once the frame has been sampled properly, or the
-     * picture the user finally looks at would depend on a constant in
-     * cycles_denoise.cpp.
-     *
-     * M347 — IN SAMPLES, NOT IN FRACTIONS OF A TARGET. The target is a
-     * navigation target during an orbit and a settled one at rest, and a curve
-     * keyed to it filtered hardest exactly where there was least to filter.
-     * The second and third checks below are the ones that used to pass for the
-     * wrong reason: 64 out of 64 was called converged, and it is 64 samples of
-     * path tracing, which is a noisy picture. */
-    check(cyshim::denoise_strength_for(1, 64) == 1.0f,
-          "a nearly-unsampled frame is fully denoised");
-    check(cyshim::denoise_strength_for(cyshim::kDenoiseFull, 64) == 1.0f,
-          "a frame at the top of the full-strength band is still fully denoised");
-    check(cyshim::denoise_strength_for(cyshim::kDenoiseRaw, 256) == 0.0f,
-          "a well-sampled frame is not denoised at all");
-    check(cyshim::denoise_strength_for(cyshim::kDenoiseRaw + 80, 256) == 0.0f,
-          "and neither is one past it");
-    {
-      /* Monotone, and strictly between the two ends. A curve that is not would
-       * make the image get NOISIER as it converges at some sample count, which
-       * is the one visible failure this function can have. */
-      float prev = 1.0f;
-      int bad = 0;
-      for (int n = 1; n <= cyshim::kDenoiseRaw + 8; n++) {
-        const float f = cyshim::denoise_strength_for(n, 256);
-        if (f > prev + 1e-6f || f < 0.0f || f > 1.0f) {
-          bad++;
+    free(color);
+    free(albedo);
+    free(normal);
+  }
+
+  /* ---- M367: does it leave a WELL-SAMPLED frame alone? ------------------
+   *
+   * THE PROPERTY THAT REPLACED THE FADE, AND WHY IT HAD TO BE CHECKED.
+   *
+   * Until M367 the shim ramped `strength` down as the sample count climbed and
+   * this file pinned that curve: full filter at 1 sample, nothing at 176, and
+   * monotone in between. That curve existed because the filter ran on EVERY
+   * frame and had to hand the picture back to the path tracer at some point.
+   *
+   * It runs once now, on the finished frame, at full strength — so the ramp is
+   * gone and so are its tests. What stops a converged image from being
+   * softened is no longer a curve outside the filter but the luminance
+   * tolerance inside it, which narrows as 1/samples (see kLuminanceSigma).
+   * That is a better place for the property to live and a worse place for it
+   * to go unchecked: it is three lines of arithmetic in the middle of a
+   * weighting function, and nothing else would notice if they stopped scaling.
+   *
+   * So: the same two-tone image, the same noise, filtered at the same full
+   * strength, once as a 4-sample frame and once as a 4096-sample one. The
+   * well-sampled one must come back much closer to what it was given. It is a
+   * comparison rather than a threshold because the absolute numbers depend on
+   * the noise the hash happens to produce; the RATIO is the claim.
+   */
+  {
+    const int W = 64, H = 64;
+    float *few = (float *)malloc((size_t)W * H * 4 * sizeof(float));
+    float *many = (float *)malloc((size_t)W * H * 4 * sizeof(float));
+    float *orig = (float *)malloc((size_t)W * H * 4 * sizeof(float));
+    float *albedo = (float *)malloc((size_t)W * H * 3 * sizeof(float));
+    float *normal = (float *)malloc((size_t)W * H * 3 * sizeof(float));
+    unsigned int seed = 987654321u;
+    for (int y = 0; y < H; y++) {
+      for (int x = 0; x < W; x++) {
+        const size_t i = (size_t)y * W + x;
+        const float base = x < W / 2 ? 0.8f : 0.2f;
+        seed = seed * 1664525u + 1013904223u;
+        const float n = ((float)((seed >> 8) & 0xFFFF) / 65535.0f - 0.5f) * 0.30f;
+        for (int k = 0; k < 3; k++) {
+          const float v = base * 0.5f + n;
+          orig[i * 4 + k] = v;
+          few[i * 4 + k] = v;
+          many[i * 4 + k] = v;
+          albedo[i * 3 + k] = base;
+          normal[i * 3 + k] = k == 2 ? 1.0f : 0.0f;
         }
-        prev = f;
+        orig[i * 4 + 3] = few[i * 4 + 3] = many[i * 4 + 3] = 1.0f;
       }
-      check(bad == 0, "the fade never goes back up");
-      check(cyshim::denoise_strength_for((cyshim::kDenoiseFull + cyshim::kDenoiseRaw) / 2,
-                                         256) > 0.4f,
-            "a half-sampled frame keeps half the filter");
     }
 
-    free(color);
+    cyshim::denoise(few, albedo, normal, W, H, 4, 1.0f, NULL);
+    cyshim::denoise(many, albedo, normal, W, H, 4096, 1.0f, NULL);
+
+    double moved_few = 0.0, moved_many = 0.0;
+    for (size_t i = 0; i < (size_t)W * H; i++) {
+      const double a = few[i * 4] - orig[i * 4];
+      const double b = many[i * 4] - orig[i * 4];
+      moved_few += a * a;
+      moved_many += b * b;
+    }
+    printf("denoise: moved %.5f at 4 spp, %.5f at 4096 spp\n", moved_few, moved_many);
+    check(moved_many < moved_few * 0.5,
+          "a well-sampled frame is filtered far more gently than a noisy one");
+    check(moved_few > 0.0, "and a noisy one is actually filtered");
+
+    free(few);
+    free(many);
+    free(orig);
     free(albedo);
     free(normal);
   }
