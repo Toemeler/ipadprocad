@@ -206,6 +206,30 @@ while read -r name arrow path rest; do
 done < <(ldd "$out/libprototype_native.so")
 echo "copied $copied libraries into $deps ($(du -sh "$deps" | cut -f1))"
 
+# EVERY library gets $ORIGIN, not just the one the app opens.
+#
+# The kernel library carries DT_RPATH, which IS inherited down the chain — but
+# only until something in the chain carries a DT_RUNPATH of its own, because an
+# object's own RUNPATH replaces the inherited RPATH for ITS dependencies. That
+# is not hypothetical: Debian's libproxy.so.1 has
+# RUNPATH=/usr/lib/x86_64-linux-gnu/libproxy, so it hunted for its backend at
+# that absolute path and found nothing on a machine without Qt — the bundled
+# copy sitting beside it was never looked at. CI caught it; `ldd` on the build
+# machine could not, because there the absolute path exists.
+#
+# Rewriting the runpath of everything that ships takes the whole question away:
+# no inheritance, no ordering, every library finds its neighbours.
+if ! command -v patchelf >/dev/null 2>&1; then
+  echo "patchelf is required to make the bundle self-contained." >&2
+  echo "  sudo apt-get install patchelf" >&2
+  exit 1
+fi
+for lib in "$deps"/*.so*; do
+  [ -f "$lib" ] || continue
+  patchelf --set-rpath '$ORIGIN' "$lib"
+done
+echo "runpath set to \$ORIGIN on every bundled library"
+
 # THE INVARIANT, checked rather than reasoned about.
 #
 # Every library that ships has to be satisfiable from the bundle plus the host

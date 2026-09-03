@@ -347,9 +347,16 @@ families.
 `libQt6Core.so.6` and then Qt Core's own dependencies were looked up in the
 system paths alone. `DT_RPATH` is inherited down the chain;
 `-Wl,--disable-new-dtags` in `backend/desktop/CMakeLists.txt` is what asks for
-it. Debian's Qt libraries carry no runpath of their own — they are built to be
-found by `ldconfig` — so the tag on the object the app dlopens is the only one
-in the chain.
+it.
+
+That is still not enough on its own, and CI caught the remainder: an object's
+OWN `DT_RUNPATH` replaces the inherited `DT_RPATH` for its dependencies, and
+Debian's `libproxy.so.1` carries
+`RUNPATH=/usr/lib/x86_64-linux-gnu/libproxy`. So it hunted for its backend at
+an absolute path that exists only where Qt is installed, and never looked at
+the copy sitting beside it. `build_native.sh` therefore rewrites the runpath of
+**everything** it bundles to `$ORIGIN` with `patchelf`, which takes the whole
+question of inheritance and ordering away.
 
 To check by hand what CI checks for you, move the Qt-only sonames out of
 `/usr/lib/x86_64-linux-gnu`, run `ldconfig`, launch the bundle, and put them
