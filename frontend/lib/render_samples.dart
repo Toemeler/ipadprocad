@@ -32,11 +32,19 @@
 // scene of opaque solids that happens in the low hundreds. Everything past
 // that is time spent on a difference the denoiser was going to remove anyway.
 //
-// 128 is also roughly where adaptive sampling stops finding work on a scene
-// like this: flat lit faces are done in tens of samples and only the contact
-// shadows and glossy reflections spend the rest, so a typical render reaches
-// its own convergence and stops before the ceiling. The ceiling matters for
-// the scenes that do not.
+// AND IT IS NOT A NUMBER ADAPTIVE SAMPLING WILL UNDERCUT BY MUCH, which is
+// worth knowing rather than assuming. Cycles works its own minimum out from
+// the noise threshold — `ceil(16 / threshold^0.3)`, which at the 0.01 the shim
+// sets is 64 — and then rounds the first convergence check up to the next
+// filter point, `(min + 1) | 15`, which is sample 79. No pixel can stop before
+// then. So a 128-sample render traces at least 79 samples of every pixel and
+// adaptively finishes the rest; the saving is real but it is the tail, not the
+// bulk.
+//
+// That is the honest reading of this number: it is very nearly what the render
+// costs, not a ceiling a typical scene stops well short of. It was a ceiling
+// at 4096 and the saving was most of the render; at 128 the number IS the
+// budget, which is exactly why it belongs to the user.
 //
 // ---------------------------------------------------------------------------
 // AND WHY IT IS NOT A DOCUMENT SETTING

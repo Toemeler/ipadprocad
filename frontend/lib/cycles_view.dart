@@ -592,11 +592,13 @@ const int kCyclesMovingSide = 480;
 ///     [cyclesFrameBudget] takes it as a parameter so no code path can read
 ///     the setting and the constant and disagree.
 ///
-/// It remains a CEILING rather than a duration. Adaptive sampling ends each
-/// pixel at its own error estimate, so a flat lit face is finished in tens of
-/// samples and only the soft shadows and glossy reflections spend the rest;
-/// the badge reports where a render actually got to (M347), and the denoiser
-/// runs at that point whether or not it was the ceiling.
+/// Adaptive sampling still ends each pixel at its own error estimate, and the
+/// badge reports where a render actually got to (M347) — the denoiser runs at
+/// that point whether or not it was the ceiling. But it undercuts a number
+/// this small far less than it undercut 4096: Cycles' own minimum works out to
+/// 64 samples at the threshold the shim sets, and the first convergence check
+/// lands at 79, so most of a 128-sample render is spent before anything is
+/// allowed to stop. See render_samples.dart for the arithmetic.
 const int kCyclesSamples = kRenderSamplesDefault;
 
 /// The sample target WHILE THE CAMERA IS MOVING.
