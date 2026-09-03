@@ -2157,8 +2157,9 @@ int cy_live_frame(unsigned char *rgba_out, const int capacity, CyFrame *info)
    * not. The sample count still goes in — it sets how far the luminance weight
    * is allowed to reach, and a 512-sample frame is filtered much more
    * conservatively than a 32-sample one, which is what stops this from
-   * softening an image that did not need it. */
-  /* ON THE OIDN PATH THIS IS INFERRED, and the inference is worth stating.
+   * softening an image that did not need it.
+   *
+   * ON THE OIDN PATH THE FLAG IS INFERRED, and the inference is worth stating.
    * `finished` comes from write_render_tile, and RenderScheduler emits that
    * work item only after the denoise work in the same iteration
    * (PathTrace::render_pipeline denoises, then writes the tile, then updates
