@@ -561,12 +561,20 @@ jobs:
           # are read from the checkout by the packaging job, so dropping a 24 MB
           # HDRI into the repository costs a file copy rather than a full
           # Blender + Cycles rebuild. Nothing in cycles-dist depends on them.
-          # M367 — the PATCHES are in the key too. They edit Cycles' own
-          # sources before the build, so a change to one produces a different
-          # libcycles_session.a from identical shim sources; without them here
-          # the first push after a patch edit would restore the previous
-          # distribution from cache and the edit would appear to do nothing.
-          key: cycles-dist-v4-${{ hashFiles('backend/cycles/shim/**') }}-${{ hashFiles('backend/cycles/patches/**') }}-${{ hashFiles('.github/workflows/m1-core-build.yml') }}
+          # M367 — the PATCHES and the HARVEST SCRIPT are in the key too, and
+          # for the same reason as the shim: both decide what ends up in this
+          # artifact.
+          #
+          # The patches edit Cycles' own sources before the build, so a change
+          # to one produces a different libcycles_session.a from identical shim
+          # sources. And harvest_cycles_dylibs.sh runs INSIDE this cached step
+          # — it is what chooses which dynamic libraries the app carries — so a
+          # fix to it (M367 added OpenImageDenoise's dlopen'd device module,
+          # which no load command names) would be restored away by the first
+          # cache hit and the app would ship the old, incomplete set. Neither
+          # miss would show up as a build failure; both would show up on a
+          # device.
+          key: cycles-dist-v4-${{ hashFiles('backend/cycles/shim/**') }}-${{ hashFiles('backend/cycles/patches/**') }}-${{ hashFiles('ci/harvest_cycles_dylibs.sh') }}-${{ hashFiles('.github/workflows/m1-core-build.yml') }}
 
       - name: Clone Blender's ios branch (shallow, no LFS)
         if: steps.dist.outputs.cache-hit != 'true'
