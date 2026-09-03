@@ -41,11 +41,49 @@ WORKING = 'openhands-working'
 BLOCKED = 'openhands-blocked'
 REPORT = 'bug-report'
 
-# What the relay files a report under when the reporter cleared the "let the
+# What a report is filed under when the reporter cleared the "let the
 # automation fix it" box. Nothing here ever claims it — `bugfix.yml` runs only
 # for REPORT — so the label exists to be VISIBLE: an issue nobody is working on
 # should say so rather than look like one that was missed.
 MANUAL = 'needs-session'
+
+# M370 — THE CLEARED CHECKBOX, AS IT ACTUALLY ARRIVES.
+#
+# The design was, and still is, that THE LABEL IS THE WHOLE SWITCH: the relay
+# files an opted-out report as MANUAL, `bugfix.yml` runs only for REPORT, and
+# this pipeline never learns the checkbox exists.
+#
+# What broke is one link in front of that. The relay is a Cloudflare Worker
+# deployed by hand (`relay/README.md`), and the checkbox and the Worker's
+# support for it shipped in the same commit — so the deployed Worker is a build
+# that has never heard of the `autofix` form field. An unknown multipart field
+# is silently ignored, every report keeps arriving under REPORT, and the box
+# does nothing whatsoever.
+#
+# The app therefore also writes this marker into the report's DESCRIPTION,
+# which every version of the relay copies into the issue body verbatim. That
+# restores the invariant rather than replacing it: `triage` below reads the
+# marker and sets the label the relay could not, and everything downstream —
+# `claim`, `run.py`, the workflow's own gate — still keys on nothing but the
+# label. Redeploying the Worker later is then a pure no-op, because both roads
+# already end at the same label.
+#
+# Must stay byte-identical to `bugAutofixOffMarker` in
+# `frontend/lib/bug_upload.dart`. `test_run.py` fails if it drifts.
+AUTOFIX_OFF = '[autofix: off]'
+
+
+def autofix_wanted(body):
+    """Whether the automation is allowed to take a report with this body.
+
+    ABSENCE MEANS YES, in the same way and for the same reason the missing
+    form field does: an app build from before the checkbox shipped, or a body
+    this never reached, must get the automation rather than be parked in a
+    queue nobody is watching. Only the OFF direction is ever written down, so
+    the failure mode of every mangled, truncated or hand-edited body is the
+    old behaviour and not silence.
+    """
+    return AUTOFIX_OFF not in (body or '')
 
 
 def _request(method, path, body=None, retries=3):
@@ -186,6 +224,53 @@ def block(number, body):
     _request('POST', f'/repos/{REPO}/issues/{number}/labels', {'labels': [BLOCKED]})
 
 
+def park(number):
+    """Move an opted-out report out of the fixer's queue and into the human one.
+
+    Exactly what the relay would have done at filing time if the deployed
+    Worker knew about the `autofix` field: REPORT off, MANUAL on. Doing it here
+    rather than pretending the label is already right matters, because
+    `bugfix.yml` also fires on `labeled` and `workflow_dispatch` — an issue
+    left wearing REPORT is an issue the next event can still claim.
+
+    Idempotent: a second call finds no REPORT label and adds a MANUAL that is
+    already there, and neither is an error.
+    """
+    ensure_labels()
+    had = REPORT in labels(number)
+    try:
+        _request('DELETE', f'/repos/{REPO}/issues/{number}/labels/{REPORT}')
+    except urllib.error.HTTPError as e:
+        if e.code != 404:
+            raise
+    _request('POST', f'/repos/{REPO}/issues/{number}/labels', {'labels': [MANUAL]})
+    # Commented only when this call is what changed the state. `labeled` can
+    # fire more than once for one report, and a queue note repeated four times
+    # reads like four decisions.
+    if had:
+        comment(number, (
+            'Filed with **automatic fixing turned off**, so `ci/bugfix` is '
+            f'standing down: `{MANUAL}` instead of `{REPORT}`, nothing was '
+            'read and no model was called.\n\nTo hand it to the automation '
+            f'after all, put the `{REPORT}` label back on, or start the **Bug '
+            'report autofix** workflow with this issue number.'))
+    return had
+
+
+def triage(number):
+    """-> True if the automation may take this issue.
+
+    The one place the marker is turned back into the label, and the only part
+    of this pipeline that knows the checkbox exists. Reads the body from the
+    API rather than from the workflow event, so a `workflow_dispatch` re-run
+    and a `labeled` event that carries a stale payload both see the truth.
+    """
+    if autofix_wanted(issue(number).get('body')):
+        return True
+    park(number)
+    return False
+
+
 def labels(number):
     """The label names currently on an issue."""
     d = issue(number)
@@ -220,12 +305,24 @@ def release_if_claimed(number, why):
 
 
 if __name__ == '__main__':
-    # `python3 ci/bugfix/gh.py release <issue> <why>` — the always() step.
     import sys
-    if len(sys.argv) >= 3 and sys.argv[1] == 'release':
-        n = int(sys.argv[2])
-        reason = ' '.join(sys.argv[3:]) or 'the job ended without completing'
+    argv = sys.argv[1:]
+    # `gh.py release <issue> <why>` — the always() step.
+    if len(argv) >= 2 and argv[0] == 'release':
+        n = int(argv[1])
+        reason = ' '.join(argv[2:]) or 'the job ended without completing'
         print(f'#{n}: released' if release_if_claimed(n, reason)
               else f'#{n}: was not left claimed — nothing to do')
+    # `gh.py triage <issue>` — the gate in front of the fix job. Prints a line
+    # in `$GITHUB_OUTPUT` form so the workflow can append it directly; the
+    # exit code stays 0 either way, because "the reporter said no" is a normal
+    # outcome and not a failure of anything.
+    elif len(argv) == 2 and argv[0] == 'triage':
+        n = int(argv[1])
+        ok = triage(n)
+        print(f'#{n}: automatic fixing is '
+              + ('ON — handing it to the fixer' if ok
+                 else f'OFF — parked as `{MANUAL}`'), file=sys.stderr)
+        print(f'autofix={"true" if ok else "false"}')
     else:
-        raise SystemExit('usage: gh.py release <issue> [why]')
+        raise SystemExit('usage: gh.py release <issue> [why] | triage <issue>')

@@ -1648,11 +1648,16 @@ class ManualLabelTest(unittest.TestCase):
         self.assertIn(gh.WORKING, made)
 
     def test_the_workflow_still_gates_on_the_autofix_label_only(self):
-        wf = (pathlib.Path(run.__file__).resolve().parents[2]
-              / '.github' / 'workflows' / 'bugfix.yml').read_text()
+        wf = self._workflow()
         self.assertIn("contains(github.event.issue.labels.*.name, 'bug-report')",
                       wf)
-        self.assertNotIn('needs-session', wf,
+        # Comments stripped first, and deliberately: M370 explains the manual
+        # label in prose right above the job that produces it, and the thing
+        # this test is actually about is that the label never appears where it
+        # could make something RUN.
+        code = '\n'.join(l for l in wf.splitlines()
+                         if not l.lstrip().startswith('#'))
+        self.assertNotIn('needs-session', code,
                          'the manual label must not be a trigger anywhere')
 
     def test_the_relay_defaults_to_autofix_when_the_field_is_absent(self):
@@ -1661,6 +1666,118 @@ class ManualLabelTest(unittest.TestCase):
               / 'relay' / 'worker.js').read_text()
         self.assertIn("form.get('autofix') ?? '1'", js)
         self.assertIn("env.MANUAL_LABEL || 'needs-session'", js)
+
+    # ---- M370: the checkbox reaches the label even through an old relay ----
+    #
+    # The `autofix` FORM FIELD is honoured by `relay/worker.js` and by nothing
+    # that is actually deployed: the Worker goes out by hand, and the checkbox
+    # and its Worker support shipped in one commit, so the live Worker ignores
+    # the field and files everything under `bug-report`. The app therefore also
+    # writes a marker into the description, which every version of the relay
+    # copies into the issue body, and `triage` turns that back into the label.
+    #
+    # Two ends of one string in two languages is the classic silent break —
+    # rename either and the checkbox goes quietly dead again, exactly as it did
+    # the first time. So the contract is a test, not a comment.
+
+    def _workflow(self):
+        return (pathlib.Path(run.__file__).resolve().parents[2]
+                / '.github' / 'workflows' / 'bugfix.yml').read_text()
+
+    def test_the_marker_is_the_same_string_in_dart_and_python(self):
+        import gh
+        dart = (pathlib.Path(run.__file__).resolve().parents[2] / 'frontend'
+                / 'lib' / 'bug_upload.dart').read_text()
+        self.assertIn(f"bugAutofixOffMarker = '{gh.AUTOFIX_OFF}';", dart,
+                      'the app and the triage step must agree byte for byte')
+
+    def test_an_absent_marker_means_the_automation_may_take_it(self):
+        import gh
+        for body in (None, '', 'the floor is dark', 'autofix', '[autofix: on]'):
+            self.assertTrue(gh.autofix_wanted(body), repr(body))
+
+    def test_the_marker_stands_the_automation_down(self):
+        import gh
+        self.assertFalse(gh.autofix_wanted(
+            'the floor is dark\n\n[autofix: off]\n\nBundle: http://x/y.zip'))
+
+    def test_triage_parks_an_opted_out_issue_and_reports_it(self):
+        """The whole point: REPORT off, MANUAL on, before any model is called."""
+        import gh
+        calls = []
+
+        def fake(method, path, body=None, retries=3):
+            calls.append((method, path, body))
+            if path.endswith(f'/issues/7'):
+                return {'body': f'x\n\n{gh.AUTOFIX_OFF}',
+                        'labels': [{'name': gh.REPORT}]}
+            if method == 'GET' and '/labels/' in path:
+                return {}
+            return {}
+
+        with mock.patch.object(gh, '_request', side_effect=fake):
+            self.assertFalse(gh.triage(7))
+
+        self.assertIn(('DELETE', f'/repos/{gh.REPO}/issues/7/labels/{gh.REPORT}',
+                       None), calls)
+        added = [b['labels'] for m, p, b in calls
+                 if m == 'POST' and p.endswith('/issues/7/labels')]
+        self.assertEqual(added, [[gh.MANUAL]])
+        # And it says so on the issue, once — a report that silently vanishes
+        # from the queue is the failure this whole feature exists to avoid.
+        notes = [b['body'] for m, p, b in calls
+                 if m == 'POST' and p.endswith('/issues/7/comments')]
+        self.assertEqual(len(notes), 1)
+        self.assertIn(gh.MANUAL, notes[0])
+
+    def test_triage_hands_a_normal_report_straight_through(self):
+        import gh
+        calls = []
+
+        def fake(method, path, body=None, retries=3):
+            calls.append((method, path, body))
+            return {'body': 'the floor is dark', 'labels': []}
+
+        with mock.patch.object(gh, '_request', side_effect=fake):
+            self.assertTrue(gh.triage(7))
+        self.assertEqual([m for m, _p, _b in calls], ['GET'],
+                         'a wanted report must not be touched at all')
+
+    def test_parking_twice_does_not_comment_twice(self):
+        """`labeled` can fire more than once for one report."""
+        import gh
+
+        def fake(method, path, body=None, retries=3):
+            if path.endswith('/issues/7'):
+                return {'body': gh.AUTOFIX_OFF, 'labels': [{'name': gh.MANUAL}]}
+            return {}
+
+        with mock.patch.object(gh, '_request', side_effect=fake) as req:
+            self.assertFalse(gh.park(7))
+        posted = [c.args[1] for c in req.call_args_list
+                  if c.args[0] == 'POST']
+        self.assertFalse([p for p in posted if p.endswith('/comments')])
+
+    def test_the_fix_job_waits_for_triage(self):
+        """A gate that the fix job does not depend on is not a gate."""
+        wf = self._workflow()
+        self.assertIn('needs: triage', wf)
+        self.assertIn("needs.triage.outputs.autofix == 'true'", wf)
+
+    def test_triage_is_not_stuck_behind_a_running_fix(self):
+        """Standing down must not queue for an hour behind someone's fix.
+
+        The concurrency group serialises pushes to `main`; it belongs to the
+        job that pushes. At the workflow level it also serialised the triage
+        that decides whether to push at all.
+        """
+        import yaml
+        wf = yaml.safe_load(self._workflow())
+        self.assertNotIn('concurrency', wf,
+                         'workflow-level concurrency would hold triage too')
+        self.assertEqual(wf['jobs']['autofix']['concurrency']['group'],
+                         'bugfix-main')
+        self.assertNotIn('concurrency', wf['jobs']['triage'])
 
 
 class ExpandCostTest(unittest.TestCase):

@@ -120,12 +120,54 @@ reaches a pack as about ninety of them.
 ## Turning it off for one report
 
 The report dialog carries a "let the automation fix it" checkbox, ON by
-default. Cleared, the relay files the issue under `needs-session` instead of
-`bug-report` — and `.github/workflows/bugfix.yml` runs only for `bug-report`,
-so nothing here ever claims it. The label is the whole switch; this pipeline
-does not know the checkbox exists. An absent `autofix` field means yes, so a
-build from before the box shipped still gets the automation rather than
-silently parking a report nobody is watching.
+default. Cleared, the issue is filed under `needs-session` instead of
+`bug-report` — and `.github/workflows/bugfix.yml` runs its fix job only for
+`bug-report`, so nothing here ever claims it. **The label is the whole
+switch**, still: `claim`, `run.py` and the job's own gate key on nothing else.
+An absent answer means yes, so a build from before the box shipped still gets
+the automation rather than silently parking a report nobody is watching.
+
+### Why the label needs help getting set (M370)
+
+The checkbox did nothing at all for its first days alive, and everything about
+it was correct. The app sent `autofix=0`; `relay/worker.js` reads that field
+and files under `needs-session`; the workflow gates on the label. The broken
+link was in front of all of it: **the relay is a Cloudflare Worker deployed by
+hand**, and the checkbox and the Worker's support for it shipped in the same
+commit. Until someone runs `wrangler deploy`, the live Worker is a build that
+has never heard of the field — and an unknown multipart field is not an error,
+it is silently dropped. Every report kept arriving under `bug-report`.
+
+So the answer also travels in the one thing every version of the relay copies
+into the issue verbatim: the **description**, which becomes the issue body. The
+app appends `[autofix: off]` to it (`bugAutofixOffMarker` in
+`frontend/lib/bug_upload.dart`), and the workflow's `triage` job reads it back
+and sets the label the relay could not (`gh.triage`, `gh.park`).
+
+That restores the invariant rather than replacing it. `triage` is the only part
+of this pipeline that knows the checkbox exists; everything downstream still
+sees only a label. Redeploying the Worker later is a pure no-op, because both
+roads already end at the same label — and the two spellings of the marker, one
+in Dart and one in Python, are pinned against each other by
+`test_run.py::test_the_marker_is_the_same_string_in_dart_and_python`, because
+two ends of one string in two languages is exactly how this died the first
+time.
+
+Three details that are load-bearing:
+
+- **The marker goes LAST in the description.** The relay takes the issue title
+  from the first non-empty line, and a wordless report is explicitly allowed —
+  so one gets a placeholder first line and the title never becomes the marker.
+- **`triage` is its own job, outside the `bugfix-main` concurrency group**
+  (which now sits on the fix job, where the push it protects is). Standing down
+  must not queue behind someone else's hour-long fix.
+- **`triage` failing means nothing runs.** The fix job needs
+  `needs.triage.outputs.autofix == 'true'`, so an API error leaves the report
+  untouched rather than fixing one that asked not to be. An unfixed issue waits
+  for a human; a wrongly-fixed one pushes to `main`.
+
+`workflow_dispatch` is not overridden — starting the workflow by hand is a
+person's explicit decision, the same way `--force` is.
 
 ## Setup
 

@@ -9,6 +9,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/bug_capture.dart';
+import 'package:prototype/bug_upload.dart';
 import 'package:prototype/widgets/bug_button.dart';
 
 void main() {
@@ -39,5 +40,45 @@ void main() {
     expect(const BugReportRequest('x', autofix: false).autofix, isFalse);
     expect(const BugReportRequest('the floor is dark', autofix: true).text,
         'the floor is dark');
+  });
+
+  // ---- M370: the choice has to SURVIVE THE RELAY -------------------------
+  //
+  // The `autofix` form field was the whole mechanism, and it reached a relay
+  // that ignores it: the Worker is deployed by hand and the checkbox shipped
+  // in the same commit as the Worker's support for it, so the live Worker has
+  // never heard of the field. Everything above passed the whole time and the
+  // box did nothing.
+  //
+  // The description is the one thing every version of the relay copies into
+  // the issue body untouched, so the answer travels there too and the workflow
+  // reads it back. These pin the three properties that make that work.
+
+  test('a report that wants the automation is sent completely unchanged', () {
+    expect(bugDescriptionFor('the floor is dark', autofix: true),
+        'the floor is dark');
+    expect(bugDescriptionFor('', autofix: true), '');
+  });
+
+  test('a cleared box appends the marker the workflow greps for', () {
+    final sent = bugDescriptionFor('the floor is dark', autofix: false);
+    expect(sent, startsWith('the floor is dark'));
+    expect(sent, contains(bugAutofixOffMarker));
+  });
+
+  test('the marker never becomes the issue title', () {
+    // The relay takes the title from the FIRST non-empty line, and this dialog
+    // deliberately accepts a wordless report — the state dump being the
+    // valuable half. Without a placeholder the title of one would be the
+    // marker.
+    String firstLine(String s) =>
+        s.split('\n').firstWhere((l) => l.trim().isNotEmpty);
+
+    expect(firstLine(bugDescriptionFor('the floor is dark', autofix: false)),
+        'the floor is dark');
+    expect(firstLine(bugDescriptionFor('   ', autofix: false)),
+        isNot(contains(bugAutofixOffMarker)));
+    expect(firstLine(bugDescriptionFor('', autofix: false)),
+        '(no description given)');
   });
 }

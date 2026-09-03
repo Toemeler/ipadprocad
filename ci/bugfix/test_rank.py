@@ -421,7 +421,16 @@ class TestImportHeaders(unittest.TestCase):
         self.assertTrue(chunks)
         start, body = chunks[0]
         self.assertEqual(start, 1)
-        self.assertTrue(any('show NativeMenu' in ln for ln in body))
+        text = '\n'.join(body)
+        self.assertIn('package:native_menu/native_menu.dart', text)
+        # The PROPERTY, not the spelling. This used to look for the literal
+        # `show NativeMenu`, and went red the day the import grew a third name
+        # and wrapped — with the ranker working perfectly. Worse, a one-line
+        # substring could not tell "the import is missing" from "the header
+        # stopped at line 13 and dropped the continuation", which is the only
+        # failure that would actually mislead the model: an import with its
+        # `show` clause cut off reads as bringing in everything.
+        self.assertRegex(text, r'show[^;]*\bNativeMenu\b')
 
     def test_header_is_bounded(self):
         for path in list(self.index.freqs)[:20]:

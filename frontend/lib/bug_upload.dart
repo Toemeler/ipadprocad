@@ -34,6 +34,43 @@ const String bugRelaySecret = String.fromEnvironment('BUG_RELAY_SECRET');
 /// Whether an upload will even be attempted.
 bool get bugUploadConfigured => bugRelayUrl.isNotEmpty;
 
+/// The cleared checkbox, written where an OLD RELAY CANNOT DROP IT.
+///
+/// M370 — WHY THE `autofix` FIELD IS NOT ENOUGH ON ITS OWN.
+///
+/// The relay decides an issue's label, and the label is what decides whether
+/// `ci/bugfix` may claim it. `relay/worker.js` reads the `autofix` field and
+/// does exactly that — but the relay is a Cloudflare Worker deployed by hand
+/// with `wrangler deploy`, and the checkbox and the Worker's support for it
+/// shipped in the same commit. Until someone redeploys, the live Worker is a
+/// build that has never heard of the field: an unknown multipart field is
+/// silently ignored, every report is filed under `bug-report`, and the box
+/// does nothing at all. That is not a bug in either half; it is a switch whose
+/// two ends were shipped on different release schedules.
+///
+/// So the answer also travels in the one thing EVERY version of the relay
+/// forwards to GitHub verbatim: the description, which becomes the issue body.
+/// `.github/workflows/bugfix.yml` reads it back from there and sets the label
+/// the relay could not — see `ci/bugfix.AUTOFIX_OFF`, which must stay
+/// byte-identical to this and has a test that says so.
+///
+/// Only the OFF direction is ever written. Absent means yes, exactly as the
+/// missing field does, so nothing here can park a report nobody is watching.
+const String bugAutofixOffMarker = '[autofix: off]';
+
+/// The description to send, with the cleared box folded into it.
+///
+/// The marker goes LAST because the relay takes the issue TITLE from the first
+/// non-empty line. A wordless report — which this dialog deliberately allows,
+/// the state dump being the valuable half — would otherwise be titled with the
+/// marker, so it gets the same placeholder first line the relay would have
+/// written for it and keeps the marker out of the title either way.
+String bugDescriptionFor(String text, {required bool autofix}) {
+  if (autofix) return text;
+  final head = text.trim().isEmpty ? '(no description given)' : text;
+  return '$head\n\n$bugAutofixOffMarker';
+}
+
 /// What came back from trying to hand the bundle to the relay.
 class BugUploadResult {
   const BugUploadResult.ok({required this.issueUrl, this.fileUrl})
@@ -61,11 +98,20 @@ Future<BugUploadResult> uploadBugReport({
   required Uint8List zipBytes,
   required String stem,
   required String description,
-  /// False when the reporter cleared the box in the dialog. The relay turns
-  /// this into the LABEL on the issue, and the label is what decides whether
-  /// `ci/bugfix` may claim it — see `.github/workflows/bugfix.yml`. Sent as
-  /// '1'/'0' because a multipart field is a string either way, and an absent
-  /// field must mean "yes" for older builds.
+  /// False when the reporter cleared the box in the dialog. The label on the
+  /// issue is what decides whether `ci/bugfix` may claim it — see
+  /// `.github/workflows/bugfix.yml` — and this reaches that label by two
+  /// independent roads, because either one alone has a version of the relay
+  /// that ignores it:
+  ///
+  ///   * the `autofix` FIELD, which a current `relay/worker.js` turns straight
+  ///     into the label. Sent as '1'/'0' because a multipart field is a string
+  ///     either way, and an absent field must mean "yes" for older app builds;
+  ///   * the MARKER in the description ([bugAutofixOffMarker]), which every
+  ///     version of the relay forwards into the issue body untouched, and
+  ///     which the workflow translates into the same label.
+  ///
+  /// They agree by construction: both are derived from this one argument.
   bool autofix = true,
   Duration timeout = const Duration(seconds: 20),
 }) async {
@@ -75,7 +121,10 @@ Future<BugUploadResult> uploadBugReport({
   try {
     final req = http.MultipartRequest('POST', Uri.parse(bugRelayUrl))
       ..fields['stem'] = stem
-      ..fields['description'] = description
+      // Folded in HERE rather than at the call site, so no caller can send
+      // the flag and forget the marker and produce a report whose body and
+      // whose form field disagree.
+      ..fields['description'] = bugDescriptionFor(description, autofix: autofix)
       ..fields['autofix'] = autofix ? '1' : '0'
       ..files.add(http.MultipartFile.fromBytes('bundle', zipBytes,
           filename: '$stem.zip'));
