@@ -48,7 +48,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart' show Ticker;
 import 'package:flutter/services.dart';
-import 'package:native_menu/native_menu.dart' show GlassBrowser;
+import 'package:native_menu/native_menu.dart' show GlassBrowser, GlassPanel;
 import 'package:reality_view/reality_view.dart';
 
 import '../app_state.dart';
@@ -788,7 +788,10 @@ class _ViewportAssemblyState extends State<ViewportAssembly>
               fit: (c) => fitAssemblyView(c, placedComponents(a), size),
             )),
         // The triad follows the model browser card, as in the part viewport.
-        if (GlassBrowser.isSupported)
+        // M367 — `GlassPanel`, not `GlassBrowser`: the question is whether the
+        // browser is a FLOATING CARD reaching into this corner, and off iOS
+        // that became true when the material did. See main.dart's gates.
+        if (GlassPanel.isSupported)
           ValueListenableBuilder<double>(
             valueListenable: NativeModelBrowser.occupied,
             builder: (_, w, child) => Positioned(

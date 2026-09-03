@@ -28,6 +28,7 @@ import '../log.dart';
 import '../part_model.dart';
 import '../svg_icons.dart';
 import '../icon_preview.dart';
+import '../ios_design.dart';
 import '../theme.dart';
 import 'native_prompts.dart';
 import '../l10n/l.dart';
@@ -1170,29 +1171,55 @@ class _ModelBrowserState extends State<ModelBrowser> {
     final asm = app.currentAssembly;
     // Layers appear, vanish and get renamed without this widget remounting.
     _schedulePush();
+    // M108/M367 — A WALL, OR A FLOATING CARD, and the material decides which.
+    //
+    // Without glass this panel is opaque, so it has to take real width beside
+    // the viewport: floating an opaque tree over the model would just hide the
+    // model. That was every platform but the iPad, and it is still the
+    // fallback.
+    //
+    // With glass it is the iPad's card — inset from the edges, 18 pt corners,
+    // its own shadow, with the document running edge to edge underneath it.
+    // The insets and the radius are GlassBrowserView's own (inset 12/14/12/0,
+    // cornerRadius 18), because this is the same card and not a Flutter
+    // approximation of one. `main.dart` puts it in the floating slot on the
+    // same condition.
+    final glass = GlassPanel.isSupported;
     return Container(
-      width: 300,
+      width: glass ? 264 + 14 : 300,
+      margin: glass
+          ? const EdgeInsets.fromLTRB(14, 12, 0, 12)
+          : EdgeInsets.zero,
       decoration: BoxDecoration(
-        // M106 — on iOS the panel's surface is REAL Apple Liquid Glass
-        // (UIGlassEffect), laid in behind the tree; the opaque fill is only
-        // for platforms without it. A colour here would sit on top of the
-        // glass and hide it.
-        color: GlassPanel.isSupported ? null : T.mbBg,
-        border: Border(right: BorderSide(color: T.mbBorder)),
+        // M106 — the panel's surface is REAL Liquid Glass: UIGlassEffect on
+        // the iPad, the shader in liquid_glass.dart everywhere else. The
+        // opaque fill is only for platforms without either. A colour here
+        // would sit on top of the glass and hide it.
+        color: glass ? null : T.mbBg,
+        border: glass ? null : Border(right: BorderSide(color: T.mbBorder)),
+        borderRadius: glass ? BorderRadius.circular(18) : null,
+        // The card is a thing lying over the document, and a floating panel
+        // with no shadow reads as a hole cut in it.
+        boxShadow: glass ? iosPanelShadow() : null,
       ),
       child: Stack(children: [
         // The glass surface. IgnorePointer inside GlassPanel: every gesture in
         // this panel belongs to the Flutter rows above it, which is the
         // lesson M48 and M102 both cost a lot of debugging to learn.
-        if (GlassPanel.isSupported)
-          const Positioned.fill(child: GlassPanel()),
+        if (glass)
+          const Positioned.fill(child: GlassPanel(cornerRadius: 18)),
         Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         // header
         Container(
           height: 30,
           padding: const EdgeInsets.symmetric(horizontal: 8),
           decoration: BoxDecoration(
-            color: T.mbHead,
+            // Transparent over glass. An opaque strip across the top of the
+            // card would paint square corners over the rounded ones AND cover
+            // the material at exactly the place a floating panel is most
+            // obviously floating. The hairline under it stays: it is what
+            // separates the tab from the tree, and it is not a surface.
+            color: glass ? null : T.mbHead,
             border: Border(bottom: BorderSide(color: T.mbHeadBorder)),
           ),
           child: Row(children: [

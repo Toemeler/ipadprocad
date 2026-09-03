@@ -36,7 +36,7 @@ import '../svg_icons.dart' show homeTabIcon;
 import '../icon_preview.dart';
 import '../theme.dart';
 import 'package:native_menu/native_menu.dart'
-    show GlassBrowser, NativeMenu, NativeMenuItem;
+    show GlassBrowser, GlassPanel, NativeMenu, NativeMenuItem;
 import 'bottom_tabbar.dart';
 import 'native_browser_host.dart';
 import '../l10n/l.dart';
@@ -473,9 +473,11 @@ class _Viewport3DState extends State<Viewport3D>
     final path = await widget.app.childSketchExportPath(p.name, cs.model.name);
     if (path == null || !mounted) return;
     if (share) {
-      await NativeMenu.shareFile(path, anchor: anchor);
+      await NativeMenu.shareFile(path,
+          anchor: anchor, saveTitle: L.current.dlgSaveCopyTitle);
     } else {
-      await NativeMenu.exportFile(path, anchor: anchor);
+      await NativeMenu.exportFile(path,
+          anchor: anchor, saveTitle: L.current.dlgSaveCopyTitle);
     }
   }
 
@@ -962,14 +964,17 @@ class _Viewport3DState extends State<Viewport3D>
             )),
         // Coordinate triad. M146 — moved to the RIGHT of the model browser
         // instead of under it: the browser card reaches down into the
-        // bottom-left corner the triad used to have to itself. Off iOS there
-        // is no floating card, so it keeps the corner.
+        // bottom-left corner the triad used to have to itself. Where the
+        // browser is an opaque column instead, it keeps the corner.
         //
         // M207 — and it FOLLOWS the panel now. It used to be pinned to the
         // expanded width whatever the panel was doing; retracting the browser
         // is a deliberate act to get that corner back, and the triad stayed
         // out in the open where the card no longer was.
-        if (GlassBrowser.isSupported)
+        // M367 — `GlassPanel`, not `GlassBrowser`: the question is whether the
+        // browser is a FLOATING CARD reaching into this corner, and off iOS
+        // that became true when the material did. See main.dart's gates.
+        if (GlassPanel.isSupported)
           ValueListenableBuilder<double>(
             valueListenable: NativeModelBrowser.occupied,
             builder: (_, w, child) => Positioned(

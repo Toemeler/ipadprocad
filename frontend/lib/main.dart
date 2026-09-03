@@ -138,6 +138,12 @@ void main([List<String> args = const <String>[]]) {
     // into the same log the bug reporter ships. Installed before the first
     // frame so nothing a user can reach happens off the record.
     NativeMenu.trace = (message) => Log.i('menu', message);
+    // M367 — and the Liquid Glass material says whether it came up. Off iOS
+    // this is the ribbon's, the browser's and every panel's surface; a program
+    // that failed to compile costs the refraction and leaves a plain blur,
+    // which looks enough like the real thing that nobody would report it.
+    LiquidGlassProgram.onLoadFailed = (m) => Log.w('glass', m);
+    Log.step('main', 'LiquidGlassProgram.load', LiquidGlassProgram.load);
     // M236 — adopt the iPad's own light/dark setting and start listening for
     // changes BEFORE the first frame, so the app never paints one scheme and
     // then snaps to the other. Only a property read and a callback: the
@@ -353,7 +359,10 @@ class PrototypeApp extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (!GlassBrowser.isSupported) NativeModelBrowser(app: app),
+        // M367 — `GlassPanel`, not `GlassBrowser`. The question this asks is
+        // "is the browser opaque", and the answer stopped being "everywhere
+        // but iOS" when the material arrived off iOS too. See the note above.
+        if (!GlassPanel.isSupported) NativeModelBrowser(app: app),
         Expanded(
           // A 3D part shows the part viewport; an open child sketch falls
           // through to the unchanged 2D sketcher (M56).
@@ -403,7 +412,7 @@ class PrototypeApp extends StatelessWidget {
   Widget _chrome(AppState app) {
     if (app.isHome) {
       return Stack(children: [
-        if (GlassTabBar.isSupported)
+        if (GlassPanel.isSupported)
           Positioned(
               bottom: 0, left: 0, right: 0, child: BottomTabBar(app: app)),
         QuickToolsBar(app: app),
@@ -457,7 +466,7 @@ class PrototypeApp extends StatelessWidget {
       // the origin triad in the bottom-left corner stays visible under it.
       // M146/M290 — and it is anchored to this box, which already excludes the
       // band on every dock.
-      if (GlassBrowser.isSupported)
+      if (GlassPanel.isSupported)
         Positioned.fill(
           child: Padding(
             padding:
@@ -474,7 +483,7 @@ class PrototypeApp extends StatelessWidget {
       // M150 — the tab bar floats too. It was the last thing still taking a
       // row of the Column, which left an opaque strip across the bottom that
       // the model visibly stopped at.
-      if (GlassTabBar.isSupported)
+      if (GlassPanel.isSupported)
         Positioned(
             bottom: 0, left: 0, right: 0, child: BottomTabBar(app: app)),
       // M192 — the quick tools on the right edge, always visible. Last in the
@@ -590,7 +599,7 @@ class PrototypeApp extends StatelessWidget {
                       stage: _chrome(app),
                     ),
                   ),
-                  if (!GlassTabBar.isSupported) BottomTabBar(app: app),
+                  if (!GlassPanel.isSupported) BottomTabBar(app: app),
                 ]),
               ),
             );

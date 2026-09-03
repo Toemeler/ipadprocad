@@ -239,6 +239,18 @@ class AppL10nDe extends AppL10n {
   String get shareEllipsis => 'Teilen…';
 
   @override
+  String get dlgOpenTitle => 'Öffnen';
+
+  @override
+  String get dlgSaveCopyTitle => 'Kopie sichern';
+
+  @override
+  String get filterOpenableDocuments => 'Dokumente, die diese App öffnen kann';
+
+  @override
+  String get filterAllFiles => 'Alle Dateien';
+
+  @override
   String get undo => 'Rückgängig';
 
   @override

@@ -24,13 +24,10 @@
 
 #include <flutter_linux/flutter_linux.h>
 #include <gtk/gtk.h>
-#include <sys/stat.h>
-#include <unistd.h>
+#include <unistd.h>  // sysconf, for the page size the footprint is counted in
 
 #include <cstdio>
 #include <cstring>
-#include <string>
-#include <vector>
 
 #define NATIVE_MENU_CHANNEL "prototype/native_menu"
 
@@ -103,9 +100,16 @@ static FlMethodResponse* handle_export(NativeMenuPlugin* self, FlValue* args) {
   }
 
   g_autofree gchar* base = g_path_get_basename(path);
+  // The title comes from Dart, where the app's ARB catalogue is. The app is
+  // natively German; a dialog that says "Save a copy" over a ribbon that says
+  // "Exportieren" is the seam the user sees. The English here is a fallback
+  // for an older app build, not the intended string. GTK localises the two
+  // BUTTONS itself from the stock ids.
+  const gchar* save_title = arg_string(args, "saveTitle");
   GtkWidget* dialog = gtk_file_chooser_dialog_new(
-      "Save a copy", plugin_window(self), GTK_FILE_CHOOSER_ACTION_SAVE,
-      "_Cancel", GTK_RESPONSE_CANCEL, "_Save", GTK_RESPONSE_ACCEPT, nullptr);
+      save_title != nullptr ? save_title : "Save a copy", plugin_window(self),
+      GTK_FILE_CHOOSER_ACTION_SAVE, "_Cancel", GTK_RESPONSE_CANCEL, "_Save",
+      GTK_RESPONSE_ACCEPT, nullptr);
   gtk_file_chooser_set_do_overwrite_confirmation(GTK_FILE_CHOOSER(dialog), TRUE);
   gtk_file_chooser_set_current_name(GTK_FILE_CHOOSER(dialog), base);
   // ~/Documents when the desktop has one, the home directory otherwise —
@@ -180,9 +184,12 @@ static FlMethodResponse* handle_share(NativeMenuPlugin* self, FlValue* args) {
 // platforms have the same file model.
 static FlMethodResponse* handle_open_in_place(NativeMenuPlugin* self,
                                               FlValue* args) {
+  // Title and filter names from Dart — see handle_export for why.
+  const gchar* open_title = arg_string(args, "title");
   GtkWidget* dialog = gtk_file_chooser_dialog_new(
-      "Open", plugin_window(self), GTK_FILE_CHOOSER_ACTION_OPEN, "_Cancel",
-      GTK_RESPONSE_CANCEL, "_Open", GTK_RESPONSE_ACCEPT, nullptr);
+      open_title != nullptr ? open_title : "Open", plugin_window(self),
+      GTK_FILE_CHOOSER_ACTION_OPEN, "_Cancel", GTK_RESPONSE_CANCEL, "_Open",
+      GTK_RESPONSE_ACCEPT, nullptr);
 
   // One filter listing every extension the app can open, plus All files. The
   // extensions arrive from Dart (kOpenableExtensions) so this can never offer
@@ -193,8 +200,11 @@ static FlMethodResponse* handle_open_in_place(NativeMenuPlugin* self,
                       : nullptr;
   if (exts != nullptr && fl_value_get_type(exts) == FL_VALUE_TYPE_LIST &&
       fl_value_get_length(exts) > 0) {
+    const gchar* known_name = arg_string(args, "knownFilterName");
     GtkFileFilter* known = gtk_file_filter_new();
-    gtk_file_filter_set_name(known, "Documents this app can open");
+    gtk_file_filter_set_name(
+        known, known_name != nullptr ? known_name
+                                     : "Documents this app can open");
     for (size_t i = 0; i < fl_value_get_length(exts); i++) {
       FlValue* e = fl_value_get_list_value(exts, i);
       if (fl_value_get_type(e) != FL_VALUE_TYPE_STRING) continue;
@@ -209,8 +219,9 @@ static FlMethodResponse* handle_open_in_place(NativeMenuPlugin* self,
     }
     gtk_file_chooser_add_filter(GTK_FILE_CHOOSER(dialog), known);
   }
+  const gchar* all_name = arg_string(args, "allFilesFilterName");
   GtkFileFilter* all = gtk_file_filter_new();
-  gtk_file_filter_set_name(all, "All files");
+  gtk_file_filter_set_name(all, all_name != nullptr ? all_name : "All files");
   gtk_file_filter_add_pattern(all, "*");
   gtk_file_chooser_add_filter(GTK_FILE_CHOOSER(dialog), all);
 

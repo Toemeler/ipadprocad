@@ -132,10 +132,17 @@ jobs:
           fi
           echo "EXPORT CHECK: PASS"
 
+      # The LIBRARY and what it needs at run time, not the build tree that made
+      # them. `frontend/build/native` also holds ~21 MB of CMake scratch and
+      # static archives that the app job has no use for, and an artifact is
+      # uploaded and downloaded once each.
       - uses: actions/upload-artifact@v4
         with:
           name: prototype-kernels-linux
-          path: frontend/build/native
+          path: |
+            frontend/build/native/libprototype_native.so
+            frontend/build/native/deps
+            frontend/build/native/native-smoke.log
           retention-days: 5
 
   app:
@@ -189,8 +196,19 @@ jobs:
           Xvfb :99 -screen 0 1600x1200x24 &
           sleep 3
           export DISPLAY=:99
-          timeout 90 frontend/build/linux/x64/release/bundle/prototype \
-            > /tmp/launch.log 2>&1 || true
+          frontend/build/linux/x64/release/bundle/prototype \
+            > /tmp/launch.log 2>&1 &
+          app=$!
+          # Wait for the app to SAY it is up rather than for a fixed sleep: it
+          # reaches its first frame in about 120 ms on this hardware, and a
+          # blanket timeout would spend ninety seconds proving it every run —
+          # while still being too short on a runner having a bad day.
+          for _ in $(seq 1 60); do
+            grep -q "time to first frame" /tmp/launch.log && break
+            sleep 1
+          done
+          kill "$app" 2>/dev/null || true
+          wait "$app" 2>/dev/null || true
           echo "--- last 60 lines ---"
           tail -60 /tmp/launch.log
           grep -q "time to first frame" /tmp/launch.log \

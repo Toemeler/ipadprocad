@@ -12,11 +12,14 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/widgets.dart';
 
 export 'glass_browser.dart';
+export 'liquid_glass.dart';
 export 'perf_hook.dart';
 export 'glass_tabbar.dart';
 export 'glass_toolbar.dart';
 export 'native_touches.dart';
 import 'package:flutter/services.dart';
+
+import 'liquid_glass.dart';
 
 /// The converter's steps, in the order they run, numbered as the kernel
 /// numbers them (OCCT_MS_* in occt_capi.h).
@@ -221,6 +224,10 @@ class NativeMenu {
   /// everywhere: an appearance that did not arrive is a cosmetic problem, and
   /// throwing into the widget tree over one is not.
   static Future<void> setAppearance({required bool dark}) async {
+    // Recorded FIRST and unconditionally, because off iOS this is not a
+    // message to UIKit that gets dropped — it is the only thing that tells the
+    // Flutter Liquid Glass which scheme it is standing in. See GlassPanel.
+    isDarkAppearance.value = dark;
     if (!isSupported) return;
     try {
       await _ch.invokeMethod<void>('setAppearance', {'dark': dark});
@@ -228,6 +235,14 @@ class NativeMenu {
       // Older host build without the method, or no plugin at all.
     }
   }
+
+  /// The scheme the app is currently in, as the app last pushed it.
+  ///
+  /// A notifier rather than a field: the glass surfaces listen, so a theme
+  /// switch changes the material on the next frame without the app having to
+  /// know that anything but UIKit was listening. Defaults to dark, which is
+  /// what the app starts in before [T.followPlatform] has run.
+  static final ValueNotifier<bool> isDarkAppearance = ValueNotifier<bool>(true);
 
   /// A PNG of the whole window, or null where there is no window to grab.
   ///
@@ -540,18 +555,30 @@ class NativeMenu {
 
   /// System share sheet. [anchor] is required on iPad: UIKit raises if a
   /// popover has no source rectangle.
-  static Future<bool> shareFile(String path, {required Rect anchor}) =>
-      _sheet('share', path, anchor);
+  ///
+  /// [saveTitle] is the DESKTOP's dialog title. iOS localises its own share
+  /// sheet and ignores it; a GTK or Win32 chooser has a title bar we have to
+  /// fill, and filling it in English inside a natively German app is exactly
+  /// the seam a user sees. Passed in rather than read from a global because
+  /// this package has no localisations of its own — the same reason
+  /// [NativeBusy.show] takes its stage names and [importChoice] takes its
+  /// button labels.
+  static Future<bool> shareFile(String path,
+          {required Rect anchor, String? saveTitle}) =>
+      _sheet('share', path, anchor, saveTitle);
 
   /// Files exporter ("Save to Files"). Exports a COPY — the sketch stays put.
-  static Future<bool> exportFile(String path, {required Rect anchor}) =>
-      _sheet('export', path, anchor);
+  static Future<bool> exportFile(String path,
+          {required Rect anchor, String? saveTitle}) =>
+      _sheet('export', path, anchor, saveTitle);
 
-  static Future<bool> _sheet(String method, String path, Rect anchor) async {
+  static Future<bool> _sheet(
+      String method, String path, Rect anchor, String? saveTitle) async {
     if (!hasFileSurfaces) return false;
     final ok = await _invoke<bool>(method, {
           'path': path,
           'anchor': NativeMenuTarget._rect(anchor),
+          if (saveTitle != null) 'saveTitle': saveTitle,
         }) ??
         false;
     // `false` here means UIKit had nowhere to present from, or the file was
@@ -613,14 +640,23 @@ class NativeMenu {
   /// tmp, so a document opened from Files could never be saved back to. The
   /// bookmark is the durable handle — hold on to it and pass it to [resolve]
   /// on the next launch.
+  /// [openTitle], [knownFilterName] and [allFilesFilterName] are the DESKTOP
+  /// chooser's chrome — see [shareFile] for why they are arguments. iOS
+  /// ignores them; its picker names itself and has no filter rows.
   static Future<Map<String, String>?> openInPlace({
     required List<String> extensions,
     Rect? anchor,
+    String? openTitle,
+    String? knownFilterName,
+    String? allFilesFilterName,
   }) async {
     if (!hasFileSurfaces) return null;
     final res = await _invoke<Map<Object?, Object?>>('openInPlace', {
       'extensions': extensions,
       if (anchor != null) 'anchor': NativeMenuTarget._rect(anchor),
+      if (openTitle != null) 'title': openTitle,
+      if (knownFilterName != null) 'knownFilterName': knownFilterName,
+      if (allFilesFilterName != null) 'allFilesFilterName': allFilesFilterName,
     });
     return _stringMap(res);
   }
@@ -670,34 +706,93 @@ class NativeMenu {
 /// M106 — a REAL Apple Liquid Glass surface (`UIGlassEffect`, iOS 26), for use
 /// as the background of a panel.
 ///
-/// Not a Flutter blur imitating one: the system material brings its own
-/// refraction, specular edge and response to what is behind it, none of which
-/// can be reproduced client-side. Below iOS 26 the native side falls back to
-/// `UIBlurEffect(.systemMaterial)` so the panel stays legible.
+/// On the iPad this is the system material, with its own refraction, specular
+/// edge and response to what is behind it. Below iOS 26 the native side falls
+/// back to `UIBlurEffect(.systemMaterial)` so the panel stays legible.
+///
+/// M367 — AND OFF iOS IT IS NOW THE SAME MATERIAL, drawn by Flutter.
+///
+/// The old comment here said the material "cannot be reproduced
+/// client-side", and for a `BackdropFilter` that was true: a gaussian is a
+/// frosted pane and cannot bend. What changed is that a FRAGMENT SHADER can
+/// now be an image filter (`ImageFilter.shader`, Impeller), and the engine
+/// hands such a shader the whole backdrop as a texture — including the pixels
+/// BESIDE the panel. That is enough to build the real thing: refraction at the
+/// rim, chromatic dispersion, a specular edge and the tint. See
+/// liquid_glass.dart, which is where all of that lives.
+///
+/// This matters more than it looks. The app's layout is BUILT around the
+/// material — the document runs edge to edge under the ribbon band precisely
+/// so the glass has something to refract, and [RibbonSurface.isGlass] switches
+/// that layout on the strength of this getter. A desktop build that answered
+/// "no glass" got a different layout as well as a different surface, which is
+/// two ways of not being the same app.
 ///
 /// It takes no touches — put your own content above it in a [Stack].
 class GlassPanel extends StatelessWidget {
   /// Rounds the glass itself, in points. 0 = full-bleed surface, which is what
-  /// the model browser's fallback has always used. A FLOATING card asks for
-  /// its own radius (M146: the ribbon uses 18, the browser's value) — clipping
-  /// a platform view from the Flutter side does not work reliably, so the
-  /// corners have to be cut in UIKit.
+  /// the model browser has always used. A FLOATING card asks for its own
+  /// radius (M146: the ribbon uses 18, the browser's value) — clipping a
+  /// platform view from the Flutter side does not work reliably, so on iOS the
+  /// corners are cut in UIKit. Off iOS this is what tells the shader where the
+  /// rim is; the CALLER still clips, with the superellipse the rest of the app
+  /// uses.
   final double cornerRadius;
 
   const GlassPanel({super.key, this.cornerRadius = 0});
 
-  /// Only iOS has the material; elsewhere the caller keeps its own colour.
-  static bool get isSupported => !kIsWeb && Platform.isIOS;
+  /// Whether there is a real material here.
+  ///
+  /// True on iOS, and true wherever a shader can run as an image filter — in
+  /// practice a desktop build on Impeller. Deliberately NOT true on the
+  /// flutter_test host, where Impeller is off: the painted fallback is what
+  /// the suite has always exercised and what a platform without the material
+  /// still gets, and both need to stay covered.
+  ///
+  /// Synchronous and stable from the first frame. It is not a function of
+  /// whether the shader program has finished loading, because callers use it
+  /// to decide layout and a layout that changes when an asset resolves is a
+  /// layout that jumps at launch. A program that fails to load costs
+  /// refraction, not the surface.
+  static bool get isSupported =>
+      !kIsWeb && (Platform.isIOS || LiquidGlass.isAvailable);
 
   @override
   Widget build(BuildContext context) {
-    if (!isSupported) return const SizedBox.shrink();
-    return IgnorePointer(
-      child: UiKitView(
-        viewType: 'prototype/glass_panel',
-        creationParams: <String, Object?>{'cornerRadius': cornerRadius},
-        creationParamsCodec: const StandardMessageCodec(),
+    if (!kIsWeb && Platform.isIOS) {
+      return IgnorePointer(
+        child: UiKitView(
+          viewType: 'prototype/glass_panel',
+          creationParams: <String, Object?>{'cornerRadius': cornerRadius},
+          creationParamsCodec: const StandardMessageCodec(),
+        ),
+      );
+    }
+    if (!LiquidGlass.isAvailable) return const SizedBox.shrink();
+    // The scheme comes from the app's own push (NativeMenu.setAppearance), so
+    // the material follows a theme switch on the next frame — the same signal
+    // UIKit's AppearanceBinder is pinned to, and for the same reason: a
+    // surface and the text over it must never come from two different schemes.
+    final glass = ValueListenableBuilder<bool>(
+      valueListenable: NativeMenu.isDarkAppearance,
+      builder: (context, dark, _) => LiquidGlass(
+        cornerRadius: cornerRadius,
+        style: dark ? LiquidGlassStyle.dark : LiquidGlassStyle.light,
       ),
+    );
+    // THE PANEL CLIPS ITSELF, and it has to.
+    //
+    // A backdrop filter with nothing above it filtering the WHOLE backdrop is
+    // not a subtle bug: the first build of this blurred the entire document,
+    // every panel over it, and then the next glass surface blurred that. None
+    // of the callers clip, because on the iPad they never had to — UIKit cuts
+    // the platform view's corners itself, which is exactly what the
+    // `cornerRadius` parameter was for. So the Flutter material takes on the
+    // same job, with the superellipse the rest of the app is cut with.
+    if (cornerRadius <= 0) return ClipRect(child: glass);
+    return ClipRSuperellipse(
+      borderRadius: BorderRadius.circular(cornerRadius),
+      child: glass,
     );
   }
 }

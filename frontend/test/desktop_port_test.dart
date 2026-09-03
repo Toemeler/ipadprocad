@@ -15,6 +15,7 @@
 //   4. that a gallery card's context menu carries the same items the iPad's
 //      does, and does the same thing when one is picked
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -26,7 +27,9 @@ import 'package:prototype/menus.dart';
 import 'package:prototype/platform/app_dirs.dart';
 import 'package:prototype/platform/desktop_launch.dart';
 import 'package:prototype/widgets/context_menu.dart';
+import 'package:prototype/widgets/bottom_tabbar.dart';
 import 'package:prototype/widgets/home_view.dart';
+import 'package:prototype/widgets/ribbon_chrome.dart';
 
 void main() {
   // -------------------------------------------------------------------------
@@ -166,6 +169,83 @@ void main() {
       // thing that matters in practice: Save a copy, Open and the mesh-import
       // question are NOT switched off here the way the menus are.
       expect(NativeMenu.hasFileSurfaces, isTrue);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  group('Liquid Glass — the material, and what it decides', () {
+    test('the surface is available exactly where a shader filter can run', () {
+      // The whole port hinges on this one predicate. It gates the MATERIAL and
+      // — through main.dart — the LAYOUT: whether the document runs edge to
+      // edge with the browser and the tab bar floating over it, or whether
+      // they take rows and columns of their own.
+      expect(GlassPanel.isSupported,
+          Platform.isIOS || ui.ImageFilter.isShaderFilterSupported);
+    });
+
+    test('the test host keeps the painted fallback', () {
+      // flutter_test runs without Impeller, so `isSupported` is false here and
+      // every widget case in this suite still exercises the panels the app
+      // draws where there is no material. That is deliberate: those panels are
+      // what a machine without a usable GPU gets, and they have to stay
+      // covered. If this ever flips, several hundred golden expectations
+      // quietly start describing a different app.
+      expect(ui.ImageFilter.isShaderFilterSupported, isFalse,
+          reason: 'the tester has no Impeller; see LiquidGlass.isAvailable');
+      expect(GlassPanel.isSupported, isFalse);
+      expect(RibbonSurface.isGlass, isFalse);
+      expect(BottomTabBar.floatingHeight, 0,
+          reason: 'without glass the bar keeps its own row');
+    });
+
+    test('the dark material is the one measured off the device', () {
+      // These are not taste. Each was read off an iPad screenshot: the tint
+      // from the ground the material lands on (31,28,24 -> 58,55,50), the
+      // specular from the 50/30/9 fall-off across the top edge, the rim shade
+      // from the dark hairline on the right edge. Changing one means
+      // re-measuring, not re-guessing — so a diff that touches them has to
+      // touch this too, and say why.
+      const s = LiquidGlassStyle.dark;
+      expect(s.tint, const Color(0x457F7D75));
+      expect(s.specular, 0.245);
+      expect(s.rimShade, 0.90);
+      expect(s.liftTaper, 1.5);
+      expect(s.rimWidth, 1.1);
+      expect(s.blurSigma, 26);
+    });
+
+    test('the refraction stays inside the range the profile is valid over', () {
+      // The bend saturates at 1, so `refraction` IS the largest displacement
+      // in pixels. Past about a fifth of the bevel the rim stops being a lens
+      // and starts sampling a band of backdrop from far enough away to read as
+      // a drawn border — which is exactly what the first build did.
+      for (final s in [LiquidGlassStyle.dark, LiquidGlassStyle.light]) {
+        expect(s.refraction, lessThan(s.bevel));
+        expect(s.cornerPower, greaterThanOrEqualTo(2.0),
+            reason: 'below 2 the corner is not a superellipse at all');
+      }
+    });
+
+    test('a style survives copyWith unchanged in every other field', () {
+      const base = LiquidGlassStyle.dark;
+      final quiet = base.copyWith(blurSigma: 0);
+      expect(quiet.blurSigma, 0);
+      expect(quiet.tint, base.tint);
+      expect(quiet.rimShade, base.rimShade);
+      expect(quiet.liftTaper, base.liftTaper);
+      expect(quiet.refraction, base.refraction);
+    });
+
+    test('the appearance push is what the material follows', () {
+      // The app already tells the platform which scheme it is in on every
+      // theme change (T._pushToPlatform). Off iOS that message is the ONLY
+      // thing that tells the Flutter material whether to be the dark or the
+      // light one, so it is recorded unconditionally rather than dropped with
+      // the channel call.
+      NativeMenu.setAppearance(dark: false);
+      expect(NativeMenu.isDarkAppearance.value, isFalse);
+      NativeMenu.setAppearance(dark: true);
+      expect(NativeMenu.isDarkAppearance.value, isTrue);
     });
   });
 

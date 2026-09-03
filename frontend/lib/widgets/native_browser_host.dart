@@ -47,6 +47,11 @@ class NativeModelBrowser extends StatefulWidget {
   static double occupancy({required bool collapsed, required bool morphing}) =>
       ((!collapsed || morphing) ? _wideCard : _narrowCard) + _handleStrip;
 
+  /// What the FLUTTER card takes at the left edge: the same 264 pt card as the
+  /// native one, plus its own left margin. No retract strip — the Flutter
+  /// browser does not retract — so this is not [occupiedWidth].
+  static const double flutterCardWidth = _wideCard + 14;
+
   static const double _wideCard = 264;
   static const double _narrowCard = 56;
   static const double _handleStrip = 24;
@@ -269,11 +274,24 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
   /// runs from build and from setState, and a notifier fired mid-build would
   /// rebuild a listener that has already been laid out this frame.
   void _publishWidth() {
+    // M367 — off iOS the panel that actually renders is the Flutter
+    // ModelBrowser (see build), which does not retract. Publishing the native
+    // panel's collapsed width there sent the triad back to a corner the
+    // floating card is standing in — the "zz" of the Z axis peeking out of
+    // the card's left gutter, which is how this was found.
+    if (!GlassBrowser.isSupported) {
+      _publish(NativeModelBrowser.flutterCardWidth);
+      return;
+    }
     // M262 — the width it is OCCUPYING, not the state it is in. Publishing
     // the narrow figure at the start of a collapse would send the triad and
     // the quick tools sliding left across a panel that is still there.
     final w = NativeModelBrowser.occupancy(
         collapsed: _collapsed, morphing: _morphing);
+    _publish(w);
+  }
+
+  void _publish(double w) {
     if (NativeModelBrowser.occupied.value == w) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       NativeModelBrowser.occupied.value = w;

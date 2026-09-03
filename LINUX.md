@@ -57,7 +57,7 @@ always done. It says so in the log rather than pretending; see
 | 2D geometry, layers, DXF | QCAD core, statically linked | QCAD core, in `libprototype_native.so` |
 | Constraints, DOF | libslvs, statically linked | libslvs, same library |
 | 3D B-Rep, booleans, STEP, meshes | OCCT, statically linked | OCCT, same library |
-| Ribbon, model browser, tab bar, tool bar | UIKit glass (`native_menu`) | the app's own Flutter chrome |
+| Ribbon, model browser, tab bar, tool bar | UIKit glass (`native_menu`) | **the same material, drawn by a shader** |
 | Alerts, action sheets, Settings | UIKit | the app's own Cupertino surfaces |
 | Context menus | `UIContextMenuInteraction` | the app's own overlay menu |
 | Save a copy / Open / Open with | Files, share sheet | GTK choosers (`native_menu/linux`) |
@@ -67,19 +67,80 @@ always done. It says so in the log rather than pretending; see
 Two of those rows deserve their reason spelled out, because they are the
 decisions the whole port rests on.
 
-### The chrome is Flutter's, on purpose
+### The Liquid Glass is real
 
-It would have been possible to write GTK versions of the glass ribbon, the
+The four chrome surfaces on the iPad are a `UIGlassEffect` — the system
+material, with its own refraction, specular edge and response to what is
+behind it. That is not decoration here: the app's LAYOUT is built around it.
+The document runs edge to edge underneath the ribbon band precisely so the
+material has something to refract, the model browser floats over the model as
+a card rather than taking a column beside it, and the tab bar is a pill over
+the canvas rather than a strip under it. `RibbonSurface` says why in one line
+— *"glass with nothing to refract is a lie about the surface, not a cheaper
+version of it"* — and every one of those layout choices is switched on the
+same question: is this surface glass?
+
+So a desktop build that answered "no glass" was a different app in three ways
+at once, not one. It now answers yes:
+
+- **`frontend/packages/native_menu/shaders/liquid_glass.frag`** — the material.
+  A signed-distance field of the same rounded superellipse the app clips with,
+  a circular bevel profile whose slope turns over at the rim, displacement
+  along the surface normal with per-channel offsets for dispersion, the
+  shadow-lifting tint, and the two rim hairlines.
+- **`frontend/packages/native_menu/lib/liquid_glass.dart`** — what drives it:
+  the program, the styles, and a render object that hands the shader the
+  panel's rectangle in the backdrop's own pixel space.
+
+It needs `ImageFilter.shader`, which needs Impeller — which is the Linux
+desktop default. Where it is missing (the Skia backend, and the `flutter_test`
+host, which is why the suite still exercises the painted panels) the app keeps
+the surfaces it always had.
+
+**It was fitted to the device, not to taste.** Every number in
+`LiquidGlassStyle.dark` was measured off an iPad screenshot:
+
+| | device | this |
+|---|---|---|
+| the app's ground under the panel | 31,28,24 → **58,55,50** | → **59,56,51** |
+| specular, across the top edge | 98, 66, 63.5, 61.5, 60, 59 | 96, 68, 65, 62, 60, 59 |
+| the shaded edge, before its hairline | +6 | +5 |
+
+The tint is the part worth knowing about, because the obvious implementation
+gets it backwards. It is not an alpha blend toward a dark colour — that pulls
+everything toward the tint and turns a bright render behind the panel to mud.
+It is a **screen, damped by how bright the backdrop already is**: it opens the
+shadows by about +0.11 and leaves the highlights within a couple of levels of
+where they were. That is what makes text legible over anything while the model
+stays readable through the panel.
+
+**Cost, and the switch.** The material is two backdrop passes per surface (a
+gaussian, then the shader — they cannot be one `ImageFilter.compose`, which
+changes the input bounds and breaks the shader's sampler; the source says so
+where it matters). Measured in this repo's own perf log, orbiting a part with
+six glass surfaces up: raster **384 ms** with the material against **58 ms**
+without. That number is from a container with NO GPU at all — llvmpipe, a
+debug build — so it is an upper bound and not a hardware figure; what it does
+say is that the material is the dominant term when there is nothing to run it
+on. `PROTOTYPE_GLASS=0` in the environment (or `--dart-define=PROTOTYPE_GLASS=0`
+at build time) turns it off and returns the painted panels, for a VM, a remote
+desktop or an old integrated chip.
+
+### The rest of the chrome is Flutter's, on purpose
+
+It would have been possible to write GTK versions of the ribbon, the
 outline-view model browser and the tab bar. That would have produced a *GTK
 app that resembles this one*, which is the opposite of the goal. What is
 already in the tree is better: every one of those surfaces has a Flutter
 implementation written by the same hand, in the same design system, that the
-app falls back to whenever `Platform.isIOS` is false. `flutter test`'s 3 400
+app falls back to whenever `Platform.isIOS` is false. `flutter test`'s 3 500
 cases have been exercising exactly that path since long before there was a
-Linux build. So the desktop runs the app's own drawing of the app, and there
-is no third design to keep in step.
+Linux build. So the desktop runs the app's own drawing of the app — on the
+app's own material — and there is no third design to keep in step.
 
-`NativeMenu.isSupported` is the switch, and it stays `false` here.
+`NativeMenu.isSupported` is the switch for the UIKit surfaces, and it stays
+`false` here. `GlassPanel.isSupported` is the switch for the MATERIAL, and
+that one is true.
 
 ### The file errands are the platform's, on purpose
 
@@ -117,12 +178,12 @@ tools/desktop/                        build + package scripts
 LINUX.md                              this file
 ```
 
-Shared code that had to change at all is listed in full below. It is twelve
+Shared code that had to change at all is listed in full below. It is fourteen
 places, and every one of them is small, load-bearing and unlikely to move.
 
 ---
 
-## The twelve touches in shared code
+## The fourteen touches in shared code
 
 Read this list before merging from `main`. If a merge conflicts, it will be in
 one of these.
@@ -163,6 +224,21 @@ one of these.
 12. **`frontend/pubspec.yaml` + `theme.dart`** — the bundled UI typeface. The
     pubspec declares it; `T.fontFamily` returns it only on a desktop and
     `null` on iOS, so the iPad's typography is exactly what it was.
+13. **The glass gates.** Seven `if`s that used to ask "is there a UIKit
+    platform view here" now ask "is this surface glass" — `GlassPanel`
+    instead of `GlassBrowser` / `GlassTabBar`. In `main.dart` (four: the
+    browser's column vs its floating card, the tab bar's row vs its pill),
+    `viewport3d.dart` and `viewport_assembly.dart` (the triad steps aside for
+    the card), and `bottom_tabbar.dart` (`floatingHeight`). Each of them was
+    already written against the right question and answered with the wrong
+    predicate — the source comments say "off iOS there is no floating card",
+    which stopped being true. **iOS is unaffected: on the iPad both
+    predicates are true.**
+14. **`model_browser.dart`, `bottom_tabbar.dart`, `quick_tools.dart`,
+    `home_view.dart`** — the four Flutter chrome surfaces put themselves on
+    the material when there is one: the browser becomes the iPad's inset,
+    18 pt, shadowed card, the tab bar becomes a pill, the tool rail and the
+    gallery's two round buttons get a glass plate instead of a painted one.
 
 Nothing else in `frontend/lib` knows this platform exists.
 
@@ -175,7 +251,7 @@ git checkout claude/linux-app-port-tcdtrl
 git fetch origin && git merge origin/main
 ```
 
-Expect it to be clean. If it is not, the conflict is in one of the twelve
+Expect it to be clean. If it is not, the conflict is in one of the fourteen
 touches above, and every one of them is a small edit whose *reason* is written
 next to it in the source — resolve by keeping `main`'s change and re-applying
 the touch, never the other way round.
@@ -276,7 +352,7 @@ one answers `delete-event`. Windows may not need it at all: its embedder
 implements `System.requestAppExit`, and `didRequestAppExit` in `main.dart` is
 already written for that.
 
-Nothing in `frontend/lib` should need a thirteenth touch.
+Nothing in `frontend/lib` should need a fifteenth touch.
 
 ---
 
@@ -292,6 +368,10 @@ Nothing in `frontend/lib` should need a thirteenth touch.
 - **Share** has no desktop equivalent, so it opens the file in whatever the
   system associates with the type, and falls back to Save a copy when nothing
   is registered. **Export** is always Save a copy.
+- **The file dialogs speak the app's language.** Their titles and filter names
+  come from the ARB catalogue and are passed over the channel — the app is
+  natively German, and a chooser titled "Save a copy" above a ribbon that says
+  "Exportieren" is a seam the user sees. GTK localises its own buttons.
 - **Open in place** is real here: a `.ptp` opened from anywhere is remembered
   by its path, appears in the gallery, and Save writes back to *that* file.
   What iOS needs a security-scoped bookmark for, a path already is.

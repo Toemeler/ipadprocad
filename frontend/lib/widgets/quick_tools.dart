@@ -485,15 +485,29 @@ class QuickToolsBar extends StatelessWidget {
   }
 
   Widget _flutterBar(BuildContext context, List<GlassToolItem> items) {
+    // M367 — the same slab, on the same material.
+    //
+    // Off iOS this used to be a `T.fly` fill with a hairline border, because
+    // there was no glass to put under it. There is now (GlassPanel), and the
+    // bar has to be on it for the same reason the ribbon does: it floats over
+    // the document, and a solid panel over the model is a hole in the model.
+    // Where the material is absent the painted slab is still the fallback.
+    final glass = GlassPanel.isSupported;
     return Container(
       width: GlassToolBar.width,
       padding: const EdgeInsets.symmetric(vertical: GlassToolBar.padding),
       decoration: BoxDecoration(
-        color: T.fly,
-        border: Border.all(color: T.sep),
-        borderRadius: BorderRadius.circular(16),
+        // Nothing over the glass: a fill here would be a picture of a panel
+        // on top of the surface, which is the mistake M106 names.
+        color: glass ? null : T.fly,
+        border: glass ? null : Border.all(color: T.sep),
+        borderRadius: BorderRadius.circular(GlassToolBar.radius),
       ),
-      child: Column(
+      child: Stack(children: [
+        if (glass)
+          const Positioned.fill(
+              child: GlassPanel(cornerRadius: GlassToolBar.radius)),
+        Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           for (final i in items)
@@ -508,7 +522,8 @@ class QuickToolsBar extends StatelessWidget {
             else
               _flutterButton(context, i),
         ],
-      ),
+        ),
+      ]),
     );
   }
 

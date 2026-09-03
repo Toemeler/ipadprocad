@@ -9,6 +9,7 @@ import '../app_state.dart';
 import '../menus.dart';
 import '../svg_icons.dart';
 import '../icon_preview.dart';
+import '../ios_design.dart';
 import '../theme.dart';
 
 /// M149 — the tab model handed to UIKit. Pure, so it can be tested on the
@@ -70,7 +71,7 @@ class BottomTabBar extends StatelessWidget {
   /// off iOS, where the bar keeps its own row in the Column and the content
   /// area already stops above it.
   static double get floatingHeight =>
-      GlassTabBar.isSupported ? kNativeHeight : 0;
+      GlassPanel.isSupported ? kNativeHeight : 0;
 
   /// The same space, for chrome that also renders on the GALLERY.
   ///
@@ -110,8 +111,47 @@ class BottomTabBar extends StatelessWidget {
         ),
       );
     }
+    // M367 — off iOS the bar is Flutter's, and it FLOATS where there is glass
+    // to float on. Same reason as the model browser's card: the document runs
+    // edge to edge underneath, and a 30 pt opaque strip across the bottom is a
+    // strip the model visibly stops at (M150, which is why the native bar
+    // stopped being a row of the Column).
+    if (GlassPanel.isSupported) return _floatingBar();
     return _flutterBar();
   }
+
+  /// The glass pill: the bar's own tabs, on the material, inset from the
+  /// screen edges and shaped like the native one.
+  Widget _floatingBar() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Container(
+          height: kFloatingHeight,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(kFloatingHeight / 2),
+            boxShadow: iosPanelShadow(),
+          ),
+          child: Stack(children: [
+            Positioned.fill(
+                child: GlassPanel(cornerRadius: kFloatingHeight / 2)),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: _tabWidgets(floating: true),
+              ),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  /// The height of the pill itself, inside [kNativeHeight]'s margin.
+  static const double kFloatingHeight = 38;
 
   Widget _flutterBar() {
     return Container(
@@ -120,20 +160,31 @@ class BottomTabBar extends StatelessWidget {
         color: T.tabbarBg,
         border: Border(top: BorderSide(color: T.tabbarBorder)),
       ),
-      child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        // The Home tab runs flush to the LEFT EDGE — its background and blue
-        // underline fill into the iPad's rounded bottom-left screen corner
-        // instead of leaving a dead 16px gutter there. Only its CONTENT is
-        // pushed inward (leftPad), so the icon and label still clear the
-        // corner radius and cannot be clipped. Previously the whole tab was
-        // offset by 16, which put the label at 16+12=28 — leftPad keeps the
-        // label exactly where it was and moves only the background.
+      child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [..._tabWidgets(floating: false), const Spacer()]),
+    );
+  }
+
+  /// The tabs themselves. ONE list, two surfaces: the strip that takes a row
+  /// of the layout where there is no glass, and the pill that floats over the
+  /// document where there is. A second copy of this would be a second place
+  /// for the home tab's rule (M271) to be got wrong.
+  List<Widget> _tabWidgets({required bool floating}) => [
+        // The Home tab runs flush to the LEFT EDGE in the strip — its
+        // background and blue underline fill into the iPad's rounded
+        // bottom-left screen corner instead of leaving a dead 16px gutter
+        // there. Only its CONTENT is pushed inward (leftPad), so the icon and
+        // label still clear the corner radius and cannot be clipped. In the
+        // pill there is no screen corner to clear, so it takes the ordinary
+        // inset.
         //
         // M271 — and it is not there at all on the gallery. See buildTabs.
         if (!app.isHome)
           _Tab(
-            leftPad: 28,
+            leftPad: floating ? 12 : 28,
             on: false,
+            floating: floating,
             onTap: app.goHome,
             // The house speaks for itself — the word next to it was redundant.
             child: iconWidget(homeTabIcon, 15),
@@ -141,6 +192,7 @@ class BottomTabBar extends StatelessWidget {
         for (final t in app.openTabs)
           _Tab(
             on: !app.isHome && app.curTab == t,
+            floating: floating,
             onTap: () => app.openDocument(t),
             child: Row(mainAxisSize: MainAxisSize.min, children: [
               Text(t),
@@ -148,16 +200,18 @@ class BottomTabBar extends StatelessWidget {
               _CloseX(onTap: () => app.closeTab(t)),
             ]),
           ),
-        const Spacer(),
-      ]),
-    );
-  }
+      ];
 }
 
 class _Tab extends StatefulWidget {
   final bool on;
   final VoidCallback onTap;
   final Widget child;
+
+  /// In the floating pill: a rounded chip with no dividers and no underline.
+  /// In the strip: a square cell with a right hairline and the active tab's
+  /// accent bar along its bottom edge.
+  final bool floating;
 
   /// Left inset of the tab's CONTENT only — the background still starts at the
   /// tab's own origin. Used to clear the screen's rounded corner.
@@ -166,6 +220,7 @@ class _Tab extends StatefulWidget {
     required this.on,
     required this.onTap,
     required this.child,
+    this.floating = false,
     this.leftPad = 12,
   });
   @override
@@ -183,9 +238,21 @@ class _TabState extends State<_Tab> {
       child: GestureDetector(
         onTap: widget.onTap,
         child: Container(
+          margin: widget.floating
+              ? const EdgeInsets.symmetric(vertical: 4, horizontal: 2)
+              : EdgeInsets.zero,
           decoration: BoxDecoration(
-            color: widget.on ? T.tabOnBg : T.tabBg,
-            border: Border(right: BorderSide(color: T.tabbarBorder)),
+            // Over glass the INACTIVE chip is transparent: a fill for every
+            // tab would tile the pill with panels and hide the material it is
+            // made of. Only the open document gets a plate.
+            color: widget.floating
+                ? (widget.on ? T.tabOnBg : null)
+                : (widget.on ? T.tabOnBg : T.tabBg),
+            borderRadius:
+                widget.floating ? BorderRadius.circular(13) : null,
+            border: widget.floating
+                ? null
+                : Border(right: BorderSide(color: T.tabbarBorder)),
           ),
           child: Stack(children: [
             Padding(
@@ -197,7 +264,11 @@ class _TabState extends State<_Tab> {
                 ),
               ),
             ),
-            if (widget.on)
+            // The active tab's accent bar. Only in the strip: a 2 pt line
+            // across the bottom of a rounded chip cuts its corners off, and
+            // the chip's own plate is already what says which document is
+            // open.
+            if (widget.on && !widget.floating)
               Positioned(
                 left: 0,
                 right: 0,

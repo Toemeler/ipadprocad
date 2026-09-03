@@ -17,6 +17,15 @@ dependencies:
     sdk: flutter
 
 flutter:
+  # M367 — the Liquid Glass material, for the platforms with no UIGlassEffect.
+  #
+  # Declared here rather than in the app so that the material travels with the
+  # thing that owns it: GlassPanel is in this package, and a shader in the
+  # app's pubspec would be a second place to remember. Flutter compiles it for
+  # every target through impellerc; it is a few kilobytes and iOS never runs
+  # it, which is the same bargain the Dart half of this package already makes.
+  shaders:
+    - shaders/liquid_glass.frag
   plugin:
     platforms:
       ios:

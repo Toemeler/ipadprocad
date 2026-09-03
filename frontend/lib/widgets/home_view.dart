@@ -501,7 +501,14 @@ class _HomeViewState extends State<HomeView> {
           'open: presenting picker for ${kinds.join(",")}'
           '${resolved.isEmpty ? "" : " -> ${resolved.join(" ")}"}');
       final picked = await NativeMenu.openInPlace(
-          extensions: kinds, anchor: _globalRect(_plusKey));
+        extensions: kinds,
+        anchor: _globalRect(_plusKey),
+        // The desktop chooser's own chrome, in the user's language. iOS names
+        // its picker itself and ignores these.
+        openTitle: L.current.dlgOpenTitle,
+        knownFilterName: L.current.filterOpenableDocuments,
+        allFilesFilterName: L.current.filterAllFiles,
+      );
       var path = picked?['path'];
       Log.milestone(
           'doc', 'open: picker returned ${path == null ? "nothing" : path}');
@@ -615,10 +622,11 @@ class _HomeViewState extends State<HomeView> {
     final anchor = _globalRect(_keyFor(name)) ??
         Rect.fromLTWH(MediaQuery.of(context).size.width / 2,
             MediaQuery.of(context).size.height / 2, 1, 1);
+    final saveTitle = L.current.dlgSaveCopyTitle;
     if (share) {
-      await NativeMenu.shareFile(path, anchor: anchor);
+      await NativeMenu.shareFile(path, anchor: anchor, saveTitle: saveTitle);
     } else {
-      await NativeMenu.exportFile(path, anchor: anchor);
+      await NativeMenu.exportFile(path, anchor: anchor, saveTitle: saveTitle);
     }
   }
 
@@ -853,9 +861,18 @@ class _RoundButtonState extends State<_RoundButton> {
             width: 46,
             height: 46,
             decoration: BoxDecoration(
-              color: _h ? g.galleryActionBgHover : g.galleryActionBg,
+              // M367 — on the material where there is one. These two buttons
+              // are a GlassToolBar on the iPad (M266: "the header buttons are
+              // the app's own chrome"), and a painted circle beside a glass
+              // ribbon is exactly the "they seem like flutter" the milestone
+              // was filed about. The hover tint stays: it is the button's
+              // response, not its surface.
+              color: GlassPanel.isSupported
+                  ? (_h ? g.galleryActionBgHover.withValues(alpha: 0.35) : null)
+                  : (_h ? g.galleryActionBgHover : g.galleryActionBg),
               shape: BoxShape.circle,
-              border: Border.all(color: g.cardBorder),
+              border:
+                  GlassPanel.isSupported ? null : Border.all(color: g.cardBorder),
               boxShadow: [
                 BoxShadow(
                     color: g.cardShadow,
@@ -863,7 +880,14 @@ class _RoundButtonState extends State<_RoundButton> {
                     offset: const Offset(0, 2)),
               ],
             ),
-            child: Icon(widget.icon, color: g.text, size: 24),
+            // The material goes UNDER the glyph and is clipped to the same
+            // circle the button is. GlassPanel cuts its own corners, so a
+            // radius of half the width is the circle.
+            child: Stack(alignment: Alignment.center, children: [
+              if (GlassPanel.isSupported)
+                const Positioned.fill(child: GlassPanel(cornerRadius: 23)),
+              Icon(widget.icon, color: g.text, size: 24),
+            ]),
           ),
         ),
       ),

@@ -273,7 +273,8 @@ class SettingsSheet {
             _context.mounted ? MediaQuery.maybeOf(_context)?.size : null;
         final w = size?.width ?? 0, h = size?.height ?? 0;
         unawaited(NativeMenu.shareFile(path,
-            anchor: Rect.fromLTWH(w / 2, h / 2, 1, 1)));
+            anchor: Rect.fromLTWH(w / 2, h / 2, 1, 1),
+            saveTitle: L.current.dlgSaveCopyTitle));
         break;
       case kRowIconPreview:
         // Same shape as the bug report: the sheet goes, the dialog comes up
