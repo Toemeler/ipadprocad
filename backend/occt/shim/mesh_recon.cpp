@@ -8655,10 +8655,30 @@ TopoDS_Shape BuildFaceted(const Mesh &m, double tol, Report &rep)
  *     curves are 0.007 to 0.19 mm apart — a fraction of a mesh edge (0.73 mm
  *     here) and well inside the millimetre these bodies are accurate to.
  *
- * So: two nearly tangent curves sharing one parameter space, crossing by less
- * than the model's own accuracy. Nothing downstream is left broken by it —
- * the solids are valid, they cut, round, write and reopen — and the cost of
- * it is the tolerance the faces carry. The cause is still open.
+ * WHERE TO LOOK NEXT: one of the two edges DOUBLES BACK. Drawn at the scale
+ * of the triangles it came from, the deepest of the whale's crossings is not
+ * two curves brushing past each other — it is one boundary curve running out,
+ * turning through a hairpin inside a fifth of a millimetre, and coming back
+ * across its neighbour. Measured on that edge: 342 degrees of total turn over
+ * 6.5 mm, one step of it 27.7 degrees, its direction reversing to 171 degrees
+ * against its own start, and 0.20 mm of stray from the chord between its own
+ * ends. Its neighbour, by contrast, turns 17 degrees in total and reverses
+ * nowhere.
+ *
+ * And it is not the curve fitting that puts the hairpin there: holding every
+ * boundary to a fiftieth of its chain's step, which makes it a polyline
+ * through the mesh's own vertices, changes neither the count nor the depths.
+ * The chain itself doubles back — the region's boundary has a spur.
+ *
+ * That is a lead and not yet a diagnosis. 14 of the whale's 16 crossing wires
+ * hold an edge that turns past 150 degrees, but so do 116 of its 1,358 edges
+ * in total, and TOKA has 56 such edges and not one of its four crossings
+ * holds one. Turning far is not the same as doubling back, and separating the
+ * two is the next measurement.
+ *
+ * Nothing downstream is left broken by any of it — the solids are valid, and
+ * they cut, round, write and reopen — and the cost of it is the tolerance the
+ * faces carry.
  *
  * What is left is to mend the picture. A hole is bounded by nodes that are
  * already drawn and already shared with the face on the other side, so
