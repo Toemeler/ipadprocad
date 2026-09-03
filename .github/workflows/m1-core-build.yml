@@ -561,7 +561,12 @@ jobs:
           # are read from the checkout by the packaging job, so dropping a 24 MB
           # HDRI into the repository costs a file copy rather than a full
           # Blender + Cycles rebuild. Nothing in cycles-dist depends on them.
-          key: cycles-dist-v3-${{ hashFiles('backend/cycles/shim/**') }}-${{ hashFiles('.github/workflows/m1-core-build.yml') }}
+          # M367 — the PATCHES are in the key too. They edit Cycles' own
+          # sources before the build, so a change to one produces a different
+          # libcycles_session.a from identical shim sources; without them here
+          # the first push after a patch edit would restore the previous
+          # distribution from cache and the edit would appear to do nothing.
+          key: cycles-dist-v4-${{ hashFiles('backend/cycles/shim/**') }}-${{ hashFiles('backend/cycles/patches/**') }}-${{ hashFiles('.github/workflows/m1-core-build.yml') }}
 
       - name: Clone Blender's ios branch (shallow, no LFS)
         if: steps.dist.outputs.cache-hit != 'true'
@@ -615,21 +620,64 @@ jobs:
         if: steps.dist.outputs.cache-hit != 'true'
         run: python3 backend/cycles/patches/ios_metal.py
 
+      # M367 — and the progressive-sampling edits, which is what makes the
+      # viewport refine one sample at a time instead of in the jumps Cycles'
+      # own display cadence produces. Three lines in RenderScheduler; see
+      # backend/cycles/patches/progressive.py for the two knobs and why
+      # neither is reachable without a patch. Self-verifying in the same way.
+      - name: Patch Cycles for progressive sampling
+        if: steps.dist.outputs.cache-hit != 'true'
+        run: python3 backend/cycles/patches/progressive.py
+
+      # M367 — WHICH DENOISER THIS BUILD WILL HAVE, asked rather than assumed.
+      #
+      # Cycles' own denoiser is OpenImageDenoise, it is the one Blender uses,
+      # and the shim turns it on through Integrator::set_use_denoise. Whether
+      # it is THERE is not ours to decide: `lib/ios_arm64` is Blender's own
+      # package, fetched by make_update.py above, and it has not shipped OIDN
+      # so far — run 6 of the probe found that out as an `_oidnSetFilterImage`
+      # link failure after a full build.
+      #
+      # So the build asks. Absent, the app denoises the finished frame with
+      # the a-trous filter in cycles_denoise.cpp and cy_denoiser_name says so;
+      # present, Cycles does it and the app picks that up with no further
+      # change. A grep is cheaper than a link failure and it prints the answer
+      # into the log either way.
+      - name: Does lib/ios_arm64 ship OpenImageDenoise?
+        id: oidn
+        if: steps.dist.outputs.cache-hit != 'true'
+        run: |
+          if find blender/lib/ios_arm64 -iname 'libOpenImageDenoise*' | grep -q . ; then
+            echo "found:"
+            find blender/lib/ios_arm64 -iname 'libOpenImageDenoise*'
+            echo "with=ON" >> "$GITHUB_OUTPUT"
+          else
+            echo "lib/ios_arm64 does not ship OpenImageDenoise — the app will"
+            echo "denoise the finished frame with cycles_denoise.cpp."
+            echo "with=OFF" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Configure and build
         if: steps.dist.outputs.cache-hit != 'true'
         run: |
           set -o pipefail
-          # The five features that are OFF are off because this renders
+          # The four features that are OFF are off because this renders
           # triangles out of a CAD kernel: no volumes, no cached point clouds,
-          # no shader scripts, and no denoiser (a CAD viewport renders a
-          # static scene where converging is affordable, and denoising smears
-          # exactly the crisp machined edges the render exists to show).
-          # Each one left ON is a dependency chain carried into an iPad app to
-          # compile code nothing will ever call.
+          # and no shader scripts. Each one left ON is a dependency chain
+          # carried into an iPad app to compile code nothing will ever call.
+          #
+          # M367 — THE DENOISER IS NO LONGER ONE OF THEM, and the old reason
+          # given for switching it off ("denoising smears exactly the crisp
+          # machined edges the render exists to show") was about a denoiser
+          # running continuously over a viewport. It runs once, on the frame
+          # sampling has finished with, and albedo demodulation means a
+          # material edge is not in the buffer being filtered at all — see
+          # cycles_denoise.h. The switch above is now the honest one: OIDN if
+          # the dependency set has it, the in-repo filter if not.
           cmake -S blender -B build_ios -G Xcode \
             -DAPPLE_TARGET_DEVICE=ios \
             -DWITH_CYCLES=ON \
-            -DWITH_OPENIMAGEDENOISE=OFF \
+            -DWITH_OPENIMAGEDENOISE=${{ steps.oidn.outputs.with }} \
             -DWITH_OPENVDB=OFF -DWITH_NANOVDB=OFF \
             -DWITH_ALEMBIC=OFF -DWITH_USD=OFF \
             -DWITH_CYCLES_OSL=OFF \

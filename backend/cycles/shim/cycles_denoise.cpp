@@ -108,7 +108,9 @@ float luminance(const float r, const float g, const float b)
  * for a reason this file measures: 10 taps against 25 is two and a half times
  * the frame rate, and the difference it costs is a slightly softer response
  * at a corner where two edges meet — invisible next to the noise it is
- * removing, and gone entirely by the time the fade has run out.
+ * removing, and vanishing on a well-sampled frame, where the luminance
+ * tolerance has narrowed to the point that neither kernel reaches across
+ * anything real.
  *
  * [lum] is the luminance of [src], precomputed. Recomputing it per tap is
  * five floating-point operations done twenty-five times per pixel for a value
@@ -258,41 +260,6 @@ void fill_luminance(const float *src, float *lum, const int width, const int hei
 }
 
 }  // namespace
-
-float denoise_strength_for(const int samples, const int target)
-{
-  if (samples <= 0) {
-    return 0.0f;
-  }
-  (void)target;
-  /* M347 — HOW MANY SAMPLES IT HAS, NOT HOW MANY IT WAS AIMING AT.
-   *
-   * This used to be a fraction of the target: full strength for the first
-   * tenth of the budget, fading out by three-quarters of it. That made the
-   * filter's job depend on a number that says nothing about the picture.
-   *
-   * Two things broke it. The target CHANGES now — an orbit asks for
-   * [kCyclesMovingSamples] and a standstill for [kCyclesSamples] — and under
-   * the old rule a frame that reached its small navigation target came out
-   * "converged" and therefore unfiltered, which is the noisiest possible
-   * moment to take the filter off. And adaptive sampling stops a frame at its
-   * own error estimate rather than at the target, so the fraction was never
-   * the fraction of the work that had actually been done.
-   *
-   * Noise is a property of the sample count alone, so the curve is too: full
-   * strength up to [kDenoiseFull], a straight fade, and nothing at all from
-   * [kDenoiseRaw] on. The promise the header makes survives in the form that
-   * matters — an image sampled to [kDenoiseRaw] is the raw path trace, pixel
-   * for pixel — and it no longer promises that about an image which has
-   * twenty. */
-  if (samples <= kDenoiseFull) {
-    return 1.0f;
-  }
-  if (samples >= kDenoiseRaw) {
-    return 0.0f;
-  }
-  return (float)(kDenoiseRaw - samples) / (float)(kDenoiseRaw - kDenoiseFull);
-}
 
 size_t denoise_scratch_floats(const int width, const int height)
 {

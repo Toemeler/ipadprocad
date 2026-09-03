@@ -4089,9 +4089,12 @@ class AppL10nEn extends AppL10n {
   String get cyclesPreparing => 'Cycles · preparing kernels';
 
   @override
-  String cyclesSamples(int samples) {
-    return 'Cycles · $samples spp';
+  String cyclesSamplesOf(int samples, int target) {
+    return 'Cycles · $samples/$target spp';
   }
+
+  @override
+  String get cyclesDenoised => 'denoised';
 
   @override
   String get cyclesFailed => 'Cycles failed';
@@ -4395,6 +4398,18 @@ class AppL10nEn extends AppL10n {
   @override
   String get msgFinishSketchToPaste =>
       'Finish the sketch first — a solid body belongs to the part, not to a sketch.';
+
+  @override
+  String get settingsSamples => 'Render quality';
+
+  @override
+  String settingsSamplesRow(int samples) {
+    return '$samples samples';
+  }
+
+  @override
+  String get settingsSamplesFooter =>
+      'How long Cycles works on an image before it stops and denoises it. More samples means a cleaner picture and a longer wait; the image is on screen the whole time and improves sample by sample.';
 
   @override
   String get settingsRibbonNames => 'Display names';

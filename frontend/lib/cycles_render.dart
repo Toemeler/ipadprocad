@@ -154,11 +154,20 @@ class CyclesImage {
   /// Sampling has finished.
   final bool done;
 
-  /// The a-trous filter was applied.
+  /// This frame has been DENOISED, which happens once and only to the frame
+  /// sampling finished on.
   ///
-  /// M347 — driven by [samples] rather than by [done]: an image sampled past
-  /// the shim's `kDenoiseRaw` is the raw path trace, and one that stopped short
-  /// of it keeps the filter that earned it. See cycles_denoise.h.
+  /// M367 — the sense is the opposite of what it was. It used to mean "the
+  /// a-trous filter is still smoothing this, and will fade off as the sample
+  /// count climbs" — a property of a frame on the way to being finished. It
+  /// now means the render is over and this is the final picture: either
+  /// Cycles' own OpenImageDenoise ran inside the render (the denoiser Blender
+  /// uses, where the build has it) or the shim ran the a-trous filter once on
+  /// the way out. See cycles_shim.h and cy_denoiser_name.
+  ///
+  /// It is therefore what the badge says "denoised" from, and the honest
+  /// signal that the image will not change again — which [done] alone is not,
+  /// because a parked frame is also done.
   final bool denoised;
 }
 

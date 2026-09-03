@@ -142,13 +142,47 @@ jobs:
       - name: Patch Cycles for iOS kernel loading
         run: python3 backend/cycles/patches/ios_metal.py
 
+      # M367 — three lines in RenderScheduler so the viewport shows every
+      # sample rather than a work item's worth at a time. See
+      # backend/cycles/patches/progressive.py; the same script runs in the
+      # render test, which is the job that proves the edits do something.
+      - name: Patch Cycles for progressive sampling
+        run: python3 backend/cycles/patches/progressive.py
+
+      # M367 — IS OpenImageDenoise IN THIS DEPENDENCY SET YET?
+      #
+      # The answer has been "no" for every run so far, and it decides which
+      # denoiser finishes a render on the iPad: Cycles' own — the one Blender
+      # uses — when the library is there, and the a-trous filter in
+      # cycles_denoise.cpp when it is not. Run 6 found the "no" the expensive
+      # way, as an `_oidnSetFilterImage` link failure after a full build.
+      #
+      # Asked rather than assumed, because the answer is not ours to control:
+      # `lib/ios_arm64` is Blender's package, fetched by make_update.py, and
+      # the day it grows OIDN this build should pick it up without anybody
+      # having noticed the release note. A grep is cheaper than a link failure
+      # and it prints the answer either way.
+      - name: Does lib/ios_arm64 ship OpenImageDenoise?
+        id: oidn
+        run: |
+          if find blender/lib/ios_arm64 -iname 'libOpenImageDenoise*' \
+               | grep -q . ; then
+            echo "found:"
+            find blender/lib/ios_arm64 -iname 'libOpenImageDenoise*'
+            echo "with=ON" >> "$GITHUB_OUTPUT"
+          else
+            echo "lib/ios_arm64 does not ship OpenImageDenoise —"
+            echo "the app will denoise with cycles_denoise.cpp (see cy_denoiser_name)."
+            echo "with=OFF" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Configure (iOS device, arm64)
         run: |
           set -o pipefail
           cmake -S blender -B build_ios -G Xcode \
             -DAPPLE_TARGET_DEVICE=ios \
             -DWITH_CYCLES=ON \
-            -DWITH_OPENIMAGEDENOISE=OFF \
+            -DWITH_OPENIMAGEDENOISE=${{ steps.oidn.outputs.with }} \
             -DWITH_OPENVDB=OFF \
             -DWITH_NANOVDB=OFF \
             -DWITH_ALEMBIC=OFF \

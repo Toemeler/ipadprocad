@@ -1,37 +1,43 @@
-/* M344 — the denoiser, because the one Cycles ships cannot come with us.
+/* M344 — the denoiser for a build that cannot carry Cycles' own.
  *
  * SPDX-License-Identifier: Apache-2.0
  *
  * ---------------------------------------------------------------------------
- * WHY THIS FILE EXISTS AT ALL
+ * M367 — WHAT THIS IS NOW: THE FALLBACK, AND WHEN IT RUNS
  * ---------------------------------------------------------------------------
  *
- * Cycles has two denoisers and this app can have neither. OptiX is NVIDIA's.
- * OpenImageDenoise is the one that would work — it has had a Metal backend
- * since 2.3 — but `lib/ios_arm64`, the precompiled dependency set Blender's
- * own `ios` branch is built against, does not ship it, which is why
- * `-DWITH_OPENIMAGEDENOISE=OFF` is in every one of this repo's Cycles builds:
- * `cycles_integrator` was otherwise compiling `denoiser_oidn.cpp` against a
- * library that is not there, and the link failed on `_oidnSetFilterImage`.
+ * Cycles has two denoisers. OptiX is NVIDIA's. OpenImageDenoise is the one
+ * that works here — it has had a Metal backend since 2.3 — and it is the one
+ * Blender uses, so where the build has it, the shim lets CYCLES drive it:
+ * `Integrator::set_use_denoise` and nothing in this file. See
+ * configure_integrator in cycles_shim.cpp.
  *
- * Building OIDN for iOS is a real option and it is not this milestone's. It
- * needs ISPC in the build, a second set of weights in the bundle, and a CI
- * chain nobody has walked; and the whole point of M344 is a viewport that
- * updates WHILE YOU ORBIT, where a heavyweight neural filter would be the
- * wrong tool even if it were free — it is tuned to make a final frame perfect,
- * not to run thirty times a second.
+ * `lib/ios_arm64`, the precompiled dependency set Blender's own `ios` branch
+ * builds against, does not ship OIDN — that is why `-DWITH_OPENIMAGEDENOISE=OFF`
+ * is in every iOS Cycles build here: `cycles_integrator` was otherwise
+ * compiling `denoiser_oidn.cpp` against a library that is not there, and the
+ * link failed on `_oidnSetFilterImage`. The macOS set DOES ship it, so the
+ * host render test builds and runs the OIDN path on every push, and the iOS
+ * probe turns it on the moment the library appears.
  *
- * So: an edge-avoiding a-trous wavelet filter (Dammertz, Sewtz, Hanika &
- * Lensch, HPG 2010), guided by the albedo and normal buffers Cycles already
- * writes for exactly this purpose. It is the filter every real-time path
- * tracer used before the neural ones arrived, it is about two hundred lines,
- * and it costs a few milliseconds on a viewport-sized image.
+ * So this file is what an iOS build denoises with today, and it is a real
+ * denoiser rather than a placeholder: an edge-avoiding a-trous wavelet filter
+ * (Dammertz, Sewtz, Hanika & Lensch, HPG 2010), guided by the albedo and
+ * normal buffers Cycles writes for exactly this purpose.
+ *
+ * IT RUNS ONCE, ON THE FINISHED FRAME. M344 ran it on every frame handed to
+ * the display and M353 removed it for that: 51 ms per frame at 480x320 and
+ * around 450 ms at 1440x1080, against a poll every 14 ms. A filter in the path
+ * of a progressive render is a frame-rate cost, and it was reported as one —
+ * "it only goes in steps". Sampling has stopped by the time this is called
+ * now, so the only thing waiting on it is the tail of a render that already
+ * took seconds, and every frame before it is the raw path trace.
  *
  * ---------------------------------------------------------------------------
  * THE OBJECTION THIS ANSWERS
  * ---------------------------------------------------------------------------
  *
- * Every Cycles build in this repo carries the comment that a denoiser "smears
+ * Every Cycles build in this repo carried the comment that a denoiser "smears
  * exactly the crisp machined edges the render exists to show". That was a fair
  * description of a naive blur and it is not what happens here, for two
  * reasons, and they are the two ideas the filter is built out of.
@@ -50,22 +56,18 @@
  * shadow terminator is a discontinuity in the lighting itself, and that one is
  * held by the luminance weight, whose tolerance is tied to the sample count:
  * wide at four samples, where everything is noise, and vanishingly narrow at
- * two hundred, where a difference between neighbours is real.
+ * five hundred, where a difference between neighbours is real.
  *
- * AND IT FADES OUT. `strength` is driven by the SAMPLE COUNT, and reaches zero
- * at [kDenoiseRaw]. The image you orbit with is filtered; the image you stop
- * and look at, once it has been sampled properly, is the raw path trace, pixel
- * for pixel, exactly as M343 rendered it.
- *
- * M347 — AND IT IS THE COUNT, NOT THE FINISH FLAG. Until M346 the caller also
- * forced the strength to zero the moment sampling STOPPED, which sounds like
- * the same thing and is not: adaptive sampling stops a frame when its own
- * error estimate is satisfied, which on a studio-lit CAD scene is routinely a
- * third of the way to the target. The filter therefore came off precisely the
- * frames that still had visible noise, at the moment the user stopped orbiting
- * and started looking. What the promise above is worth keeping is that a
- * WELL-SAMPLED frame is untouched, and that is what a sample count can say and
- * a finish flag cannot.
+ * THAT SAMPLE COUNT IS WHAT REPLACED THE FADE. Until M367 the caller ramped
+ * `strength` down as samples climbed, because the filter was running the whole
+ * way and had to hand the image back to the path tracer at some point. There
+ * is no "whole way" any more — one call, at the end, at full strength — so the
+ * ramp went with it, and `denoise_strength_for` with the ramp. What keeps a
+ * well-sampled frame from being softened is the tolerance above: at 512
+ * samples the luminance weight collapses across almost any real difference, so
+ * the filter has almost nothing left to average and the image it returns is
+ * very nearly the one it was given. That is a property of the filter rather
+ * than of a curve outside it, which is the better place for it to live.
  */
 #ifndef CYCLES_DENOISE_H
 #define CYCLES_DENOISE_H
@@ -80,20 +82,6 @@ namespace cyshim {
  * and it is why this is affordable at viewport rates. */
 const int kDenoiseIterations = 3;
 
-/* Where the fade starts and where it ends, in SAMPLES.
- *
- * [kDenoiseFull] is roughly where a path-traced CAD frame stops being mostly
- * noise, and it sits above the navigation target on purpose: every frame of an
- * orbit is filtered at full strength, which is what makes a moving viewport
- * read as a picture rather than as static.
- *
- * [kDenoiseRaw] is where the filter is off entirely. Well below the settled
- * target of [kCyclesSamples], so an image that converges normally has been the
- * raw path trace for a good while before it stops changing — the same argument
- * the fraction-of-target version made, in units that mean something. */
-const int kDenoiseFull = 32;
-const int kDenoiseRaw = 176;
-
 /* Filter [color] in place.
  *
  * [color]   w*h*4 floats, RGBA, scene-referred linear. Alpha is copied
@@ -102,11 +90,16 @@ const int kDenoiseRaw = 176;
  * [albedo]  w*h*3 floats, Cycles' PASS_DENOISING_ALBEDO, or null.
  * [normal]  w*h*3 floats, Cycles' PASS_DENOISING_NORMAL, or null.
  * [samples] how many samples [color] averages. Sets how far the luminance
- *           weight is willing to reach; more samples, less tolerance.
+ *           weight is willing to reach; more samples, less tolerance. It is
+ *           the whole of how this filter adapts to a converged image, so it
+ *           has to be the count the frame ACTUALLY reached rather than the
+ *           target it was aiming at — adaptive sampling routinely stops well
+ *           short of the target, and a frame told it has 512 samples when it
+ *           has 40 comes back still noisy.
  * [strength] 0 to leave the image alone, 1 for the full filter. Anything
- *           between is a linear blend with the unfiltered pixels, which is
- *           what makes the fade-out on convergence continuous rather than a
- *           visible pop at some threshold.
+ *           between is a linear blend with the unfiltered pixels. The shim
+ *           passes 1: it calls this once, on a frame that is finished, and a
+ *           partial blend of a final image is not a thing anybody asked for.
  *
  * Does nothing at all when strength <= 0, when the image is smaller than the
  * kernel, or when there is no albedo buffer — the demodulation is not an
@@ -116,9 +109,8 @@ const int kDenoiseRaw = 176;
  * albedo and luminance guides and simply reaches further across geometry.
  *
  * [scratch] must hold at least [denoise_scratch_floats] floats. Passing it in
- * rather than allocating keeps this off the allocator on every frame of an
- * orbit — at viewport size the buffer is tens of megabytes and reallocating it
- * thirty times a second costs more than the filter does. Pass null to have it
+ * rather than allocating saves a tens-of-megabytes allocation on the one frame
+ * this runs on; the shim keeps one and reuses it. Pass null to have it
  * allocate internally, which is what a test does. */
 void denoise(float *color,
              const float *albedo,
@@ -131,18 +123,6 @@ void denoise(float *color,
 
 /* How many floats [denoise] needs as scratch for a [width]x[height] image. */
 size_t denoise_scratch_floats(int width, int height);
-
-/* How hard to filter an image that averages [samples].
- *
- * 1 while the frame is mostly noise, a straight fade from [kDenoiseFull], and
- * exactly 0 from [kDenoiseRaw] on. Exposed so the shim and its tests agree on
- * one curve rather than each having an opinion, and so the fade can be checked
- * without a GPU.
- *
- * [target] is IGNORED and kept only so the call sites need not change with the
- * curve; see the note in cycles_denoise.cpp for why the target stopped being
- * the right denominator. */
-float denoise_strength_for(int samples, int target);
 
 }  // namespace cyshim
 

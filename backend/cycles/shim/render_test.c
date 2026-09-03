@@ -405,6 +405,26 @@ int main(int argc, char **argv)
       const double kPollMs = 5.0;
       const double kDeadlineMs = 60000.0;
       double waited = 0.0;
+      /* M367 — WHICH SAMPLE COUNTS WERE ACTUALLY SEEN.
+       *
+       * The report this milestone came from was "I see steps — sample 24, then
+       * 50, then 100". That is Cycles' RenderScheduler batching a display
+       * update's worth of samples into one work item, and the fix is a cap it
+       * has no setter for, added by backend/cycles/patches/progressive.py.
+       *
+       * A patch is exactly the kind of change that stops applying when the
+       * tree moves and fails silently: the anchor check catches a MISSING
+       * edit, and nothing would catch an edit that applied and did not work.
+       * So the counts are recorded and checked below. */
+      int seen_counts[64];
+      int seen_n = 0;
+      /* Taken from a frame that was actually HANDED OVER, not from `info`
+       * after the loop. cy_live_frame fills in samples/target/done even when
+       * it has nothing new to give (that is what lets a caller poll for
+       * convergence cheaply), and on that path there are no pixels and so no
+       * denoise to report. Reading the flag off such a poll would fail this
+       * check for a render that did everything right. */
+      int denoised_final = 0;
       while (!done && waited < kDeadlineMs) {
         const int r = cy_live_frame(live, TW * TH * 4, &info);
         if (r < 0) {
@@ -413,6 +433,12 @@ int main(int argc, char **argv)
         }
         if (r == 1) {
           got++;
+          if (seen_n < 64 && (seen_n == 0 || seen_counts[seen_n - 1] != info.samples)) {
+            seen_counts[seen_n++] = info.samples;
+          }
+          if (info.done) {
+            denoised_final = info.denoised;
+          }
         }
         done = info.done;
         if (done) {
@@ -439,6 +465,37 @@ int main(int argc, char **argv)
       check(info.width == TW && info.height == TH,
             "the live frame is the size that was asked for");
       check(done == 1, "the live session converges and says so");
+
+      /* ---- M367: every sample, and then a denoise -----------------------
+       *
+       * WHY THE BAR IS "MORE THAN ONE" AND NOT "ALL EIGHT". Two things
+       * legitimately swallow a count and neither is the defect being guarded
+       * against. cy_live_frame hands back only what is in the store WHEN IT IS
+       * ASKED, and this loop polls every 5 ms while the runner path-traces on
+       * three paravirtualised cores — so several samples can land between two
+       * polls and only the newest is seen. And adaptive sampling can finish
+       * the whole 96x96 image early, which is a converged render and not a
+       * skipped one.
+       *
+       * What CANNOT happen with the cap in force is one count for the whole
+       * render: the scheduler would have to have traced all eight samples in a
+       * single work item, which is precisely what it does without the patch
+       * and precisely what the report described. That is the assertion. */
+      printf("live: sample counts seen:");
+      for (int i = 0; i < seen_n; i++) {
+        printf(" %d", seen_counts[i]);
+      }
+      printf("\n");
+      check(seen_n > 1,
+            "sampling arrives progressively rather than in one batch");
+
+      /* And the finished frame has been denoised — by Cycles' own
+       * OpenImageDenoise where the build has it, by the a-trous fallback
+       * where it does not. Either way the flag is the app's only way of
+       * knowing the picture is final, so it has to be set. */
+      printf("live: denoiser is %s\n", cy_denoiser_name());
+      check(cy_denoiser_name()[0] != 0, "the build names its denoiser");
+      check(denoised_final == 1, "the finished frame is denoised");
 
       memset(&info, 0, sizeof(info));
       check(cy_live_frame(live, TW * TH * 4, &info) == 0,
@@ -528,44 +585,78 @@ int main(int argc, char **argv)
           "the dark side keeps its own value");
     check(left - right > 0.25, "the edge across the seam survives");
 
-    /* And it must be OFF once the frame has been sampled properly, or the
-     * picture the user finally looks at would depend on a constant in
-     * cycles_denoise.cpp.
-     *
-     * M347 — IN SAMPLES, NOT IN FRACTIONS OF A TARGET. The target is a
-     * navigation target during an orbit and a settled one at rest, and a curve
-     * keyed to it filtered hardest exactly where there was least to filter.
-     * The second and third checks below are the ones that used to pass for the
-     * wrong reason: 64 out of 64 was called converged, and it is 64 samples of
-     * path tracing, which is a noisy picture. */
-    check(cyshim::denoise_strength_for(1, 64) == 1.0f,
-          "a nearly-unsampled frame is fully denoised");
-    check(cyshim::denoise_strength_for(cyshim::kDenoiseFull, 64) == 1.0f,
-          "a frame at the top of the full-strength band is still fully denoised");
-    check(cyshim::denoise_strength_for(cyshim::kDenoiseRaw, 256) == 0.0f,
-          "a well-sampled frame is not denoised at all");
-    check(cyshim::denoise_strength_for(cyshim::kDenoiseRaw + 80, 256) == 0.0f,
-          "and neither is one past it");
-    {
-      /* Monotone, and strictly between the two ends. A curve that is not would
-       * make the image get NOISIER as it converges at some sample count, which
-       * is the one visible failure this function can have. */
-      float prev = 1.0f;
-      int bad = 0;
-      for (int n = 1; n <= cyshim::kDenoiseRaw + 8; n++) {
-        const float f = cyshim::denoise_strength_for(n, 256);
-        if (f > prev + 1e-6f || f < 0.0f || f > 1.0f) {
-          bad++;
+    free(color);
+    free(albedo);
+    free(normal);
+  }
+
+  /* ---- M367: does it leave a WELL-SAMPLED frame alone? ------------------
+   *
+   * THE PROPERTY THAT REPLACED THE FADE, AND WHY IT HAD TO BE CHECKED.
+   *
+   * Until M367 the shim ramped `strength` down as the sample count climbed and
+   * this file pinned that curve: full filter at 1 sample, nothing at 176, and
+   * monotone in between. That curve existed because the filter ran on EVERY
+   * frame and had to hand the picture back to the path tracer at some point.
+   *
+   * It runs once now, on the finished frame, at full strength — so the ramp is
+   * gone and so are its tests. What stops a converged image from being
+   * softened is no longer a curve outside the filter but the luminance
+   * tolerance inside it, which narrows as 1/samples (see kLuminanceSigma).
+   * That is a better place for the property to live and a worse place for it
+   * to go unchecked: it is three lines of arithmetic in the middle of a
+   * weighting function, and nothing else would notice if they stopped scaling.
+   *
+   * So: the same two-tone image, the same noise, filtered at the same full
+   * strength, once as a 4-sample frame and once as a 4096-sample one. The
+   * well-sampled one must come back much closer to what it was given. It is a
+   * comparison rather than a threshold because the absolute numbers depend on
+   * the noise the hash happens to produce; the RATIO is the claim.
+   */
+  {
+    const int W = 64, H = 64;
+    float *few = (float *)malloc((size_t)W * H * 4 * sizeof(float));
+    float *many = (float *)malloc((size_t)W * H * 4 * sizeof(float));
+    float *orig = (float *)malloc((size_t)W * H * 4 * sizeof(float));
+    float *albedo = (float *)malloc((size_t)W * H * 3 * sizeof(float));
+    float *normal = (float *)malloc((size_t)W * H * 3 * sizeof(float));
+    unsigned int seed = 987654321u;
+    for (int y = 0; y < H; y++) {
+      for (int x = 0; x < W; x++) {
+        const size_t i = (size_t)y * W + x;
+        const float base = x < W / 2 ? 0.8f : 0.2f;
+        seed = seed * 1664525u + 1013904223u;
+        const float n = ((float)((seed >> 8) & 0xFFFF) / 65535.0f - 0.5f) * 0.30f;
+        for (int k = 0; k < 3; k++) {
+          const float v = base * 0.5f + n;
+          orig[i * 4 + k] = v;
+          few[i * 4 + k] = v;
+          many[i * 4 + k] = v;
+          albedo[i * 3 + k] = base;
+          normal[i * 3 + k] = k == 2 ? 1.0f : 0.0f;
         }
-        prev = f;
+        orig[i * 4 + 3] = few[i * 4 + 3] = many[i * 4 + 3] = 1.0f;
       }
-      check(bad == 0, "the fade never goes back up");
-      check(cyshim::denoise_strength_for((cyshim::kDenoiseFull + cyshim::kDenoiseRaw) / 2,
-                                         256) > 0.4f,
-            "a half-sampled frame keeps half the filter");
     }
 
-    free(color);
+    cyshim::denoise(few, albedo, normal, W, H, 4, 1.0f, NULL);
+    cyshim::denoise(many, albedo, normal, W, H, 4096, 1.0f, NULL);
+
+    double moved_few = 0.0, moved_many = 0.0;
+    for (size_t i = 0; i < (size_t)W * H; i++) {
+      const double a = few[i * 4] - orig[i * 4];
+      const double b = many[i * 4] - orig[i * 4];
+      moved_few += a * a;
+      moved_many += b * b;
+    }
+    printf("denoise: moved %.5f at 4 spp, %.5f at 4096 spp\n", moved_few, moved_many);
+    check(moved_many < moved_few * 0.5,
+          "a well-sampled frame is filtered far more gently than a noisy one");
+    check(moved_few > 0.0, "and a noisy one is actually filtered");
+
+    free(few);
+    free(many);
+    free(orig);
     free(albedo);
     free(normal);
   }

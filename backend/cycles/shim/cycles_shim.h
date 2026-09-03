@@ -39,6 +39,26 @@
  * that tries simply waits.
  *
  * ---------------------------------------------------------------------------
+ * M367 — HOW THE IMAGE ARRIVES, AND HOW IT ENDS
+ * ---------------------------------------------------------------------------
+ *
+ * EVERY SAMPLE IS A FRAME. Cycles' RenderScheduler sizes a work packet from
+ * the measured sample rate times a display-update interval that climbs to two
+ * seconds, so a render that has been going for a while traces a hundred
+ * samples and then shows one frame — 24, then 50, then 100. The live session
+ * asks it for one sample per work item instead, and for a display update after
+ * each, so the picture builds continuously. That knob is added to Cycles by
+ * backend/cycles/patches/progressive.py; a tree without the patch still
+ * compiles and still renders, in Cycles' own steps.
+ *
+ * AND THEN IT IS DENOISED, ONCE. When sampling stops — at CyView.samples, or
+ * wherever adaptive sampling decided the image was done — the frame is
+ * denoised and CyFrame.denoised says so. Where the build has
+ * OpenImageDenoise, that is Cycles' own denoiser doing it inside the render,
+ * exactly as Blender does; where it does not, it is the a-trous filter in
+ * cycles_denoise.cpp, run here, once. cy_denoiser_name says which.
+ *
+ * ---------------------------------------------------------------------------
  * THE ONE THING THAT IS NOT OPTIONAL
  * ---------------------------------------------------------------------------
  *
@@ -244,9 +264,18 @@ typedef struct {
   float half_height;
   int width;
   int height;
-  /* Where sampling STOPS. Not how long one call takes — the live session
-   * converges towards this and then idles, and the caller reads frames out of
-   * it the whole way. */
+  /* Where sampling STOPS, and what the denoiser waits for.
+   *
+   * Not how long one call takes — the live session converges towards this and
+   * then idles, and the caller reads frames out of it the whole way. Since
+   * M367 it arrives one sample at a time: every sample is a frame the caller
+   * can pull out, rather than the 24 -> 50 -> 100 jumps Cycles' own display
+   * cadence produces.
+   *
+   * It is also the denoiser's start sample, so the finished frame — this
+   * count, or wherever adaptive sampling decided it had converged, whichever
+   * comes first — is the one that gets filtered. Everything before it is the
+   * raw path trace. */
   int samples;
 } CyView;
 
@@ -259,8 +288,14 @@ typedef struct {
   int target;
   /* 1 once sampling has reached the target and the picture will not improve. */
   int done;
-  /* 1 when the a-trous filter was applied to this frame. It fades out as the
-   * sample count climbs, so a converged frame is the raw path trace. */
+  /* M367 — 1 when this frame HAS BEEN DENOISED, which is the finished frame
+   * and no other.
+   *
+   * The sense is the opposite of what it was. Until M353 the filter ran on
+   * every frame and faded OUT as samples climbed, so this flag meant "still
+   * being smoothed, not yet the real thing". It now means the render is over
+   * and this is the finished picture: sampling stopped, and the noise left in
+   * it was removed in one pass. Which denoiser did it is cy_denoiser_name. */
   int denoised;
 } CyFrame;
 
@@ -276,6 +311,24 @@ int cy_available(void);
 /* Human-readable device description, for the log and the bug report. Never
  * null; "none" when there is no device. */
 const char *cy_device_name(void);
+
+/* Which denoiser finishes a render in THIS build. Never null.
+ *
+ * "OpenImageDenoise" — Cycles' own, and the one Blender uses. Enabled by
+ * Integrator::set_use_denoise and run by Cycles as the last work item of the
+ * render, so what comes out of cy_live_frame on a finished frame is already
+ * the denoised image.
+ *
+ * "a-trous" — the edge-avoiding wavelet filter in cycles_denoise.cpp, run by
+ * the shim on the finished frame. It is what a build gets when its dependency
+ * set has no OIDN, which is every iOS build so far: `lib/ios_arm64` does not
+ * ship the library, so `-DWITH_OPENIMAGEDENOISE=OFF` is in every iOS Cycles
+ * build here. See the note in cycles_denoise.h.
+ *
+ * Worth showing next to the device name for the same reason the device name is
+ * worth showing: a render that looks different on two machines should not need
+ * a build inspection to find out why. */
+const char *cy_denoiser_name(void);
 
 /* Where the Cycles KERNEL SOURCE lives.
  *

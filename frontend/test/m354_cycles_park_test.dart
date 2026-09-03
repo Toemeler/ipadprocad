@@ -35,6 +35,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/cycles_live.dart';
 import 'package:prototype/cycles_session.dart';
 import 'package:prototype/cycles_view.dart';
+import 'package:prototype/render_samples.dart';
 
 class _Rec implements CyclesDriver {
   final List<int> viewSamples = [];
@@ -177,7 +178,14 @@ void main() {
       still('cam-a', 1794, 1548);
       expect(d.viewSizes.single, (1794, 1548));
       expect(d.viewSamples.single, kCyclesSamples);
-      expect(kCyclesSamples, 4096);
+      // M367 — 128, and it is a DEFAULT rather than the constant it used to
+      // be: the ceiling is a setting now ([RenderSamples]) and the finished
+      // frame is denoised, so the samples only have to get the image close
+      // enough for the denoiser rather than bury the noise on their own. The
+      // 4096 this replaced was Blender's final-render default and is still
+      // the top of the ladder for anyone who wants it.
+      expect(kCyclesSamples, 128);
+      expect(kCyclesSamples, kRenderSamplesDefault);
     });
 
     test('a repeated standstill pushes nothing', () {

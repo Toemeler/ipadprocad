@@ -192,6 +192,7 @@ class CyclesFfi {
   CyclesFfi._(
     this._available,
     this._deviceName,
+    this._denoiserName,
     this._setPath,
     this._render,
     this._lastError,
@@ -210,6 +211,7 @@ class CyclesFfi {
 
   final _AvailD _available;
   final _StrD _deviceName;
+  final _StrD _denoiserName;
   final _SetPathD _setPath;
   final _RenderD _render;
   final _StrD _lastError;
@@ -237,6 +239,7 @@ class CyclesFfi {
       _instance = CyclesFfi._(
         lib.lookupFunction<_AvailN, _AvailD>('cy_available'),
         lib.lookupFunction<_StrN, _StrD>('cy_device_name'),
+        lib.lookupFunction<_StrN, _StrD>('cy_denoiser_name'),
         lib.lookupFunction<_SetPathN, _SetPathD>('cy_set_resource_path'),
         lib.lookupFunction<_RenderN, _RenderD>('cy_render'),
         lib.lookupFunction<_StrN, _StrD>('cy_last_error'),
@@ -252,7 +255,10 @@ class CyclesFfi {
         lib.lookupFunction<_FrameN, _FrameD>('cy_live_frame'),
         lib.lookupFunction<_PauseN, _PauseD>('cy_live_pause'),
       );
-      Log.i('cycles', 'shim linked; device ${_instance!.deviceName}');
+      Log.i(
+          'cycles',
+          'shim linked; device ${_instance!.deviceName}, '
+          'denoiser ${_instance!.denoiserName}');
     } catch (e) {
       // Expected off-device and in every host test. Not a warning.
       Log.d('cycles', 'no Cycles shim in this binary: $e');
@@ -295,6 +301,18 @@ class CyclesFfi {
   /// How far along, 0..1, or negative when nothing is running.
   double get progress => _progress();
   String get deviceName => _deviceName().toDartString();
+
+  /// M367 — which denoiser finishes a render in this build.
+  ///
+  /// "OpenImageDenoise" when Cycles' own is linked — the denoiser Blender uses
+  /// — and "a-trous" when it is not and the shim's own filter runs instead.
+  /// A compile-time fact, so it is safe to read before anything has rendered;
+  /// see cy_denoiser_name in cycles_shim.h for why it cannot usefully be asked
+  /// of the session.
+  ///
+  /// Logged beside the device name at startup, for the same reason: a render
+  /// that looks different on two machines should not need a build inspection.
+  String get denoiserName => _denoiserName().toDartString();
   String get lastError => _lastError().toDartString();
 
   /// Points Cycles at its kernel source tree. Must be called before the first

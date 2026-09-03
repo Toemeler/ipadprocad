@@ -12026,3 +12026,140 @@ Abzeichen tragen, was darauf steht, und wo die Spalten fallen.
 
 `test/m361_browser_badges_test.dart`, 14 Fälle. Gegengeprüft: ohne die
 Abzeichenzuweisung und ohne `_spaceFolders` fallen acht davon.
+
+---
+
+## M367 — Jedes Sample, ein einstellbares Ziel, und am Ende entrauscht
+
+> „Cycles is currently not smooth. In Blender I see gradually how it renders.
+> Here I see steps. Like sample 24 then 50 then 100 and so on. I want to see
+> every sample. In the setting I want to be able to set the max sample count.
+> And when this is reached it should denoise. With the same denoiser Blender
+> uses."
+>
+> und getrennt: „the render info bottom right is currently behind a
+> liquidglass button"
+
+### Die Stufen sind Cycles' `RenderScheduler`, und zwar zweimal
+
+Es ist kein Fehler im Shim und keiner an der FFI-Grenze. Zwei Regler im
+Planer multiplizieren sich, beide in `render_scheduler.cpp`:
+
+1. **Wie viele Samples ein Arbeitspaket bekommt.**
+   `calculate_num_samples_per_update()` ist *Samples pro Sekunde ×
+   Anzeige-Intervall*, aufgerundet auf eine Zweierpotenz.
+2. **Wie oft die Anzeige überhaupt erfährt, dass es etwas Neues gibt.**
+   `work_need_update_display()` verweigert bei adaptivem Sampling jede
+   Aktualisierung, bis das Intervall abgelaufen ist — eine Leiter aus 0,1 s,
+   0,25 s, 0,5 s, 1 s und **2 s**.
+
+Ein Rendering, das acht Sekunden läuft, rechnet also zwei Sekunden lang
+Samples und zeigt danach *ein* Bild. 24, dann 50, dann 100. Blenders Viewport
+macht dasselbe; man sieht es dort selten, weil er meist in der ersten Sekunde
+konvergiert — am schnellen Ende derselben Leiter.
+
+Erreichbar ist keiner der beiden von aussen. `set_limit_samples_per_update`
+sieht danach aus und ist es nicht: `PathTrace::render_pipeline` setzt den Wert
+zu Beginn *jeder* Iteration auf 0 zurück, er gehört dem Path Guiding. Die
+Anzeige-Kadenz hat gar keinen Setter, und beide Funktionen sind `protected` —
+`Session` hält den Planer **als Wert**, eine Ableitung hilft also nicht.
+
+Also ein Patch: `backend/cycles/patches/progressive.py`, drei Kanten, ein
+zusätzliches `int`. Bei 0 (Voreinstellung) verhält sich der Planer exakt wie
+vorher; bei 1 ist das Paket ein Sample und die Anzeige-Aktualisierung
+bedingungslos. Ein Baum ohne den Patch übersetzt weiterhin — der Shim fragt
+`CYCLES_SHIM_SAMPLES_PER_UPDATE_CAP` ab, das nur dieses Skript definiert.
+
+Selbstprüfend wie `ios_metal.py`: jeder Anker muss genau einmal passen.
+**Und zusätzlich wirkungsgeprüft**, denn ein Anker beweist nur, dass die
+Kante angewandt wurde: `render_test.c` protokolliert, welche Sample-Stände
+aus der Live-Session herauskamen, und fällt durch, wenn das ganze Rendering
+als ein einziges Paket ankam.
+
+### 128 statt 4096, und warum die Zahl kleiner werden durfte
+
+M353 setzte das Ziel auf 4096 — Blenders eigene Voreinstellung fürs
+Endrendering — mit der Begründung, ohne Entrauschen stehe zwischen dem Bild
+und einem sauberen Bild nur die Sample-Zahl. Beide Hälften stimmen jetzt
+nicht mehr: es **wird** entrauscht, also müssen die Samples das Bild nur noch
+nah genug heranbringen, und bei einer studiobeleuchteten CAD-Szene aus
+undurchsichtigen Körpern ist das der niedrige dreistellige Bereich.
+
+Und wie lange die Maschine an einem Bild arbeiten soll, kann niemand für
+jemand anderen entscheiden. Also eine **Einstellung** (`render_samples.dart`,
+Abschnitt „Render-Qualität"), eine Leiter aus Verdopplungen von 32 bis 4096,
+voreingestellt auf 128, gemerkt in `settings.json` neben Renderer und
+Ribbon-Position. Eine Leiter und kein Zahlenfeld: das Einstellungsblatt ist
+eine UIKit-Tabelle aus Zeilen mit Haken, und Sample-Zahlen sind in
+Verdopplungen nützlich.
+
+### Der Denoiser ist Cycles' eigener, wo er im Build ist
+
+„Derselbe Denoiser, den Blender benutzt" heisst OpenImageDenoise, und das
+Richtige ist, ihn **Cycles fahren zu lassen**: `set_use_denoise` lässt `Film`
+die Albedo- und Normalen-Pässe und ein entrauschtes *Combined* anlegen, der
+Planer terminiert das Entrauschen als letztes Arbeitspaket, und
+`get_pass_pixels("combined")` liefert danach das entrauschte Bild. Der
+Startsample ist das Ziel, damit es **einmal** passiert und nicht bei jeder
+Anzeige-Aktualisierung — bei einem Sample pro Aktualisierung wäre das ein
+OIDN-Durchlauf pro Sample.
+
+Wichtig: der Planer entrauscht bei `done()`, nicht bei „Ziel erreicht". Ein
+Bild, das unter adaptivem Sampling schon bei 40 von 128 fertig ist, wird also
+bei 40 entrauscht statt verrauscht liegen zu bleiben.
+
+`lib/ios_arm64` liefert OIDN bis heute nicht — daher `-DWITH_OPENIMAGEDENOISE=OFF`
+in jedem iOS-Build hier, und daher Lauf 6 der Sonde, der an
+`_oidnSetFilterImage` scheiterte. Beide Cycles-Workflows **fragen** das jetzt,
+statt es anzunehmen; das macOS-Paket liefert OIDN, also wird dieser Pfad im
+Render-Test bei jedem Push übersetzt *und ausgeführt*. Wo er fehlt, läuft der
+A-trous-Filter aus `cycles_denoise.cpp` — einmal, auf dem fertigen Bild.
+`cy_denoiser_name()` sagt, welcher es war.
+
+Der Filter kam mit umgekehrtem Vorzeichen zurück. M344 liess ihn auf jedem
+angezeigten Bild laufen und M353 nahm ihn dafür heraus (51 ms je Bild bei
+480×320, rund 450 ms bei 1440×1080, gegen einen Poll alle 14 ms) — ein
+kontinuierlicher Filter ist eine Bildraten-Frage, keine Qualitätsfrage. Einmal
+am Ende ist etwas anderes: das Sampling steht dann schon still. Die
+Stärke-Rampe `denoise_strength_for` ist damit ersatzlos entfallen; was ein gut
+abgetastetes Bild vor dem Weichzeichnen schützt, ist die Luminanz-Toleranz im
+Filter selbst, die mit 1/n enger wird — und genau das prüft der neue Fall in
+`render_test.c`.
+
+### Das Abzeichen stand unter dem Glas
+
+`bottom: 12` ist der untere Rand des **Viewports**, und dort ist nicht der
+untere Rand des Bildschirms: die `BottomTabBar` schwebt darüber (M150), und
+ihr hinteres Ende ist eine eigene Glaskapsel mit dem Dokumentmenü, an den
+rechten Rand geheftet (`GlassTabBar.buildIsland`). Das Abzeichen sass genau
+darunter. Weil Liquid Glass durchscheinend ist, blieb der Text schwach lesbar
+— was sich wie ein Darstellungsfehler liest und ein Layoutfehler war.
+`BottomTabBar.floatingHeight` ist der Platz, den die Leiste beansprucht, und
+den die Ursprungstriade und der Hinweistext längst freihalten.
+
+### Eine Falle, die erst beim Nachlesen von `film.cpp` auffiel
+
+`Film::finalize_passes` schreibt bei ausgeschaltetem Entrauschen jeden Pass
+auf `PassMode::NOISY` — und **niemals zurück**:
+
+```cpp
+pass->set_mode(need_denoise ? pass->get_mode() : PassMode::NOISY);
+```
+
+Der geparkte Ein-Sample-Rahmen während einer Geste schaltet das Entrauschen
+aus. Ein „combined"-Pass, der das einmal überlebt hat, benennt also für den
+Rest der Sitzung den verrauschten Puffer, und jedes Standbild nach der ersten
+Drehung wäre unentrauscht angezeigt worden — bei korrekt gerechnetem
+entrauschtem Ergebnis daneben. `set_passes` legt die Pässe deshalb **neu an**,
+wenn sich die Entscheidung ändert, statt sie zu bearbeiten.
+
+### Was hier nicht geprüft werden konnte
+
+`cycles_shim.cpp` braucht Cycles' Header; übersetzt wird es im Workflow.
+Lokal geprüft: der Patch gegen genau den angehefteten Blender-Commit
+(d9b6fe3), `cycles_denoise.cpp` und `render_test.c` als Übersetzungseinheiten,
+und die beiden Denoiser-Behauptungen mit echten Zahlen — Kante bleibt
+(0,411 | 0,096 bei Sollwerten 0,400 | 0,100), und bei 4096 Samples bewegt der
+Filter das Bild um 9,4 statt um 30,2 wie bei 4.
+
+`test/m367_cycles_progressive_test.dart`, 18 Fälle.

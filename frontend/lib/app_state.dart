@@ -67,6 +67,7 @@ import 'theme.dart';
 import 'tools.dart';
 import 'vector_font.dart';
 import 'render_engine.dart';
+import 'render_samples.dart';
 import 'ribbon_dock.dart';
 import 'work_features.dart';
 
@@ -1778,6 +1779,11 @@ class AppState extends ChangeNotifier {
     // the same breath: whether it writes the name under each command.
     RibbonLabels.attachStore(RibbonStore(_cacheRoot));
     RenderEngines.attachStore(RenderEngineStore(_cacheRoot));
+    // M367 — and how many samples that renderer aims at. Same file,
+    // same shape, read in the same breath: which renderer draws the
+    // viewport and how hard it works on the picture are one decision the
+    // user makes in two halves.
+    RenderSamples.attachStore(RenderSamplesStore(_cacheRoot));
     // M348 — the live icon preview's host, in the same file for the same
     // reason. Empty unless someone has typed one in, and while it is empty
     // every icon in the app is the one it was built with.
