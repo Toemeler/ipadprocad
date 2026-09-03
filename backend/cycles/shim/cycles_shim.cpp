@@ -99,6 +99,9 @@
 #include "session/buffers.h"
 #include "session/output_driver.h"
 #include "session/session.h"
+/* M367 — for cycles_own_denoiser. `#ifdef`-guarded inside, so this is a
+ * header with no content in a build without OIDN. */
+#include "util/openimagedenoise.h"
 #include "util/path.h"
 #include "util/set.h"
 #include "util/transform.h"
@@ -139,35 +142,66 @@ const int kSamplesPerUpdate = 1;
  * the bin. Any real render is orders of magnitude above this. */
 const int kDenoiseThreshold = 8;
 
-/* Does this build have the denoiser Blender uses?
+/* Can this build ACTUALLY use the denoiser Blender uses, on this machine?
  *
  * OpenImageDenoise is Cycles' own, it is what a Blender viewport and a Blender
- * F12 both run, and when it is present the right thing is to let Cycles drive
- * it: `Integrator::set_use_denoise` makes Film add the albedo and normal guide
- * passes and a denoised Combined, RenderScheduler schedules the denoise as the
- * last work item of the render, and `PathTraceTile::get_pass_pixels("combined")`
- * then hands back the denoised result. Nothing in this file has to know how it
- * works, which is the whole argument for using it.
+ * F12 both run, and when it is available the right thing is to let Cycles
+ * drive it: `Integrator::set_use_denoise` makes Film add the albedo and normal
+ * guide passes and a denoised Combined, RenderScheduler schedules the denoise
+ * as the last work item of the render, and
+ * `PathTraceTile::get_pass_pixels("combined")` then hands back the denoised
+ * result. Nothing in this file has to know how it works, which is the whole
+ * argument for using it.
  *
- * `lib/ios_arm64` — the precompiled dependency set Blender's own `ios` branch
- * builds against — does not ship OIDN, which is why every iOS build here has
- * carried `-DWITH_OPENIMAGEDENOISE=OFF`. The macOS library set DOES ship it,
- * so the host render test exercises this path on every push (see
- * .github/workflows/cycles-render-test.yml), and the iOS probe turns it on the
- * moment the library appears (see the OIDN detection step in
- * cycles-ios-probe.yml).
+ * Where it is not available, the fallback is cycles_denoise.cpp's
+ * edge-avoiding a-trous filter, run ONCE on the finished frame. That is a real
+ * denoiser with a real argument behind it (albedo demodulation, so a CAD
+ * render's material edges cannot be blurred — see cycles_denoise.h) and it is
+ * not OIDN. Which one ran is reported by cy_denoiser_name, so a bug report
+ * never has to guess.
  *
- * Where it is absent, the fallback is cycles_denoise.cpp's edge-avoiding
- * a-trous filter, run ONCE on the finished frame. That is a real denoiser with
- * a real argument behind it (albedo demodulation, so a CAD render's material
- * edges cannot be blurred — see cycles_denoise.h) and it is not OIDN. Which
- * one ran is reported by cy_denoiser_name so a bug report never has to guess.
- */
+ * ---------------------------------------------------------------------------
+ * WHY THIS IS A RUNTIME QUESTION AND NOT AN #ifdef
+ * ---------------------------------------------------------------------------
+ *
+ * Because linking OIDN and being able to USE it are different facts, and the
+ * gap between them is not academic.
+ *
+ * OIDN 2.x is three libraries: an API shim, a core, and one module per compute
+ * device. The core loads the module ITSELF, at run time, by an absolute path
+ * built from its own location — `dlopen(prefix + "libOpenImageDenoise_device_
+ * cpu.dylib")` in core/module.cpp. No load command names it, so nothing that
+ * reads a Mach-O can know it is needed; ci/harvest_cycles_dylibs.sh had to be
+ * told about it by name, and Blender bundles that whole directory rather than
+ * its dependency graph for the same reason.
+ *
+ * If it is missing, `oidnNewDevice` returns null. Cycles turns that into
+ * `Denoiser::set_error`, which is `Device::set_error`, and
+ * `Session::run_main_render_loop` breaks out of its loop the next time it
+ * checks `device->have_error()`. Rendered mode stops, with a picture on screen
+ * and "Cycles failed" under it — from a denoiser, at the end of a render that
+ * had been going perfectly.
+ *
+ * So this asks. `oidnNewDevice` is wrapped in OIDN's own try/catch and returns
+ * null rather than throwing, which makes the question one call and no risk;
+ * asked once, because the answer is a property of the process. A build that
+ * links OIDN and cannot bring it up quietly uses the a-trous filter, says so
+ * through cy_denoiser_name, and renders. */
+bool cycles_own_denoiser()
+{
 #ifdef WITH_OPENIMAGEDENOISE
-const bool kCyclesOwnDenoiser = true;
+  /* Thread-safe by the standard's guarantee on function-local statics, which
+   * matters: this is reached from the app's worker isolate, from cy_preload's
+   * warm-up thread, and from whatever thread first asks for the name. */
+  static const bool usable = []() {
+    const oidn::DeviceRef device = oidn::newDevice();
+    return static_cast<bool>(device);
+  }();
+  return usable;
 #else
-const bool kCyclesOwnDenoiser = false;
+  return false;
 #endif
+}
 
 /* Cycles' Session, with the one knob the scheduler patch adds.
  *
@@ -1149,7 +1183,7 @@ bool wants_denoise(const int samples)
  * Integrator::set_use_denoise makes Film add the same two passes itself. */
 bool wants_guide_passes(const int samples)
 {
-  return !kCyclesOwnDenoiser && wants_denoise(samples);
+  return !cycles_own_denoiser() && wants_denoise(samples);
 }
 
 /* M344 — ADAPTIVE SAMPLING, which is what "until a perfect image is there"
@@ -1221,13 +1255,18 @@ void configure_integrator(ccl::Scene *scene, const int samples)
    *
    * GPU when it can. `denoise_use_gpu` is a preference, not an assertion:
    * Denoiser::create falls back to OIDN on the CPU when the device cannot run
-   * it, and returns null — harmlessly, PathTrace::denoise checks — when the
-   * build has no OIDN at all. That last case is the iOS one today, and it is
-   * why kCyclesOwnDenoiser exists and why the a-trous fallback is still here.
+   * it. `lib/ios_arm64` ships OIDN's CPU device module and no Metal one, so on
+   * an iPad this resolves to OIDN on the CPU — which is seconds on a
+   * full-resolution frame, and affordable precisely because it happens once,
+   * after sampling has stopped, with the GPU idle.
+   *
+   * Nothing here has to handle OIDN being absent: cycles_own_denoiser has
+   * already asked, and where the answer is no this block does not run and the
+   * a-trous fallback takes the frame instead.
    *
    * A view with a target below kDenoiseThreshold is the parked frame of a
    * gesture. Nobody sees it; it is not denoised. */
-  const bool denoise = kCyclesOwnDenoiser && wants_denoise(samples);
+  const bool denoise = cycles_own_denoiser() && wants_denoise(samples);
   ig->set_use_denoise(denoise);
   if (denoise) {
     ig->set_denoiser_type(ccl::DENOISER_OPENIMAGEDENOISE);
@@ -1799,17 +1838,15 @@ const char *cy_device_name(void)
 
 const char *cy_denoiser_name(void)
 {
-  /* A COMPILE-TIME ANSWER, and it has to be: the alternative is asking the
-   * Session, whose denoiser is created lazily, on the render thread, and is
-   * null both before the first render and in a build that has none. A string
-   * that says "none" until you have rendered once is worse than no string.
+  /* ASKED OF OIDN, not of the build. See cycles_own_denoiser: a build can link
+   * OpenImageDenoise and still be unable to bring it up, because the device
+   * module is loaded by path at run time and is in no load command. This
+   * answers what will ACTUALLY denoise the next finished frame.
    *
-   * What decides it is which library the build linked, which is exactly what
-   * WITH_OPENIMAGEDENOISE means. The one thing this cannot see is OIDN
-   * declining a particular device at runtime — Denoiser::create then falls
-   * back to OIDN on the CPU, which is still OpenImageDenoise and still the
-   * right name. */
-  return kCyclesOwnDenoiser ? "OpenImageDenoise" : "a-trous";
+   * Not asked of the Session, whose denoiser is created lazily on the render
+   * thread and is null until the first render: a name that says "none" until
+   * you have rendered once is worse than no name. */
+  return cycles_own_denoiser() ? "OpenImageDenoise" : "a-trous";
 }
 
 void cy_set_resource_path(const char *path)
@@ -2167,7 +2204,7 @@ int cy_live_frame(unsigned char *rgba_out, const int capacity, CyFrame *info)
    * been through it. The one exception is a CANCELLED render, which keeps the
    * tile write and drops the denoise — and a cancel is always a view change,
    * which bumps the generation, so that frame is dropped before it is read. */
-  bool denoised = finished && kCyclesOwnDenoiser && wants_denoise(g_live.target);
+  bool denoised = finished && cycles_own_denoiser() && wants_denoise(g_live.target);
   if (finished && guided) {
     g_live.scratch.resize(cyshim::denoise_scratch_floats(w, h));
     cyshim::denoise(g_live.work.data(),

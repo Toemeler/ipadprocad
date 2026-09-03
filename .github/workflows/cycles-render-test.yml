@@ -251,6 +251,28 @@ jobs:
             echo "::warning::no render device on this runner — the render path was not exercised"
             exit 0
           fi
+          # M367 — AND IT HAS TO HAVE USED CYCLES' OWN DENOISER, not the
+          # fallback.
+          #
+          # `cy_denoiser_name` is a RUNTIME answer now: the shim asks OIDN for
+          # a device and drops to the a-trous filter if it cannot get one,
+          # because OIDN loads its device module by path at run time and a
+          # build that links the library can still be unable to bring it up.
+          # That fallback is the right behaviour and it is also the perfect
+          # place for a regression to hide — every check in render_test.c
+          # passes on either path, so a build that quietly stopped being able
+          # to use OIDN would look exactly like one that could.
+          #
+          # This step configures with -DWITH_OPENIMAGEDENOISE=ON against a
+          # macOS package that ships it, so there is exactly one right answer.
+          if [ "$RC" = "0" ]; then
+            grep -q 'denoiser is OpenImageDenoise' render.log \
+              || { echo "CYCLES DENOISER CHECK: FAIL — this build links"; \
+                   echo "  OpenImageDenoise and could not bring it up, so it fell back"; \
+                   echo "  to the a-trous filter. What the test said:"; \
+                   grep -n 'denoiser' render.log || true; exit 1; }
+            echo "== the render used Cycles' own OpenImageDenoise"
+          fi
           exit "$RC"
 
       - name: Upload logs
