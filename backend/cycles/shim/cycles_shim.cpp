@@ -1247,11 +1247,28 @@ void configure_integrator(ccl::Scene *scene, const int samples)
    * DENOISED result and not the update itself — so the progressive frames keep
    * arriving, unfiltered, at the rate the tracer produces them.
    *
-   * ACCURATE PREFILTER, HIGH QUALITY. The guides are themselves path-traced and
-   * therefore noisy at low sample counts; prefiltering them is what stops a
-   * noisy normal from carving a denoised image into facets. It costs a second
-   * OIDN pass, once per render, which against a render measured in seconds is
-   * nothing. These are Blender's own final-render defaults.
+   * BALANCED QUALITY, FAST PREFILTER — and M369 is why they are not the
+   * final-render settings they started as.
+   *
+   * The first version of this block asked for DENOISER_QUALITY_HIGH and
+   * DENOISER_PREFILTER_ACCURATE, on the reasoning that they are what Blender's
+   * F12 uses and that "against a render measured in seconds it is nothing".
+   * That reasoning counted TIME and not MEMORY, and on an iPad the memory is
+   * what there is not enough of. The app crashed at the denoise.
+   *
+   * HIGH is OIDN's large network; BALANCED is the small one, and OIDN offers it
+   * for exactly this — an interactive result at a fraction of the arena.
+   * ACCURATE prefiltering is worse still: it is not one extra pass but two
+   * SEPARATE filters, for albedo and for normal, each a network with its own
+   * allocation (`filter_guiding_pass_if_needed`). FAST instead sets `cleanAux`
+   * false and lets the one beauty filter handle noisy guides internally, which
+   * is what it is designed to do and what a viewport wants.
+   *
+   * The ceiling that makes this safe rather than merely cheaper is in
+   * backend/cycles/patches/oidn_memory.py: Cycles never sets OIDN's
+   * `maxMemoryMB`, so OIDN never tiles below 4.67 megapixels and a full
+   * viewport frame is allocated whole. These two settings cut the constant;
+   * that patch bounds the peak at any resolution. Both were needed.
    *
    * GPU when it can. `denoise_use_gpu` is a preference, not an assertion:
    * Denoiser::create falls back to OIDN on the CPU when the device cannot run
@@ -1273,8 +1290,8 @@ void configure_integrator(ccl::Scene *scene, const int samples)
     ig->set_denoise_start_sample(samples);
     ig->set_use_denoise_pass_albedo(true);
     ig->set_use_denoise_pass_normal(true);
-    ig->set_denoiser_prefilter(ccl::DENOISER_PREFILTER_ACCURATE);
-    ig->set_denoiser_quality(ccl::DENOISER_QUALITY_HIGH);
+    ig->set_denoiser_prefilter(ccl::DENOISER_PREFILTER_FAST);
+    ig->set_denoiser_quality(ccl::DENOISER_QUALITY_BALANCED);
     ig->set_denoise_use_gpu(true);
   }
 

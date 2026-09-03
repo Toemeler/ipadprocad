@@ -149,6 +149,13 @@ jobs:
       - name: Patch Cycles for progressive sampling
         run: python3 backend/cycles/patches/progressive.py
 
+      # M369 — and the ceiling on what OpenImageDenoise may allocate. Cycles
+      # never sets OIDN's `maxMemoryMB`, so OIDN never tiles below 4.67
+      # megapixels and a viewport-sized frame is allocated whole — which is
+      # what crashed the app at the denoise. See the script.
+      - name: Patch Cycles to bound the denoiser's memory
+        run: python3 backend/cycles/patches/oidn_memory.py
+
       # M367 — IS OpenImageDenoise IN THIS DEPENDENCY SET YET?
       #
       # The answer has been "no" for every run so far, and it decides which

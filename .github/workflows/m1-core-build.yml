@@ -637,6 +637,14 @@ jobs:
         if: steps.dist.outputs.cache-hit != 'true'
         run: python3 backend/cycles/patches/progressive.py
 
+      # M369 — and the ceiling on what OpenImageDenoise may allocate. Cycles
+      # never sets OIDN's `maxMemoryMB`, so OIDN never tiles below 4.67
+      # megapixels and a viewport-sized frame is allocated whole — which is
+      # what crashed the app at the denoise. See the script.
+      - name: Patch Cycles to bound the denoiser's memory
+        if: steps.dist.outputs.cache-hit != 'true'
+        run: python3 backend/cycles/patches/oidn_memory.py
+
       # M367 — WHICH DENOISER THIS BUILD WILL HAVE, asked rather than assumed.
       #
       # Cycles' own denoiser is OpenImageDenoise, it is the one Blender uses,

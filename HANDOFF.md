@@ -12163,3 +12163,71 @@ und die beiden Denoiser-Behauptungen mit echten Zahlen — Kante bleibt
 Filter das Bild um 9,4 statt um 30,2 wie bei 4.
 
 `test/m367_cycles_progressive_test.dart`, 18 Fälle.
+
+---
+
+## M369 — Der Denoiser bekommt eine Obergrenze, statt den Arbeitsspeicher
+
+> „When it came to denoising the App crashed"
+
+M367 schaltete Cycles' eigenen Denoiser ein und liess ihn das fertige Bild in
+**voller 1:1-Auflösung** entrauschen. Auf einem Mac ist das unauffällig. Auf
+einem iPad ist es die grösste einzelne Belegung des ganzen Renderings — und sie
+kommt genau in dem Moment, in dem der Prozess ohnehin schon alles hält.
+
+### Warum OIDN nicht von selbst kachelt
+
+OIDN kachelt sein Netz, wenn es muss, und entscheidet das aus zwei Zahlen
+(`core/unet_filter.cpp`):
+
+```cpp
+const int    maxTileSize       = (maxMemoryMB < 0) ? defaultMaxTileSize : INT_MAX;
+const size_t maxMemoryByteSize = (maxMemoryMB >= 0) ? maxMemoryMB << 20 : SIZE_MAX;
+```
+
+`defaultMaxTileSize` ist `2160*2160` — **4,67 Megapixel**. Ein iPad-Viewport bei
+1:1 liegt darunter, das ganze Bild wird also **eine** Kachel und das Netz am
+Stück belegt. Und weil Cycles `maxMemoryMB` **überhaupt nie setzt**, ist die
+zweite Schranke `SIZE_MAX`: es gibt keine zweite Sicherung.
+
+Dass hier die Decke ist, steht in diesem Repo bereits geschrieben —
+`ios_metal.py`, über die Pfadzustände:
+
+> „4M path states is a 1.38 GB SoA allocation ... risks a jetsam kill shortly
+> after rendering starts."
+
+Deshalb wurde der Pool auf rund 350 MB gekürzt. M367 legte obendrauf, am **Ende**
+statt am Anfang: die Guide-Pässe und ein entrauschtes Combined (rund zehn
+weitere Floats je Pixel Renderpuffer), eine Host-Kopie des ganzen Puffers für
+den CPU-Denoiser, und OIDNs Arena für eine Vier-Megapixel-Kachel.
+
+### Die Grenze, nicht das Bild
+
+`maxMemoryMB` ist genau der Mechanismus, den OIDN dafür anbietet: die Ausgabe
+bleibt in voller Auflösung — gekachelt mit Überlappung, dasselbe Bild — und
+begrenzt wird die **Spitze**. Das ist deutlich besser als kleiner zu rendern,
+was die 1:1-Schärfe kosten würde, die M353 mühsam zurückgeholt hat.
+
+256 MB, und bewusst auf der vorsichtigen Seite: zu grosszügig kostet einen
+zweiten Absturz, zu knapp kostet ein paar Sekunden.
+
+### Und die Einstellungen waren die falschen
+
+M367 verlangte `DENOISER_QUALITY_HIGH` und `DENOISER_PREFILTER_ACCURATE`, mit der
+Begründung, das seien Blenders eigene Voreinstellungen fürs Endrendering. Diese
+Begründung zählte **Zeit** und nicht **Speicher**. HIGH ist OIDNs grosses Netz,
+BALANCED das kleine — und ACCURATE ist nicht ein zusätzlicher Durchlauf, sondern
+**zwei eigene Filter** für Albedo und Normale, jeder ein Netz mit eigener
+Belegung. FAST setzt stattdessen `cleanAux` auf false und überlässt die
+verrauschten Guides dem einen Beauty-Filter, wofür er gebaut ist.
+
+Beides zusammen: die Einstellungen senken den konstanten Faktor, der Patch
+begrenzt die Spitze bei jeder Auflösung. Eines allein hätte nicht gereicht.
+
+### Was hier nicht geprüft werden konnte
+
+Der Absturz kam von einem Gerät und ohne Protokoll. Die Diagnose steht auf
+Belegen — OIDNs Kachelregel, die Zahlen aus `ios_metal.py`, und der Umstand,
+dass genau dieser Pfad in keinem CI-Job vorkommt (96×96 auf der CPU) — aber
+nicht auf einem Crash-Report. Falls es erneut abstürzt, ist der nächste Hebel
+die Renderauflösung beim Entrauschen, nicht wieder diese Konstante.
