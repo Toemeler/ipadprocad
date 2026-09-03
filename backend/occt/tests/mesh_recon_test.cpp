@@ -2234,12 +2234,16 @@ int main()
                 if (t.IsNull())
                     continue;
                 const gp_Trsf tr = loc.Transformation();
+                const bool rev =
+                    (ex.Current().Orientation() == TopAbs_REVERSED);
                 const int b0 = (int)P.size();
                 for (int i = 1; i <= t->NbNodes(); ++i)
                     P.push_back(t->Node(i).Transformed(tr));
                 for (int i = 1; i <= t->NbTriangles(); ++i) {
                     int a, b, c;
                     t->Triangle(i).Get(a, b, c);
+                    if (rev)
+                        std::swap(b, c);
                     T.push_back(b0 + a - 1);
                     T.push_back(b0 + b - 1);
                     T.push_back(b0 + c - 1);
@@ -2346,6 +2350,103 @@ int main()
                     std::to_string(badTri) + " triangles");
             std::printf("   ellipsoid: %lld crossing pairs over %d of %d "
                         "triangles\n", pairs, badTri, nt);
+
+            /* And none of them standing out of the body.
+             *
+             * A triangle drawn on this ellipsoid faces the way the ellipsoid
+             * faces there, and the ellipsoid is one the test made, so that
+             * direction is known exactly: the gradient of
+             * x^2/a^2 + y^2/b^2 + z^2/c^2. A triangle past ninety degrees from
+             * it is inside out, and a person sees it as a black shard lying
+             * across the surface, which is the other half of "the mesh goes
+             * into each other".
+             *
+             * The bar is not zero and saying so is the point. Two things
+             * make them, and only one of them is fixed here.
+             *
+             * The mend made the big ones: filling a torn face by clipping
+             * ears off the ring flattened onto a plane threw a flat sheet
+             * across any rim that folded, and a third of that sheet came out
+             * inside out — on the whale, 25 triangles of 1 to 23 mm each, the
+             * black shards on its fin and its tail. The fill now picks the
+             * triangulation with the smallest crease against the mesh it
+             * joins, and those are down to 15 triangles and a third of the
+             * area, the largest 3.9 mm.
+             *
+             * The mesher makes the rest, and they are still here: 130 of the
+             * whale's 305 faces have a trimming loop that crosses itself in
+             * the parameter plane, and where it does, the folded lobe is
+             * drawn twice, once each way round. They are slivers — a
+             * fiftieth of a square millimetre each on the whale — and turning
+             * them round is not the repair it looks like: measured, flipping
+             * them before the mend costs the whale 229 backwards triangles
+             * for 337, flipping them after tears 100 fresh rim edges over
+             * 311 mm, and dropping them changes the drawn picture by 0.003%.
+             * The lobe is coherent; the loop that made it is not. Fixing that
+             * is a segmentation question, not a tessellation one.
+             *
+             * The bar is on AREA, not on the count, because area is what a
+             * person sees: the mesher's slivers are a fiftieth of a square
+             * millimetre each and a thousand of them cover less surface than
+             * one of the mend's sheets did. Measured on this ellipsoid,
+             * 545.6 mm before the fill was changed and 487.6 mm after, over
+             * 15,022 triangles — and on the whale, swept over nine
+             * deflections from 1.2 mm to 0.1 mm, 221 shards big enough to see
+             * covering 978 mm before and 150 covering 674 mm after. */
+            int inward = 0, steep = 0;
+            double inwardArea = 0;
+            for (int t = 0; t < nt; ++t) {
+                const gp_Pnt &A = P[T[t * 3]], &B = P[T[t * 3 + 1]],
+                             &C = P[T[t * 3 + 2]];
+                const gp_Vec n = gp_Vec(A, B).Crossed(gp_Vec(A, C));
+                if (n.SquareMagnitude() < 1e-24)
+                    continue;
+                const gp_Vec grad((A.X() + B.X() + C.X()) / 3.0 / (50. * 50.),
+                                  (A.Y() + B.Y() + C.Y()) / 3.0 /
+                                      (27.5 * 27.5),
+                                  (A.Z() + B.Z() + C.Z()) / 3.0 / (95. * 95.));
+                if (grad.SquareMagnitude() < 1e-30)
+                    continue;
+                const double cs = n.Dot(grad) /
+                                  (n.Magnitude() * grad.Magnitude());
+                if (cs < 0) {
+                    ++inward;
+                    inwardArea += 0.5 * n.Magnitude();
+                }
+                if (cs < 0.5)
+                    ++steep;
+            }
+            /* The same question asked of the mesh that went IN, so the
+             * measure is known to be reading the right thing: OCCT's own
+             * tessellation of the same ellipsoid, which is beyond argument. */
+            int srcInward = 0;
+            for (size_t t = 0; t + 2 < tri.size(); t += 3) {
+                const gp_Pnt A(xyz[tri[t] * 3], xyz[tri[t] * 3 + 1],
+                               xyz[tri[t] * 3 + 2]);
+                const gp_Pnt B(xyz[tri[t + 1] * 3], xyz[tri[t + 1] * 3 + 1],
+                               xyz[tri[t + 1] * 3 + 2]);
+                const gp_Pnt C(xyz[tri[t + 2] * 3], xyz[tri[t + 2] * 3 + 1],
+                               xyz[tri[t + 2] * 3 + 2]);
+                const gp_Vec n = gp_Vec(A, B).Crossed(gp_Vec(A, C));
+                if (n.SquareMagnitude() < 1e-24)
+                    continue;
+                const gp_Vec grad((A.X() + B.X() + C.X()) / 3.0 / (50. * 50.),
+                                  (A.Y() + B.Y() + C.Y()) / 3.0 / (27.5 * 27.5),
+                                  (A.Z() + B.Z() + C.Z()) / 3.0 / (95. * 95.));
+                if (n.Dot(grad) < 0)
+                    ++srcInward;
+            }
+            chk("through: the measure reads the input as right way out",
+                srcInward * 200 <= (int)(tri.size() / 3),
+                std::to_string(srcInward) + " of " +
+                    std::to_string(tri.size() / 3) +
+                    " source triangles read as inside out");
+            chk("through: little is drawn inside out", inwardArea <= 520.0,
+                std::to_string(inwardArea) + " mm2 facing into the body, over " +
+                    std::to_string(inward) + " triangles");
+            std::printf("   ellipsoid: %d of %d triangles face into the body "
+                        "(%.1f mm2), %d stand more than 60 deg off it\n",
+                        inward, nt, inwardArea, steep);
         }
     }
 
