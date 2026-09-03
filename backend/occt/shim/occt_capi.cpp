@@ -54,6 +54,9 @@
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Common.hxx>
 #include <BRepCheck_Analyzer.hxx>
+#include <ShapeFix_Shape.hxx>
+#include <ShapeFix_ShapeTolerance.hxx>
+#include <BRepBuilderAPI_Copy.hxx>
 #include <BRepGProp.hxx>
 #include <BRepLib.hxx>
 #include <BRepBuilderAPI_TransitionMode.hxx>
@@ -766,6 +769,198 @@ extern "C" occt_shape *occt_unify(const occt_shape *shape)
     OCCT_CATCH("occt_unify", nullptr)
 }
 
+/* The worst tolerance anywhere in a shape — how accurate it actually is.
+ *
+ * A shape is only as good as its sloppiest edge, so this one number is what
+ * both the STEP writer (what accuracy the file should declare) and the
+ * boolean repair below (what a repair is allowed to spend) need to know. */
+static double shape_worst_tolerance(const TopoDS_Shape &s)
+{
+    double t = 0.0;
+    if (s.IsNull())
+        return 0.0;
+    try {
+        for (TopExp_Explorer e(s, TopAbs_FACE); e.More(); e.Next())
+            t = std::max(t, BRep_Tool::Tolerance(TopoDS::Face(e.Current())));
+        for (TopExp_Explorer e(s, TopAbs_EDGE); e.More(); e.Next())
+            t = std::max(t, BRep_Tool::Tolerance(TopoDS::Edge(e.Current())));
+        for (TopExp_Explorer e(s, TopAbs_VERTEX); e.More(); e.Next())
+            t = std::max(t, BRep_Tool::Tolerance(TopoDS::Vertex(e.Current())));
+    } catch (const Standard_Failure &) {
+        return 0.0;
+    }
+    return t;
+}
+
+/* Whether the kernel will call this shape a solid it can work on. */
+static bool shape_is_valid(const TopoDS_Shape &s)
+{
+    try {
+        return BRepCheck_Analyzer(s).IsValid() == Standard_True;
+    } catch (const Standard_Failure &) {
+        return false;
+    } catch (...) {
+        return false;
+    }
+}
+
+/* Did a repair MEND the body, or replace it with a different one that happens
+ * to pass the check?
+ *
+ * By the FACES, and only coarsely by the weight.
+ *
+ * A repair confined to a budget cannot move any point further than that
+ * budget, so what is left to rule out is restructuring — and the face is the
+ * unit that matters there: a face dropped or invented is a different body, and
+ * it is the only change of that kind ShapeFix can make that a user would see.
+ * Edges and vertices are NOT counted, because splitting one is how the repair
+ * works: mending the whale's intersect turns 224 edges into 226 and 448
+ * vertices into 452, all 40 faces intact, and demanding those match threw the
+ * repair away and handed back the invalid shape.
+ *
+ * The weight is the belt to that brace, and it is deliberately loose —
+ * BRepGProp is not accurate enough on trimmed B-spline faces to justify
+ * anything tighter. Measured on the whale, cut twice with a boss fused between
+ * the cuts: the repair that mends it moves the TRIANGLES THE APP DRAWS by
+ * 0.032% and keeps all 325 faces, while BRepGProp reports the same repair as
+ * -0.240% — seven times larger and the other way round. On the broom, GProp
+ * reads one unchanged planar face as 79.53 mm2 and then as 88.79 mm2 across a
+ * STEP round trip that leaves its wire, its pcurves and its 2D signed area
+ * identical to five decimals. A percent is past anything that noise explains
+ * and far under what dropping real geometry costs. */
+static bool same_body(const TopoDS_Shape &a, const TopoDS_Shape &b)
+{
+    try {
+        int na = 0, nb = 0;
+        for (TopExp_Explorer e(a, TopAbs_FACE); e.More(); e.Next())
+            ++na;
+        for (TopExp_Explorer e(b, TopAbs_FACE); e.More(); e.Next())
+            ++nb;
+        if (na != nb)
+            return false;
+        GProp_GProps ga, gb;
+        BRepGProp::VolumeProperties(a, ga);
+        BRepGProp::VolumeProperties(b, gb);
+        const double want = std::abs(ga.Mass());
+        if (!(want > 0.0))
+            return true;
+        return std::abs(gb.Mass() - ga.Mass()) <= want * 1.0e-2;
+    } catch (const Standard_Failure &) {
+        return false;
+    } catch (...) {
+        return false;
+    }
+}
+
+/* Bring a boolean's result back inside the accuracy its operands had.
+ *
+ * v31. Cutting a hole through a body converted from a mesh gave a solid that
+ * BRepCheck_Analyzer refuses: two of its B-spline faces come back invalid,
+ * and the shell and the solid inherit it. Nothing after that works — a fillet
+ * on the result fails on every one of its 709 edges, and what STEP writes
+ * comes back invalid too. The same body BEFORE the cut is valid and rounds
+ * happily, so it is the boolean's own output that is at fault.
+ *
+ * It is not a rare corner. Drilling the whale at nine spots across its
+ * bounding box left the result invalid at five of them, and neither
+ * HasErrors nor HasWarnings on the operation reported anything at any of the
+ * nine — the only way to find out is to check.
+ *
+ * M366 — WHAT IS ACTUALLY WRONG, and what a repair may spend.
+ *
+ * The boolean SMEARS tolerance. All nine of those cuts came back carrying
+ * 11.96 mm on a 214 mm body: eleven times the 1.07 mm that went in, whether
+ * the result was legal or not. That is the disease, and invalidity is one of
+ * its symptoms — the others are a STEP file that then declares 12 mm of
+ * uncertainty, and a second cut that inherits 12 mm as its own budget and
+ * smears from there.
+ *
+ * So the cure is stated in the operands: a result may be no less accurate
+ * than the shapes it was made from, and a repair may spend what those shapes
+ * were worth (see the bound at the ShapeFix below for why mending a corner is
+ * allowed twice that). A box and a cylinder at 1e-7 get a tight repair; a
+ * converted whale at 1.07 mm gets 1.07 mm.
+ *
+ * Measured over those nine cuts: holding the result to the operands' own
+ * tolerance leaves the four legal ones legal and takes 11.96 mm back down to
+ * 1.07 mm with the volume unmoved, and turns the five illegal ones legal once
+ * ShapeFix runs (worst tolerance 1.07 to 2.06). The earlier version of this
+ * used a tight budget regardless of the operands: it left one of them invalid
+ * and left all nine at 11.96 mm.
+ *
+ * The tightened or healed shape is kept only if it is genuinely valid and is
+ * the same body. Anything else and the raw result stands, which is what
+ * shipped before, so this cannot make a working boolean worse.
+ *
+ * COST. A shape already inside its budget and already valid pays one
+ * BRepCheck_Analyzer pass and nothing else — 3 ms for a cut box, which is the
+ * case the app is in nearly all of the time. Only a result that is loose or
+ * broken pays for the copy, the cap and the second check. */
+static TopoDS_Shape settle_boolean(const TopoDS_Shape &raw, double budget,
+                                   const char *who)
+{
+    if (raw.IsNull())
+        return raw;
+    /* Confusion x 100 is the floor: below it there is nothing to hold a
+     * boolean to that it does not already meet. */
+    const double bar = std::max(Precision::Confusion() * 100.0, budget);
+    try {
+        const bool loose = shape_worst_tolerance(raw) > bar;
+        if (!loose && shape_is_valid(raw))
+            return raw; /* nothing to do, and nothing touched */
+
+        /* Everything past here MODIFIES, so it happens on a copy. A boolean
+         * result shares the TShape of every operand face the operation did
+         * not have to touch, and both ShapeFix_ShapeTolerance and
+         * ShapeFix_Shape write tolerances straight into it — so repairing the
+         * result in place walks back up into the body the user still has open.
+         * Measured before this copy existed: nine cuts in a row took the
+         * whale's own vertices from 1.07 mm to 2.06 mm without anyone
+         * touching the whale. */
+        TopoDS_Shape base = BRepBuilderAPI_Copy(raw).Shape();
+        if (base.IsNull())
+            return raw;
+        if (loose) {
+            /* Writing tolerance values moves no geometry, so there is nothing
+             * to compare afterwards; only the validity of the result is in
+             * question. */
+            ShapeFix_ShapeTolerance st;
+            st.LimitTolerance(base, Precision::Confusion(), bar);
+        }
+        if (shape_is_valid(base))
+            return base;
+        /* TWICE the operands' accuracy, and only here. The cap above states
+         * what the RESULT may be worth: no less accurate than what it was made
+         * from. Mending is a different question — what it costs to close a gap
+         * at a CORNER, where two edges each uncertain by the operands' own
+         * tolerance meet, and that is worth two of them. Measured, both cases
+         * that needed mending needed more than one: the ellipsoid's fifth hole
+         * wants 1.17x and the whale's second hole 1.71x, and at exactly 1x
+         * both stay broken. What ShapeFix then actually spends is its own
+         * business — it came back at 0.80 mm and 1.84 mm, not at the bound. */
+        Handle(ShapeFix_Shape) fx = new ShapeFix_Shape(base);
+        fx->SetPrecision(Precision::Confusion());
+        fx->SetMaxTolerance(bar * 2.0);
+        fx->Perform();
+        const TopoDS_Shape h = fx->Shape();
+        if (!h.IsNull() && shape_is_valid(h) && same_body(raw, h))
+            return h;
+    } catch (const Standard_Failure &) {
+        return raw;
+    } catch (...) {
+        return raw;
+    }
+    (void)who;
+    return raw;
+}
+
+/* The repair budget for a boolean: whichever operand was less accurate. */
+static double boolean_repair_budget(const occt_shape *a, const occt_shape *b)
+{
+    return std::max(shape_worst_tolerance(a ? a->s : TopoDS_Shape()),
+                    shape_worst_tolerance(b ? b->s : TopoDS_Shape()));
+}
+
 extern "C" occt_shape *occt_fuse(const occt_shape *a, const occt_shape *b)
 {
     OCCT_TRY("occt_fuse")
@@ -773,12 +968,32 @@ extern "C" occt_shape *occt_fuse(const occt_shape *a, const occt_shape *b)
         set_err("occt_fuse", "null operand");
         return nullptr;
     }
-    BRepAlgoAPI_Fuse fuse(a->s, b->s);
+    /* BEFORE the operation. A boolean RETOLERANCES ITS OPERANDS: BOPAlgo
+     * widens the tolerance of a shared vertex or edge until the intersection
+     * it found fits inside it, and it does that to the argument shapes
+     * themselves, which the app is still holding in its feature tree. Read
+     * afterwards, the whale's 1.07 mm came back as the 11.96 mm the cut had
+     * just smeared onto it — so the budget below would have been the disease
+     * measuring itself. */
+    const double budget = boolean_repair_budget(a, b);
+    BRepAlgoAPI_Fuse fuse;
+    TopTools_ListOfShape args, tools;
+    args.Append(a->s);
+    tools.Append(b->s);
+    fuse.SetArguments(args);
+    fuse.SetTools(tools);
+    /* M366 — and do not let it retolerance them at all. Non-destructive mode
+     * makes BOPAlgo work on its own copies of anything it would have had to
+     * modify, so a body the user still has open is the body they had before
+     * the cut — including after a boolean that FAILS, or one run for a
+     * preview and thrown away. */
+    fuse.SetNonDestructive(Standard_True);
+    fuse.Build();
     if (!fuse.IsDone()) {
         set_err("occt_fuse", "boolean fuse did not complete");
         return nullptr;
     }
-    return wrap(fuse.Shape(), "occt_fuse");
+    return wrap(settle_boolean(fuse.Shape(), budget, "occt_fuse"), "occt_fuse");
     OCCT_CATCH("occt_fuse", nullptr)
 }
 
@@ -858,6 +1073,8 @@ static TopoDS_Shape cut_at(const TopoDS_Shape &a, const TopoDS_Shape &b,
     tools.Append(b);
     op.SetArguments(args);
     op.SetTools(tools);
+    /* M366 — leave the operands as they were found. See occt_fuse. */
+    op.SetNonDestructive(Standard_True);
     if (fuzzy > 0.0)
         op.SetFuzzyValue(fuzzy);
     op.Build();
@@ -873,6 +1090,7 @@ extern "C" occt_shape *occt_cut(const occt_shape *a, const occt_shape *b)
         set_err("occt_cut", "null operand");
         return nullptr;
     }
+    const double budget = boolean_repair_budget(a, b); /* before — see occt_fuse */
     TopoDS_Shape r = cut_at(a->s, b->s, 0.0);
     if (r.IsNull()) {
         set_err("occt_cut", "boolean cut did not complete");
@@ -934,7 +1152,7 @@ extern "C" occt_shape *occt_cut(const occt_shape *a, const occt_shape *b)
         set_err("occt_cut", "cut removed all material (empty result)");
         return nullptr;
     }
-    return wrap(r, "occt_cut");
+    return wrap(settle_boolean(r, budget, "occt_cut"), "occt_cut");
     OCCT_CATCH("occt_cut", nullptr)
 }
 
@@ -945,7 +1163,15 @@ extern "C" occt_shape *occt_common(const occt_shape *a, const occt_shape *b)
         set_err("occt_common", "null operand");
         return nullptr;
     }
-    BRepAlgoAPI_Common common(a->s, b->s);
+    const double budget = boolean_repair_budget(a, b); /* before — see occt_fuse */
+    BRepAlgoAPI_Common common;
+    TopTools_ListOfShape args, tools;
+    args.Append(a->s);
+    tools.Append(b->s);
+    common.SetArguments(args);
+    common.SetTools(tools);
+    common.SetNonDestructive(Standard_True);
+    common.Build();
     if (!common.IsDone()) {
         set_err("occt_common", "boolean common did not complete");
         return nullptr;
@@ -955,7 +1181,7 @@ extern "C" occt_shape *occt_common(const occt_shape *a, const occt_shape *b)
         set_err("occt_common", "inputs do not overlap (empty result)");
         return nullptr;
     }
-    return wrap(r, "occt_common");
+    return wrap(settle_boolean(r, budget, "occt_common"), "occt_common");
     OCCT_CATCH("occt_common", nullptr)
 }
 
@@ -1846,6 +2072,22 @@ extern "C" void occt_free_mesh(occt_mesh *m)
 
 /* ---- STEP ------------------------------------------------------------------ */
 
+/* The accuracy a shape can honestly claim, for the file to declare.
+ *
+ * The worst tolerance anywhere in it — a shape is only as accurate as its
+ * sloppiest edge, and the uncertainty has to cover the sloppiest one or the
+ * reader will hold the whole body to a number it cannot meet.
+ *
+ * The 5% margin is headroom for the trip through decimal text and back: the
+ * value is written as a literal, parsed again, and then compared against
+ * tolerances the reader recomputes itself, and a bound that is exactly equal
+ * to what is needed has nothing to give. Floored at Precision::Confusion(),
+ * which is the smallest distance the kernel considers a distance at all. */
+static double step_shape_precision(const TopoDS_Shape &s)
+{
+    return std::max(Precision::Confusion(), shape_worst_tolerance(s) * 1.05);
+}
+
 /* M214 — the write-side translation parameters, pinned EXPLICITLY.
  *
  * Every one of these has an OCCT default, and until M214 the exporter relied
@@ -1890,9 +2132,38 @@ static int step_write_setup(void)
      * trimmed cylindrical face (i.e. every hole in this app) survive the
      * trip into a reader that rebuilds surfaces from pcurves. */
     Interface_Static::SetIVal("write.surfacecurve.mode", 1);
-    /* Tolerances come from the shape itself rather than a fixed value, so a
-     * fillet built at 1e-7 does not get flattened to a coarser global. */
-    Interface_Static::SetIVal("write.precision.mode", 0);
+    /* M366 — the file DECLARES the accuracy of the body in it, and each body
+     * declares its own.
+     *
+     * A STEP file carries one uncertainty per representation context, and the
+     * reader believes it: on the way back in, every tolerance is re-derived
+     * from the geometry and then held to that number. So the uncertainty is
+     * not decoration — it is the contract that decides whether the shape that
+     * comes back is the shape that went out.
+     *
+     * Mode 0 (Average) wrote the MEAN tolerance of the shape. On anything the
+     * app builds itself that is right, because every tolerance is 1e-7 and the
+     * mean is 1e-7. On a body reconstructed from a mesh it is not: the whale's
+     * faces meet to 1.07 mm at their worst and to nothing at all at their
+     * best, so the mean came out at 0.1 mm, the reader capped the shape at
+     * 0.87 mm, and a wire that needed 1.07 mm to be legal stopped being legal.
+     * The body was valid when written and invalid when read — and since the
+     * app persists a converted body AS its STEP file (see importMeshIntoPart),
+     * that is the body you get back when you reopen the part.
+     *
+     * Mode 1 (Max) is what this wants and is not what it does: OCCT clamps its
+     * own computed tolerance at 1.0 mm before writing it (STEPControl_ActorWrite
+     * ::UsedTolerance), which is under what the whale needs. Mode 2 takes the
+     * number given here with no clamp, and — because write.precision.val is
+     * read at TRANSFER time, exactly like write.step.product.name — a value set
+     * between transfers gives each body its own uncertainty. A precision part
+     * and a converted mesh in one file each get an honest one.
+     *
+     * Measured, whale/broom/toka, uncertainty from the shape vs mode 0:
+     * whale INVALID -> valid and volume drift 0.041% -> 0.0028%; toka 0.028%
+     * -> 0.0000%; broom unchanged. A 20 x 30 x 40 box still writes 1.2e-07 and
+     * still comes back exact. */
+    Interface_Static::SetIVal("write.precision.mode", 2);
 
     /* Read back rather than trust the setter: SetCVal on an unregistered or
      * mis-spelled parameter returns quietly and leaves the old value in
@@ -1948,6 +2219,10 @@ extern "C" int occt_export_step_named(const occt_shape **shapes,
          * — between transfers — is what gives each body its own name. */
         const char *nm = (names && names[i] && *names[i]) ? names[i] : doc;
         Interface_Static::SetCVal("write.step.product.name", nm);
+        /* Read at transfer time too, so this body's own uncertainty is the one
+         * written into its own representation context. */
+        Interface_Static::SetRVal("write.precision.val",
+                                  step_shape_precision(shapes[i]->s));
         if (writer.Transfer(shapes[i]->s, STEPControl_AsIs)
             != IFSelect_RetDone) {
             /* Name the body that failed. "transfer failed" on a ten-body part
@@ -3144,7 +3419,19 @@ static double solid_volume(const TopoDS_Shape &s)
  * "the fillet looks broken" report this function exists to stop.
  *
  * `base_vol` is the volume before the blend, or -1 to skip the volume gate. */
-static bool blend_result_ok(const TopoDS_Shape &out, double base_vol)
+/* The slack a blend may add to the body it is rounding, when the body is
+ * already an approximate one.
+ *
+ * A body the app builds itself carries 1e-7 everywhere, and so does every
+ * blend of it: measured over 43 fillets on a box, a cylinder, a drilled box
+ * and a drilled-and-filleted box, not one result came back above the body's
+ * own tolerance. So on a precision part this floor is what applies and it is
+ * never approached — 0.1 micrometres, a thousand times OCCT's own confusion
+ * and far below anything a process could hold. */
+static const double kBlendToleranceFloor = 1.0e-4;
+
+static bool blend_result_ok(const TopoDS_Shape &out, double base_vol,
+                            double base_tol)
 {
     if (!has_solid_material(out))
         return false;
@@ -3159,7 +3446,31 @@ static bool blend_result_ok(const TopoDS_Shape &out, double base_vol)
     } else if (!(v > 0.0)) {
         return false;
     }
-    return BRepCheck_Analyzer(out).IsValid() == Standard_True;
+    if (BRepCheck_Analyzer(out).IsValid() != Standard_True)
+        return false;
+    /* M366 — AND IT MAY NOT HAVE BOUGHT ITS VALIDITY WITH TOLERANCE.
+     *
+     * BRepFilletAPI can hand back a shape that passes the check only because
+     * it widened the body's edges until the mess fits inside them. Rounding
+     * one edge of the converted whale returned a "valid" solid carrying 19.16
+     * mm on a 214 mm body — eighteen times the 1.07 mm that went in — and
+     * that solid does not survive its own STEP file (it comes back invalid,
+     * 1.1% lighter) and cannot be cut afterwards. The whale's four OTHER
+     * roundable edges all came back at exactly 1.07 mm and all four round-trip
+     * clean, so this is one bad build among good ones, not the price of
+     * rounding an approximate body.
+     *
+     * Refusing the build here rather than at the entry point is what makes it
+     * cheap to be strict: the ladder simply moves on to the next rung or the
+     * next subset, and the caller gets whatever DOES round properly.
+     *
+     * Twice the base, because a blend meets the body along two new edges and
+     * a corner where two of those meet is worth two of them — the same
+     * reasoning as the boolean repair budget. */
+    if (shape_worst_tolerance(out) >
+        std::max(kBlendToleranceFloor, 2.0 * base_tol))
+        return false;
+    return true;
 }
 
 /* The relative sizes a blend is retried at.
@@ -3196,7 +3507,8 @@ static TopoDS_Shape try_fillet_build(const TopoDS_Shape &base,
                                      const std::vector<int> &use,
                                      const int *edge_ids, const double *radii,
                                      const double *radii2, double scale,
-                                     ChFi3d_FilletShape fshape, double base_vol)
+                                     ChFi3d_FilletShape fshape, double base_vol,
+                                     double base_tol)
 {
     try {
         BRepFilletAPI_MakeFillet mk(base, fshape);
@@ -3220,7 +3532,7 @@ static TopoDS_Shape try_fillet_build(const TopoDS_Shape &base,
         if (!mk.IsDone())
             return TopoDS_Shape();
         const TopoDS_Shape out = mk.Shape();
-        if (!blend_result_ok(out, base_vol))
+        if (!blend_result_ok(out, base_vol, base_tol))
             return TopoDS_Shape();
         return out;
     } catch (const Standard_Failure &) {
@@ -3239,7 +3551,7 @@ static TopoDS_Shape try_chamfer_build(
     const TopTools_IndexedDataMapOfShapeListOfShape &edgeFaces,
     const std::vector<int> &use, const int *edge_ids, const int *modes,
     const double *d1, const double *d2, const double *angle_deg, double scale,
-    double base_vol)
+    double base_vol, double base_tol)
 {
     try {
         BRepFilletAPI_MakeChamfer mk(base);
@@ -3274,7 +3586,7 @@ static TopoDS_Shape try_chamfer_build(
         if (!mk.IsDone())
             return TopoDS_Shape();
         const TopoDS_Shape out = mk.Shape();
-        if (!blend_result_ok(out, base_vol))
+        if (!blend_result_ok(out, base_vol, base_tol))
             return TopoDS_Shape();
         return out;
     } catch (const Standard_Failure &) {
@@ -3297,6 +3609,7 @@ struct blend_ctx
     const int *modes;             /* chamfer */
     const double *d1, *d2, *angle_deg;
     double base_vol;
+    double base_tol; /* how accurate the body being blended already is */
     int builds; /* consumed budget, mutated as we go */
 };
 
@@ -3316,10 +3629,11 @@ static TopoDS_Shape blend_at(blend_ctx &c, const std::vector<int> &use,
     ++c.builds;
     if (c.fillet)
         return try_fillet_build(*c.base, *c.emap, use, c.edge_ids, c.radii,
-                                c.radii2, scale, ChFi3d_Rational, c.base_vol);
+                                c.radii2, scale, ChFi3d_Rational, c.base_vol,
+                                c.base_tol);
     return try_chamfer_build(*c.base, *c.emap, *c.edgeFaces, use, c.edge_ids,
                              c.modes, c.d1, c.d2, c.angle_deg, scale,
-                             c.base_vol);
+                             c.base_vol, c.base_tol);
 }
 
 /* Walk the size ladder for one edge set. Reports the rung that worked. */
@@ -3530,6 +3844,7 @@ extern "C" occt_shape *occt_fillet_edges_ex(const occt_shape *shape,
     c.modes = nullptr;
     c.d1 = c.d2 = c.angle_deg = nullptr;
     c.base_vol = solid_volume(shape->s);
+    c.base_tol = shape_worst_tolerance(shape->s);
     c.builds = 0;
 
     /* Everything not in `keep` is already out (degenerate edges); the search
@@ -3735,6 +4050,7 @@ extern "C" occt_shape *occt_chamfer_edges_ex(
     c.d2 = d2;
     c.angle_deg = angle_deg;
     c.base_vol = solid_volume(shape->s);
+    c.base_tol = shape_worst_tolerance(shape->s);
     c.builds = 0;
 
     std::vector<char> sub(n, 1);

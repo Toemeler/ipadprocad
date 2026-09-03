@@ -4949,6 +4949,193 @@ int main(void)
         occt_free_shape(sleeve); occt_free_shape(bore); occt_free_shape(outer);
     }
 
+    /* [43] M366 — A BODY CONVERTED FROM A MESH IS A BODY YOU CAN WORK ON.
+     *
+     * Everything else in this file works on shapes the app builds itself,
+     * where every tolerance is 1e-7. A body reverse-engineered from triangles
+     * is not like that: its faces meet to a fraction of a millimetre, and that
+     * is honest — it is what the triangles say. What is not acceptable is what
+     * that used to do to everything downstream.
+     *
+     * The fixture is an ellipsoid, built here rather than by OCCT so the test
+     * carries its own input: 96 x 60 quads over a 20 x 14 x 10 mm ellipsoid.
+     * The density is the point of it. Swept, the same ellipsoid at 32 x 20 and
+     * 48 x 30 reconstructs FACETED — 576 and 1344 faces, every tolerance at
+     * 1e-7 — and none of what follows is exercised at all; from 64 x 40 up it
+     * is FITTED, and at 96 x 60 it is 11,328 triangles over 69 freeform faces
+     * carrying 0.69 mm. A cheaper fixture here is not a cheaper test, it is no
+     * test.
+     *
+     * Three things are asserted, and all three FAILED before M366:
+     *
+     *   a) A CUT COMES BACK LEGAL. Drilling the whale at nine spots across
+     *      its box left the result invalid at five of them, and neither
+     *      HasErrors nor HasWarnings reported anything at any of the nine.
+     *      An invalid solid cannot be filleted, cannot be written, and cannot
+     *      be cut again.
+     *   b) A CUT DOES NOT DAMAGE THE BODY IT CUT. BOPAlgo retolerances its
+     *      ARGUMENTS — nine cuts in a row took the whale's own vertices from
+     *      1.07 mm to 2.06 mm without anyone touching the whale — so cutting
+     *      the same body repeatedly used to make it worse each time, including
+     *      on cuts thrown away as previews.
+     *   c) IT SURVIVES ITS OWN FILE. The app persists a converted body AS its
+     *      STEP file and re-reads it on every open, so a round trip that does
+     *      not come back valid is a body that breaks when you reopen the part.
+     *
+     * The assertions are on VALIDITY and VOLUME through the C ABI, which is
+     * what the app can see. */
+    {
+        enum { kNu = 96, kNv = 60 };
+        static double exyz[(kNv + 1) * kNu * 3];
+        static int etri[kNv * kNu * 2 * 3];
+        int nv = 0, nt = 0, iu = 0, iv = 0;
+        const double kPi43 = 3.14159265358979323846;
+        const double ra = 20.0, rb = 14.0, rc = 10.0;
+        /* poles included as rings so the strip loop needs no special case */
+        for (iv = 0; iv <= kNv; ++iv) {
+            const double v = kPi43 * (double)iv / (double)kNv;
+            for (iu = 0; iu < kNu; ++iu) {
+                const double u = 2.0 * kPi43 * (double)iu / (double)kNu;
+                exyz[nv * 3 + 0] = ra * sin(v) * cos(u);
+                exyz[nv * 3 + 1] = rb * sin(v) * sin(u);
+                exyz[nv * 3 + 2] = rc * cos(v);
+                ++nv;
+            }
+        }
+        for (iv = 0; iv < kNv; ++iv)
+            for (iu = 0; iu < kNu; ++iu) {
+                const int a = iv * kNu + iu;
+                const int b = iv * kNu + (iu + 1) % kNu;
+                const int c = (iv + 1) * kNu + iu;
+                const int d = (iv + 1) * kNu + (iu + 1) % kNu;
+                if (iv > 0) { /* the top ring is a single point: no fan there */
+                    etri[nt * 3 + 0] = a; etri[nt * 3 + 1] = c;
+                    etri[nt * 3 + 2] = d; ++nt;
+                }
+                if (iv < kNv - 1) {
+                    etri[nt * 3 + 0] = a; etri[nt * 3 + 1] = d;
+                    etri[nt * 3 + 2] = b; ++nt;
+                }
+            }
+        {
+            int rint[8]; double rreal[8];
+            occt_shape *body = occt_brep_from_mesh(exyz, nv, etri, nt, 1,
+                                                   0, 0, 0, rint, rreal);
+            if (check(body != NULL, "[43] the ellipsoid mesh did not convert")) {
+                const double v0 = occt_shape_volume(body);
+                int nf0 = 0, spot = 0, made = 0, legal = 0;
+                occt_shape_counts(body, &nf0, NULL, NULL);
+                check(occt_shape_valid(body) == 1,
+                      "[43] the converted body is not a valid solid");
+                check(v0 > 0.0, "[43] the converted body has no volume");
+                printf("[43] converted %d triangles -> %d faces, volume %.3f "
+                       "(the ellipsoid itself is %.3f)\n", nt, nf0, v0,
+                       4.0 / 3.0 * kPi43 * ra * rb * rc);
+
+                /* (a) and (b): nine holes, each drilled through the SAME
+                 * original body, every one of which has to come back legal —
+                 * and the body has to be as good after the ninth as before
+                 * the first. */
+                for (spot = 0; spot < 9; ++spot) {
+                    const double x = -12.0 + 3.0 * (double)(spot % 3);
+                    const double y = -8.0 + 4.0 * (double)(spot / 3);
+                    occt_shape *drill = occt_make_cylinder(x, y, -30.0, 1.5, 60.0);
+                    occt_shape *holed = drill ? occt_cut(body, drill) : NULL;
+                    if (holed) {
+                        ++made;
+                        if (occt_shape_valid(holed) == 1) ++legal;
+                        occt_free_shape(holed);
+                    }
+                    occt_free_shape(drill);
+                }
+                printf("[43] %d of %d holes came back a valid solid; the body "
+                       "is now %s at volume %.3f (was %.3f)\n", legal, made,
+                       occt_shape_valid(body) ? "still valid" : "BROKEN",
+                       occt_shape_volume(body), v0);
+                check(made == 9, "[43] a hole through the converted body "
+                                 "could not be cut at all");
+                check(legal == made,
+                      "[43] a hole cut through a converted body came back as "
+                      "a solid the kernel refuses — nothing downstream of it "
+                      "works, and the operation reports no error at all");
+                check(occt_shape_valid(body) == 1 &&
+                          near_rel(occt_shape_volume(body), v0, 1e-9),
+                      "[43] cutting the body CHANGED the body — the boolean "
+                      "wrote back into the shape it was given, which the app "
+                      "is still holding in its feature tree");
+
+                /* (c) out to STEP and back, then cut the body that comes
+                 * back, which is the one a reopened part is made of. */
+                {
+                    const char *p43 = "/tmp/prototype-occt-m352.step";
+                    if (check(occt_export_step(body, p43) == 1,
+                              "[43] the converted body did not write to STEP")) {
+                        /* WHAT THE FILE CLAIMS TO BE WORTH. A STEP reader
+                         * re-derives every tolerance from the geometry and
+                         * then holds the shape to the file's declared
+                         * uncertainty, so that one number decides whether the
+                         * body that comes back is the body that went out. This
+                         * ellipsoid's faces meet to 0.69 mm; the file has to
+                         * say so. Writing the shape's AVERAGE tolerance, which
+                         * is what the writer did before M366, declared 0.02 mm
+                         * here — thirty-four times more accurate than the body
+                         * is — and on the whale that understatement is what
+                         * made the reopened body invalid. */
+                        FILE *sf43 = fopen(p43, "rb");
+                        double unc43 = -1.0;
+                        if (sf43) {
+                            char ln43[1024];
+                            while (fgets(ln43, sizeof ln43, sf43)) {
+                                const char *q43 =
+                                    strstr(ln43, "UNCERTAINTY_MEASURE_WITH_UNIT");
+                                if (!q43) continue;
+                                q43 = strstr(ln43, "LENGTH_MEASURE(");
+                                if (q43) unc43 = atof(q43 + 15);
+                                break;
+                            }
+                            fclose(sf43);
+                        }
+                        printf("[43] the file declares an uncertainty of %g mm "
+                               "(the body's faces meet to about 0.69)\n", unc43);
+                        check(unc43 >= 0.1,
+                              "[43] the STEP file claims the converted body is "
+                              "far more accurate than it is — a reader believes "
+                              "that number and holds the shape to it");
+                        occt_shape *back = occt_import_step(p43);
+                        if (check(back != NULL,
+                                  "[43] the STEP file did not read back")) {
+                            const double vb = occt_shape_volume(back);
+                            occt_shape *d43 =
+                                occt_make_cylinder(0, 0, -30.0, 2.0, 60.0);
+                            occt_shape *again = d43 ? occt_cut(back, d43) : NULL;
+                            printf("[43] reopened from STEP: %s, volume %.3f "
+                                   "(was %.3f); cutting it again: %s\n",
+                                   occt_shape_valid(back) ? "valid" : "INVALID",
+                                   vb, v0,
+                                   again ? (occt_shape_valid(again) ? "valid"
+                                                                    : "INVALID")
+                                         : "failed");
+                            check(occt_shape_valid(back) == 1,
+                                  "[43] the body came back from its own STEP "
+                                  "file invalid — that is the body a reopened "
+                                  "part is built from");
+                            check(near_rel(vb, v0, 1e-2),
+                                  "[43] the STEP round trip changed the "
+                                  "body's volume");
+                            check(again != NULL && occt_shape_valid(again) == 1,
+                                  "[43] the reopened body cannot be cut");
+                            occt_free_shape(again);
+                            occt_free_shape(d43);
+                            occt_free_shape(back);
+                        }
+                        remove(p43);
+                    }
+                }
+                occt_free_shape(body);
+            }
+        }
+    }
+
     if (g_failures == 0) {
         printf("OCCT SMOKE: PASS\n");
         return 0;

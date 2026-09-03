@@ -63,7 +63,17 @@ occt_shape *occt_make_cylinder(double cx, double cy, double cz,
 occt_shape *occt_extrude_polygon(const double *xy, int npts, double height);
 
 /* Boolean fuse (union) of two solids. Inputs stay owned by the caller and
- * remain valid. NULL on failure. */
+ * remain valid. NULL on failure.
+ *
+ * M366 — and they remain UNCHANGED, which is not the same thing and did not
+ * used to be true: OCCT's booleans widen the tolerance of their own arguments
+ * to make an intersection fit, so a body cut nine times came out nine times
+ * sloppier than it went in, previews included. All three booleans here run
+ * non-destructively and never write back into what they were given.
+ *
+ * The RESULT is held to the accuracy of the operands: no looser than the
+ * shapes it was made from, and repaired inside that budget if the operation
+ * left it in a state the kernel refuses. See settle_boolean in occt_capi.cpp. */
 occt_shape *occt_fuse(const occt_shape *a, const occt_shape *b);
 
 /* v5 — Boolean cut (difference a \ b): the material of `a` with the material
@@ -177,7 +187,14 @@ int occt_bbox(const occt_shape *shape, double *out6);
 /* ---- STEP exchange ----------------------------------------------------- */
 
 /* Write the shape to a STEP (AP214IS, AsIs, millimetres) file at `path`.
- * Returns 1/0. Exactly occt_export_step_named with one unnamed body. */
+ * Returns 1/0. Exactly occt_export_step_named with one unnamed body.
+ *
+ * M366 — the file declares the accuracy of the body in it, and each body
+ * declares its own: a part built here writes 1e-7, a body reverse-engineered
+ * from a mesh writes what its faces actually meet to. A reader re-derives
+ * every tolerance from the geometry and then holds the shape to that declared
+ * number, so understating it is how a body that was valid on the way out
+ * comes back invalid. */
 int occt_export_step(const occt_shape *shape, const char *path);
 
 /*
