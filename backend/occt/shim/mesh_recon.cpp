@@ -1772,7 +1772,8 @@ const double kFreeformApproxFraction = 0.25;
  * so it means the same on a region of two hundred vertices and one of twenty
  * thousand. The ridge is smaller again and exists only so the Cholesky cannot
  * meet a zero on a net row no vertex reaches. */
-const double kFreeformFairing = 2.0e-7;
+const double kFreeformFairing = []{ const char*e=std::getenv("MR_FAIR");
+    return e ? std::atof(e) : 2.0e-7; }();
 const double kFreeformRidge = 1.0e-9;
 /* Triangles sampled when asking how far the surface goes BETWEEN the data. */
 const int kFreeformBetweenSamples = 2000;
@@ -1794,7 +1795,8 @@ const double kVolumeDivergenceBar = 0.25;
  * free — badly, from cells the region never reached — and the fairing term
  * now supplies it properly, by continuing the surface rather than inventing
  * heights for it. */
-const double kFreeformNetMargin = 0.06;
+const double kFreeformNetMargin = []{ const char*e=std::getenv("MR_MARGIN");
+    return e ? std::atof(e) : 0.06; }();
 
 /* Above this many faces, sewing is not a fallback, it is a hang.
  *
@@ -8887,6 +8889,7 @@ public:
         inv_ = loc.Transformation().Inverted();
         rev_ = (f.Orientation() == TopAbs_REVERSED);
         was_ = tri_->NbNodes();
+        wasTri_ = tri_->NbTriangles();
         for (size_t v = 0; v < d.pos.size(); ++v)
             if (d.ofFace[v] == face)
                 mine_.emplace(d.weld[v], d.ofNode[v]);
@@ -8960,53 +8963,123 @@ private:
      * renderer builds its normal from — and what says whether the triangle is
      * inside the face at all.
      *
-     * Not the nearest node's parameter outright: measured, that left 169 of
-     * the mend's own triangles classifying outside the face's trimming loop.
-     * Not a projection either — NextValueOfUV, seeded from that same nearest
-     * node, made it 434, because on a patch that folds a projection finds
-     * another branch however close it starts. What cannot jump is an AVERAGE
-     * of parameters that are already right: the three nearest nodes the face
-     * already has, weighted by distance. A copied node sits between them, on
-     * the rim, and so does the parameter.
+     * M362. Take it from the face's own triangulation, at the point of it
+     * nearest the node: find the nearest triangle, and interpolate the three
+     * parameters it already carries across it. A parameter that is a convex
+     * combination of one triangle's corners cannot land on another branch of
+     * a folded patch, and it is right to the accuracy of the mesh it is read
+     * off.
+     *
+     * The three things tried before it, and what they cost, measured on an
+     * ellipsoid converted from an exact one — where the true surface, its
+     * normal and the distance to it are all closed-form, so there is nothing
+     * to argue about:
+     *
+     *   the nearest node's parameter outright  — 169 of the mend's triangles
+     *     then classified outside the face's own trimming loop
+     *   NextValueOfUV, seeded from that node   — 434, because on a patch that
+     *     folds a projection finds another branch however close it starts
+     *   the three nearest nodes, by distance   — no longer outside anything,
+     *     but the parameters are averaged across up to three different parts
+     *     of the face: the 535 nodes the mend copied in faced a median of
+     *     16.1 degrees away from the true surface, against 0.29 for the
+     *     15,819 the mesher made, and they are the whole of the bad tail —
+     *     the model's 99th percentile was 25.9 degrees and the mesher's own
+     *     is 6.6.
      */
-    gp_Pnt2d nearestUv(const gp_Pnt &p) const
+    static double PtTriUv(const gp_Pnt &p, const gp_Pnt &a, const gp_Pnt &b,
+                          const gp_Pnt &c, double *bu, double *bv)
     {
-        double bd[3] = {1e300, 1e300, 1e300};
-        int bi[3] = {-1, -1, -1};
-        for (int i = 1; i <= was_; ++i) {
-            const double dd = tri_->Node(i).SquareDistance(p);
-            if (dd < bd[0]) {
-                bd[2] = bd[1]; bi[2] = bi[1];
-                bd[1] = bd[0]; bi[1] = bi[0];
-                bd[0] = dd;    bi[0] = i;
-            } else if (dd < bd[1]) {
-                bd[2] = bd[1]; bi[2] = bi[1];
-                bd[1] = dd;    bi[1] = i;
-            } else if (dd < bd[2]) {
-                bd[2] = dd;    bi[2] = i;
+        const gp_Vec ab(a, b), ac(a, c), ap(a, p);
+        const double d1 = ab.Dot(ap), d2 = ac.Dot(ap);
+        double u = 0, v = 0;
+        if (d1 <= 0 && d2 <= 0) {
+            u = 0; v = 0;
+        } else {
+            const gp_Vec bp(b, p), cp(c, p);
+            const double d3 = ab.Dot(bp), d4 = ac.Dot(bp);
+            if (d3 >= 0 && d4 <= d3) {
+                u = 1; v = 0;
+            } else {
+                const double vc = d1 * d4 - d3 * d2;
+                if (vc <= 0 && d1 >= 0 && d3 <= 0) {
+                    u = d1 / (d1 - d3); v = 0;
+                } else {
+                    const double d5 = ab.Dot(cp), d6 = ac.Dot(cp);
+                    if (d6 >= 0 && d5 <= d6) {
+                        u = 0; v = 1;
+                    } else {
+                        const double vb = d5 * d2 - d1 * d6;
+                        if (vb <= 0 && d2 >= 0 && d6 <= 0) {
+                            u = 0; v = d2 / (d2 - d6);
+                        } else {
+                            const double va = d3 * d6 - d5 * d4;
+                            if (va <= 0 && (d4 - d3) >= 0 && (d5 - d6) >= 0) {
+                                const double w =
+                                    (d4 - d3) / ((d4 - d3) + (d5 - d6));
+                                u = 1 - w; v = w;
+                            } else {
+                                const double den = 1.0 / (va + vb + vc);
+                                u = vb * den; v = vc * den;
+                            }
+                        }
+                    }
+                }
             }
         }
-        if (bi[0] < 0)
-            return gp_Pnt2d(0, 0);
-        double wu = 0, wv = 0, ws = 0;
-        for (int k = 0; k < 3; ++k) {
-            if (bi[k] < 0)
+        *bu = u; *bv = v;
+        const gp_Pnt q(a.X() + u * ab.X() + v * ac.X(),
+                       a.Y() + u * ab.Y() + v * ac.Y(),
+                       a.Z() + u * ab.Z() + v * ac.Z());
+        return q.SquareDistance(p);
+    }
+
+    gp_Pnt2d nearestUv(const gp_Pnt &p) const
+    {
+        double best = 1e300;
+        gp_Pnt2d out(0, 0);
+        bool got = false;
+        for (int i = 1; i <= wasTri_; ++i) {
+            int a = 0, b = 0, c = 0;
+            tri_->Triangle(i).Get(a, b, c);
+            if (a < 1 || b < 1 || c < 1 || a > was_ || b > was_ || c > was_)
                 continue;
-            const double w = 1.0 / std::max(1e-12, std::sqrt(bd[k]));
-            const gp_Pnt2d q = tri_->UVNode(bi[k]);
-            wu += w * q.X();
-            wv += w * q.Y();
-            ws += w;
+            double bu = 0, bv = 0;
+            const double d2 = PtTriUv(p, tri_->Node(a), tri_->Node(b),
+                                      tri_->Node(c), &bu, &bv);
+            if (d2 >= best)
+                continue;
+            best = d2;
+            const gp_Pnt2d ua = tri_->UVNode(a), ub = tri_->UVNode(b),
+                           uc = tri_->UVNode(c);
+            out = gp_Pnt2d(
+                ua.X() + bu * (ub.X() - ua.X()) + bv * (uc.X() - ua.X()),
+                ua.Y() + bu * (ub.Y() - ua.Y()) + bv * (uc.Y() - ua.Y()));
+            got = true;
         }
-        if (!(ws > 0))
-            return tri_->UVNode(bi[0]);
-        return gp_Pnt2d(wu / ws, wv / ws);
+        if (got) {
+#ifdef MESHRECON_TRACE
+            MR_TRACE("      mend uv: node %.3f mm from the face's own mesh\n",
+                     std::sqrt(std::max(0.0, best)));
+#endif
+            return out;
+        }
+        /* A face with no triangle of its own to read from: the nearest node
+         * it has is all there is. */
+        double bd = 1e300;
+        int bi = -1;
+        for (int i = 1; i <= was_; ++i) {
+            const double dd = tri_->Node(i).SquareDistance(p);
+            if (dd < bd) { bd = dd; bi = i; }
+        }
+        return bi > 0 ? tri_->UVNode(bi) : gp_Pnt2d(0, 0);
     }
     const DrawnMesh &d_;
     Handle(Poly_Triangulation) tri_;
     gp_Trsf inv_;
     bool rev_ = false;
     int was_ = 0;
+    int wasTri_ = 0;
     std::unordered_map<int, int> mine_;  /* welded node -> index in this face */
     std::unordered_map<int, int> added_; /* welded node -> index just made */
     std::vector<int> fresh_;
@@ -9327,6 +9400,14 @@ static int MendTornFaces(const TopoDS_Shape &s, int *filled)
     std::vector<TopoDS_Face> faces;
     for (TopExp_Explorer ex(s, TopAbs_FACE); ex.More(); ex.Next())
         faces.push_back(TopoDS::Face(ex.Current()));
+    /* which faces each welded node belongs to, so a fill triangle can be
+     * given to the one that owns it */
+    std::map<int, std::vector<int>> facesOfRep;
+    for (size_t v = 0; v < d.pos.size(); ++v) {
+        std::vector<int> &fs = facesOfRep[d.weld[v]];
+        if (std::find(fs.begin(), fs.end(), d.ofFace[v]) == fs.end())
+            fs.push_back(d.ofFace[v]);
+    }
     std::map<int, FaceWriter *> writers;
     int made = 0, left = rim, clipped = 0;
     for (size_t i = 0; i < loops.size(); ++i) {
@@ -9391,15 +9472,56 @@ static int MendTornFaces(const TopoDS_Shape &s, int *filled)
                          (int)ring.size(), bad, (int)(cut.size() / 3));
         }
 #endif
-        auto it = writers.find(fi);
-        if (it == writers.end())
-            it = writers.emplace(fi, new FaceWriter(faces[fi], d, fi)).first;
-        if (!it->second->ok())
-            continue;
-        for (size_t k = 0; k + 2 < cut.size(); k += 3)
+        /* Each fill triangle goes to the face that owns most of it, not the
+         * whole ring to one face.
+         *
+         * M362. A ring is the boundary of a hole, and a hole in a
+         * tessellation does not respect face boundaries: the vote below picks
+         * ONE face for the ring, and every node of it is then copied into
+         * that face and given a parameter there. Measured on an ellipsoid
+         * converted from an exact one, the nodes so copied sat a median of
+         * 6.4 mm from the face's own mesh and as much as 30.8 mm — there is
+         * no parameter that can describe a point thirty millimetres off the
+         * surface, and the normal the renderer builds from it faced a median
+         * of 16 degrees wrong where the mesher's own nodes face 0.3. They
+         * were the whole of the model's bad tail.
+         *
+         * Sorted per triangle, a copied node is one the neighbouring face
+         * shares with this one — a node on the seam, a fraction of a
+         * millimetre away — and its parameter is read off the triangle it
+         * lands in. */
+        for (size_t k = 0; k + 2 < cut.size(); k += 3) {
+            int home = fi, most = 0;
+            {
+                std::map<int, int> vote;
+                for (int q = 0; q < 3; ++q) {
+                    const auto fr = facesOfRep.find(cut[k + q]);
+                    if (fr == facesOfRep.end())
+                        continue;
+                    for (const int ff : fr->second)
+                        ++vote[ff];
+                }
+                /* the ring's own face breaks a tie, so a fill that could go
+                 * either way stays where the walk said it belonged */
+                for (const auto &v : vote)
+                    if (v.second > most ||
+                        (v.second == most && v.first == fi)) {
+                        most = v.second;
+                        home = v.first;
+                    }
+            }
+            if (home < 0 || home >= static_cast<int>(faces.size()))
+                home = fi;
+            auto it = writers.find(home);
+            if (it == writers.end())
+                it = writers.emplace(home, new FaceWriter(faces[home], d, home))
+                         .first;
+            if (!it->second->ok())
+                continue;
             it->second->add(it->second->nodeFor(cut[k]),
                             it->second->nodeFor(cut[k + 1]),
                             it->second->nodeFor(cut[k + 2]));
+        }
         left -= static_cast<int>(loops[i].size());
     }
     for (auto &w : writers) {
@@ -9412,6 +9534,121 @@ static int MendTornFaces(const TopoDS_Shape &s, int *filled)
     if (filled)
         *filled = made;
     return std::max(0, left);
+}
+
+/* Make every node's parameter describe where that node is.
+ *
+ * M362. A triangulation node carries a (u,v) on its own face, and the
+ * renderer builds the normal it shades with by asking the surface at that
+ * parameter. If the surface is somewhere else there, the node is lit as
+ * though it faced a different way, and nothing downstream can put it right.
+ *
+ * It happens, and not rarely: measured on an ellipsoid converted from an
+ * exact one, 1,213 of 15,000 nodes sat more than a millimetre from their own
+ * surface and one sat 8.2 mm from it. The cause is a pcurve that stalls —
+ * four consecutive nodes of one face came back with the SAME parameter,
+ * (0.3935, 0.2456), while the edge they discretise moved two millimetres —
+ * so the mesher faithfully wrote a parameter that describes only the first of
+ * them. Those nodes were the whole of the model's bad tail: its 99th
+ * percentile faced 25.9 degrees away from the true surface where the nodes
+ * with sound parameters faced 6.6.
+ *
+ * The node's position is the part that is right: it comes from the edge,
+ * which is where the two faces actually meet. So the parameter is moved to
+ * it, by damped Gauss-Newton from where it started — a local step that cannot
+ * jump to another branch of a folded patch, which is what a fresh projection
+ * does. A node already describing itself is not touched, and one that cannot
+ * be improved keeps what it had.
+ *
+ * This is a repair, not a cure: the pcurve is still wrong, and the trimming
+ * that BRepMesh did with it was done before this runs. */
+static int RepairNodeParameters(const TopoDS_Shape &s, double bar)
+{
+    int moved = 0;
+    for (TopExp_Explorer ex(s, TopAbs_FACE); ex.More(); ex.Next()) {
+        const TopoDS_Face f = TopoDS::Face(ex.Current());
+        TopLoc_Location loc;
+        Handle(Poly_Triangulation) t = BRep_Tool::Triangulation(f, loc);
+        if (t.IsNull() || !t->HasUVNodes())
+            continue;
+        const Handle(Geom_Surface) su = BRep_Tool::Surface(f);
+        if (su.IsNull())
+            continue;
+        Standard_Real u0 = 0, u1 = 0, v0 = 0, v1 = 0;
+        try {
+            su->Bounds(u0, u1, v0, v1);
+        } catch (const Standard_Failure &) {
+            continue;
+        }
+        if (!(u1 > u0) || !(v1 > v0) || !std::isfinite(u0) ||
+            !std::isfinite(u1) || !std::isfinite(v0) || !std::isfinite(v1))
+            continue; /* an unbounded plane: every parameter is as good */
+        const gp_Trsf inv = loc.Transformation().Inverted();
+        bool any = false;
+        for (int i = 1; i <= t->NbNodes(); ++i) {
+            const gp_Pnt want = t->Node(i);
+            gp_Pnt2d uv = t->UVNode(i);
+            double u = uv.X(), v = uv.Y();
+            double best = su->Value(u, v).Transformed(inv).SquareDistance(want);
+            if (best <= bar * bar)
+                continue;
+            double bu = u, bv = v;
+            /* Damped Gauss-Newton on |S(u,v) - P|^2. Six steps is ample for a
+             * node that is already in the right neighbourhood, and the step
+             * is capped at a twentieth of the domain so it stays there. */
+            const double capU = (u1 - u0) * 0.05, capV = (v1 - v0) * 0.05;
+            for (int it = 0; it < 6; ++it) {
+                gp_Pnt at;
+                gp_Vec du, dv;
+                try {
+                    su->D1(u, v, at, du, dv);
+                } catch (const Standard_Failure &) {
+                    break;
+                }
+                const gp_Vec r(at.Transformed(inv), want);
+                const double a = du.SquareMagnitude(), b = du.Dot(dv),
+                             c = dv.SquareMagnitude();
+                const double det = a * c - b * b;
+                if (!(std::fabs(det) > 1e-18))
+                    break;
+                const double p1 = du.Dot(r), p2 = dv.Dot(r);
+                double su_ = (c * p1 - b * p2) / det;
+                double sv_ = (a * p2 - b * p1) / det;
+                su_ = std::max(-capU, std::min(capU, su_));
+                sv_ = std::max(-capV, std::min(capV, sv_));
+                double nu = std::max(u0, std::min(u1, u + su_));
+                double nv = std::max(v0, std::min(v1, v + sv_));
+                double got =
+                    su->Value(nu, nv).Transformed(inv).SquareDistance(want);
+                /* halve the step until it helps, or give up on this node */
+                int back = 0;
+                while (got >= best && back++ < 4) {
+                    su_ *= 0.5;
+                    sv_ *= 0.5;
+                    nu = std::max(u0, std::min(u1, u + su_));
+                    nv = std::max(v0, std::min(v1, v + sv_));
+                    got = su->Value(nu, nv).Transformed(inv).SquareDistance(want);
+                }
+                if (got >= best)
+                    break;
+                best = got;
+                u = nu;
+                v = nv;
+                bu = nu;
+                bv = nv;
+                if (best <= bar * bar)
+                    break;
+            }
+            if (bu == uv.X() && bv == uv.Y())
+                continue;
+            t->SetUVNode(i, gp_Pnt2d(bu, bv));
+            ++moved;
+            any = true;
+        }
+        if (any && t->HasNormals())
+            t->RemoveNormals();
+    }
+    return moved;
 }
 
 /* The area a face's triangles actually cover. A face BRepMesh gave up on
@@ -9557,6 +9794,14 @@ int TessellateCovered(const TopoDS_Shape &s, double lin, double ang,
                      shed);
             (void)shed;
             rimsOpen = whole ? 0 : MendTornFaces(s, &mended);
+            /* After the mend, so the nodes it copied in are straightened too.
+             * The bar is a fiftieth of the deflection being drawn at, which
+             * is far below anything a person can see and far above the noise
+             * of evaluating a B-spline. */
+            const int moved = RepairNodeParameters(s, d * 0.02);
+            MR_TRACE("      moved %d node parameters onto their own node\n",
+                     moved);
+            (void)moved;
         } catch (const Standard_Failure &) {
             rimsOpen = 0;
         } catch (...) {

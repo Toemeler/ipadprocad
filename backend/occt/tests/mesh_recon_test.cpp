@@ -2351,6 +2351,61 @@ int main()
             std::printf("   ellipsoid: %lld crossing pairs over %d of %d "
                         "triangles\n", pairs, badTri, nt);
 
+            /* Every node's parameter has to describe where that node is.
+             *
+             * It needs no reference shape at all: a triangulation node
+             * carries a (u,v) on its own face, and the renderer builds the
+             * normal it shades with by asking the surface at that parameter.
+             * If the surface is somewhere else there, the node is lit as if
+             * it faced a different way, and no amount of care further down
+             * can put it right.
+             *
+             * The mend used to break this. It fills a hole by choosing ONE
+             * face for the whole ring and copying every node of it into that
+             * face — and a hole in a tessellation does not respect face
+             * boundaries, so nodes from clear across the model arrived with a
+             * parameter invented for them. Measured on this ellipsoid against
+             * the exact one it was made from: 535 nodes so copied, a median
+             * of 6.4 mm from the face's own mesh and up to 30.8, facing a
+             * median of 16 degrees wrong where the mesher's own nodes face
+             * 0.3, and they were the whole of the model's bad tail — its 99th
+             * percentile was 25.9 degrees against the mesher's 6.6. Each fill
+             * triangle now goes to the face that owns most of it: 52 nodes
+             * copied instead of 535, and a 99th percentile of 7.0 degrees. */
+            {
+                std::vector<double> off;
+                for (TopExp_Explorer ex(out, TopAbs_FACE); ex.More(); ex.Next()) {
+                    const TopoDS_Face f = TopoDS::Face(ex.Current());
+                    TopLoc_Location loc;
+                    const Handle(Poly_Triangulation) t =
+                        BRep_Tool::Triangulation(f, loc);
+                    if (t.IsNull() || !t->HasUVNodes())
+                        continue;
+                    const Handle(Geom_Surface) su = BRep_Tool::Surface(f);
+                    if (su.IsNull())
+                        continue;
+                    for (int i = 1; i <= t->NbNodes(); ++i) {
+                        const gp_Pnt2d uv = t->UVNode(i);
+                        off.push_back(
+                            su->Value(uv.X(), uv.Y())
+                                .Distance(t->Node(i).Transformed(
+                                    loc.Transformation())));
+                    }
+                }
+                std::sort(off.begin(), off.end());
+                const double p99 =
+                    off.empty() ? 0.0 : off[(size_t)(off.size() * 0.99)];
+                const double worst = off.empty() ? 0.0 : off.back();
+                chk("through: a node's parameter says where the node is",
+                    p99 <= 0.5 && worst <= 40.0,
+                    "p99 " + std::to_string(p99) + " mm, worst " +
+                        std::to_string(worst) + " mm over " +
+                        std::to_string(off.size()) + " nodes");
+                std::printf("   ellipsoid: the surface at a node's own "
+                            "parameter is p99 %.4f mm from the node, worst "
+                            "%.3f mm\n", p99, worst);
+            }
+
             /* And none of them standing out of the body.
              *
              * A triangle drawn on this ellipsoid faces the way the ellipsoid
