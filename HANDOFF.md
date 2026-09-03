@@ -12369,3 +12369,79 @@ Fenster, das dauerhaft sammelt statt einmal.
   SDK (3.35.4) nicht gibt. Ein Werkzeugversionsproblem, kein Regress — die
   Datei ist von M371 nicht angefasst.
 * **Nicht auf Hardware gelaufen.** Wie alles seit M192.
+
+## M373 — Eine exakte Kantenübereinstimmung ist kein Münzwurf
+
+> „i somehow cant make a radius here on the 2 top edges. it says the edges dont
+> exist but i can see them they are clearly there" (Issue #13, vom Gerät)
+
+Das Protokoll im Fehlerbericht stellt die Diagnose selbst. Der Pick und der
+Verlust stehen zwei Zeilen auseinander, auf derselben Kante, im selben Rebuild:
+
+```
+edge: pick edge 24  r=0.0000 l=310.000 k=1 m=(0.000,50.000,168.000) body=Solid1
+edge: sel[0] LOST — r=0.0000 l=310.000 k=1 m=(0.000,50.000,168.000);
+      no confident match among 30 live edges
+```
+
+Ein Fingerabdruck, der VON einer lebenden Kante genommen wurde, hat gegen genau
+diese Kante den Abstand **null**. Die Übereinstimmung war perfekt und wurde
+trotzdem verworfen.
+
+### Zwei Fragen, eine Zahl
+
+M158 hatte recht damit, einen Münzwurf zu verweigern: eine Fase, die auf der
+Innenkante eines Zapfens gewählt wurde, kam nach dem Neuaufbau auf der
+Aussenkante des Zylinders darunter wieder — weil zwei Kandidaten fast gleich
+gut passten und der bessere trotzdem nur zufällig gewann. Der Wächter war
+richtig; sein Schwellwert war es nicht:
+
+```dart
+if (!runnerUp.isInfinite && runnerUp - bestScore < tol) return null;
+```
+
+`tol` beantwortet **„wie weit darf sich diese Kante BEWEGT haben?"** und
+skaliert dafür zu Recht mit der Kantengrösse — `0.25 * (Länge + 1)`. Eine
+310 mm lange Kante darf sich weiter verschoben haben als eine 2 mm lange.
+
+Für **„ist der Sieger deutlich besser als der Zweite?"** ist das die falsche
+Zahl. Diese Frage hat mit der Länge der Kante nichts zu tun und alles damit,
+wie gut der Sieger schon ist.
+
+Auf der Platte des Nutzers — 310 x 336 x 50 — ergibt `tol` **77,75 mm**. Die
+Kante direkt darunter liegt **50 mm** entfernt. Für jeden Menschen eine andere
+Kante; für die Regel `50 - 0 < 77,75` und damit ein Münzwurf. Alle vier
+Kanten, die der Nutzer probierte, sind Oberkanten einer 50 mm hohen Platte und
+scheiterten aus genau diesem Grund.
+
+### Die Regel
+
+```dart
+final margin = math.min(tol, math.max(_kEdgeTie, bestScore));
+```
+
+Der Abstand zum Zweiten wird am **eigenen Abstand des Siegers** gemessen: der
+Zweite muss mindestens doppelt so schlecht sein. Ein Sieger mit Abstand null
+steht nicht in Frage, egal wie nah der nächste liegt; ein Sieger, der selbst
+3 mm daneben liegt und 3,4 mm hinter sich einen zweiten hat, ist der Münzwurf,
+über den M158 geschrieben wurde — und bleibt einer.
+
+Gedeckelt auf `tol`, und das ist die wichtigste Eigenschaft der Änderung: die
+neue Schranke ist **nie strenger** als die alte. Sie ist monoton — sie kann nur
+Auswahlen zurückholen, die heute verloren gehen, und keine einzige, die heute
+auflöst, zum Scheitern bringen.
+
+`_kEdgeTie` (1e-6 mm) ist der Boden darunter: zwei lebende Kanten, deren
+Fingerabdrücke auf ein Nanometer übereinstimmen, sind wirklich nicht zu
+unterscheiden.
+
+### Stand
+
+* `test/m373_edge_ambiguity_margin_test.dart`, 12 Tests. **Gegen den alten Code
+  geprüft**: fünf davon fallen ohne den Fix um, mit ihm alle grün — eine
+  Regressionsprüfung, die vorher wie nachher grün ist, prüft nichts.
+* Die Geometrie im Test ist die des Berichts, nicht erfunden: die Bbox aus
+  `state.txt` und die Fingerabdrücke aus `log.txt`.
+* M152, M158, M183, M136, M133 und `bulk_edge_info` laufen weiter durch — 109
+  Tests über den ganzen Kanten-Pfad.
+* **Nicht auf Hardware gelaufen.**

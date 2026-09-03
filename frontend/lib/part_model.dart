@@ -1827,6 +1827,14 @@ class FaceSel {
   }
 }
 
+/// The floor under the ambiguity margin, in millimetres (M373).
+///
+/// Only a genuine TIE is ambiguous once the winner matches exactly, and a tie
+/// here means two live edges whose fingerprints agree to a nanometre — which
+/// on a real B-Rep means the shim handed back the same edge twice. Anything
+/// coarser would put the M158 bug back for edges that happen to be small.
+const double _kEdgeTie = 1e-6;
+
 /// A picked EDGE, stored the way a fillet has to store it: by geometry, never
 /// by index.
 ///
@@ -1953,7 +1961,41 @@ class EdgeSel {
     // WHICH candidate wins, never whether the winner was meaningfully better
     // than the next one, and it is the second question that decides whether
     // the answer can be trusted.
-    if (!runnerUp.isInfinite && runnerUp - bestScore < tol) return null;
+    //
+    // M373 — but the SEPARATION and the DISPLACEMENT are two different
+    // questions, and using one number for both is what made this reject a
+    // PERFECT match.
+    //
+    // "i somehow cant make a radius here on the 2 top edges. it says the
+    // edges dont exist but i can see them they are clearly there" (issue #13).
+    // The part is a 310 x 336 x 50 plate. The user taps a top edge; the log
+    // records the pick and then loses it in the same breath:
+    //
+    //   edge: pick edge 24  r=0.0000 l=310.000 k=1 m=(0.000,50.000,168.000)
+    //   edge: sel[0] LOST — ... no confident match among 30 live edges
+    //
+    // The fingerprint came OFF that live edge, so it scores 0 against it. What
+    // beat it was the arithmetic: [tol] is 0.25 * (310 + 1) = 77.75 mm, and
+    // the bottom edge directly below — a different edge, 50 mm away, no
+    // ambiguity to a human — sits inside that window. `50 - 0 < 77.75`, so an
+    // EXACT match was called a coin toss.
+    //
+    // [tol] answers "how far may this edge have MOVED?", and scaling that with
+    // the edge's size is right: a 310 mm edge really can shift further than a
+    // 2 mm one. It is the wrong number for "is the winner meaningfully better
+    // than the runner-up?", which has nothing to do with how long the edge is
+    // and everything to do with how good the winner already is. A winner that
+    // matches EXACTLY is not in doubt however close the next candidate is; a
+    // winner that is itself 3 mm off, with another 3.4 mm behind it, is the
+    // coin toss M158 was written about.
+    //
+    // So the margin scales with the WINNER'S OWN SCORE: the runner-up has to
+    // be at least twice as bad before the pair counts as too alike. Capped at
+    // [tol] so it is never STRICTER than the rule it replaces — which makes
+    // this change monotone. It can only recover selections that are lost
+    // today; no selection that resolves today can start failing.
+    final margin = math.min(tol, math.max(_kEdgeTie, bestScore));
+    if (!runnerUp.isInfinite && runnerUp - bestScore < margin) return null;
     return best;
   }
 
