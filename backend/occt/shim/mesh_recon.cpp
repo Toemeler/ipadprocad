@@ -1788,6 +1788,24 @@ const double kBridgeBar = 16.0;
  * a deflection up finds them and the bar is really about how much of a real
  * neck it may cut through. */
 const double kPinchBar = 4.0;
+/* How far the net may face away from the mesh, in degrees, before the rung
+ * ladder spends another net on it.
+ *
+ * The ladder used to stop at the first net whose POSITION residual was inside
+ * tolerance, and position does not govern facing at all: a surface can sit
+ * thirty microns from the model and still face ten degrees away from it,
+ * because facing is the derivative and the tolerance never mentions it.
+ * Measured on the whale's biggest patch, 947 mm of flank sitting a median of
+ * 0.034 mm off the model, its normal was a median of 1.0 degree out and as
+ * much as 10.2 — and that is what a person sees, because shading is made of
+ * normals.
+ *
+ * Swept from 4 down to 1 against the picture the app actually draws: the
+ * whole range is a plateau, 1.50 to 1.58 per cent of pixels differing from a
+ * render of the source when drawn fine and 2.07 to 2.17 when drawn coarse,
+ * against 2.00 and 3.35 before. 1.5 sits inside it and gives the fewest
+ * shards. Tighter than 1 buys nothing and costs rungs. */
+const double kFreeformFacingBar = 1.5;
 const int kFreeformGridMax = 32;
 const double kFreeformGridBar = 0.7;
 const double kFreeformApproxFraction = 0.25;
@@ -1795,8 +1813,7 @@ const double kFreeformApproxFraction = 0.25;
  * so it means the same on a region of two hundred vertices and one of twenty
  * thousand. The ridge is smaller again and exists only so the Cholesky cannot
  * meet a zero on a net row no vertex reaches. */
-const double kFreeformFairing = []{ const char*e=std::getenv("MR_FAIR");
-    return e ? std::atof(e) : 2.0e-7; }();
+const double kFreeformFairing = 2.0e-7;
 const double kFreeformRidge = 1.0e-9;
 /* Triangles sampled when asking how far the surface goes BETWEEN the data. */
 const int kFreeformBetweenSamples = 2000;
@@ -1818,8 +1835,7 @@ const double kVolumeDivergenceBar = 0.25;
  * free — badly, from cells the region never reached — and the fairing term
  * now supplies it properly, by continuing the surface rather than inventing
  * heights for it. */
-const double kFreeformNetMargin = []{ const char*e=std::getenv("MR_MARGIN");
-    return e ? std::atof(e) : 0.06; }();
+const double kFreeformNetMargin = 0.06;
 
 /* Above this many faces, sewing is not a fallback, it is a hang.
  *
@@ -6708,6 +6724,11 @@ void RegionUvOf(const Mesh &m, const std::vector<int> &tris,
 struct Net
 {
     int nu = 0, nv = 0;
+    /* Control points with no data anywhere in their support. Nothing holds
+     * them but the fairing term, and the fairing term is a millionth of the
+     * data's weight, so what they do is whatever the solve leaves them doing.
+     * That is where a finer net grows a spike. */
+    int loose = 0;
     std::vector<double> ku, kv;
     std::vector<double> p; /* nc * 3, xyz interleaved */
     V3 At(double uu, double vv) const
@@ -6745,11 +6766,13 @@ double FitNet(const Mesh &m, const RegionUv &uv, int nu, int nv, Net &out)
         return 1e300;
     out.nu = nu;
     out.nv = nv;
+    out.loose = 0;
     ClampedKnots(nu, out.ku);
     ClampedKnots(nv, out.kv);
 
     std::vector<double> A(static_cast<size_t>(nc) * nc, 0.0);
     std::vector<double> rhs(static_cast<size_t>(nc) * 3, 0.0);
+    std::vector<double> hold(static_cast<size_t>(nc), 0.0);
     int ci[16];
     double cw[16];
     for (int q = 0; q < np; ++q) {
@@ -6764,6 +6787,9 @@ double FitNet(const Mesh &m, const RegionUv &uv, int nu, int nv, Net &out)
                 cw[i * 4 + j] = Nu[i] * Nv[j];
             }
         const V3 &g = m.pos[uv.vert[q]];
+        for (int i = 0; i < 16; ++i)
+            if (ci[i] >= 0 && ci[i] < nc)
+                hold[ci[i]] += cw[i];
         for (int i = 0; i < 16; ++i) {
             if (cw[i] == 0)
                 continue;
@@ -6799,6 +6825,52 @@ double FitNet(const Mesh &m, const RegionUv &uv, int nu, int nv, Net &out)
         for (int i = 0; i < nc; ++i)
             A[static_cast<size_t>(i) * nc + i] += kFreeformRidge * np;
     }
+    /* Hold down the control points nothing in the data holds.
+     *
+     * M365. A region is a patch of a model, not a rectangle, so its data
+     * never fills the parameter square: the corners the region does not reach
+     * leave control points with no data anywhere in their support. Nothing
+     * governs them but the fairing term, which is a millionth of the data's
+     * weight, and what they do is whatever the solve leaves them doing. That
+     * is where a finer net grows a spike — and it is why the rung ladder
+     * cannot simply be told to keep refining until the surface faces the way
+     * the mesh faces: every rung fine enough to do that has them.
+     *
+     * Each one is pinned to the average of its four neighbours, at the weight
+     * the data carries. It is the flattest thing that agrees with whatever is
+     * next to it, it constrains nothing the data already decides, and it
+     * turns an unheld corner from free into merely smooth. */
+    {
+        double most = 0;
+        for (int i = 0; i < nc; ++i)
+            most = std::max(most, hold[i]);
+        const double floorW = most * 1e-6;
+        const double w = most > 0 ? most : 1.0;
+        for (int a = 0; a < nu; ++a)
+            for (int b = 0; b < nv; ++b) {
+                const int i = a * nv + b;
+                if (hold[i] > floorW)
+                    continue;
+                int nb[4];
+                int k = 0;
+                if (a > 0) nb[k++] = (a - 1) * nv + b;
+                if (a + 1 < nu) nb[k++] = (a + 1) * nv + b;
+                if (b > 0) nb[k++] = a * nv + (b - 1);
+                if (b + 1 < nv) nb[k++] = a * nv + (b + 1);
+                if (k == 0)
+                    continue;
+                /* (c - mean(neighbours))^2, as a row of the normal equations */
+                const double s2 = -1.0 / k;
+                A[static_cast<size_t>(i) * nc + i] += w;
+                for (int q = 0; q < k; ++q) {
+                    A[static_cast<size_t>(i) * nc + nb[q]] += w * s2;
+                    A[static_cast<size_t>(nb[q]) * nc + i] += w * s2;
+                    for (int r2 = 0; r2 < k; ++r2)
+                        A[static_cast<size_t>(nb[q]) * nc + nb[r2]] +=
+                            w * s2 * s2;
+                }
+            }
+    }
     if (!CholeskySolve(A, nc, rhs.data(), 3))
         return 1e300;
     out.p.assign(static_cast<size_t>(nc) * 3, 0.0);
@@ -6806,6 +6878,18 @@ double FitNet(const Mesh &m, const RegionUv &uv, int nu, int nv, Net &out)
         for (int c = 0; c < 3; ++c)
             out.p[static_cast<size_t>(i) * 3 + c] =
                 rhs[static_cast<size_t>(c) * nc + i];
+
+    /* How many control points nothing in the data touches. */
+    {
+        double most = 0;
+        for (int i = 0; i < nc; ++i)
+            most = std::max(most, hold[i]);
+        const double floorW = most * 1e-6;
+        out.loose = 0;
+        for (int i = 0; i < nc; ++i)
+            if (hold[i] <= floorW)
+                ++out.loose;
+    }
 
     double worst = 0;
     for (int q = 0; q < np; ++q) {
@@ -6857,6 +6941,66 @@ double PointTriangle2(const V3 &p, const V3 &a, const V3 &b, const V3 &c)
  * known and there is no search to do. Strided, because a region of twenty
  * thousand triangles does not need all of them to say whether its surface
  * ripples. */
+/* How far the net's own facing is from the mesh's, at the region's triangles.
+ *
+ * The rung ladder stops at the first net whose POSITION residual is inside
+ * tolerance, and position does not govern facing: a surface can sit thirty
+ * microns from the model and still face ten degrees away from it, because
+ * facing is the derivative and the tolerance never mentions it. Measured on
+ * the whale's biggest patch, 947 mm of flank sitting a median of 0.034 mm off
+ * the model, its normal is a median of 1.0 degree out and as much as 10.2.
+ *
+ * A high percentile rather than the worst: one triangle at the edge of a
+ * region is not the surface. */
+double NetFacing(const Mesh &m, const std::vector<int> &tris,
+                 const RegionUv &uv, const Net &net)
+{
+    const size_t step =
+        std::max<size_t>(1, tris.size() / kFreeformBetweenSamples);
+    std::vector<double> ang;
+    ang.reserve(tris.size() / step + 1);
+    for (size_t i = 0; i < tris.size(); i += step) {
+        const int t = tris[i];
+        double cu = 0, cv = 0;
+        bool ok = true;
+        for (int k = 0; k < 3; ++k) {
+            const int vtx = m.tri[t * 3 + k];
+            const size_t at = static_cast<size_t>(
+                std::lower_bound(uv.vert.begin(), uv.vert.end(), vtx) -
+                uv.vert.begin());
+            if (at >= uv.vert.size() || uv.vert[at] != vtx) {
+                ok = false;
+                break;
+            }
+            cu += uv.u[at] / 3.0;
+            cv += uv.v[at] / 3.0;
+        }
+        if (!ok)
+            continue;
+        /* central differences on the net itself: it is evaluated tens of
+         * thousands of times here and one closed-form derivative that could
+         * drift out of step with At() is one too many */
+        const double h = 1e-4;
+        const double u0 = std::max(0.0, std::min(1.0, cu));
+        const double v0 = std::max(0.0, std::min(1.0, cv));
+        const V3 du = net.At(std::min(1.0, u0 + h), v0) -
+                      net.At(std::max(0.0, u0 - h), v0);
+        const V3 dv = net.At(u0, std::min(1.0, v0 + h)) -
+                      net.At(u0, std::max(0.0, v0 - h));
+        const V3 n = Cross(du, dv);
+        const double len = Norm(n);
+        if (!(len > 1e-18))
+            continue;
+        double c = std::fabs(Dot(n, m.tnorm[t])) / len;
+        c = std::max(0.0, std::min(1.0, c));
+        ang.push_back(std::acos(c) * 180.0 / M_PI);
+    }
+    if (ang.empty())
+        return 0.0;
+    std::sort(ang.begin(), ang.end());
+    return ang[static_cast<size_t>(0.95 * (ang.size() - 1))];
+}
+
 double NetBetween(const Mesh &m, const std::vector<int> &tris,
                   const RegionUv &uv, const Net &net, double giveUp)
 {
@@ -6976,6 +7120,10 @@ Handle(Geom_Surface) SurfaceForRegion(const Mesh &m,
             continue;
         const double between = NetBetween(m, tris, uv, net, tol * 8);
         const double worse = std::max(at, between);
+        const double facing = NetFacing(m, tris, uv, net);
+        MR_TRACE("      net rung %d (%dx%d): at %.4f between %.4f facing "
+                 "%.2f deg, %d loose control points\n",
+                 rung[r], nu, nv, at, between, facing, net.loose);
         if (worse < bestWorst) {
             bestWorst = worse;
             /* Reported as the residual AT THE DATA, which is what every other
@@ -6986,7 +7134,7 @@ Handle(Geom_Surface) SurfaceForRegion(const Mesh &m,
             err = at;
             best = net;
         }
-        if (worse <= tol)
+        if (worse <= tol && facing <= kFreeformFacingBar)
             break;
     }
     if (best.nu == 0)
