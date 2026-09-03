@@ -1,0 +1,23 @@
+/* Prototype — what the desktop kernel library lets out.
+ *
+ * Everything in this .so that is not one of the four C APIs is an
+ * implementation detail: the whole of Qt, the whole of OCCT, the QCAD core and
+ * SolveSpace's internals are statically linked in here. Exporting them would
+ * be three kinds of wrong at once — a several-hundred-thousand-entry dynamic
+ * symbol table to relocate at every launch, a real chance of colliding with a
+ * DIFFERENT Qt or OCCT that some GTK module or GPU driver has already loaded
+ * into the same process, and a public surface nobody meant to promise.
+ *
+ * The four prefixes below are exactly the symbols frontend/lib/ffi/*.dart
+ * looks up. Adding a C-API function means the prefix already covers it;
+ * adding a PREFIX means changing this file, and the desktop smoke test in
+ * tools/desktop/check_symbols.sh is what notices if you forget.
+ */
+{
+  global:
+    qcad_*;
+    slvs_*;
+    occt_*;
+  local:
+    *;
+};

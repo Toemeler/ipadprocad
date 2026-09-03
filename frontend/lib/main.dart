@@ -14,6 +14,7 @@ import 'ffi/perf_hook.dart';
 import 'package:reality_view/perf_hook.dart';
 
 import 'cycles_boot.dart';
+import 'platform/desktop_launch.dart';
 import 'app_state.dart';
 import 'backdrop.dart';
 import 'ribbon_dock.dart';
@@ -45,7 +46,13 @@ import 'widgets/hole_dialog.dart';
 import 'widgets/make_part_dialog.dart';
 import 'widgets/work_plane_offset_field.dart';
 
-void main() {
+void main([List<String> args = const <String>[]]) {
+  // A desktop launch can carry a document: the file manager runs the .desktop
+  // file's `Exec=prototype %f` with the path as an argument. Recorded FIRST,
+  // before anything can look at it, and acted on only once AppState.init has
+  // finished — see below. Defaulted, so `main()` still has the signature the
+  // iOS entry point is called with and nothing about that build changes.
+  DesktopLaunch.record(args);
   // Logger FIRST — works synchronously, before any binding exists.
   Log.init();
   Perf.init();
@@ -148,7 +155,10 @@ void main() {
     Log.i('main', '>> AppState.init (async, not awaited)');
     app
         .init()
-        .then((_) => Log.i('main', '<< AppState.init OK'))
+        .then((_) {
+          Log.i('main', '<< AppState.init OK');
+          _openLaunchDocument(app);
+        })
         .catchError((e, st) => Log.e('main', 'AppState.init FAILED', e, st));
     // The log must survive the app being backgrounded or killed by iOS: flush
     // on every lifecycle change, otherwise the last (most interesting) lines
@@ -163,6 +173,27 @@ void main() {
   }, (error, stack) {
     Log.e('zone', 'UNCAUGHT ZONE ERROR', error, stack);
   });
+}
+
+/// Opens the document the process was launched with, if there was one.
+///
+/// AFTER init, never during it: the gallery, the documents directory and the
+/// remembered externals all come from init, and a document opened before them
+/// is a document that is open and not in the gallery.
+///
+/// The path is passed as its own bookmark. On the desktop that is the truth —
+/// a path IS the durable handle to a file outside the app's folder, which is
+/// exactly what a bookmark is for on iOS — and it is what makes Save write
+/// back to the file the user double-clicked instead of to a copy. See
+/// native_menu/linux, which hands back the same pair from its Open dialog.
+void _openLaunchDocument(AppState app) {
+  final path = DesktopLaunch.document;
+  if (path == null) return;
+  Log.i('doc', 'launch argument: opening $path');
+  app.openPath(path, bookmark: path).then(
+      (name) => Log.i('doc',
+          name == null ? 'launch document was refused' : 'opened "$name"'),
+      onError: (e, st) => Log.e('doc', 'launch document failed', e, st));
 }
 
 class _LogFlusher extends WidgetsBindingObserver {

@@ -8,6 +8,7 @@
 import 'dart:ffi';
 import 'package:ffi/ffi.dart';
 
+import 'native_lib.dart';
 import 'perf_hook.dart';
 
 // Constraint type codes — must match the SH_* defines in slvs_shim.h.
@@ -148,7 +149,8 @@ class SlvsFfi {
     if (_probed) return _cached;
     _probed = true;
     try {
-      final lib = DynamicLibrary.process();
+      final lib = NativeLib.open(NativeLib.kernels);
+      if (lib == null) return null;
       final ver = lib.lookupFunction<_VerN, _VerD>('slvs_shim_version')();
       if (ver <= 0) return null;
       final solve = lib.lookupFunction<_SolveN, _SolveD>('slvs_solve');

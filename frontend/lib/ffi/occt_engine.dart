@@ -25,6 +25,7 @@ import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 
+import 'native_lib.dart';
 import 'perf_hook.dart';
 
 // ---- native signatures (14 functions, order of occt_capi.h) -------------
@@ -1117,7 +1118,8 @@ class OcctFfi {
     if (_probed) return _cached;
     _probed = true;
     try {
-      final lib = DynamicLibrary.process();
+      final lib = NativeLib.open(NativeLib.kernels);
+      if (lib == null) return null;
       final ver =
           lib.lookupFunction<_ShimVerN, _ShimVerD>('occt_shim_version')();
       if (ver <= 0) return null;

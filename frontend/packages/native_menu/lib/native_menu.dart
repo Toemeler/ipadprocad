@@ -275,7 +275,34 @@ class NativeMenu {
   /// True only where a real UIKit menu can exist. `Platform.isIOS` is false on
   /// the Linux/macOS host that runs `flutter test`, which is exactly what keeps
   /// the suite free of platform channels.
+  ///
+  /// This gates the SURFACES — context menus, alerts, action sheets, the
+  /// Settings form, the glass chrome. Off iOS the app draws every one of them
+  /// itself, in its own design system, and those Flutter paths are what make
+  /// the desktop build the same app rather than a GTK lookalike. It is
+  /// deliberately NOT the gate for the file errands; see [hasFileSurfaces].
   static bool get isSupported => !kIsWeb && Platform.isIOS;
+
+  /// True where the PLATFORM can run a file errand for us: put a copy where
+  /// the user points, hand back a file to open, open one in another program,
+  /// ask the mesh-import question, and answer a performance probe.
+  ///
+  /// A separate gate from [isSupported] because the two halves of this plugin
+  /// have opposite answers on the desktop. There is no reason for the app to
+  /// draw its own Save dialog — the desktop has one, the user knows it, and
+  /// its recent places and its network mounts are things no Flutter widget
+  /// can reproduce. There is every reason for the app to draw its own menus.
+  ///
+  /// macOS is included even though this repo ships no macOS runner yet: the
+  /// channel simply answers `not implemented` there and every call below
+  /// already degrades to its null, so being wrong about it costs nothing and
+  /// being right about it costs one term.
+  static bool get hasFileSurfaces =>
+      !kIsWeb &&
+      (Platform.isIOS ||
+          Platform.isLinux ||
+          Platform.isWindows ||
+          Platform.isMacOS);
 
   static void setSelectionHandler(String scope, NativeMenuSelection? handler) {
     if (handler == null) {
@@ -498,7 +525,7 @@ class NativeMenu {
     required String facetedDetail,
     String cancelLabel = 'Cancel',
   }) async {
-    if (!isSupported) return null;
+    if (!hasFileSurfaces) return null;
     final id = await _invoke<String>('importChoice', {
       'title': title,
       'message': message,
@@ -521,7 +548,7 @@ class NativeMenu {
       _sheet('export', path, anchor);
 
   static Future<bool> _sheet(String method, String path, Rect anchor) async {
-    if (!isSupported) return false;
+    if (!hasFileSurfaces) return false;
     final ok = await _invoke<bool>(method, {
           'path': path,
           'anchor': NativeMenuTarget._rect(anchor),
@@ -590,7 +617,7 @@ class NativeMenu {
     required List<String> extensions,
     Rect? anchor,
   }) async {
-    if (!isSupported) return null;
+    if (!hasFileSurfaces) return null;
     final res = await _invoke<Map<Object?, Object?>>('openInPlace', {
       'extensions': extensions,
       if (anchor != null) 'anchor': NativeMenuTarget._rect(anchor),
@@ -606,7 +633,7 @@ class NativeMenu {
   /// beginning `dyn.` means iOS has no declaration for that extension and
   /// invented a placeholder; those are what the picker chokes on.
   static Future<List<String>> probeContentTypes(List<String> extensions) async {
-    if (!isSupported) return const [];
+    if (!hasFileSurfaces) return const [];
     final res =
         await _invoke<List<Object?>>('probeContentTypes', {'extensions': extensions});
     return [for (final e in res ?? const []) '$e'];
@@ -619,14 +646,14 @@ class NativeMenu {
   /// refreshed bookmark when the old one had gone stale. Null when the file
   /// can no longer be reached at all.
   static Future<Map<String, String>?> resolveDocument(String bookmark) async {
-    if (!isSupported) return null;
+    if (!hasFileSurfaces) return null;
     return _stringMap(await _invoke<Map<Object?, Object?>>(
         'resolveBookmark', {'bookmark': bookmark}));
   }
 
   /// Ends access to an externally-opened document.
   static Future<void> releaseDocument(String path) async {
-    if (!isSupported) return;
+    if (!hasFileSurfaces) return;
     await _invoke<bool>('releaseDocument', {'path': path});
   }
 

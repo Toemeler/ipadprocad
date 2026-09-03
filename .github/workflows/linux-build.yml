@@ -1,0 +1,217 @@
+name: Linux app build  # the desktop port of the same app the iOS job builds
+
+# The iOS job (m1-core-build.yml) is the reference. This one builds the SAME
+# Dart tree for the GTK embedder, the SAME three kernels for x86-64, and
+# packages the result. It deliberately does NOT re-run `flutter analyze` or the
+# host test suite: m1-core-build's `dart-checks` job already does both on an
+# ubuntu runner, and a second copy would be a second thing to keep in step.
+#
+# The three jobs exist because their costs differ by two orders of magnitude:
+#
+#   occt      ~40 min, changes when the submodule pin changes    -> cached
+#   kernels   ~4 min,  changes when backend/ changes
+#   app       ~6 min,  changes on every commit
+#
+# with the OCCT install tree carried between them as an artifact rather than
+# rebuilt. A cache miss costs one long run; a hit costs a download.
+
+on:
+  push:
+    branches: [ main, 'claude/**' ]
+    paths-ignore: [ '**.md' ]
+  pull_request:
+    branches: [ main ]
+    paths-ignore: [ '**.md' ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Bump when the OCCT pin or the flag set below changes — the key is what
+  # decides whether a 40-minute build runs.
+  OCCT_CACHE_KEY: occt-linux-V7_9_3-r1
+
+jobs:
+  occt:
+    name: OpenCASCADE (static, x86-64)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    outputs:
+      cache-key: ${{ env.OCCT_CACHE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore the OCCT install tree
+        id: occt-cache
+        uses: actions/cache@v4
+        with:
+          path: backend/occt/install-linux
+          key: ${{ env.OCCT_CACHE_KEY }}
+
+      - name: Fetch the pinned submodule (cache miss only)
+        if: steps.occt-cache.outputs.cache-hit != 'true'
+        run: git submodule update --init --depth 1 -- backend/occt/upstream
+
+      - name: Install build tools (cache miss only)
+        if: steps.occt-cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cmake ninja-build g++
+
+      - name: Build (cache miss only)
+        if: steps.occt-cache.outputs.cache-hit != 'true'
+        run: tools/desktop/build_native.sh --occt-only
+
+      # An artifact as well as a cache. The cache is keyed and shared across
+      # runs; the artifact is what the next JOB in THIS run downloads, and it
+      # exists because a cache written by a job is not visible to a job that
+      # started at the same time.
+      - name: Upload the install tree
+        uses: actions/upload-artifact@v4
+        with:
+          name: occt-install-linux
+          path: backend/occt/install-linux
+          retention-days: 5
+
+  kernels:
+    name: CAD kernels (libprototype_native.so)
+    needs: occt
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt6 and build tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cmake ninja-build g++ pkg-config \
+            qt6-base-dev qt6-declarative-dev qt6-svg-dev
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: occt-install-linux
+          path: backend/occt/install-linux
+
+      - name: Build the kernel library
+        run: tools/desktop/build_native.sh
+
+      # The verdict is the MARKER, not the exit code — the same discipline the
+      # OCCT and QCAD smokes use in the iOS job, and for the same reason: a
+      # process that dies inside a kernel exits non-zero for reasons that say
+      # nothing about how far it got. build_native.sh already greps for it;
+      # this repeats the check so the failure names itself in the job summary.
+      - name: Kernel smoke verdict
+        run: |
+          log=frontend/build/native/native-smoke.log
+          cat "$log"
+          grep -q "NATIVE SMOKE: PASS" "$log" \
+            || { echo "LINUX KERNELS: FAIL"; exit 1; }
+          echo "LINUX KERNELS: PASS"
+
+      # Nothing but the three C APIs may leave this library. A regression here
+      # is silent — the app still works — and expensive: several hundred
+      # thousand exported symbols to relocate at every launch, and a real
+      # chance of colliding with a different Qt or OCCT already in the process.
+      - name: Exported surface is only the C API
+        run: |
+          set -o pipefail
+          lib=frontend/build/native/libprototype_native.so
+          nm -D --defined-only "$lib" | awk '{print $3}' | grep -v '^$' \
+            > /tmp/exported.txt
+          echo "exported symbols: $(wc -l < /tmp/exported.txt)"
+          if grep -vE '^(qcad_|slvs_|occt_)' /tmp/exported.txt \
+               | grep -vE '^(_init|_fini|_edata|_end|__bss_start)$' \
+               | head -20 | grep .; then
+            echo "LINUX KERNELS: FAIL (symbols leaked past the version script)"
+            exit 1
+          fi
+          echo "EXPORT CHECK: PASS"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prototype-kernels-linux
+          path: frontend/build/native
+          retention-days: 5
+
+  app:
+    name: Flutter Linux bundle + package
+    needs: kernels
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      # The GTK embedder's own dependencies, plus the ones the app reaches for
+      # at RUN time: zenity backs file_picker's Linux implementation (the
+      # import path in the ribbon and in Settings), and xvfb is what lets the
+      # launch check below run at all on a headless runner.
+      - name: Install the GTK toolchain
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq clang cmake ninja-build pkg-config \
+            libgtk-3-dev liblzma-dev libstdc++-12-dev zenity xvfb
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: prototype-kernels-linux
+          path: frontend/build/native
+
+      - name: flutter pub get
+        working-directory: frontend
+        run: flutter pub get
+
+      - name: Build the release bundle
+        working-directory: frontend
+        run: flutter build linux --release
+
+      # The gate that matters: the app has to LAUNCH, find the kernels and
+      # reach its first frame. Every failure this catches — a missing plugin
+      # registration, a kernel the search order does not reach, an exception in
+      # AppState.init — produces a bundle that builds perfectly and then does
+      # nothing on a user's machine.
+      #
+      # The verdict comes out of the app's OWN log file, which is the same file
+      # a bug bundle carries, so a red run here is diagnosed with exactly the
+      # material a user's report would carry.
+      - name: Launch check (Xvfb)
+        run: |
+          set -o pipefail
+          Xvfb :99 -screen 0 1600x1200x24 &
+          sleep 3
+          export DISPLAY=:99
+          timeout 90 frontend/build/linux/x64/release/bundle/prototype \
+            > /tmp/launch.log 2>&1 || true
+          echo "--- last 60 lines ---"
+          tail -60 /tmp/launch.log
+          grep -q "time to first frame" /tmp/launch.log \
+            || { echo "LINUX LAUNCH: FAIL (no first frame)"; exit 1; }
+          # The kernels have to be the REAL ones. Without this the job stays
+          # green on a bundle that silently fell back to the Dart engine, which
+          # is precisely the regression the packaging step can introduce.
+          grep -q "REAL backend active (qcad-ffi)" /tmp/launch.log \
+            || { echo "LINUX LAUNCH: FAIL (QCAD core not loaded)"; exit 1; }
+          grep -q "DART SMOKE: PASS" /tmp/launch.log \
+            || { echo "LINUX LAUNCH: FAIL (backend smoke did not pass)"; exit 1; }
+          echo "LINUX LAUNCH: PASS"
+
+      - name: Package
+        run: tools/desktop/package_linux.sh --skip-flutter --appimage
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prototype-linux-x64
+          path: |
+            dist/prototype-linux-x64.tar.gz
+            dist/Prototype-x86_64.AppImage
+          if-no-files-found: error
+          retention-days: 14

@@ -1,7 +1,10 @@
 name: native_menu
 description: >-
-  In-repo iOS plugin: real UIKit context menus (UIContextMenuInteraction),
-  the system share sheet and the Files exporter, driven from Dart.
+  In-repo platform plugin: real UIKit context menus (UIContextMenuInteraction),
+  the system share sheet and the Files exporter on iOS; on the desktop the
+  file surfaces only (Save a copy, Open, Open with, the mesh-import question
+  and the OS performance probe), because the app draws every menu, alert and
+  sheet itself off iOS. See lib/native_menu.dart.
 version: 0.1.0
 publish_to: 'none'
 
@@ -17,4 +20,6 @@ flutter:
   plugin:
     platforms:
       ios:
+        pluginClass: NativeMenuPlugin
+      linux:
         pluginClass: NativeMenuPlugin

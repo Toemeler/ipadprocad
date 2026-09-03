@@ -1,0 +1,300 @@
+# Prototype on Linux
+
+The same app, on a desktop. Not a port in the sense of a second codebase: one
+Dart tree, one set of kernels, one design, with the handful of places that can
+only be answered by a platform answered twice.
+
+This file is for two people. The first wants to build and run it. The second is
+about to merge a week of iOS work from `main` and needs to know what, if
+anything, that costs on this side. The short answer to the second question is
+*almost nothing, by construction*, and the rest of this file is why.
+
+---
+
+## Build it
+
+```bash
+sudo apt-get install -y \
+  clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev \
+  libstdc++-12-dev zenity \
+  g++ qt6-base-dev qt6-declarative-dev qt6-svg-dev
+
+# The CAD kernels. Once, then forget: ~40 minutes, almost all of it OCCT.
+tools/desktop/build_native.sh
+
+# The app.
+cd frontend && flutter build linux --release
+./build/linux/x64/release/bundle/prototype
+```
+
+A distributable tarball, an AppImage, and a per-user `install.sh` that
+registers the icon, the `.desktop` entry and the `.ptp`/`.pts`/`.pas` file
+associations:
+
+```bash
+tools/desktop/package_linux.sh --appimage
+```
+
+**In a hurry, or only touching UI?** Skip the kernels:
+
+```bash
+tools/desktop/build_native.sh --no-occt   # 2D + solver in a few minutes
+cd frontend && flutter run -d linux       # or skip build_native.sh entirely
+```
+
+Without kernels the app runs on the Dart drawing engine and the Dart solver,
+with no 3D and no path tracing — exactly what `flutter run` on any host has
+always done. It says so in the log rather than pretending; see
+`frontend/lib/ffi/native_lib.dart`.
+
+---
+
+## What runs where
+
+| | iPad | Linux |
+|---|---|---|
+| UI, layout, tools, gestures, i18n | Flutter | **the same Flutter** |
+| 2D geometry, layers, DXF | QCAD core, statically linked | QCAD core, in `libprototype_native.so` |
+| Constraints, DOF | libslvs, statically linked | libslvs, same library |
+| 3D B-Rep, booleans, STEP, meshes | OCCT, statically linked | OCCT, same library |
+| Ribbon, model browser, tab bar, tool bar | UIKit glass (`native_menu`) | the app's own Flutter chrome |
+| Alerts, action sheets, Settings | UIKit | the app's own Cupertino surfaces |
+| Context menus | `UIContextMenuInteraction` | the app's own overlay menu |
+| Save a copy / Open / Open with | Files, share sheet | GTK choosers (`native_menu/linux`) |
+| Shaded 3D viewport | RealityKit platform view | the Dart CPU renderer |
+| Path-traced render | Cycles (Metal) | **not yet** — see below |
+
+Two of those rows deserve their reason spelled out, because they are the
+decisions the whole port rests on.
+
+### The chrome is Flutter's, on purpose
+
+It would have been possible to write GTK versions of the glass ribbon, the
+outline-view model browser and the tab bar. That would have produced a *GTK
+app that resembles this one*, which is the opposite of the goal. What is
+already in the tree is better: every one of those surfaces has a Flutter
+implementation written by the same hand, in the same design system, that the
+app falls back to whenever `Platform.isIOS` is false. `flutter test`'s 3 400
+cases have been exercising exactly that path since long before there was a
+Linux build. So the desktop runs the app's own drawing of the app, and there
+is no third design to keep in step.
+
+`NativeMenu.isSupported` is the switch, and it stays `false` here.
+
+### The file errands are the platform's, on purpose
+
+The other half of the same plugin is not a design surface at all: it is *put
+this file where the user says*, *give me a file to open*, *open this in
+another program*. Drawing our own Save dialog would throw away the recent
+places, the bookmarks, the network mounts and the muscle memory that the
+desktop's own chooser has and no widget can reproduce.
+
+So the plugin's Dart API has two gates, not one:
+
+```dart
+NativeMenu.isSupported      // the UIKit SURFACES  — iOS only
+NativeMenu.hasFileSurfaces  // the file ERRANDS    — iOS, Linux, Windows, macOS
+```
+
+`frontend/packages/native_menu/linux/native_menu_plugin.cc` implements the
+second set and deliberately answers `not implemented` to the first, so that a
+mistake in either direction fails loudly rather than producing half a screen.
+
+---
+
+## Where the platform-specific code lives
+
+Everything Linux-only is in paths that **do not exist on `main`**. That is not
+tidiness; it is the merge strategy. A directory `main` has never heard of
+cannot conflict with anything `main` does.
+
+```
+frontend/linux/                       the GTK runner, packaging, icons
+frontend/packages/native_menu/linux/  the GTK half of the plugin
+backend/desktop/                      the kernel superbuild + its smoke test
+tools/desktop/                        build + package scripts
+.github/workflows/linux-build.yml     CI
+LINUX.md                              this file
+```
+
+Shared code that had to change at all is listed in full below. It is nine
+places, and every one of them is small, load-bearing and unlikely to move.
+
+---
+
+## The nine touches in shared code
+
+Read this list before merging from `main`. If a merge conflicts, it will be in
+one of these.
+
+1. **`frontend/lib/ffi/native_lib.dart`** — new file. Where a
+   `DynamicLibrary` comes from on each platform.
+2. **`frontend/lib/ffi/{qcad,slvs,occt,cycles}_engine.dart`** — four lines.
+   `DynamicLibrary.process()` became `NativeLib.open(...)`, plus a null check.
+   On iOS `NativeLib.open` *is* `DynamicLibrary.process()`, so the iOS
+   behaviour is byte-for-byte what it was.
+3. **`frontend/lib/platform/desktop_launch.dart`** — new file. The document a
+   launch was asked to open (`Exec=prototype %f`).
+4. **`frontend/lib/main.dart`** — two additions. `main()` takes optional args
+   and records them; the post-`init` callback opens a launch document. Both
+   are no-ops on iOS, where nothing passes arguments.
+5. **`frontend/lib/widgets/context_menu.dart`** — new file. The Flutter
+   stand-in for a UIKit context menu, driven by the same
+   `List<List<NativeMenuItem>>` the native path is handed.
+6. **`frontend/lib/widgets/home_view.dart`** — a gallery card gains a
+   right-click / long-press context menu **off iOS only**, funnelling into the
+   existing `_onMenuSelection`. On iOS the callback is null and the UIKit
+   interaction owns the gesture, exactly as before. One further line: the
+   `FilePicker` fallback now triggers on `!hasFileSurfaces` rather than
+   `!isSupported`, so cancelling the GTK chooser does not open a second one.
+7. **`frontend/packages/native_menu/lib/native_menu.dart`** — the
+   `hasFileSurfaces` gate described above, and six methods moved onto it.
+8. **`frontend/packages/native_menu/pubspec.yaml`** — declares the `linux`
+   plugin class next to the `ios` one.
+9. **`frontend/lib/ffi/*` imports** — one `import 'native_lib.dart';` each.
+
+Nothing else in `frontend/lib` knows this platform exists.
+
+---
+
+## Merging from `main`
+
+```bash
+git checkout claude/linux-app-port-tcdtrl
+git fetch origin && git merge origin/main
+```
+
+Expect it to be clean. If it is not, the conflict is in one of the nine
+touches above, and every one of them is a small edit whose *reason* is written
+next to it in the source — resolve by keeping `main`'s change and re-applying
+the touch, never the other way round.
+
+Then, in order of what each one actually proves:
+
+```bash
+cd frontend
+flutter analyze --no-pub --no-fatal-infos --no-fatal-warnings
+flutter test                        # ~3 500 cases, all platform-neutral
+flutter build linux --release
+DISPLAY=:0 ./build/linux/x64/release/bundle/prototype
+```
+
+The CI job does the same and adds one thing worth copying if you are checking
+by hand: it greps the app's **own log** for `REAL backend active (qcad-ffi)`
+and `DART SMOKE: PASS`. A bundle that quietly fell back to the Dart engine
+looks and behaves identically until the first extrude, and that grep is what
+catches it.
+
+### What a new iOS feature costs here
+
+- **A new tool, dialog, ribbon entry, kernel call, document format** — nothing.
+  It is shared Dart, and it works here the moment it works there.
+- **A new `native_menu` method** — decide which gate it is behind. A *surface*
+  needs a Flutter fallback in the app (which is where the iOS code already
+  puts one). An *errand* needs a case in `native_menu_plugin.cc`.
+- **A new C-API symbol** — nothing, as long as it starts `qcad_`, `slvs_` or
+  `occt_`. `backend/desktop/prototype_native.map` exports by prefix. A new
+  *prefix* means editing that file, and `backend/desktop/smoke.c` is what
+  notices if you forget.
+- **A new Flutter plugin dependency** — check it has a Linux implementation.
+  `file_picker` does (it shells out to `zenity`, which is why the packaging
+  lists it).
+
+---
+
+## Not yet: the path tracer
+
+Rendered mode has two engines on the iPad. RealityKit draws every frame on the
+GPU; Cycles path-traces one image when the camera settles. On Linux the first
+is replaced by the Dart CPU renderer, which is the app's own long-standing
+fallback and is genuinely fast enough on a desktop CPU. The second is simply
+absent: `RenderEngines` still offers the choice, `CyclesFfi.instance` returns
+null, and the app reports "no path tracer" rather than pretending.
+
+Making it real is a self-contained job, and the seam for it already exists —
+`NativeLib.cycles` looks for a *separate* `libprototype_cycles.so`, so nothing
+about the kernels or the bundle has to change to add it:
+
+1. Clone Blender's tree at the pin in `.github/workflows/cycles-render-test.yml`
+   and fetch `lib/linux_x64` with `make_update.py`.
+2. Graft the shim in as that workflow does
+   (`backend/cycles/shim/append.cmake`). The macOS/iOS patches in
+   `backend/cycles/patches/` are Apple-specific and are not needed.
+3. Build `cycles_shim` plus the Cycles device targets into
+   `libprototype_cycles.so` and drop it in `frontend/build/native/`.
+   `frontend/linux/CMakeLists.txt` already bundles it if it is there.
+
+The device backend on Linux is CPU, CUDA/OptiX or HIP rather than Metal, which
+is a Cycles configuration question and touches nothing in this app.
+
+---
+
+## Windows next
+
+The port was shaped for it. Everything above that says *desktop* rather than
+*Linux* is already shared, and `NativeMenu.hasFileSurfaces` already includes
+Windows. What a Windows build needs:
+
+1. **`frontend/windows/`** — `flutter create --platforms=windows` into a
+   scratch project and copy the runner, then apply the same three changes
+   `frontend/linux/runner/my_application.cc` documents: the window title and
+   the iPad-sized default, F11 fullscreen, and argv reaching Dart. The
+   kernel-bundling block at the end of `frontend/linux/CMakeLists.txt` ports
+   almost verbatim.
+2. **`frontend/packages/native_menu/windows/`** — the same six methods against
+   `IFileDialog` (Save a copy, Open), `ShellExecute` (Open with),
+   `TaskDialogIndirect` (the mesh-import question) and
+   `GetProcessMemoryInfo`/`GlobalMemoryStatusEx` (the perf probe). The Linux
+   file is 460 lines including its reasoning; the Windows one will be similar.
+   Add `windows: pluginClass:` to the plugin's `pubspec.yaml`.
+3. **The kernels** — `backend/desktop/CMakeLists.txt` is where the two
+   MSVC-specific facts go: `--whole-archive` becomes `/WHOLEARCHIVE:`, and the
+   version script becomes a `.def` file listing the same three prefixes (MSVC
+   has no `--version-script`; a `.def` with `qcad_*` wildcards is the
+   equivalent). `NativeLib.fileName` already returns `prototype_native.dll`,
+   and `NativeLib.candidates` already searches beside the runner.
+4. **CI** — `linux-build.yml`'s three jobs map one-for-one onto
+   `windows-2022`; OCCT's flags are unchanged, Qt comes from
+   `jurplel/install-qt-action` as it already does in the iOS job.
+
+Nothing in `frontend/lib` should need a tenth touch.
+
+---
+
+## Behaviour worth knowing about
+
+- **Window.** Opens at 1376×1032 — the iPad Pro 13" landscape stage in logical
+  points, so the desktop build starts life pixel-for-pixel the iPad build. It
+  is a starting size, not a constraint; the layout is responsive and the
+  minimum is 1024×700. **F11** toggles fullscreen.
+- **Right-click** opens context menus everywhere the iPad long-presses: model
+  browser rows, features, the end-of-part marker, gallery cards. Long press
+  works too, for a touchscreen or a pen.
+- **Share** has no desktop equivalent, so it opens the file in whatever the
+  system associates with the type, and falls back to Save a copy when nothing
+  is registered. **Export** is always Save a copy.
+- **Open in place** is real here: a `.ptp` opened from anywhere is remembered
+  by its path, appears in the gallery, and Save writes back to *that* file.
+  What iOS needs a security-scoped bookmark for, a path already is.
+- **Mesh import** asks convert-or-faceted in a GTK dialog. Off iOS the app
+  used to choose `convert` silently; on the desktop it asks, like the iPad.
+- **The busy card** during a long mesh conversion is a UIKit view on iOS,
+  drawn by the platform thread while the Dart isolate blocks inside the
+  kernel. The GTK embedder runs Dart on the *same* thread as the main loop, so
+  there is nothing that could animate; a long conversion shows a still window.
+  Honest and unpleasant. Fixing it means moving the conversion off the main
+  isolate, which is a change to shared code and belongs on `main`, not here.
+- **Documents** live in the platform's application-support directory
+  (`~/.local/share/prototype` under XDG), via `path_provider`.
+
+---
+
+## Licensing note
+
+The bundle links QCAD (GPLv3) and libslvs (GPLv3) into
+`libprototype_native.so`, exactly as the iOS build links them into its Runner.
+OCCT is LGPL 2.1 with the OCCT exception, which is what permits static linking
+here (see `backend/occt/VENDOR.md`). Qt 6 is used as **shared** libraries and
+is bundled unmodified, which is the arrangement LGPL 3 asks for. Nothing about
+the desktop build changes the analysis the iOS build already rests on; it only
+adds Qt, and adds it in the shape that keeps it simple.

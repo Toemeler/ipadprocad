@@ -17,6 +17,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/gestures.dart'
+    show PointerDeviceKind, kSecondaryMouseButton;
 import 'package:flutter/material.dart';
 import 'package:native_menu/native_menu.dart';
 
@@ -28,6 +30,7 @@ import '../log.dart';
 import '../svg_icons.dart';
 import '../icon_preview.dart';
 import '../theme.dart';
+import 'context_menu.dart';
 import 'native_prompts.dart';
 import 'settings_sheet.dart';
 
@@ -243,6 +246,26 @@ class _HomeViewState extends State<HomeView> {
   }
 
   // ---- menu actions ----
+
+  /// The gallery card's context menu, off iOS.
+  ///
+  /// Same groups the native path is given (`sketchMenuGroups`) and the same
+  /// handler underneath (`_onMenuSelection`), so Rename, Duplicate, Copy,
+  /// Create Part, Export, Share and Delete behave identically whichever side
+  /// drew the menu. Before this the desktop had NONE of them: the only way to
+  /// reach a card's actions was a long press UIKit answered, and off iOS
+  /// nobody answered it.
+  Future<void> _showCardMenu(String name, Offset at) async {
+    final doc = widget.app.saved.where((d) => d.name == name);
+    if (doc.isEmpty) return;
+    final choice = await showAppContextMenu(
+      context,
+      at: at,
+      title: name,
+      groups: sketchMenuGroups(L.current, isSketch: doc.first.kind == 'sketch'),
+    );
+    if (choice != null) _onMenuSelection(name, choice);
+  }
 
   void _onMenuSelection(String sketch, String item) {
     if (!mounted) return;
@@ -482,7 +505,11 @@ class _HomeViewState extends State<HomeView> {
       var path = picked?['path'];
       Log.milestone(
           'doc', 'open: picker returned ${path == null ? "nothing" : path}');
-      if (path == null && !NativeMenu.isSupported) {
+      // Only where NO platform chooser ran. On the desktop `openInPlace` is
+      // the GTK/Win32 chooser (see native_menu/linux), so a null there means
+      // the user cancelled — and putting a second picker up on a cancel is
+      // the one thing worse than not having one.
+      if (path == null && !NativeMenu.hasFileSurfaces) {
         final res = await FilePicker.platform
             .pickFiles(type: FileType.custom, allowedExtensions: kinds);
         path = res?.files.single.path;
@@ -705,6 +732,11 @@ class _HomeViewState extends State<HomeView> {
                   scrollKey: _scrollKey,
                   keyFor: _keyFor,
                   onLayoutChanged: _schedulePush,
+                  // On the iPad the UIKit interaction registered by
+                  // _pushTargets owns the long press; a second menu on the
+                  // same card would be two menus racing for one gesture.
+                  onContextMenu:
+                      NativeMenu.isSupported ? null : _showCardMenu,
                 ),
         ),
         ]),
@@ -718,11 +750,15 @@ class _Grid extends StatelessWidget {
   final GlobalKey scrollKey;
   final GlobalKey Function(String name) keyFor;
   final VoidCallback onLayoutChanged;
+
+  /// Null on the iPad, where UIKit owns the long press. See _Card.
+  final void Function(String name, Offset globalPosition)? onContextMenu;
   const _Grid({
     required this.app,
     required this.scrollKey,
     required this.keyFor,
     required this.onLayoutChanged,
+    this.onContextMenu,
   });
 
   String _fmt(DateTime d) =>
@@ -762,6 +798,9 @@ class _Grid extends StatelessWidget {
                     thumbHeight: cardH,
                     kind: s.kind,
                     onTap: () => app.openDocument(s.name),
+                    onContextMenu: onContextMenu == null
+                        ? null
+                        : (pos) => onContextMenu!(s.name, pos),
                   ),
                 ),
             ],
@@ -851,12 +890,18 @@ class _Card extends StatefulWidget {
   final double thumbHeight;
   final String kind;
   final VoidCallback onTap;
+
+  /// Off iOS: where the card's context menu should open. Null on the iPad,
+  /// where the UIKit interaction owns the long press and this card must not
+  /// compete with it — see [_HomeViewState._pushTargets].
+  final void Function(Offset globalPosition)? onContextMenu;
   const _Card({
     required this.name,
     required this.date,
     required this.preview,
     required this.thumbHeight,
     required this.onTap,
+    this.onContextMenu,
     this.kind = 'sketch',
   });
   @override
@@ -872,8 +917,26 @@ class _CardState extends State<_Card> {
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _h = true),
       onExit: (_) => setState(() => _h = false),
-      child: GestureDetector(
+      // A raw Listener for the RIGHT button, exactly as the model browser's
+      // rows do it: a secondary click is not a gesture the arena arbitrates,
+      // and routing it through one would make it compete with the card's tap.
+      child: Listener(
+        onPointerDown: (e) {
+          final open = widget.onContextMenu;
+          if (open != null &&
+              e.kind == PointerDeviceKind.mouse &&
+              e.buttons == kSecondaryMouseButton) {
+            open(e.position);
+          }
+        },
+        child: GestureDetector(
         onTap: widget.onTap,
+        // Long press as well, for a touchscreen or a pen on a desktop: the
+        // gesture the iPad uses, kept working where there is no UIKit menu to
+        // own it.
+        onLongPressStart: widget.onContextMenu == null
+            ? null
+            : (d) => widget.onContextMenu!(d.globalPosition),
         behavior: HitTestBehavior.opaque,
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           AnimatedScale(
@@ -915,6 +978,7 @@ class _CardState extends State<_Card> {
               textAlign: TextAlign.center,
               style: ts(11.5, g.cardDate)),
         ]),
+        ),
       ),
     );
   }
