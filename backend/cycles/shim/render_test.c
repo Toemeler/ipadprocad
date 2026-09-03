@@ -374,7 +374,17 @@ int main(int argc, char **argv)
   {
     CyEnv live_env = env;
     CyView live_view = view;
-    live_view.samples = 8;
+    /* M367 — 128, NOT 8, AND THE TARGET IS PART OF THE TEST.
+     *
+     * Eight samples of a 96x96 image is over in tens of milliseconds, which is
+     * long enough to prove a frame comes out and far too short to prove
+     * anything about the CADENCE it comes out at: run 1 of this check polled
+     * eight samples and caught two of them, which is a pass that would also
+     * have passed on an unpatched tree. 128 samples is around a second here,
+     * which is hundreds of polls, and it is also the app's own default target
+     * (kRenderSamplesDefault) — so what the runner exercises is the render the
+     * iPad actually performs. */
+    live_view.samples = 128;
 
     check(cy_live_open() == 1, "the live session opens");
     if (cy_live_is_open()) {
@@ -402,7 +412,10 @@ int main(int argc, char **argv)
        * the app uses; the deadline is generous because this runs on three
        * paravirtualised cores and the first render of the process also loads
        * the kernels. */
-      const double kPollMs = 5.0;
+      /* Faster than the app's own poll (kCyclesPoll, 14 ms), because this is
+       * measuring what the RENDERER produces and must not be limited by how
+       * often it is asked. */
+      const double kPollMs = 2.0;
       const double kDeadlineMs = 60000.0;
       double waited = 0.0;
       /* M367 — WHICH SAMPLE COUNTS WERE ACTUALLY SEEN.
@@ -416,8 +429,13 @@ int main(int argc, char **argv)
        * tree moves and fails silently: the anchor check catches a MISSING
        * edit, and nothing would catch an edit that applied and did not work.
        * So the counts are recorded and checked below. */
-      int seen_counts[64];
+      int seen_counts[256];
       int seen_n = 0;
+      /* How many times two CONSECUTIVE sample counts came out one apart. That
+       * is the literal reading of "I want to see every sample", and it is what
+       * separates a patched scheduler from an unpatched one — see the checks
+       * below for the arithmetic. */
+      int adjacent = 0;
       /* Taken from a frame that was actually HANDED OVER, not from `info`
        * after the loop. cy_live_frame fills in samples/target/done even when
        * it has nothing new to give (that is what lets a caller poll for
@@ -433,7 +451,10 @@ int main(int argc, char **argv)
         }
         if (r == 1) {
           got++;
-          if (seen_n < 64 && (seen_n == 0 || seen_counts[seen_n - 1] != info.samples)) {
+          if (seen_n < 256 && (seen_n == 0 || seen_counts[seen_n - 1] != info.samples)) {
+            if (seen_n > 0 && info.samples == seen_counts[seen_n - 1] + 1) {
+              adjacent++;
+            }
             seen_counts[seen_n++] = info.samples;
           }
           if (info.done) {
@@ -468,26 +489,44 @@ int main(int argc, char **argv)
 
       /* ---- M367: every sample, and then a denoise -----------------------
        *
-       * WHY THE BAR IS "MORE THAN ONE" AND NOT "ALL EIGHT". Two things
-       * legitimately swallow a count and neither is the defect being guarded
-       * against. cy_live_frame hands back only what is in the store WHEN IT IS
-       * ASKED, and this loop polls every 5 ms while the runner path-traces on
-       * three paravirtualised cores — so several samples can land between two
-       * polls and only the newest is seen. And adaptive sampling can finish
-       * the whole 96x96 image early, which is a converged render and not a
-       * skipped one.
+       * WHAT AN UNPATCHED TREE WOULD PRODUCE, because that is what these two
+       * numbers are chosen against.
        *
-       * What CANNOT happen with the cap in force is one count for the whole
-       * render: the scheduler would have to have traced all eight samples in a
-       * single work item, which is precisely what it does without the patch
-       * and precisely what the report described. That is the assertion. */
+       * The scheduler always traces the first work item as ONE sample. After
+       * that the packet is `samples-per-second x display-update-interval`,
+       * rounded up to a power of two, and then aligned by adaptive sampling —
+       * which, with `adaptive_min_samples` left at 0 and the threshold at
+       * 0.01, puts the first filter point at sample 79 and every one after it
+       * on a multiple of 16. So an unpatched 128-sample render arrives in
+       * something like 1, 78, 95, 111, 127: a handful of counts, none of them
+       * adjacent.
+       *
+       * With the cap it arrives one sample at a time. Polling cannot see all
+       * of them — cy_live_frame returns what is in the store WHEN IT IS ASKED,
+       * so several samples can land between two polls — but at 2 ms a poll
+       * against a render of about a second, most of them do.
+       *
+       * Hence two checks with wide margins in both directions:
+       *
+       *   * MORE THAN TEN distinct counts. Unpatched gives about five however
+       *     fast the machine is, because the count is set by the filter
+       *     points; patched gives tens.
+       *   * At least one pair of counts ONE APART. Unpatched, the gaps are 16
+       *     or larger from the second work item on, so this cannot happen at
+       *     all. It is the literal property that was asked for.
+       *
+       * The one thing that would fail this honestly is adaptive sampling
+       * converging the whole 96x96 image inside ten samples. It does not — the
+       * printed counts below say where it actually got to. */
       printf("live: sample counts seen:");
       for (int i = 0; i < seen_n; i++) {
         printf(" %d", seen_counts[i]);
       }
       printf("\n");
-      check(seen_n > 1,
-            "sampling arrives progressively rather than in one batch");
+      printf("live: %d distinct counts, %d of them one apart\n", seen_n, adjacent);
+      check(seen_n > 10,
+            "sampling arrives progressively rather than in a few big batches");
+      check(adjacent > 0, "consecutive samples arrive as consecutive frames");
 
       /* And the finished frame has been denoised — by Cycles' own
        * OpenImageDenoise where the build has it, by the a-trous fallback
