@@ -43,6 +43,13 @@
  *     why cycles_denoise.cpp names no Cycles type;
  *   * M344: THE LIVE SESSION PRODUCES FRAMES. cy_live_* is the path the app
  *     actually uses, and until this it had never been called by anything.
+ *   * M367: EVERY SAMPLE IS A FRAME. The report was "I see steps -- sample 24,
+ *     then 50, then 100"; the counts a live session actually hands over are
+ *     recorded and checked, because a patch to Cycles' scheduler is the kind
+ *     of change that stops working without stopping applying;
+ *   * M369: A MEGAPIXEL FRAME SURVIVES THE DENOISE. The crash was at the
+ *     denoise, at viewport size, and the live check runs at 96x96 where the
+ *     memory ceiling that fixes it cannot possibly bind.
  *
  * Exit: 0 pass, 1 fail, 2 skipped (no GPU on this machine).
  */
@@ -68,18 +75,24 @@ static void check(int ok, const char *what)
   }
 }
 
-/* Mean value of one channel over a quadrant, 0..255. Sampled over an area
- * rather than at a point so a single stray sample cannot decide the result.
- * channel < 0 means luminance. */
-static double quadrant_ch(const unsigned char *rgba, int left, int top, int channel)
+/* Mean value of one channel over a quadrant of a W x H image, 0..255. Sampled
+ * over an area rather than at a point so a single stray sample cannot decide
+ * the result. channel < 0 means luminance.
+ *
+ * Takes the size rather than reading TW/TH so that M369's megapixel frame can
+ * be framed by the same arithmetic as every other check here; a second copy of
+ * this loop with different constants would be a second definition of "where
+ * the object is". */
+static double quadrant_of(
+    const unsigned char *rgba, int w, int h, int left, int top, int channel)
 {
-  const int x0 = left ? TW / 8 : TW * 5 / 8;
-  const int y0 = top ? TH / 8 : TH * 5 / 8;
+  const int x0 = left ? w / 8 : w * 5 / 8;
+  const int y0 = top ? h / 8 : h * 5 / 8;
   double sum = 0.0;
   int n = 0;
-  for (int y = y0; y < y0 + TH / 4; y++) {
-    for (int x = x0; x < x0 + TW / 4; x++) {
-      const unsigned char *p = rgba + ((size_t)y * TW + x) * 4;
+  for (int y = y0; y < y0 + h / 4; y++) {
+    for (int x = x0; x < x0 + w / 4; x++) {
+      const unsigned char *p = rgba + ((size_t)y * w + x) * 4;
       sum += channel < 0 ? (p[0] + p[1] + p[2]) / 3.0 : p[channel];
       n++;
     }
@@ -87,20 +100,14 @@ static double quadrant_ch(const unsigned char *rgba, int left, int top, int chan
   return n ? sum / n : 0.0;
 }
 
+static double quadrant_ch(const unsigned char *rgba, int left, int top, int channel)
+{
+  return quadrant_of(rgba, TW, TH, left, top, channel);
+}
+
 static double quadrant(const unsigned char *rgba, int left, int top)
 {
-  const int x0 = left ? TW / 8 : TW * 5 / 8;
-  const int y0 = top ? TH / 8 : TH * 5 / 8;
-  double sum = 0.0;
-  int n = 0;
-  for (int y = y0; y < y0 + TH / 4; y++) {
-    for (int x = x0; x < x0 + TW / 4; x++) {
-      const unsigned char *p = rgba + ((size_t)y * TW + x) * 4;
-      sum += (p[0] + p[1] + p[2]) / 3.0;
-      n++;
-    }
-  }
-  return n ? sum / n : 0.0;
+  return quadrant_of(rgba, TW, TH, left, top, -1);
 }
 
 int main(int argc, char **argv)
@@ -552,6 +559,126 @@ int main(int argc, char **argv)
       free(live);
       cy_live_close();
       check(cy_live_is_open() == 0, "the live session closes");
+    }
+  }
+
+  /* ---- M369: a MEGAPIXEL frame survives the denoise --------------------
+   *
+   * WHAT THIS IS FOR. The report was "when it came to denoising the App
+   * crashed", and the diagnosis is written out in
+   * backend/cycles/patches/oidn_memory.py: OIDN only tiles its network above
+   * `defaultMaxTileSize` (2160*2160, 4.67 megapixels), and Cycles never sets
+   * `maxMemoryMB` — so a tablet-sized viewport went through as ONE tile, with
+   * one arena allocated whole, at the end of a render that is already holding
+   * the path state pool, the BVH and the render buffers.
+   *
+   * WHY THE CHECK ABOVE CANNOT COVER IT. That one runs at 96x96. It proves the
+   * cadence and it proves a finished frame comes out denoised, and about this
+   * crash it can prove nothing at all: at nine thousand pixels the ceiling
+   * never binds, and the unbounded code would have passed it just as happily.
+   * A patch whose only test is "the anchor still applied" is a patch that can
+   * stop working in silence.
+   *
+   * So: one more live session, at a size in the range that crashed. 2048x1280
+   * is 2.6 megapixels, and it is chosen deliberately BELOW 4.67 so that the
+   * only thing that can make OIDN tile here is the ceiling M369 adds. On an
+   * unpatched tree this is exactly the single-arena path; on a patched one it
+   * is several tiles with overlap — and the frame that comes out has to be the
+   * same finished, denoised frame either way.
+   *
+   * The sample target is the smallest one that still denoises
+   * (kDenoiseThreshold, 8), because what is under test here is the DENOISE and
+   * not the sampling. The cadence is checked above at the app's real target;
+   * every extra sample at this size is another 2.6 million paths on three
+   * paravirtualised cores, spent proving something already proven.
+   */
+  {
+    const int kBigW = 2048;
+    const int kBigH = 1280;
+    CyEnv big_env = env;
+    CyView big_view = view;
+    big_view.width = kBigW;
+    big_view.height = kBigH;
+    big_view.samples = 8;
+
+    check(cy_live_open() == 1, "the live session reopens for a big frame");
+    if (cy_live_is_open()) {
+      check(cy_live_scene(&mesh, 1, NULL, 0, &big_env) == 1,
+            "the big scene uploads");
+      check(cy_live_view(&big_view) == 1, "the big camera is accepted");
+
+      const size_t big_bytes = (size_t)kBigW * (size_t)kBigH * 4u;
+      unsigned char *big = (unsigned char *)calloc(big_bytes, 1);
+      CyFrame info;
+      memset(&info, 0, sizeof(info));
+      int got = 0;
+      int done = 0;
+      /* Read off a frame that was HANDED OVER, for the reason spelled out at
+       * the 96x96 check: a poll with nothing new fills in the counters and has
+       * no pixels, so it has no denoise to report either. */
+      int denoised_final = 0;
+      /* Polled more slowly and waited for far longer than the small frame.
+       * This is 285 times the pixels, and when the ceiling binds the denoise
+       * runs as several overlapping tiles instead of one pass — so a slow
+       * answer is a pass. What this deadline is here to catch is the frame
+       * that never arrives at all. */
+      const double kBigPollMs = 10.0;
+      const double kBigDeadlineMs = 180000.0;
+      double waited = 0.0;
+      while (!done && waited < kBigDeadlineMs) {
+        const int r = cy_live_frame(big, (int)big_bytes, &info);
+        if (r < 0) {
+          printf("  big live frame error: %s\n", cy_last_error());
+          break;
+        }
+        if (r == 1) {
+          got++;
+          if (info.done) {
+            denoised_final = info.denoised;
+          }
+        }
+        done = info.done;
+        if (done) {
+          break;
+        }
+        struct timespec ts;
+        ts.tv_sec = 0;
+        ts.tv_nsec = (long)(kBigPollMs * 1000000.0);
+        nanosleep(&ts, NULL);
+        waited += kBigPollMs;
+      }
+      printf("big: %dx%d, %d frames, %d/%d samples, done=%d denoised=%d after %.0f ms\n",
+             info.width, info.height, got, info.samples, info.target, info.done,
+             info.denoised, waited);
+      if (got == 0) {
+        char status[256];
+        cy_status(status, (int)sizeof(status));
+        printf("  no big frames. last error: \"%s\"  status: \"%s\"\n",
+               cy_last_error(), status);
+      }
+      check(got > 0, "a megapixel live session produces frames");
+      check(info.width == kBigW && info.height == kBigH,
+            "the big frame is the size that was asked for");
+      check(done == 1, "the megapixel render converges");
+      /* THE CHECK THIS BLOCK EXISTS FOR. Reaching here at all means the
+       * denoiser ran over 2.6 megapixels without taking the process with it;
+       * the flag means it ran and produced a result, rather than falling back
+       * to handing over the noisy buffer. */
+      check(denoised_final == 1, "the megapixel frame comes back denoised");
+
+      /* The same object in the same corner as every other framing of this
+       * scene. A denoise that tiled WRONG — overlap mismatched, a tile written
+       * to the wrong offset — would still set the flag and still converge; it
+       * would show up as a picture that no longer has the model where the
+       * camera put it. */
+      const double btr = quadrant_of(big, kBigW, kBigH, 0, 1, -1);
+      const double btl = quadrant_of(big, kBigW, kBigH, 1, 1, -1);
+      printf("big: quadrants %.1f / %.1f\n", btl, btr);
+      check(fabs(btr - btl) > 10.0, "the megapixel frame has the object in it");
+
+      free(big);
+      cy_live_close();
+      check(cy_live_is_open() == 0, "the big live session closes");
     }
   }
 
