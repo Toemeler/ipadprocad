@@ -64,6 +64,8 @@
 #include <BRepLib.hxx>
 #include <BRepMesh_IncrementalMesh.hxx>
 #include <BRepTopAdaptor_FClass2d.hxx>
+#include <array>
+#include <set>
 #include <Precision.hxx>
 #include <BRepTools.hxx>
 #include <ElSLib.hxx>
@@ -1765,6 +1767,27 @@ const int kFreeformSplitDepth = 9;
 const int kFreeformMergePasses = 12;
 const int kFreeformCheckSamples = 48;
 const int kFreeformMaxRegionTriangles = 20000;
+/* How far a mended triangle's node may be from the face that takes it, as a
+ * multiple of the deflection being drawn at.
+ *
+ * Swept against two things that pull opposite ways: how well a copied node's
+ * parameter describes it, and whether the drawn mesh still closes. Refusing
+ * too eagerly leaves the hole open — at 8 the ellipsoid keeps 10 rim edges —
+ * and refusing nothing leaves the whale's worst copied node 5.4 mm off the
+ * surface it was given a parameter on. 16 is the first value that closes the
+ * ellipsoid completely, and it holds the whale's worst to 1.4 mm; 40 and 100
+ * close it too and give 1.9, so the choice is the tight end of the plateau
+ * rather than a knife edge. Before any of this it was 25.5 mm. */
+const double kBridgeBar = 16.0;
+/* How close two nodes of a ring must be, as a multiple of the deflection,
+ * before the ring is cut in two there.
+ *
+ * Swept 0.5 to 8 on the ellipsoid: 0 leaves 43 rim edges, 4 leaves none, 8
+ * starts drawing more surface than there is. The pinches actually found
+ * measure 0.08 to 0.21 mm at a 0.6 mm deflection, so anything from a third of
+ * a deflection up finds them and the bar is really about how much of a real
+ * neck it may cut through. */
+const double kPinchBar = 4.0;
 const int kFreeformGridMax = 32;
 const double kFreeformGridBar = 0.7;
 const double kFreeformApproxFraction = 0.25;
@@ -8828,6 +8851,103 @@ static bool FillLoopDp(const std::vector<gp_Pnt> &pos,
     return out.size() >= 3;
 }
 
+/* Cut a ring in two wherever it pinches.
+ *
+ * M364. A hole that spans several faces cannot be filled inside any one of
+ * them: whatever triangulation is chosen, some triangle bridges from one face
+ * to another, and the node it drags across gets a parameter on a surface it
+ * is nowhere near — measured on the whale drawn fine, 24 mm away, and it
+ * renders as a long dark blade lying across a flat flank.
+ *
+ * But those rings are not one hole. Every one of the 116 that produced a
+ * bridge on the ellipsoid pinches: two of its nodes are hundreds of slots
+ * apart along the ring and between 0.08 and 0.21 mm apart in space, which is
+ * a hair, not a hole. Cut there and each half is a hole in its own right,
+ * fillable where it lies. The cut costs nothing — the two nodes are already
+ * at the same place, so the two halves share that point and the fill still
+ * closes what the ring enclosed.
+ *
+ * Found through a grid rather than by comparing every pair: a ring can be six
+ * hundred nodes round and this runs inside the draw. */
+static int SplitPinchedRings(const std::vector<gp_Pnt> &pos,
+                             std::vector<std::vector<int>> &rings,
+                             std::vector<int> &face, double bar)
+{
+    int cuts = 0;
+    if (!(bar > 0))
+        return 0;
+    const double cell = std::max(bar, 1e-9);
+    auto key = [&](const gp_Pnt &p) {
+        return std::array<long long, 3>{
+            static_cast<long long>(std::floor(p.X() / cell)),
+            static_cast<long long>(std::floor(p.Y() / cell)),
+            static_cast<long long>(std::floor(p.Z() / cell))};
+    };
+    /* A ring may pinch more than once, so keep going until nothing splits.
+     * Bounded by the total number of nodes, since every split shortens. */
+    for (size_t guard = 0, cap = 4096; guard < cap; ++guard) {
+        bool cut = false;
+        for (size_t r = 0; r < rings.size(); ++r) {
+            std::vector<int> &ring = rings[r];
+            const int n = static_cast<int>(ring.size());
+            if (n < 8)
+                continue;
+            std::map<std::array<long long, 3>, std::vector<int>> grid;
+            for (int i = 0; i < n; ++i)
+                grid[key(pos[ring[i]])].push_back(i);
+            int ba = -1, bb = -1;
+            double best = bar;
+            for (int i = 0; i < n && ba < 0; ++i) {
+                const std::array<long long, 3> c0 = key(pos[ring[i]]);
+                for (long long x = -1; x <= 1; ++x)
+                    for (long long y = -1; y <= 1; ++y)
+                        for (long long z = -1; z <= 1; ++z) {
+                            const auto it = grid.find(
+                                {c0[0] + x, c0[1] + y, c0[2] + z});
+                            if (it == grid.end())
+                                continue;
+                            for (const int j : it->second) {
+                                if (j <= i)
+                                    continue;
+                                /* both halves need at least a triangle */
+                                if (j - i < 3 || n - (j - i) < 3)
+                                    continue;
+                                const double dd =
+                                    pos[ring[i]].Distance(pos[ring[j]]);
+                                if (dd < best) {
+                                    best = dd;
+                                    ba = i;
+                                    bb = j;
+                                }
+                            }
+                        }
+            }
+            if (ba < 0)
+                continue;
+            /* Both halves keep BOTH cut nodes, so the chord between them
+             * is walked once each way and cancels, and every edge the ring
+             * had lands in exactly one half. Dropping the endpoints instead
+             * loses two edges per cut and tears 674 fresh rim edges into an
+             * ellipsoid that had 74. */
+            std::vector<int> head(ring.begin() + ba, ring.begin() + bb + 1);
+            std::vector<int> tail(ring.begin() + bb, ring.end());
+            tail.insert(tail.end(), ring.begin(), ring.begin() + ba + 1);
+            if (head.size() < 3 || tail.size() < 3)
+                continue;
+            const int f = face[r];
+            ring.swap(head);
+            rings.push_back(tail);
+            face.push_back(f);
+            ++cuts;
+            cut = true;
+            break;
+        }
+        if (!cut)
+            break;
+    }
+    return cuts;
+}
+
 /* Where the shell legitimately stops.
  *
  * An open shell HAS a boundary, and filling it in would be a bug rather than
@@ -8877,6 +8997,55 @@ static void OpenRimNodes(const TopoDS_Shape &s, const DrawnMesh &d,
  * still meet exactly. The nodes that were already there keep their indices,
  * which is what lets the edges' polygons-on-triangulation stay valid: they
  * hold indices into this very array. */
+/* Squared distance from a point to a triangle, and the barycentric place on
+ * it that is nearest. */
+static double PointOnTriangle(const gp_Pnt &p, const gp_Pnt &a, const gp_Pnt &b,
+                              const gp_Pnt &c, double *bu, double *bv)
+{
+    const gp_Vec ab(a, b), ac(a, c), ap(a, p);
+    const double d1 = ab.Dot(ap), d2 = ac.Dot(ap);
+    double u = 0, v = 0;
+    if (d1 <= 0 && d2 <= 0) {
+        u = 0; v = 0;
+    } else {
+        const gp_Vec bp(b, p), cp(c, p);
+        const double d3 = ab.Dot(bp), d4 = ac.Dot(bp);
+        if (d3 >= 0 && d4 <= d3) {
+            u = 1; v = 0;
+        } else {
+            const double vc = d1 * d4 - d3 * d2;
+            if (vc <= 0 && d1 >= 0 && d3 <= 0) {
+                u = d1 / (d1 - d3); v = 0;
+            } else {
+                const double d5 = ab.Dot(cp), d6 = ac.Dot(cp);
+                if (d6 >= 0 && d5 <= d6) {
+                    u = 0; v = 1;
+                } else {
+                    const double vb = d5 * d2 - d1 * d6;
+                    if (vb <= 0 && d2 >= 0 && d6 <= 0) {
+                        u = 0; v = d2 / (d2 - d6);
+                    } else {
+                        const double va = d3 * d6 - d5 * d4;
+                        if (va <= 0 && (d4 - d3) >= 0 && (d5 - d6) >= 0) {
+                            const double w =
+                                (d4 - d3) / ((d4 - d3) + (d5 - d6));
+                            u = 1 - w; v = w;
+                        } else {
+                            const double den = 1.0 / (va + vb + vc);
+                            u = vb * den; v = vc * den;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    *bu = u; *bv = v;
+    const gp_Pnt q(a.X() + u * ab.X() + v * ac.X(),
+                   a.Y() + u * ab.Y() + v * ac.Y(),
+                   a.Z() + u * ab.Z() + v * ac.Z());
+    return q.SquareDistance(p);
+}
+
 class FaceWriter
 {
 public:
@@ -8896,6 +9065,39 @@ public:
     }
 
     bool ok() const { return !tri_.IsNull() && !mine_.empty(); }
+
+    /* How far a welded node is from this face's own mesh — zero when the face
+     * already has the node. */
+    double howFar(int rep) const
+    {
+        if (mine_.count(rep))
+            return 0.0;
+        if (tri_.IsNull() || rep < 0 ||
+            rep >= static_cast<int>(d_.pos.size()))
+            return 1e300;
+        /* Remembered: the fill asks the same node of the same face once per
+         * triangle that touches it and once per candidate, and the answer is
+         * a scan of the whole face. Without this the whale's first draw goes
+         * from 1.4 to 2.2 seconds. */
+        const auto seen = far_.find(rep);
+        if (seen != far_.end())
+            return seen->second;
+        const gp_Pnt p = d_.pos[rep].Transformed(inv_);
+        double best = 1e300;
+        for (int i = 1; i <= wasTri_; ++i) {
+            int a = 0, b = 0, c = 0;
+            tri_->Triangle(i).Get(a, b, c);
+            if (a < 1 || b < 1 || c < 1 || a > was_ || b > was_ || c > was_)
+                continue;
+            double bu = 0, bv = 0;
+            best = std::min(best, PointOnTriangle(p, tri_->Node(a),
+                                                  tri_->Node(b), tri_->Node(c),
+                                                  &bu, &bv));
+        }
+        const double got = best < 1e299 ? std::sqrt(best) : 1e300;
+        far_.emplace(rep, got);
+        return got;
+    }
 
     /* The index this face knows a welded node by, copying it in if it does
      * not know it yet. */
@@ -8987,53 +9189,6 @@ private:
      *     the model's 99th percentile was 25.9 degrees and the mesher's own
      *     is 6.6.
      */
-    static double PtTriUv(const gp_Pnt &p, const gp_Pnt &a, const gp_Pnt &b,
-                          const gp_Pnt &c, double *bu, double *bv)
-    {
-        const gp_Vec ab(a, b), ac(a, c), ap(a, p);
-        const double d1 = ab.Dot(ap), d2 = ac.Dot(ap);
-        double u = 0, v = 0;
-        if (d1 <= 0 && d2 <= 0) {
-            u = 0; v = 0;
-        } else {
-            const gp_Vec bp(b, p), cp(c, p);
-            const double d3 = ab.Dot(bp), d4 = ac.Dot(bp);
-            if (d3 >= 0 && d4 <= d3) {
-                u = 1; v = 0;
-            } else {
-                const double vc = d1 * d4 - d3 * d2;
-                if (vc <= 0 && d1 >= 0 && d3 <= 0) {
-                    u = d1 / (d1 - d3); v = 0;
-                } else {
-                    const double d5 = ab.Dot(cp), d6 = ac.Dot(cp);
-                    if (d6 >= 0 && d5 <= d6) {
-                        u = 0; v = 1;
-                    } else {
-                        const double vb = d5 * d2 - d1 * d6;
-                        if (vb <= 0 && d2 >= 0 && d6 <= 0) {
-                            u = 0; v = d2 / (d2 - d6);
-                        } else {
-                            const double va = d3 * d6 - d5 * d4;
-                            if (va <= 0 && (d4 - d3) >= 0 && (d5 - d6) >= 0) {
-                                const double w =
-                                    (d4 - d3) / ((d4 - d3) + (d5 - d6));
-                                u = 1 - w; v = w;
-                            } else {
-                                const double den = 1.0 / (va + vb + vc);
-                                u = vb * den; v = vc * den;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        *bu = u; *bv = v;
-        const gp_Pnt q(a.X() + u * ab.X() + v * ac.X(),
-                       a.Y() + u * ab.Y() + v * ac.Y(),
-                       a.Z() + u * ab.Z() + v * ac.Z());
-        return q.SquareDistance(p);
-    }
-
     gp_Pnt2d nearestUv(const gp_Pnt &p) const
     {
         double best = 1e300;
@@ -9045,8 +9200,8 @@ private:
             if (a < 1 || b < 1 || c < 1 || a > was_ || b > was_ || c > was_)
                 continue;
             double bu = 0, bv = 0;
-            const double d2 = PtTriUv(p, tri_->Node(a), tri_->Node(b),
-                                      tri_->Node(c), &bu, &bv);
+            const double d2 = PointOnTriangle(p, tri_->Node(a), tri_->Node(b),
+                                             tri_->Node(c), &bu, &bv);
             if (d2 >= best)
                 continue;
             best = d2;
@@ -9082,6 +9237,7 @@ private:
     int wasTri_ = 0;
     std::unordered_map<int, int> mine_;  /* welded node -> index in this face */
     std::unordered_map<int, int> added_; /* welded node -> index just made */
+    mutable std::unordered_map<int, double> far_;
     std::vector<int> fresh_;
     std::vector<Tri> want_;
 };
@@ -9242,7 +9398,8 @@ static bool FacesLookWhole(const TopoDS_Shape &s,
 }
 
 /* Close every hole in the drawn mesh. Returns the rim edges still open. */
-static int MendTornFaces(const TopoDS_Shape &s, int *filled)
+static int MendTornFaces(const TopoDS_Shape &s, int *filled, double bridge,
+                         double pinch)
 {
     if (filled)
         *filled = 0;
@@ -9391,6 +9548,12 @@ static int MendTornFaces(const TopoDS_Shape &s, int *filled)
             stranded += static_cast<int>(path.size()) - 1;
         }
     }
+    /* Cutting a ring in two adds the chord to both halves, so the rings now
+     * carry two more edges than the rim did for every cut. `left` counts
+     * what the rim had, so give those back or it goes negative and the mesh
+     * ladder, which reads it, is told a torn body is whole. */
+    const int cuts = SplitPinchedRings(d.pos, loops, loopFace, pinch);
+    MR_TRACE("      mend: %d rings pinched apart\n", cuts);
     MR_TRACE("      mend: %d rim edges -> %d loops, %d edges stranded\n", rim,
              (int)loops.size(), stranded);
     if (loops.empty())
@@ -9409,7 +9572,7 @@ static int MendTornFaces(const TopoDS_Shape &s, int *filled)
             fs.push_back(d.ofFace[v]);
     }
     std::map<int, FaceWriter *> writers;
-    int made = 0, left = rim, clipped = 0;
+    int made = 0, left = rim + 2 * cuts, clipped = 0, bridged = 0;
     for (size_t i = 0; i < loops.size(); ++i) {
         const int fi = loopFace[i];
         if (fi < 0 || fi >= static_cast<int>(faces.size()))
@@ -9512,12 +9675,76 @@ static int MendTornFaces(const TopoDS_Shape &s, int *filled)
             }
             if (home < 0 || home >= static_cast<int>(faces.size()))
                 home = fi;
-            auto it = writers.find(home);
-            if (it == writers.end())
-                it = writers.emplace(home, new FaceWriter(faces[home], d, home))
-                         .first;
-            if (!it->second->ok())
+            auto writerFor = [&](int f) -> FaceWriter * {
+                if (f < 0 || f >= static_cast<int>(faces.size()))
+                    return nullptr;
+                auto w = writers.find(f);
+                if (w == writers.end())
+                    w = writers.emplace(f, new FaceWriter(faces[f], d, f)).first;
+                return w->second->ok() ? w->second : nullptr;
+            };
+            /* The vote says which face the triangle mostly belongs to. It does
+             * not say the face is anywhere near the third corner, and that is
+             * the corner that ends up with a parameter describing nowhere. So
+             * among the faces any of its corners belong to, take the one that
+             * is nearest ALL THREE. Measured on the whale, this alone brings
+             * the worst copied node from 24 mm to a fraction of one, without
+             * refusing a single fill. */
+            {
+                std::set<int> cand;
+                cand.insert(home);
+                for (int q = 0; q < 3; ++q) {
+                    const auto fr = facesOfRep.find(cut[k + q]);
+                    if (fr != facesOfRep.end())
+                        for (const int ff : fr->second)
+                            cand.insert(ff);
+                }
+                double bestFar = 1e300;
+                int bestF = -1;
+                for (const int f : cand) {
+                    FaceWriter *w = writerFor(f);
+                    if (!w)
+                        continue;
+                    double far = 0;
+                    for (int q = 0; q < 3; ++q)
+                        far = std::max(far, w->howFar(cut[k + q]));
+                    /* the vote's own choice wins a tie */
+                    if (far < bestFar - 1e-12 ||
+                        (far < bestFar + 1e-12 && f == home)) {
+                        bestFar = far;
+                        bestF = f;
+                    }
+                }
+                if (bestF >= 0)
+                    home = bestF;
+            }
+            FaceWriter *hw = writerFor(home);
+            if (!hw)
                 continue;
+            auto it = writers.find(home);
+            /* A fill triangle has to be ON the face that takes it.
+             *
+             * M364. A node copied into a face gets a parameter on that face,
+             * and a parameter can only describe a point the surface passes
+             * near. Measured on the whale drawn fine, every node whose
+             * parameter did not describe it was one of these -- seventeen of
+             * 83,601, and the worst sat 24 mm from the surface it had been
+             * given a parameter on. That is not a fill, it is a bridge thrown
+             * between two parts of the model, and it renders as a long dark
+             * blade lying across a flat flank.
+             *
+             * Refused rather than repaired: there is no parameter for a point
+             * 24 mm off the surface. The rim it was covering stays open and is
+             * reported, which is what the mesh ladder reads. */
+            if (bridge > 0) {
+                double far = 0;
+                for (int q = 0; q < 3; ++q)
+                    far = std::max(far, it->second->howFar(cut[k + q]));
+                if (far > bridge) {
+                    ++bridged;
+                    continue;
+                }
+            }
             it->second->add(it->second->nodeFor(cut[k]),
                             it->second->nodeFor(cut[k + 1]),
                             it->second->nodeFor(cut[k + 2]));
@@ -9529,8 +9756,8 @@ static int MendTornFaces(const TopoDS_Shape &s, int *filled)
         delete w.second;
     }
     MR_TRACE("      mend: %d triangles added, %d rim edges left open, %d of "
-             "%d rings past the DP cap\n",
-             made, left, clipped, (int)loops.size());
+             "%d rings past the DP cap, %d refused as bridges\n",
+             made, left, clipped, (int)loops.size(), bridged);
     if (filled)
         *filled = made;
     return std::max(0, left);
@@ -9793,7 +10020,7 @@ int TessellateCovered(const TopoDS_Shape &s, double lin, double ang,
             MR_TRACE("      dropped %d triangles drawn outside their face\n",
                      shed);
             (void)shed;
-            rimsOpen = whole ? 0 : MendTornFaces(s, &mended);
+            rimsOpen = whole ? 0 : MendTornFaces(s, &mended, d * kBridgeBar, d * kPinchBar);
             /* After the mend, so the nodes it copied in are straightened too.
              * The bar is a fiftieth of the deflection being drawn at, which
              * is far below anything a person can see and far above the noise
