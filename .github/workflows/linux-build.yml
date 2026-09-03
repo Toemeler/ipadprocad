@@ -190,6 +190,34 @@ jobs:
         working-directory: frontend
         run: flutter build linux --release
 
+      # WHAT THE RUNNER IS FOR. This machine has the GTK stack and no Qt, which
+      # is the shape of a user's machine and NOT the shape of the one that
+      # built the kernels — so it is the only place the bundle's closure is
+      # honestly tested. It was wrong for four runs: `ldd` on the build machine
+      # succeeded because Qt's own dependencies were installed there, and the
+      # bundle shipped Qt without libmd4c, libpcre2-16, libdouble-conversion,
+      # ICU or libproxy. The app fell back to the Dart engine and said so in
+      # its log, which is the failure a user would have seen.
+      #
+      # build_native.sh now checks the closure at collection time; this checks
+      # what actually LANDED, because the CMake install step is a second place
+      # it can go wrong.
+      - name: The kernels reached the bundle, whole
+        run: |
+          set -euo pipefail
+          lib=frontend/build/linux/x64/release/bundle/lib
+          echo "--- bundled ---"; ls -1 "$lib" | sed 's/^/  /'
+          test -f "$lib/libprototype_native.so" \
+            || { echo "BUNDLE: FAIL (no kernel library)"; exit 1; }
+          # `ldd` resolves against the bundle because the library carries an
+          # $ORIGIN rpath, so an unresolved entry here is one the HOST was
+          # expected to provide and does not.
+          if ldd "$lib/libprototype_native.so" | grep "not found"; then
+            echo "BUNDLE: FAIL (unsatisfied at run time on a GTK-only machine)"
+            exit 1
+          fi
+          echo "BUNDLE: PASS"
+
       # The gate that matters: the app has to LAUNCH, find the kernels and
       # reach its first frame. Every failure this catches — a missing plugin
       # registration, a kernel the search order does not reach, an exception in
@@ -218,8 +246,14 @@ jobs:
           done
           kill "$app" 2>/dev/null || true
           wait "$app" 2>/dev/null || true
-          echo "--- last 60 lines ---"
-          tail -60 /tmp/launch.log
+          # The app's OWN log, not the tail of stdout. When the kernels are not
+          # found the interesting part is the SEARCH LIST, which is a dozen
+          # lines above the verdict and which `tail -60` cut off — four runs
+          # failed here saying only that nothing was found, and never where it
+          # had looked.
+          echo "--- the app's log ---"
+          cat "$HOME/.local/share/prototype/logs/prototype_log.txt" 2>/dev/null \
+            || tail -120 /tmp/launch.log
           grep -q "time to first frame" /tmp/launch.log \
             || { echo "LINUX LAUNCH: FAIL (no first frame)"; exit 1; }
           # The kernels have to be the REAL ones. Without this the job stays

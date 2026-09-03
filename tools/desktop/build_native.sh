@@ -139,10 +139,10 @@ fi
 # needs at run time has to travel with it, or the bundle only runs on the
 # machine that built it.
 #
-# QT AND ONLY QT, and that restriction is the whole design of this step.
+# WHAT TRAVELS, AND WHAT MUST NOT.
 #
-# `ldd` on the finished library lists about thirty entries. Copying all of them
-# is the obvious thing and it is wrong in two directions at once:
+# `ldd` on the finished library lists the whole transitive closure — about
+# thirty entries. Copying all of them is wrong in two directions:
 #
 #   * The base system's own — glibc, libstdc++, libgcc, libm, the loader —
 #     must come from the HOST. Ship them and the bundle stops booting on any
@@ -153,28 +153,83 @@ fi
 #     driver interface against the host's actual driver, and the failure is a
 #     black window rather than a missing symbol.
 #
-# What is genuinely not guaranteed to be installed is Qt 6 — Ubuntu 24.04 has
-# it in universe, older distributions do not have it at all, and the QCAD core
-# is built against a specific major version. Everything else Qt itself pulls in
-# (zlib, brotli, krb5, fontconfig, libproxy) is base-system furniture on any
-# desktop that can run a GTK app, which this one by definition is.
-# ---------------------------------------------------------------------------
-say "collecting the runtime closure (Qt only)"
+# Copying only libQt6* — which is what this did until the CI runner caught it
+# — is wrong in the other direction, and the comment that justified it was
+# simply untrue: "everything else Qt pulls in is base-system furniture on any
+# desktop that can run a GTK app". It is not. `libmd4c`, `libdouble-conversion`,
+# `libpcre2-16` (GTK brings the 8-bit one), `libb2`, ICU and `libproxy` arrive
+# as dependencies OF QT and of nothing else, so a machine with the full GTK
+# stack and no Qt cannot dlopen the library at all. It fell back to the Dart
+# engine, silently, exactly as it would on a user's machine.
+#
+# So the rule is the closure MINUS a denylist, rather than an allowlist of one
+# name: everything Qt drags in travels, and the three families that must be the
+# host's stay behind. Getting the denylist wrong now fails the build (see the
+# closure check below) rather than shipping a bundle that quietly degrades.
+#
+# The third family in the denylist is GTK's own stack. Those are not "system"
+# in the loader's sense, but this is a GTK app: they are in the process before
+# the kernels are dlopen'd, and one soname means one copy — bundling a second
+# is at best dead weight and at worst two initialisations of one library.
+#
+# WHY THERE IS A TLS STACK IN A CAD BUNDLE. libQt6Network has libproxy in its
+# DT_NEEDED, libproxy has its backend, and the backend has libcurl, which has
+# gnutls, openssl, ldap, ssh and the rest. The app never opens a socket — the
+# QCAD core links Qt Network and never calls it — but DT_NEEDED is resolved at
+# LOAD time, so the loader wants all of it present before the first symbol is
+# looked up. Nothing here can prune that except dropping Qt Network from the
+# QCAD core, which is a change to what the kernel links, not to what ships. So
+# it travels, and the deps tree is ~75 MB rather than ~20.
+say "collecting the runtime closure"
 deps="$out/deps"
 rm -rf "$deps"
 mkdir -p "$deps"
+
+# Matched against the SONAME. Anything not matched here travels in deps/.
+host_only='^(ld-linux.*|libc|libm|libdl|libpthread|librt|libresolv|libgcc_s'
+host_only="$host_only"'|libstdc\+\+|libEGL|libGL|libGLX|libGLdispatch|libOpenGL'
+host_only="$host_only"'|libX11|libXau|libXdmcp|libXext|libXrender|libXi|libXfixes'
+host_only="$host_only"'|libxcb.*|libwayland.*|libdrm|libgbm'
+host_only="$host_only"'|libglib-2\.0|libgobject-2\.0|libgio-2\.0|libgmodule-2\.0'
+host_only="$host_only"'|libgthread-2\.0|libpango.*|libcairo.*|libgdk.*|libgtk.*'
+host_only="$host_only"'|libatk.*|libharfbuzz.*|libfontconfig|libfreetype|libpng16'
+host_only="$host_only"'|libz|libpixman.*|libepoxy|libxkbcommon.*|libsystemd'
+host_only="$host_only"'|libselinux|libmount|libblkid|libpcre2-8)\.so.*$'
+
 copied=0
 while read -r name arrow path rest; do
   [ "${arrow:-}" = "=>" ] || continue
   [ -f "${path:-}" ] || continue
-  case "$name" in
-    libQt6*.so.*) ;;
-    *) continue ;;
-  esac
+  printf '%s' "$name" | grep -Eq "$host_only" && continue
   cp -L "$path" "$deps/$name"
   copied=$((copied + 1))
 done < <(ldd "$out/libprototype_native.so")
-echo "copied $copied Qt libraries into $deps"
+echo "copied $copied libraries into $deps ($(du -sh "$deps" | cut -f1))"
+
+# THE INVARIANT, checked rather than reasoned about.
+#
+# Every library that ships has to be satisfiable from the bundle plus the host
+# families above. This is the check the "Qt and only Qt" filter never had, and
+# it is the difference between a bundle that runs on the machine that built it
+# and one that runs anywhere: the build machine has Qt's dependencies installed
+# because it just built against Qt, and nothing about `ldd` succeeding there
+# says anything about a machine that does not.
+say "checking the closure is complete"
+unsatisfied=0
+for lib in "$out/libprototype_native.so" "$deps"/*.so*; do
+  [ -f "$lib" ] || continue
+  while read -r need; do
+    [ -e "$deps/$need" ] && continue
+    printf '%s' "$need" | grep -Eq "$host_only" && continue
+    echo "  MISSING: $(basename "$lib") needs $need — neither bundled nor a host library"
+    unsatisfied=$((unsatisfied + 1))
+  done < <(objdump -p "$lib" | awk '/NEEDED/{print $2}')
+done
+if [ "$unsatisfied" -ne 0 ]; then
+  echo "CLOSURE: FAIL ($unsatisfied unsatisfied)"
+  exit 1
+fi
+echo "CLOSURE: PASS"
 
 say "done"
 echo "library : $out/libprototype_native.so"
