@@ -144,13 +144,19 @@ void main() {
       // M290 — RibbonPosition and its store moved out of widgets/ into
       // lib/ribbon_dock.dart. This test running at all is the assertion: it
       // needs no widget tree, no binding and no channel.
-      expect(RibbonDock.current, RibbonPosition.top);
+      // M368 — the default is the LEFT column now (see kRibbonDockDefault):
+      // the screen is landscape and so is the document, so a band across the
+      // top costs the model the scarcest dimension it has.
+      expect(RibbonDock.current, kRibbonDockDefault);
+      expect(RibbonDock.isLeft, isTrue);
+      expect(RibbonDock.isVertical, isTrue);
+
+      RibbonDock.set(RibbonPosition.top);
+      expect(RibbonDock.isTop, isTrue);
       expect(RibbonDock.isVertical, isFalse);
       expect(RibbonDock.isHorizontal, isTrue);
 
       RibbonDock.set(RibbonPosition.left);
-      expect(RibbonDock.isLeft, isTrue);
-      expect(RibbonDock.isVertical, isTrue);
       expect(RibbonPosition.left.isVertical, isTrue);
       expect(RibbonPosition.bottom.isVertical, isFalse);
     });
@@ -228,6 +234,11 @@ void main() {
   group('M146 scrolling', () {
     testWidgets('the ribbon scrolls horizontally when it overflows',
         (t) async {
+      // M368 — the default dock is the LEFT column now, where the band is a
+      // scrolling COLUMN. This test is about the horizontal band, so it says
+      // so rather than relying on the default being it.
+      RibbonDock.set(RibbonPosition.top);
+      addTearDown(RibbonDock.resetForTest);
       await pump(t, Ribbon(app: makeApp()), size: const Size(600, 400));
       expect(
           t

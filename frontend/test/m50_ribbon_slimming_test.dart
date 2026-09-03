@@ -74,6 +74,13 @@ void main() {
   // drives the ribbon that spells it out.
   setUp(() => RibbonLabels.set(true));
   tearDown(RibbonLabels.resetForTest);
+  // M368 — and the dock is an edge COLUMN by default now
+  // (kRibbonDockDefault). This suite is about the horizontal band — its panel
+  // titles, its ▼ menus and which way they open — so, like the labels above,
+  // it says which ribbon it drives rather than inheriting whatever a fresh
+  // install starts on.
+  setUp(() => RibbonDock.set(RibbonPosition.top));
+  tearDown(RibbonDock.resetForTest);
   group('M51 regression: the ribbon must build at all', () {
     testWidgets('pumping the ribbon does not recurse', (t) async {
       await pump(t, Ribbon(app: makeApp()));

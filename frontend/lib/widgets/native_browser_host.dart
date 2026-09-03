@@ -47,10 +47,15 @@ class NativeModelBrowser extends StatefulWidget {
   static double occupancy({required bool collapsed, required bool morphing}) =>
       ((!collapsed || morphing) ? _wideCard : _narrowCard) + _handleStrip;
 
-  /// What the FLUTTER card takes at the left edge: the same 264 pt card as the
-  /// native one, plus its own left margin. No retract strip — the Flutter
-  /// browser does not retract — so this is not [occupiedWidth].
-  static const double flutterCardWidth = _wideCard + 14;
+  /// What the OPAQUE browser takes: the wall beside the viewport, which is
+  /// what a platform with no material at all still gets. It does not float and
+  /// it does not retract, so it has neither a retract strip nor [occupancy]'s
+  /// two states.
+  ///
+  /// M368 — this is now the only case that is not [occupancy]. Where there IS
+  /// a material the Flutter card is the iPad's card: it retracts, the chevron
+  /// stands beside it, and the triad follows the same arithmetic.
+  static const double opaqueWidth = _wideCard + 14;
 
   static const double _wideCard = 264;
   static const double _narrowCard = 56;
@@ -274,13 +279,11 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
   /// runs from build and from setState, and a notifier fired mid-build would
   /// rebuild a listener that has already been laid out this frame.
   void _publishWidth() {
-    // M367 — off iOS the panel that actually renders is the Flutter
-    // ModelBrowser (see build), which does not retract. Publishing the native
-    // panel's collapsed width there sent the triad back to a corner the
-    // floating card is standing in — the "zz" of the Z axis peeking out of
-    // the card's left gutter, which is how this was found.
-    if (!GlassBrowser.isSupported) {
-      _publish(NativeModelBrowser.flutterCardWidth);
+    // M367 — with no material the panel is an opaque wall in the Row, and the
+    // viewport already starts to the right of it. Publishing a floating card's
+    // width there sent the triad away from a corner nothing was standing in.
+    if (!GlassPanel.isSupported) {
+      _publish(NativeModelBrowser.opaqueWidth);
       return;
     }
     // M262 — the width it is OCCUPYING, not the state it is in. Publishing
@@ -300,18 +303,34 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
 
   @override
   Widget build(BuildContext context) {
-    if (!GlassBrowser.isSupported) return ModelBrowser(app: app);
+    // M368 — THE CARD IS A PLATFORM VIEW OR A FLUTTER TREE; EVERYTHING AROUND
+    // IT IS THIS WIDGET'S EITHER WAY.
+    //
+    // The retract, the chevron beside the rows, the morph that holds the
+    // panel's bounds wide while the card moves, and the occupancy the triad
+    // and the quick tools follow are not properties of UIKit — they are what
+    // the browser IS on this app, and off iOS they were simply missing: the
+    // Flutter card stood open at 264 pt over the drawing with no way to get it
+    // out of the way. So the only thing that branches now is what renders
+    // inside the card's bounds.
+    //
+    // With no material at all the panel is the opaque wall of M108, which
+    // floats over nothing and has nothing to retract from.
+    final native = GlassBrowser.isSupported;
+    if (!native && !GlassPanel.isSupported) return ModelBrowser(app: app);
     return AnimatedBuilder(
       animation: app,
       builder: (_, __) {
         // Built once here, kept, and pushed from the one place: the hover
         // handler has to be able to look a row's NAME up by id, and rebuilding
         // the whole tree to answer that would be a second source of truth.
-        _rows = buildBrowserRows(app,
-            expanded: _expanded,
-            dragEop: _dragEop,
-            collapsed: _collapsed,
-            hoverId: _hoverRow);
+        if (native) {
+          _rows = buildBrowserRows(app,
+              expanded: _expanded,
+              dragEop: _dragEop,
+              collapsed: _collapsed,
+              hoverId: _hoverRow);
+        }
         return MouseRegion(
         onEnter: (_) => setState(() {
           _near = true;
@@ -381,33 +400,44 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
           top: 0,
           bottom: 0,
           right: _kHandle,
-        child: GlassBrowser(
-          // M199 — retracted, the panel is icons over the model and nothing
-          // else: the glass goes with the labels.
-          glass: !_collapsed,
-          // M262 — the shape the card should MORPH to, which follows
-          // [_collapsed] immediately while the widget's own width waits out
-          // the animation. Closing, the panel draws itself down to the glyph
-          // column inside bounds that are still 264 wide; opening, it grows
-          // into bounds that went wide on the first frame.
-          cardWidth: _collapsed ? _kNarrow : _kWide,
-          rows: _rows,
-          onTap: _onTap,
-          onHover: _onHover,
-          onMetrics: _onMetrics,
-          onEye: _onEye,
-          onExpand: (id, on) => setState(() {
-            Log.i('browser', 'expand $id on=$on');
-            if (on) {
-              _expanded.add(id);
-            } else {
-              _expanded.remove(id);
-            }
-          }),
-          onMenu: _onMenu,
-          onEopDrag: _onEopDrag,
-          onEopEnd: _onEopEnd,
-        ),
+        child: native
+            ? GlassBrowser(
+                // M199 — retracted, the panel is icons over the model and
+                // nothing else: the glass goes with the labels.
+                glass: !_collapsed,
+                // M262 — the shape the card should MORPH to, which follows
+                // [_collapsed] immediately while the widget's own width waits
+                // out the animation. Closing, the panel draws itself down to
+                // the glyph column inside bounds that are still 264 wide;
+                // opening, it grows into bounds that went wide on the first
+                // frame.
+                cardWidth: _collapsed ? _kNarrow : _kWide,
+                rows: _rows,
+                onTap: _onTap,
+                onHover: _onHover,
+                onMetrics: _onMetrics,
+                onEye: _onEye,
+                onExpand: (id, on) => setState(() {
+                  Log.i('browser', 'expand $id on=$on');
+                  if (on) {
+                    _expanded.add(id);
+                  } else {
+                    _expanded.remove(id);
+                  }
+                }),
+                onMenu: _onMenu,
+                onEopDrag: _onEopDrag,
+                onEopEnd: _onEopEnd,
+              )
+            // The Flutter tree, in the same bounds, morphing on the same
+            // curve. It reports the same three metrics the platform view
+            // sends, so the chevron below is placed by one piece of
+            // arithmetic rather than two.
+            : ModelBrowser(
+                app: app,
+                collapsed: _collapsed,
+                onMetrics: _onMetrics,
+              ),
         ),
         // The handle: a chevron BESIDE THE ROWS. Tap toggles; a horizontal
         // swipe on it does the same, in the direction you swipe — the panel

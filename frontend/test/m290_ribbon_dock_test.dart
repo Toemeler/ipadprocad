@@ -333,7 +333,7 @@ void main() {
     test('attaching a store adopts what it remembers', () {
       final dir = Directory.systemTemp.createTempSync('ipc_m290a');
       RibbonStore(dir).save(RibbonPosition.bottom);
-      expect(RibbonDock.current, RibbonPosition.top);
+      expect(RibbonDock.current, kRibbonDockDefault);
       RibbonDock.attachStore(RibbonStore(dir));
       expect(RibbonDock.current, RibbonPosition.bottom);
     });
@@ -341,8 +341,10 @@ void main() {
     test('and switching writes it back', () {
       final dir = Directory.systemTemp.createTempSync('ipc_m290w');
       RibbonDock.attachStore(RibbonStore(dir));
-      RibbonDock.set(RibbonPosition.left);
-      expect(RibbonStore(dir).load(), RibbonPosition.left);
+      // Not the default: `set` is a no-op when the edge does not change, so
+      // asking for the one it is already on would prove nothing.
+      RibbonDock.set(RibbonPosition.right);
+      expect(RibbonStore(dir).load(), RibbonPosition.right);
     });
 
     test('before a store is attached the choice still works', () {

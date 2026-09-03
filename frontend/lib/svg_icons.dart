@@ -249,6 +249,16 @@ const sketchCubeIcon =
 // matters and it must be distinguishable from an ordinary sketch at 16 px.
 const sharedSketchCubeIcon =
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M8 1.5L14 5v6L8 14.5L2 11V5z" fill="#3D9BE9" stroke="#1d5c8a" stroke-width=".8"/><path d="M2 5l6 3.5L14 5M8 8.5v6" stroke="#1d5c8a" stroke-width=".8" fill="none"/><circle cx="13" cy="12.6" r="3.1" fill="#E8C63F" stroke="#8a7318" stroke-width=".7"/><path d="M11.7 12.6a.85.85 0 0 1 .85-.85h.5M14.3 12.6a.85.85 0 0 0-.85-.85h-.5M11.7 12.6a.85.85 0 0 0 .85.85h.5M14.3 12.6a.85.85 0 0 1-.85.85h-.5" stroke="#5c4c10" stroke-width=".75" fill="none" stroke-linecap="round"/></svg>';
+/// M368 — a CONTAINER folder in the model browser: Solid Bodies, Origin.
+///
+/// The native tree draws these with `folder.fill` tinted amber (see
+/// buildBrowserRows, `tint: 'folder'`), and the Flutter tree drew both of them
+/// with [originIcon] — the axis glyph — which said "origin" on the Solid
+/// Bodies row and made two folders indistinguishable from each other. One
+/// glyph for the thing the row IS, in the icon set's own amber, which
+/// icon_theme maps onto the palette's annotation hue.
+const treeFolderIcon =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M1.6 4.4a.9.9 0 0 1 .9-.9h3.1L7 5h6.5a.9.9 0 0 1 .9.9v6.1a.9.9 0 0 1-.9.9h-11a.9.9 0 0 1-.9-.9z" fill="#E8C63F" stroke="#8a7318" stroke-width=".7" stroke-linejoin="round"/></svg>';
 const originIcon =
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M3 13V3.5" stroke="#3D9BE9" stroke-width="1.4"/><path d="M3 13h10" stroke="#D65A56" stroke-width="1.4"/><path d="M3 13l5-4.5 5 1.5-5 4.5z" fill="#E8C63F" fill-opacity=".55" stroke="#a68b1f" stroke-width=".7"/></svg>';
 const xAxisIcon =
@@ -261,6 +271,17 @@ const endOfSketchIcon =
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5" fill="#C0392B" stroke="#7d1f14" stroke-width=".8"/><path d="M5.5 5.5l5 5M10.5 5.5l-5 5" stroke="#fff" stroke-width="1.5"/></svg>';
 const homeTabIcon =
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none"><path d="M2 8.5L8 3l6 5.5" stroke="#aeb3b9" stroke-width="1.4"/><path d="M4 8v5h8V8" stroke="#aeb3b9" stroke-width="1.4"/></svg>';
+
+/// M368 — the house on the floating bar's Home circle.
+///
+/// [homeTabIcon] draws the same house, but for a 15 px cell in the opaque
+/// strip: it sits inside its box with room to spare, which at the 44 pt
+/// diameter of a glass circle leaves a glyph visibly smaller than the one the
+/// iPad draws (SF `house` at 15 pt fills ~20 pt of the circle). Rather than
+/// scale the small one up — which thickens its strokes with it — this is the
+/// same house drawn to the edges of its own box, with SF's door.
+const tabHomeIcon =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none"><path d="M1.4 9.6L10 2.2l8.6 7.4" stroke="#aeb3b9" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.6 8.6V17.4h12.8V8.6" stroke="#aeb3b9" stroke-width="1.5" stroke-linejoin="round"/><path d="M8.1 17.4v-4.1h3.8v4.1z" fill="#aeb3b9"/></svg>';
 
 // ==== Pattern dialog (M35) — dialog-internal glyphs, same icon language ====
 final Map<String, String> PD = {

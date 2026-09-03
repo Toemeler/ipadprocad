@@ -74,8 +74,8 @@ material, with its own refraction, specular edge and response to what is
 behind it. That is not decoration here: the app's LAYOUT is built around it.
 The document runs edge to edge underneath the ribbon band precisely so the
 material has something to refract, the model browser floats over the model as
-a card rather than taking a column beside it, and the tab bar is a pill over
-the canvas rather than a strip under it. `RibbonSurface` says why in one line
+a card rather than taking a column beside it, and the tab bar is three
+floating glass groups over the canvas rather than a strip under it. `RibbonSurface` says why in one line
 — *"glass with nothing to refract is a lie about the surface, not a cheaper
 version of it"* — and every one of those layout choices is switched on the
 same question: is this surface glass?
@@ -237,10 +237,63 @@ one of these.
 14. **`model_browser.dart`, `bottom_tabbar.dart`, `quick_tools.dart`,
     `home_view.dart`** — the four Flutter chrome surfaces put themselves on
     the material when there is one: the browser becomes the iPad's inset,
-    18 pt, shadowed card, the tab bar becomes a pill, the tool rail and the
-    gallery's two round buttons get a glass plate instead of a painted one.
+    18 pt, shadowed card, the tab bar becomes the bar's three glass groups,
+    the tool rail and the gallery's two round buttons get a glass plate
+    instead of a painted one.
+15. **The chrome the material was holding up** (M368). Putting the Flutter
+    panels on glass was not the same as making them the iPad's panels, and
+    side by side with the device three things were plainly missing:
+
+    * **The browser card had a "Modell ✕" tab strip across its top.** The
+      iPad's card has never had one — the tree starts at the document's own
+      root row and the bar along the bottom says which document is open. It
+      is still drawn on the OPAQUE fallback, which is a wall beside the
+      viewport with nothing else on it.
+    * **The card did not retract.** On the iPad it is retracted by default
+      (M242) and one tap on the chevron brings the labels back.
+      `native_browser_host.dart` already owned all of that — the state, the
+      280 ms morph, the chevron beside the rows, the occupancy the triad
+      follows — for the platform view; the only thing that branches now is
+      what renders inside the card's bounds. `ModelBrowser` gained
+      `collapsed` and an `onMetrics` callback reporting the same three
+      numbers `GlassBrowserView` sends over its `metrics` channel.
+    * **The tab bar was one pill**, house inside it and nothing on the
+      right, which is the M260 slab again only smaller. It is three glass
+      groups now, exactly as `GlassTabBar.swift` builds them — the house,
+      the documents capsule, and the `list.bullet` island that lists every
+      open document — with M265's fold (at rest, only the document you are
+      in) and every constant taken from `GlassTabBarView`.
+
+    Along the way the tree picked up M361's folder gaps and M129's boxed
+    disclosure, and the card's own width was corrected from 264 to 250: 264
+    is the PANEL, and `GlassBrowserView` insets its glass 14 pt inside it.
+16. **`kRibbonDockDefault` is `left`** (was `top`). The screen is landscape
+    and so is the document, so a full-width band across the top costs the
+    model the scarcest dimension it has; docked left the band is a column of
+    glyphs and the browser, the tab bar and the ribbon all float on one
+    shared 14 pt margin. Still a stored preference — all four edges work.
+    **This one is NOT desktop-only: it changes where a fresh iPad install
+    starts too**, which is deliberate, because the two platforms are meant
+    to be the same app.
 
 Nothing else in `frontend/lib` knows this platform exists.
+
+### Known differences that are NOT bugs
+
+The Flutter tree and the UIKit tree are two renderers of one document, not
+one renderer twice, and two of their differences are structural rather than
+oversights:
+
+* **Folder glyphs are ink, not gold.** `icon_theme.dart` clamps every
+  chromatic stop to L ∈ [0.16, 0.46] on a light palette — "a colour that
+  reads on charcoal is invisible on paper" — so the amber folder comes out
+  dark. UIKit's tree tints `folder.fill` with its own `folderAmber` and
+  never passes through that mapping. Special-casing one glyph would make it
+  the only icon in the set that ignores the palette.
+* **No `E2` / `R1` badges on the rows.** M361's badges are drawn by
+  `GlassBrowserView.badged`, compositing text onto an SF Symbol. The Flutter
+  tree draws its own artwork and has no equivalent; retracted, its rows lean
+  on the dwell tooltip instead.
 
 ---
 

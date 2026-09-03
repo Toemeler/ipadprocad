@@ -54,8 +54,23 @@ enum RibbonPosition {
   }
 }
 
-/// The default: the flush band across the top.
-const RibbonPosition kRibbonDockDefault = RibbonPosition.top;
+/// The default: the column down the LEFT edge.
+///
+/// It was the flush band across the top, which is where a ribbon has lived
+/// since Office 2007 and where Inventor still puts it. On this app it is the
+/// wrong default: the screen is landscape and so is the document, so a
+/// full-width band across the top costs the model the scarcest dimension it
+/// has. Docked on an edge the band is a column of glyphs about 46 pt wide, the
+/// model keeps its height, and the browser card, the tab bar and the ribbon
+/// all float on one shared 14 pt margin.
+///
+/// LEFT rather than right because that is the edge the tools are on: the
+/// browser retracts to a glyph column beside them, and the right edge stays
+/// clear for the quick tools and for the hand resting on it.
+///
+/// Still a stored preference — [RibbonDock.set] persists whatever the user
+/// picks, and all four edges work. This is only where a fresh install starts.
+const RibbonPosition kRibbonDockDefault = RibbonPosition.left;
 
 /// The live setting, as something the layout can listen to.
 ///
