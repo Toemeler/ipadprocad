@@ -828,10 +828,34 @@ jobs:
           lipo -info cycles-dist/lib/libcycles_shim.a
           nm -gU cycles-dist/lib/libcycles_shim.a | grep -cE "_cy_" || true
 
+      # M369 — AND IT HAS TO REPORT THE THING THAT MATTERS.
+      #
+      # This used to be `ls cycles-dist/lib cycles-dist/deps | head -40`, and
+      # because ls sorts `deps` first, all forty lines were static archives
+      # named libclang*.a. The one question anybody ever asks this step —
+      # WHICH DYLIBS GO IN THE APP — was the part that got cut off.
+      #
+      # It matters more than usual for OpenImageDenoise, whose device modules
+      # are loaded by dlopen at a path and named by no load command, so the
+      # harvest has to add them deliberately (ci/harvest_cycles_dylibs.sh).
+      # Which ones are present also decides where the denoise RUNS: with a
+      # `_device_metal` module Cycles can denoise on the GPU, without one it
+      # falls back to OIDN on the CPU — and cycles_shim.cpp's denoise settings
+      # are written against that answer. So print it, every build.
       - name: Report what is being shipped
         run: |
+          # Captured into a variable rather than piped straight to the log,
+          # because `ls ... | xargs` exits 0 when the glob matches nothing —
+          # `|| echo "(none)"` on that pipeline never fires, and "no dylibs at
+          # all" would print as a blank line and read as normal.
+          names() { ls -1 $1 2>/dev/null | xargs -n1 basename 2>/dev/null || true; }
           echo "cache hit: ${{ steps.dist.outputs.cache-hit }}"
-          ls cycles-dist/lib cycles-dist/deps | head -40
+          echo "-- dylibs (these go in the app bundle):"
+          D=$(names 'cycles-dist/dylib/*.dylib'); echo "${D:-  (none)}"
+          echo "-- OpenImageDenoise device modules:"
+          O=$(names 'cycles-dist/dylib/libOpenImageDenoise_device_*.dylib')
+          echo "${O:-  (none — the denoiser falls back to the a-trous filter)}"
+          echo "-- static archives: $(ls -1 cycles-dist/deps/*.a 2>/dev/null | wc -l | tr -d ' ')"
           du -sh cycles-dist
 
       - name: Upload the Cycles distribution
