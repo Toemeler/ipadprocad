@@ -8629,11 +8629,36 @@ TopoDS_Shape BuildFaceted(const Mesh &m, double tol, Report &rep)
  * re-deriving every UV by walking the loop and projecting each point from the
  * previous one's parameter — the standard cure for a pcurve that jumps —
  * removes none of the crossings and adds more (28 faces still crossing, one
- * going from 2 to 13). The two segments that cross in UV are 0.1 to 5.9 mm
- * apart in 3D. So the fitted surface really does fold back over its own
- * trimmed region, and no pcurve on it can be simple. Splitting those patches
- * until they stop folding would mean many more faces, which is the opposite
- * of what a converter is for.
+ * going from 2 to 13).
+ *
+ * M368 — WHAT THE CROSSINGS ARE NOT. This note used to end "so the fitted
+ * surface really does fold back over its own trimmed region". That is wrong,
+ * and four measurements say so; the mending below is right for other reasons
+ * and stands, but nobody should go looking for a fold.
+ *
+ *   - The regions do not fold. Every fitted region is a graph over its own
+ *     proxy plane with room to spare: on the whale, of 156 of them, not one
+ *     has a single triangle facing more than 79.6 degrees away from that
+ *     plane, and not one region vertex needs the clamp in RegionUvOf.
+ *   - It is not OCCT choosing the pcurve. Written exactly instead — a
+ *     freeform patch is a height field, so (u, v) is an affine function of
+ *     the point and the pcurve is the 2D spline of the mapped poles — the
+ *     crossings go from 20 to 16, at the same corners. (That experiment is
+ *     written up where the pcurves are made; it costs the fine ellipsoid a
+ *     face and is not kept.)
+ *   - It is not the boundary splines bowing off their chains onto each
+ *     other. Holding every fitted boundary curve to a fiftieth of its own
+ *     chain's step — which makes nearly all of them polylines through the
+ *     mesh's own vertices — leaves 16 crossings with identical depths.
+ *   - What is left is small. Every crossing pair is two CONSECUTIVE edges
+ *     leaving one corner, and where their parameter curves meet, their 3D
+ *     curves are 0.007 to 0.19 mm apart — a fraction of a mesh edge (0.73 mm
+ *     here) and well inside the millimetre these bodies are accurate to.
+ *
+ * So: two nearly tangent curves sharing one parameter space, crossing by less
+ * than the model's own accuracy. Nothing downstream is left broken by it —
+ * the solids are valid, they cut, round, write and reopen — and the cost of
+ * it is the tolerance the faces carry. The cause is still open.
  *
  * What is left is to mend the picture. A hole is bounded by nodes that are
  * already drawn and already shared with the face on the other side, so
