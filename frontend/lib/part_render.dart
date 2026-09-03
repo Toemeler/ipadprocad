@@ -73,9 +73,26 @@ Color get kSolidEdge => T.solidEdge;
 ///     2648d2e), which is also the form the ViewCube has always used.
 ///
 /// So a VISIBLE face has `n.dir > 0` for an outward normal `n`, and [depth]
-/// gets SMALLER toward the viewer. The Flutter painter below still runs the
-/// opposite rule and is self-consistent with it; it is host-only (RealityKit
-/// owns the device scene), and it is not the convention to copy.
+/// gets SMALLER toward the viewer.
+///
+/// M372 — AND THE PAINTER BELOW NOW RUNS THAT RULE TOO.
+///
+/// It used to run the opposite one, self-consistently: it culled the faces
+/// pointing AT the camera, lit the scene from behind, sorted near-to-far and
+/// hid a point when something covered it at a HIGHER depth. Self-consistent is
+/// not the same as right — a closed solid drawn that way is its own far side,
+/// with the top face at the bottom of the silhouette and the right face on the
+/// left. The note that used to be here said it was "host-only (RealityKit owns
+/// the device scene)" and left it, which was defensible while the host was a
+/// developer's machine and became untenable the moment the app shipped on one:
+/// every Linux and Windows viewport, and every gallery thumbnail rendered off
+/// the device, drew the model from behind.
+///
+/// Measured before it was changed, one document and one home camera: the CPU
+/// painter and the GPU renderer put the same silhouette in the same 390x505
+/// pixels and disagreed by exactly a half turn about which three faces were
+/// inside it. RealityKit — `let pos = center + dir * dist` — settles which of
+/// the two is the app.
 class Cam3 {
   /// [dir] points from the scene TOWARD the eye — see the class note. [s] is
   /// screen right and [u] screen up.
@@ -226,7 +243,7 @@ class ProjectedEdge {
 /// fixed tilt, so a face pointing at the viewer is brightest and one angled
 /// away darkens smoothly. (depth/facing convention: camera looks along dir.)
 Vec3 solidLight(Cam3 cam) =>
-    (cam.dir * -1 + const Vec3(0.35, 0.55, 0.2)).normalized();
+    (cam.dir + const Vec3(0.35, 0.55, 0.2)).normalized();
 
 /// Projects the front-facing triangles of [m]: backface-culled against the
 /// camera, flat-shaded against [solidLight], depth = triangle centroid along
@@ -250,7 +267,7 @@ List<ProjectedTri> _projectSolidTrianglesInner(OcctMeshData m, Cam3 cam) {
     final w1 = Vec3(m.positions[i1], m.positions[i1 + 1], m.positions[i1 + 2]);
     final w2 = Vec3(m.positions[i2], m.positions[i2 + 1], m.positions[i2 + 2]);
     final n = (w1 - w0).cross(w2 - w0).normalized();
-    if (n.dot(cam.dir) >= 0) continue; // backface (visible face has n·dir<0)
+    if (n.dot(cam.dir) <= 0) continue; // backface: the eye is at +dir
     final shade =
         (0.42 + 0.58 * math.max(0, n.dot(light))).clamp(0.0, 1.0).toDouble();
     out.add(ProjectedTri(cam.project(w0), cam.project(w1), cam.project(w2),
@@ -380,11 +397,11 @@ SceneSolid _buildSceneSolidInner(KernelSolid solid, Cam3 cam,
     final w2 = Vec3(m.positions[i2], m.positions[i2 + 1], m.positions[i2 + 2]);
     final n = (w1 - w0).cross(w2 - w0);
     if (n.length < 1e-15) continue;
-    // A face is FRONT (visible) when its outward normal opposes the view
-    // direction — the camera looks along dir, so a face we see points back
-    // toward it (n·dir < 0). Backfaces (n·dir > 0) are kept with front=false
-    // only for silhouette detection.
-    final front = n.normalized().dot(cam.dir) < 0;
+    // A face is FRONT (visible) when its outward normal points TOWARD the
+    // eye, and the eye is at `+dir * D` — so `n·dir > 0`, which is what
+    // Cam3.facesCamera says and what RealityKit draws. Backfaces are kept with
+    // front=false only for silhouette detection.
+    final front = n.normalized().dot(cam.dir) > 0;
     tris.add(SceneTri(
         cam.project(w0),
         cam.project(w1),
@@ -465,11 +482,11 @@ class SceneOccluders {
       const e = 1e-6;
       if (l0 < -e || l1 < -e || l2 < -e) continue;
       final td = l0 * t.da + l1 * t.db + l2 * t.dc;
-      // Convention: depth = w·(-dir), so NEARER the camera = HIGHER depth.
+      // Convention: depth = w·(-dir), so NEARER the camera = LOWER depth.
       // A point is hidden when some front triangle covers it at a depth
-      // meaningfully NEARER (greater) than the point's own, beyond the
+      // meaningfully NEARER (smaller) than the point's own, beyond the
       // tessellation-sag bias (plus any caller [extra] margin).
-      if (td > d + triBias[i] + extra) return true;
+      if (td < d - triBias[i] - extra) return true;
     }
     return false;
   }
@@ -724,8 +741,8 @@ void _drawShadedGroups(
   }
   if (flat.isEmpty) return;
   final n = flat.length;
-  // near = higher depth, so draw FAR (lower depth) first (painter's algo)
-  flat.sort((a, b) => a.$1.depth.compareTo(b.$1.depth));
+  // depth = w·(-dir), so NEAR is a SMALLER depth: draw FAR (higher) first.
+  flat.sort((a, b) => b.$1.depth.compareTo(a.$1.depth));
   final pos = Float32List(n * 6);
   final col = Int32List(n * 3);
   var pi = 0, ci = 0;

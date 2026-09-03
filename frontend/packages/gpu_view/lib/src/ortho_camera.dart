@@ -54,20 +54,32 @@ class OrthographicProjection extends CameraProjection {
   Matrix4 getProjectionMatrix(double aspectRatio, {Vector2? jitter}) {
     final h = halfHeight <= 0 ? 1.0 : halfHeight;
     final w = h * (aspectRatio <= 0 ? 1.0 : aspectRatio);
-    // makeOrthographicMatrix is the standard right-handed GL form; Impeller's
-    // clip space matches the one flutter_scene's perspective matrix targets,
-    // and a camera built with the same handedness as PerspectiveProjection is
-    // the only way the two can ever be swapped for a comparison.
-    final m = makeOrthographicMatrix(-w, w, -h, h, near, far);
-    if (jitter != null) {
-      // Sub-pixel offset in clip space, the same shape the perspective path
-      // applies. Unused today — TAA is off under an orthographic camera — but
-      // honouring the parameter costs two multiplies and means this projection
-      // is not quietly wrong if it is ever used with one.
-      m.setEntry(0, 3, m.entry(0, 3) + jitter.x);
-      m.setEntry(1, 3, m.entry(1, 3) + jitter.y);
-    }
-    return m;
+    final d = (far - near).abs() < 1e-9 ? 1e-9 : far - near;
+    final jx = jitter?.x ?? 0.0;
+    final jy = jitter?.y ?? 0.0;
+    // LEFT-HANDED, DEPTH 0..1, and this is not a preference.
+    //
+    // `makeOrthographicMatrix` is the GL form: right-handed, looking down -Z,
+    // depth mapped to -1..1. Impeller's clip space is the Metal one — depth
+    // 0..1 — and flutter_scene's own perspective matrix is written for it and
+    // is left-handed with it (w = +z_view, and `_matrix4LookAt` puts +forward
+    // on view Z). Feeding it a GL matrix instead does not fail: HALF the depth
+    // range lands behind the near plane, so the front half of the model is
+    // clipped and what is left is the inside of its far faces, cut by a plane
+    // parallel to the screen. It reads as a modelling bug rather than a
+    // projection one, which is what made it worth writing down.
+    //
+    // Columns, in vector_math's column-major constructor order:
+    //   x_view / w                         -> NDC x
+    //   y_view / h                         -> NDC y
+    //   (z_view - near) / (far - near)     -> NDC z in 0..1
+    //   w_clip = 1                         -> parallel, no divide
+    return Matrix4(
+      1.0 / w, 0.0, 0.0, 0.0, //
+      0.0, 1.0 / h, 0.0, 0.0, //
+      0.0, 0.0, 1.0 / d, 0.0, //
+      jx, jy, -near / d, 1.0, //
+    );
   }
 }
 
@@ -110,8 +122,26 @@ class OrthographicCamera extends Camera {
   @override
   CameraProjection get projection => orthographic;
 
+  /// The same LEFT-HANDED look-at flutter_scene's own cameras use.
+  ///
+  /// `makeViewMatrix` from vector_math is right-handed — it puts -forward on
+  /// view Z and derives `right = forward x up`. flutter_scene's
+  /// `_matrix4LookAt` puts +forward on view Z and derives `right = up x
+  /// forward`, which is the basis its projection is written against; mixing
+  /// the two mirrors the scene horizontally as well as inverting its depth.
+  /// Reproduced rather than imported because it is private to that package.
   @override
-  Matrix4 getViewMatrix() => makeViewMatrix(eye, target, upVector);
+  Matrix4 getViewMatrix() {
+    final forward = (target - eye).normalized();
+    final right = upVector.cross(forward).normalized();
+    final up = forward.cross(right).normalized();
+    return Matrix4(
+      right.x, up.x, forward.x, 0.0, //
+      right.y, up.y, forward.y, 0.0, //
+      right.z, up.z, forward.z, 0.0, //
+      -right.dot(eye), -up.dot(eye), -forward.dot(eye), 1.0, //
+    );
+  }
 }
 
 /// The camera basis for one `az` / `pol` / `roll`, in world space.

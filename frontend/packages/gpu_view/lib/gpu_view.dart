@@ -31,6 +31,8 @@
 // THE CONTRACT IS reality_view's, deliberately. Same three verbs, same payload
 // maps, built by the same `reality_scene.dart`. Two renderers, one description
 // of what is in the viewport.
+import 'dart:io' as io;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_gpu/gpu.dart' as gpu;
@@ -127,10 +129,17 @@ class GpuView extends StatefulWidget {
   /// "can I get a GPU context", and the honest way to ask it is to try. A
   /// build that ships without the switch gets the painted fallback and a log
   /// line, rather than a black viewport.
-  static Future<bool> probe() async {
+  ///
+  /// SYNCHRONOUS, and that is the point: the caller asks before the first
+  /// frame, from a `main()` that is not async, and gets an answer that never
+  /// changes afterwards. An asynchronous probe would resolve a frame or two in
+  /// and take the viewport's layout with it. Needs the binding to be
+  /// initialised; nothing else.
+  static bool probe() {
     if (_probed) return _supported;
     _probed = true;
     if (kIsWeb) return _supported = false;
+    if (_disabledByEnv) return _supported = false;
     try {
       // Allocating something is what fails when the embedder was not built
       // with Flutter GPU enabled; merely naming the context does not. One
@@ -141,6 +150,26 @@ class GpuView extends StatefulWidget {
       _supported = false;
     }
     return _supported;
+  }
+
+  /// `PROTOTYPE_GPU=0` turns this renderer off and leaves the CPU painter.
+  ///
+  /// A real escape hatch, the same one the glass material has: a machine whose
+  /// driver is a software rasteriser is better served by the painter than by a
+  /// correct GPU renderer at four frames a second, and the choice is about the
+  /// MACHINE rather than about the document, which is why there is no setting
+  /// for it. It is also how the two renderers get compared — one build, one
+  /// document, one variable.
+  static final bool _disabledByEnv = _setting() == '0';
+
+  static String _setting() {
+    const compiled = String.fromEnvironment('PROTOTYPE_GPU');
+    if (compiled.isNotEmpty) return compiled;
+    try {
+      return io.Platform.environment['PROTOTYPE_GPU'] ?? '';
+    } catch (_) {
+      return ''; // web, where there is no environment to read
+    }
   }
 
   /// Tests only, so a case cannot inherit another's answer.

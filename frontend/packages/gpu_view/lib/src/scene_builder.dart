@@ -33,6 +33,12 @@ const int _kMatPreview = 1;
 /// colour anyone asks for. `kNoTint` in reality_payload.
 const int _kNoTint = 0;
 
+/// EVERY line in the scene, in logical points — B-Rep outlines, sketch curves,
+/// work-plane borders, origin axes. `Stroke.line` in PartScene.swift, and one
+/// number rather than a family of them is the point there too: "thin, but
+/// always the same" is not a property any single call site can hold.
+const double _kStrokeLine = 1.0;
+
 /// One solid, kept between pushes so a payload that omits the geometry can
 /// still move or recolour it.
 ///
@@ -44,7 +50,22 @@ class _Solid {
   int rev;
   Mesh shaded;
   Mesh? edges;
+
+  /// The solid's own node, and its edges as a CHILD of it.
+  ///
+  /// A child rather than a second primitive on one mesh, and that is a
+  /// measurement rather than a preference: a `Mesh.primitives` holding a
+  /// triangle geometry and a [LineSegmentsGeometry] together draws the
+  /// triangles and silently drops the segments — the two need different vertex
+  /// shaders, and the encoder binds per mesh. (Diagnosed by fattening the
+  /// edges to 0.4 mm and colouring them red: not one red pixel reached the
+  /// frame.)
+  ///
+  /// A child still shares the parent's transform by construction, which is the
+  /// property that mattered: an assembly component that moves must never leave
+  /// its own edges behind.
   final Node node = Node();
+  final Node edgeNode = Node();
 }
 
 /// Builds and keeps the graph for one viewport.
@@ -53,9 +74,38 @@ class _Solid {
 /// unchanged" by omitting its buffers, and something has to be holding the
 /// mesh they refer to.
 class SceneBuilder {
-  SceneBuilder(this.scene);
+  SceneBuilder(this.scene) {
+    scene.add(_world);
+  }
 
   final Scene scene;
+
+  /// EVERYTHING HANGS UNDER ONE NODE, AND THAT NODE IS A MIRROR.
+  ///
+  /// The app's world is right-handed — X right, Y up, Z toward the viewer —
+  /// and its camera is the OpenGL one: `dir` points from the scene toward the
+  /// eye, screen right is `s`, screen up is `u`, and the view looks along
+  /// `-dir`.
+  ///
+  /// flutter_scene is the other convention. `_matrix4LookAt` derives
+  /// `right = up x forward` and its projection puts `w = +z_view`, so its view
+  /// basis is right-handed about a forward direction on +Z: a LEFT-handed
+  /// world, X right, Y up, Z away from the viewer. The two differ by a
+  /// reflection, and no choice of camera can make up for one — handed the
+  /// app's camera unchanged, flutter_scene draws a correct picture of a
+  /// mirrored scene, which reads as a modelling bug rather than a camera one.
+  ///
+  /// One negated Z reconciles them, and putting it on a NODE rather than in
+  /// the projection is the point: a mirrored projection would reverse every
+  /// triangle's winding against the back-face cull and turn the model inside
+  /// out, while a mirrored node is a case flutter_scene already handles — Node
+  /// recomputes `windingFlipped` from the determinant of the transform chain
+  /// and reverses the winding order for everything below it.
+  final Node _world = Node()
+    ..localTransform = (Matrix4.identity()..setEntry(2, 2, -1.0));
+
+  /// A world-space vector, in the mirrored frame [_world] draws in.
+  static Vector3 _flip(Vector3 v) => Vector3(v.x, v.y, -v.z);
 
   final Map<String, _Solid> _solids = {};
   final List<Node> _decor = [];
@@ -100,6 +150,16 @@ class SceneBuilder {
     final m = UnlitMaterial();
     m.baseColorFactor = colour;
     if (colour.w < 1.0) m.alphaMode = AlphaMode.blend;
+    // NO CULLING, and without it a ribbon is invisible half the time.
+    //
+    // LineSegmentsGeometry expands each segment into a camera-facing quad in
+    // the vertex shader, and which way that quad ends up wound depends on the
+    // segment's direction relative to the camera — so a back-face cull throws
+    // away an arbitrary half of the edges of a model, and every one of them as
+    // the model turns. flutter_scene's own ribbon component sets
+    // `CullMode.none` for exactly this; a material is the only place a mesh
+    // can say so.
+    m.doubleSided = true;
     return m;
   }
 
@@ -119,6 +179,12 @@ class SceneBuilder {
     final az = _d(p['az']), pol = _d(p['pol']), roll = _d(p['roll']);
     _halfH = _d(p['halfH'], 50);
     _basis = cameraBasis(az: az, pol: pol, roll: roll);
+    // The payload carries the viewport in logical points, which is what turns
+    // a stroke in points into one in millimetres. Guarded: a zero height would
+    // make every line in the scene infinitely wide.
+    final hPt = _d(p['h'], 0);
+    if (hPt > 1) _mmPerPoint = 2 * _halfH / hPt;
+    _restroke();
 
     // The same fit RealityPartView.cameraFit() makes, and for its reason: an
     // orthographic depth buffer is linear, so the range has to bracket the
@@ -126,10 +192,12 @@ class SceneBuilder {
     final pad = (_sceneRadius > _halfH ? _sceneRadius : _halfH) + 10;
     final dist = pad * 4;
     final centre = _basis.right * _d(p['ox']) + _basis.up * _d(p['oy']);
+    // The camera lives in the mirrored frame with everything else, so the two
+    // cancel and what this projects is `Cam3.project` exactly.
     camera = OrthographicCamera(
-      eye: centre + _basis.dir * dist,
-      target: centre,
-      upVector: _basis.up,
+      eye: _flip(centre + _basis.dir * dist),
+      target: _flip(centre),
+      upVector: _flip(_basis.up),
       orthographic: OrthographicProjection(
         halfHeight: _halfH,
         near: (dist - pad * 2) < 0.001 ? 0.001 : dist - pad * 2,
@@ -169,7 +237,7 @@ class SceneBuilder {
     // unchanged solid's GPU buffers alive across a push.
     for (final gone in _solids.keys.toList()) {
       if (seen.contains(gone)) continue;
-      scene.remove(_solids.remove(gone)!.node);
+      _world.remove(_solids.remove(gone)!.node);
     }
     _sceneRadius = radius;
 
@@ -220,7 +288,7 @@ class SceneBuilder {
         final made = _Solid(rev, shaded, edges);
         _solids[id] = made;
         _attach(made);
-        scene.add(made.node);
+        _world.add(made.node);
       } else {
         existing.rev = rev;
         existing.shaded = shaded;
@@ -271,14 +339,25 @@ class SceneBuilder {
   /// construction: an assembly component that moves must never leave its own
   /// edges behind, and that is a class of bug this shape cannot have.
   void _attach(_Solid s) {
-    final edges = s.edges;
-    s.node.mesh = edges == null
-        ? s.shaded
-        : Mesh.primitives(primitives: [
-            ...s.shaded.primitives,
-            ...edges.primitives,
-          ]);
+    s.node.mesh = s.shaded;
+    s.edgeNode.mesh = s.edges;
+    if (!s.node.children.contains(s.edgeNode)) s.node.add(s.edgeNode);
+    // THE EDGES ARE LIFTED TOWARD THE CAMERA, as RealityKit lifts them
+    // (`for e in edgeEntities { e.position = dir * bias }` in placeCamera):
+    // a B-Rep edge lies exactly on the two faces it borders, so without a lift
+    // it z-fights them and comes and goes as the model turns.
+    //
+    // Through [_flip], because this node hangs under the mirrored [_world] and
+    // the lift has to be toward the camera in the frame it is drawn in — the
+    // unmirrored vector pushes the edges INTO the model along z, which loses
+    // most of them and keeps the few whose faces happen to face away.
+    s.edgeNode.localTransform = Matrix4.translation(_flip(_basis.dir) * _edgeLift);
   }
+
+  /// How far toward the camera a coplanar overlay is pushed, in world units.
+  /// `max(halfH * 5e-4, 1e-6)` — RealityPartView.placeCamera's own bias.
+  double get _edgeLift =>
+      (_halfH * 5e-4).clamp(1e-6, double.infinity).toDouble();
 
   /// The B-Rep edges of one solid.
   ///
@@ -335,20 +414,70 @@ class SceneBuilder {
     );
   }
 
-  /// Edge width in WORLD units, tied to the zoom.
+  /// The world length of one logical POINT at the current camera.
   ///
-  /// A fixed world width is a hairline when zoomed out and a bar when zoomed
-  /// in; a fixed screen width needs a rebuild every frame. Scaling with halfH
-  /// is what PartScene.swift settled on (`halfH * 1.2e-3`) and it holds an
-  /// almost-constant apparent width across the zoom range without touching the
-  /// geometry — the ribbon is rebuilt only when the MESH changes.
-  double get _edgeWidth => (_halfH * 1.2e-3).clamp(1e-4, 1.0);
+  /// This is the whole of PartScene.swift's `OutlineStyle`: a stroke is asked
+  /// for in points — the unit the 2D sketcher draws in — and comes back in
+  /// millimetres, so its weight on screen is the same at every zoom and on
+  /// every screen size.
+  ///
+  /// The constant that used to be here, `halfH * 1.2e-3`, is the one that file
+  /// names as the BUG it replaced: it is a fixed fraction of the view height
+  /// and so is only right at one viewport size, and because the ribbons were
+  /// rebuilt lazily its on-screen weight swung over a 3:1 range while zooming.
+  double _mmPerPoint = 0.05;
+
+  /// Every line in the scene, at [Stroke.line] — one point, the same weight
+  /// the 2D sketcher strokes with and the same one the iPad draws.
+  double get _edgeWidth => (_mmPerPoint * _kStrokeLine).clamp(1e-5, 10.0);
+
+  /// The [LineSegmentsGeometry] of everything currently in the graph, so a
+  /// zoom can restroke them all without rebuilding a single buffer.
+  ///
+  /// PartScene.swift rebuilds its ribbons through one style for exactly this
+  /// reason ("lines cannot disagree with each other and cannot disagree with
+  /// the zoom"); here the width is a live property of the geometry, so the
+  /// same guarantee costs a walk instead of a re-tube.
+  final List<LineSegmentsGeometry> _lines = [];
+
+  void _restroke() {
+    final w = _edgeWidth;
+    for (final g in _lines) {
+      if (g.width != w) g.width = w;
+    }
+    // The lift is toward the CAMERA, so it moves with it — the same reason
+    // RealityKit redoes it in placeCamera rather than in setScene.
+    final lift = Matrix4.translation(_flip(_basis.dir) * _edgeLift);
+    for (final s in _solids.values) {
+      s.edgeNode.localTransform = lift;
+    }
+  }
+
+  /// Collects the line geometry of everything in the graph. Called whenever
+  /// the graph changes, not whenever the camera does.
+  void _collectLines() {
+    _lines.clear();
+    void take(Mesh? m) {
+      if (m == null) return;
+      for (final prim in m.primitives) {
+        final g = prim.geometry;
+        if (g is LineSegmentsGeometry) _lines.add(g);
+      }
+    }
+    for (final s in _solids.values) {
+      take(s.edges);
+    }
+    for (final n in _decor) {
+      take(n.mesh);
+    }
+    _restroke();
+  }
 
   // ---- origin planes, axes, centre point, sketches ------------------------
 
   void _rebuildDecor(Map<String, dynamic> p) {
     for (final n in _decor) {
-      scene.remove(n);
+      _world.remove(n);
     }
     _decor.clear();
 
@@ -364,8 +493,11 @@ class SceneBuilder {
       _decor.addAll(_sketch(raw as Map));
     }
     for (final n in _decor) {
-      scene.add(n);
+      _world.add(n);
     }
+    // EVERY path that changes the graph ends here — setScene and the overlay
+    // push both — so this is the one place the line list has to be refreshed.
+    _collectLines();
   }
 
   /// One origin plane: a translucent quad in its own frame.

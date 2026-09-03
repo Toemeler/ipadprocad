@@ -2,6 +2,7 @@
 //   ribbon (full width) / main (model browser | viewport  OR  home) / tabbar.
 // Starts on the Home view (goHome() in the mock).
 import 'dart:async';
+import 'dart:io' show Platform;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -11,6 +12,7 @@ import 'log.dart';
 import 'perf.dart';
 import 'perf_document.dart';
 import 'ffi/perf_hook.dart';
+import 'package:gpu_view/gpu_view.dart';
 import 'package:reality_view/perf_hook.dart';
 
 import 'cycles_boot.dart';
@@ -144,6 +146,23 @@ void main([List<String> args = const <String>[]]) {
     // which looks enough like the real thing that nobody would report it.
     LiquidGlassProgram.onLoadFailed = (m) => Log.w('glass', m);
     Log.step('main', 'LiquidGlassProgram.load', LiquidGlassProgram.load);
+    // M372 — and the 3D viewport says which renderer it got.
+    //
+    // Off iOS the shaded viewport is flutter_scene on Flutter GPU, and Flutter
+    // GPU is a per-PROJECT switch rather than a platform capability: the
+    // desktop runners turn it on (see linux/runner/my_application.cc), a
+    // release build compiles the command-line switch out, and a build that
+    // missed it falls back to the CPU painter with no error anywhere. So the
+    // question is asked once, before the first frame — the answer decides
+    // LAYOUT as well as drawing, and a layout that changes when a capability
+    // resolves is a layout that jumps at launch.
+    if (!Platform.isIOS) {
+      Log.step('main', 'GpuView.probe', GpuView.probe);
+      Log.i('3d', GpuView.isSupported
+          ? 'renderer: flutter_scene (Flutter GPU)'
+          : 'renderer: the CPU painter — Flutter GPU is not available in this '
+              'build. On desktop that is the DartProject switch in the runner.');
+    }
     // M236 — adopt the iPad's own light/dark setting and start listening for
     // changes BEFORE the first frame, so the app never paints one scheme and
     // then snaps to the other. Only a property read and a callback: the

@@ -49,6 +49,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart' show Ticker;
 import 'package:flutter/services.dart';
 import 'package:native_menu/native_menu.dart' show GlassBrowser, GlassPanel;
+import 'package:gpu_view/gpu_view.dart';
 import 'package:reality_view/reality_view.dart';
 
 import '../app_state.dart';
@@ -60,6 +61,7 @@ import '../assembly.dart';
 import '../l10n/l.dart';
 import '../log.dart';
 import 'cycles_layer.dart';
+import 'scene_sink.dart';
 import '../mouse_nav.dart';
 import '../part_model.dart';
 import '../part_render.dart';
@@ -159,7 +161,14 @@ class _ViewportAssemblyState extends State<ViewportAssembly>
   AsmRef? _hoverRef;
 
   // ---- RealityKit (iOS) ----
-  RealityViewController? _reality;
+  /// M372 — whichever render surface this build has. See SceneSink: the
+  /// assembly viewport takes the same two-renderer arrangement as the part
+  /// one, because it is the same scene description with components in it.
+  SceneSink? _sink;
+
+  /// Is there a real render surface, or is _AssemblyPainter drawing? Decides
+  /// the push and decides who draws the screen-space decorations.
+  bool get _hasSurface => RealityView.isSupported || GpuView.isSupported;
   String? _lastSceneSig;
   Map<String, int> _sentRevs = const {};
 
@@ -173,7 +182,7 @@ class _ViewportAssemblyState extends State<ViewportAssembly>
       Perf.span('3d.push', () => _pushRealityInner(a, size));
 
   void _pushRealityInner(AssemblyModel a, Size size) {
-    final c = _reality;
+    final c = _sink;
     if (c == null) return;
     c.setCamera(cameraPayload(a.camera, size));
     // The same diagnostics the part viewport records. RealityKit composites
@@ -332,7 +341,7 @@ class _ViewportAssemblyState extends State<ViewportAssembly>
       _armRefine(size);
       // Drive the RealityKit surface (iOS). Off iOS this is a no-op and the
       // CustomPaint fallback below renders instead.
-      if (RealityView.isSupported) _pushReality(a, size);
+      if (_hasSurface) _pushReality(a, size);
       return Stack(children: [
         // The render surface sits at the BOTTOM and is never hit-tested; the
         // gesture layer is stacked on top of it (viewport3d does the same, and
@@ -350,7 +359,7 @@ class _ViewportAssemblyState extends State<ViewportAssembly>
                         child: RealityView(
                           placeholder: ColoredBox(color: T.viewport),
                           onCreated: (c) {
-                            _reality = c;
+                            _sink = SceneSink.reality(c);
                             // A FRESH platform view starts empty. Without
                             // clearing these the signature would still match
                             // the old view's contents, setScene would never
@@ -364,11 +373,29 @@ class _ViewportAssemblyState extends State<ViewportAssembly>
                           },
                         ),
                       )
-                    : CustomPaint(
-                        painter: _AssemblyPainter(
-                            a, _hover, app.asmMarkers, _hoverGeom, app),
-                        size: Size.infinite,
-                      ),
+                    // M372 — flutter_scene on Flutter GPU, everywhere else
+                    // there is a GPU to reach. See viewport3d for why this one
+                    // is not a platform view.
+                    : GpuView.isSupported
+                        ? IgnorePointer(
+                            child: GpuView(
+                              placeholder: ColoredBox(color: T.viewport),
+                              onCreated: (c) {
+                                _sink = SceneSink.gpu(c);
+                                _lastSceneSig = null;
+                                _sentRevs = const {};
+                                WidgetsBinding.instance
+                                    .addPostFrameCallback((_) {
+                                  if (mounted) setState(() {});
+                                });
+                              },
+                            ),
+                          )
+                        : CustomPaint(
+                            painter: _AssemblyPainter(
+                                a, _hover, app.asmMarkers, _hoverGeom, app),
+                            size: Size.infinite,
+                          ),
               ),
               // M304 — the path-traced image, when rendered mode has one.
               // Over the shaded scene and under the decorations, exactly as in
@@ -384,12 +411,12 @@ class _ViewportAssemblyState extends State<ViewportAssembly>
                       // tracer is already saturating. Reported by the layer, so
                       // the surface goes down only once there is a texture over
                       // it and comes back on the frame that texture goes.
-                      onCover: (covering) => _reality?.setPaused(covering))),
-              // Screen-space decorations. On iOS the scene is RealityKit and
-              // _AssemblyPainter never runs, so anything that is pure HUD has
-              // to be drawn here or it would be visible on the host and
-              // invisible on the device it was built for.
-              if (RealityView.isSupported)
+                      onCover: (covering) => _sink?.setPaused(covering))),
+              // Screen-space decorations. On a GPU surface _AssemblyPainter
+              // never runs, so anything that is pure HUD has to be drawn here
+              // or it would be visible on the host and invisible on the device
+              // it was built for.
+              if (_hasSurface)
                 Positioned.fill(
                   child: IgnorePointer(
                     child: CustomPaint(
