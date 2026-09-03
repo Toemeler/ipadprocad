@@ -8670,11 +8670,30 @@ TopoDS_Shape BuildFaceted(const Mesh &m, double tol, Report &rep)
  * through the mesh's own vertices, changes neither the count nor the depths.
  * The chain itself doubles back — the region's boundary has a spur.
  *
- * That is a lead and not yet a diagnosis. 14 of the whale's 16 crossing wires
- * hold an edge that turns past 150 degrees, but so do 116 of its 1,358 edges
- * in total, and TOKA has 56 such edges and not one of its four crossings
- * holds one. Turning far is not the same as doubling back, and separating the
- * two is the next measurement.
+ * AND THAT LEAD IS DEAD TOO — the measurement it asked for says no.
+ *
+ * "Doubles back" was made exact: over a curve's own samples, the smallest gap
+ * between two points at least two mesh edges apart along its arc, divided by
+ * that arc. A straight run scores near 1; a hairpin scores near 0. Asked of
+ * every wire:
+ *
+ *   - On the whale the two populations overlap. The 16 wires that cross score
+ *     a median of 0.146; the 80 that do not score 0.276. No bar separates
+ *     them — at 0.3 it catches 13 of the 16 and 46 of the 80.
+ *   - On TOKA it is inverted. All four crossing wires score 0.900, which is
+ *     to say they do not double back at all, while 14 of the 32 that are fine
+ *     score 0.000, which is to say they double back completely.
+ *
+ * So doubling back neither causes a crossing nor is needed for one. The
+ * hairpin in that whale edge is real and the picture of it is not a lie — it
+ * simply is not what makes the wire cross.
+ *
+ * Five explanations tried and five refuted. What is established is only this:
+ * the crossings are shallow (0.007 to 0.19 mm in 3D, a fraction of a mesh
+ * edge), they are always between two consecutive edges of one wire, and they
+ * are not caused by the region folding, by the pcurve projection, by the
+ * boundary splines, or by the boundary doubling back. The cause is open, and
+ * the next person should not start from any of those.
  *
  * Nothing downstream is left broken by any of it — the solids are valid, and
  * they cut, round, write and reopen — and the cost of it is the tolerance the
