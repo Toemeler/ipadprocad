@@ -4417,4 +4417,234 @@ class AppL10nEn extends AppL10n {
   @override
   String get settingsRibbonNamesFooter =>
       'Without names the band is much thinner; every command keeps its name as a tooltip.';
+
+  @override
+  String get panelMeasure => 'Measure';
+
+  @override
+  String get btnMeasure => 'Measure';
+
+  @override
+  String get measureTitle => 'Measure';
+
+  @override
+  String get measureSelection => 'Selection';
+
+  @override
+  String get measureResult => 'Result';
+
+  @override
+  String get measureTotalsSection => 'Totals';
+
+  @override
+  String get measureSettings => 'Display';
+
+  @override
+  String get measureHintPick => 'Tap geometry to measure.';
+
+  @override
+  String get measureHintPickSecond =>
+      'Tap a second entity for a distance or an angle.';
+
+  @override
+  String get measureNothingHere => 'Nothing to measure here.';
+
+  @override
+  String get measureCopied => 'Copied to the clipboard.';
+
+  @override
+  String get measureNeedsDocument =>
+      'Open a sketch, a part or an assembly first — there is nothing to measure here.';
+
+  @override
+  String get measureCopy => 'Tap a value to copy it.';
+
+  @override
+  String get measureCopyAll => 'Copy all';
+
+  @override
+  String get measureRestart => 'Restart';
+
+  @override
+  String get measureAddToTotal => 'Add';
+
+  @override
+  String get measureClearTotals => 'Clear totals';
+
+  @override
+  String get measurePrecision => 'Decimals';
+
+  @override
+  String get measureDualUnit => 'Dual unit';
+
+  @override
+  String get measureDualUnitOff => 'None';
+
+  @override
+  String get measureApproxNote =>
+      '≈ means read off the display mesh rather than solved analytically.';
+
+  @override
+  String get measureTotalLength => 'Lengths';
+
+  @override
+  String get measureTotalArea => 'Areas';
+
+  @override
+  String get measureTotalVolume => 'Volumes';
+
+  @override
+  String get measureTotalAngle => 'Angles';
+
+  @override
+  String measureTotalCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count measurements',
+      one: '1 measurement',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get measureLength => 'Length';
+
+  @override
+  String get measureArcLength => 'Arc Length';
+
+  @override
+  String get measureRadius => 'Radius';
+
+  @override
+  String get measureDiameter => 'Diameter';
+
+  @override
+  String get measureCircumference => 'Circumference';
+
+  @override
+  String get measureIncludedAngle => 'Included Angle';
+
+  @override
+  String get measureMajorRadius => 'Major Radius';
+
+  @override
+  String get measureMinorRadius => 'Minor Radius';
+
+  @override
+  String get measureArea => 'Area';
+
+  @override
+  String get measurePerimeter => 'Loop Length';
+
+  @override
+  String get measureVolume => 'Volume';
+
+  @override
+  String get measureHeight => 'Height';
+
+  @override
+  String get measureSurfaceArea => 'Surface Area';
+
+  @override
+  String get measurePositionX => 'X';
+
+  @override
+  String get measurePositionY => 'Y';
+
+  @override
+  String get measurePositionZ => 'Z';
+
+  @override
+  String get measureExtentX => 'Extent X';
+
+  @override
+  String get measureExtentY => 'Extent Y';
+
+  @override
+  String get measureExtentZ => 'Extent Z';
+
+  @override
+  String get measureDistance => 'Distance';
+
+  @override
+  String get measureCentreDistance => 'Center to Center';
+
+  @override
+  String get measureMaximumDistance => 'Maximum Distance';
+
+  @override
+  String get measureDeltaX => 'ΔX';
+
+  @override
+  String get measureDeltaY => 'ΔY';
+
+  @override
+  String get measureDeltaZ => 'ΔZ';
+
+  @override
+  String get measureAngle => 'Angle';
+
+  @override
+  String get measureSupplementAngle => 'Supplement';
+
+  @override
+  String get measureSurfaceDistance => 'Surface Gap';
+
+  @override
+  String get measureRefPoint => 'Point';
+
+  @override
+  String get measureRefEdge => 'Edge';
+
+  @override
+  String get measureRefAxis => 'Axis';
+
+  @override
+  String get measureRefCircle => 'Circle';
+
+  @override
+  String get measureRefArc => 'Arc';
+
+  @override
+  String get measureRefEllipse => 'Ellipse';
+
+  @override
+  String get measureRefCurve => 'Curve';
+
+  @override
+  String get measureRefFace => 'Face';
+
+  @override
+  String get measureRefCylinder => 'Cylinder';
+
+  @override
+  String get measureRefCone => 'Cone';
+
+  @override
+  String get measureRefSphere => 'Sphere';
+
+  @override
+  String get measureRefTorus => 'Torus';
+
+  @override
+  String get measureRefBody => 'Body';
+
+  @override
+  String get measureRefComponent => 'Component';
+
+  @override
+  String get measureModeMinimum => 'Minimum';
+
+  @override
+  String get measureModeCentre => 'Center';
+
+  @override
+  String get measureModeMaximum => 'Maximum';
+
+  @override
+  String get measurePriority => 'Selection priority';
+
+  @override
+  String get measurePriorityEntity => 'Faces & Edges';
 }

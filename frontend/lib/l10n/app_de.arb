@@ -4151,5 +4151,309 @@
   "settingsRibbonNamesFooter": "Ohne Namen ist das Band deutlich schmaler; jeder Befehl behält seinen Namen als Kurzhinweis.",
   "@settingsRibbonNamesFooter": {
       "description": "M349 — Fusszeile des Abschnitts. Sagt, was der Schalter kostet und was er nicht kostet."
+  },
+  "panelMeasure": "Messen",
+  "@panelMeasure": {
+    "description": "M371 — Ribbon-Gruppe fuer das Messwerkzeug. Inventor DE: \"Messen\" (Register Werkzeuge).",
+    "x-maxChars": 10
+  },
+  "btnMeasure": "Messen",
+  "@btnMeasure": {
+    "description": "M371 — der Befehl selbst. Inventor DE nennt ihn genauso; Kurztaste M.",
+    "x-maxChars": 10
+  },
+  "measureTitle": "Messen",
+  "@measureTitle": {
+    "description": "M371 — Titel des schwebenden Messfensters."
+  },
+  "measureSelection": "Auswahl",
+  "@measureSelection": {
+    "description": "M371 — Abschnitt im Messfenster: was gerade angetippt wurde."
+  },
+  "measureResult": "Ergebnis",
+  "@measureResult": {
+    "description": "M371 — Abschnitt im Messfenster: die gemessenen Werte."
+  },
+  "measureTotalsSection": "Summen",
+  "@measureTotalsSection": {
+    "description": "M371 — Abschnitt im Messfenster: aufaddierte Messungen, je Groessenart eine Zeile."
+  },
+  "measureSettings": "Anzeige",
+  "@measureSettings": {
+    "description": "M371 — Abschnitt im Messfenster: Nachkommastellen und zweite Einheit."
+  },
+  "measureHintPick": "Geometrie zum Messen antippen.",
+  "@measureHintPick": {
+    "description": "M371 — Aufforderung, solange nichts ausgewaehlt ist."
+  },
+  "measureHintPickSecond": "Zweites Element für Abstand oder Winkel antippen.",
+  "@measureHintPickSecond": {
+    "description": "M371 — Aufforderung nach der ersten Auswahl."
+  },
+  "measureNothingHere": "Hier ist nichts zu messen.",
+  "@measureNothingHere": {
+    "description": "M371 — Toast, wenn der Tipp weder Kante noch Fläche noch Punkt getroffen hat."
+  },
+  "measureCopied": "In die Zwischenablage kopiert.",
+  "@measureCopied": {
+    "description": "M371 — Toast nach dem Kopieren eines Messwerts."
+  },
+  "measureNeedsDocument": "Zum Messen zuerst eine Skizze, ein Bauteil oder eine Baugruppe öffnen.",
+  "@measureNeedsDocument": {
+    "description": "M371 — Toast, wenn M in der Galerie gedrueckt wird, wo es nichts zu messen gibt."
+  },
+  "measureCopy": "Wert antippen zum Kopieren.",
+  "@measureCopy": {
+    "description": "M371 — Fusszeile unter der Ergebnisliste. Sagt, dass eine Zeile antippbar ist: ohne den Hinweis ist das Kopieren einer einzelnen Zeile unsichtbar."
+  },
+  "measureCopyAll": "Alle kopieren",
+  "@measureCopyAll": {
+    "description": "M371 — kopiert alle Zeilen der Messung, eine je Zeile."
+  },
+  "measureRestart": "Neu",
+  "@measureRestart": {
+    "description": "M371 — verwirft die Auswahl und beginnt eine neue Messung.",
+    "x-maxChars": 10
+  },
+  "measureAddToTotal": "Zur Summe",
+  "@measureAddToTotal": {
+    "description": "M371 — addiert den Hauptwert zur laufenden Summe seiner Groessenart.",
+    "x-maxChars": 12
+  },
+  "measureClearTotals": "Summen löschen",
+  "@measureClearTotals": {
+    "description": "M371 — setzt alle laufenden Summen zurueck."
+  },
+  "measurePrecision": "Nachkommastellen",
+  "@measurePrecision": {
+    "description": "M371 — wie viele Stellen die Messwerte zeigen."
+  },
+  "measureDualUnit": "Zweite Einheit",
+  "@measureDualUnit": {
+    "description": "M371 — Inventors \"dual units\": eine zweite Zeile in einer anderen Einheit."
+  },
+  "measureDualUnitOff": "Keine",
+  "@measureDualUnitOff": {
+    "description": "M371 — Auswahl fuer die zweite Einheit: es wird keine angezeigt."
+  },
+  "measureApproxNote": "≈ heißt: aus der Darstellungsnetz-Auflösung gerechnet, nicht analytisch.",
+  "@measureApproxNote": {
+    "description": "M371 — Fusszeile, die das Zeichen vor genaeherten Werten erklaert."
+  },
+  "measureTotalLength": "Längen",
+  "@measureTotalLength": {
+    "description": "M371 — Zeile der Summenliste: alle addierten Laengen."
+  },
+  "measureTotalArea": "Flächen",
+  "@measureTotalArea": {
+    "description": "M371 — Zeile der Summenliste: alle addierten Flaechen."
+  },
+  "measureTotalVolume": "Volumen",
+  "@measureTotalVolume": {
+    "description": "M371 — Zeile der Summenliste: alle addierten Volumen."
+  },
+  "measureTotalAngle": "Winkel",
+  "@measureTotalAngle": {
+    "description": "M371 — Zeile der Summenliste: alle addierten Winkel."
+  },
+  "measureTotalCount": "{count, plural, =1{1 Messung} other{{count} Messungen}}",
+  "@measureTotalCount": {
+    "description": "M371 — wie viele Messungen in einer Summenzeile stecken.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "measureLength": "Länge",
+  "@measureLength": {
+    "description": "M371 — Messwert: Laenge einer geraden Kante oder Linie."
+  },
+  "measureArcLength": "Bogenlänge",
+  "@measureArcLength": {
+    "description": "M371 — Messwert: abgewickelte Laenge eines Bogens."
+  },
+  "measureRadius": "Radius",
+  "@measureRadius": {
+    "description": "M371 — Messwert: Radius."
+  },
+  "measureDiameter": "Durchmesser",
+  "@measureDiameter": {
+    "description": "M371 — Messwert: Durchmesser."
+  },
+  "measureCircumference": "Umfang",
+  "@measureCircumference": {
+    "description": "M371 — Messwert: Umfang eines Kreises oder einer Ellipse."
+  },
+  "measureIncludedAngle": "Öffnungswinkel",
+  "@measureIncludedAngle": {
+    "description": "M371 — Messwert: der von einem Bogen ueberstrichene Winkel."
+  },
+  "measureMajorRadius": "Große Halbachse",
+  "@measureMajorRadius": {
+    "description": "M371 — Messwert: grosse Halbachse einer Ellipse, Hauptradius eines Torus."
+  },
+  "measureMinorRadius": "Kleine Halbachse",
+  "@measureMinorRadius": {
+    "description": "M371 — Messwert: kleine Halbachse einer Ellipse."
+  },
+  "measureArea": "Fläche",
+  "@measureArea": {
+    "description": "M371 — Messwert: Flaecheninhalt."
+  },
+  "measurePerimeter": "Kantenlänge",
+  "@measurePerimeter": {
+    "description": "M371 — Messwert: Gesamtlaenge der begrenzenden Kanten. Inventor: \"total loop length\"."
+  },
+  "measureVolume": "Volumen",
+  "@measureVolume": {
+    "description": "M371 — Messwert: Volumen eines Koerpers."
+  },
+  "measureHeight": "Höhe",
+  "@measureHeight": {
+    "description": "M371 — Messwert: Ausdehnung eines Zylinders entlang seiner Achse."
+  },
+  "measureSurfaceArea": "Oberfläche",
+  "@measureSurfaceArea": {
+    "description": "M371 — Messwert: Gesamtoberflaeche eines Koerpers."
+  },
+  "measurePositionX": "X",
+  "@measurePositionX": {
+    "description": "M371 — Messwert: X-Koordinate."
+  },
+  "measurePositionY": "Y",
+  "@measurePositionY": {
+    "description": "M371 — Messwert: Y-Koordinate."
+  },
+  "measurePositionZ": "Z",
+  "@measurePositionZ": {
+    "description": "M371 — Messwert: Z-Koordinate."
+  },
+  "measureExtentX": "Ausdehnung X",
+  "@measureExtentX": {
+    "description": "M371 — Messwert: Kantenlaenge des Huellquaders in X."
+  },
+  "measureExtentY": "Ausdehnung Y",
+  "@measureExtentY": {
+    "description": "M371 — Messwert: Kantenlaenge des Huellquaders in Y."
+  },
+  "measureExtentZ": "Ausdehnung Z",
+  "@measureExtentZ": {
+    "description": "M371 — Messwert: Kantenlaenge des Huellquaders in Z."
+  },
+  "measureDistance": "Abstand",
+  "@measureDistance": {
+    "description": "M371 — Messwert: kuerzester Abstand zwischen zwei Elementen."
+  },
+  "measureCentreDistance": "Mitte zu Mitte",
+  "@measureCentreDistance": {
+    "description": "M371 — Messwert: Abstand der Mittelpunkte. Inventor: \"Center to Center\"."
+  },
+  "measureMaximumDistance": "Größter Abstand",
+  "@measureMaximumDistance": {
+    "description": "M371 — Messwert: weitester Abstand. Inventor: \"Maximum Distance\"."
+  },
+  "measureDeltaX": "ΔX",
+  "@measureDeltaX": {
+    "description": "M371 — Messwert: Abstandsanteil in X."
+  },
+  "measureDeltaY": "ΔY",
+  "@measureDeltaY": {
+    "description": "M371 — Messwert: Abstandsanteil in Y."
+  },
+  "measureDeltaZ": "ΔZ",
+  "@measureDeltaZ": {
+    "description": "M371 — Messwert: Abstandsanteil in Z."
+  },
+  "measureAngle": "Winkel",
+  "@measureAngle": {
+    "description": "M371 — Messwert: Winkel zwischen zwei Elementen."
+  },
+  "measureSupplementAngle": "Nebenwinkel",
+  "@measureSupplementAngle": {
+    "description": "M371 — Messwert: der Ergaenzungswinkel auf 180 Grad. Steht dabei, weil der Winkel zwischen zwei Ebenen zwei Zahlen hat."
+  },
+  "measureSurfaceDistance": "Wandabstand",
+  "@measureSurfaceDistance": {
+    "description": "M371 — Messwert: Abstand von Wand zu Wand statt von Mitte zu Mitte."
+  },
+  "measureRefPoint": "Punkt",
+  "@measureRefPoint": {
+    "description": "M371 — Art der Auswahl: ein Punkt, Eckpunkt oder Mittelpunkt."
+  },
+  "measureRefEdge": "Kante",
+  "@measureRefEdge": {
+    "description": "M371 — Art der Auswahl: eine gerade Kante oder Skizzenlinie."
+  },
+  "measureRefAxis": "Achse",
+  "@measureRefAxis": {
+    "description": "M371 — Art der Auswahl: eine unendliche Achse."
+  },
+  "measureRefCircle": "Kreis",
+  "@measureRefCircle": {
+    "description": "M371 — Art der Auswahl: eine geschlossene Kreiskante."
+  },
+  "measureRefArc": "Bogen",
+  "@measureRefArc": {
+    "description": "M371 — Art der Auswahl: ein Kreisbogen."
+  },
+  "measureRefEllipse": "Ellipse",
+  "@measureRefEllipse": {
+    "description": "M371 — Art der Auswahl: eine Ellipse."
+  },
+  "measureRefCurve": "Kurve",
+  "@measureRefCurve": {
+    "description": "M371 — Art der Auswahl: ein Spline oder Polygonzug."
+  },
+  "measureRefFace": "Fläche",
+  "@measureRefFace": {
+    "description": "M371 — Art der Auswahl: eine ebene Flaeche oder Arbeitsebene."
+  },
+  "measureRefCylinder": "Zylinder",
+  "@measureRefCylinder": {
+    "description": "M371 — Art der Auswahl: eine zylindrische Flaeche."
+  },
+  "measureRefCone": "Kegel",
+  "@measureRefCone": {
+    "description": "M371 — Art der Auswahl: eine konische Flaeche."
+  },
+  "measureRefSphere": "Kugel",
+  "@measureRefSphere": {
+    "description": "M371 — Art der Auswahl: eine kugelfoermige Flaeche."
+  },
+  "measureRefTorus": "Torus",
+  "@measureRefTorus": {
+    "description": "M371 — Art der Auswahl: eine torusfoermige Flaeche."
+  },
+  "measureRefBody": "Körper",
+  "@measureRefBody": {
+    "description": "M371 — Art der Auswahl: ein ganzer Volumenkoerper."
+  },
+  "measureRefComponent": "Bauteil",
+  "@measureRefComponent": {
+    "description": "M371 — Art der Auswahl: eine ganze Komponente der Baugruppe."
+  },
+  "measureModeMinimum": "Minimum",
+  "@measureModeMinimum": {
+    "description": "M371 — Abstandsart: kuerzester Abstand. Inventor: \"Minimum Distance\".",
+    "x-maxChars": 10
+  },
+  "measureModeCentre": "Mitte",
+  "@measureModeCentre": {
+    "description": "M371 — Abstandsart: Mitte zu Mitte. Inventor: \"Center to Center\".",
+    "x-maxChars": 10
+  },
+  "measureModeMaximum": "Maximum",
+  "@measureModeMaximum": {
+    "description": "M371 — Abstandsart: groesster Abstand. Inventor: \"Maximum Distance\".",
+    "x-maxChars": 10
+  },
+  "measurePriority": "Auswahlpriorität",
+  "@measurePriority": {
+    "description": "M371 — Abschnitt im Messfenster: was ein Tipp treffen darf. Inventors \"Selection Priority\"."
+  },
+  "measurePriorityEntity": "Kanten & Flächen",
+  "@measurePriorityEntity": {
+    "description": "M371 — Auswahlpriorität: Kanten, Flaechen und Eckpunkte. Inventors Vorgabe und unsere."
   }
 }

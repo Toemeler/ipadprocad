@@ -43,6 +43,8 @@ import 'widgets/joint_dialog.dart';
 import 'widgets/split_dialog.dart';
 import 'widgets/hole_dialog.dart';
 import 'widgets/make_part_dialog.dart';
+import 'widgets/measure_panel.dart';
+import 'widgets/viewport_window.dart';
 import 'widgets/work_plane_offset_field.dart';
 
 void main() {
@@ -357,6 +359,18 @@ class PrototypeApp extends StatelessWidget {
         // it edits must stay visible while the number changes.
         WorkPlaneOffsetField(app: app),
       ],
+      // M371 — Measure. OUTSIDE the per-document branches above, because it
+      // is the one modeless panel that runs in all three: the sketcher, the
+      // part and the assembly. Putting it in each branch would have been the
+      // same widget written three times, and the sketch branch has no list to
+      // put it in at all.
+      // Wrapped in a ViewportWindow (M209) so a tap on the panel is not also
+      // a tap on the model behind it. The panel is mostly transparent to hit
+      // testing — a Container's decoration is not a hit target — so without
+      // this, pressing "Zur Summe" would bank the value AND pick whatever
+      // happened to be under the button. Exactly the report M209 was written
+      // for, on a panel that collects picks continuously rather than once.
+      if (app.measuring) ViewportWindow(child: MeasurePanel(app: app)),
       // M116 — the browser is a FLOATING card, not a full-height wall: it
       // starts at the top of the content area and stops above the tab bar, so
       // the origin triad in the bottom-left corner stays visible under it.

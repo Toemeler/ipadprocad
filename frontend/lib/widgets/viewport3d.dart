@@ -17,6 +17,10 @@ import 'package:flutter/services.dart';
 import 'package:reality_view/reality_view.dart';
 
 import '../app_state.dart';
+import '../measure.dart';
+import 'viewport_window.dart';
+import '../measure_paint.dart';
+import '../measure_pick.dart';
 import '../log.dart';
 import 'cycles_layer.dart';
 import '../part_pick.dart';
@@ -178,7 +182,30 @@ class _Viewport3DState extends State<Viewport3D>
       unawaited(widget.app.paste());
       return true;
     }
+    // M371 — M arms Measure. No modifier, and not behind any of the pick
+    // modes: Measure stands the others down itself (AppState.startMeasure),
+    // so pressing it out of a half-finished command is a way OUT of that
+    // command rather than a conflict with it.
+    //
+    // NOT while a child sketch is open. This handler is registered on
+    // HardwareKeyboard, which is global, and the 2D editor over the top has
+    // an autofocused Focus with its own M — both would run and the second
+    // would toggle the panel straight back off. The sketch is the surface the
+    // user is working on there, so it keeps the key. (Ctrl+Z above has the
+    // same shape and the same overlap; it survives because the two undos are
+    // different commands, where two toggles of one panel cancel out.)
+    if (!ctrl &&
+        !HardwareKeyboard.instance.isAltPressed &&
+        k == LogicalKeyboardKey.keyM &&
+        widget.app.activeChild == null) {
+      widget.app.toggleMeasure();
+      return true;
+    }
     if (k == LogicalKeyboardKey.escape) {
+      if (widget.app.measuring) {
+        widget.app.cancelMeasure();
+        return true;
+      }
       if (widget.app.pickPlane ||
           // M260 — ...and an armed work-feature command, which Esc could not
           // reach either. escape3D knows what to do with it.
@@ -1729,6 +1756,95 @@ class _Viewport3DState extends State<Viewport3D>
     }
   }
 
+  /// M371 — the tap under the Measure command, as something measurable.
+  ///
+  /// The priority is [_pickWorkRef]'s, for the reason that one gives: work
+  /// features and origin geometry are drawn thin and are the easiest things
+  /// on screen to miss, so a tap within tolerance of both an axis and the
+  /// face behind it means the axis. What differs is everything after that —
+  /// a measurement wants the LENGTH of the edge and the AREA of the face,
+  /// which a WorkRef does not carry, so the solid pass is measure_pick's own.
+  ///
+  ///   1. existing work features and origin entities  (reduced from WorkRef)
+  ///   2. vertices, edges and faces of the solids     (measurePickPart)
+  ///   3. a sketch curve, when nothing solid was hit
+  /// True when [px] lands on one of the modeless windows floating over the
+  /// viewport. See [ViewportWindow], and the call site above.
+  bool _onFloatingWindow(Offset px) {
+    final box = context.findRenderObject();
+    if (box is! RenderBox || !box.hasSize) return false;
+    return ViewportWindow.hits(box.localToGlobal(px));
+  }
+
+  MeasureRef? _measureRefAt(Cam3 cam, Offset px, PartModel p) {
+    final priority =
+        widget.app.measureSession?.priority ?? MeasurePriority.entity;
+    // Under a BODY priority the origin geometry is not what was asked for:
+    // "measure this body" means the body, and a work plane in front of it
+    // would answer with a plane that has no volume.
+    if (priority == MeasurePriority.entity) {
+      final wf = _hitWorkFeature(cam, px, p);
+      if (wf != null) {
+        final ref = measureRefFromWorkRef(wf);
+        if (ref != null) return ref;
+      }
+      final origin = _hitOrigin(cam, px, p);
+      if (origin != null) {
+        final ref = _measureOrigin(origin, p);
+        if (ref != null) return ref;
+      }
+    }
+    final solids = _liveSolids().toList();
+    final names = [
+      for (final s in solids) _bodyNameOf(p, s),
+    ];
+    final hit = measurePickPart(solids, cam, px,
+        priority: priority, names: names);
+    if (hit != null) return hit;
+    if (priority != MeasurePriority.entity) return null;
+    return _measureSketchCurveAt(cam, px);
+  }
+
+  /// One origin entity — a plane, an axis or the centre point — as something
+  /// measurable. Reuses the frames [_pickWorkRef] reads, so the two commands
+  /// can never disagree about where the XY plane is.
+  MeasureRef? _measureOrigin(String origin, PartModel p) {
+    if (origin == 'cp') return MeasureRef.point(Vec3.zero);
+    if (origin == 'x' || origin == 'y' || origin == 'z') {
+      final d = origin == 'x'
+          ? const Vec3(1, 0, 0)
+          : origin == 'y'
+              ? const Vec3(0, 1, 0)
+              : const Vec3(0, 0, 1);
+      return MeasureRef.axis(Vec3.zero, d);
+    }
+    final f = frameForPlaneKey(p, origin);
+    // An origin or work plane's normal is NOT an outward one — nothing says
+    // which side of it is "out" — so it goes in unoriented and the angle
+    // between two of them comes back unsigned. See MeasureRef.planeIsOriented.
+    return f == null ? null : MeasureRef.plane(f.origin, f.n);
+  }
+
+  /// A sketch curve drawn in the 3D viewport, measured on its own plane.
+  MeasureRef? _measureSketchCurveAt(Cam3 cam, Offset px) {
+    final key = _pickSketchCurve(cam, px);
+    if (key == null) return null;
+    final i = key.lastIndexOf('#');
+    if (i < 0) return null;
+    final name = key.substring(0, i);
+    final gi = int.tryParse(key.substring(i + 1));
+    if (gi == null) return null;
+    final p = part;
+    if (p == null) return null;
+    for (final cs in p.childSketches) {
+      if (cs.model.name != name) continue;
+      final geos = cs.model.geometry;
+      if (gi < 0 || gi >= geos.length) return null;
+      return measureRefOfSketchCurve(geos[gi], sketchFrameOf(cs));
+    }
+    return null;
+  }
+
   /// M231 — a sketch CURVE, as a last resort.
   ///
   /// Last on purpose: every solid pick above wins over it, so nothing that
@@ -2365,6 +2481,34 @@ class _Viewport3DState extends State<Viewport3D>
     if (app.pickingFaces) {
       final hit = _pickFaceForEdit(cam, px);
       if (hit != null) app.toggleFacePick(hit.$2, hit.$1);
+      return;
+    }
+    // M371 — MEASURE is armed, and it owns the tap.
+    //
+    // Above the work-feature commands and everything below them, for the
+    // reason those sit above the rest: Measure wants vertices, edges, faces
+    // of every surface type, origin geometry and sketch curves all at once,
+    // so any branch that ran first would swallow taps it had no business
+    // claiming. The three narrow pick modes ABOVE this one — Delete Face,
+    // the sweep path and the loft sections — cannot be armed at the same
+    // time: [AppState.startMeasure] stands each of them down by name, which
+    // is what makes this position safe without reordering commands this
+    // milestone is not about.
+    //
+    // A miss does NOT cancel. Esc and the ribbon toggle cancel; nothing else.
+    if (app.measuring) {
+      // The panel floats in the same Stack this handler's Listener is under,
+      // and Flutter delivers a pointer to every target on its hit path — so a
+      // tap on the panel's own buttons reaches here too. [ViewportWindow] is
+      // where the floating windows say where they are (M209); the 2D viewport
+      // has asked it since then and this is the 3D half.
+      if (_onFloatingWindow(px)) return;
+      final ref = _measureRefAt(cam, px, p);
+      if (ref != null) {
+        app.measurePick(ref);
+      } else {
+        app.measureMissed();
+      }
       return;
     }
     // M215 — 0. a Work Axis / Work Point command is armed. Runs before every
@@ -3125,6 +3269,15 @@ class _OverlayPainter extends CustomPainter {
               ..strokeWidth = selected ? 1.6 : 1
               ..color = selected ? T.hover : T.accent.withOpacity(0.7));
       }
+    }
+
+    // ---- M371 measurement overlay -----------------------------------------
+    // Last, so it sits over the origin geometry and the profile washes: it is
+    // the thing the user is currently looking at, and a highlight hidden
+    // behind a plane wash would defeat the point of drawing one.
+    final ms = app.measureSession;
+    if (ms != null) {
+      paintMeasureOverlay(canvas, ms, cam.project, size);
     }
   }
 

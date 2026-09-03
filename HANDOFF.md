@@ -12231,3 +12231,141 @@ Belegen — OIDNs Kachelregel, die Zahlen aus `ios_metal.py`, und der Umstand,
 dass genau dieser Pfad in keinem CI-Job vorkommt (96×96 auf der CPU) — aber
 nicht auf einem Crash-Report. Falls es erneut abstürzt, ist der nächste Hebel
 die Renderauflösung beim Entrauschen, nicht wieder diese Konstante.
+
+## M371 — Messen, überall: ein Befehl, ein Fenster, jede Kombination
+
+> „Build a measurement tool just like in inventor. When I press M this tool
+> activates. then i can click on a line and get its length, on 2 faces and get
+> the distance, on 2 points, on a cylinder, just every possible scenario should
+> work. For measurement throughout the whole app 2d 3d and assembly. Everywhere."
+
+### Was Inventor tatsächlich macht
+
+Nachgelesen (September 2026) in der Autodesk-Hilfe „To Measure Distance,
+Length, Angle, Loop, or Area in Models or Drawings", in der Release-Notiz
+„Measure Enhancements" zu Inventor 2018 und im Inventor-Blog, der das Fenster
+eingeführt hat. Autodesks eigene Domains sind aus dieser Sitzung heraus
+gesperrt (`help.autodesk.com` und `knowledge.autodesk.com` beide 403 am
+Egress-Proxy), die Punkte unten stammen deshalb aus den Suchauszügen dieser
+Seiten und nicht aus dem vollen Text — sie sind aber wörtlich genug, um
+gegen sie zu bauen:
+
+* **Ein** Befehl seit 2018, der die vier alten (Distance, Angle, Loop, Area)
+  ersetzt, gefahren von einem modelosen, informationsreichen Fenster.
+* **Eine** Auswahl liefert **mehrere** Werte auf einmal: „when you select a
+  cylindrical face, the diameter, area, and total loop length display". Das
+  ist der wichtigste Punkt und der Grund, warum `MeasureReading` eine LISTE
+  von Werten trägt statt einer Zahl.
+* **Zwei** Auswahlen liefern Abstand oder Winkel — abgeleitet aus dem, was die
+  beiden Picks SIND, nie vorher abgefragt.
+* Der Abstand hat **drei** Lesarten zum Umschalten: Minimum Distance, Center
+  to Center, Maximum Distance.
+* Werte lassen sich **aufsummieren**, je Grössenart getrennt.
+* **Doppelte Einheit** und **Nachkommastellen** stehen im Fenster und rendern
+  das Ergebnis neu, statt neu zu messen.
+* **Ein Wert oder alle** gehen in die Zwischenablage.
+* **Auswahlpriorität** Component / Part / Faces and Edges.
+
+Nicht übernommen, und beides mit Grund:
+
+* **MASSE.** Inventor rechnet sie aus der Dichte des Materials. Die Materialien
+  dieser App sind Aussehen und sonst nichts (`materials.dart`, erste Zeile), es
+  gäbe also keine Dichte, die jemand gewählt hätte. Stattdessen steht das
+  **Volumen** da — die Hälfte, die das Modell wirklich kennt.
+* **Vorab-Hervorhebung beim Überfahren.** Auf Glas gibt es kein Hover, ausser
+  mit Pencil und Trackpad; ein halb gebauter Hover wäre schlechter als der
+  Halo, den jeder Pick nach dem Antippen bekommt.
+
+### Aufbau — vier Dateien, und warum es vier sind
+
+```
+lib/measure.dart        was ein Paar Picks BEDEUTET, plus die Regeln der Sitzung
+lib/measure_pick.dart   was EIN Tipp IST, je Dokumentart
+lib/measure_paint.dart  wie die Messung über dem Modell AUSSIEHT
+lib/widgets/measure_panel.dart   das Fenster
+```
+
+Der Schnitt ist der von `work_features.dart` gegen `viewport3d.dart`: die
+Arithmetik will keine Kamera, der Pick will keinen Widget-Baum, und beide
+sollen auf dem Host laufen. Sie tun es — 199 Tests in drei Dateien, ohne Gerät,
+ohne Kernel.
+
+**Der 2D-Skizzierer misst durch denselben Code wie das Bauteil.** Ein
+Skizzenpunkt `(x, y)` geht als `Vec3(x, y, 0)` hinein. Abstände, Winkel und
+Flächen sind in dieser Einbettung identisch, es gibt also **eine**
+Implementierung von „der Abstand zwischen zwei Kreisen" statt einer flachen und
+einer räumlichen, die sich widersprechen können.
+
+### Die Entscheidungen, die falsch sein könnten
+
+**Der Winkel zwischen zwei Ebenen hat zwei Zahlen.** Zwei Flächen eines
+30°-Keils haben Aussennormalen 150° auseinander; zwei Flächen eines 150°-Keils
+haben sie 30° auseinander. `acos|n1·n2|` antwortet auf beide 30° und liegt
+einmal falsch. Die AUSSENNORMALE einer Fläche unterscheidet sie: die
+Flächenwinkel ist `180° − ∠(n1, n2)`. Eine Arbeitsebene hat keine
+Aussennormale — ihre Richtung ist, wo die Konstruktion sie gelassen hat — und
+bekommt deshalb den vorzeichenlosen Winkel in [0°, 90°]. Beide Fälle zeigen
+zusätzlich den **Nebenwinkel**, damit das Fenster nie auf Treu und Glauben
+geglaubt werden muss. Siehe `MeasureRef.planeIsOriented`.
+
+**Was bei zwei Linien vorn steht.** Zwei KOMPLANARE Linien treffen sich
+irgendwo — an der Ecke, die angetippt wurde, oder knapp hinter der Verrundung,
+die sie weggenommen hat — und der Winkel ist die ganze Frage. Zwei WINDSCHIEFE
+treffen sich nie, und was man von zwei rechtwinklig gebohrten Löchern wollte,
+ist ihr Abstand. Getestet wird auf den UNENDLICHEN Geraden, damit eine Gehrung
+mit weggefräster Spitze weiterhin als Winkel liest.
+
+**Der dritte Pick.** Er beginnt eine neue Messung — ausser drei PUNKTE, die der
+Drei-Punkt-Winkel sind und die einzige Drei-Pick-Lesart, die eindeutig ist.
+Dasselbe zweimal antippen nimmt es wieder heraus: ein Fehlgriff kostet einen
+Tipp und nicht die halbe Messung.
+
+**„Zur Summe" LEERT die Auswahl.** Ohne das landet der zweite Tipp einer Reihe
+neben dem ersten Pick und wird als ABSTAND gelesen — aus „summiere diese fünf
+Kanten" würde still „summiere vier Lücken". Die Summen selbst überleben
+„Neu", was die andere Hälfte derselben Regel ist.
+
+**Flächeninhalt aus der Vernetzung, nicht analytisch.** Für eine ebene Fläche
+ist die Dreieckssumme exakt — eine Triangulierung eines Polygons hat dessen
+Fläche. Für eine gekrümmte ist sie auf die Darstellungstoleranz genau, und
+genau diese Werte sind mit „≈" gekennzeichnet. Die analytische Formel
+(`r·Δu·Δv` für einen Zylinder) wäre nur für ein UNBESCHNITTENES Flächenstück
+exakt und würde jeden Zylinder mit einem Loch darin zu gross melden.
+
+**Die Naht zählt nicht zum Umfang.** Ein Zylinder wird mit VERDOPPELTEN
+Scheitelpunkten entlang seiner Naht vernetzt, eine über Indizes gezählte
+Randsuche hätte also zu den zwei Kreisen noch zweimal die Höhe addiert.
+`faceLoopLength` zählt geometrisch: beide Kopien landen in einem Eimer, der
+Eimer hält zwei, die Naht ist korrekt innen.
+
+**Körper gegen Körper hat keine geschlossene Form.** `nearestBetweenMeshes`
+läuft drei Durchgänge — Scheitelpunkte gegen Dreiecke in beide Richtungen, dann
+Kante gegen Kante — und alle drei werden gebraucht: eine kleine Platte über
+einer grossen hat ihr nächstes Paar zwischen einer ECKE und einer FLÄCHE, was
+keine Kantensuche findet; zwei Blöcke, die sich an einer Kante berühren, haben
+es zwischen zwei KANTEN. Beschnitten wird über Hüllquader, gedeckelt über ein
+Budget von drei Millionen Tests.
+
+### Wo der Tipp hingeht
+
+In allen drei Viewports steht die Mess-Verzweigung **vor** den anderen
+Pick-Modi, und `AppState.startMeasure` stellt jeden Befehl ab, der ebenfalls
+Tipps sammelt. Die Gegenrichtung ist `cancelWorkFeature()`: sechzehn Befehle
+rufen es beim Hereinkommen auf, es ist das faktische „ich nehme die Tipps
+jetzt"-Signal dieser App, und Messen hängt sich dort ein statt an sechzehn
+Stellen. `selectTool` schliesst das Fenster ebenso.
+
+Das Fenster selbst steckt in einem `ViewportWindow` (M209). Ohne das hätte ein
+Druck auf „Zur Summe" den Wert gebucht UND das gepickt, was zufällig unter dem
+Knopf lag — genau der Bericht, für den M209 geschrieben wurde, auf einem
+Fenster, das dauerhaft sammelt statt einmal.
+
+### Stand
+
+* `flutter analyze`: **66 Issues, 0 Errors** — dieselbe Zahl wie vorher.
+* Testlauf: **3600+ bestanden**. Der eine rote ist
+  `m341_accessibility_test.dart`, und er ist **nicht** von diesem Meilenstein:
+  er ruft `isSemantics` auf, das es in `flutter_test` der hier installierten
+  SDK (3.35.4) nicht gibt. Ein Werkzeugversionsproblem, kein Regress — die
+  Datei ist von M371 nicht angefasst.
+* **Nicht auf Hardware gelaufen.** Wie alles seit M192.

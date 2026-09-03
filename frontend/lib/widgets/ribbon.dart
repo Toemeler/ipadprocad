@@ -736,6 +736,31 @@ class _RibbonState extends State<Ribbon> {
     );
   }
 
+  /// M371 — the Measure panel, identical in all three ribbons.
+  ///
+  /// Inventor puts Measure on the TOOLS tab, which every document kind has;
+  /// this app's ribbon is one tab per document kind, so the panel is repeated
+  /// rather than the tab. Written once here for the reason [_bandBody] exists
+  /// below: three copies of one button is three places for it to drift.
+  ///
+  /// It LIGHTS UP while the command is running, which is the rule M210
+  /// established for every modeless command's button — and it is what makes
+  /// the button a toggle rather than a thing that reopens what is already
+  /// open.
+  Widget _measurePanel(AppState app) {
+    final t = L.of(context);
+    return _panel(
+      label: t.panelMeasure,
+      arrow: false,
+      child: _BigWide(
+          width: 62,
+          icon: MS['measure']!,
+          label: t.btnMeasure,
+          active: app.measuring,
+          onTap: app.toggleMeasure),
+    );
+  }
+
   /// The panels for whichever document is open. One place, so the rail and
   /// the band cannot drift apart in which ribbon they show.
   Widget _bandBody(AppState app) => app.isHome
@@ -1125,6 +1150,10 @@ class _RibbonState extends State<Ribbon> {
             ]),
           ]),
         ),
+        // M371 — Measure, immediately before Appearance. Both are Inventor
+        // TOOLS-tab commands rather than modelling ones, so they belong after
+        // everything that changes the model.
+        _measurePanel(app),
         // ---- M272: Appearance, on the FAR RIGHT of both 3D ribbons ------
         //
         // Last, deliberately, and identical in the part and the assembly. It
@@ -1438,6 +1467,10 @@ class _RibbonState extends State<Ribbon> {
             ]),
           ]),
         ),
+        // M371 — Measure, immediately before Appearance. Both are Inventor
+        // TOOLS-tab commands rather than modelling ones, so they belong after
+        // everything that changes the model.
+        _measurePanel(app),
         // ---- M272: Appearance, on the FAR RIGHT of both 3D ribbons ------
         //
         // Last, deliberately, and identical in the part and the assembly. It
@@ -1786,6 +1819,9 @@ class _RibbonState extends State<Ribbon> {
                 active: app.sliceGraphics,
                 onTap: app.toggleSliceGraphics),
           ),
+        // M371 — Measure. Before Exit, which stays last: Exit is the way out
+        // of the sketch and must be the rightmost thing in the band.
+        _measurePanel(app),
         // Exit panel (only in layer edit mode), pinned to the right in spirit;
         // in a scrolling ribbon it follows Modify like #panel-exit.on does.
         if (app.inEditMode || app.activeChild != null)

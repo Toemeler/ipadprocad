@@ -9,6 +9,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:native_menu/native_busy.dart' show NativeBusy;
 import 'package:native_menu/native_menu.dart'
     show MeshImportChoice, MeshStage, NativeMenu;
@@ -53,6 +54,7 @@ import 'params.dart';
 import 'part_model.dart';
 import 'section_view.dart';
 import 'materials.dart';
+import 'measure.dart';
 import 'part_render.dart';
 import 'preview_matte.dart';
 // PURE payload builders only — importing reality_scene.dart here would close a
@@ -8773,6 +8775,19 @@ class AppState extends ChangeNotifier {
   bool _wfOriginAutoShown = false;
 
   void cancelWorkFeature() {
+    // M371 — and Measure with it, BEFORE the early return below.
+    //
+    // Every command in this app that starts collecting viewport taps calls
+    // this on its way in — sixteen call sites, from Extrude to Place
+    // Constraint — which makes it the app's de-facto "I am taking the
+    // viewport's taps now" signal. Measure joins that signal here rather than
+    // at all sixteen, and that is also the only version of this a seventeenth
+    // command gets for free.
+    //
+    // Ahead of the early return because the return is about work features:
+    // a command opening with none armed still means it is taking the taps.
+    // The reverse direction is [startMeasure], which stands them down.
+    cancelMeasure();
     // M247 — in an assembly [workPlaneArm] is part of this command rather
     // than of the part's separate offset/midplane flow, so it disarms here
     // too. In a part it is left alone: cancelWorkPlane owns it there, and
@@ -13895,6 +13910,13 @@ class AppState extends ChangeNotifier {
       toast(L.current.msgEnterLayerToSketch);
       return;
     }
+    // M371 — arming a drawing tool puts Measure away: the symmetric half of
+    // [startMeasure] standing the tool down. Both collect taps from the
+    // viewport and the measure branch is checked first, so leaving the panel
+    // open would mean the tool you just picked never received one. Below the
+    // edit-mode guard, so a BLOCKED tool does not close a panel the user is
+    // reading.
+    if (t != Tool.none) cancelMeasure();
     tool = t;
     // M85: remember the variant for its flyout group. Tool.none (Esc, tool
     // finished) must NOT clear it — that is the whole point: the last used
@@ -15304,6 +15326,18 @@ class AppState extends ChangeNotifier {
   void cancelTool() {
     snap = null;
     pendingDim = null;
+    // M371 — Esc puts Measure away, and it goes FIRST because it is the one
+    // command that can be running in a document with no Tool armed at all: a
+    // fall-through would have reached `selection.clear()` at the bottom and
+    // cleared the user's selection instead of the panel they were looking at.
+    //
+    // Guarded on the session rather than unconditional, so Esc keeps meaning
+    // exactly what it meant everywhere else.
+    if (measureSession != null) {
+      measureSession = null;
+      notifyListeners();
+      return;
+    }
     // A pattern dialog cancels as a WHOLE (Inventor: Esc = Cancel) — no
     // pick-chain step-back like the drawing tools.
     if (pattern != null) {
@@ -20837,6 +20871,219 @@ class AppState extends ChangeNotifier {
     // about which part it came out of.
     final want = docName ?? '${p.name} ${cs.model.name}';
     return newSketchDocumentFrom(clip, name: want);
+  }
+
+  // =========================================================================
+  // M371 — MEASURE
+  //
+  // Inventor's Tools > Measure, which since 2018 is ONE command driven by an
+  // information-rich modeless panel rather than the four (Distance, Angle,
+  // Loop, Area) it replaced. Everything about how it behaves lives in three
+  // places and this is the smallest of them:
+  //
+  //   measure.dart       what a pair of picks MEANS, and the session's rules
+  //   measure_pick.dart  what one tap IS, per document kind
+  //   here               arming it, routing picks, and the clipboard
+  //
+  // WHY IT IS NOT A [Tool]. The Tool enum is the 2D sketcher's create/modify
+  // set: `toolClick` places points into `toolPoints`, `cancelTool` steps a
+  // pick chain back, and every one of them commits GEOMETRY into the sketch.
+  // Measure writes nothing, runs in all three document kinds — the sketcher,
+  // the part and the assembly, none of which share a Tool — and its picks are
+  // entities rather than points. Making it a Tool would have meant a special
+  // case in every one of those paths; a session of its own means none.
+  // =========================================================================
+
+  /// The live Measure command, or null when it is not running.
+  MeasureSession? measureSession;
+
+  bool get measuring => measureSession != null;
+
+  /// The display choices, kept OUTSIDE the session so they survive it.
+  ///
+  /// A session is created fresh every time Measure is armed — that is what
+  /// makes Esc a real cancel — and if the precision and the second unit lived
+  /// in it, a user who works in inches would set them again on every single
+  /// measurement. Inventor remembers them for the same reason. Not persisted
+  /// to disk: they are a working preference, not a document, and the app has
+  /// no measurement section in its settings file to put them in.
+  int _measureDecimals = 2;
+  MeasureUnitSystem? _measureDualUnit;
+  MeasurePriority _measurePriority = MeasurePriority.entity;
+
+  /// M, and the ribbon button. Toggles, like every other modeless command
+  /// here: pressing it again puts it away.
+  void toggleMeasure() {
+    if (measureSession != null) {
+      cancelMeasure();
+    } else {
+      startMeasure();
+    }
+  }
+
+  /// Arms Measure over whichever document is open.
+  ///
+  /// Refuses on the gallery rather than opening a panel with nothing to point
+  /// at — the one place in the app where there is genuinely nothing to
+  /// measure.
+  void startMeasure() {
+    if (isHome) {
+      toast(L.current.measureNeedsDocument);
+      return;
+    }
+    // Measure collects picks from the viewport, so anything else that does
+    // must stand down first — otherwise the same tap would be claimed twice
+    // and the user would have no way to tell which command took it.
+    //
+    // GUARDED, because [cancelTool] does two things: it stands the armed
+    // command down AND, when there is none, it clears the SELECTION. Calling
+    // it unconditionally made arming Measure throw away whatever the user had
+    // selected — a side effect nobody asked for and one they would have had to
+    // re-do by hand. The guard names exactly the states cancelTool acts on
+    // before it reaches that last line.
+    if (tool != Tool.none ||
+        pattern != null ||
+        gear != null ||
+        filletSess != null) {
+      cancelTool();
+    }
+    cancelWorkFeature();
+    // The three NARROW 3D pick modes. Their branches sit above Measure's in
+    // viewport3d's pointer handler — they were there first and reordering
+    // them would risk commands this milestone is not about — so an armed one
+    // would silently swallow every tap meant for the measurement while its
+    // panel sat there looking active. Standing them down is the fix that does
+    // not touch their order: after this, nothing above Measure can be armed.
+    cancelFaceEdit();
+    cancelPickSweepPath();
+    cancelPickLoftSections();
+    // The ASSEMBLY's collecting commands, for the same reason: every one of
+    // them takes taps from the viewport, and two commands claiming one tap is
+    // a state the user can neither see nor get out of.
+    if (sectionPicking) {
+      // The PICK, not the CUT. A section already applied to the document is a
+      // VIEW the user set up, and arming a measurement has no business
+      // throwing it away — which is what [endSection] would do.
+      sectionArm = null;
+      sectionDraft = null;
+    }
+    cancelConstraint();
+    cancelAsmPattern();
+    cancelCreateComponent();
+    showRelationshipsPicking = false;
+    measureSession = MeasureSession()
+      ..decimals = _measureDecimals
+      ..dualUnit = _measureDualUnit
+      ..priority = _measurePriority;
+    toast(L.current.measureHintPick);
+    notifyListeners();
+  }
+
+  void cancelMeasure() {
+    if (measureSession == null) return;
+    measureSession = null;
+    notifyListeners();
+  }
+
+  /// The viewport reports one picked entity.
+  ///
+  /// A miss never cancels: a measurement can need two picks and throwing the
+  /// first away because the second tap landed on empty space would be the
+  /// most expensive possible response to the cheapest possible mistake. Esc
+  /// and the ribbon toggle cancel; nothing else does. (The same rule the work
+  /// feature commands follow — see [workFeaturePick].)
+  void measurePick(MeasureRef ref) {
+    final s = measureSession;
+    if (s == null) return;
+    s.add(ref);
+    if (s.picks.length == 1 && s.reading == null) {
+      // One pick that measures nothing on its own — a work plane, an origin
+      // axis. Say what it is waiting for rather than showing an empty panel.
+      toast(L.current.measureHintPickSecond);
+    }
+    notifyListeners();
+  }
+
+  /// The viewport reports a tap that hit nothing.
+  void measureMissed() {
+    if (measureSession == null) return;
+    toast(L.current.measureNothingHere);
+  }
+
+  /// Drops pick [i] — the x on a selection row.
+  void measureRemovePick(int i) {
+    measureSession?.removeAt(i);
+    notifyListeners();
+  }
+
+  /// Restart: the picks go, the running totals stay. Inventor's Restart does
+  /// exactly that, and it is the distinction that makes summing usable — a
+  /// total you have to rebuild after every measurement is not a total.
+  void measureRestart() {
+    measureSession?.clearPicks();
+    notifyListeners();
+  }
+
+  void setMeasureMode(MeasureDistanceMode m) {
+    final s = measureSession;
+    if (s == null || s.mode == m) return;
+    s.mode = m;
+    s.recompute();
+    notifyListeners();
+  }
+
+  /// Changing the priority re-picks nothing: it decides what the NEXT tap
+  /// answers with. Inventor behaves the same way, and re-interpreting picks
+  /// already made would silently change a reading the user is reading.
+  void setMeasurePriority(MeasurePriority p) {
+    final s = measureSession;
+    if (s == null || s.priority == p) return;
+    s.priority = p;
+    _measurePriority = p;
+    notifyListeners();
+  }
+
+  void setMeasureDecimals(int d) {
+    final s = measureSession;
+    if (s == null) return;
+    s.decimals = _measureDecimals = d.clamp(0, 6);
+    notifyListeners();
+  }
+
+  void setMeasureDualUnit(MeasureUnitSystem? u) {
+    final s = measureSession;
+    if (s == null) return;
+    s.dualUnit = _measureDualUnit = u;
+    notifyListeners();
+  }
+
+  void measureAddToTotals() {
+    final s = measureSession;
+    if (s == null || !s.addToTotals()) return;
+    notifyListeners();
+  }
+
+  void measureClearTotals() {
+    measureSession?.clearTotals();
+    notifyListeners();
+  }
+
+  /// Copies the reading to the clipboard — one value, or all of them.
+  ///
+  /// Inventor's own pair of actions ("copy one or all values in the Measure
+  /// tool panel"), and the reason a measurement is worth taking at all: the
+  /// number is going somewhere else.
+  Future<void> measureCopy({MeasureValue? value}) async {
+    final s = measureSession;
+    final r = s?.reading;
+    if (s == null || r == null) return;
+    final text = value == null
+        ? measureReadingText(r,
+            decimals: s.decimals, unit: MeasureUnitSystem.millimetre)
+        : measureFormat(value,
+            decimals: s.decimals, unit: MeasureUnitSystem.millimetre);
+    await Clipboard.setData(ClipboardData(text: text));
+    toast(L.current.measureCopied);
   }
 }
 
