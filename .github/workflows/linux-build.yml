@@ -18,11 +18,20 @@ name: Linux app build  # the desktop port of the same app the iOS job builds
 on:
   push:
     branches: [ main, 'claude/**' ]
+    # Path filters do not apply to tag pushes, so a `v*` tag always builds.
+    tags: [ 'v*' ]
     paths-ignore: [ '**.md' ]
   pull_request:
     branches: [ main ]
     paths-ignore: [ '**.md' ]
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: >-
+          Publish a GitHub Release at this tag from the ref being built
+          (e.g. v0.1.0-linux.1). Leave empty to build without releasing.
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -233,3 +242,120 @@ jobs:
             dist/Prototype-x86_64.AppImage
           if-no-files-found: error
           retention-days: 14
+
+  # -------------------------------------------------------------------------
+  # The release
+  # -------------------------------------------------------------------------
+  #
+  # Two ways in, and the difference between them is the OCCT cache.
+  #
+  #   workflow_dispatch with `release_tag`  runs on the BRANCH ref, so the
+  #                                         40-minute OCCT cache is visible and
+  #                                         the run costs a download. The tag
+  #                                         is created by `gh release create`
+  #                                         at the commit that was built.
+  #   pushing a `v*` tag                    runs on the TAG ref, which can only
+  #                                         see its own caches and the default
+  #                                         branch's — so on a feature branch
+  #                                         it rebuilds OCCT from source.
+  #
+  # Prefer the first until this branch is merged. Both publish exactly the same
+  # artifacts, because both take them from the `app` job above rather than
+  # building anything of their own.
+  release:
+    name: Publish a GitHub Release
+    needs: app
+    if: startsWith(github.ref, 'refs/tags/') || inputs.release_tag != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      # The only job in this workflow that writes anything to the repository.
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: prototype-linux-x64
+          path: dist
+
+      # The tag goes IN THE FILENAME. A shared build called
+      # `Prototype-x86_64.AppImage` is indistinguishable from every other one
+      # in a downloads folder, and the first question about a bug report is
+      # always which build it came from.
+      - name: Name the assets after the tag
+        id: assets
+        run: |
+          set -euo pipefail
+          tag='${{ inputs.release_tag }}'
+          [ -n "$tag" ] || tag="${GITHUB_REF_NAME}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          cd dist
+          mv prototype-linux-x64.tar.gz "prototype-$tag-linux-x64.tar.gz"
+          mv Prototype-x86_64.AppImage "Prototype-$tag-x86_64.AppImage"
+          # Anyone who downloads a binary from a link should be able to check
+          # it against the run that produced it.
+          sha256sum "prototype-$tag-linux-x64.tar.gz"                     "Prototype-$tag-x86_64.AppImage" > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          ls -lh
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.assets.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # A QUOTED heredoc, with the values substituted afterwards: the notes
+          # are full of backticks, and an unquoted heredoc would read every one
+          # of them as the start of a command substitution.
+          cat > /tmp/notes.md <<'NOTES'
+          The Linux build of the app — the same Flutter tree, the same three
+          CAD kernels (QCAD core, libslvs, OCCT 7.9.3) and the same Liquid
+          Glass chrome as the iPad, built for x86-64 GTK.
+
+          Built from `@REF@` at `@SHA@`, by [this run](@RUN@) — which launched
+          it on a headless display and checked that all three kernels came up
+          before it packaged anything.
+
+          ## Which file
+
+          **`Prototype-@TAG@-x86_64.AppImage`** — one file. `chmod +x` it and
+          run it.
+
+          **`prototype-@TAG@-x86_64.tar.gz`** — the same tree, unpacked.
+          `./install.sh` puts it in `~/.local` with its icon, its desktop entry
+          and the `.ptp` / `.pts` / `.pas` file associations; `./uninstall.sh`
+          takes it back out and leaves your documents alone. Or just run
+          `./prototype` out of the folder.
+
+          ## What it wants from the system
+
+          The GTK 3 stack, which a desktop already has. Qt and OCCT travel
+          inside the bundle — the app needs versions no distribution
+          guarantees — so there is nothing else to install. `zenity` is worth
+          having: it is what backs the file chooser.
+
+          The chrome is a real shader rather than a picture of one, and it
+          costs two backdrop passes per surface. On a machine with no GPU worth
+          the name — a VM, a remote desktop, an old integrated chip — start it
+          with `PROTOTYPE_GLASS=0` and it draws the painted panels instead.
+
+          Checksums are in `SHA256SUMS.txt`.
+
+          Not here yet: the path-traced Cycles render, which is Metal-only so
+          far. See `LINUX.md` in the tree for what is shared with the iPad and
+          what had to be written twice.
+          NOTES
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          sed -i -e "s|@TAG@|${TAG}|g" \
+                 -e "s|@REF@|${GITHUB_REF_NAME}|g" \
+                 -e "s|@SHA@|${GITHUB_SHA:0:12}|g" \
+                 -e "s|@RUN@|${run_url}|g" /tmp/notes.md
+          cat /tmp/notes.md
+          gh release create "$TAG" \
+            --target "$GITHUB_SHA" \
+            --title "Prototype for Linux — $TAG" \
+            --notes-file /tmp/notes.md \
+            --prerelease \
+            dist/*.AppImage dist/*.tar.gz dist/SHA256SUMS.txt
+          echo "released: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/$TAG"
