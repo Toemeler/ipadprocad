@@ -899,7 +899,12 @@ static bool same_body(const TopoDS_Shape &a, const TopoDS_Shape &b)
  * COST. A shape already inside its budget and already valid pays one
  * BRepCheck_Analyzer pass and nothing else — 3 ms for a cut box, which is the
  * case the app is in nearly all of the time. Only a result that is loose or
- * broken pays for the copy, the cap and the second check. */
+ * broken pays for the copy, the cap and the second check. On a converted body
+ * that pass is most of what the boolean costs (whale 194 ms, broom 2.3 s),
+ * and the obvious economy does not work: BRepCheck_Analyzer without its
+ * geometric controls runs three to eight times faster and says all nine whale
+ * cuts are fine, including the five that are not. The geometry is the whole
+ * of what there is to find here. */
 static TopoDS_Shape settle_boolean(const TopoDS_Shape &raw, double budget,
                                    const char *who)
 {
