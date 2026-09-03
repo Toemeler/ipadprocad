@@ -2396,14 +2396,89 @@ int main()
                 const double p99 =
                     off.empty() ? 0.0 : off[(size_t)(off.size() * 0.99)];
                 const double worst = off.empty() ? 0.0 : off.back();
+                /* The worst was 40 mm when only the p99 was defended,
+                 * and 17 when the fill was sorted per triangle. It is now
+                 * 3.3: a hole that spans two faces is cut where it pinches
+                 * and each half filled where it lies, and what still cannot
+                 * be placed is refused rather than placed badly. */
                 chk("through: a node's parameter says where the node is",
-                    p99 <= 0.5 && worst <= 40.0,
+                    p99 <= 0.5 && worst <= 6.0,
                     "p99 " + std::to_string(p99) + " mm, worst " +
                         std::to_string(worst) + " mm over " +
                         std::to_string(off.size()) + " nodes");
                 std::printf("   ellipsoid: the surface at a node's own "
                             "parameter is p99 %.4f mm from the node, worst "
                             "%.3f mm\n", p99, worst);
+            }
+
+            /* And the surfaces have to FACE the way the model faces.
+             *
+             * Position does not govern facing, and nothing here used to ask.
+             * A surface can sit thirty microns from the model and still face
+             * ten degrees away from it, because facing is the derivative and
+             * the fit tolerance never mentions it — and shading is made of
+             * normals, so facing is what a person sees. This ellipsoid is one
+             * the test built, so the right answer is the gradient of
+             * x^2/a^2 + y^2/b^2 + z^2/c^2 and there is nothing to argue with.
+             *
+             * The bar is the 90th and 99th percentile rather than the worst:
+             * a handful of nodes at the edge of a trimmed patch are not the
+             * surface, and the worst of them is the mend's business, which
+             * the assertion above covers. Measured: p90 0.89 and p99 3.17
+             * degrees when the rung ladder stopped at the position tolerance,
+             * 0.72 and 3.02 once it keeps going until the net faces right.
+             *
+             * The 90th percentile is the half that separates them — 1.02
+             * against 0.78 at the nodes this measures — so that is where the
+             * bar goes, with the 99th kept as a loose sanity bound because it
+             * moves by hundredths between the two. Checked both ways: the bar
+             * fails on the commit before the ladder was changed. */
+            {
+                std::vector<double> face;
+                for (TopExp_Explorer ex(out, TopAbs_FACE); ex.More();
+                     ex.Next()) {
+                    const TopoDS_Face f = TopoDS::Face(ex.Current());
+                    TopLoc_Location loc;
+                    const Handle(Poly_Triangulation) t =
+                        BRep_Tool::Triangulation(f, loc);
+                    if (t.IsNull() || !t->HasUVNodes())
+                        continue;
+                    const Handle(Geom_Surface) su = BRep_Tool::Surface(f);
+                    if (su.IsNull())
+                        continue;
+                    for (int i = 1; i <= t->NbNodes(); ++i) {
+                        const gp_Pnt2d uv = t->UVNode(i);
+                        GeomLProp_SLProps sp(su, uv.X(), uv.Y(), 1, 1e-7);
+                        if (!sp.IsNormalDefined())
+                            continue;
+                        const gp_Pnt q =
+                            t->Node(i).Transformed(loc.Transformation());
+                        const gp_Vec grad(q.X() / (50. * 50.),
+                                          q.Y() / (27.5 * 27.5),
+                                          q.Z() / (95. * 95.));
+                        if (grad.SquareMagnitude() < 1e-30)
+                            continue;
+                        const gp_Vec n(sp.Normal());
+                        double c = std::abs(n.Dot(grad)) /
+                                   (n.Magnitude() * grad.Magnitude());
+                        c = std::max(0.0, std::min(1.0, c));
+                        face.push_back(std::acos(c) * 180.0 / M_PI);
+                    }
+                }
+                std::sort(face.begin(), face.end());
+                auto at = [&](double f2) {
+                    return face.empty() ? 0.0
+                                        : face[(size_t)(f2 * (face.size() - 1))];
+                };
+                chk("through: the surfaces face the way the model faces",
+                    at(0.90) <= 0.9 && at(0.99) <= 4.0,
+                    "p90 " + std::to_string(at(0.90)) + " deg, p99 " +
+                        std::to_string(at(0.99)) + " deg over " +
+                        std::to_string(face.size()) + " nodes");
+                std::printf("   ellipsoid: the surface faces the true "
+                            "ellipsoid to within %.2f deg at the median, "
+                            "%.2f at p90, %.2f at p99\n",
+                            at(0.5), at(0.90), at(0.99));
             }
 
             /* And none of them standing out of the body.
