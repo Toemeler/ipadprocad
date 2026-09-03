@@ -15,6 +15,7 @@ import 'package:reality_view/perf_hook.dart';
 
 import 'cycles_boot.dart';
 import 'platform/desktop_launch.dart';
+import 'platform/desktop_shell.dart';
 import 'app_state.dart';
 import 'backdrop.dart';
 import 'ribbon_dock.dart';
@@ -165,7 +166,12 @@ void main([List<String> args = const <String>[]]) {
     // sit in the buffer forever. The same observer persists the open document
     // (incl. its gallery preview) when the app is suspended or torn down, so a
     // sketch/part left open — never explicitly closed — still has a fresh card.
-    WidgetsBinding.instance.addObserver(_LogFlusher(app));
+    final flusher = _LogFlusher(app);
+    WidgetsBinding.instance.addObserver(flusher);
+    // The desktop's window close, which arrives too late as a lifecycle event
+    // to be useful — see desktop_shell.dart. A no-op on iOS, where no runner
+    // asks the question.
+    DesktopShell.onWillClose(flusher.flushDocument);
     Log.i('main', 'LOG FILE: ${Log.path}');
     Log.i('main', 'build=${Log.build}');
     Log.step('main', 'runApp', () => runApp(PrototypeApp(app: app)));
@@ -200,6 +206,29 @@ class _LogFlusher extends WidgetsBindingObserver {
   final AppState app;
   _LogFlusher(this.app);
 
+  /// Saves of the open document, one after another.
+  ///
+  /// Two of them can be asked for within a few milliseconds — `hidden` fires
+  /// and then the runner asks before closing — and `saveSketch`/`savePart`
+  /// write a staging folder and then pack it into the document file. Two of
+  /// those interleaved would pack a folder that is being rewritten. Chaining
+  /// makes the second wait for the first, which also means the runner's
+  /// handshake waits for the save that `hidden` already started, rather than
+  /// starting a second one.
+  Future<void> _saves = Future<void>.value();
+
+  /// Persist the open document; completes when it is actually on disk.
+  Future<void> flushDocument() {
+    _saves = _saves.then((_) => app.flushCurrentDocument()).then((_) {
+      Log.flush();
+    }).catchError((Object e, StackTrace st) {
+      // A save that failed must not also break the chain, or every later save
+      // in this session is skipped.
+      Log.e('lifecycle', 'flush failed', e, st);
+    });
+    return _saves;
+  }
+
   /// The window's close button, on a desktop.
   ///
   /// iOS never asks: an app is suspended and then killed, and
@@ -222,14 +251,7 @@ class _LogFlusher extends WidgetsBindingObserver {
   @override
   Future<ui.AppExitResponse> didRequestAppExit() async {
     Log.i('lifecycle', 'exit requested — flushing the open document');
-    try {
-      await app.flushCurrentDocument();
-    } catch (e, st) {
-      // A save that failed must not also hang the close. It is logged, the
-      // window shuts, and the log says what happened.
-      Log.e('lifecycle', 'flush on exit failed', e, st);
-    }
-    Log.flush();
+    await flushDocument();
     return ui.AppExitResponse.exit;
   }
 
@@ -252,11 +274,7 @@ class _LogFlusher extends WidgetsBindingObserver {
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden ||
         state == AppLifecycleState.detached) {
-      app.flushCurrentDocument();
-      // And the log, synchronously, for the same reason: the lines that say
-      // what the save did are the ones a report about a lost document needs,
-      // and on this path there is no later flush to write them.
-      Log.flush();
+      flushDocument();
     }
   }
 }

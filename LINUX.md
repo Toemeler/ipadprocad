@@ -152,6 +152,17 @@ one of these.
 8. **`frontend/packages/native_menu/pubspec.yaml`** — declares the `linux`
    plugin class next to the `ios` one.
 9. **`frontend/lib/ffi/*` imports** — one `import 'native_lib.dart';` each.
+10. **`frontend/lib/platform/app_dirs.dart`** — new file. Where the app keeps
+    its own files on a desktop. Called from `app_state.dart` (one ternary),
+    `log.dart` and `perf.dart` (one branch each, replacing the `isMacOS` half
+    of a condition that was only ever right about iOS). See below for why this
+    is not cosmetic.
+11. **`frontend/lib/platform/desktop_shell.dart`** — new file. The window-close
+    handshake. `main.dart` registers it in one line; the callback is the same
+    `_LogFlusher` the lifecycle events already use.
+12. **`frontend/pubspec.yaml` + `theme.dart`** — the bundled UI typeface. The
+    pubspec declares it; `T.fontFamily` returns it only on a desktop and
+    `null` on iOS, so the iPad's typography is exactly what it was.
 
 Nothing else in `frontend/lib` knows this platform exists.
 
@@ -257,6 +268,14 @@ Windows. What a Windows build needs:
    `windows-2022`; OCCT's flags are unchanged, Qt comes from
    `jurplel/install-qt-action` as it already does in the iOS job.
 
+Two things Windows gets for free because Linux needed them first:
+`app_dirs.dart` already returns `%APPDATA%\prototype`, and the window-close
+handshake is a channel contract (`prototype/desktop` → `willClose`) rather
+than anything GTK-shaped — the Win32 runner answers `WM_CLOSE` the way the GTK
+one answers `delete-event`. Windows may not need it at all: its embedder
+implements `System.requestAppExit`, and `didRequestAppExit` in `main.dart` is
+already written for that.
+
 Nothing in `frontend/lib` should need a tenth touch.
 
 ---
@@ -284,8 +303,27 @@ Nothing in `frontend/lib` should need a tenth touch.
   there is nothing that could animate; a long conversion shows a still window.
   Honest and unpleasant. Fixing it means moving the conversion off the main
   isolate, which is a change to shared code and belongs on `main`, not here.
-- **Documents** live in the platform's application-support directory
-  (`~/.local/share/prototype` under XDG), via `path_provider`.
+- **Documents** live in `~/.local/share/prototype` (`$XDG_DATA_HOME` when set;
+  `%APPDATA%\prototype` on Windows), with the log and the perf log beside
+  them. NOT in `~/Documents`, which belongs to the user rather than to us, and
+  NOT via `getApplicationDocumentsDirectory()`, which is what the iPad uses and
+  which reaches that answer by running `xdg-user-dir` — a program that is not
+  installed everywhere and THROWS where it is not. On a machine without it the
+  app used to fall through to `/tmp` and lose every document at the next
+  reboot, silently. See `lib/platform/app_dirs.dart`.
+- **Closing the window saves the open document.** It has to be arranged: the
+  GTK embedder sends `inactive`, `hidden`, and then the process is gone, with
+  no `detached` and no `System.requestAppExit`. The runner blocks the close,
+  asks the app (`prototype/desktop` → `willClose`), and destroys the window
+  when the save reports back — with a 2.5 s ceiling, because a window that
+  cannot be closed is a worse bug than a document that was not saved.
+- **Typography** is Inter (SIL OFL 1.1), bundled. Not decoration: Flutter on
+  Linux asks fontconfig, which answers with whatever the distribution
+  installed, so the same build otherwise renders in three different faces with
+  three different metrics — and a CAD ribbon is laid out against those. iOS is
+  untouched and still resolves the system font.
+- **F11** toggles fullscreen; the window opens at the iPad Pro 13" landscape
+  size (see above).
 
 ---
 
@@ -295,6 +333,8 @@ The bundle links QCAD (GPLv3) and libslvs (GPLv3) into
 `libprototype_native.so`, exactly as the iOS build links them into its Runner.
 OCCT is LGPL 2.1 with the OCCT exception, which is what permits static linking
 here (see `backend/occt/VENDOR.md`). Qt 6 is used as **shared** libraries and
-is bundled unmodified, which is the arrangement LGPL 3 asks for. Nothing about
+is bundled unmodified, which is the arrangement LGPL 3 asks for. Inter is SIL
+OFL 1.1 and travels with its licence at
+`frontend/assets/fonts/Inter-LICENSE.txt`. Nothing about
 the desktop build changes the analysis the iOS build already rests on; it only
 adds Qt, and adds it in the shape that keeps it simple.

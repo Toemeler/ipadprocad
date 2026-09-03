@@ -25,10 +25,25 @@
 #define PROTOTYPE_MIN_WIDTH 1024
 #define PROTOTYPE_MIN_HEIGHT 700
 
+// The channel the app answers `willClose` on. See lib/platform/desktop_shell.dart.
+#define PROTOTYPE_DESKTOP_CHANNEL "prototype/desktop"
+
+// How long the close waits for the app to finish writing before going ahead.
+// A window that cannot be closed is a worse bug than a document that was not
+// saved, and this is the number that guarantees the first can never happen.
+#define PROTOTYPE_CLOSE_TIMEOUT_MS 2500
+
 struct _MyApplication {
   GtkApplication parent_instance;
   char** dart_entrypoint_arguments;
 };
+
+// State for one window's close handshake. Lives as long as the request does.
+typedef struct {
+  GtkWindow* window;
+  guint timeout_id;
+  gboolean done;  // the window has been told to close; ignore the loser
+} CloseRequest;
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
 
@@ -55,6 +70,78 @@ static gboolean key_press_cb(GtkWidget* widget, GdkEventKey* event,
     gtk_window_fullscreen(GTK_WINDOW(widget));
   }
   return TRUE;  // never let F11 reach Dart as a key event as well
+}
+
+// ---------------------------------------------------------------------------
+// Closing the window without losing the open document.
+//
+// The app writes the document it has open whenever it leaves one — Home, close
+// tab, and on iOS when the system suspends it. Closing a DESKTOP window is a
+// fourth way out and the only one nobody can be told about in time: GTK
+// destroys the window, the engine is torn down, and the lifecycle event the
+// app would have saved on (`hidden`) arrives with no time left to act on it.
+// Measured, not assumed: the save started there got as far as writing the DXF
+// and the process was gone before the document file was packed.
+//
+// So the close is BLOCKED — `delete-event` returns TRUE — the app is asked
+// `willClose`, and the window is destroyed in the reply callback. The timeout
+// is not optional: an app that is wedged, or a build with no handler for the
+// method, must not produce a window that refuses to close.
+// ---------------------------------------------------------------------------
+static void close_request_finish(CloseRequest* request) {
+  if (request->done) return;
+  request->done = TRUE;
+  if (request->timeout_id != 0) {
+    g_source_remove(request->timeout_id);
+    request->timeout_id = 0;
+  }
+  // `delete-event` said TRUE and stopped the close, so nothing else will
+  // destroy this window: it has to be done here, and exactly once.
+  gtk_widget_destroy(GTK_WIDGET(request->window));
+  g_free(request);
+}
+
+static gboolean close_request_timed_out(gpointer user_data) {
+  CloseRequest* request = static_cast<CloseRequest*>(user_data);
+  g_warning("prototype: the app did not answer willClose in %d ms — closing",
+            PROTOTYPE_CLOSE_TIMEOUT_MS);
+  request->timeout_id = 0;
+  close_request_finish(request);
+  return G_SOURCE_REMOVE;
+}
+
+static void close_request_replied(GObject* source, GAsyncResult* result,
+                                  gpointer user_data) {
+  CloseRequest* request = static_cast<CloseRequest*>(user_data);
+  g_autoptr(GError) error = nullptr;
+  g_autoptr(FlMethodResponse) response = fl_method_channel_invoke_method_finish(
+      FL_METHOD_CHANNEL(source), result, &error);
+  if (response == nullptr) {
+    // No handler in this build, or the engine is already going down. Either
+    // way the close proceeds — this handshake buys a save, it does not gate
+    // the window on one.
+    g_debug("prototype: willClose was not answered (%s)",
+            error != nullptr ? error->message : "no error given");
+  }
+  close_request_finish(request);
+}
+
+static gboolean window_delete_cb(GtkWidget* widget, GdkEvent* event,
+                                 gpointer user_data) {
+  FlMethodChannel* channel = FL_METHOD_CHANNEL(user_data);
+
+  CloseRequest* request = g_new0(CloseRequest, 1);
+  request->window = GTK_WINDOW(widget);
+  request->timeout_id = g_timeout_add(PROTOTYPE_CLOSE_TIMEOUT_MS,
+                                      close_request_timed_out, request);
+
+  // Hide it now. The save takes a few milliseconds on any real document, and
+  // a window that visibly lingers after the close button reads as a hang.
+  gtk_widget_hide(widget);
+
+  fl_method_channel_invoke_method(channel, "willClose", nullptr, nullptr,
+                                  close_request_replied, request);
+  return TRUE;  // not yet; close_request_finish does it
 }
 
 // Implements GApplication::activate.
@@ -97,6 +184,16 @@ static void my_application_activate(GApplication* application) {
 
   g_signal_connect(window, "key-press-event", G_CALLBACK(key_press_cb),
                    nullptr);
+
+  // The close handshake. The channel is owned by the window: it lives exactly
+  // as long as the thing whose closing it is about.
+  g_autoptr(FlStandardMethodCodec) codec = fl_standard_method_codec_new();
+  FlMethodChannel* desktop_channel = fl_method_channel_new(
+      fl_engine_get_binary_messenger(fl_view_get_engine(view)),
+      PROTOTYPE_DESKTOP_CHANNEL, FL_METHOD_CODEC(codec));
+  g_signal_connect_data(window, "delete-event", G_CALLBACK(window_delete_cb),
+                        desktop_channel, (GClosureNotify)g_object_unref,
+                        static_cast<GConnectFlags>(0));
 
   // Show the window when Flutter renders.
   // Requires the view to be realized so we can start rendering.
