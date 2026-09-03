@@ -13,6 +13,8 @@ import 'package:native_menu/native_busy.dart' show NativeBusy;
 import 'package:native_menu/native_menu.dart'
     show MeshImportChoice, MeshStage, NativeMenu;
 import 'package:path_provider/path_provider.dart';
+
+import 'platform/app_dirs.dart';
 import 'package:reality_view/reality_view.dart' show RealityThumbnailer;
 
 import 'asm_constraints.dart';
@@ -1732,10 +1734,21 @@ class AppState extends ChangeNotifier {
 
   Future<void> init() async {
     try {
-      _docsDir = await Log.stepAsync(
-          'state',
-          'getApplicationDocumentsDirectory (platform channel)',
-          () => getApplicationDocumentsDirectory());
+      // iOS: the app's container, which is what UIFileSharingEnabled exposes
+      // in Files and where every document has always lived.
+      //
+      // A DESKTOP is a different question with a different right answer, and
+      // asking this one there is actively harmful: path_provider maps it to
+      // the user's own ~/Documents (not ours to fill with a gallery, a cache
+      // and a logs/ folder) and reaches it by running `xdg-user-dir`, which
+      // THROWS where that is not installed — landing every document the user
+      // makes in systemTemp, for the next reboot to delete. See app_dirs.dart.
+      _docsDir = isDesktopHost
+          ? Log.step('state', 'desktop app directory', desktopAppDirectory)
+          : await Log.stepAsync(
+              'state',
+              'getApplicationDocumentsDirectory (platform channel)',
+              () => getApplicationDocumentsDirectory());
       Log.i('state', 'docs dir = ${_docsDir!.path}');
     } catch (e, st) {
       Log.e('state', 'docs dir failed, using systemTemp', e, st);

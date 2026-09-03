@@ -70,7 +70,6 @@ Future<String?> showAppContextMenu(
 
   entry = OverlayEntry(
     builder: (ctx) {
-      final view = MediaQuery.sizeOf(ctx);
       return Stack(children: [
         // The barrier listens to raw pointer DOWNs rather than taps: a click
         // that jitters into a drag is still the moment the user meant to
@@ -82,10 +81,11 @@ Future<String?> showAppContextMenu(
             child: const SizedBox.expand(),
           ),
         ),
-        _PositionedMenu(
-          at: at,
-          view: view,
-          child: _MenuCard(title: title, groups: rows, onPick: close),
+        Positioned.fill(
+          child: CustomSingleChildLayout(
+            delegate: _MenuLayout(at),
+            child: _MenuCard(title: title, groups: rows, onPick: close),
+          ),
         ),
       ]);
     },
@@ -114,41 +114,49 @@ class _MenuCompleter {
 
 /// Where a menu opens, kept inside the view.
 ///
-/// The anchor is the pointer, and it is the menu's TOP-LEFT corner when there
-/// is room — the shape every desktop context menu has. When there is not, the
-/// menu flips to the other side of the pointer rather than sliding, because a
-/// slid menu ends up under the cursor and the first item is then one the user
-/// can select by accident on the way in.
-class _PositionedMenu extends StatelessWidget {
+/// The pointer is the menu's top-left corner when there is room — the shape
+/// every desktop context menu has. When there is not, the menu FLIPS to the
+/// other side of the pointer rather than sliding along the edge: a slid menu
+/// ends up underneath the cursor, and the row that lands there is one the user
+/// can pick by accident on the way in. Only if flipping does not fit either
+/// does it slide, and then it is pinned to the margin.
+///
+/// A [CustomSingleChildLayout] rather than arithmetic on an estimated width,
+/// because the delegate is handed the menu's REAL size after it lays out. The
+/// width depends on the longest label, which depends on the language — an
+/// estimate would be right in German and wrong in English, or the reverse.
+class _MenuLayout extends SingleChildLayoutDelegate {
   final Offset at;
-  final Size view;
-  final Widget child;
-  const _PositionedMenu(
-      {required this.at, required this.view, required this.child});
+  const _MenuLayout(this.at);
 
-  static const double _estWidth = 240;
   static const double _margin = 8;
 
   @override
-  Widget build(BuildContext context) {
-    var left = at.dx;
-    if (left + _estWidth + _margin > view.width) {
-      left = at.dx - _estWidth;
+  BoxConstraints getConstraintsForChild(BoxConstraints constraints) {
+    // The menu may use the whole view minus the margins; it scrolls inside
+    // itself if a long menu still does not fit.
+    return BoxConstraints.loose(Size(
+      (constraints.maxWidth - 2 * _margin).clamp(0.0, constraints.maxWidth),
+      (constraints.maxHeight - 2 * _margin).clamp(0.0, constraints.maxHeight),
+    ));
+  }
+
+  @override
+  Offset getPositionForChild(Size size, Size childSize) {
+    double place(double anchor, double child, double extent) {
+      if (anchor + child + _margin <= extent) return anchor;   // fits below/right
+      if (anchor - child >= _margin) return anchor - child;    // flip
+      return (extent - child - _margin).clamp(_margin, extent); // pin
     }
-    if (left < _margin) left = _margin;
-    return Positioned(
-      left: left,
-      // The height is not known until the card lays out, so the bottom edge is
-      // handled by the card's own max height plus a scroll, not by guessing.
-      top: at.dy.clamp(_margin, (view.height - _margin).clamp(0, view.height)),
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxHeight: (view.height - at.dy - _margin).clamp(120, view.height),
-        ),
-        child: child,
-      ),
+
+    return Offset(
+      place(at.dx, childSize.width, size.width),
+      place(at.dy, childSize.height, size.height),
     );
   }
+
+  @override
+  bool shouldRelayout(_MenuLayout old) => old.at != at;
 }
 
 class _MenuCard extends StatelessWidget {

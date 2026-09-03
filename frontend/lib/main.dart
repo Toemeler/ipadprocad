@@ -200,6 +200,39 @@ class _LogFlusher extends WidgetsBindingObserver {
   final AppState app;
   _LogFlusher(this.app);
 
+  /// The window's close button, on a desktop.
+  ///
+  /// iOS never asks: an app is suspended and then killed, and
+  /// [didChangeAppLifecycleState] below is where the open document gets
+  /// written.
+  ///
+  /// A desktop embedder that supports `System.requestAppExit` asks first and
+  /// WAITS for the answer, which makes this the cleanest place to save.
+  /// The GTK embedder in the Flutter version this was written against does
+  /// NOT ask — a window close produces `inactive`, `hidden`, and then the
+  /// process is gone — so the `hidden` branch below is what actually saves
+  /// today. This stays because it costs one method, it is what Windows and a
+  /// later GTK will use, and a save that happens twice is a save.
+  ///
+  /// Answering [ui.AppExitResponse.exit] rather than `cancel`: this saves, it
+  /// does not argue. A "you have unsaved changes" dialog would be a new piece
+  /// of behaviour that the iPad does not have, and the app has never had
+  /// unsaved changes to warn about — every path out of a document persists it.
+  /// This is that path, for the one exit route only a desktop has.
+  @override
+  Future<ui.AppExitResponse> didRequestAppExit() async {
+    Log.i('lifecycle', 'exit requested — flushing the open document');
+    try {
+      await app.flushCurrentDocument();
+    } catch (e, st) {
+      // A save that failed must not also hang the close. It is logged, the
+      // window shuts, and the log says what happened.
+      Log.e('lifecycle', 'flush on exit failed', e, st);
+    }
+    Log.flush();
+    return ui.AppExitResponse.exit;
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     Log.i('lifecycle', state.name);
@@ -208,9 +241,22 @@ class _LogFlusher extends WidgetsBindingObserver {
     // open document and its preview now. The DXF/part JSON and sidecars are
     // written synchronously inside save*, so they land even on `detached`;
     // the PNG is best-effort. No-op when the gallery is showing.
+    //
+    // `hidden` is the DESKTOP's version of the same moment, and it is the one
+    // that matters here. Measured, not assumed: closing the GTK window
+    // produces `inactive` then `hidden` and then the process is gone — no
+    // `detached`, and no `System.requestAppExit` for [didRequestAppExit] to
+    // answer. Without this line the last edits before a window close were
+    // simply lost. It also fires on a minimise, where a save is merely
+    // early and costs nothing.
     if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden ||
         state == AppLifecycleState.detached) {
       app.flushCurrentDocument();
+      // And the log, synchronously, for the same reason: the lines that say
+      // what the save did are the ones a report about a lost document needs,
+      // and on this path there is no later flush to write them.
+      Log.flush();
     }
   }
 }

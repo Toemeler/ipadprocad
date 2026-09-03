@@ -23,6 +23,7 @@ import 'dart:typed_data';
 import 'package:flutter/scheduler.dart';
 
 import 'log.dart';
+import 'platform/app_dirs.dart';
 
 /// Rolling statistics for one named operation.
 class PerfStat {
@@ -209,9 +210,15 @@ class Perf {
   static void init() {
     try {
       String? docs;
-      if (Platform.isIOS || Platform.isMacOS) {
+      if (Platform.isIOS) {
         final home = Platform.environment['HOME'];
         if (home != null && home.isNotEmpty) docs = '$home/Documents';
+      } else if (isDesktopHost) {
+        // A desktop keeps app files in its own data directory, not in the
+        // user's Documents and emphatically not in /tmp — see app_dirs.dart.
+        // AppState.init retargets both logs to the same place a moment later;
+        // this is only where the launch lines land before it can.
+        docs = desktopAppDirectory().path;
       }
       docs ??= Directory.systemTemp.path;
       _open(docs);

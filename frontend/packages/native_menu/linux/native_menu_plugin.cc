@@ -108,9 +108,17 @@ static FlMethodResponse* handle_export(NativeMenuPlugin* self, FlValue* args) {
       "_Cancel", GTK_RESPONSE_CANCEL, "_Save", GTK_RESPONSE_ACCEPT, nullptr);
   gtk_file_chooser_set_do_overwrite_confirmation(GTK_FILE_CHOOSER(dialog), TRUE);
   gtk_file_chooser_set_current_name(GTK_FILE_CHOOSER(dialog), base);
-  const gchar* documents = g_get_user_special_dir(G_USER_DIRECTORY_DOCUMENTS);
-  if (documents != nullptr) {
-    gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(dialog), documents);
+  // ~/Documents when the desktop has one, the home directory otherwise —
+  // never the process's working directory, which is what GTK defaults to and
+  // is a meaningless place: an app started from a menu inherits whatever the
+  // session manager was in, and one started from a terminal offers to save
+  // into the source tree. `g_get_user_special_dir` returns null on a system
+  // without xdg-user-dirs, which is common enough to be worth handling rather
+  // than discovering.
+  const gchar* start = g_get_user_special_dir(G_USER_DIRECTORY_DOCUMENTS);
+  if (start == nullptr) start = g_get_home_dir();
+  if (start != nullptr) {
+    gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(dialog), start);
   }
 
   bool ok = false;
@@ -205,6 +213,14 @@ static FlMethodResponse* handle_open_in_place(NativeMenuPlugin* self,
   gtk_file_filter_set_name(all, "All files");
   gtk_file_filter_add_pattern(all, "*");
   gtk_file_chooser_add_filter(GTK_FILE_CHOOSER(dialog), all);
+
+  // Same starting point as Save, and for the same reason. GTK remembers where
+  // the user last was within a session, so this only decides the first Open.
+  const gchar* start = g_get_user_special_dir(G_USER_DIRECTORY_DOCUMENTS);
+  if (start == nullptr) start = g_get_home_dir();
+  if (start != nullptr) {
+    gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(dialog), start);
+  }
 
   g_autofree gchar* chosen = nullptr;
   if (gtk_dialog_run(GTK_DIALOG(dialog)) == GTK_RESPONSE_ACCEPT) {

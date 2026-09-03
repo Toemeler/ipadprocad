@@ -23,6 +23,7 @@ import 'package:prototype/app_state.dart';
 import 'package:prototype/ffi/native_lib.dart';
 import 'package:prototype/l10n/l.dart';
 import 'package:prototype/menus.dart';
+import 'package:prototype/platform/app_dirs.dart';
 import 'package:prototype/platform/desktop_launch.dart';
 import 'package:prototype/widgets/context_menu.dart';
 import 'package:prototype/widgets/home_view.dart';
@@ -85,6 +86,40 @@ void main() {
       // normal state of a UI-only `flutter run`.
       expect(() => NativeLib.open('prototype_definitely_not_here'),
           returnsNormally);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  group('app_dirs — where the app keeps its own files', () {
+    test('a desktop host is told apart from the iPad', () {
+      // The whole point of the split. If this ever answers true on iOS, the
+      // app stops using its container and its documents leave the place Files
+      // exposes; if it answers false on Linux, they go back to /tmp.
+      expect(isDesktopHost, isNot(Platform.isIOS));
+      expect(isDesktopHost, isTrue,
+          reason: 'this suite runs on a desktop host');
+    });
+
+    test('it is a real, writable directory under the data home', () {
+      final dir = desktopAppDirectory();
+      expect(dir.existsSync(), isTrue);
+      expect(dir.path, endsWith(kAppDirName));
+      // Never the bare temp root. That was the old fallback, and a reboot
+      // deletes it — the failure this function exists to make impossible.
+      expect(dir.path, isNot(Directory.systemTemp.path));
+      // Writable, which "exists" does not imply: a read-only or full mount
+      // exists and cannot be saved into, and finding that out at save time is
+      // finding it out too late.
+      final probe = File('${dir.path}/.test-probe')..writeAsStringSync('x');
+      expect(probe.readAsStringSync(), 'x');
+      probe.deleteSync();
+    });
+
+    test('it is stable across calls', () {
+      // The log, the perf log and AppState all ask separately, and they have
+      // to be given the same answer or the log ends up beside a different set
+      // of documents than the one the user is editing.
+      expect(desktopAppDirectory().path, desktopAppDirectory().path);
     });
   });
 
