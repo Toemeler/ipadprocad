@@ -325,6 +325,43 @@ and `DART SMOKE: PASS`. A bundle that quietly fell back to the Dart engine
 looks and behaves identically until the first extrude, and that grep is what
 catches it.
 
+### The bundle has to run on a machine that has never had Qt
+
+This is the one thing the build machine cannot tell you, and it cost four red
+CI runs. `ldd` succeeds on the machine that just built against Qt for the one
+reason that proves nothing: Qt's own dependencies are installed on it. Two
+separate mistakes hid behind that.
+
+**What travels.** `build_native.sh` collected `libQt6*` and nothing else, on
+the premise that everything Qt pulls in is "base-system furniture on any
+desktop that can run a GTK app". It is not: `libmd4c`, `libdouble-conversion`,
+`libpcre2-16` (GTK brings the 8-bit one), `libb2`, ICU and `libproxy` arrive as
+dependencies OF QT and of nothing else. So the rule is the closure MINUS a
+denylist — the loader and libc, the graphics stack, and GTK's own libraries —
+rather than an allowlist of one name, and the script now FAILS if any shipping
+library needs something that is neither bundled nor in one of those three
+families.
+
+**How it is found.** Even complete, it did not resolve: modern binutils emits
+`DT_RUNPATH`, which applies only to the object carrying it, so `$ORIGIN` found
+`libQt6Core.so.6` and then Qt Core's own dependencies were looked up in the
+system paths alone. `DT_RPATH` is inherited down the chain;
+`-Wl,--disable-new-dtags` in `backend/desktop/CMakeLists.txt` is what asks for
+it. Debian's Qt libraries carry no runpath of their own — they are built to be
+found by `ldconfig` — so the tag on the object the app dlopens is the only one
+in the chain.
+
+To check by hand what CI checks for you, move the Qt-only sonames out of
+`/usr/lib/x86_64-linux-gnu`, run `ldconfig`, launch the bundle, and put them
+back. If the log still says `REAL backend active`, the bundle is self-contained.
+
+The tail is why `deps/` is ~75 MB rather than ~20: `libQt6Network` needs
+`libproxy`, which needs its backend, which needs libcurl, which needs gnutls,
+openssl, ldap and ssh. The app never opens a socket — the QCAD core links Qt
+Network and never calls it — but `DT_NEEDED` is resolved at LOAD time. Cutting
+it means dropping Qt Network from what the kernel links, not changing anything
+in packaging.
+
 ### What a new iOS feature costs here
 
 - **A new tool, dialog, ribbon entry, kernel call, document format** — nothing.
