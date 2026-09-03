@@ -1,0 +1,215 @@
+name: Windows app build  # the same app again, for the Win32 embedder
+
+# The iOS job (m1-core-build.yml) is the reference and the Linux job
+# (linux-build.yml) is the shape. This one builds the SAME Dart tree for the
+# Win32 embedder and packages the result. Like the Linux job it deliberately
+# does NOT re-run `flutter analyze` or the host test suite: m1-core-build's
+# `dart-checks` job already does both, and a second copy would be a second
+# thing to keep in step.
+#
+# WHAT IS DIFFERENT FROM THE LINUX JOB, and it is less than it looks:
+#
+#   * No rpath. Windows resolves a DLL against the directory of the EXE that
+#     loaded it, so the kernels and everything they need sit FLAT beside
+#     prototype.exe rather than in a lib/ with $ORIGIN on it.
+#   * No AppImage. A zip of the runner directory is the whole product; it is
+#     already relocatable because of the above.
+#   * The launch check runs on the runner's own desktop session rather than
+#     under Xvfb.
+
+on:
+  push:
+    branches: [ main, 'claude/**' ]
+    tags: [ 'v*' ]
+    paths-ignore: [ '**.md' ]
+  pull_request:
+    branches: [ main ]
+    paths-ignore: [ '**.md' ]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: >-
+          Publish a GitHub Release at this tag from the ref being built
+          (e.g. v0.1.0-windows.1). Leave empty to build without releasing.
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  app:
+    name: Flutter Windows bundle + package
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: flutter pub get
+        working-directory: frontend
+        run: flutter pub get
+
+      - name: Build the release bundle
+        working-directory: frontend
+        run: flutter build windows --release
+
+      # WHAT LANDED. The runner directory IS the product on Windows — the exe,
+      # the engine DLL, the plugin DLLs and `data/` — so this is both a
+      # sanity check and the manifest a bug report can be read against.
+      - name: What the bundle contains
+        shell: pwsh
+        run: |
+          $dir = "frontend/build/windows/x64/runner/Release"
+          if (-not (Test-Path "$dir/prototype.exe")) {
+            Write-Host "BUNDLE: FAIL (no prototype.exe)"; exit 1
+          }
+          Get-ChildItem $dir | Select-Object Name, Length | Format-Table
+          $shader = "$dir/data/flutter_assets/packages/native_menu/shaders/liquid_glass.frag"
+          if (-not (Test-Path $shader)) {
+            Write-Host "BUNDLE: FAIL (the Liquid Glass shader did not travel)"
+            exit 1
+          }
+          Write-Host "BUNDLE: PASS"
+
+      # The gate that matters, and the same one the Linux job runs: the app has
+      # to LAUNCH, reach its first frame and say which renderer it got. Every
+      # failure this catches — a plugin that did not register, an exception in
+      # AppState.init, a Flutter GPU switch that never made it into the
+      # DartProject — produces a bundle that builds perfectly and then does
+      # nothing on a user's machine.
+      #
+      # The verdict comes out of the app's OWN log file, which is the same file
+      # a bug bundle carries.
+      - name: Launch check
+        shell: pwsh
+        run: |
+          $exe = "frontend/build/windows/x64/runner/Release/prototype.exe"
+          $p = Start-Process -FilePath $exe -PassThru
+          $log = "$env:APPDATA/prototype/logs/prototype_log.txt"
+          $ok = $false
+          foreach ($i in 1..60) {
+            Start-Sleep -Seconds 1
+            if ((Test-Path $log) -and
+                (Select-String -Path $log -Pattern "time to first frame" -Quiet)) {
+              $ok = $true; break
+            }
+          }
+          if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }
+          if (Test-Path $log) {
+            Write-Host "--- the app's log ---"
+            Get-Content $log | Select-Object -Last 200
+          } else {
+            Write-Host "the app wrote no log at $log"
+          }
+          if (-not $ok) { Write-Host "WINDOWS LAUNCH: FAIL (no first frame)"; exit 1 }
+          Write-Host "WINDOWS LAUNCH: PASS"
+
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Compress-Archive -Path frontend/build/windows/x64/runner/Release/* `
+                           -DestinationPath dist/prototype-windows-x64.zip -Force
+          Get-ChildItem dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prototype-windows-x64
+          path: dist/prototype-windows-x64.zip
+          if-no-files-found: error
+          retention-days: 14
+
+  # -------------------------------------------------------------------------
+  # The release
+  # -------------------------------------------------------------------------
+  release:
+    name: Publish a GitHub Release
+    needs: app
+    if: startsWith(github.ref, 'refs/tags/') || inputs.release_tag != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      # The only job in this workflow that writes anything to the repository.
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: prototype-windows-x64
+          path: dist
+
+      # The tag goes IN THE FILENAME, for the reason the Linux job gives: the
+      # first question about a bug report is always which build it came from.
+      - name: Name the assets after the tag
+        id: assets
+        run: |
+          set -euo pipefail
+          tag='${{ inputs.release_tag }}'
+          [ -n "$tag" ] || tag="${GITHUB_REF_NAME}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          cd dist
+          mv prototype-windows-x64.zip "prototype-$tag-windows-x64.zip"
+          sha256sum "prototype-$tag-windows-x64.zip" > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          ls -lh
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.assets.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # A QUOTED heredoc, with the values substituted afterwards: the notes
+          # are full of backticks, and an unquoted heredoc would read every one
+          # of them as the start of a command substitution.
+          cat > /tmp/notes.md <<'NOTES'
+          The Windows build of the app — the same Flutter tree and the same
+          Liquid Glass chrome as the iPad, built for x86-64 Win32.
+
+          Built from `@REF@` at `@SHA@`, by [this run](@RUN@) — which launched
+          it and checked that it reached its first frame before it packaged
+          anything.
+
+          ## How to run it
+
+          Unzip anywhere and run `prototype.exe`. Nothing is installed and
+          nothing is written outside `%APPDATA%\prototype`.
+
+          Windows will show a SmartScreen warning the first time: the build is
+          not code-signed. "More info" then "Run anyway".
+
+          ## What it wants from the system
+
+          Windows 10 or newer and the Visual C++ 2015-2022 runtime, which
+          almost every machine already has. Everything else travels in the zip.
+
+          The chrome is a real shader rather than a picture of one, and it
+          costs two backdrop passes per surface. On a machine with no GPU worth
+          the name — a VM, a remote desktop, an old integrated chip — set
+          `PROTOTYPE_GLASS=0` in the environment and it draws the painted
+          panels instead. `PROTOTYPE_GPU=0` does the same for the 3D viewport.
+
+          Checksums are in `SHA256SUMS.txt`.
+          NOTES
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          sed -i -e "s|@TAG@|${TAG}|g" \
+                 -e "s|@REF@|${GITHUB_REF_NAME}|g" \
+                 -e "s|@SHA@|${GITHUB_SHA:0:12}|g" \
+                 -e "s|@RUN@|${run_url}|g" /tmp/notes.md
+          cat /tmp/notes.md
+          gh release create "$TAG" \
+            --target "$GITHUB_SHA" \
+            --title "Prototype $TAG — Windows" \
+            --notes-file /tmp/notes.md \
+            --prerelease \
+            dist/*

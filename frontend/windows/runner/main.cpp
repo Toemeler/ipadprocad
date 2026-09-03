@@ -37,6 +37,22 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
 
   flutter::DartProject project(L"data");
 
+  // FLUTTER GPU, which the 3D viewport is drawn with.
+  //
+  // Impeller is already the renderer; this is the separate switch that lets
+  // Dart reach it directly (flutter_gpu / flutter_scene). It is per-PROJECT on
+  // desktop rather than per-platform, so without this line the app builds, the
+  // engine starts, and `GpuView.probe()` fails at the first buffer allocation
+  // — the viewport then falls back to the CPU painter and says so in the log,
+  // which is the one failure mode that looks like a rendering bug rather than
+  // a missing flag.
+  //
+  // The command line has `--enable-flutter-gpu` for `flutter run`, and a
+  // RELEASE build compiles the engine's environment switches out, so a shipped
+  // build has no way to get this except from here. (linux/runner does the same
+  // thing through fl_dart_project_set_enable_flutter_gpu.)
+  project.set_enable_flutter_gpu(true);
+
   // A document double-clicked in Explorer arrives here, as argv[1]. The
   // template already drops argv[0] for us; Dart picks it up in
   // `main(List<String> args)` — see DesktopLaunch in lib/platform/.
