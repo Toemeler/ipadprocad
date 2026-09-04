@@ -1,0 +1,18 @@
+[Desktop Entry]
+Type=Application
+Version=1.5
+Name=Prototype
+GenericName=CAD
+Comment=Touch-first 2D/3D CAD — sketch, constrain, extrude, assemble
+Categories=Graphics;Engineering;Science;
+Keywords=CAD;DXF;STEP;sketch;constraint;3D;drawing;
+# %f, not %F: the app opens ONE document per invocation. Handing it a list
+# would have the shell pass paths the app then silently drops, and a file
+# manager that opens three selected parts into one window that shows the first
+# is worse than one that opens three windows.
+Exec=prototype %f
+Icon=com.prototype.prototype
+Terminal=false
+StartupNotify=true
+StartupWMClass=com.prototype.prototype
+MimeType=application/x-prototype-part;application/x-prototype-sketch;application/x-prototype-assembly;application/step;model/step;image/vnd.dxf;model/stl;model/obj;model/3mf;

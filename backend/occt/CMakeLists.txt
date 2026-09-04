@@ -29,6 +29,33 @@ target_include_directories(occt_capi
     PUBLIC  ${CMAKE_CURRENT_LIST_DIR}/shim
     PRIVATE ${OpenCASCADE_INCLUDE_DIR})
 
+# OCCT'S EXPORT MACRO ASSUMES A DLL, AND HERE IT IS A STATIC LIBRARY.
+#
+# Standard_Macro.hxx reads
+#
+#   #if defined(_WIN32) && !defined(OCCT_STATIC_BUILD) && !defined(HAVE_NO_DLL)
+#
+# and without one of those two defined, Standard_EXPORT is
+# __declspec(dllexport). That marks every OCCT declaration this shim includes
+# — and an INLINE method or an implicit constructor so marked is exported from
+# whatever DLL instantiates it, which is prototype_native.dll:
+#
+#   ?HasCachedMinMax@Poly_Triangulation@@QEBA_NXZ
+#   ?GetString@DESTEP_Parameters@@QEAA?AVTCollection_AsciiString@@...
+#   ??_FMessage_Level@@QEAAXXZ
+#
+# so the export surface stopped being the C API and the gate that checks it
+# said so. It is the same mistake QCAD_DLL makes one directory over, from the
+# same assumption: these are static libraries linked into one DLL, and no
+# export/import pair describes anything here.
+#
+# PUBLIC, so it reaches every target that links this one and therefore every
+# translation unit that can include an OCCT header through it. Unconditional
+# rather than MSVC-only, because the statement is true everywhere — OCCT is
+# linked statically on all three platforms — and the branch above is already
+# guarded by _WIN32, so it costs nothing off Windows.
+target_compile_definitions(occt_capi PUBLIC OCCT_STATIC_BUILD)
+
 # Direct dependencies only — the imported targets from OpenCASCADEConfig
 # carry their transitive toolkit closure (TKernel..TKShHealing etc.), and
 # CMake orders the final link line topologically for GNU ld on the host.

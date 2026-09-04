@@ -20,6 +20,8 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'platform/app_dirs.dart';
+
 class Log {
   static File? _file;
   static bool _broken = false;
@@ -41,9 +43,15 @@ class Log {
   static void init() {
     try {
       String? docs;
-      if (Platform.isIOS || Platform.isMacOS) {
+      if (Platform.isIOS) {
         final home = Platform.environment['HOME'];
         if (home != null && home.isNotEmpty) docs = '$home/Documents';
+      } else if (isDesktopHost) {
+        // A desktop keeps app files in its own data directory, not in the
+        // user's Documents and emphatically not in /tmp — see app_dirs.dart.
+        // AppState.init retargets both logs to the same place a moment later;
+        // this is only where the launch lines land before it can.
+        docs = desktopAppDirectory().path;
       }
       docs ??= Directory.systemTemp.path;
       final dir = Directory('$docs/logs');

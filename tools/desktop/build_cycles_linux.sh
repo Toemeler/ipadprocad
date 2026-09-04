@@ -1,0 +1,718 @@
+#!/usr/bin/env bash
+# Prototype — build the Cycles path tracer for Linux.
+#
+# Produces, in <repo>/frontend/build/native (beside the CAD kernels, which is
+# where frontend/linux/CMakeLists.txt looks and where native_lib.dart searches):
+#
+#   libprototype_cycles.so     Cycles + the shim, exporting only cy_*
+#   prototype_cycles_probe     the link gate, which also prints the device
+#   deps/                      the shared libraries it was linked against
+#
+#   tools/desktop/build_cycles_linux.sh
+#   tools/desktop/build_cycles_linux.sh --keep   # don't delete blender/ after
+#
+# WHY IT BUILDS INSIDE BLENDER'S TREE
+# -----------------------------------
+# `intern/cycles` is Apache-2.0 and meant to be embedded, but its CMake still
+# expects Blender's top level to have found Embree, TBB, OpenImageIO and
+# OpenColorIO first. Blender's own build already does all of that and fetches a
+# matching precompiled dependency set with one command, so borrowing it is a
+# dozen lines; configuring Cycles standalone is a project. This is the same
+# decision the iOS job made (m1-core-build.yml, cycles-ios) and the same recipe
+# with the Apple-specific parts removed.
+#
+# WHAT IS DIFFERENT FROM iOS, and it is less than it looks
+# ---------------------------------------------------------
+#   * The device. iOS is Metal-or-nothing; here Cycles picks the fastest
+#     backend the build has and the machine can run, ending at the CPU. See
+#     pick_device() in cycles_shim.cpp — that is the entire platform
+#     difference in 2400 lines of shim.
+#   * No kernel source tree ships. Metal compiles its kernels from source at
+#     run time; the CPU device's are in the archive. So no `source/` directory
+#     and no warm-up render at launch.
+#   * A SHARED LIBRARY, not a pile of archives for Xcode to link. Everything
+#     is resolved here, once, and only cy_* leaves.
+#   * ios_metal.py is not applied. progressive.py and oidn_memory.py are:
+#     neither is Apple-specific — one makes the viewport refine a sample at a
+#     time, the other stops OpenImageDenoise allocating a viewport-sized frame
+#     whole.
+set -euo pipefail
+
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo="$(cd "$here/../.." && pwd)"
+out="$repo/frontend/build/native"
+work="${CYCLES_WORK_DIR:-$repo/backend/cycles/build-linux}"
+jobs="${JOBS:-$(nproc 2>/dev/null || echo 4)}"
+
+keep=0
+for arg in "$@"; do
+  case "$arg" in
+    --keep) keep=1 ;;
+    -j*) jobs="${arg#-j}" ;;
+    *) echo "unknown option: $arg" >&2; exit 2 ;;
+  esac
+done
+
+# THE SAME REF THE iOS JOB PINS, and that is deliberate rather than lazy. The
+# shim is written against one Cycles API; building it against a different
+# checkout on each platform is how the two builds drift into different bugs.
+# The `ios` branch is Blender plus iOS additions — a superset — so a Linux
+# build of it is a Linux build of that Blender.
+BLENDER_REF="${BLENDER_REF:-d9b6fe34ddce527d93b97c0bf42ad92cebac4e4e}"
+BLENDER_BRANCH="${BLENDER_BRANCH:-ios}"
+# GitHub's official read-only mirror rather than projects.blender.org, which
+# the iOS job uses. Same commits, same branches — `ios` is there — and one
+# fewer host that has to be reachable from wherever this runs; some build
+# environments allow github.com and nothing else.
+BLENDER_REMOTE="${BLENDER_REMOTE:-https://github.com/blender/blender.git}"
+
+say() { printf '\n=== %s ===\n' "$1"; }
+
+for tool in cmake ninja g++ git python3 patchelf; do
+  command -v "$tool" >/dev/null 2>&1 || {
+    echo "missing: $tool" >&2
+    echo "  sudo apt-get install -y cmake ninja-build g++ git python3 patchelf" >&2
+    exit 1
+  }
+done
+
+mkdir -p "$work"
+blender="$work/blender"
+
+# ---------------------------------------------------------------------------
+# 1. Blender's tree and its precompiled dependencies
+# ---------------------------------------------------------------------------
+# --no-checkout, and it is not an optimisation.
+#
+# Blender's tree is under git-lfs and this build wants none of the large files.
+# GIT_LFS_SKIP_SMUDGE leaves them as pointer files — but a machine WITH git-lfs
+# installed then has a working tree git and lfs disagree about, and the
+# checkout of the pinned commit fails with both halves of the same complaint at
+# once: "your local changes would be overwritten" for the tracked files and
+# "untracked working tree files would be overwritten" for what the clone's own
+# checkout left behind. A machine without git-lfs never runs the filter and
+# never notices, which is why this only ever failed on the runner.
+#
+# So: clone with NO working tree, turn the filter off for this repository, and
+# materialise the pinned commit once, with nothing to conflict with.
+export GIT_LFS_SKIP_SMUDGE=1
+if [ ! -d "$blender/.git" ]; then
+  say "cloning Blender ($BLENDER_BRANCH @ ${BLENDER_REF:0:12})"
+  git clone --no-checkout --depth 2 --branch "$BLENDER_BRANCH" \
+    "$BLENDER_REMOTE" "$blender" 2>&1 | tail -3
+  (
+    cd "$blender"
+    # Belt and braces: the variable covers the smudge filter, this covers
+    # `git lfs pull` and anything that reaches for the objects.
+    git config --local lfs.fetchexclude '*'
+    git fetch --depth 1 origin "$BLENDER_REF" 2>&1 | tail -2
+    git checkout --force "$BLENDER_REF" 2>/dev/null \
+      || git checkout --force FETCH_HEAD
+  )
+fi
+(cd "$blender" && git log --oneline -1)
+
+# WHERE THE DEPENDENCIES COME FROM, and there are two honest answers.
+#
+# Blender ships a precompiled set (`lib/linux_x64`, several gigabytes) that is
+# exactly the versions its own builds are tested against, including
+# OpenImageDenoise — which Ubuntu does not package at all. That is the better
+# set, and it is what CI uses.
+#
+# It comes from projects.blender.org, and not every build environment can reach
+# that host. So the fallback is the distribution's own Embree, TBB,
+# OpenImageIO, OpenColorIO and OpenEXR, which Blender's platform_unix.cmake
+# looks for whenever `lib/linux_x64` is absent. Cycles builds and renders
+# against them; what is lost is OpenImageDenoise, and the shim already has a
+# defined answer for that — its own a-trous filter, reported by
+# cy_denoiser_name — because iOS has spent most of its life without OIDN too.
+#
+# The directory EXISTING is not the test. make_update.py creates it and then
+# fails to populate it when the host is unreachable, which is a state that
+# looks like success to `-d` and then configures a build with no dependencies
+# at all.
+bundle_ok() { [ -n "$(ls -A "$blender/lib/linux_x64" 2>/dev/null || true)" ]; }
+if ! bundle_ok; then
+  say "fetching the precompiled Linux dependency set"
+  # --no-blender: only the libraries, not another copy of the source.
+  (cd "$blender" && python3 ./build_files/utils/make_update.py --no-blender 2>&1 | tail -5) || true
+fi
+if bundle_ok; then
+  echo "using Blender's precompiled set ($(du -sh "$blender/lib/linux_x64" | cut -f1))"
+else
+  echo "no lib/linux_x64 — building against the system's own Embree, TBB,"
+  echo "OpenImageIO, OpenColorIO and OpenEXR. On Debian/Ubuntu:"
+  echo "  sudo apt-get install -y libembree-dev libtbb-dev libopenimageio-dev \\"
+  echo "       libopencolorio-dev libopenexr-dev libimath-dev libpugixml-dev \\"
+  echo "       libyaml-cpp-dev libtiff-dev libwebp-dev libzstd-dev libdeflate-dev"
+  # An empty directory is worse than none: platform_unix.cmake tests for the
+  # PATH and would point every find_package at nothing.
+  rmdir "$blender/lib/linux_x64" 2>/dev/null || true
+fi
+
+# WHAT THE DISTRIBUTION CANNOT SATISFY, turned off explicitly rather than
+# discovered as a compile error.
+#
+# OpenColorIO is the one that bites. Ubuntu 24.04 ships 2.1.3; Cycles calls
+# `CPUProcessor::apply(const PackedImageDesc &) const`, which arrived in 2.2,
+# so scene/colorspace.cpp does not compile against it. Cycles builds without
+# OCIO and falls back to its own built-in sRGB transform, which for a clay
+# render of a machined part is the transform anyway.
+#
+# This is the price of the fallback path and it is worth naming: the build CI
+# ships is the one with Blender's own dependency set, which has a matching
+# OpenColorIO AND OpenImageDenoise. A local build against distribution
+# packages is for developing the shim, not for judging the picture.
+extra_flags=()
+if ! bundle_ok; then
+  extra_flags+=(-DWITH_OPENCOLORIO=OFF)
+  # TBB has to be POINTED AT, and then ARGUED WITH about its version.
+  #
+  # Two separate failures, both of which end the same way — several hundred
+  # undefined `tbb::detail::r1::` references at the very last step of a long
+  # build, because WITH_TBB stays ON either way, the headers sit on the default
+  # include path, every parallel_for compiles against them, and the library
+  # reaches no link line.
+  #
+  #   1. Debian keeps the CMake config package under the multiarch directory,
+  #      which is not on CMake's default search path. Hence -DTBB_DIR.
+  #   2. platform_unix.cmake asks for `TBB 2021.13.0`; Ubuntu 24.04 ships
+  #      2021.11.0, and TBBConfigVersion.cmake rejects anything older than the
+  #      request. The 2021 series is ABI-stable on libtbb.so.12 and Cycles uses
+  #      only parallel_for / task_arena / enumerable_thread_specific, all of
+  #      which 2021.11 has, so the rejection is a version-file policy rather
+  #      than a real incompatibility. Point TBB_DIR at a two-file overlay that
+  #      answers the version question and forwards to the system config for the
+  #      targets themselves.
+  for tbb_dir in /usr/lib/*/cmake/TBB /usr/lib/cmake/TBB; do
+    [ -f "$tbb_dir/TBBConfig.cmake" ] || continue
+    tbb_shim="$work/tbb-version-shim"
+    mkdir -p "$tbb_shim"
+    cat > "$tbb_shim/TBBConfigVersion.cmake" <<EOF
+# Generated by tools/desktop/build_cycles_linux.sh — see the note there.
+set(PACKAGE_VERSION "$(sed -n 's/^set(PACKAGE_VERSION "\(.*\)").*/\1/p' \
+                       "$tbb_dir/TBBConfigVersion.cmake" | head -1)")
+set(PACKAGE_VERSION_COMPATIBLE TRUE)
+set(PACKAGE_VERSION_EXACT FALSE)
+EOF
+    cat > "$tbb_shim/TBBConfig.cmake" <<EOF
+include("$tbb_dir/TBBConfig.cmake")
+EOF
+    extra_flags+=(-DTBB_DIR="$tbb_shim")
+    echo "  (TBB $(sed -n 's/^set(PACKAGE_VERSION "\(.*\)").*/\1/p' \
+                   "$tbb_dir/TBBConfigVersion.cmake" | head -1) accepted for a"
+    echo "   2021.13 request: same libtbb.so.12 ABI, and Cycles uses only the"
+    echo "   parts 2021.11 already has.)"
+    break
+  done
+  echo "  (OpenColorIO off: 2.1 is too old for this Cycles. Colour management"
+  echo "   falls back to Cycles' own sRGB.)"
+fi
+
+# ---------------------------------------------------------------------------
+# 2. The shim, as a Cycles target inside Cycles' own tree
+#
+# See backend/cycles/shim/append.cmake for why it is grafted rather than
+# compiled beside Cycles with flags copied out of the build: around two dozen
+# WITH_* defines change STRUCT LAYOUTS, and a set that is merely close enough
+# to compile links and then misreads memory.
+# ---------------------------------------------------------------------------
+say "grafting the shim"
+mkdir -p "$blender/intern/cycles/shim"
+cp "$repo"/backend/cycles/shim/cycles_shim.cpp \
+   "$repo"/backend/cycles/shim/cycles_shim.h \
+   "$repo"/backend/cycles/shim/cycles_denoise.cpp \
+   "$repo"/backend/cycles/shim/cycles_denoise.h \
+   "$blender/intern/cycles/shim/"
+# Idempotent: a second run must not append the block twice.
+if ! grep -q "add_library(cycles_shim" "$blender/intern/cycles/CMakeLists.txt"; then
+  cat "$repo/backend/cycles/shim/append.cmake" >> "$blender/intern/cycles/CMakeLists.txt"
+fi
+
+# The two portable patches. Both are self-verifying — an anchor that does not
+# match exactly once fails rather than silently doing nothing — so running them
+# on an already-patched tree is an error, not a no-op. Marked with a stamp.
+if [ ! -f "$work/.patched" ]; then
+  # Run from $work, whose child IS `blender/`: both scripts address the tree
+  # as `blender/intern/cycles/...` relative to the working directory, which is
+  # the shape the CI jobs give them.
+  say "patching Cycles (progressive sampling, denoiser memory ceiling)"
+  (cd "$work" && python3 "$repo/backend/cycles/patches/progressive.py")
+  (cd "$work" && python3 "$repo/backend/cycles/patches/oidn_memory.py")
+  touch "$work/.patched"
+fi
+
+# The <memory> include is applied here too, though only MSVC needs it. A
+# header that names std::allocator should include <memory> on every compiler,
+# and one patch set that differs by platform is a patch set where the platforms
+# drift — this repository has already had that happen once.
+
+# THE THIRD PATCH is in backend/cycles/patches/ with the other two now, because
+# Windows needs exactly the same edit: the line it removes is in Blender's TOP
+# LEVEL, not in a platform file, so it fires wherever WITH_PYTHON is off. What
+# it is and why is written out at length there. It is self-verifying and a
+# no-op on a tree that already has it, so it runs on every invocation rather
+# than under the .patched stamp above.
+# The fourth and fifth are in the same position and there for the same reason.
+# MSVC needs _USE_MATH_DEFINES before <cmath> or OpenSubdiv's headers have no
+# M_PI, and it needs to be told what `uint` is before mikktspace counts in it;
+# both edits are inert here — one is in Blender's Windows platform file and
+# the other behind an #ifdef — and both are in this list so the two platforms
+# cannot patch different trees.
+say "patching Blender's top level (WITH_PYTHON, <memory>, M_PI, uint)"
+(cd "$work" && python3 "$repo/backend/cycles/patches/no_python_cycles.py")
+(cd "$work" && python3 "$repo/backend/cycles/patches/msvc_container_proxy.py")
+(cd "$work" && python3 "$repo/backend/cycles/patches/msvc_math_defines.py")
+(cd "$work" && python3 "$repo/backend/cycles/patches/msvc_uint.py")
+
+# ---------------------------------------------------------------------------
+# 3. Configure and build
+# ---------------------------------------------------------------------------
+# Does this dependency set ship OpenImageDenoise? Asked rather than assumed,
+# exactly as the iOS job asks it: absent, the shim's own a-trous filter
+# finishes the frame and cy_denoiser_name says so.
+oidn=OFF
+if find "$blender/lib/linux_x64" -iname 'libOpenImageDenoise*' 2>/dev/null | grep -q .; then
+  oidn=ON
+fi
+say "configuring (OpenImageDenoise: $oidn)"
+
+# The four features that are OFF are off because this renders triangles out of
+# a CAD kernel: no volumes, no cached point clouds, no shader scripts, no path
+# guiding. Each one left ON is a dependency chain compiled in to serve code
+# nothing will ever call.
+#
+# No GPU backend is asked for here. Cycles' CUDA and HIP backends need their
+# vendor toolchains at BUILD time to produce cubins, which would make this
+# script — and the CI job that runs it — depend on hardware the builder may not
+# have. pick_device() already prefers OptiX, CUDA, HIP and oneAPI over the CPU,
+# so a build that adds one needs no code change: add the flag here.
+# WITH_BLENDER=OFF is what makes this tractable. Configuring the whole of
+# Blender pulls in GHOST, Vulkan (and therefore shaderc), Python, three audio
+# backends and the file-format importers — none of which Cycles needs, all of
+# which have to be found before CMake will finish. Blender's own
+# `cycles_standalone.cmake` preset is exactly this pair of switches; the GUI
+# half is off because a standalone viewer would want SDL and a window.
+#
+# Vulkan, Python and the two window systems are named separately because
+# platform_unix.cmake runs WHOLESALE — it is included before anything asks what
+# is being built, so its `pkg_check_modules(SHADERC REQUIRED shaderc)` and its
+# `find_package(X11 REQUIRED)` fire even for a configure that will not compile
+# one line of Blender. Turning each feature off is what makes its block
+# unreachable.
+#
+# GHOST is the window system, and this build has no window: X11 is REQUIRED
+# under WITH_GHOST_X11 and hard-fails the configure on a machine without the
+# development headers. That is a CI failure and not a local one — a desktop has
+# them for other reasons — so it is off explicitly rather than by luck.
+cmake -S "$blender" -B "$work/build" -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+  -DWITH_BLENDER=OFF \
+  -DWITH_CYCLES_BLENDER=OFF \
+  -DWITH_CYCLES_STANDALONE=ON \
+  -DWITH_CYCLES_STANDALONE_GUI=OFF \
+  -DWITH_CYCLES=ON \
+  -DWITH_VULKAN_BACKEND=OFF \
+  -DWITH_PYTHON=OFF \
+  -DWITH_GHOST_X11=OFF -DWITH_GHOST_WAYLAND=OFF \
+  -DWITH_OPENIMAGEDENOISE=$oidn \
+  -DWITH_OPENVDB=OFF -DWITH_NANOVDB=OFF \
+  -DWITH_ALEMBIC=OFF -DWITH_USD=OFF \
+  -DWITH_CYCLES_OSL=OFF \
+  -DWITH_CYCLES_PATH_GUIDING=OFF \
+  "${extra_flags[@]}" \
+  > "$work/configure.log" 2>&1 || { tail -40 "$work/configure.log"; exit 1; }
+
+say "building Cycles and the shim"
+# bf_intern_guardedalloc and bf_intern_sky are Blender's, not Cycles': built
+# inside Blender's tree, Cycles allocates through MEM_mallocN and calls the
+# Nishita sky model.
+# The named ones first, so a failure says which library it was in rather than
+# scrolling past in one big build. `cycles` LAST and it is not redundant: it is
+# Cycles' own standalone renderer, and building it is what guarantees every
+# archive in the link line below actually exists — extern_cuew, extern_hipew
+# and bf_intern_libc_compat are all in that line and in none of the names
+# anyone would think to write down.
+targets="cycles_util cycles_graph cycles_bvh cycles_subd cycles_scene
+         cycles_integrator cycles_session cycles_device cycles_kernel
+         bf_intern_guardedalloc bf_intern_sky cycles_shim cycles"
+for t in $targets; do
+  cmake --build "$work/build" --target "$t" -j "$jobs" \
+    > "$work/build_$t.log" 2>&1 \
+    || { echo "FAILED: $t"; grep -E "error:|fatal error:" "$work/build_$t.log" | head -30; exit 1; }
+  echo "built $t"
+done
+
+# ---------------------------------------------------------------------------
+# 4. Link libprototype_cycles.so
+#
+# --start-group, unlike the iOS link: GNU ld resolves a group to a fixed point,
+# so the archives need no ordering and none is invented. --whole-archive on the
+# shim alone, because nothing references cy_* from inside the link and the
+# linker would otherwise discard every one of them.
+# ---------------------------------------------------------------------------
+say "linking libprototype_cycles.so"
+mkdir -p "$out"
+shim_a=$(find "$work/build" -name 'libcycles_shim.a' | head -1)
+[ -n "$shim_a" ] || { echo "no libcycles_shim.a was built" >&2; exit 1; }
+
+# WHICH LIBRARIES, DECIDED BY THE BUILD RATHER THAN BY ME.
+#
+# The iOS job answers this with `-Wl,-t`, tracing what the link actually
+# loaded. There is a better answer here: `WITH_CYCLES_STANDALONE=ON` means
+# CMake has already worked out the complete link line for Cycles' own
+# standalone renderer, and written it into build.ninja as one LINK_LIBRARIES
+# variable. Taking it verbatim is exactly right and cannot drift — it covers
+# the bundle path and the system-package path with the same three lines, and
+# it caught two archives a hand-written list had missed (extern_cuew,
+# extern_hipew, which Cycles links even when neither backend is compiled in,
+# to report that they are absent).
+#
+# Paths in build.ninja are relative to the build directory, so the link runs
+# from there.
+link_libs=$(awk '
+  /^build bin\/cycles: / { inrule = 1 }
+  inrule && /^  LINK_LIBRARIES = / {
+    sub(/^  LINK_LIBRARIES = /, ""); print; exit
+  }
+  inrule && /^$/ { inrule = 0 }
+' "$work/build/build.ninja")
+[ -n "$link_libs" ] || {
+  echo "no LINK_LIBRARIES for bin/cycles in build.ninja — cannot link" >&2
+  exit 1
+}
+
+# AND ITS RPATH IS THE ONE THING IN THAT LINE THAT MUST NOT TRAVEL.
+#
+# CMake wrote Cycles' standalone renderer an rpath for running out of the
+# build tree, and it is in LINK_LIBRARIES with everything else:
+#
+#   -Wl,-rpath,"\$$ORIGIN/lib:<work>/build/bin/lib:<lib>/embree/lib:
+#               <lib>/dpcpp/lib:<lib>/opensubdiv/lib:<lib>/opencolorio/lib:
+#               <lib>/openimagedenoise/lib:<lib>/openimageio/lib:
+#               <lib>/openexr/lib:<lib>/imath/lib:<lib>/tbb/lib:"
+#
+# Taken verbatim it lands in the finished library AHEAD of the $ORIGIN entries
+# added below, so on this machine the loader takes every one of those
+# libraries out of the DEPENDENCY SET rather than out of deps/ — and the
+# copies in deps/, which the closure below rewrites so they can find each
+# other, are never opened at all. What is loaded instead is the vendor's own
+# file with the vendor's own runpath, which points at the directory it came
+# from and not at its neighbours: libOpenEXR.so.32 out of openexr/lib cannot
+# see libImath.so.30 in imath/lib. That is where the five "present in deps/
+# and not found" libraries went, and it would have shipped a bundle whose
+# closure was a build tree that only exists here.
+#
+# So each entry becomes -rpath-LINK, which the linker uses to resolve the
+# NEEDED of the libraries it was handed and writes into nothing. The only
+# rpath the file carries is the one added on the command line below, and the
+# gate after the link checks exactly that.
+link_libs=$(printf '%s\n' $link_libs \
+            | sed 's/^-Wl,-rpath,/-Wl,-rpath-link,/' \
+            | tr '\n' ' ')
+
+# --start-group, unlike the iOS link: GNU ld resolves a group to a fixed point,
+# so the archives need no ordering and none is invented. --whole-archive on the
+# shim alone, because nothing inside the link references cy_* and the linker
+# would otherwise discard every one of them.
+( cd "$work/build" && g++ -shared -fPIC -o "$out/libprototype_cycles.so" \
+  -Wl,--version-script="$repo/backend/desktop/prototype_cycles.map" \
+  -Wl,--whole-archive "$shim_a" -Wl,--no-whole-archive \
+  -Wl,--start-group $link_libs -Wl,--end-group \
+  -Wl,-rpath,'$ORIGIN:$ORIGIN/deps' -Wl,--disable-new-dtags \
+  -lpthread -ldl -lm ) > "$work/link.log" 2>&1 || {
+    echo "the shim does not link:"
+    grep -oE "undefined reference to \`[^']+'" "$work/link.log" | sort -u | head -30
+    tail -20 "$work/link.log"
+    exit 1
+  }
+echo "linked: $(du -h "$out/libprototype_cycles.so" | cut -f1)"
+
+# THE RPATH IS WHAT IT WAS ASKED TO BE, AND NOTHING ELSE.
+#
+# Checked rather than assumed, because the failure it catches is invisible on
+# the machine that builds: every extra directory in here is a real directory
+# HERE, so everything resolves, the closure gate passes, and the library goes
+# looking for a build tree on a machine that has none. A borrowed link line is
+# exactly the kind of thing that grows an rpath again.
+rpath_now=$(patchelf --print-rpath "$out/libprototype_cycles.so" 2>/dev/null || true)
+if [ "$rpath_now" != '$ORIGIN:$ORIGIN/deps' ]; then
+  echo "RPATH: FAIL — the library carries more than its own two entries:"
+  printf '  %s\n' "$rpath_now"
+  echo "Everything after \$ORIGIN/deps has to go; see the link step above."
+  exit 1
+fi
+echo 'rpath: $ORIGIN:$ORIGIN/deps and nothing else'
+
+# THE EXPORT SURFACE, checked rather than trusted. The version script is the
+# only thing standing between this and a symbol table with all of Cycles,
+# Embree, TBB and OpenImageIO in it.
+exported=$(nm -D --defined-only "$out/libprototype_cycles.so" | awk '{print $3}' | grep -v '^$' || true)
+leaked=$(printf '%s\n' "$exported" | grep -vE '^(cy_|_init|_fini|_edata|_end|__bss_start)' | head -5 || true)
+if [ -n "$leaked" ]; then
+  echo "EXPORT CHECK: FAIL — symbols escaped the version script:"
+  printf '%s\n' "$leaked"
+  exit 1
+fi
+echo "exports $(printf '%s\n' "$exported" | grep -c '^cy_') cy_ symbols and nothing else"
+
+# ---------------------------------------------------------------------------
+# 5. The closure, on the same rule as the CAD kernels
+# ---------------------------------------------------------------------------
+say "collecting the runtime closure"
+deps="$out/deps"
+mkdir -p "$deps"
+host_only='^(ld-linux.*|libc|libm|libdl|libpthread|librt|libresolv|libgcc_s'
+host_only="$host_only"'|libstdc\+\+|libEGL|libGL|libGLX|libGLdispatch|libOpenGL'
+host_only="$host_only"'|libX11|libXau|libXdmcp|libXext|libXrender|libXi|libXfixes'
+host_only="$host_only"'|libxcb.*|libwayland.*|libdrm|libgbm'
+host_only="$host_only"'|libglib-2\.0|libgobject-2\.0|libgio-2\.0|libgmodule-2\.0'
+host_only="$host_only"'|libgthread-2\.0|libpango.*|libcairo.*|libgdk.*|libgtk.*'
+host_only="$host_only"'|libatk.*|libharfbuzz.*|libfontconfig|libfreetype|libpng16'
+host_only="$host_only"'|libz|libpixman.*|libepoxy|libxkbcommon.*|libsystemd'
+host_only="$host_only"'|libselinux|libmount|libblkid|libpcre2-8)\.so.*$'
+
+# WHY THIS IS A DT_NEEDED WALK AND NOT `ldd`, which is what the CAD kernels use.
+#
+# Almost none of Blender's precompiled libraries carries a SONAME. Link against
+# lib/linux_x64/openexr/lib/libOpenEXR.so.32 and the linker has nothing to
+# record but the path it was handed, so the finished library asks the loader for
+# an ABSOLUTE path into a build tree that does not travel — and `ldd` prints
+# such an entry WITHOUT the "=>" it prints for a resolved SONAME, so the loop
+# that used to collect the closure skipped it in silence. Twelve libraries
+# where there should have been forty, and nothing noticed, because the link
+# gate ran on the one machine where those absolute paths exist.
+#
+# So: walk NEEDED with objdump, rewrite every path-shaped entry down to its
+# basename, and bring the file it named along. The distribution fallback needs
+# none of this (its libraries all have SONAMEs and are all on the loader's own
+# path) and is unaffected by it — locate_need finds them through ldconfig.
+
+# Where a SONAME-shaped entry can be found when the loader cannot find it
+# itself: Blender's precompiled set is on no search path at all.
+search=""
+if [ -d "$blender/lib/linux_x64" ]; then
+  search="$(find "$blender/lib/linux_x64" -type d -name lib 2>/dev/null | tr '\n' ':')"
+fi
+
+locate_need() {  # $1 = the NEEDED string; prints a path, or nothing
+  case "$1" in
+    */*) [ -f "$1" ] && printf '%s' "$1"; return 0 ;;
+  esac
+  local d old="$IFS"
+  IFS=':'
+  for d in $search; do
+    IFS="$old"
+    if [ -n "$d" ] && [ -f "$d/$1" ]; then printf '%s' "$d/$1"; return 0; fi
+    IFS=':'
+  done
+  IFS="$old"
+  local p
+  p="$(ldconfig -p 2>/dev/null | awk -v n="$1" '$1 == n {print $NF; exit}')"
+  if [ -n "$p" ] && [ -f "$p" ]; then printf '%s' "$p"; fi
+  return 0
+}
+
+copied=0
+missing=0
+queue="$work/closure.queue"
+printf '%s\n' "$out/libprototype_cycles.so" > "$queue"
+# The queue is a FILE and the loop indexes into it, because the body appends to
+# it and a `while read < file` would be reading a snapshot.
+seen=0
+while [ "$seen" -lt "$(wc -l < "$queue")" ]; do
+  seen=$((seen + 1))
+  lib="$(sed -n "${seen}p" "$queue")"
+  # Read the whole list before touching the file: patchelf rewrites it in place
+  # and objdump is still holding it open.
+  needs="$(objdump -p "$lib" | awk '/NEEDED/{print $2}')"
+  while read -r need; do
+    [ -n "$need" ] || continue
+    base="$(basename "$need")"
+    if [ "$need" != "$base" ]; then
+      patchelf --replace-needed "$need" "$base" "$lib"
+    fi
+    printf '%s' "$base" | grep -Eq "$host_only" && continue
+    if [ ! -e "$deps/$base" ]; then
+      # Already there from the CAD kernels' own closure: same file, same name.
+      found="$(locate_need "$need")"
+      if [ -z "$found" ]; then
+        echo "  MISSING: $(basename "$lib") needs $need — nowhere to be found"
+        missing=$((missing + 1))
+        continue
+      fi
+      cp -L "$found" "$deps/$base"
+      chmod u+w "$deps/$base"
+      copied=$((copied + 1))
+    fi
+    grep -qxF "$deps/$base" "$queue" || printf '%s\n' "$deps/$base" >> "$queue"
+  done <<EOF
+$needs
+EOF
+done
+# EVERY library gets $ORIGIN, for the reason build_native.sh writes out at
+# length: an inherited DT_RPATH stops being inherited the moment something in
+# the chain has a RUNPATH of its own.
+#
+# AND IT IS WRITTEN AS DT_RPATH, which `patchelf --set-rpath` on its own does
+# NOT do — it writes DT_RUNPATH, and converts an existing DT_RPATH into one.
+# For an object's own dependencies the loader reads the two the same way, so
+# on the happy path the choice is invisible. They differ in exactly the case
+# that went wrong here:
+#
+#   * DT_RPATH is INHERITED. A library with no entry of its own is looked for
+#     along the DT_RPATH of everything that loaded it, so this library's
+#     `$ORIGIN/deps` reaches the whole graph underneath it.
+#   * DT_RUNPATH is NOT. A library that carries one is looked for ONLY along
+#     that one, and a wrong value silently CANCELS the inherited path that
+#     would otherwise have found the file.
+#
+# So DT_RUNPATH makes each library's own entry load-bearing on its own: get
+# one of them wrong and the neighbour sitting beside it in the same directory
+# becomes invisible. That is the exact shape of the failure this replaces —
+# five libraries present in deps/, with the right names and the right sonames,
+# and "not found" to the loader. With DT_RPATH the same entry is a first
+# choice rather than the only one, and this library's own rpath is underneath
+# all of them.
+for lib in "$deps"/*.so*; do
+  [ -f "$lib" ] || continue
+  patchelf --force-rpath --set-rpath '$ORIGIN' "$lib"
+done
+echo "added $copied libraries to $deps ($(du -sh "$deps" | cut -f1) total)"
+if [ "$missing" -ne 0 ]; then
+  echo "CLOSURE: FAIL ($missing unsatisfied)"
+  exit 1
+fi
+
+# THE GATE THAT ACTUALLY DECIDES, run here rather than only in the workflow.
+#
+# The walk above reasons one edge at a time and can be wrong in ways an edge
+# does not show — a file that is present but is not an ELF object, a soname
+# that is not the file name, a library reached through a path nothing rewrote.
+# `ldd` asks the only question that matters, about the whole graph: will the
+# loader find all of this. So it is asked HERE, where the answer can still be
+# acted on, and the sweep repeats until it comes back clean.
+#
+# A sweep that finds a name ALREADY in deps/ and still unresolved has found
+# something the walk cannot fix, so it says what it knows about that file
+# instead of copying it again. That is the report this step exists to produce.
+sweep=0
+while :; do
+  unresolved=$(ldd "$out/libprototype_cycles.so" 2>/dev/null \
+               | awk '/not found/ {print $1}' | sort -u)
+  [ -n "$unresolved" ] || break
+  sweep=$((sweep + 1))
+  fixed=0
+  stuck=0
+  for name in $unresolved; do
+    if [ -e "$deps/$name" ]; then
+      echo "  IN deps AND STILL NOT FOUND: $name"
+      echo "    kind : $(file -b "$deps/$name" 2>/dev/null || echo unknown)"
+      echo "    size : $(stat -c %s "$deps/$name" 2>/dev/null || echo ?)"
+      echo "    rpath: $(patchelf --print-rpath "$deps/$name" 2>&1 || true)"
+      echo "    sonam: $(patchelf --print-soname "$deps/$name" 2>&1 || true)"
+      # THE ONE QUESTION THE LINES ABOVE CANNOT ANSWER: is the file invisible,
+      # or is it visible and being REFUSED? The loader reports both as "not
+      # found" — a candidate that fails its header check is skipped in silence
+      # and the search carries on — so the two look identical from here and
+      # have opposite fixes. LD_LIBRARY_PATH puts the directory somewhere no
+      # rpath of ours can be blamed for: if the name resolves under it the
+      # problem is a search path, and if it still does not the file itself is
+      # being rejected.
+      if LD_LIBRARY_PATH="$deps" ldd "$out/libprototype_cycles.so" 2>/dev/null \
+         | grep -q "^[[:space:]]*$name => not found"; then
+        echo "    verdict: REFUSED — still not found with deps/ on LD_LIBRARY_PATH"
+        readelf -h "$deps/$name" 2>&1 | sed -n '2,12p' | sed 's/^/      /'
+      else
+        echo "    verdict: NOT SEARCHED — resolves once deps/ is on LD_LIBRARY_PATH,"
+        echo "             so some object asks for it along a path that is not deps/"
+      fi
+      stuck=$((stuck + 1))
+      continue
+    fi
+    found="$(locate_need "$name")"
+    [ -n "$found" ] || { echo "  NOT ANYWHERE: $name"; stuck=$((stuck + 1)); continue; }
+    cp -L "$found" "$deps/$name"
+    chmod u+w "$deps/$name"
+    patchelf --force-rpath --set-rpath '$ORIGIN' "$deps/$name"
+    echo "  sweep $sweep: took $name from $found"
+    copied=$((copied + 1))
+    fixed=$((fixed + 1))
+  done
+  if [ "$fixed" -eq 0 ] || [ "$sweep" -gt 8 ]; then
+    echo "CLOSURE: FAIL — the loader cannot satisfy $stuck name(s) after"
+    echo "$sweep sweep(s)."
+    echo
+    echo "what the loader sees:"
+    ldd "$out/libprototype_cycles.so" 2>&1 | sed 's/^/  /' | head -60
+    echo
+    # WHO IS ASKING is the thing the failure never says. `ldd` names what is
+    # missing and not which object wanted it, and an object's own entry is
+    # what decides where it looks, so both halves are printed together.
+    echo "what every object that ships asks for, and where it looks:"
+    for lib in "$out/libprototype_cycles.so" "$deps"/*.so*; do
+      [ -f "$lib" ] || continue
+      echo "  $(basename "$lib")"
+      readelf -d "$lib" 2>/dev/null \
+        | grep -E '\((NEEDED|RPATH|RUNPATH)\)' \
+        | sed -E 's/^[^(]*\(/    (/' | head -40
+    done
+    echo
+    echo "deps/ holds:"
+    ls -la "$deps" | head -60
+    echo "searched:"
+    printf '%s\n' "$search" | tr ':' '\n' | sed 's/^/  /' | head -40
+    exit 1
+  fi
+done
+echo "the loader resolves everything (${sweep} sweep(s) after the walk)"
+
+# THE INVARIANT, checked rather than reasoned about: nothing that ships may
+# still be asking for a path, and everything it asks for by name is either
+# bundled or a host library.
+unsatisfied=0
+for lib in "$out/libprototype_cycles.so" "$deps"/*.so*; do
+  [ -f "$lib" ] || continue
+  while read -r need; do
+    [ -n "$need" ] || continue
+    case "$need" in
+      */*) echo "  PATH: $(basename "$lib") still needs $need"
+           unsatisfied=$((unsatisfied + 1)); continue ;;
+    esac
+    [ -e "$deps/$need" ] && continue
+    printf '%s' "$need" | grep -Eq "$host_only" && continue
+    echo "  MISSING: $(basename "$lib") needs $need — neither bundled nor a host library"
+    unsatisfied=$((unsatisfied + 1))
+  done < <(objdump -p "$lib" | awk '/NEEDED/{print $2}')
+done
+if [ "$unsatisfied" -ne 0 ]; then
+  echo "CLOSURE: FAIL ($unsatisfied unsatisfied)"
+  exit 1
+fi
+echo "CLOSURE: PASS"
+
+say "the link gate"
+# g++ compiles a .c file as C++, which is what the iOS job's clang++ does too.
+# -rpath-link so the linker can follow the library's NEEDED entries into deps/,
+# and -rpath so the probe can actually RUN from there: everything is flat in
+# the shipped bundle, but here the library is one directory above its own
+# dependencies.
+g++ -I "$repo/backend/cycles/shim" "$repo/backend/cycles/shim/shim_probe.c" \
+  -o "$out/prototype_cycles_probe" \
+  -L"$out" -lprototype_cycles \
+  -Wl,-rpath-link,"$deps" -Wl,--disable-new-dtags \
+  -Wl,-rpath,"$out" -Wl,-rpath,"$deps" \
+  > "$work/probe.log" 2>&1 || { tail -20 "$work/probe.log"; exit 1; }
+"$out/prototype_cycles_probe" || true
+
+if [ "$keep" = 0 ] && [ -z "${CYCLES_WORK_DIR:-}" ]; then
+  echo
+  echo "(Blender's tree is $work — $(du -sh "$work" 2>/dev/null | cut -f1). Delete it"
+  echo " when you are done, or pass --keep to be reminded rather than told.)"
+fi
+
+say "done"
+echo "library : $out/libprototype_cycles.so"
+echo
+echo "Next:  cd frontend && flutter build linux --release"

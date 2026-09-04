@@ -7499,16 +7499,16 @@ void FreeformSurfaces(const Mesh &m, std::vector<Patch> &patches, double tol,
             std::vector<Proxy> spx(2);
             sseed[0] = reg.front();
             {
-                double far = -1;
+                double farthest = -1;
                 for (int t : reg) {
                     const double d = 1.0 - Dot(m.tnorm[t], pr.n);
-                    if (d > far) { far = d; sseed[0] = t; }
+                    if (d > farthest) { farthest = d; sseed[0] = t; }
                 }
-                far = -1;
+                farthest = -1;
                 sseed[1] = reg.back();
                 for (int t : reg) {
                     const double d = 1.0 - Dot(m.tnorm[t], m.tnorm[sseed[0]]);
-                    if (d > far && t != sseed[0]) { far = d; sseed[1] = t; }
+                    if (d > farthest && t != sseed[0]) { farthest = d; sseed[1] = t; }
                 }
             }
             for (int i = 0; i < 2; ++i) {
@@ -8872,7 +8872,15 @@ struct DrawnMesh
     std::vector<int> weld;   /* node -> the node standing for its position */
 };
 
-/* A hash grid over the drawn nodes. */
+/* A hash grid over the drawn nodes.
+ *
+ * `forEachNear` rather than `near`, and the four locals below are `farthest`
+ * rather than `far`, because <windef.h> STILL #defines both — empty, for the
+ * 16-bit memory model that has not existed since 1995 — and a Windows build
+ * turns `double far = -1;` into `double = -1;` and `void near(...)` into
+ * `void (...)`. MSVC then reports a hundred cascading syntax errors whose
+ * first line is "missing ';' before '{'", which says nothing about the cause.
+ */
 class NodeGrid
 {
 public:
@@ -8885,7 +8893,7 @@ public:
     /* Every node within one cell of q. All 27 neighbours are searched: two
      * points either side of a cell boundary are as close as two inside one,
      * and a grid that only looks in its own cell is a snap, not a weld. */
-    template <class F> void near(const gp_Pnt &q, F &&f) const
+    template <class F> void forEachNear(const gp_Pnt &q, F &&f) const
     {
         const long long i = at(q.X()), j = at(q.Y()), k = at(q.Z());
         for (long long a = i - 1; a <= i + 1; ++a)
@@ -8974,7 +8982,7 @@ static bool GatherDrawn(const TopoDS_Shape &s, DrawnMesh &d)
     d.weld.assign(d.pos.size(), -1);
     for (size_t v = 0; v < d.pos.size(); ++v) {
         int rep = static_cast<int>(v);
-        grid.near(d.pos[v], [&](int n) {
+        grid.forEachNear(d.pos[v], [&](int n) {
             if (n < rep && d.weld[n] >= 0 && d.weld[n] < rep)
                 rep = d.weld[n];
         });
@@ -9388,7 +9396,7 @@ static void OpenRimNodes(const TopoDS_Shape &s, const DrawnMesh &d,
         return;
     NodeGrid grid(d.pos, WeldTolerance(s));
     for (const gp_Pnt &q : rim)
-        grid.near(q, [&](int n) { out.insert(d.weld[n]); });
+        grid.forEachNear(q, [&](int n) { out.insert(d.weld[n]); });
 }
 
 /* Somewhere to put the mended triangles.
@@ -10106,13 +10114,13 @@ static int MendTornFaces(const TopoDS_Shape &s, int *filled, double bridge,
                     FaceWriter *w = writerFor(f);
                     if (!w)
                         continue;
-                    double far = 0;
+                    double farthest = 0;
                     for (int q = 0; q < 3; ++q)
-                        far = std::max(far, w->howFar(cut[k + q]));
+                        farthest = std::max(farthest, w->howFar(cut[k + q]));
                     /* the vote's own choice wins a tie */
-                    if (far < bestFar - 1e-12 ||
-                        (far < bestFar + 1e-12 && f == home)) {
-                        bestFar = far;
+                    if (farthest < bestFar - 1e-12 ||
+                        (farthest < bestFar + 1e-12 && f == home)) {
+                        bestFar = farthest;
                         bestF = f;
                     }
                 }
@@ -10138,10 +10146,10 @@ static int MendTornFaces(const TopoDS_Shape &s, int *filled, double bridge,
              * 24 mm off the surface. The rim it was covering stays open and is
              * reported, which is what the mesh ladder reads. */
             if (bridge > 0) {
-                double far = 0;
+                double farthest = 0;
                 for (int q = 0; q < 3; ++q)
-                    far = std::max(far, it->second->howFar(cut[k + q]));
-                if (far > bridge) {
+                    farthest = std::max(farthest, it->second->howFar(cut[k + q]));
+                if (farthest > bridge) {
                     ++bridged;
                     continue;
                 }

@@ -28,6 +28,7 @@ import '../log.dart';
 import '../part_model.dart';
 import '../svg_icons.dart';
 import '../icon_preview.dart';
+import '../ios_design.dart';
 import '../theme.dart';
 import 'native_prompts.dart';
 import '../l10n/l.dart';
@@ -38,7 +39,67 @@ import '../l10n/l.dart';
 /// never left without a browser.
 class ModelBrowser extends StatefulWidget {
   final AppState app;
-  const ModelBrowser({super.key, required this.app});
+
+  /// M368 — RETRACTED TO THE GLYPH COLUMN, which off iOS is this tree's job
+  /// rather than a platform view's.
+  ///
+  /// The iPad's browser has retracted by default since M242: the panel is
+  /// 264 pt of a 1024 pt screen and the thing being drawn is the point of the
+  /// app. Retracted it keeps every row, every glyph and every tap target —
+  /// only the labels, the indent and the trailing controls go, along with the
+  /// glass behind them (M199: a frosted plate under a column of icons is just
+  /// something else covering the drawing).
+  ///
+  /// Only ever true where there is a material to take away: the opaque
+  /// fallback is a wall beside the viewport and a wall that retracts leaves a
+  /// hole. [NativeModelBrowser] owns the state and the chevron that toggles
+  /// it, exactly as it does for the native card.
+  final bool collapsed;
+
+  /// Where this card's rows are, in the PANEL's coordinates: the top of the
+  /// first row, the bottom of the last, and the trailing edge of the glyph
+  /// column. The retract handle is placed against them (M244), and it must be
+  /// measured rather than guessed at from outside.
+  ///
+  /// The same three numbers `GlassBrowserView` sends over its `metrics`
+  /// channel, so the handle's placement is one piece of arithmetic for both
+  /// panels instead of two.
+  final void Function(double rowsTop, double rowsBottom, double glyphX)?
+      onMetrics;
+
+  const ModelBrowser({
+    super.key,
+    required this.app,
+    this.collapsed = false,
+    this.onMetrics,
+  });
+
+  /// GlassBrowserView's own card geometry (inset 12/14/12/0, corner 18), so
+  /// the Flutter card IS that card rather than an approximation of it.
+  static const double cardInsetLeft = 14;
+  static const double cardInsetV = 12;
+  static const double cardRadius = 18;
+
+  /// The glass slab's own width, expanded and retracted: the panel widths
+  /// [NativeModelBrowser] publishes, less the card's left inset.
+  static const double cardWide = 264 - cardInsetLeft;
+  static const double cardNarrow = 56 - cardInsetLeft;
+
+  /// Vertical padding inside the tree, above the first row and below the last.
+  static const double listPadV = 5;
+
+  /// Horizontal padding inside a row, and the gap between the disclosure slot
+  /// and the glyph. Retracted, the indent and the disclosure slot go and this
+  /// is all that stands to the left of the icon.
+  static const double rowPadH = 6;
+  static const double rowGap = 6;
+  static const double rowIcon = 15;
+
+  /// The trailing edge of the retracted glyph column, in panel coordinates —
+  /// where the chevron goes to stand.
+  static const double glyphX =
+      cardInsetLeft + rowPadH + rowGap + rowIcon;
+
   @override
   State<ModelBrowser> createState() => _ModelBrowserState();
 }
@@ -86,11 +147,67 @@ class _ModelBrowserState extends State<ModelBrowser> {
   String? _lastPayload;
   bool _pushScheduled = false;
 
+  /// M368 — how many rows the last build put in the tree.
+  ///
+  /// The panel has to report where its rows END so the retract handle can
+  /// stand beside them (M244), and a ListView will not say: it reports its
+  /// VIEWPORT, and a list shorter than the card scrolls not at all, so
+  /// `maxScrollExtent + viewportDimension` is the panel's own height and the
+  /// chevron lands in the middle of an empty card. Counting is what is left,
+  /// and it is exact: every row in every tree kind is one [_row], every row is
+  /// [_kTreeRowH] tall, and `ListView(children:)` constructs the whole list
+  /// during build even though it only lays out what is on screen.
+  int _rowCount = 0;
+
+  /// How many of those rows carry a folder gap, and the indent of the row
+  /// before — the running state of the rule in [_row].
+  int _gapCount = 0;
+  double? _prevIndent;
+
+  /// One tree row's height, and the gap above a row that starts or ends a
+  /// folder. [_TreeRow]'s own, and the two must agree. The gap is
+  /// `GlassBrowserView.folderGap`.
+  static const double _kTreeRowH = 23;
+  static const double _kFolderGap = 6;
+
+  /// The disclosure column, and the box drawn in it.
+  static const double _kExpSlot = 13;
+  static const double _kExpBox = 11;
+
+  /// One toggle, one curve. Must match `GlassBrowserView.morph` and the host's
+  /// own `_kMorph`, which is what holds the panel's bounds wide while this
+  /// plays: three numbers describing one movement, and they have to agree.
+  static const Duration _kMorph = Duration(milliseconds: 280);
+
+  /// The glass slab is on screen — which while a retract is playing out is not
+  /// the same as "not collapsed". See the note at its use.
+  bool _glassAlive = false;
+  Timer? _glassTimer;
+
   @override
   void initState() {
     super.initState();
     NativeMenu.setSelectionHandler(NativeMenu.kLayers, _onMenuSelection);
+    _glassAlive = !widget.collapsed;
     _schedulePush();
+  }
+
+  @override
+  void didUpdateWidget(covariant ModelBrowser old) {
+    super.didUpdateWidget(old);
+    if (widget.collapsed == old.collapsed) return;
+    _glassTimer?.cancel();
+    if (!widget.collapsed) {
+      // Opening: the slab is back on the first frame and grows with the card.
+      setState(() => _glassAlive = true);
+      return;
+    }
+    // Closing: it stays mounted, fading, until the card has finished shrinking
+    // under it. Taking it away at once would pop the document back to full
+    // contrast while the card was still on top of it.
+    _glassTimer = Timer(_kMorph, () {
+      if (mounted) setState(() => _glassAlive = false);
+    });
   }
 
   GlobalKey _keyFor(String layer) =>
@@ -232,8 +349,27 @@ class _ModelBrowserState extends State<ModelBrowser> {
     _pushScheduled = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _pushScheduled = false;
-      if (mounted) _pushTargets();
+      if (!mounted) return;
+      _pushTargets();
+      _pushMetrics();
     });
+  }
+
+  /// M368 — tell the host where the rows are, so the retract handle can stand
+  /// beside them instead of in the middle of an empty panel.
+  ///
+  /// A list longer than the card reports its rows as ending at the card's own
+  /// bottom: past that point every row is on screen, and the arithmetic answer
+  /// would put the chevron below the panel.
+  void _pushMetrics() {
+    final cb = widget.onMetrics;
+    if (cb == null) return;
+    final box = context.findRenderObject();
+    final height = box is RenderBox && box.hasSize ? box.size.height : 0.0;
+    const top = ModelBrowser.cardInsetV + ModelBrowser.listPadV;
+    final bottom = (top + _rowCount * _kTreeRowH + _gapCount * _kFolderGap)
+        .clamp(top, height <= top ? top : height);
+    cb(top, bottom.toDouble(), ModelBrowser.glyphX);
   }
 
   Rect? _globalRect(GlobalKey key) {
@@ -607,6 +743,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
 
   @override
   void dispose() {
+    _glassTimer?.cancel();
     _uninstallEosEsc();
     _closeCtx();
     NativeMenu.setSelectionHandler(NativeMenu.kLayers, null);
@@ -1164,30 +1301,99 @@ class _ModelBrowserState extends State<ModelBrowser> {
 
   @override
   Widget build(BuildContext context) {
+    // See [_rowCount]: the tree is rebuilt from scratch every time, so the
+    // count and the folder-gap rule's running state are too.
+    _rowCount = 0;
+    _gapCount = 0;
+    _prevIndent = null;
     final app = widget.app;
     final s = app.current;
     final part = app.activeChild == null ? app.currentPart : null;
     final asm = app.currentAssembly;
     // Layers appear, vanish and get renamed without this widget remounting.
     _schedulePush();
-    return Container(
-      width: 300,
+    // M108/M367 — A WALL, OR A FLOATING CARD, and the material decides which.
+    //
+    // Without glass this panel is opaque, so it has to take real width beside
+    // the viewport: floating an opaque tree over the model would just hide the
+    // model. That was every platform but the iPad, and it is still the
+    // fallback.
+    //
+    // With glass it is the iPad's card — inset from the edges, 18 pt corners,
+    // its own shadow, with the document running edge to edge underneath it.
+    // The insets and the radius are GlassBrowserView's own (inset 12/14/12/0,
+    // cornerRadius 18), because this is the same card and not a Flutter
+    // approximation of one. `main.dart` puts it in the floating slot on the
+    // same condition.
+    final glass = GlassPanel.isSupported;
+    // M368 — RETRACTED, and the card MORPHS rather than swapping states.
+    //
+    // The card's own width animates between the slab and the glyph column
+    // while the host holds the panel's bounds at the wide figure for the
+    // length of the curve (NativeModelBrowser.occupancy). Same 280 ms ease as
+    // GlassBrowserView.morph, because this is the same movement: it is only
+    // the renderer underneath it that differs.
+    final collapsed = glass && widget.collapsed;
+    final cardW =
+        collapsed ? ModelBrowser.cardNarrow : ModelBrowser.cardWide;
+    // A Row around it, and it is load-bearing: floating, the host hands this
+    // panel TIGHT bounds (a Positioned with four edges) that stay at the wide
+    // figure for the length of the morph, and a Container's own width is
+    // simply ignored under tight constraints — the card would sit at 264 for
+    // the whole curve and then snap to 56, which is the swap the morph exists
+    // to replace. A Row passes its child loose width and stretches its height,
+    // so the card is as wide as it says it is inside bounds that are not.
+    return _fill(glass, AnimatedContainer(
+      duration: glass ? _kMorph : Duration.zero,
+      curve: Curves.easeInOut,
+      width: glass ? cardW : 300,
+      margin: glass
+          ? const EdgeInsets.fromLTRB(ModelBrowser.cardInsetLeft,
+              ModelBrowser.cardInsetV, 0, ModelBrowser.cardInsetV)
+          : EdgeInsets.zero,
       decoration: BoxDecoration(
-        // M106 — on iOS the panel's surface is REAL Apple Liquid Glass
-        // (UIGlassEffect), laid in behind the tree; the opaque fill is only
-        // for platforms without it. A colour here would sit on top of the
-        // glass and hide it.
-        color: GlassPanel.isSupported ? null : T.mbBg,
-        border: Border(right: BorderSide(color: T.mbBorder)),
+        // M106 — the panel's surface is REAL Liquid Glass: UIGlassEffect on
+        // the iPad, the shader in liquid_glass.dart everywhere else. The
+        // opaque fill is only for platforms without either. A colour here
+        // would sit on top of the glass and hide it.
+        color: glass ? null : T.mbBg,
+        border: glass ? null : Border(right: BorderSide(color: T.mbBorder)),
+        borderRadius:
+            glass ? BorderRadius.circular(ModelBrowser.cardRadius) : null,
+        // The card is a thing lying over the document, and a floating panel
+        // with no shadow reads as a hole cut in it. Retracted there is no
+        // card, so there is nothing to cast one.
+        boxShadow: glass && !collapsed ? iosPanelShadow() : null,
       ),
       child: Stack(children: [
         // The glass surface. IgnorePointer inside GlassPanel: every gesture in
         // this panel belongs to the Flutter rows above it, which is the
         // lesson M48 and M102 both cost a lot of debugging to learn.
-        if (GlassPanel.isSupported)
-          const Positioned.fill(child: GlassPanel()),
+        //
+        // M199 — and retracted it is GONE, not merely transparent: a backdrop
+        // filter costs a full-screen pass whether or not you can see it, and
+        // the panel spends most of its life retracted. _glassAlive keeps it
+        // mounted for the length of the morph so it fades out with the card
+        // instead of vanishing on the first frame of it.
+        if (glass && _glassAlive)
+          Positioned.fill(
+            child: AnimatedOpacity(
+              duration: _kMorph,
+              curve: Curves.easeInOut,
+              opacity: collapsed ? 0 : 1,
+              child: const GlassPanel(cornerRadius: ModelBrowser.cardRadius),
+            ),
+          ),
         Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        // header
+        // The document tab, and ONLY where the panel is a wall.
+        //
+        // M368 — the card has no header. On the iPad it never had one: the
+        // tree starts at the document's own root row, the tab bar along the
+        // bottom is what says which document is open, and a second tab strip
+        // inside the card said it twice. It survived here because the opaque
+        // panel is a wall with nothing else on it, and that is the one place
+        // it still belongs.
+        if (!glass)
         Container(
           height: 30,
           padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -1232,15 +1438,26 @@ class _ModelBrowserState extends State<ModelBrowser> {
                   ? const NeverScrollableScrollPhysics()
                   : null,
               key: _treeKey,
-              padding: const EdgeInsets.symmetric(vertical: 5),
+              padding: const EdgeInsets.symmetric(
+                  vertical: ModelBrowser.listPadV),
               children: [
+                // The document itself. No disclosure slot: it is the root,
+                // nothing is above it to align with, and the blank 11 pt box
+                // pushed its glyph a slot to the right of where the retracted
+                // column puts the same glyph — so the icon jumped sideways
+                // every time the panel opened. The iPad's tree has no slot
+                // here either.
                 _row(
                   indent: 0,
-                  exp: ' ',
+                  // M372 — the ROOT is the accent on the device (`.systemBlue`
+                  // on an SF `cube`), and the rows under it are
+                  // `.secondaryLabel` on the same glyph. See treeCubeIcon for
+                  // why these two are outlines rather than the filled cube the
+                  // ribbon uses.
                   icon: asm != null
                       ? assemblyCubeIcon
                       : part != null
-                          ? partCubeIcon
+                          ? treeRootCubeIcon
                           : sketchCubeIcon,
                   label: app.activeChild?.name ?? app.curTab ?? 'Sketch1',
                 ),
@@ -1322,7 +1539,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
                     _row(
                       indent: 8,
                       exp: bodiesOpen ? '−' : '+',
-                      icon: originIcon,
+                      icon: treeFolderIcon,
                       label: L.of(context)
                   .nodeSolidBodies(part.solidBodies().length),
                       onTap: () => setState(() => bodiesOpen = !bodiesOpen),
@@ -1335,7 +1552,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
                 _row(
                   indent: 8,
                   exp: originOpen ? '−' : '+',
-                  icon: originIcon,
+                  icon: treeFolderIcon,
                   label: L.of(context).nodeOrigin,
                   onTap: () => setState(() => originOpen = !originOpen),
                 ),
@@ -1450,8 +1667,14 @@ class _ModelBrowserState extends State<ModelBrowser> {
         ),
         ]),
       ]),
-    );
+    ));
   }
+
+  /// Wraps the card so that its own width survives the host's tight bounds.
+  /// See the note at the top of [build].
+  Widget _fill(bool glass, Widget card) => glass
+      ? Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [card])
+      : card;
 
   /// The seven origin entries, in Inventor's order. One list, so the part tree
   /// and the assembly tree cannot drift apart on what an Origin folder holds.
@@ -1717,7 +1940,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
     final sel = !picking && app.selectedBody == bodyName;
     final row = _row(
       indent: 30,
-      icon: partCubeIcon,
+      icon: treeCubeIcon,
       label: bodyName,
       active: sel,
       onTap: picking
@@ -1834,7 +2057,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
       // somewhere else.
       icon: broken
           ? endOfSketchIcon
-          : (f is DeriveFeature ? derivedCubeIcon : partCubeIcon),
+          : (f is DeriveFeature ? derivedCubeIcon : treeCubeIcon),
       label: f.name,
       // While the pattern panel is picking features, a SINGLE tap picks this
       // one — the same rule the native browser follows.
@@ -1890,7 +2113,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
     final off = f.suppressed.contains(index);
     final row = _row(
       indent: 30,
-      icon: partCubeIcon,
+      icon: treeCubeIcon,
       label: L.of(context).nodeOccurrence(index),
       onTap: () => app.patternSuppressOccurrence(f, index, !off),
       trailing: _EyeButton(
@@ -1959,13 +2182,34 @@ class _ModelBrowserState extends State<ModelBrowser> {
       bool active = false,
       Widget? trailing,
       VoidCallback? onTap}) {
+    // M361/M368 — A GAP WHERE A FOLDER STARTS AND WHERE ONE ENDS.
+    //
+    //     "there should be spacing when a folder ends or starts"
+    //
+    // The same two rules `_spaceFolders` applies to the native tree, applied
+    // as the rows stream past instead of over a finished list — this tree is
+    // built as a widget list rather than a row model, and [_row] is the one
+    // place every row of it passes through. A folder row takes a gap above it;
+    // so does the first row that comes back OUT to a shallower indent, which
+    // is a folder having ended. Never the first row: a gap at the top of the
+    // panel separates nothing.
+    final folder = icon == treeFolderIcon;
+    final ends = _prevIndent != null && indent < _prevIndent!;
+    final gap = _rowCount > 0 && (folder || ends);
+    _prevIndent = indent;
+    _rowCount++;
+    if (gap) _gapCount++;
     return _TreeRow(
+        gapBefore: gap,
         indent: indent,
         exp: exp,
         icon: icon,
         label: label,
         active: active,
         trailing: trailing,
+        // M368 — one funnel, so the retract cannot reach some rows and miss
+        // others. Every row in every tree kind is built through here.
+        collapsed: GlassPanel.isSupported && widget.collapsed,
         onTap: onTap);
   }
 }
@@ -1980,6 +2224,22 @@ class _TreeRow extends StatefulWidget {
 
   /// Right-aligned control (the layer's visibility eye).
   final Widget? trailing;
+
+  /// M368 — the retracted row: the glyph, and nothing else.
+  ///
+  /// The indent goes with the label. A column of icons stepped by depth is a
+  /// column half of whose glyphs are pushed off a 42 pt card, and the iPad's
+  /// retracted panel does not do it either — every row's glyph sits at the
+  /// same x, and the badge in its corner (M361) is what tells three extrusions
+  /// apart. The row keeps its height, its hover and its tap target: retracted
+  /// is a narrower panel, not a disabled one.
+  final bool collapsed;
+
+  /// M361 — a folder starts here, or one has just ended. Retracted there is no
+  /// indentation left to group the rows with, so space does it instead; wide,
+  /// it is what keeps a part's timeline from running into the seven rows of
+  /// its Origin folder.
+  final bool gapBefore;
   const _TreeRow(
       {required this.indent,
       this.exp,
@@ -1987,6 +2247,8 @@ class _TreeRow extends StatefulWidget {
       required this.label,
       this.trailing,
       this.active = false,
+      this.collapsed = false,
+      this.gapBefore = false,
       this.onTap});
   @override
   State<_TreeRow> createState() => _TreeRowState();
@@ -1996,6 +2258,26 @@ class _TreeRowState extends State<_TreeRow> {
   bool _h = false;
   @override
   Widget build(BuildContext context) {
+    var row = _body(context);
+    if (widget.gapBefore) {
+      row = Padding(
+          padding: const EdgeInsets.only(
+              top: _ModelBrowserState._kFolderGap),
+          child: row);
+    }
+    // M243/M368 — retracted, a row is a glyph and nothing else: a column of
+    // icons is a column of guesses until it can be asked. Dwelling on one
+    // spells out what it is, which is the same promise the native panel's
+    // hover tip makes and the reason the retracted rows keep their titles.
+    if (!widget.collapsed || widget.label.isEmpty) return row;
+    return Tooltip(
+      message: widget.label,
+      waitDuration: const Duration(milliseconds: 400),
+      child: row,
+    );
+  }
+
+  Widget _body(BuildContext context) {
     return MouseRegion(
       onEnter: (_) => setState(() => _h = true),
       onExit: (_) => setState(() => _h = false),
@@ -2003,34 +2285,64 @@ class _TreeRowState extends State<_TreeRow> {
         onTap: widget.onTap,
         behavior: HitTestBehavior.opaque,
         child: Container(
-          height: 23,
-          padding: const EdgeInsets.symmetric(horizontal: 6),
+          height: _ModelBrowserState._kTreeRowH,
+          padding: const EdgeInsets.symmetric(
+              horizontal: ModelBrowser.rowPadH),
           decoration: widget.active
               ? BoxDecoration(
                   color: T.mbActiveBg,
                   border: Border.all(color: T.mbActiveOutline, width: 1),
                 )
               : BoxDecoration(color: _h ? T.mbHover : Colors.transparent),
+          // ClipRect, not an if: the row still lays its label out for one
+          // frame of the morph while the card is shrinking around it, and an
+          // unclipped Text in a 42 pt box is an overflow stripe.
+          child: ClipRect(
           child: Row(children: [
-            SizedBox(width: widget.indent),
-            if (widget.exp != null)
+            if (!widget.collapsed) SizedBox(width: widget.indent),
+            // M368 — a BOXED +/-, the way a feature tree has had one since
+            // 1995 and the way the iPad's own tree draws it (M129: a boxed
+            // disclosure at the leading edge). A bare character in a monospace
+            // font read as punctuation next to the glyphs rather than as the
+            // control it is. A row that is not expandable passes ' ' and keeps
+            // the slot empty, so its icon still lines up with its siblings'.
+            if (widget.exp != null && !widget.collapsed)
               SizedBox(
-                width: 11,
-                child: Text(widget.exp!,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                        fontSize: 10, color: T.mbDim, fontFamily: 'Menlo')),
+                width: _ModelBrowserState._kExpSlot,
+                child: widget.exp!.trim().isEmpty
+                    ? null
+                    : Center(
+                        child: Container(
+                          width: _ModelBrowserState._kExpBox,
+                          height: _ModelBrowserState._kExpBox,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            border: Border.all(color: T.mbDim, width: 1),
+                            borderRadius: BorderRadius.circular(2.5),
+                          ),
+                          child: Text(widget.exp!,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                  fontSize: 9,
+                                  height: 1,
+                                  color: T.mbDim,
+                                  fontFamily: 'Menlo')),
+                        ),
+                      ),
               ),
-            const SizedBox(width: 6),
-            iconWidget(widget.icon, 15),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Text(widget.label,
-                  style: ts(12.5, widget.active ? T.text : T.mbText),
-                  overflow: TextOverflow.ellipsis),
-            ),
-            if (widget.trailing != null) widget.trailing!,
+            const SizedBox(width: ModelBrowser.rowGap),
+            iconWidget(widget.icon, ModelBrowser.rowIcon),
+            if (!widget.collapsed) ...[
+              const SizedBox(width: ModelBrowser.rowGap),
+              Expanded(
+                child: Text(widget.label,
+                    style: ts(12.5, widget.active ? T.text : T.mbText),
+                    overflow: TextOverflow.ellipsis),
+              ),
+              if (widget.trailing != null) widget.trailing!,
+            ],
           ]),
+          ),
         ),
       ),
     );

@@ -14,9 +14,16 @@ ENDIF()
 
 qt_standard_project_setup()
 
-if(WIN32)
-    set(RC core.rc)
-endif()
+# Local change to the vendored subset: the Windows resource script is NOT
+# built. core.rc is DLL version metadata (CompanyName, OriginalFilename
+# "...dll"), and every target here is a STATIC library, so the linker
+# never emits it into anything — while three of these scripts #include the
+# repo-root shared.rc, which is outside the vendored src/ scope and so is
+# not here to include. The shim DLL in backend/desktop carries the version
+# metadata that a Windows build actually ships. See VENDOR.md.
+#if(WIN32)
+#    set(RC core.rc)
+#endif()
 
 if (CMAKE_BUILD_TYPE STREQUAL "Release")
     link_directories(${CMAKE_CURRENT_SOURCE_DIR}/../../release)
@@ -220,7 +227,7 @@ target_include_directories(qcadcore PUBLIC
 
 target_compile_definitions(qcadcore PRIVATE
     QCADCORE_LIBRARY
-    QCAD_DLL
+    ${QCAD_DLL_DEFS}
 )
 
 # Phase 1 (M1-M3): pure C++/CLI core, no GUI. Guards out the small set of

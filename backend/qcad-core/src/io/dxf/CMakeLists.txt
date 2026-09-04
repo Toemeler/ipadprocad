@@ -7,9 +7,16 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(${QT_VER} REQUIRED COMPONENTS Core Widgets Concurrent Gui Network OpenGL Sql Svg Xml PrintSupport Qml)
 qt_standard_project_setup()
 
-if(WIN32)
-    set(RC dxf.rc)
-endif()
+# Local change to the vendored subset: the Windows resource script is NOT
+# built. dxf.rc is DLL version metadata (CompanyName, OriginalFilename
+# "...dll"), and every target here is a STATIC library, so the linker
+# never emits it into anything — while three of these scripts #include the
+# repo-root shared.rc, which is outside the vendored src/ scope and so is
+# not here to include. The shim DLL in backend/desktop carries the version
+# metadata that a Windows build actually ships. See VENDOR.md.
+#if(WIN32)
+#    set(RC dxf.rc)
+#endif()
 
 if (CMAKE_BUILD_TYPE STREQUAL "Release")
     link_directories(${CMAKE_CURRENT_SOURCE_DIR}/../../../release)
@@ -37,7 +44,7 @@ target_include_directories(qcaddxf PRIVATE
 
 target_compile_definitions(qcaddxf PRIVATE
     QCADDXF_LIBRARY
-    QCAD_DLL
+    ${QCAD_DLL_DEFS}
 )
 
 set_target_properties(qcaddxf PROPERTIES LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../../../plugins)

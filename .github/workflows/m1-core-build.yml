@@ -1599,7 +1599,7 @@ jobs:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
         run: |
           bash ci/notify_build.sh \
-            "https://github.com/${GITHUB_REPOSITORY}/releases/download/build-${GITHUB_RUN_NUMBER}/ipadprocad-${GITHUB_RUN_NUMBER}.ipa" \
+            "https://github.com/${GITHUB_REPOSITORY}/releases/download/build-${GITHUB_SHA:0:7}/ipadprocad-${GITHUB_RUN_NUMBER}.ipa" \
             "${GITHUB_RUN_NUMBER}" \
             "$(git log -1 --pretty=%s)"
 

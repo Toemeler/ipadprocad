@@ -1,0 +1,21 @@
+/* Prototype — what the desktop path tracer lets out.
+ *
+ * A SECOND library, and the reason is size: Cycles plus Embree, TBB,
+ * OpenImageIO, OpenColorIO and OpenImageDenoise is an order of magnitude
+ * bigger than the CAD kernels, and an app that never opens rendered mode
+ * should not pay to map it. `NativeLib.open(NativeLib.cycles, optional: true)`
+ * is written for exactly that: absent, the app has no path tracer and says so.
+ *
+ * Everything in here that is not the `cy_` C API is an implementation detail,
+ * and letting it out would be the same three mistakes prototype_native.map
+ * sets out — a huge dynamic symbol table, a real chance of colliding with a
+ * different TBB or OpenImageIO already in the process (Mesa loads its own
+ * llvm; a desktop is a crowded address space), and a public surface nobody
+ * meant to promise.
+ */
+{
+  global:
+    cy_*;
+  local:
+    *;
+};

@@ -14,6 +14,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart' show Ticker;
 import 'package:flutter/services.dart';
+import 'package:gpu_view/gpu_view.dart';
 import 'package:reality_view/reality_view.dart';
 
 import '../app_state.dart';
@@ -40,9 +41,10 @@ import '../svg_icons.dart' show homeTabIcon;
 import '../icon_preview.dart';
 import '../theme.dart';
 import 'package:native_menu/native_menu.dart'
-    show GlassBrowser, NativeMenu, NativeMenuItem;
+    show GlassBrowser, GlassPanel, NativeMenu, NativeMenuItem;
 import 'bottom_tabbar.dart';
 import 'native_browser_host.dart';
+import 'scene_sink.dart';
 import '../l10n/l.dart';
 import 'ribbon_chrome.dart';
 
@@ -140,7 +142,7 @@ class _Viewport3DState extends State<Viewport3D>
     _cancelLongPress();
     // The controller itself is owned (and disposed) by the RealityView widget's
     // own State; just drop our reference so late pushes are no-ops.
-    _reality = null;
+    _sink = null;
     RealityPush.nativeDrain = null;
     HardwareKeyboard.instance.removeHandler(_onKey);
     super.dispose();
@@ -313,7 +315,20 @@ class _Viewport3DState extends State<Viewport3D>
   String? _hoverSketch;
   final Set<String> _selSketch = <String>{};
 
-  RealityViewController? _reality;
+  /// M372 — whichever render surface this build has, as its three verbs.
+  ///
+  /// RealityKit off iOS does not exist and flutter_scene on iOS would be a
+  /// second renderer for a platform that already has the better one, so
+  /// exactly one of them is ever live — but the PUSH is the same either way,
+  /// because both take the payload maps reality_scene.dart builds. Holding
+  /// that as four closures rather than a shared base class keeps the two
+  /// packages from having to know about each other.
+  SceneSink? _sink;
+
+  /// Is there a real render surface in this build, or is the CPU painter
+  /// drawing? Decides the push, and decides who draws the screen-space
+  /// decorations — the painter does its own, the GPU surfaces do not.
+  bool get _hasSurface => RealityView.isSupported || GpuView.isSupported;
   String? _lastSceneSig;
   /// Mesh revisions the native side currently holds. Reset together with
   /// [_lastSceneSig] whenever a fresh platform view appears.
@@ -500,9 +515,11 @@ class _Viewport3DState extends State<Viewport3D>
     final path = await widget.app.childSketchExportPath(p.name, cs.model.name);
     if (path == null || !mounted) return;
     if (share) {
-      await NativeMenu.shareFile(path, anchor: anchor);
+      await NativeMenu.shareFile(path,
+          anchor: anchor, saveTitle: L.current.dlgSaveCopyTitle);
     } else {
-      await NativeMenu.exportFile(path, anchor: anchor);
+      await NativeMenu.exportFile(path,
+          anchor: anchor, saveTitle: L.current.dlgSaveCopyTitle);
     }
   }
 
@@ -512,7 +529,11 @@ class _Viewport3DState extends State<Viewport3D>
       Perf.span('3d.push', () => _pushRealityInner(app, p, size));
 
   void _pushRealityInner(AppState app, PartModel p, Size size) {
-    final c = _reality;
+    // ONE PUSH, TWO RENDERERS. RealityKit and flutter_scene take the same
+    // three payload maps, built by the same reality_scene.dart, because the
+    // alternative is two descriptions of what is in the viewport and a slow
+    // drift between them. Whichever surface this build has, it is fed here.
+    final c = _sink;
     if (c == null) return;
     // M80 — while a child sketch is open the 2D editor OWNS navigation, so the
     // 3D camera is derived from its pan/zoom rather than kept independently.
@@ -563,7 +584,7 @@ class _Viewport3DState extends State<Viewport3D>
       _armRefine(size);
       // Drive the RealityKit surface (iOS). Off-iOS this is a no-op and the
       // CustomPaint fallback below renders instead.
-      if (RealityView.isSupported) _pushReality(app, p, size);
+      if (_hasSurface) _pushReality(app, p, size);
       return Stack(children: [
         // The render surfaces sit at the BOTTOM and are never hit-tested; the
         // gesture layer is stacked on top of them (see below).
@@ -581,7 +602,7 @@ class _Viewport3DState extends State<Viewport3D>
                         child: RealityView(
                           placeholder: ColoredBox(color: T.viewport),
                           onCreated: (c) {
-                            _reality = c;
+                            _sink = SceneSink.reality(c);
                             // Let the bug bundle reach the NATIVE timing table
                             // without reaching into this State. Cleared in
                             // dispose, so a drain after the view goes away is
@@ -601,11 +622,38 @@ class _Viewport3DState extends State<Viewport3D>
                           },
                         ),
                       )
-                    : CustomPaint(
-                        painter: _ScenePainter(
-                            app, p, _hover, _hoverRegion, _hoverFace),
-                        size: Size.infinite,
-                      ),
+                    // M372 — flutter_scene on Flutter GPU, everywhere else
+                    // there is a GPU to reach. Not a platform view: it renders
+                    // inside the Flutter tree, so the glass chrome composites
+                    // over it with no seam and the transparent gesture layer
+                    // above keeps working exactly as it does on iOS.
+                    : GpuView.isSupported
+                        ? IgnorePointer(
+                            child: GpuView(
+                              placeholder: ColoredBox(color: T.viewport),
+                              onCreated: (c) {
+                                _sink = SceneSink.gpu(c);
+                                // A FRESH surface starts empty, so the
+                                // signature has to stop matching what the old
+                                // one held or setScene never fires again. Same
+                                // reason as the RealityKit branch above.
+                                _lastSceneSig = null;
+                                _sentRevs = const {};
+                                WidgetsBinding.instance
+                                    .addPostFrameCallback((_) {
+                                  if (mounted) setState(() {});
+                                });
+                              },
+                            ),
+                          )
+                        // No GPU to reach: the CPU painter, which is what
+                        // keeps `flutter test` and a machine with no usable
+                        // driver working at all.
+                        : CustomPaint(
+                            painter: _ScenePainter(
+                                app, p, _hover, _hoverRegion, _hoverFace),
+                            size: Size.infinite,
+                          ),
               ),
               // M304 — the path-traced image, when rendered mode has one.
               // Over the shaded render and UNDER the decorations: a hover ring
@@ -622,10 +670,11 @@ class _Viewport3DState extends State<Viewport3D>
                       // tracer is already saturating. Reported by the layer, so
                       // the surface goes down only once there is a texture over
                       // it and comes back on the frame that texture goes.
-                      onCover: (covering) => _reality?.setPaused(covering))),
-              // Screen-space decorations (iOS only — the CPU painter draws its
-              // own): profile regions, hover rings, plane label.
-              if (RealityView.isSupported)
+                      onCover: (covering) => _sink?.setPaused(covering))),
+              // Screen-space decorations, for both GPU surfaces — the CPU
+              // painter draws its own: profile regions, hover rings, plane
+              // label.
+              if (_hasSurface)
                 Positioned.fill(
                   child: IgnorePointer(
                     child: CustomPaint(
@@ -997,14 +1046,17 @@ class _Viewport3DState extends State<Viewport3D>
             )),
         // Coordinate triad. M146 — moved to the RIGHT of the model browser
         // instead of under it: the browser card reaches down into the
-        // bottom-left corner the triad used to have to itself. Off iOS there
-        // is no floating card, so it keeps the corner.
+        // bottom-left corner the triad used to have to itself. Where the
+        // browser is an opaque column instead, it keeps the corner.
         //
         // M207 — and it FOLLOWS the panel now. It used to be pinned to the
         // expanded width whatever the panel was doing; retracting the browser
         // is a deliberate act to get that corner back, and the triad stayed
         // out in the open where the card no longer was.
-        if (GlassBrowser.isSupported)
+        // M367 — `GlassPanel`, not `GlassBrowser`: the question is whether the
+        // browser is a FLOATING CARD reaching into this corner, and off iOS
+        // that became true when the material did. See main.dart's gates.
+        if (GlassPanel.isSupported)
           ValueListenableBuilder<double>(
             valueListenable: NativeModelBrowser.occupied,
             builder: (_, w, child) => Positioned(

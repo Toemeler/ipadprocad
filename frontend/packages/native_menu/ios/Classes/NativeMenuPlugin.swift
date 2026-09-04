@@ -80,7 +80,7 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
             binaryMessenger: registrar.messenger())
         let instance = NativeMenuPlugin(channel: channel)
         registrar.addMethodCallDelegate(instance, channel: channel)
-        // M373 — the share code's discovery half. Registered unconditionally:
+        // M381 — the share code's discovery half. Registered unconditionally:
         // it is a pair of channels, and a build where nobody turns sharing on
         // never starts a NetService.
         SyncDiscovery.register(with: registrar)

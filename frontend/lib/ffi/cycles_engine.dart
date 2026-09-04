@@ -23,6 +23,7 @@ import 'package:ffi/ffi.dart';
 
 import '../cycles_view.dart' show CyclesEnv, CyclesMaterial, CyclesMesh;
 import '../log.dart';
+import 'native_lib.dart';
 
 // ---- the C surface, mirrored ------------------------------------------------
 // Kept structurally identical to backend/cycles/shim/cycles_shim.h. A field
@@ -235,7 +236,8 @@ class CyclesFfi {
     if (_tried) return _instance;
     _tried = true;
     try {
-      final lib = DynamicLibrary.process();
+      final lib = NativeLib.open(NativeLib.cycles, optional: true);
+      if (lib == null) throw StateError('no Cycles library');
       _instance = CyclesFfi._(
         lib.lookupFunction<_AvailN, _AvailD>('cy_available'),
         lib.lookupFunction<_StrN, _StrD>('cy_device_name'),

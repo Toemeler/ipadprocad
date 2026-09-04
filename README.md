@@ -7,6 +7,11 @@ Ein moderner, radikal benutzerfreundlicher 2D-AutoCAD-Klon exklusiv für iPad.
 - Komplett touch-/Pencil-gesteuert, kein Kommandozeilen-Interface
 - Ziel: Präzision eines technischen CAD-Programms + Eleganz einer modernen Tablet-App
 
+> **Linux-Desktop:** dieselbe App, derselbe Dart-Baum, dieselben drei Kernel.
+> Was gebaut wird, was sich pro Plattform unterscheidet und was ein Merge von
+> `main` hier kostet, steht in **[LINUX.md](LINUX.md)** — dort auch, was ein
+> späterer Windows-Build noch braucht.
+
 ## Status (Stand M60)
 
 | Meilenstein | Stand |

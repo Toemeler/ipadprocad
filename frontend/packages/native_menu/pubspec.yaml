@@ -1,7 +1,10 @@
 name: native_menu
 description: >-
-  In-repo iOS plugin: real UIKit context menus (UIContextMenuInteraction),
-  the system share sheet and the Files exporter, driven from Dart.
+  In-repo platform plugin: real UIKit context menus (UIContextMenuInteraction),
+  the system share sheet and the Files exporter on iOS; on the desktop the
+  file surfaces only (Save a copy, Open, Open with, the mesh-import question
+  and the OS performance probe), because the app draws every menu, alert and
+  sheet itself off iOS. See lib/native_menu.dart.
 version: 0.1.0
 publish_to: 'none'
 
@@ -14,7 +17,20 @@ dependencies:
     sdk: flutter
 
 flutter:
+  # M367 — the Liquid Glass material, for the platforms with no UIGlassEffect.
+  #
+  # Declared here rather than in the app so that the material travels with the
+  # thing that owns it: GlassPanel is in this package, and a shader in the
+  # app's pubspec would be a second place to remember. Flutter compiles it for
+  # every target through impellerc; it is a few kilobytes and iOS never runs
+  # it, which is the same bargain the Dart half of this package already makes.
+  shaders:
+    - shaders/liquid_glass.frag
   plugin:
     platforms:
       ios:
         pluginClass: NativeMenuPlugin
+      linux:
+        pluginClass: NativeMenuPlugin
+      windows:
+        pluginClass: NativeMenuPluginCApi

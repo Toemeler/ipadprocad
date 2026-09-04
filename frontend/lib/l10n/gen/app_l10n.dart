@@ -637,6 +637,30 @@ abstract class AppL10n {
   /// **'Teilen…'**
   String get shareEllipsis;
 
+  /// No description provided for @dlgOpenTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Öffnen'**
+  String get dlgOpenTitle;
+
+  /// No description provided for @dlgSaveCopyTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Kopie sichern'**
+  String get dlgSaveCopyTitle;
+
+  /// No description provided for @filterOpenableDocuments.
+  ///
+  /// In de, this message translates to:
+  /// **'Dokumente, die diese App öffnen kann'**
+  String get filterOpenableDocuments;
+
+  /// No description provided for @filterAllFiles.
+  ///
+  /// In de, this message translates to:
+  /// **'Alle Dateien'**
+  String get filterAllFiles;
+
   /// Werkzeugleiste. "Rückgängig" ist der Begriff, den jede deutsche Oberflaeche benutzt; die Leiste laesst 12 Zeichen zu.
   ///
   /// In de, this message translates to:

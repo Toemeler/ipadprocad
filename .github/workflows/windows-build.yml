@@ -1,0 +1,898 @@
+name: Windows app build  # the same app again, for the Win32 embedder
+
+# The iOS job (m1-core-build.yml) is the reference and the Linux job
+# (linux-build.yml) is the shape. This one builds the SAME Dart tree for the
+# Win32 embedder and packages the result. Like the Linux job it deliberately
+# does NOT re-run `flutter analyze` or the host test suite: m1-core-build's
+# `dart-checks` job already does both, and a second copy would be a second
+# thing to keep in step.
+#
+# WHAT IS DIFFERENT FROM THE LINUX JOB, and it is less than it looks:
+#
+#   * No rpath. Windows resolves a DLL against the directory of the EXE that
+#     loaded it, so the kernels and everything they need sit FLAT beside
+#     prototype.exe rather than in a lib/ with $ORIGIN on it.
+#   * No AppImage. A zip of the runner directory is the whole product; it is
+#     already relocatable because of the above.
+#   * The launch check runs on the runner's own desktop session rather than
+#     under Xvfb.
+
+on:
+  push:
+    branches: [ main, 'claude/**' ]
+    tags: [ 'v*' ]
+    paths-ignore: [ '**.md' ]
+  pull_request:
+    branches: [ main ]
+    paths-ignore: [ '**.md' ]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: >-
+          Publish a GitHub Release at this tag from the ref being built
+          (e.g. v0.1.0-windows.1). Leave empty to build without releasing.
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Bump when the OCCT pin or the flag set below changes — the key is what
+  # decides whether a long build runs. Same discipline as the Linux job.
+  OCCT_CACHE_KEY: occt-windows-V7_9_3-r1
+  # The Qt the kernels link against. QCAD needs Core/Concurrent/Gui/Network/
+  # Qml/Svg/Xml, and in Qt 6 every one of those is in the DEFAULT desktop
+  # package — `modules:` is for the add-ons (qtcharts, qt5compat, qtmultimedia
+  # and the like), and asking it for qtsvg or qtdeclarative fails the install
+  # with "not found while parsing XML of package information".
+  QT_VERSION: 6.8.3
+
+jobs:
+  occt:
+    name: OpenCASCADE (static, MSVC x64)
+    runs-on: windows-2022
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore the OCCT install tree
+        id: occt-cache
+        uses: actions/cache@v4
+        with:
+          path: backend/occt/install-windows
+          key: ${{ env.OCCT_CACHE_KEY }}
+
+      - name: Fetch the pinned submodule (cache miss only)
+        if: steps.occt-cache.outputs.cache-hit != 'true'
+        run: git submodule update --init --depth 1 -- backend/occt/upstream
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: steps.occt-cache.outputs.cache-hit != 'true'
+        with:
+          arch: x64
+
+      # THE SAME FLAGS AS THE LINUX AND iOS BUILDS, and that is the point: the
+      # shim is written against one OCCT configuration, and a third platform
+      # that quietly turned a module on would be a third set of bugs. Every
+      # USE_* is off — see backend/occt/VENDOR.md.
+      - name: Build (cache miss only)
+        if: steps.occt-cache.outputs.cache-hit != 'true'
+        shell: cmd
+        run: |
+          cmake -S backend/occt/upstream -B backend/occt/build-windows -G Ninja ^
+            -DINSTALL_DIR=%CD%\backend\occt\install-windows ^
+            -DCMAKE_BUILD_TYPE=Release ^
+            -DBUILD_LIBRARY_TYPE=Static ^
+            -DBUILD_MODULE_FoundationClasses=ON ^
+            -DBUILD_MODULE_ModelingData=ON ^
+            -DBUILD_MODULE_ModelingAlgorithms=ON ^
+            -DBUILD_MODULE_DataExchange=ON ^
+            -DBUILD_MODULE_ApplicationFramework=OFF ^
+            -DBUILD_MODULE_Visualization=OFF ^
+            -DBUILD_MODULE_Draw=OFF ^
+            -DBUILD_MODULE_DETools=OFF ^
+            -DBUILD_DOC_Overview=OFF ^
+            -DUSE_FREETYPE=OFF -DUSE_TK=OFF -DUSE_XLIB=OFF -DUSE_FREEIMAGE=OFF ^
+            -DUSE_OPENVR=OFF -DUSE_FFMPEG=OFF -DUSE_RAPIDJSON=OFF -DUSE_DRACO=OFF ^
+            -DUSE_TBB=OFF -DUSE_VTK=OFF || exit /b 1
+          cmake --build backend/occt/build-windows || exit /b 1
+          cmake --install backend/occt/build-windows || exit /b 1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: occt-install-windows
+          path: backend/occt/install-windows
+          retention-days: 5
+
+  kernels:
+    name: CAD kernels (prototype_native.dll)
+    needs: occt
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          # No cache here either, and the arithmetic is the same as the SDK's
+          # below: a cache hit made this step 8 seconds instead of 56, and cost
+          # something like a gigabyte and a half of the 10 GB the repository
+          # gets. The OpenCASCADE tree it evicts costs thirty-one minutes.
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: occt-install-windows
+          path: backend/occt/install-windows
+
+      - name: Build the kernel library
+        shell: cmd
+        run: |
+          cmake -S backend/desktop -B frontend/build/native -G Ninja ^
+            -DCMAKE_BUILD_TYPE=Release ^
+            -DPROTOTYPE_WITH_OCCT=ON ^
+            -DCMAKE_PREFIX_PATH="%CD%\backend\occt\install-windows;%QT_ROOT_DIR%" ^
+            || exit /b 1
+          cmake --build frontend/build/native || exit /b 1
+
+      # WHAT WINDOWS NEEDS INSTEAD OF AN RPATH. Qt on Windows is a set of DLLs
+      # and there is no $ORIGIN to point at them, so they travel flat beside
+      # the exe — which is where prototype_native.dll will be too, and where
+      # the loader looks for the dependencies of a DLL loaded from there.
+      #
+      # windeployqt is the tool that knows which ones: it reads the binary's
+      # imports and copies the transitive set, plus the plugin directories Qt
+      # loads by path at run time.
+      - name: Collect what the library needs at run time
+        shell: pwsh
+        run: |
+          $out = "frontend/build/native"
+          if (-not (Test-Path "$out/prototype_native.dll")) {
+            Write-Host "WINDOWS KERNELS: FAIL (no prototype_native.dll)"; exit 1
+          }
+          New-Item -ItemType Directory -Force -Path "$out/deps" | Out-Null
+          & "$env:QT_ROOT_DIR/bin/windeployqt.exe" `
+              --release --no-translations --no-compiler-runtime `
+              --dir "$out/deps" "$out/prototype_native.dll"
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "WINDOWS KERNELS: FAIL (windeployqt)"; exit 1
+          }
+          Get-ChildItem -Recurse "$out/deps" | Select-Object FullName, Length |
+            Format-Table -AutoSize
+
+      # The gate, and the verdict is the MARKER rather than the exit code —
+      # the same discipline as the Linux job, for the same reason: a process
+      # that dies inside a kernel exits non-zero for reasons that say nothing
+      # about how far it got.
+      - name: Kernel smoke verdict
+        shell: pwsh
+        run: |
+          $out = "frontend/build/native"
+          # The DLL's own dependencies are looked up beside it, so the smoke
+          # runs with the collected set on PATH — which is exactly the
+          # arrangement the packaged app has.
+          $env:PATH = (Resolve-Path "$out/deps").Path + ";" + $env:PATH
+          & "$out/prototype_native_smoke.exe" "$out/prototype_native.dll" `
+            2>&1 | Tee-Object -FilePath "$out/native-smoke.log"
+          Get-Content "$out/native-smoke.log"
+          if (-not (Select-String -Path "$out/native-smoke.log" `
+                                  -Pattern "NATIVE SMOKE: PASS" -Quiet)) {
+            Write-Host "WINDOWS KERNELS: FAIL"; exit 1
+          }
+          Write-Host "WINDOWS KERNELS: PASS"
+          exit 0  # not the smoke exe's status; see the path-tracer verdict
+
+      # Nothing but the three C APIs may leave this library — the same check
+      # the Linux job makes, through the tool this platform has.
+      - name: Exported surface is only the C API
+        shell: pwsh
+        run: |
+          $out = "frontend/build/native"
+          $syms = & dumpbin /EXPORTS "$out/prototype_native.dll" |
+                  Select-String -Pattern '^\s+\d+\s+[0-9A-F]+\s+[0-9A-F]+\s+(\S+)' |
+                  ForEach-Object { $_.Matches[0].Groups[1].Value }
+          Write-Host "exported symbols: $($syms.Count)"
+          $bad = $syms | Where-Object { $_ -notmatch '^(qcad_|slvs_|occt_)' }
+          if ($bad) {
+            Write-Host "WINDOWS KERNELS: FAIL (symbols past the .def)"
+            $bad | Select-Object -First 20 | ForEach-Object { Write-Host "  $_" }
+            exit 1
+          }
+          if ($syms.Count -lt 50) {
+            Write-Host "WINDOWS KERNELS: FAIL (only $($syms.Count) exports — "
+            Write-Host "the .def was derived from an archive that had none)"
+            exit 1
+          }
+          Write-Host "EXPORT CHECK: PASS"
+          exit 0  # not dumpbin's status; see the path-tracer verdict
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prototype-kernels-windows
+          path: |
+            frontend/build/native/prototype_native.dll
+            frontend/build/native/deps
+            frontend/build/native/native-smoke.log
+          retention-days: 5
+
+  # -------------------------------------------------------------------------
+  # The path tracer, which is the same build as Linux with a different linker
+  # -------------------------------------------------------------------------
+  cycles:
+    name: Path tracer (prototype_cycles.dll)
+    runs-on: windows-2022
+    # Cycles is thirteen static libraries and about half a million lines, and
+    # MSVC is slower at it than GCC. The cache below turns that into a download
+    # on every run that does not touch the shim.
+    timeout-minutes: 300
+    env:
+      # NOT under the workspace. GitHub's Windows runners put the workspace on
+      # D:, which has about fourteen gigabytes free; Blender's precompiled
+      # dependency set and the build tree together are larger than that. C: has
+      # room, and the build script takes its work directory from here.
+      CYCLES_WORK_DIR: C:\cycles-work
+    steps:
+      - uses: actions/checkout@v4
+
+      # THE PIN IS THE CACHE KEY, exactly as in the Linux job: the Blender
+      # commit decides the API the shim is written against, and the shim, the
+      # patches and this script decide everything else.
+      - name: Cache key
+        id: key
+        shell: bash
+        run: |
+          ref=$(grep -oP 'BLENDER_REF:-\K[0-9a-f]{12}' \
+                tools/desktop/build_cycles_linux.sh | head -1)
+          h=$(cat backend/cycles/shim/*.cpp backend/cycles/shim/*.h \
+                  backend/cycles/shim/*.cmake backend/cycles/patches/*.py \
+                  tools/desktop/build_cycles_windows.ps1 2>/dev/null \
+              | sha256sum | cut -c1-16)
+          echo "key=cycles-windows-$ref-$h" >> "$GITHUB_OUTPUT"
+          echo "cycles-windows-$ref-$h"
+
+      - name: Restore the built path tracer
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: frontend/build/native
+          key: ${{ steps.key.outputs.key }}
+
+      # UNCONDITIONALLY, unlike the two steps below it. The build needs this
+      # for cl and link; the VERDICT needs it for dumpbin, and the verdict runs
+      # on a cache HIT as well — that is the whole point of it, so a stale or
+      # truncated cache entry cannot reach the app unchecked. Behind the same
+      # `if` as the build, the first cache hit there has ever been failed one
+      # second in with "the term 'dumpbin' is not recognized", having proved
+      # nothing about the library it restored. Ten seconds, once per run.
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      # git-lfs is what make_update.py fetches the precompiled set through.
+      # Without it the fetch produces an EMPTY lib\windows_x64, which the build
+      # script tests for by CONTENT rather than by existence and refuses.
+      - name: git-lfs (cache miss only)
+        if: steps.cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          git lfs install
+          git lfs version
+          Get-PSDrive C, D | Format-Table Name, Used, Free
+
+      - name: Build Cycles (cache miss only)
+        if: steps.cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: tools/desktop/build_cycles_windows.ps1
+
+      # The gate the script already runs, repeated so the verdict names itself
+      # in the job summary — and so a CACHE HIT is checked too, which is the
+      # case where a stale or truncated cache entry would otherwise reach the
+      # app silently.
+      - name: Path tracer verdict
+        shell: pwsh
+        run: |
+          $out = "frontend/build/native"
+          $dll = "$out/prototype_cycles.dll"
+          if (-not (Test-Path $dll)) { Write-Host "CYCLES: FAIL (no library)"; exit 1 }
+          Write-Host "size: $([math]::Round((Get-Item $dll).Length / 1MB, 1)) MB"
+          $syms = @(& dumpbin /EXPORTS $dll |
+            Select-String -Pattern '^\s+\d+\s+[0-9A-F]+\s+[0-9A-F]+\s+(\S+)' |
+            ForEach-Object { $_.Matches[0].Groups[1].Value })
+          Write-Host "exports $($syms.Count) symbols"
+          if ($syms.Count -lt 10) { Write-Host "CYCLES: FAIL (export surface)"; exit 1 }
+          $leaked = @($syms | Where-Object { $_ -notmatch '^cy_' })
+          if ($leaked.Count -gt 0) {
+            Write-Host "CYCLES: FAIL (symbols past the .def)"
+            $leaked | Select-Object -First 5 | ForEach-Object { Write-Host "  $_" }
+            exit 1
+          }
+          # And it has to LOAD, which is the half a symbol table cannot answer:
+          # the closure walk is the thing most likely to have missed a DLL.
+          #
+          # JUDGED BY WHAT IT PRINTS, not by what it returns. The probe's main
+          # returns 0 unconditionally, so its exit status can only say whether
+          # the C runtime got through teardown afterwards — while the two lines
+          # below are the whole question: the DLL and its closure loaded, and
+          # Cycles picked a device. A status that disagrees is reported, since
+          # a crash on exit is worth knowing about, and does not fail the step;
+          # the Linux gate has run its probe under `|| true` from the start.
+          $env:PATH = (Resolve-Path "$out/deps").Path + ";" +
+                      (Resolve-Path $out).Path + ";" + $env:PATH
+          $probe = & "$out/prototype_cycles_probe.exe" 2>&1
+          $probeCode = $LASTEXITCODE
+          $probe | ForEach-Object { Write-Host "  $_" }
+          if (-not ($probe | Select-String -Quiet 'cycles available: 1')) {
+            Write-Host "CYCLES: FAIL (the probe would not run)"; exit 1
+          }
+          if (-not ($probe | Select-String -Quiet '^device: \S')) {
+            Write-Host "CYCLES: FAIL (loaded, but no device)"; exit 1
+          }
+          if ($probeCode -ne 0) {
+            Write-Host "note: the probe answered and then exited $probeCode"
+          }
+          Write-Host "CYCLES: PASS"
+          # THE STEP'S STATUS, SAID. GitHub runs a pwsh step as
+          #   . '<script>'; if (Test-Path variable:\LASTEXITCODE) { exit $LASTEXITCODE }
+          # so the step exits with whatever the last NATIVE command returned —
+          # here the probe — and Write-Host does not clear it. "CYCLES: PASS"
+          # followed by "Process completed with exit code 1" is what that looks
+          # like. Every failure above exits 1 for itself.
+          exit 0
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prototype-cycles-windows
+          path: |
+            frontend/build/native/prototype_cycles.dll
+            frontend/build/native/deps
+          retention-days: 5
+
+  app:
+    name: Flutter Windows bundle + package
+    needs: [kernels, cycles]
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      # dumpbin, for the bundle's closure walk below. The Flutter build finds
+      # MSVC by itself through vswhere, so this job never needed the developer
+      # environment until that check was added — and the check failed on its
+      # first run for exactly that reason, before the launch check it was meant
+      # to inform.
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      # NO `cache: true`, deliberately, and this is not a small thing.
+      #
+      # flutter-action downloads the SDK either way; the cache only replaces
+      # that download with a restore, worth some tens of seconds. What it costs
+      # is about two gigabytes of the repository's cache, twice — once here and
+      # once on Linux — and GitHub keeps 10 GB per repository and evicts the
+      # LEAST RECENTLY USED entry when it runs out.
+      #
+      # The entries that lose that race are the two OpenCASCADE install trees.
+      # They are 58 MB each and they cost THIRTY-ONE MINUTES to rebuild, so
+      # every eviction turns a twenty-minute run into a fifty-minute one. It
+      # happened twice this afternoon: a push to main ran the iOS workflow,
+      # whose caches are large, and the desktop OCCT entries went from a hit at
+      # 14:15 to a miss at 14:38 on both platforms at once.
+      #
+      # So the SDK is downloaded fresh each run and the expensive thing stays
+      # cached. That is the right way round.
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      # BOTH libraries into one directory, which is what the app's CMake
+      # expects: prototype_native.dll, prototype_cycles.dll and one merged
+      # deps\ that neither of them can be missing anything from.
+      - uses: actions/download-artifact@v4
+        with:
+          name: prototype-kernels-windows
+          path: frontend/build/native
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: prototype-cycles-windows
+          path: frontend/build/native
+
+      - name: flutter pub get
+        working-directory: frontend
+        run: flutter pub get
+
+      - name: Build the release bundle
+        working-directory: frontend
+        run: flutter build windows --release
+
+      # WHAT LANDED. The runner directory IS the product on Windows — the exe,
+      # the engine DLL, the plugin DLLs and `data/` — so this is both a
+      # sanity check and the manifest a bug report can be read against.
+      - name: What the bundle contains
+        shell: pwsh
+        run: |
+          $dir = "frontend/build/windows/x64/runner/Release"
+          if (-not (Test-Path "$dir/prototype.exe")) {
+            Write-Host "BUNDLE: FAIL (no prototype.exe)"; exit 1
+          }
+          Get-ChildItem $dir | Select-Object Name, Length | Format-Table
+          $shader = "$dir/data/flutter_assets/packages/native_menu/shaders/liquid_glass.frag"
+          if (-not (Test-Path $shader)) {
+            Write-Host "BUNDLE: FAIL (the Liquid Glass shader did not travel)"
+            exit 1
+          }
+          if (-not (Test-Path "$dir/prototype_native.dll")) {
+            Write-Host "BUNDLE: FAIL (the kernels did not travel)"; exit 1
+          }
+          if (-not (Test-Path "$dir/Qt6Core.dll")) {
+            Write-Host "BUNDLE: FAIL (Qt did not travel beside the kernels)"
+            exit 1
+          }
+          if (-not (Test-Path "$dir/prototype_cycles.dll")) {
+            Write-Host "BUNDLE: FAIL (the path tracer did not travel)"; exit 1
+          }
+          # AND IT HAS TO CLOSE, which listing the directory cannot say. The
+          # Linux job asks `ldd` this and refuses a bundle with an unresolved
+          # name; the Windows job had no equivalent, so a DLL that never
+          # travelled showed up only as an app that dies before its first
+          # instruction — no window, no log, no message, because a Windows
+          # loader failure (0xC0000135) happens before any code of ours runs.
+          #
+          # Same walk the path tracer's own closure does: dumpbin /DEPENDENTS
+          # from the exe outward. A name is satisfied if it is in the bundle or
+          # in System32, which is where the API sets and the CRT live.
+          # API SETS ARE NOT FILES. api-ms-win-*.dll and ext-ms-*.dll are
+          # virtual names the loader resolves through the API-set schema — they
+          # are not in System32, they are not anywhere, and they never travel
+          # in a bundle. dumpbin reports them among the imports like anything
+          # else, so a walk that asks "is there a file with this name" calls
+          # every one of them missing. The first run of this check did exactly
+          # that and failed a bundle whose other 31 names all resolved.
+          #
+          # build_cycles_windows.ps1's own closure walk has carried this filter
+          # from the start, at the head of its $hostOnly list.
+          $virtual = '^(api-ms-win-|ext-ms-)'
+          $exports = @{}
+          $sys = "$env:WINDIR/System32"
+
+          # WHAT THE MANIFEST CHANGES. An import is resolved against a file,
+          # and which file a NAME means is decided by the activation context
+          # before the search path is ever consulted. runner.exe.manifest
+          # names Microsoft.Windows.Common-Controls 6.0.0.0, so COMCTL32.dll
+          # means the WinSxS v6 assembly for this process and NOT the v5.82
+          # stub in System32 — two different export tables under one name.
+          # Read the manifest rather than assume either way: with the
+          # dependency absent the stub IS the right thing to check against,
+          # and getting that backwards would hide the failure a second time.
+          $skipComctl = $false
+          $sxs = @{}
+          # Repo-root relative, like every other path in this step: the source
+          # manifest, which Runner.rc embeds verbatim as the exe's RT_MANIFEST.
+          $mf = 'frontend/windows/runner/runner.exe.manifest'
+          if (-not (Test-Path $mf)) {
+            Write-Host "BUNDLE: FAIL (no runner.exe.manifest at $mf — this check cannot tell which COMCTL32 the app gets)"
+            exit 1
+          }
+          if (Select-String -Path $mf -Pattern 'Microsoft.Windows.Common-Controls' -Quiet) {
+            $v6 = Get-ChildItem "$env:WINDIR/WinSxS" -Directory -ErrorAction SilentlyContinue |
+                  Where-Object { $_.Name -like 'amd64_microsoft.windows.common-controls_6595b64144ccf1df_6.*' } |
+                  Sort-Object Name | Select-Object -Last 1
+            if ($v6 -and (Test-Path "$($v6.FullName)/comctl32.dll")) {
+              $sxs['COMCTL32.dll'] = "$($v6.FullName)/comctl32.dll"
+              $sxs['comctl32.dll'] = "$($v6.FullName)/comctl32.dll"
+              Write-Host "common controls v6 is manifested: $($v6.Name)"
+            } else {
+              # Manifested but not locatable on this image. Saying so beats
+              # failing against the stub's export table, which is not what runs.
+              Write-Host "common controls v6 is manifested but no WinSxS copy was found; COMCTL32 ordinals go unchecked"
+              $skipComctl = $true
+            }
+          } else {
+            Write-Host "no common controls v6 in the manifest: COMCTL32 means the System32 stub"
+          }
+          $seen = @{}; $queue = [System.Collections.Queue]::new()
+          $queue.Enqueue("$dir/prototype.exe")
+          $unresolved = @()
+          while ($queue.Count -gt 0) {
+            $item = $queue.Dequeue()
+            $needs = @(& dumpbin /DEPENDENTS $item 2>$null |
+                       Select-String -Pattern '^\s+(\S+\.dll)\s*$' |
+                       ForEach-Object { $_.Matches[0].Groups[1].Value })
+            foreach ($n in $needs) {
+              $key = $n.ToLower()
+              if ($seen.ContainsKey($key)) { continue }
+              $seen[$key] = $true
+              if ($key -match $virtual)     { continue }
+              if (Test-Path "$dir/$n")      { $queue.Enqueue("$dir/$n"); continue }
+              if (Test-Path "$sys/$n")      { continue }
+              $unresolved += $n
+            }
+          }
+          if ($unresolved.Count -gt 0) {
+            Write-Host "BUNDLE: FAIL (the loader cannot satisfy these):"
+            $unresolved | Sort-Object -Unique | ForEach-Object { Write-Host "  $_" }
+            Write-Host "walked $($seen.Count) names from prototype.exe"
+            exit 1
+          }
+          Write-Host "the loader resolves all $($seen.Count) names the bundle asks for"
+
+          # AND THE ORDINALS, which a name walk cannot see and which is what
+          # actually killed the app: it exited 0xC0000138,
+          # STATUS_ORDINAL_NOT_FOUND. Every name resolved and one of the files
+          # that answered was the wrong BUILD — an import by ordinal number
+          # rather than by name, satisfied by a DLL that does not have that
+          # ordinal.
+          #
+          # It is a merged directory that makes this possible: the kernels'
+          # closure and the path tracer's are downloaded on top of each other,
+          # so a DLL present in both sets arrives twice and one copy wins.
+          # Names still all resolve; ordinals stop matching.
+          $bad = @()
+          $ordinals = @()
+          foreach ($f in Get-ChildItem "$dir/*.dll", "$dir/*.exe") {
+            $provider = $null
+            foreach ($line in (& dumpbin /IMPORTS $f.FullName 2>$null)) {
+              if ($line -match '^\s{4}(\S+\.dll)\s*$') { $provider = $Matches[1]; continue }
+              if ($line -match '^\s+Ordinal\s+(\d+)\s*$' -and $provider) {
+                $ord = [int]$Matches[1]
+                # RESOLVED THE WAY THE LOADER WOULD: beside the exe first,
+                # then System32. The first version of this skipped a provider
+                # that was not in the bundle, which is half the graph — a
+                # bundled DLL importing by ordinal from a SYSTEM one fails
+                # exactly the same way, and that half was invisible.
+                $prov = if (Test-Path (Join-Path $dir $provider)) { Join-Path $dir $provider }
+                        elseif ($sxs.ContainsKey($provider))      { $sxs[$provider] }
+                        elseif (Test-Path "$sys/$provider")       { "$sys/$provider" }
+                        else { $null }
+                $where = if (-not $prov)                     { 'nowhere' }
+                         elseif ($prov -eq $sxs[$provider])  { 'WinSxS' }
+                         elseif ($prov.StartsWith($sys))     { 'System32' }
+                         else                                { 'bundle' }
+                $ordinals += "$($f.Name) -> $provider #$ord ($where)"
+                if (-not $prov) { continue }               # an API set, or virtual
+                if ($skipComctl -and $provider -match '^(?i:comctl32\.dll)$') { continue }
+                if (-not $exports.ContainsKey($prov)) {
+                  # ORDINAL AND HINT, AND NOTHING AFTER THEM. dumpbin prints an
+                  # export three different ways and only one has an RVA:
+                  #
+                  #     1    0 00001010 Foo
+                  #     2    1          Bar (forwarded to OTHER.Bar)
+                  #     3    2 00001020 [NONAME]
+                  #
+                  # Requiring the RVA column — which the first version did —
+                  # drops every FORWARDER, and WSOCK32.dll is very nearly
+                  # nothing but forwarders to WS2_32. That is why it appeared to
+                  # export none of the three ordinals prototype_native.dll asks
+                  # it for. COMCTL32's DPA_/DSA_ family is the [NONAME] case.
+                  $exports[$prov] = @(& dumpbin /EXPORTS $prov 2>$null |
+                    Select-String -Pattern '^\s+(\d+)\s+[0-9A-Fa-f]+(\s|$)' |
+                    ForEach-Object { [int]$_.Matches[0].Groups[1].Value })
+                }
+                if ($exports[$prov] -notcontains $ord) {
+                  # FATAL WHEREVER IT RESOLVED. The first version of this arm
+                  # reported a System32 miss and carried on, reasoning that the
+                  # activation context decides what COMCTL32 means and that a
+                  # check reading files could not see it. That reasoning let
+                  # the one real failure through: native_menu_plugin.dll asks
+                  # COMCTL32 for #345 (TaskDialogIndirect), the manifest did
+                  # not name common controls v6, so the loader bound the v5.82
+                  # stub in System32, which has no #345, and killed the process
+                  # with 0xC0000138 before it could write a line. The check
+                  # said "reported, not fatal" and the build went on.
+                  #
+                  # The context is READ now, above, rather than guessed at, so
+                  # this arm has the same standing as the bundle one.
+                  $bad += "$($f.Name) imports ordinal $ord from $provider ($where), which does not export it"
+                }
+              }
+            }
+          }
+          if ($bad.Count -gt 0) {
+            Write-Host "BUNDLE: FAIL (an import by ordinal has no match — 0xC0000138):"
+            $bad | Select-Object -First 20 | ForEach-Object { Write-Host "  $_" }
+            exit 1
+          }
+          # Printed whether or not it passed. An import by ordinal is rare
+          # enough that the whole list is short, and the loader failed on one
+          # of them — so the list itself is the evidence, not just the verdict.
+          Write-Host "imports taken by ordinal ($($ordinals.Count)):"
+          $ordinals | Sort-Object -Unique | Select-Object -First 40 |
+            ForEach-Object { Write-Host "  $_" }
+          Write-Host "every import by ordinal is exported by the file the loader would bind"
+
+          # AND WHAT SHADOWS THE SYSTEM, which is the other way a name resolves
+          # to the wrong build: a DLL beside the exe is found before the one in
+          # System32, so shipping a stale copy of something Windows also
+          # provides breaks whatever expected the system's.
+          foreach ($f in Get-ChildItem "$dir/*.dll") {
+            if (Test-Path "$sys/$($f.Name)") {
+              $ours = (Get-Item $f.FullName).VersionInfo.FileVersion
+              $theirs = (Get-Item "$sys/$($f.Name)").VersionInfo.FileVersion
+              Write-Host "  shadows System32: $($f.Name)  bundle=$ours  system=$theirs"
+            }
+          }
+          Write-Host "BUNDLE: PASS"
+          exit 0
+
+      # The gate that matters, and the same one the Linux job runs: the app has
+      # to LAUNCH, reach its first frame and say which renderer it got. Every
+      # failure this catches — a plugin that did not register, an exception in
+      # AppState.init, a Flutter GPU switch that never made it into the
+      # DartProject — produces a bundle that builds perfectly and then does
+      # nothing on a user's machine.
+      #
+      # The verdict comes out of the app's OWN log file, which is the same file
+      # a bug bundle carries.
+      - name: Launch check
+        shell: pwsh
+        run: |
+          $exe = "frontend/build/windows/x64/runner/Release/prototype.exe"
+          # STDOUT AND STDERR KEPT, and the exit code read. The first run of
+          # this step said only "the app wrote no log", which is every startup
+          # failure at once: a loader error before main, an exception in the
+          # C++ runner, a Dart error before Log.init. They are told apart by
+          # what the process printed and what it returned, and neither was
+          # being captured.
+          $started = Get-Date
+          $so = "$env:RUNNER_TEMP/app-stdout.txt"
+          $se = "$env:RUNNER_TEMP/app-stderr.txt"
+          $p = Start-Process -FilePath $exe -PassThru `
+                 -RedirectStandardOutput $so -RedirectStandardError $se
+          $log = "$env:APPDATA/prototype/logs/prototype_log.txt"
+          $ok = $false
+          foreach ($i in 1..60) {
+            Start-Sleep -Seconds 1
+            if ((Test-Path $log) -and
+                (Select-String -Path $log -Pattern "time to first frame" -Quiet)) {
+              $ok = $true; break
+            }
+          }
+          if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }
+          if (Test-Path $log) {
+            Write-Host "--- the app's log ---"
+            Get-Content $log | Select-Object -Last 200
+          } else {
+            Write-Host "the app wrote no log at $log"
+            # Where else could it have gone? app_dirs.dart falls through
+            # APPDATA, LOCALAPPDATA and then a named directory under the temp
+            # root, and says so; if one of those has it, the fault is the path
+            # and not the launch.
+            foreach ($base in @($env:APPDATA, $env:LOCALAPPDATA, $env:TEMP)) {
+              if ($base -and (Test-Path "$base/prototype")) {
+                Write-Host "  but $base/prototype exists:"
+                Get-ChildItem -Recurse "$base/prototype" -ErrorAction SilentlyContinue |
+                  Select-Object -First 20 |
+                  ForEach-Object { Write-Host "    $($_.FullName)" }
+              }
+            }
+          }
+          Write-Host "--- the process ---"
+          Write-Host "  exited: $($p.HasExited)"
+          if ($p.HasExited) {
+            $code = $p.ExitCode
+            Write-Host ("  exit code: {0} (0x{1:X8})" -f $code, $code)
+          }
+          foreach ($f in @($so, $se)) {
+            if ((Test-Path $f) -and (Get-Item $f).Length -gt 0) {
+              Write-Host "--- $(Split-Path -Leaf $f) ---"
+              Get-Content $f | Select-Object -First 40 |
+                ForEach-Object { Write-Host "  $_" }
+            }
+          }
+          # WHAT WINDOWS ITSELF SAW. A loader failure writes nothing to the
+          # process's own streams — there is no process yet — but the system
+          # usually records one, and for a missing export it names the module
+          # and the ordinal in the message. It is the one place the answer is
+          # written down.
+          Write-Host "--- the system's event log since the launch ---"
+          $ev = @(Get-WinEvent -LogName Application -MaxEvents 40 -ErrorAction SilentlyContinue |
+                  Where-Object { $_.TimeCreated -ge $started })
+          if ($ev.Count -eq 0) { Write-Host "  (nothing)" }
+          $ev | ForEach-Object {
+            Write-Host "  [$($_.ProviderName)] $(($_.Message -split "`n")[0..2] -join ' | ')"
+          }
+          if (-not $ok) { Write-Host "WINDOWS LAUNCH: FAIL (no first frame)"; exit 1 }
+          # The kernels have to be the REAL ones. Without this the job stays
+          # green on a bundle that silently fell back to the Dart engine, which
+          # is precisely the regression the packaging step can introduce.
+          foreach ($needle in @(
+              "REAL backend active (qcad-ffi)",
+              "DART SMOKE: PASS",
+              "renderer: flutter_scene",
+              "cycles: ready: device")) {
+            if (-not (Select-String -Path $log -Pattern $needle -SimpleMatch -Quiet)) {
+              Write-Host "WINDOWS LAUNCH: FAIL (missing: $needle)"; exit 1
+            }
+          }
+          Write-Host "WINDOWS LAUNCH: PASS"
+          # And emphatically not the app's status: this step STOPS the app
+          # to end the check, so the process it last ran was always going to
+          # die by a signal. The verdict is the log, which is read above.
+          exit 0
+
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Compress-Archive -Path frontend/build/windows/x64/runner/Release/* `
+                           -DestinationPath dist/prototype-windows-x64.zip -Force
+          Get-ChildItem dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prototype-windows-x64
+          path: dist/prototype-windows-x64.zip
+          if-no-files-found: error
+          retention-days: 14
+
+  # -------------------------------------------------------------------------
+  # The release
+  # -------------------------------------------------------------------------
+  release:
+    name: Publish a GitHub Release
+    needs: app
+    # THREE WAYS IN NOW, and the third is the everyday one: every green
+    # build of `main` publishes, so a download of the current app is always
+    # one click from the releases page instead of behind a login on an
+    # artifact that expires in fourteen days. The iOS workflow has worked this
+    # way from the start; this is the same rule applied to the desktop.
+    #
+    # A `v*` tag and a workflow_dispatch with `release_tag` still make their
+    # own named release, which is a different thing and stays a different
+    # thing: those are versions somebody chose to cut.
+    if: >-
+      startsWith(github.ref, 'refs/tags/') ||
+      inputs.release_tag != '' ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      # The only job in this workflow that writes anything to the repository.
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: prototype-windows-x64
+          path: dist
+
+      # The tag goes IN THE FILENAME, for the reason the Linux job gives: the
+      # first question about a bug report is always which build it came from.
+      - name: Name the assets after the tag
+        id: assets
+        run: |
+          set -euo pipefail
+          # WHICH RELEASE THIS IS. A dispatch names its tag, a tag push IS
+          # its tag, and a push to main goes to the per-commit build release
+          # that the iOS and the other desktop workflow also publish into —
+          # `build-<short sha>`, which all three compute from the commit alone
+          # because no workflow can see another's run number.
+          tag='${{ inputs.release_tag }}'
+          if [ -z "$tag" ]; then
+            case "$GITHUB_REF" in
+              refs/tags/*) tag="${GITHUB_REF_NAME}" ;;
+              *)           tag="build-${GITHUB_SHA:0:7}"; shared=yes ;;
+            esac
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "shared=${shared:-}" >> "$GITHUB_OUTPUT"
+          cd dist
+          mv prototype-windows-x64.zip "prototype-$tag-windows-x64.zip"
+          # ONE NAME PER PLATFORM in the shared release, because Linux
+          # publishes its own checksums into the same tag and an upload with
+          # --clobber would quietly replace this file with that one.
+          sums=SHA256SUMS.txt
+          [ -z "${shared:-}" ] || sums=SHA256SUMS-windows.txt
+          echo "sums=$sums" >> "$GITHUB_OUTPUT"
+          sha256sum "prototype-$tag-windows-x64.zip" > "$sums"
+          cat "$sums"
+          ls -lh
+
+      # THE PER-COMMIT RELEASE — a push to main. Assets only: the notes and
+      # the title belong to the iOS job, which publishes the IPA into the same
+      # tag, and two writers of one notes body is a lost section. Whichever of
+      # the three workflows arrives first creates the release; the other two
+      # find it there and attach to it.
+      - name: Attach to the build release
+        if: steps.assets.outputs.shared == 'yes'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.assets.outputs.tag }}
+          SUMS: ${{ steps.assets.outputs.sums }}
+        run: bash ci/release_attach.sh "$TAG" dist/*.zip "dist/${SUMS}"
+
+      # THE NAMED RELEASE — a `v*` tag or a dispatch that asked for one. Its
+      # notes are written out in full below because a version somebody cut is
+      # read by people who did not watch it being built.
+      - name: Create the release
+        if: steps.assets.outputs.shared != 'yes'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.assets.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # A QUOTED heredoc, with the values substituted afterwards: the notes
+          # are full of backticks, and an unquoted heredoc would read every one
+          # of them as the start of a command substitution.
+          cat > /tmp/notes.md <<'NOTES'
+          The Windows build of the app — the same Flutter tree, the same
+          three CAD kernels (QCAD core, libslvs, OCCT 7.9.3), the same Cycles
+          path tracer and the same Liquid Glass chrome as the iPad, built for
+          x86-64 Win32.
+
+          Built from `@REF@` at `@SHA@`, by [this run](@RUN@) — which launched
+          it and checked that the kernels, the path tracer and the GPU
+          viewport all came up before it packaged anything.
+
+          ## How to run it
+
+          Unzip anywhere and run `prototype.exe`. Nothing is installed and
+          nothing is written outside `%APPDATA%\prototype`.
+
+          Windows will show a SmartScreen warning the first time: the build is
+          not code-signed. "More info" then "Run anyway".
+
+          ## What it wants from the system
+
+          Windows 10 or newer and the Visual C++ 2015-2022 runtime, which
+          almost every machine already has. Everything else travels in the zip.
+
+          The chrome is a real shader rather than a picture of one, and it
+          costs two backdrop passes per surface. On a machine with no GPU worth
+          the name — a VM, a remote desktop, an old integrated chip — set
+          `PROTOTYPE_GLASS=0` in the environment and it draws the painted
+          panels instead. `PROTOTYPE_GPU=0` does the same for the 3D viewport,
+          which is flutter_scene on Flutter GPU and falls back to a CPU
+          painter.
+
+          ## The path tracer
+
+          Rendered mode is Cycles, the same renderer and the same shim as the
+          iPad's and the Linux build's, built with MSVC for x86-64. It picks
+          the fastest backend this build has and the machine can run, which on
+          a stock build is the CPU — the GPU backends need their vendor
+          toolchains at BUILD time to produce kernels, so a build that adds one
+          is a flag rather than a code change.
+
+          ## Sharing between devices
+
+          Settings has a share code. Type the same one on two machines on the
+          same network — a PC and a Linux box count — and they keep the same
+          documents and the same settings, live. No account, no server,
+          nothing leaving the network. Adding, changing or deleting a document
+          on one device does the same on all of them. The connection is
+          authenticated by the code but NOT encrypted, so use it on a network
+          you trust.
+
+          Windows Firewall will ask the first time. Allow it on private
+          networks; sharing does nothing until you do.
+
+          Checksums are in `SHA256SUMS.txt`.
+          NOTES
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          sed -i -e "s|@TAG@|${TAG}|g" \
+                 -e "s|@REF@|${GITHUB_REF_NAME}|g" \
+                 -e "s|@SHA@|${GITHUB_SHA:0:12}|g" \
+                 -e "s|@RUN@|${run_url}|g" /tmp/notes.md
+          cat /tmp/notes.md
+          gh release create "$TAG" \
+            --target "$GITHUB_SHA" \
+            --title "Prototype $TAG — Windows" \
+            --notes-file /tmp/notes.md \
+            --prerelease \
+            dist/*

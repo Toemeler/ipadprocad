@@ -393,6 +393,10 @@
   "@shareEllipsis": {
     "x-maxChars": 14
   },
+  "dlgOpenTitle": "Öffnen",
+  "dlgSaveCopyTitle": "Kopie sichern",
+  "filterOpenableDocuments": "Dokumente, die diese App öffnen kann",
+  "filterAllFiles": "Alle Dateien",
   "undo": "Rückgängig",
   "@undo": {
     "description": "Werkzeugleiste. \"Rückgängig\" ist der Begriff, den jede deutsche Oberflaeche benutzt; die Leiste laesst 12 Zeichen zu.",

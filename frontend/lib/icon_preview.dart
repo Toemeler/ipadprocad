@@ -262,6 +262,8 @@ class IconPreview {
     one('centerPointIcon', centerPointIcon);
     one('endOfSketchIcon', endOfSketchIcon);
     one('homeTabIcon', homeTabIcon);
+    one('tabHomeIcon', tabHomeIcon);
+    one('treeFolderIcon', treeFolderIcon);
     one('asmSelectionIcon', asmSelectionIcon);
     one('asmPickPartIcon', asmPickPartIcon);
     one('asmPreviewIcon', asmPreviewIcon);

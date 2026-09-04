@@ -20,7 +20,7 @@ dependencies:
   # localisations import it directly.
   intl: any
   ffi: ^2.1.0
-  # M373 — SHA-256 and HMAC, for the share code's key and the mirror's
+  # M381 — SHA-256 and HMAC, for the share code's key and the mirror's
   # per-file hash. Already in the tree as a transitive dependency of http;
   # named here because this app now uses it directly.
   crypto: ^3.0.3
@@ -36,6 +36,11 @@ dependencies:
   # Same path-dependency delivery as native_menu.
   reality_view:
     path: packages/reality_view
+  # M372 — the GPU viewport for platforms with no RealityKit. In-repo and
+  # domain-free, exactly as reality_view is: it takes the same payload maps
+  # and knows nothing about parts, sketches or OCCT.
+  gpu_view:
+    path: packages/gpu_view
   flutter_svg: ^2.0.10
   path_provider: ^2.1.2
 
@@ -46,6 +51,40 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  # M367 — the UI typeface, for the platforms that do not come with one we can
+  # count on.
+  #
+  # iOS resolves the system font and this app has always let it: `IosText` sets
+  # size, leading and tracking to Apple's published values and deliberately
+  # leaves the FAMILY null. That is right on the iPad and unusable on a
+  # desktop, where there is no system font in the Flutter sense at all —
+  # fontconfig answers with whatever the distribution happens to install, so
+  # the same build renders in DejaVu on one machine, Cantarell on another, and
+  # in nothing at all on a minimal one. A CAD ribbon is laid out against text
+  # metrics; three answers to "how wide is this label" is three layouts.
+  #
+  # Inter (SIL OFL 1.1, see assets/fonts/Inter-LICENSE.txt) is the substitute:
+  # it was drawn as a UI face on the same principles as the system font it
+  # stands in for, so the desktop build looks like the iPad build rather than
+  # like a port of it, and it renders identically on every machine because it
+  # travels with the app.
+  #
+  # It is declared for every platform because pubspec assets have no platform
+  # axis, and APPLIED on none but the desktop (see T.fontFamily). The cost is
+  # ~1.7 MB of unused glyphs in the IPA; if that ever matters, the fix is to
+  # drop this block and load the four files with a FontLoader from
+  # main() under `isDesktopHost`.
+  fonts:
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/Inter-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Inter-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Inter-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Inter-Bold.ttf
+          weight: 700
   # gen-l10n runs on `flutter pub get` and on every build. The output is
   # committed as well (see l10n.yaml) so `flutter analyze`/`flutter test`
   # never depend on the generator having run first.

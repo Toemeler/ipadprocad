@@ -56,6 +56,8 @@ import 'package:reality_view/reality_view.dart';
 
 import 'log.dart';
 
+import 'platform/app_dirs.dart';
+
 /// Every colour the app paints, as one value.
 ///
 /// Fields are grouped the way the UI is: chrome first, then the model browser,
@@ -1023,7 +1025,24 @@ class T {
   static Color get cubeEdge => scheme.value.cubeEdge;
   static Color get cubeText => scheme.value.cubeText;
 
-  static const fontFamily = '.SF UI Text'; // system-ui on iOS (mock fallback)
+  /// The UI typeface, or null to let the platform answer.
+  ///
+  /// NULL ON iOS, and that is the whole of the iPad's behaviour, unchanged:
+  /// Flutter's Cupertino typography resolves the system font, `IosText`
+  /// supplies Apple's own sizes, leadings and trackings on top of it, and
+  /// naming a family would only be a second place to get that wrong.
+  ///
+  /// A DESKTOP has no such default. Flutter asks fontconfig, and fontconfig
+  /// answers with whatever the distribution installed — DejaVu here, Cantarell
+  /// there, nothing at all on a minimal system, each with different metrics.
+  /// This app's ribbon, model browser and dialogs are laid out against those
+  /// metrics, so "the platform's font" is not one answer on Linux, it is one
+  /// per machine. Inter travels with the app and is one answer everywhere.
+  ///
+  /// Applied in exactly two places, which between them cover every string:
+  /// [materialTheme], which sets the ambient [DefaultTextStyle] that every
+  /// `Text` merges into, and [ts], which is what the painters build with.
+  static String? get fontFamily => isDesktopHost ? 'Inter' : null;
 }
 
 
@@ -1037,6 +1056,8 @@ ThemeData materialTheme(Palette p, {Color? accent}) {
   final a = accent ?? p.accent;
   return ThemeData(
     brightness: p.brightness,
+    // The ambient family for every `Text` in the tree. See [T.fontFamily].
+    fontFamily: T.fontFamily,
     scaffoldBackgroundColor: p.viewport,
     colorScheme: ColorScheme.fromSeed(
       seedColor: a,
@@ -1061,7 +1082,16 @@ ThemeData materialTheme(Palette p, {Color? accent}) {
 
 TextStyle ts(double size, Color color,
         {FontWeight w = FontWeight.normal, double height = 1.1}) =>
-    TextStyle(fontSize: size, color: color, fontWeight: w, height: height);
+    TextStyle(
+        fontSize: size,
+        color: color,
+        fontWeight: w,
+        height: height,
+        // Null on iOS — see [T.fontFamily]. Named here as well as in
+        // [materialTheme] because a CustomPainter's TextPainter has no ambient
+        // DefaultTextStyle to inherit one from, and the dimension labels, the
+        // view cube and the HUD are all painted rather than laid out.
+        fontFamily: T.fontFamily);
 
 /// M171/M206 — the keyboard a VALUE field asks for: NONE.
 ///

@@ -12,6 +12,7 @@ import 'dart:math' as math;
 import 'package:ffi/ffi.dart';
 
 import '../log.dart';
+import 'native_lib.dart';
 import 'perf_hook.dart';
 
 /// Geometry snapshot of one entity, mirroring qcad_entity_geometry().
@@ -221,8 +222,9 @@ abstract class Engine {
       }
     }
     try {
-      final proc = Log.step('ffi', 'DynamicLibrary.process()',
-          () => DynamicLibrary.process());
+      final proc = Log.step('ffi', 'NativeLib.open(kernels)',
+          () => NativeLib.open(NativeLib.kernels));
+      if (proc == null) throw StateError('no native kernel library');
       final b = Log.step('ffi', 'symbol lookup + qcad_init()',
           () => _Bindings(proc));
       final ver = Log.step('ffi', 'qcad_version()',

@@ -1,4 +1,4 @@
-// M373 — finding the other devices, on the platform that will not let a
+// M381 — finding the other devices, on the platform that will not let a
 // program shout.
 //
 // WHY BONJOUR AND NOT THE UDP BEACON the desktops use. Since iOS 14 a raw

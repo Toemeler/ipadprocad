@@ -7,6 +7,40 @@ if(MSVC)
     add_definitions(-DNOMINMAX)
 endif()
 
+# QCAD_DLL SAYS "THESE ARE SHARED LIBRARIES", AND HERE THEY ARE NOT.
+#
+# It picks the Q_DECL_EXPORT / Q_DECL_IMPORT branch of src/*/*_global.h, so a
+# class is __declspec(dllexport) in the library that defines it and
+# __declspec(dllimport) in every library that uses it. Every QCAD target in
+# this tree is a STATIC library and all of them are linked into the one
+# prototype_native library, so there is no DLL boundary for that pair to
+# describe.
+#
+# On GCC and Clang both attributes are visibility("default") and the mismatch
+# costs nothing, which is why it has been harmless so far. On MSVC dllimport
+# is an instruction rather than a hint: reach this symbol through __imp_, an
+# indirection only an import library provides. Most of them the linker repairs
+# and warns about (LNK4217, several hundred). The ones it CANNOT repair are
+# inline members of a dllimport class, because there is no out-of-line
+# definition anywhere to repair them to:
+#
+#   qcadentity.lib(RHatchData.cpp.obj) : error LNK2019: unresolved external
+#   symbol __declspec(dllimport) ... RPatternListImperial::get(QString const&)
+#
+# — which is four lines in RPatternListImperial.h, and RPatternListMetric::get
+# beside it. So on MSVC the macros expand to nothing and a static library is
+# just a static library. That is the branch src/capi already takes on purpose,
+# for the same reason, in every build: "as a *consumer* of the static core
+# libraries, the QCAD*_EXPORT macros must expand to empty".
+#
+# Every target that defines QCAD_DLL uses this variable rather than the name,
+# so the two cannot drift apart.
+if(MSVC)
+    set(QCAD_DLL_DEFS "")
+else()
+    set(QCAD_DLL_DEFS QCAD_DLL)
+endif()
+
 if(UNIX)
     if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
         set(CMAKE_POSITION_INDEPENDENT_CODE ON)

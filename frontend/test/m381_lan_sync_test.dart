@@ -1,4 +1,4 @@
-// M373 — the share code, the wire, and the rule about who wins.
+// M381 — the share code, the wire, and the rule about who wins.
 //
 // The network half of this feature is exercised end to end by running two
 // copies of the app with different data directories (see LINUX.md); what is
@@ -147,7 +147,7 @@ void main() {
     late Directory prefs;
 
     setUp(() {
-      root = Directory.systemTemp.createTempSync('m373');
+      root = Directory.systemTemp.createTempSync('m381');
       docs = Directory('${root.path}/docs')..createSync();
       prefs = Directory('${root.path}/prefs')..createSync();
       LanSync.instance.attachForTest(documents: docs, preferences: prefs);
@@ -268,7 +268,7 @@ void main() {
     late Directory prefs;
 
     setUp(() {
-      root = Directory.systemTemp.createTempSync('m373d');
+      root = Directory.systemTemp.createTempSync('m381d');
       docs = Directory('${root.path}/docs')..createSync();
       prefs = Directory('${root.path}/prefs')..createSync();
       LanSync.instance.attachForTest(documents: docs, preferences: prefs);
@@ -414,7 +414,7 @@ void main() {
     late Directory prefs;
 
     setUp(() {
-      root = Directory.systemTemp.createTempSync('m373s');
+      root = Directory.systemTemp.createTempSync('m381s');
       docs = Directory('${root.path}/docs')..createSync();
       prefs = Directory('${root.path}/prefs')..createSync();
     });
@@ -484,7 +484,7 @@ void main() {
 
   group('the store', () {
     late Directory dir;
-    setUp(() => dir = Directory.systemTemp.createTempSync('m373st'));
+    setUp(() => dir = Directory.systemTemp.createTempSync('m381st'));
     tearDown(() {
       dir.deleteSync(recursive: true);
       ShareCodes.resetForTest();

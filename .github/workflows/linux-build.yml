@@ -1,0 +1,604 @@
+name: Linux app build  # the desktop port of the same app the iOS job builds
+
+# The iOS job (m1-core-build.yml) is the reference. This one builds the SAME
+# Dart tree for the GTK embedder, the SAME three kernels for x86-64, and
+# packages the result. It deliberately does NOT re-run `flutter analyze` or the
+# host test suite: m1-core-build's `dart-checks` job already does both on an
+# ubuntu runner, and a second copy would be a second thing to keep in step.
+#
+# The three jobs exist because their costs differ by two orders of magnitude:
+#
+#   occt      ~40 min, changes when the submodule pin changes    -> cached
+#   kernels   ~4 min,  changes when backend/ changes
+#   app       ~6 min,  changes on every commit
+#
+# with the OCCT install tree carried between them as an artifact rather than
+# rebuilt. A cache miss costs one long run; a hit costs a download.
+
+on:
+  push:
+    branches: [ main, 'claude/**' ]
+    # Path filters do not apply to tag pushes, so a `v*` tag always builds.
+    tags: [ 'v*' ]
+    paths-ignore: [ '**.md' ]
+  pull_request:
+    branches: [ main ]
+    paths-ignore: [ '**.md' ]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: >-
+          Publish a GitHub Release at this tag from the ref being built
+          (e.g. v0.1.0-linux.1). Leave empty to build without releasing.
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Bump when the OCCT pin or the flag set below changes — the key is what
+  # decides whether a 40-minute build runs.
+  OCCT_CACHE_KEY: occt-linux-V7_9_3-r1
+
+jobs:
+  occt:
+    name: OpenCASCADE (static, x86-64)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    outputs:
+      cache-key: ${{ env.OCCT_CACHE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore the OCCT install tree
+        id: occt-cache
+        uses: actions/cache@v4
+        with:
+          path: backend/occt/install-linux
+          key: ${{ env.OCCT_CACHE_KEY }}
+
+      - name: Fetch the pinned submodule (cache miss only)
+        if: steps.occt-cache.outputs.cache-hit != 'true'
+        run: git submodule update --init --depth 1 -- backend/occt/upstream
+
+      - name: Install build tools (cache miss only)
+        if: steps.occt-cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cmake ninja-build g++
+
+      - name: Build (cache miss only)
+        if: steps.occt-cache.outputs.cache-hit != 'true'
+        run: tools/desktop/build_native.sh --occt-only
+
+      # An artifact as well as a cache. The cache is keyed and shared across
+      # runs; the artifact is what the next JOB in THIS run downloads, and it
+      # exists because a cache written by a job is not visible to a job that
+      # started at the same time.
+      - name: Upload the install tree
+        uses: actions/upload-artifact@v4
+        with:
+          name: occt-install-linux
+          path: backend/occt/install-linux
+          retention-days: 5
+
+  kernels:
+    name: CAD kernels (libprototype_native.so)
+    needs: occt
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt6 and build tools
+        run: |
+          sudo apt-get update -qq
+          # patchelf: build_native.sh rewrites the runpath of everything it
+          # bundles, so the libraries find their neighbours rather than an
+          # absolute path from the machine that packaged them.
+          sudo apt-get install -y -qq cmake ninja-build g++ pkg-config patchelf \
+            qt6-base-dev qt6-declarative-dev qt6-svg-dev
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: occt-install-linux
+          path: backend/occt/install-linux
+
+      - name: Build the kernel library
+        run: tools/desktop/build_native.sh
+
+      # The verdict is the MARKER, not the exit code — the same discipline the
+      # OCCT and QCAD smokes use in the iOS job, and for the same reason: a
+      # process that dies inside a kernel exits non-zero for reasons that say
+      # nothing about how far it got. build_native.sh already greps for it;
+      # this repeats the check so the failure names itself in the job summary.
+      - name: Kernel smoke verdict
+        run: |
+          log=frontend/build/native/native-smoke.log
+          cat "$log"
+          grep -q "NATIVE SMOKE: PASS" "$log" \
+            || { echo "LINUX KERNELS: FAIL"; exit 1; }
+          echo "LINUX KERNELS: PASS"
+
+      # Nothing but the three C APIs may leave this library. A regression here
+      # is silent — the app still works — and expensive: several hundred
+      # thousand exported symbols to relocate at every launch, and a real
+      # chance of colliding with a different Qt or OCCT already in the process.
+      - name: Exported surface is only the C API
+        run: |
+          set -o pipefail
+          lib=frontend/build/native/libprototype_native.so
+          nm -D --defined-only "$lib" | awk '{print $3}' | grep -v '^$' \
+            > /tmp/exported.txt
+          echo "exported symbols: $(wc -l < /tmp/exported.txt)"
+          if grep -vE '^(qcad_|slvs_|occt_)' /tmp/exported.txt \
+               | grep -vE '^(_init|_fini|_edata|_end|__bss_start)$' \
+               | head -20 | grep .; then
+            echo "LINUX KERNELS: FAIL (symbols leaked past the version script)"
+            exit 1
+          fi
+          echo "EXPORT CHECK: PASS"
+
+      # The LIBRARY and what it needs at run time, not the build tree that made
+      # them. `frontend/build/native` also holds ~21 MB of CMake scratch and
+      # static archives that the app job has no use for, and an artifact is
+      # uploaded and downloaded once each.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prototype-kernels-linux
+          path: |
+            frontend/build/native/libprototype_native.so
+            frontend/build/native/deps
+            frontend/build/native/native-smoke.log
+          retention-days: 5
+
+  cycles:
+    name: Path tracer (libprototype_cycles.so)
+    runs-on: ubuntu-24.04
+    # Cycles is thirteen static libraries and about half a million lines; the
+    # cache below turns that into a download on every run that does not touch
+    # the shim.
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      # THE PIN IS THE CACHE KEY. The Blender commit decides the API the shim
+      # is written against, and the shim and the build script decide everything
+      # else — so a run that touches none of them can take the library it built
+      # last time. Nothing else in the repo can change this output.
+      - name: Cache key
+        id: key
+        run: |
+          ref=$(grep -oP 'BLENDER_REF:-\K[0-9a-f]{12}' \
+                tools/desktop/build_cycles_linux.sh | head -1)
+          h=$(cat backend/cycles/shim/*.cpp backend/cycles/shim/*.h \
+                  backend/cycles/shim/*.cmake backend/cycles/patches/*.py \
+                  backend/desktop/prototype_cycles.map \
+                  tools/desktop/build_cycles_linux.sh 2>/dev/null \
+              | sha256sum | cut -c1-16)
+          echo "key=cycles-linux-$ref-$h" >> "$GITHUB_OUTPUT"
+          echo "cycles-linux-$ref-$h"
+
+      - name: Restore the built path tracer
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: frontend/build/native
+          key: ${{ steps.key.outputs.key }}
+
+      # Only on a miss, and this is the expensive half. git-lfs is what
+      # make_update.py fetches Blender's precompiled dependency set through;
+      # without it the fetch silently produces an EMPTY lib/linux_x64, which
+      # the build script tests for by content rather than by existence.
+      - name: Install build tools (cache miss only)
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cmake ninja-build g++ git git-lfs \
+            python3 patchelf pkg-config
+          # The fallback set, in case the precompiled one cannot be fetched.
+          # See the script's header for what is lost when it is used: no
+          # OpenImageDenoise (the shim's own a-trous filter takes over, as it
+          # does on iOS) and no OpenColorIO.
+          sudo apt-get install -y -qq libembree-dev libtbb-dev \
+            libopenimageio-dev libopenexr-dev libimath-dev libpugixml-dev \
+            libyaml-cpp-dev libtiff-dev libwebp-dev libzstd-dev \
+            libdeflate-dev libboost-dev libboost-filesystem-dev \
+            libboost-thread-dev libboost-regex-dev libboost-system-dev \
+            libboost-date-time-dev libboost-iostreams-dev \
+            libboost-locale-dev libboost-wave-dev
+
+      - name: Free disk before the build (cache miss only)
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          # Blender's dependency set and its build tree together are larger
+          # than the slack a stock runner has. These four are ~20 GB of things
+          # this job will never open.
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android \
+                      /opt/ghc /usr/local/share/boost || true
+          df -h /
+
+      - name: Build Cycles (cache miss only)
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: tools/desktop/build_cycles_linux.sh
+
+      # The gate the script already runs, repeated so the verdict names itself
+      # in the job summary — and so a CACHE HIT is checked too, which is the
+      # case where a stale or truncated cache entry would otherwise reach the
+      # app silently.
+      - name: Path tracer verdict
+        run: |
+          set -euo pipefail
+          lib=frontend/build/native/libprototype_cycles.so
+          test -f "$lib" || { echo "CYCLES: FAIL (no library)"; exit 1; }
+          echo "size: $(du -h "$lib" | cut -f1)"
+          missing=$(ldd "$lib" | grep "not found" || true)
+          if [ -n "$missing" ]; then
+            echo "CYCLES: FAIL (unresolved at load time)"; echo "$missing"; exit 1
+          fi
+          n=$(nm -D --defined-only "$lib" | awk '{print $3}' | grep -c '^cy_')
+          echo "exports $n cy_ symbols"
+          test "$n" -gt 10 || { echo "CYCLES: FAIL (export surface)"; exit 1; }
+          # cy_ is a PREFIX and the rest are whole names, which the one
+          # anchored alternation this used to be could not say: it asked for a
+          # symbol called exactly "cy_" and called all seventeen real ones
+          # leaks. It had never run — the ldd check above exited first on every
+          # red run there has been — so the first green closure failed here
+          # instead. The build script's own gate is the same test written
+          # correctly and is what this repeats.
+          leaked=$(nm -D --defined-only "$lib" | awk '{print $3}' \
+                   | grep -vE '^cy_|^(_init|_fini|_edata|_end|__bss_start)$' \
+                   | grep -v '^$' | head -5 || true)
+          if [ -n "$leaked" ]; then
+            echo "CYCLES: FAIL (symbols escaped the version script)"
+            echo "$leaked"; exit 1
+          fi
+          echo "CYCLES: PASS"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prototype-cycles-linux
+          path: |
+            frontend/build/native/libprototype_cycles.so
+            frontend/build/native/prototype_cycles_probe
+            frontend/build/native/deps
+          retention-days: 5
+
+  app:
+    name: Flutter Linux bundle + package
+    needs: [kernels, cycles]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      # The GTK embedder's own dependencies, plus the ones the app reaches for
+      # at RUN time: zenity backs file_picker's Linux implementation (the
+      # import path in the ribbon and in Settings), and xvfb is what lets the
+      # launch check below run at all on a headless runner.
+      - name: Install the GTK toolchain
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq clang cmake ninja-build pkg-config \
+            libgtk-3-dev liblzma-dev libstdc++-12-dev zenity xvfb
+
+      # No `cache: true`: the SDK download is tens of seconds and the cache
+      # entry is gigabytes, and GitHub's 10 GB per repository is what decides
+      # whether the OpenCASCADE tree beside it survives — 58 MB that costs
+      # thirty-one minutes to rebuild. windows-build.yml says this at length.
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: prototype-kernels-linux
+          path: frontend/build/native
+
+      # INTO THE SAME DIRECTORY, and their `deps/` merge there on purpose:
+      # both libraries want Qt6Core, ICU and a dozen others, and the bundle
+      # holds ONE copy of each beside them. linux/CMakeLists.txt installs
+      # whatever is in this directory.
+      - uses: actions/download-artifact@v4
+        with:
+          name: prototype-cycles-linux
+          path: frontend/build/native
+
+      - name: flutter pub get
+        working-directory: frontend
+        run: flutter pub get
+
+      - name: Build the release bundle
+        working-directory: frontend
+        run: flutter build linux --release
+
+      # WHAT THE RUNNER IS FOR. This machine has the GTK stack and no Qt, which
+      # is the shape of a user's machine and NOT the shape of the one that
+      # built the kernels — so it is the only place the bundle's closure is
+      # honestly tested. It was wrong for four runs: `ldd` on the build machine
+      # succeeded because Qt's own dependencies were installed there, and the
+      # bundle shipped Qt without libmd4c, libpcre2-16, libdouble-conversion,
+      # ICU or libproxy. The app fell back to the Dart engine and said so in
+      # its log, which is the failure a user would have seen.
+      #
+      # build_native.sh now checks the closure at collection time; this checks
+      # what actually LANDED, because the CMake install step is a second place
+      # it can go wrong.
+      - name: The kernels reached the bundle, whole
+        run: |
+          set -euo pipefail
+          lib=frontend/build/linux/x64/release/bundle/lib
+          echo "--- bundled ---"; ls -1 "$lib" | sed 's/^/  /'
+          test -f "$lib/libprototype_native.so" \
+            || { echo "BUNDLE: FAIL (no kernel library)"; exit 1; }
+          # `ldd` resolves against the bundle because the library carries an
+          # $ORIGIN rpath, so an unresolved entry here is one the HOST was
+          # expected to provide and does not.
+          if ldd "$lib/libprototype_native.so" | grep "not found"; then
+            echo "BUNDLE: FAIL (unsatisfied at run time on a GTK-only machine)"
+            exit 1
+          fi
+          echo "BUNDLE: PASS"
+
+      # The gate that matters: the app has to LAUNCH, find the kernels and
+      # reach its first frame. Every failure this catches — a missing plugin
+      # registration, a kernel the search order does not reach, an exception in
+      # AppState.init — produces a bundle that builds perfectly and then does
+      # nothing on a user's machine.
+      #
+      # The verdict comes out of the app's OWN log file, which is the same file
+      # a bug bundle carries, so a red run here is diagnosed with exactly the
+      # material a user's report would carry.
+      - name: Launch check (Xvfb)
+        run: |
+          set -o pipefail
+          Xvfb :99 -screen 0 1600x1200x24 &
+          sleep 3
+          export DISPLAY=:99
+          frontend/build/linux/x64/release/bundle/prototype \
+            > /tmp/launch.log 2>&1 &
+          app=$!
+          # Wait for the app to SAY it is up rather than for a fixed sleep: it
+          # reaches its first frame in about 120 ms on this hardware, and a
+          # blanket timeout would spend ninety seconds proving it every run —
+          # while still being too short on a runner having a bad day.
+          for _ in $(seq 1 60); do
+            grep -q "time to first frame" /tmp/launch.log && break
+            sleep 1
+          done
+          kill "$app" 2>/dev/null || true
+          wait "$app" 2>/dev/null || true
+          # The app's OWN log, not the tail of stdout. When the kernels are not
+          # found the interesting part is the SEARCH LIST, which is a dozen
+          # lines above the verdict and which `tail -60` cut off — four runs
+          # failed here saying only that nothing was found, and never where it
+          # had looked.
+          echo "--- the app's log ---"
+          cat "$HOME/.local/share/prototype/logs/prototype_log.txt" 2>/dev/null \
+            || tail -120 /tmp/launch.log
+          grep -q "time to first frame" /tmp/launch.log \
+            || { echo "LINUX LAUNCH: FAIL (no first frame)"; exit 1; }
+          # The kernels have to be the REAL ones. Without this the job stays
+          # green on a bundle that silently fell back to the Dart engine, which
+          # is precisely the regression the packaging step can introduce.
+          grep -q "REAL backend active (qcad-ffi)" /tmp/launch.log \
+            || { echo "LINUX LAUNCH: FAIL (QCAD core not loaded)"; exit 1; }
+          grep -q "DART SMOKE: PASS" /tmp/launch.log \
+            || { echo "LINUX LAUNCH: FAIL (backend smoke did not pass)"; exit 1; }
+          # M372 — and the two things the desktop port added, for the same
+          # reason: both degrade SILENTLY and correctly, so nothing but an
+          # assertion here keeps a build that quietly lost them from shipping.
+          #
+          #   the path tracer, which falls back to "rendered mode stays the
+          #     shaded view" when the library is missing;
+          #   the GPU viewport, which falls back to the CPU painter when
+          #     Flutter GPU was not switched on in the runner's DartProject.
+          log="$HOME/.local/share/prototype/logs/prototype_log.txt"
+          grep -q "cycles: ready: device" "$log" \
+            || { echo "LINUX LAUNCH: FAIL (no path tracer)"; exit 1; }
+          grep -q "renderer: flutter_scene" "$log" \
+            || { echo "LINUX LAUNCH: FAIL (no GPU viewport)"; exit 1; }
+          echo "LINUX LAUNCH: PASS"
+
+      - name: Package
+        run: tools/desktop/package_linux.sh --skip-flutter --appimage
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prototype-linux-x64
+          path: |
+            dist/prototype-linux-x64.tar.gz
+            dist/Prototype-x86_64.AppImage
+          if-no-files-found: error
+          retention-days: 14
+
+  # -------------------------------------------------------------------------
+  # The release
+  # -------------------------------------------------------------------------
+  #
+  # Two ways in, and the difference between them is the OCCT cache.
+  #
+  #   workflow_dispatch with `release_tag`  runs on the BRANCH ref, so the
+  #                                         40-minute OCCT cache is visible and
+  #                                         the run costs a download. The tag
+  #                                         is created by `gh release create`
+  #                                         at the commit that was built.
+  #   pushing a `v*` tag                    runs on the TAG ref, which can only
+  #                                         see its own caches and the default
+  #                                         branch's — so on a feature branch
+  #                                         it rebuilds OCCT from source.
+  #
+  # Prefer the first until this branch is merged. Both publish exactly the same
+  # artifacts, because both take them from the `app` job above rather than
+  # building anything of their own.
+  release:
+    name: Publish a GitHub Release
+    needs: app
+    # THREE WAYS IN NOW, and the third is the everyday one: every green
+    # build of `main` publishes, so a download of the current app is always
+    # one click from the releases page instead of behind a login on an
+    # artifact that expires in fourteen days. The iOS workflow has worked this
+    # way from the start; this is the same rule applied to the desktop.
+    #
+    # A `v*` tag and a workflow_dispatch with `release_tag` still make their
+    # own named release, which is a different thing and stays a different
+    # thing: those are versions somebody chose to cut.
+    if: >-
+      startsWith(github.ref, 'refs/tags/') ||
+      inputs.release_tag != '' ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      # The only job in this workflow that writes anything to the repository.
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: prototype-linux-x64
+          path: dist
+
+      # The tag goes IN THE FILENAME. A shared build called
+      # `Prototype-x86_64.AppImage` is indistinguishable from every other one
+      # in a downloads folder, and the first question about a bug report is
+      # always which build it came from.
+      - name: Name the assets after the tag
+        id: assets
+        run: |
+          set -euo pipefail
+          # WHICH RELEASE THIS IS. A dispatch names its tag, a tag push IS
+          # its tag, and a push to main goes to the per-commit build release
+          # that the iOS and the other desktop workflow also publish into —
+          # `build-<short sha>`, which all three compute from the commit alone
+          # because no workflow can see another's run number.
+          tag='${{ inputs.release_tag }}'
+          if [ -z "$tag" ]; then
+            case "$GITHUB_REF" in
+              refs/tags/*) tag="${GITHUB_REF_NAME}" ;;
+              *)           tag="build-${GITHUB_SHA:0:7}"; shared=yes ;;
+            esac
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "shared=${shared:-}" >> "$GITHUB_OUTPUT"
+          cd dist
+          mv prototype-linux-x64.tar.gz "prototype-$tag-linux-x64.tar.gz"
+          mv Prototype-x86_64.AppImage "Prototype-$tag-x86_64.AppImage"
+          # Anyone who downloads a binary from a link should be able to check
+          # it against the run that produced it — and ONE NAME PER PLATFORM in
+          # the shared release, because Windows
+          # publishes its own checksums into the same tag and an upload with
+          # --clobber would quietly replace this file with that one.
+          sums=SHA256SUMS.txt
+          [ -z "${shared:-}" ] || sums=SHA256SUMS-linux.txt
+          echo "sums=$sums" >> "$GITHUB_OUTPUT"
+          sha256sum "prototype-$tag-linux-x64.tar.gz"                     "Prototype-$tag-x86_64.AppImage" > "$sums"
+          cat "$sums"
+          ls -lh
+
+      # THE PER-COMMIT RELEASE — a push to main. Assets only: the notes and
+      # the title belong to the iOS job, which publishes the IPA into the same
+      # tag, and two writers of one notes body is a lost section. Whichever of
+      # the three workflows arrives first creates the release; the other two
+      # find it there and attach to it.
+      - name: Attach to the build release
+        if: steps.assets.outputs.shared == 'yes'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.assets.outputs.tag }}
+          SUMS: ${{ steps.assets.outputs.sums }}
+        run: bash ci/release_attach.sh "$TAG" dist/*.AppImage dist/*.tar.gz "dist/${SUMS}"
+
+      # THE NAMED RELEASE — a `v*` tag or a dispatch that asked for one. Its
+      # notes are written out in full below because a version somebody cut is
+      # read by people who did not watch it being built.
+      - name: Create the release
+        if: steps.assets.outputs.shared != 'yes'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.assets.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # A QUOTED heredoc, with the values substituted afterwards: the notes
+          # are full of backticks, and an unquoted heredoc would read every one
+          # of them as the start of a command substitution.
+          cat > /tmp/notes.md <<'NOTES'
+          The Linux build of the app — the same Flutter tree, the same three
+          CAD kernels (QCAD core, libslvs, OCCT 7.9.3), the same Cycles path
+          tracer and the same Liquid Glass chrome as the iPad, built for
+          x86-64 GTK.
+
+          Built from `@REF@` at `@SHA@`, by [this run](@RUN@) — which launched
+          it on a headless display and checked that the kernels, the path
+          tracer and the GPU viewport all came up before it packaged
+          anything.
+
+          ## Which file
+
+          **`Prototype-@TAG@-x86_64.AppImage`** — one file. `chmod +x` it and
+          run it.
+
+          **`prototype-@TAG@-x86_64.tar.gz`** — the same tree, unpacked.
+          `./install.sh` puts it in `~/.local` with its icon, its desktop entry
+          and the `.ptp` / `.pts` / `.pas` file associations; `./uninstall.sh`
+          takes it back out and leaves your documents alone. Or just run
+          `./prototype` out of the folder.
+
+          ## What it wants from the system
+
+          The GTK 3 stack, which a desktop already has. Qt and OCCT travel
+          inside the bundle — the app needs versions no distribution
+          guarantees — so there is nothing else to install. `zenity` is worth
+          having: it is what backs the file chooser.
+
+          The chrome is a real shader rather than a picture of one, and it
+          costs two backdrop passes per surface. On a machine with no GPU worth
+          the name — a VM, a remote desktop, an old integrated chip — start it
+          with `PROTOTYPE_GLASS=0` and it draws the painted panels instead.
+          `PROTOTYPE_GPU=0` does the same for the 3D viewport, which is
+          flutter_scene on Flutter GPU and falls back to a CPU painter.
+
+          ## The path tracer
+
+          Rendered mode is Cycles, the same renderer and the same shim as the
+          iPad's, built for x86-64. It picks the fastest backend this build has
+          and the machine can run, which on a stock build is the CPU — the
+          GPU backends need their vendor toolchains at BUILD time to produce
+          kernels, so a build that adds one is a flag rather than a code
+          change. Denoising is OpenImageDenoise where the build found it and
+          the shim's own a-trous filter where it did not; the app's log says
+          which on the first render.
+
+          ## Sharing between devices
+
+          Settings has a share code. Type the same one on two machines on the
+          same network and they keep the same documents and the same settings,
+          live — no account, no server, nothing leaving the network. Adding,
+          changing or deleting a document on one device does the same on all
+          of them. The connection is authenticated by the code but NOT
+          encrypted, so use it on a network you trust.
+
+          Checksums are in `SHA256SUMS.txt`.
+
+          See `LINUX.md` in the tree for what is shared with the iPad and what
+          had to be written twice.
+          NOTES
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          sed -i -e "s|@TAG@|${TAG}|g" \
+                 -e "s|@REF@|${GITHUB_REF_NAME}|g" \
+                 -e "s|@SHA@|${GITHUB_SHA:0:12}|g" \
+                 -e "s|@RUN@|${run_url}|g" /tmp/notes.md
+          cat /tmp/notes.md
+          gh release create "$TAG" \
+            --target "$GITHUB_SHA" \
+            --title "Prototype for Linux — $TAG" \
+            --notes-file /tmp/notes.md \
+            --prerelease \
+            dist/*.AppImage dist/*.tar.gz dist/SHA256SUMS.txt
+          echo "released: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/$TAG"

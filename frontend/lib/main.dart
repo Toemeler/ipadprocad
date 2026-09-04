@@ -2,6 +2,7 @@
 //   ribbon (full width) / main (model browser | viewport  OR  home) / tabbar.
 // Starts on the Home view (goHome() in the mock).
 import 'dart:async';
+import 'dart:io' show Platform;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -11,9 +12,12 @@ import 'log.dart';
 import 'perf.dart';
 import 'perf_document.dart';
 import 'ffi/perf_hook.dart';
+import 'package:gpu_view/gpu_view.dart';
 import 'package:reality_view/perf_hook.dart';
 
 import 'cycles_boot.dart';
+import 'platform/desktop_launch.dart';
+import 'platform/desktop_shell.dart';
 import 'app_state.dart';
 import 'backdrop.dart';
 import 'ribbon_dock.dart';
@@ -47,7 +51,13 @@ import 'widgets/measure_panel.dart';
 import 'widgets/viewport_window.dart';
 import 'widgets/work_plane_offset_field.dart';
 
-void main() {
+void main([List<String> args = const <String>[]]) {
+  // A desktop launch can carry a document: the file manager runs the .desktop
+  // file's `Exec=prototype %f` with the path as an argument. Recorded FIRST,
+  // before anything can look at it, and acted on only once AppState.init has
+  // finished — see below. Defaulted, so `main()` still has the signature the
+  // iOS entry point is called with and nothing about that build changes.
+  DesktopLaunch.record(args);
   // Logger FIRST — works synchronously, before any binding exists.
   Log.init();
   Perf.init();
@@ -132,6 +142,29 @@ void main() {
     // into the same log the bug reporter ships. Installed before the first
     // frame so nothing a user can reach happens off the record.
     NativeMenu.trace = (message) => Log.i('menu', message);
+    // M367 — and the Liquid Glass material says whether it came up. Off iOS
+    // this is the ribbon's, the browser's and every panel's surface; a program
+    // that failed to compile costs the refraction and leaves a plain blur,
+    // which looks enough like the real thing that nobody would report it.
+    LiquidGlassProgram.onLoadFailed = (m) => Log.w('glass', m);
+    Log.step('main', 'LiquidGlassProgram.load', LiquidGlassProgram.load);
+    // M372 — and the 3D viewport says which renderer it got.
+    //
+    // Off iOS the shaded viewport is flutter_scene on Flutter GPU, and Flutter
+    // GPU is a per-PROJECT switch rather than a platform capability: the
+    // desktop runners turn it on (see linux/runner/my_application.cc), a
+    // release build compiles the command-line switch out, and a build that
+    // missed it falls back to the CPU painter with no error anywhere. So the
+    // question is asked once, before the first frame — the answer decides
+    // LAYOUT as well as drawing, and a layout that changes when a capability
+    // resolves is a layout that jumps at launch.
+    if (!Platform.isIOS) {
+      Log.step('main', 'GpuView.probe', GpuView.probe);
+      Log.i('3d', GpuView.isSupported
+          ? 'renderer: flutter_scene (Flutter GPU)'
+          : 'renderer: the CPU painter — Flutter GPU is not available in this '
+              'build. On desktop that is the DartProject switch in the runner.');
+    }
     // M236 — adopt the iPad's own light/dark setting and start listening for
     // changes BEFORE the first frame, so the app never paints one scheme and
     // then snaps to the other. Only a property read and a callback: the
@@ -150,14 +183,22 @@ void main() {
     Log.i('main', '>> AppState.init (async, not awaited)');
     app
         .init()
-        .then((_) => Log.i('main', '<< AppState.init OK'))
+        .then((_) {
+          Log.i('main', '<< AppState.init OK');
+          _openLaunchDocument(app);
+        })
         .catchError((e, st) => Log.e('main', 'AppState.init FAILED', e, st));
     // The log must survive the app being backgrounded or killed by iOS: flush
     // on every lifecycle change, otherwise the last (most interesting) lines
     // sit in the buffer forever. The same observer persists the open document
     // (incl. its gallery preview) when the app is suspended or torn down, so a
     // sketch/part left open — never explicitly closed — still has a fresh card.
-    WidgetsBinding.instance.addObserver(_LogFlusher(app));
+    final flusher = _LogFlusher(app);
+    WidgetsBinding.instance.addObserver(flusher);
+    // The desktop's window close, which arrives too late as a lifecycle event
+    // to be useful — see desktop_shell.dart. A no-op on iOS, where no runner
+    // asks the question.
+    DesktopShell.onWillClose(flusher.flushDocument);
     Log.i('main', 'LOG FILE: ${Log.path}');
     Log.i('main', 'build=${Log.build}');
     Log.step('main', 'runApp', () => runApp(PrototypeApp(app: app)));
@@ -167,9 +208,79 @@ void main() {
   });
 }
 
+/// Opens the document the process was launched with, if there was one.
+///
+/// AFTER init, never during it: the gallery, the documents directory and the
+/// remembered externals all come from init, and a document opened before them
+/// is a document that is open and not in the gallery.
+///
+/// The path is passed as its own bookmark. On the desktop that is the truth —
+/// a path IS the durable handle to a file outside the app's folder, which is
+/// exactly what a bookmark is for on iOS — and it is what makes Save write
+/// back to the file the user double-clicked instead of to a copy. See
+/// native_menu/linux, which hands back the same pair from its Open dialog.
+void _openLaunchDocument(AppState app) {
+  final path = DesktopLaunch.document;
+  if (path == null) return;
+  Log.i('doc', 'launch argument: opening $path');
+  app.openPath(path, bookmark: path).then(
+      (name) => Log.i('doc',
+          name == null ? 'launch document was refused' : 'opened "$name"'),
+      onError: (e, st) => Log.e('doc', 'launch document failed', e, st));
+}
+
 class _LogFlusher extends WidgetsBindingObserver {
   final AppState app;
   _LogFlusher(this.app);
+
+  /// Saves of the open document, one after another.
+  ///
+  /// Two of them can be asked for within a few milliseconds — `hidden` fires
+  /// and then the runner asks before closing — and `saveSketch`/`savePart`
+  /// write a staging folder and then pack it into the document file. Two of
+  /// those interleaved would pack a folder that is being rewritten. Chaining
+  /// makes the second wait for the first, which also means the runner's
+  /// handshake waits for the save that `hidden` already started, rather than
+  /// starting a second one.
+  Future<void> _saves = Future<void>.value();
+
+  /// Persist the open document; completes when it is actually on disk.
+  Future<void> flushDocument() {
+    _saves = _saves.then((_) => app.flushCurrentDocument()).then((_) {
+      Log.flush();
+    }).catchError((Object e, StackTrace st) {
+      // A save that failed must not also break the chain, or every later save
+      // in this session is skipped.
+      Log.e('lifecycle', 'flush failed', e, st);
+    });
+    return _saves;
+  }
+
+  /// The window's close button, on a desktop.
+  ///
+  /// iOS never asks: an app is suspended and then killed, and
+  /// [didChangeAppLifecycleState] below is where the open document gets
+  /// written.
+  ///
+  /// A desktop embedder that supports `System.requestAppExit` asks first and
+  /// WAITS for the answer, which makes this the cleanest place to save.
+  /// The GTK embedder in the Flutter version this was written against does
+  /// NOT ask — a window close produces `inactive`, `hidden`, and then the
+  /// process is gone — so the `hidden` branch below is what actually saves
+  /// today. This stays because it costs one method, it is what Windows and a
+  /// later GTK will use, and a save that happens twice is a save.
+  ///
+  /// Answering [ui.AppExitResponse.exit] rather than `cancel`: this saves, it
+  /// does not argue. A "you have unsaved changes" dialog would be a new piece
+  /// of behaviour that the iPad does not have, and the app has never had
+  /// unsaved changes to warn about — every path out of a document persists it.
+  /// This is that path, for the one exit route only a desktop has.
+  @override
+  Future<ui.AppExitResponse> didRequestAppExit() async {
+    Log.i('lifecycle', 'exit requested — flushing the open document');
+    await flushDocument();
+    return ui.AppExitResponse.exit;
+  }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -179,9 +290,18 @@ class _LogFlusher extends WidgetsBindingObserver {
     // open document and its preview now. The DXF/part JSON and sidecars are
     // written synchronously inside save*, so they land even on `detached`;
     // the PNG is best-effort. No-op when the gallery is showing.
+    //
+    // `hidden` is the DESKTOP's version of the same moment, and it is the one
+    // that matters here. Measured, not assumed: closing the GTK window
+    // produces `inactive` then `hidden` and then the process is gone — no
+    // `detached`, and no `System.requestAppExit` for [didRequestAppExit] to
+    // answer. Without this line the last edits before a window close were
+    // simply lost. It also fires on a minimise, where a save is merely
+    // early and costs nothing.
     if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden ||
         state == AppLifecycleState.detached) {
-      app.flushCurrentDocument();
+      flushDocument();
     }
   }
 }
@@ -260,7 +380,10 @@ class PrototypeApp extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (!GlassBrowser.isSupported) NativeModelBrowser(app: app),
+        // M367 — `GlassPanel`, not `GlassBrowser`. The question this asks is
+        // "is the browser opaque", and the answer stopped being "everywhere
+        // but iOS" when the material arrived off iOS too. See the note above.
+        if (!GlassPanel.isSupported) NativeModelBrowser(app: app),
         Expanded(
           // A 3D part shows the part viewport; an open child sketch falls
           // through to the unchanged 2D sketcher (M56).
@@ -310,7 +433,7 @@ class PrototypeApp extends StatelessWidget {
   Widget _chrome(AppState app) {
     if (app.isHome) {
       return Stack(children: [
-        if (GlassTabBar.isSupported)
+        if (GlassPanel.isSupported)
           Positioned(
               bottom: 0, left: 0, right: 0, child: BottomTabBar(app: app)),
         QuickToolsBar(app: app),
@@ -376,7 +499,7 @@ class PrototypeApp extends StatelessWidget {
       // the origin triad in the bottom-left corner stays visible under it.
       // M146/M290 — and it is anchored to this box, which already excludes the
       // band on every dock.
-      if (GlassBrowser.isSupported)
+      if (GlassPanel.isSupported)
         Positioned.fill(
           child: Padding(
             padding:
@@ -393,7 +516,7 @@ class PrototypeApp extends StatelessWidget {
       // M150 — the tab bar floats too. It was the last thing still taking a
       // row of the Column, which left an opaque strip across the bottom that
       // the model visibly stopped at.
-      if (GlassTabBar.isSupported)
+      if (GlassPanel.isSupported)
         Positioned(
             bottom: 0, left: 0, right: 0, child: BottomTabBar(app: app)),
       // M192 — the quick tools on the right edge, always visible. Last in the
@@ -509,7 +632,7 @@ class PrototypeApp extends StatelessWidget {
                       stage: _chrome(app),
                     ),
                   ),
-                  if (!GlassTabBar.isSupported) BottomTabBar(app: app),
+                  if (!GlassPanel.isSupported) BottomTabBar(app: app),
                 ]),
               ),
             );

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The three document types this app OWNS, declared to the desktop's shared
+  MIME database. This is the Linux half of the iOS Info.plist's
+  UTExportedTypeDeclarations, and it buys exactly the same things: a .ptp gets
+  the app's icon in the file manager, "Open With" offers Prototype first, and a
+  double-click reaches the app with the path as argv[1].
+
+  The formats the app merely READS (STEP, DXF, STL, OBJ, 3MF) are not declared
+  here. They are not ours, several already have registered types on any desktop
+  with a CAD or 3D-printing tool installed, and claiming them would take them
+  away from whatever the user actually opens them with. The .desktop file lists
+  them under MimeType so Prototype APPEARS in "Open With" for them, which is
+  the whole of what a reader is entitled to.
+-->
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-prototype-part">
+    <comment>Prototype part</comment>
+    <comment xml:lang="de">Prototype-Bauteil</comment>
+    <glob pattern="*.ptp"/>
+    <icon name="com.prototype.prototype"/>
+  </mime-type>
+  <mime-type type="application/x-prototype-sketch">
+    <comment>Prototype sketch</comment>
+    <comment xml:lang="de">Prototype-Skizze</comment>
+    <glob pattern="*.pts"/>
+    <icon name="com.prototype.prototype"/>
+  </mime-type>
+  <mime-type type="application/x-prototype-assembly">
+    <comment>Prototype assembly</comment>
+    <comment xml:lang="de">Prototype-Baugruppe</comment>
+    <glob pattern="*.pas"/>
+    <icon name="com.prototype.prototype"/>
+  </mime-type>
+</mime-info>
