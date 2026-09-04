@@ -124,6 +124,70 @@ class AppL10nEn extends AppL10n {
   String get ribbonRight => 'Right';
 
   @override
+  String get settingsSync => 'Sharing';
+
+  @override
+  String get settingsShareCode => 'Share Code';
+
+  @override
+  String get settingsShareCodeSet => 'Enter a Share Code';
+
+  @override
+  String get settingsNewShareCode => 'Create a Share Code';
+
+  @override
+  String get settingsStopSharing => 'Stop Sharing';
+
+  @override
+  String get settingsSyncStatus => 'Devices';
+
+  @override
+  String get settingsSyncLooking => 'Looking…';
+
+  @override
+  String settingsSyncDevices(int n) {
+    String _temp0 = intl.Intl.pluralLogic(
+      n,
+      locale: localeName,
+      other: '$n devices',
+      one: '1 device',
+      zero: 'Looking…',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get settingsSyncFooter =>
+      'Devices on the same network that use the same code keep the same documents and settings. Adding, changing or deleting a document on one device does the same on all of them. Nothing leaves your network and there is no account. The connection is not encrypted, so use it on a network you trust.';
+
+  @override
+  String get syncPromptTitle => 'Share Code';
+
+  @override
+  String get syncPromptBody =>
+      'Type the code from your other device, or create one there and type it here.';
+
+  @override
+  String get syncPromptPlaceholder => 'ABCD-EFGH-JKLM';
+
+  @override
+  String get syncPromptJoin => 'Share';
+
+  @override
+  String get syncBadCode =>
+      'That is not a share code. It is twelve letters and digits, in three groups.';
+
+  @override
+  String get syncStopTitle => 'Stop sharing on this device?';
+
+  @override
+  String get syncStopBody =>
+      'This device keeps the documents it has and stops sending and receiving. The other devices are not affected.';
+
+  @override
+  String get syncCodeCopied => 'Share code copied.';
+
+  @override
   String get settingsDiagnostics => 'Diagnostics';
 
   @override

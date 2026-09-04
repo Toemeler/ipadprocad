@@ -156,6 +156,79 @@
   "@ribbonRight": {
     "description": "Menüband rechts andocken (Seitenschiene)."
   },
+  "settingsSync": "Teilen",
+  "@settingsSync": {
+    "description": "Abschnittstitel: Dokumente und Einstellungen zwischen Geräten teilen."
+  },
+  "settingsShareCode": "Freigabecode",
+  "@settingsShareCode": {
+    "description": "Zeile, die den gesetzten Freigabecode zeigt."
+  },
+  "settingsShareCodeSet": "Freigabecode eingeben",
+  "@settingsShareCodeSet": {
+    "description": "Zeile, die den Code-Dialog öffnet."
+  },
+  "settingsNewShareCode": "Freigabecode erstellen",
+  "@settingsNewShareCode": {
+    "description": "Erzeugt einen neuen zufälligen Code."
+  },
+  "settingsStopSharing": "Teilen beenden",
+  "@settingsStopSharing": {
+    "description": "Schaltet das Teilen auf diesem Gerät ab."
+  },
+  "settingsSyncStatus": "Geräte",
+  "@settingsSyncStatus": {
+    "description": "Zeile: wie viele Geräte gerade verbunden sind."
+  },
+  "settingsSyncLooking": "Suche…",
+  "@settingsSyncLooking": {
+    "description": "Status: ein Code ist gesetzt, aber noch kein Gerät gefunden."
+  },
+  "settingsSyncDevices": "{n, plural, =0{Suche\u2026} =1{1 Gerät} other{{n} Geräte}}",
+  "@settingsSyncDevices": {
+    "description": "Status: wie viele Geräte gerade verbunden sind.",
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "settingsSyncFooter": "Geräte im selben Netzwerk mit demselben Code halten dieselben Dokumente und Einstellungen. Ein Dokument, das Sie auf einem Gerät anlegen, ändern oder löschen, wird es auf allen. Nichts verlässt Ihr Netzwerk, und es gibt kein Konto. Die Verbindung ist nicht verschlüsselt — nutzen Sie sie in einem Netzwerk, dem Sie vertrauen.",
+  "@settingsSyncFooter": {
+    "description": "Fußnote des Teilen-Abschnitts."
+  },
+  "syncPromptTitle": "Freigabecode",
+  "@syncPromptTitle": {
+    "description": "Titel des Code-Dialogs."
+  },
+  "syncPromptBody": "Geben Sie den Code Ihres anderen Geräts ein — oder erstellen Sie dort einen und tippen Sie ihn hier ein.",
+  "@syncPromptBody": {
+    "description": "Text des Code-Dialogs."
+  },
+  "syncPromptPlaceholder": "ABCD-EFGH-JKLM",
+  "@syncPromptPlaceholder": {
+    "description": "Platzhalter im Code-Feld."
+  },
+  "syncPromptJoin": "Teilen",
+  "@syncPromptJoin": {
+    "description": "Bestätigen im Code-Dialog."
+  },
+  "syncBadCode": "Das ist kein Freigabecode. Er besteht aus zwölf Buchstaben und Ziffern in drei Gruppen.",
+  "@syncBadCode": {
+    "description": "Fehlermeldung bei ungültigem Code."
+  },
+  "syncStopTitle": "Teilen auf diesem Gerät beenden?",
+  "@syncStopTitle": {
+    "description": "Titel der Rückfrage."
+  },
+  "syncStopBody": "Dieses Gerät behält seine Dokumente und sendet und empfängt nichts mehr. Die anderen Geräte bleiben unverändert.",
+  "@syncStopBody": {
+    "description": "Text der Rückfrage."
+  },
+  "syncCodeCopied": "Freigabecode kopiert.",
+  "@syncCodeCopied": {
+    "description": "Bestätigung nach dem Kopieren."
+  },
   "settingsDiagnostics": "Diagnose",
   "@settingsDiagnostics": {
     "description": "Abschnittstitel: Fehler melden, Protokoll teilen."

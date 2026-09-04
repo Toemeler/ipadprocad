@@ -71,6 +71,8 @@ import 'vector_font.dart';
 import 'render_engine.dart';
 import 'render_samples.dart';
 import 'ribbon_dock.dart';
+import 'sync/lan_sync.dart';
+import 'sync/sync_store.dart';
 import 'work_features.dart';
 
 /// Drawing tools. M6: the ENTIRE Create panel draws real backend geometry
@@ -1790,6 +1792,19 @@ class AppState extends ChangeNotifier {
     // reason. Empty unless someone has typed one in, and while it is empty
     // every icon in the app is the one it was built with.
     IconPreview.attachStore(IconPreviewStore(_cacheRoot));
+    // M373 — SHARING, and it goes last of the preference stores on purpose:
+    // adopting a code STARTS a mirror that may write into this very
+    // directory, and everything that reads it has to have read it first.
+    //
+    // The mirror is pointed at the two directories rather than asked to find
+    // them: `_docsDir` is a container on the iPad and an XDG path on a
+    // desktop, and nothing about the network layer should have to know that.
+    LanSync.instance.attach(
+      documents: _docsDir!,
+      preferences: _cacheRoot,
+    );
+    LanSync.instance.onApplied = _adoptSynced;
+    ShareCodes.attachStore(SyncStore(_cacheRoot));
     final probe = Log.step(
         'state', 'Engine.create (backend probe)', () => Engine.create());
     backendReal = probe.isRealBackend;
@@ -2283,6 +2298,79 @@ class AppState extends ChangeNotifier {
       final d = Directory('${_cacheRoot.path}/docs/$name');
       if (d.existsSync()) d.deleteSync(recursive: true);
     } catch (_) {}
+  }
+
+  /// M373 — a peer's files have landed. Take what can be taken.
+  ///
+  /// TWO RULES, and the second one is the important one.
+  ///
+  ///   * PREFERENCES are re-read and applied live. They are small, they have
+  ///     no unsaved state, and a scheme that changed on the iPad should be the
+  ///     scheme here — that is the whole promise of "settings are synced".
+  ///   * A DOCUMENT THAT IS OPEN IS NOT RELOADED. The bytes are on disk and
+  ///     the next save from this device will win, but nothing is pulled out
+  ///     from under someone who is drawing. A mirror that reloaded the model
+  ///     under an open sketch would lose work in the one case the user could
+  ///     not have anticipated, and "the device you are working on keeps its
+  ///     work" is a rule anyone can hold in their head.
+  ///
+  /// The gallery is refreshed either way, so a document that arrived from
+  /// another device is simply there.
+  void _adoptSynced(Set<String> paths) {
+    final prefs = paths.where((p) => p.startsWith('settings/')).toList();
+    final docs = paths.where((p) => !p.startsWith('settings/')).toList();
+    if (prefs.isNotEmpty) reloadPreferences();
+    if (docs.isEmpty) return;
+    final open = <String>{
+      for (final n in openTabs) n,
+    };
+    // A path that is no longer on disk arrived as a DELETE rather than as a
+    // file. The two need saying apart in the log, because "adopted Bracket.ptp"
+    // and "Bracket.ptp is gone" are opposite events and the log is the first
+    // place anyone looks when a document they wanted has vanished.
+    final gone = docs
+        .where((p) => !File('${_docsDir!.path}/$p').existsSync())
+        .toList();
+    if (gone.isNotEmpty) {
+      Log.i('sync', 'removed here too: ${gone.join(", ")}');
+    }
+    final reopened = docs
+        .map((p) => p.contains('.') ? p.substring(0, p.lastIndexOf('.')) : p)
+        .where(open.contains)
+        .toList();
+    if (reopened.isNotEmpty) {
+      // An OPEN document is not closed under the user's hands, whether what
+      // arrived was a new version or a deletion. The tab keeps what is in
+      // memory; saving it again puts it back on every device, which is the
+      // same last-writer-wins rule the mirror uses everywhere else and the
+      // only behaviour that cannot lose work someone is in the middle of.
+      Log.i('sync',
+          'left ${reopened.join(", ")} alone — open here, and this device wins');
+    }
+    unawaited(refreshSaved());
+  }
+
+  /// Re-reads `settings.json` and applies what changed.
+  ///
+  /// The same six stores AppState.init attaches, asked to adopt the file
+  /// again. Each one is a ValueNotifier behind a store, so re-attaching is how
+  /// a preference becomes live — there is no separate "apply" path to keep in
+  /// step, which is the point.
+  void reloadPreferences() {
+    if (_docsDir == null) return;
+    try {
+      T.attachStore(ThemeStore(_cacheRoot));
+      L.attachStore(LocaleStore(_cacheRoot));
+      Backdrops.attachStore(BackdropStore(_cacheRoot));
+      RibbonDock.attachStore(RibbonStore(_cacheRoot));
+      RibbonLabels.attachStore(RibbonStore(_cacheRoot));
+      RenderEngines.attachStore(RenderEngineStore(_cacheRoot));
+      RenderSamples.attachStore(RenderSamplesStore(_cacheRoot));
+      IconPreview.attachStore(IconPreviewStore(_cacheRoot));
+      Log.i('sync', 'adopted the settings from a peer');
+    } catch (e) {
+      Log.w('sync', 'could not adopt the settings: $e');
+    }
   }
 
   Future<void> refreshSaved() async {

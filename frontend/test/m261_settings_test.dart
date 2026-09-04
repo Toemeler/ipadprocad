@@ -75,6 +75,10 @@ void main() {
       // ribbon (where the renderer CHOICE is) because it does not change what
       // is on screen this second — it changes how long the picture keeps
       // improving, which is a decision you make once.
+      //
+      // M373 — and Sharing after all of them and before the diagnostics: it is
+      // the last thing you set up about this INSTALL, and the first thing
+      // someone looks for when a document is on the wrong device.
       expect(_spec().map((s) => s.id).toList(), [
         kSecAppearance,
         kSecAccent,
@@ -82,6 +86,7 @@ void main() {
         kSecLanguage,
         kSecRibbon,
         kSecSamples,
+        kSecSync,
         kSecDiagnostics,
         kSecAbout
       ]);
@@ -190,6 +195,7 @@ void main() {
         kSecLanguage,
         kSecRibbon,
         kSecSamples,
+        kSecSync,
         kSecAbout
       ]);
     });
@@ -226,7 +232,7 @@ void main() {
       // Backdrop. Kept as a number rather than `isNotEmpty` on purpose: the
       // Swift sheet renders whatever comes over the wire, so a section that
       // silently stops being sent is exactly the failure this asserts against.
-      expect(maps, hasLength(8));
+      expect(maps, hasLength(9));
       for (final s in maps) {
         expect(s['id'], isA<String>());
         expect(s['header'], isA<String>());

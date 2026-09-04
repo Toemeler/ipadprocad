@@ -1052,8 +1052,23 @@ jobs:
           # prompt, which needs a usage string or the prompt never appears.
           /usr/libexec/PlistBuddy -c 'Add :NSAppTransportSecurity dict' ios/Runner/Info.plist
           /usr/libexec/PlistBuddy -c 'Add :NSAppTransportSecurity:NSAllowsLocalNetworking bool true' ios/Runner/Info.plist
-          /usr/libexec/PlistBuddy -c 'Add :NSLocalNetworkUsageDescription string Shows icon renders from a computer on this network, for previewing artwork.' ios/Runner/Info.plist
+          # M373 — the same permission now covers the share code, so the
+          # string says both things it is actually used for. A usage string
+          # that describes one of two features is a prompt the user cannot
+          # answer honestly.
+          /usr/libexec/PlistBuddy -c 'Add :NSLocalNetworkUsageDescription string Finds your other devices on this network to share your documents and settings, and shows icon renders from a computer on it.' ios/Runner/Info.plist
           /usr/libexec/PlistBuddy -c 'Print :NSAppTransportSecurity:NSAllowsLocalNetworking' ios/Runner/Info.plist
+          # M373 — and the service type, which is NOT optional and is not the
+          # same key as the usage string: since iOS 14 NetService browses and
+          # publishes NOTHING, silently, for a type that is not declared here.
+          # It must match kBonjourServiceType in lib/sync/bonjour.dart exactly,
+          # trailing "._tcp" included — a near miss is not an error, it is
+          # silence, which looks exactly like a network fault and is not one.
+          # One entry covers both halves: browsing for the type and publishing
+          # under it.
+          /usr/libexec/PlistBuddy -c 'Add :NSBonjourServices array' ios/Runner/Info.plist
+          /usr/libexec/PlistBuddy -c 'Add :NSBonjourServices:0 string _prototypesync._tcp' ios/Runner/Info.plist
+          /usr/libexec/PlistBuddy -c 'Print :NSBonjourServices' ios/Runner/Info.plist
           # M147 — fullscreen: no status bar, from the launch image onward.
           # UIViewControllerBasedStatusBarAppearance must be false, or UIKit
           # asks FlutterViewController instead and UIStatusBarHidden is ignored

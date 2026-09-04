@@ -319,6 +319,108 @@ abstract class AppL10n {
   /// **'Rechts'**
   String get ribbonRight;
 
+  /// Abschnittstitel: Dokumente und Einstellungen zwischen Geräten teilen.
+  ///
+  /// In de, this message translates to:
+  /// **'Teilen'**
+  String get settingsSync;
+
+  /// Zeile, die den gesetzten Freigabecode zeigt.
+  ///
+  /// In de, this message translates to:
+  /// **'Freigabecode'**
+  String get settingsShareCode;
+
+  /// Zeile, die den Code-Dialog öffnet.
+  ///
+  /// In de, this message translates to:
+  /// **'Freigabecode eingeben'**
+  String get settingsShareCodeSet;
+
+  /// Erzeugt einen neuen zufälligen Code.
+  ///
+  /// In de, this message translates to:
+  /// **'Freigabecode erstellen'**
+  String get settingsNewShareCode;
+
+  /// Schaltet das Teilen auf diesem Gerät ab.
+  ///
+  /// In de, this message translates to:
+  /// **'Teilen beenden'**
+  String get settingsStopSharing;
+
+  /// Zeile: wie viele Geräte gerade verbunden sind.
+  ///
+  /// In de, this message translates to:
+  /// **'Geräte'**
+  String get settingsSyncStatus;
+
+  /// Status: ein Code ist gesetzt, aber noch kein Gerät gefunden.
+  ///
+  /// In de, this message translates to:
+  /// **'Suche…'**
+  String get settingsSyncLooking;
+
+  /// Status: wie viele Geräte gerade verbunden sind.
+  ///
+  /// In de, this message translates to:
+  /// **'{n, plural, =0{Suche…} =1{1 Gerät} other{{n} Geräte}}'**
+  String settingsSyncDevices(int n);
+
+  /// Fußnote des Teilen-Abschnitts.
+  ///
+  /// In de, this message translates to:
+  /// **'Geräte im selben Netzwerk mit demselben Code halten dieselben Dokumente und Einstellungen. Ein Dokument, das Sie auf einem Gerät anlegen, ändern oder löschen, wird es auf allen. Nichts verlässt Ihr Netzwerk, und es gibt kein Konto. Die Verbindung ist nicht verschlüsselt — nutzen Sie sie in einem Netzwerk, dem Sie vertrauen.'**
+  String get settingsSyncFooter;
+
+  /// Titel des Code-Dialogs.
+  ///
+  /// In de, this message translates to:
+  /// **'Freigabecode'**
+  String get syncPromptTitle;
+
+  /// Text des Code-Dialogs.
+  ///
+  /// In de, this message translates to:
+  /// **'Geben Sie den Code Ihres anderen Geräts ein — oder erstellen Sie dort einen und tippen Sie ihn hier ein.'**
+  String get syncPromptBody;
+
+  /// Platzhalter im Code-Feld.
+  ///
+  /// In de, this message translates to:
+  /// **'ABCD-EFGH-JKLM'**
+  String get syncPromptPlaceholder;
+
+  /// Bestätigen im Code-Dialog.
+  ///
+  /// In de, this message translates to:
+  /// **'Teilen'**
+  String get syncPromptJoin;
+
+  /// Fehlermeldung bei ungültigem Code.
+  ///
+  /// In de, this message translates to:
+  /// **'Das ist kein Freigabecode. Er besteht aus zwölf Buchstaben und Ziffern in drei Gruppen.'**
+  String get syncBadCode;
+
+  /// Titel der Rückfrage.
+  ///
+  /// In de, this message translates to:
+  /// **'Teilen auf diesem Gerät beenden?'**
+  String get syncStopTitle;
+
+  /// Text der Rückfrage.
+  ///
+  /// In de, this message translates to:
+  /// **'Dieses Gerät behält seine Dokumente und sendet und empfängt nichts mehr. Die anderen Geräte bleiben unverändert.'**
+  String get syncStopBody;
+
+  /// Bestätigung nach dem Kopieren.
+  ///
+  /// In de, this message translates to:
+  /// **'Freigabecode kopiert.'**
+  String get syncCodeCopied;
+
   /// Abschnittstitel: Fehler melden, Protokoll teilen.
   ///
   /// In de, this message translates to:

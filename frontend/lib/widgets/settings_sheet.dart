@@ -34,6 +34,10 @@ import 'bug_button.dart';
 import 'icon_preview_dialog.dart';
 import '../render_samples.dart';
 import '../ribbon_dock.dart';
+import '../sync/lan_sync.dart';
+import '../sync/share_code.dart';
+import '../sync/sync_store.dart';
+import 'native_prompts.dart';
 
 /// The live facts the About section reports.
 ///
@@ -123,7 +127,26 @@ class SettingsSheet {
         ribbonNames: RibbonLabels.on, // M349
         samples: RenderSamples.current, // M367
         diagnostics: BugReport.enabled,
+        // M373 — the code as it READS, not as it is stored: the sheet is where
+        // someone copies it off one screen onto another, so it is grouped.
+        shareCode: ShareCodes.current.value == null
+            ? null
+            : formatShareCode(ShareCodes.current.value!),
+        syncDetail: _syncDetail(),
       );
+
+  /// One line for the status row: what the mirror is doing right now.
+  static String _syncDetail() {
+    final st = LanSync.instance.status.value;
+    return switch (st.state) {
+      SyncState.off => '',
+      SyncState.failed => st.detail ?? '—',
+      // The plural covers zero, which reads "Looking…" rather than "0
+      // devices" — a count of nothing is not what someone waiting for a
+      // second device wants to be told.
+      SyncState.looking || SyncState.live => L.current.settingsSyncDevices(st.peers),
+    };
+  }
 
   void _close() {
     NativeMenu.setSelectionHandler(NativeMenu.kSettings, null);
@@ -182,6 +205,12 @@ class SettingsSheet {
         // what makes parsing a row id safe rather than trusting.
         _samples(row);
         break;
+      case kSecSync:
+        // Every row here opens something of its own — a prompt or a
+        // confirmation — so the section owns the screen from this point and
+        // re-pushes when it is done, like the backdrop picker above.
+        unawaited(_sync(row));
+        return;
       case kSecDiagnostics:
         _diagnostic(row);
         // The command owns the screen from here: the bug flow opens its own
@@ -255,6 +284,60 @@ class SettingsSheet {
     } finally {
       // Whatever happened — adopted, cancelled, failed — the sheet must show
       // the truth of what is set now.
+      if (isOpen) unawaited(_push());
+    }
+  }
+
+  /// M373 — the sharing rows.
+  ///
+  /// Three verbs and one read-only line. The prompt is the app's own
+  /// [promptForText], so on the iPad it is a UIAlertController with a text
+  /// field and everywhere else it is the Flutter dialog — one flow, two
+  /// presentations, exactly as renaming a document works.
+  Future<void> _sync(String row) async {
+    try {
+      switch (row) {
+        case kRowShareCode:
+          final t = L.current;
+          final entered = await promptForText(
+            _context,
+            title: t.syncPromptTitle,
+            message: t.syncPromptBody,
+            initialValue: ShareCodes.current.value == null
+                ? ''
+                : formatShareCode(ShareCodes.current.value!),
+            placeholder: t.syncPromptPlaceholder,
+            confirmLabel: t.syncPromptJoin,
+            // Validated in the PROMPT rather than after it, so a typo is
+            // corrected where it was made instead of silently starting a
+            // mirror that will never find anybody.
+            validate: (v) =>
+                normaliseShareCode(v) == null ? t.syncBadCode : null,
+          );
+          if (entered == null) break;
+          final code = normaliseShareCode(entered);
+          if (code != null) await ShareCodes.set(code);
+        case kRowNewShareCode:
+          // Generated and adopted in one step: the first device of a pair has
+          // nothing to type, and making it type what the app just invented
+          // would be a form for the sake of symmetry.
+          await ShareCodes.set(normaliseShareCode(generateShareCode()));
+        case kRowStopSharing:
+          final t = L.current;
+          final sure = await confirmAction(
+            _context,
+            title: t.syncStopTitle,
+            message: t.syncStopBody,
+            confirmLabel: t.settingsStopSharing,
+            destructive: true,
+          );
+          if (sure) await ShareCodes.set(null);
+        default:
+          break; // the status row is not selectable
+      }
+    } catch (e) {
+      Log.w('sync', 'the sharing row failed: $e');
+    } finally {
       if (isOpen) unawaited(_push());
     }
   }
