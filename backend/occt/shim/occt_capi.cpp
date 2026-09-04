@@ -488,6 +488,8 @@ extern "C" occt_shape *occt_extrude_polygon(const double *xy, int npts,
 /* Defined further down next to the boolean entry points; the extrude paths
  * need it earlier to validate a hole cut. */
 static bool has_solid_material(const TopoDS_Shape &s);
+static double solid_volume(const TopoDS_Shape &s);
+static double boolean_fuzzy(const TopoDS_Shape &a, const TopoDS_Shape &b);
 
 static double arc_loop_signed_area(const double *xyb, int npts)
 {
@@ -1002,7 +1004,80 @@ extern "C" occt_shape *occt_fuse(const occt_shape *a, const occt_shape *b)
         set_err("occt_fuse", "boolean fuse did not complete");
         return nullptr;
     }
-    return wrap(settle_boolean(fuse.Shape(), budget, "occt_fuse"), "occt_fuse");
+    TopoDS_Shape r = fuse.Shape();
+    /* M375 — AND A FUSE CANNOT MAKE THE BODY SMALLER.
+     *
+     * The same failure as occt_cut's, on the same body, through the other
+     * operation: adding a boss to the converted whale at 6 of 43 places on a
+     * grid over it came back weighing 95.9% LESS than the whale did. BOPAlgo
+     * reports IsDone, no errors, and a valid solid, having dropped the animal
+     * and kept the brackets. Nothing downstream can tell; the user gets a
+     * feature that deletes their model and a body that looks legal.
+     *
+     * A fuse is pinned from both sides and needs no guesswork: what comes out
+     * holds everything both operands held, so it cannot weigh less than the
+     * heavier of them, and it counts the overlap once, so it cannot weigh more
+     * than the two together. Between those it is free.
+     *
+     * Where the plain call lands outside that, the operation is retried at a
+     * ladder of fuzzy values and the SMALLEST one that lands inside wins —
+     * unlike the cut, where the bound is one-sided and the most complete
+     * answer is the safe pick, here the bound pins the answer from both ends,
+     * so the least tolerance that produces a believable one is the least
+     * violence done to the shapes. Walked only when the first answer is
+     * impossible, which is never on a modelled solid.
+     *
+     * The window is deliberately slack, because this is a tripwire for a body
+     * that VANISHED and not an audit of the arithmetic. A fuse re-triangulates
+     * what it touches and the operands here carry a millimetre of tolerance on
+     * their edges, so the honest results drift: measured over the whale's 44
+     * bosses, the largest drift outside the exact window was 44 mm3, which is
+     * 0.045% of the body. The failures are 95.9%. Three orders of magnitude
+     * apart, so five percent of the heavier operand sits between them with
+     * room to spare, and a tighter window buys nothing but refusals of results
+     * that were right. */
+    {
+        const double va = solid_volume(a->s), vb = solid_volume(b->s);
+        if (va > 0.0 && vb > 0.0) {
+            const double lo = std::max(va, vb), hi = va + vb;
+            const double eps = 0.05 * lo;
+            const auto ok = [&](const TopoDS_Shape &s2) {
+                if (s2.IsNull() || !has_solid_material(s2))
+                    return false;
+                const double v = solid_volume(s2);
+                return v >= lo - eps && v <= hi + eps;
+            };
+            if (!ok(r)) {
+                const double f0 = boolean_fuzzy(a->s, b->s);
+                const double base =
+                    (f0 > 0.0) ? f0 : Precision::Confusion() * 10.0;
+                TopoDS_Shape best;
+                for (const double mul : {1.0, 5.0, 25.0, 125.0}) {
+                    BRepAlgoAPI_Fuse f2;
+                    TopTools_ListOfShape a2, t2;
+                    a2.Append(a->s);
+                    t2.Append(b->s);
+                    f2.SetArguments(a2);
+                    f2.SetTools(t2);
+                    f2.SetNonDestructive(Standard_True);
+                    f2.SetFuzzyValue(base * mul);
+                    f2.Build();
+                    if (!f2.IsDone() || !ok(f2.Shape()))
+                        continue;
+                    best = f2.Shape();
+                    break;
+                }
+                if (best.IsNull()) {
+                    set_err("occt_fuse",
+                            "the fuse came back weighing less than the body it "
+                            "started from and no tolerance made it right");
+                    return nullptr;
+                }
+                r = best;
+            }
+        }
+    }
+    return wrap(settle_boolean(r, budget, "occt_fuse"), "occt_fuse");
     OCCT_CATCH("occt_fuse", nullptr)
 }
 
@@ -1155,6 +1230,70 @@ extern "C" occt_shape *occt_cut(const occt_shape *a, const occt_shape *b)
             if (v2 > 0.0 && v2 < v0 - eps && has_solid_material(r2) &&
                 (tool <= 0.0 || v0 - v2 <= 1.5 * tool))
                 r = r2;
+        }
+    }
+    /* M375 — A CUT THAT TOOK THE WHOLE BODY.
+     *
+     * Measured on the converted whale: drilling a through-hole at 8 of 44
+     * positions on a grid over the body came back having removed 97.3% of it.
+     * BOPAlgo does not fail — IsDone is true, HasErrors is false, and
+     * BRepCheck calls the wreckage a valid solid. What it actually did was
+     * drop the animal, a 95,003 mm3 solid, and hand back the two small
+     * brackets it was standing on. The same drill on the same solid ON ITS
+     * OWN does the same thing, so it is not the compound.
+     *
+     * Its warnings say TooSmallEdge, NotSplittableEdge, FaceBuilderUnusedEdges
+     * and SolidBuilderUnusedFaces — but those fire on the results that come
+     * out RIGHT as well, so there is nothing to gate on there. What separates
+     * a good result from this one is arithmetic the caller can do: a cut
+     * removes the part of the body that lies inside the tool, and that cannot
+     * weigh more than the tool does. The v29 note above already says this in
+     * as many words and applies it only to its own retry. It belongs to the
+     * first answer too.
+     *
+     * So: a result that removed more than the tool holds is refused, and the
+     * cut is retried at a ladder of fuzzy values. Where the plain call fails,
+     * a fuzzy near the body's own accuracy does not — on the whale the run
+     * that lost the animal at fuzzy 0 removes 1,980 mm3 at 0.05, and 0.08 and
+     * 0.12 agree with it to two decimal places. Of the candidates that obey
+     * the bound the largest removal wins: over-removal is what the bound
+     * already catches, so what is left to fear is a fuzzy that stopped the
+     * hole short (0.03 removes 536 mm3 of the same 1,980).
+     *
+     * The ladder is walked only when the first answer is impossible, which is
+     * never on a modelled solid, so nothing that was already right pays for
+     * it. If no rung obeys the bound the cut fails loudly. Handing back a body
+     * with the model deleted is the one outcome that must not happen: the user
+     * would save it. */
+    if (v0 > 0.0) {
+        const double toolVol = solid_volume(b->s);
+        const auto over = [&](const TopoDS_Shape &s) {
+            if (s.IsNull() || !(toolVol > 0.0))
+                return false;
+            return v0 - solid_volume(s) > 1.5 * toolVol;
+        };
+        if (over(r)) {
+            const double f0 = boolean_fuzzy(a->s, b->s);
+            const double base = (f0 > 0.0) ? f0 : Precision::Confusion() * 10.0;
+            TopoDS_Shape bestShape;
+            double bestTook = -1.0;
+            for (const double mul : {1.0, 5.0, 25.0, 125.0}) {
+                const TopoDS_Shape c = cut_at(a->s, b->s, base * mul);
+                if (c.IsNull() || over(c) || !has_solid_material(c))
+                    continue;
+                const double took = v0 - solid_volume(c);
+                if (took > bestTook) {
+                    bestTook = took;
+                    bestShape = c;
+                }
+            }
+            if (bestShape.IsNull()) {
+                set_err("occt_cut",
+                        "the cut removed more material than the tool holds and "
+                        "no tolerance made it right");
+                return nullptr;
+            }
+            r = bestShape;
         }
     }
     if (!has_solid_material(r)) {
