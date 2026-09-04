@@ -4,6 +4,12 @@ on:
   push:
     branches: [ main ]
     paths-ignore: [ '**.md' ]
+    # A CUT VERSION RUNS THIS TOO, which it did not until now: the desktop
+    # workflows have taken `v*` since they were written, so a version tag
+    # produced a release with an AppImage and a zip in it and no IPA — the one
+    # platform this app is primarily for. `paths-ignore` deliberately does not
+    # apply to the tag: a tag is a decision, not a change.
+    tags: [ 'v*' ]
   pull_request:
     branches: [ main ]
     paths-ignore: [ '**.md' ]
@@ -1579,11 +1585,42 @@ jobs:
       # darf und `gh release create` zwangslaeufig 403 gaebe.
       - name: Publish release (iPad install target)
         if: >-
-          github.event_name != 'pull_request' ||
-          github.event.pull_request.head.repo.full_name == github.repository
+          !startsWith(github.ref, 'refs/tags/') &&
+          (github.event_name != 'pull_request' ||
+           github.event.pull_request.head.repo.full_name == github.repository)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bash ci/publish_release.sh prototype-unsigned.ipa
+
+      # A CUT VERSION GOES SOMEWHERE ELSE, through the same script the two
+      # desktop workflows use.
+      #
+      # NOT publish_release.sh, and the difference is not cosmetic. That script
+      # owns the per-commit `build-<sha>` release completely: it rewrites the
+      # title and the notes on every run (they are SideStore's install
+      # instructions), and it PRUNES to the last fifteen. Both are right for a
+      # rolling build target and wrong for a version somebody cut — the rewrite
+      # would replace notes that describe three platforms with notes that
+      # describe one, and while the prune only ever touches `build-*` tags,
+      # pointing it at a `v*` release is not a thing to leave one filter away
+      # from happening.
+      #
+      # So a tag takes the same create-if-absent-then-upload path as Linux and
+      # Windows, with the same notes file, and the release page is the same
+      # page whichever of the three finishes first.
+      - name: Attach the IPA to the named release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Named after the tag for the reason the desktop assets are: the
+          # first question about a bug report is which build it came from, and
+          # `prototype-unsigned.ipa` in a downloads folder answers nothing.
+          cp prototype-unsigned.ipa "ipadprocad-${GITHUB_REF_NAME}.ipa"
+          bash ci/release_attach.sh "$GITHUB_REF_NAME" \
+            --notes-file ci/release_notes_named.md \
+            "ipadprocad-${GITHUB_REF_NAME}.ipa"
 
       # Der Anstoss fuers iPad. Ohne gesetzte Secrets ein No-op — der Build
       # bleibt gruen, das Release liegt trotzdem da und der Home-Screen-Shortcut

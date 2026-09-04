@@ -495,8 +495,11 @@ jobs:
           # the shared release, because Windows
           # publishes its own checksums into the same tag and an upload with
           # --clobber would quietly replace this file with that one.
-          sums=SHA256SUMS.txt
-          [ -z "${shared:-}" ] || sums=SHA256SUMS-linux.txt
+          # ALWAYS per-platform, in the shared release AND in a named one.
+          # Both are now assembled by three workflows uploading into one
+          # tag with --clobber, so a file called SHA256SUMS.txt would be
+          # whichever platform finished last, silently.
+          sums=SHA256SUMS-linux.txt
           echo "sums=$sums" >> "$GITHUB_OUTPUT"
           sha256sum "prototype-$tag-linux-x64.tar.gz"                     "Prototype-$tag-x86_64.AppImage" > "$sums"
           cat "$sums"
@@ -515,90 +518,26 @@ jobs:
           SUMS: ${{ steps.assets.outputs.sums }}
         run: bash ci/release_attach.sh "$TAG" dist/*.AppImage dist/*.tar.gz "dist/${SUMS}"
 
-      # THE NAMED RELEASE — a `v*` tag or a dispatch that asked for one. Its
-      # notes are written out in full below because a version somebody cut is
-      # read by people who did not watch it being built.
-      - name: Create the release
+      # THE NAMED RELEASE — a `v*` tag or a dispatch that asked for one.
+      #
+      # THE SAME SCRIPT AND THE SAME NOTES FILE AS THE OTHER TWO PLATFORMS,
+      # which is the whole point. This used to be a `gh release create` with
+      # its own Linux-only notes heredoc, and Windows had a second one — so a
+      # version tag started three workflows that each tried to CREATE the same
+      # release, two of them lost, and whichever won decided what the page
+      # said about an app that ships on three platforms.
+      #
+      # Now the notes live in ci/release_notes_named.md, every platform passes
+      # it, and whoever gets there first creates the release with a body that
+      # describes all three. The other two attach to it.
+      - name: Attach to the named release
         if: steps.assets.outputs.shared != 'yes'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.assets.outputs.tag }}
+          SUMS: ${{ steps.assets.outputs.sums }}
         run: |
-          set -euo pipefail
-          # A QUOTED heredoc, with the values substituted afterwards: the notes
-          # are full of backticks, and an unquoted heredoc would read every one
-          # of them as the start of a command substitution.
-          cat > /tmp/notes.md <<'NOTES'
-          The Linux build of the app — the same Flutter tree, the same three
-          CAD kernels (QCAD core, libslvs, OCCT 7.9.3), the same Cycles path
-          tracer and the same Liquid Glass chrome as the iPad, built for
-          x86-64 GTK.
-
-          Built from `@REF@` at `@SHA@`, by [this run](@RUN@) — which launched
-          it on a headless display and checked that the kernels, the path
-          tracer and the GPU viewport all came up before it packaged
-          anything.
-
-          ## Which file
-
-          **`Prototype-@TAG@-x86_64.AppImage`** — one file. `chmod +x` it and
-          run it.
-
-          **`prototype-@TAG@-x86_64.tar.gz`** — the same tree, unpacked.
-          `./install.sh` puts it in `~/.local` with its icon, its desktop entry
-          and the `.ptp` / `.pts` / `.pas` file associations; `./uninstall.sh`
-          takes it back out and leaves your documents alone. Or just run
-          `./prototype` out of the folder.
-
-          ## What it wants from the system
-
-          The GTK 3 stack, which a desktop already has. Qt and OCCT travel
-          inside the bundle — the app needs versions no distribution
-          guarantees — so there is nothing else to install. `zenity` is worth
-          having: it is what backs the file chooser.
-
-          The chrome is a real shader rather than a picture of one, and it
-          costs two backdrop passes per surface. On a machine with no GPU worth
-          the name — a VM, a remote desktop, an old integrated chip — start it
-          with `PROTOTYPE_GLASS=0` and it draws the painted panels instead.
-          `PROTOTYPE_GPU=0` does the same for the 3D viewport, which is
-          flutter_scene on Flutter GPU and falls back to a CPU painter.
-
-          ## The path tracer
-
-          Rendered mode is Cycles, the same renderer and the same shim as the
-          iPad's, built for x86-64. It picks the fastest backend this build has
-          and the machine can run, which on a stock build is the CPU — the
-          GPU backends need their vendor toolchains at BUILD time to produce
-          kernels, so a build that adds one is a flag rather than a code
-          change. Denoising is OpenImageDenoise where the build found it and
-          the shim's own a-trous filter where it did not; the app's log says
-          which on the first render.
-
-          ## Sharing between devices
-
-          Settings has a share code. Type the same one on two machines on the
-          same network and they keep the same documents and the same settings,
-          live — no account, no server, nothing leaving the network. Adding,
-          changing or deleting a document on one device does the same on all
-          of them. The connection is authenticated by the code but NOT
-          encrypted, so use it on a network you trust.
-
-          Checksums are in `SHA256SUMS.txt`.
-
-          See `LINUX.md` in the tree for what is shared with the iPad and what
-          had to be written twice.
-          NOTES
-          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          sed -i -e "s|@TAG@|${TAG}|g" \
-                 -e "s|@REF@|${GITHUB_REF_NAME}|g" \
-                 -e "s|@SHA@|${GITHUB_SHA:0:12}|g" \
-                 -e "s|@RUN@|${run_url}|g" /tmp/notes.md
-          cat /tmp/notes.md
-          gh release create "$TAG" \
-            --target "$GITHUB_SHA" \
-            --title "Prototype for Linux — $TAG" \
-            --notes-file /tmp/notes.md \
-            --prerelease \
-            dist/*.AppImage dist/*.tar.gz dist/SHA256SUMS.txt
+          bash ci/release_attach.sh "$TAG" \
+            --notes-file ci/release_notes_named.md \
+            dist/*.AppImage dist/*.tar.gz "dist/${SUMS}"
           echo "released: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/$TAG"
