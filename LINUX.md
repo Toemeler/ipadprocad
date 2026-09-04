@@ -61,8 +61,8 @@ always done. It says so in the log rather than pretending; see
 | Alerts, action sheets, Settings | UIKit | the app's own Cupertino surfaces |
 | Context menus | `UIContextMenuInteraction` | the app's own overlay menu |
 | Save a copy / Open / Open with | Files, share sheet | GTK choosers (`native_menu/linux`) |
-| Shaded 3D viewport | RealityKit platform view | the Dart CPU renderer |
-| Path-traced render | Cycles (Metal) | **not yet** — see below |
+| Shaded 3D viewport | RealityKit platform view | **flutter_scene on Flutter GPU** |
+| Path-traced render | Cycles (Metal) | **Cycles (CPU, or CUDA/OptiX/HIP where the build has them)** |
 
 Two of those rows deserve their reason spelled out, because they are the
 decisions the whole port rests on.
@@ -386,68 +386,95 @@ in packaging.
 
 ---
 
-## Not yet: the path tracer
+## The two renderers
 
 Rendered mode has two engines on the iPad. RealityKit draws every frame on the
-GPU; Cycles path-traces one image when the camera settles. On Linux the first
-is replaced by the Dart CPU renderer, which is the app's own long-standing
-fallback and is genuinely fast enough on a desktop CPU. The second is simply
-absent: `RenderEngines` still offers the choice, `CyclesFfi.instance` returns
-null, and the app reports "no path tracer" rather than pretending.
+GPU; Cycles path-traces one image when the camera settles. Linux has both.
 
-Making it real is a self-contained job, and the seam for it already exists —
-`NativeLib.cycles` looks for a *separate* `libprototype_cycles.so`, so nothing
-about the kernels or the bundle has to change to add it:
+### The shaded viewport is flutter_scene, on Flutter GPU
 
-1. Clone Blender's tree at the pin in `.github/workflows/cycles-render-test.yml`
-   and fetch `lib/linux_x64` with `make_update.py`.
-2. Graft the shim in as that workflow does
-   (`backend/cycles/shim/append.cmake`). The macOS/iOS patches in
-   `backend/cycles/patches/` are Apple-specific and are not needed.
-3. Build `cycles_shim` plus the Cycles device targets into
-   `libprototype_cycles.so` and drop it in `frontend/build/native/`.
-   `frontend/linux/CMakeLists.txt` already bundles it if it is there.
+`frontend/packages/gpu_view` consumes the SAME payload maps
+`reality_scene.dart` builds for RealityKit — solids, their B-Rep edges, origin
+planes, axes and sketches — so there is one description of what is in the
+viewport and two renderers of it. `SceneSink` is the three verbs both take.
 
-The device backend on Linux is CPU, CUDA/OptiX or HIP rather than Metal, which
-is a Cycles configuration question and touches nothing in this app.
+It is not a platform view. flutter_scene renders inside the Flutter tree, which
+buys three things a texture-interop renderer would each cost work to get back:
+the glass chrome composites over it with no seam, the transparent gesture layer
+above keeps working exactly as it does on iOS, and one implementation covers
+Linux, Windows and macOS because Impeller does.
+
+Flutter GPU is a per-PROJECT switch rather than a platform capability, so
+`linux/runner/my_application.cc` turns it on and `GpuView.probe()` asks once,
+before the first frame, whether it is actually there. A build that missed it
+falls back to the CPU painter and says so in the log. `PROTOTYPE_GPU=0` forces
+that fallback.
+
+Two conventions had to be reconciled and both are written down in the source:
+flutter_scene's world is left-handed where the app's is right-handed (the scene
+hangs under a node with a negated Z, which is also what makes flutter_scene
+reverse the winding for the back-face cull), and its clip space is Metal's
+0..1 rather than GL's -1..1.
+
+### The path tracer is Cycles
+
+`tools/desktop/build_cycles_linux.sh` builds it into
+`libprototype_cycles.so`, from the same pinned Blender commit the iOS job uses
+— one Cycles API, one shim, two platforms. `NativeLib.cycles` looks for that
+library separately from the kernels, so it is absent-tolerant by construction.
+
+The device policy is the only real difference from iOS: `pick_device()` is
+Metal-or-nothing there and OptiX/CUDA/HIP/oneAPI/CPU here, ending at the CPU.
+No GPU backend is compiled in by default, because CUDA and HIP need their
+vendor toolchains at BUILD time to produce kernels — adding one is a flag in
+that script rather than a change to any code.
+
+Denoising is the shim's own a-trous filter unless the build was made against
+Blender's precompiled dependency set, which carries OpenImageDenoise;
+`cy_denoiser_name` reports which one is live. iOS has spent most of its life
+without OIDN too, so this is a difference of degree rather than of kind.
 
 ---
 
-## Windows next
+## Windows
 
-The port was shaped for it. Everything above that says *desktop* rather than
-*Linux* is already shared, and `NativeMenu.hasFileSurfaces` already includes
-Windows. What a Windows build needs:
+The port was shaped for it, and the shape held: everything above that says
+*desktop* rather than *Linux* is shared, and nothing in `frontend/lib` needed a
+fifteenth touch. `claude/windows-app-port-tcdtrl` carries it.
 
-1. **`frontend/windows/`** — `flutter create --platforms=windows` into a
-   scratch project and copy the runner, then apply the same three changes
-   `frontend/linux/runner/my_application.cc` documents: the window title and
-   the iPad-sized default, F11 fullscreen, and argv reaching Dart. The
-   kernel-bundling block at the end of `frontend/linux/CMakeLists.txt` ports
-   almost verbatim.
+1. **`frontend/windows/`** — the Win32 runner, with the same three changes
+   `frontend/linux/runner/my_application.cc` documents (the iPad-sized default,
+   clamped to the work area because Win32 will happily create a window bigger
+   than the screen; F11; argv reaching Dart) plus `set_enable_flutter_gpu`,
+   which is what the 3D viewport needs and which a RELEASE build can get from
+   nowhere else.
 2. **`frontend/packages/native_menu/windows/`** — the same six methods against
-   `IFileDialog` (Save a copy, Open), `ShellExecute` (Open with),
-   `TaskDialogIndirect` (the mesh-import question) and
-   `GetProcessMemoryInfo`/`GlobalMemoryStatusEx` (the perf probe). The Linux
-   file is 460 lines including its reasoning; the Windows one will be similar.
-   Add `windows: pluginClass:` to the plugin's `pubspec.yaml`.
-3. **The kernels** — `backend/desktop/CMakeLists.txt` is where the two
-   MSVC-specific facts go: `--whole-archive` becomes `/WHOLEARCHIVE:`, and the
-   version script becomes a `.def` file listing the same three prefixes (MSVC
-   has no `--version-script`; a `.def` with `qcad_*` wildcards is the
-   equivalent). `NativeLib.fileName` already returns `prototype_native.dll`,
-   and `NativeLib.candidates` already searches beside the runner.
-4. **CI** — `linux-build.yml`'s three jobs map one-for-one onto
-   `windows-2022`; OCCT's flags are unchanged, Qt comes from
-   `jurplel/install-qt-action` as it already does in the iOS job.
+   `IFileSaveDialog`/`IFileOpenDialog`, `ShellExecuteExW`'s `openas` verb,
+   `TaskDialogIndirect` (the mesh-import question) and `GetProcessMemoryInfo`.
+3. **The kernels** — `backend/desktop/CMakeLists.txt` carries the MSVC
+   spellings: `/WHOLEARCHIVE:` for the shims, nothing at all for the QCAD
+   archive cycle (link.exe re-scans until it stops resolving, so only GNU ld
+   needs `--start-group`), and a `.def` for the version script. A `.def` has no
+   wildcards, so the three PREFIXES stay the source of truth and the list is
+   derived from the archives at build time — see
+   `backend/desktop/windows_exports.cmake`, which also says why the two obvious
+   alternatives are worse.
+4. **What replaces the rpath** — Windows resolves a DLL's dependencies against
+   the directory of the EXE that loaded it, so Qt travels FLAT beside
+   `prototype.exe` rather than in a `lib/` with `$ORIGIN` on it, and Qt's
+   platform plugin keeps its `platforms\` subdirectory because it is loaded by
+   path rather than by import table. `windeployqt` produces exactly that
+   layout, which is why it is used rather than a copied list of names.
+5. **CI** — `windows-build.yml` is `linux-build.yml`'s three jobs on
+   `windows-2022`, with the same OCCT flags and the same discipline: the app
+   has to LAUNCH and its own log has to name the kernels, the path tracer and
+   the renderer before anything is packaged.
 
-Two things Windows gets for free because Linux needed them first:
+Two things Windows got for free because Linux needed them first:
 `app_dirs.dart` already returns `%APPDATA%\prototype`, and the window-close
 handshake is a channel contract (`prototype/desktop` → `willClose`) rather
 than anything GTK-shaped — the Win32 runner answers `WM_CLOSE` the way the GTK
-one answers `delete-event`. Windows may not need it at all: its embedder
-implements `System.requestAppExit`, and `didRequestAppExit` in `main.dart` is
-already written for that.
+one answers `delete-event`.
 
 Nothing in `frontend/lib` should need a fifteenth touch.
 

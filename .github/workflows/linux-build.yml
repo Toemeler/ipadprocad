@@ -474,12 +474,14 @@ jobs:
           # of them as the start of a command substitution.
           cat > /tmp/notes.md <<'NOTES'
           The Linux build of the app — the same Flutter tree, the same three
-          CAD kernels (QCAD core, libslvs, OCCT 7.9.3) and the same Liquid
-          Glass chrome as the iPad, built for x86-64 GTK.
+          CAD kernels (QCAD core, libslvs, OCCT 7.9.3), the same Cycles path
+          tracer and the same Liquid Glass chrome as the iPad, built for
+          x86-64 GTK.
 
           Built from `@REF@` at `@SHA@`, by [this run](@RUN@) — which launched
-          it on a headless display and checked that all three kernels came up
-          before it packaged anything.
+          it on a headless display and checked that the kernels, the path
+          tracer and the GPU viewport all came up before it packaged
+          anything.
 
           ## Which file
 
@@ -503,12 +505,22 @@ jobs:
           costs two backdrop passes per surface. On a machine with no GPU worth
           the name — a VM, a remote desktop, an old integrated chip — start it
           with `PROTOTYPE_GLASS=0` and it draws the painted panels instead.
+          `PROTOTYPE_GPU=0` does the same for the 3D viewport, which is
+          flutter_scene on Flutter GPU and falls back to a CPU painter.
+
+          ## The path tracer
+
+          Rendered mode is Cycles, the same renderer and the same shim as the
+          iPad's, built for x86-64. It picks the fastest backend this build has
+          and the machine can run, which on a stock build is the CPU — the
+          GPU backends need their vendor toolchains at BUILD time to produce
+          kernels, so a build that adds one is a flag rather than a code
+          change. Denoising is the shim's own a-trous filter.
 
           Checksums are in `SHA256SUMS.txt`.
 
-          Not here yet: the path-traced Cycles render, which is Metal-only so
-          far. See `LINUX.md` in the tree for what is shared with the iPad and
-          what had to be written twice.
+          See `LINUX.md` in the tree for what is shared with the iPad and what
+          had to be written twice.
           NOTES
           run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           sed -i -e "s|@TAG@|${TAG}|g" \

@@ -49,6 +49,36 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+# WHAT WINDOWS.H DOES TO CODE THAT DID NOT ASK FOR IT.
+#
+# Every one of these is a macro the Windows headers define whether or not
+# anything wants them, and every one of them turns ordinary C++ into a syntax
+# error somewhere in a hundred-thousand-line kernel:
+#
+#   min / max      -> `std::max(a, b)` becomes a macro call with the wrong
+#                     arity. NOMINMAX.
+#   near / far     -> defined EMPTY, for the 16-bit memory model that has not
+#                     existed since 1995, so `double far = -1;` becomes
+#                     `double = -1;`. The one identifier collision this tree
+#                     actually had was renamed rather than undefined (see
+#                     backend/occt/shim/mesh_recon.cpp), because an #undef is
+#                     only as good as the include order round it.
+#   M_PI           -> NOT defined without _USE_MATH_DEFINES, which is the
+#                     opposite failure and just as common.
+#
+# WIN32_LEAN_AND_MEAN cuts the header down to the part anything here uses.
+#
+# /bigobj because these are large translation units — mesh_recon.cpp alone is
+# ten thousand lines of templates — and the default section limit is a hard
+# error rather than a warning. /utf-8 because the sources are UTF-8 and MSVC
+# otherwise reads them in the machine's ANSI code page. /EHsc because the
+# shims catch OCCT's exceptions and nothing may unwind across the C boundary.
+if(MSVC)
+  add_compile_definitions(NOMINMAX WIN32_LEAN_AND_MEAN _USE_MATH_DEFINES
+                          _CRT_SECURE_NO_WARNINGS)
+  add_compile_options(/bigobj /utf-8 /EHsc)
+endif()
+
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
 endif()
