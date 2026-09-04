@@ -480,9 +480,14 @@ jobs:
           # and getting that backwards would hide the failure a second time.
           $skipComctl = $false
           $sxs = @{}
-          $mf = 'windows/runner/runner.exe.manifest'
-          if ((Test-Path $mf) -and
-              (Select-String -Path $mf -Pattern 'Microsoft.Windows.Common-Controls' -Quiet)) {
+          # Repo-root relative, like every other path in this step: the source
+          # manifest, which Runner.rc embeds verbatim as the exe's RT_MANIFEST.
+          $mf = 'frontend/windows/runner/runner.exe.manifest'
+          if (-not (Test-Path $mf)) {
+            Write-Host "BUNDLE: FAIL (no runner.exe.manifest at $mf — this check cannot tell which COMCTL32 the app gets)"
+            exit 1
+          }
+          if (Select-String -Path $mf -Pattern 'Microsoft.Windows.Common-Controls' -Quiet) {
             $v6 = Get-ChildItem "$env:WINDIR/WinSxS" -Directory -ErrorAction SilentlyContinue |
                   Where-Object { $_.Name -like 'amd64_microsoft.windows.common-controls_6595b64144ccf1df_6.*' } |
                   Sort-Object Name | Select-Object -Last 1

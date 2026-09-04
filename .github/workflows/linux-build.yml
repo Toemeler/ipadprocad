@@ -491,8 +491,8 @@ jobs:
           mv prototype-linux-x64.tar.gz "prototype-$tag-linux-x64.tar.gz"
           mv Prototype-x86_64.AppImage "Prototype-$tag-x86_64.AppImage"
           # Anyone who downloads a binary from a link should be able to check
-          # it against the run that produced it.
-          # ONE NAME PER PLATFORM in the shared release, because Windows
+          # it against the run that produced it — and ONE NAME PER PLATFORM in
+          # the shared release, because Windows
           # publishes its own checksums into the same tag and an upload with
           # --clobber would quietly replace this file with that one.
           sums=SHA256SUMS.txt
