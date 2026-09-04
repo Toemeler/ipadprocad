@@ -1,0 +1,253 @@
+name: Build  # the whole app, on three platforms, into one release
+
+# ONE RUN, ONE STATUS, ONE RELEASE.
+#
+# This used to be three workflows. They built the same commit, and each
+# published into the same `build-<sha>` release on its own — so a push to main
+# produced three run numbers, three green-or-red badges, and a release page
+# that filled in over half an hour as each platform arrived. Whichever job got
+# there first created the release and decided what the notes said.
+#
+# The costs of that were not theoretical:
+#
+#   * "Did main build?" had three answers, and no single place to look.
+#   * Three jobs racing to `gh release create` one tag needed create-if-absent
+#     machinery that exists only because they were separate processes.
+#   * A release could be downloaded while still half-populated, and a missing
+#     platform looked identical to a broken one.
+#
+# So the three are reusable workflows now (`on: workflow_call`) and this file
+# calls them. The release is ONE job that runs after all three, downloads what
+# they uploaded, and publishes everything at once.
+#
+# WHY THE RELEASE JOB DEPENDS ON ALL THREE, STRICTLY. `needs` without
+# `if: always()` means a red platform publishes nothing at all — which is the
+# intent. A release either carries the app on every platform it claims to ship
+# on, or it does not exist; `releases/latest` keeps serving the last complete
+# one, so the iPad is never stranded by a Windows failure, it just does not get
+# a newer build until the build is actually good.
+#
+# AND WHY THAT IS NOT A DEAD END. GitHub's "Re-run failed jobs" re-runs only
+# the jobs that failed and keeps the artifacts of the ones that passed —
+# moving them into the new attempt, precisely because jobs share artifacts —
+# and download-artifact@v4 reads the current run "and any previous run
+# attempts". So: Windows breaks, you fix it, you re-run failed jobs, only
+# Windows rebuilds, and the release job publishes with the iOS and Linux
+# artifacts from the first attempt. That recovery is impossible across three
+# separate workflows, and it is the main reason this file exists.
+
+on:
+  push:
+    branches: [ main, 'claude/**' ]
+    # Path filters do not apply to tag pushes, so a `v*` tag always builds.
+    tags: [ 'v*' ]
+    paths-ignore: [ '**.md' ]
+  pull_request:
+    branches: [ main ]
+    paths-ignore: [ '**.md' ]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: >-
+          Cut a named release under this tag (e.g. v0.2.0). Left empty, a run
+          on main publishes the per-commit build-<sha> release as usual.
+        required: false
+        default: ''
+      ios_on_branch:
+        description: >-
+          Also build iOS on a feature branch. Off by default because macOS
+          runners bill at ten times the rate and the job takes an hour.
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+# ONE GROUP FOR THE WHOLE BUILD. Three groups meant a push could cancel one
+# platform's half and leave another's running against the same commit.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # THE IPAD BUILD IS GUARDED AND THE DESKTOP ONES ARE NOT, because they do not
+  # cost the same. This job runs on macOS, which bills at a 10x multiplier, and
+  # it takes about an hour; Linux and Windows are ubuntu and windows runners of
+  # twenty minutes each. Before this file the iOS workflow simply never ran on
+  # `claude/**` and the desktop ones always did — the guard keeps that, rather
+  # than quietly turning every feature-branch push into an hour of macOS.
+  ios:
+    name: iOS
+    if: >-
+      github.ref == 'refs/heads/main' ||
+      startsWith(github.ref, 'refs/tags/') ||
+      github.event_name == 'pull_request' ||
+      inputs.ios_on_branch
+    uses: ./.github/workflows/m1-core-build.yml
+    permissions:
+      # It pushes its own build logs to ci-debug-logs-m5.
+      contents: write
+    secrets: inherit
+
+  linux:
+    name: Linux
+    uses: ./.github/workflows/linux-build.yml
+    permissions:
+      contents: read
+    secrets: inherit
+
+  windows:
+    name: Windows
+    uses: ./.github/workflows/windows-build.yml
+    permissions:
+      contents: read
+    secrets: inherit
+
+  release:
+    name: Publish one release
+    needs: [ios, linux, windows]
+    # Never from a fork PR: the token is read-only there and every `gh release`
+    # call would 403. Never from a feature branch either — a build-<sha>
+    # release is the install target for main, and a branch that published one
+    # would move `releases/latest` to something nobody asked to install.
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      startsWith(github.ref, 'refs/tags/') ||
+      inputs.release_tag != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      # The only job in this workflow that writes anything to the repository.
+      contents: write
+    env:
+      # THE BUILD NUMBER HAD TO KEEP CLIMBING. SideStore reads the version as
+      # `0.1.<n>` and shows it to the user, and the iOS workflow had reached
+      # run 702 when this file took over the counting. A reusable workflow
+      # reports the CALLER's run number, so `github.run_number` here started
+      # again at 1 — and 0.1.1 arriving after 0.1.702 reads as a downgrade on
+      # the device. The base is the last number the old workflow issued; the
+      # sum is monotonic across the change and never repeats.
+      #
+      # The commit count was the obvious alternative and does not work: this
+      # repository has 117 commits on main against a run number of 702, so it
+      # would have gone backwards by a wider margin than doing nothing.
+      BUILD_NUMBER_BASE: 702
+    steps:
+      - uses: actions/checkout@v4
+
+      # Everything all three platforms built, side by side. Each name is the
+      # artifact its own workflow uploaded; on a re-run of a failed job the
+      # ones that already passed come from the earlier attempt.
+      - uses: actions/download-artifact@v4
+        with:
+          name: prototype-unsigned-ipa
+          path: dist-ios
+      - uses: actions/download-artifact@v4
+        with:
+          name: prototype-linux-x64
+          path: dist-linux
+      - uses: actions/download-artifact@v4
+        with:
+          name: prototype-windows-x64
+          path: dist-windows
+
+      - name: What there is to publish
+        run: |
+          set -euo pipefail
+          echo "BUILD_NUMBER=$((BUILD_NUMBER_BASE + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
+          ls -lh dist-ios dist-linux dist-windows
+
+      # WHICH RELEASE THIS IS. A dispatch names its tag, a tag push IS its tag,
+      # and a push to main goes to the per-commit `build-<short sha>` release
+      # that is the rolling install target.
+      - name: Name the assets
+        id: assets
+        run: |
+          set -euo pipefail
+          tag='${{ inputs.release_tag }}'
+          if [ -z "$tag" ]; then
+            case "$GITHUB_REF" in
+              refs/tags/*) tag="${GITHUB_REF_NAME}" ;;
+              *)           tag="build-${GITHUB_SHA:0:7}"; shared=yes ;;
+            esac
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "shared=${shared:-}" >> "$GITHUB_OUTPUT"
+
+          # The tag goes IN EVERY FILENAME. `Prototype-x86_64.AppImage` is
+          # indistinguishable from every other one in a downloads folder, and
+          # the first question about a bug report is which build it came from.
+          mkdir -p dist
+          mv dist-linux/prototype-linux-x64.tar.gz   "dist/prototype-$tag-linux-x64.tar.gz"
+          mv dist-linux/Prototype-x86_64.AppImage    "dist/Prototype-$tag-x86_64.AppImage"
+          mv dist-windows/prototype-windows-x64.zip  "dist/prototype-$tag-windows-x64.zip"
+
+          # ONE CHECKSUM FILE PER PLATFORM. They were both SHA256SUMS.txt once,
+          # and an upload with --clobber made the name a slot: whichever
+          # platform went second silently replaced the other's checksums.
+          ( cd dist && sha256sum "prototype-$tag-linux-x64.tar.gz" \
+                                 "Prototype-$tag-x86_64.AppImage" > SHA256SUMS-linux.txt )
+          ( cd dist && sha256sum "prototype-$tag-windows-x64.zip"  > SHA256SUMS-windows.txt )
+          cat dist/SHA256SUMS-linux.txt dist/SHA256SUMS-windows.txt
+          ls -lh dist
+
+      # THE ROLLING BUILD RELEASE — a push to main.
+      #
+      # publish_release.sh owns this one completely: it writes source.json and
+      # latest.json (SideStore's source and the Shortcut's manifest), sets the
+      # title and notes, and prunes to the last fifteen. It goes FIRST so the
+      # release exists with its real notes before the desktop assets attach to
+      # it; release_attach.sh would otherwise create it with a placeholder body.
+      - name: Publish the build release (iPad install target)
+        if: steps.assets.outputs.shared == 'yes'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash ci/publish_release.sh dist-ios/prototype-unsigned.ipa
+
+      - name: Attach the desktop builds
+        if: steps.assets.outputs.shared == 'yes'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.assets.outputs.tag }}
+        run: |
+          bash ci/release_attach.sh "$TAG" \
+            dist/*.AppImage dist/*.tar.gz dist/*.zip \
+            dist/SHA256SUMS-linux.txt dist/SHA256SUMS-windows.txt
+
+      # A CUT VERSION — a `v*` tag or a dispatch that asked for one.
+      #
+      # NOT publish_release.sh: that script rewrites the title and notes on
+      # every run (they are SideStore's install instructions) and prunes
+      # `build-*`. Both are right for a rolling target and wrong for a version
+      # somebody chose. One call, every asset, the shared notes file.
+      - name: Publish the named release
+        if: steps.assets.outputs.shared != 'yes'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.assets.outputs.tag }}
+        run: |
+          set -euo pipefail
+          cp dist-ios/prototype-unsigned.ipa "dist/ipadprocad-$TAG.ipa"
+          bash ci/release_attach.sh "$TAG" \
+            --notes-file ci/release_notes_named.md \
+            "dist/ipadprocad-$TAG.ipa" \
+            dist/*.AppImage dist/*.tar.gz dist/*.zip \
+            dist/SHA256SUMS-linux.txt dist/SHA256SUMS-windows.txt
+          echo "released: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/$TAG"
+
+      # The nudge for the iPad. A no-op without the secrets set, and never
+      # fatal: the release is already out and the Home-Screen Shortcut fetches
+      # it either way. See AUTOINSTALL.md.
+      - name: Notify iPad
+        if: steps.assets.outputs.shared == 'yes'
+        continue-on-error: true
+        env:
+          PUSHOVER_TOKEN: ${{ secrets.PUSHOVER_TOKEN }}
+          PUSHOVER_USER: ${{ secrets.PUSHOVER_USER }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: |
+          bash ci/notify_build.sh \
+            "https://github.com/${GITHUB_REPOSITORY}/releases/download/build-${GITHUB_SHA:0:7}/ipadprocad-${BUILD_NUMBER}.ipa" \
+            "${BUILD_NUMBER}" \
+            "$(git log -1 --pretty=%s)"

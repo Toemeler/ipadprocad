@@ -17,29 +17,19 @@ name: Windows app build  # the same app again, for the Win32 embedder
 #   * The launch check runs on the runner's own desktop session rather than
 #     under Xvfb.
 
+# CALLED BY build.yml, NOT TRIGGERED ON ITS OWN.
+#
+# The three platform workflows were three workflows: three run numbers, three
+# statuses, and three jobs racing to create one release. A push to main now
+# starts ONE run (build.yml) that calls all three and publishes once, at the
+# end, from a single job — so "did main build" has one answer, and GitHub's
+# own "Re-run failed jobs" rebuilds only the platform that broke and then
+# releases with the other two's artifacts from the first attempt.
 on:
-  push:
-    branches: [ main, 'claude/**' ]
-    tags: [ 'v*' ]
-    paths-ignore: [ '**.md' ]
-  pull_request:
-    branches: [ main ]
-    paths-ignore: [ '**.md' ]
-  workflow_dispatch:
-    inputs:
-      release_tag:
-        description: >-
-          Publish a GitHub Release at this tag from the ref being built
-          (e.g. v0.1.0-windows.1). Leave empty to build without releasing.
-        required: false
-        default: ''
+  workflow_call:
 
 permissions:
   contents: read
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
 
 env:
   # Bump when the OCCT pin or the flag set below changes — the key is what
@@ -739,101 +729,3 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  # -------------------------------------------------------------------------
-  # The release
-  # -------------------------------------------------------------------------
-  release:
-    name: Publish a GitHub Release
-    needs: app
-    # THREE WAYS IN NOW, and the third is the everyday one: every green
-    # build of `main` publishes, so a download of the current app is always
-    # one click from the releases page instead of behind a login on an
-    # artifact that expires in fourteen days. The iOS workflow has worked this
-    # way from the start; this is the same rule applied to the desktop.
-    #
-    # A `v*` tag and a workflow_dispatch with `release_tag` still make their
-    # own named release, which is a different thing and stays a different
-    # thing: those are versions somebody chose to cut.
-    if: >-
-      startsWith(github.ref, 'refs/tags/') ||
-      inputs.release_tag != '' ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/main')
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    permissions:
-      # The only job in this workflow that writes anything to the repository.
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: prototype-windows-x64
-          path: dist
-
-      # The tag goes IN THE FILENAME, for the reason the Linux job gives: the
-      # first question about a bug report is always which build it came from.
-      - name: Name the assets after the tag
-        id: assets
-        run: |
-          set -euo pipefail
-          # WHICH RELEASE THIS IS. A dispatch names its tag, a tag push IS
-          # its tag, and a push to main goes to the per-commit build release
-          # that the iOS and the other desktop workflow also publish into —
-          # `build-<short sha>`, which all three compute from the commit alone
-          # because no workflow can see another's run number.
-          tag='${{ inputs.release_tag }}'
-          if [ -z "$tag" ]; then
-            case "$GITHUB_REF" in
-              refs/tags/*) tag="${GITHUB_REF_NAME}" ;;
-              *)           tag="build-${GITHUB_SHA:0:7}"; shared=yes ;;
-            esac
-          fi
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "shared=${shared:-}" >> "$GITHUB_OUTPUT"
-          cd dist
-          mv prototype-windows-x64.zip "prototype-$tag-windows-x64.zip"
-          # ONE NAME PER PLATFORM in the shared release, because Linux
-          # publishes its own checksums into the same tag and an upload with
-          # --clobber would quietly replace this file with that one.
-          # ALWAYS per-platform, in the shared release AND in a named one.
-          # Both are now assembled by three workflows uploading into one
-          # tag with --clobber, so a file called SHA256SUMS.txt would be
-          # whichever platform finished last, silently.
-          sums=SHA256SUMS-windows.txt
-          echo "sums=$sums" >> "$GITHUB_OUTPUT"
-          sha256sum "prototype-$tag-windows-x64.zip" > "$sums"
-          cat "$sums"
-          ls -lh
-
-      # THE PER-COMMIT RELEASE — a push to main. Assets only: the notes and
-      # the title belong to the iOS job, which publishes the IPA into the same
-      # tag, and two writers of one notes body is a lost section. Whichever of
-      # the three workflows arrives first creates the release; the other two
-      # find it there and attach to it.
-      - name: Attach to the build release
-        if: steps.assets.outputs.shared == 'yes'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.assets.outputs.tag }}
-          SUMS: ${{ steps.assets.outputs.sums }}
-        run: bash ci/release_attach.sh "$TAG" dist/*.zip "dist/${SUMS}"
-
-      # THE NAMED RELEASE — a `v*` tag or a dispatch that asked for one.
-      #
-      # THE SAME SCRIPT AND THE SAME NOTES FILE AS THE OTHER TWO PLATFORMS.
-      # This used to be a `gh release create` with its own Windows-only notes
-      # heredoc, and Linux had a second one — so a version tag started three
-      # workflows that each tried to CREATE the same release, two of them
-      # lost, and whichever won decided what the page said about an app that
-      # ships on three platforms.
-      - name: Attach to the named release
-        if: steps.assets.outputs.shared != 'yes'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.assets.outputs.tag }}
-        run: |
-          bash ci/release_attach.sh "$TAG" \
-            --notes-file ci/release_notes_named.md \
-            dist/*
-          echo "released: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/$TAG"

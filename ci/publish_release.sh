@@ -28,7 +28,15 @@ IPA_PATH="${1:?usage: publish_release.sh <path-to-ipa>}"
 [ -f "$IPA_PATH" ] || { echo "publish_release: no IPA at $IPA_PATH" >&2; exit 1; }
 
 REPO="${GITHUB_REPOSITORY:?}"
-RUN="${GITHUB_RUN_NUMBER:?}"
+# THE BUILD NUMBER, WHICH IS NOT THE RUN NUMBER ANY MORE. build.yml calls the
+# three platform workflows as reusable workflows, and a reusable workflow
+# reports the CALLER's run number — so the counter restarted at 1 when the
+# orchestrator took over, and SideStore, which shows the version as 0.1.<n>,
+# would have seen 0.1.1 arrive after 0.1.702 and read it as a downgrade.
+# build.yml passes BUILD_NUMBER = a base + its own run number, which is
+# monotonic across the change. The fallback keeps this script runnable on its
+# own, which is how it is tested.
+RUN="${BUILD_NUMBER:-${GITHUB_RUN_NUMBER:?}}"
 SHA="${GITHUB_SHA:?}"
 RUN_ID="${GITHUB_RUN_ID:-0}"
 

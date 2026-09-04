@@ -1,29 +1,21 @@
 name: Core + C-API Build (iOS)  # M1 core (green) + M2 C-ABI wrapper & iOS bundle
 
+# CALLED BY build.yml, NOT TRIGGERED ON ITS OWN.
+#
+# The three platform workflows were three workflows: three run numbers, three
+# statuses, and three jobs racing to create one release. A push to main now
+# starts ONE run (build.yml) that calls all three and publishes once, at the
+# end, from a single job — so "did main build" has one answer, and GitHub's
+# own "Re-run failed jobs" rebuilds only the platform that broke and then
+# releases with the other two's artifacts from the first attempt.
 on:
-  push:
-    branches: [ main ]
-    paths-ignore: [ '**.md' ]
-    # A CUT VERSION RUNS THIS TOO, which it did not until now: the desktop
-    # workflows have taken `v*` since they were written, so a version tag
-    # produced a release with an AppImage and a zip in it and no IPA — the one
-    # platform this app is primarily for. `paths-ignore` deliberately does not
-    # apply to the tag: a tag is a decision, not a change.
-    tags: [ 'v*' ]
-  pull_request:
-    branches: [ main ]
-    paths-ignore: [ '**.md' ]
-  workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: write
 
 # Bei schnellen aufeinanderfolgenden Pushes den veralteten Run abbrechen
 # (spart Minuten & Artefakt-Storage).
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   # FAST FEEDBACK — läuft parallel zu allem anderen und wird in ~3 min rot.
   #
@@ -1577,68 +1569,14 @@ jobs:
           path: prototype-unsigned.ipa
           if-no-files-found: error
 
-      # M190 — der Artefakt-Download braucht einen Login, SideStore hat keinen.
-      # Erst ein Release macht die IPA unter einer festen, anonym erreichbaren
-      # URL installierbar. Laeuft nach JEDEM gruenen M5 (auch workflow_dispatch
-      # auf einem Feature-Branch — genau da entstehen die Builds, die aufs
-      # Geraet sollen); uebersprungen nur bei Fork-PRs, wo der Token nur lesen
-      # darf und `gh release create` zwangslaeufig 403 gaebe.
-      - name: Publish release (iPad install target)
-        if: >-
-          !startsWith(github.ref, 'refs/tags/') &&
-          (github.event_name != 'pull_request' ||
-           github.event.pull_request.head.repo.full_name == github.repository)
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: bash ci/publish_release.sh prototype-unsigned.ipa
-
-      # A CUT VERSION GOES SOMEWHERE ELSE, through the same script the two
-      # desktop workflows use.
+      # PUBLISHING MOVED TO build.yml.
       #
-      # NOT publish_release.sh, and the difference is not cosmetic. That script
-      # owns the per-commit `build-<sha>` release completely: it rewrites the
-      # title and the notes on every run (they are SideStore's install
-      # instructions), and it PRUNES to the last fifteen. Both are right for a
-      # rolling build target and wrong for a version somebody cut — the rewrite
-      # would replace notes that describe three platforms with notes that
-      # describe one, and while the prune only ever touches `build-*` tags,
-      # pointing it at a `v*` release is not a thing to leave one filter away
-      # from happening.
-      #
-      # So a tag takes the same create-if-absent-then-upload path as Linux and
-      # Windows, with the same notes file, and the release page is the same
-      # page whichever of the three finishes first.
-      - name: Attach the IPA to the named release
-        if: startsWith(github.ref, 'refs/tags/')
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          # Named after the tag for the reason the desktop assets are: the
-          # first question about a bug report is which build it came from, and
-          # `prototype-unsigned.ipa` in a downloads folder answers nothing.
-          cp prototype-unsigned.ipa "ipadprocad-${GITHUB_REF_NAME}.ipa"
-          bash ci/release_attach.sh "$GITHUB_REF_NAME" \
-            --notes-file ci/release_notes_named.md \
-            "ipadprocad-${GITHUB_REF_NAME}.ipa"
-
-      # Der Anstoss fuers iPad. Ohne gesetzte Secrets ein No-op — der Build
-      # bleibt gruen, das Release liegt trotzdem da und der Home-Screen-Shortcut
-      # holt es. Siehe AUTOINSTALL.md.
-      - name: Notify iPad
-        if: >-
-          github.event_name != 'pull_request' ||
-          github.event.pull_request.head.repo.full_name == github.repository
-        continue-on-error: true
-        env:
-          PUSHOVER_TOKEN: ${{ secrets.PUSHOVER_TOKEN }}
-          PUSHOVER_USER: ${{ secrets.PUSHOVER_USER }}
-          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
-        run: |
-          bash ci/notify_build.sh \
-            "https://github.com/${GITHUB_REPOSITORY}/releases/download/build-${GITHUB_SHA:0:7}/ipadprocad-${GITHUB_RUN_NUMBER}.ipa" \
-            "${GITHUB_RUN_NUMBER}" \
-            "$(git log -1 --pretty=%s)"
+      # The IPA goes up as an artifact and stops there. Releasing is one job at
+      # the end of the orchestrating run, after all three platforms are green,
+      # because a release that carries the iPad build but not the desktop ones
+      # is the half-populated page this consolidation exists to prevent. The
+      # notify-the-iPad call went with it, for the same reason: it points at a
+      # release that is now only complete once every platform has attached.
 
       - name: Commit M5 debug logs
         if: always()
