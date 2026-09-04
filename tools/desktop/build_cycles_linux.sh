@@ -82,14 +82,33 @@ blender="$work/blender"
 # ---------------------------------------------------------------------------
 # 1. Blender's tree and its precompiled dependencies
 # ---------------------------------------------------------------------------
+# --no-checkout, and it is not an optimisation.
+#
+# Blender's tree is under git-lfs and this build wants none of the large files.
+# GIT_LFS_SKIP_SMUDGE leaves them as pointer files — but a machine WITH git-lfs
+# installed then has a working tree git and lfs disagree about, and the
+# checkout of the pinned commit fails with both halves of the same complaint at
+# once: "your local changes would be overwritten" for the tracked files and
+# "untracked working tree files would be overwritten" for what the clone's own
+# checkout left behind. A machine without git-lfs never runs the filter and
+# never notices, which is why this only ever failed on the runner.
+#
+# So: clone with NO working tree, turn the filter off for this repository, and
+# materialise the pinned commit once, with nothing to conflict with.
+export GIT_LFS_SKIP_SMUDGE=1
 if [ ! -d "$blender/.git" ]; then
   say "cloning Blender ($BLENDER_BRANCH @ ${BLENDER_REF:0:12})"
-  GIT_LFS_SKIP_SMUDGE=1 git clone --depth 2 --branch "$BLENDER_BRANCH" \
+  git clone --no-checkout --depth 2 --branch "$BLENDER_BRANCH" \
     "$BLENDER_REMOTE" "$blender" 2>&1 | tail -3
-  (cd "$blender" && { git checkout "$BLENDER_REF" 2>/dev/null || {
-      git fetch --depth 1 origin "$BLENDER_REF"
-      git checkout "$BLENDER_REF"
-    }; })
+  (
+    cd "$blender"
+    # Belt and braces: the variable covers the smudge filter, this covers
+    # `git lfs pull` and anything that reaches for the objects.
+    git config --local lfs.fetchexclude '*'
+    git fetch --depth 1 origin "$BLENDER_REF" 2>&1 | tail -2
+    git checkout --force "$BLENDER_REF" 2>/dev/null \
+      || git checkout --force FETCH_HEAD
+  )
 fi
 (cd "$blender" && git log --oneline -1)
 
@@ -397,7 +416,7 @@ link_libs=$(awk '
   -Wl,--version-script="$repo/backend/desktop/prototype_cycles.map" \
   -Wl,--whole-archive "$shim_a" -Wl,--no-whole-archive \
   -Wl,--start-group $link_libs -Wl,--end-group \
-  -Wl,-rpath,'$ORIGIN' -Wl,--disable-new-dtags \
+  -Wl,-rpath,'$ORIGIN:$ORIGIN/deps' -Wl,--disable-new-dtags \
   -lpthread -ldl -lm ) > "$work/link.log" 2>&1 || {
     echo "the shim does not link:"
     grep -oE "undefined reference to \`[^']+'" "$work/link.log" | sort -u | head -30
@@ -434,26 +453,131 @@ host_only="$host_only"'|libatk.*|libharfbuzz.*|libfontconfig|libfreetype|libpng1
 host_only="$host_only"'|libz|libpixman.*|libepoxy|libxkbcommon.*|libsystemd'
 host_only="$host_only"'|libselinux|libmount|libblkid|libpcre2-8)\.so.*$'
 
+# WHY THIS IS A DT_NEEDED WALK AND NOT `ldd`, which is what the CAD kernels use.
+#
+# Almost none of Blender's precompiled libraries carries a SONAME. Link against
+# lib/linux_x64/openexr/lib/libOpenEXR.so.32 and the linker has nothing to
+# record but the path it was handed, so the finished library asks the loader for
+# an ABSOLUTE path into a build tree that does not travel — and `ldd` prints
+# such an entry WITHOUT the "=>" it prints for a resolved SONAME, so the loop
+# that used to collect the closure skipped it in silence. Twelve libraries
+# where there should have been forty, and nothing noticed, because the link
+# gate ran on the one machine where those absolute paths exist.
+#
+# So: walk NEEDED with objdump, rewrite every path-shaped entry down to its
+# basename, and bring the file it named along. The distribution fallback needs
+# none of this (its libraries all have SONAMEs and are all on the loader's own
+# path) and is unaffected by it — locate_need finds them through ldconfig.
+
+# Where a SONAME-shaped entry can be found when the loader cannot find it
+# itself: Blender's precompiled set is on no search path at all.
+search=""
+if [ -d "$blender/lib/linux_x64" ]; then
+  search="$(find "$blender/lib/linux_x64" -type d -name lib 2>/dev/null | tr '\n' ':')"
+fi
+
+locate_need() {  # $1 = the NEEDED string; prints a path, or nothing
+  case "$1" in
+    */*) [ -f "$1" ] && printf '%s' "$1"; return 0 ;;
+  esac
+  local d old="$IFS"
+  IFS=':'
+  for d in $search; do
+    IFS="$old"
+    if [ -n "$d" ] && [ -f "$d/$1" ]; then printf '%s' "$d/$1"; return 0; fi
+    IFS=':'
+  done
+  IFS="$old"
+  local p
+  p="$(ldconfig -p 2>/dev/null | awk -v n="$1" '$1 == n {print $NF; exit}')"
+  if [ -n "$p" ] && [ -f "$p" ]; then printf '%s' "$p"; fi
+  return 0
+}
+
 copied=0
-while read -r name arrow path rest; do
-  [ "${arrow:-}" = "=>" ] || continue
-  [ -f "${path:-}" ] || continue
-  printf '%s' "$name" | grep -Eq "$host_only" && continue
-  # Already there from the CAD kernels' own closure: same file, same name.
-  [ -e "$deps/$name" ] && continue
-  cp -L "$path" "$deps/$name"
-  copied=$((copied + 1))
-done < <(ldd "$out/libprototype_cycles.so")
+missing=0
+queue="$work/closure.queue"
+printf '%s\n' "$out/libprototype_cycles.so" > "$queue"
+# The queue is a FILE and the loop indexes into it, because the body appends to
+# it and a `while read < file` would be reading a snapshot.
+seen=0
+while [ "$seen" -lt "$(wc -l < "$queue")" ]; do
+  seen=$((seen + 1))
+  lib="$(sed -n "${seen}p" "$queue")"
+  # Read the whole list before touching the file: patchelf rewrites it in place
+  # and objdump is still holding it open.
+  needs="$(objdump -p "$lib" | awk '/NEEDED/{print $2}')"
+  while read -r need; do
+    [ -n "$need" ] || continue
+    base="$(basename "$need")"
+    if [ "$need" != "$base" ]; then
+      patchelf --replace-needed "$need" "$base" "$lib"
+    fi
+    printf '%s' "$base" | grep -Eq "$host_only" && continue
+    if [ ! -e "$deps/$base" ]; then
+      # Already there from the CAD kernels' own closure: same file, same name.
+      found="$(locate_need "$need")"
+      if [ -z "$found" ]; then
+        echo "  MISSING: $(basename "$lib") needs $need — nowhere to be found"
+        missing=$((missing + 1))
+        continue
+      fi
+      cp -L "$found" "$deps/$base"
+      chmod u+w "$deps/$base"
+      copied=$((copied + 1))
+    fi
+    grep -qxF "$deps/$base" "$queue" || printf '%s\n' "$deps/$base" >> "$queue"
+  done <<EOF
+$needs
+EOF
+done
+# EVERY library gets $ORIGIN, for the reason build_native.sh writes out at
+# length: an inherited DT_RPATH stops being inherited the moment something in
+# the chain has a RUNPATH of its own.
 for lib in "$deps"/*.so*; do
   [ -f "$lib" ] && patchelf --set-rpath '$ORIGIN' "$lib"
 done
 echo "added $copied libraries to $deps ($(du -sh "$deps" | cut -f1) total)"
+if [ "$missing" -ne 0 ]; then
+  echo "CLOSURE: FAIL ($missing unsatisfied)"
+  exit 1
+fi
+
+# THE INVARIANT, checked rather than reasoned about: nothing that ships may
+# still be asking for a path, and everything it asks for by name is either
+# bundled or a host library.
+unsatisfied=0
+for lib in "$out/libprototype_cycles.so" "$deps"/*.so*; do
+  [ -f "$lib" ] || continue
+  while read -r need; do
+    [ -n "$need" ] || continue
+    case "$need" in
+      */*) echo "  PATH: $(basename "$lib") still needs $need"
+           unsatisfied=$((unsatisfied + 1)); continue ;;
+    esac
+    [ -e "$deps/$need" ] && continue
+    printf '%s' "$need" | grep -Eq "$host_only" && continue
+    echo "  MISSING: $(basename "$lib") needs $need — neither bundled nor a host library"
+    unsatisfied=$((unsatisfied + 1))
+  done < <(objdump -p "$lib" | awk '/NEEDED/{print $2}')
+done
+if [ "$unsatisfied" -ne 0 ]; then
+  echo "CLOSURE: FAIL ($unsatisfied unsatisfied)"
+  exit 1
+fi
+echo "CLOSURE: PASS"
 
 say "the link gate"
 # g++ compiles a .c file as C++, which is what the iOS job's clang++ does too.
+# -rpath-link so the linker can follow the library's NEEDED entries into deps/,
+# and -rpath so the probe can actually RUN from there: everything is flat in
+# the shipped bundle, but here the library is one directory above its own
+# dependencies.
 g++ -I "$repo/backend/cycles/shim" "$repo/backend/cycles/shim/shim_probe.c" \
   -o "$out/prototype_cycles_probe" \
-  -L"$out" -lprototype_cycles -Wl,-rpath,"$out" \
+  -L"$out" -lprototype_cycles \
+  -Wl,-rpath-link,"$deps" -Wl,--disable-new-dtags \
+  -Wl,-rpath,"$out" -Wl,-rpath,"$deps" \
   > "$work/probe.log" 2>&1 || { tail -20 "$work/probe.log"; exit 1; }
 "$out/prototype_cycles_probe" || true
 

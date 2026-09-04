@@ -1449,10 +1449,15 @@ class _ModelBrowserState extends State<ModelBrowser> {
                 // here either.
                 _row(
                   indent: 0,
+                  // M372 — the ROOT is the accent on the device (`.systemBlue`
+                  // on an SF `cube`), and the rows under it are
+                  // `.secondaryLabel` on the same glyph. See treeCubeIcon for
+                  // why these two are outlines rather than the filled cube the
+                  // ribbon uses.
                   icon: asm != null
                       ? assemblyCubeIcon
                       : part != null
-                          ? partCubeIcon
+                          ? treeRootCubeIcon
                           : sketchCubeIcon,
                   label: app.activeChild?.name ?? app.curTab ?? 'Sketch1',
                 ),
@@ -1935,7 +1940,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
     final sel = !picking && app.selectedBody == bodyName;
     final row = _row(
       indent: 30,
-      icon: partCubeIcon,
+      icon: treeCubeIcon,
       label: bodyName,
       active: sel,
       onTap: picking
@@ -2052,7 +2057,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
       // somewhere else.
       icon: broken
           ? endOfSketchIcon
-          : (f is DeriveFeature ? derivedCubeIcon : partCubeIcon),
+          : (f is DeriveFeature ? derivedCubeIcon : treeCubeIcon),
       label: f.name,
       // While the pattern panel is picking features, a SINGLE tap picks this
       // one — the same rule the native browser follows.
@@ -2108,7 +2113,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
     final off = f.suppressed.contains(index);
     final row = _row(
       indent: 30,
-      icon: partCubeIcon,
+      icon: treeCubeIcon,
       label: L.of(context).nodeOccurrence(index),
       onTap: () => app.patternSuppressOccurrence(f, index, !off),
       trailing: _EyeButton(

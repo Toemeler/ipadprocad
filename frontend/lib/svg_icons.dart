@@ -257,8 +257,33 @@ const sharedSketchCubeIcon =
 /// Bodies row and made two folders indistinguishable from each other. One
 /// glyph for the thing the row IS, in the icon set's own amber, which
 /// icon_theme maps onto the palette's annotation hue.
+/// The model browser's cube, and the ROOT's blue one.
+///
+/// `data-fixed` for the reason [treeFolderIcon] carries: on the iPad this view
+/// is UIKit and its rows are SF Symbols — `cube`, tinted `.secondaryLabel` or
+/// `.systemBlue` — so these two are drawn to match a glyph outside this app
+/// rather than to sit on the app's own icon ramp. An OUTLINE rather than the
+/// filled `partCubeIcon` the ribbon uses, because `cube` is an outline.
+///
+/// Measured off the device through the panel: the root's stroke is
+/// (59, 134, 247) and a body's is (124, 125, 129), which are systemBlue and
+/// secondaryLabel lifted by the glass they sit under.
+const treeCubeIcon =
+    '<svg xmlns="http://www.w3.org/2000/svg" data-fixed="1" viewBox="0 0 16 16"><path d="M8 1.7 14 5.1v5.8L8 14.3 2 10.9V5.1z" fill="none" stroke="#8A8A8E" stroke-width="1.15" stroke-linejoin="round"/><path d="M2 5.1 8 8.5l6-3.4M8 8.5v5.8" fill="none" stroke="#8A8A8E" stroke-width="1.15" stroke-linejoin="round"/></svg>';
+
+/// The same cube, in the accent the device gives the ROOT row.
+const treeRootCubeIcon =
+    '<svg xmlns="http://www.w3.org/2000/svg" data-fixed="1" viewBox="0 0 16 16"><path d="M8 1.7 14 5.1v5.8L8 14.3 2 10.9V5.1z" fill="none" stroke="#007AFF" stroke-width="1.15" stroke-linejoin="round"/><path d="M2 5.1 8 8.5l6-3.4M8 8.5v5.8" fill="none" stroke="#007AFF" stroke-width="1.15" stroke-linejoin="round"/></svg>';
+
+/// The model browser's container folder.
+///
+/// `data-fixed` and the exact colour off the device: on the iPad this view is
+/// UIKit and the folder is `GlassBrowserView.folderAmber`, a fixed
+/// (0.88, 0.76, 0.44) that the icon theme must not re-hue. Measured back off an
+/// iPad screenshot as (219, 194, 123) against the panel, which is that colour
+/// through the glass.
 const treeFolderIcon =
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M1.6 4.4a.9.9 0 0 1 .9-.9h3.1L7 5h6.5a.9.9 0 0 1 .9.9v6.1a.9.9 0 0 1-.9.9h-11a.9.9 0 0 1-.9-.9z" fill="#E8C63F" stroke="#8a7318" stroke-width=".7" stroke-linejoin="round"/></svg>';
+    '<svg xmlns="http://www.w3.org/2000/svg" data-fixed="1" viewBox="0 0 16 16"><path d="M1.6 4.4a.9.9 0 0 1 .9-.9h3.1L7 5h6.5a.9.9 0 0 1 .9.9v6.1a.9.9 0 0 1-.9.9h-11a.9.9 0 0 1-.9-.9z" fill="#E0C270" stroke="#a8904e" stroke-width=".7" stroke-linejoin="round"/></svg>';
 const originIcon =
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M3 13V3.5" stroke="#3D9BE9" stroke-width="1.4"/><path d="M3 13h10" stroke="#D65A56" stroke-width="1.4"/><path d="M3 13l5-4.5 5 1.5-5 4.5z" fill="#E8C63F" fill-opacity=".55" stroke="#a68b1f" stroke-width=".7"/></svg>';
 const xAxisIcon =
@@ -267,8 +292,18 @@ const yAxisIcon =
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><line x1="8" y1="14.5" x2="8" y2="1.5" stroke="#3D9BE9" stroke-width="1.5"/><path d="M8 1.5l-1.4 2M8 1.5l1.4 2" stroke="#3D9BE9" stroke-width="1.1" fill="none"/></svg>';
 const centerPointIcon =
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><line x1="8" y1="2.5" x2="8" y2="13.5" stroke="#9aa0a6" stroke-width="1"/><line x1="2.5" y1="8" x2="13.5" y2="8" stroke="#9aa0a6" stroke-width="1"/><rect x="6.4" y="6.4" width="3.2" height="3.2" fill="#3D9BE9"/></svg>';
+/// End of Part / End of Sketch, and the broken-feature marker.
+///
+/// `data-fixed` and the device's own red, for the reason [treeFolderIcon] and
+/// [treeCubeIcon] carry: on the iPad this row is UIKit and takes
+/// `.systemRed` (255, 59, 48), measured back through the panel as
+/// (235, 75, 70). The app's own #C0392B came out (122, 30, 43) on Linux — the
+/// same glyph, a different statement.
+///
+/// Used only by the model browser, so this is not the app's error colour
+/// anywhere else.
 const endOfSketchIcon =
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5" fill="#C0392B" stroke="#7d1f14" stroke-width=".8"/><path d="M5.5 5.5l5 5M10.5 5.5l-5 5" stroke="#fff" stroke-width="1.5"/></svg>';
+    '<svg xmlns="http://www.w3.org/2000/svg" data-fixed="1" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5" fill="#FF3B30"/><path d="M5.6 5.6l4.8 4.8M10.4 5.6l-4.8 4.8" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/></svg>';
 const homeTabIcon =
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none"><path d="M2 8.5L8 3l6 5.5" stroke="#aeb3b9" stroke-width="1.4"/><path d="M4 8v5h8V8" stroke="#aeb3b9" stroke-width="1.4"/></svg>';
 

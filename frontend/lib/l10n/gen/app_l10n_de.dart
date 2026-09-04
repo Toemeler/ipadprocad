@@ -125,6 +125,70 @@ class AppL10nDe extends AppL10n {
   String get ribbonRight => 'Rechts';
 
   @override
+  String get settingsSync => 'Teilen';
+
+  @override
+  String get settingsShareCode => 'Freigabecode';
+
+  @override
+  String get settingsShareCodeSet => 'Freigabecode eingeben';
+
+  @override
+  String get settingsNewShareCode => 'Freigabecode erstellen';
+
+  @override
+  String get settingsStopSharing => 'Teilen beenden';
+
+  @override
+  String get settingsSyncStatus => 'Geräte';
+
+  @override
+  String get settingsSyncLooking => 'Suche…';
+
+  @override
+  String settingsSyncDevices(int n) {
+    String _temp0 = intl.Intl.pluralLogic(
+      n,
+      locale: localeName,
+      other: '$n Geräte',
+      one: '1 Gerät',
+      zero: 'Suche…',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get settingsSyncFooter =>
+      'Geräte im selben Netzwerk mit demselben Code halten dieselben Dokumente und Einstellungen. Nichts verlässt Ihr Netzwerk, und es gibt kein Konto. Die Verbindung ist nicht verschlüsselt — nutzen Sie sie in einem Netzwerk, dem Sie vertrauen. Teilen löscht nie: ein Dokument auf einem Gerät landet auf allen.';
+
+  @override
+  String get syncPromptTitle => 'Freigabecode';
+
+  @override
+  String get syncPromptBody =>
+      'Geben Sie den Code Ihres anderen Geräts ein — oder erstellen Sie dort einen und tippen Sie ihn hier ein.';
+
+  @override
+  String get syncPromptPlaceholder => 'ABCD-EFGH-JKLM';
+
+  @override
+  String get syncPromptJoin => 'Teilen';
+
+  @override
+  String get syncBadCode =>
+      'Das ist kein Freigabecode. Er besteht aus zwölf Buchstaben und Ziffern in drei Gruppen.';
+
+  @override
+  String get syncStopTitle => 'Teilen auf diesem Gerät beenden?';
+
+  @override
+  String get syncStopBody =>
+      'Dieses Gerät behält seine Dokumente und sendet und empfängt nichts mehr. Die anderen Geräte bleiben unverändert.';
+
+  @override
+  String get syncCodeCopied => 'Freigabecode kopiert.';
+
+  @override
   String get settingsDiagnostics => 'Diagnose';
 
   @override

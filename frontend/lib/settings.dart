@@ -184,6 +184,29 @@ const String kSecSamples = 'samples';
 /// of four positions. Its own id, because the handler switches on it and the
 /// four dock ids are [RibbonPosition] names.
 const String kRowRibbonNames = 'names';
+/// M373 — the share code, and what it does.
+///
+/// It belongs here by this file's own rule — it outlives the document — and it
+/// is the one section whose rows are a STATE rather than a choice: the code is
+/// either set or it is not, and the row under it reports what the network is
+/// actually doing. See lib/sync/lan_sync.dart for what "sharing" means and,
+/// more importantly, what it does not.
+const String kSecSync = 'sync';
+
+/// The row that opens the code prompt (or shows the code that is set).
+const String kRowShareCode = 'code';
+
+/// Generate a fresh code, for the first device of a pair.
+const String kRowNewShareCode = 'newcode';
+
+/// Stop sharing on this device. Destructive, because the other devices keep
+/// what they have and this one stops receiving — which is a thing to be sure
+/// about, not a toggle to brush past.
+const String kRowStopSharing = 'stopsharing';
+
+/// The read-only line: looking / N devices / off.
+const String kRowSyncStatus = 'syncstatus';
+
 const String kSecDiagnostics = 'diagnostics';
 const String kSecAbout = 'about';
 
@@ -265,6 +288,13 @@ List<SettingsSection> buildSettings(
   /// (BugReport.enabled), and the whole section goes with it rather than
   /// leaving a header over nothing.
   bool diagnostics = true,
+  /// M373 — the share code this device is using, formatted for reading, or
+  /// null when it is not sharing. Defaulted so every existing caller (and
+  /// every test that pins the other sections) keeps working.
+  String? shareCode,
+  /// What the mirror is doing right now, as one short line. Only read when
+  /// [shareCode] is set.
+  String? syncDetail,
 }) =>
     [
       SettingsSection(
@@ -429,6 +459,47 @@ List<SettingsSection> buildSettings(
             ),
         ],
         footer: t.settingsSamplesFooter,
+      ),
+      // M373 — sharing. Placed after the app's own look and before the
+      // diagnostics: it is the last thing you set up about this INSTALL, and
+      // the first thing someone looks for when a document is on the wrong
+      // device.
+      SettingsSection(
+        id: kSecSync,
+        header: t.settingsSync,
+        rows: [
+          SettingsRow(
+            id: kRowShareCode,
+            title: shareCode == null ? t.settingsShareCodeSet : t.settingsShareCode,
+            detail: shareCode,
+            symbol: 'qrcode',
+            kind: shareCode == null
+                ? SettingsRowKind.action
+                : SettingsRowKind.value,
+          ),
+          if (shareCode == null)
+            SettingsRow(
+              id: kRowNewShareCode,
+              title: t.settingsNewShareCode,
+              symbol: 'wand.and.stars',
+            ),
+          if (shareCode != null) ...[
+            SettingsRow(
+              id: kRowSyncStatus,
+              title: t.settingsSyncStatus,
+              detail: syncDetail,
+              kind: SettingsRowKind.value,
+              symbol: 'antenna.radiowaves.left.and.right',
+            ),
+            SettingsRow(
+              id: kRowStopSharing,
+              title: t.settingsStopSharing,
+              symbol: 'xmark.circle',
+              destructive: true,
+            ),
+          ],
+        ],
+        footer: t.settingsSyncFooter,
       ),
       if (diagnostics)
         SettingsSection(

@@ -45,6 +45,19 @@ final Map<String, String> _cache = <String, String>{};
 /// Call at the SvgPicture site, never at a top-level constant: the palette can
 /// change while the app runs, and a constant would freeze the first one.
 String themedIcon(String svg) {
+  // AN ICON MAY DECLARE THAT ITS COLOURS ARE THE SPECIFICATION.
+  //
+  // The mapping below re-hues every chromatic colour into the palette's own,
+  // which is right for the app's icon set — one amber means one thing
+  // everywhere — and wrong for the handful of glyphs that exist to MATCH
+  // something outside this app. The model browser's folder is the case: on the
+  // iPad that view is UIKit, and its folder is `GlassBrowserView.folderAmber`,
+  // a fixed (0.88, 0.76, 0.44). Run through the mapper the same amber comes out
+  // a dark brown, which is a different picture of the same app.
+  //
+  // `data-fixed` on the root element. SVG ignores unknown attributes and so
+  // does flutter_svg, so it costs nothing at the draw site.
+  if (svg.contains('data-fixed')) return svg;
   if (!identical(_cachedFor, T.palette) ||
       _cachedAccent != T.accentChoice.value) {
     _cachedFor = T.palette;
