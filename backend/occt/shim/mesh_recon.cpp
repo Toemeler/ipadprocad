@@ -1700,6 +1700,47 @@ const double kSliverAspect = 0.04; /* height on the longest edge, over it */
  * for, and is the other thing on that dialog.
  * ---------------------------------------------------------------------- */
 
+/* ---- Three ways of closing the whale's last degree, all refuted ---------
+ *
+ * M379. By the table above, two of the three fixtures sit inside their own
+ * mesh's uncertainty and are done. The whale does not: at the 90th percentile
+ * its fit disagrees by 3.88 degrees where the mesh is uncertain by 2.25, so
+ * there is about 1.7x of real headroom. Three obvious levers were pulled at
+ * it. None of them is here, because each made the model worse, and the next
+ * person should not spend the afternoon again.
+ *
+ *   THE RUNG. SurfaceForRegion climbs a ladder of net sizes and keeps the one
+ *   with the least distance error; facing only decides when to stop early. So
+ *   let the rungs that MEET tolerance compete on facing instead, and take the
+ *   one that faces the mesh best. Result: 1.92 -> 2.01 degrees at the mean and
+ *   3.88 -> 4.12 at the 90th. NetFacing is a 95th percentile over a subsample
+ *   of triangle centres; choosing on it picks the net that flatters the
+ *   sample, not the net that is better.
+ *
+ *   THE FAIRING. Waviness is what a smoothing term is for, and
+ *   kFreeformFairing is a millionth of the data's weight. Swept over three
+ *   decades it is already at its optimum and sits next to a cliff: 5e-8 gives
+ *   3.11 degrees, 1e-7 gives 1.90, 2e-7 (this value) gives 1.92, 4e-7 gives
+ *   2.22, 1e-6 gives 2.08, 5e-6 gives 2.31 and 873 faces instead of 312.
+ *   Nothing above the noise is available and the ground falls away below.
+ *
+ *   THE GRID. The valley in the whale's throat is the one patch left that a
+ *   picture calls a shape rather than an edge, and a deep narrow valley is
+ *   what too coarse a grid cannot hold. Taking the cell from 1.6 facets to
+ *   1.2 costs 312 faces -> 2,349 and gives 1.96 degrees; 1.0 costs the same
+ *   and gives 1.99. The cap at kFreeformGridMax is what does it — a finer
+ *   cell hits the cap, the grid stops covering the region, and the regions
+ *   that fall out of it come back as scraps.
+ *
+ * What is actually left, measured rather than guessed: 80% of the flagged
+ * pixels sit where the source's own shading changes fastest — its steepest
+ * quarter, against 25% by chance — which is a terminator or a silhouette
+ * turning a fraction of a degree into a visible shade. 77% lie within 1.5 mm
+ * of a seam between two patches, against 42% of the whole picture. One blob
+ * in six views is big enough to be a shape rather than a line. Whatever
+ * closes the last degree is not a constant in this file.
+ * ---------------------------------------------------------------------- */
+
 /* Fewer triangles than this and the fit has no sample to speak of. */
 const int kMinTrustTriangles = 6;
 
