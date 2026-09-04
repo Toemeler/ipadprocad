@@ -241,6 +241,7 @@ class SceneBuilder {
     }
     _sceneRadius = radius;
 
+    _decorFull = p;
     _rebuildDecor(p);
   }
 
@@ -252,7 +253,18 @@ class SceneBuilder {
   void setOverlays(Map<String, dynamic> p) {
     if (p.containsKey('planes') || p.containsKey('axes') ||
         p.containsKey('sketches')) {
-      _rebuildDecor(p);
+      // MERGED ONTO THE LAST FULL PAYLOAD, not applied on its own.
+      //
+      // The light push carries `key`, `visible` and `hot` and no geometry —
+      // it is a per-MOVE message and a plane's frame does not change when the
+      // pointer does. Handing it straight to _rebuildDecor was therefore a way
+      // of deleting the decor: the rebuild clears everything first, and then
+      // _plane returns null for want of a `frame`, _axis for want of a `dir`,
+      // and `sketches` is not in the payload at all. On a touch screen that
+      // never showed. On a desktop the first mouse movement erased the origin
+      // planes, the axes and every sketch, and nothing but a full scene push
+      // brought them back.
+      _rebuildDecor(mergeDecorPayload(_decorFull, p));
     }
     for (final raw in (p['solids'] as List?) ?? const []) {
       final s = raw as Map;
@@ -475,6 +487,10 @@ class SceneBuilder {
 
   // ---- origin planes, axes, centre point, sketches ------------------------
 
+  /// The last payload that carried decor GEOMETRY, kept so the light push has
+  /// something to be merged onto.
+  Map<String, dynamic> _decorFull = const <String, dynamic>{};
+
   void _rebuildDecor(Map<String, dynamic> p) {
     for (final n in _decor) {
       _world.remove(n);
@@ -585,4 +601,46 @@ class SceneBuilder {
 
   static double _d(Object? v, [double fallback = 0]) =>
       v is num ? v.toDouble() : fallback;
+}
+
+/// The light overlay push, applied to the last full scene payload.
+///
+/// A FREE FUNCTION so it can be tested without a GPU: everything else in this
+/// file needs a Flutter GPU device to build a mesh, and the rule this encodes
+/// — a per-move message updates what a plane IS DOING and never what it IS —
+/// is exactly the part that was wrong and the part worth pinning.
+///
+/// `full` wins on geometry, `light` wins on state, and a decor list the light
+/// push does not mention is kept whole rather than emptied. An entry named
+/// only by the light push is dropped: it has no frame, so there is nothing to
+/// draw, and inventing one would be worse than leaving it out.
+Map<String, dynamic> mergeDecorPayload(
+    Map<String, dynamic> full, Map<String, dynamic> light) {
+  final out = <String, dynamic>{};
+  for (final field in const ['planes', 'axes', 'sketches']) {
+    final base = (full[field] as List?) ?? const [];
+    final over = light[field] as List?;
+    if (over == null) {
+      out[field] = base;
+      continue;
+    }
+    final byKey = <String, Map>{};
+    for (final raw in over) {
+      if (raw is! Map) continue;
+      final k = raw['key'];
+      if (k is String) byKey[k] = raw;
+    }
+    final merged = <Object?>[];
+    for (final raw in base) {
+      if (raw is! Map) {
+        merged.add(raw);
+        continue;
+      }
+      final k = raw['key'];
+      final o = k is String ? byKey[k] : null;
+      merged.add(o == null ? raw : <Object?, Object?>{...raw, ...o});
+    }
+    out[field] = merged;
+  }
+  return out;
 }

@@ -136,6 +136,9 @@ class SettingsSheet {
       );
 
   /// One line for the status row: what the mirror is doing right now.
+  @visibleForTesting
+  static String syncDetailForTest() => _syncDetail();
+
   static String _syncDetail() {
     final st = LanSync.instance.status.value;
     return switch (st.state) {
@@ -296,47 +299,7 @@ class SettingsSheet {
   /// presentations, exactly as renaming a document works.
   Future<void> _sync(String row) async {
     try {
-      switch (row) {
-        case kRowShareCode:
-          final t = L.current;
-          final entered = await promptForText(
-            _context,
-            title: t.syncPromptTitle,
-            message: t.syncPromptBody,
-            initialValue: ShareCodes.current.value == null
-                ? ''
-                : formatShareCode(ShareCodes.current.value!),
-            placeholder: t.syncPromptPlaceholder,
-            confirmLabel: t.syncPromptJoin,
-            // Validated in the PROMPT rather than after it, so a typo is
-            // corrected where it was made instead of silently starting a
-            // mirror that will never find anybody.
-            validate: (v) =>
-                normaliseShareCode(v) == null ? t.syncBadCode : null,
-          );
-          if (entered == null) break;
-          final code = normaliseShareCode(entered);
-          if (code != null) await ShareCodes.set(code);
-        case kRowNewShareCode:
-          // Generated and adopted in one step: the first device of a pair has
-          // nothing to type, and making it type what the app just invented
-          // would be a form for the sake of symmetry.
-          await ShareCodes.set(normaliseShareCode(generateShareCode()));
-        case kRowStopSharing:
-          final t = L.current;
-          final sure = await confirmAction(
-            _context,
-            title: t.syncStopTitle,
-            message: t.syncStopBody,
-            confirmLabel: t.settingsStopSharing,
-            destructive: true,
-          );
-          if (sure) await ShareCodes.set(null);
-        default:
-          break; // the status row is not selectable
-      }
-    } catch (e) {
-      Log.w('sync', 'the sharing row failed: $e');
+      await applySyncRow(_context, row);
     } finally {
       if (isOpen) unawaited(_push());
     }
@@ -420,6 +383,14 @@ class _FallbackDialogState extends State<_FallbackDialog> {
       ribbonNames: RibbonLabels.on, // M349
       samples: RenderSamples.current, // M367
       diagnostics: BugReport.enabled,
+      // M381 — these two were missing here and present in the native spec,
+      // which is why the fallback could never show a code that was set, and
+      // never offered "Stop Sharing" at all: without `shareCode` the section
+      // is permanently in its nothing-shared shape.
+      shareCode: ShareCodes.current.value == null
+          ? null
+          : formatShareCode(ShareCodes.current.value!),
+      syncDetail: SettingsSheet._syncDetail(),
     );
     return AlertDialog(
       backgroundColor: T.panel,
@@ -453,12 +424,35 @@ class _FallbackDialogState extends State<_FallbackDialog> {
                                 shape: BoxShape.circle,
                                 border:
                                     Border.all(color: T.sep, width: 0.5))),
+                    // BOUNDED, because a ListTile gives its trailing widget
+                    // whatever it asks for and then asserts when that is the
+                    // whole tile. `system` in the About section is a full OS
+                    // version string — "Windows 10 Pro 10.0 (Build 26100)" —
+                    // and it consumed the row: in debug that is a layout
+                    // assertion on every build of this dialog, and in release
+                    // it is a title with nowhere to go. Right-aligned and
+                    // ellipsised, which is what a detail column is.
                     trailing: r.kind == SettingsRowKind.value
-                        ? Text(r.detail ?? '', style: ts(11.5, T.dim))
+                        ? ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 190),
+                            child: Text(
+                              r.detail ?? '',
+                              style: ts(11.5, T.dim),
+                              textAlign: TextAlign.right,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          )
                         : (r.selected
                             ? Icon(Icons.check, size: 16, color: T.accent)
                             : null),
-                    onTap: r.kind == SettingsRowKind.value
+                    // A value row is read-only in this dialog — except the
+                    // share code, which is a value row PRECISELY BECAUSE it
+                    // has a value to show, and still has to reopen the prompt
+                    // when tapped. The native sheet decides that for itself;
+                    // here it has to be said.
+                    onTap: (r.kind == SettingsRowKind.value &&
+                            r.id != kRowShareCode)
                         ? null
                         : () => _tap(s.id, r.id),
                   ),
@@ -517,6 +511,13 @@ class _FallbackDialogState extends State<_FallbackDialog> {
         final n = int.tryParse(row);
         if (n != null) RenderSamples.set(n);
         break;
+      case kSecSync:
+        // Opens a prompt or a confirmation of its own, so it owns the screen
+        // until it comes back and then this dialog redraws from the new state.
+        unawaited(applySyncRow(context, row).then((_) {
+          if (mounted) setState(() {});
+        }));
+        return;
       case kSecDiagnostics:
         if (row == kRowReportProblem) {
           Navigator.of(context).pop();
@@ -531,5 +532,59 @@ class _FallbackDialogState extends State<_FallbackDialog> {
         return;
     }
     setState(() {});
+  }
+}
+
+/// One row of the Sharing section, applied.
+///
+/// A FREE FUNCTION, and that is the fix rather than a detail. This logic used
+/// to live only in the native sheet's switch, and the Flutter fallback — which
+/// is what every Windows and Linux user actually sees — had no `kSecSync` case
+/// at all: the rows drew, took the tap, and fell through to a `setState` that
+/// changed nothing. Two switches over the same row ids, one of them forgotten.
+/// There is one now, and both surfaces call it.
+Future<void> applySyncRow(BuildContext context, String row) async {
+  try {
+      switch (row) {
+        case kRowShareCode:
+          final t = L.current;
+          final entered = await promptForText(
+            context,
+            title: t.syncPromptTitle,
+            message: t.syncPromptBody,
+            initialValue: ShareCodes.current.value == null
+                ? ''
+                : formatShareCode(ShareCodes.current.value!),
+            placeholder: t.syncPromptPlaceholder,
+            confirmLabel: t.syncPromptJoin,
+            // Validated in the PROMPT rather than after it, so a typo is
+            // corrected where it was made instead of silently starting a
+            // mirror that will never find anybody.
+            validate: (v) =>
+                normaliseShareCode(v) == null ? t.syncBadCode : null,
+          );
+          if (entered == null) break;
+          final code = normaliseShareCode(entered);
+          if (code != null) await ShareCodes.set(code);
+        case kRowNewShareCode:
+          // Generated and adopted in one step: the first device of a pair has
+          // nothing to type, and making it type what the app just invented
+          // would be a form for the sake of symmetry.
+          await ShareCodes.set(normaliseShareCode(generateShareCode()));
+        case kRowStopSharing:
+          final t = L.current;
+          final sure = await confirmAction(
+            context,
+            title: t.syncStopTitle,
+            message: t.syncStopBody,
+            confirmLabel: t.settingsStopSharing,
+            destructive: true,
+          );
+          if (sure) await ShareCodes.set(null);
+        default:
+          break; // the status row is not selectable
+      }
+  } catch (e) {
+    Log.w('sync', 'the sharing row failed: $e');
   }
 }

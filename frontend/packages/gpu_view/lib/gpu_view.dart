@@ -41,6 +41,10 @@ import 'package:flutter_scene/scene.dart';
 import 'src/scene_builder.dart';
 
 export 'src/ortho_camera.dart' show OrthographicCamera, OrthographicProjection;
+// M382 — the overlay/scene merge, exported so it can be tested without a GPU.
+// It is the rule that decides whether a per-move push updates the decor or
+// deletes it, which is a thing worth a test and not a thing worth a device.
+export 'src/scene_builder.dart' show mergeDecorPayload;
 
 /// Drives one GPU viewport. Obtained from [GpuView] via [GpuView.onCreated].
 ///
