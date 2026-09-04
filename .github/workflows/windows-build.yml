@@ -46,8 +46,10 @@ env:
   # decides whether a long build runs. Same discipline as the Linux job.
   OCCT_CACHE_KEY: occt-windows-V7_9_3-r1
   # The Qt the kernels link against. QCAD needs Core/Concurrent/Gui/Network/
-  # Qml/Svg/Xml, all of which are in the default desktop package plus qtsvg
-  # and qtdeclarative.
+  # Qml/Svg/Xml, and in Qt 6 every one of those is in the DEFAULT desktop
+  # package — `modules:` is for the add-ons (qtcharts, qt5compat, qtmultimedia
+  # and the like), and asking it for qtsvg or qtdeclarative fails the install
+  # with "not found while parsing XML of package information".
   QT_VERSION: 6.8.3
 
 jobs:
@@ -126,7 +128,6 @@ jobs:
           host: windows
           target: desktop
           arch: win64_msvc2022_64
-          modules: qtsvg qtdeclarative
           cache: true
 
       - uses: actions/download-artifact@v4

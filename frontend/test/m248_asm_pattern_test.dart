@@ -294,20 +294,37 @@ void main() {
           final n = at.applyDir(
               Vec3(m.normals[i], m.normals[i + 1], m.normals[i + 2]));
           if (n.length < 1e-12) continue;
-          // The PAINTER's sign, deliberately: this pair asks whether a
-          // mirrored component agrees with an unmirrored one, which is a
-          // question about relative consistency. It is blind to which
-          // absolute side the painter draws — see Cam3, and note that the
-          // PICKERS answer the other way round. Flipping this without
-          // flipping buildSceneSolid would only break the comparison.
-          if (n.normalized().dot(cam.dir) < 0) out.add(t ~/ 3);
+          // The painter's sign, which is now the app's ONE sign: the eye is
+          // at `+dir * D`, so a face the viewer can see has `n·dir > 0` (see
+          // Cam3, and the pickers, which have always answered this way).
+          //
+          // M372 — this used to read `< 0`, matching the painter as it was
+          // then and carrying a note that flipping it alone would break the
+          // comparison. buildSceneSolid was flipped; this follows. The pair
+          // still asks the same question — whether a mirrored component
+          // agrees with an unmirrored one — and is still blind to which
+          // absolute side is drawn, so it kept passing while both were wrong.
+          if (n.normalized().dot(cam.dir) > 0) out.add(t ~/ 3);
         }
       }
       return out;
     }
 
     test('the front faces are the ones a viewer would see', () {
-      final cam = frontCam();
+      // A TILTED camera, and it has to be tilted.
+      //
+      // frontCam looks straight down -Z at an axis-aligned box, so its four
+      // side faces are exactly perpendicular to the view and the sign of
+      // `n·dir` on them is floating-point noise — the winding normal and the
+      // stored normal can disagree about a face that is edge-on to the camera
+      // and both be right. This test compares two independent answers to
+      // "which faces are front", so it has to ask about faces that HAVE one.
+      //
+      // (M372 — it did not, and it passed for years because the noise happened
+      // to land the same way on both sides of the comparison. Flipping the
+      // renderer's sign to the app's real one was enough to separate them.)
+      final cam = Cam3(PartCamera(az: 0.6, pol: 1.2, halfH: 90),
+          const Size(800, 600));
       final plain = occ('Bracket:1', const Vec3(-30, 0, 0));
       final mirrored = occ('Bracket:2', const Vec3(30, 0, 0))
         ..reflect = const Vec3(1, 0, 0);

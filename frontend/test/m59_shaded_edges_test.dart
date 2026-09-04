@@ -190,8 +190,16 @@ Future<AppState> buildExtrudedPart({String plane = 'xy'}) async {
 }
 
 // A camera looking down +X (so the cylinder's +Z axis is vertical on screen).
+/// A camera on the +X SIDE, looking back along -X.
+///
+/// `orientToDir` takes the direction from the scene TOWARD the eye — the same
+/// `dir` RealityKit places the camera at (`center + dir * dist`) and the same
+/// one the ViewCube uses, so clicking RIGHT puts the eye on the right. The
+/// three cases below used to read it as the LOOK direction and put the near
+/// wall at x = -10; that matched the painter as it was then, and both were
+/// wrong together (M372).
 Cam3 sideCam(Size size) {
-  final cam = PartCamera()..orientToDir(Vec3(1, 0, 0)); // look along +X
+  final cam = PartCamera()..orientToDir(Vec3(1, 0, 0)); // eye on the +X side
   cam
     ..halfH = 40
     ..ox = 0
@@ -208,10 +216,10 @@ void main() {
       final cam = sideCam(size);
       final solid = KernelSolid(synthCylinderMesh(10, 5, 0.5), 1, null);
       final occ = solidOccluder([solid], cam);
-      // The camera looks ALONG +X, so it sits on the -X side: x=-10 is the
-      // NEAR barrel wall (visible), x=+10 is the FAR wall (hidden behind it).
-      final near = Vec3(-10, 0, 2.5);
-      final far = Vec3(10, 0, 2.5);
+      // The eye is on the +X side, so x=+10 is the NEAR barrel wall (visible)
+      // and x=-10 is the FAR one (hidden behind it).
+      final near = Vec3(10, 0, 2.5);
+      final far = Vec3(-10, 0, 2.5);
       expect(occ.hidden(cam.project(near), cam.depth(near)), isFalse);
       expect(occ.hidden(cam.project(far), cam.depth(far)), isTrue);
     });
@@ -220,14 +228,14 @@ void main() {
       final cam = sideCam(size);
       final solid = KernelSolid(synthCylinderMesh(10, 5, 0.5), 1, null);
       final occ = solidOccluder([solid], cam);
-      // camera on the -X side: a point well in front of the nearest surface
-      // (x < -10, between camera and model) must always be visible.
-      final inFront = Vec3(-25, 0, 2.5);
+      // The eye is on the +X side: a point well in front of the nearest
+      // surface (x > 10, between camera and model) must always be visible.
+      final inFront = Vec3(25, 0, 2.5);
       expect(occ.hidden(cam.project(inFront), cam.depth(inFront)), isFalse,
           reason: 'a sketch in front of the model is drawn over it');
       // and a point on the near surface itself (the near barrel wall at
-      // x=-10) is visible — its own face does not swallow it (bias).
-      final onNearFace = Vec3(-10, 0, 2.5);
+      // x=+10) is visible — its own face does not swallow it (bias).
+      final onNearFace = Vec3(10, 0, 2.5);
       expect(
           occ.hidden(cam.project(onNearFace), cam.depth(onNearFace)), isFalse,
           reason: 'a sketch on the near face stays visible');
@@ -240,7 +248,7 @@ void main() {
       expect(occ.edgeMargin, greaterThan(0),
           reason: 'edges get a generous on-surface margin');
       // with the margin, a point on the near surface is DEFINITELY not hidden
-      final onNear = Vec3(-10, 0, 2.5);
+      final onNear = Vec3(10, 0, 2.5);
       expect(
           occ.hidden(cam.project(onNear), cam.depth(onNear),
               extra: occ.edgeMargin),
@@ -378,11 +386,11 @@ void main() {
       final solid = KernelSolid(synthCylinderMesh(10, 5, 0.5), 1, null);
       final scene = buildSceneSolid(solid, cam);
       final occ = SceneOccluders([scene]);
-      // The camera looks ALONG +X and sits on the -X side, so the barrel
-      // point at x=-10 is NEAREST (visible) and the one at x=+10 is FARTHEST
-      // (occluded by the barrel in front of it).
-      final near = Vec3(-10, 0, 2.5);
-      final far = Vec3(10, 0, 2.5);
+      // The eye is on the +X side, so the barrel point at x=+10 is NEAREST
+      // (visible) and the one at x=-10 is FARTHEST (occluded by the barrel in
+      // front of it).
+      final near = Vec3(10, 0, 2.5);
+      final far = Vec3(-10, 0, 2.5);
       expect(occ.hidden(cam.project(near), cam.depth(near)), isFalse,
           reason: 'near rim point is visible');
       expect(occ.hidden(cam.project(far), cam.depth(far)), isTrue,
