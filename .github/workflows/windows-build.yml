@@ -506,6 +506,7 @@ jobs:
           # so a DLL present in both sets arrives twice and one copy wins.
           # Names still all resolve; ordinals stop matching.
           $bad = @()
+          $warn = @()
           $ordinals = @()
           foreach ($f in Get-ChildItem "$dir/*.dll", "$dir/*.exe") {
             $provider = $null
@@ -525,12 +526,34 @@ jobs:
                 $ordinals += "$($f.Name) -> $provider #$ord ($where)"
                 if (-not $prov) { continue }               # an API set, or virtual
                 if (-not $exports.ContainsKey($prov)) {
+                  # ORDINAL AND HINT, AND NOTHING AFTER THEM. dumpbin prints an
+                  # export three different ways and only one has an RVA:
+                  #
+                  #     1    0 00001010 Foo
+                  #     2    1          Bar (forwarded to OTHER.Bar)
+                  #     3    2 00001020 [NONAME]
+                  #
+                  # Requiring the RVA column — which the first version did —
+                  # drops every FORWARDER, and WSOCK32.dll is very nearly
+                  # nothing but forwarders to WS2_32. That is why it appeared to
+                  # export none of the three ordinals prototype_native.dll asks
+                  # it for. COMCTL32's DPA_/DSA_ family is the [NONAME] case.
                   $exports[$prov] = @(& dumpbin /EXPORTS $prov 2>$null |
-                    Select-String -Pattern '^\s+(\d+)\s+[0-9A-F]+\s+[0-9A-F]+' |
+                    Select-String -Pattern '^\s+(\d+)\s+[0-9A-Fa-f]+(\s|$)' |
                     ForEach-Object { [int]$_.Matches[0].Groups[1].Value })
                 }
                 if ($exports[$prov] -notcontains $ord) {
-                  $bad += "$($f.Name) imports ordinal $ord from $provider ($where), which does not export it"
+                  if ($where -eq 'System32') {
+                    # Reported, not fatal. What Windows resolves COMCTL32 to is
+                    # decided by the activation context, not by the file in
+                    # System32 — an app manifested for common controls v6 gets
+                    # the WinSxS copy, whose export table is not this one. This
+                    # check cannot see that, so it may not be the thing that
+                    # stops the build.
+                    $warn += "$($f.Name) -> $provider #$ord not found in System32's copy"
+                  } else {
+                    $bad += "$($f.Name) imports ordinal $ord from $provider ($where), which does not export it"
+                  }
                 }
               }
             }
@@ -546,7 +569,11 @@ jobs:
           Write-Host "imports taken by ordinal ($($ordinals.Count)):"
           $ordinals | Sort-Object -Unique | Select-Object -First 40 |
             ForEach-Object { Write-Host "  $_" }
-          Write-Host "every import by ordinal is exported by the copy that ships"
+          if ($warn.Count -gt 0) {
+            Write-Host "ordinals not found in System32's own copy (see above):"
+            $warn | ForEach-Object { Write-Host "  $_" }
+          }
+          Write-Host "every import by ordinal from the BUNDLE is exported by it"
 
           # AND WHAT SHADOWS THE SYSTEM, which is the other way a name resolves
           # to the wrong build: a DLL beside the exe is found before the one in
