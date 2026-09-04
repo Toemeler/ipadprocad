@@ -468,6 +468,37 @@ jobs:
           $virtual = '^(api-ms-win-|ext-ms-)'
           $exports = @{}
           $sys = "$env:WINDIR/System32"
+
+          # WHAT THE MANIFEST CHANGES. An import is resolved against a file,
+          # and which file a NAME means is decided by the activation context
+          # before the search path is ever consulted. runner.exe.manifest
+          # names Microsoft.Windows.Common-Controls 6.0.0.0, so COMCTL32.dll
+          # means the WinSxS v6 assembly for this process and NOT the v5.82
+          # stub in System32 — two different export tables under one name.
+          # Read the manifest rather than assume either way: with the
+          # dependency absent the stub IS the right thing to check against,
+          # and getting that backwards would hide the failure a second time.
+          $skipComctl = $false
+          $sxs = @{}
+          $mf = 'windows/runner/runner.exe.manifest'
+          if ((Test-Path $mf) -and
+              (Select-String -Path $mf -Pattern 'Microsoft.Windows.Common-Controls' -Quiet)) {
+            $v6 = Get-ChildItem "$env:WINDIR/WinSxS" -Directory -ErrorAction SilentlyContinue |
+                  Where-Object { $_.Name -like 'amd64_microsoft.windows.common-controls_6595b64144ccf1df_6.*' } |
+                  Sort-Object Name | Select-Object -Last 1
+            if ($v6 -and (Test-Path "$($v6.FullName)/comctl32.dll")) {
+              $sxs['COMCTL32.dll'] = "$($v6.FullName)/comctl32.dll"
+              $sxs['comctl32.dll'] = "$($v6.FullName)/comctl32.dll"
+              Write-Host "common controls v6 is manifested: $($v6.Name)"
+            } else {
+              # Manifested but not locatable on this image. Saying so beats
+              # failing against the stub's export table, which is not what runs.
+              Write-Host "common controls v6 is manifested but no WinSxS copy was found; COMCTL32 ordinals go unchecked"
+              $skipComctl = $true
+            }
+          } else {
+            Write-Host "no common controls v6 in the manifest: COMCTL32 means the System32 stub"
+          }
           $seen = @{}; $queue = [System.Collections.Queue]::new()
           $queue.Enqueue("$dir/prototype.exe")
           $unresolved = @()
@@ -506,7 +537,6 @@ jobs:
           # so a DLL present in both sets arrives twice and one copy wins.
           # Names still all resolve; ordinals stop matching.
           $bad = @()
-          $warn = @()
           $ordinals = @()
           foreach ($f in Get-ChildItem "$dir/*.dll", "$dir/*.exe") {
             $provider = $null
@@ -520,11 +550,16 @@ jobs:
                 # bundled DLL importing by ordinal from a SYSTEM one fails
                 # exactly the same way, and that half was invisible.
                 $prov = if (Test-Path (Join-Path $dir $provider)) { Join-Path $dir $provider }
+                        elseif ($sxs.ContainsKey($provider))      { $sxs[$provider] }
                         elseif (Test-Path "$sys/$provider")       { "$sys/$provider" }
                         else { $null }
-                $where = if ($prov -and $prov.StartsWith($sys)) { 'System32' } else { 'bundle' }
+                $where = if (-not $prov)                     { 'nowhere' }
+                         elseif ($prov -eq $sxs[$provider])  { 'WinSxS' }
+                         elseif ($prov.StartsWith($sys))     { 'System32' }
+                         else                                { 'bundle' }
                 $ordinals += "$($f.Name) -> $provider #$ord ($where)"
                 if (-not $prov) { continue }               # an API set, or virtual
+                if ($skipComctl -and $provider -match '^(?i:comctl32\.dll)$') { continue }
                 if (-not $exports.ContainsKey($prov)) {
                   # ORDINAL AND HINT, AND NOTHING AFTER THEM. dumpbin prints an
                   # export three different ways and only one has an RVA:
@@ -543,17 +578,20 @@ jobs:
                     ForEach-Object { [int]$_.Matches[0].Groups[1].Value })
                 }
                 if ($exports[$prov] -notcontains $ord) {
-                  if ($where -eq 'System32') {
-                    # Reported, not fatal. What Windows resolves COMCTL32 to is
-                    # decided by the activation context, not by the file in
-                    # System32 — an app manifested for common controls v6 gets
-                    # the WinSxS copy, whose export table is not this one. This
-                    # check cannot see that, so it may not be the thing that
-                    # stops the build.
-                    $warn += "$($f.Name) -> $provider #$ord not found in System32's copy"
-                  } else {
-                    $bad += "$($f.Name) imports ordinal $ord from $provider ($where), which does not export it"
-                  }
+                  # FATAL WHEREVER IT RESOLVED. The first version of this arm
+                  # reported a System32 miss and carried on, reasoning that the
+                  # activation context decides what COMCTL32 means and that a
+                  # check reading files could not see it. That reasoning let
+                  # the one real failure through: native_menu_plugin.dll asks
+                  # COMCTL32 for #345 (TaskDialogIndirect), the manifest did
+                  # not name common controls v6, so the loader bound the v5.82
+                  # stub in System32, which has no #345, and killed the process
+                  # with 0xC0000138 before it could write a line. The check
+                  # said "reported, not fatal" and the build went on.
+                  #
+                  # The context is READ now, above, rather than guessed at, so
+                  # this arm has the same standing as the bundle one.
+                  $bad += "$($f.Name) imports ordinal $ord from $provider ($where), which does not export it"
                 }
               }
             }
@@ -569,11 +607,7 @@ jobs:
           Write-Host "imports taken by ordinal ($($ordinals.Count)):"
           $ordinals | Sort-Object -Unique | Select-Object -First 40 |
             ForEach-Object { Write-Host "  $_" }
-          if ($warn.Count -gt 0) {
-            Write-Host "ordinals not found in System32's own copy (see above):"
-            $warn | ForEach-Object { Write-Host "  $_" }
-          }
-          Write-Host "every import by ordinal from the BUNDLE is exported by it"
+          Write-Host "every import by ordinal is exported by the file the loader would bind"
 
           # AND WHAT SHADOWS THE SYSTEM, which is the other way a name resolves
           # to the wrong build: a DLL beside the exe is found before the one in
