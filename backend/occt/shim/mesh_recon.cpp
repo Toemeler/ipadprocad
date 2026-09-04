@@ -1666,6 +1666,40 @@ const double kSliverAspect = 0.04; /* height on the longest edge, over it */
  * to sit in a hash table.
  * ---------------------------------------------------------------------- */
 
+/* ---- How close is close enough, and what is it close TO -----------------
+ *
+ * M378. The natural way to judge this converter is to draw the body it makes
+ * and the mesh it came from at the same camera and subtract the pictures. Two
+ * things about that measurement are not obvious and both were got wrong
+ * before they were got right.
+ *
+ * FIRST, THE MESH HAS TO BE SHADED THE WAY A RENDERER SHADES IT. Averaging
+ * every normal at a vertex over every triangle touching it, with no crease
+ * angle, tilts a flat face's normals into the round beside it — so the SOURCE
+ * draws with smeared corners the object does not have, and a body that gets
+ * the corner exactly right is scored down for it. Splitting the vertex at 30
+ * degrees, which is also the widest angle ShareNormalsAcrossSeams will merge
+ * across, took the user's plate from 18.4% of its pixels differing to 0.585%
+ * and the broom holder from 13.8% to 0.086%. Nothing in either model changed.
+ *
+ * SECOND, AND THIS IS THE FLOOR: A MESH CANNOT SAY WHERE ITS NORMAL POINTS TO
+ * BETTER THAN HALF THE ANGLE BETWEEN TWO OF ITS FACETS. Measured over the
+ * edges each model's own crease rule calls smooth:
+ *
+ *              the mesh is uncertain by     the fit disagrees by
+ *   plate         13.4 deg (90th)              2.9 deg (mean)
+ *   broom          0.5 deg                     0.4 deg
+ *   whale          2.3 deg                     1.9 deg
+ *
+ * On the plate the fit sits four times INSIDE the mesh's own uncertainty, and
+ * what the remaining 0.585% draws is the boss on its back: twelve flat
+ * segments in the STL, one circle in the converted body. The difference is
+ * real and the converted body is the more truthful of the two. A number from
+ * this measurement is a floor and not a score, and driving it to zero would
+ * mean reproducing the faceting — which is what the 1:1 triangle import is
+ * for, and is the other thing on that dialog.
+ * ---------------------------------------------------------------------- */
+
 /* Fewer triangles than this and the fit has no sample to speak of. */
 const int kMinTrustTriangles = 6;
 
