@@ -33,6 +33,18 @@ class FlutterWindow : public Win32Window {
   void BeginClose(HWND window);
   void FinishClose();
 
+  // No standard title bar: see the note above HandleNcCalcSize in the .cpp.
+  LRESULT HandleNcCalcSize(HWND window, WPARAM wparam, LPARAM lparam);
+  LRESULT HandleNcHitTest(HWND window, LPARAM lparam);
+
+  // `prototype/desktop` calls FROM Dart — the custom titlebar's minimize,
+  // maximize/restore, close and drag-to-move, plus the maximized query the
+  // Dart-side button needs to draw the right icon. See the note above
+  // HandleDesktopMethodCall.
+  void HandleDesktopMethodCall(
+      const flutter::MethodCall<flutter::EncodableValue>& call,
+      std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result);
+
   // The project to run.
   flutter::DartProject project_;
 

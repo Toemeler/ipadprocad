@@ -4,6 +4,7 @@
 // Flutter tree is used unchanged, so the desktop/host-test path keeps working
 // and nothing here can regress it.
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
 import 'package:native_menu/native_menu.dart';
@@ -115,7 +116,11 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
   /// app; the retracted card keeps every id, glyph, tint and menu (that is
   /// what [buildBrowserRows]'s `collapsed` pass is for, M200), so nothing is
   /// unreachable — it costs one tap on the chevron to have the labels back.
-  bool _collapsed = true;
+  ///
+  /// Windows is the one exception: it has no iPad-sized screen to save room
+  /// on and a mouse rather than a thumb reaching for the chevron, so the
+  /// panel opens EXPANDED there instead.
+  bool _collapsed = !Platform.isWindows;
 
   static const double _kWide = NativeModelBrowser._wideCard;
   /// M121 — retracted width. The card keeps its 28 pt left inset, so 62 left

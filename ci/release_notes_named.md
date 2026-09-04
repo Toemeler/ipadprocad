@@ -12,7 +12,7 @@ viewport all came up before packaging anything.
 | `ipadprocad-@TAG@.ipa` | iPad. Unsigned — install with SideStore or AltStore, which re-sign on install. See `AUTOINSTALL.md`. |
 | `Prototype-@TAG@-x86_64.AppImage` | Linux, one file. `chmod +x` it and run it. |
 | `prototype-@TAG@-linux-x64.tar.gz` | Linux, unpacked. `./install.sh` puts it in `~/.local` with its icon, its desktop entry and the `.ptp` / `.pts` / `.pas` associations; `./uninstall.sh` takes it back out and leaves your documents alone. |
-| `prototype-@TAG@-windows-x64.zip` | Windows. Unzip anywhere and run `prototype.exe`. |
+| `prototype-@TAG@-windows-setup.exe` | Windows. Run it — a real installer (Start Menu entry, optional desktop icon, listed in "Installed apps"); run again over an existing install to update it. |
 
 A platform whose build was not green is simply absent — the release is
 assembled by three workflows that each attach their own build.
@@ -24,9 +24,9 @@ inside the bundle, so there is nothing else to install. `zenity` is worth
 having — it is what backs the file chooser.
 
 **Windows:** Windows 10 or newer and the Visual C++ 2015-2022 runtime, which
-almost every machine already has. Everything else travels in the zip. Windows
-will show a SmartScreen warning the first time, because the build is not
-code-signed: "More info", then "Run anyway".
+almost every machine already has. Everything else travels in the installer.
+Windows will show a SmartScreen warning the first time, because the build is
+not code-signed: "More info", then "Run anyway".
 
 **iPad:** iPadOS 17 or newer.
 

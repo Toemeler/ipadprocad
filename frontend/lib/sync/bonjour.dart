@@ -19,15 +19,18 @@
 // separator precisely so that hearing it tells you nothing about the key the
 // handshake uses (see share_code.dart).
 //
-// A PLATFORM WITHOUT THE PLUGIN IS A SUPPORTED STATE. Linux and Windows have
-// no implementation behind this channel and are not supposed to: the call
-// throws MissingPluginException, which is caught, logged once, and forgotten.
-// The beacon is the whole of discovery there.
+// A PLATFORM WITHOUT THE PLUGIN falls back to [MdnsFallback] (mdns.dart): a
+// pure-Dart mDNS/DNS-SD advertiser and browser, speaking the same wire
+// protocol Apple's own Bonjour stack does, for exactly the two platforms —
+// Linux and Windows — this channel has no native implementation behind. See
+// mdns.dart's header for why this is not optional on Windows: it is the only
+// thing that makes an iPad able to see one at all.
 import 'dart:async';
 
 import 'package:flutter/services.dart';
 
 import '../log.dart';
+import 'mdns.dart' show MdnsFallback;
 
 /// One device, as Bonjour describes it.
 class SyncSighting {
@@ -80,8 +83,13 @@ class Bonjour {
   StreamSubscription<dynamic>? _sub;
   bool _running = false;
 
-  /// True when the platform answered — i.e. Bonjour is actually running.
-  bool get running => _running;
+  /// The pure-Dart stand-in, used only where [_control] has nothing behind
+  /// it. Never both at once: [start] picks exactly one per call.
+  final MdnsFallback _fallback = MdnsFallback();
+
+  /// True when Bonjour is actually running — the platform channel, or (on a
+  /// platform with none) the pure-Dart fallback in its place.
+  bool get running => _running || _fallback.running;
 
   Future<void> start({
     required String fingerprint,
@@ -101,9 +109,17 @@ class Bonjour {
         'v': 1,
       });
     } on MissingPluginException {
-      // Every desktop. Not a warning: the beacon is discovery there, and a
-      // warning per launch would train the reader to skim the warnings.
-      Log.i('sync', 'no Bonjour on this platform — the UDP beacon is it');
+      // Windows and Linux. Not a warning: this is the expected shape there,
+      // answered by falling back to mdns.dart rather than going without.
+      Log.i('sync', 'no native Bonjour on this platform — using the '
+          'pure-Dart fallback');
+      await _fallback.start(
+        fingerprint: fingerprint,
+        deviceId: deviceId,
+        deviceName: deviceName,
+        port: port,
+        onSighting: onSighting,
+      );
       return;
     } catch (e) {
       Log.w('sync', 'Bonjour would not start: $e');
@@ -123,6 +139,7 @@ class Bonjour {
   Future<void> stop() async {
     await _sub?.cancel();
     _sub = null;
+    await _fallback.stop();
     if (!_running) return;
     _running = false;
     try {

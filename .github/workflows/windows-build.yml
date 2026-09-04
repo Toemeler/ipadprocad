@@ -12,8 +12,9 @@ name: Windows app build  # the same app again, for the Win32 embedder
 #   * No rpath. Windows resolves a DLL against the directory of the EXE that
 #     loaded it, so the kernels and everything they need sit FLAT beside
 #     prototype.exe rather than in a lib/ with $ORIGIN on it.
-#   * No AppImage. A zip of the runner directory is the whole product; it is
-#     already relocatable because of the above.
+#   * No AppImage. The runner directory is packaged into a real installer
+#     instead (see windows/installer/prototype.iss) — Inno Setup, not a zip;
+#     it is already relocatable because of the above.
 #   * The launch check runs on the runner's own desktop session rather than
 #     under Xvfb.
 
@@ -714,18 +715,84 @@ jobs:
           # die by a signal. The verdict is the log, which is read above.
           exit 0
 
+      # A REAL INSTALLER, not a zip of the runner directory — see
+      # windows/installer/prototype.iss for the why. GitHub's windows-2022
+      # image ships Inno Setup 6 already; this looks for it in the two spots
+      # it installs to rather than assuming the x86 one, and falls back to a
+      # Chocolatey install so the step still works on a runner image that
+      # ever drops it.
+      - name: Locate Inno Setup
+        id: iscc
+        shell: pwsh
+        run: |
+          $candidates = @(
+            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+            "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+          )
+          $found = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $found) {
+            Write-Host "Inno Setup not preinstalled; fetching via choco"
+            choco install innosetup -y --no-progress | Out-Null
+            $found = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          }
+          if (-not $found) {
+            Write-Host "PACKAGE: FAIL (no ISCC.exe anywhere expected)"; exit 1
+          }
+          Write-Host "using $found"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "path=$found"
+
+      # THE VERSION. run_number is this call's own — a `workflow_call` job
+      # shares the calling run, so it is the same number build.yml's release
+      # job would compute, just without that job's iOS-only BUILD_NUMBER_BASE
+      # offset: the installer's version only has to keep climbing for Inno's
+      # own upgrade check to see a later build as later, not match SideStore's
+      # unrelated 0.1.<n> counter.
       - name: Package
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Compress-Archive -Path frontend/build/windows/x64/runner/Release/* `
-                           -DestinationPath dist/prototype-windows-x64.zip -Force
+          $version = "1.0.$env:GITHUB_RUN_NUMBER"
+          & "${{ steps.iscc.outputs.path }}" `
+            "/DMyAppVersion=$version" `
+            "/DSourceDir=$(Resolve-Path 'frontend/build/windows/x64/runner/Release')" `
+            "/DOutputDir=$(Resolve-Path 'dist')" `
+            frontend/windows/installer/prototype.iss
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "PACKAGE: FAIL (ISCC exited $LASTEXITCODE)"; exit 1
+          }
+          if (-not (Test-Path dist/prototype-windows-setup.exe)) {
+            Write-Host "PACKAGE: FAIL (ISCC ran but wrote no installer)"; exit 1
+          }
           Get-ChildItem dist
+
+      # THE INSTALLER HAS TO INSTALL, not just compile — a wrong /DSourceDir,
+      # a [Files] typo or a missing [Setup] value can all make ISCC succeed
+      # over an installer that lays nothing down. Silent, into a throwaway
+      # directory, checked for the one file that proves the copy ran, then
+      # silently removed — the launch check a few steps up already proved
+      # THESE bytes start the app; this only has to prove Setup delivers them.
+      - name: Installer smoke test
+        shell: pwsh
+        run: |
+          $testDir = "$env:RUNNER_TEMP\install-smoke"
+          & "dist/prototype-windows-setup.exe" /VERYSILENT /SUPPRESSMSGBOXES `
+            /NORESTART /CURRENTUSER "/DIR=$testDir" | Out-Null
+          $exe = "$testDir\prototype.exe"
+          if (-not (Test-Path $exe)) {
+            Write-Host "INSTALLER SMOKE: FAIL (Setup ran but $exe is not there)"
+            exit 1
+          }
+          Write-Host "INSTALLER SMOKE: PASS ($((Get-Item $exe).Length) bytes)"
+          $uninst = Get-ChildItem "$testDir\unins*.exe" -ErrorAction SilentlyContinue |
+                    Select-Object -First 1
+          if ($uninst) {
+            & $uninst.FullName /VERYSILENT /SUPPRESSMSGBOXES /NORESTART | Out-Null
+          }
 
       - uses: actions/upload-artifact@v4
         with:
-          name: prototype-windows-x64
-          path: dist/prototype-windows-x64.zip
+          name: prototype-windows-installer
+          path: dist/prototype-windows-setup.exe
           if-no-files-found: error
           retention-days: 14
 

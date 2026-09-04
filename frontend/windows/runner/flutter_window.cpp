@@ -1,6 +1,7 @@
 #include "flutter_window.h"
 
 #include <flutter_windows.h>
+#include <windowsx.h>
 
 #include <optional>
 
@@ -8,8 +9,15 @@
 
 namespace {
 
-// The channel the app answers `willClose` on. See lib/platform/desktop_shell.dart.
+// The channel the app answers `willClose` on, and — now that the window has
+// no standard title bar — the one the custom titlebar calls into. See
+// lib/platform/desktop_shell.dart.
 constexpr char kDesktopChannel[] = "prototype/desktop";
+
+// How wide the invisible edge/corner resize grip is, in logical pixels. Only
+// used for the hit test: nothing is drawn there, which is the whole point —
+// see the note above HandleNcHitTest.
+constexpr int kResizeBorder = 6;
 
 // How long the close waits for the app to finish writing before going ahead.
 // A window that cannot be closed is a worse bug than a document that was not
@@ -54,6 +62,10 @@ bool FlutterWindow::OnCreate() {
   desktop_ = std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
       flutter_controller_->engine()->messenger(), kDesktopChannel,
       &flutter::StandardMethodCodec::GetInstance());
+  desktop_->SetMethodCallHandler(
+      [this](const flutter::MethodCall<flutter::EncodableValue>& call,
+             std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
+                 result) { HandleDesktopMethodCall(call, std::move(result)); });
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
     this->Show();
@@ -209,6 +221,13 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
         return 0;
       }
       break;
+
+    case WM_NCCALCSIZE:
+      if (wparam == TRUE) return HandleNcCalcSize(hwnd, wparam, lparam);
+      break;
+
+    case WM_NCHITTEST:
+      return HandleNcHitTest(hwnd, lparam);
   }
 
   // Give Flutter, including plugins, an opportunity to handle window messages.
@@ -228,4 +247,123 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
   }
 
   return Win32Window::MessageHandler(hwnd, message, wparam, lparam);
+}
+
+// ---------------------------------------------------------------------------
+// No standard title bar.
+//
+// The window keeps WS_OVERLAPPEDWINDOW (see win32_window.cpp) so Windows
+// still owns resizing, Aero Snap, the drop shadow and the Windows 11 rounded
+// corners — none of that comes from the caption. What the caption DOES draw
+// (the title text, the system icon, the min/max/close buttons) is what has
+// to go, and the standard way to lose it without losing the rest is to make
+// the whole window its own client area: answer WM_NCCALCSIZE with the frame
+// UNCHANGED (return 0) instead of shrinking it for a caption Windows would
+// otherwise reserve.
+//
+// That has one side effect, and it is the one every write-up of this trick
+// warns about: maximised, Windows still positions the window a few pixels
+// outside the monitor on each edge — the invisible resize border it would
+// normally crop away in the caption case — and with no caption crop left,
+// the content is what gets clipped. AdjustMaximizedClientRect's whole job is
+// undoing exactly that inset, and only while maximised: restored, the frame
+// the OS asks for is already right.
+LRESULT FlutterWindow::HandleNcCalcSize(HWND window, WPARAM wparam,
+                                        LPARAM lparam) {
+  if (::IsZoomed(window)) {
+    auto& params = *reinterpret_cast<NCCALCSIZE_PARAMS*>(lparam);
+    const int padding = ::GetSystemMetrics(SM_CXPADDEDBORDER);
+    const int frame_x = ::GetSystemMetrics(SM_CXSIZEFRAME) + padding;
+    const int frame_y = ::GetSystemMetrics(SM_CYSIZEFRAME) + padding;
+    params.rgrc[0].left += frame_x;
+    params.rgrc[0].top += frame_y;
+    params.rgrc[0].right -= frame_x;
+    params.rgrc[0].bottom -= frame_y;
+  }
+  return 0;
+}
+
+// With the caption gone, WM_NCHITTEST no longer has a caption or a sizing
+// border to report either — DefWindowProc would answer HTCLIENT everywhere
+// now that WM_NCCALCSIZE leaves it no non-client area to reason about. Only
+// the resize grip is reconstructed here, as an invisible margin around the
+// window; nothing is drawn there; it is purely what the cursor is allowed to
+// grab.
+//
+// Dragging the window is deliberately NOT decided here. main.dart's title
+// strip owns that: a press-drag on it calls `startDrag`, which hands the
+// gesture to Windows the same way a real caption would (see
+// HandleDesktopMethodCall). Answering HTCAPTION for a guessed rectangle in
+// THIS function would have to duplicate that strip's geometry — its width,
+// its height, which locale's button labels are in it — and the two would
+// drift the day one of them changed without the other. A gesture Flutter
+// forwards can never drift from what Flutter drew.
+LRESULT FlutterWindow::HandleNcHitTest(HWND window, LPARAM lparam) {
+  if (::IsZoomed(window)) return HTCLIENT;  // no border to grab, maximised
+
+  POINT pt{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
+  RECT rc;
+  ::GetWindowRect(window, &rc);
+
+  const UINT dpi = FlutterDesktopGetDpiForMonitor(
+      ::MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST));
+  const int border = static_cast<int>(kResizeBorder * dpi / 96.0);
+
+  const bool left = pt.x < rc.left + border;
+  const bool right = pt.x >= rc.right - border;
+  const bool top = pt.y < rc.top + border;
+  const bool bottom = pt.y >= rc.bottom - border;
+
+  if (top && left) return HTTOPLEFT;
+  if (top && right) return HTTOPRIGHT;
+  if (bottom && left) return HTBOTTOMLEFT;
+  if (bottom && right) return HTBOTTOMRIGHT;
+  if (left) return HTLEFT;
+  if (right) return HTRIGHT;
+  if (top) return HTTOP;
+  if (bottom) return HTBOTTOM;
+  return HTCLIENT;
+}
+
+// `prototype/desktop`, the Dart-to-native half. The custom titlebar
+// (widgets/window_titlebar.dart) is a Flutter drag strip and three buttons,
+// and this is what makes each of them real: a drag becomes the SAME
+// WM_NCLBUTTONDOWN/HTCAPTION a real caption sends on press, which is what
+// buys Aero Snap and the drag-to-detach outline for free; minimize and
+// maximize/restore are the calls any caption button makes; close goes
+// through WM_CLOSE — NOT DestroyWindow — so it runs the willClose handshake
+// this same file already guards WM_CLOSE with, exactly as if the (now
+// nonexistent) system close button had been clicked.
+void FlutterWindow::HandleDesktopMethodCall(
+    const flutter::MethodCall<flutter::EncodableValue>& call,
+    std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
+  HWND window = GetHandle();
+  if (window == nullptr) {
+    result->Error("no_window", "The window is already gone.");
+    return;
+  }
+
+  const std::string& method = call.method_name();
+  if (method == "minimizeWindow") {
+    ::ShowWindow(window, SW_MINIMIZE);
+    result->Success();
+  } else if (method == "toggleMaximizeWindow") {
+    ::ShowWindow(window, ::IsZoomed(window) ? SW_RESTORE : SW_MAXIMIZE);
+    result->Success();
+  } else if (method == "closeWindow") {
+    ::PostMessage(window, WM_CLOSE, 0, 0);
+    result->Success();
+  } else if (method == "startDrag") {
+    // The system's own move loop, not ours: releasing capture first is what
+    // lets Windows pick the drag straight back up as if the button-down had
+    // landed on a real caption.
+    ::ReleaseCapture();
+    ::SendMessage(window, WM_NCLBUTTONDOWN, HTCAPTION, 0);
+    result->Success();
+  } else if (method == "isMaximized") {
+    result->Success(flutter::EncodableValue(
+        static_cast<bool>(::IsZoomed(window))));
+  } else {
+    result->NotImplemented();
+  }
 }

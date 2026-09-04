@@ -159,7 +159,7 @@ jobs:
           path: dist-linux
       - uses: actions/download-artifact@v4
         with:
-          name: prototype-windows-x64
+          name: prototype-windows-installer
           path: dist-windows
 
       - name: What there is to publish
@@ -189,16 +189,16 @@ jobs:
           # indistinguishable from every other one in a downloads folder, and
           # the first question about a bug report is which build it came from.
           mkdir -p dist
-          mv dist-linux/prototype-linux-x64.tar.gz   "dist/prototype-$tag-linux-x64.tar.gz"
-          mv dist-linux/Prototype-x86_64.AppImage    "dist/Prototype-$tag-x86_64.AppImage"
-          mv dist-windows/prototype-windows-x64.zip  "dist/prototype-$tag-windows-x64.zip"
+          mv dist-linux/prototype-linux-x64.tar.gz        "dist/prototype-$tag-linux-x64.tar.gz"
+          mv dist-linux/Prototype-x86_64.AppImage         "dist/Prototype-$tag-x86_64.AppImage"
+          mv dist-windows/prototype-windows-setup.exe     "dist/prototype-$tag-windows-setup.exe"
 
           # ONE CHECKSUM FILE PER PLATFORM. They were both SHA256SUMS.txt once,
           # and an upload with --clobber made the name a slot: whichever
           # platform went second silently replaced the other's checksums.
           ( cd dist && sha256sum "prototype-$tag-linux-x64.tar.gz" \
                                  "Prototype-$tag-x86_64.AppImage" > SHA256SUMS-linux.txt )
-          ( cd dist && sha256sum "prototype-$tag-windows-x64.zip"  > SHA256SUMS-windows.txt )
+          ( cd dist && sha256sum "prototype-$tag-windows-setup.exe" > SHA256SUMS-windows.txt )
           cat dist/SHA256SUMS-linux.txt dist/SHA256SUMS-windows.txt
           ls -lh dist
 
@@ -222,7 +222,7 @@ jobs:
           TAG: ${{ steps.assets.outputs.tag }}
         run: |
           bash ci/release_attach.sh "$TAG" \
-            dist/*.AppImage dist/*.tar.gz dist/*.zip \
+            dist/*.AppImage dist/*.tar.gz dist/*.exe \
             dist/SHA256SUMS-linux.txt dist/SHA256SUMS-windows.txt
 
       # A CUT VERSION — a `v*` tag or a dispatch that asked for one.
@@ -242,7 +242,7 @@ jobs:
           bash ci/release_attach.sh "$TAG" \
             --notes-file ci/release_notes_named.md \
             "dist/ipadprocad-$TAG.ipa" \
-            dist/*.AppImage dist/*.tar.gz dist/*.zip \
+            dist/*.AppImage dist/*.tar.gz dist/*.exe \
             dist/SHA256SUMS-linux.txt dist/SHA256SUMS-windows.txt
           echo "released: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/$TAG"
 

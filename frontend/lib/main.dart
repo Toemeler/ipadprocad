@@ -49,6 +49,7 @@ import 'widgets/hole_dialog.dart';
 import 'widgets/make_part_dialog.dart';
 import 'widgets/measure_panel.dart';
 import 'widgets/viewport_window.dart';
+import 'widgets/window_titlebar.dart';
 import 'widgets/work_plane_offset_field.dart';
 
 void main([List<String> args = const <String>[]]) {
@@ -602,6 +603,13 @@ class PrototypeApp extends StatelessWidget {
               child: SafeArea(
                 bottom: false,
                 child: Column(children: [
+                  // Windows only — no standard title bar (win32_window.cpp /
+                  // flutter_window.cpp answer WM_NCCALCSIZE with the whole
+                  // window as client area), so this is what stands in for
+                  // one: an invisible drag strip and three small buttons,
+                  // always on top of whatever the ribbon dock is doing below
+                  // it. See widgets/window_titlebar.dart.
+                  if (windowChromeIsCustom) const WindowTitleBar(),
                   // M290 — THE BAND TAKES A ROW OF THE LAYOUT.
                   //
                   // On the home gallery there is no ribbon at all — the "+"

@@ -554,11 +554,17 @@ class SceneBuilder {
           normals: Float32List.fromList([
             n.x, n.y, n.z, n.x, n.y, n.z, n.x, n.y, n.z, n.x, n.y, n.z,
           ]),
-          indices: const [0, 1, 2, 0, 2, 3],
+          // Both windings, matching PartScene.swift's PlaneEntity.buildFill:
+          // the plane has to show from either side without depending on a
+          // material's face-culling flag, which flutter_scene does not
+          // reliably honour on every backend (planes went one-sided on
+          // Windows/ANGLE with only the forward winding here).
+          indices: const [0, 1, 2, 0, 2, 3, 0, 2, 1, 0, 3, 2],
         ),
+        // Colors.orange / Colors.green, matching PlaneEntity.applyColors.
         _line(hot
-            ? Vector4(0.29, 0.62, 0.91, 0.32)
-            : Vector4(0.55, 0.60, 0.66, 0.16)),
+            ? const Vector4(0.2235, 0.8392, 0.3569, 0.42)
+            : const Vector4(0.9176, 0.6196, 0.3608, 0.28)),
       ),
     );
   }
