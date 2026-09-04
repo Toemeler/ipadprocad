@@ -310,11 +310,27 @@ jobs:
           }
           # And it has to LOAD, which is the half a symbol table cannot answer:
           # the closure walk is the thing most likely to have missed a DLL.
+          #
+          # JUDGED BY WHAT IT PRINTS, not by what it returns. The probe's main
+          # returns 0 unconditionally, so its exit status can only say whether
+          # the C runtime got through teardown afterwards — while the two lines
+          # below are the whole question: the DLL and its closure loaded, and
+          # Cycles picked a device. A status that disagrees is reported, since
+          # a crash on exit is worth knowing about, and does not fail the step;
+          # the Linux gate has run its probe under `|| true` from the start.
           $env:PATH = (Resolve-Path "$out/deps").Path + ";" +
                       (Resolve-Path $out).Path + ";" + $env:PATH
-          & "$out/prototype_cycles_probe.exe"
-          if ($LASTEXITCODE -ne 0) {
+          $probe = & "$out/prototype_cycles_probe.exe" 2>&1
+          $probeCode = $LASTEXITCODE
+          $probe | ForEach-Object { Write-Host "  $_" }
+          if (-not ($probe | Select-String -Quiet 'cycles available: 1')) {
             Write-Host "CYCLES: FAIL (the probe would not run)"; exit 1
+          }
+          if (-not ($probe | Select-String -Quiet '^device: \S')) {
+            Write-Host "CYCLES: FAIL (loaded, but no device)"; exit 1
+          }
+          if ($probeCode -ne 0) {
+            Write-Host "note: the probe answered and then exited $probeCode"
           }
           Write-Host "CYCLES: PASS"
 

@@ -442,6 +442,25 @@ if ($probeStatus -ne 0) {
 # directory down, which is one PATH entry rather than a different arrangement.
 $env:PATH = "$deps;$out;$env:PATH"
 & "$out\prototype_cycles_probe.exe"
+$probeRan = $LASTEXITCODE
+
+# THE PROBE'S EXIT STATUS IS NOT THIS BUILD'S VERDICT, and until now it was
+# both — silently. PowerShell leaves $LASTEXITCODE alone for cmdlets, so the
+# Write-Host lines below do not clear it, and a script that ends without an
+# explicit `exit` hands the process whatever the last NATIVE command returned.
+# That is this probe. So a build that linked, closed its DLL graph, loaded the
+# library and printed a device failed the step anyway, after "=== done ===".
+#
+# What the probe is for is the two lines it prints: the library loads, and
+# Cycles picks a device. Its `main` returns 0 unconditionally, so a non-zero
+# status is the C runtime tearing down after the answer rather than the
+# answer. Reported rather than hidden — a crash on exit is worth knowing about
+# — and not fatal, which is what `|| true` has always meant on the Linux side
+# of this gate.
+if ($probeRan -ne 0) {
+  Write-Host "(the probe answered and then exited $probeRan — teardown, not the"
+  Write-Host " verdict; its main returns 0)"
+}
 
 if (-not $Keep -and -not $env:CYCLES_WORK_DIR) {
   Write-Host ''
@@ -453,3 +472,8 @@ Say 'done'
 Write-Host "library : $out\prototype_cycles.dll"
 Write-Host ''
 Write-Host 'Next:  cd frontend; flutter build windows --release'
+
+# Said, not inherited. Every gate above exits 1 for itself; reaching here means
+# all of them passed, and the process should say so rather than repeat the exit
+# status of whichever native command happened to run last.
+exit 0

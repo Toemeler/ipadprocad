@@ -93,7 +93,12 @@ int main(int argc, char** argv) {
   }
 
   /* ---- OCCT: the shim's version, and a real solid ---- */
-  void* occt_shim = dlsym(lib, "occt_shim_version");
+  /* LIB_SYM, not dlsym. This is the one lookup that does NOT go through
+   * need(), because absence is an answer here rather than a failure — and
+   * going around need() went around the loader abstraction with it. It read
+   * the same on the two platforms that have dlsym and did not link on the
+   * one that does not. */
+  void* occt_shim = LIB_SYM(lib, "occt_shim_version");
   if (occt_shim == NULL) {
     /* A deliberate -DPROTOTYPE_WITH_OCCT=OFF build. Reported, never silent:
      * "no 3D kernel" has to be a thing you can read, not a thing you infer. */
