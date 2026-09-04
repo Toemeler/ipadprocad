@@ -1737,8 +1737,29 @@ const double kSliverAspect = 0.04; /* height on the longest edge, over it */
  * quarter, against 25% by chance — which is a terminator or a silhouette
  * turning a fraction of a degree into a visible shade. 77% lie within 1.5 mm
  * of a seam between two patches, against 42% of the whole picture. One blob
- * in six views is big enough to be a shape rather than a line. Whatever
- * closes the last degree is not a constant in this file.
+ * in six views is big enough to be a shape rather than a line.
+ *
+ * M380 — AND A FOURTH, WHICH FINALLY EXPLAINS THE OTHERS. The merge above
+ * refuses a union that makes the facing worse; nothing offers to CUT a region
+ * that was already bad on its own, and on the whale those are most of what is
+ * left. So one was added: a finished region facing worse than 8 degrees gets
+ * one attempt at the same two-seed partition the splitter uses, and the halves
+ * are kept only if both fit and the worse of them improves on the whole. It
+ * does what it says. The whale's normal error falls at every percentile — 1.92
+ * to 1.86 at the mean, 3.88 to 3.70 at the 90th, 6.94 to 6.57 at the 95th —
+ * for three extra faces and no measurable time.
+ *
+ * And the PICTURE gets worse. The whale goes 0.891% to 0.901%, and the broom
+ * holder — which was the best of the three at 0.086% and is not what this was
+ * aimed at — goes to 0.232%, on three extra faces of 1,375. Nearly three times
+ * the difference, for three seams.
+ *
+ * That is the number to keep: A SEAM COSTS MORE THAN THE SMOOTHER PATCH BUYS.
+ * Three of them cost the broom 0.146 points on a 0.086 base. It is why gating
+ * the split on slope was catastrophic, why a finer grid was, and why this is
+ * not here either — every one of them pays in boundaries for something bought
+ * in curvature, and the exchange rate is bad. Whatever closes the last degree
+ * has to do it WITHOUT adding a face.
  * ---------------------------------------------------------------------- */
 
 /* Fewer triangles than this and the fit has no sample to speak of. */
