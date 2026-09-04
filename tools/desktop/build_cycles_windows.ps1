@@ -235,17 +235,40 @@ if (-not $shimLib) { throw 'no cycles_shim.lib was built' }
 # WHICH LIBRARIES, DECIDED BY THE BUILD RATHER THAN BY ME — the same trick and
 # the same line of build.ninja as Linux, one file extension apart. Paths in it
 # are relative to the build directory, so the link runs from there.
+#
+# THE EDGE IS FOUND BY ITS OUTPUTS RATHER THAN BY THE SHAPE OF ITS FIRST LINE,
+# which is where the Linux spelling of this does not carry over. There the
+# link edge begins `build bin/cycles: `, and matching that literally is fine.
+# With MSVC there is a second output — the program database — so the line is
+#
+#   build bin/cycles.exe | bin/cycles.pdb: CXX_EXECUTABLE_LINKER__cycles_...
+#
+# and nothing follows `.exe` with a colon. Ninja separates an edge's outputs
+# from its rule at the first colon that is not escaped as `$:`, so that is
+# where this splits, and the edge is the one whose outputs name cycles.exe.
 $linkLine = $null
+$mentions = New-Object 'System.Collections.Generic.List[string]'
 $inRule = $false
 foreach ($line in (Get-Content (Join-Path $build 'build.ninja'))) {
-  if ($line -match '^build bin/cycles\.exe: ') { $inRule = $true; continue }
+  if ($line -match '^build\s+(.+?)(?<!\$):\s') {
+    $outs = @($Matches[1] -split '(?<!\$)\s+')
+    $inRule = @($outs | Where-Object { $_ -match '(^|/)cycles\.exe$' }).Count -gt 0
+    if ($line -match 'cycles\.exe') { $mentions.Add($line) }
+    continue
+  }
   if ($inRule -and ($line -match '^  LINK_LIBRARIES = (.*)$')) {
     $linkLine = $Matches[1]
     break
   }
-  if ($inRule -and ($line -eq '')) { $inRule = $false }
+  if ($inRule -and ($line.Trim() -eq '')) { $inRule = $false }
 }
-if (-not $linkLine) { throw 'no LINK_LIBRARIES for bin/cycles.exe in build.ninja' }
+if (-not $linkLine) {
+  # Say what IS in there. The whole link depends on one line of a generated
+  # file, and "not found" on its own leaves nothing to work from.
+  Write-Host 'build edges in build.ninja that mention cycles.exe:'
+  $mentions | Select-Object -First 20 | ForEach-Object { Write-Host "  $_" }
+  throw 'no LINK_LIBRARIES for the cycles executable in build.ninja'
+}
 # UNESCAPED BY HAND, because ninja's escaping and PowerShell's Split disagree
 # about exactly the case that matters. Ninja writes a literal space inside a
 # path as '$ ' and a literal '$' as '$$', so splitting on ' ' would cut a
