@@ -300,11 +300,17 @@ say "configuring (OpenImageDenoise: $oidn)"
 # `cycles_standalone.cmake` preset is exactly this pair of switches; the GUI
 # half is off because a standalone viewer would want SDL and a window.
 #
-# Vulkan and Python are named separately because platform_unix.cmake runs
-# WHOLESALE — it is included before anything asks what is being built, so its
-# `pkg_check_modules(SHADERC REQUIRED shaderc)` fires even for a configure that
-# will not compile one line of Blender. Turning the backend off is what makes
-# that block unreachable; the same is true of PythonLibsUnix.
+# Vulkan, Python and the two window systems are named separately because
+# platform_unix.cmake runs WHOLESALE — it is included before anything asks what
+# is being built, so its `pkg_check_modules(SHADERC REQUIRED shaderc)` and its
+# `find_package(X11 REQUIRED)` fire even for a configure that will not compile
+# one line of Blender. Turning each feature off is what makes its block
+# unreachable.
+#
+# GHOST is the window system, and this build has no window: X11 is REQUIRED
+# under WITH_GHOST_X11 and hard-fails the configure on a machine without the
+# development headers. That is a CI failure and not a local one — a desktop has
+# them for other reasons — so it is off explicitly rather than by luck.
 cmake -S "$blender" -B "$work/build" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
@@ -315,6 +321,7 @@ cmake -S "$blender" -B "$work/build" -G Ninja \
   -DWITH_CYCLES=ON \
   -DWITH_VULKAN_BACKEND=OFF \
   -DWITH_PYTHON=OFF \
+  -DWITH_GHOST_X11=OFF -DWITH_GHOST_WAYLAND=OFF \
   -DWITH_OPENIMAGEDENOISE=$oidn \
   -DWITH_OPENVDB=OFF -DWITH_NANOVDB=OFF \
   -DWITH_ALEMBIC=OFF -DWITH_USD=OFF \
