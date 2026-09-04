@@ -1,9 +1,14 @@
 cmake_minimum_required(VERSION 3.16)
 project(dxflib VERSION 1.0 LANGUAGES CXX)
 
-IF(WIN32)
-    SET(RC dxflib.rc)
-ENDIF()
+# Local change to the vendored subset: the Windows resource script is NOT
+# built. dxflib.rc is DLL version metadata (CompanyName, OriginalFilename
+# "dxflib.dll"), and dxflib is a STATIC library here, so the linker never
+# emits it into anything. The shim DLL in backend/desktop carries the
+# version metadata that a Windows build actually ships. See VENDOR.md.
+#IF(WIN32)
+#    SET(RC dxflib.rc)
+#ENDIF()
 
 add_library(dxflib
     src/dl_attributes.h
