@@ -1806,6 +1806,32 @@ const double kPinchBar = 4.0;
  * against 2.00 and 3.35 before. 1.5 sits inside it and gives the fewest
  * shards. Tighter than 1 buys nothing and costs rungs. */
 const double kFreeformFacingBar = 1.5;
+
+/* How many degrees of facing a merge is allowed to ADD to what its two parts
+ * already cost.
+ *
+ * The merge test used to ask about distance alone, and distance is not what a
+ * picture shows. Shading is the normal, so a union can sit a hundredth of a
+ * millimetre from the mesh and still draw as a fold: on the whale the worst
+ * face was 0.031 mm from the model and 23 degrees off its normals, and every
+ * test in the pipeline said it was fine.
+ *
+ * Why the bar is relative and not absolute. Measured over the whale's 69
+ * accepted merges, merging usually costs nothing at all — the median union is
+ * 0.05 degrees BETTER than the worse of its two parts — while the tail runs to
+ * +11. The regions that end up worst are mostly bad on their own, and an
+ * absolute bar refuses their merges without improving them: it just leaves two
+ * bad faces where there was one. What this catches is the damage the merge
+ * itself does.
+ *
+ * Five degrees, because that is the middle of the band where it works. Every
+ * value from 1 to 8 improved the picture (1.256% of the whale's drawn pixels
+ * differing from the source, down to 0.87-0.98%) and the mean normal error
+ * with it (2.08 to 1.92 degrees); 5 costs six extra faces of 306 and 0.8
+ * seconds of 18. TOKA and the broom holder are unmoved — they merge few
+ * freeform regions — so nothing here is paid for by the models that were
+ * already right. */
+const double kFreeformMergeFacingSlack = 5.0;
 const int kFreeformGridMax = 32;
 const double kFreeformGridBar = 0.7;
 const double kFreeformApproxFraction = 0.25;
@@ -7086,9 +7112,11 @@ Handle(Geom_BSplineSurface) NetToSurface(const Net &net)
 Handle(Geom_Surface) SurfaceForRegion(const Mesh &m,
                                       const std::vector<int> &tris,
                                       const RegionGrid &rg, double tol,
-                                      double &err)
+                                      double &err, double *facingOut)
 {
     err = 1e300;
+    if (facingOut)
+        *facingOut = 1e300;
     if (!rg.ok || tris.empty())
         return Handle(Geom_Surface)();
     RegionUv uv;
@@ -7126,6 +7154,8 @@ Handle(Geom_Surface) SurfaceForRegion(const Mesh &m,
                  rung[r], nu, nv, at, between, facing, net.loose);
         if (worse < bestWorst) {
             bestWorst = worse;
+            if (facingOut)
+                *facingOut = facing;
             /* Reported as the residual AT THE DATA, which is what every other
              * kind of patch reports and what the import line has always
              * meant. The between-the-data number decides which rung wins; it
@@ -7441,6 +7471,21 @@ void FreeformSurfaces(const Mesh &m, std::vector<Patch> &patches, double tol,
                 grid.push_back(good[i].second);
             }
             std::vector<int> owner(m.triCount(), -1);
+            /* What each region's own surface already costs in facing, so a
+             * merge can be judged on the damage IT does rather than on a bar
+             * that a hard region fails on its own. Filled on demand and
+             * carried through a merge, because the union's facing is the
+             * merged region's facing from then on. */
+            std::vector<double> regionFacing(reg.size(), -1.0);
+            auto facingOf = [&](size_t i) {
+                if (regionFacing[i] >= 0.0)
+                    return regionFacing[i];
+                double e = 1e300, f = 1e300;
+                Handle(Geom_Surface) su =
+                    SurfaceForRegion(m, reg[i], grid[i], tol, e, &f);
+                regionFacing[i] = (!su.IsNull() && f < 1e299) ? f : 0.0;
+                return regionFacing[i];
+            };
             bool merged = true;
             for (int pass = 0; pass < kFreeformMergePasses && merged; ++pass) {
                 merged = false;
@@ -7497,22 +7542,32 @@ void FreeformSurfaces(const Mesh &m, std::vector<Patch> &patches, double tol,
                      * which is the one solved against its vertices — asking
                      * the raster instead let unions through that the finished
                      * face could not honour, and refused ones it could. */
+                    double uFacing = -1.0;
                     {
-                        double e = 1e300;
+                        double e = 1e300, facing = 1e300;
                         Handle(Geom_Surface) su =
-                            SurfaceForRegion(m, uni, rg, tol, e);
+                            SurfaceForRegion(m, uni, rg, tol, e, &facing);
                         if (su.IsNull()) {
                             su = SurfaceFromGrid(rg, tol);
                             if (su.IsNull() ||
                                 SurfaceOffRegion(m, uni, su, tol) > tol)
                                 continue;
-                        } else if (e > tol) {
+                        } else if (e > tol ||
+                                   facing > std::max(facingOf(a), facingOf(b)) +
+                                                kFreeformMergeFacingSlack) {
                             continue;
                         }
+                        MR_TRACE("      merge %d+%d -> %d tris: at %.4f "
+                                 "facing %.2f deg (parts %.2f %.2f)\n",
+                                 (int)reg[a].size(), (int)reg[b].size(),
+                                 (int)uni.size(), e, facing, facingOf(a),
+                                 facingOf(b));
+                        uFacing = facing;
                     }
                     std::sort(uni.begin(), uni.end());
                     reg[a].swap(uni);
                     grid[a] = rg;
+                    regionFacing[a] = (uFacing >= 0.0) ? uFacing : -1.0;
                     reg[b].clear();
                     touched[a] = touched[b] = 1;
                     merged = true;
@@ -7531,9 +7586,11 @@ void FreeformSurfaces(const Mesh &m, std::vector<Patch> &patches, double tol,
                  * this point the region has already been cut as far as the
                  * recursion goes, and the only thing below the best surface
                  * available is one B-Rep face per triangle. */
-                double err = 1e300;
+                double err = 1e300, facing = 1e300;
                 Handle(Geom_Surface) su =
-                    SurfaceForRegion(m, reg[i], grid[i], tol, err);
+                    SurfaceForRegion(m, reg[i], grid[i], tol, err, &facing);
+                MR_TRACE("      region %d: %d tris, at %.4f facing %.2f deg\n",
+                         (int)i, (int)reg[i].size(), err, facing);
                 if (su.IsNull()) {
                     su = SurfaceFromGrid(grid[i], tol);
                     err = grid[i].err;
