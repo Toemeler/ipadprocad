@@ -223,9 +223,112 @@ jobs:
             frontend/build/native/native-smoke.log
           retention-days: 5
 
+  # -------------------------------------------------------------------------
+  # The path tracer, which is the same build as Linux with a different linker
+  # -------------------------------------------------------------------------
+  cycles:
+    name: Path tracer (prototype_cycles.dll)
+    runs-on: windows-2022
+    # Cycles is thirteen static libraries and about half a million lines, and
+    # MSVC is slower at it than GCC. The cache below turns that into a download
+    # on every run that does not touch the shim.
+    timeout-minutes: 300
+    env:
+      # NOT under the workspace. GitHub's Windows runners put the workspace on
+      # D:, which has about fourteen gigabytes free; Blender's precompiled
+      # dependency set and the build tree together are larger than that. C: has
+      # room, and the build script takes its work directory from here.
+      CYCLES_WORK_DIR: C:\cycles-work
+    steps:
+      - uses: actions/checkout@v4
+
+      # THE PIN IS THE CACHE KEY, exactly as in the Linux job: the Blender
+      # commit decides the API the shim is written against, and the shim, the
+      # patches and this script decide everything else.
+      - name: Cache key
+        id: key
+        shell: bash
+        run: |
+          ref=$(grep -oP 'BLENDER_REF:-\K[0-9a-f]{12}' \
+                tools/desktop/build_cycles_linux.sh | head -1)
+          h=$(cat backend/cycles/shim/*.cpp backend/cycles/shim/*.h \
+                  backend/cycles/shim/*.cmake backend/cycles/patches/*.py \
+                  tools/desktop/build_cycles_windows.ps1 2>/dev/null \
+              | sha256sum | cut -c1-16)
+          echo "key=cycles-windows-$ref-$h" >> "$GITHUB_OUTPUT"
+          echo "cycles-windows-$ref-$h"
+
+      - name: Restore the built path tracer
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: frontend/build/native
+          key: ${{ steps.key.outputs.key }}
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: steps.cache.outputs.cache-hit != 'true'
+        with:
+          arch: x64
+
+      # git-lfs is what make_update.py fetches the precompiled set through.
+      # Without it the fetch produces an EMPTY lib\windows_x64, which the build
+      # script tests for by CONTENT rather than by existence and refuses.
+      - name: git-lfs (cache miss only)
+        if: steps.cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          git lfs install
+          git lfs version
+          Get-PSDrive C, D | Format-Table Name, Used, Free
+
+      - name: Build Cycles (cache miss only)
+        if: steps.cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: tools/desktop/build_cycles_windows.ps1
+
+      # The gate the script already runs, repeated so the verdict names itself
+      # in the job summary — and so a CACHE HIT is checked too, which is the
+      # case where a stale or truncated cache entry would otherwise reach the
+      # app silently.
+      - name: Path tracer verdict
+        shell: pwsh
+        run: |
+          $out = "frontend/build/native"
+          $dll = "$out/prototype_cycles.dll"
+          if (-not (Test-Path $dll)) { Write-Host "CYCLES: FAIL (no library)"; exit 1 }
+          Write-Host "size: $([math]::Round((Get-Item $dll).Length / 1MB, 1)) MB"
+          $syms = @(& dumpbin /EXPORTS $dll |
+            Select-String -Pattern '^\s+\d+\s+[0-9A-F]+\s+[0-9A-F]+\s+(\S+)' |
+            ForEach-Object { $_.Matches[0].Groups[1].Value })
+          Write-Host "exports $($syms.Count) symbols"
+          if ($syms.Count -lt 10) { Write-Host "CYCLES: FAIL (export surface)"; exit 1 }
+          $leaked = @($syms | Where-Object { $_ -notmatch '^cy_' })
+          if ($leaked.Count -gt 0) {
+            Write-Host "CYCLES: FAIL (symbols past the .def)"
+            $leaked | Select-Object -First 5 | ForEach-Object { Write-Host "  $_" }
+            exit 1
+          }
+          # And it has to LOAD, which is the half a symbol table cannot answer:
+          # the closure walk is the thing most likely to have missed a DLL.
+          $env:PATH = (Resolve-Path "$out/deps").Path + ";" +
+                      (Resolve-Path $out).Path + ";" + $env:PATH
+          & "$out/prototype_cycles_probe.exe"
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "CYCLES: FAIL (the probe would not run)"; exit 1
+          }
+          Write-Host "CYCLES: PASS"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prototype-cycles-windows
+          path: |
+            frontend/build/native/prototype_cycles.dll
+            frontend/build/native/deps
+          retention-days: 5
+
   app:
     name: Flutter Windows bundle + package
-    needs: kernels
+    needs: [kernels, cycles]
     runs-on: windows-2022
     timeout-minutes: 60
     steps:
@@ -236,9 +339,17 @@ jobs:
           channel: stable
           cache: true
 
+      # BOTH libraries into one directory, which is what the app's CMake
+      # expects: prototype_native.dll, prototype_cycles.dll and one merged
+      # deps\ that neither of them can be missing anything from.
       - uses: actions/download-artifact@v4
         with:
           name: prototype-kernels-windows
+          path: frontend/build/native
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: prototype-cycles-windows
           path: frontend/build/native
 
       - name: flutter pub get
@@ -271,6 +382,9 @@ jobs:
           if (-not (Test-Path "$dir/Qt6Core.dll")) {
             Write-Host "BUNDLE: FAIL (Qt did not travel beside the kernels)"
             exit 1
+          }
+          if (-not (Test-Path "$dir/prototype_cycles.dll")) {
+            Write-Host "BUNDLE: FAIL (the path tracer did not travel)"; exit 1
           }
           Write-Host "BUNDLE: PASS"
 
@@ -311,7 +425,8 @@ jobs:
           foreach ($needle in @(
               "REAL backend active (qcad-ffi)",
               "DART SMOKE: PASS",
-              "renderer: flutter_scene")) {
+              "renderer: flutter_scene",
+              "cycles: ready: device")) {
             if (-not (Select-String -Path $log -Pattern $needle -SimpleMatch -Quiet)) {
               Write-Host "WINDOWS LAUNCH: FAIL (missing: $needle)"; exit 1
             }
@@ -378,12 +493,14 @@ jobs:
           # are full of backticks, and an unquoted heredoc would read every one
           # of them as the start of a command substitution.
           cat > /tmp/notes.md <<'NOTES'
-          The Windows build of the app — the same Flutter tree and the same
-          Liquid Glass chrome as the iPad, built for x86-64 Win32.
+          The Windows build of the app — the same Flutter tree, the same
+          three CAD kernels (QCAD core, libslvs, OCCT 7.9.3), the same Cycles
+          path tracer and the same Liquid Glass chrome as the iPad, built for
+          x86-64 Win32.
 
           Built from `@REF@` at `@SHA@`, by [this run](@RUN@) — which launched
-          it and checked that it reached its first frame before it packaged
-          anything.
+          it and checked that the kernels, the path tracer and the GPU
+          viewport all came up before it packaged anything.
 
           ## How to run it
 
@@ -402,7 +519,30 @@ jobs:
           costs two backdrop passes per surface. On a machine with no GPU worth
           the name — a VM, a remote desktop, an old integrated chip — set
           `PROTOTYPE_GLASS=0` in the environment and it draws the painted
-          panels instead. `PROTOTYPE_GPU=0` does the same for the 3D viewport.
+          panels instead. `PROTOTYPE_GPU=0` does the same for the 3D viewport,
+          which is flutter_scene on Flutter GPU and falls back to a CPU
+          painter.
+
+          ## The path tracer
+
+          Rendered mode is Cycles, the same renderer and the same shim as the
+          iPad's and the Linux build's, built with MSVC for x86-64. It picks
+          the fastest backend this build has and the machine can run, which on
+          a stock build is the CPU — the GPU backends need their vendor
+          toolchains at BUILD time to produce kernels, so a build that adds one
+          is a flag rather than a code change.
+
+          ## Sharing between devices
+
+          Settings has a share code. Type the same one on two machines on the
+          same network — a PC and a Linux box count — and they keep the same
+          documents and the same settings, live. No account, no server, nothing
+          leaving the network. It never deletes: a document on any device ends
+          up on all of them. The connection is authenticated by the code but
+          NOT encrypted, so use it on a network you trust.
+
+          Windows Firewall will ask the first time. Allow it on private
+          networks; sharing does nothing until you do.
 
           Checksums are in `SHA256SUMS.txt`.
           NOTES
