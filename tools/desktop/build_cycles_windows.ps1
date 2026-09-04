@@ -9,7 +9,7 @@
 #   pwsh tools/desktop/build_cycles_windows.ps1 -Keep   # keep blender\ after
 #
 # THE SAME BUILD AS LINUX, and deliberately so: the same Blender pin (read out
-# of that script rather than repeated), the same five patches from
+# of that script rather than repeated), the same six patches from
 # backend/cycles/patches/, the same shim grafted as a Cycles target, the same
 # WITH_* switches, and the link line taken from the same line of build.ninja.
 # tools/desktop/build_cycles_linux.sh carries the reasoning for all of that and
@@ -156,17 +156,18 @@ if (-not (Select-String -Path $cyclesCMake -Pattern 'add_library\(cycles_shim' -
 }
 
 # The patches. All self-verifying — an anchor that does not match exactly once
-# fails rather than silently doing nothing — and all five shared with the
+# fails rather than silently doing nothing — and all six shared with the
 # Linux build, including the last, which edits Blender's Windows platform file
 # and does nothing at all on Linux. They stay in one list for the reason
 # no_python_cycles.py gives: a patch list that differs by platform is a patch
 # list where the platforms drift, and this tree has already had that happen.
 # They address the tree as `blender\intern\cycles\...` relative to the
 # working directory, so they run from $work.
-Say 'patching Cycles (sampling, denoiser ceiling, WITH_PYTHON, <memory>, M_PI)'
+Say 'patching Cycles (sampling, denoiser ceiling, WITH_PYTHON, <memory>, M_PI, uint)'
 Push-Location $work
 foreach ($p in @('progressive.py', 'oidn_memory.py', 'no_python_cycles.py',
-                 'msvc_container_proxy.py', 'msvc_math_defines.py')) {
+                 'msvc_container_proxy.py', 'msvc_math_defines.py',
+                 'msvc_uint.py')) {
   & python (Join-Path $repo "backend\cycles\patches\$p")
   if ($LASTEXITCODE -ne 0) { Pop-Location; throw "patch failed: $p" }
 }

@@ -253,14 +253,17 @@ fi
 # it is and why is written out at length there. It is self-verifying and a
 # no-op on a tree that already has it, so it runs on every invocation rather
 # than under the .patched stamp above.
-# The fourth is in the same position and there for the same reason: MSVC needs
-# _USE_MATH_DEFINES before <cmath> or OpenSubdiv's headers have no M_PI, and
-# the file it edits is Blender's Windows platform file — inert here, and in
-# this list so the two platforms cannot patch different trees.
-say "patching Blender's top level (WITH_PYTHON, <memory>, M_PI)"
+# The fourth and fifth are in the same position and there for the same reason.
+# MSVC needs _USE_MATH_DEFINES before <cmath> or OpenSubdiv's headers have no
+# M_PI, and it needs to be told what `uint` is before mikktspace counts in it;
+# both edits are inert here — one is in Blender's Windows platform file and
+# the other behind an #ifdef — and both are in this list so the two platforms
+# cannot patch different trees.
+say "patching Blender's top level (WITH_PYTHON, <memory>, M_PI, uint)"
 (cd "$work" && python3 "$repo/backend/cycles/patches/no_python_cycles.py")
 (cd "$work" && python3 "$repo/backend/cycles/patches/msvc_container_proxy.py")
 (cd "$work" && python3 "$repo/backend/cycles/patches/msvc_math_defines.py")
+(cd "$work" && python3 "$repo/backend/cycles/patches/msvc_uint.py")
 
 # ---------------------------------------------------------------------------
 # 3. Configure and build

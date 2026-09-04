@@ -244,8 +244,15 @@ jobs:
           n=$(nm -D --defined-only "$lib" | awk '{print $3}' | grep -c '^cy_')
           echo "exports $n cy_ symbols"
           test "$n" -gt 10 || { echo "CYCLES: FAIL (export surface)"; exit 1; }
+          # cy_ is a PREFIX and the rest are whole names, which the one
+          # anchored alternation this used to be could not say: it asked for a
+          # symbol called exactly "cy_" and called all seventeen real ones
+          # leaks. It had never run — the ldd check above exited first on every
+          # red run there has been — so the first green closure failed here
+          # instead. The build script's own gate is the same test written
+          # correctly and is what this repeats.
           leaked=$(nm -D --defined-only "$lib" | awk '{print $3}' \
-                   | grep -vE '^(cy_|_init|_fini|_edata|_end|__bss_start)$' \
+                   | grep -vE '^cy_|^(_init|_fini|_edata|_end|__bss_start)$' \
                    | grep -v '^$' | head -5 || true)
           if [ -n "$leaked" ]; then
             echo "CYCLES: FAIL (symbols escaped the version script)"
