@@ -238,27 +238,34 @@ if (-not $shimLib) { throw 'no cycles_shim.lib was built' }
 #
 # THE EDGE IS FOUND BY ITS OUTPUTS RATHER THAN BY THE SHAPE OF ITS FIRST LINE,
 # which is where the Linux spelling of this does not carry over. There the
-# link edge begins `build bin/cycles: `, and matching that literally is fine.
-# With MSVC there is a second output — the program database — so the line is
+# link edge begins `build bin/cycles: ` and matching that literally is fine.
+# Here it is
 #
-#   build bin/cycles.exe | bin/cycles.pdb: CXX_EXECUTABLE_LINKER__cycles_...
+#   build bin\cycles.exe: CXX_EXECUTABLE_LINKER__cycles_Release <objs>
+#     | <every .lib> || <order-only deps>
 #
-# and nothing follows `.exe` with a colon. Ninja separates an edge's outputs
-# from its rule at the first colon that is not escaped as `$:`, so that is
-# where this splits, and the edge is the one whose outputs name cycles.exe.
+# with the separator Windows uses, and the libraries among the edge's inputs
+# rather than only in its variables. So: ninja separates an edge's outputs
+# from its rule at the first colon that is NOT escaped as `$:` — the escape
+# exists precisely because `C:\...` is a path here — and the edge wanted is
+# the one whose outputs name cycles.exe under either separator. What follows
+# the colon is not searched: `build cycles: phony bin\cycles.exe` and two
+# more like it name the same file as an INPUT and have no link line at all.
 $linkLine = $null
 $mentions = New-Object 'System.Collections.Generic.List[string]'
+$sawVars = New-Object 'System.Collections.Generic.List[string]'
 $inRule = $false
 foreach ($line in (Get-Content (Join-Path $build 'build.ninja'))) {
-  if ($line -match '^build\s+(.+?)(?<!\$):\s') {
+  if ($line -match '^build\s+(.+?)(?<!\$):\s+(\S+)') {
     $outs = @($Matches[1] -split '(?<!\$)\s+')
-    $inRule = @($outs | Where-Object { $_ -match '(^|/)cycles\.exe$' }).Count -gt 0
+    $inRule = ($Matches[2] -ne 'phony') -and
+              @($outs | Where-Object { $_ -match '(^|[/\\])cycles\.exe$' }).Count -gt 0
     if ($line -match 'cycles\.exe') { $mentions.Add($line) }
     continue
   }
-  if ($inRule -and ($line -match '^  LINK_LIBRARIES = (.*)$')) {
-    $linkLine = $Matches[1]
-    break
+  if ($inRule -and ($line -match '^  (\w+) = (.*)$')) {
+    $sawVars.Add($Matches[1])
+    if ($Matches[1] -eq 'LINK_LIBRARIES') { $linkLine = $Matches[2]; break }
   }
   if ($inRule -and ($line.Trim() -eq '')) { $inRule = $false }
 }
@@ -266,7 +273,8 @@ if (-not $linkLine) {
   # Say what IS in there. The whole link depends on one line of a generated
   # file, and "not found" on its own leaves nothing to work from.
   Write-Host 'build edges in build.ninja that mention cycles.exe:'
-  $mentions | Select-Object -First 20 | ForEach-Object { Write-Host "  $_" }
+  $mentions | Select-Object -First 20 | ForEach-Object { Write-Host "  $($_.Substring(0, [Math]::Min(400, $_.Length)))" }
+  Write-Host "variables on the edge that matched: $($sawVars -join ', ')"
   throw 'no LINK_LIBRARIES for the cycles executable in build.ninja'
 }
 # UNESCAPED BY HAND, because ninja's escaping and PowerShell's Split disagree
