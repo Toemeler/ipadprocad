@@ -56,6 +56,9 @@ import '../app_state.dart';
 import '../materials.dart';
 import '../asm_constraints.dart';
 import '../asm_pick.dart';
+import '../measure.dart';
+import '../measure_paint.dart';
+import '../measure_pick.dart';
 import '../section_view.dart';
 import '../assembly.dart';
 import '../l10n/l.dart';
@@ -73,6 +76,7 @@ import '../theme.dart';
 import 'bottom_tabbar.dart';
 import 'native_browser_host.dart';
 import 'ribbon_chrome.dart';
+import 'viewport_window.dart';
 import 'viewport3d.dart'
     show ViewCube, TriadPainter, paintWorkAxesAndPoints;
 
@@ -306,10 +310,47 @@ class _ViewportAssemblyState extends State<ViewportAssembly>
   }
 
   @override
+  void initState() {
+    super.initState();
+    HardwareKeyboard.instance.addHandler(_onKey);
+  }
+
+  @override
   void dispose() {
+    HardwareKeyboard.instance.removeHandler(_onKey);
     _wheelStop();
     _refineTimer?.cancel();
     super.dispose();
+  }
+
+  /// M371 — the assembly viewport's ONLY keyboard handling, and it is
+  /// deliberately two keys.
+  ///
+  /// This viewport had none at all: it is a Listener over a platform view,
+  /// with no Focus and no Shortcuts anywhere in it. Measure needs M to reach
+  /// it — an assembly is where "how far apart do these two components sit" is
+  /// asked most often — so it registers on [HardwareKeyboard] the way
+  /// viewport3d does, and takes Esc with it so the panel can be dismissed the
+  /// way every other modeless command in the app is.
+  ///
+  /// Registering a GLOBAL handler is safe here because this viewport is never
+  /// mounted beside another one: main.dart's `_document` shows the assembly
+  /// viewport or the part stack, never both. The part viewport's own M is
+  /// guarded against exactly the overlap this does not have.
+  bool _onKey(KeyEvent e) {
+    if (e is! KeyDownEvent) return false;
+    final ctrl = HardwareKeyboard.instance.isControlPressed ||
+        HardwareKeyboard.instance.isMetaPressed;
+    if (ctrl || HardwareKeyboard.instance.isAltPressed) return false;
+    if (e.logicalKey == LogicalKeyboardKey.keyM) {
+      widget.app.toggleMeasure();
+      return true;
+    }
+    if (e.logicalKey == LogicalKeyboardKey.escape && widget.app.measuring) {
+      widget.app.cancelMeasure();
+      return true;
+    }
+    return false;
   }
 
   /// M170's rule, unchanged: the tap/drag threshold belongs to the INPUT. A
@@ -454,6 +495,35 @@ class _ViewportAssemblyState extends State<ViewportAssembly>
               // everywhere else in this app; it must not grab a component.
               if (e.kind == PointerDeviceKind.mouse &&
                   e.buttons != kPrimaryMouseButton) {
+                return;
+              }
+              // M371 — MEASURE owns the tap while it is armed.
+              //
+              // First of the picking branches, above Section and above Place
+              // Constraint, for the reason all of them sit above the grab: a
+              // tap meant for a command must not drag a component instead.
+              //
+              // FIRST among them, and that is not style: M can be pressed
+              // while any of them is collecting, and the most recently armed
+              // command is the one the user means. [AppState.startMeasure]
+              // stands the others down by name so their panels do not sit
+              // there looking active — this order is what makes the tap
+              // agree with that even if one is ever missed.
+              if (app.measuring) {
+                // See viewport3d's copy: the panel floats in this Stack and
+                // Flutter hands the pointer to every target on its hit path,
+                // so without this a tap on the panel is also a pick. The
+                // event carries its GLOBAL position, which is the coordinate
+                // space ViewportWindow answers in.
+                if (ViewportWindow.hits(e.position)) return;
+                final ref = measurePickAssembly(a, cam, e.localPosition,
+                    priority: app.measureSession?.priority ??
+                        MeasurePriority.entity);
+                if (ref != null) {
+                  app.measurePick(ref);
+                } else {
+                  app.measureMissed();
+                }
                 return;
               }
               // M292 — a SECTION command is asking for a plane, and owns the
@@ -703,10 +773,32 @@ class _ViewportAssemblyState extends State<ViewportAssembly>
               }
             },
             child: MouseRegion(
-              cursor: _hover != null
-                  ? SystemMouseCursors.grab
-                  : MouseCursor.defer,
+              cursor: app.measuring
+                  ? SystemMouseCursors.precise
+                  : (_hover != null
+                      ? SystemMouseCursors.grab
+                      : MouseCursor.defer),
               onHover: (e) {
+                // M374 — measure prehighlight, first for the same reason the
+                // measure branch is first among the tap branches: while the
+                // tool is armed nothing else may claim the pointer.
+                if (app.measuring) {
+                  if (ViewportWindow.hits(e.position)) {
+                    app.measureHover(null);
+                    return;
+                  }
+                  app.measureHover(measurePickAssembly(a, cam, e.localPosition,
+                      priority: app.measureSession?.priority ??
+                          MeasurePriority.entity));
+                  if (_hover != null || _hoverGeom != null) {
+                    setState(() {
+                      _hover = null;
+                      _hoverGeom = null;
+                      _hoverRef = null;
+                    });
+                  }
+                  return;
+                }
                 // While Place Constraint collects, hovering pre-highlights the
                 // GEOMETRY under the pointer rather than the component: what
                 // the next tap would select is the thing worth showing.
@@ -743,11 +835,14 @@ class _ViewportAssemblyState extends State<ViewportAssembly>
                 final h = pickOccurrence(a, cam, e.localPosition);
                 if (!identical(h, _hover)) setState(() => _hover = h);
               },
-              onExit: (_) => setState(() {
-                _hover = null;
-                _hoverGeom = null;
-                _hoverRef = null;
-              }),
+              onExit: (_) {
+                app.measureHover(null);
+                setState(() {
+                  _hover = null;
+                  _hoverGeom = null;
+                  _hoverRef = null;
+                });
+              },
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onScaleStart: (d) {
@@ -1282,6 +1377,11 @@ class _MissingPartPainter extends CustomPainter {
     // M250 — the Free Rotate glyph is HUD too, and comes through here for the
     // same reason the work axes do.
     paintRotateGlyph(canvas, cam, app);
+    // M371 — the measurement, drawn from BOTH painters for the reason the
+    // work axes are: it is pure HUD, and drawn only in the scene painter it
+    // would be visible on the host and invisible on the iPad.
+    final ms = app.measureSession;
+    if (ms != null) paintMeasureOverlay(canvas, ms, cam.project, size);
   }
 
   @override
@@ -1695,6 +1795,9 @@ class _AssemblyPainter extends CustomPainter {
     // M250 — and the Free Rotate glyph, so the host renderer says what the
     // device says.
     paintRotateGlyph(canvas, cam, app);
+    // M371 — see _MissingPartPainter.paint.
+    final ms = app.measureSession;
+    if (ms != null) paintMeasureOverlay(canvas, ms, cam.project, size);
   }
 
   @override

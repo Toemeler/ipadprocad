@@ -24,6 +24,10 @@ void main() {
       'CN': CN,
       'MO': MO,
       'MD': MD,
+      // M371 — the measure icon's map. `MS['measure']!` in the ribbon carries
+      // a bang, so a typo in the key would take the whole band down at build
+      // time: exactly what this test exists to catch.
+      'MS': MS,
     };
     final missing = <String>[];
     for (final entry in maps.entries) {
@@ -41,7 +45,7 @@ void main() {
   });
 
   test('the icon maps are not accidentally empty', () {
-    for (final m in [IC, IN, CN, MO, MD]) {
+    for (final m in [IC, IN, CN, MO, MD, MS]) {
       expect(m, isNotEmpty);
     }
   });

@@ -13,6 +13,7 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:prototype/sync/bonjour.dart';
 import 'package:prototype/sync/lan_sync.dart';
 import 'package:prototype/sync/share_code.dart';
 import 'package:prototype/sync/sync_protocol.dart';
@@ -522,6 +523,65 @@ void main() {
       // Validated on the way OUT as well as in: starting a mirror with a key
       // nothing else derives would look like a network fault forever.
       expect(SyncStore(dir).load(), isNull);
+    });
+  });
+
+  group('what Bonjour reports', () {
+    // The iOS half. A TXT record is whatever the other device put in it, and
+    // this device dials the host and port that come out of it — so a missing
+    // or malformed field has to end as "no sighting" rather than as a
+    // connection to port 0.
+    test('a well-formed record becomes a sighting', () {
+      final s = SyncSighting.fromMap(<String, Object?>{
+        'id': 'abc123',
+        'n': 'Toms iPad',
+        'host': '192.168.1.7',
+        'port': 47821,
+        'fp': '0123456789abcdef',
+        'v': 1,
+      });
+      expect(s, isNotNull);
+      expect(s!.id, 'abc123');
+      expect(s.name, 'Toms iPad');
+      expect(s.host, '192.168.1.7');
+      expect(s.port, 47821);
+      expect(s.fingerprint, '0123456789abcdef');
+      expect(s.version, 1);
+    });
+
+    test('no id, no host or no port is no sighting', () {
+      expect(SyncSighting.fromMap(<String, Object?>{'host': 'h', 'port': 1}),
+          isNull);
+      expect(SyncSighting.fromMap(<String, Object?>{'id': 'a', 'port': 1}),
+          isNull);
+      expect(SyncSighting.fromMap(<String, Object?>{'id': 'a', 'host': 'h'}),
+          isNull);
+      expect(SyncSighting.fromMap(<String, Object?>{'id': '', 'host': 'h', 'port': 1}),
+          isNull);
+      expect(SyncSighting.fromMap('not a map'), isNull);
+      expect(SyncSighting.fromMap(null), isNull);
+    });
+
+    test('a record with no fingerprint reads as no group, not as any group',
+        () {
+      // The empty string can never equal a real fingerprint, which is sixteen
+      // hex characters, so a record missing the field is ignored rather than
+      // matched against whatever this device is sharing.
+      final s = SyncSighting.fromMap(<String, Object?>{
+        'id': 'abc',
+        'host': 'h',
+        'port': 1,
+      });
+      expect(s!.fingerprint, '');
+      expect(s.fingerprint, isNot(shareCodeFingerprint('ABCDEFGHJKLM')));
+    });
+
+    test('the service type matches what Info.plist has to declare', () {
+      // iOS browses and publishes NOTHING, silently, for a type that is not
+      // in NSBonjourServices. The workflow writes the literal below; if this
+      // constant changes and that line does not, discovery stops working on
+      // one platform with no error anywhere.
+      expect(kBonjourServiceType, '_prototypesync._tcp');
     });
   });
 

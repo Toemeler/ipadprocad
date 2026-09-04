@@ -7446,6 +7446,444 @@ abstract class AppL10n {
   /// In de, this message translates to:
   /// **'Ohne Namen ist das Band deutlich schmaler; jeder Befehl behält seinen Namen als Kurzhinweis.'**
   String get settingsRibbonNamesFooter;
+
+  /// M371 — Ribbon-Gruppe fuer das Messwerkzeug. Inventor DE: "Messen" (Register Werkzeuge).
+  ///
+  /// In de, this message translates to:
+  /// **'Messen'**
+  String get panelMeasure;
+
+  /// M371 — der Befehl selbst. Inventor DE nennt ihn genauso; Kurztaste M.
+  ///
+  /// In de, this message translates to:
+  /// **'Messen'**
+  String get btnMeasure;
+
+  /// M371 — Titel des schwebenden Messfensters.
+  ///
+  /// In de, this message translates to:
+  /// **'Messen'**
+  String get measureTitle;
+
+  /// M371 — Abschnitt im Messfenster: was gerade angetippt wurde.
+  ///
+  /// In de, this message translates to:
+  /// **'Auswahl'**
+  String get measureSelection;
+
+  /// M371 — Abschnitt im Messfenster: die gemessenen Werte.
+  ///
+  /// In de, this message translates to:
+  /// **'Ergebnis'**
+  String get measureResult;
+
+  /// M371 — Abschnitt im Messfenster: aufaddierte Messungen, je Groessenart eine Zeile.
+  ///
+  /// In de, this message translates to:
+  /// **'Summen'**
+  String get measureTotalsSection;
+
+  /// M371 — Abschnitt im Messfenster: Nachkommastellen und zweite Einheit.
+  ///
+  /// In de, this message translates to:
+  /// **'Anzeige'**
+  String get measureSettings;
+
+  /// M371 — Aufforderung, solange nichts ausgewaehlt ist.
+  ///
+  /// In de, this message translates to:
+  /// **'Geometrie zum Messen antippen.'**
+  String get measureHintPick;
+
+  /// M371 — Aufforderung nach der ersten Auswahl.
+  ///
+  /// In de, this message translates to:
+  /// **'Zweites Element für Abstand oder Winkel antippen.'**
+  String get measureHintPickSecond;
+
+  /// M371 — Toast, wenn der Tipp weder Kante noch Fläche noch Punkt getroffen hat.
+  ///
+  /// In de, this message translates to:
+  /// **'Hier ist nichts zu messen.'**
+  String get measureNothingHere;
+
+  /// M371 — Toast nach dem Kopieren eines Messwerts.
+  ///
+  /// In de, this message translates to:
+  /// **'In die Zwischenablage kopiert.'**
+  String get measureCopied;
+
+  /// M371 — Toast, wenn M in der Galerie gedrueckt wird, wo es nichts zu messen gibt.
+  ///
+  /// In de, this message translates to:
+  /// **'Zum Messen zuerst eine Skizze, ein Bauteil oder eine Baugruppe öffnen.'**
+  String get measureNeedsDocument;
+
+  /// M371 — Fusszeile unter der Ergebnisliste. Sagt, dass eine Zeile antippbar ist: ohne den Hinweis ist das Kopieren einer einzelnen Zeile unsichtbar.
+  ///
+  /// In de, this message translates to:
+  /// **'Wert antippen zum Kopieren.'**
+  String get measureCopy;
+
+  /// M371 — kopiert alle Zeilen der Messung, eine je Zeile.
+  ///
+  /// In de, this message translates to:
+  /// **'Alle kopieren'**
+  String get measureCopyAll;
+
+  /// M371 — verwirft die Auswahl und beginnt eine neue Messung.
+  ///
+  /// In de, this message translates to:
+  /// **'Neu'**
+  String get measureRestart;
+
+  /// M371 — addiert den Hauptwert zur laufenden Summe seiner Groessenart.
+  ///
+  /// In de, this message translates to:
+  /// **'Zur Summe'**
+  String get measureAddToTotal;
+
+  /// M371 — setzt alle laufenden Summen zurueck.
+  ///
+  /// In de, this message translates to:
+  /// **'Summen löschen'**
+  String get measureClearTotals;
+
+  /// M371 — wie viele Stellen die Messwerte zeigen.
+  ///
+  /// In de, this message translates to:
+  /// **'Nachkommastellen'**
+  String get measurePrecision;
+
+  /// M371 — Inventors "dual units": eine zweite Zeile in einer anderen Einheit.
+  ///
+  /// In de, this message translates to:
+  /// **'Zweite Einheit'**
+  String get measureDualUnit;
+
+  /// M371 — Auswahl fuer die zweite Einheit: es wird keine angezeigt.
+  ///
+  /// In de, this message translates to:
+  /// **'Keine'**
+  String get measureDualUnitOff;
+
+  /// M371 — Fusszeile, die das Zeichen vor genaeherten Werten erklaert.
+  ///
+  /// In de, this message translates to:
+  /// **'≈ heißt: aus der Darstellungsnetz-Auflösung gerechnet, nicht analytisch.'**
+  String get measureApproxNote;
+
+  /// M371 — Zeile der Summenliste: alle addierten Laengen.
+  ///
+  /// In de, this message translates to:
+  /// **'Längen'**
+  String get measureTotalLength;
+
+  /// M371 — Zeile der Summenliste: alle addierten Flaechen.
+  ///
+  /// In de, this message translates to:
+  /// **'Flächen'**
+  String get measureTotalArea;
+
+  /// M371 — Zeile der Summenliste: alle addierten Volumen.
+  ///
+  /// In de, this message translates to:
+  /// **'Volumen'**
+  String get measureTotalVolume;
+
+  /// M371 — Zeile der Summenliste: alle addierten Winkel.
+  ///
+  /// In de, this message translates to:
+  /// **'Winkel'**
+  String get measureTotalAngle;
+
+  /// M371 — wie viele Messungen in einer Summenzeile stecken.
+  ///
+  /// In de, this message translates to:
+  /// **'{count, plural, =1{1 Messung} other{{count} Messungen}}'**
+  String measureTotalCount(int count);
+
+  /// M371 — Messwert: Laenge einer geraden Kante oder Linie.
+  ///
+  /// In de, this message translates to:
+  /// **'Länge'**
+  String get measureLength;
+
+  /// M371 — Messwert: abgewickelte Laenge eines Bogens.
+  ///
+  /// In de, this message translates to:
+  /// **'Bogenlänge'**
+  String get measureArcLength;
+
+  /// M371 — Messwert: Radius.
+  ///
+  /// In de, this message translates to:
+  /// **'Radius'**
+  String get measureRadius;
+
+  /// M371 — Messwert: Durchmesser.
+  ///
+  /// In de, this message translates to:
+  /// **'Durchmesser'**
+  String get measureDiameter;
+
+  /// M371 — Messwert: Umfang eines Kreises oder einer Ellipse.
+  ///
+  /// In de, this message translates to:
+  /// **'Umfang'**
+  String get measureCircumference;
+
+  /// M371 — Messwert: der von einem Bogen ueberstrichene Winkel.
+  ///
+  /// In de, this message translates to:
+  /// **'Öffnungswinkel'**
+  String get measureIncludedAngle;
+
+  /// M371 — Messwert: grosse Halbachse einer Ellipse, Hauptradius eines Torus.
+  ///
+  /// In de, this message translates to:
+  /// **'Große Halbachse'**
+  String get measureMajorRadius;
+
+  /// M371 — Messwert: kleine Halbachse einer Ellipse.
+  ///
+  /// In de, this message translates to:
+  /// **'Kleine Halbachse'**
+  String get measureMinorRadius;
+
+  /// M371 — Messwert: Flaecheninhalt.
+  ///
+  /// In de, this message translates to:
+  /// **'Fläche'**
+  String get measureArea;
+
+  /// M371 — Messwert: Gesamtlaenge der begrenzenden Kanten. Inventor: "total loop length".
+  ///
+  /// In de, this message translates to:
+  /// **'Kantenlänge'**
+  String get measurePerimeter;
+
+  /// M371 — Messwert: Volumen eines Koerpers.
+  ///
+  /// In de, this message translates to:
+  /// **'Volumen'**
+  String get measureVolume;
+
+  /// M371 — Messwert: Ausdehnung eines Zylinders entlang seiner Achse.
+  ///
+  /// In de, this message translates to:
+  /// **'Höhe'**
+  String get measureHeight;
+
+  /// M371 — Messwert: Gesamtoberflaeche eines Koerpers.
+  ///
+  /// In de, this message translates to:
+  /// **'Oberfläche'**
+  String get measureSurfaceArea;
+
+  /// M371 — Messwert: X-Koordinate.
+  ///
+  /// In de, this message translates to:
+  /// **'X'**
+  String get measurePositionX;
+
+  /// M371 — Messwert: Y-Koordinate.
+  ///
+  /// In de, this message translates to:
+  /// **'Y'**
+  String get measurePositionY;
+
+  /// M371 — Messwert: Z-Koordinate.
+  ///
+  /// In de, this message translates to:
+  /// **'Z'**
+  String get measurePositionZ;
+
+  /// M371 — Messwert: Kantenlaenge des Huellquaders in X.
+  ///
+  /// In de, this message translates to:
+  /// **'Ausdehnung X'**
+  String get measureExtentX;
+
+  /// M371 — Messwert: Kantenlaenge des Huellquaders in Y.
+  ///
+  /// In de, this message translates to:
+  /// **'Ausdehnung Y'**
+  String get measureExtentY;
+
+  /// M371 — Messwert: Kantenlaenge des Huellquaders in Z.
+  ///
+  /// In de, this message translates to:
+  /// **'Ausdehnung Z'**
+  String get measureExtentZ;
+
+  /// M371 — Messwert: kuerzester Abstand zwischen zwei Elementen.
+  ///
+  /// In de, this message translates to:
+  /// **'Abstand'**
+  String get measureDistance;
+
+  /// M371 — Messwert: Abstand der Mittelpunkte. Inventor: "Center to Center".
+  ///
+  /// In de, this message translates to:
+  /// **'Mitte zu Mitte'**
+  String get measureCentreDistance;
+
+  /// M371 — Messwert: weitester Abstand. Inventor: "Maximum Distance".
+  ///
+  /// In de, this message translates to:
+  /// **'Größter Abstand'**
+  String get measureMaximumDistance;
+
+  /// M371 — Messwert: Abstandsanteil in X.
+  ///
+  /// In de, this message translates to:
+  /// **'ΔX'**
+  String get measureDeltaX;
+
+  /// M371 — Messwert: Abstandsanteil in Y.
+  ///
+  /// In de, this message translates to:
+  /// **'ΔY'**
+  String get measureDeltaY;
+
+  /// M371 — Messwert: Abstandsanteil in Z.
+  ///
+  /// In de, this message translates to:
+  /// **'ΔZ'**
+  String get measureDeltaZ;
+
+  /// M371 — Messwert: Winkel zwischen zwei Elementen.
+  ///
+  /// In de, this message translates to:
+  /// **'Winkel'**
+  String get measureAngle;
+
+  /// M371 — Messwert: der Ergaenzungswinkel auf 180 Grad. Steht dabei, weil der Winkel zwischen zwei Ebenen zwei Zahlen hat.
+  ///
+  /// In de, this message translates to:
+  /// **'Nebenwinkel'**
+  String get measureSupplementAngle;
+
+  /// M371 — Messwert: Abstand von Wand zu Wand statt von Mitte zu Mitte.
+  ///
+  /// In de, this message translates to:
+  /// **'Wandabstand'**
+  String get measureSurfaceDistance;
+
+  /// M371 — Art der Auswahl: ein Punkt, Eckpunkt oder Mittelpunkt.
+  ///
+  /// In de, this message translates to:
+  /// **'Punkt'**
+  String get measureRefPoint;
+
+  /// M371 — Art der Auswahl: eine gerade Kante oder Skizzenlinie.
+  ///
+  /// In de, this message translates to:
+  /// **'Kante'**
+  String get measureRefEdge;
+
+  /// M371 — Art der Auswahl: eine unendliche Achse.
+  ///
+  /// In de, this message translates to:
+  /// **'Achse'**
+  String get measureRefAxis;
+
+  /// M371 — Art der Auswahl: eine geschlossene Kreiskante.
+  ///
+  /// In de, this message translates to:
+  /// **'Kreis'**
+  String get measureRefCircle;
+
+  /// M371 — Art der Auswahl: ein Kreisbogen.
+  ///
+  /// In de, this message translates to:
+  /// **'Bogen'**
+  String get measureRefArc;
+
+  /// M371 — Art der Auswahl: eine Ellipse.
+  ///
+  /// In de, this message translates to:
+  /// **'Ellipse'**
+  String get measureRefEllipse;
+
+  /// M371 — Art der Auswahl: ein Spline oder Polygonzug.
+  ///
+  /// In de, this message translates to:
+  /// **'Kurve'**
+  String get measureRefCurve;
+
+  /// M371 — Art der Auswahl: eine ebene Flaeche oder Arbeitsebene.
+  ///
+  /// In de, this message translates to:
+  /// **'Fläche'**
+  String get measureRefFace;
+
+  /// M371 — Art der Auswahl: eine zylindrische Flaeche.
+  ///
+  /// In de, this message translates to:
+  /// **'Zylinder'**
+  String get measureRefCylinder;
+
+  /// M371 — Art der Auswahl: eine konische Flaeche.
+  ///
+  /// In de, this message translates to:
+  /// **'Kegel'**
+  String get measureRefCone;
+
+  /// M371 — Art der Auswahl: eine kugelfoermige Flaeche.
+  ///
+  /// In de, this message translates to:
+  /// **'Kugel'**
+  String get measureRefSphere;
+
+  /// M371 — Art der Auswahl: eine torusfoermige Flaeche.
+  ///
+  /// In de, this message translates to:
+  /// **'Torus'**
+  String get measureRefTorus;
+
+  /// M371 — Art der Auswahl: ein ganzer Volumenkoerper.
+  ///
+  /// In de, this message translates to:
+  /// **'Körper'**
+  String get measureRefBody;
+
+  /// M371 — Art der Auswahl: eine ganze Komponente der Baugruppe.
+  ///
+  /// In de, this message translates to:
+  /// **'Bauteil'**
+  String get measureRefComponent;
+
+  /// M371 — Abstandsart: kuerzester Abstand. Inventor: "Minimum Distance".
+  ///
+  /// In de, this message translates to:
+  /// **'Minimum'**
+  String get measureModeMinimum;
+
+  /// M371 — Abstandsart: Mitte zu Mitte. Inventor: "Center to Center".
+  ///
+  /// In de, this message translates to:
+  /// **'Mitte'**
+  String get measureModeCentre;
+
+  /// M371 — Abstandsart: groesster Abstand. Inventor: "Maximum Distance".
+  ///
+  /// In de, this message translates to:
+  /// **'Maximum'**
+  String get measureModeMaximum;
+
+  /// M371 — Abschnitt im Messfenster: was ein Tipp treffen darf. Inventors "Selection Priority".
+  ///
+  /// In de, this message translates to:
+  /// **'Auswahlpriorität'**
+  String get measurePriority;
+
+  /// M371 — Auswahlpriorität: Kanten, Flaechen und Eckpunkte. Inventors Vorgabe und unsere.
+  ///
+  /// In de, this message translates to:
+  /// **'Kanten & Flächen'**
+  String get measurePriorityEntity;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

@@ -5023,7 +5023,7 @@ int main(void)
                                                    0, 0, 0, rint, rreal);
             if (check(body != NULL, "[43] the ellipsoid mesh did not convert")) {
                 const double v0 = occt_shape_volume(body);
-                int nf0 = 0, spot = 0, made = 0, legal = 0;
+                int nf0 = 0, spot = 0, made = 0, legal = 0, sane = 0;
                 occt_shape_counts(body, &nf0, NULL, NULL);
                 check(occt_shape_valid(body) == 1,
                       "[43] the converted body is not a valid solid");
@@ -5044,12 +5044,43 @@ int main(void)
                     if (holed) {
                         ++made;
                         if (occt_shape_valid(holed) == 1) ++legal;
+                        /* M375 — and it has to have removed a HOLE, not the
+                         * model. A cut takes away the part of the body that
+                         * lies inside the tool, so it cannot take away more
+                         * than the tool holds. Measured on the converted whale
+                         * before the guard went in, 8 of 44 drill positions
+                         * came back having removed 97.3% of the body: BOPAlgo
+                         * dropped the animal, kept the two brackets it stood
+                         * on, and reported success — IsDone true, no error,
+                         * and the wreckage passes every validity check there
+                         * is. The loop above would have called all nine of
+                         * those legal. Only the arithmetic catches it.
+                         *
+                         * Said plainly: THIS FIXTURE DOES NOT REPRODUCE THAT.
+                         * The check passes on the shim from before the fix,
+                         * and it was looked for — 384 holes over this
+                         * ellipsoid at radius 1.5, 384 at 3.0, 96 at 6.0, and
+                         * 96 over a lumpy version of it that converts to 5,856
+                         * faces, all clean. What fails is the whale, and a
+                         * four-megabyte whale is not a fixture this file can
+                         * carry. So this line is here for what it states and
+                         * not for what it currently catches: it is the rule
+                         * occt_cut now guarantees, standing over the one
+                         * converted body the suite does have, so that a future
+                         * change which breaks the rule on THIS shape is caught
+                         * where the whale would have caught it. */
+                        if (occt_shape_volume(body) -
+                                occt_shape_volume(holed) <=
+                            1.5 * occt_shape_volume(drill))
+                            ++sane;
                         occt_free_shape(holed);
                     }
                     occt_free_shape(drill);
                 }
-                printf("[43] %d of %d holes came back a valid solid; the body "
+                printf("[43] %d of %d holes came back a valid solid and %d "
+                       "of %d took only what the drill holds; the body "
                        "is now %s at volume %.3f (was %.3f)\n", legal, made,
+                       sane, made,
                        occt_shape_valid(body) ? "still valid" : "BROKEN",
                        occt_shape_volume(body), v0);
                 check(made == 9, "[43] a hole through the converted body "
@@ -5058,6 +5089,10 @@ int main(void)
                       "[43] a hole cut through a converted body came back as "
                       "a solid the kernel refuses — nothing downstream of it "
                       "works, and the operation reports no error at all");
+                check(sane == made,
+                      "[43] a hole cut through a converted body took away more "
+                      "material than the drill holds — the cut deleted part of "
+                      "the model and called it success");
                 check(occt_shape_valid(body) == 1 &&
                           near_rel(occt_shape_volume(body), v0, 1e-9),
                       "[43] cutting the body CHANGED the body — the boolean "

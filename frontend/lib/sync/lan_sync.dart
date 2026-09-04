@@ -42,6 +42,7 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 
 import '../log.dart';
+import 'bonjour.dart';
 import 'share_code.dart';
 import 'sync_protocol.dart';
 
@@ -296,6 +297,7 @@ class LanSync {
       _mine = _scanLocal();
       await _startServer();
       await _startBeacon();
+      await _startBonjour();
       _watchLocal();
       unawaited(_refreshInterfaces());
       _interfaces = Timer.periodic(
@@ -326,6 +328,7 @@ class LanSync {
     _peers.clear();
     _beacon?.close();
     _beacon = null;
+    await _bonjour.stop();
     await _server?.close();
     _server = null;
   }
@@ -334,26 +337,70 @@ class LanSync {
   // Discovery
   // -------------------------------------------------------------------------
 
+  /// The UDP beacon, which is how every desktop finds every other desktop.
+  ///
+  /// NOT FATAL WHEN IT FAILS, and that is the point of the try. iOS refuses a
+  /// broadcast outright without an entitlement Apple grants case by case, so
+  /// on a phone or a tablet this is expected to fail and Bonjour — started
+  /// beside it — is the whole of discovery. A mirror that refused to start
+  /// because one of its two ways of finding peers was unavailable would be a
+  /// mirror that never ran on an iPad.
   Future<void> _startBeacon() async {
-    // reusePort so two copies on ONE machine can both listen — which is not a
-    // user's arrangement, it is how this gets tested, and a feature that can
-    // only be tested by owning two devices does not get tested. Not every
-    // platform honours it; the failure is one instance seeing the other but
-    // not the reverse, which the dial rule below survives.
-    final s = await RawDatagramSocket.bind(
-      InternetAddress.anyIPv4,
-      kSyncBeaconPort,
-      reuseAddress: true,
-      reusePort: !Platform.isWindows,
+    try {
+      // reusePort so two copies on ONE machine can both listen — which is not
+      // a user's arrangement, it is how this gets tested, and a feature that
+      // can only be tested by owning two devices does not get tested. Not
+      // every platform honours it; the failure is one instance seeing the
+      // other but not the reverse, which the dial rule below survives.
+      final s = await RawDatagramSocket.bind(
+        InternetAddress.anyIPv4,
+        kSyncBeaconPort,
+        reuseAddress: true,
+        reusePort: !Platform.isWindows,
+      );
+      s.broadcastEnabled = true;
+      s.listen((event) {
+        if (event != RawSocketEvent.read) return;
+        final dg = s.receive();
+        if (dg == null) return;
+        _onBeacon(dg);
+      });
+      _beacon = s;
+    } catch (e) {
+      Log.i('sync', 'no UDP beacon here ($e) — Bonjour only');
+    }
+  }
+
+  /// Bonjour, which is how iOS is ALLOWED to find anything.
+  ///
+  /// Since iOS 14 a raw broadcast or multicast needs
+  /// `com.apple.developer.networking.multicast`, an entitlement Apple grants
+  /// by application; Bonjour through the system's own API needs only the
+  /// local-network permission and a service type in Info.plist. So the phone
+  /// advertises and browses `_prototypesync._tcp` and the desktops answer the
+  /// beacon — and the two meet, because a desktop runs BOTH.
+  final Bonjour _bonjour = Bonjour();
+
+  Future<void> _startBonjour() async {
+    final port = _server?.port;
+    final fp = _fp;
+    if (port == null || fp == null) return;
+    await _bonjour.start(
+      fingerprint: fp,
+      deviceId: _deviceId,
+      deviceName: _deviceName,
+      port: port,
+      onSighting: (s) {
+        if (s.fingerprint != fp) return; // a different group
+        if (s.id == _deviceId) return; // our own record, come back
+        if (s.version != kSyncProtocolVersion) {
+          Log.w('sync', 'peer ${s.id} speaks version ${s.version}, this one '
+              'speaks $kSyncProtocolVersion — not pairing');
+          return;
+        }
+        _sighted(id: s.id, name: s.name, host: s.host, port: s.port);
+      },
     );
-    s.broadcastEnabled = true;
-    s.listen((event) {
-      if (event != RawSocketEvent.read) return;
-      final dg = s.receive();
-      if (dg == null) return;
-      _onBeacon(dg);
-    });
-    _beacon = s;
   }
 
   void _sendBeacon() {
@@ -439,18 +486,32 @@ class LanSync {
           '$kSyncProtocolVersion — not pairing');
       return;
     }
+    _sighted(
+        id: id, name: '${m['n']}', host: dg.address.address, port: port);
+  }
+
+  /// One device seen, however it was seen.
+  ///
+  /// The two discoveries end here rather than each keeping their own list: a
+  /// desktop that hears a Mac's beacon AND resolves its Bonjour record has
+  /// seen one device twice, and the peer map is keyed by device id precisely
+  /// so that the second sighting refreshes the first instead of doubling it.
+  void _sighted({
+    required String id,
+    required String name,
+    required String host,
+    required int port,
+  }) {
     final known = _peers[id];
     _peers[id] = SyncPeer(
       id: id,
-      name: '${m['n']}',
-      host: dg.address.address,
+      name: name,
+      host: host,
       port: port,
       seen: DateTime.now(),
       connected: known?.connected ?? false,
     );
-    if (known == null) {
-      Log.i('sync', 'saw ${m['n']} ($id) at ${dg.address.address}:$port');
-    }
+    if (known == null) Log.i('sync', 'saw $name ($id) at $host:$port');
     _maybeDial(id);
     _publish();
   }

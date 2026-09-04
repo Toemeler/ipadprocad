@@ -1666,6 +1666,102 @@ const double kSliverAspect = 0.04; /* height on the longest edge, over it */
  * to sit in a hash table.
  * ---------------------------------------------------------------------- */
 
+/* ---- How close is close enough, and what is it close TO -----------------
+ *
+ * M378. The natural way to judge this converter is to draw the body it makes
+ * and the mesh it came from at the same camera and subtract the pictures. Two
+ * things about that measurement are not obvious and both were got wrong
+ * before they were got right.
+ *
+ * FIRST, THE MESH HAS TO BE SHADED THE WAY A RENDERER SHADES IT. Averaging
+ * every normal at a vertex over every triangle touching it, with no crease
+ * angle, tilts a flat face's normals into the round beside it — so the SOURCE
+ * draws with smeared corners the object does not have, and a body that gets
+ * the corner exactly right is scored down for it. Splitting the vertex at 30
+ * degrees, which is also the widest angle ShareNormalsAcrossSeams will merge
+ * across, took the user's plate from 18.4% of its pixels differing to 0.585%
+ * and the broom holder from 13.8% to 0.086%. Nothing in either model changed.
+ *
+ * SECOND, AND THIS IS THE FLOOR: A MESH CANNOT SAY WHERE ITS NORMAL POINTS TO
+ * BETTER THAN HALF THE ANGLE BETWEEN TWO OF ITS FACETS. Measured over the
+ * edges each model's own crease rule calls smooth:
+ *
+ *              the mesh is uncertain by     the fit disagrees by
+ *   plate         13.4 deg (90th)              2.9 deg (mean)
+ *   broom          0.5 deg                     0.4 deg
+ *   whale          2.3 deg                     1.9 deg
+ *
+ * On the plate the fit sits four times INSIDE the mesh's own uncertainty, and
+ * what the remaining 0.585% draws is the boss on its back: twelve flat
+ * segments in the STL, one circle in the converted body. The difference is
+ * real and the converted body is the more truthful of the two. A number from
+ * this measurement is a floor and not a score, and driving it to zero would
+ * mean reproducing the faceting — which is what the 1:1 triangle import is
+ * for, and is the other thing on that dialog.
+ * ---------------------------------------------------------------------- */
+
+/* ---- Three ways of closing the whale's last degree, all refuted ---------
+ *
+ * M379. By the table above, two of the three fixtures sit inside their own
+ * mesh's uncertainty and are done. The whale does not: at the 90th percentile
+ * its fit disagrees by 3.88 degrees where the mesh is uncertain by 2.25, so
+ * there is about 1.7x of real headroom. Three obvious levers were pulled at
+ * it. None of them is here, because each made the model worse, and the next
+ * person should not spend the afternoon again.
+ *
+ *   THE RUNG. SurfaceForRegion climbs a ladder of net sizes and keeps the one
+ *   with the least distance error; facing only decides when to stop early. So
+ *   let the rungs that MEET tolerance compete on facing instead, and take the
+ *   one that faces the mesh best. Result: 1.92 -> 2.01 degrees at the mean and
+ *   3.88 -> 4.12 at the 90th. NetFacing is a 95th percentile over a subsample
+ *   of triangle centres; choosing on it picks the net that flatters the
+ *   sample, not the net that is better.
+ *
+ *   THE FAIRING. Waviness is what a smoothing term is for, and
+ *   kFreeformFairing is a millionth of the data's weight. Swept over three
+ *   decades it is already at its optimum and sits next to a cliff: 5e-8 gives
+ *   3.11 degrees, 1e-7 gives 1.90, 2e-7 (this value) gives 1.92, 4e-7 gives
+ *   2.22, 1e-6 gives 2.08, 5e-6 gives 2.31 and 873 faces instead of 312.
+ *   Nothing above the noise is available and the ground falls away below.
+ *
+ *   THE GRID. The valley in the whale's throat is the one patch left that a
+ *   picture calls a shape rather than an edge, and a deep narrow valley is
+ *   what too coarse a grid cannot hold. Taking the cell from 1.6 facets to
+ *   1.2 costs 312 faces -> 2,349 and gives 1.96 degrees; 1.0 costs the same
+ *   and gives 1.99. The cap at kFreeformGridMax is what does it — a finer
+ *   cell hits the cap, the grid stops covering the region, and the regions
+ *   that fall out of it come back as scraps.
+ *
+ * What is actually left, measured rather than guessed: 80% of the flagged
+ * pixels sit where the source's own shading changes fastest — its steepest
+ * quarter, against 25% by chance — which is a terminator or a silhouette
+ * turning a fraction of a degree into a visible shade. 77% lie within 1.5 mm
+ * of a seam between two patches, against 42% of the whole picture. One blob
+ * in six views is big enough to be a shape rather than a line.
+ *
+ * M380 — AND A FOURTH, WHICH FINALLY EXPLAINS THE OTHERS. The merge above
+ * refuses a union that makes the facing worse; nothing offers to CUT a region
+ * that was already bad on its own, and on the whale those are most of what is
+ * left. So one was added: a finished region facing worse than 8 degrees gets
+ * one attempt at the same two-seed partition the splitter uses, and the halves
+ * are kept only if both fit and the worse of them improves on the whole. It
+ * does what it says. The whale's normal error falls at every percentile — 1.92
+ * to 1.86 at the mean, 3.88 to 3.70 at the 90th, 6.94 to 6.57 at the 95th —
+ * for three extra faces and no measurable time.
+ *
+ * And the PICTURE gets worse. The whale goes 0.891% to 0.901%, and the broom
+ * holder — which was the best of the three at 0.086% and is not what this was
+ * aimed at — goes to 0.232%, on three extra faces of 1,375. Nearly three times
+ * the difference, for three seams.
+ *
+ * That is the number to keep: A SEAM COSTS MORE THAN THE SMOOTHER PATCH BUYS.
+ * Three of them cost the broom 0.146 points on a 0.086 base. It is why gating
+ * the split on slope was catastrophic, why a finer grid was, and why this is
+ * not here either — every one of them pays in boundaries for something bought
+ * in curvature, and the exchange rate is bad. Whatever closes the last degree
+ * has to do it WITHOUT adding a face.
+ * ---------------------------------------------------------------------- */
+
 /* Fewer triangles than this and the fit has no sample to speak of. */
 const int kMinTrustTriangles = 6;
 
@@ -1806,6 +1902,32 @@ const double kPinchBar = 4.0;
  * against 2.00 and 3.35 before. 1.5 sits inside it and gives the fewest
  * shards. Tighter than 1 buys nothing and costs rungs. */
 const double kFreeformFacingBar = 1.5;
+
+/* How many degrees of facing a merge is allowed to ADD to what its two parts
+ * already cost.
+ *
+ * The merge test used to ask about distance alone, and distance is not what a
+ * picture shows. Shading is the normal, so a union can sit a hundredth of a
+ * millimetre from the mesh and still draw as a fold: on the whale the worst
+ * face was 0.031 mm from the model and 23 degrees off its normals, and every
+ * test in the pipeline said it was fine.
+ *
+ * Why the bar is relative and not absolute. Measured over the whale's 69
+ * accepted merges, merging usually costs nothing at all — the median union is
+ * 0.05 degrees BETTER than the worse of its two parts — while the tail runs to
+ * +11. The regions that end up worst are mostly bad on their own, and an
+ * absolute bar refuses their merges without improving them: it just leaves two
+ * bad faces where there was one. What this catches is the damage the merge
+ * itself does.
+ *
+ * Five degrees, because that is the middle of the band where it works. Every
+ * value from 1 to 8 improved the picture (1.256% of the whale's drawn pixels
+ * differing from the source, down to 0.87-0.98%) and the mean normal error
+ * with it (2.08 to 1.92 degrees); 5 costs six extra faces of 306 and 0.8
+ * seconds of 18. TOKA and the broom holder are unmoved — they merge few
+ * freeform regions — so nothing here is paid for by the models that were
+ * already right. */
+const double kFreeformMergeFacingSlack = 5.0;
 const int kFreeformGridMax = 32;
 const double kFreeformGridBar = 0.7;
 const double kFreeformApproxFraction = 0.25;
@@ -7086,9 +7208,11 @@ Handle(Geom_BSplineSurface) NetToSurface(const Net &net)
 Handle(Geom_Surface) SurfaceForRegion(const Mesh &m,
                                       const std::vector<int> &tris,
                                       const RegionGrid &rg, double tol,
-                                      double &err)
+                                      double &err, double *facingOut)
 {
     err = 1e300;
+    if (facingOut)
+        *facingOut = 1e300;
     if (!rg.ok || tris.empty())
         return Handle(Geom_Surface)();
     RegionUv uv;
@@ -7126,6 +7250,8 @@ Handle(Geom_Surface) SurfaceForRegion(const Mesh &m,
                  rung[r], nu, nv, at, between, facing, net.loose);
         if (worse < bestWorst) {
             bestWorst = worse;
+            if (facingOut)
+                *facingOut = facing;
             /* Reported as the residual AT THE DATA, which is what every other
              * kind of patch reports and what the import line has always
              * meant. The between-the-data number decides which rung wins; it
@@ -7441,6 +7567,21 @@ void FreeformSurfaces(const Mesh &m, std::vector<Patch> &patches, double tol,
                 grid.push_back(good[i].second);
             }
             std::vector<int> owner(m.triCount(), -1);
+            /* What each region's own surface already costs in facing, so a
+             * merge can be judged on the damage IT does rather than on a bar
+             * that a hard region fails on its own. Filled on demand and
+             * carried through a merge, because the union's facing is the
+             * merged region's facing from then on. */
+            std::vector<double> regionFacing(reg.size(), -1.0);
+            auto facingOf = [&](size_t i) {
+                if (regionFacing[i] >= 0.0)
+                    return regionFacing[i];
+                double e = 1e300, f = 1e300;
+                Handle(Geom_Surface) su =
+                    SurfaceForRegion(m, reg[i], grid[i], tol, e, &f);
+                regionFacing[i] = (!su.IsNull() && f < 1e299) ? f : 0.0;
+                return regionFacing[i];
+            };
             bool merged = true;
             for (int pass = 0; pass < kFreeformMergePasses && merged; ++pass) {
                 merged = false;
@@ -7497,22 +7638,32 @@ void FreeformSurfaces(const Mesh &m, std::vector<Patch> &patches, double tol,
                      * which is the one solved against its vertices — asking
                      * the raster instead let unions through that the finished
                      * face could not honour, and refused ones it could. */
+                    double uFacing = -1.0;
                     {
-                        double e = 1e300;
+                        double e = 1e300, facing = 1e300;
                         Handle(Geom_Surface) su =
-                            SurfaceForRegion(m, uni, rg, tol, e);
+                            SurfaceForRegion(m, uni, rg, tol, e, &facing);
                         if (su.IsNull()) {
                             su = SurfaceFromGrid(rg, tol);
                             if (su.IsNull() ||
                                 SurfaceOffRegion(m, uni, su, tol) > tol)
                                 continue;
-                        } else if (e > tol) {
+                        } else if (e > tol ||
+                                   facing > std::max(facingOf(a), facingOf(b)) +
+                                                kFreeformMergeFacingSlack) {
                             continue;
                         }
+                        MR_TRACE("      merge %d+%d -> %d tris: at %.4f "
+                                 "facing %.2f deg (parts %.2f %.2f)\n",
+                                 (int)reg[a].size(), (int)reg[b].size(),
+                                 (int)uni.size(), e, facing, facingOf(a),
+                                 facingOf(b));
+                        uFacing = facing;
                     }
                     std::sort(uni.begin(), uni.end());
                     reg[a].swap(uni);
                     grid[a] = rg;
+                    regionFacing[a] = (uFacing >= 0.0) ? uFacing : -1.0;
                     reg[b].clear();
                     touched[a] = touched[b] = 1;
                     merged = true;
@@ -7531,9 +7682,11 @@ void FreeformSurfaces(const Mesh &m, std::vector<Patch> &patches, double tol,
                  * this point the region has already been cut as far as the
                  * recursion goes, and the only thing below the best surface
                  * available is one B-Rep face per triangle. */
-                double err = 1e300;
+                double err = 1e300, facing = 1e300;
                 Handle(Geom_Surface) su =
-                    SurfaceForRegion(m, reg[i], grid[i], tol, err);
+                    SurfaceForRegion(m, reg[i], grid[i], tol, err, &facing);
+                MR_TRACE("      region %d: %d tris, at %.4f facing %.2f deg\n",
+                         (int)i, (int)reg[i].size(), err, facing);
                 if (su.IsNull()) {
                     su = SurfaceFromGrid(grid[i], tol);
                     err = grid[i].err;
@@ -8670,11 +8823,30 @@ TopoDS_Shape BuildFaceted(const Mesh &m, double tol, Report &rep)
  * through the mesh's own vertices, changes neither the count nor the depths.
  * The chain itself doubles back — the region's boundary has a spur.
  *
- * That is a lead and not yet a diagnosis. 14 of the whale's 16 crossing wires
- * hold an edge that turns past 150 degrees, but so do 116 of its 1,358 edges
- * in total, and TOKA has 56 such edges and not one of its four crossings
- * holds one. Turning far is not the same as doubling back, and separating the
- * two is the next measurement.
+ * AND THAT LEAD IS DEAD TOO — the measurement it asked for says no.
+ *
+ * "Doubles back" was made exact: over a curve's own samples, the smallest gap
+ * between two points at least two mesh edges apart along its arc, divided by
+ * that arc. A straight run scores near 1; a hairpin scores near 0. Asked of
+ * every wire:
+ *
+ *   - On the whale the two populations overlap. The 16 wires that cross score
+ *     a median of 0.146; the 80 that do not score 0.276. No bar separates
+ *     them — at 0.3 it catches 13 of the 16 and 46 of the 80.
+ *   - On TOKA it is inverted. All four crossing wires score 0.900, which is
+ *     to say they do not double back at all, while 14 of the 32 that are fine
+ *     score 0.000, which is to say they double back completely.
+ *
+ * So doubling back neither causes a crossing nor is needed for one. The
+ * hairpin in that whale edge is real and the picture of it is not a lie — it
+ * simply is not what makes the wire cross.
+ *
+ * Five explanations tried and five refuted. What is established is only this:
+ * the crossings are shallow (0.007 to 0.19 mm in 3D, a fraction of a mesh
+ * edge), they are always between two consecutive edges of one wire, and they
+ * are not caused by the region folding, by the pcurve projection, by the
+ * boundary splines, or by the boundary doubling back. The cause is open, and
+ * the next person should not start from any of those.
  *
  * Nothing downstream is left broken by any of it — the solids are valid, and
  * they cut, round, write and reopen — and the cost of it is the tolerance the
