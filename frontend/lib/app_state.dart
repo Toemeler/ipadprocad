@@ -21004,6 +21004,19 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// The viewport reports what is under the pointer, or null (M374).
+  ///
+  /// Called from every hover event, so the cheap path matters: [setHover]
+  /// answers false when nothing changed and this rebuilds nothing. That guard
+  /// is why hovering a face costs one repaint on entering it and none for as
+  /// long as the pointer stays on it, rather than one per pointer move.
+  void measureHover(MeasureRef? ref) {
+    final s = measureSession;
+    if (s == null) return;
+    if (!s.setHover(ref)) return;
+    notifyListeners();
+  }
+
   /// The viewport reports a tap that hit nothing.
   void measureMissed() {
     if (measureSession == null) return;

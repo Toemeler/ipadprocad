@@ -525,7 +525,10 @@ MeasurePick? _pickFaceRef(
           perimeter: loop,
           hitAt: hit);
   }
-  return MeasurePick(ref, d, 0);
+  // M374 — and what it LOOKS like. Every branch above gets it, because every
+  // one of them is a face and a face highlights as a face whatever its
+  // surface record says.
+  return MeasurePick(ref.withShape(faceShape(m, face, world)), d, 0);
 }
 
 /// The frontmost triangle of [m] under [px], as (mesh face index, hit point in
@@ -665,6 +668,125 @@ double faceLoopLength(OcctMeshData m, int face) {
     if (n == 1) total += length[k] ?? 0;
   });
   return total;
+}
+
+/// The DRAWABLE form of mesh face [face]: its triangles and its boundary
+/// loops, in world space (M374).
+///
+/// Built from the same two passes [faceArea] and [faceLoopLength] already
+/// make over the triangulation, and for the same reason they are geometric
+/// rather than index-keyed: the seam of a cylinder is triangulated with its
+/// vertices DUPLICATED, so an index-keyed boundary walk draws the seam as an
+/// edge — a bright line straight down the middle of every highlighted bore.
+/// Counting by rounded coordinates puts both copies in one bucket and the
+/// seam correctly disappears.
+///
+/// [cap] bounds the triangle copy. A face of a dense import can carry tens of
+/// thousands of triangles and this runs on every HOVER EVENT; past the cap
+/// the wash is dropped and the loops are kept, which still says which face
+/// without stalling the drag. Nothing here reaches a solver — see
+/// [MeasureRef.shape].
+MeasureShape faceShape(OcctMeshData m, int face, Vec3 Function(Vec3) world,
+    {int cap = kMeasureShapeTriangleCap}) {
+  if (m.triFaces.length * 3 != m.indices.length) return const MeasureShape();
+
+  final patch = <Vec3>[];
+  // Undirected segment -> (use count, its two ends). A segment used ONCE is
+  // on the boundary; one used twice is interior.
+  final count = <String, int>{};
+  final ends = <String, (Vec3, Vec3)>{};
+  var tris = 0;
+
+  void edge(Vec3 a, Vec3 b) {
+    final ka = _key(a), kb = _key(b);
+    final k = ka.compareTo(kb) <= 0 ? '$ka|$kb' : '$kb|$ka';
+    count[k] = (count[k] ?? 0) + 1;
+    ends[k] = (a, b);
+  }
+
+  for (var t = 0; t + 2 < m.indices.length; t += 3) {
+    if (m.triFaces[t ~/ 3] != face) continue;
+    final i0 = m.indices[t] * 3,
+        i1 = m.indices[t + 1] * 3,
+        i2 = m.indices[t + 2] * 3;
+    final a = world(
+        Vec3(m.positions[i0], m.positions[i0 + 1], m.positions[i0 + 2]));
+    final b = world(
+        Vec3(m.positions[i1], m.positions[i1 + 1], m.positions[i1 + 2]));
+    final c = world(
+        Vec3(m.positions[i2], m.positions[i2 + 1], m.positions[i2 + 2]));
+    tris++;
+    if (tris <= cap) patch.addAll([a, b, c]);
+    edge(a, b);
+    edge(b, c);
+    edge(c, a);
+  }
+  if (tris == 0) return const MeasureShape();
+
+  final open = <(Vec3, Vec3)>[
+    for (final e in count.entries)
+      if (e.value == 1) ends[e.key]!
+  ];
+  return MeasureShape(
+      patch: tris > cap ? const [] : patch, loops: _chainLoops(open));
+}
+
+/// The cap on a highlighted face's triangle count. 20 000 triangles is a
+/// tenth of a second of `drawVertices` at worst and far more than any face
+/// the modeller itself produces; it exists for imported meshes, where one
+/// "face" can be an entire scanned surface.
+const int kMeasureShapeTriangleCap = 20000;
+
+/// Links loose boundary segments into polylines.
+///
+/// Greedy, and greedy is enough: every vertex of a closed boundary has
+/// exactly two segments on it, so following whichever one is left at each end
+/// can only walk the loop it started on. An OPEN chain — which a face whose
+/// triangulation failed somewhere can produce — simply ends, and is returned
+/// as the polyline it is rather than being forced shut.
+List<List<Vec3>> _chainLoops(List<(Vec3, Vec3)> segs) {
+  if (segs.isEmpty) return const [];
+  // Vertex key -> the indices of the segments touching it.
+  final at = <String, List<int>>{};
+  for (var i = 0; i < segs.length; i++) {
+    at.putIfAbsent(_key(segs[i].$1), () => []).add(i);
+    at.putIfAbsent(_key(segs[i].$2), () => []).add(i);
+  }
+  final used = List<bool>.filled(segs.length, false);
+  final loops = <List<Vec3>>[];
+
+  for (var i = 0; i < segs.length; i++) {
+    if (used[i]) continue;
+    used[i] = true;
+    final chain = <Vec3>[segs[i].$1, segs[i].$2];
+    // Walk forward from the far end, then backward from the near one, so an
+    // open chain picked up in its middle still comes out whole.
+    for (final forward in [true, false]) {
+      while (chain.length <= segs.length + 1) {
+        final tip = forward ? chain.last : chain.first;
+        final k = _key(tip);
+        var next = -1;
+        for (final j in at[k] ?? const <int>[]) {
+          if (!used[j]) {
+            next = j;
+            break;
+          }
+        }
+        if (next < 0) break;
+        used[next] = true;
+        final (a, b) = segs[next];
+        final other = _key(a) == k ? b : a;
+        if (forward) {
+          chain.add(other);
+        } else {
+          chain.insert(0, other);
+        }
+        if (_key(other) == _key(forward ? chain.first : chain.last)) break;
+      }
+    }
+    if (chain.length >= 3) loops.add(chain);
+  }
+  return loops;
 }
 
 /// A vertex's identity for the boundary count.

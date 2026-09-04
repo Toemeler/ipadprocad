@@ -191,6 +191,7 @@ class MeasureRef {
     this.samples = const [],
     this.mesh,
     this.closed = false,
+    this.shape,
   });
 
   final MeasureRefKind kind;
@@ -285,6 +286,57 @@ class MeasureRef {
   /// class is analytic, and a mesh hanging off a face would be an invitation
   /// to answer a question the surface record already answers exactly.
   final MeasureMesh? mesh;
+
+  /// What this pick LOOKS like, when tracing [samples] is not enough (M374).
+  ///
+  /// A face has no polyline and no closed form for its outline, so before
+  /// this it highlighted as a nine-point ring at the spot the finger landed —
+  /// which is not a highlight of the face, it is a highlight of the tap. The
+  /// picker now hands over the face's own triangles and its boundary loops,
+  /// and the overlay washes the whole face the way the sketch-plane
+  /// prehighlight already does.
+  ///
+  /// PURELY VISUAL. No solver reads it, and none may: every question this
+  /// class answers about a face is answered exactly by the surface record,
+  /// and letting the tessellation into the arithmetic would replace an exact
+  /// answer with a deflection-dependent one. [samples] is the field that is
+  /// both drawn and measured; this one is only drawn.
+  final MeasureShape? shape;
+
+  /// This pick with [shape] attached.
+  ///
+  /// A copy rather than a parameter on all fourteen factories: the shape is
+  /// gathered from the mesh, the factories take analytic records, and
+  /// threading a drawing-only argument through every one of them would put it
+  /// where a solver could reach for it.
+  MeasureRef withShape(MeasureShape? s) => MeasureRef._(
+        kind: kind,
+        owner: owner,
+        point: point,
+        a: a,
+        b: b,
+        lineAt: lineAt,
+        lineDir: lineDir,
+        planeAt: planeAt,
+        planeNormal: planeNormal,
+        planeIsOriented: planeIsOriented,
+        axisAt: axisAt,
+        axisDir: axisDir,
+        radius: radius,
+        minorRadius: minorRadius,
+        sweep: sweep,
+        length: length,
+        area: area,
+        volume: volume,
+        perimeter: perimeter,
+        boxLo: boxLo,
+        boxHi: boxHi,
+        hitAt: hitAt,
+        samples: samples,
+        mesh: mesh,
+        closed: closed,
+        shape: s,
+      );
 
   // ---- constructors -------------------------------------------------------
 
@@ -1895,6 +1947,36 @@ Vec3 _nearestOnPolyline(List<Vec3> pts, Vec3 x) {
 }
 
 // ===========================================================================
+// what a pick looks like
+// ===========================================================================
+
+/// The drawable form of a pick that is a SURFACE rather than a curve (M374).
+///
+/// Two lists, because a face highlight is two marks and they answer different
+/// questions. The wash over [patch] says WHICH face — it is the only mark that
+/// distinguishes the top of a plate from the bottom when both project to the
+/// same outline. The stroke along [loops] says WHERE IT ENDS — a wash alone
+/// bleeds into its neighbours at a shallow angle, and on a cylinder it is the
+/// rims that tell you the bore was picked and not the boss around it.
+///
+/// Both are WORLD space and already reduced to what a canvas takes: the
+/// painter projects and draws, and does no geometry of its own.
+class MeasureShape {
+  const MeasureShape({this.patch = const [], this.loops = const []});
+
+  /// The surface, corner-major: three [Vec3] per triangle.
+  final List<Vec3> patch;
+
+  /// The boundary, as one polyline per loop. A face with a hole in it has
+  /// two; a face the tessellation left open has none, and the wash alone
+  /// still reads.
+  final List<List<Vec3>> loops;
+
+  bool get isEmpty => patch.isEmpty && loops.isEmpty;
+  int get triangleCount => patch.length ~/ 3;
+}
+
+// ===========================================================================
 // solids — the one pair with no closed form
 // ===========================================================================
 
@@ -2557,6 +2639,32 @@ class MeasureSession {
   /// The running per-kind sums.
   MeasureTotals totals = const MeasureTotals();
 
+  /// What is under the pointer right now, or null (M374).
+  ///
+  /// Inventor calls this prehighlighting and it is not decoration: a measure
+  /// tap is a COMMITMENT — it lands in the picks, changes the reading, and
+  /// costs a second tap to undo — and on a face crowded with fillets there is
+  /// no other way to know which of the four things under the cursor you are
+  /// about to commit to. It is deliberately NOT a pick: nothing reads it but
+  /// the painter, and clearing it never touches the reading.
+  MeasureRef? hover;
+
+  /// Sets [hover], and says whether anything actually changed.
+  ///
+  /// The guard is the whole reason this is a method. A hover event arrives on
+  /// every pointer move, and repainting the viewport sixty times a second to
+  /// draw the same highlight is how a prehighlight turns a smooth drag into a
+  /// stutter. Something already PICKED never prehighlights either — it is
+  /// fully lit already, and a dimmer mark on top of a brighter one only reads
+  /// as the bright one flickering.
+  bool setHover(MeasureRef? ref) {
+    final next = (ref != null && picks.any((p) => p.sameAs(ref))) ? null : ref;
+    if (next == null && hover == null) return false;
+    if (next != null && hover != null && hover!.sameAs(next)) return false;
+    hover = next;
+    return true;
+  }
+
   bool get isEmpty => picks.isEmpty;
 
   /// Adds [ref], or takes it away again when it is already in the list.
@@ -2571,6 +2679,11 @@ class MeasureSession {
   ///
   /// Returns true when the pick was taken (as opposed to removing one).
   bool add(MeasureRef ref) {
+    // The prehighlight has done its job the moment the pick lands: whatever
+    // it was pointing at is now either lit as a pick or gone from the list,
+    // and either way a dim mark under a bright one is only a flicker. The
+    // next pointer move re-establishes it.
+    hover = null;
     for (var i = 0; i < picks.length; i++) {
       if (picks[i].sameAs(ref)) {
         picks.removeAt(i);
@@ -2601,6 +2714,7 @@ class MeasureSession {
 
   void clearPicks() {
     picks.clear();
+    hover = null;
     reading = null;
   }
 

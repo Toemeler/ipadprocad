@@ -12445,3 +12445,133 @@ unterscheiden.
 * M152, M158, M183, M136, M133 und `bulk_edge_info` laufen weiter durch — 109
   Tests über den ganzen Kanten-Pfad.
 * **Nicht auf Hardware gelaufen.**
+
+---
+
+## M374 — Was ausgewählt ist, sieht auch ausgewählt aus
+
+> „I dont have a highlight what i selected or what i hover over."
+
+Zwei Lücken im Messwerkzeug aus M371, und die erste ist ein echter Fehler, keine
+Geschmacksfrage.
+
+### Warum eine Fläche nur als Punkt leuchtete
+
+`_paintPickHalo` konnte genau eine Sache: `MeasureRef.samples` als Polylinie
+nachzeichnen. Für eine Kante und für eine Skizzenkurve ist das richtig — die
+Auswahl **ist** diese Kurve. Eine **Fläche** hat aber keine Samples: sie kommt
+aus dem analytischen Flächen-Record (Ebene, Zylinder, Kegel …), und der enthält
+Achse, Radius und Bereich, aber keinen Umriss. Also fiel jeder Flächen-Tipp auf
+den letzten Zweig durch:
+
+```dart
+canvas.drawCircle(p, 9, halo);   // an der Stelle, wo der Finger landete
+```
+
+Das hebt **den Tipp** hervor, nicht die Fläche. Bei vier Flächen unter dem
+Finger — Boden, Wand, Fase, Bohrung — sagt ein Ring an der Trefferstelle
+genau nichts darüber, welche davon das Panel gerade meint. Und ein Messtipp ist
+eine **Festlegung**: er landet in den Picks, ändert die Anzeige und kostet einen
+zweiten Tipp zum Rückgängigmachen.
+
+### Die Fläche als Fläche
+
+Neu: `MeasureShape` (`measure.dart`) mit zwei Listen, und beide sind nötig, weil
+sie verschiedene Fragen beantworten.
+
+* `patch` — die Dreiecke der Fläche, eckenweise, in Weltkoordinaten. Der
+  **Farbschleier** darüber sagt **welche** Fläche. Er ist die einzige Marke,
+  die die Oberseite einer Platte von ihrer Unterseite unterscheidet, wenn beide
+  auf denselben Umriss projizieren.
+* `loops` — die Randschleifen, je eine Polylinie. Der **Strich** sagt, **wo sie
+  aufhört**. Ein Schleier allein blutet bei flachem Blickwinkel in die
+  Nachbarflächen aus, und an einem Zylinder sind es die Ränder, die sagen, dass
+  die Bohrung getroffen ist und nicht der Bund darum.
+
+`faceShape()` in `measure_pick.dart` baut beides aus derselben Schleife, die
+`faceArea` und `faceLoopLength` ohnehin über die Triangulierung machen — und aus
+demselben Grund **geometrisch statt indexbasiert**: OCCT dupliziert die Vertices
+entlang der Naht eines Zylinders, ein indexbasierter Randlauf hält beide Kopien
+für Randkanten, und dann läuft ein heller Strich mitten durch jede
+hervorgehobene Bohrung. `test/m374_measure_highlight_test.dart` hat dafür ein
+Fixture (`seamedSquare`), das genau diesen Fehler auslöst, wenn man ihn wieder
+einbaut.
+
+### Der Schleier geht durch eine Ebene, nicht direkt auf die Leinwand
+
+```dart
+canvas.saveLayer(bounds, Paint()..color = white.withValues(alpha: kMeasureWash));
+canvas.drawVertices(..., Paint()..color = T.accent);   // deckend
+canvas.restore();
+```
+
+Ein Zylinder projiziert seine Rückseite auf seine Vorderseite, ein ganzer Körper
+projiziert sich vollständig auf sich selbst. Einzeln gezeichnete transluzente
+Dreiecke stapeln sich dort: der Schleier wird doppelt so dunkel, genau da, wo
+die Fläche wegkrümmt — was wie eine Schattierung aussieht, die es nicht gibt.
+Deckend in eine Ebene und dann die **Ebene** abgeblendet komponiert die
+Überlappung einmal. Der Test dazu zeichnet zwei **deckungsgleiche** Dreiecke und
+verlangt denselben Alphawert wie bei einem.
+
+`kMeasureWash` ist 0.42 — derselbe Wert, den die Skizzenebenen-Vorhervorhebung
+in `part_render.dart` benutzt, weil es dieselbe Aussage ist.
+
+Ein **Körper** braucht dafür keine eigene Geometrie: er trägt seine
+Triangulierung und seine Anzeigekanten schon für den Abstandslöser
+(`MeasureMesh`), und der Maler greift darauf zurück, wenn keine `shape` da ist.
+Eine **geschlossene Skizzenkurve** wird ebenfalls gefüllt — eine Flächenmessung
+an zwei verschachtelten Schleifen ist sonst nicht zuzuordnen.
+
+### `shape` wird gezeichnet und nie gemessen
+
+Das ist die ganze Sicherheitsbegründung dafür, eine Triangulierung an einen Ref
+zu hängen, dessen Werte analytisch sind — und sie wird geprüft, nicht
+vorausgesetzt. Jede Ablesung mit `shape` und dieselbe mit `shape: null` müssen
+identisch sein: Einzelwert, Abstand, Winkel und `sameAs`. Die Triangulierung
+hängt an der Anzeige-Deflexion; sie in die Arithmetik zu lassen hieße, eine
+exakte Antwort durch eine auflösungsabhängige zu ersetzen.
+
+`withShape()` ist eine Kopie statt eines Parameters an allen vierzehn Factories:
+die Factories nehmen analytische Records, und ein reines Zeichenargument durch
+jede von ihnen zu fädeln würde es genau dorthin legen, wo ein Löser danach
+greifen kann.
+
+### Vorhervorhebung
+
+`MeasureSession.hover`, gesetzt aus dem Hover-Handler aller drei Viewports über
+**denselben Picker, den der Tipp benutzt** — eine Vorhervorhebung, die etwas
+anderes auswählen würde als der Tipp, wäre eine Lüge, und Verlässlichkeit ist
+ihre einzige Aufgabe.
+
+Regeln, alle in Tests:
+
+* Sie ist **kein Pick**. Nichts liest sie außer dem Maler; die Ablesung sieht
+  sie nie.
+* Etwas bereits **Ausgewähltes** hebt nicht vor — es leuchtet schon, und eine
+  blassere Marke über einer helleren liest sich nur als Flackern.
+* Ein Pick löscht die Vorhervorhebung, die zu ihm geführt hat.
+* `setHover` meldet, **ob** sich etwas geändert hat; nur dann wird neu gezeichnet.
+  Ohne das kostet Hover auf einer Fläche sechzig Repaints pro Sekunde statt einem
+  beim Betreten.
+
+Ein Faktor (`kMeasureHoverFade`, 0.45) auf jede Marke trennt sie vom Pick.
+Alles andere — zweite Farbe, gestrichelter Rand — müsste man lernen; „die
+blasse ist die, die du gleich nimmst" nicht.
+
+Der Zeiger bekommt in allen drei Viewports das Fadenkreuz, solange gemessen
+wird, und `onExit` löscht die Vorhervorhebung: sonst bleibt die letzte Fläche
+über einem Viewport hell, in dem der Zeiger längst nicht mehr ist.
+
+**Auf Glas gibt es kein Hover.** Das ist kein Rückschritt gegenüber M371 — dort
+gab es sie überhaupt nicht — und die Hälfte, die der Bericht wirklich meinte,
+die Hervorhebung des **Ausgewählten**, funktioniert mit dem Finger genauso.
+
+### Stand
+
+* `test/m374_measure_highlight_test.dart`, 27 Tests. Die entscheidenden
+  **rastern die Überlagerung und zählen Pixel**: „das Feld ist gesetzt" ist
+  nicht die Fehlermeldung, „ich sehe nichts" ist es. **Gegen den alten Code
+  geprüft**: drei fallen ohne den Fix um.
+* Die 199 Tests aus M371 laufen unverändert durch.
+* `flutter analyze`: 0 Fehler, keine neue Meldung.
+* **Nicht auf Hardware gelaufen.**

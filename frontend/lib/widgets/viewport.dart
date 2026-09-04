@@ -162,6 +162,23 @@ class _Viewport2DState extends State<Viewport2D>
     app.measurePick(ref);
   }
 
+  /// M374 — what a measure tap WOULD take, for the prehighlight.
+  ///
+  /// Deliberately [_measureTap] with the commit taken out: a prehighlight that
+  /// ran a different pick from the tap would be a lie, and the one thing a
+  /// prehighlight has to be is a promise.
+  void _measureHover(Offset local, Size size, PointerDeviceKind kind) {
+    final app = widget.app;
+    final s = app.current;
+    if (s == null) return;
+    final visible = [
+      for (final g in app.displayGeometry(s))
+        if (app.geoVisible(g)) g
+    ];
+    app.measureHover(measurePickSketch(visible, _toWorld(local, size),
+        touchSlop(kind, _snapPx) / app.zoom));
+  }
+
   // ---- snapping + gestures (M6) ----
   static const _snapPx = 12.0, _gripPx = 12.0;
 
@@ -1695,6 +1712,17 @@ class _Viewport2DState extends State<Viewport2D>
               return;
             }
             app.lastPointerWorld = _toWorld(e.localPosition, size); // M45
+            // M374 — measure prehighlight. First, and it returns: while the
+            // tool is armed the pointer means only "what would I pick", and
+            // the tool preview and the dimension-label hint below both belong
+            // to commands Measure stood down.
+            if (app.measuring) {
+              _measureHover(e.localPosition, size, e.kind);
+              if (_hoverDimLabel != null) {
+                setState(() => _hoverDimLabel = null);
+              }
+              return;
+            }
             // M207 — a FINISHED freehand stroke is not a rubber band. Once the
             // fit window is up the curve is decided; only its sliders may
             // change it. Hover kept feeding hoverWorld, and the preview draws

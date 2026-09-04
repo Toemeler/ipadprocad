@@ -871,17 +871,25 @@ class _Viewport3DState extends State<Viewport3D>
               // hand every other pickable thing gets; on a Magic Keyboard that
               // is the only affordance there is, since there is no hover
               // pressure or haptic to feel.
-              cursor: _hover != null && _hover!.startsWith('wp:')
-                  ? SystemMouseCursors.resizeUpDown
-                  : (_hover != null || _hoverRegion != null
-                      ? SystemMouseCursors.click
-                      : MouseCursor.defer),
+              cursor: widget.app.measuring
+                  ? SystemMouseCursors.precise
+                  : (_hover != null && _hover!.startsWith('wp:')
+                      ? SystemMouseCursors.resizeUpDown
+                      : (_hover != null || _hoverRegion != null
+                          ? SystemMouseCursors.click
+                          : MouseCursor.defer)),
               onHover: (e) => _updateHover(cam, e.localPosition),
-              onExit: (_) => setState(() {
-                _hover = null;
-                _hoverRegion = null;
-                _hoverFace = null;
-              }),
+              onExit: (_) {
+                // M374 — the prehighlight has to go out when the pointer
+                // leaves, or the last face stays lit over a viewport the
+                // cursor is nowhere near.
+                widget.app.measureHover(null);
+                setState(() {
+                  _hover = null;
+                  _hoverRegion = null;
+                  _hoverFace = null;
+                });
+              },
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 // M170 — a tap consumed by a work-plane DRAG is handled in
@@ -1319,6 +1327,23 @@ class _Viewport3DState extends State<Viewport3D>
   void _updateHover(Cam3 cam, Offset px) {
     final app = widget.app;
     final p = part!;
+    // M374 — measure prehighlight, and it comes FIRST because while the tool
+    // is armed the pointer means only one thing. The other prehighlights in
+    // this method belong to commands that stood down when Measure armed, so
+    // running them too would light up a face for a picker that is not
+    // listening. Same code path as the tap, so what lights up is exactly what
+    // a tap would take.
+    if (app.measuring) {
+      app.measureHover(_measureRefAt(cam, px, p));
+      if (_hover != null || _hoverRegion != null || _hoverFace != null) {
+        setState(() {
+          _hover = null;
+          _hoverRegion = null;
+          _hoverFace = null;
+        });
+      }
+      return;
+    }
     String? hit;
     int? region;
     // profile-region hover while the extrude dialog is picking profiles

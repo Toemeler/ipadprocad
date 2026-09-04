@@ -746,10 +746,32 @@ class _ViewportAssemblyState extends State<ViewportAssembly>
               }
             },
             child: MouseRegion(
-              cursor: _hover != null
-                  ? SystemMouseCursors.grab
-                  : MouseCursor.defer,
+              cursor: app.measuring
+                  ? SystemMouseCursors.precise
+                  : (_hover != null
+                      ? SystemMouseCursors.grab
+                      : MouseCursor.defer),
               onHover: (e) {
+                // M374 — measure prehighlight, first for the same reason the
+                // measure branch is first among the tap branches: while the
+                // tool is armed nothing else may claim the pointer.
+                if (app.measuring) {
+                  if (ViewportWindow.hits(e.position)) {
+                    app.measureHover(null);
+                    return;
+                  }
+                  app.measureHover(measurePickAssembly(a, cam, e.localPosition,
+                      priority: app.measureSession?.priority ??
+                          MeasurePriority.entity));
+                  if (_hover != null || _hoverGeom != null) {
+                    setState(() {
+                      _hover = null;
+                      _hoverGeom = null;
+                      _hoverRef = null;
+                    });
+                  }
+                  return;
+                }
                 // While Place Constraint collects, hovering pre-highlights the
                 // GEOMETRY under the pointer rather than the component: what
                 // the next tap would select is the thing worth showing.
@@ -786,11 +808,14 @@ class _ViewportAssemblyState extends State<ViewportAssembly>
                 final h = pickOccurrence(a, cam, e.localPosition);
                 if (!identical(h, _hover)) setState(() => _hover = h);
               },
-              onExit: (_) => setState(() {
-                _hover = null;
-                _hoverGeom = null;
-                _hoverRef = null;
-              }),
+              onExit: (_) {
+                app.measureHover(null);
+                setState(() {
+                  _hover = null;
+                  _hoverGeom = null;
+                  _hoverRef = null;
+                });
+              },
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onScaleStart: (d) {
