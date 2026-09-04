@@ -466,6 +466,7 @@ jobs:
           # build_cycles_windows.ps1's own closure walk has carried this filter
           # from the start, at the head of its $hostOnly list.
           $virtual = '^(api-ms-win-|ext-ms-)'
+          $exports = @{}
           $sys = "$env:WINDIR/System32"
           $seen = @{}; $queue = [System.Collections.Queue]::new()
           $queue.Enqueue("$dir/prototype.exe")
@@ -492,6 +493,56 @@ jobs:
             exit 1
           }
           Write-Host "the loader resolves all $($seen.Count) names the bundle asks for"
+
+          # AND THE ORDINALS, which a name walk cannot see and which is what
+          # actually killed the app: it exited 0xC0000138,
+          # STATUS_ORDINAL_NOT_FOUND. Every name resolved and one of the files
+          # that answered was the wrong BUILD — an import by ordinal number
+          # rather than by name, satisfied by a DLL that does not have that
+          # ordinal.
+          #
+          # It is a merged directory that makes this possible: the kernels'
+          # closure and the path tracer's are downloaded on top of each other,
+          # so a DLL present in both sets arrives twice and one copy wins.
+          # Names still all resolve; ordinals stop matching.
+          $bad = @()
+          foreach ($f in Get-ChildItem "$dir/*.dll", "$dir/*.exe") {
+            $provider = $null
+            foreach ($line in (& dumpbin /IMPORTS $f.FullName 2>$null)) {
+              if ($line -match '^\s{4}(\S+\.dll)\s*$') { $provider = $Matches[1]; continue }
+              if ($line -match '^\s+Ordinal\s+(\d+)\s*$' -and $provider) {
+                $ord = [int]$Matches[1]
+                $prov = Join-Path $dir $provider
+                if (-not (Test-Path $prov)) { continue }   # a host DLL; not ours
+                if (-not $exports.ContainsKey($provider)) {
+                  $exports[$provider] = @(& dumpbin /EXPORTS $prov 2>$null |
+                    Select-String -Pattern '^\s+(\d+)\s+[0-9A-F]+\s+[0-9A-F]+' |
+                    ForEach-Object { [int]$_.Matches[0].Groups[1].Value })
+                }
+                if ($exports[$provider] -notcontains $ord) {
+                  $bad += "$($f.Name) imports ordinal $ord from $provider, which does not export it"
+                }
+              }
+            }
+          }
+          if ($bad.Count -gt 0) {
+            Write-Host "BUNDLE: FAIL (an import by ordinal has no match — 0xC0000138):"
+            $bad | Select-Object -First 20 | ForEach-Object { Write-Host "  $_" }
+            exit 1
+          }
+          Write-Host "every import by ordinal is exported by the copy that ships"
+
+          # AND WHAT SHADOWS THE SYSTEM, which is the other way a name resolves
+          # to the wrong build: a DLL beside the exe is found before the one in
+          # System32, so shipping a stale copy of something Windows also
+          # provides breaks whatever expected the system's.
+          foreach ($f in Get-ChildItem "$dir/*.dll") {
+            if (Test-Path "$sys/$($f.Name)") {
+              $ours = (Get-Item $f.FullName).VersionInfo.FileVersion
+              $theirs = (Get-Item "$sys/$($f.Name)").VersionInfo.FileVersion
+              Write-Host "  shadows System32: $($f.Name)  bundle=$ours  system=$theirs"
+            }
+          }
           Write-Host "BUNDLE: PASS"
           exit 0
 
