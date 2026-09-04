@@ -9,7 +9,7 @@
 #   pwsh tools/desktop/build_cycles_windows.ps1 -Keep   # keep blender\ after
 #
 # THE SAME BUILD AS LINUX, and deliberately so: the same Blender pin (read out
-# of that script rather than repeated), the same three patches from
+# of that script rather than repeated), the same five patches from
 # backend/cycles/patches/, the same shim grafted as a Cycles target, the same
 # WITH_* switches, and the link line taken from the same line of build.ninja.
 # tools/desktop/build_cycles_linux.sh carries the reasoning for all of that and
@@ -155,16 +155,18 @@ if (-not (Select-String -Path $cyclesCMake -Pattern 'add_library\(cycles_shim' -
     (Get-Content (Join-Path $repo 'backend\cycles\shim\append.cmake'))
 }
 
-# The three patches. All self-verifying — an anchor that does not match exactly
-# once fails rather than silently doing nothing — and all shared with the Linux
-# build; the third is shared because the line it removes is in Blender's TOP
-# LEVEL and fires wherever WITH_PYTHON is off. They address the tree as
-# `blender\intern\cycles\...` relative to the working directory, so they run
-# from $work.
-Say 'patching Cycles (sampling, denoiser ceiling, WITH_PYTHON, <memory>)'
+# The patches. All self-verifying — an anchor that does not match exactly once
+# fails rather than silently doing nothing — and all five shared with the
+# Linux build, including the last, which edits Blender's Windows platform file
+# and does nothing at all on Linux. They stay in one list for the reason
+# no_python_cycles.py gives: a patch list that differs by platform is a patch
+# list where the platforms drift, and this tree has already had that happen.
+# They address the tree as `blender\intern\cycles\...` relative to the
+# working directory, so they run from $work.
+Say 'patching Cycles (sampling, denoiser ceiling, WITH_PYTHON, <memory>, M_PI)'
 Push-Location $work
 foreach ($p in @('progressive.py', 'oidn_memory.py', 'no_python_cycles.py',
-                 'msvc_container_proxy.py')) {
+                 'msvc_container_proxy.py', 'msvc_math_defines.py')) {
   & python (Join-Path $repo "backend\cycles\patches\$p")
   if ($LASTEXITCODE -ne 0) { Pop-Location; throw "patch failed: $p" }
 }

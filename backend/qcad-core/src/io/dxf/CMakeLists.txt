@@ -44,7 +44,7 @@ target_include_directories(qcaddxf PRIVATE
 
 target_compile_definitions(qcaddxf PRIVATE
     QCADDXF_LIBRARY
-    QCAD_DLL
+    ${QCAD_DLL_DEFS}
 )
 
 set_target_properties(qcaddxf PROPERTIES LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../../../plugins)

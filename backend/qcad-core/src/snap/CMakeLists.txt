@@ -54,7 +54,7 @@ target_include_directories(qcadsnap PUBLIC
 
 target_compile_definitions(qcadsnap PRIVATE
     QCADSNAP_LIBRARY
-    QCAD_DLL
+    ${QCAD_DLL_DEFS}
 )
 
 if (CMAKE_BUILD_TYPE STREQUAL "Release")

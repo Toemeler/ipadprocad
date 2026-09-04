@@ -227,7 +227,7 @@ target_include_directories(qcadcore PUBLIC
 
 target_compile_definitions(qcadcore PRIVATE
     QCADCORE_LIBRARY
-    QCAD_DLL
+    ${QCAD_DLL_DEFS}
 )
 
 # Phase 1 (M1-M3): pure C++/CLI core, no GUI. Guards out the small set of

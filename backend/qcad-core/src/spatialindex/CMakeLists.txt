@@ -39,7 +39,7 @@ target_include_directories(qcadspatialindex PUBLIC
 
 target_compile_definitions(qcadspatialindex PUBLIC
     QCADSPATIALINDEX_LIBRARY
-    QCAD_DLL
+    ${QCAD_DLL_DEFS}
 )
 
 if (CMAKE_BUILD_TYPE STREQUAL "Release")
