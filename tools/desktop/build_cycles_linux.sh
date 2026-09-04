@@ -242,6 +242,11 @@ if [ ! -f "$work/.patched" ]; then
   touch "$work/.patched"
 fi
 
+# The <memory> include is applied here too, though only MSVC needs it. A
+# header that names std::allocator should include <memory> on every compiler,
+# and one patch set that differs by platform is a patch set where the platforms
+# drift — this repository has already had that happen once.
+
 # THE THIRD PATCH is in backend/cycles/patches/ with the other two now, because
 # Windows needs exactly the same edit: the line it removes is in Blender's TOP
 # LEVEL, not in a platform file, so it fires wherever WITH_PYTHON is off. What
@@ -250,6 +255,7 @@ fi
 # than under the .patched stamp above.
 say "patching Blender's top level (WITH_PYTHON must not switch Cycles off)"
 (cd "$work" && python3 "$repo/backend/cycles/patches/no_python_cycles.py")
+(cd "$work" && python3 "$repo/backend/cycles/patches/msvc_container_proxy.py")
 
 # ---------------------------------------------------------------------------
 # 3. Configure and build
@@ -503,6 +509,56 @@ if [ "$missing" -ne 0 ]; then
   echo "CLOSURE: FAIL ($missing unsatisfied)"
   exit 1
 fi
+
+# THE GATE THAT ACTUALLY DECIDES, run here rather than only in the workflow.
+#
+# The walk above reasons one edge at a time and can be wrong in ways an edge
+# does not show — a file that is present but is not an ELF object, a soname
+# that is not the file name, a library reached through a path nothing rewrote.
+# `ldd` asks the only question that matters, about the whole graph: will the
+# loader find all of this. So it is asked HERE, where the answer can still be
+# acted on, and the sweep repeats until it comes back clean.
+#
+# A sweep that finds a name ALREADY in deps/ and still unresolved has found
+# something the walk cannot fix, so it says what it knows about that file
+# instead of copying it again. That is the report this step exists to produce.
+sweep=0
+while :; do
+  unresolved=$(ldd "$out/libprototype_cycles.so" 2>/dev/null \
+               | awk '/not found/ {print $1}' | sort -u)
+  [ -n "$unresolved" ] || break
+  sweep=$((sweep + 1))
+  fixed=0
+  stuck=0
+  for name in $unresolved; do
+    if [ -e "$deps/$name" ]; then
+      echo "  IN deps AND STILL NOT FOUND: $name"
+      echo "    kind : $(file -b "$deps/$name" 2>/dev/null || echo unknown)"
+      echo "    size : $(stat -c %s "$deps/$name" 2>/dev/null || echo ?)"
+      echo "    rpath: $(patchelf --print-rpath "$deps/$name" 2>&1 || true)"
+      echo "    sonam: $(patchelf --print-soname "$deps/$name" 2>&1 || true)"
+      stuck=$((stuck + 1))
+      continue
+    fi
+    found="$(locate_need "$name")"
+    [ -n "$found" ] || { echo "  NOT ANYWHERE: $name"; stuck=$((stuck + 1)); continue; }
+    cp -L "$found" "$deps/$name"
+    chmod u+w "$deps/$name"
+    patchelf --set-rpath '$ORIGIN' "$deps/$name"
+    echo "  sweep $sweep: took $name from $found"
+    copied=$((copied + 1))
+    fixed=$((fixed + 1))
+  done
+  if [ "$fixed" -eq 0 ] || [ "$sweep" -gt 8 ]; then
+    echo "CLOSURE: FAIL — the loader cannot satisfy $stuck name(s) after"
+    echo "$sweep sweep(s). Searched:"
+    printf '%s\n' "$search" | tr ':' '\n' | sed 's/^/  /' | head -40
+    echo "deps/ holds:"
+    ls -la "$deps" | head -60
+    exit 1
+  fi
+done
+echo "the loader resolves everything (${sweep} sweep(s) after the walk)"
 
 # THE INVARIANT, checked rather than reasoned about: nothing that ships may
 # still be asking for a path, and everything it asks for by name is either

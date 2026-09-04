@@ -261,6 +261,152 @@ void main() {
     });
   });
 
+  group('a delete travels', () {
+    late Directory root;
+    late Directory docs;
+    late Directory prefs;
+
+    setUp(() {
+      root = Directory.systemTemp.createTempSync('m373d');
+      docs = Directory('${root.path}/docs')..createSync();
+      prefs = Directory('${root.path}/prefs')..createSync();
+      LanSync.instance.attachForTest(documents: docs, preferences: prefs);
+    });
+
+    tearDown(() {
+      root.deleteSync(recursive: true);
+      ShareCodes.resetForTest();
+    });
+
+    test('a file that goes gets a tombstone, and one that never existed does '
+        'not', () {
+      final f = File('${docs.path}/Bracket.ptp')..writeAsStringSync('a');
+      LanSync.instance.attachForTest(documents: docs, preferences: prefs);
+      expect(LanSync.instance.tombsForTest, isEmpty);
+      f.deleteSync();
+      final gone = LanSync.instance.noticeDeletesForTest();
+      expect(gone.map((t) => t.path), ['Bracket.ptp']);
+      expect(LanSync.instance.tombsForTest.keys, ['Bracket.ptp']);
+    });
+
+    test('a peer\'s tombstone removes the file', () {
+      final f = File('${docs.path}/Bracket.ptp')..writeAsStringSync('a');
+      LanSync.instance.attachForTest(documents: docs, preferences: prefs);
+      final later = f.statSync().modified.millisecondsSinceEpoch + 60000;
+      expect(LanSync.instance.applyTombForTest(SyncTomb('Bracket.ptp', later)),
+          isTrue);
+      expect(f.existsSync(), isFalse);
+      expect(LanSync.instance.localManifestForTest.containsKey('Bracket.ptp'),
+          isFalse);
+    });
+
+    test('a tombstone OLDER than the file here loses to it', () {
+      // Deleted there at noon, saved again here at one o'clock: the save wins,
+      // because that is the same rule two competing saves follow.
+      final f = File('${docs.path}/Bracket.ptp')..writeAsStringSync('a');
+      LanSync.instance.attachForTest(documents: docs, preferences: prefs);
+      final earlier = f.statSync().modified.millisecondsSinceEpoch - 60000;
+      expect(
+          LanSync.instance.applyTombForTest(SyncTomb('Bracket.ptp', earlier)),
+          isFalse);
+      expect(f.existsSync(), isTrue);
+    });
+
+    test('a tombstone refuses the copy a peer that has not heard offers back',
+        () {
+      final f = File('${docs.path}/Bracket.ptp')..writeAsStringSync('a');
+      LanSync.instance.attachForTest(documents: docs, preferences: prefs);
+      final mtime = f.statSync().modified.millisecondsSinceEpoch;
+      LanSync.instance.applyTombForTest(SyncTomb('Bracket.ptp', mtime + 60000));
+      // The other device still has it and offers the very copy that was
+      // deleted. Taking it back is what makes a delete fail to stick.
+      expect(
+          LanSync.instance.wantsForTest(
+              SyncEntry('Bracket.ptp', 1, mtime, _shaOf('a'))),
+          isFalse);
+    });
+
+    test('a document SAVED again after the delete comes back', () {
+      final f = File('${docs.path}/Bracket.ptp')..writeAsStringSync('a');
+      LanSync.instance.attachForTest(documents: docs, preferences: prefs);
+      final mtime = f.statSync().modified.millisecondsSinceEpoch;
+      LanSync.instance.applyTombForTest(SyncTomb('Bracket.ptp', mtime + 60000));
+      expect(f.existsSync(), isFalse);
+      // Someone opens it on a third device and saves — well after the delete.
+      final revived = SyncEntry(
+          'Bracket.ptp', 1, mtime + 120000, _shaOf('b'));
+      expect(LanSync.instance.wantsForTest(revived), isTrue);
+      expect(LanSync.instance.applyForTest(revived, _bytes('b')), isTrue);
+      expect(f.readAsStringSync(), 'b');
+      // And the record of the deletion is gone with it, or the next scan
+      // would delete it a second time.
+      expect(LanSync.instance.tombsForTest.containsKey('Bracket.ptp'), isFalse);
+    });
+
+    test('preferences are never tombstoned', () {
+      // Deleting settings.json is not something anyone does on purpose, and a
+      // tombstone for it would be a way to wipe another device's preferences.
+      File('${prefs.path}/settings.json').writeAsStringSync('{"locale":"de"}');
+      LanSync.instance.attachForTest(documents: docs, preferences: prefs);
+      expect(
+          LanSync.instance.applyTombForTest(
+              SyncTomb('settings/settings.json',
+                  DateTime.now().millisecondsSinceEpoch + 60000)),
+          isFalse);
+      expect(File('${prefs.path}/settings.json').existsSync(), isTrue);
+    });
+
+    test('a path that tries to escape is refused as a tombstone too', () {
+      expect(
+          LanSync.instance.applyTombForTest(SyncTomb('../../../etc/passwd',
+              DateTime.now().millisecondsSinceEpoch)),
+          isFalse);
+    });
+
+    test('the journal survives a restart', () {
+      final f = File('${docs.path}/Bracket.ptp')..writeAsStringSync('a');
+      LanSync.instance.attachForTest(documents: docs, preferences: prefs);
+      f.deleteSync();
+      LanSync.instance.noticeDeletesForTest();
+      // A device that deletes something and is then switched off still has to
+      // be able to TELL anyone, which means the journal is on disk.
+      LanSync.instance.attachForTest(documents: docs, preferences: prefs);
+      expect(LanSync.instance.tombsForTest.keys, ['Bracket.ptp']);
+    });
+
+    test('a stale tombstone is forgotten', () {
+      final old = DateTime.now()
+          .subtract(const Duration(days: 40))
+          .millisecondsSinceEpoch;
+      File('${prefs.path}/sync-deleted.json')
+          .writeAsStringSync('{"Old.ptp":$old,"Recent.ptp":'
+              '${DateTime.now().millisecondsSinceEpoch}}');
+      LanSync.instance.attachForTest(documents: docs, preferences: prefs);
+      expect(LanSync.instance.tombsForTest.keys, ['Recent.ptp']);
+    });
+
+    test('the journal is not itself mirrored', () {
+      // It travels as facts inside the manifest. As a FILE it would be two
+      // devices overwriting the very records they are exchanging.
+      File('${prefs.path}/sync-deleted.json').writeAsStringSync('{}');
+      LanSync.instance.attachForTest(documents: docs, preferences: prefs);
+      expect(LanSync.instance.scanForTest().keys,
+          isNot(contains('settings/sync-deleted.json')));
+    });
+
+    test('a file that is unreadable is not a file that was deleted', () {
+      // _scanLocal drops what it cannot read. Treating that as a deletion
+      // would wipe a good document off every other device the moment one
+      // machine hiccuped, so the check is that the file is really not there.
+      File('${docs.path}/Bracket.ptp').writeAsStringSync('a');
+      LanSync.instance.attachForTest(documents: docs, preferences: prefs);
+      // The file is still on disk; a scan that returned nothing must not
+      // produce a tombstone for it.
+      expect(LanSync.instance.noticeDeletesForTest(), isEmpty);
+      expect(LanSync.instance.tombsForTest, isEmpty);
+    });
+  });
+
   group('the settings merge', () {
     late Directory root;
     late Directory docs;
@@ -376,6 +522,45 @@ void main() {
       // Validated on the way OUT as well as in: starting a mirror with a key
       // nothing else derives would look like a network fault forever.
       expect(SyncStore(dir).load(), isNull);
+    });
+  });
+
+  group('the beacon goes everywhere it has to', () {
+    // The limited broadcast alone reaches ONE interface — whichever owns the
+    // default route — so a laptop docked to Ethernet while on Wi-Fi, or any
+    // Windows machine with Hyper-V's virtual adapters, would announce itself
+    // on one network and be silent on the other.
+    test('every interface gets a directed broadcast, and the limited one goes '
+        'as well', () {
+      final a = broadcastAddressesFor(['192.168.1.42', '10.0.0.7'])
+          .map((e) => e.address)
+          .toList();
+      expect(a.first, '255.255.255.255');
+      expect(a, contains('192.168.1.255'));
+      expect(a, contains('10.0.0.255'));
+      expect(a, hasLength(3));
+    });
+
+    test('two addresses on one subnet are one broadcast, not two', () {
+      final a = broadcastAddressesFor(['192.168.1.42', '192.168.1.43'])
+          .map((e) => e.address)
+          .toList();
+      expect(a, ['255.255.255.255', '192.168.1.255']);
+    });
+
+    test('no interfaces still broadcasts', () {
+      expect(broadcastAddressesFor(const []).map((e) => e.address),
+          ['255.255.255.255']);
+    });
+
+    test('nonsense from the interface list does not throw', () {
+      // NetworkInterface is asked for IPv4 only, but a defensive read costs
+      // nothing and an exception in the beacon timer would stop the mirror
+      // announcing itself for the rest of the session.
+      final a = broadcastAddressesFor(['', 'fe80::1', 'not.an.address.at.all'])
+          .map((e) => e.address)
+          .toList();
+      expect(a.first, '255.255.255.255');
     });
   });
 }
