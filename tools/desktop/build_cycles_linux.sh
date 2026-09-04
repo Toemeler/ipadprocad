@@ -82,14 +82,33 @@ blender="$work/blender"
 # ---------------------------------------------------------------------------
 # 1. Blender's tree and its precompiled dependencies
 # ---------------------------------------------------------------------------
+# --no-checkout, and it is not an optimisation.
+#
+# Blender's tree is under git-lfs and this build wants none of the large files.
+# GIT_LFS_SKIP_SMUDGE leaves them as pointer files — but a machine WITH git-lfs
+# installed then has a working tree git and lfs disagree about, and the
+# checkout of the pinned commit fails with both halves of the same complaint at
+# once: "your local changes would be overwritten" for the tracked files and
+# "untracked working tree files would be overwritten" for what the clone's own
+# checkout left behind. A machine without git-lfs never runs the filter and
+# never notices, which is why this only ever failed on the runner.
+#
+# So: clone with NO working tree, turn the filter off for this repository, and
+# materialise the pinned commit once, with nothing to conflict with.
+export GIT_LFS_SKIP_SMUDGE=1
 if [ ! -d "$blender/.git" ]; then
   say "cloning Blender ($BLENDER_BRANCH @ ${BLENDER_REF:0:12})"
-  GIT_LFS_SKIP_SMUDGE=1 git clone --depth 2 --branch "$BLENDER_BRANCH" \
+  git clone --no-checkout --depth 2 --branch "$BLENDER_BRANCH" \
     "$BLENDER_REMOTE" "$blender" 2>&1 | tail -3
-  (cd "$blender" && { git checkout "$BLENDER_REF" 2>/dev/null || {
-      git fetch --depth 1 origin "$BLENDER_REF"
-      git checkout "$BLENDER_REF"
-    }; })
+  (
+    cd "$blender"
+    # Belt and braces: the variable covers the smudge filter, this covers
+    # `git lfs pull` and anything that reaches for the objects.
+    git config --local lfs.fetchexclude '*'
+    git fetch --depth 1 origin "$BLENDER_REF" 2>&1 | tail -2
+    git checkout --force "$BLENDER_REF" 2>/dev/null \
+      || git checkout --force FETCH_HEAD
+  )
 fi
 (cd "$blender" && git log --oneline -1)
 
