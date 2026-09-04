@@ -43,13 +43,20 @@ Projekte — dieser Weg hier kostet zwei Tipser und ist heute fertig.
 
 ## Was die CI liefert
 
-Jeder gruene `m5-flutter-ipa` erzeugt das Release `build-<Run-Nummer>`:
+Jeder gruene `m5-flutter-ipa` erzeugt das Release `build-<kurzer Commit-Hash>`:
 
 | Asset | Inhalt |
 | --- | --- |
 | `ipadprocad-<N>.ipa` | die unsignierte IPA, ~27 MB |
 | `source.json` | SideStore-/AltStore-Source, die letzten 10 Builds, neuester zuerst |
 | `latest.json` | flaches Manifest fuer den Shortcut |
+
+EIN RELEASE PRO COMMIT, NICHT PRO WORKFLOW. Der Tag haengt am Commit und nicht
+mehr an der Run-Nummer, denn kein Workflow kann die Run-Nummer eines anderen
+lesen. Der Linux- und der Windows-Build eines gruenen `main` haengen ihre
+Artefakte in dasselbe Release: `Prototype-<tag>-x86_64.AppImage`,
+`prototype-<tag>-linux-x64.tar.gz` und `prototype-<tag>-windows-x64.zip`. Fuers
+iPad aendert das nichts — die Einstiegspunkte unten sind dieselben.
 
 Feste Einstiegspunkte (GitHub leitet `latest` immer aufs neueste Release um):
 

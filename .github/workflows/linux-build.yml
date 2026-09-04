@@ -439,7 +439,19 @@ jobs:
   release:
     name: Publish a GitHub Release
     needs: app
-    if: startsWith(github.ref, 'refs/tags/') || inputs.release_tag != ''
+    # THREE WAYS IN NOW, and the third is the everyday one: every green
+    # build of `main` publishes, so a download of the current app is always
+    # one click from the releases page instead of behind a login on an
+    # artifact that expires in fourteen days. The iOS workflow has worked this
+    # way from the start; this is the same rule applied to the desktop.
+    #
+    # A `v*` tag and a workflow_dispatch with `release_tag` still make their
+    # own named release, which is a different thing and stays a different
+    # thing: those are versions somebody chose to cut.
+    if: >-
+      startsWith(github.ref, 'refs/tags/') ||
+      inputs.release_tag != '' ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -461,19 +473,53 @@ jobs:
         id: assets
         run: |
           set -euo pipefail
+          # WHICH RELEASE THIS IS. A dispatch names its tag, a tag push IS
+          # its tag, and a push to main goes to the per-commit build release
+          # that the iOS and the other desktop workflow also publish into —
+          # `build-<short sha>`, which all three compute from the commit alone
+          # because no workflow can see another's run number.
           tag='${{ inputs.release_tag }}'
-          [ -n "$tag" ] || tag="${GITHUB_REF_NAME}"
+          if [ -z "$tag" ]; then
+            case "$GITHUB_REF" in
+              refs/tags/*) tag="${GITHUB_REF_NAME}" ;;
+              *)           tag="build-${GITHUB_SHA:0:7}"; shared=yes ;;
+            esac
+          fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "shared=${shared:-}" >> "$GITHUB_OUTPUT"
           cd dist
           mv prototype-linux-x64.tar.gz "prototype-$tag-linux-x64.tar.gz"
           mv Prototype-x86_64.AppImage "Prototype-$tag-x86_64.AppImage"
           # Anyone who downloads a binary from a link should be able to check
           # it against the run that produced it.
-          sha256sum "prototype-$tag-linux-x64.tar.gz"                     "Prototype-$tag-x86_64.AppImage" > SHA256SUMS.txt
-          cat SHA256SUMS.txt
+          # ONE NAME PER PLATFORM in the shared release, because Windows
+          # publishes its own checksums into the same tag and an upload with
+          # --clobber would quietly replace this file with that one.
+          sums=SHA256SUMS.txt
+          [ -z "${shared:-}" ] || sums=SHA256SUMS-linux.txt
+          echo "sums=$sums" >> "$GITHUB_OUTPUT"
+          sha256sum "prototype-$tag-linux-x64.tar.gz"                     "Prototype-$tag-x86_64.AppImage" > "$sums"
+          cat "$sums"
           ls -lh
 
+      # THE PER-COMMIT RELEASE — a push to main. Assets only: the notes and
+      # the title belong to the iOS job, which publishes the IPA into the same
+      # tag, and two writers of one notes body is a lost section. Whichever of
+      # the three workflows arrives first creates the release; the other two
+      # find it there and attach to it.
+      - name: Attach to the build release
+        if: steps.assets.outputs.shared == 'yes'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.assets.outputs.tag }}
+          SUMS: ${{ steps.assets.outputs.sums }}
+        run: bash ci/release_attach.sh "$TAG" dist/*.AppImage dist/*.tar.gz "dist/${SUMS}"
+
+      # THE NAMED RELEASE — a `v*` tag or a dispatch that asked for one. Its
+      # notes are written out in full below because a version somebody cut is
+      # read by people who did not watch it being built.
       - name: Create the release
+        if: steps.assets.outputs.shared != 'yes'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.assets.outputs.tag }}
