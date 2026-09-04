@@ -370,7 +370,7 @@ abstract class AppL10n {
   /// Fußnote des Teilen-Abschnitts.
   ///
   /// In de, this message translates to:
-  /// **'Geräte im selben Netzwerk mit demselben Code halten dieselben Dokumente und Einstellungen. Nichts verlässt Ihr Netzwerk, und es gibt kein Konto. Die Verbindung ist nicht verschlüsselt — nutzen Sie sie in einem Netzwerk, dem Sie vertrauen. Teilen löscht nie: ein Dokument auf einem Gerät landet auf allen.'**
+  /// **'Geräte im selben Netzwerk mit demselben Code halten dieselben Dokumente und Einstellungen. Ein Dokument, das Sie auf einem Gerät anlegen, ändern oder löschen, wird es auf allen. Nichts verlässt Ihr Netzwerk, und es gibt kein Konto. Die Verbindung ist nicht verschlüsselt — nutzen Sie sie in einem Netzwerk, dem Sie vertrauen.'**
   String get settingsSyncFooter;
 
   /// Titel des Code-Dialogs.

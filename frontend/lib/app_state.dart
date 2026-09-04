@@ -2335,11 +2335,26 @@ class AppState extends ChangeNotifier {
     final open = <String>{
       for (final n in openTabs) n,
     };
+    // A path that is no longer on disk arrived as a DELETE rather than as a
+    // file. The two need saying apart in the log, because "adopted Bracket.ptp"
+    // and "Bracket.ptp is gone" are opposite events and the log is the first
+    // place anyone looks when a document they wanted has vanished.
+    final gone = docs
+        .where((p) => !File('${_docsDir!.path}/$p').existsSync())
+        .toList();
+    if (gone.isNotEmpty) {
+      Log.i('sync', 'removed here too: ${gone.join(", ")}');
+    }
     final reopened = docs
         .map((p) => p.contains('.') ? p.substring(0, p.lastIndexOf('.')) : p)
         .where(open.contains)
         .toList();
     if (reopened.isNotEmpty) {
+      // An OPEN document is not closed under the user's hands, whether what
+      // arrived was a new version or a deletion. The tab keeps what is in
+      // memory; saving it again puts it back on every device, which is the
+      // same last-writer-wins rule the mirror uses everywhere else and the
+      // only behaviour that cannot lose work someone is in the middle of.
       Log.i('sync',
           'left ${reopened.join(", ")} alone — open here, and this device wins');
     }

@@ -452,15 +452,27 @@ leaving the network. `frontend/lib/sync/` is the whole of it:
 Three properties are worth stating because they are choices rather than
 limitations:
 
-* **It never deletes.** A document on any device ends up on all of them; a
-  document deleted on one is restored from another. The failure mode of a
-  delete that propagates through a bug is losing work everywhere at once.
+* **A delete travels, as a fact with a time on it.** Deleting a document on one
+  device deletes it on all of them. It has to be a fact rather than an
+  absence — "I do not have it, so delete yours" cannot tell a deletion from a
+  device that has never seen the file, which on a first pair-up is every
+  document the other machine owns. So a delete is a *tombstone*: a path and the
+  moment, kept in `sync-deleted.json` for a month so a laptop shut in a bag for
+  a fortnight still learns about it on its return. The later of the two wins,
+  the same rule two competing saves follow, so a document deleted here and
+  saved again there comes back, and one saved and then deleted stays gone.
 * **The device you are working on keeps its work.** An incoming document lands
-  on disk, but a document that is OPEN here is not reloaded under your hands —
-  the next save from this device wins.
+  on disk, but a document that is OPEN here is not reloaded under your hands,
+  and is not closed under them either — if it was deleted elsewhere the tab
+  keeps what is in memory, and saving it puts it back everywhere. That is the
+  same last-writer-wins rule, and the only behaviour that cannot lose work
+  someone is in the middle of.
 * **The share code does not travel.** It is the one key in `settings.json` the
   mirror will not copy. A device that could write another device's code could
   switch its sharing off, which is a remote control rather than a preference.
+  Preferences are never tombstoned for the same reason: a tombstone for
+  `settings.json` would be a way to wipe another device's settings from this
+  one.
 
 It is not encrypted. The handshake is authenticated — a peer answers a nonce it
 did not choose, with a key derived from the code — so nothing pairs without the

@@ -45,7 +45,7 @@
   "settingsSyncStatus": "Devices",
   "settingsSyncLooking": "Looking…",
   "settingsSyncDevices": "{n, plural, =0{Looking\u2026} =1{1 device} other{{n} devices}}",
-  "settingsSyncFooter": "Devices on the same network that use the same code keep the same documents and settings. Nothing leaves your network and there is no account. The connection is not encrypted, so use it on a network you trust. Sharing never deletes: a document on any device ends up on all of them.",
+  "settingsSyncFooter": "Devices on the same network that use the same code keep the same documents and settings. Adding, changing or deleting a document on one device does the same on all of them. Nothing leaves your network and there is no account. The connection is not encrypted, so use it on a network you trust.",
   "syncPromptTitle": "Share Code",
   "syncPromptBody": "Type the code from your other device, or create one there and type it here.",
   "syncPromptPlaceholder": "ABCD-EFGH-JKLM",

@@ -74,6 +74,31 @@ class SyncEntry {
   }
 }
 
+/// A file that was DELETED, and when.
+///
+/// A delete has to travel as a fact of its own. The alternative — "I do not
+/// have it, therefore delete yours" — cannot tell a deletion from a device
+/// that has simply never seen the file, which on a first pair-up is every
+/// document the other machine owns. A tombstone says who is missing what ON
+/// PURPOSE, and carries the moment so it can lose to a later save.
+@immutable
+class SyncTomb {
+  final String path;
+  final int deletedAtMs;
+
+  const SyncTomb(this.path, this.deletedAtMs);
+
+  Map<String, Object?> toJson() => {'p': path, 'd': deletedAtMs};
+
+  static SyncTomb? fromJson(Object? o) {
+    if (o is! Map) return null;
+    final p = o['p'];
+    final d = (o['d'] as num?)?.toInt();
+    if (p is! String || p.isEmpty || d == null) return null;
+    return SyncTomb(p, d);
+  }
+}
+
 /// A device this one can see.
 @immutable
 class SyncPeer {
@@ -169,6 +194,15 @@ class LanSync {
   /// comparison on the platforms with no usable file watcher.
   Map<String, SyncEntry> _mine = <String, SyncEntry>{};
 
+  /// What has been deleted, by path, with the moment it happened.
+  ///
+  /// Kept in a small journal beside the preferences rather than in memory
+  /// only: a device that is switched off while another one deletes something
+  /// must still learn about it, and a device that deletes something and is
+  /// then restarted must still be able to TELL anyone. Both of those are the
+  /// normal case rather than an edge one.
+  Map<String, int> _tombs = <String, int>{};
+
   /// Paths this device has just WRITTEN because a peer sent them. Suppresses
   /// the echo: without it, applying a peer's file fires the watcher, which
   /// announces the change, which the peer applies, which fires its watcher.
@@ -221,6 +255,7 @@ class LanSync {
     _docs = documents;
     _prefs = preferences;
     _deviceName = deviceName ?? _defaultDeviceName();
+    _loadTombs();
   }
 
   static String _defaultDeviceName() {
@@ -257,6 +292,7 @@ class LanSync {
   Future<void> _start() async {
     if (_docs == null || _prefs == null) return;
     try {
+      _loadTombs();
       _mine = _scanLocal();
       await _startServer();
       await _startBeacon();
@@ -647,6 +683,7 @@ class LanSync {
   void _announceChanges() {
     if (_code == null) return;
     final now = _scanLocal();
+    final gone = _noticeDeletes(now);
     final changed = <SyncEntry>[];
     for (final e in now.entries) {
       final was = _mine[e.key];
@@ -658,11 +695,38 @@ class LanSync {
       }
     }
     _mine = now;
-    if (changed.isEmpty) return;
-    Log.i('sync', 'offering ${changed.map((c) => c.path).join(", ")}');
-    for (final s in _sessions.values) {
-      if (s.live) s.announce(changed);
+    if (changed.isEmpty && gone.isEmpty) return;
+    if (changed.isNotEmpty) {
+      Log.i('sync', 'offering ${changed.map((c) => c.path).join(", ")}');
     }
+    if (gone.isNotEmpty) {
+      Log.i('sync', 'deleted here: ${gone.map((t) => t.path).join(", ")}');
+    }
+    for (final s in _sessions.values) {
+      if (s.live) s.announce(changed, gone);
+    }
+  }
+
+  /// Turns "it was in the last scan and is not in this one" into tombstones.
+  ///
+  /// The EXISTENCE CHECK is not redundant with the scan. [_scanLocal] drops a
+  /// file it cannot read — a lock, a permission, a half-written save — and
+  /// treating that as a deletion would delete a perfectly good document on
+  /// every other device the moment one machine hiccuped. A tombstone is only
+  /// written for a file that is genuinely not there any more.
+  List<SyncTomb> _noticeDeletes(Map<String, SyncEntry> now) {
+    final out = <SyncTomb>[];
+    final at = DateTime.now().millisecondsSinceEpoch;
+    for (final path in _mine.keys) {
+      if (now.containsKey(path)) continue;
+      if (!_deletable(path)) continue;
+      final f = _fileFor(path);
+      if (f == null || f.existsSync()) continue;
+      _tombs[path] = at;
+      out.add(SyncTomb(path, at));
+    }
+    if (out.isNotEmpty) _saveTombs();
+    return out;
   }
 
   // -------------------------------------------------------------------------
@@ -671,6 +735,12 @@ class LanSync {
 
   /// True when [remote] should replace what is here.
   bool _wants(SyncEntry remote) {
+    // Deleted here, and the file on offer is older than the deletion: this is
+    // the copy that was thrown away, coming back from a device that has not
+    // heard yet. Refusing it is what makes a delete stick — otherwise every
+    // device that still has the file would hand it straight back.
+    final tomb = _tombs[remote.path];
+    if (tomb != null && tomb > remote.mtimeMs + 1000) return false;
     final mine = _mine[remote.path];
     if (mine == null) return true;
     if (mine.sha == remote.sha) return false;
@@ -703,6 +773,10 @@ class LanSync {
       _mine[e.path] = SyncEntry(e.path, st.size, st.modified.millisecondsSinceEpoch, e.sha);
       _justApplied[e.path] = st.modified.millisecondsSinceEpoch;
       _lastApplied = DateTime.now();
+      // It got past _wants, so it is newer than any tombstone we hold: the
+      // document is back, and the record of its deletion has to go with it or
+      // the next scan would delete it again.
+      if (_tombs.remove(e.path) != null) _saveTombs();
       Log.i('sync', 'took ${e.path} (${bytes.length} bytes)');
       return true;
     } catch (err) {
@@ -785,6 +859,128 @@ class LanSync {
     }
   }
 
+  // -------------------------------------------------------------------------
+  // Deletes
+  // -------------------------------------------------------------------------
+
+  /// Where the tombstones live. Not in [_prefFiles], so the journal itself is
+  /// never mirrored as a FILE — it travels as facts inside the manifest, and
+  /// two devices that overwrote each other's journals would lose the very
+  /// records they were exchanging.
+  static const String _tombFile = 'sync-deleted.json';
+
+  /// How long a tombstone is worth keeping.
+  ///
+  /// It has to outlive a device being away — a laptop shut in a bag for a
+  /// fortnight has to learn on its return that a document went — and it must
+  /// not grow without bound. A month is comfortably past the first and
+  /// nowhere near the second: a tombstone is about sixty bytes.
+  static const Duration _tombLife = Duration(days: 30);
+
+  File? get _tombPath {
+    final prefs = _prefs;
+    return prefs == null ? null : File('${prefs.path}/$_tombFile');
+  }
+
+  void _loadTombs() {
+    _tombs = <String, int>{};
+    final f = _tombPath;
+    if (f == null || !f.existsSync()) return;
+    try {
+      final raw = jsonDecode(f.readAsStringSync());
+      if (raw is! Map) return;
+      for (final e in raw.entries) {
+        final d = (e.value as num?)?.toInt();
+        if (d != null) _tombs['${e.key}'] = d;
+      }
+      _expireTombs();
+    } catch (e) {
+      Log.w('sync', 'could not read the delete journal: $e');
+    }
+  }
+
+  void _saveTombs() {
+    final f = _tombPath;
+    if (f == null) return;
+    try {
+      f.parent.createSync(recursive: true);
+      final tmp = File('${f.path}.sync-part');
+      tmp.writeAsStringSync(jsonEncode(_tombs), flush: true);
+      tmp.renameSync(f.path);
+    } catch (e) {
+      Log.w('sync', 'could not write the delete journal: $e');
+    }
+  }
+
+  void _expireTombs() {
+    final cutoff =
+        DateTime.now().subtract(_tombLife).millisecondsSinceEpoch;
+    _tombs.removeWhere((_, d) => d < cutoff);
+  }
+
+  /// True when [path] may carry a tombstone at all.
+  ///
+  /// Documents only. Deleting `settings.json` is not something anyone does on
+  /// purpose, and a tombstone for it would be a way to wipe another device's
+  /// preferences from this one.
+  bool _deletable(String path) =>
+      !path.startsWith(_prefsPrefix) && _fileFor(path) != null;
+
+  /// Applies a peer's tombstone. Returns true when a file actually went.
+  ///
+  /// THE RULE IS THE SAME ONE FILES USE — the later of the two wins — so a
+  /// document deleted on one device and then saved again on another comes
+  /// back, and a document saved and then deleted stays gone. The one second of
+  /// slack is [_wants]'s, for [_wants]'s reason: two clocks are never equal.
+  bool _applyTomb(SyncTomb t) {
+    if (!_deletable(t.path)) return false;
+    final known = _tombs[t.path];
+    if (known != null && known >= t.deletedAtMs) return false;
+    final mine = _mine[t.path];
+    if (mine != null && mine.mtimeMs > t.deletedAtMs + 1000) {
+      // Saved again here AFTER it was deleted there. The save wins; the next
+      // announcement carries it back.
+      return false;
+    }
+    _tombs[t.path] = t.deletedAtMs;
+    _saveTombs();
+    final f = _fileFor(t.path);
+    var removed = false;
+    if (f != null && f.existsSync()) {
+      try {
+        f.deleteSync();
+        removed = true;
+        Log.i('sync', 'removed ${t.path} — deleted on another device');
+      } catch (e) {
+        Log.w('sync', 'could not remove ${t.path}: $e');
+      }
+    }
+    // Forgotten from the manifest either way: this device now agrees the file
+    // is gone, and leaving a stale entry would make the next scan read the
+    // absence as a NEW deletion and stamp it with a new time.
+    _mine.remove(t.path);
+    _justApplied.remove(t.path);
+    if (removed) _lastApplied = DateTime.now();
+    return removed;
+  }
+
+  /// The tombstones worth sending: everything still inside [_tombLife].
+  List<SyncTomb> get _tombList {
+    _expireTombs();
+    return <SyncTomb>[
+      for (final e in _tombs.entries) SyncTomb(e.key, e.value)
+    ];
+  }
+
+  @visibleForTesting
+  Map<String, int> get tombsForTest => _tombs;
+
+  @visibleForTesting
+  bool applyTombForTest(SyncTomb t) => _applyTomb(t);
+
+  @visibleForTesting
+  List<SyncTomb> noticeDeletesForTest() => _noticeDeletes(_scanLocal());
+
   @visibleForTesting
   Map<String, SyncEntry> get localManifestForTest => _mine;
 
@@ -801,6 +997,7 @@ class LanSync {
   void attachForTest({required Directory documents, required Directory preferences}) {
     _docs = documents;
     _prefs = preferences;
+    _loadTombs();
     _mine = _scanLocal();
   }
 }
@@ -969,10 +1166,21 @@ class _SyncSession {
     _send(SyncFrame({
       't': SyncMsg.manifest,
       'files': [for (final e in _sync._scanLocal().values) e.toJson()],
+      'tombs': [for (final t in _sync._tombList) t.toJson()],
     }));
   }
 
   void _onManifest(SyncFrame f) {
+    // TOMBSTONES FIRST, and the order is the whole point: a peer that both
+    // deleted A and saved B sends one manifest, and applying the delete before
+    // deciding what to ask for is what stops this device asking for A back
+    // from the same message that says A is gone.
+    final removed = <String>{};
+    for (final raw in (f.header['tombs'] as List? ?? const [])) {
+      final t = SyncTomb.fromJson(raw);
+      if (t == null) continue;
+      if (_sync._applyTomb(t)) removed.add(t.path);
+    }
     final want = <String>[];
     for (final raw in (f.header['files'] as List? ?? const [])) {
       final e = SyncEntry.fromJson(raw);
@@ -980,15 +1188,17 @@ class _SyncSession {
       if (_sync._fileFor(e.path) == null) continue;
       if (_sync._wants(e)) want.add(e.path);
     }
+    if (removed.isNotEmpty) _sync._applied(removed);
     if (want.isEmpty) return;
     Log.i('sync', 'asking $peerName for ${want.join(", ")}');
     _send(SyncFrame({'t': SyncMsg.want, 'paths': want}));
   }
 
-  void announce(List<SyncEntry> changed) {
+  void announce(List<SyncEntry> changed, [List<SyncTomb> gone = const []]) {
     _send(SyncFrame({
       't': SyncMsg.changed,
       'files': [for (final e in changed) e.toJson()],
+      'tombs': [for (final t in gone) t.toJson()],
     }));
   }
 

@@ -158,7 +158,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get settingsSyncFooter =>
-      'Devices on the same network that use the same code keep the same documents and settings. Nothing leaves your network and there is no account. The connection is not encrypted, so use it on a network you trust. Sharing never deletes: a document on any device ends up on all of them.';
+      'Devices on the same network that use the same code keep the same documents and settings. Adding, changing or deleting a document on one device does the same on all of them. Nothing leaves your network and there is no account. The connection is not encrypted, so use it on a network you trust.';
 
   @override
   String get syncPromptTitle => 'Share Code';
