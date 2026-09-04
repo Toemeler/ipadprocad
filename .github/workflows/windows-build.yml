@@ -506,21 +506,31 @@ jobs:
           # so a DLL present in both sets arrives twice and one copy wins.
           # Names still all resolve; ordinals stop matching.
           $bad = @()
+          $ordinals = @()
           foreach ($f in Get-ChildItem "$dir/*.dll", "$dir/*.exe") {
             $provider = $null
             foreach ($line in (& dumpbin /IMPORTS $f.FullName 2>$null)) {
               if ($line -match '^\s{4}(\S+\.dll)\s*$') { $provider = $Matches[1]; continue }
               if ($line -match '^\s+Ordinal\s+(\d+)\s*$' -and $provider) {
                 $ord = [int]$Matches[1]
-                $prov = Join-Path $dir $provider
-                if (-not (Test-Path $prov)) { continue }   # a host DLL; not ours
-                if (-not $exports.ContainsKey($provider)) {
-                  $exports[$provider] = @(& dumpbin /EXPORTS $prov 2>$null |
+                # RESOLVED THE WAY THE LOADER WOULD: beside the exe first,
+                # then System32. The first version of this skipped a provider
+                # that was not in the bundle, which is half the graph — a
+                # bundled DLL importing by ordinal from a SYSTEM one fails
+                # exactly the same way, and that half was invisible.
+                $prov = if (Test-Path (Join-Path $dir $provider)) { Join-Path $dir $provider }
+                        elseif (Test-Path "$sys/$provider")       { "$sys/$provider" }
+                        else { $null }
+                $where = if ($prov -and $prov.StartsWith($sys)) { 'System32' } else { 'bundle' }
+                $ordinals += "$($f.Name) -> $provider #$ord ($where)"
+                if (-not $prov) { continue }               # an API set, or virtual
+                if (-not $exports.ContainsKey($prov)) {
+                  $exports[$prov] = @(& dumpbin /EXPORTS $prov 2>$null |
                     Select-String -Pattern '^\s+(\d+)\s+[0-9A-F]+\s+[0-9A-F]+' |
                     ForEach-Object { [int]$_.Matches[0].Groups[1].Value })
                 }
-                if ($exports[$provider] -notcontains $ord) {
-                  $bad += "$($f.Name) imports ordinal $ord from $provider, which does not export it"
+                if ($exports[$prov] -notcontains $ord) {
+                  $bad += "$($f.Name) imports ordinal $ord from $provider ($where), which does not export it"
                 }
               }
             }
@@ -530,6 +540,12 @@ jobs:
             $bad | Select-Object -First 20 | ForEach-Object { Write-Host "  $_" }
             exit 1
           }
+          # Printed whether or not it passed. An import by ordinal is rare
+          # enough that the whole list is short, and the loader failed on one
+          # of them — so the list itself is the evidence, not just the verdict.
+          Write-Host "imports taken by ordinal ($($ordinals.Count)):"
+          $ordinals | Sort-Object -Unique | Select-Object -First 40 |
+            ForEach-Object { Write-Host "  $_" }
           Write-Host "every import by ordinal is exported by the copy that ships"
 
           # AND WHAT SHADOWS THE SYSTEM, which is the other way a name resolves
@@ -565,6 +581,7 @@ jobs:
           # C++ runner, a Dart error before Log.init. They are told apart by
           # what the process printed and what it returned, and neither was
           # being captured.
+          $started = Get-Date
           $so = "$env:RUNNER_TEMP/app-stdout.txt"
           $se = "$env:RUNNER_TEMP/app-stderr.txt"
           $p = Start-Process -FilePath $exe -PassThru `
@@ -609,6 +626,18 @@ jobs:
               Get-Content $f | Select-Object -First 40 |
                 ForEach-Object { Write-Host "  $_" }
             }
+          }
+          # WHAT WINDOWS ITSELF SAW. A loader failure writes nothing to the
+          # process's own streams — there is no process yet — but the system
+          # usually records one, and for a missing export it names the module
+          # and the ordinal in the message. It is the one place the answer is
+          # written down.
+          Write-Host "--- the system's event log since the launch ---"
+          $ev = @(Get-WinEvent -LogName Application -MaxEvents 40 -ErrorAction SilentlyContinue |
+                  Where-Object { $_.TimeCreated -ge $started })
+          if ($ev.Count -eq 0) { Write-Host "  (nothing)" }
+          $ev | ForEach-Object {
+            Write-Host "  [$($_.ProviderName)] $(($_.Message -split "`n")[0..2] -join ' | ')"
           }
           if (-not $ok) { Write-Host "WINDOWS LAUNCH: FAIL (no first frame)"; exit 1 }
           # The kernels have to be the REAL ones. Without this the job stays
