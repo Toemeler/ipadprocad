@@ -411,7 +411,43 @@ jobs:
           if (-not (Test-Path "$dir/prototype_cycles.dll")) {
             Write-Host "BUNDLE: FAIL (the path tracer did not travel)"; exit 1
           }
+          # AND IT HAS TO CLOSE, which listing the directory cannot say. The
+          # Linux job asks `ldd` this and refuses a bundle with an unresolved
+          # name; the Windows job had no equivalent, so a DLL that never
+          # travelled showed up only as an app that dies before its first
+          # instruction — no window, no log, no message, because a Windows
+          # loader failure (0xC0000135) happens before any code of ours runs.
+          #
+          # Same walk the path tracer's own closure does: dumpbin /DEPENDENTS
+          # from the exe outward. A name is satisfied if it is in the bundle or
+          # in System32, which is where the API sets and the CRT live.
+          $sys = "$env:WINDIR/System32"
+          $seen = @{}; $queue = [System.Collections.Queue]::new()
+          $queue.Enqueue("$dir/prototype.exe")
+          $unresolved = @()
+          while ($queue.Count -gt 0) {
+            $item = $queue.Dequeue()
+            $needs = @(& dumpbin /DEPENDENTS $item 2>$null |
+                       Select-String -Pattern '^\s+(\S+\.dll)\s*$' |
+                       ForEach-Object { $_.Matches[0].Groups[1].Value })
+            foreach ($n in $needs) {
+              $key = $n.ToLower()
+              if ($seen.ContainsKey($key)) { continue }
+              $seen[$key] = $true
+              if (Test-Path "$dir/$n")      { $queue.Enqueue("$dir/$n"); continue }
+              if (Test-Path "$sys/$n")      { continue }
+              $unresolved += $n
+            }
+          }
+          if ($unresolved.Count -gt 0) {
+            Write-Host "BUNDLE: FAIL (the loader cannot satisfy these):"
+            $unresolved | Sort-Object -Unique | ForEach-Object { Write-Host "  $_" }
+            Write-Host "walked $($seen.Count) names from prototype.exe"
+            exit 1
+          }
+          Write-Host "the loader resolves all $($seen.Count) names the bundle asks for"
           Write-Host "BUNDLE: PASS"
+          exit 0
 
       # The gate that matters, and the same one the Linux job runs: the app has
       # to LAUNCH, reach its first frame and say which renderer it got. Every
@@ -426,7 +462,16 @@ jobs:
         shell: pwsh
         run: |
           $exe = "frontend/build/windows/x64/runner/Release/prototype.exe"
-          $p = Start-Process -FilePath $exe -PassThru
+          # STDOUT AND STDERR KEPT, and the exit code read. The first run of
+          # this step said only "the app wrote no log", which is every startup
+          # failure at once: a loader error before main, an exception in the
+          # C++ runner, a Dart error before Log.init. They are told apart by
+          # what the process printed and what it returned, and neither was
+          # being captured.
+          $so = "$env:RUNNER_TEMP/app-stdout.txt"
+          $se = "$env:RUNNER_TEMP/app-stderr.txt"
+          $p = Start-Process -FilePath $exe -PassThru `
+                 -RedirectStandardOutput $so -RedirectStandardError $se
           $log = "$env:APPDATA/prototype/logs/prototype_log.txt"
           $ok = $false
           foreach ($i in 1..60) {
@@ -442,6 +487,31 @@ jobs:
             Get-Content $log | Select-Object -Last 200
           } else {
             Write-Host "the app wrote no log at $log"
+            # Where else could it have gone? app_dirs.dart falls through
+            # APPDATA, LOCALAPPDATA and then a named directory under the temp
+            # root, and says so; if one of those has it, the fault is the path
+            # and not the launch.
+            foreach ($base in @($env:APPDATA, $env:LOCALAPPDATA, $env:TEMP)) {
+              if ($base -and (Test-Path "$base/prototype")) {
+                Write-Host "  but $base/prototype exists:"
+                Get-ChildItem -Recurse "$base/prototype" -ErrorAction SilentlyContinue |
+                  Select-Object -First 20 |
+                  ForEach-Object { Write-Host "    $($_.FullName)" }
+              }
+            }
+          }
+          Write-Host "--- the process ---"
+          Write-Host "  exited: $($p.HasExited)"
+          if ($p.HasExited) {
+            $code = $p.ExitCode
+            Write-Host ("  exit code: {0} (0x{1:X8})" -f $code, $code)
+          }
+          foreach ($f in @($so, $se)) {
+            if ((Test-Path $f) -and (Get-Item $f).Length -gt 0) {
+              Write-Host "--- $(Split-Path -Leaf $f) ---"
+              Get-Content $f | Select-Object -First 40 |
+                ForEach-Object { Write-Host "  $_" }
+            }
           }
           if (-not $ok) { Write-Host "WINDOWS LAUNCH: FAIL (no first frame)"; exit 1 }
           # The kernels have to be the REAL ones. Without this the job stays
