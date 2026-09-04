@@ -1803,7 +1803,7 @@ class AppState extends ChangeNotifier {
     // reason. Empty unless someone has typed one in, and while it is empty
     // every icon in the app is the one it was built with.
     IconPreview.attachStore(IconPreviewStore(_cacheRoot));
-    // M373 — SHARING, and it goes last of the preference stores on purpose:
+    // M381 — SHARING, and it goes last of the preference stores on purpose:
     // adopting a code STARTS a mirror that may write into this very
     // directory, and everything that reads it has to have read it first.
     //
@@ -2311,7 +2311,7 @@ class AppState extends ChangeNotifier {
     } catch (_) {}
   }
 
-  /// M373 — a peer's files have landed. Take what can be taken.
+  /// M381 — a peer's files have landed. Take what can be taken.
   ///
   /// TWO RULES, and the second one is the important one.
   ///

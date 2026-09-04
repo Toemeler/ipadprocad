@@ -184,7 +184,7 @@ const String kSecSamples = 'samples';
 /// of four positions. Its own id, because the handler switches on it and the
 /// four dock ids are [RibbonPosition] names.
 const String kRowRibbonNames = 'names';
-/// M373 — the share code, and what it does.
+/// M381 — the share code, and what it does.
 ///
 /// It belongs here by this file's own rule — it outlives the document — and it
 /// is the one section whose rows are a STATE rather than a choice: the code is
@@ -288,7 +288,7 @@ List<SettingsSection> buildSettings(
   /// (BugReport.enabled), and the whole section goes with it rather than
   /// leaving a header over nothing.
   bool diagnostics = true,
-  /// M373 — the share code this device is using, formatted for reading, or
+  /// M381 — the share code this device is using, formatted for reading, or
   /// null when it is not sharing. Defaulted so every existing caller (and
   /// every test that pins the other sections) keeps working.
   String? shareCode,
@@ -460,7 +460,7 @@ List<SettingsSection> buildSettings(
         ],
         footer: t.settingsSamplesFooter,
       ),
-      // M373 — sharing. Placed after the app's own look and before the
+      // M381 — sharing. Placed after the app's own look and before the
       // diagnostics: it is the last thing you set up about this INSTALL, and
       // the first thing someone looks for when a document is on the wrong
       // device.

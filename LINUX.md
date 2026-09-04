@@ -499,7 +499,7 @@ XDG_DATA_HOME=/tmp/B ./prototype &
 
 Everything that decides WHAT crosses — the code, the framing, the conflict
 rule, the path checks, the settings merge — is pinned in
-`test/m373_lan_sync_test.dart`.
+`test/m381_lan_sync_test.dart`.
 
 ---
 

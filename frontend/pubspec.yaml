@@ -20,7 +20,7 @@ dependencies:
   # localisations import it directly.
   intl: any
   ffi: ^2.1.0
-  # M373 — SHA-256 and HMAC, for the share code's key and the mirror's
+  # M381 — SHA-256 and HMAC, for the share code's key and the mirror's
   # per-file hash. Already in the tree as a transitive dependency of http;
   # named here because this app now uses it directly.
   crypto: ^3.0.3

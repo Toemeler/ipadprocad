@@ -267,8 +267,14 @@ jobs:
           path: frontend/build/native
           key: ${{ steps.key.outputs.key }}
 
+      # UNCONDITIONALLY, unlike the two steps below it. The build needs this
+      # for cl and link; the VERDICT needs it for dumpbin, and the verdict runs
+      # on a cache HIT as well — that is the whole point of it, so a stale or
+      # truncated cache entry cannot reach the app unchecked. Behind the same
+      # `if` as the build, the first cache hit there has ever been failed one
+      # second in with "the term 'dumpbin' is not recognized", having proved
+      # nothing about the library it restored. Ten seconds, once per run.
       - uses: ilammy/msvc-dev-cmd@v1
-        if: steps.cache.outputs.cache-hit != 'true'
         with:
           arch: x64
 

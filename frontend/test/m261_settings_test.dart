@@ -76,7 +76,7 @@ void main() {
       // is on screen this second — it changes how long the picture keeps
       // improving, which is a decision you make once.
       //
-      // M373 — and Sharing after all of them and before the diagnostics: it is
+      // M381 — and Sharing after all of them and before the diagnostics: it is
       // the last thing you set up about this INSTALL, and the first thing
       // someone looks for when a document is on the wrong device.
       expect(_spec().map((s) => s.id).toList(), [
