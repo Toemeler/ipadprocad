@@ -242,53 +242,14 @@ if [ ! -f "$work/.patched" ]; then
   touch "$work/.patched"
 fi
 
-# THE THIRD PATCH, and it is Linux-only, which is why it is here rather than
-# in backend/cycles/patches/ beside the two the iOS job shares.
-#
-# Blender's top level carries
-#
-#     set_and_warn_dependency(WITH_PYTHON WITH_CYCLES OFF)
-#
-# and `WITH_PYTHON=OFF` is what makes this build tractable at all (see the
-# configure step). So WITH_CYCLES goes OFF one line into the configure — while
-# WITH_CYCLES_STANDALONE=ON still adds `intern/cycles`, which still compiles
-# `bvh/embree.cpp`, because `WITH_CYCLES_EMBREE` is a separate switch and stays
-# ON.
-#
-# What is lost is every `if(WITH_CYCLES AND ...)` block in platform_unix.cmake,
-# and the one that matters is `find_package(Embree)`. Embree's headers are on
-# the system include path either way, so Cycles compiles every rtc* call and
-# EMBREE_LIBRARIES is empty in the link line: several hundred undefined
-# `rtc...` references at the last step of a long build, with nothing in the
-# configure output pointing at the cause but a single line reading
-# "WITH_PYTHON is disabled, setting WITH_CYCLES=OFF".
-#
-# The dependency is real for Blender — the render engine is driven from Python
-# — and false for this build, which builds `intern/cycles` and links it into a
-# C library. WITH_CYCLES_BLENDER is already OFF; nothing here calls a Python
-# API. So the line goes, and Embree is found.
-py_dep='set_and_warn_dependency(WITH_PYTHON WITH_CYCLES        OFF)'
-if grep -qF "$py_dep" "$blender/CMakeLists.txt"; then
-  say "patching Blender's top level (WITH_PYTHON must not switch Cycles off)"
-  python3 - "$blender/CMakeLists.txt" "$py_dep" <<'PYEOF'
-import sys
-path, needle = sys.argv[1], sys.argv[2]
-text = open(path).read()
-if text.count(needle) != 1:
-    sys.exit("expected exactly one %r, found %d" % (needle, text.count(needle)))
-open(path, "w").write(text.replace(
-    needle,
-    "# Removed by tools/desktop/build_cycles_linux.sh: this build has no Python\n"
-    "# and no Blender, and the dependency is on Cycles' Blender integration\n"
-    "# (WITH_CYCLES_BLENDER, already OFF), not on the renderer.\n"
-    "# " + needle))
-PYEOF
-elif ! grep -q "Removed by tools/desktop/build_cycles_linux.sh" "$blender/CMakeLists.txt"; then
-  echo "WITH_PYTHON/WITH_CYCLES dependency line not found and not already" >&2
-  echo "patched — Blender's top level has changed shape. Stopping rather than" >&2
-  echo "configuring a build that would silently drop Embree." >&2
-  exit 1
-fi
+# THE THIRD PATCH is in backend/cycles/patches/ with the other two now, because
+# Windows needs exactly the same edit: the line it removes is in Blender's TOP
+# LEVEL, not in a platform file, so it fires wherever WITH_PYTHON is off. What
+# it is and why is written out at length there. It is self-verifying and a
+# no-op on a tree that already has it, so it runs on every invocation rather
+# than under the .patched stamp above.
+say "patching Blender's top level (WITH_PYTHON must not switch Cycles off)"
+(cd "$work" && python3 "$repo/backend/cycles/patches/no_python_cycles.py")
 
 # ---------------------------------------------------------------------------
 # 3. Configure and build
