@@ -79,10 +79,20 @@ jobs:
   # than quietly turning every feature-branch push into an hour of macOS.
   ios:
     name: iOS
+    #
+    # `release_tag` IS IN THIS LIST AND HAS TO BE. Cutting a version from a
+    # dispatch is the path to prefer — it runs on the BRANCH ref, so the long
+    # OCCT and Cycles caches are visible, where a tag ref sees only its own and
+    # the default branch's — and that dispatch happens on a branch. Without
+    # this clause the guard below would skip iOS, the release job needs all
+    # three, and a named release asked for from a branch would quietly produce
+    # nothing at all. Which is a worse version of the fault 04c3f78 had just
+    # fixed: a version cut two ways where only one of them carried an IPA.
     if: >-
       github.ref == 'refs/heads/main' ||
       startsWith(github.ref, 'refs/tags/') ||
       github.event_name == 'pull_request' ||
+      inputs.release_tag != '' ||
       inputs.ios_on_branch
     uses: ./.github/workflows/m1-core-build.yml
     permissions:
