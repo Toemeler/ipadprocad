@@ -242,6 +242,11 @@ if [ ! -f "$work/.patched" ]; then
   touch "$work/.patched"
 fi
 
+# The <memory> include is applied here too, though only MSVC needs it. A
+# header that names std::allocator should include <memory> on every compiler,
+# and one patch set that differs by platform is a patch set where the platforms
+# drift — this repository has already had that happen once.
+
 # THE THIRD PATCH is in backend/cycles/patches/ with the other two now, because
 # Windows needs exactly the same edit: the line it removes is in Blender's TOP
 # LEVEL, not in a platform file, so it fires wherever WITH_PYTHON is off. What
@@ -250,6 +255,7 @@ fi
 # than under the .patched stamp above.
 say "patching Blender's top level (WITH_PYTHON must not switch Cycles off)"
 (cd "$work" && python3 "$repo/backend/cycles/patches/no_python_cycles.py")
+(cd "$work" && python3 "$repo/backend/cycles/patches/msvc_container_proxy.py")
 
 # ---------------------------------------------------------------------------
 # 3. Configure and build

@@ -161,9 +161,10 @@ if (-not (Select-String -Path $cyclesCMake -Pattern 'add_library\(cycles_shim' -
 # LEVEL and fires wherever WITH_PYTHON is off. They address the tree as
 # `blender\intern\cycles\...` relative to the working directory, so they run
 # from $work.
-Say 'patching Cycles (progressive sampling, denoiser ceiling, WITH_PYTHON)'
+Say 'patching Cycles (sampling, denoiser ceiling, WITH_PYTHON, <memory>)'
 Push-Location $work
-foreach ($p in @('progressive.py', 'oidn_memory.py', 'no_python_cycles.py')) {
+foreach ($p in @('progressive.py', 'oidn_memory.py', 'no_python_cycles.py',
+                 'msvc_container_proxy.py')) {
   & python (Join-Path $repo "backend\cycles\patches\$p")
   if ($LASTEXITCODE -ne 0) { Pop-Location; throw "patch failed: $p" }
 }
