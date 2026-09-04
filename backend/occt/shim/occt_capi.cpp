@@ -54,6 +54,8 @@
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Common.hxx>
 #include <BRepCheck_Analyzer.hxx>
+#include <BRepTools_ReShape.hxx>
+#include <ShapeFix_Face.hxx>
 #include <ShapeFix_Shape.hxx>
 #include <ShapeFix_ShapeTolerance.hxx>
 #include <BRepBuilderAPI_Copy.hxx>
@@ -810,6 +812,112 @@ static bool shape_is_valid(const TopoDS_Shape &s)
     }
 }
 
+/* The volume of the triangles the shape would be DRAWN as.
+ *
+ * Every other weight in this file comes from BRepGProp, which integrates over
+ * the trimmed surfaces and is not reliable on the ones a converted mesh is
+ * made of. The tessellation is what the app puts on screen, what it measures
+ * with, and what it writes to a mesh file, so it is the body as far as anyone
+ * downstream is concerned — and it is stable where GProp is not.
+ *
+ * Deflection is tied to the shape's own size so that a small part and a large
+ * one are asked the same question. Tessellating is not free, so this is only
+ * ever called on the repair path, where a boolean has already come back
+ * invalid or loose. */
+static double drawn_volume(const TopoDS_Shape &s)
+{
+    if (s.IsNull())
+        return -1.0;
+    try {
+        Bnd_Box box;
+        BRepBndLib::Add(s, box);
+        if (box.IsVoid())
+            return -1.0;
+        double xa, ya, za, xb, yb, zb;
+        box.Get(xa, ya, za, xb, yb, zb);
+        const double dx = xb - xa, dy = yb - ya, dz = zb - za;
+        const double diag = std::sqrt(dx * dx + dy * dy + dz * dz);
+        if (!std::isfinite(diag) || !(diag > 0.0))
+            return -1.0;
+        const double lin = std::max(diag * 0.003, Precision::Confusion() * 10.0);
+        /* On a copy: BRepMesh writes the triangulation into the faces, and the
+         * shapes weighed here share their faces with a body the app still has
+         * open. See the copy in settle_boolean for the same reason. */
+        TopoDS_Shape c = BRepBuilderAPI_Copy(s).Shape();
+        if (c.IsNull())
+            return -1.0;
+        BRepMesh_IncrementalMesh im(c, lin, Standard_False, 0.2, Standard_True);
+        double v = 0;
+        int seen = 0;
+        for (TopExp_Explorer ex(c, TopAbs_FACE); ex.More(); ex.Next()) {
+            const TopoDS_Face f = TopoDS::Face(ex.Current());
+            TopLoc_Location loc;
+            Handle(Poly_Triangulation) t = BRep_Tool::Triangulation(f, loc);
+            if (t.IsNull())
+                continue;
+            ++seen;
+            const gp_Trsf tr = loc.Transformation();
+            const bool rev = (f.Orientation() == TopAbs_REVERSED);
+            for (int i = 1; i <= t->NbTriangles(); ++i) {
+                int i1, i2, i3;
+                t->Triangle(i).Get(i1, i2, i3);
+                if (rev)
+                    std::swap(i2, i3);
+                const gp_Pnt A = t->Node(i1).Transformed(tr);
+                const gp_Pnt B = t->Node(i2).Transformed(tr);
+                const gp_Pnt C = t->Node(i3).Transformed(tr);
+                v += (A.X() * (B.Y() * C.Z() - B.Z() * C.Y()) -
+                      A.Y() * (B.X() * C.Z() - B.Z() * C.X()) +
+                      A.Z() * (B.X() * C.Y() - B.Y() * C.X())) / 6.0;
+            }
+        }
+        if (!seen)
+            return -1.0;
+        return std::abs(v);
+    } catch (const Standard_Failure &) {
+        return -1.0;
+    } catch (...) {
+        return -1.0;
+    }
+}
+
+/* Faces in, faces out. */
+static int face_count(const TopoDS_Shape &s)
+{
+    int n = 0;
+    for (TopExp_Explorer e(s, TopAbs_FACE); e.More(); e.Next())
+        ++n;
+    return n;
+}
+
+/* What the NARROW mend is held to, and why it is not held to same_body.
+ *
+ * M377. same_body weighs the drawn triangles, and that is the right question
+ * to ask of a whole-body rebuild. It is the wrong question here, because the
+ * shape it weighs the repair AGAINST is the broken one — and a shape whose
+ * faces BRepCheck calls unorientable is a shape BRepMesh cannot tessellate
+ * either. Measured on the whale's cut at (0.46, 34.44): the mend is valid,
+ * keeps all 319 faces and is plainly right, and the triangles say it changed
+ * the body by 3.39% — because the invalid shape tessellates 3.39% LIGHT.
+ * Weighing a repair against the thing it repaired, with a ruler the damage
+ * bends, refuses every mend that matters.
+ *
+ * What holds the narrow mend instead is what it does: it replaces only the
+ * faces BRepCheck named and leaves every other face the TShape it already
+ * was, and ShapeFix_Face is confined to a budget, so nothing can travel
+ * further than that. The one thing left to rule out is restructuring — a face
+ * split or dropped — and the count says it. */
+static bool same_face_count(const TopoDS_Shape &a, const TopoDS_Shape &b)
+{
+    try {
+        return face_count(a) == face_count(b);
+    } catch (const Standard_Failure &) {
+        return false;
+    } catch (...) {
+        return false;
+    }
+}
+
 /* Did a repair MEND the body, or replace it with a different one that happens
  * to pass the check?
  *
@@ -824,16 +932,25 @@ static bool shape_is_valid(const TopoDS_Shape &s)
  * vertices into 452, all 40 faces intact, and demanding those match threw the
  * repair away and handed back the invalid shape.
  *
- * The weight is the belt to that brace, and it is deliberately loose —
- * BRepGProp is not accurate enough on trimmed B-spline faces to justify
- * anything tighter. Measured on the whale, cut twice with a boss fused between
- * the cuts: the repair that mends it moves the TRIANGLES THE APP DRAWS by
- * 0.032% and keeps all 325 faces, while BRepGProp reports the same repair as
- * -0.240% — seven times larger and the other way round. On the broom, GProp
- * reads one unchanged planar face as 79.53 mm2 and then as 88.79 mm2 across a
- * STEP round trip that leaves its wire, its pcurves and its 2D signed area
- * identical to five decimals. A percent is past anything that noise explains
- * and far under what dropping real geometry costs. */
+ * The weight is the belt to that brace, and it is weighed BY THE TRIANGLES.
+ * BRepGProp integrates over the trimmed surfaces and is not accurate on them.
+ * Measured on the whale, cut twice with a boss fused between the cuts: the
+ * repair that mends it moves the triangles the app draws by 0.032% and keeps
+ * all 325 faces, while BRepGProp reports the same repair as -0.240% — seven
+ * times larger and the other way round. On the broom, GProp reads one
+ * unchanged planar face as 79.53 mm2 and then as 88.79 mm2 across a STEP round
+ * trip that leaves its wire, its pcurves and its 2D signed area identical to
+ * five decimals.
+ *
+ * M377. Loosening the bar to a percent was not enough to survive that. Drilling
+ * at (0.46, 46.10) through the converted whale gives an invalid result that
+ * ShapeFix mends completely — valid, all 326 faces intact — and GProp calls the
+ * mend a 1.34% change while the drawn triangles move 0.0203%. Sixty-six times
+ * over, and straight through a one percent gate: the mend was thrown away and
+ * the user got the invalid shape. So the question is now put to the thing that
+ * answers it. A percent of the drawn volume is past any tessellation noise —
+ * the same repair reads 0.0203% at every ShapeFix budget from 2x to 40x — and
+ * far under what dropping real geometry costs. */
 static bool same_body(const TopoDS_Shape &a, const TopoDS_Shape &b)
 {
     try {
@@ -844,13 +961,13 @@ static bool same_body(const TopoDS_Shape &a, const TopoDS_Shape &b)
             ++nb;
         if (na != nb)
             return false;
-        GProp_GProps ga, gb;
-        BRepGProp::VolumeProperties(a, ga);
-        BRepGProp::VolumeProperties(b, gb);
-        const double want = std::abs(ga.Mass());
-        if (!(want > 0.0))
-            return true;
-        return std::abs(gb.Mass() - ga.Mass()) <= want * 1.0e-2;
+        const double va = drawn_volume(a), vb = drawn_volume(b);
+        if (va > 0.0 && vb > 0.0)
+            return std::abs(vb - va) <= va * 1.0e-2;
+        /* Nothing to weigh — a shape that will not tessellate at all. The
+         * face count has already had its say; do not invent a second verdict
+         * out of a number known to be wrong on exactly these shapes. */
+        return true;
     } catch (const Standard_Failure &) {
         return false;
     } catch (...) {
@@ -907,6 +1024,76 @@ static bool same_body(const TopoDS_Shape &a, const TopoDS_Shape &b)
  * geometric controls runs three to eight times faster and says all nine whale
  * cuts are fine, including the five that are not. The geometry is the whole
  * of what there is to find here. */
+/* Mend only the faces the checker actually objects to.
+ *
+ * M377. ShapeFix_Shape rebuilds a whole body, and on a converted mesh that is
+ * both the slow way and the blunt way: it is the pass that made the repair
+ * move enough for the same-body test to throw it out. But what is usually
+ * wrong after a cut through freeform patches is two or three FACES — the drill
+ * splits a B-spline face, the new wire's pcurve on that surface is a
+ * projection and not exact, and BRepCheck calls the result UnorientableShape.
+ * Nothing else about the body is in question.
+ *
+ * So ask ShapeFix_Face about those faces and put the answers back through a
+ * ReShape, which leaves every other face the identical TShape it already was.
+ * Measured on the whale's remaining bad cuts: 2 or 3 faces of 313-322 are
+ * bad, covering 2.5% to 5.7% of the surface, and this mends two of the four
+ * outright — valid, every face still there, and the drawn volume moved
+ * 0.0000% — in 207 ms. The two it does not mend it also does not damage.
+ *
+ * It runs BEFORE ShapeFix_Shape rather than instead of it: this owns the
+ * faults that are on a face, the whole-shape pass still owns the ones that
+ * are not, and trying the gentler tool first costs 207 ms when it fails.
+ *
+ * Two ways of pushing it further were tried and neither is here, because
+ * neither made a single body valid that this does not: turning on the wire
+ * sub-fixers (FixSelfIntersection, FixNotchedEdges, FixIntersectingWires,
+ * FixSplitFace) takes a stubborn case from three bad faces to one but not to
+ * zero, and running the mend a second pass over its own output does the same.
+ * The three cuts of eighty-six that are still refused are refused with one
+ * face left unorientable, and it is the pcurve of a wire the drill cut across
+ * a B-spline patch that no face-level tool can straighten. */
+static TopoDS_Shape mend_bad_faces(const TopoDS_Shape &s, double maxTol)
+{
+    if (s.IsNull())
+        return TopoDS_Shape();
+    try {
+        BRepTools_ReShape rs;
+        int touched = 0;
+        for (TopExp_Explorer ex(s, TopAbs_FACE); ex.More(); ex.Next()) {
+            const TopoDS_Face f = TopoDS::Face(ex.Current());
+            BRepCheck_Analyzer fa(f, Standard_True);
+            if (fa.IsValid())
+                continue;
+            Handle(ShapeFix_Face) sf = new ShapeFix_Face(f);
+            sf->SetPrecision(Precision::Confusion());
+            sf->SetMaxTolerance(maxTol);
+            sf->FixOrientationMode() = 1;
+            sf->FixWireMode() = 1;
+            sf->Perform();
+            const TopoDS_Face g = sf->Face();
+            if (g.IsNull())
+                continue;
+            ++touched;
+            /* ShapeFix_Face can mend a face IN PLACE and hand back the shape
+             * it was given. Replacing a face with itself is a no-op to
+             * ReShape, and dropping the result on that ground threw the mend
+             * away — the body was already fixed and this said nothing had
+             * happened. */
+            if (!g.IsSame(f))
+                rs.Replace(f, g);
+        }
+        if (!touched)
+            return TopoDS_Shape();
+        const TopoDS_Shape out = rs.Apply(s);
+        return out.IsNull() ? s : out;
+    } catch (const Standard_Failure &) {
+        return TopoDS_Shape();
+    } catch (...) {
+        return TopoDS_Shape();
+    }
+}
+
 static TopoDS_Shape settle_boolean(const TopoDS_Shape &raw, double budget,
                                    const char *who)
 {
@@ -949,6 +1136,25 @@ static TopoDS_Shape settle_boolean(const TopoDS_Shape &raw, double budget,
          * wants 1.17x and the whale's second hole 1.71x, and at exactly 1x
          * both stay broken. What ShapeFix then actually spends is its own
          * business — it came back at 0.80 mm and 1.84 mm, not at the bound. */
+        /* M377 — the narrow mend first, because it is the least that could
+         * work: it touches only the faces BRepCheck names and leaves every
+         * other face the identical TShape it already was. Measured on the
+         * whale's bad cuts it moves the drawn volume by 0.0000%, where
+         * rebuilding the whole body moves it enough to be refused.
+         *
+         * Each attempt gets its OWN copy. ShapeFix_Shape::Perform modifies
+         * the shape it was handed, so a second attempt reading `base` after
+         * it has run is not reading the shape this code thinks it is — that
+         * cost two of the four cases the narrow mend fixes, and they came
+         * back looking like the mend simply did not work. */
+        {
+            TopoDS_Shape narrow = BRepBuilderAPI_Copy(base).Shape();
+            if (!narrow.IsNull()) {
+                const TopoDS_Shape n = mend_bad_faces(narrow, bar * 2.0);
+                if (!n.IsNull() && shape_is_valid(n) && same_face_count(raw, n))
+                    return n;
+            }
+        }
         Handle(ShapeFix_Shape) fx = new ShapeFix_Shape(base);
         fx->SetPrecision(Precision::Confusion());
         fx->SetMaxTolerance(bar * 2.0);
