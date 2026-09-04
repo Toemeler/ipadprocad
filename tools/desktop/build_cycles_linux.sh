@@ -380,6 +380,35 @@ link_libs=$(awk '
   exit 1
 }
 
+# AND ITS RPATH IS THE ONE THING IN THAT LINE THAT MUST NOT TRAVEL.
+#
+# CMake wrote Cycles' standalone renderer an rpath for running out of the
+# build tree, and it is in LINK_LIBRARIES with everything else:
+#
+#   -Wl,-rpath,"\$$ORIGIN/lib:<work>/build/bin/lib:<lib>/embree/lib:
+#               <lib>/dpcpp/lib:<lib>/opensubdiv/lib:<lib>/opencolorio/lib:
+#               <lib>/openimagedenoise/lib:<lib>/openimageio/lib:
+#               <lib>/openexr/lib:<lib>/imath/lib:<lib>/tbb/lib:"
+#
+# Taken verbatim it lands in the finished library AHEAD of the $ORIGIN entries
+# added below, so on this machine the loader takes every one of those
+# libraries out of the DEPENDENCY SET rather than out of deps/ — and the
+# copies in deps/, which the closure below rewrites so they can find each
+# other, are never opened at all. What is loaded instead is the vendor's own
+# file with the vendor's own runpath, which points at the directory it came
+# from and not at its neighbours: libOpenEXR.so.32 out of openexr/lib cannot
+# see libImath.so.30 in imath/lib. That is where the five "present in deps/
+# and not found" libraries went, and it would have shipped a bundle whose
+# closure was a build tree that only exists here.
+#
+# So each entry becomes -rpath-LINK, which the linker uses to resolve the
+# NEEDED of the libraries it was handed and writes into nothing. The only
+# rpath the file carries is the one added on the command line below, and the
+# gate after the link checks exactly that.
+link_libs=$(printf '%s\n' $link_libs \
+            | sed 's/^-Wl,-rpath,/-Wl,-rpath-link,/' \
+            | tr '\n' ' ')
+
 # --start-group, unlike the iOS link: GNU ld resolves a group to a fixed point,
 # so the archives need no ordering and none is invented. --whole-archive on the
 # shim alone, because nothing inside the link references cy_* and the linker
@@ -396,6 +425,22 @@ link_libs=$(awk '
     exit 1
   }
 echo "linked: $(du -h "$out/libprototype_cycles.so" | cut -f1)"
+
+# THE RPATH IS WHAT IT WAS ASKED TO BE, AND NOTHING ELSE.
+#
+# Checked rather than assumed, because the failure it catches is invisible on
+# the machine that builds: every extra directory in here is a real directory
+# HERE, so everything resolves, the closure gate passes, and the library goes
+# looking for a build tree on a machine that has none. A borrowed link line is
+# exactly the kind of thing that grows an rpath again.
+rpath_now=$(patchelf --print-rpath "$out/libprototype_cycles.so" 2>/dev/null || true)
+if [ "$rpath_now" != '$ORIGIN:$ORIGIN/deps' ]; then
+  echo "RPATH: FAIL — the library carries more than its own two entries:"
+  printf '  %s\n' "$rpath_now"
+  echo "Everything after \$ORIGIN/deps has to go; see the link step above."
+  exit 1
+fi
+echo 'rpath: $ORIGIN:$ORIGIN/deps and nothing else'
 
 # THE EXPORT SURFACE, checked rather than trusted. The version script is the
 # only thing standing between this and a symbol table with all of Cycles,
