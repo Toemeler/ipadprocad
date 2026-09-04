@@ -455,6 +455,17 @@ jobs:
           # Same walk the path tracer's own closure does: dumpbin /DEPENDENTS
           # from the exe outward. A name is satisfied if it is in the bundle or
           # in System32, which is where the API sets and the CRT live.
+          # API SETS ARE NOT FILES. api-ms-win-*.dll and ext-ms-*.dll are
+          # virtual names the loader resolves through the API-set schema — they
+          # are not in System32, they are not anywhere, and they never travel
+          # in a bundle. dumpbin reports them among the imports like anything
+          # else, so a walk that asks "is there a file with this name" calls
+          # every one of them missing. The first run of this check did exactly
+          # that and failed a bundle whose other 31 names all resolved.
+          #
+          # build_cycles_windows.ps1's own closure walk has carried this filter
+          # from the start, at the head of its $hostOnly list.
+          $virtual = '^(api-ms-win-|ext-ms-)'
           $sys = "$env:WINDIR/System32"
           $seen = @{}; $queue = [System.Collections.Queue]::new()
           $queue.Enqueue("$dir/prototype.exe")
@@ -468,6 +479,7 @@ jobs:
               $key = $n.ToLower()
               if ($seen.ContainsKey($key)) { continue }
               $seen[$key] = $true
+              if ($key -match $virtual)     { continue }
               if (Test-Path "$dir/$n")      { $queue.Enqueue("$dir/$n"); continue }
               if (Test-Path "$sys/$n")      { continue }
               $unresolved += $n
