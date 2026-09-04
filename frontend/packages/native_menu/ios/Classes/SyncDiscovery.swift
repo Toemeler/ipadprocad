@@ -90,7 +90,22 @@ final class SyncDiscovery: NSObject {
         txt["n"] = name.data(using: .utf8)
         txt["fp"] = myFingerprint.data(using: .utf8)
         txt["v"] = String(version).data(using: .utf8)
-        s.setTXTRecordData(NetService.data(fromTXTRecord: txt))
+        // setTXTRecord, NOT setTXTRecordData. The SDK's api-notes renamed the
+        // Swift spelling of -setTXTRecordData: and the old one is a hard
+        // error, not a deprecation, on the Xcode CI builds with:
+        //
+        //     'setTXTRecordData' has been renamed to 'setTXTRecord(_:)'
+        //
+        // The older spelling stays reachable for an older toolchain, for the
+        // same reason this file uses NetService rather than NWBrowser at all.
+        // The return says whether the record was accepted; it is discarded
+        // because a service that publishes without a TXT record is still
+        // found, and the peer then simply has nothing to read from it.
+#if compiler(>=6.2)
+        _ = s.setTXTRecord(NetService.data(fromTXTRecord: txt))
+#else
+        _ = s.setTXTRecordData(NetService.data(fromTXTRecord: txt))
+#endif
         s.publish()
         service = s
 
