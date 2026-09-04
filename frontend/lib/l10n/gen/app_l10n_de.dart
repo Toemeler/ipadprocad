@@ -4543,4 +4543,234 @@ class AppL10nDe extends AppL10n {
   @override
   String get settingsRibbonNamesFooter =>
       'Ohne Namen ist das Band deutlich schmaler; jeder Befehl behält seinen Namen als Kurzhinweis.';
+
+  @override
+  String get panelMeasure => 'Messen';
+
+  @override
+  String get btnMeasure => 'Messen';
+
+  @override
+  String get measureTitle => 'Messen';
+
+  @override
+  String get measureSelection => 'Auswahl';
+
+  @override
+  String get measureResult => 'Ergebnis';
+
+  @override
+  String get measureTotalsSection => 'Summen';
+
+  @override
+  String get measureSettings => 'Anzeige';
+
+  @override
+  String get measureHintPick => 'Geometrie zum Messen antippen.';
+
+  @override
+  String get measureHintPickSecond =>
+      'Zweites Element für Abstand oder Winkel antippen.';
+
+  @override
+  String get measureNothingHere => 'Hier ist nichts zu messen.';
+
+  @override
+  String get measureCopied => 'In die Zwischenablage kopiert.';
+
+  @override
+  String get measureNeedsDocument =>
+      'Zum Messen zuerst eine Skizze, ein Bauteil oder eine Baugruppe öffnen.';
+
+  @override
+  String get measureCopy => 'Wert antippen zum Kopieren.';
+
+  @override
+  String get measureCopyAll => 'Alle kopieren';
+
+  @override
+  String get measureRestart => 'Neu';
+
+  @override
+  String get measureAddToTotal => 'Zur Summe';
+
+  @override
+  String get measureClearTotals => 'Summen löschen';
+
+  @override
+  String get measurePrecision => 'Nachkommastellen';
+
+  @override
+  String get measureDualUnit => 'Zweite Einheit';
+
+  @override
+  String get measureDualUnitOff => 'Keine';
+
+  @override
+  String get measureApproxNote =>
+      '≈ heißt: aus der Darstellungsnetz-Auflösung gerechnet, nicht analytisch.';
+
+  @override
+  String get measureTotalLength => 'Längen';
+
+  @override
+  String get measureTotalArea => 'Flächen';
+
+  @override
+  String get measureTotalVolume => 'Volumen';
+
+  @override
+  String get measureTotalAngle => 'Winkel';
+
+  @override
+  String measureTotalCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Messungen',
+      one: '1 Messung',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get measureLength => 'Länge';
+
+  @override
+  String get measureArcLength => 'Bogenlänge';
+
+  @override
+  String get measureRadius => 'Radius';
+
+  @override
+  String get measureDiameter => 'Durchmesser';
+
+  @override
+  String get measureCircumference => 'Umfang';
+
+  @override
+  String get measureIncludedAngle => 'Öffnungswinkel';
+
+  @override
+  String get measureMajorRadius => 'Große Halbachse';
+
+  @override
+  String get measureMinorRadius => 'Kleine Halbachse';
+
+  @override
+  String get measureArea => 'Fläche';
+
+  @override
+  String get measurePerimeter => 'Kantenlänge';
+
+  @override
+  String get measureVolume => 'Volumen';
+
+  @override
+  String get measureHeight => 'Höhe';
+
+  @override
+  String get measureSurfaceArea => 'Oberfläche';
+
+  @override
+  String get measurePositionX => 'X';
+
+  @override
+  String get measurePositionY => 'Y';
+
+  @override
+  String get measurePositionZ => 'Z';
+
+  @override
+  String get measureExtentX => 'Ausdehnung X';
+
+  @override
+  String get measureExtentY => 'Ausdehnung Y';
+
+  @override
+  String get measureExtentZ => 'Ausdehnung Z';
+
+  @override
+  String get measureDistance => 'Abstand';
+
+  @override
+  String get measureCentreDistance => 'Mitte zu Mitte';
+
+  @override
+  String get measureMaximumDistance => 'Größter Abstand';
+
+  @override
+  String get measureDeltaX => 'ΔX';
+
+  @override
+  String get measureDeltaY => 'ΔY';
+
+  @override
+  String get measureDeltaZ => 'ΔZ';
+
+  @override
+  String get measureAngle => 'Winkel';
+
+  @override
+  String get measureSupplementAngle => 'Nebenwinkel';
+
+  @override
+  String get measureSurfaceDistance => 'Wandabstand';
+
+  @override
+  String get measureRefPoint => 'Punkt';
+
+  @override
+  String get measureRefEdge => 'Kante';
+
+  @override
+  String get measureRefAxis => 'Achse';
+
+  @override
+  String get measureRefCircle => 'Kreis';
+
+  @override
+  String get measureRefArc => 'Bogen';
+
+  @override
+  String get measureRefEllipse => 'Ellipse';
+
+  @override
+  String get measureRefCurve => 'Kurve';
+
+  @override
+  String get measureRefFace => 'Fläche';
+
+  @override
+  String get measureRefCylinder => 'Zylinder';
+
+  @override
+  String get measureRefCone => 'Kegel';
+
+  @override
+  String get measureRefSphere => 'Kugel';
+
+  @override
+  String get measureRefTorus => 'Torus';
+
+  @override
+  String get measureRefBody => 'Körper';
+
+  @override
+  String get measureRefComponent => 'Bauteil';
+
+  @override
+  String get measureModeMinimum => 'Minimum';
+
+  @override
+  String get measureModeCentre => 'Mitte';
+
+  @override
+  String get measureModeMaximum => 'Maximum';
+
+  @override
+  String get measurePriority => 'Auswahlpriorität';
+
+  @override
+  String get measurePriorityEntity => 'Kanten & Flächen';
 }

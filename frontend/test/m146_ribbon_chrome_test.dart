@@ -171,6 +171,17 @@ void main() {
 
     testWidgets('a horizontal band is as tall as its content, no more',
         (t) async {
+      // M368 — SAY WHICH DOCK, because the default stopped being this one.
+      // Every other test in this group names its position; this one inherited
+      // `top` from the default and kept passing when M368 made the default the
+      // LEFT rail. What it measured after that was the rail, stretched to the
+      // full 1600 by the Column below — so the width assertion still held and
+      // only the height moved, from 95 to 388 against a limit of 400. The
+      // twelve points of slack left were spent by M371's Measure panel, and a
+      // test named for the horizontal band failed for the height of the
+      // vertical one.
+      RibbonDock.set(RibbonPosition.top);
+      addTearDown(RibbonDock.resetForTest);
       // The row it takes is the band's own height: nothing measures it, so
       // nothing can be a frame behind it either.
       // M349 — stretch, because that is what the real layout does

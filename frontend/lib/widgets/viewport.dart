@@ -22,6 +22,8 @@ import 'package:flutter/scheduler.dart' show Ticker;
 import 'package:flutter/services.dart';
 
 import '../app_state.dart';
+import '../measure_paint.dart';
+import '../measure_pick.dart';
 import '../gear.dart';
 import '../diag.dart';
 import '../gesture_trace.dart';
@@ -132,6 +134,49 @@ class _Viewport2DState extends State<Viewport2D>
     final c = Offset(size.width / 2, size.height / 2);
     final d = local - c;
     return Offset(app.pan.dx + d.dx / app.zoom, app.pan.dy - d.dy / app.zoom);
+  }
+
+  /// M371 — one tap under the Measure command.
+  ///
+  /// The geometry list is filtered exactly as the snap is (see [_snapAt]):
+  /// a hidden layer must not be measurable any more than it is snappable, and
+  /// a measurement of something you cannot see is a number with no subject.
+  ///
+  /// The tolerance is the SNAP tolerance in world units, so the measure tool
+  /// picks up endpoints, midpoints and centres at the same reach every other
+  /// tool in the sketcher does.
+  void _measureTap(Offset local, Size size, PointerDeviceKind kind) {
+    final app = widget.app;
+    final s = app.current;
+    if (s == null) return;
+    final visible = [
+      for (final g in app.displayGeometry(s))
+        if (app.geoVisible(g)) g
+    ];
+    final ref = measurePickSketch(visible, _toWorld(local, size),
+        touchSlop(kind, _snapPx) / app.zoom);
+    if (ref == null) {
+      app.measureMissed();
+      return;
+    }
+    app.measurePick(ref);
+  }
+
+  /// M374 — what a measure tap WOULD take, for the prehighlight.
+  ///
+  /// Deliberately [_measureTap] with the commit taken out: a prehighlight that
+  /// ran a different pick from the tap would be a lie, and the one thing a
+  /// prehighlight has to be is a promise.
+  void _measureHover(Offset local, Size size, PointerDeviceKind kind) {
+    final app = widget.app;
+    final s = app.current;
+    if (s == null) return;
+    final visible = [
+      for (final g in app.displayGeometry(s))
+        if (app.geoVisible(g)) g
+    ];
+    app.measureHover(measurePickSketch(visible, _toWorld(local, size),
+        touchSlop(kind, _snapPx) / app.zoom));
   }
 
   // ---- snapping + gestures (M6) ----
@@ -249,6 +294,18 @@ class _Viewport2DState extends State<Viewport2D>
       return;
     }
     _focus.requestFocus();
+    // M371 — MEASURE owns the tap while it is armed.
+    //
+    // Ahead of every other branch below, because Measure is armed from the
+    // ribbon or from M and nothing else can be armed at the same time (see
+    // AppState.startMeasure, which stands the others down). A miss does not
+    // cancel: a distance needs two picks and throwing the first away because
+    // the second tap landed on empty space would be the most expensive
+    // possible response to the cheapest possible mistake.
+    if (app.measuring) {
+      _measureTap(local, size, kind);
+      return;
+    }
     // M44: the Text tool places parametric text where you tap.
     if (app.tool == Tool.text) {
       final w = _toWorld(local, size);
@@ -1565,6 +1622,14 @@ class _Viewport2DState extends State<Viewport2D>
               return KeyEventResult.handled;
             }
             if (!ctrl && !HardwareKeyboard.instance.isAltPressed) {
+              // M371 — M arms Measure. Ahead of the tool letters below
+              // because it is not a tool: it toggles a modeless panel, and it
+              // has to work in a sketch that is not being edited (where
+              // selectTool would only toast a hint).
+              if (k == LogicalKeyboardKey.keyM) {
+                app.toggleMeasure();
+                return KeyEventResult.handled;
+              }
               final t = k == LogicalKeyboardKey.keyD
                   ? Tool.dimension
                   : k == LogicalKeyboardKey.keyL
@@ -1647,6 +1712,17 @@ class _Viewport2DState extends State<Viewport2D>
               return;
             }
             app.lastPointerWorld = _toWorld(e.localPosition, size); // M45
+            // M374 — measure prehighlight. First, and it returns: while the
+            // tool is armed the pointer means only "what would I pick", and
+            // the tool preview and the dimension-label hint below both belong
+            // to commands Measure stood down.
+            if (app.measuring) {
+              _measureHover(e.localPosition, size, e.kind);
+              if (_hoverDimLabel != null) {
+                setState(() => _hoverDimLabel = null);
+              }
+              return;
+            }
             // M207 — a FINISHED freehand stroke is not a rubber band. Once the
             // fit window is up the curve is decided; only its sliders may
             // change it. Hover kept feeding hoverWorld, and the preview draws
@@ -3103,6 +3179,18 @@ class _ViewportPainter extends CustomPainter {
     }
 
     _ph.mark('notice');
+    // ---- M371 measurement overlay -----------------------------------------
+    // Above everything the sketch draws and below the projected centre point,
+    // which stays the topmost interactive thing on this canvas. The sketch is
+    // flat, so a world point is (x, y, 0) and the projection is `map` — the
+    // same one every other annotation on this canvas uses, which is what stops
+    // the dimension line and the geometry it measures from ever disagreeing.
+    final ms = app.measureSession;
+    if (ms != null) {
+      paintMeasureOverlay(
+          canvas, ms, (v) => map(v.x, v.y), size);
+    }
+    _ph.mark('measure');
     // ---- projected center point (YELLOW, on top, interactive) ----
     if (app.inEditMode) {
       final o = map(0, 0);

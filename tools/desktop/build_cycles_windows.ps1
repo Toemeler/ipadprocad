@@ -9,7 +9,7 @@
 #   pwsh tools/desktop/build_cycles_windows.ps1 -Keep   # keep blender\ after
 #
 # THE SAME BUILD AS LINUX, and deliberately so: the same Blender pin (read out
-# of that script rather than repeated), the same three patches from
+# of that script rather than repeated), the same six patches from
 # backend/cycles/patches/, the same shim grafted as a Cycles target, the same
 # WITH_* switches, and the link line taken from the same line of build.ninja.
 # tools/desktop/build_cycles_linux.sh carries the reasoning for all of that and
@@ -155,16 +155,19 @@ if (-not (Select-String -Path $cyclesCMake -Pattern 'add_library\(cycles_shim' -
     (Get-Content (Join-Path $repo 'backend\cycles\shim\append.cmake'))
 }
 
-# The three patches. All self-verifying — an anchor that does not match exactly
-# once fails rather than silently doing nothing — and all shared with the Linux
-# build; the third is shared because the line it removes is in Blender's TOP
-# LEVEL and fires wherever WITH_PYTHON is off. They address the tree as
-# `blender\intern\cycles\...` relative to the working directory, so they run
-# from $work.
-Say 'patching Cycles (sampling, denoiser ceiling, WITH_PYTHON, <memory>)'
+# The patches. All self-verifying — an anchor that does not match exactly once
+# fails rather than silently doing nothing — and all six shared with the
+# Linux build, including the last, which edits Blender's Windows platform file
+# and does nothing at all on Linux. They stay in one list for the reason
+# no_python_cycles.py gives: a patch list that differs by platform is a patch
+# list where the platforms drift, and this tree has already had that happen.
+# They address the tree as `blender\intern\cycles\...` relative to the
+# working directory, so they run from $work.
+Say 'patching Cycles (sampling, denoiser ceiling, WITH_PYTHON, <memory>, M_PI, uint)'
 Push-Location $work
 foreach ($p in @('progressive.py', 'oidn_memory.py', 'no_python_cycles.py',
-                 'msvc_container_proxy.py')) {
+                 'msvc_container_proxy.py', 'msvc_math_defines.py',
+                 'msvc_uint.py')) {
   & python (Join-Path $repo "backend\cycles\patches\$p")
   if ($LASTEXITCODE -ne 0) { Pop-Location; throw "patch failed: $p" }
 }
@@ -232,17 +235,48 @@ if (-not $shimLib) { throw 'no cycles_shim.lib was built' }
 # WHICH LIBRARIES, DECIDED BY THE BUILD RATHER THAN BY ME — the same trick and
 # the same line of build.ninja as Linux, one file extension apart. Paths in it
 # are relative to the build directory, so the link runs from there.
+#
+# THE EDGE IS FOUND BY ITS OUTPUTS RATHER THAN BY THE SHAPE OF ITS FIRST LINE,
+# which is where the Linux spelling of this does not carry over. There the
+# link edge begins `build bin/cycles: ` and matching that literally is fine.
+# Here it is
+#
+#   build bin\cycles.exe: CXX_EXECUTABLE_LINKER__cycles_Release <objs>
+#     | <every .lib> || <order-only deps>
+#
+# with the separator Windows uses, and the libraries among the edge's inputs
+# rather than only in its variables. So: ninja separates an edge's outputs
+# from its rule at the first colon that is NOT escaped as `$:` — the escape
+# exists precisely because `C:\...` is a path here — and the edge wanted is
+# the one whose outputs name cycles.exe under either separator. What follows
+# the colon is not searched: `build cycles: phony bin\cycles.exe` and two
+# more like it name the same file as an INPUT and have no link line at all.
 $linkLine = $null
+$mentions = New-Object 'System.Collections.Generic.List[string]'
+$sawVars = New-Object 'System.Collections.Generic.List[string]'
 $inRule = $false
 foreach ($line in (Get-Content (Join-Path $build 'build.ninja'))) {
-  if ($line -match '^build bin/cycles\.exe: ') { $inRule = $true; continue }
-  if ($inRule -and ($line -match '^  LINK_LIBRARIES = (.*)$')) {
-    $linkLine = $Matches[1]
-    break
+  if ($line -match '^build\s+(.+?)(?<!\$):\s+(\S+)') {
+    $outs = @($Matches[1] -split '(?<!\$)\s+')
+    $inRule = ($Matches[2] -ne 'phony') -and
+              @($outs | Where-Object { $_ -match '(^|[/\\])cycles\.exe$' }).Count -gt 0
+    if ($line -match 'cycles\.exe') { $mentions.Add($line) }
+    continue
   }
-  if ($inRule -and ($line -eq '')) { $inRule = $false }
+  if ($inRule -and ($line -match '^  (\w+) = (.*)$')) {
+    $sawVars.Add($Matches[1])
+    if ($Matches[1] -eq 'LINK_LIBRARIES') { $linkLine = $Matches[2]; break }
+  }
+  if ($inRule -and ($line.Trim() -eq '')) { $inRule = $false }
 }
-if (-not $linkLine) { throw 'no LINK_LIBRARIES for bin/cycles.exe in build.ninja' }
+if (-not $linkLine) {
+  # Say what IS in there. The whole link depends on one line of a generated
+  # file, and "not found" on its own leaves nothing to work from.
+  Write-Host 'build edges in build.ninja that mention cycles.exe:'
+  $mentions | Select-Object -First 20 | ForEach-Object { Write-Host "  $($_.Substring(0, [Math]::Min(400, $_.Length)))" }
+  Write-Host "variables on the edge that matched: $($sawVars -join ', ')"
+  throw 'no LINK_LIBRARIES for the cycles executable in build.ninja'
+}
 # UNESCAPED BY HAND, because ninja's escaping and PowerShell's Split disagree
 # about exactly the case that matters. Ninja writes a literal space inside a
 # path as '$ ' and a literal '$' as '$$', so splitting on ' ' would cut a
@@ -408,6 +442,25 @@ if ($probeStatus -ne 0) {
 # directory down, which is one PATH entry rather than a different arrangement.
 $env:PATH = "$deps;$out;$env:PATH"
 & "$out\prototype_cycles_probe.exe"
+$probeRan = $LASTEXITCODE
+
+# THE PROBE'S EXIT STATUS IS NOT THIS BUILD'S VERDICT, and until now it was
+# both — silently. PowerShell leaves $LASTEXITCODE alone for cmdlets, so the
+# Write-Host lines below do not clear it, and a script that ends without an
+# explicit `exit` hands the process whatever the last NATIVE command returned.
+# That is this probe. So a build that linked, closed its DLL graph, loaded the
+# library and printed a device failed the step anyway, after "=== done ===".
+#
+# What the probe is for is the two lines it prints: the library loads, and
+# Cycles picks a device. Its `main` returns 0 unconditionally, so a non-zero
+# status is the C runtime tearing down after the answer rather than the
+# answer. Reported rather than hidden — a crash on exit is worth knowing about
+# — and not fatal, which is what `|| true` has always meant on the Linux side
+# of this gate.
+if ($probeRan -ne 0) {
+  Write-Host "(the probe answered and then exited $probeRan — teardown, not the"
+  Write-Host " verdict; its main returns 0)"
+}
 
 if (-not $Keep -and -not $env:CYCLES_WORK_DIR) {
   Write-Host ''
@@ -419,3 +472,8 @@ Say 'done'
 Write-Host "library : $out\prototype_cycles.dll"
 Write-Host ''
 Write-Host 'Next:  cd frontend; flutter build windows --release'
+
+# Said, not inherited. Every gate above exits 1 for itself; reaching here means
+# all of them passed, and the process should say so rather than repeat the exit
+# status of whichever native command happened to run last.
+exit 0

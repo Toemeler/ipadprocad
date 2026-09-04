@@ -253,9 +253,17 @@ fi
 # it is and why is written out at length there. It is self-verifying and a
 # no-op on a tree that already has it, so it runs on every invocation rather
 # than under the .patched stamp above.
-say "patching Blender's top level (WITH_PYTHON must not switch Cycles off)"
+# The fourth and fifth are in the same position and there for the same reason.
+# MSVC needs _USE_MATH_DEFINES before <cmath> or OpenSubdiv's headers have no
+# M_PI, and it needs to be told what `uint` is before mikktspace counts in it;
+# both edits are inert here — one is in Blender's Windows platform file and
+# the other behind an #ifdef — and both are in this list so the two platforms
+# cannot patch different trees.
+say "patching Blender's top level (WITH_PYTHON, <memory>, M_PI, uint)"
 (cd "$work" && python3 "$repo/backend/cycles/patches/no_python_cycles.py")
 (cd "$work" && python3 "$repo/backend/cycles/patches/msvc_container_proxy.py")
+(cd "$work" && python3 "$repo/backend/cycles/patches/msvc_math_defines.py")
+(cd "$work" && python3 "$repo/backend/cycles/patches/msvc_uint.py")
 
 # ---------------------------------------------------------------------------
 # 3. Configure and build
@@ -375,6 +383,35 @@ link_libs=$(awk '
   exit 1
 }
 
+# AND ITS RPATH IS THE ONE THING IN THAT LINE THAT MUST NOT TRAVEL.
+#
+# CMake wrote Cycles' standalone renderer an rpath for running out of the
+# build tree, and it is in LINK_LIBRARIES with everything else:
+#
+#   -Wl,-rpath,"\$$ORIGIN/lib:<work>/build/bin/lib:<lib>/embree/lib:
+#               <lib>/dpcpp/lib:<lib>/opensubdiv/lib:<lib>/opencolorio/lib:
+#               <lib>/openimagedenoise/lib:<lib>/openimageio/lib:
+#               <lib>/openexr/lib:<lib>/imath/lib:<lib>/tbb/lib:"
+#
+# Taken verbatim it lands in the finished library AHEAD of the $ORIGIN entries
+# added below, so on this machine the loader takes every one of those
+# libraries out of the DEPENDENCY SET rather than out of deps/ — and the
+# copies in deps/, which the closure below rewrites so they can find each
+# other, are never opened at all. What is loaded instead is the vendor's own
+# file with the vendor's own runpath, which points at the directory it came
+# from and not at its neighbours: libOpenEXR.so.32 out of openexr/lib cannot
+# see libImath.so.30 in imath/lib. That is where the five "present in deps/
+# and not found" libraries went, and it would have shipped a bundle whose
+# closure was a build tree that only exists here.
+#
+# So each entry becomes -rpath-LINK, which the linker uses to resolve the
+# NEEDED of the libraries it was handed and writes into nothing. The only
+# rpath the file carries is the one added on the command line below, and the
+# gate after the link checks exactly that.
+link_libs=$(printf '%s\n' $link_libs \
+            | sed 's/^-Wl,-rpath,/-Wl,-rpath-link,/' \
+            | tr '\n' ' ')
+
 # --start-group, unlike the iOS link: GNU ld resolves a group to a fixed point,
 # so the archives need no ordering and none is invented. --whole-archive on the
 # shim alone, because nothing inside the link references cy_* and the linker
@@ -391,6 +428,22 @@ link_libs=$(awk '
     exit 1
   }
 echo "linked: $(du -h "$out/libprototype_cycles.so" | cut -f1)"
+
+# THE RPATH IS WHAT IT WAS ASKED TO BE, AND NOTHING ELSE.
+#
+# Checked rather than assumed, because the failure it catches is invisible on
+# the machine that builds: every extra directory in here is a real directory
+# HERE, so everything resolves, the closure gate passes, and the library goes
+# looking for a build tree on a machine that has none. A borrowed link line is
+# exactly the kind of thing that grows an rpath again.
+rpath_now=$(patchelf --print-rpath "$out/libprototype_cycles.so" 2>/dev/null || true)
+if [ "$rpath_now" != '$ORIGIN:$ORIGIN/deps' ]; then
+  echo "RPATH: FAIL — the library carries more than its own two entries:"
+  printf '  %s\n' "$rpath_now"
+  echo "Everything after \$ORIGIN/deps has to go; see the link step above."
+  exit 1
+fi
+echo 'rpath: $ORIGIN:$ORIGIN/deps and nothing else'
 
 # THE EXPORT SURFACE, checked rather than trusted. The version script is the
 # only thing standing between this and a symbol table with all of Cycles,
@@ -501,8 +554,30 @@ done
 # EVERY library gets $ORIGIN, for the reason build_native.sh writes out at
 # length: an inherited DT_RPATH stops being inherited the moment something in
 # the chain has a RUNPATH of its own.
+#
+# AND IT IS WRITTEN AS DT_RPATH, which `patchelf --set-rpath` on its own does
+# NOT do — it writes DT_RUNPATH, and converts an existing DT_RPATH into one.
+# For an object's own dependencies the loader reads the two the same way, so
+# on the happy path the choice is invisible. They differ in exactly the case
+# that went wrong here:
+#
+#   * DT_RPATH is INHERITED. A library with no entry of its own is looked for
+#     along the DT_RPATH of everything that loaded it, so this library's
+#     `$ORIGIN/deps` reaches the whole graph underneath it.
+#   * DT_RUNPATH is NOT. A library that carries one is looked for ONLY along
+#     that one, and a wrong value silently CANCELS the inherited path that
+#     would otherwise have found the file.
+#
+# So DT_RUNPATH makes each library's own entry load-bearing on its own: get
+# one of them wrong and the neighbour sitting beside it in the same directory
+# becomes invisible. That is the exact shape of the failure this replaces —
+# five libraries present in deps/, with the right names and the right sonames,
+# and "not found" to the loader. With DT_RPATH the same entry is a first
+# choice rather than the only one, and this library's own rpath is underneath
+# all of them.
 for lib in "$deps"/*.so*; do
-  [ -f "$lib" ] && patchelf --set-rpath '$ORIGIN' "$lib"
+  [ -f "$lib" ] || continue
+  patchelf --force-rpath --set-rpath '$ORIGIN' "$lib"
 done
 echo "added $copied libraries to $deps ($(du -sh "$deps" | cut -f1) total)"
 if [ "$missing" -ne 0 ]; then
@@ -537,6 +612,22 @@ while :; do
       echo "    size : $(stat -c %s "$deps/$name" 2>/dev/null || echo ?)"
       echo "    rpath: $(patchelf --print-rpath "$deps/$name" 2>&1 || true)"
       echo "    sonam: $(patchelf --print-soname "$deps/$name" 2>&1 || true)"
+      # THE ONE QUESTION THE LINES ABOVE CANNOT ANSWER: is the file invisible,
+      # or is it visible and being REFUSED? The loader reports both as "not
+      # found" — a candidate that fails its header check is skipped in silence
+      # and the search carries on — so the two look identical from here and
+      # have opposite fixes. LD_LIBRARY_PATH puts the directory somewhere no
+      # rpath of ours can be blamed for: if the name resolves under it the
+      # problem is a search path, and if it still does not the file itself is
+      # being rejected.
+      if LD_LIBRARY_PATH="$deps" ldd "$out/libprototype_cycles.so" 2>/dev/null \
+         | grep -q "^[[:space:]]*$name => not found"; then
+        echo "    verdict: REFUSED — still not found with deps/ on LD_LIBRARY_PATH"
+        readelf -h "$deps/$name" 2>&1 | sed -n '2,12p' | sed 's/^/      /'
+      else
+        echo "    verdict: NOT SEARCHED — resolves once deps/ is on LD_LIBRARY_PATH,"
+        echo "             so some object asks for it along a path that is not deps/"
+      fi
       stuck=$((stuck + 1))
       continue
     fi
@@ -544,17 +635,34 @@ while :; do
     [ -n "$found" ] || { echo "  NOT ANYWHERE: $name"; stuck=$((stuck + 1)); continue; }
     cp -L "$found" "$deps/$name"
     chmod u+w "$deps/$name"
-    patchelf --set-rpath '$ORIGIN' "$deps/$name"
+    patchelf --force-rpath --set-rpath '$ORIGIN' "$deps/$name"
     echo "  sweep $sweep: took $name from $found"
     copied=$((copied + 1))
     fixed=$((fixed + 1))
   done
   if [ "$fixed" -eq 0 ] || [ "$sweep" -gt 8 ]; then
     echo "CLOSURE: FAIL — the loader cannot satisfy $stuck name(s) after"
-    echo "$sweep sweep(s). Searched:"
-    printf '%s\n' "$search" | tr ':' '\n' | sed 's/^/  /' | head -40
+    echo "$sweep sweep(s)."
+    echo
+    echo "what the loader sees:"
+    ldd "$out/libprototype_cycles.so" 2>&1 | sed 's/^/  /' | head -60
+    echo
+    # WHO IS ASKING is the thing the failure never says. `ldd` names what is
+    # missing and not which object wanted it, and an object's own entry is
+    # what decides where it looks, so both halves are printed together.
+    echo "what every object that ships asks for, and where it looks:"
+    for lib in "$out/libprototype_cycles.so" "$deps"/*.so*; do
+      [ -f "$lib" ] || continue
+      echo "  $(basename "$lib")"
+      readelf -d "$lib" 2>/dev/null \
+        | grep -E '\((NEEDED|RPATH|RUNPATH)\)' \
+        | sed -E 's/^[^(]*\(/    (/' | head -40
+    done
+    echo
     echo "deps/ holds:"
     ls -la "$deps" | head -60
+    echo "searched:"
+    printf '%s\n' "$search" | tr ':' '\n' | sed 's/^/  /' | head -40
     exit 1
   fi
 done

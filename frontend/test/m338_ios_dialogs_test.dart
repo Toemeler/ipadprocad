@@ -35,6 +35,7 @@ import 'package:prototype/ffi/qcad_engine.dart' show kDefaultLayer;
 import 'package:prototype/gear.dart';
 import 'package:prototype/inserts.dart';
 import 'package:prototype/ios_design.dart';
+import 'package:prototype/measure.dart';
 import 'package:prototype/l10n/l.dart';
 import 'package:prototype/part_model.dart';
 import 'package:prototype/theme.dart';
@@ -50,6 +51,7 @@ import 'package:prototype/widgets/hole_dialog.dart';
 import 'package:prototype/widgets/ios_kit.dart';
 import 'package:prototype/widgets/joint_dialog.dart';
 import 'package:prototype/widgets/make_part_dialog.dart';
+import 'package:prototype/widgets/measure_panel.dart';
 import 'package:prototype/widgets/parameters_dialog.dart';
 import 'package:prototype/widgets/pattern_dialog.dart';
 import 'package:prototype/widgets/pattern_panel_3d.dart';
@@ -73,6 +75,10 @@ const kDialogLayer = <String>[
   'lib/widgets/ios_kit.dart',
   'lib/widgets/joint_dialog.dart',
   'lib/widgets/make_part_dialog.dart',
+  // M371 — the Measure panel joins the layer. It draws nothing from Material
+  // at all (its only Flutter import is widgets.dart), which is the target
+  // state the two ratchets above exist to hold.
+  'lib/widgets/measure_panel.dart',
   'lib/widgets/native_prompts.dart',
   'lib/widgets/parameters_dialog.dart',
   'lib/widgets/pattern_dialog.dart',
@@ -236,6 +242,32 @@ void main() {
       final app = _partApp()..edgeSession = EdgeFeatureSession('chamfer');
       await shape(t, EdgeFeatureDialog(app: app), en.btnChamfer,
           cancel: en.cancel, confirm: en.ok);
+    });
+
+    // M371 — Measure has no confirming verb: it writes nothing, so there is
+    // nothing to OK. Its two nav actions are Restart and Close, which is what
+    // a readout's chrome is.
+    testWidgets('Measure, with nothing picked yet', (t) async {
+      final app = _partApp()..startMeasure();
+      await shape(t, MeasurePanel(app: app), en.measureTitle,
+          cancel: en.measureRestart, confirm: en.close);
+      expect(find.text(en.measureHintPick), findsWidgets);
+      // Arming Measure raises a prompt, and a toast is a four-second timer.
+      // Let it expire, or the binding fails the test on a pending one.
+      await t.pump(const Duration(seconds: 5));
+    });
+
+    testWidgets('Measure, showing a reading', (t) async {
+      final app = _partApp()..startMeasure();
+      app.measurePick(MeasureRef.point(Vec3.zero));
+      app.measurePick(MeasureRef.point(const Vec3(0, 0, 10)));
+      await _pump(t, MeasurePanel(app: app));
+      // The headline, its noun, and the two actions under it.
+      expect(find.text(measureRoleLabel(MeasureRole.distance)), findsWidgets);
+      expect(find.text('10.00 mm'), findsWidgets);
+      expect(find.text(en.measureCopyAll), findsOneWidget);
+      expect(find.text(en.measureAddToTotal), findsOneWidget);
+      await t.pump(const Duration(seconds: 5)); // the prompt toast
     });
 
     testWidgets('Combine', (t) async {

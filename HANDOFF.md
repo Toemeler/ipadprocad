@@ -12231,3 +12231,347 @@ Belegen — OIDNs Kachelregel, die Zahlen aus `ios_metal.py`, und der Umstand,
 dass genau dieser Pfad in keinem CI-Job vorkommt (96×96 auf der CPU) — aber
 nicht auf einem Crash-Report. Falls es erneut abstürzt, ist der nächste Hebel
 die Renderauflösung beim Entrauschen, nicht wieder diese Konstante.
+
+## M371 — Messen, überall: ein Befehl, ein Fenster, jede Kombination
+
+> „Build a measurement tool just like in inventor. When I press M this tool
+> activates. then i can click on a line and get its length, on 2 faces and get
+> the distance, on 2 points, on a cylinder, just every possible scenario should
+> work. For measurement throughout the whole app 2d 3d and assembly. Everywhere."
+
+### Was Inventor tatsächlich macht
+
+Nachgelesen (September 2026) in der Autodesk-Hilfe „To Measure Distance,
+Length, Angle, Loop, or Area in Models or Drawings", in der Release-Notiz
+„Measure Enhancements" zu Inventor 2018 und im Inventor-Blog, der das Fenster
+eingeführt hat. Autodesks eigene Domains sind aus dieser Sitzung heraus
+gesperrt (`help.autodesk.com` und `knowledge.autodesk.com` beide 403 am
+Egress-Proxy), die Punkte unten stammen deshalb aus den Suchauszügen dieser
+Seiten und nicht aus dem vollen Text — sie sind aber wörtlich genug, um
+gegen sie zu bauen:
+
+* **Ein** Befehl seit 2018, der die vier alten (Distance, Angle, Loop, Area)
+  ersetzt, gefahren von einem modelosen, informationsreichen Fenster.
+* **Eine** Auswahl liefert **mehrere** Werte auf einmal: „when you select a
+  cylindrical face, the diameter, area, and total loop length display". Das
+  ist der wichtigste Punkt und der Grund, warum `MeasureReading` eine LISTE
+  von Werten trägt statt einer Zahl.
+* **Zwei** Auswahlen liefern Abstand oder Winkel — abgeleitet aus dem, was die
+  beiden Picks SIND, nie vorher abgefragt.
+* Der Abstand hat **drei** Lesarten zum Umschalten: Minimum Distance, Center
+  to Center, Maximum Distance.
+* Werte lassen sich **aufsummieren**, je Grössenart getrennt.
+* **Doppelte Einheit** und **Nachkommastellen** stehen im Fenster und rendern
+  das Ergebnis neu, statt neu zu messen.
+* **Ein Wert oder alle** gehen in die Zwischenablage.
+* **Auswahlpriorität** Component / Part / Faces and Edges.
+
+Nicht übernommen, und beides mit Grund:
+
+* **MASSE.** Inventor rechnet sie aus der Dichte des Materials. Die Materialien
+  dieser App sind Aussehen und sonst nichts (`materials.dart`, erste Zeile), es
+  gäbe also keine Dichte, die jemand gewählt hätte. Stattdessen steht das
+  **Volumen** da — die Hälfte, die das Modell wirklich kennt.
+* **Vorab-Hervorhebung beim Überfahren.** Auf Glas gibt es kein Hover, ausser
+  mit Pencil und Trackpad; ein halb gebauter Hover wäre schlechter als der
+  Halo, den jeder Pick nach dem Antippen bekommt.
+
+### Aufbau — vier Dateien, und warum es vier sind
+
+```
+lib/measure.dart        was ein Paar Picks BEDEUTET, plus die Regeln der Sitzung
+lib/measure_pick.dart   was EIN Tipp IST, je Dokumentart
+lib/measure_paint.dart  wie die Messung über dem Modell AUSSIEHT
+lib/widgets/measure_panel.dart   das Fenster
+```
+
+Der Schnitt ist der von `work_features.dart` gegen `viewport3d.dart`: die
+Arithmetik will keine Kamera, der Pick will keinen Widget-Baum, und beide
+sollen auf dem Host laufen. Sie tun es — 199 Tests in drei Dateien, ohne Gerät,
+ohne Kernel.
+
+**Der 2D-Skizzierer misst durch denselben Code wie das Bauteil.** Ein
+Skizzenpunkt `(x, y)` geht als `Vec3(x, y, 0)` hinein. Abstände, Winkel und
+Flächen sind in dieser Einbettung identisch, es gibt also **eine**
+Implementierung von „der Abstand zwischen zwei Kreisen" statt einer flachen und
+einer räumlichen, die sich widersprechen können.
+
+### Die Entscheidungen, die falsch sein könnten
+
+**Der Winkel zwischen zwei Ebenen hat zwei Zahlen.** Zwei Flächen eines
+30°-Keils haben Aussennormalen 150° auseinander; zwei Flächen eines 150°-Keils
+haben sie 30° auseinander. `acos|n1·n2|` antwortet auf beide 30° und liegt
+einmal falsch. Die AUSSENNORMALE einer Fläche unterscheidet sie: die
+Flächenwinkel ist `180° − ∠(n1, n2)`. Eine Arbeitsebene hat keine
+Aussennormale — ihre Richtung ist, wo die Konstruktion sie gelassen hat — und
+bekommt deshalb den vorzeichenlosen Winkel in [0°, 90°]. Beide Fälle zeigen
+zusätzlich den **Nebenwinkel**, damit das Fenster nie auf Treu und Glauben
+geglaubt werden muss. Siehe `MeasureRef.planeIsOriented`.
+
+**Was bei zwei Linien vorn steht.** Zwei KOMPLANARE Linien treffen sich
+irgendwo — an der Ecke, die angetippt wurde, oder knapp hinter der Verrundung,
+die sie weggenommen hat — und der Winkel ist die ganze Frage. Zwei WINDSCHIEFE
+treffen sich nie, und was man von zwei rechtwinklig gebohrten Löchern wollte,
+ist ihr Abstand. Getestet wird auf den UNENDLICHEN Geraden, damit eine Gehrung
+mit weggefräster Spitze weiterhin als Winkel liest.
+
+**Der dritte Pick.** Er beginnt eine neue Messung — ausser drei PUNKTE, die der
+Drei-Punkt-Winkel sind und die einzige Drei-Pick-Lesart, die eindeutig ist.
+Dasselbe zweimal antippen nimmt es wieder heraus: ein Fehlgriff kostet einen
+Tipp und nicht die halbe Messung.
+
+**„Zur Summe" LEERT die Auswahl.** Ohne das landet der zweite Tipp einer Reihe
+neben dem ersten Pick und wird als ABSTAND gelesen — aus „summiere diese fünf
+Kanten" würde still „summiere vier Lücken". Die Summen selbst überleben
+„Neu", was die andere Hälfte derselben Regel ist.
+
+**Flächeninhalt aus der Vernetzung, nicht analytisch.** Für eine ebene Fläche
+ist die Dreieckssumme exakt — eine Triangulierung eines Polygons hat dessen
+Fläche. Für eine gekrümmte ist sie auf die Darstellungstoleranz genau, und
+genau diese Werte sind mit „≈" gekennzeichnet. Die analytische Formel
+(`r·Δu·Δv` für einen Zylinder) wäre nur für ein UNBESCHNITTENES Flächenstück
+exakt und würde jeden Zylinder mit einem Loch darin zu gross melden.
+
+**Die Naht zählt nicht zum Umfang.** Ein Zylinder wird mit VERDOPPELTEN
+Scheitelpunkten entlang seiner Naht vernetzt, eine über Indizes gezählte
+Randsuche hätte also zu den zwei Kreisen noch zweimal die Höhe addiert.
+`faceLoopLength` zählt geometrisch: beide Kopien landen in einem Eimer, der
+Eimer hält zwei, die Naht ist korrekt innen.
+
+**Körper gegen Körper hat keine geschlossene Form.** `nearestBetweenMeshes`
+läuft drei Durchgänge — Scheitelpunkte gegen Dreiecke in beide Richtungen, dann
+Kante gegen Kante — und alle drei werden gebraucht: eine kleine Platte über
+einer grossen hat ihr nächstes Paar zwischen einer ECKE und einer FLÄCHE, was
+keine Kantensuche findet; zwei Blöcke, die sich an einer Kante berühren, haben
+es zwischen zwei KANTEN. Beschnitten wird über Hüllquader, gedeckelt über ein
+Budget von drei Millionen Tests.
+
+### Wo der Tipp hingeht
+
+In allen drei Viewports steht die Mess-Verzweigung **vor** den anderen
+Pick-Modi, und `AppState.startMeasure` stellt jeden Befehl ab, der ebenfalls
+Tipps sammelt. Die Gegenrichtung ist `cancelWorkFeature()`: sechzehn Befehle
+rufen es beim Hereinkommen auf, es ist das faktische „ich nehme die Tipps
+jetzt"-Signal dieser App, und Messen hängt sich dort ein statt an sechzehn
+Stellen. `selectTool` schliesst das Fenster ebenso.
+
+Das Fenster selbst steckt in einem `ViewportWindow` (M209). Ohne das hätte ein
+Druck auf „Zur Summe" den Wert gebucht UND das gepickt, was zufällig unter dem
+Knopf lag — genau der Bericht, für den M209 geschrieben wurde, auf einem
+Fenster, das dauerhaft sammelt statt einmal.
+
+### Stand
+
+* `flutter analyze`: **66 Issues, 0 Errors** — dieselbe Zahl wie vorher.
+* Testlauf: **3600+ bestanden**. Der eine rote ist
+  `m341_accessibility_test.dart`, und er ist **nicht** von diesem Meilenstein:
+  er ruft `isSemantics` auf, das es in `flutter_test` der hier installierten
+  SDK (3.35.4) nicht gibt. Ein Werkzeugversionsproblem, kein Regress — die
+  Datei ist von M371 nicht angefasst.
+* **Nicht auf Hardware gelaufen.** Wie alles seit M192.
+
+## M373 — Eine exakte Kantenübereinstimmung ist kein Münzwurf
+
+> „i somehow cant make a radius here on the 2 top edges. it says the edges dont
+> exist but i can see them they are clearly there" (Issue #13, vom Gerät)
+
+Das Protokoll im Fehlerbericht stellt die Diagnose selbst. Der Pick und der
+Verlust stehen zwei Zeilen auseinander, auf derselben Kante, im selben Rebuild:
+
+```
+edge: pick edge 24  r=0.0000 l=310.000 k=1 m=(0.000,50.000,168.000) body=Solid1
+edge: sel[0] LOST — r=0.0000 l=310.000 k=1 m=(0.000,50.000,168.000);
+      no confident match among 30 live edges
+```
+
+Ein Fingerabdruck, der VON einer lebenden Kante genommen wurde, hat gegen genau
+diese Kante den Abstand **null**. Die Übereinstimmung war perfekt und wurde
+trotzdem verworfen.
+
+### Zwei Fragen, eine Zahl
+
+M158 hatte recht damit, einen Münzwurf zu verweigern: eine Fase, die auf der
+Innenkante eines Zapfens gewählt wurde, kam nach dem Neuaufbau auf der
+Aussenkante des Zylinders darunter wieder — weil zwei Kandidaten fast gleich
+gut passten und der bessere trotzdem nur zufällig gewann. Der Wächter war
+richtig; sein Schwellwert war es nicht:
+
+```dart
+if (!runnerUp.isInfinite && runnerUp - bestScore < tol) return null;
+```
+
+`tol` beantwortet **„wie weit darf sich diese Kante BEWEGT haben?"** und
+skaliert dafür zu Recht mit der Kantengrösse — `0.25 * (Länge + 1)`. Eine
+310 mm lange Kante darf sich weiter verschoben haben als eine 2 mm lange.
+
+Für **„ist der Sieger deutlich besser als der Zweite?"** ist das die falsche
+Zahl. Diese Frage hat mit der Länge der Kante nichts zu tun und alles damit,
+wie gut der Sieger schon ist.
+
+Auf der Platte des Nutzers — 310 x 336 x 50 — ergibt `tol` **77,75 mm**. Die
+Kante direkt darunter liegt **50 mm** entfernt. Für jeden Menschen eine andere
+Kante; für die Regel `50 - 0 < 77,75` und damit ein Münzwurf. Alle vier
+Kanten, die der Nutzer probierte, sind Oberkanten einer 50 mm hohen Platte und
+scheiterten aus genau diesem Grund.
+
+### Die Regel
+
+```dart
+final margin = math.min(tol, math.max(_kEdgeTie, bestScore));
+```
+
+Der Abstand zum Zweiten wird am **eigenen Abstand des Siegers** gemessen: der
+Zweite muss mindestens doppelt so schlecht sein. Ein Sieger mit Abstand null
+steht nicht in Frage, egal wie nah der nächste liegt; ein Sieger, der selbst
+3 mm daneben liegt und 3,4 mm hinter sich einen zweiten hat, ist der Münzwurf,
+über den M158 geschrieben wurde — und bleibt einer.
+
+Gedeckelt auf `tol`, und das ist die wichtigste Eigenschaft der Änderung: die
+neue Schranke ist **nie strenger** als die alte. Sie ist monoton — sie kann nur
+Auswahlen zurückholen, die heute verloren gehen, und keine einzige, die heute
+auflöst, zum Scheitern bringen.
+
+`_kEdgeTie` (1e-6 mm) ist der Boden darunter: zwei lebende Kanten, deren
+Fingerabdrücke auf ein Nanometer übereinstimmen, sind wirklich nicht zu
+unterscheiden.
+
+### Stand
+
+* `test/m373_edge_ambiguity_margin_test.dart`, 12 Tests. **Gegen den alten Code
+  geprüft**: fünf davon fallen ohne den Fix um, mit ihm alle grün — eine
+  Regressionsprüfung, die vorher wie nachher grün ist, prüft nichts.
+* Die Geometrie im Test ist die des Berichts, nicht erfunden: die Bbox aus
+  `state.txt` und die Fingerabdrücke aus `log.txt`.
+* M152, M158, M183, M136, M133 und `bulk_edge_info` laufen weiter durch — 109
+  Tests über den ganzen Kanten-Pfad.
+* **Nicht auf Hardware gelaufen.**
+
+---
+
+## M374 — Was ausgewählt ist, sieht auch ausgewählt aus
+
+> „I dont have a highlight what i selected or what i hover over."
+
+Zwei Lücken im Messwerkzeug aus M371, und die erste ist ein echter Fehler, keine
+Geschmacksfrage.
+
+### Warum eine Fläche nur als Punkt leuchtete
+
+`_paintPickHalo` konnte genau eine Sache: `MeasureRef.samples` als Polylinie
+nachzeichnen. Für eine Kante und für eine Skizzenkurve ist das richtig — die
+Auswahl **ist** diese Kurve. Eine **Fläche** hat aber keine Samples: sie kommt
+aus dem analytischen Flächen-Record (Ebene, Zylinder, Kegel …), und der enthält
+Achse, Radius und Bereich, aber keinen Umriss. Also fiel jeder Flächen-Tipp auf
+den letzten Zweig durch:
+
+```dart
+canvas.drawCircle(p, 9, halo);   // an der Stelle, wo der Finger landete
+```
+
+Das hebt **den Tipp** hervor, nicht die Fläche. Bei vier Flächen unter dem
+Finger — Boden, Wand, Fase, Bohrung — sagt ein Ring an der Trefferstelle
+genau nichts darüber, welche davon das Panel gerade meint. Und ein Messtipp ist
+eine **Festlegung**: er landet in den Picks, ändert die Anzeige und kostet einen
+zweiten Tipp zum Rückgängigmachen.
+
+### Die Fläche als Fläche
+
+Neu: `MeasureShape` (`measure.dart`) mit zwei Listen, und beide sind nötig, weil
+sie verschiedene Fragen beantworten.
+
+* `patch` — die Dreiecke der Fläche, eckenweise, in Weltkoordinaten. Der
+  **Farbschleier** darüber sagt **welche** Fläche. Er ist die einzige Marke,
+  die die Oberseite einer Platte von ihrer Unterseite unterscheidet, wenn beide
+  auf denselben Umriss projizieren.
+* `loops` — die Randschleifen, je eine Polylinie. Der **Strich** sagt, **wo sie
+  aufhört**. Ein Schleier allein blutet bei flachem Blickwinkel in die
+  Nachbarflächen aus, und an einem Zylinder sind es die Ränder, die sagen, dass
+  die Bohrung getroffen ist und nicht der Bund darum.
+
+`faceShape()` in `measure_pick.dart` baut beides aus derselben Schleife, die
+`faceArea` und `faceLoopLength` ohnehin über die Triangulierung machen — und aus
+demselben Grund **geometrisch statt indexbasiert**: OCCT dupliziert die Vertices
+entlang der Naht eines Zylinders, ein indexbasierter Randlauf hält beide Kopien
+für Randkanten, und dann läuft ein heller Strich mitten durch jede
+hervorgehobene Bohrung. `test/m374_measure_highlight_test.dart` hat dafür ein
+Fixture (`seamedSquare`), das genau diesen Fehler auslöst, wenn man ihn wieder
+einbaut.
+
+### Der Schleier geht durch eine Ebene, nicht direkt auf die Leinwand
+
+```dart
+canvas.saveLayer(bounds, Paint()..color = white.withValues(alpha: kMeasureWash));
+canvas.drawVertices(..., Paint()..color = T.accent);   // deckend
+canvas.restore();
+```
+
+Ein Zylinder projiziert seine Rückseite auf seine Vorderseite, ein ganzer Körper
+projiziert sich vollständig auf sich selbst. Einzeln gezeichnete transluzente
+Dreiecke stapeln sich dort: der Schleier wird doppelt so dunkel, genau da, wo
+die Fläche wegkrümmt — was wie eine Schattierung aussieht, die es nicht gibt.
+Deckend in eine Ebene und dann die **Ebene** abgeblendet komponiert die
+Überlappung einmal. Der Test dazu zeichnet zwei **deckungsgleiche** Dreiecke und
+verlangt denselben Alphawert wie bei einem.
+
+`kMeasureWash` ist 0.42 — derselbe Wert, den die Skizzenebenen-Vorhervorhebung
+in `part_render.dart` benutzt, weil es dieselbe Aussage ist.
+
+Ein **Körper** braucht dafür keine eigene Geometrie: er trägt seine
+Triangulierung und seine Anzeigekanten schon für den Abstandslöser
+(`MeasureMesh`), und der Maler greift darauf zurück, wenn keine `shape` da ist.
+Eine **geschlossene Skizzenkurve** wird ebenfalls gefüllt — eine Flächenmessung
+an zwei verschachtelten Schleifen ist sonst nicht zuzuordnen.
+
+### `shape` wird gezeichnet und nie gemessen
+
+Das ist die ganze Sicherheitsbegründung dafür, eine Triangulierung an einen Ref
+zu hängen, dessen Werte analytisch sind — und sie wird geprüft, nicht
+vorausgesetzt. Jede Ablesung mit `shape` und dieselbe mit `shape: null` müssen
+identisch sein: Einzelwert, Abstand, Winkel und `sameAs`. Die Triangulierung
+hängt an der Anzeige-Deflexion; sie in die Arithmetik zu lassen hieße, eine
+exakte Antwort durch eine auflösungsabhängige zu ersetzen.
+
+`withShape()` ist eine Kopie statt eines Parameters an allen vierzehn Factories:
+die Factories nehmen analytische Records, und ein reines Zeichenargument durch
+jede von ihnen zu fädeln würde es genau dorthin legen, wo ein Löser danach
+greifen kann.
+
+### Vorhervorhebung
+
+`MeasureSession.hover`, gesetzt aus dem Hover-Handler aller drei Viewports über
+**denselben Picker, den der Tipp benutzt** — eine Vorhervorhebung, die etwas
+anderes auswählen würde als der Tipp, wäre eine Lüge, und Verlässlichkeit ist
+ihre einzige Aufgabe.
+
+Regeln, alle in Tests:
+
+* Sie ist **kein Pick**. Nichts liest sie außer dem Maler; die Ablesung sieht
+  sie nie.
+* Etwas bereits **Ausgewähltes** hebt nicht vor — es leuchtet schon, und eine
+  blassere Marke über einer helleren liest sich nur als Flackern.
+* Ein Pick löscht die Vorhervorhebung, die zu ihm geführt hat.
+* `setHover` meldet, **ob** sich etwas geändert hat; nur dann wird neu gezeichnet.
+  Ohne das kostet Hover auf einer Fläche sechzig Repaints pro Sekunde statt einem
+  beim Betreten.
+
+Ein Faktor (`kMeasureHoverFade`, 0.45) auf jede Marke trennt sie vom Pick.
+Alles andere — zweite Farbe, gestrichelter Rand — müsste man lernen; „die
+blasse ist die, die du gleich nimmst" nicht.
+
+Der Zeiger bekommt in allen drei Viewports das Fadenkreuz, solange gemessen
+wird, und `onExit` löscht die Vorhervorhebung: sonst bleibt die letzte Fläche
+über einem Viewport hell, in dem der Zeiger längst nicht mehr ist.
+
+**Auf Glas gibt es kein Hover.** Das ist kein Rückschritt gegenüber M371 — dort
+gab es sie überhaupt nicht — und die Hälfte, die der Bericht wirklich meinte,
+die Hervorhebung des **Ausgewählten**, funktioniert mit dem Finger genauso.
+
+### Stand
+
+* `test/m374_measure_highlight_test.dart`, 27 Tests. Die entscheidenden
+  **rastern die Überlagerung und zählen Pixel**: „das Feld ist gesetzt" ist
+  nicht die Fehlermeldung, „ich sehe nichts" ist es. **Gegen den alten Code
+  geprüft**: drei fallen ohne den Fix um.
+* Die 199 Tests aus M371 laufen unverändert durch.
+* `flutter analyze`: 0 Fehler, keine neue Meldung.
+* **Nicht auf Hardware gelaufen.**

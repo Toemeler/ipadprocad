@@ -104,7 +104,7 @@ target_include_directories(qcadentity PUBLIC
 
 target_compile_definitions(qcadentity PRIVATE
     QCADENTITY_LIBRARY
-    QCAD_DLL
+    ${QCAD_DLL_DEFS}
 )
 
 if (CMAKE_BUILD_TYPE STREQUAL "Release")

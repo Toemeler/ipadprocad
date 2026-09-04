@@ -221,7 +221,7 @@ target_include_directories(qcadcore PUBLIC
 
 target_compile_definitions(qcadcore PRIVATE
     QCADCORE_LIBRARY
-    QCAD_DLL
+    ${QCAD_DLL_DEFS}
 )
 
 if (CMAKE_BUILD_TYPE STREQUAL "Release")

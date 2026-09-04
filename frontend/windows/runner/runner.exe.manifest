@@ -11,4 +11,28 @@
       <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}"/>
     </application>
   </compatibility>
+  <!-- COMMON CONTROLS VERSION 6, AND THE APP DOES NOT LOAD WITHOUT IT.
+       Not a theming nicety. There are two comctl32.dll: the v5.82 stub in
+       System32, which is what an unmanifested process gets, and the v6
+       side-by-side assembly in WinSxS. TaskDialogIndirect exists only in the
+       second one, and comctl32.lib imports it BY ORDINAL (#345) rather than by
+       name — so a process without this dependency resolves COMCTL32 to the
+       v5 stub, finds no ordinal 345 in it, and is killed by the loader before
+       main() with STATUS_ORDINAL_NOT_FOUND (0xC0000138). No window, no log,
+       nothing on stdout: there is no process yet to write any of it.
+       native_menu_plugin.cpp calls TaskDialogIndirect for the modal dialogs,
+       so this applies to every build, not to a code path a user might avoid.
+       Flutter's own runner template omits this block; a plugin that touches
+       the v6-only API surface is what makes it mandatory. -->
+  <dependency>
+    <dependentAssembly>
+      <assemblyIdentity
+          type="win32"
+          name="Microsoft.Windows.Common-Controls"
+          version="6.0.0.0"
+          processorArchitecture="*"
+          publicKeyToken="6595b64144ccf1df"
+          language="*"/>
+    </dependentAssembly>
+  </dependency>
 </assembly>

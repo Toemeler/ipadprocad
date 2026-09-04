@@ -63,7 +63,7 @@ target_include_directories(qcadoperations PUBLIC
 
 target_compile_definitions(qcadoperations PRIVATE
     QCADOPERATIONS_LIBRARY
-    QCAD_DLL
+    ${QCAD_DLL_DEFS}
 )
 
 if (CMAKE_BUILD_TYPE STREQUAL "Release")

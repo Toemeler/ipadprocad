@@ -32,7 +32,18 @@ RUN="${GITHUB_RUN_NUMBER:?}"
 SHA="${GITHUB_SHA:?}"
 RUN_ID="${GITHUB_RUN_ID:-0}"
 
-TAG="build-${RUN}"
+# ONE RELEASE PER COMMIT, AND ALL THREE PLATFORMS PUT THEIR BUILD IN IT.
+#
+# This used to be build-<run number>, which no other workflow can compute: the
+# Linux and Windows workflows have their own run numbers and there is no way
+# from inside one to learn another's. Keying the tag to the COMMIT gives all
+# three the same answer without any of them talking to the others, so a push
+# to main produces one release page carrying the IPA, the AppImage and the
+# Windows zip rather than three pages carrying one file each.
+#
+# The run number stays where it was meaningful — the version string and the
+# AltStore buildVersion, which are iOS's alone and have to keep counting up.
+TAG="build-${SHA:0:7}"
 VERSION="0.1.${RUN}"
 BUNDLE_ID="com.prototype.prototype"
 ASSET_NAME="ipadprocad-${RUN}.ipa"
@@ -141,13 +152,29 @@ Unsigned — SideStore signs it on the device. Install: \`sidestore://install?ur
 EOF
 )"
 
+# CREATE-IF-MISSING, then set the notes and upload. The Linux and Windows
+# workflows publish into this same tag and may get there first, in which case
+# the release already exists and `gh release create` would fail with a 422 —
+# so its failure is not an error here. What must not be conditional is the
+# rest: iOS is the one writer of the notes and the title (the desktop jobs
+# only ever attach assets), so it sets them whether it created the release or
+# found it, and --clobber makes the upload idempotent on a re-run.
 gh release create "$TAG" \
-  "$WORKDIR/$ASSET_NAME" "$WORKDIR/source.json" "$WORKDIR/latest.json" \
   --repo "$REPO" \
   --target "$SHA" \
   --title "Build ${RUN} — ${SUBJECT}" \
   --notes "$NOTES" \
+  --latest 2>/dev/null || echo "release ${TAG} already exists (a desktop job got here first)"
+
+gh release edit "$TAG" \
+  --repo "$REPO" \
+  --title "Build ${RUN} — ${SUBJECT}" \
+  --notes "$NOTES" \
   --latest
+
+gh release upload "$TAG" \
+  "$WORKDIR/$ASSET_NAME" "$WORKDIR/source.json" "$WORKDIR/latest.json" \
+  --repo "$REPO" --clobber
 
 # ---------------------------------------------------------------------- prune
 # 15 builds ≈ 400 MB. Older ones go, tag and all — the rollback window that

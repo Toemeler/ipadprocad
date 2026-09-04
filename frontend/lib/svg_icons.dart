@@ -409,6 +409,28 @@ final Map<String, String> VW = {
           'fill="none" stroke="$G" stroke-width="1.1"/>'),
 };
 
+// ==== M371: Measure ====
+//
+// Inventor's Measure icon is a caliper over a dimension line, and both halves
+// are load-bearing: the caliper says "this reads a size" and the dimension
+// line says "between two things you point at". Drawn in the same language as
+// every other icon here — light grey geometry, blue for the part that is
+// about the DATA (the jaws that touch the model, and the value), grey ticks.
+final Map<String, String> MS = {
+  'measure': S(
+      34,
+      // the dimension line, with its extension lines and arrowheads
+      '<path d="M7 25.5v3.5M27 25.5v3.5" stroke="$DIM" stroke-width="1.2"/>'
+          '<path d="M7 27.5h20" stroke="$G" stroke-width="1.4"/>'
+          '<path d="M7 27.5l3.4-1.7v3.4zM27 27.5l-3.4-1.7v3.4z" fill="$BL" '
+          'stroke="none"/>'
+          // the ruler body, with its scale
+          '<rect x="5" y="7" width="24" height="10" rx="1.6" fill="none" '
+          'stroke="$G" stroke-width="1.5"/>'
+          '<path d="M9 7v4M13 7v2.6M17 7v4M21 7v2.6M25 7v4" stroke="$DIM" '
+          'stroke-width="1.1"/>'),
+};
+
 // ==== M56: 3D part UI (ported verbatim from the prototype-ui.html dummy) ====
 
 // Create panel (3D part features)

@@ -127,7 +127,7 @@ class SettingsSheet {
         ribbonNames: RibbonLabels.on, // M349
         samples: RenderSamples.current, // M367
         diagnostics: BugReport.enabled,
-        // M373 — the code as it READS, not as it is stored: the sheet is where
+        // M381 — the code as it READS, not as it is stored: the sheet is where
         // someone copies it off one screen onto another, so it is grouped.
         shareCode: ShareCodes.current.value == null
             ? null
@@ -288,7 +288,7 @@ class SettingsSheet {
     }
   }
 
-  /// M373 — the sharing rows.
+  /// M381 — the sharing rows.
   ///
   /// Three verbs and one read-only line. The prompt is the app's own
   /// [promptForText], so on the iPad it is a UIAlertController with a text

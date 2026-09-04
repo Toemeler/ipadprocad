@@ -219,6 +219,13 @@ echo "copied $copied libraries into $deps ($(du -sh "$deps" | cut -f1))"
 #
 # Rewriting the runpath of everything that ships takes the whole question away:
 # no inheritance, no ordering, every library finds its neighbours.
+#
+# --force-rpath, so the entry written is DT_RPATH and not the DT_RUNPATH that
+# patchelf writes by default. It is read the same way for the library's own
+# dependencies, and it keeps the inherited path as a fallback UNDERNEATH it
+# rather than replacing it: a library whose own entry is somehow wrong is then
+# still found along the rpath of whatever loaded it, instead of disappearing.
+# The Cycles closure lost five libraries that way and its script says more.
 if ! command -v patchelf >/dev/null 2>&1; then
   echo "patchelf is required to make the bundle self-contained." >&2
   echo "  sudo apt-get install patchelf" >&2
@@ -226,9 +233,9 @@ if ! command -v patchelf >/dev/null 2>&1; then
 fi
 for lib in "$deps"/*.so*; do
   [ -f "$lib" ] || continue
-  patchelf --set-rpath '$ORIGIN' "$lib"
+  patchelf --force-rpath --set-rpath '$ORIGIN' "$lib"
 done
-echo "runpath set to \$ORIGIN on every bundled library"
+echo "rpath set to \$ORIGIN on every bundled library"
 
 # THE INVARIANT, checked rather than reasoned about.
 #

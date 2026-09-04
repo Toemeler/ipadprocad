@@ -80,6 +80,10 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
             binaryMessenger: registrar.messenger())
         let instance = NativeMenuPlugin(channel: channel)
         registrar.addMethodCallDelegate(instance, channel: channel)
+        // M381 — the share code's discovery half. Registered unconditionally:
+        // it is a pair of channels, and a build where nobody turns sharing on
+        // never starts a NetService.
+        SyncDiscovery.register(with: registrar)
         // M178 — iPadOS floats its keyboard shortcuts bar over the bottom of
         // the screen the moment any field takes focus, on top of the app's own
         // tab bar. Suppressed once, for every text field in the app.
