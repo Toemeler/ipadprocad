@@ -128,7 +128,10 @@ jobs:
           host: windows
           target: desktop
           arch: win64_msvc2022_64
-          cache: true
+          # No cache here either, and the arithmetic is the same as the SDK's
+          # below: a cache hit made this step 8 seconds instead of 56, and cost
+          # something like a gigabyte and a half of the 10 GB the repository
+          # gets. The OpenCASCADE tree it evicts costs thirty-one minutes.
 
       - uses: actions/download-artifact@v4
         with:
@@ -365,10 +368,35 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # dumpbin, for the bundle's closure walk below. The Flutter build finds
+      # MSVC by itself through vswhere, so this job never needed the developer
+      # environment until that check was added — and the check failed on its
+      # first run for exactly that reason, before the launch check it was meant
+      # to inform.
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      # NO `cache: true`, deliberately, and this is not a small thing.
+      #
+      # flutter-action downloads the SDK either way; the cache only replaces
+      # that download with a restore, worth some tens of seconds. What it costs
+      # is about two gigabytes of the repository's cache, twice — once here and
+      # once on Linux — and GitHub keeps 10 GB per repository and evicts the
+      # LEAST RECENTLY USED entry when it runs out.
+      #
+      # The entries that lose that race are the two OpenCASCADE install trees.
+      # They are 58 MB each and they cost THIRTY-ONE MINUTES to rebuild, so
+      # every eviction turns a twenty-minute run into a fifty-minute one. It
+      # happened twice this afternoon: a push to main ran the iOS workflow,
+      # whose caches are large, and the desktop OCCT entries went from a hit at
+      # 14:15 to a miss at 14:38 on both platforms at once.
+      #
+      # So the SDK is downloaded fresh each run and the expensive thing stays
+      # cached. That is the right way round.
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-          cache: true
 
       # BOTH libraries into one directory, which is what the app's CMake
       # expects: prototype_native.dll, prototype_cycles.dll and one merged

@@ -287,10 +287,13 @@ jobs:
           sudo apt-get install -y -qq clang cmake ninja-build pkg-config \
             libgtk-3-dev liblzma-dev libstdc++-12-dev zenity xvfb
 
+      # No `cache: true`: the SDK download is tens of seconds and the cache
+      # entry is gigabytes, and GitHub's 10 GB per repository is what decides
+      # whether the OpenCASCADE tree beside it survives — 58 MB that costs
+      # thirty-one minutes to rebuild. windows-build.yml says this at length.
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-          cache: true
 
       - uses: actions/download-artifact@v4
         with:
