@@ -378,6 +378,45 @@ void main() {
       expect(SyncStore(dir).load(), isNull);
     });
   });
+
+  group('the beacon goes everywhere it has to', () {
+    // The limited broadcast alone reaches ONE interface — whichever owns the
+    // default route — so a laptop docked to Ethernet while on Wi-Fi, or any
+    // Windows machine with Hyper-V's virtual adapters, would announce itself
+    // on one network and be silent on the other.
+    test('every interface gets a directed broadcast, and the limited one goes '
+        'as well', () {
+      final a = broadcastAddressesFor(['192.168.1.42', '10.0.0.7'])
+          .map((e) => e.address)
+          .toList();
+      expect(a.first, '255.255.255.255');
+      expect(a, contains('192.168.1.255'));
+      expect(a, contains('10.0.0.255'));
+      expect(a, hasLength(3));
+    });
+
+    test('two addresses on one subnet are one broadcast, not two', () {
+      final a = broadcastAddressesFor(['192.168.1.42', '192.168.1.43'])
+          .map((e) => e.address)
+          .toList();
+      expect(a, ['255.255.255.255', '192.168.1.255']);
+    });
+
+    test('no interfaces still broadcasts', () {
+      expect(broadcastAddressesFor(const []).map((e) => e.address),
+          ['255.255.255.255']);
+    });
+
+    test('nonsense from the interface list does not throw', () {
+      // NetworkInterface is asked for IPv4 only, but a defensive read costs
+      // nothing and an exception in the beacon timer would stop the mirror
+      // announcing itself for the rest of the session.
+      final a = broadcastAddressesFor(['', 'fe80::1', 'not.an.address.at.all'])
+          .map((e) => e.address)
+          .toList();
+      expect(a.first, '255.255.255.255');
+    });
+  });
 }
 
 /// The same hash the mirror uses, computed the same way, so a test that passes

@@ -157,6 +157,7 @@ class LanSync {
   ServerSocket? _server;
   Timer? _announce;
   Timer? _scan;
+  Timer? _interfaces;
   StreamSubscription<FileSystemEvent>? _watchDocs;
   StreamSubscription<FileSystemEvent>? _watchPrefs;
   Timer? _poll;
@@ -260,6 +261,9 @@ class LanSync {
       await _startServer();
       await _startBeacon();
       _watchLocal();
+      unawaited(_refreshInterfaces());
+      _interfaces = Timer.periodic(
+          const Duration(seconds: 30), (_) => unawaited(_refreshInterfaces()));
       _announce = Timer.periodic(const Duration(seconds: 2), (_) => _sendBeacon());
       _scan = Timer.periodic(const Duration(seconds: 5), (_) => _sweep());
       _sendBeacon();
@@ -273,8 +277,9 @@ class LanSync {
   Future<void> _stop() async {
     _announce?.cancel();
     _scan?.cancel();
+    _interfaces?.cancel();
     _poll?.cancel();
-    _announce = _scan = _poll = null;
+    _announce = _scan = _interfaces = _poll = null;
     await _watchDocs?.cancel();
     await _watchPrefs?.cancel();
     _watchDocs = _watchPrefs = null;
@@ -339,8 +344,43 @@ class LanSync {
     }
   }
 
+  /// 255.255.255.255 plus one directed broadcast per interface.
+  ///
+  /// The limited broadcast alone is not enough on a machine with more than one
+  /// interface — a socket bound to 0.0.0.0 sends it out the DEFAULT route and
+  /// nowhere else, so a laptop on Wi-Fi with a docking Ethernet, or any
+  /// Windows box with Hyper-V's virtual adapters, announces itself on one
+  /// network and is silent on the other. A directed broadcast goes out the
+  /// interface that owns the subnet.
+  ///
+  /// THE /24 IS AN ASSUMPTION and it is stated rather than hidden: Dart's
+  /// NetworkInterface gives addresses and no netmasks, so there is nothing to
+  /// derive the real prefix from. It is right for essentially every home and
+  /// office network, wrong for the rare /16, and the cost of being wrong is
+  /// one datagram that nothing answers — the limited broadcast is still sent,
+  /// and a peer that hears either one pairs.
   List<InternetAddress> _broadcastAddresses() =>
-      <InternetAddress>[InternetAddress('255.255.255.255')];
+      broadcastAddressesFor(_localV4);
+
+  /// The IPv4 addresses of this machine, refreshed on a slow timer.
+  ///
+  /// Cached because NetworkInterface.list() is asynchronous and the beacon is
+  /// not, and because enumerating interfaces every two seconds to learn
+  /// something that changes when a cable is plugged in is work for nothing.
+  List<String> _localV4 = const <String>[];
+
+  Future<void> _refreshInterfaces() async {
+    try {
+      final ifs = await NetworkInterface.list(
+          type: InternetAddressType.IPv4, includeLoopback: false);
+      _localV4 = <String>[
+        for (final i in ifs)
+          for (final a in i.addresses) a.address,
+      ];
+    } catch (e) {
+      Log.w('sync', 'could not list the interfaces: $e');
+    }
+  }
 
   void _onBeacon(Datagram dg) {
     if (_fp == null) return;
@@ -991,4 +1031,26 @@ class _SyncSession {
     }
     _sync._forget(this);
   }
+}
+
+/// The addresses a beacon goes to, given this machine's IPv4 addresses.
+///
+/// A free function rather than a method because it is the one part of the
+/// beacon that is pure — a list of strings in, a list of addresses out — and
+/// therefore the one part that can be tested without a network.
+List<InternetAddress> broadcastAddressesFor(List<String> localV4) {
+  final out = <InternetAddress>[InternetAddress('255.255.255.255')];
+  final seen = <String>{};
+  for (final a in localV4) {
+    final dot = a.lastIndexOf('.');
+    if (dot <= 0) continue;
+    final directed = '${a.substring(0, dot)}.255';
+    if (directed == '255.255.255.255' || !seen.add(directed)) continue;
+    try {
+      out.add(InternetAddress(directed));
+    } catch (_) {
+      // Not an address after all; the limited broadcast still goes.
+    }
+  }
+  return out;
 }
