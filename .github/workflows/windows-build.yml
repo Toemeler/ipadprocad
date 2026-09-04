@@ -190,6 +190,7 @@ jobs:
             Write-Host "WINDOWS KERNELS: FAIL"; exit 1
           }
           Write-Host "WINDOWS KERNELS: PASS"
+          exit 0  # not the smoke exe's status; see the path-tracer verdict
 
       # Nothing but the three C APIs may leave this library — the same check
       # the Linux job makes, through the tool this platform has.
@@ -213,6 +214,7 @@ jobs:
             exit 1
           }
           Write-Host "EXPORT CHECK: PASS"
+          exit 0  # not dumpbin's status; see the path-tracer verdict
 
       - uses: actions/upload-artifact@v4
         with:
@@ -333,6 +335,13 @@ jobs:
             Write-Host "note: the probe answered and then exited $probeCode"
           }
           Write-Host "CYCLES: PASS"
+          # THE STEP'S STATUS, SAID. GitHub runs a pwsh step as
+          #   . '<script>'; if (Test-Path variable:\LASTEXITCODE) { exit $LASTEXITCODE }
+          # so the step exits with whatever the last NATIVE command returned —
+          # here the probe — and Write-Host does not clear it. "CYCLES: PASS"
+          # followed by "Process completed with exit code 1" is what that looks
+          # like. Every failure above exits 1 for itself.
+          exit 0
 
       - uses: actions/upload-artifact@v4
         with:
@@ -448,6 +457,10 @@ jobs:
             }
           }
           Write-Host "WINDOWS LAUNCH: PASS"
+          # And emphatically not the app's status: this step STOPS the app
+          # to end the check, so the process it last ran was always going to
+          # die by a signal. The verdict is the log, which is read above.
+          exit 0
 
       - name: Package
         shell: pwsh
