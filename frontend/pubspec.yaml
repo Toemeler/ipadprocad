@@ -20,6 +20,10 @@ dependencies:
   # localisations import it directly.
   intl: any
   ffi: ^2.1.0
+  # M373 — SHA-256 and HMAC, for the share code's key and the mirror's
+  # per-file hash. Already in the tree as a transitive dependency of http;
+  # named here because this app now uses it directly.
+  crypto: ^3.0.3
   # M285 — POSTs a bug bundle to the relay in relay/; see bug_upload.dart.
   http: ^1.2.2
   # In-repo iOS plugin (real UIKit context menus / share sheet / Files export).

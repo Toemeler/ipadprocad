@@ -436,6 +436,61 @@ without OIDN too, so this is a difference of degree rather than of kind.
 
 ---
 
+## Sharing between devices
+
+Type the same share code in Settings on two devices on one network and they
+hold the same documents and the same settings — no account, no server, nothing
+leaving the network. `frontend/lib/sync/` is the whole of it:
+
+| | |
+|---|---|
+| `share_code.dart` | the code: twelve characters of a 28-symbol alphabet with the look-alikes removed, and the two things derived from it — a key for the handshake and a fingerprint for the beacon, domain-separated so hearing one tells you nothing about the other |
+| `sync_protocol.dart` | one frame shape for everything: a length, a JSON header, an optional body |
+| `lan_sync.dart` | the beacon, the listener, the manifest reconciliation and the file watcher |
+| `sync_store.dart` | the code, remembered in the same `settings.json` as every other preference |
+
+Three properties are worth stating because they are choices rather than
+limitations:
+
+* **It never deletes.** A document on any device ends up on all of them; a
+  document deleted on one is restored from another. The failure mode of a
+  delete that propagates through a bug is losing work everywhere at once.
+* **The device you are working on keeps its work.** An incoming document lands
+  on disk, but a document that is OPEN here is not reloaded under your hands —
+  the next save from this device wins.
+* **The share code does not travel.** It is the one key in `settings.json` the
+  mirror will not copy. A device that could write another device's code could
+  switch its sharing off, which is a remote control rather than a preference.
+
+It is not encrypted. The handshake is authenticated — a peer answers a nonce it
+did not choose, with a key derived from the code — so nothing pairs without the
+code; the bytes then cross in the clear, on the same footing as an unencrypted
+file share. The settings footer says so rather than implying a privacy property
+it does not have.
+
+### Testing it without two machines
+
+`desktopAppDirectory()` reads `XDG_DATA_HOME`, so two instances with different
+values are two installs as far as the app is concerned, and the loopback
+broadcast is a real one:
+
+```sh
+mkdir -p /tmp/A/prototype/.cache /tmp/B/prototype/.cache
+for d in A B; do
+  printf '{"sync":{"code":"ABCDEFGHJKLM"}}' > /tmp/$d/prototype/.cache/settings.json
+done
+cp some.ptp /tmp/A/prototype/
+XDG_DATA_HOME=/tmp/A ./prototype &
+XDG_DATA_HOME=/tmp/B ./prototype &
+# /tmp/B/prototype/some.ptp appears in about a second; both logs say why.
+```
+
+Everything that decides WHAT crosses — the code, the framing, the conflict
+rule, the path checks, the settings merge — is pinned in
+`test/m373_lan_sync_test.dart`.
+
+---
+
 ## Windows
 
 The port was shaped for it, and the shape held: everything above that says
