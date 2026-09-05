@@ -563,8 +563,8 @@ class SceneBuilder {
         ),
         // Colors.orange / Colors.green, matching PlaneEntity.applyColors.
         _line(hot
-            ? const Vector4(0.2235, 0.8392, 0.3569, 0.42)
-            : const Vector4(0.9176, 0.6196, 0.3608, 0.28)),
+            ? Vector4(0.2235, 0.8392, 0.3569, 0.42)
+            : Vector4(0.9176, 0.6196, 0.3608, 0.28)),
       ),
     );
   }

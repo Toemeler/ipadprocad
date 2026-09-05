@@ -239,7 +239,11 @@ class MdnsFallback {
         if (r.type == _kTypeA && r.name.toLowerCase() == target) a = r;
       }
     }
-    final host = a?.aAddress ?? _hostHint(msg.sourceAddress);
+    // `.address`, because the two halves of this ?? are different types:
+    // aAddress is an InternetAddress and _hostHint already returns its
+    // `.address` string. Without it the expression is an Object, which is
+    // what SyncSighting.host — a String — refused.
+    final host = a?.aAddress?.address ?? _hostHint(msg.sourceAddress);
     if (host == null) return;
 
     final kv = txt?.txtEntries ?? const <String, String>{};
