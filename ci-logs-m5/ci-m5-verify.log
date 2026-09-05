@@ -1,0 +1,39 @@
+M6 QIOS CHECK: PASS (no qt_main_wrapper in Runner)
+M5 LINK CHECK: PASS (C-API version string present in Runner binary)
+SLVS LINK CHECK: PASS (libslvs shim marker present in Runner binary)
+OCCT MARKER CHECK: PASS (OCCT shim version string present in Runner binary)
+OCCT LINK CHECK: PASS (60 _occt_* symbols exported in Runner)
+REALITYKIT LINK CHECK: PASS (RealityKit framework linked into Runner)
+THUMB CHANNEL CHECK: PASS (off-screen still renderer present in bundle)
+KEYBOARD BAR CHECK: PASS (shortcuts-bar suppressor present in bundle)
+0000000100019548 T _qcad_add_arc
+0000000100019300 T _qcad_add_circle
+0000000100018cc0 T _qcad_add_line
+00000001000197e4 T _qcad_add_polyline
+0000000100019c08 T _qcad_bounding_box
+00000001000184fc T _qcad_document_free
+000000010001849c T _qcad_document_new
+0000000100019a78 T _qcad_entity_count
+000000010001a05c T _qcad_entity_geometry
+0000000100019d30 T _qcad_entity_ids
+0000000100018a90 T _qcad_entity_layer
+0000000100018000 T _qcad_init
+000000010001856c T _qcad_layer_add
+000000010001ad18 T _qcad_load_dxf
+000000010001aefc T _qcad_save_dxf
+0000000100018988 T _qcad_set_current_layer
+0000000100018278 T _qcad_version
+CYCLES KERNEL CHECK: PASS (9.0M bundled)
+CYCLES ASSETS: 1 file(s) bundled
+  5.6M  build/ios/iphoneos/Runner.app/cycles/assets/hdri/studio.hdr
+HDRI CHECK: studio.hdr (5.6 MB)
+  2048 x 1024, aspect 2.000
+  mean luminance 0.8312, peak 33.9  (peak is 41x the mean)
+  above 1.0: 2.319% of the sphere
+  brightest 0.1% of the sphere carries 3.2% of the light
+  brightest 1.0% of the sphere carries 27.0% of the light
+  VERDICT: looks like a real HDRI — defined sources well above the surround, which is what draws a highlight on an edge.
+CYCLES DYLIBS: embedded 12
+CYCLES DYLIBS: PASS (every load command is bundle-relative and present)
+CYCLES LINK CHECK: PASS (17 _cy_* symbols exported in Runner)
+-rw-r--r--  1 runner  staff  90552931 Sep  5 08:25 ../prototype-unsigned.ipa

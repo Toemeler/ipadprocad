@@ -1,7 +1,7 @@
-Flutter 3.44.6 • channel stable • https://github.com/flutter/flutter.git
-Framework • revision ee80f08bbf (3 days ago) • 2026-07-08 15:02:06 -0700
-Engine • hash d3a3293399556a85388faf8c6f0723a7a5597aa8 (revision 83675ed276) (11 days ago) • 2026-06-30 16:59:03.000Z
-Tools • Dart 3.12.2 • DevTools 2.57.0
+Flutter 3.47.2 • channel stable • https://github.com/flutter/flutter.git
+Framework • revision d3b14c8769 (9 days ago) • 2026-08-26 16:07:51 -0700
+Engine • hash 1cf1c4773fb941c4c74a7f8bb144a8837596c0f4 (revision a804b26164) (9 days ago) • 2026-08-26 18:46:13.000Z
+Tools • Dart 3.13.2 • DevTools 2.60.0
 Recreating project ....
   ios/Runner.xcworkspace/contents.xcworkspacedata (created)
   ios/Runner.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist (created)
@@ -43,8 +43,7 @@ Recreating project ....
   ios/Flutter/Release.xcconfig (created)
   ios/Flutter/AppFrameworkInfo.plist (created)
   ios/.gitignore (created)
-  ipadprocad.iml (created)
-  .gitignore (created)
+  prototype.iml (created)
   README.md (created)
   analysis_options.yaml (created)
   .idea/runConfigurations/main_dart.xml (created)
@@ -56,7 +55,8 @@ Recreating project ....
 Resolving dependencies...
 Downloading packages...
 Got dependencies.
-Wrote 50 files.
+Upgrading analysis_options.yaml to exclude build and platform directories.
+Wrote 49 files.
 
 All done!
 You can find general documentation for Flutter at: https://docs.flutter.dev/
@@ -69,18 +69,105 @@ In order to run your application, type:
 
 Your application code is in ./lib/main.dart.
 
+      16
 true
+true
+Array {
+    _prototypesync._tcp
+}
+true
+Array {
+    Dict {
+        UTTypeIdentifier = public.standard-tesselated-geometry-format
+        UTTypeDescription = STL Mesh
+        UTTypeConformsTo = Array {
+            public.data
+        }
+        UTTypeTagSpecification = Dict {
+            public.filename-extension = Array {
+                stl
+            }
+        }
+    }
+    Dict {
+        UTTypeIdentifier = public.geometry-definition-format
+        UTTypeDescription = Wavefront OBJ
+        UTTypeConformsTo = Array {
+            public.data
+        }
+        UTTypeTagSpecification = Dict {
+            public.filename-extension = Array {
+                obj
+            }
+        }
+    }
+    Dict {
+        UTTypeIdentifier = org.3mf.3dmanufacturing
+        UTTypeDescription = 3D Manufacturing Format
+        UTTypeConformsTo = Array {
+            public.zip-archive
+        }
+        UTTypeTagSpecification = Dict {
+            public.filename-extension = Array {
+                3mf
+            }
+        }
+    }
+}
+Array {
+    Dict {
+        UTTypeIdentifier = com.prototype.part
+        UTTypeDescription = Prototype Part
+        UTTypeConformsTo = Array {
+            public.data
+        }
+        UTTypeTagSpecification = Dict {
+            public.filename-extension = Array {
+                ptp
+            }
+        }
+    }
+    Dict {
+        UTTypeIdentifier = com.prototype.sketch
+        UTTypeDescription = Prototype Sketch
+        UTTypeConformsTo = Array {
+            public.data
+        }
+        UTTypeTagSpecification = Dict {
+            public.filename-extension = Array {
+                pts
+            }
+        }
+    }
+}
 Resolving dependencies...
 Downloading packages...
+  code_assets 1.2.1 (2.0.0 available)
+  file_picker 8.3.7 (12.2.0 available)
   flutter_lints 3.0.2 (6.0.0 available)
+  hooks 2.0.2 (2.2.0 available)
   lints 3.0.0 (6.1.0 available)
-  matcher 0.12.19 (0.12.20 available)
-  meta 1.18.0 (1.19.0 available)
-  package_config 2.2.0 (3.0.0 available)
-  test_api 0.7.11 (0.7.13 available)
-  vector_math 2.2.0 (2.4.0 available)
+  material_color_utilities 0.13.0 (0.13.1 available)
+  meta 1.18.3 (1.19.0 available)
+  objective_c 9.5.0 (9.6.0 available)
+  record_use 0.6.0 (1.1.1 available)
+  test_api 0.7.12 (0.7.14 available)
+  vector_math 2.4.0 (2.4.2 available)
+  win32 5.15.0 (6.4.0 available)
 Got dependencies!
-7 packages have newer versions incompatible with dependency constraints.
+12 packages have newer versions incompatible with dependency constraints.
 Try `flutter pub outdated` for more information.
 Warning: Building for device with codesigning disabled. You will have to manually codesign before deploying to device.
-Building com.ipadprocad.ipadprocad for device (ios-release)...
+Xcode is fetching Swift Package Manager dependencies. This may take several minutes...
+  Fetching from https://github.com/zhangao0086/DKImagePickerController...     
+  Fetching from https://github.com/zhangao0086/DKCamera...      
+  Fetching from https://github.com/zhangao0086/DKPhotoGallery...     
+  Fetching from https://github.com/kirualex/SwiftyGif.git...     
+  Fetching from https://github.com/SDWebImage/SDWebImage...     
+  Fetching from https://github.com/TimOliver/TOCropViewController...     
+Building com.prototype.prototype for device (ios-release)...
+The following plugins do not support Swift Package Manager for ios:
+  - native_menu
+  - reality_view
+This will become an error in a future version of Flutter. Please contact the plugin maintainers to request Swift Package Manager adoption.
+Running pod install...                                           1,646ms
