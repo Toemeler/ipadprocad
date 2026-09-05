@@ -127,6 +127,16 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}
 ; not anything is already there.
 ; ---------------------------------------------------------------------------
 [Code]
+const
+  // A LINE MAY NOT BEGIN WITH '#'. The Inno preprocessor reads the first
+  // non-space character of every line, [Code] included, and takes '#' as the
+  // start of a directive — so a continuation line beginning `#13#10 + ...`
+  // is read as an unknown directive named `13` and the compile aborts before
+  // Pascal ever sees it. Mid-line it is fine, which is why only one of the
+  // four line breaks in InitializeWizard's caption below was the fault.
+  // Naming it removes the trap rather than tiptoeing around it.
+  CRLF = #13#10;
+
 function GetUninstallString(): String;
 var
   key: String;
@@ -164,10 +174,10 @@ begin
   begin
     WizardForm.WelcomeLabel2.Caption :=
       'An earlier version of {#MyAppName} is already installed on this ' +
-      'computer.' + #13#10 + #13#10 +
+      'computer.' + CRLF + CRLF +
       'Click Next to update it to version {#MyAppVersion} - your ' +
       'documents and settings are not touched, only the app itself.' +
-      #13#10 + #13#10 +
+      CRLF + CRLF +
       'To remove {#MyAppName} instead, close this window and use ' +
       '"Uninstall {#MyAppName}" from the Start Menu, or "Installed apps" ' +
       'in Windows Settings.';
