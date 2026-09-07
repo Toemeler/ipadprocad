@@ -343,7 +343,27 @@ jobs:
             }
           }
           if ($status -ne 0) {
-            Write-Host "WINDOWS RENDER: FAIL (exit $status)"; exit 1
+            # M383 — SAY WHICH HALF FAILED. The first Windows run of this test
+            # reported every check as `ok`, printed its own PASS, and then died
+            # with 0xC0000005: an access violation with `main` already
+            # finished. Read off the exit code alone that is "the render test
+            # failed", which is the opposite of what the log says — the
+            # renderer had just proved it renders, converges and denoises at
+            # two megapixels. What crashed was the way out.
+            $rendered = Select-String -Path "$out/render-test.log" `
+                          -Pattern 'RENDER TEST: PASS' -SimpleMatch -Quiet
+            $returned = Select-String -Path "$out/render-test.log" `
+                          -Pattern 'teardown: main returning' -SimpleMatch -Quiet
+            if ($rendered) {
+              Write-Host ("WINDOWS RENDER: FAIL (every check passed; the " +
+                "process then faulted with exit $status " +
+                $(if ($returned) { "AFTER main returned — static destruction " +
+                                   "or DLL unload" }
+                  else { "on its way out of main" }) + ")")
+            } else {
+              Write-Host "WINDOWS RENDER: FAIL (exit $status)"
+            }
+            exit 1
           }
           Write-Host "WINDOWS RENDER: PASS"
 

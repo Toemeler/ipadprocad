@@ -136,8 +136,29 @@ static double quadrant(const unsigned char *rgba, int left, int top)
   return quadrant_of(rgba, TW, TH, left, top, -1);
 }
 
+#ifdef _WIN32
+/* What faulted, and where. Windows reports an access violation to the process
+ * as an exit code and to nobody as anything else — this turns
+ * "exit -1073741819" into a line naming the exception and the address, which
+ * is the difference between a number to search for and a fault to fix. */
+static LONG WINAPI report_fault(EXCEPTION_POINTERS *info)
+{
+  const EXCEPTION_RECORD *r = info && info->ExceptionRecord
+                                  ? info->ExceptionRecord
+                                  : NULL;
+  printf("FAULT: exception 0x%08lX at %p\n",
+         r ? (unsigned long)r->ExceptionCode : 0UL,
+         r ? (void *)r->ExceptionAddress : NULL);
+  fflush(stdout);
+  return EXCEPTION_EXECUTE_HANDLER; /* let the process die, having said so */
+}
+#endif
+
 int main(int argc, char **argv)
 {
+#ifdef _WIN32
+  SetUnhandledExceptionFilter(report_fault);
+#endif
   if (argc > 1) {
     cy_set_resource_path(argv[1]);
   }
@@ -850,5 +871,31 @@ int main(int argc, char **argv)
   free(rgba);
   printf(failures ? "RENDER TEST: FAIL (%d)\n" : "RENDER TEST: PASS (%d failures)\n",
          failures);
+
+  /* ---- and then the way out, narrated -----------------------------------
+   *
+   * M383. The Windows run reported every check above as `ok`, printed PASS,
+   * and then died with 0xC0000005 — an access violation, with `main` already
+   * finished. That is a SHUTDOWN fault, in the C runtime's static destruction
+   * and DLL unload, and it is invisible from a log that stops at the verdict:
+   * "PASS" and "the process crashed" arrived together and looked like a
+   * contradiction.
+   *
+   * So the exit says what it is doing. If `teardown: main returning` prints
+   * and the process still faults, nothing this test wrote is responsible and
+   * the fault is in static destruction — a global in the shim or in Cycles
+   * being destroyed after something it depends on has already gone. If it
+   * does NOT print, the fault is above and this marker says which side.
+   *
+   * Flushed rather than trusted: a crash discards whatever the CRT was still
+   * holding, and a buffered marker that never reaches the log is the same as
+   * no marker at all.
+   */
+  if (cy_live_is_open()) {
+    printf("teardown: a live session was still open — closing it\n");
+    cy_live_close();
+  }
+  printf("teardown: main returning\n");
+  fflush(stdout);
   return failures ? 1 : 0;
 }
