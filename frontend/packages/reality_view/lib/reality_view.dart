@@ -32,6 +32,17 @@ const String _channelName = 'prototype/reality_view';
 class RealityViewController {
   RealityViewController._(int id)
       : _channel = MethodChannel('$_channelName/$id');
+
+  /// A controller over the channel a platform view with [id] would have.
+  ///
+  /// The real one is only ever handed out by [RealityView.onCreated], which
+  /// fires on iOS alone — so without this the push COALESCING below (M385) is
+  /// unreachable from a host test, and it is exactly the kind of async
+  /// bookkeeping that is worth pinning.
+  @visibleForTesting
+  RealityViewController.forTest(int id)
+      : _channel = MethodChannel('$_channelName/$id');
+
   final MethodChannel _channel;
   bool _disposed = false;
 
@@ -43,15 +54,65 @@ class RealityViewController {
       _invoke('setScene', scene);
 
   /// Light push: hover/highlight/visibility booleans only (no mesh data). Safe
-  /// to call on every pointer move.
+  /// to call on every pointer move. Coalesced — see [_latest].
   Future<void> setOverlays(Map<String, dynamic> overlays) =>
-      _invoke('setOverlays', overlays);
+      _latest('setOverlays', overlays);
 
   /// Per-frame camera push (a handful of doubles). Called on every orbit / pan
   /// / zoom step; the native side reconstructs the orthographic camera so the
   /// RealityKit picture stays locked to the Flutter ViewCube and triad.
+  /// Coalesced — see [_latest].
   Future<void> setCamera(Map<String, dynamic> camera) =>
-      _invoke('setCamera', camera);
+      _latest('setCamera', camera);
+
+  /// The payload each coalesced method is waiting to send, and which of them
+  /// currently has a push out. See [_latest].
+  final Map<String, Map<String, dynamic>> _pending = {};
+  final Set<String> _inFlight = {};
+
+  /// M385 — ONE OF THESE IN FLIGHT AT A TIME, NEWEST WINS.
+  ///
+  /// A method channel delivers in order on ONE platform thread, so pushes
+  /// queue behind each other and a slow one holds up everything after it. The
+  /// bug bundle for issue #15 shows what that costs: `rv.setCamera` worst 5454
+  /// ms — longer than the `setScene` (5444 ms) it was sitting behind — and a
+  /// 2832 ms gap in the pointer stream with `lost 2 contact(s)` at the end of
+  /// it, because a drag kept adding cameras to a queue that was not moving.
+  ///
+  /// Every payload the queue then drained was already stale: what the user
+  /// sees is the LAST one, and the ones in front of it are frames of an orbit
+  /// that finished seconds ago being replayed into a viewport nobody is
+  /// watching any more. So they are dropped. While a push is out, a newer
+  /// payload REPLACES the one waiting, and the wait costs at most one push
+  /// rather than the whole backlog.
+  ///
+  /// Safe only because both of these carry COMPLETE state rather than deltas —
+  /// the camera is where it is, the overlay payload is every flag in the
+  /// scene, and applying the newest always lands on the right picture.
+  /// `setScene` is deliberately NOT routed through here: it carries mesh
+  /// revisions the native side is expected to already hold, so a dropped one
+  /// loses geometry.
+  Future<void> _latest(String method, Map<String, dynamic> args) async {
+    if (_disposed) return;
+    // Counted, because a push that is dropped is invisible in
+    // `rv.<method>.calls` and the whole point of that counter is to say
+    // whether the gates upstream are working. A large coalesced count next to
+    // a small call count is this doing its job; a large one next to a slow
+    // `rv.<method>` is the native side being the problem.
+    if (_pending.containsKey(method)) rvCount('rv.$method.coalesced', 1);
+    _pending[method] = args;
+    if (_inFlight.contains(method)) return;
+    _inFlight.add(method);
+    try {
+      while (true) {
+        final next = _pending.remove(method);
+        if (next == null) break;
+        await _invoke(method, next);
+      }
+    } finally {
+      _inFlight.remove(method);
+    }
+  }
 
   /// Stop or restart the RealityKit surface's drawing.
   ///
@@ -146,7 +207,10 @@ class RealityViewController {
     }
   }
 
-  void _dispose() => _disposed = true;
+  void _dispose() {
+    _disposed = true;
+    _pending.clear();
+  }
 }
 
 /// A RealityKit 3D viewport. On iOS this embeds an ARView; everywhere else it

@@ -459,10 +459,20 @@ struct SolidGeom {
     func shadedEntity(material: RealityKit.Material) -> Entity {
         let n = UInt32(positions.count)
         var pos = positions
+        // M385 — every one of these ends up exactly twice its input length,
+        // and an array that doubles from n to 2n by appending reallocates and
+        // copies on the way. Said once, up front, it copies nothing: on the
+        // imported part in issue #15 that is 24 671 vertices and 53 010
+        // indices per solid, inside a setScene that measured 5.4 seconds.
+        pos.reserveCapacity(positions.count * 2)
         pos.append(contentsOf: positions)
         var nrm = normals
-        if !normals.isEmpty { nrm.append(contentsOf: normals.map { -$0 }) }
+        if !normals.isEmpty {
+            nrm.reserveCapacity(normals.count * 2)
+            nrm.append(contentsOf: normals.lazy.map { -$0 })
+        }
         var idx = indices
+        idx.reserveCapacity(indices.count * 2)
         var t = 0
         while t + 2 < indices.count {
             idx.append(n + indices[t])
@@ -476,20 +486,6 @@ struct SolidGeom {
         d.primitives = .triangles(idx)
         guard let mesh = try? MeshResource.generate(from: [d]) else { return Entity() }
         return ModelEntity(mesh: mesh, materials: [material])
-    }
-
-    /// Source polylines of the B-Rep edges, one array per edge.
-    func edgePolylines() -> [[SIMD3<Float>]] {
-        guard edgeStarts.count >= 2 else {
-            return edgePts.isEmpty ? [] : [edgePts]
-        }
-        var out = [[SIMD3<Float>]]()
-        for e in 0..<(edgeStarts.count - 1) {
-            let a = edgeStarts[e], b = edgeStarts[e + 1]
-            guard a >= 0, b <= edgePts.count, b - a >= 2 else { continue }
-            out.append(Array(edgePts[a..<b]))
-        }
-        return out
     }
 
     /// Outline entity, stroked in the scene's current [style]. When that
@@ -508,9 +504,12 @@ struct SolidGeom {
                     weight: Float = Stroke.line) -> Entity? {
         let radius = style.halfWidth(weight)
         if #available(iOS 15.0, *), let v = style.viewDir {
-            let lines = edgePolylines()
-            if !lines.isEmpty,
-               let m = RibbonBuilder.mesh(lines, halfWidth: radius, viewDir: v) {
+            // M385 — straight off the packed buffers. This is the single
+            // hottest call in a re-stroke, and cutting `edgePts` into one
+            // array per edge first was several thousand allocations and a
+            // full copy of the point cloud before any ribbon existed.
+            if let m = RibbonBuilder.mesh(points: edgePts, starts: edgeStarts,
+                                          halfWidth: radius, viewDir: v) {
                 return ModelEntity(mesh: m, materials: [Materials.unlitSoft(color)])
             }
         }
@@ -858,19 +857,47 @@ enum RibbonBuilder {
     /// Fraction of the half width spent on the soft edge on each side.
     private static let feather: Float = 0.45
 
-    /// Builds one mesh for all [pts] polylines, flattened toward [viewDir].
-    /// [halfWidth] is in world units and is expected to be derived from the
-    /// zoom so the on-screen weight stays put.
-    static func mesh(_ polylines: [[SIMD3<Float>]], halfWidth w: Float,
-                     viewDir: SIMD3<Float>) -> MeshResource? {
-        var positions = [SIMD3<Float>]()
-        var uvs = [SIMD2<Float>]()
-        var indices = [UInt32]()
-        let v = simd_length(viewDir) < 1e-6
-            ? SIMD3<Float>(0, 0, 1) : simd_normalize(viewDir)
-        let core = w * (1 - feather)
+    /// M385 — the strip accumulator, written to be allocation-free per segment.
+    ///
+    /// This runs tens of thousands of times per re-stroke on an imported body,
+    /// and the version it replaces allocated FIVE arrays inside that loop: the
+    /// four rail offsets, their four U coordinates, and one six-element array
+    /// per quad handed to `append(contentsOf:)` — three of those per segment.
+    /// On the STEP part in issue #15 that is a third of a million heap
+    /// allocations for one turn of the model, and it is most of why a camera
+    /// push could take 2.8 seconds.
+    ///
+    /// The geometry is unchanged, vertex for vertex and winding for winding.
+    /// What changed is that the buffers are sized once up front and every
+    /// segment writes straight into them.
+    private struct Strip {
+        var positions: [SIMD3<Float>]
+        var uvs: [SIMD2<Float>]
+        var indices: [UInt32]
+        let w: Float
+        let core: Float
+        let v: SIMD3<Float>
 
-        for pts in polylines where pts.count >= 2 {
+        init(segments: Int, halfWidth: Float, viewDir: SIMD3<Float>) {
+            positions = []
+            uvs = []
+            indices = []
+            w = halfWidth
+            core = halfWidth * (1 - RibbonBuilder.feather)
+            v = simd_length(viewDir) < 1e-6
+                ? SIMD3<Float>(0, 0, 1) : simd_normalize(viewDir)
+            // Eight positions, eight UVs and eighteen indices per segment, so
+            // none of the three ever has to grow. This is the other half of
+            // the cost: an array that doubles from empty copies everything it
+            // holds, log2(n) times, for buffers with hundreds of thousands of
+            // entries in them.
+            positions.reserveCapacity(segments * 8)
+            uvs.reserveCapacity(segments * 8)
+            indices.reserveCapacity(segments * 18)
+        }
+
+        mutating func add(_ pts: UnsafeBufferPointer<SIMD3<Float>>) {
+            guard pts.count >= 2 else { return }
             for i in 0..<(pts.count - 1) {
                 let a = pts[i], b = pts[i + 1]
                 let axis = b - a
@@ -891,15 +918,13 @@ enum RibbonBuilder {
                     side /= sl
                 }
                 let base = UInt32(positions.count)
-                // four rails across the strip: -w, -core, +core, +w
-                let offs: [Float] = [-w, -core, core, w]
-                let us: [Float] = [0, 0.5, 0.5, 1]
-                for (o, u) in zip(offs, us) {
-                    positions.append(a + side * o)
-                    uvs.append(SIMD2<Float>(u, 0))
-                    positions.append(b + side * o)
-                    uvs.append(SIMD2<Float>(u, 1))
-                }
+                // Four rails across the strip: -w, -core, +core, +w, at U
+                // 0, 0.5, 0.5, 1. Unrolled rather than zipped over two literal
+                // arrays, which is what used to allocate here.
+                appendRail(a, b, side, -w, 0)
+                appendRail(a, b, side, -core, 0.5)
+                appendRail(a, b, side, core, 0.5)
+                appendRail(a, b, side, w, 1)
                 // Three quads across: (rail0,rail1), (rail1,rail2),
                 // (rail2,rail3).
                 //
@@ -917,16 +942,75 @@ enum RibbonBuilder {
                     let i1 = base + UInt32(r * 2 + 1)
                     let j0 = base + UInt32((r + 1) * 2)
                     let j1 = base + UInt32((r + 1) * 2 + 1)
-                    indices.append(contentsOf: [i0, j1, i1, i0, j0, j1])
+                    indices.append(i0); indices.append(j1); indices.append(i1)
+                    indices.append(i0); indices.append(j0); indices.append(j1)
                 }
             }
         }
-        guard !positions.isEmpty else { return nil }
-        var d = MeshDescriptor(name: "ribbon")
-        d.positions = MeshBuffers.Positions(positions)
-        d.textureCoordinates = MeshBuffers.TextureCoordinates(uvs)
-        d.primitives = .triangles(indices)
-        return try? MeshResource.generate(from: [d])
+
+        private mutating func appendRail(_ a: SIMD3<Float>, _ b: SIMD3<Float>,
+                                         _ side: SIMD3<Float>, _ off: Float,
+                                         _ u: Float) {
+            positions.append(a + side * off)
+            uvs.append(SIMD2<Float>(u, 0))
+            positions.append(b + side * off)
+            uvs.append(SIMD2<Float>(u, 1))
+        }
+
+        func finish() -> MeshResource? {
+            guard !positions.isEmpty else { return nil }
+            var d = MeshDescriptor(name: "ribbon")
+            d.positions = MeshBuffers.Positions(positions)
+            d.textureCoordinates = MeshBuffers.TextureCoordinates(uvs)
+            d.primitives = .triangles(indices)
+            return try? MeshResource.generate(from: [d])
+        }
+    }
+
+    /// Builds one mesh for all [polylines], flattened toward [viewDir].
+    /// [halfWidth] is in world units and is expected to be derived from the
+    /// zoom so the on-screen weight stays put.
+    static func mesh(_ polylines: [[SIMD3<Float>]], halfWidth w: Float,
+                     viewDir: SIMD3<Float>) -> MeshResource? {
+        var segments = 0
+        for p in polylines where p.count >= 2 { segments += p.count - 1 }
+        var strip = Strip(segments: segments, halfWidth: w, viewDir: viewDir)
+        for p in polylines where p.count >= 2 {
+            p.withUnsafeBufferPointer { strip.add($0) }
+        }
+        return strip.finish()
+    }
+
+    /// M385 — the same mesh straight off the PACKED edge buffers.
+    ///
+    /// A solid's edges arrive as one point array plus the offsets each edge
+    /// starts at, and the ribbon used to be built by first cutting that into
+    /// one Swift array per edge — several thousand array allocations and a
+    /// full copy of every edge point, thrown away immediately afterwards, on
+    /// every re-stroke. The strip only ever reads the points in order, so it
+    /// can read them where they already are.
+    static func mesh(points: [SIMD3<Float>], starts: [Int], halfWidth w: Float,
+                     viewDir: SIMD3<Float>) -> MeshResource? {
+        guard starts.count >= 2 else {
+            return points.isEmpty
+                ? nil
+                : mesh([points], halfWidth: w, viewDir: viewDir)
+        }
+        var segments = 0
+        for e in 0..<(starts.count - 1) {
+            let a = starts[e], b = starts[e + 1]
+            guard a >= 0, b <= points.count, b - a >= 2 else { continue }
+            segments += b - a - 1
+        }
+        var strip = Strip(segments: segments, halfWidth: w, viewDir: viewDir)
+        points.withUnsafeBufferPointer { buf in
+            for e in 0..<(starts.count - 1) {
+                let a = starts[e], b = starts[e + 1]
+                guard a >= 0, b <= points.count, b - a >= 2 else { continue }
+                strip.add(UnsafeBufferPointer(rebasing: buf[a..<b]))
+            }
+        }
+        return strip.finish()
     }
 }
 

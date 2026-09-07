@@ -550,14 +550,125 @@ final class PartRenderer: NSObject {
     private static let widthTolerance: Float = 1.05
     private static let facingTolerance: Float = 0.99863
 
-    /// Rebuild every outline when the camera has moved far enough for it to
-    /// show. One decision for edges, sketch curves, plane borders and axes
-    /// together — they are the same kind of line, so they must never be built
-    /// at two different answers to the same question.
+    /// M385 — a re-stroke that fits in this is not worth deferring: it costs
+    /// less than half a frame at 120 Hz, so doing it inline cannot drop one.
+    private static let restrokeBudgetMs: Double = 4.0
+
+    /// cos(20 deg) — how far the view may turn while a re-stroke is waiting
+    /// for the camera to stop. See [drifted].
+    private static let driftTolerance: Float = 0.93969
+
+    /// How long the last full re-stroke took, in milliseconds. Zero until one
+    /// has run, which is why the first is always inline: it is the
+    /// measurement everything after it is decided by.
+    private var restrokeMs: Double = 0
+
+    /// The re-stroke waiting for the camera to stop, if any.
+    private var restrokeWork: DispatchWorkItem?
+
+    /// What the outlines cost inside the last [setScene], accumulated by
+    /// [rebuildSolids].
+    ///
+    /// This is what seeds [restrokeMs], and it is worth the two lines: without
+    /// it the FIRST camera move after a scene is loaded has no measurement to
+    /// go on, re-strokes inline, and pays the whole stall once — at the start
+    /// of the first orbit, which is exactly the moment issue #15 is about. A
+    /// scene push already builds every solid's edges, so the number is there
+    /// for the taking.
+    private var sceneEdgeMs: Double = 0
+
+    /// M385 — A RE-STROKE MUST NOT HAPPEN INSIDE THE GESTURE.
+    ///
+    /// This is what issue #15 was. Every camera push ran the rebuild below
+    /// inline, on the platform thread, whenever the view had turned three
+    /// degrees or the zoom had moved five percent — which during an orbit or a
+    /// pinch is every single frame. On the imported STEP part in that report
+    /// one of those rebuilds measured 2832 ms, and the gesture trace shows
+    /// exactly that: 49730 ms to 52562 ms with no pointer event at all, then
+    /// `lost 2 contact(s)` — iOS took the two fingers away from an app that
+    /// had stopped answering. Pan and zoom felt just as bad because all three
+    /// pushes share one channel and one thread, so they queue behind it
+    /// (`rv.setCamera` worst: 5454 ms, longer than the setScene it was behind).
+    ///
+    /// THE FIX IS NOT TO SKIP THE WORK. A ribbon is flattened toward the view
+    /// direction, so it really is only the right shape while it faces where
+    /// the camera is; never re-stroking would leave the outlines edge-on and
+    /// the model would lose its lines. What is optional is doing it WHILE the
+    /// finger is down.
+    ///
+    /// So the cost decides. A scene whose outlines re-stroke inside a frame
+    /// keeps doing it inline and looks exactly as it did — that is every model
+    /// this was never a problem on. A scene that cannot waits for the camera
+    /// to stop, and only interrupts that wait when the view has drifted far
+    /// enough for the ribbons to look wrong (see [driftTolerance]).
     private func refreshOutlines() {
         let want = wantedStyle
         guard needsRestroke(want) else { return }
-        rebuildOutlines(want)
+        if restrokeMs <= Self.restrokeBudgetMs {
+            restrokeNow(want)
+            return
+        }
+        if drifted(want) {
+            restrokeNow(want)
+            return
+        }
+        scheduleRestroke()
+    }
+
+    /// Rebuild every outline at [style] and remember what that cost.
+    ///
+    /// The measurement is the whole mechanism: nothing here hardcodes what
+    /// counts as a big model, on a device whose speed this file cannot know.
+    /// What it knows is how long the last one took on THIS device with THIS
+    /// scene, which is the question being asked.
+    private func restrokeNow(_ style: OutlineStyle) {
+        restrokeWork?.cancel()
+        restrokeWork = nil
+        let t0 = CFAbsoluteTimeGetCurrent()
+        RvPerf.time("rv.native.restroke") { rebuildOutlines(style) }
+        restrokeMs = (CFAbsoluteTimeGetCurrent() - t0) * 1000.0
+    }
+
+    /// Re-stroke once the camera has stopped moving.
+    ///
+    /// Debounced, not throttled: every camera push pushes the work further
+    /// out, so a drag of any length pays for exactly ONE rebuild, at its end,
+    /// instead of one per frame. The delay is a little over a frame at 60 Hz —
+    /// long enough that a continuous drag never fires it, short enough that
+    /// letting go reads as instant.
+    private func scheduleRestroke() {
+        restrokeWork?.cancel()
+        let w = DispatchWorkItem { [weak self] in
+            guard let self = self else { return }
+            self.restrokeWork = nil
+            // Re-asked rather than assumed: a setScene may have landed while
+            // this was waiting, and that rebuilds every outline at the current
+            // camera already. Without the guard the wait would be paid for a
+            // second time, for nothing.
+            let want = self.wantedStyle
+            guard self.needsRestroke(want) else { return }
+            self.restrokeNow(want)
+        }
+        restrokeWork = w
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.02, execute: w)
+    }
+
+    /// Has the view moved far enough that waiting would SHOW?
+    ///
+    /// [facingTolerance] is the threshold for "this ribbon is no longer
+    /// exactly right", which is worth acting on when acting is free. This is
+    /// the threshold for "this ribbon now looks wrong", which is what is worth
+    /// a visible hitch. Twenty degrees off costs 6% of the width, and a
+    /// half-turn of the model then costs nine rebuilds rather than sixty.
+    private func drifted(_ want: OutlineStyle) -> Bool {
+        guard builtStyle.mmPerPoint > 0 else { return true }
+        let ratio = want.mmPerPoint / builtStyle.mmPerPoint
+        if ratio > 2 || ratio < 0.5 { return true }
+        if let a = want.viewDir, let b = builtStyle.viewDir,
+           simd_dot(a, b) < Self.driftTolerance {
+            return true
+        }
+        return false
     }
 
     private func needsRestroke(_ want: OutlineStyle) -> Bool {
@@ -732,6 +843,11 @@ final class PartRenderer: NSObject {
         RvPerf.time("rv.native.solids") {
             rebuildSolids(a["solids"] as? [[String: Any]] ?? [])
         }
+        // M385 — what a re-stroke of THIS scene costs, known before the first
+        // camera move asks. Zero when every solid's mesh was unchanged (the
+        // payload then carries no buffers and no edge was built), and the
+        // previous scene's measurement is the better answer in that case.
+        if sceneEdgeMs > 0 { restrokeMs = sceneEdgeMs }
         RvPerf.time("rv.native.planes") {
             rebuildPlanes(a["planes"] as? [[String: Any]] ?? [])
             rebuildAxes(a["axes"] as? [[String: Any]] ?? [])
@@ -1013,6 +1129,7 @@ final class PartRenderer: NSObject {
     }
 
     private func rebuildSolids(_ solids: [[String: Any]]) {
+        sceneEdgeMs = 0
         // Drop entities no longer present.
         let ids = Set(solids.compactMap { $0["id"] as? String })
         for (id, e) in solidEntities where !ids.contains(id) {
@@ -1070,7 +1187,9 @@ final class PartRenderer: NSObject {
             // swept tube per B-Rep edge, thousands on a filleted part) and
             // uploading them to leave them invisible is the whole cost of the
             // thing for none of the benefit.
+            let edgeT0 = CFAbsoluteTimeGetCurrent()
             let edges = rendered ? nil : geom.edgeEntity(style: builtStyle)
+            sceneEdgeMs += (CFAbsoluteTimeGetCurrent() - edgeT0) * 1000.0
             let holder = Entity()
             holder.position = at
             holder.orientation = rot
