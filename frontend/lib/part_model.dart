@@ -2668,6 +2668,21 @@ class ExtrudeFeature extends PartFeature {
   /// re-reading it on open is both simpler and lossless.
   String? importPath;
 
+  /// M384 — WHICH solid of [importPath] this feature is, counted in the
+  /// kernel's own explode order.
+  ///
+  /// The reopen used to hand `solids[i]` to the i-th surviving feature, so the
+  /// binding was POSITIONAL: delete the second of four imported bodies and the
+  /// third and fourth silently came back as different geometry, and a file
+  /// holding more solids than the document had features had the remainder
+  /// disposed without a word. An index that is written once and read back is
+  /// the same answer every time, whatever else happened to the timeline.
+  ///
+  /// Null on documents written before M384. Those can only be matched by
+  /// position — see AppState.openPart, which also explains why an unclaimed
+  /// solid is adopted there and never here.
+  int? importIndex;
+
   ExtrudeFeature({
     required super.name,
     required super.bodyName,
@@ -2704,6 +2719,7 @@ class ExtrudeFeature extends PartFeature {
         ...baseJson(),
         if (imported) 'imported': true,
         if (importPath != null) 'importPath': importPath,
+        if (importIndex != null) 'importIndex': importIndex,
         'sketch': sketchName,
         'profiles': [for (final p in profiles) p.toJson()],
         'dir': extrudeDirName(direction),
@@ -2750,6 +2766,9 @@ class ExtrudeFeature extends PartFeature {
     // M111 — an imported body carries no sketch inputs; these two say so.
     f.imported = j['imported'] as bool? ?? false;
     f.importPath = j['importPath'] as String?;
+    // M384 — absent on pre-M384 documents; openPart falls back to position
+    // for those, and writes an index back the first time it saves.
+    f.importIndex = (j['importIndex'] as num?)?.toInt();
     return f;
   }
 }

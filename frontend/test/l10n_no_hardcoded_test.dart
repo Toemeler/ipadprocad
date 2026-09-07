@@ -49,7 +49,12 @@ const Map<String, Set<String>> kAllowed = {
     'Feature',
     'Fillet',
     'Hole',
-    'Import\${p.features.length + 1}',
+    // M384 — was 'Import\${p.features.length + 1}'. The count could name a
+    // feature that already existed (delete Import1 of two and the next
+    // import is Import2 twice), so the three call sites go through
+    // nextFeatureName now and the literal is the BASE, exactly like
+    // 'Paste' below. Still a document name, so still not translated.
+    'Import',
     'Imported',
     'Layer \$n',
     'Loft',
@@ -60,8 +65,8 @@ const Map<String, Set<String>> kAllowed = {
     // M345 — the base name a document made out of the clipboard falls back to
     // when the copy carries none, and the feature label of a pasted body
     // ('Paste1' in the browser). Same footing as 'Sketch\$n' and
-    // 'Import\${p.features.length + 1}' above: both are written into the
-    // document, so translating one is a data change.
+    // 'Import' above: both are written into the document, so translating
+    // one is a data change.
     'Paste',
     'Plane',
     // M242 — the LABEL of the reference vector a directed Angle captures when
