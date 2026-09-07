@@ -51,9 +51,16 @@ Adding, changing or deleting a document on one device does the same on all of
 them.
 
 The connection is authenticated by the code but NOT encrypted, so use it on a
-network you trust. Windows Firewall will ask the first time: allow it on
-private networks, or sharing does nothing. The iPad asks for local network
-permission for the same reason.
+network you trust. The iPad asks for local network permission the first time,
+and must be answered yes — it is the only channel iOS allows.
+
+On Windows the installer adds the firewall rule itself when it is run as an
+administrator (the all-users install). Run per-user, it cannot, and Windows
+asks at the first use instead. Answering no no longer switches sharing off:
+discovery asks for its replies unicast, which the firewall returns as an
+answer to this machine's own question, and a PC that can see an iPad will dial
+it rather than wait to be dialled. It is one fewer thing that has to go right,
+not a requirement.
 
 Checksums are in `SHA256SUMS-linux.txt` and `SHA256SUMS-windows.txt`.
 
