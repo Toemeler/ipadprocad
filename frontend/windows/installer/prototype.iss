@@ -112,7 +112,49 @@ Name: "{group}\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
+; ---------------------------------------------------------------------------
+; THE FIREWALL HOLE, WHERE THIS INSTALL IS ALLOWED TO MAKE ONE.
+;
+; Sharing a code means LISTENING: a TCP port for the mirror and UDP for
+; discovery. Windows Defender Firewall blocks an inbound connection to a
+; program it has no rule for, and what a person sees when that happens is not
+; an error — it is two devices a metre apart, both saying "looking", for ever.
+; (The pop-up that would normally ask needs an administrator to answer, so on
+; a standard account the block is the whole of the interaction.)
+;
+; `program=` rather than a port list on purpose: the mirror takes the first
+; free port from 47821 upward, so a rule naming one port would come apart the
+; day somebody runs two copies. A rule naming the executable covers whatever
+; it binds, and covers only this program.
+;
+; PROFILE=ANY, INCLUDING PUBLIC, and that is a decision rather than an
+; oversight. Windows asks once whether a network is private and files it as
+; PUBLIC whenever the answer was no or nobody answered — which is a great many
+; ordinary home networks. Limiting the rule to `private` would mean sharing
+; works or does not according to something the user answered once, months ago,
+; in a dialog they do not remember. What is actually exposed is a listener
+; that exists only while sharing is switched on, and that hands nothing to a
+; peer which cannot answer a nonce with a key derived from the share code.
+;
+; The delete before the add is what stops a re-install stacking duplicates.
+;
+; ONLY WHEN ELEVATED. netsh needs an administrator, and this installer asks
+; for one only if the person chose an all-users install (PrivilegesRequired=
+; lowest, above — a deliberate choice this does not undo for a firewall rule).
+; On a per-user install Windows falls back to asking at the first bind, and
+; discovery is built to survive the answer being no: the app asks for its mDNS
+; replies UNICAST, which the firewall lets back in as a response to the app's
+; own outbound query even with no rule at all. See mdns.dart.
+; ---------------------------------------------------------------------------
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""{#MyAppName} (LAN sharing)"""; Flags: runhidden; Check: IsAdminInstallMode; StatusMsg: "Allowing {#MyAppName} through the firewall..."
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""{#MyAppName} (LAN sharing)"" dir=in action=allow program=""{app}\{#MyAppExeName}"" enable=yes profile=any"; Flags: runhidden; Check: IsAdminInstallMode; StatusMsg: "Allowing {#MyAppName} through the firewall..."
+
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent
+
+[UninstallRun]
+; Taken out with the app. A rule naming a program that is no longer there is
+; harmless and untidy in equal measure, and untidy is the one that gets found.
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""{#MyAppName} (LAN sharing)"""; Flags: runhidden; RunOnceId: "RemoveSharingFirewallRule"; Check: IsAdminInstallMode
 
 ; ---------------------------------------------------------------------------
 ; RECOGNISING AN EXISTING INSTALL.

@@ -292,6 +292,81 @@ jobs:
       # in the job summary — and so a CACHE HIT is checked too, which is the
       # case where a stale or truncated cache entry would otherwise reach the
       # app silently.
+      # THE PATH THE APP ACTUALLY USES, and until now nothing on Windows ran
+      # it. The verdict below proves the DLL loads and picks a device — which
+      # it did, on a build where rendered mode then sat on "loading" forever
+      # and never produced a frame. "It links and reports a device" and "it
+      # renders" are two questions and only one of them was being asked.
+      #
+      # render_test.c drives cy_live_* exactly as the app's isolate does, and
+      # says "no frames" with the last error, the status and the progress when
+      # nothing comes back. BOUNDED, because the failure being chased is a
+      # HANG: without a limit this step would sit at the job's timeout and
+      # report nothing, which is the same silence being debugged.
+      - name: Render test (the live session, not just the load)
+        shell: pwsh
+        timeout-minutes: 12
+        run: |
+          $out = "frontend/build/native"
+          $exe = "$out/prototype_cycles_render_test.exe"
+          # cycles_denoise.cpp is COMPILED IN rather than linked against, and
+          # it is the one file that has to be. The .def deliberately exports
+          # `cy_*` and nothing else, so the import library cannot offer
+          # `cyshim::denoise` — a C++ symbol the shim calls internally and the
+          # test calls directly, on hand-made buffers, to check that the filter
+          # does not blur an edge. The macOS job links the raw archives and so
+          # never had to notice.
+          #
+          # A second copy in the test binary is exactly what is wanted here:
+          # that check is about the ALGORITHM, which the file implements with
+          # no Cycles type in it, and building it standalone (no util/tbb.h on
+          # the include path, so CYSHIM_PARALLEL stays off) proves it is still
+          # the self-contained thing its header claims.
+          & cl /nologo /TP /EHsc /Ibackend/cycles/shim `
+               backend/cycles/shim/render_test.c `
+               backend/cycles/shim/cycles_denoise.cpp `
+               "/Fe:$exe" "/Fo:$out/" /link "$out/prototype_cycles.lib"
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "WINDOWS RENDER: FAIL (the test would not build)"; exit 1
+          }
+          $env:PATH = (Resolve-Path "$out/deps").Path + ";" +
+                      (Resolve-Path $out).Path + ";" + $env:PATH
+          & $exe 2>&1 | Tee-Object -FilePath "$out/render-test.log"
+          $status = $LASTEXITCODE
+          Write-Host "--- the render test said ---"
+          Get-Content "$out/render-test.log"
+          # The two sentences that name this bug, whatever the exit code did.
+          foreach ($bad in @('no frames', 'no big frames')) {
+            if (Select-String -Path "$out/render-test.log" -Pattern $bad -SimpleMatch -Quiet) {
+              Write-Host "WINDOWS RENDER: FAIL (the live session produced $bad)"
+              exit 1
+            }
+          }
+          if ($status -ne 0) {
+            # M383 — SAY WHICH HALF FAILED. The first Windows run of this test
+            # reported every check as `ok`, printed its own PASS, and then died
+            # with 0xC0000005: an access violation with `main` already
+            # finished. Read off the exit code alone that is "the render test
+            # failed", which is the opposite of what the log says — the
+            # renderer had just proved it renders, converges and denoises at
+            # two megapixels. What crashed was the way out.
+            $rendered = Select-String -Path "$out/render-test.log" `
+                          -Pattern 'RENDER TEST: PASS' -SimpleMatch -Quiet
+            $returned = Select-String -Path "$out/render-test.log" `
+                          -Pattern 'teardown: main returning' -SimpleMatch -Quiet
+            if ($rendered) {
+              Write-Host ("WINDOWS RENDER: FAIL (every check passed; the " +
+                "process then faulted with exit $status " +
+                $(if ($returned) { "AFTER main returned — static destruction " +
+                                   "or DLL unload" }
+                  else { "on its way out of main" }) + ")")
+            } else {
+              Write-Host "WINDOWS RENDER: FAIL (exit $status)"
+            }
+            exit 1
+          }
+          Write-Host "WINDOWS RENDER: PASS"
+
       - name: Path tracer verdict
         shell: pwsh
         run: |
@@ -349,6 +424,7 @@ jobs:
           path: |
             frontend/build/native/prototype_cycles.dll
             frontend/build/native/deps
+            frontend/build/native/render-test.log
           retention-days: 5
 
   app:

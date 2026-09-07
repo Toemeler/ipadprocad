@@ -323,6 +323,45 @@ List<String> meshAnomalies(OcctMeshData m) {
   return out;
 }
 
+/// M385 — is [a] the same payload as [b]?
+///
+/// The light pushes carry COMPLETE state, not deltas: the camera is its eight
+/// doubles, the overlay payload is every visibility and hover flag in the
+/// scene. So a payload equal to the one already in effect describes a viewport
+/// that is already on screen, and sending it is pure cost on the exact path
+/// that has to stay smooth — building the map, encoding it with the standard
+/// message codec, the platform hop, and a native handler that will find
+/// nothing to do.
+///
+/// It was not free. `_pushReality` runs from `build`, and a rebuild is caused
+/// by anything at all: a ribbon menu opening, a dialog's animation, a toast.
+/// Every one of those re-sent the whole overlay state to RealityKit for no
+/// change, behind the same single-threaded channel the camera has to get
+/// through (issue #15).
+///
+/// Structural rather than `==`, because a fresh map is built every frame and
+/// two maps are never identical. Typed buffers (the accent polylines) compare
+/// element-wise; they are one hovered edge, not a mesh.
+bool samePayload(Object? a, Object? b) {
+  if (identical(a, b)) return true;
+  if (a is Map && b is Map) {
+    if (a.length != b.length) return false;
+    for (final e in a.entries) {
+      if (!b.containsKey(e.key)) return false;
+      if (!samePayload(e.value, b[e.key])) return false;
+    }
+    return true;
+  }
+  if (a is List && b is List) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (!samePayload(a[i], b[i])) return false;
+    }
+    return true;
+  }
+  return a == b;
+}
+
 /// Emits a report once per distinct mesh object. Cheap by default; the full
 /// convention/watertightness analysis only runs with [meshDiagnostics] on.
 ///

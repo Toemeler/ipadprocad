@@ -90,4 +90,56 @@ void main() {
       expect(CyclesWarmup.instance.progress, lessThan(0));
     });
   });
+
+  // M383 — the rule that decides whether a warm-up happens at all, and which
+  // was silently wrong on two platforms for a whole release.
+  //
+  // The reasoning was right — a build whose kernels are compiled in has
+  // nothing to warm — and the action taken on it was to start no warm-up,
+  // which left the phase at `absent`. `absent` does not mean "ready", it means
+  // THERE IS NO RENDERER, and rendered mode is gated on `ready`. So Windows
+  // and Linux shipped a working path tracer behind a warm-up panel that could
+  // never finish: "it always says loading but it will never load and render".
+  group('what launch should do about the warm-up', () {
+    test('nothing at all when the build has no renderer', () {
+      for (final needs in [true, false]) {
+        expect(
+            cyclesWarmupPlan(haveRenderer: false, needsKernelSource: needs),
+            CyclesWarmupPlan.nothing,
+            reason: 'needsKernelSource: $needs');
+      }
+    });
+
+    test('compile where the kernels are built on the device', () {
+      // Metal, and only Metal — the case this whole file is about.
+      expect(
+          cyclesWarmupPlan(haveRenderer: true, needsKernelSource: true),
+          CyclesWarmupPlan.compile);
+    });
+
+    test('and SAY SO where they came compiled in', () {
+      // The one that was missing. Not `nothing` — that is the answer for a
+      // build with no renderer, and it is the answer that hid one.
+      expect(
+          cyclesWarmupPlan(haveRenderer: true, needsKernelSource: false),
+          CyclesWarmupPlan.alreadyWarm);
+      expect(
+          cyclesWarmupPlan(haveRenderer: true, needsKernelSource: false),
+          isNot(CyclesWarmupPlan.nothing));
+    });
+
+    test('markReady without a renderer stays absent rather than lying', () {
+      // On a host test there is no FFI, and claiming the kernels are ready
+      // would put rendered mode in front of a renderer that is not there.
+      CyclesWarmup.instance.markReady();
+      expect(CyclesWarmup.instance.phase, CyclesWarmupPhase.absent);
+      expect(CyclesWarmup.instance.ready, isFalse);
+    });
+
+    test('and it is a once, like start', () {
+      CyclesWarmup.instance.markReady();
+      CyclesWarmup.instance.markReady();
+      expect(CyclesWarmup.instance.phase, CyclesWarmupPhase.absent);
+    });
+  });
 }

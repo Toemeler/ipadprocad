@@ -60,6 +60,25 @@ class SyncMsg {
 
   /// Either way, on refusal. Carries "why" for the log.
   static const String bye = 'bye';
+
+  /// Either way: are you still there?
+  ///
+  /// A Wi-Fi change, a sleep, a router that drops an idle NAT entry — all
+  /// three leave a TCP connection HALF OPEN: established on one side, gone on
+  /// the other, and completely silent until somebody writes to it. A mirror
+  /// that only ever writes when a document changes can sit "connected" to a
+  /// machine that has been off for an hour, which is the shape most reports of
+  /// "it just stopped syncing" actually have.
+  ///
+  /// Sending this on a timer is what turns that into an error the session can
+  /// act on, whether or not the peer understands the frame — an older peer
+  /// ignores an unknown type, and the write itself is the test. [pong] makes
+  /// the same test faster where both sides are new.
+  static const String ping = 'ping';
+
+  /// The answer to [ping], and nothing else. Seeing one is also how a session
+  /// learns that silence from THIS peer is meaningful.
+  static const String pong = 'pong';
 }
 
 /// One frame, as read or as written.

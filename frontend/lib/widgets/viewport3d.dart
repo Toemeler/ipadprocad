@@ -333,6 +333,12 @@ class _Viewport3DState extends State<Viewport3D>
   /// Mesh revisions the native side currently holds. Reset together with
   /// [_lastSceneSig] whenever a fresh platform view appears.
   Map<String, int> _sentRevs = const {};
+  /// M385 — the last camera and overlay payloads actually handed over, so a
+  /// rebuild that changed neither does not re-send them. Reset with
+  /// [_lastSceneSig]: a FRESH platform view holds nothing, so the first push
+  /// to it must go through however equal it looks to what the old one had.
+  Map<String, dynamic>? _sentCamera;
+  Map<String, dynamic>? _sentOverlays;
 
   PartModel? get part => widget.app.currentPart;
 
@@ -541,9 +547,17 @@ class _Viewport3DState extends State<Viewport3D>
     // from the model: PartCamera.forSketch reproduces exactly the projection
     // Viewport2D.map() uses (pinned by a test in m79_perf_test.dart).
     final cam = _effectiveCamera(app, p, size);
-    c.setCamera(cameraPayload(cam, size));
-    RealityPush.recordCamera('${cam.runtimeType} on ${size.width.toInt()}x'
-        '${size.height.toInt()}');
+    // M385 — send it only if it MOVED. `build` runs for every reason the app
+    // has to rebuild, and most of them do not touch the camera; each of those
+    // used to put another payload on the single channel the orbit has to get
+    // through. See samePayload.
+    final camPayload = cameraPayload(cam, size);
+    if (!samePayload(camPayload, _sentCamera)) {
+      _sentCamera = camPayload;
+      c.setCamera(camPayload);
+      RealityPush.recordCamera('${cam.runtimeType} on ${size.width.toInt()}x'
+          '${size.height.toInt()}');
+    }
     final sig = sceneSignature(app, p);
     if (sig != _lastSceneSig) {
       _lastSceneSig = sig;
@@ -563,11 +577,18 @@ class _Viewport3DState extends State<Viewport3D>
           knownRevs: _sentRevs)));
       _sentRevs = sceneRevs(app, p);
     }
-    c.setOverlays(buildOverlaysPayload(app, p,
+    final overlays = buildOverlaysPayload(app, p,
         hover: _hover,
         hoverFace: _hoverFace,
         hoverSketch: _hoverSketch,
-        selSketch: _selSketch));
+        selSketch: _selSketch);
+    // Same rule as the camera above, and it matters most during an ORBIT:
+    // nothing in here depends on where the camera is, so a whole drag pushes
+    // this once instead of once per frame.
+    if (!samePayload(overlays, _sentOverlays)) {
+      _sentOverlays = overlays;
+      c.setOverlays(overlays);
+    }
   }
 
   @override
@@ -616,6 +637,8 @@ class _Viewport3DState extends State<Viewport3D>
                             // (app resume, tab switch, part switch).
                             _lastSceneSig = null;
                             _sentRevs = const {};
+                            _sentCamera = null;
+                            _sentOverlays = null;
                             WidgetsBinding.instance.addPostFrameCallback((_) {
                               if (mounted) setState(() {});
                             });
@@ -639,6 +662,8 @@ class _Viewport3DState extends State<Viewport3D>
                                 // reason as the RealityKit branch above.
                                 _lastSceneSig = null;
                                 _sentRevs = const {};
+                                _sentCamera = null;
+                                _sentOverlays = null;
                                 WidgetsBinding.instance
                                     .addPostFrameCallback((_) {
                                   if (mounted) setState(() {});

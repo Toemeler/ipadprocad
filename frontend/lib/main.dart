@@ -25,6 +25,7 @@ import 'l10n/l.dart';
 import 'theme.dart';
 import 'bug_capture.dart';
 import 'gesture_trace.dart';
+import 'sync/lan_sync.dart';
 import 'widgets/bottom_tabbar.dart';
 import 'widgets/home_view.dart';
 import 'widgets/model_browser.dart';
@@ -303,6 +304,23 @@ class _LogFlusher extends WidgetsBindingObserver {
         state == AppLifecycleState.hidden ||
         state == AppLifecycleState.detached) {
       flushDocument();
+    }
+    // M383 — and coming BACK is the other half, which nothing was doing.
+    //
+    // iOS closes a suspended app's sockets. An iPad that has been in a pocket
+    // for ten minutes therefore returns with its beacon, its listener and its
+    // Bonjour registration all gone, and nothing inside the app has any
+    // reason to suspect it: the mirror's own state still says "live", the
+    // settings row still says "live", and no document moves again until
+    // sharing is switched off and on by hand. That is most of what "the sync
+    // stopped working" is on a tablet.
+    //
+    // A desktop gets the same call on a window focus, where it is nearly
+    // free: [LanSync.resume] re-announces and asks its sessions to prove they
+    // are alive, and only rebuilds the mirror when the listener is actually
+    // gone.
+    if (state == AppLifecycleState.resumed) {
+      unawaited(LanSync.instance.resume());
     }
   }
 }

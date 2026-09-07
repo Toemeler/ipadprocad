@@ -71,7 +71,8 @@ import '../part_render.dart';
 import '../perf.dart';
 import '../reality_assembly.dart';
 import '../reality_payload.dart';
-import '../reality_scene.dart' show RealityPush, logMeshConvention;
+import '../reality_scene.dart'
+    show RealityPush, logMeshConvention, samePayload;
 import '../theme.dart';
 import 'bottom_tabbar.dart';
 import 'native_browser_host.dart';
@@ -175,6 +176,11 @@ class _ViewportAssemblyState extends State<ViewportAssembly>
   bool get _hasSurface => RealityView.isSupported || GpuView.isSupported;
   String? _lastSceneSig;
   Map<String, int> _sentRevs = const {};
+  /// M385 — the last camera and overlay payloads handed over, so a rebuild
+  /// that changed neither does not re-send them. Reset with [_lastSceneSig];
+  /// see _Viewport3DState for why.
+  Map<String, dynamic>? _sentCamera;
+  Map<String, dynamic>? _sentOverlays;
 
   /// Push the camera (always), the scene (only when its signature moved) and
   /// the placements + tints (always) to RealityKit.
@@ -188,14 +194,19 @@ class _ViewportAssemblyState extends State<ViewportAssembly>
   void _pushRealityInner(AssemblyModel a, Size size) {
     final c = _sink;
     if (c == null) return;
-    c.setCamera(cameraPayload(a.camera, size));
-    // The same diagnostics the part viewport records. RealityKit composites
-    // outside Flutter, so it never appears in a bug bundle's screenshot and
-    // Dart cannot read back what it drew — this is the last word before the
-    // boundary, and without it an "the assembly is empty" report is
-    // unanswerable (bug_capture.dart carries RealityPush.dump()).
-    RealityPush.recordCamera('assembly on ${size.width.toInt()}x'
-        '${size.height.toInt()}');
+    // M385 — only when it MOVED; see _Viewport3DState._pushRealityInner.
+    final camPayload = cameraPayload(a.camera, size);
+    if (!samePayload(camPayload, _sentCamera)) {
+      _sentCamera = camPayload;
+      c.setCamera(camPayload);
+      // The same diagnostics the part viewport records. RealityKit composites
+      // outside Flutter, so it never appears in a bug bundle's screenshot and
+      // Dart cannot read back what it drew — this is the last word before the
+      // boundary, and without it an "the assembly is empty" report is
+      // unanswerable (bug_capture.dart carries RealityPush.dump()).
+      RealityPush.recordCamera('assembly on ${size.width.toInt()}x'
+          '${size.height.toInt()}');
+    }
     final sig = assemblySceneSignature(a, app: widget.app);
     if (sig != _lastSceneSig) {
       _lastSceneSig = sig;
@@ -219,7 +230,11 @@ class _ViewportAssemblyState extends State<ViewportAssembly>
               app: widget.app)));
       _sentRevs = assemblySceneRevs(a, app: widget.app);
     }
-    c.setOverlays(buildAssemblyOverlaysPayload(a, hoverId: _hover?.id));
+    final overlays = buildAssemblyOverlaysPayload(a, hoverId: _hover?.id);
+    if (!samePayload(overlays, _sentOverlays)) {
+      _sentOverlays = overlays;
+      c.setOverlays(overlays);
+    }
   }
 
   // ---- mesh refinement -----------------------------------------------------
@@ -408,6 +423,8 @@ class _ViewportAssemblyState extends State<ViewportAssembly>
                             // (app resume, tab switch, document switch).
                             _lastSceneSig = null;
                             _sentRevs = const {};
+                            _sentCamera = null;
+                            _sentOverlays = null;
                             WidgetsBinding.instance.addPostFrameCallback((_) {
                               if (mounted) setState(() {});
                             });
@@ -425,6 +442,8 @@ class _ViewportAssemblyState extends State<ViewportAssembly>
                                 _sink = SceneSink.gpu(c);
                                 _lastSceneSig = null;
                                 _sentRevs = const {};
+                                _sentCamera = null;
+                                _sentOverlays = null;
                                 WidgetsBinding.instance
                                     .addPostFrameCallback((_) {
                                   if (mounted) setState(() {});

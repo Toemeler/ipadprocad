@@ -2031,6 +2031,12 @@ class AppState extends ChangeNotifier {
     }
     library[name] = DocRef(name, kind, target, ref.source, DateTime.now());
     _staged.add(name);
+    // M383 — the mirror is told rather than left to notice. It polls, and on
+    // iOS the poll is all it has (`Directory.watch` throws there), so without
+    // this a document saved on the iPad waits out a timer before another
+    // device hears about it. The app knows the exact moment the bytes are on
+    // disk; this is that moment.
+    LanSync.instance.nudge();
     // The thumbnail cache is keyed by path, so it goes stale on every save.
     try {
       final t = _thumbFile(library[name]!);
@@ -2065,6 +2071,9 @@ class AppState extends ChangeNotifier {
     }
     library.remove(name);
     _dropStage(name);
+    // A deletion travels as a tombstone, and it is noticed the same way a
+    // save is — see [_commitStage].
+    LanSync.instance.nudge();
   }
 
   /// Moves [from]'s document file to [to]. An external document is renamed
@@ -2093,6 +2102,9 @@ class AppState extends ChangeNotifier {
     final moved = DocRef(to, ref.kind, target, ref.source, DateTime.now());
     library.remove(from);
     library[to] = moved;
+    // A rename is a deletion and a creation to a mirror that works in names,
+    // and both halves should reach the other devices together.
+    LanSync.instance.nudge();
     if (ref.source == DocSource.external) {
       _remembered.removeWhere((e) => e.path == ref.path);
       _remembered.insert(0, moved);
@@ -4069,7 +4081,7 @@ class AppState extends ChangeNotifier {
     // silently lose geometry on reopen. A missing file is REPORTED, not
     // swallowed: geometry vanishing without explanation is the worse failure.
     //
-    // Grouped by file and read ONCE per file, then handed out in order — a
+    // Grouped by file and read ONCE per file, then handed out by index — a
     // STEP holding four solids became four features, and re-reading it four
     // times would be both slow and a leak, since each read returns all four.
     if (partKernel.available) {
@@ -4096,16 +4108,89 @@ class AppState extends ChangeNotifier {
           continue;
         }
         final solids = partKernel.importStepSolids(abs);
-        for (var i = 0; i < entry.value.length; i++) {
-          if (i < solids.length) {
-            entry.value[i].solid = solids[i];
-          } else {
-            entry.value[i].computeError = 'solid no longer in the file';
+        // M384 — BIND BY INDEX, NOT BY POSITION.
+        //
+        // `solids[i]` for the i-th surviving feature was only right while the
+        // timeline still held every feature the import made, in the order it
+        // made them. Delete the second of four imported bodies and the third
+        // and fourth came back as the wrong geometry; a file holding more
+        // solids than the document had features had the remainder disposed
+        // without a word, which is how a converted mesh lost everything but
+        // its first solid (issue #14).
+        final claimed = List<bool>.filled(solids.length, false);
+        final legacy = <ExtrudeFeature>[];
+        for (final f in entry.value) {
+          final want = f.importIndex;
+          if (want == null) {
+            legacy.add(f); // pre-M384: only position can place it
+            continue;
           }
+          if (want < 0 || want >= solids.length) {
+            f.computeError = 'solid no longer in the file';
+            continue;
+          }
+          f.solid = solids[want];
+          claimed[want] = true;
         }
-        // The file grew since the import: nothing claims those, so free them.
-        for (var i = entry.value.length; i < solids.length; i++) {
-          solids[i].dispose();
+        // Pre-M384 features take the free slots in their own order, and
+        // REMEMBER which one they took, so the next save is exact.
+        var next = 0;
+        for (final f in legacy) {
+          while (next < solids.length && claimed[next]) {
+            next++;
+          }
+          if (next >= solids.length) {
+            f.computeError = 'solid no longer in the file';
+            continue;
+          }
+          f.solid = solids[next];
+          f.importIndex = next;
+          claimed[next] = true;
+        }
+        // What is left over. A document that carried an index for every
+        // feature is AUTHORITATIVE — a solid nobody claims was deleted on
+        // purpose, and resurrecting it would undo that. A document that could
+        // not say (any legacy feature in the group) cannot tell a deliberate
+        // deletion from geometry the import never gave a feature to, and
+        // between those two readings the app takes the one that does not lose
+        // the model: adopt the solid as its own body and say so.
+        final adopt = legacy.isNotEmpty;
+        var adopted = 0;
+        for (var i = 0; i < solids.length; i++) {
+          if (claimed[i]) continue;
+          if (!adopt) {
+            solids[i].dispose();
+            continue;
+          }
+          // `features.add`, NOT appendFeature: that one drags the End of Part
+          // marker down past whatever it appends, which is right for a body
+          // the user just made and wrong for one recovered during a load — it
+          // would silently undo a rollback they had parked in the document.
+          // applyEndOfPart below then re-derives `rolledBack` from the marker
+          // where it actually is.
+          p.features.add(ExtrudeFeature(
+            name: p.nextFeatureName('Import'),
+            bodyName: p.nextSolidName(),
+            sketchName: '',
+            profiles: const [],
+            output: 'new',
+          )
+            ..imported = true
+            ..importPath = entry.key
+            ..importIndex = i
+            ..solid = solids[i]
+            ..seq = p.nextSeq());
+          adopted++;
+        }
+        if (adopted > 0) {
+          applyEndOfPart(p);
+          // Written back on the next save, so the repair happens once rather
+          // than on every open.
+          p.dirty = true;
+          Log.w(
+              'import',
+              'recovered $adopted body/bodies from ${entry.key} that no '
+                  'feature claimed');
         }
       }
       // M182 — only sync projections when the recompute SUCCEEDED: a failed
@@ -18300,7 +18385,9 @@ class AppState extends ChangeNotifier {
     for (var i = 0; i < solids.length; i++) {
       final body = p.nextSolidName();
       p.appendFeature(ExtrudeFeature(
-        name: 'Import${p.features.length + 1}',
+        // M384 — `features.length + 1` names a feature that can already
+        // exist: delete Import1 of two and the next import is Import2 twice.
+        name: p.nextFeatureName('Import'),
         bodyName: body,
         sketchName: '',
         profiles: const [],
@@ -18308,6 +18395,9 @@ class AppState extends ChangeNotifier {
       )
         ..imported = true
         ..importPath = rel
+        // M384 — which solid of the file this is, so a later delete or
+        // reorder cannot make the reopen bind it to a different one.
+        ..importIndex = i
         ..solid = solids[i]
         ..seq = p.nextSeq());
     }
@@ -18507,6 +18597,7 @@ class AppState extends ChangeNotifier {
 
     // Persist the RESULT, and make the feature point at it.
     String? rel;
+    String? abs;
     try {
       final dir = _partImportDir(curTab!);
       var base = path.split('/').last;
@@ -18516,6 +18607,7 @@ class AppState extends ChangeNotifier {
       Log.milestone('import', 'mesh: >> write ${dst.path}');
       if (partKernel.exportStep([solid], dst.path)) {
         rel = 'imports/$base.step';
+        abs = dst.path;
       } else {
         Log.w('import',
             'could not write the converted STEP: ${partKernel.lastError}');
@@ -18523,8 +18615,40 @@ class AppState extends ChangeNotifier {
     } catch (e) {
       Log.w('import', 'could not stash the converted body: $e');
     }
-    // Everything that blocks the isolate is done: the conversion and the STEP
-    // write, which is another native call and on a big model not a fast one.
+
+    // M384 — ONE FEATURE PER SOLID, COUNTED THE WAY THE REOPEN WILL COUNT.
+    //
+    // The conversion hands back a single shape, and for a mesh whose surfaces
+    // sew into several closed volumes that shape is a COMPOUND. It used to
+    // become one feature, while openPart reads the same file back through
+    // importStepSolids — which explodes it — and gave the one feature the
+    // FIRST solid only. Everything else was disposed, so a whale came back as
+    // the flat sliver it happened to explode first (issue #14).
+    //
+    // So the bodies are taken from the file that was just written, through the
+    // very call the reopen makes. Anything the round trip does to the order is
+    // then done to both sides by construction rather than by assumption, and
+    // the index each feature records means what it will mean on open.
+    //
+    // Read BEFORE the converted shape is freed: a file that yields no solid at
+    // all (a surface body the writer could not close) must leave the session
+    // exactly as it was rather than with nothing in it.
+    var bodies = <KernelSolid>[];
+    if (abs != null) {
+      Log.milestone('import', 'mesh: >> re-read ${rel!}');
+      bodies = partKernel.importStepSolids(abs);
+      if (bodies.isEmpty) {
+        Log.w(
+            'import',
+            'the converted STEP holds no solid (${partKernel.lastError}); '
+                'keeping the converted body for this session');
+      } else {
+        solid.dispose(); // the file is the source of truth from here on
+      }
+    }
+    // Everything that blocks the isolate is done: the conversion, the STEP
+    // write and the read back, all native calls and on a big model not fast
+    // ones.
     await NativeBusy.hide();
     if (rel == null) {
       // Without a file on disk the body would come back empty on reopen, and
@@ -18533,25 +18657,30 @@ class AppState extends ChangeNotifier {
       toast(L.current.msgMeshNotSaved);
       return 0;
     }
+    if (bodies.isEmpty) bodies = [solid];
 
-    p.appendFeature(ExtrudeFeature(
-      name: 'Import${p.features.length + 1}',
-      bodyName: p.nextSolidName(),
-      sketchName: '',
-      profiles: const [],
-      output: 'new',
-    )
-      ..imported = true
-      ..importPath = rel
-      ..solid = solid
-      ..seq = p.nextSeq());
+    for (var i = 0; i < bodies.length; i++) {
+      p.appendFeature(ExtrudeFeature(
+        name: p.nextFeatureName('Import'),
+        bodyName: p.nextSolidName(),
+        sketchName: '',
+        profiles: const [],
+        output: 'new',
+      )
+        ..imported = true
+        ..importPath = rel
+        ..importIndex = i
+        ..solid = bodies[i]
+        ..seq = p.nextSeq());
+    }
     applyEndOfPart(p);
     p.dirty = true;
     if (curTab != null) await savePart(curTab!);
-    Log.milestone('import', 'mesh: done (rss ${Log.rssMb() ?? -1} MB)');
+    Log.milestone('import',
+        'mesh: done, ${bodies.length} body/bodies (rss ${Log.rssMb() ?? -1} MB)');
     toast(_meshSuccessMessage(res.report));
     notifyListeners();
-    return 1;
+    return bodies.length;
   }
 
   /// The sentence for a mesh file that could not be READ.
@@ -20828,7 +20957,7 @@ class AppState extends ChangeNotifier {
       return 0;
     }
     _partCheckpoint(into);
-    for (final solid in solids) {
+    for (var i = 0; i < solids.length; i++) {
       into.appendFeature(ExtrudeFeature(
         name: into.nextFeatureName('Paste'),
         bodyName: into.nextSolidName(),
@@ -20838,7 +20967,10 @@ class AppState extends ChangeNotifier {
       )
         ..imported = true
         ..importPath = rel
-        ..solid = solid
+        // M384 — the stashed file is the one that was just read, so the
+        // explode order this index refers to is the one reopen will see.
+        ..importIndex = i
+        ..solid = solids[i]
         ..seq = into.nextSeq());
     }
     recomputeAllFeatures(into, partKernel);

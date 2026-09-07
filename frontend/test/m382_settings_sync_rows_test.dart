@@ -68,7 +68,22 @@ void main() {
     await tester.pumpAndSettle();
     await tester.ensureVisible(f);
     await tester.pumpAndSettle();
-    await tester.tap(f, warnIfMissed: true);
+    // THE TAP GOES THROUGH runAsync, and it is not decoration. A Sharing row
+    // turns the mirror on, which binds a TCP listener, a UDP beacon and an
+    // mDNS socket — real asynchronous I/O — while `testWidgets` runs its body
+    // under FakeAsync, where the clock that would deliver those Futures is the
+    // one the test is holding. Started under the fake clock they never
+    // complete at all.
+    //
+    // That used to be merely untidy: the tap handler does not await them, so
+    // the case carried on and only the mirror was left half-started. Since
+    // code changes are serialised (LanSync._enqueue) it is not — the
+    // never-finishing call holds the queue, and the `ShareCodes.set(null)` in
+    // tearDown, along with every later case in this file, waits behind it for
+    // ever.
+    //
+    // Pumping is not allowed inside runAsync, so only the tap goes in.
+    await tester.runAsync(() => tester.tap(f, warnIfMissed: true));
     await tester.pumpAndSettle();
   }
 

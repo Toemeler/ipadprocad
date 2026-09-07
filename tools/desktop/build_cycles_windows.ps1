@@ -415,6 +415,45 @@ while ($queue.Count -gt 0) {
     $queue.Enqueue($target)
   }
 }
+# WHAT AN IMPORT TABLE CANNOT TELL YOU.
+#
+# The walk above follows DEPENDENTS, which is the STATIC import table — every
+# DLL the linker recorded. A library that loads a module at run time by name
+# appears in no import table at all, so a closure built only from imports is
+# complete right up until the first call that needs one.
+#
+# OpenImageDenoise is exactly that shape. `OpenImageDenoise.dll` imports
+# `OpenImageDenoise_core.dll`, and the core then LoadLibrary's its device
+# backend — `OpenImageDenoise_device_cpu.dll` — from its own directory, on the
+# first `oidnNewDevice`. Nothing references it, so nothing collected it, and a
+# bundle that renders happily until the denoise step is what comes out.
+#
+# So each family that does this is named here, with the rule that finds the
+# rest of it: every DLL beside a collected one whose name starts with the same
+# prefix. It is a small list because it is a list of libraries that do an
+# unusual thing, and a miss is a hang on a user's machine rather than an error
+# anyone can read.
+$sidecarPrefixes = @('OpenImageDenoise', 'OpenImageIO', 'tbb')
+foreach ($prefix in $sidecarPrefixes) {
+  $anchor = Get-ChildItem $deps -Filter "$prefix*.dll" -File -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+  if (-not $anchor) { continue }
+  # Where the collected one came from — the same package directory holds its
+  # siblings.
+  foreach ($d in $searchDirs) {
+    $sibling = Join-Path $d $anchor.Name
+    if (-not (Test-Path $sibling)) { continue }
+    foreach ($f in Get-ChildItem $d -Filter "$prefix*.dll" -File) {
+      $target = Join-Path $deps $f.Name
+      if (Test-Path $target) { continue }
+      Copy-Item $f.FullName $target -Force
+      Write-Host "  sidecar: $($f.Name) (loaded at run time, not imported)"
+      $copied++
+    }
+    break
+  }
+}
+
 $depsMB = [math]::Round(
   (Get-ChildItem $deps -File | Measure-Object Length -Sum).Sum / 1MB, 0)
 Write-Host "added $copied DLLs to $deps ($depsMB MB total)"

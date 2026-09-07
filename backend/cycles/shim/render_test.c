@@ -62,6 +62,32 @@
 #include <string.h>
 #include <time.h>
 
+/* Waiting, in the two dialects that have one.
+ *
+ * `nanosleep` is POSIX and MSVC has no such function, which is what kept this
+ * test off Windows — the one platform where the renderer was reported to
+ * produce no frames at all. WIN32_LEAN_AND_MEAN because <windows.h> otherwise
+ * drags in the whole of OLE and, worse for this tree, #defines `near` and
+ * `far` to nothing (see mesh_recon.cpp, which lost an afternoon to exactly
+ * that). */
+#ifdef _WIN32
+#  define WIN32_LEAN_AND_MEAN
+#  define NOMINMAX
+#  include <windows.h>
+static void sleep_ms(const double ms)
+{
+  Sleep((DWORD)(ms < 0.0 ? 0.0 : ms));
+}
+#else
+static void sleep_ms(const double ms)
+{
+  struct timespec ts;
+  ts.tv_sec = (time_t)(ms / 1000.0);
+  ts.tv_nsec = (long)((ms - (double)ts.tv_sec * 1000.0) * 1000000.0);
+  nanosleep(&ts, NULL);
+}
+#endif
+
 #define TW 96
 #define TH 96
 
@@ -110,8 +136,29 @@ static double quadrant(const unsigned char *rgba, int left, int top)
   return quadrant_of(rgba, TW, TH, left, top, -1);
 }
 
+#ifdef _WIN32
+/* What faulted, and where. Windows reports an access violation to the process
+ * as an exit code and to nobody as anything else — this turns
+ * "exit -1073741819" into a line naming the exception and the address, which
+ * is the difference between a number to search for and a fault to fix. */
+static LONG WINAPI report_fault(EXCEPTION_POINTERS *info)
+{
+  const EXCEPTION_RECORD *r = info && info->ExceptionRecord
+                                  ? info->ExceptionRecord
+                                  : NULL;
+  printf("FAULT: exception 0x%08lX at %p\n",
+         r ? (unsigned long)r->ExceptionCode : 0UL,
+         r ? (void *)r->ExceptionAddress : NULL);
+  fflush(stdout);
+  return EXCEPTION_EXECUTE_HANDLER; /* let the process die, having said so */
+}
+#endif
+
 int main(int argc, char **argv)
 {
+#ifdef _WIN32
+  SetUnhandledExceptionFilter(report_fault);
+#endif
   if (argc > 1) {
     cy_set_resource_path(argv[1]);
   }
@@ -472,10 +519,7 @@ int main(int argc, char **argv)
         if (done) {
           break;
         }
-        struct timespec ts;
-        ts.tv_sec = 0;
-        ts.tv_nsec = (long)(kPollMs * 1000000.0);
-        nanosleep(&ts, NULL);
+        sleep_ms(kPollMs);
         waited += kPollMs;
       }
       printf("live: %d frames, %d/%d samples, done=%d denoised=%d after %.0f ms\n",
@@ -531,7 +575,29 @@ int main(int argc, char **argv)
       }
       printf("\n");
       printf("live: %d distinct counts, %d of them one apart\n", seen_n, adjacent);
-      check(seen_n > 10,
+      /* M383 — AND THE TEN IS ASKED FOR ONLY WHEN THERE WAS TIME TO SEE IT.
+       *
+       * The reasoning above says "at 2 ms a poll against a render of about a
+       * second, most of them do", and on the machines this test grew up on
+       * that held. It does not hold on a 96-core Windows runner, where the
+       * whole 128-sample 96x96 render finished in EIGHT MILLISECONDS: four
+       * polls are all that can physically happen, so `seen_n > 10` is not a
+       * property of the renderer, it is a demand for more polls than the wall
+       * clock allows. It failed on exactly that — `4 distinct counts` out of
+       * four possible — while every count was a new one and one pair was
+       * adjacent, which is the behaviour being asked for.
+       *
+       * So the ten stands where there was room for ten polls, and below that
+       * the question becomes the one that can still be answered: did nearly
+       * every poll that saw a frame see a NEW sample count, rather than the
+       * same batch handed out again. An unpatched scheduler cannot satisfy
+       * that either — its counts come at the filter points and a poll between
+       * two of them returns nothing new — and it cannot satisfy the adjacency
+       * check below at all, which remains unconditional and is the stronger of
+       * the two. */
+      const int polls_possible = (int)(waited / kPollMs);
+      const int wanted_counts = polls_possible < 12 ? polls_possible - 1 : 10;
+      check(seen_n > wanted_counts,
             "sampling arrives progressively rather than in a few big batches");
       check(adjacent > 0, "consecutive samples arrive as consecutive frames");
 
@@ -641,10 +707,7 @@ int main(int argc, char **argv)
         if (done) {
           break;
         }
-        struct timespec ts;
-        ts.tv_sec = 0;
-        ts.tv_nsec = (long)(kBigPollMs * 1000000.0);
-        nanosleep(&ts, NULL);
+        sleep_ms(kBigPollMs);
         waited += kBigPollMs;
       }
       printf("big: %dx%d, %d frames, %d/%d samples, done=%d denoised=%d after %.0f ms\n",
@@ -830,5 +893,31 @@ int main(int argc, char **argv)
   free(rgba);
   printf(failures ? "RENDER TEST: FAIL (%d)\n" : "RENDER TEST: PASS (%d failures)\n",
          failures);
+
+  /* ---- and then the way out, narrated -----------------------------------
+   *
+   * M383. The Windows run reported every check above as `ok`, printed PASS,
+   * and then died with 0xC0000005 — an access violation, with `main` already
+   * finished. That is a SHUTDOWN fault, in the C runtime's static destruction
+   * and DLL unload, and it is invisible from a log that stops at the verdict:
+   * "PASS" and "the process crashed" arrived together and looked like a
+   * contradiction.
+   *
+   * So the exit says what it is doing. If `teardown: main returning` prints
+   * and the process still faults, nothing this test wrote is responsible and
+   * the fault is in static destruction — a global in the shim or in Cycles
+   * being destroyed after something it depends on has already gone. If it
+   * does NOT print, the fault is above and this marker says which side.
+   *
+   * Flushed rather than trusted: a crash discards whatever the CRT was still
+   * holding, and a buffered marker that never reaches the log is the same as
+   * no marker at all.
+   */
+  if (cy_live_is_open()) {
+    printf("teardown: a live session was still open — closing it\n");
+    cy_live_close();
+  }
+  printf("teardown: main returning\n");
+  fflush(stdout);
   return failures ? 1 : 0;
 }
