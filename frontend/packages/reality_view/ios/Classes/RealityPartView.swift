@@ -285,9 +285,27 @@ final class PartRenderer: NSObject {
     private var axisEntities: [String: AxisEntity] = [:]
     private var cpEntity: Entity?
     private var sketchRoot = Entity()
-    /// Sketch polyline entities with the normal of the plane they lie on, so
-    /// a sketch drawn ON a solid face can be lifted clear of it.
-    private var sketchEntities: [(Entity, SIMD3<Float>, String)] = []
+    /// M386 — ONE ENTITY PER COLOUR, NOT PER CURVE.
+    ///
+    /// A sketch used to be drawn as one Entity, one MeshResource and one
+    /// `MeshResource.generate` per curve, so an imported DXF was thousands of
+    /// them. The native table in issue #15 is unambiguous about what that
+    /// costs: `rv.native.sketches` 2709 ms of a 2722 ms setScene, against 15 ms
+    /// for every solid in the same scene — and the same work runs again on
+    /// every outline re-stroke. The document behind it holds 2051 sketch
+    /// curves, which is 1.3 ms each, almost all of it RealityKit's per-resource
+    /// overhead rather than the geometry.
+    ///
+    /// RibbonBuilder already makes ONE mesh from a list of polylines, and a
+    /// sketch has three colours (its constraint state), not two thousand. So
+    /// the curves are grouped by colour and each group is one entity. The
+    /// normal is its sketch plane's, for the lift in applySketchLift.
+    private var sketchBatches: [(Entity, SIMD3<Float>)] = []
+    /// Every curve as its POINTS rather than as an entity, because a batched
+    /// curve no longer has one of its own. This is what the accent ribbon is
+    /// built from, and what carries the key a long press resolves against.
+    private var sketchCurves: [(pts: [SIMD3<Float>], n: SIMD3<Float>,
+                                key: String)] = []
     /// Edge tubes, kept so they can be nudged toward the camera: a tube is
     /// centred ON the face boundary, so half of it sits INSIDE the solid and
     /// speckles through the surface at grazing angles.
@@ -566,8 +584,8 @@ final class PartRenderer: NSObject {
     /// The re-stroke waiting for the camera to stop, if any.
     private var restrokeWork: DispatchWorkItem?
 
-    /// What the outlines cost inside the last [setScene], accumulated by
-    /// [rebuildSolids].
+    /// What the outlines cost inside the last [setScene] — the solids' edges
+    /// and the sketch curves, which is exactly what a re-stroke redoes.
     ///
     /// This is what seeds [restrokeMs], and it is worth the two lines: without
     /// it the FIRST camera move after a scene is loaded has no measurement to
@@ -725,8 +743,55 @@ final class PartRenderer: NSObject {
         guard Self.useRibbons, !sketchCache.isEmpty else { return }
         let hover = accentHover
         let sel = accentSelected
-        rebuildSketches(sketchCache) // clears sketchAccent
+        rebuildSketches(sketchCache) // clears the accent with them
         applySketchAccents(hover: hover, selected: sel)
+    }
+
+    /// Lifts every sketch entity clear of the surface it lies on.
+    ///
+    /// A sketch drawn ON a solid face is EXACTLY coplanar with it, so it needs
+    /// a nudge toward the camera comfortably past the depth resolution or it
+    /// z-fights and reads as "inside" the face. The bias here was once 5e-4 —
+    /// four times SMALLER than highlightEps, which this file already documents
+    /// as the minimum that survives; sketchEps matches that and adds margin.
+    ///
+    /// Its own method rather than a loop inside placeCamera because M386's
+    /// accent entities are created between camera pushes and need the same
+    /// lift the moment they exist.
+    private func applySketchLift() {
+        let dir = cam.dir
+        for (e, n) in sketchBatches + sketchAccents {
+            let side: Float = simd_dot(n, dir) >= 0 ? 1 : -1
+            e.position = n * (sketchEps * side)
+        }
+    }
+
+    /// M386 — one entity for many polylines in one colour.
+    ///
+    /// The ribbon path already builds a single mesh from a list, which is the
+    /// whole saving. The tube fallback has no such call, so there it stays one
+    /// entity per curve under a shared holder: the rest of this file then sees
+    /// exactly one entity per batch either way, and the fallback is only used
+    /// where ribbons are switched off (Self.useRibbons) or before a camera has
+    /// given the scene a facing.
+    private func strokeBatch(_ lines: [[SIMD3<Float>]], color: UIColor,
+                             weight: Float = Stroke.line) -> Entity? {
+        if Self.useRibbons, let v = builtStyle.viewDir,
+           let m = RibbonBuilder.mesh(lines,
+                                      halfWidth: builtStyle.halfWidth(weight),
+                                      viewDir: v) {
+            return ModelEntity(mesh: m, materials: [Materials.unlitSoft(color)])
+        }
+        let holder = Entity()
+        var any = false
+        for pts in lines {
+            guard let e = OutlineBuilder.tube(pts, color: color,
+                                              style: builtStyle,
+                                              weight: weight) else { continue }
+            holder.addChild(e)
+            any = true
+        }
+        return any ? holder : nil
     }
 
     private func placeCamera() {
@@ -791,15 +856,7 @@ final class PartRenderer: NSObject {
         }
         refreshOutlines()
         for e in edgeEntities { e.position = dir * bias }
-        // A sketch drawn ON a solid face is EXACTLY coplanar with it, so it
-        // needs a lift comfortably past the depth resolution or it z-fights
-        // and reads as "inside" the face. The old bias here was 5e-4 — four
-        // times SMALLER than highlightEps, which the code below already
-        // documents as the minimum that survives. Match that and add margin.
-        for (e, n, _) in sketchEntities {
-            let side: Float = simd_dot(n, dir) >= 0 ? 1 : -1
-            e.position = n * (sketchEps * side)
-        }
+        applySketchLift()
 
         // Headlight follows the camera (points along the view direction).
         headlight.transform = Transform(matrix: Self.lookAt(eye: pos, target: center, up: up))
@@ -826,6 +883,7 @@ final class PartRenderer: NSObject {
 
     func setScene(_ a: [String: Any]) {
         sceneRadius = 15 // origin planes span ±10 mm (diagonal ≈ 14.1)
+        sceneEdgeMs = 0
         // M273 — latched here, with builtStyle and for the same reason: every
         // builder below reads it, so a scene comes out in ONE mode rather than
         // in whatever each call site recomputed.
@@ -843,11 +901,6 @@ final class PartRenderer: NSObject {
         RvPerf.time("rv.native.solids") {
             rebuildSolids(a["solids"] as? [[String: Any]] ?? [])
         }
-        // M385 — what a re-stroke of THIS scene costs, known before the first
-        // camera move asks. Zero when every solid's mesh was unchanged (the
-        // payload then carries no buffers and no edge was built), and the
-        // previous scene's measurement is the better answer in that case.
-        if sceneEdgeMs > 0 { restrokeMs = sceneEdgeMs }
         RvPerf.time("rv.native.planes") {
             rebuildPlanes(a["planes"] as? [[String: Any]] ?? [])
             rebuildAxes(a["axes"] as? [[String: Any]] ?? [])
@@ -858,6 +911,13 @@ final class PartRenderer: NSObject {
             applySketchAccents(hover: a["hoverSketch"] as? String,
                                selected: Set(a["selSketch"] as? [String] ?? []))
         }
+        // M385 — what a re-stroke of THIS scene costs, known before the first
+        // camera move asks. Both halves of it: rebuildOutlines re-strokes the
+        // solids' edges AND the sketch curves, and on an imported drawing the
+        // sketches are the whole number. Zero when nothing was rebuilt (every
+        // solid's mesh unchanged and no sketch), and the previous scene's
+        // measurement is the better answer in that case.
+        if sceneEdgeMs > 0 { restrokeMs = sceneEdgeMs }
         RvPerf.time("rv.native.accents") {
             rebuildEdgeAccents(from: a["edgeAccent"])
             rebuildPreview(a["preview"] as? [String: Any])
@@ -1098,38 +1158,85 @@ final class PartRenderer: NSObject {
         rebuildHighlight(from: a["highlight"] as? [String: Any])
     }
 
-    /// Blue prehighlight / selection on individual sketch curves. Cheap: it
-    /// only swaps a material, and only on the entities whose state changed.
-    private var sketchAccent: [String: Bool] = [:]
+    /// M386 — the accent is DRAWN OVER the curve, not painted onto it.
+    ///
+    /// It used to be a material swap on the curve's own entity, which is why
+    /// every curve needed an entity of its own — and that is what made a
+    /// 2051-curve sketch cost 2.7 seconds to build. Now the curves are batched
+    /// by colour (see [sketchBatches]) and whatever is hovered or selected gets
+    /// a wider ribbon of its own on top, exactly as a hovered solid EDGE
+    /// already does in rebuildEdgeAccents. The base curve keeps its own tone
+    /// underneath and never has to be restored, so [sketchTones] is gone with
+    /// the per-curve entities it was parallel to.
+    ///
+    /// One entity per SKETCH rather than one for all of them: the coplanar
+    /// lift in applySketchLift is along the sketch plane's normal, and two
+    /// sketches do not share one.
+    private var sketchAccents: [(Entity, SIMD3<Float>)] = []
+    /// The keys the accent above was built for, so hovering along one curve
+    /// does not rebuild the ribbon every frame — the same guard, and the same
+    /// reason, as builtEdgeAccentKey.
+    private var builtSketchAccent: Set<String> = []
     /// Last accent inputs, so re-aiming the sketch ribbons on a camera turn
     /// can restore highlight state that rebuildSketches wipes.
     private var accentHover: String?
     private var accentSelected: Set<String> = []
 
-    /// The colour each sketch curve was BUILT with, parallel to
-    /// sketchEntities. Needed because clearing a highlight has to restore that
-    /// curve's own tone — falling back to a single flat colour would erase
-    /// the constraint-state colouring the moment you hovered anything.
-    private var sketchTones: [UIColor] = []
-
     private func applySketchAccents(hover: String?, selected: Set<String>) {
         accentHover = hover
         accentSelected = selected
-        for (idx, item) in sketchEntities.enumerated() {
-            let (e, _, key) = item
-            guard !key.isEmpty, let me = e as? ModelEntity else { continue }
-            let on = (key == hover) || selected.contains(key)
-            if sketchAccent[key] == on { continue }
-            sketchAccent[key] = on
-            let base = idx < sketchTones.count ? sketchTones[idx] : Colors.sketch
-            let c = on ? Colors.highlight : base
-            me.model?.materials =
-                [Self.useRibbons ? Materials.unlitSoft(c) : Materials.unlit(c)]
+        // Empties dropped rather than carried: a curve with no key can never
+        // be accented (they are the guard below), and an empty in the set
+        // would make `want` non-empty, build nothing, and leave the cache
+        // looking unbuilt on every push afterwards.
+        var want = selected.filter { !$0.isEmpty }
+        if let h = hover, !h.isEmpty { want.insert(h) }
+        if want == builtSketchAccent && (want.isEmpty || !sketchAccents.isEmpty) {
+            return
         }
+        builtSketchAccent = want
+        for (e, _) in sketchAccents { e.removeFromParent() }
+        sketchAccents.removeAll()
+        guard !want.isEmpty else { return }
+        // Grouped by the plane each curve lies on, in the order the sketches
+        // were pushed, so one entity per sketch carries one lift.
+        var normals = [SIMD3<Float>]()
+        var runs = [[[SIMD3<Float>]]]()
+        for c in sketchCurves where !c.key.isEmpty && want.contains(c.key) {
+            // Lifted toward the camera on top of its own curve. A ribbon at
+            // the accent width is clearly wider than the line under it, but
+            // the two are coplanar by construction and a width alone does not
+            // settle a depth test — rebuildEdgeAccents makes the same nudge
+            // for the same reason.
+            let pts = c.pts.map { $0 + cam.dir * highlightEps }
+            if let i = normals.firstIndex(where: { Self.sameNormal($0, c.n) }) {
+                runs[i].append(pts)
+            } else {
+                normals.append(c.n)
+                runs.append([pts])
+            }
+        }
+        for (i, lines) in runs.enumerated() {
+            guard let e = strokeBatch(lines, color: Colors.highlight,
+                                      weight: Stroke.accent) else { continue }
+            sketchRoot.addChild(e)
+            sketchAccents.append((e, normals[i]))
+        }
+        // The lift depends on where the camera is, and the entities were only
+        // just created; placeCamera is what applies it.
+        applySketchLift()
+    }
+
+    /// Exact equality on a plane normal — these are COPIED from one payload
+    /// value per sketch, never recomputed, so every curve of one sketch carries
+    /// the identical bits. A tolerance would only invite two sketches that are
+    /// nearly parallel to share a lift they must not share.
+    private static func sameNormal(_ a: SIMD3<Float>,
+                                   _ b: SIMD3<Float>) -> Bool {
+        return a.x == b.x && a.y == b.y && a.z == b.z
     }
 
     private func rebuildSolids(_ solids: [[String: Any]]) {
-        sceneEdgeMs = 0
         // Drop entities no longer present.
         let ids = Set(solids.compactMap { $0["id"] as? String })
         for (id, e) in solidEntities where !ids.contains(id) {
@@ -1310,9 +1417,10 @@ final class PartRenderer: NSObject {
         sketchCache = sketches
         sketchRoot.removeFromParent()
         sketchRoot = Entity()
-        sketchEntities.removeAll()
-        sketchTones.removeAll() // parallel array, must reset together
-        sketchAccent.removeAll()
+        sketchBatches.removeAll()
+        sketchCurves.removeAll()
+        sketchAccents.removeAll() // their parent has just been thrown away
+        builtSketchAccent.removeAll()
         for sk in sketches {
             guard let polys = sk["polylines"] as? [Any] else { continue }
             // Normal of the sketch plane (origin plane or the picked face).
@@ -1322,24 +1430,39 @@ final class PartRenderer: NSObject {
             // by constraint state and projection, and 3D used one flat tone,
             // so the same sketch read differently in the two viewports.
             let cols = sk["colors"] as? [Any]
+            // M386 — grouped by that colour, first-seen order kept so the
+            // batches are built in the order the curves arrived. There are
+            // three of these, whatever the sketch holds.
+            var argbs = [Int]()
+            var runs = [[[SIMD3<Float>]]]()
             for (i, raw) in polys.enumerated() {
-                guard let pts = Payload.floats(raw) else { continue }
-                var tone = Colors.sketch
+                guard let pts = Payload.floats(raw), pts.count >= 2 else {
+                    continue
+                }
+                var argb = 0
                 if let cols = cols, i < cols.count,
-                   let argb = (cols[i] as? NSNumber)?.intValue {
-                    tone = UIColor(
-                        red: CGFloat((argb >> 16) & 0xFF) / 255.0,
-                        green: CGFloat((argb >> 8) & 0xFF) / 255.0,
-                        blue: CGFloat(argb & 0xFF) / 255.0,
-                        alpha: CGFloat((argb >> 24) & 0xFF) / 255.0)
+                   let v = (cols[i] as? NSNumber)?.intValue {
+                    argb = v
                 }
-                sketchTones.append(tone)
-                if let e = OutlineBuilder.polyline(pts, color: tone,
-                                                   style: builtStyle) {
-                    sketchRoot.addChild(e)
-                    sketchEntities.append((e, n, i < keys.count ? keys[i] : ""))
+                if let at = argbs.firstIndex(of: argb) {
+                    runs[at].append(pts)
+                } else {
+                    argbs.append(argb)
+                    runs.append([pts])
                 }
+                sketchCurves.append(
+                    (pts: pts, n: n, key: i < keys.count ? keys[i] : ""))
             }
+            let t0 = CFAbsoluteTimeGetCurrent()
+            for (i, lines) in runs.enumerated() {
+                // Payload.color reads 0 as "no colour given" (see its note), so
+                // a sketch pushed without colours keeps the flat tone it had.
+                let tone = Payload.color(argbs[i]) ?? Colors.sketch
+                guard let e = strokeBatch(lines, color: tone) else { continue }
+                sketchRoot.addChild(e)
+                sketchBatches.append((e, n))
+            }
+            sceneEdgeMs += (CFAbsoluteTimeGetCurrent() - t0) * 1000.0
         }
         root.addChild(sketchRoot)
     }

@@ -219,25 +219,16 @@ struct OutlineStyle: Equatable {
     func halfWidth(_ pt: Float) -> Float { max(mmPerPoint * pt * 0.5, 1e-6) }
 }
 
-/// One stroked polyline in the current style. The single place every line
-/// that is not a solid's own outline goes through, so none of them can drift
-/// apart again.
+/// Chrome stroked as a swept TUBE in the current style — work-plane borders
+/// and origin axes, the two kinds of line that lie inside a surface they have
+/// to beat in the depth buffer.
+///
+/// M386 — the ribbon-or-tube `polyline` that stood beside this is gone with
+/// the per-curve sketch entities that were its only caller; sketch curves are
+/// stroked in batches now (PartRenderer.strokeBatch), which is the same
+/// decision made once for a whole colour instead of once per curve.
 @available(iOS 15.0, *)
 enum OutlineBuilder {
-    /// A camera-facing ribbon where [style] gives a facing, the tube
-    /// otherwise. Exactly constant on-screen width; what MODEL lines use.
-    static func polyline(_ pts: [SIMD3<Float>], color: UIColor,
-                         style: OutlineStyle,
-                         weight: Float = Stroke.line) -> Entity? {
-        let w = style.halfWidth(weight)
-        if let v = style.viewDir,
-           let m = RibbonBuilder.mesh([pts], halfWidth: w, viewDir: v) {
-            return ModelEntity(mesh: m, materials: [Materials.unlitSoft(color)])
-        }
-        return TubeBuilder.polyline(pts, radius: w,
-                                    material: Materials.unlit(color))
-    }
-
     /// Always the swept tube, whatever the style says.
     ///
     /// For chrome that lies IN a surface it has to beat in the depth buffer:
