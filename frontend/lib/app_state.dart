@@ -2031,6 +2031,12 @@ class AppState extends ChangeNotifier {
     }
     library[name] = DocRef(name, kind, target, ref.source, DateTime.now());
     _staged.add(name);
+    // M383 — the mirror is told rather than left to notice. It polls, and on
+    // iOS the poll is all it has (`Directory.watch` throws there), so without
+    // this a document saved on the iPad waits out a timer before another
+    // device hears about it. The app knows the exact moment the bytes are on
+    // disk; this is that moment.
+    LanSync.instance.nudge();
     // The thumbnail cache is keyed by path, so it goes stale on every save.
     try {
       final t = _thumbFile(library[name]!);
@@ -2065,6 +2071,9 @@ class AppState extends ChangeNotifier {
     }
     library.remove(name);
     _dropStage(name);
+    // A deletion travels as a tombstone, and it is noticed the same way a
+    // save is — see [_commitStage].
+    LanSync.instance.nudge();
   }
 
   /// Moves [from]'s document file to [to]. An external document is renamed
@@ -2093,6 +2102,9 @@ class AppState extends ChangeNotifier {
     final moved = DocRef(to, ref.kind, target, ref.source, DateTime.now());
     library.remove(from);
     library[to] = moved;
+    // A rename is a deletion and a creation to a mirror that works in names,
+    // and both halves should reach the other devices together.
+    LanSync.instance.nudge();
     if (ref.source == DocSource.external) {
       _remembered.removeWhere((e) => e.path == ref.path);
       _remembered.insert(0, moved);

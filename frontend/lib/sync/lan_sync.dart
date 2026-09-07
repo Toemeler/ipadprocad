@@ -3,11 +3,28 @@
 //
 // WHAT IT IS
 // ----------
-// Type a code in Settings on two devices. They find each other with a UDP
-// beacon, prove to each other that they know the code, compare what they have
-// and fill in each other's gaps — and then stay connected, so a document saved
-// on the iPad is on the laptop a second later without anybody pressing
-// anything.
+// Type a code in Settings on two devices. They find each other — with a UDP
+// beacon between desktops and over Bonjour wherever an iPad is involved, since
+// an iPad is not allowed to broadcast — prove to each other that they know the
+// code, compare what they have and fill in each other's gaps. Then they stay
+// connected, so a document saved on the iPad is on the laptop a moment later
+// without anybody pressing anything.
+//
+// HOW "A MOMENT LATER" IS ACTUALLY ACHIEVED, since it is four separate things
+// and each of them was once the slow one:
+//
+//   * The app SAYS SO. [LanSync.nudge] is called the instant a document is
+//     written, renamed or deleted, rather than leaving the mirror to notice.
+//   * Where nothing calls it — a preference written by one of the nine little
+//     stores, say — a one-second poll notices instead, which is affordable
+//     only because [LanSync._entryFor] caches a file's hash against its size
+//     and time and so does no I/O at all over an unchanged gallery.
+//   * A paired session WRITES SOMETHING every eight seconds whether or not it
+//     has anything to say, because a half-open socket is silent and looks
+//     exactly like a working one until somebody tries it.
+//   * And [LanSync.resume] rebuilds the lot when the app comes back to the
+//     foreground, which on iOS is the only moment at which the sockets the OS
+//     closed underneath it can be noticed at all.
 //
 // WHAT IT IS NOT, and this is worth being exact about rather than vague:
 //
@@ -20,11 +37,12 @@
 //     nothing pairs without the code; the file bytes then travel in the clear,
 //     on the same footing as an unencrypted file share. The settings footer
 //     says so.
-//   * It NEVER DELETES. A file that exists on any device ends up on all of
-//     them; a file deleted on one is restored from another. That is a
-//     deliberate asymmetry — the failure mode of a delete that propagates
-//     through a bug is losing work everywhere at once, and no amount of
-//     testing makes that acceptable in the first version of a mirror.
+//   * It DOES delete, and that came after the rest of this on purpose. A
+//     deletion travels as a tombstone — a fact with a time on it, kept for a
+//     month so that a device which was switched off still learns of it — and
+//     it loses to any save that is newer. The failure mode of a delete
+//     propagating through a bug is losing work everywhere at once, so the rule
+//     is the same one files use and nothing more: the later of the two wins.
 //
 // THE CONFLICT RULE is one line: the newest write wins, per file, by
 // modification time. Two devices editing the same document at once is a case
@@ -121,6 +139,9 @@ class SyncPeer {
 
   SyncPeer withConnected(bool v) => SyncPeer(
       id: id, name: name, host: host, port: port, seen: seen, connected: v);
+
+  SyncPeer withSeen(DateTime t) => SyncPeer(
+      id: id, name: name, host: host, port: port, seen: t, connected: connected);
 }
 
 /// What the settings row shows.
@@ -190,6 +211,20 @@ class LanSync {
 
   final Map<String, SyncPeer> _peers = <String, SyncPeer>{};
   final Map<String, _SyncSession> _sessions = <String, _SyncSession>{};
+
+  /// When each peer was first seen, kept until it pairs or goes away. The
+  /// escape hatch in [_maybeDial] is timed from this.
+  final Map<String, DateTime> _firstSeen = <String, DateTime>{};
+
+  /// Peers this device dialled against the id rule, so the reason is logged
+  /// once rather than on every sweep that finds the same asymmetry.
+  final Set<String> _reverseDialled = <String>{};
+
+  /// Content hashes, by mirror path, trusted only while the file's size and
+  /// modification time are what they were when it was hashed. See [_entryFor]
+  /// — this is what makes a one-second poll cost a `stat` per document
+  /// instead of a full read and a SHA-256 of the whole gallery.
+  final Map<String, SyncEntry> _hashes = <String, SyncEntry>{};
 
   /// The manifest as of the last scan, so a change can be spotted by
   /// comparison on the platforms with no usable file watcher.
@@ -302,8 +337,9 @@ class LanSync {
       unawaited(_refreshInterfaces());
       _interfaces = Timer.periodic(
           const Duration(seconds: 30), (_) => unawaited(_refreshInterfaces()));
-      _announce = Timer.periodic(const Duration(seconds: 2), (_) => _sendBeacon());
-      _scan = Timer.periodic(const Duration(seconds: 5), (_) => _sweep());
+      _announce =
+          Timer.periodic(const Duration(seconds: 2), (_) => _sendBeacon());
+      _scan = Timer.periodic(_sweepEvery, (_) => _sweep());
       _sendBeacon();
       _publish();
     } catch (e) {
@@ -326,6 +362,8 @@ class LanSync {
     }
     _sessions.clear();
     _peers.clear();
+    _firstSeen.clear();
+    _reverseDialled.clear();
     _beacon?.close();
     _beacon = null;
     await _bonjour.stop();
@@ -503,6 +541,7 @@ class LanSync {
     required int port,
   }) {
     final known = _peers[id];
+    _firstSeen.putIfAbsent(id, DateTime.now);
     _peers[id] = SyncPeer(
       id: id,
       name: name,
@@ -516,17 +555,46 @@ class LanSync {
     _publish();
   }
 
-  /// ONE session per pair, and the lower id dials.
+  /// ONE session per pair, and the lower id dials — until that stops working.
   ///
   /// Both devices are listening and both can see each other, so without a rule
   /// they each open a connection and every file crosses twice. Comparing the
   /// ids is the cheapest rule that both sides evaluate the same way with no
   /// extra round trip.
+  ///
+  /// IT ASSUMES BOTH SIDES CAN SEE EACH OTHER, and the iPad/Windows pair is
+  /// exactly where that assumption breaks. An iPad can neither send nor hear
+  /// the UDP beacon without an entitlement Apple grants case by case, and a
+  /// Windows machine cannot always answer on port 5353 — something else may
+  /// already hold it. Either leaves ONE device seeing a peer that is blind to
+  /// it, and if the sighted one happens to hold the higher id then nobody ever
+  /// dials: two machines a metre apart, both saying "looking", for ever.
+  ///
+  /// So after [dialGrace] the id rule is simply dropped and whoever can see
+  /// dials. Late enough that the ordinary symmetric case has always paired
+  /// long before, and a double dial was already survivable — [_adopt] keeps
+  /// one of the two and hangs up the other.
   void _maybeDial(String id) {
     if (_sessions.containsKey(id)) return;
-    if (_deviceId.compareTo(id) >= 0) return;
     final peer = _peers[id];
     if (peer == null) return;
+    final since = _firstSeen[id];
+    if (!shouldDial(
+        myId: _deviceId,
+        peerId: id,
+        seenFor: since == null
+            ? Duration.zero
+            : DateTime.now().difference(since))) {
+      return;
+    }
+    if (_deviceId.compareTo(id) >= 0) {
+      if (_reverseDialled.add(id)) {
+        Log.i(
+            'sync',
+            '${peer.name} can evidently not see this device — dialling it '
+                'rather than waiting to be dialled');
+      }
+    }
     unawaited(_dial(peer));
   }
 
@@ -534,15 +602,19 @@ class LanSync {
     if (_sessions.containsKey(peer.id)) return;
     // Claim the slot BEFORE the await, or two beacons a millisecond apart
     // start two connections to the same peer.
-    _sessions[peer.id] = _SyncSession.pending(peer.id);
+    final slot = _SyncSession.pending(peer.id);
+    _sessions[peer.id] = slot;
     try {
       final sock = await Socket.connect(peer.host, peer.port,
-          timeout: const Duration(seconds: 5));
+          timeout: _dialTimeout);
       final s = _SyncSession(this, sock, outgoing: true, peerId: peer.id);
       _sessions[peer.id] = s;
       s.start();
     } catch (e) {
-      _sessions.remove(peer.id);
+      // Only if the slot is still OURS. A sweep may have reaped this attempt
+      // as stale and started another one, and removing the entry blind would
+      // take that live session's place in the map with it.
+      if (identical(_sessions[peer.id], slot)) _sessions.remove(peer.id);
       Log.w('sync', 'could not reach ${peer.name}: $e');
     }
   }
@@ -553,16 +625,57 @@ class LanSync {
     final now = DateTime.now();
     for (final id in _peers.keys.toList()) {
       final p = _peers[id]!;
-      if (now.difference(p.seen) > const Duration(seconds: 12)) {
+      final s = _sessions[id];
+      if (s != null && s.live) {
+        // A CONNECTION IS BETTER EVIDENCE THAN AN ANNOUNCEMENT. Discovery is
+        // UDP: a beacon or an mDNS answer can be lost several rounds running
+        // on a busy network, and the old rule then dropped the peer and hung
+        // up a session that was working perfectly — which the other side saw
+        // as a disconnect, and which it then had to rebuild. That churn is
+        // most of what "the sync keeps dropping" is. A live session refreshes
+        // the sighting instead.
+        _peers[id] = p.withSeen(now);
+        continue;
+      }
+      if (now.difference(p.seen) > _peerLife) {
         _peers.remove(id);
+        _firstSeen.remove(id);
+        _reverseDialled.remove(id);
         _sessions.remove(id)?.close('gone');
         Log.i('sync', '${p.name} went away');
-      } else if (!_sessions.containsKey(id)) {
+      } else if (s == null) {
+        _maybeDial(id);
+      } else if (s.stale) {
+        // A slot held by a connection that never finished its handshake: a
+        // TCP connect to a machine that has gone away can sit unanswered for
+        // minutes, and for all of them this entry made every retry above look
+        // unnecessary.
+        _sessions.remove(id);
+        s.close('handshake never finished');
         _maybeDial(id);
       }
     }
     _publish();
   }
+
+  /// How long a peer survives on the strength of its last sighting alone.
+  ///
+  /// Six beacons or two mDNS query rounds. Long enough to ride out a handful
+  /// of lost datagrams, short enough that a device that has actually gone
+  /// leaves the settings row within a sweep or two.
+  static const Duration _peerLife = Duration(seconds: 12);
+
+  /// How often peers are aged and un-paired ones retried.
+  static const Duration _sweepEvery = Duration(seconds: 2);
+
+  /// How long the lower-id-dials rule is given before it is dropped. See
+  /// [_maybeDial] and [shouldDial].
+  static const Duration dialGrace = Duration(seconds: 4);
+
+  /// How long to wait for a TCP connection to a peer that has just announced
+  /// itself. It is one hop away; a machine that has not answered in four
+  /// seconds is asleep, firewalled, or gone, and the sweep will try again.
+  static const Duration _dialTimeout = Duration(seconds: 4);
 
   // -------------------------------------------------------------------------
   // The listener
@@ -625,6 +738,38 @@ class LanSync {
 
   DateTime? _lastApplied;
 
+  /// The app came back to the foreground, or the network changed under it.
+  ///
+  /// Both leave the same wreckage and neither announces itself. iOS closes a
+  /// suspended app's sockets, so an iPad that has been in a pocket comes back
+  /// with a mirror whose beacon, listener and Bonjour registration are all
+  /// gone — and nothing inside the app has any reason to think so. A Wi-Fi
+  /// change or a laptop lid leaves TCP connections HALF OPEN instead:
+  /// established on one side, gone on the other, silent until something is
+  /// written to them.
+  ///
+  /// So this re-announces on every channel, asks every live session to prove
+  /// it is alive, re-examines the local side — and rebuilds the whole mirror
+  /// when the listener itself did not survive, which is the iPad case.
+  Future<void> resume() async {
+    final code = _code;
+    if (code == null) return;
+    if (_server == null || (_beacon == null && !_bonjour.running)) {
+      Log.i('sync', 'resuming: the listener did not survive — restarting');
+      _code = null; // or setCode returns immediately, having done nothing
+      await setCode(code);
+      return;
+    }
+    await _refreshInterfaces();
+    _sendBeacon();
+    await _startBonjour();
+    for (final s in _sessions.values) {
+      if (s.live) s.pingNow();
+    }
+    nudge();
+    _publish();
+  }
+
   // -------------------------------------------------------------------------
   // The local side
   // -------------------------------------------------------------------------
@@ -654,23 +799,65 @@ class LanSync {
         if (entry != null) out['$_prefsPrefix$name'] = entry;
       }
     }
+    // The hash cache follows the mirror rather than growing with it: a file
+    // that is no longer there must not keep an entry alive, or a document
+    // deleted and later restored to the same length at the same second would
+    // be read as unchanged.
+    if (_hashes.length > out.length) {
+      _hashes.removeWhere((k, _) => !out.containsKey(k));
+    }
     return out;
   }
+
+  /// How long a file has to have been still before its hash is cached.
+  ///
+  /// A cache keyed on size and modification time cannot see a file rewritten
+  /// to the SAME length inside one clock tick — and `settings.json` with a
+  /// boolean toggled off and on again is exactly that shape, on filesystems
+  /// whose timestamps have one-second granularity. Two seconds of distrust
+  /// costs one re-read of one file, immediately after it was written, and
+  /// nothing at all thereafter.
+  static const int _settleMs = 2000;
 
   SyncEntry? _entryFor(String path, File f) {
     try {
       final st = f.statSync();
+      final mtime = st.modified.millisecondsSinceEpoch;
       // Hashed rather than compared by size and time alone: two devices that
       // saved the same document a second apart have different times and
       // identical bytes, and copying it back and forth forever is what a mirror
-      // that trusts timestamps does. A document is a few megabytes and this
-      // runs on a change, not on a frame.
+      // that trusts timestamps does.
+      //
+      // But hashed ONCE. This used to read and SHA-256 every document in the
+      // gallery on every scan, and a scan happens on every poll, on every
+      // pair-up and on every manifest a peer sends — tens of megabytes of I/O
+      // a few seconds apart, on the UI isolate, for an answer that had not
+      // changed. Now a file whose size and time are what they were the last
+      // time it was hashed keeps that hash, and the poll that pays for
+      // instant sync costs a `stat` per document.
+      final cached = _hashes[path];
+      if (cached != null &&
+          cached.size == st.size &&
+          cached.mtimeMs == mtime &&
+          DateTime.now().millisecondsSinceEpoch - mtime > _settleMs) {
+        return cached;
+      }
       final sha = sha256.convert(f.readAsBytesSync()).toString();
-      return SyncEntry(path, st.size, st.modified.millisecondsSinceEpoch, sha);
+      final e = SyncEntry(path, st.size, mtime, sha);
+      _hashes[path] = e;
+      return e;
     } catch (e) {
       Log.w('sync', 'could not read $path: $e');
       return null;
     }
+  }
+
+  /// Records a file this device now holds, in both the manifest and the hash
+  /// cache. Together, because a hash cache that disagrees with the manifest
+  /// is worse than no hash cache at all.
+  void _remember(SyncEntry e) {
+    _mine[e.path] = e;
+    _hashes[e.path] = e;
   }
 
   File? _fileFor(String path) {
@@ -694,14 +881,26 @@ class LanSync {
     return docs == null ? null : File('${docs.path}/$path');
   }
 
-  /// Watches for local saves.
+  /// How often the local side is re-examined where there is NO file watcher.
   ///
-  /// `Directory.watch` is not available on every platform this app runs on —
-  /// on iOS it throws — so the poll is not a fallback for a broken watcher, it
-  /// is the implementation there. Five seconds: a mirror that notices a save
-  /// within five seconds is indistinguishable from an instant one to someone
-  /// walking between two devices, and a tighter loop would hash every document
-  /// every second for nothing.
+  /// `Directory.watch` throws on iOS, so on the one platform this app is
+  /// primarily for, the poll is not a fallback — it is the only thing that
+  /// ever notices a save, and its period is therefore the whole of the delay
+  /// before another device hears about one. It used to be five seconds, on
+  /// the reasoning that five seconds is indistinguishable from instant to
+  /// somebody walking between two devices. It is not: you save on the iPad,
+  /// you look at the laptop, and nothing happens for what feels like a long
+  /// time. It is a second now, and [_entryFor]'s cache is what makes that
+  /// affordable — a poll over an unchanged gallery is one `stat` per document
+  /// and no reads at all.
+  static const Duration _pollBare = Duration(seconds: 1);
+
+  /// And with a watcher, where the poll is only the safety net for the events
+  /// no platform delivers reliably — a file replaced by rename, a network
+  /// volume, a sandbox that coalesces — so it can afford to be lazy.
+  static const Duration _pollWatched = Duration(seconds: 4);
+
+  /// Watches for local saves.
   void _watchLocal() {
     final docs = _docs, prefs = _prefs;
     try {
@@ -718,17 +917,29 @@ class LanSync {
     } catch (e) {
       _fallBackToPolling(e);
     }
-    // Even with a watcher: a poll every five seconds is the safety net for the
-    // events no platform delivers reliably (a file replaced by rename, a
-    // network volume, a sandbox that coalesces).
-    _poll = Timer.periodic(const Duration(seconds: 5), (_) => _onLocalChange());
+    _startPoll();
+  }
+
+  /// (Re)starts the poll at the cadence the current arrangement deserves.
+  ///
+  /// A separate method because [_fallBackToPolling] runs LATER — a watcher
+  /// that fails does so on its stream, after this has already picked a
+  /// period — and a device that has just discovered it has no watcher must
+  /// not keep the lazy one.
+  void _startPoll() {
+    _poll?.cancel();
+    final watching = _watchDocs != null || _watchPrefs != null;
+    _poll = Timer.periodic(
+        watching ? _pollWatched : _pollBare, (_) => _onLocalChange());
   }
 
   void _fallBackToPolling(Object e) {
+    if (_watchDocs == null && _watchPrefs == null) return;
     Log.i('sync', 'no file watcher here ($e) — polling instead');
     _watchDocs?.cancel();
     _watchPrefs?.cancel();
     _watchDocs = _watchPrefs = null;
+    _startPoll();
   }
 
   Timer? _debounce;
@@ -739,6 +950,25 @@ class LanSync {
     // a person and is one transfer.
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 500), _announceChanges);
+  }
+
+  /// "The app has just finished writing something." Called by the app itself.
+  ///
+  /// The poll above notices a save within a second and a watcher within
+  /// milliseconds, and neither is the point: the APP knows the exact moment a
+  /// document is on disk, and saying so is the difference between a mirror
+  /// that reacts and a mirror that checks. It is also the only signal that
+  /// does not have to wait for a clock — a save and its announcement are one
+  /// sequence rather than two that happen to meet.
+  ///
+  /// Shorter than the watcher's debounce because there is nothing left to
+  /// wait for: the caller writes, then says so. Idempotent and cheap — it
+  /// restarts a timer — so no caller ever has to work out whether this is the
+  /// save that needs it.
+  void nudge() {
+    if (_code == null) return;
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 150), _announceChanges);
   }
 
   void _announceChanges() {
@@ -831,7 +1061,8 @@ class LanSync {
       tmp.writeAsBytesSync(bytes, flush: true);
       tmp.renameSync(f.path);
       final st = f.statSync();
-      _mine[e.path] = SyncEntry(e.path, st.size, st.modified.millisecondsSinceEpoch, e.sha);
+      _remember(SyncEntry(
+          e.path, st.size, st.modified.millisecondsSinceEpoch, e.sha));
       _justApplied[e.path] = st.modified.millisecondsSinceEpoch;
       _lastApplied = DateTime.now();
       // It got past _wants, so it is newer than any tombstone we hold: the
@@ -886,8 +1117,8 @@ class LanSync {
       // The merged file is NOT what the peer sent, so its hash is this
       // device's own — recorded so the next scan does not read the difference
       // as a local edit and send it straight back.
-      _mine[e.path] = SyncEntry(e.path, st.size,
-          st.modified.millisecondsSinceEpoch, sha256.convert(out).toString());
+      _remember(SyncEntry(e.path, st.size, st.modified.millisecondsSinceEpoch,
+          sha256.convert(out).toString()));
       _justApplied[e.path] = st.modified.millisecondsSinceEpoch;
       _lastApplied = DateTime.now();
       Log.i('sync', 'merged settings from a peer');
@@ -1020,6 +1251,7 @@ class LanSync {
     // is gone, and leaving a stale entry would make the next scan read the
     // absence as a NEW deletion and stamp it with a new time.
     _mine.remove(t.path);
+    _hashes.remove(t.path);
     _justApplied.remove(t.path);
     if (removed) _lastApplied = DateTime.now();
     return removed;
@@ -1085,12 +1317,52 @@ class _SyncSession {
   final Set<String> _applied = <String>{};
   Timer? _settle;
 
+  /// How often a paired session writes something, whether or not it has
+  /// anything to say. See [SyncMsg.ping].
+  static const Duration _beatEvery = Duration(seconds: 8);
+
+  /// How long a peer that ANSWERS pings may go silent before it is given up
+  /// on. Five missed beats: enough that a machine busy writing a large
+  /// document is never mistaken for a dead one.
+  static const Duration _beatDeadline = Duration(seconds: 45);
+
+  /// How long a connection may take to finish its handshake. It is four
+  /// frames over one LAN hop; anything slower has failed in a way TCP has not
+  /// noticed yet.
+  static const Duration _handshakeDeadline = Duration(seconds: 10);
+
+  /// When this session was created, so a sweep can tell a connection that is
+  /// still being made from one that will never finish.
+  final DateTime _born = DateTime.now();
+
+  /// The last time ANYTHING arrived on this socket.
+  DateTime _heard = DateTime.now();
+
+  /// Whether this peer has ever answered a ping. Until it has, silence from
+  /// it means nothing: an older build ignores an unknown frame type, and
+  /// hanging up on one every forty-five seconds would be a reconnect loop
+  /// wearing a health check's clothes.
+  bool _peerAnswers = false;
+
+  Timer? _beat;
+  Timer? _deadline;
+
   bool get live => _authed && _socket != null;
+
+  /// True for a slot that has been sitting unpaired long enough to be
+  /// written off — a pending dial to a machine that has gone away, or a
+  /// connection whose handshake stalled. [LanSync._sweep] clears these,
+  /// because until it does they make every retry look unnecessary.
+  bool get stale =>
+      !_authed && DateTime.now().difference(_born) > _handshakeDeadline;
 
   void start() {
     final sock = _socket;
     if (sock == null) return;
     sock.setOption(SocketOption.tcpNoDelay, true);
+    _deadline = Timer(_handshakeDeadline, () {
+      if (!_authed) close('the handshake did not finish');
+    });
     sock.listen(
       _onData,
       onError: (Object e) => close('$e'),
@@ -1112,6 +1384,7 @@ class _SyncSession {
   }
 
   void _onData(Uint8List data) {
+    _heard = DateTime.now();
     List<SyncFrame> frames;
     try {
       frames = _reader.add(data);
@@ -1200,6 +1473,10 @@ class _SyncSession {
             _applied.clear();
           });
         }
+      case SyncMsg.ping:
+        _send(SyncFrame({'t': SyncMsg.pong}));
+      case SyncMsg.pong:
+        _peerAnswers = true;
       case SyncMsg.bye:
         close('peer said: ${f.header['why']}');
       default:
@@ -1214,6 +1491,10 @@ class _SyncSession {
 
   void _live() {
     _authed = true;
+    _deadline?.cancel();
+    _deadline = null;
+    _heard = DateTime.now();
+    _beat = Timer.periodic(_beatEvery, (_) => _tick());
     final id = peerId;
     if (id == null) {
       close('no id');
@@ -1255,6 +1536,29 @@ class _SyncSession {
     _send(SyncFrame({'t': SyncMsg.want, 'paths': want}));
   }
 
+  /// One beat: give up on a peer that has stopped answering, and write
+  /// something either way.
+  ///
+  /// THE WRITE IS THE TEST. A half-open socket — the shape a Wi-Fi change, a
+  /// sleep or a dropped NAT entry leaves behind — is indistinguishable from a
+  /// quiet one until something is sent down it, and this app can go minutes
+  /// without a document to send. Eight seconds of a twelve-byte frame is what
+  /// turns "connected" back into a fact.
+  void _tick() {
+    if (!live) return;
+    if (_peerAnswers && DateTime.now().difference(_heard) > _beatDeadline) {
+      close('silent for ${_beatDeadline.inSeconds}s');
+      return;
+    }
+    _send(SyncFrame({'t': SyncMsg.ping}));
+  }
+
+  /// Ask now rather than at the next beat — used on resume, where the whole
+  /// question is whether the connections survived being suspended.
+  void pingNow() {
+    if (live) _send(SyncFrame({'t': SyncMsg.ping}));
+  }
+
   void announce(List<SyncEntry> changed, [List<SyncTomb> gone = const []]) {
     _send(SyncFrame({
       't': SyncMsg.changed,
@@ -1293,6 +1597,9 @@ class _SyncSession {
 
   void close(String why) {
     _settle?.cancel();
+    _beat?.cancel();
+    _deadline?.cancel();
+    _beat = _deadline = null;
     if (_authed) Log.i('sync', 'disconnected from $peerName ($why)');
     _authed = false;
     try {
@@ -1302,6 +1609,27 @@ class _SyncSession {
     }
     _sync._forget(this);
   }
+}
+
+/// Whether this device should open the connection to [peerId].
+///
+/// The lower id dials, so that two devices which can both see each other open
+/// one connection rather than two — and after [grace] the rule is dropped, so
+/// that two devices where only ONE can see the other still pair. See
+/// [LanSync._maybeDial] for why that second case is the normal one between an
+/// iPad and a PC rather than an exotic one.
+///
+/// A free function because it is pure — two ids and a duration in, a decision
+/// out — and because the decision is the part that was wrong.
+bool shouldDial({
+  required String myId,
+  required String peerId,
+  required Duration seenFor,
+  Duration grace = LanSync.dialGrace,
+}) {
+  if (myId.compareTo(peerId) < 0) return true;
+  if (myId == peerId) return false; // ourselves, heard through a mirror
+  return seenFor >= grace;
 }
 
 /// The addresses a beacon goes to, given this machine's IPv4 addresses.
