@@ -49,12 +49,15 @@ void main() {
 
     testWidgets('a change in the mirror redraws the row without reopening',
         (tester) async {
-      // Sharing on BEFORE the sheet, and awaited outside the widget clock:
-      // turning it on binds sockets, which is real asynchronous I/O that
-      // pumpAndSettle — which drives only the test's own clock — can return
-      // in front of. Tapping the row inside the test made this pass or fail
-      // according to how busy the machine was.
-      await ShareCodes.set(normaliseShareCode(generateShareCode()));
+      // Sharing on BEFORE the sheet, and inside runAsync, which is the only
+      // place it can happen at all: testWidgets runs its body under FakeAsync,
+      // where a Future waiting on a REAL socket never completes — the clock
+      // that would deliver it is the one the test is holding. Awaiting it
+      // directly does not fail, it hangs, until the ten-minute timeout;
+      // whether that happens depends on what else is running, which is how it
+      // survived being run on its own.
+      await tester.runAsync(
+          () => ShareCodes.set(normaliseShareCode(generateShareCode())));
 
       final app = AppState()..docsDirForTest = dir;
       await tester.pumpWidget(MaterialApp(
