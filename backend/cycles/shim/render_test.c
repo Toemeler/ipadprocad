@@ -62,6 +62,32 @@
 #include <string.h>
 #include <time.h>
 
+/* Waiting, in the two dialects that have one.
+ *
+ * `nanosleep` is POSIX and MSVC has no such function, which is what kept this
+ * test off Windows — the one platform where the renderer was reported to
+ * produce no frames at all. WIN32_LEAN_AND_MEAN because <windows.h> otherwise
+ * drags in the whole of OLE and, worse for this tree, #defines `near` and
+ * `far` to nothing (see mesh_recon.cpp, which lost an afternoon to exactly
+ * that). */
+#ifdef _WIN32
+#  define WIN32_LEAN_AND_MEAN
+#  define NOMINMAX
+#  include <windows.h>
+static void sleep_ms(const double ms)
+{
+  Sleep((DWORD)(ms < 0.0 ? 0.0 : ms));
+}
+#else
+static void sleep_ms(const double ms)
+{
+  struct timespec ts;
+  ts.tv_sec = (time_t)(ms / 1000.0);
+  ts.tv_nsec = (long)((ms - (double)ts.tv_sec * 1000.0) * 1000000.0);
+  nanosleep(&ts, NULL);
+}
+#endif
+
 #define TW 96
 #define TH 96
 
@@ -472,10 +498,7 @@ int main(int argc, char **argv)
         if (done) {
           break;
         }
-        struct timespec ts;
-        ts.tv_sec = 0;
-        ts.tv_nsec = (long)(kPollMs * 1000000.0);
-        nanosleep(&ts, NULL);
+        sleep_ms(kPollMs);
         waited += kPollMs;
       }
       printf("live: %d frames, %d/%d samples, done=%d denoised=%d after %.0f ms\n",
@@ -641,10 +664,7 @@ int main(int argc, char **argv)
         if (done) {
           break;
         }
-        struct timespec ts;
-        ts.tv_sec = 0;
-        ts.tv_nsec = (long)(kBigPollMs * 1000000.0);
-        nanosleep(&ts, NULL);
+        sleep_ms(kBigPollMs);
         waited += kBigPollMs;
       }
       printf("big: %dx%d, %d frames, %d/%d samples, done=%d denoised=%d after %.0f ms\n",
