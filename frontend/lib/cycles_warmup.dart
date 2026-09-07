@@ -55,6 +55,37 @@ enum CyclesWarmupPhase {
 /// Runs the shim's kernel compilation. Top-level so it can be an isolate body.
 bool preloadCyclesKernels() => CyclesFfi.instance?.preload() ?? false;
 
+/// What launch should do about the warm-up on this platform.
+enum CyclesWarmupPlan {
+  /// No renderer in this build. Nothing to prepare and nothing to say.
+  nothing,
+
+  /// Kernels are compiled from source on the device — Metal, and only Metal.
+  /// That is a wait worth hiding, and the reason this class exists.
+  compile,
+
+  /// Kernels came compiled in the binary. There is no work to do, and saying
+  /// so is not optional: the warm-up's phase is what rendered mode is gated
+  /// on, so a platform that simply never starts one never renders either.
+  alreadyWarm,
+}
+
+/// The rule, as a pure function, because getting it wrong is silent.
+///
+/// It was wrong: launch started a warm-up only where kernels are compiled from
+/// source, and left the other platforms in [CyclesWarmupPhase.absent] — which
+/// reads as "no renderer" to everything that asks. Windows and Linux shipped a
+/// working path tracer that could not be reached.
+CyclesWarmupPlan cyclesWarmupPlan({
+  required bool haveRenderer,
+  required bool needsKernelSource,
+}) =>
+    !haveRenderer
+        ? CyclesWarmupPlan.nothing
+        : needsKernelSource
+            ? CyclesWarmupPlan.compile
+            : CyclesWarmupPlan.alreadyWarm;
+
 /// How many times a warm-up may die before it is left alone.
 ///
 /// The warm-up runs at launch and calls into a renderer. If it takes the
@@ -107,6 +138,33 @@ class CyclesWarmup {
     for (final fn in List.of(_listeners)) {
       fn();
     }
+  }
+
+  /// Declares the warm-up finished without running one.
+  ///
+  /// M383 — for a platform where there is nothing to warm. The CPU and CUDA
+  /// devices' kernels are compiled into the binary at build time; only Metal
+  /// builds them from source on the device, and only Metal therefore has a
+  /// wait to hide.
+  ///
+  /// This is not a nicety, it is the whole of rendered mode on two platforms.
+  /// [CyclesWarmup] starts in [CyclesWarmupPhase.absent] — the state that
+  /// means "no renderer in this build" — and cycles_layer.dart gates the
+  /// tracer on `warmup.ready`, so a desktop that never started a warm-up
+  /// never rendered: the mode came on, the warm-up panel appeared, and it
+  /// stayed there for ever over a renderer that was working perfectly. That
+  /// is what "Cycles never loads, it always says loading" was.
+  void markReady() {
+    if (_started) return;
+    _started = true;
+    if (CyclesFfi.instance == null) {
+      _phase = CyclesWarmupPhase.absent;
+      return;
+    }
+    _phase = CyclesWarmupPhase.ready;
+    _status = '';
+    Log.i('cycles', 'kernels are compiled into this build — nothing to warm');
+    _notify();
   }
 
   /// Starts the compile, once. Safe to call again; the second call does

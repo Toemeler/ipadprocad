@@ -123,9 +123,29 @@ void initCycles() {
   // Strictly after setResourcePath: the compiler needs the source tree.
   //
   // M371 — and only where there is a compile to warm. A desktop build's
-  // kernels are in the binary; the warmup would be a full render nobody asked
+  // kernels are in the binary; the warm-up would be a full render nobody asked
   // for, on every launch, to fill a cache that is already full.
-  if (cyclesNeedsKernelSource) CyclesWarmup.instance.start();
+  //
+  // M383 — BUT IT STILL HAS TO BE TOLD SO, and that omission was the whole of
+  // "Cycles never loads, it always says loading and never renders". M371 read
+  // as "a desktop needs no warm-up", which is true, and acted on it by not
+  // starting one — leaving CyclesWarmup in the phase it begins in, `absent`,
+  // the phase that means THERE IS NO RENDERER. cycles_layer.dart gates the
+  // tracer on `warmup.ready`, so on Windows and Linux rendered mode turned on,
+  // showed the warm-up panel, and sat there for ever in front of a path
+  // tracer that — as the Windows render test says, in full — renders,
+  // converges and denoises perfectly well.
+  switch (cyclesWarmupPlan(
+    haveRenderer: true,
+    needsKernelSource: cyclesNeedsKernelSource,
+  )) {
+    case CyclesWarmupPlan.compile:
+      CyclesWarmup.instance.start();
+    case CyclesWarmupPlan.alreadyWarm:
+      CyclesWarmup.instance.markReady();
+    case CyclesWarmupPlan.nothing:
+      break;
+  }
 }
 
 /// For tests, which must not inherit another case's answer.
