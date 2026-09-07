@@ -334,7 +334,7 @@ void main() {
     });
   });
 
-  // M383 — THE RAIL IS THE MENU ON WINDOWS, AND THE RIBBON IS NOT.
+  // M387 — THE RAIL IS THE MENU ON WINDOWS, AND THE RIBBON IS NOT.
   //
   // An earlier pass put this on the ribbon band instead. That is the wrong
   // surface: the ribbon is where every tool lives, on labelled panels, and
@@ -348,7 +348,7 @@ void main() {
   // itself needs a Windows runner to observe. What CAN be pinned without one
   // is the part that was actually wrong before: which surface owns the
   // gesture, and that the menu keeps the app's usual open/shut contract.
-  group('M383 the rail is what a right-click summons', () {
+  group('M387 the rail is what a right-click summons', () {
     tearDown(QuickToolsMenu.resetForTest);
 
     test('the ribbon does not own the gesture', () {
