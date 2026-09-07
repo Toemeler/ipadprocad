@@ -323,57 +323,55 @@ class LanSync {
     return Platform.operatingSystem;
   }
 
-  /// Code changes run ONE AT A TIME.
+  /// Every code change gets a number, and a change that has been overtaken
+  /// stands down instead of finishing on top of the newer one.
   ///
-  /// Every one of them stops a mirror and starts another, and both halves
-  /// await sockets — so two that overlap interleave. The call that started
-  /// FIRST can finish last and assign its own `_code` over the newer one's,
-  /// which leaves the mirror listening under a code the app no longer thinks
-  /// it has, or — the shape this was found in — `_code` null and the status
-  /// row saying "off" while a listener is up and a code is on screen.
+  /// THE BUG THIS IS FOR. Turning the mirror on or off stops one and starts
+  /// another, and both halves await sockets — so two changes that overlap
+  /// interleave, and the one that STARTED first can finish last and assign its
+  /// own `_code` over the newer one's. What that looks like is a share code on
+  /// screen, a listener up, and a status row saying "off". Typing a code and
+  /// changing your mind is enough to produce it, and so is a [resume] landing
+  /// on a code change — a likelier collision than it sounds, since both happen
+  /// when somebody picks the device up.
   ///
-  /// Typing a code and changing your mind is enough to produce it. So is
-  /// [resume] landing on a code change, which is a likelier collision than it
-  /// sounds: both happen when somebody picks the device up.
+  /// A COUNTER RATHER THAN A QUEUE, and the queue was tried first. Chaining
+  /// each change onto the last is the obvious answer and it has a failure this
+  /// does not: the chain's continuation is registered in whatever zone the
+  /// first caller happened to be in, and if that zone stops running — a widget
+  /// test's, most sharply, but any zone can be torn down — every later change
+  /// waits behind a callback that will never fire, and sharing can no longer
+  /// be switched off for the rest of the process. Nothing recovers from that,
+  /// not even a timeout, because the timeout is scheduled in the dead zone
+  /// too.
   ///
-  /// Chained rather than locked, exactly as _LogFlusher chains document saves,
-  /// and for the same reason: the second call must WAIT rather than be
-  /// dropped — it is the newer intention.
-  Future<void> _codeChanges = Future<void>.value();
+  /// A counter has no such thread to break. Each change checks, after every
+  /// await, whether it is still the one that matters, and quietly stops if it
+  /// is not.
+  int _codeGen = 0;
+
+  /// What has been ASKED for, which is not the same as what is running.
+  ///
+  /// A change is several awaits long, so for most of one `_code` still holds
+  /// the previous value — and a second change arriving in the middle has to
+  /// compare itself against the intention rather than against how far the
+  /// first one has got. Comparing against `_code` made a genuine change look
+  /// like a repeat and drop it: ask for a code and immediately switch sharing
+  /// off, and the "off" saw `_code` still null, decided there was nothing to
+  /// do, and returned — leaving the first change to finish and turn sharing
+  /// ON. Its own test caught it.
+  String? _wanted;
 
   /// Turns the mirror on with [canonical], or off with null.
   ///
   /// Idempotent, and safe to call before [attach] — it simply records the code
   /// and does nothing until there is somewhere to mirror.
-  Future<void> setCode(String? canonical) => _enqueue(() => _setCode(canonical));
-
-  /// Runs [op] after everything already queued, and never breaks the queue.
-  Future<void> _enqueue(Future<void> Function() op) {
-    _codeChanges = _codeChanges.then((_) => op()).catchError((Object e) {
-      // A failure must not break the chain, or every later change in this
-      // session is silently skipped.
-      Log.w('sync', 'could not change the mirror: $e');
-    });
-    return _codeChanges;
-  }
-
-  /// Tears the mirror down and brings it back up under the code it has AT THE
-  /// MOMENT THIS RUNS.
-  ///
-  /// Which is the point of it, and why [resume] does not simply call
-  /// `setCode(null)` and then `setCode(code)` with a code captured earlier:
-  /// those are two entries in the queue, and somebody changing the code
-  /// between them would have their choice restored away by the second. This is
-  /// one entry, and it reads `_code` when its turn comes.
-  Future<void> _restart() async {
-    if (_code == null) return;
+  Future<void> setCode(String? canonical) async {
+    if (canonical == _wanted) return;
+    _wanted = canonical;
+    final gen = ++_codeGen;
     await _stop();
-    await _start();
-  }
-
-  Future<void> _setCode(String? canonical) async {
-    if (canonical == _code) return;
-    await _stop();
+    if (gen != _codeGen) return; // overtaken while stopping
     _code = canonical;
     if (canonical == null) {
       _key = null;
@@ -386,6 +384,12 @@ class LanSync {
     _fp = shareCodeFingerprint(canonical);
     Log.i('sync', 'sharing on, group $_fp, as $_deviceName/$_deviceId');
     await _start();
+    if (gen != _codeGen) {
+      // A newer change arrived while this one was binding its sockets. It has
+      // its own _stop() to run and will; standing down here only avoids
+      // reporting a state that is already gone.
+      return;
+    }
   }
 
   Future<void> _start() async {
@@ -818,7 +822,10 @@ class LanSync {
     if (_code == null) return;
     if (_server == null || (_beacon == null && !_bonjour.running)) {
       Log.i('sync', 'resuming: the listener did not survive — restarting');
-      await _enqueue(_restart);
+      final gen = ++_codeGen;
+      await _stop();
+      if (gen != _codeGen) return; // the code changed under the resume
+      await _start();
       return;
     }
     await _refreshInterfaces();
