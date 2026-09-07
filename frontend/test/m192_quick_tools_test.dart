@@ -13,6 +13,7 @@ import 'package:prototype/app_state.dart';
 import 'package:prototype/part_model.dart';
 import 'package:prototype/widgets/bottom_tabbar.dart';
 import 'package:prototype/widgets/quick_tools.dart';
+import 'package:prototype/menus.dart';
 import 'package:prototype/ribbon_dock.dart';
 
 AppState makeApp() {
@@ -330,6 +331,63 @@ void main() {
       expect(QuickToolsBar.occupiedWidth,
           GlassToolBar.width + QuickToolsBar.margin,
           reason: 'a right-docked band is outside this box entirely');
+    });
+  });
+
+  // M383 — THE RAIL IS THE MENU ON WINDOWS, AND THE RIBBON IS NOT.
+  //
+  // An earlier pass put this on the ribbon band instead. That is the wrong
+  // surface: the ribbon is where every tool lives, on labelled panels, and
+  // hiding it behind a gesture leaves a new user with an empty window and
+  // nothing to click. This rail is seven icons the keyboard already covers
+  // (Enter, Esc, Ctrl+Z, Ctrl+Y), put on screen for a thumb holding an iPad —
+  // the one piece of chrome a mouse-and-keyboard desktop can summon rather
+  // than house.
+  //
+  // The host suite runs on Linux, so `isMenu` is false here and the placement
+  // itself needs a Windows runner to observe. What CAN be pinned without one
+  // is the part that was actually wrong before: which surface owns the
+  // gesture, and that the menu keeps the app's usual open/shut contract.
+  group('M383 the rail is what a right-click summons', () {
+    tearDown(QuickToolsMenu.resetForTest);
+
+    test('the ribbon does not own the gesture', () {
+      // The rail carries the whole of it. If a later pass moves this back
+      // onto the ribbon, the symbol it would need is gone and this file
+      // stops compiling — which is the point.
+      expect(QuickToolsMenu.isMenu, isA<bool>());
+      expect(QuickToolsMenu.isMenu, Platform.isWindows,
+          reason: 'the rail is a menu on Windows and a docked rail elsewhere');
+    });
+
+    test('opening registers with OpenMenus and closing gives it back', () {
+      expect(QuickToolsMenu.visible.value, isFalse);
+
+      QuickToolsMenu.open(const Offset(120, 240));
+      expect(QuickToolsMenu.visible.value, isTrue);
+      expect(QuickToolsMenu.at, const Offset(120, 240),
+          reason: 'a context menu opens where the click landed');
+
+      // The app-wide dismiss: every other popup closes on this, and the menu
+      // has to be one of them rather than a thing that outlives them all.
+      OpenMenus.closeAll();
+      expect(QuickToolsMenu.visible.value, isFalse);
+    });
+
+    test('a second right-click shuts it', () {
+      QuickToolsMenu.toggle(const Offset(10, 10));
+      expect(QuickToolsMenu.visible.value, isTrue);
+      QuickToolsMenu.toggle(const Offset(10, 10));
+      expect(QuickToolsMenu.visible.value, isFalse);
+    });
+
+    test('re-opening moves it to the new click', () {
+      QuickToolsMenu.open(const Offset(10, 10));
+      // Already open: the position still follows the pointer, because a
+      // right-click elsewhere is a new summons and not a no-op.
+      QuickToolsMenu.open(const Offset(400, 300));
+      expect(QuickToolsMenu.visible.value, isTrue);
+      expect(QuickToolsMenu.at, const Offset(400, 300));
     });
   });
 }

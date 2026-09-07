@@ -25,6 +25,10 @@
 // the same reason: every expensive bug in this project has lived on the
 // Flutter/UIKit boundary.
 import 'dart:async';
+import 'dart:io' show Platform;
+
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/gestures.dart';
 
 import 'package:flutter/material.dart';
 import 'package:native_menu/native_menu.dart';
@@ -429,6 +433,61 @@ void runQuickTool(AppState app, String id, {BuildContext? context}) {
   }
 }
 
+/// Windows only — the right-hand rail is not a permanent fixture there. It
+/// opens where the pointer is on a right-click and closes the way every other
+/// popup in the app does (a click elsewhere, see [OpenMenus]), which gives the
+/// viewport the whole window back.
+///
+/// WHY NOT THE RIBBON. An earlier pass put this behaviour on the ribbon band
+/// instead. The ribbon is the app's primary surface — every tool, on labelled
+/// panels — and hiding it behind a gesture leaves a new user with an empty
+/// window and nothing to click. This rail is the opposite: seven icons the
+/// keyboard already covers (Enter, Esc, Ctrl+Z, Ctrl+Y), put on screen for a
+/// thumb that is holding an iPad. With a mouse and a keyboard it is the one
+/// piece of chrome a desktop genuinely does not need occupying its edge.
+///
+/// A static notifier rather than State on [QuickToolsBar]: the bar is a
+/// [StatelessWidget] rebuilt from `AnimatedBuilder(animation: app)` above it,
+/// and whether a menu is open is chrome, not a document field.
+class QuickToolsMenu {
+  QuickToolsMenu._();
+
+  /// True where the rail is a right-click menu rather than a docked rail.
+  static bool get isMenu => !kIsWeb && Platform.isWindows;
+
+  static final ValueNotifier<bool> visible = ValueNotifier<bool>(false);
+
+  /// Where the right-click landed, in global coordinates — the menu opens
+  /// there rather than at the screen edge, which is what a context menu does
+  /// and what makes the gesture worth having over a fixed rail.
+  static Offset at = Offset.zero;
+
+  static void open(Offset globalPosition) {
+    at = globalPosition;
+    if (visible.value) return;
+    OpenMenus.closeAll();
+    visible.value = true;
+    OpenMenus.register(close);
+  }
+
+  static void close() {
+    if (!visible.value) return;
+    visible.value = false;
+    OpenMenus.unregister(close);
+  }
+
+  static void toggle(Offset globalPosition) =>
+      visible.value ? close() : open(globalPosition);
+
+  /// Test seam: the notifier is static, so a widget test that opened the menu
+  /// would otherwise leak that into the next one.
+  static void resetForTest() {
+    OpenMenus.unregister(close);
+    visible.value = false;
+    at = Offset.zero;
+  }
+}
+
 /// The bar itself: native UIKit on iOS, a plain Flutter column everywhere else
 /// so the host tests and any desktop run keep a working bar.
 class QuickToolsBar extends StatelessWidget {
@@ -462,6 +521,11 @@ class QuickToolsBar extends StatelessWidget {
     // band and its bottom edge already above a bottom-docked one. It also ends
     // the gallery special case: there is no band to clear on the home screen
     // because there is no band, and nothing here has to know that.
+    // WINDOWS TAKES THE OTHER SHAPE. Everything below is the docked rail;
+    // there the same items are a right-click menu instead. See
+    // [QuickToolsMenu] for why this rail and not the ribbon.
+    if (QuickToolsMenu.isMenu) return _asMenu(context, items);
+
     return Positioned(
       top: 0,
       // M271 — ...For, because this bar renders on the gallery too, where the
@@ -478,6 +542,92 @@ class QuickToolsBar extends StatelessWidget {
             ? GlassToolBar(
                 items: items,
                 onTap: (id) => runQuickTool(app, id, context: context),
+              )
+            : _flutterBar(context, items),
+      ),
+    );
+  }
+
+  /// Windows — the rail as a context menu.
+  ///
+  /// A Positioned.fill rather than the rail's usual right-edge box, because
+  /// two things have to be caught over the WHOLE surface: the right-click that
+  /// opens the menu, and the click anywhere that dismisses it.
+  ///
+  /// The catcher is TRANSLUCENT and the barrier is only mounted while the menu
+  /// is open, so with the menu shut this layer costs the viewport nothing: a
+  /// left-drag draws, a right-drag orbits, every gesture underneath still
+  /// arrives. That is the whole reason it is a Listener and not a
+  /// GestureDetector — a recogniser would enter the arena and could win a
+  /// gesture the viewport wanted.
+  Widget _asMenu(BuildContext context, List<GlassToolItem> items) {
+    return Positioned.fill(
+      child: ValueListenableBuilder<bool>(
+        valueListenable: QuickToolsMenu.visible,
+        builder: (context, open, _) => Stack(children: [
+          Positioned.fill(
+            child: Listener(
+              behavior: HitTestBehavior.translucent,
+              onPointerDown: (e) {
+                if (e.kind != PointerDeviceKind.mouse) return;
+                if (e.buttons != kSecondaryButton) return;
+                // M49 gives a right-click its own meaning inside a
+                // Split/Trim/Extend session (it cycles the tool family), and
+                // that gesture was here first: defer rather than fight it.
+                if (modifyTools.contains(app.tool)) return;
+                QuickToolsMenu.toggle(e.position);
+              },
+              child: const SizedBox.expand(),
+            ),
+          ),
+          if (open) ...[
+            // The dismiss barrier: translucent, so the click that closes the
+            // menu still reaches whatever is under it — the contract every
+            // other popup in the app keeps (see menus.dart).
+            Positioned.fill(
+              child: Listener(
+                behavior: HitTestBehavior.translucent,
+                onPointerDown: (_) => QuickToolsMenu.close(),
+                child: const SizedBox.expand(),
+              ),
+            ),
+            _atPointer(context, items),
+          ],
+        ]),
+      ),
+    );
+  }
+
+  /// The rail itself, placed where the click landed and nudged back inside the
+  /// window when the click was near an edge — a menu that opens half off the
+  /// screen is a menu with items nobody can reach.
+  Widget _atPointer(BuildContext context, List<GlassToolItem> items) {
+    final screen = MediaQuery.of(context).size;
+    // The rail's height, from the same constants the two bars lay out on: a
+    // button box plus its bottom margin per item, a fixed slot per separator,
+    // and the container's vertical padding at both ends. Approximate is
+    // enough — it only decides when to nudge the menu back inside the window.
+    final height = items.fold<double>(2 * GlassToolBar.padding,
+        (h, i) => h + (i.separator
+            ? GlassToolBar.separatorSlot
+            : GlassToolBar.buttonSize + GlassToolBar.spacing));
+    final left = QuickToolsMenu.at.dx
+        .clamp(0.0, (screen.width - GlassToolBar.width).clamp(0.0, double.infinity));
+    final top = QuickToolsMenu.at.dy
+        .clamp(0.0, (screen.height - height).clamp(0.0, double.infinity));
+    return Positioned(
+      left: left,
+      top: top,
+      child: Listener(
+        // Opaque: a click ON the menu is the menu's, not the barrier's.
+        behavior: HitTestBehavior.opaque,
+        child: GlassToolBar.isSupported
+            ? GlassToolBar(
+                items: items,
+                onTap: (id) {
+                  QuickToolsMenu.close();
+                  runQuickTool(app, id, context: context);
+                },
               )
             : _flutterBar(context, items),
       ),
