@@ -462,6 +462,22 @@ Future<BugCaptureResult> captureBugReport(
     Perf.report();
     files['perf_snapshot.json'] =
         const JsonEncoder.withIndent('  ').convert(Perf.jsonSnapshot());
+    // M386 — and perf.txt AGAIN, now that report() has written all of that
+    // into it.
+    //
+    // The copy `buildBundle` was given is read near the top of this method,
+    // before the suite runs and before the native drain above — so the file a
+    // reader actually opens ended at the last periodic flush and carried
+    // neither. `rv.native.*` is the only measurement of the time spent past
+    // the platform-view boundary, and it was reaching perf_snapshot.json
+    // alone while the report's own contents page sent the reader to perf.txt.
+    // Issue #15 was diagnosed out of the JSON for exactly that reason: the
+    // human-readable file said `rv.setCamera` was slow, and only the machine
+    // one said the 2.7 seconds inside it were the sketch rebuild.
+    if (Perf.path.isNotEmpty) {
+      final fresh = _readIfExists(Perf.path);
+      if (fresh != null && fresh.isNotEmpty) files['perf.txt'] = fresh;
+    }
     // The PREVIOUS perf session too. A "it got slow after a while" report is
     // about a trend, and the trend is exactly what rotation threw out of the
     // current file.
