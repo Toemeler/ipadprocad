@@ -89,6 +89,7 @@ class SettingsSheet {
     if (NativeMenu.isSupported) {
       _open = sheet;
       NativeMenu.setSelectionHandler(NativeMenu.kSettings, sheet._onSelect);
+      sheet._watchSync();
       final ok = await NativeMenu.showSettings(
         title: L.current.settingsTitle,
         doneLabel: L.current.settingsDone,
@@ -151,7 +152,24 @@ class SettingsSheet {
     };
   }
 
+  /// M383 — the status row FOLLOWS the mirror, rather than being a snapshot
+  /// of the moment the sheet opened.
+  ///
+  /// This is where somebody types a code into a second device and then waits.
+  /// The row said "Looking…" and went on saying it after the pairing had
+  /// happened, because nothing ever asked again — the only way to see "1
+  /// device" was to close Settings and open it. From the front that is
+  /// indistinguishable from sharing not working, which is what it got
+  /// reported as.
+  void _watchSync() => LanSync.instance.status.addListener(_onSyncChanged);
+
+  void _onSyncChanged() {
+    if (!identical(_open, this)) return;
+    unawaited(_push());
+  }
+
   void _close() {
+    LanSync.instance.status.removeListener(_onSyncChanged);
     NativeMenu.setSelectionHandler(NativeMenu.kSettings, null);
     if (identical(_open, this)) _open = null;
   }
@@ -368,6 +386,24 @@ class _FallbackDialog extends StatefulWidget {
 }
 
 class _FallbackDialogState extends State<_FallbackDialog> {
+  // M383 — see SettingsSheet._watchSync. The same row, on the surface every
+  // Windows and Linux user actually sees.
+  @override
+  void initState() {
+    super.initState();
+    LanSync.instance.status.addListener(_onSync);
+  }
+
+  @override
+  void dispose() {
+    LanSync.instance.status.removeListener(_onSync);
+    super.dispose();
+  }
+
+  void _onSync() {
+    if (mounted) setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = L.of(context);

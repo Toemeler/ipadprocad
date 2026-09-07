@@ -17,12 +17,18 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:prototype/sync/bonjour.dart';
+import 'package:prototype/sync/share_code.dart';
 import 'package:prototype/sync/lan_sync.dart';
 import 'package:prototype/sync/mdns.dart';
 import 'package:prototype/sync/sync_protocol.dart';
 
 void main() {
+  // The mirror reaches for a platform channel when it starts (Bonjour, where
+  // there is a plugin behind it), and an uninitialised binding turns that into
+  // a paragraph of warning on the way past. Initialising it keeps the log to
+  // what these tests are about.
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   group('who dials whom', () {
     // The ordinary case: both devices can see each other, and exactly one of
     // them opens the connection.
@@ -259,6 +265,52 @@ void main() {
       final frames =
           SyncFrameReader().add(SyncFrame({'t': 'something-newer'}).encode());
       expect(frames.single.type, 'something-newer');
+    });
+  });
+
+
+  group('changing the code twice in a row', () {
+    // Every code change stops one mirror and starts another, and both halves
+    // await sockets — so two that overlap interleave, and the one that STARTED
+    // first can finish last and assign its own code over the newer one's. The
+    // shape it was found in: a share code on screen, a listener up, and a
+    // status row saying "off".
+    late Directory root;
+
+    setUp(() {
+      root = Directory.systemTemp.createTempSync('m383code');
+      LanSync.instance.attachForTest(
+        documents: Directory('${root.path}/docs')..createSync(),
+        preferences: Directory('${root.path}/prefs')..createSync(),
+      );
+    });
+
+    tearDown(() async {
+      await LanSync.instance.setCode(null);
+      root.deleteSync(recursive: true);
+    });
+
+    test('ends on the second one, not on whichever finished last', () async {
+      final first = normaliseShareCode(generateShareCode());
+      final second = normaliseShareCode(generateShareCode());
+      // Deliberately not awaited in turn: this is the sequence a person
+      // produces by typing a code and then changing their mind.
+      final a = LanSync.instance.setCode(first);
+      final b = LanSync.instance.setCode(second);
+      await Future.wait([a, b]);
+      expect(LanSync.instance.code, second);
+      expect(LanSync.instance.enabled, isTrue);
+      expect(LanSync.instance.status.value.state, isNot(SyncState.off),
+          reason: 'a mirror that is on must not report itself off');
+    });
+
+    test('and turning it off last really turns it off', () async {
+      final a = LanSync.instance.setCode(normaliseShareCode(generateShareCode()));
+      final b = LanSync.instance.setCode(null);
+      await Future.wait([a, b]);
+      expect(LanSync.instance.code, isNull);
+      expect(LanSync.instance.enabled, isFalse);
+      expect(LanSync.instance.status.value.state, SyncState.off);
     });
   });
 }

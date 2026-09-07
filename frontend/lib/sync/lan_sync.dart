@@ -167,6 +167,25 @@ class SyncStatus {
   final String? detail;
 
   const SyncStatus(this.state, {this.peers = 0, this.lastChange, this.detail});
+
+  /// Value equality, and it earns its place rather than being tidiness.
+  ///
+  /// [LanSync.status] is a ValueNotifier and [LanSync._publish] is called on
+  /// every sweep — every two seconds, whether or not anything changed. A
+  /// ValueNotifier only notifies when the new value differs from the old, so
+  /// without this every listener is woken twice a second to be told exactly
+  /// what it already knew, and the settings sheet redraws itself through a
+  /// platform channel for nothing.
+  @override
+  bool operator ==(Object other) =>
+      other is SyncStatus &&
+      other.state == state &&
+      other.peers == peers &&
+      other.lastChange == lastChange &&
+      other.detail == detail;
+
+  @override
+  int get hashCode => Object.hash(state, peers, lastChange, detail);
 }
 
 /// The mirror.
@@ -304,11 +323,55 @@ class LanSync {
     return Platform.operatingSystem;
   }
 
+  /// Code changes run ONE AT A TIME.
+  ///
+  /// Every one of them stops a mirror and starts another, and both halves
+  /// await sockets — so two that overlap interleave. The call that started
+  /// FIRST can finish last and assign its own `_code` over the newer one's,
+  /// which leaves the mirror listening under a code the app no longer thinks
+  /// it has, or — the shape this was found in — `_code` null and the status
+  /// row saying "off" while a listener is up and a code is on screen.
+  ///
+  /// Typing a code and changing your mind is enough to produce it. So is
+  /// [resume] landing on a code change, which is a likelier collision than it
+  /// sounds: both happen when somebody picks the device up.
+  ///
+  /// Chained rather than locked, exactly as _LogFlusher chains document saves,
+  /// and for the same reason: the second call must WAIT rather than be
+  /// dropped — it is the newer intention.
+  Future<void> _codeChanges = Future<void>.value();
+
   /// Turns the mirror on with [canonical], or off with null.
   ///
   /// Idempotent, and safe to call before [attach] — it simply records the code
   /// and does nothing until there is somewhere to mirror.
-  Future<void> setCode(String? canonical) async {
+  Future<void> setCode(String? canonical) => _enqueue(() => _setCode(canonical));
+
+  /// Runs [op] after everything already queued, and never breaks the queue.
+  Future<void> _enqueue(Future<void> Function() op) {
+    _codeChanges = _codeChanges.then((_) => op()).catchError((Object e) {
+      // A failure must not break the chain, or every later change in this
+      // session is silently skipped.
+      Log.w('sync', 'could not change the mirror: $e');
+    });
+    return _codeChanges;
+  }
+
+  /// Tears the mirror down and brings it back up under the code it has AT THE
+  /// MOMENT THIS RUNS.
+  ///
+  /// Which is the point of it, and why [resume] does not simply call
+  /// `setCode(null)` and then `setCode(code)` with a code captured earlier:
+  /// those are two entries in the queue, and somebody changing the code
+  /// between them would have their choice restored away by the second. This is
+  /// one entry, and it reads `_code` when its turn comes.
+  Future<void> _restart() async {
+    if (_code == null) return;
+    await _stop();
+    await _start();
+  }
+
+  Future<void> _setCode(String? canonical) async {
     if (canonical == _code) return;
     await _stop();
     _code = canonical;
@@ -752,12 +815,10 @@ class LanSync {
   /// it is alive, re-examines the local side — and rebuilds the whole mirror
   /// when the listener itself did not survive, which is the iPad case.
   Future<void> resume() async {
-    final code = _code;
-    if (code == null) return;
+    if (_code == null) return;
     if (_server == null || (_beacon == null && !_bonjour.running)) {
       Log.i('sync', 'resuming: the listener did not survive — restarting');
-      _code = null; // or setCode returns immediately, having done nothing
-      await setCode(code);
+      await _enqueue(_restart);
       return;
     }
     await _refreshInterfaces();

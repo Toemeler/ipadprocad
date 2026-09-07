@@ -412,16 +412,19 @@ class MdnsFallback {
   /// on it without anything having to be restarted.
   Future<void> _refreshOutbound() async {
     final s = _socket;
-    List<NetworkInterface> ifs;
+    List<NetworkInterface>? ifs;
     try {
       ifs = await NetworkInterface.list(
           type: InternetAddressType.IPv4, includeLoopback: false);
     } catch (e) {
-      // Left as it was; the previous list is a better guess than none.
-      return;
+      // The list is UNKNOWN, which is not the same as empty — an empty list
+      // means every link is down and the announcements should stop, while a
+      // refusal to enumerate means the last known list is still the best guess
+      // there is. Only the first of those replaces what is held.
+      Log.i('sync', 'mDNS: could not list the interfaces: $e');
     }
     final out = <InternetAddress>[];
-    for (final i in ifs) {
+    for (final i in ifs ?? const <NetworkInterface>[]) {
       for (final a in i.addresses) {
         out.add(a);
       }
@@ -437,10 +440,27 @@ class MdnsFallback {
         }
       }
     }
-    if (out.length != _outbound.length) {
-      Log.i('sync', 'mDNS: announcing on ${out.length} interface(s)');
+    if (ifs != null) {
+      if (out.length != _outbound.length) {
+        Log.i('sync', 'mDNS: announcing on ${out.length} interface(s)');
+      }
+      _outbound = out;
     }
-    _outbound = out;
+    // AND A JOIN THAT NAMES NO INTERFACE, if none of them would take one.
+    // Joining per interface is what makes a machine with several of them hear
+    // all of them; joining at all is what makes it hear anything. An
+    // interface list that came back empty, or every join refused, would
+    // otherwise leave this socket in the group's port and not in the group —
+    // receiving nothing, silently, for ever.
+    if (s != null && _joined.isEmpty) {
+      try {
+        s.joinMulticast(InternetAddress(_kGroupV4));
+        _joined.add('*');
+        Log.i('sync', 'mDNS: joined the group on the default interface');
+      } catch (e) {
+        Log.i('sync', 'mDNS: could not join the multicast group at all: $e');
+      }
+    }
   }
 }
 
