@@ -469,6 +469,24 @@ class LanSync {
         final dg = s.receive();
         if (dg == null) return;
         _onBeacon(dg);
+      }, onError: (Object e) {
+        // A NETWORK THAT REFUSES A BROADCAST SAYS SO HERE, not from send().
+        //
+        //     SocketException: Send failed (OS Error: No route to host,
+        //     errno = 65), address = 0.0.0.0, port = 47820
+        //
+        // `send` returns the byte count and reports the failure on the
+        // socket's stream a moment later, so the try/catch around the send
+        // never sees it — and a stream with no onError turns it into an
+        // unhandled asynchronous error with nobody underneath to catch it.
+        // A macOS CI runner produced exactly that; a guest network, a VPN
+        // that swallows broadcast, or an interface going down mid-send are
+        // the same shape on somebody's actual machine.
+        //
+        // Info rather than warning, and the mirror carries on: the beacon is
+        // one of two ways of finding peers, and the one an iPad cannot use
+        // anyway. Bonjour and mDNS are unaffected.
+        Log.i('sync', 'the beacon socket gave up ($e) — Bonjour only');
       });
       _beacon = s;
     } catch (e) {
@@ -762,6 +780,12 @@ class LanSync {
     s.listen((sock) {
       final session = _SyncSession(this, sock, outgoing: false);
       session.start();
+    }, onError: (Object e) {
+      // Same reasoning as the beacon's: an accept that fails reports on the
+      // stream, and unhandled there it is an asynchronous error nothing
+      // catches. This one IS worth a warning — a listener that has stopped
+      // accepting means no peer can dial this device again.
+      Log.w('sync', 'the listener stopped accepting: $e');
     });
     Log.i('sync', 'listening on ${s.port}');
   }
