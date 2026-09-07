@@ -309,9 +309,23 @@ jobs:
         run: |
           $out = "frontend/build/native"
           $exe = "$out/prototype_cycles_render_test.exe"
+          # cycles_denoise.cpp is COMPILED IN rather than linked against, and
+          # it is the one file that has to be. The .def deliberately exports
+          # `cy_*` and nothing else, so the import library cannot offer
+          # `cyshim::denoise` — a C++ symbol the shim calls internally and the
+          # test calls directly, on hand-made buffers, to check that the filter
+          # does not blur an edge. The macOS job links the raw archives and so
+          # never had to notice.
+          #
+          # A second copy in the test binary is exactly what is wanted here:
+          # that check is about the ALGORITHM, which the file implements with
+          # no Cycles type in it, and building it standalone (no util/tbb.h on
+          # the include path, so CYSHIM_PARALLEL stays off) proves it is still
+          # the self-contained thing its header claims.
           & cl /nologo /TP /EHsc /Ibackend/cycles/shim `
                backend/cycles/shim/render_test.c `
-               "/Fe:$exe" /link "$out/prototype_cycles.lib"
+               backend/cycles/shim/cycles_denoise.cpp `
+               "/Fe:$exe" "/Fo:$out/" /link "$out/prototype_cycles.lib"
           if ($LASTEXITCODE -ne 0) {
             Write-Host "WINDOWS RENDER: FAIL (the test would not build)"; exit 1
           }
