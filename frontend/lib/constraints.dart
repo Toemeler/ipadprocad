@@ -341,8 +341,17 @@ List<Constraint> inferPointBindings(List<Geo> gs, int newIdx,
     for (var j = 0; j < limit; j++) {
       if (j == newIdx) continue;
       if (pointLandsOn(gs[j], q)) {
-        out.add(Constraint(CType.coincident,
-            pts: [PRef(newIdx, p)], ents: [j]));
+        // M395 — the MIDPOINT of a line is not just a place on it. Landing
+        // there used to produce the same point-on-curve coincidence as any
+        // other spot, so a line drawn between two midpoints kept one degree
+        // of freedom per end and slid along both of them afterwards — the
+        // report was a line across a rectangle that "should be fully
+        // constrained" and was not. Inventor infers its midpoint constraint
+        // here, and so does this.
+        out.add(pointIsMidpointOf(gs[j], q)
+            ? Constraint(CType.midpoint, pts: [PRef(newIdx, p)], ents: [j])
+            : Constraint(CType.coincident,
+                pts: [PRef(newIdx, p)], ents: [j]));
         break;
       }
     }
@@ -371,8 +380,12 @@ List<Constraint> inferPointBindings(List<Geo> gs, int newIdx,
           c.type == CType.coincident &&
           c.pts.any((r) => r.ent == j && r.pt == pj));
       if (!already) {
-        out.add(Constraint(CType.coincident,
-            pts: [PRef(j, pj)], ents: [newIdx]));
+        // Same upgrade in the other direction: an existing point that the new
+        // line's midpoint runs through is a midpoint relation, not a slide.
+        out.add(pointIsMidpointOf(g, q)
+            ? Constraint(CType.midpoint, pts: [PRef(j, pj)], ents: [newIdx])
+            : Constraint(CType.coincident,
+                pts: [PRef(j, pj)], ents: [newIdx]));
       }
     }
   }
@@ -385,7 +398,7 @@ List<Constraint> inferPointBindings(List<Geo> gs, int newIdx,
 /// over-constraint gate: the new entity carries the equation, so a sketch that
 /// is already fully constrained must not swallow it silently.
 bool isReverseBind(Constraint c, int newIdx) =>
-    c.type == CType.coincident &&
+    (c.type == CType.coincident || c.type == CType.midpoint) &&
     c.pts.length == 1 &&
     c.ents.length == 1 &&
     c.ents.first == newIdx &&
@@ -466,6 +479,82 @@ bool pointLandsOn(Geo g, Offset q, {double tol = 1e-6, List<Offset>? curve}) {
   return false;
 }
 
+/// M395 — is [q] the MIDPOINT of line [g], rather than just somewhere on it?
+///
+/// The snap engine offers 'midpoint' at a higher priority than 'on' and lands
+/// the point EXACTLY there (snap.dart), so this asks the same tight question
+/// [pointLandsOn] does: did the snap bind it, not is it roughly halfway.
+/// Only a LINE has a midpoint constraint in this model (the solver's
+/// SH_MIDPOINT takes a line), so nothing else answers true.
+bool pointIsMidpointOf(Geo g, Offset q, {double tol = 1e-6}) {
+  if (g.type != Geo.line) return false;
+  return (q - (getPt(g, 0) + getPt(g, 1)) / 2).distance < tol;
+}
+
+/// True for the constraints [inferConstraints] derives from a curve's
+/// DIRECTION rather than from where its points landed.
+///
+/// M395 — these are the ones that can become redundant the moment the point
+/// bindings get stronger. A line drawn between the midpoints of two FIXED
+/// edges is pinned outright by its two midpoint constraints, and the
+/// horizontal that inference also reads off it is then a fifth equation on
+/// four parameters: the solve refuses the whole set and the commit path drops
+/// every auto-constraint it just made. Whether that is actually the case is a
+/// rank question about the whole sketch, not something the shape of the
+/// constraint can answer — the closing edge of a hand-drawn rectangle has
+/// both ends bound to other points and its horizontal is NOT redundant,
+/// because those points are free themselves. So the commit path asks
+/// [wouldOverconstrain]; this only says which constraints are worth asking
+/// about.
+bool isDirectionConstraint(Constraint c) =>
+    c.type == CType.horizontal ||
+    c.type == CType.vertical ||
+    c.type == CType.parallel ||
+    c.type == CType.perpendicular;
+
+/// The points [binds] pin OUTRIGHT — both coordinates — as (entity, point).
+///
+/// Point-on-point coincidence, a landing on the projected centre and a
+/// midpoint each remove two degrees of freedom. A point-on-CURVE coincidence
+/// removes one and leaves the point free to slide along the carrier, so it
+/// is not here.
+Set<(int, int)> fullyPinnedPoints(List<Constraint> binds) {
+  final out = <(int, int)>{};
+  for (final c in binds) {
+    if (c.type == CType.midpoint) {
+      if (c.pts.length == 1 && c.ents.length == 1) {
+        out.add((c.pts.first.ent, c.pts.first.pt));
+      }
+      continue;
+    }
+    if (c.type != CType.coincident || c.pts.length != 2) continue;
+    for (final r in c.pts) {
+      if (r.ent >= 0) out.add((r.ent, r.pt));
+    }
+  }
+  return out;
+}
+
+/// Whether every point the direction constraint [c] acts on is in [pinned].
+///
+/// The CHEAP half of the redundancy question, and only a necessary condition:
+/// a welded point is not a fixed point, so this says "worth asking the rank",
+/// not "redundant". Its job is to keep [wouldOverconstrain] — two rank
+/// reductions of the whole sketch — off the path every ordinary line takes,
+/// where at most one end is pinned and no direction constraint can have been
+/// made redundant by the bindings at all.
+///
+/// A parallel or perpendicular names two entities and needs BOTH pinned: with
+/// only the new one pinned it still constrains the other, which is exactly
+/// the case that must not be dropped.
+bool directionSpokenFor(Constraint c, Set<(int, int)> pinned) {
+  if (c.pts.length >= 2) {
+    return c.pts.every((r) => pinned.contains((r.ent, r.pt)));
+  }
+  if (c.ents.isEmpty) return false;
+  return c.ents.every((e) => pinned.contains((e, 0)) && pinned.contains((e, 1)));
+}
+
 List<Constraint> inferConstraints(List<Geo> gs, int newIdx) {
   final out = <Constraint>[];
   final g = gs[newIdx];
@@ -526,7 +615,8 @@ List<Constraint> inferConstraints(List<Geo> gs, int newIdx) {
   }
   // coincident endpoints (snapping already made them exactly equal); if a new
   // point instead lands on the interior of an existing straight edge, add a
-  // point-on-line coincidence rather than point-on-point.
+  // point-on-line coincidence rather than point-on-point — or, on its
+  // midpoint, a midpoint constraint.
   out.addAll(inferPointBindings(gs, newIdx));
   // tangent for arcs that start exactly on another entity's endpoint with
   // matching tangent direction (the Arc-Tangent tool produces these)

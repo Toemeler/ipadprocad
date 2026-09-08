@@ -19432,7 +19432,28 @@ class AppState extends ChangeNotifier {
         }
       } else if (autoConstrain) {
         for (var i = firstNew; i < gs.length; i++) {
-          for (final c in inferConstraints(gs, i)) {
+          final inferred = inferConstraints(gs, i);
+          // M395 — the DIRECTION constraints are judged against the point
+          // bindings from the same breath, not just against the sketch as it
+          // was. Inference emits direction first (that is the order the
+          // glyphs appear in) but the bindings are what can make it
+          // redundant: a line between the midpoints of two fixed edges is
+          // pinned by its two midpoint constraints, and the horizontal read
+          // off it is then a fifth equation on four parameters. Left in, the
+          // solve refuses the set and the commit path throws away every
+          // auto-constraint it just made — the sketch ends up with less than
+          // it had before the fix.
+          final bindings = [
+            for (final c in inferred)
+              if (!isDirectionConstraint(c)) c
+          ];
+          // The rank test below is two reductions of the whole sketch, so it
+          // is asked only where it can possibly answer yes: every point the
+          // direction constraint acts on has to be pinned outright by one of
+          // those bindings. An ordinary drawn line has at most one such end
+          // and never reaches it.
+          final pinned = fullyPinnedPoints(bindings);
+          for (final c in inferred) {
             // A REVERSE bind (an existing point landing on the new curve) is
             // the one inferred relation that can hit an already fully
             // constrained sketch, so it takes the same gate a manual
@@ -19442,6 +19463,14 @@ class AppState extends ChangeNotifier {
                 wouldOverconstrain(gs, s.constraints, c)) {
               Log.i('tool',
                   'auto ${conStr(-1, c)} DROPPED (would over-constrain)');
+              continue;
+            }
+            if (isDirectionConstraint(c) &&
+                directionSpokenFor(c, pinned) &&
+                wouldOverconstrain(
+                    gs, [...s.constraints, ...bindings], c)) {
+              Log.i('tool',
+                  'auto ${conStr(-1, c)} DROPPED (the bindings already say it)');
               continue;
             }
             s.constraints.add(c);
