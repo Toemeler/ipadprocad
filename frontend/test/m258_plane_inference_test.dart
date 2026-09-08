@@ -145,10 +145,25 @@ void main() {
       expect(s.n.cross(named.n).length, lessThan(1e-12));
     });
 
-    test('two CROSSING faces are refused, and say why', () {
-      final r = _auto([_top, _plane('Side Face', Vec3.zero, const Vec3(1, 0, 0))]);
-      expect(r.outcome, WorkPickOutcome.rejected);
-      expect(r.message.toLowerCase(), contains('parallel'));
+    test('two CROSSING faces give the bisector through their shared line', () {
+      // M401 — this used to assert `rejected`, with a message about needing a
+      // parallel face. #27 asked for the other answer and was right: two
+      // chamfers are two crossing planar faces, and the plane "in between"
+      // them is the bisector. The generic Plane button is the path that
+      // report came through, so this is where it has to work.
+      final side = _plane('Side Face', Vec3.zero, const Vec3(1, 0, 0));
+      final r = _auto([_top, side]);
+      expect(r.outcome, WorkPickOutcome.complete);
+      final s = r.solution!;
+      // _top is z=20, side is x=0. Equidistant means (z - 20) == x, so the
+      // shared line (z=20, x=0) lies in it and the plane leans between them.
+      _contains(s, const Vec3(0, 7, 20));
+      final n = s.n.normalized();
+      expect(n.dot(const Vec3(0, 1, 0)).abs(), lessThan(1e-9),
+          reason: 'the bisector contains the direction the two faces share');
+      expect(n.dot(const Vec3(0, 0, 1)).abs(),
+          closeTo(n.dot(const Vec3(1, 0, 0)).abs(), 1e-9),
+          reason: 'equal angles to both faces');
     });
 
     test('two faces on the SAME plane still give that plane back', () {
@@ -290,19 +305,24 @@ void main() {
       expect(app.workPlaneAutoArmed, isFalse, reason: 'the command is done');
     });
 
-    test('a crossing second face costs that tap and nothing else', () async {
+    test('a crossing second face completes the command', () async {
+      // M401 — it used to cost the tap and stay armed. Two crossing faces are
+      // a midplane now (#27), so the second tap finishes the command exactly
+      // as a parallel one does.
       final app = _app();
       await app.createNamedPart('P');
       app.startWorkPlaneMethod(WorkPlaneMethod.auto);
       expect(app.workFeaturePick(_top), isTrue);
       expect(
           app.workFeaturePick(_plane('Side', Vec3.zero, const Vec3(1, 0, 0))),
-          isFalse);
-      expect(app.workPlaneAutoArmed, isTrue,
-          reason: 'still armed — one mis-tap must not end the command');
-      // ...and the FIRST pick survived, so the next tap completes it.
-      expect(app.workFeaturePick(_bottom), isTrue);
-      expect(app.currentPart!.workPlanes.length, 1);
+          isTrue);
+      expect(app.workPlaneAutoArmed, isFalse, reason: 'the command is done');
+      final planes = app.currentPart!.workPlanes;
+      expect(planes.length, 1);
+      expect(planes.first.def, 'Midplane between Top Face and Side');
+      // z=20 and x=0: the bisector runs through their shared line.
+      final f = planes.first.frame;
+      expect(f.n.dot(const Vec3(0, 7, 20) - f.origin).abs(), lessThan(1e-9));
     });
 
     test('an inferred ANGLE plane keeps its editable number', () async {

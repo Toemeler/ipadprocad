@@ -1305,11 +1305,11 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get msgSelectSecondParallel =>
-      'Select the second parallel plane or face.';
+      'Select the second plane or face — the midplane goes between them.';
 
   @override
   String get msgNotParallel =>
-      'Those two are not parallel — pick a parallel plane or face.';
+      'Those two do not define a midplane — pick another plane or face.';
 
   @override
   String msgPlaneHasNoOffset(String name) {
@@ -2373,7 +2373,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get wfPlaneSecondParallelEdgeOrPoint =>
-      'Select a parallel face for the midplane, an edge to angle around, or a vertex for a parallel plane — or drag for an offset.';
+      'Select a second face for the midplane, an edge to angle around, or a vertex for a parallel plane — or drag for an offset.';
 
   @override
   String get wfPlaneSecondCoplanarOrPoint =>

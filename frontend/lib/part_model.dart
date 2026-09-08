@@ -250,21 +250,65 @@ PlaneFrame anglePlaneFrame(
       rot(base.v).normalized(), rot(base.n).normalized(), axisAt);
 }
 
-/// The plane halfway between [a] and [b], or null when they are not parallel.
+/// The plane halfway between [a] and [b].
 ///
 /// Anti-parallel counts as parallel: two opposite faces of a block are the
 /// commonest midplane input there is, and their normals point away from each
-/// other. Non-parallel input returns null rather than guessing — an angled
-/// bisector is a different feature and pretending otherwise would put a plane
-/// somewhere the user did not ask for.
+/// other.
+///
+/// M401 — AND ANGLED FACES GET THEIR BISECTOR (#27): "i want to make a center
+/// plane between these 2 chamfers but it says the faces are not parallel. but
+/// they shouldn't need to be parallel since it should just make a middle plane
+/// like it would with parallel faces."
+///
+/// This used to return null for anything but parallel, on the reasoning that
+/// "an angled bisector is a different feature". It is not a different feature:
+/// it is the same one — the locus of points equidistant from both faces —
+/// evaluated where the faces happen to meet. Inventor's Midplane takes two
+/// intersecting planes and answers with the bisector through their common
+/// line, and a chamfer pair is the case it is most often asked for.
+///
+/// WHICH OF THE TWO BISECTORS. Two intersecting planes have two, at right
+/// angles to each other. Written as signed distances, a point is equidistant
+/// when `x.n1 - h1 == x.n2 - h2` (the INTERNAL bisector, through the wedge the
+/// faces enclose) or when one is the negative of the other (the external one,
+/// through the opposite wedge). A face's normal points OUT of its solid, so
+/// the material is where both signed distances are negative — the internal
+/// bisector is the one that passes between the two faces, and it is the only
+/// one that is the plain continuation of the parallel case:
+///
+///   * anti-parallel (n2 = -n1) reduces to `n1` with the two offsets averaged,
+///     which is exactly what the parallel branch computes, to the last digit;
+///   * parallel and same-facing (n2 = n1) makes `n1 - n2` vanish, which is why
+///     that case keeps its own branch rather than falling through to this one.
+///
+/// The origin is a point ON the intersection line, for the reason
+/// [anglePlaneFrame] gives: that line is the one thing the two planes share,
+/// and an origin anywhere else makes the plane look like it belongs to neither.
 PlaneFrame? midPlaneFrame(PlaneFrame a, PlaneFrame b, {double tol = 1e-6}) {
   final d = a.n.dot(b.n);
-  if ((d.abs() - 1).abs() > tol) return null;
-  final n = a.n;
-  // Signed distances of both planes along the SHARED normal, so the midpoint
-  // is a real point on the resulting plane.
-  final mid = (a.origin.dot(n) + b.origin.dot(n)) / 2;
-  return PlaneFrame(kWorkPlaneKey, a.u, a.v, n, n * mid);
+  if ((d.abs() - 1).abs() <= tol) {
+    final n = a.n;
+    // Signed distances of both planes along the SHARED normal, so the midpoint
+    // is a real point on the resulting plane.
+    final mid = (a.origin.dot(n) + b.origin.dot(n)) / 2;
+    return PlaneFrame(kWorkPlaneKey, a.u, a.v, n, n * mid);
+  }
+  final m = a.n - b.n;
+  final len = m.length;
+  // Unreachable while the branch above owns every parallel pair, and cheap
+  // insurance against a caller that hands over two normals it has scaled.
+  if (len < 1e-12) return null;
+  final n = m * (1 / len);
+  final h1 = a.origin.dot(a.n), h2 = b.origin.dot(b.n);
+  // A point on the line the two planes share: the three-plane intersection of
+  // a, b and the plane through the world origin normal to the line itself.
+  final axis = a.n.cross(b.n);
+  final k = a.n.dot(b.n.cross(axis));
+  final at = k.abs() < 1e-12
+      ? n * ((h1 - h2) / len)
+      : (b.n.cross(axis) * h1 + axis.cross(a.n) * h2) * (1 / k);
+  return workPlaneFrameAt(at, n);
 }
 
 /// A user-created work plane. The frame is baked at creation; [def] is what

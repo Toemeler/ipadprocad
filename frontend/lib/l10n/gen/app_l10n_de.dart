@@ -1316,11 +1316,11 @@ class AppL10nDe extends AppL10n {
 
   @override
   String get msgSelectSecondParallel =>
-      'Zweite parallele Ebene oder Fläche wählen.';
+      'Zweite Ebene oder Fläche wählen — die Mittelebene liegt dazwischen.';
 
   @override
   String get msgNotParallel =>
-      'Diese beiden sind nicht parallel — eine parallele Ebene oder Fläche wählen.';
+      'Diese beiden ergeben keine Mittelebene — eine andere Ebene oder Fläche wählen.';
 
   @override
   String msgPlaneHasNoOffset(String name) {
@@ -2408,7 +2408,7 @@ class AppL10nDe extends AppL10n {
 
   @override
   String get wfPlaneSecondParallelEdgeOrPoint =>
-      'Parallele Fläche für die Mittelebene wählen, Kante zum Abwinkeln oder Eckpunkt für eine parallele Ebene — oder ziehen für einen Versatz.';
+      'Zweite Fläche für die Mittelebene wählen, Kante zum Abwinkeln oder Eckpunkt für eine parallele Ebene — oder ziehen für einen Versatz.';
 
   @override
   String get wfPlaneSecondCoplanarOrPoint =>

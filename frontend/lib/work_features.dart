@@ -35,7 +35,9 @@
 // Work Plane has thirteen (M258, re-checked against the Autodesk help):
 //   Plane (legacy)                         inferred, as above
 //   Offset from Plane                      a planar face, DRAGGED to a distance
-//   Midplane between Two Planes            two PARALLEL planes or planar faces
+//   Midplane between Two Planes            two planes or planar faces (M401:
+//                                          parallel, or crossing — then the
+//                                          bisector through their shared line)
 //   Parallel to Plane through Point        a plane and a point, either order
 //   Three Points                           three points
 //   Two Coplanar Edges                     two coplanar edges, axes or lines
@@ -71,7 +73,7 @@
 import 'dart:math' as math;
 
 import 'l10n/l.dart';
-import 'part_model.dart' show Vec3;
+import 'part_model.dart' show Vec3, midPlaneFrame, workPlaneFrameAt;
 
 /// The current strings.
 ///
@@ -1370,10 +1372,10 @@ WorkAttempt<WorkPlaneSolution> solveWorkPlane(
 /// primitives it can stand in for (see [WorkRef]), so most pairs satisfy more
 /// than one method and the order below is the answer, not a formality:
 ///
-///   * PLANE beats everything a pick also carries. Two parallel planes are
-///     the midplane — the case this milestone exists for — and two crossing
-///     planes are refused rather than being quietly re-read as some other
-///     method that happens to fit.
+///   * PLANE beats everything a pick also carries. Two planes are the
+///     midplane — the case this milestone exists for — parallel or crossing
+///     (M401), and never quietly re-read as some other method that happens to
+///     fit.
 ///   * An EDGE beats its own midpoint. A plane and a straight edge are "Angle
 ///     to Plane around Edge" and not "Parallel to Plane through Point", even
 ///     though [WorkRef.line] offers that midpoint. Pick a VERTEX for the
@@ -1413,14 +1415,18 @@ WorkAttempt<WorkPlaneSolution> _autoPlane(List<WorkRef> refs, double angleDeg) {
   // "wenn ich klicke und ein anderes face anklicke soll es direkt inbetween
   // eine ebene machen".
   if (first.hasPlane && second.hasPlane) {
-    if (!planesParallel(first.planeNormal!, second.planeNormal!)) {
-      return WorkAttempt.no(_t.msgNotParallel);
-    }
+    // M401 — ANGLED FACES TOO (#27). This refused a crossing pair outright,
+    // and the reasoning above ("two crossing planes are refused rather than
+    // being quietly re-read as some other method") was about not silently
+    // switching METHOD — it is still the midplane, and [midPlaneFrame] now
+    // answers for both. A chamfer pair is the commonest angled input there is.
+    final mid = midPlaneFrame(
+        workPlaneFrameAt(first.planeAt!, first.planeNormal!),
+        workPlaneFrameAt(second.planeAt!, second.planeNormal!));
+    if (mid == null) return WorkAttempt.no(_t.msgNotParallel);
     final def = 'Midplane between ${first.label} and ${second.label}';
     return WorkAttempt.ok(
-        WorkPlaneSolution(
-            _midPointBetween(first, second), first.planeNormal!, def,
-            via: WorkPlaneMethod.auto),
+        WorkPlaneSolution(mid.origin, mid.n, def, via: WorkPlaneMethod.auto),
         def);
   }
 
@@ -1509,16 +1515,6 @@ WorkAttempt<WorkPlaneSolution> _normalToLineAt(WorkRef line, WorkRef pt) =>
 /// make "tap a face, tap an edge" mean two different things depending on
 /// geometry the user cannot see.
 bool _isBarePoint(WorkRef r) => r.hasPoint && !r.hasLine && !r.hasPlane;
-
-/// A point midway between two PARALLEL planes, on the shared normal.
-///
-/// Both planes' own points projected onto that normal, averaged, and put back
-/// — the same arithmetic [midPlaneFrame] does for the named Midplane command,
-/// which is the one this has to agree with to the last digit.
-Vec3 _midPointBetween(WorkRef a, WorkRef b) {
-  final n = a.planeNormal!;
-  return n * ((a.planeAt!.dot(n) + b.planeAt!.dot(n)) / 2);
-}
 
 // ---------------------------------------------------------------------------
 // M224 — tangent planes

@@ -1295,8 +1295,8 @@
   },
   "msgSelectPlaneToOffsetFrom": "Ebene oder Fläche wählen, von der aus versetzt wird.",
   "msgSelectFirstParallel": "Erste von zwei parallelen Ebenen oder Flächen wählen.",
-  "msgSelectSecondParallel": "Zweite parallele Ebene oder Fläche wählen.",
-  "msgNotParallel": "Diese beiden sind nicht parallel — eine parallele Ebene oder Fläche wählen.",
+  "msgSelectSecondParallel": "Zweite Ebene oder Fläche wählen — die Mittelebene liegt dazwischen.",
+  "msgNotParallel": "Diese beiden ergeben keine Mittelebene — eine andere Ebene oder Fläche wählen.",
   "msgPlaneHasNoOffset": "{name}: Diese Ebene hat keinen Versatz zum Ziehen.",
   "@msgPlaneHasNoOffset": {
     "placeholders": {
@@ -1989,7 +1989,7 @@
   "wfPickFirstPoint": "Ersten Punkt wählen.",
   "wfPickSecondPoint": "Zweiten Punkt wählen.",
   "wfPlaneDragOrPickSecond": "Fläche oder Ebene wählen — ziehen ergibt einen Versatz, eine zweite parallele Fläche die Mittelebene.",
-  "wfPlaneSecondParallelEdgeOrPoint": "Parallele Fläche für die Mittelebene wählen, Kante zum Abwinkeln oder Eckpunkt für eine parallele Ebene — oder ziehen für einen Versatz.",
+  "wfPlaneSecondParallelEdgeOrPoint": "Zweite Fläche für die Mittelebene wählen, Kante zum Abwinkeln oder Eckpunkt für eine parallele Ebene — oder ziehen für einen Versatz.",
   "wfPlaneSecondCoplanarOrPoint": "Zweite komplanare Kante wählen, oder einen Eckpunkt für die Normalebene.",
   "wfPlaneTwoMorePoints": "Zwei weitere Punkte für die Ebene wählen.",
   "wfCannotDefinePlane": "{ref} kann keine Ebene festlegen.",

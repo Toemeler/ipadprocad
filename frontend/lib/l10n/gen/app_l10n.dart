@@ -2236,13 +2236,13 @@ abstract class AppL10n {
   /// No description provided for @msgSelectSecondParallel.
   ///
   /// In de, this message translates to:
-  /// **'Zweite parallele Ebene oder Fläche wählen.'**
+  /// **'Zweite Ebene oder Fläche wählen — die Mittelebene liegt dazwischen.'**
   String get msgSelectSecondParallel;
 
   /// No description provided for @msgNotParallel.
   ///
   /// In de, this message translates to:
-  /// **'Diese beiden sind nicht parallel — eine parallele Ebene oder Fläche wählen.'**
+  /// **'Diese beiden ergeben keine Mittelebene — eine andere Ebene oder Fläche wählen.'**
   String get msgNotParallel;
 
   /// No description provided for @msgPlaneHasNoOffset.
@@ -3958,7 +3958,7 @@ abstract class AppL10n {
   /// No description provided for @wfPlaneSecondParallelEdgeOrPoint.
   ///
   /// In de, this message translates to:
-  /// **'Parallele Fläche für die Mittelebene wählen, Kante zum Abwinkeln oder Eckpunkt für eine parallele Ebene — oder ziehen für einen Versatz.'**
+  /// **'Zweite Fläche für die Mittelebene wählen, Kante zum Abwinkeln oder Eckpunkt für eine parallele Ebene — oder ziehen für einen Versatz.'**
   String get wfPlaneSecondParallelEdgeOrPoint;
 
   /// No description provided for @wfPlaneSecondCoplanarOrPoint.

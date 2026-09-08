@@ -675,10 +675,16 @@ void main() {
               'nor can the plane built on that plane');
     });
 
-    test('a re-solve that fails keeps the last good frame and says why', () {
-      // Two parallel faces, a midplane between them, and then one component
-      // turned so they are not parallel any more — which is exactly what a
-      // drag can do momentarily.
+    test('a component turned out of parallel re-solves, it does not go sick',
+        () {
+      // M401 — this used to be the SICK case: two parallel faces, a midplane
+      // between them, then one component turned so they cross, and the plane
+      // went sick because `midPlaneFrame` refused a crossing pair.
+      //
+      // It answers now (#27), and the consequence here is the right one: a
+      // midplane defined between two faces follows those faces wherever they
+      // go, including into a crossing arrangement, instead of freezing and
+      // flagging itself the moment a component is nudged.
       final b = occ('Base:1', const Vec3(60, 0, 40));
       final app = asmApp('ipc_m247_sick', [occ('Bracket:1', Vec3.zero), b]);
       final a = app.currentAssembly!;
@@ -695,6 +701,41 @@ void main() {
 
       b.rot = Quat.axisAngle(const Vec3(1, 0, 0), 0.5);
       resolveAsmWorkFeatures(a);
+      expect(w.error, isNull, reason: 'crossing faces are an answer now');
+      expect(w.frame.origin, isNot(was),
+          reason: 'and it MOVED — a plane that follows its faces is the whole '
+              'point of re-solving it');
+
+      // Put it back and it returns to where it was.
+      b.rot = Quat.identity;
+      resolveAsmWorkFeatures(a);
+      expect(w.error, isNull);
+      expect(w.frame.origin.z, closeTo(30, 1e-6));
+    });
+
+    test('a re-solve that fails keeps the last good frame and says why', () {
+      // The mechanism the test above used to exercise, driven by the failure
+      // that survives M401: a reference that cannot be resolved at all. The
+      // geometry can no longer refuse a midplane, but a component that is not
+      // there still can.
+      final app = asmApp('ipc_m247_lost',
+          [occ('Bracket:1', Vec3.zero), occ('Base:1', const Vec3(60, 0, 40))]);
+      final a = app.currentAssembly!;
+      final cam = frontCam();
+      app.startWorkPlane(WorkPlaneKind.midplane);
+      tapAt(app, a, cam, Vec3.zero);
+      tapAt(app, a, cam, const Vec3(60, 0, 40));
+      final w = a.workPlanes.single;
+      final was = w.frame.origin;
+
+      // Point the first reference at an occurrence that is not in the
+      // assembly. Nothing the UI does produces this directly — deleting a
+      // component takes its work features with it — but it is the shape of
+      // every "reference lost" there is, and it is the path that must not
+      // throw the user's plane away.
+      final lost = w.refs.first;
+      w.refs[0] = AsmRef('Ghost:9', lost.geom, lost.label);
+      resolveAsmWorkFeatures(a);
       expect(w.error, isNotNull);
       expect(w.frame.origin, was,
           reason: 'a transient must not delete the user\'s work');
@@ -702,7 +743,7 @@ void main() {
       expect(workFeatureError(w), isNotNull);
 
       // Put it back and it recovers on its own — no repair command needed.
-      b.rot = Quat.identity;
+      w.refs[0] = lost;
       resolveAsmWorkFeatures(a);
       expect(w.error, isNull);
       expect(w.frame.origin.z, closeTo(30, 1e-6));

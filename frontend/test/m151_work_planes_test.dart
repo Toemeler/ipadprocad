@@ -1,5 +1,5 @@
 // M151 — work planes: offset from a plane or face, and midplane between two
-// parallel planes or faces.
+// planes or faces (M401: parallel, or crossing — then the bisector).
 //
 // The geometry is pure and is the part that can be quietly wrong: an offset
 // that rotates its sketch axes, a midplane that lands on one of its parents,
@@ -75,8 +75,22 @@ void main() {
       expect(m!.origin.z, closeTo(10, eps));
     });
 
-    test('non-parallel input returns null rather than guessing', () {
-      expect(midPlaneFrame(planeFrame('xy'), planeFrame('yz')), isNull);
+    test('crossing input gives the bisector through their shared line', () {
+      // M401 — this used to assert `isNull`, on the reasoning that "an angled
+      // bisector is a different feature". #27 disagreed, and was right: it is
+      // the same feature — the points equidistant from both faces — evaluated
+      // where the faces meet. A chamfer pair is the commonest angled input.
+      final m = midPlaneFrame(planeFrame('xy'), planeFrame('yz'))!;
+      // xy is z=0, yz is x=0; they share the y axis, and every point of the
+      // bisector is as far from one as from the other.
+      for (final t in [-8.0, 0.0, 13.0]) {
+        expect(m.n.dot(Vec3(0, t, 0) - m.origin).abs(), lessThan(eps),
+            reason: 'the shared line must lie in it');
+      }
+      for (final p in [m.origin, m.origin + m.u * 6, m.origin + m.v * -4]) {
+        expect(p.z, closeTo(p.x, eps),
+            reason: 'equidistant from z=0 and x=0, at $p');
+      }
     });
 
     test('two coincident planes give back the same plane', () {
@@ -112,18 +126,41 @@ void main() {
       expect(app.currentPart!.workPlanes.first.frame.origin.z, closeTo(15, eps));
     });
 
-    test('a non-parallel second pick is rejected without ending the flow', () {
-      // Mis-tapping must not send you back to the ribbon.
+    test('a crossing second pick builds the bisector', () {
+      // M401 — this used to assert the pick was REJECTED and the flow left
+      // armed. #27: "it should just make a middle plane like it would with
+      // parallel faces", and it does.
       final app = makeApp();
       app.startWorkPlane(WorkPlaneKind.midplane);
       app.planePicked('xy');
-      app.planePicked('yz'); // not parallel
+      app.planePicked('yz');
+      final planes = app.currentPart!.workPlanes;
+      expect(planes.length, 1, reason: 'the two faces do define a midplane');
+      // Equidistant from z=0 and x=0: the plane x=z.
+      final f = planes.first.frame;
+      for (final q in [f.origin, f.origin + f.u * 5, f.origin + f.v * -3]) {
+        expect(q.z, closeTo(q.x, eps), reason: 'at $q');
+      }
+      expect(app.workPlaneArm, isNull, reason: 'and the flow is done');
+    });
+
+    test('a second pick that defines nothing still keeps the flow alive', () {
+      // The recovery path M151 built is still there — it just has almost
+      // nothing left that can reach it, now that crossing planes are an
+      // answer rather than an error. Picking the SAME plane twice is a
+      // midplane of one thing, which is that plane; picking a second one
+      // always resolves. So this asserts the survivable shape rather than
+      // inventing an impossible input: after a first pick the command waits,
+      // and cancelling leaves the part untouched.
+      final app = makeApp();
+      app.startWorkPlane(WorkPlaneKind.midplane);
+      app.planePicked('xy');
       expect(app.currentPart!.workPlanes, isEmpty);
       expect(app.workPlaneArm, WorkPlaneKind.midplane,
-          reason: 'the flow stays alive after a bad pick');
-
-      app.planePicked('xy'); // recovers with a good one
-      expect(app.currentPart!.workPlanes.length, 1);
+          reason: 'still collecting');
+      app.cancelWorkPlane();
+      expect(app.currentPart!.workPlanes, isEmpty);
+      expect(app.workPlaneArm, isNull);
     });
 
     test('a face and an origin plane are interchangeable inputs', () {
