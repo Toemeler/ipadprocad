@@ -1539,7 +1539,12 @@ class _Viewport3DState extends State<Viewport3D>
     // Planar faces only, which is what _pickSolidFace answers by default: it
     // is the right set for a plane, and the one pick it misses (a torus) is
     // still perfectly pickable, just not pre-lit.
-    if ((app.pickPlane || app.pickWorkGeometry) && region == null) {
+    // M400 — [pickingPlanarFace], not the two modes spelled out. The list
+    // here was `pickPlane || pickWorkGeometry` and the tap path below has a
+    // third branch, `pickingExtentFace`, that takes its pick through this same
+    // `_pickSolidFace` — so "extrude to face" could choose a face and never
+    // showed you which one (#26).
+    if (app.pickingPlanarFace && region == null) {
       final pick = _pickSolidFace(cam, px);
       if (pick != null && pick.$2 >= 0) {
         final planeD = hit == null
@@ -3624,7 +3629,31 @@ class _ViewCubeState extends State<ViewCube>
         // M90 — snapping to top/bottom is exact now; the clamp that kept it a
         // thousandth of a radian short is gone with the trackball.
         if (d.y.abs() < 0.999) c.az = math.atan2(d.x, d.z);
-        c.setBasis(d, PartCamera.rightFor(c.az));
+        // M399 — THE ROLL COMES FROM THE CUBE, not from world up (#28).
+        // `rightFor(az)` lies in the world XZ plane, so it says "world +Y is
+        // up" — right until the user redefines which way is front, after
+        // which every view off the cube arrived rolled by the angle between
+        // world up and the model's own. See [cubeViewBasis]; with the identity
+        // orientation it returns exactly what this line used to compute.
+        final (dir, right) = cubeViewBasis(d, widget.orient);
+        c.setBasis(dir, right);
+        _frame(c);
+      });
+
+  /// The Home view, in the model's own terms.
+  ///
+  /// M399 — `PartCamera.home()` writes az = pi/4, pol = 0.955, which is the
+  /// front-top-right corner spelled in WORLD angles. After front has been
+  /// redefined the model's own front-top-right corner is somewhere else
+  /// entirely, so Home went to a corner of nothing in particular. It resets
+  /// the zoom and the pan as it always did; the direction is then the cube's.
+  void _home() => _animateTo((c) {
+        c.home();
+        final (dir, right) =
+            cubeViewBasis(widget.orient.rotate(kCubeHomeDir), widget.orient);
+        c.setBasis(dir, right);
+        // M283 — and Home frames the model too. A home view that leaves the
+        // part off screen is the same complaint as a front view that does.
         _frame(c);
       });
 
@@ -3719,13 +3748,7 @@ class _ViewCubeState extends State<ViewCube>
           top: 0,
           left: 0,
           child: GestureDetector(
-            onTap: () => _animateTo((cam) {
-              cam.home();
-              // M283 — and Home frames the model too. A home view that leaves
-              // the part off screen is the same complaint as a front view that
-              // does.
-              _frame(cam);
-            }),
+            onTap: _home,
             child: Tooltip(
               message: t.menuHomeView,
               child: SizedBox(

@@ -227,6 +227,63 @@ Quat cubeOrientFor(PartCamera c, Vec3 cubeNormal, Vec3 cubeUp) {
   return (Quat.axisAngle(d, ang) * q1).normalized();
 }
 
+// ---------------------------------------------------------------------------
+// Going TO a view, once front has been redefined
+// ---------------------------------------------------------------------------
+
+/// The camera direction the Home button goes to, in CUBE space.
+///
+/// The front-top-right corner. `PartCamera.home()` spells the same view as
+/// az = pi/4, pol = 0.955, which is this vector in world terms — and that is
+/// the bug it hides: written as angles it is a WORLD view, and after front has
+/// been redefined the model's own front-top-right corner is somewhere else.
+const Vec3 kCubeHomeDir = Vec3(1, 1, 1);
+
+/// Which way is UP the screen for a view along [dirCube], in CUBE space.
+///
+/// The cube's own +Y, except looking straight down or up its Y axis, where +Y
+/// is the view direction and says nothing. There the convention is the one
+/// [cubeOrientTop] documents and Inventor uses: from above, the model's FRONT
+/// is at the bottom of the screen; from below, at the top.
+Vec3 cubeUpFor(Vec3 dirCube) {
+  final d = dirCube.normalized();
+  if (d.y > 0.999) return const Vec3(0, 0, -1);
+  if (d.y < -0.999) return const Vec3(0, 0, 1);
+  return const Vec3(0, 1, 0);
+}
+
+/// The camera basis for a view along [dirWorld], as `(dir, right)` ready for
+/// `PartCamera.setBasis`, honouring the document's cube [orient].
+///
+/// M399 — #28: "i changed which view is the front view but if i then want a
+/// top left corner view it still rotates the object like the old front view
+/// would and now its the wrong orientation."
+///
+/// [cubePick] has always returned a world direction that accounts for
+/// [orient], so the camera went to the right PLACE. The roll did not: the
+/// snap finished with `setBasis(d, PartCamera.rightFor(az))`, and `rightFor`
+/// is `(cos az, 0, -sin az)` — a vector in the world XZ plane, which is to say
+/// "world +Y is up", whatever the user has since decided the model's up is.
+/// So every view off the cube came out rolled by the angle between world up
+/// and the model's own up: the right view of the wrong thing.
+///
+/// The up vector is therefore taken in CUBE space and carried into world
+/// space, which makes the identity orientation behave exactly as before.
+(Vec3, Vec3) cubeViewBasis(Vec3 dirWorld, Quat orient) {
+  final d = dirWorld.normalized();
+  final up = orient.rotate(cubeUpFor(orient.conjugate.rotate(d))).normalized();
+  // PartCamera defines `up` as `right x -dir`; this is that solved for right
+  // (f x (r x f) = r for a unit f perpendicular to r).
+  final r = (d * -1).cross(up);
+  if (r.length < 1e-6) {
+    // dir and up parallel — unreachable for the cube's own 26 cells, since
+    // cubeUpFor turns away from the axis it would be parallel to. Fall back to
+    // the world-up roll rather than returning a degenerate basis.
+    return (d, PartCamera.rightFor(math.atan2(d.x, d.z)));
+  }
+  return (d, r.normalized());
+}
+
 /// "Set Current View as Front": the FRONT face turns to the camera, and what
 /// is up the screen now stays up.
 Quat cubeOrientFront(PartCamera c) =>
