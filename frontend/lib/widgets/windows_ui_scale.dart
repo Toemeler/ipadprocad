@@ -57,6 +57,12 @@ class WindowsUiScale extends StatelessWidget {
         padding: mq.padding / kWindowsUiScale,
         viewPadding: mq.viewPadding / kWindowsUiScale,
         viewInsets: mq.viewInsets / kWindowsUiScale,
+        // A canvas 1/0.75 wider at 0.75x the density is the SAME number of
+        // physical pixels, which is what anything sizing a raster off this
+        // needs (cycles_layer.dart sizes the path-traced image by it). Left
+        // at the real ratio it would allocate 1.78x the pixels the window
+        // can show and scale them back down.
+        devicePixelRatio: mq.devicePixelRatio * kWindowsUiScale,
       ),
       child: Transform.scale(
         scale: kWindowsUiScale,

@@ -27,6 +27,7 @@ import '../backdrop.dart';
 import '../doc_ref.dart';
 import '../l10n/l.dart';
 import '../log.dart';
+import '../menus.dart';
 import '../svg_icons.dart';
 import '../icon_preview.dart';
 import '../theme.dart';
@@ -390,11 +391,12 @@ class _HomeViewState extends State<HomeView> {
           anchor: anchor,
           cancelLabel: t.cancel);
     } else {
+      final ovl = overlayRect(context, anchor); // see overlayRect
       choice = await showMenu<String>(
         context: context,
         color: T.fly,
         position: RelativeRect.fromLTRB(
-            anchor.right - 240, 68, 24, anchor.bottom),
+            ovl.right - 240, 68, 24, ovl.bottom),
         items: [
           PopupMenuItem(
             value: '2d',
@@ -592,7 +594,8 @@ class _HomeViewState extends State<HomeView> {
           context: context,
           color: T.fly,
           position: RelativeRect.fromRect(
-              anchor, Offset.zero & MediaQuery.sizeOf(context)),
+              overlayRect(context, anchor),
+              Offset.zero & MediaQuery.sizeOf(context)),
           items: [
             for (final item in items)
               PopupMenuItem<String>(

@@ -156,7 +156,16 @@ class _Viewport3DState extends State<Viewport3D>
     // and every one of Ctrl+Z/Y/C/X/V and M means something here. A text
     // field focused elsewhere — a rename, the bug reporter's own textarea —
     // gets first claim on all of them; see text_focus.dart.
-    if (isTypingInTextField) return false;
+    //
+    // ESCAPE IS EXEMPT, and deliberately. It is not a letter and cannot be
+    // stolen from anything being typed, while the offset field (M162) is a
+    // text field that appears WITH the command Escape is there to cancel:
+    // guarding it too would mean the one key that gets you out of a
+    // half-finished work plane stops working the moment you touch its
+    // number.
+    if (e.logicalKey != LogicalKeyboardKey.escape && isTypingInTextField) {
+      return false;
+    }
     // M182 — part-level Undo/Redo: Ctrl+Z / Cmd+Z steps back through the
     // destructive-operation journal (delete feature/body/sketch/below EOP),
     // Ctrl+Shift+Z / Cmd+Shift+Z (or Ctrl+Y) steps forward again.
@@ -478,11 +487,13 @@ class _Viewport3DState extends State<Viewport3D>
       // among several, and the menu has to say which sketch it caught.
       return NativeMenu.menu(items: items, anchor: anchor, title: title);
     }
+    // The Flutter path is laid out in the Overlay, not against the screen
+    // the native sheet above is presented on — see overlayRect.
+    final a = overlayRect(context, anchor);
     return showMenu<String>(
       context: context,
       color: T.fly,
-      position: RelativeRect.fromLTRB(
-          anchor.left, anchor.top, anchor.left, anchor.top),
+      position: RelativeRect.fromLTRB(a.left, a.top, a.left, a.top),
       items: [
         for (final i in items)
           PopupMenuItem<String>(
@@ -3626,11 +3637,11 @@ class _ViewCubeState extends State<ViewCube>
       pick = await NativeMenu.menu(
           items: items, anchor: anchor, cancelLabel: t.cancel);
     } else if (mounted) {
+      final a = overlayRect(context, anchor); // see overlayRect
       pick = await showMenu<String>(
         context: context,
         color: T.fly,
-        position: RelativeRect.fromLTRB(
-            anchor.left, anchor.top, anchor.right, anchor.bottom),
+        position: RelativeRect.fromLTRB(a.left, a.top, a.right, a.bottom),
         items: [
           for (final it in items)
             PopupMenuItem(

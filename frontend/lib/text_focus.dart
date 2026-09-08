@@ -21,7 +21,20 @@ import 'package:flutter/widgets.dart';
 /// A single-letter or Ctrl+letter global shortcut has to check this before
 /// acting: the alternative is a text field that silently loses whichever
 /// letters its own app has bound to a tool.
+///
+/// TWO CHECKS, BECAUSE THE NODE'S OWNER IS NOT FIXED. `FocusNode.context` is
+/// the context of whatever attached the node, and which element that is
+/// depends on how the field is built: a widget that attaches its own node
+/// (`FocusNode.attach` from its State) leaves `context.widget` as the field
+/// itself, while one that hands the node to a `Focus` widget inside its own
+/// build leaves the `Focus` there and the [EditableText] one or more levels
+/// ABOVE it. Checking only the first — which is what this file did when it
+/// was written — silently answers "nobody is typing" on the second shape,
+/// and a guard that never fires is worse than no guard, because it reads
+/// like the bug is fixed. Ask both ways.
 bool get isTypingInTextField {
   final ctx = FocusManager.instance.primaryFocus?.context;
-  return ctx != null && ctx.widget is EditableText;
+  if (ctx == null || !ctx.mounted) return false;
+  if (ctx.widget is EditableText) return true;
+  return ctx.findAncestorWidgetOfExactType<EditableText>() != null;
 }

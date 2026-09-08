@@ -282,7 +282,11 @@ class _RibbonState extends State<Ribbon> {
     }
     closeFly();
     final box = anchorCtx.findRenderObject() as RenderBox;
-    final pos = box.localToGlobal(Offset.zero);
+    // Overlay coordinates, not root ones: _anchoredFly places a
+    // Positioned inside the Overlay, and the two spaces differ wherever
+    // a transform sits between them (the Windows UI scale). Identity
+    // otherwise — see overlayPosition.
+    final pos = overlayPosition(context, box.localToGlobal(Offset.zero));
     final items = flyoutsOf(L.of(context))[id]!;
     _fly = OverlayEntry(
       builder: (_) => Stack(children: [
@@ -462,7 +466,11 @@ class _RibbonState extends State<Ribbon> {
     }
     closeFly();
     final box = anchorCtx.findRenderObject() as RenderBox;
-    final pos = box.localToGlobal(Offset.zero);
+    // Overlay coordinates, not root ones: _anchoredFly places a
+    // Positioned inside the Overlay, and the two spaces differ wherever
+    // a transform sits between them (the Windows UI scale). Identity
+    // otherwise — see overlayPosition.
+    final pos = overlayPosition(context, box.localToGlobal(Offset.zero));
     _fly = OverlayEntry(
       builder: (_) => Stack(children: [
         _barrier(),
@@ -1528,11 +1536,12 @@ class _RibbonState extends State<Ribbon> {
           cancelLabel: t.cancel,
         );
       } else {
+        final ovl = overlayRect(context, anchor); // see overlayRect
         pick = await showMenu<String>(
           context: context,
           color: T.fly,
           position: RelativeRect.fromLTRB(
-              anchor.left + 8, anchor.bottom, anchor.right, anchor.bottom),
+              ovl.left + 8, ovl.bottom, ovl.right, ovl.bottom),
           items: [
             for (final n in parts)
               PopupMenuItem(

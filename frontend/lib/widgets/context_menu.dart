@@ -56,6 +56,9 @@ Future<String?> showAppContextMenu(
   if (rows.isEmpty) return Future<String?>.value(null);
 
   final overlay = Overlay.of(context);
+  // [at] arrives in ROOT coordinates (a pointer event, or localToGlobal);
+  // the entry below is laid out in the OVERLAY's. See overlayPosition.
+  final origin = overlayPosition(context, at);
   final completer = _MenuCompleter();
   late OverlayEntry entry;
 
@@ -83,7 +86,7 @@ Future<String?> showAppContextMenu(
         ),
         Positioned.fill(
           child: CustomSingleChildLayout(
-            delegate: _MenuLayout(at),
+            delegate: _MenuLayout(origin),
             child: _MenuCard(title: title, groups: rows, onPick: close),
           ),
         ),

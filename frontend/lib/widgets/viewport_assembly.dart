@@ -357,8 +357,11 @@ class _ViewportAssemblyState extends State<ViewportAssembly>
     if (e is! KeyDownEvent) return false;
     // Bug #17 — see the note in viewport3d.dart's _onKey: this is the same
     // global HardwareKeyboard hook, with the same M-steals-the-letter-M
-    // problem, for the assembly viewport's own Measure toggle.
-    if (isTypingInTextField) return false;
+    // problem, for the assembly viewport's own Measure toggle. Escape is
+    // exempt there and here, for the reason given there.
+    if (e.logicalKey != LogicalKeyboardKey.escape && isTypingInTextField) {
+      return false;
+    }
     final ctrl = HardwareKeyboard.instance.isControlPressed ||
         HardwareKeyboard.instance.isMetaPressed;
     if (ctrl || HardwareKeyboard.instance.isAltPressed) return false;

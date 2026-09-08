@@ -1346,6 +1346,8 @@ class _Viewport2DState extends State<Viewport2D>
       ],
     ];
     if (items.isEmpty) return; // outside edit mode with no tool: nothing to do
+    // Overlay space, not root space — see overlayPosition (menus.dart).
+    final at = overlayPosition(context, globalPos);
     _toolCtx = OverlayEntry(
       builder: (_) => Stack(children: [
         Positioned.fill(
@@ -1356,8 +1358,8 @@ class _Viewport2DState extends State<Viewport2D>
           ),
         ),
         Positioned(
-          left: globalPos.dx,
-          top: globalPos.dy,
+          left: at.dx,
+          top: at.dy,
           child: Material(
             color: Colors.transparent,
             child: Container(

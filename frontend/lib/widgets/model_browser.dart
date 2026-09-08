@@ -809,6 +809,8 @@ class _ModelBrowserState extends State<ModelBrowser> {
           }, danger: true),
       ],
     ];
+    // Overlay space, not root space — see overlayPosition (menus.dart).
+    final at = overlayPosition(context, globalPos);
     _ctx = OverlayEntry(
       builder: (_) => Stack(children: [
         Positioned.fill(
@@ -819,8 +821,8 @@ class _ModelBrowserState extends State<ModelBrowser> {
           ),
         ),
         Positioned(
-          left: globalPos.dx,
-          top: globalPos.dy,
+          left: at.dx,
+          top: at.dy,
           child: Material(
             color: Colors.transparent,
             child: Container(
@@ -923,6 +925,8 @@ class _ModelBrowserState extends State<ModelBrowser> {
   /// End of Part cannot drift apart).
   void _showCtxItems(Offset globalPos, List<Widget> items) {
     if (items.isEmpty) return;
+    // Overlay space, not root space — see overlayPosition (menus.dart).
+    final at = overlayPosition(context, globalPos);
     _ctx = OverlayEntry(
       builder: (_) => Stack(children: [
         Positioned.fill(
@@ -933,8 +937,8 @@ class _ModelBrowserState extends State<ModelBrowser> {
           ),
         ),
         Positioned(
-          left: globalPos.dx,
-          top: globalPos.dy,
+          left: at.dx,
+          top: at.dy,
           child: Material(
             color: Colors.transparent,
             child: Container(
@@ -1877,10 +1881,14 @@ class _ModelBrowserState extends State<ModelBrowser> {
         ? box.localToGlobal(Offset.zero) & box.size
         : Rect.zero;
     final t = L.of(context);
+    // Overlay space for the Flutter menu; the native sheet above keeps the
+    // screen rect. See overlayRect (menus.dart).
+    final ovl = overlayRect(context, at);
     final pick = await showMenu<String>(
       context: context,
       color: T.fly,
-      position: RelativeRect.fromLTRB(at.left + 40, at.top + 80, at.right, at.bottom),
+      position: RelativeRect.fromLTRB(
+          ovl.left + 40, ovl.top + 80, ovl.right, ovl.bottom),
       items: [
         PopupMenuItem(value: 'edit', height: 36, child: Text(t.edit, style: ts(12.5, T.text))),
         // M249 — Inventor's own entry point for Drive: "the Drive dialog box

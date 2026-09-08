@@ -214,9 +214,16 @@ class _ScrubFieldState extends State<ScrubField> {
         // is at all.
         final b = context.findRenderObject();
         if (b is! RenderBox || !b.hasSize) return const SizedBox.shrink();
+        // In OVERLAY coordinates, because that is the space ValuePad.place
+        // compares it against: its `screen` is MediaQuery.sizeOf, which
+        // inside a scaled subtree is the virtual size and not the root's.
+        // Mixing the two decides "above or below" and the edge shift against
+        // a screen the anchor is not measured on. Identity where nothing is
+        // scaled — see overlayPosition (menus.dart).
         return ValuePadOverlay(
           link: _padLink,
-          anchor: b.localToGlobal(Offset.zero) & b.size,
+          anchor: overlayPosition(context, b.localToGlobal(Offset.zero)) &
+              b.size,
           signed: _signed,
           onKey: _onPadKey,
         );
