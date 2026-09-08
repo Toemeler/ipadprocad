@@ -529,6 +529,86 @@ GlassDeviceRect glassDeviceRect({
   return GlassDeviceRect(rect, unit);
 }
 
+/// M411 — the material's outer line, snapped to the device pixel grid.
+///
+/// #31: "there is a weird black border around or next to every liquid glass
+/// element on windows."
+///
+/// The line is DEFINED as one device pixel — measured off the iPad, where a
+/// backdrop of 236 comes out 173 and one of 138 comes out 75, in a single
+/// column with the untouched backdrop beside it. Drawing it as a stroke
+/// `1 / ratio` points wide gives exactly that only when the panel's global
+/// edge lands ON a device pixel boundary. On the iPad it always does: the
+/// ratio is 2 or 3 and the layout is whole points. On Windows the ratio is
+/// whatever the display scale is — 1.25 at the commonest setting — and then
+/// every ODD logical coordinate lands on a half pixel, so the one dark column
+/// is rasterised as two half-dark ones. Twice as wide, half as dark, and soft
+/// on both sides: a border where the material has a hairline.
+///
+/// So the ring is chosen in DEVICE PIXELS and converted back. [rect] and
+/// [radius] are in the panel's own local coordinates, ready to stroke, and
+/// [width] is the stroke — the three of them describe the one pixel column
+/// immediately outside the panel, wherever the panel happens to have landed.
+///
+/// Rounding the panel's edge (rather than flooring or ceiling it) keeps the
+/// line on the side the eye already reads as the boundary: a panel whose edge
+/// falls at x.5 is drawn by the clip as half-covered either way, and the
+/// contour goes against the fuller half.
+class GlassContourRing {
+  const GlassContourRing(this.rect, this.radius, this.width);
+
+  /// Where to stroke, in the panel's local logical coordinates. Outside the
+  /// panel's own box, which is why the caller must not clip it.
+  final Rect rect;
+
+  /// The corner radius to stroke it with, in the same coordinates.
+  final double radius;
+
+  /// The stroke width — one device pixel, in the same coordinates.
+  final double width;
+}
+
+/// The one-device-pixel ring just outside [localSize], given the panel's two
+/// corners in GLOBAL logical coordinates.
+///
+/// Shares [glassDeviceRect] with the shader, deliberately: the line and the
+/// rim it sits beside have to be measured from the same rectangle or they
+/// disagree about where the panel is by exactly the amount that shows.
+GlassContourRing glassContourRing({
+  required Offset topLeftGlobal,
+  required Offset bottomRightGlobal,
+  required Size localSize,
+  required double devicePixelRatio,
+  required double cornerRadius,
+}) {
+  final g = glassDeviceRect(
+    topLeftGlobal: topLeftGlobal,
+    bottomRightGlobal: bottomRightGlobal,
+    localSize: localSize,
+    devicePixelRatio: devicePixelRatio,
+  );
+  final unit = g.unit > 0 ? g.unit : 1.0;
+  // The panel's box on the pixel grid, then the ring one pixel outside it,
+  // stroked down its middle.
+  final snapped = Rect.fromLTRB(
+    g.rect.left.roundToDouble(),
+    g.rect.top.roundToDouble(),
+    g.rect.right.roundToDouble(),
+    g.rect.bottom.roundToDouble(),
+  );
+  final ring = snapped.inflate(0.5);
+  // Back into the panel's own coordinates: the shader's rect is the origin,
+  // `unit` is the scale, and neither is assumed to be the device ratio — an
+  // ancestor may have scaled the subtree (see [glassDeviceRect]).
+  Offset toLocal(Offset p) => (p - g.rect.topLeft) / unit;
+  final tl = toLocal(ring.topLeft), br = toLocal(ring.bottomRight);
+  return GlassContourRing(
+    Rect.fromLTRB(tl.dx, tl.dy, br.dx, br.dy),
+    cornerRadius <= 0 ? 0 : (cornerRadius * unit + 0.5) / unit,
+    1 / unit,
+  );
+}
+
 class _RenderLiquidGlass extends RenderProxyBox {
   _RenderLiquidGlass({
     required ui.FragmentShader? shader,

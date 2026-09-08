@@ -41,6 +41,21 @@ void main() {
     // The bug button must never take the app down while reporting a bug.
     await tester.pumpWidget(const SizedBox());
     await tester.pumpAndSettle();
-    expect(await captureScreenshot(), isNull);
+    // M411 — runAsync, like the test above. M406 put two PLATFORM CHANNEL
+    // grabs ahead of the Flutter capture, and a channel send with no mock
+    // handler is forwarded to a platform that is not running here, so it never
+    // answers; the `.timeout()` that bounds it in production is a Timer, and
+    // under `testWidgets`' fake clock a Timer only fires when the test pumps.
+    // Awaiting on the fake clock therefore hung for the full twenty seconds —
+    // in the one test whose whole subject is that this cannot hang.
+    //
+    // The M406 follow-up fixed the cause: DesktopShell.screenshot asks the
+    // PLATFORM before it touches the channel, so nothing unanswerable is
+    // reached from here any more. This stays because it makes the test
+    // independent of that guard: on the real clock the timeout is what
+    // rescues an unanswered grab, which is the promise being pinned.
+    final png = await tester.runAsync(
+        () => captureScreenshot(timeout: const Duration(milliseconds: 300)));
+    expect(png, isNull);
   }, timeout: const Timeout(Duration(seconds: 20)));
 }

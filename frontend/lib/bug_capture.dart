@@ -178,9 +178,56 @@ Map<String, String> captureEnv(AppState app) {
         ? 'NOT LINKED — no 3D kernel, every solid will be missing'
         : '${ffi.version} (shim v${ffi.shimVersion})';
   });
+  // M411 — THE DISPLAY, because #31 could not be answered without it.
+  //
+  // "there is a weird black border around or next to every liquid glass
+  // element on windows. also it seems that text somehow doesnt look completely
+  // sharp in the whole app in windows idk why", and, from the same machine a
+  // few hours earlier, "i think theres an issue because of the scaling".
+  //
+  // Both of those are questions about the DEVICE PIXEL RATIO, and the bundle
+  // could not answer either: a hairline specified as one device pixel is one
+  // pixel at a whole ratio and two half-lit ones at 1.25, and glyphs on a
+  // fractional grid are the same fact about text. The screenshot cannot stand
+  // in for it — it is captured at a fixed ratio of its own (see
+  // captureScreenshot), so its size says nothing about the display's.
+  env.addAll(captureDisplay());
+  env['glass'] = _try('glass', () {
+    if (!GlassPanel.isSupported) return 'painted fallback — no material';
+    if (!LiquidGlass.isAvailable) return 'UIKit UIGlassEffect';
+    return LiquidGlassProgram.program == null
+        ? 'shader filter available, PROGRAM NOT LOADED — tint only, no '
+            'refraction and no rim'
+        : 'shader filter, program loaded';
+  });
   env['open part'] = app.curTab ?? '(none)';
   env['parts loaded'] = '${app.parts.length}';
   return env;
+}
+
+/// The window and the display it is on, as the bundle records them.
+///
+/// Read off the PlatformDispatcher rather than a MediaQuery: this runs from a
+/// callback with no context, and an inherited ratio is whatever an ancestor
+/// last said it was — which is the distinction M398 turned on. Its own map so
+/// the shape is testable without an AppState.
+Map<String, String> captureDisplay() {
+  final out = <String, String>{};
+  out['display'] = _try('display', () {
+    final v = ui.PlatformDispatcher.instance.implicitView ??
+        ui.PlatformDispatcher.instance.views.first;
+    final p = v.physicalSize;
+    final r = v.devicePixelRatio;
+    final l = r > 0 ? p / r : p;
+    String n(double d) => d.toStringAsFixed(d == d.roundToDouble() ? 0 : 2);
+    // The ratio first: it is the one number a report about sharpness or about
+    // a hairline turns on, and "1.25" is a different bug from "2".
+    return '${n(r)}x — ${n(l.width)} x ${n(l.height)} logical, '
+        '${n(p.width)} x ${n(p.height)} physical';
+  });
+  out['text scale'] = _try(
+      'text scale', () => '${ui.PlatformDispatcher.instance.textScaleFactor}');
+  return out;
 }
 
 /// Per-solid mesh analysis, forced on regardless of [meshDiagnostics].

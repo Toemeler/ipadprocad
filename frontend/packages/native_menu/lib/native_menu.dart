@@ -9,6 +9,7 @@ library;
 import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 
 export 'glass_browser.dart';
@@ -817,15 +818,19 @@ class GlassPanel extends StatelessWidget {
           child: IgnorePointer(
             child: ValueListenableBuilder<bool>(
               valueListenable: NativeMenu.isDarkAppearance,
-              builder: (context, dark, _) => CustomPaint(
-                painter: _GlassContour(
-                  radius: cornerRadius,
-                  opacity: (dark
-                          ? LiquidGlassStyle.dark
-                          : LiquidGlassStyle.light)
-                      .rimShade,
-                  devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
-                ),
+              builder: (context, dark, _) => _GlassContour(
+                radius: cornerRadius,
+                opacity: (dark
+                        ? LiquidGlassStyle.dark
+                        : LiquidGlassStyle.light)
+                    .rimShade,
+                // M411 — the VIEW's ratio, for M398's reason: this converts a
+                // width in DEVICE PIXELS, and an inherited MediaQuery value is
+                // whatever an ancestor last said it was. The shader beside
+                // this line already reads the view; the line did not, and the
+                // two describing the same edge from two different ratios is
+                // how a hairline becomes a border.
+                devicePixelRatio: View.of(context).devicePixelRatio,
               ),
             ),
           ),
@@ -837,11 +842,19 @@ class GlassPanel extends StatelessWidget {
 
 /// The material's own outer line: one device pixel, just outside the panel.
 ///
-/// Strokes half a device pixel OUTSIDE the box, so the line lands on the pixel
-/// column beside the panel rather than on its bright specular hairline — the
-/// order the device draws them in. A parent that clips its children costs the
-/// line and nothing else.
-class _GlassContour extends CustomPainter {
+/// Strokes the pixel column beside the panel rather than its bright specular
+/// hairline — the order the device draws them in. A parent that clips its
+/// children costs the line and nothing else.
+///
+/// M411 — a RENDER OBJECT rather than a CustomPainter, and only because of
+/// where the line has to land. Landing on exactly one device pixel means
+/// knowing where the panel is in the WINDOW, not just how big it is, and a
+/// painter is handed a size and a canvas. See [glassContourRing]: at a
+/// fractional display scale — 1.25 is the commonest Windows setting — an odd
+/// logical coordinate puts the panel's edge on a half pixel, and the one dark
+/// column is then rasterised as two half-dark ones. That is a border where
+/// the material has a hairline (#31).
+class _GlassContour extends SingleChildRenderObjectWidget {
   final double radius;
   final double opacity;
   final double devicePixelRatio;
@@ -850,30 +863,80 @@ class _GlassContour extends CustomPainter {
     required this.radius,
     required this.opacity,
     required this.devicePixelRatio,
-  });
+  }) : super(child: null);
 
   @override
-  void paint(Canvas canvas, Size size) {
-    if (opacity <= 0 || size.isEmpty) return;
-    final double w = 1 / devicePixelRatio;
-    final Rect outer = (Offset.zero & size).inflate(w / 2);
-    final Paint paint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = w
-      ..color = Color.fromRGBO(0, 0, 0, opacity);
-    if (radius <= 0) {
-      canvas.drawRect(outer, paint);
-      return;
-    }
-    canvas.drawRSuperellipse(
-      RSuperellipse.fromRectAndRadius(outer, Radius.circular(radius + w / 2)),
-      paint,
-    );
+  _RenderGlassContour createRenderObject(BuildContext context) =>
+      _RenderGlassContour(
+        radius: radius,
+        opacity: opacity,
+        devicePixelRatio: devicePixelRatio,
+      );
+
+  @override
+  void updateRenderObject(BuildContext context, _RenderGlassContour ro) {
+    ro
+      ..radius = radius
+      ..opacity = opacity
+      ..devicePixelRatio = devicePixelRatio;
+  }
+}
+
+class _RenderGlassContour extends RenderProxyBox {
+  _RenderGlassContour({
+    required double radius,
+    required double opacity,
+    required double devicePixelRatio,
+  })  : _radius = radius,
+        _opacity = opacity,
+        _devicePixelRatio = devicePixelRatio;
+
+  double _radius;
+  set radius(double v) {
+    if (v == _radius) return;
+    _radius = v;
+    markNeedsPaint();
+  }
+
+  double _opacity;
+  set opacity(double v) {
+    if (v == _opacity) return;
+    _opacity = v;
+    markNeedsPaint();
+  }
+
+  double _devicePixelRatio;
+  set devicePixelRatio(double v) {
+    if (v == _devicePixelRatio) return;
+    _devicePixelRatio = v;
+    markNeedsPaint();
   }
 
   @override
-  bool shouldRepaint(covariant _GlassContour old) =>
-      old.radius != radius ||
-      old.opacity != opacity ||
-      old.devicePixelRatio != devicePixelRatio;
+  bool hitTestSelf(Offset position) => false;
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    if (_opacity <= 0 || size.isEmpty) return;
+    final ring = glassContourRing(
+      topLeftGlobal: localToGlobal(Offset.zero),
+      bottomRightGlobal: localToGlobal(size.bottomRight(Offset.zero)),
+      localSize: size,
+      devicePixelRatio: _devicePixelRatio,
+      cornerRadius: _radius,
+    );
+    final Rect outer = ring.rect.shift(offset);
+    final Paint paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = ring.width
+      ..color = Color.fromRGBO(0, 0, 0, _opacity);
+    if (ring.radius <= 0) {
+      context.canvas.drawRect(outer, paint);
+      return;
+    }
+    context.canvas.drawRSuperellipse(
+      RSuperellipse.fromRectAndRadius(outer, Radius.circular(ring.radius)),
+      paint,
+    );
+  }
 }
