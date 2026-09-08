@@ -305,6 +305,7 @@ Map<String, String> buildBundle({
   String? realityText,
   bool hasScreenshot = false,
   bool screenshotOmits3D = false,
+  bool screenshotIsLayerTree = false,
 }) {
   final files = <String, String>{};
 
@@ -386,7 +387,18 @@ Map<String, String> buildBundle({
             'composited outside Flutter, so the shaded model is NOT in this '
             'image — the viewport area will look empty even when the body is '
             'present. Chrome, overlays and 2D sketches ARE captured. Use '
-            'reality.txt and mesh.txt for the body.' : ''}');
+            'reality.txt and mesh.txt for the body.' : ''}'
+        // M406 — the OTHER way a capture can lie, and the one that produced a
+        // bug report about the app's appearance that was really a bug report
+        // about this file: a re-rasterised layer tree has no backdrop behind
+        // its filters, so every glass surface in it comes out a flat slab
+        // that is on no screen anywhere.
+        '${screenshotIsLayerTree ? ' NOTE: this is a re-rasterised copy of '
+            "Flutter's layer tree rather than a grab of the window, so the "
+            'BACKDROP-FILTER surfaces — the ribbon, the model browser, the '
+            'tab bar — are not what was on the glass: expect flat, often '
+            'white, slabs where the real material was. Judge nothing about '
+            'the appearance from this image.' : ''}');
   }
 
   files['env.txt'] =

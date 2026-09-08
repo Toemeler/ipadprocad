@@ -3,8 +3,11 @@
 #include <dwmapi.h>
 #include <flutter_windows.h>
 #include <windowsx.h>
+#include <wincodec.h>
+#include <wrl/client.h>
 
 #include <optional>
+#include <vector>
 
 #include "flutter/generated_plugin_registrant.h"
 
@@ -49,6 +52,130 @@ constexpr DWORD kCornerRound = 2;       // DWMWCP_ROUND
 // rounds its own windows at 8; matching it is what makes the fallback look
 // like the same app rather than a different one.
 constexpr int kCornerRadius = 8;
+
+// M406 — PrintWindow's "include the layered/composited content" flag. Windows
+// 8.1 and later; redefined for an older SDK, as with the corner attribute.
+#ifndef PW_RENDERFULLCONTENT
+#define PW_RENDERFULLCONTENT 0x00000002
+#endif
+
+// M406 — a 32-bit top-down BGRX buffer as PNG bytes, through WIC.
+//
+// WIC because it is in the box: no new dependency, no bundled encoder, and
+// `windowscodecs.lib` is a link line rather than a build step. COM is already
+// initialised for this thread — main.cpp does it before the window exists.
+//
+// The pixel format asked for is BGR and not BGRA, deliberately: see the note
+// in CaptureWindowPng about GDI and the alpha byte.
+std::vector<uint8_t> EncodeBgrPng(const uint8_t* bgrx, int width, int height) {
+  using Microsoft::WRL::ComPtr;
+  ComPtr<IWICImagingFactory> factory;
+  if (FAILED(::CoCreateInstance(CLSID_WICImagingFactory, nullptr,
+                                CLSCTX_INPROC_SERVER,
+                                IID_PPV_ARGS(&factory)))) {
+    return {};
+  }
+  ComPtr<IStream> stream;
+  if (FAILED(::CreateStreamOnHGlobal(nullptr, TRUE, &stream))) return {};
+  ComPtr<IWICBitmapEncoder> encoder;
+  if (FAILED(factory->CreateEncoder(GUID_ContainerFormatPng, nullptr,
+                                    &encoder)) ||
+      FAILED(encoder->Initialize(stream.Get(), WICBitmapEncoderNoCache))) {
+    return {};
+  }
+  ComPtr<IWICBitmapFrameEncode> frame;
+  ComPtr<IPropertyBag2> options;
+  if (FAILED(encoder->CreateNewFrame(&frame, &options)) ||
+      FAILED(frame->Initialize(options.Get())) ||
+      FAILED(frame->SetSize(static_cast<UINT>(width),
+                            static_cast<UINT>(height)))) {
+    return {};
+  }
+  WICPixelFormatGUID format = GUID_WICPixelFormat32bppBGR;
+  if (FAILED(frame->SetPixelFormat(&format))) return {};
+  const UINT stride = static_cast<UINT>(width) * 4;
+  if (FAILED(frame->WritePixels(static_cast<UINT>(height), stride,
+                                stride * static_cast<UINT>(height),
+                                const_cast<BYTE*>(bgrx))) ||
+      FAILED(frame->Commit()) || FAILED(encoder->Commit())) {
+    return {};
+  }
+  // Back out of the stream, which owns an HGLOBAL because CreateStreamOnHGlobal
+  // was asked to make one.
+  HGLOBAL handle = nullptr;
+  if (FAILED(::GetHGlobalFromStream(stream.Get(), &handle)) ||
+      handle == nullptr) {
+    return {};
+  }
+  const SIZE_T size = ::GlobalSize(handle);
+  const void* data = ::GlobalLock(handle);
+  if (data == nullptr || size == 0) return {};
+  std::vector<uint8_t> out(static_cast<const uint8_t*>(data),
+                           static_cast<const uint8_t*>(data) + size);
+  ::GlobalUnlock(handle);
+  return out;
+}
+
+// M406 — the window as a PNG, or empty where it could not be grabbed.
+//
+// THE BUG REPORT'S SCREENSHOT, and until now Windows had no real one. iOS
+// grabs the window with `drawHierarchy` and everywhere else the bundle fell
+// back to `RenderRepaintBoundary.toImage`, which re-rasterises Flutter's
+// LAYER TREE offscreen — a different picture from the one on the glass. The
+// backdrop-filter surfaces are exactly what that gets wrong: with no backdrop
+// behind them in the offscreen pass, the glass panels come out as flat white
+// slabs, and #37 was filed against a screenshot of them. The reader was
+// looking at an artefact of the capture and so was the person reporting it.
+//
+// PrintWindow with PW_RENDERFULLCONTENT is what that flag exists for: it asks
+// the compositor for the window's composed content rather than replaying GDI
+// paints, which is the only way to get a Direct3D/ANGLE surface out. BitBlt
+// off the screen is the fallback for a driver that refuses — it catches
+// anything overlapping the window, which for a bug report is honest rather
+// than wrong: it is what the user is looking at.
+std::vector<uint8_t> CaptureWindowPng(HWND window) {
+  RECT rc{};
+  if (!::GetWindowRect(window, &rc)) return {};
+  const int w = rc.right - rc.left;
+  const int h = rc.bottom - rc.top;
+  if (w <= 0 || h <= 0) return {};
+
+  HDC screen = ::GetDC(nullptr);
+  if (screen == nullptr) return {};
+  HDC mem = ::CreateCompatibleDC(screen);
+  if (mem == nullptr) {
+    ::ReleaseDC(nullptr, screen);
+    return {};
+  }
+  BITMAPINFO info{};
+  info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+  info.bmiHeader.biWidth = w;
+  // NEGATIVE: a top-down DIB, which is the row order WIC wants. A bottom-up
+  // one encodes upside down and looks like a rendering bug in the report.
+  info.bmiHeader.biHeight = -h;
+  info.bmiHeader.biPlanes = 1;
+  info.bmiHeader.biBitCount = 32;
+  info.bmiHeader.biCompression = BI_RGB;
+  void* bits = nullptr;
+  HBITMAP bitmap =
+      ::CreateDIBSection(screen, &info, DIB_RGB_COLORS, &bits, nullptr, 0);
+  std::vector<uint8_t> png;
+  if (bitmap != nullptr && bits != nullptr) {
+    HGDIOBJ previous = ::SelectObject(mem, bitmap);
+    if (!::PrintWindow(window, mem, PW_RENDERFULLCONTENT)) {
+      ::BitBlt(mem, 0, 0, w, h, screen, rc.left, rc.top, SRCCOPY);
+    }
+    // GDI leaves the alpha byte at zero, and a PNG that says every pixel is
+    // transparent is a picture of nothing. Encoded as BGR — no alpha channel
+    // at all — rather than repaired byte by byte.
+    png = EncodeBgrPng(static_cast<const uint8_t*>(bits), w, h);
+    ::SelectObject(mem, previous);
+    ::DeleteObject(bitmap);
+  }
+  ::DeleteDC(mem);
+  ::ReleaseDC(nullptr, screen);
+  return png;
+}
 
 }  // namespace
 
@@ -469,6 +596,16 @@ void FlutterWindow::HandleDesktopMethodCall(
   } else if (method == "isMaximized") {
     result->Success(flutter::EncodableValue(
         static_cast<bool>(::IsZoomed(window))));
+  } else if (method == "screenshot") {
+    // M406 — the bug report's picture. Empty answers NULL rather than an
+    // error: the Dart side then falls back to Flutter's own capture exactly
+    // as it does on a host with no runner at all.
+    std::vector<uint8_t> png = CaptureWindowPng(window);
+    if (png.empty()) {
+      result->Success();
+    } else {
+      result->Success(flutter::EncodableValue(std::move(png)));
+    }
   } else {
     result->NotImplemented();
   }

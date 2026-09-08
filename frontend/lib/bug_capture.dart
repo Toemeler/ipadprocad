@@ -29,6 +29,7 @@ import 'log.dart';
 import 'part_model.dart';
 import 'perf.dart';
 import 'platform/app_dirs.dart';
+import 'platform/desktop_shell.dart';
 import 'perf_scenarios.dart';
 import 'perf_scenarios_profile.dart';
 import 'perf_scenarios_soak.dart';
@@ -69,6 +70,12 @@ final GlobalKey screenshotKey = GlobalKey(debugLabel: 'bug-screenshot');
 /// body and the native chrome.
 bool nativeScreenshot = false;
 
+/// The platforms whose bug report can carry a REAL window grab (M406). Used
+/// only for the note beside the picture — the capture itself asks the runner
+/// and takes whatever answer comes back.
+bool get _isDesktop =>
+    Platform.isWindows || Platform.isLinux || Platform.isMacOS;
+
 Future<Uint8List?> captureScreenshot({
   double pixelRatio = 1.5,
   Duration timeout = const Duration(seconds: 4),
@@ -88,6 +95,27 @@ Future<Uint8List?> captureScreenshot({
     }
   } catch (e) {
     Log.w('bug', 'native screenshot failed: $e; falling back to Flutter');
+  }
+  // M406 — and the DESKTOP window, which had no native grab at all until now.
+  //
+  // The fallback below is not a screenshot of the app; it is a re-rasterised
+  // copy of Flutter's layer tree, and the glass surfaces do not survive that
+  // pass — they come out as flat white slabs, which is what #37 was filed
+  // against. Asked here rather than inside the iOS attempt because it is a
+  // different channel and a different runner; null from either lands on the
+  // same fallback.
+  try {
+    final desktop = await DesktopShell.screenshot().timeout(timeout,
+        onTimeout: () {
+      Log.w('bug', 'window screenshot timed out; falling back to Flutter');
+      return null;
+    });
+    if (desktop != null && desktop.isNotEmpty) {
+      nativeScreenshot = true;
+      return desktop;
+    }
+  } catch (e) {
+    Log.w('bug', 'window screenshot failed: $e; falling back to Flutter');
   }
   try {
     final ctx = screenshotKey.currentContext;
@@ -282,7 +310,14 @@ Future<BugCaptureResult> captureBugReport(
       // Only the FALLBACK omits the 3D body and the glass chrome. A native
       // grab shows the screen, so saying otherwise beside it would send the
       // reader looking for a missing body that is right there in the picture.
+      //
       screenshotOmits3D: Platform.isIOS && !nativeScreenshot,
+      // M406 — and the OTHER caveat, which is about the CAPTURE rather than
+      // about one platform: wherever the fallback ran, the picture is
+      // Flutter's layer tree and the glass in it is not the glass that was on
+      // the screen. Said on the desktop, where the runner now has a real grab
+      // and falling back means something went wrong with it.
+      screenshotIsLayerTree: _isDesktop && !nativeScreenshot,
     );
 
     // Added here rather than in buildBundle because it needs the scene layer,
