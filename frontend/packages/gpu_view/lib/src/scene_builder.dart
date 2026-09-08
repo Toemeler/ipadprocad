@@ -24,6 +24,7 @@ import 'package:flutter_scene/scene.dart';
 import 'package:vector_math/vector_math.dart';
 
 import 'ortho_camera.dart';
+import 'scene_extent.dart';
 
 /// Material tags on the wire. `kMatSteel` / `kMatPreview` in reality_payload.
 const int _kMatSteel = 0;
@@ -189,8 +190,11 @@ class SceneBuilder {
     // The same fit RealityPartView.cameraFit() makes, and for its reason: an
     // orthographic depth buffer is linear, so the range has to bracket the
     // scene tightly or the edge ribbons speckle against the faces they lie on.
-    final pad = (_sceneRadius > _halfH ? _sceneRadius : _halfH) + 10;
-    final dist = pad * 4;
+    // M409 — asked of [SceneExtent] at the moment the camera moves, rather
+    // than cached from the last payload that happened to carry geometry. See
+    // that class for the half-clipped part that came of caching it (#30).
+    final depth = orthoDepthBracket(radius: _extent.radius, halfH: _halfH);
+    final dist = depth.dist;
     final centre = _basis.right * _d(p['ox']) + _basis.up * _d(p['oy']);
     // The camera lives in the mirrored frame with everything else, so the two
     // cancel and what this projects is `Cam3.project` exactly.
@@ -200,27 +204,27 @@ class SceneBuilder {
       upVector: _flip(_basis.up),
       orthographic: OrthographicProjection(
         halfHeight: _halfH,
-        near: (dist - pad * 2) < 0.001 ? 0.001 : dist - pad * 2,
-        far: dist + pad * 2,
+        near: depth.near,
+        far: depth.far,
       ),
     );
   }
 
-  double _sceneRadius = 50;
+  /// M409 — how far each solid reaches, kept across pushes that omit geometry.
+  final SceneExtent _extent = SceneExtent();
 
   // ---- the scene ----------------------------------------------------------
 
   void setScene(Map<String, dynamic> p) {
     final solids = (p['solids'] as List?) ?? const [];
     final seen = <String>{};
-    double radius = 1;
 
     for (final raw in solids) {
       final s = raw as Map;
       final id = s['id'] as String? ?? '';
       if (id.isEmpty) continue;
       seen.add(id);
-      radius = _apply(id, s, radius);
+      _apply(id, s);
     }
 
     // A preview rides the same list: it is a solid with a reserved id, and
@@ -229,7 +233,7 @@ class SceneBuilder {
     final preview = p['preview'];
     if (preview is Map) {
       seen.add(preview['id'] as String? ?? '__preview__');
-      radius = _apply(preview['id'] as String? ?? '__preview__', preview, radius);
+      _apply(preview['id'] as String? ?? '__preview__', preview);
     }
 
     // Whatever is no longer in the payload is no longer in the scene. Removing
@@ -238,8 +242,8 @@ class SceneBuilder {
     for (final gone in _solids.keys.toList()) {
       if (seen.contains(gone)) continue;
       _world.remove(_solids.remove(gone)!.node);
+      _extent.forget(gone);
     }
-    _sceneRadius = radius;
 
     _decorFull = p;
     _rebuildDecor(p);
@@ -272,13 +276,13 @@ class SceneBuilder {
       final solid = _solids[id];
       if (solid == null) continue;
       if (s.containsKey('tint') || s.containsKey('material')) {
-        _apply(id, s, _sceneRadius);
+        _apply(id, s);
       }
       if (s['visible'] is bool) solid.node.visible = s['visible'] as bool;
     }
   }
 
-  double _apply(String id, Map s, double radius) {
+  void _apply(String id, Map s) {
     final rev = (s['rev'] as int?) ?? 0;
     final existing = _solids[id];
     final positions = s['positions'];
@@ -307,10 +311,12 @@ class SceneBuilder {
         existing.edges = edges;
         _attach(existing);
       }
+      var r = 0.0;
       for (var i = 0; i + 2 < positions.length; i += 3) {
-        final r = Vector3(positions[i], positions[i + 1], positions[i + 2]).length;
-        if (r > radius) radius = r;
+        final d = Vector3(positions[i], positions[i + 1], positions[i + 2]).length;
+        if (d > r) r = d;
       }
+      _extent.measure(id, r);
     } else if (existing != null) {
       // Geometry omitted: the material and the placement may still have moved.
       final material = (s['material'] as int? ?? _kMatSteel) == _kMatPreview
@@ -320,9 +326,12 @@ class SceneBuilder {
       _attach(existing);
     }
 
-    final node = _solids[id]?.node;
-    if (node != null) node.localTransform = _placement(s);
-    return radius;
+    final solid = _solids[id];
+    if (solid != null) {
+      final placement = _placement(s);
+      solid.node.localTransform = placement;
+      _extent.placeAt(id, placement.getTranslation().length);
+    }
   }
 
   /// The holder transform. `at` is the placement and `rot` the orientation;

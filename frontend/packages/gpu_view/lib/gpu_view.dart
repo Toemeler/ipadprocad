@@ -45,6 +45,10 @@ export 'src/ortho_camera.dart' show OrthographicCamera, OrthographicProjection;
 // It is the rule that decides whether a per-move push updates the decor or
 // deletes it, which is a thing worth a test and not a thing worth a device.
 export 'src/scene_builder.dart' show mergeDecorPayload;
+// M409 — the depth bracket and the reach it is sized from, exported for the
+// same reason: the rule that decides whether zooming in clips the model is
+// worth a test and is not worth a GPU (#30).
+export 'src/scene_extent.dart' show SceneExtent, orthoDepthBracket;
 
 /// Drives one GPU viewport. Obtained from [GpuView] via [GpuView.onCreated].
 ///
