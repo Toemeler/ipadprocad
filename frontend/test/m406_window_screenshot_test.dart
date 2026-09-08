@@ -26,10 +26,20 @@ void main() {
   tearDown(() => messenger.setMockMethodCallHandler(channel, null));
 
   group('the window grab', () {
-    test('is null where no runner implements it', () async {
-      // iOS, Linux, the test host: the channel throws MissingPluginException
-      // and the caller falls back exactly as it always has.
+    test('is not even attempted off Windows', () async {
+      // The guard, and it is load-bearing: a channel call made where nothing
+      // will answer never completes inside testWidgets' fake clock — not the
+      // reply, and not the timeout that was supposed to bound it — so the bug
+      // reporter's own "returns null instead of throwing" test hangs for its
+      // full twenty seconds. Asking the platform first is what avoids that.
+      // A mock handler is installed, and must still not be reached.
+      var called = false;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        called = true;
+        return Uint8List.fromList([1, 2, 3]);
+      });
       expect(await DesktopShell.screenshot(), isNull);
+      expect(called, isFalse, reason: 'this host is not Windows');
     });
 
     test('is null when the runner could not grab the window', () async {
@@ -39,23 +49,29 @@ void main() {
         expect(call.method, 'screenshot');
         return null;
       });
-      expect(await DesktopShell.screenshot(), isNull);
+      expect(await DesktopShell.grabWindow(), isNull);
       messenger.setMockMethodCallHandler(
           channel, (call) async => Uint8List(0));
-      expect(await DesktopShell.screenshot(), isNull);
+      expect(await DesktopShell.grabWindow(), isNull);
+    });
+
+    test('is null where no runner implements the method', () async {
+      // No handler at all: MissingPluginException, which is what an older
+      // runner and a host with no runner both look like.
+      expect(await DesktopShell.grabWindow(), isNull);
     });
 
     test('comes back as the PNG bytes when it worked', () async {
       final png = Uint8List.fromList(
           [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1, 2, 3]);
       messenger.setMockMethodCallHandler(channel, (call) async => png);
-      expect(await DesktopShell.screenshot(), png);
+      expect(await DesktopShell.grabWindow(), png);
     });
 
     test('a throwing runner is not a failed bug report', () async {
       messenger.setMockMethodCallHandler(
           channel, (call) async => throw PlatformException(code: 'boom'));
-      expect(await DesktopShell.screenshot(), isNull);
+      expect(await DesktopShell.grabWindow(), isNull);
     });
   });
 
