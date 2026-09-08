@@ -183,8 +183,18 @@ bool _isUnder(String path, String dir) {
 String _stripSlash(String p) =>
     p.endsWith('/') ? p.substring(0, p.length - 1) : p;
 
+// M390 — either separator. A Windows path has no forward slash in it, so this
+// answered '' for every path the file picker produced, and [actionForPath]
+// then could not tell a file already sitting in the app folder from one
+// somewhere else.
+//
+// Spelled out here rather than borrowed from platform/app_dirs.dart on
+// purpose: this file is pure so it can be tested without a filesystem, and
+// that helper lives beside `dart:io`.
 String _parentOf(String path) {
-  final i = path.lastIndexOf('/');
+  final a = path.lastIndexOf('/');
+  final b = path.lastIndexOf('\\');
+  final i = a > b ? a : b;
   return i <= 0 ? '' : path.substring(0, i);
 }
 

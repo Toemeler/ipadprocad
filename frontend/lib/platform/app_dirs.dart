@@ -100,3 +100,55 @@ io.Directory desktopAppDirectory() {
       '${io.Directory.systemTemp.path}${io.Platform.pathSeparator}$kAppDirName')
     ..createSync(recursive: true);
 }
+
+// ---------------------------------------------------------------------------
+// M390 — READING A PATH THE PLATFORM WROTE
+// ---------------------------------------------------------------------------
+//
+// A dozen places in this app take the last segment of a path, or its folder,
+// and every one of them did it with `lastIndexOf('/')` or `split('/')`. That
+// is correct on iOS, on Linux and on the test host, and it is wrong on
+// Windows, where a path from the file picker is `C:\Users\t\Desktop\Bracket.ptp`
+// and contains no forward slash at all. What each of them did with the whole
+// path instead of the file name differed, and none of it was good:
+//
+//   * `importAsNewDocument` named the new document after it, then tried to
+//     write a file called `C:\Users\t\Desktop\thing` into the app folder;
+//   * the STEP import stashed its source at
+//     `<part>/imports/C:\Users\t\Desktop\flange.step` — a path that cannot be
+//     created, so the source was silently not kept and the feature could not
+//     be re-read on open;
+//   * `_renameDocFile` fell through to `'.'` for an external document's folder
+//     and renamed the file into the process's working directory.
+//
+// One pair of functions, so the next site cannot get it wrong on its own. Both
+// accept either separator on every platform on purpose: a path can arrive from
+// a picker, from a document, or from a string somebody typed, and which
+// separators it carries is not a property of the code reading it.
+
+/// The last segment of [path] — the file name — whichever separator wrote it.
+///
+/// A trailing separator yields the empty string, as it should: `a/b/` names a
+/// folder, not a file in one.
+String pathBaseName(String path) {
+  final i = _lastSeparator(path);
+  return i < 0 ? path : path.substring(i + 1);
+}
+
+/// Everything before [path]'s last segment, or '' when there is nothing before
+/// it. The separator itself is not included; a root (`/x`, `C:\x`) keeps its
+/// separator so the result is still a usable path.
+String pathParent(String path) {
+  final i = _lastSeparator(path);
+  if (i < 0) return '';
+  if (i == 0) return path.substring(0, 1); // '/x' -> '/'
+  // 'C:\x' -> 'C:\', because 'C:' alone means "the current directory on C:".
+  if (i == 2 && path[1] == ':') return path.substring(0, 3);
+  return path.substring(0, i);
+}
+
+int _lastSeparator(String path) {
+  final a = path.lastIndexOf('/');
+  final b = path.lastIndexOf('\\');
+  return a > b ? a : b;
+}

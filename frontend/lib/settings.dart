@@ -40,6 +40,7 @@
 import 'dart:ui' show Locale;
 
 import 'backdrop.dart';
+import 'platform/app_dirs.dart' show pathBaseName;
 import 'l10n/l.dart';
 import 'theme.dart';
 import 'render_samples.dart'
@@ -559,7 +560,4 @@ List<Map<String, Object?>> settingsToMaps(List<SettingsSection> s) =>
 /// The last path segment, for the picture row's detail. Not the whole path: a
 /// settings row is not wide enough for one and the name is the part a person
 /// recognises.
-String _fileName(String path) {
-  final i = path.lastIndexOf('/');
-  return i < 0 ? path : path.substring(i + 1);
-}
+String _fileName(String path) => pathBaseName(path); // M390 — Windows too

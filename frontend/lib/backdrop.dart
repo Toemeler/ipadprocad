@@ -39,6 +39,7 @@ import 'dart:ui' show Color;
 import 'package:flutter/foundation.dart';
 
 import 'log.dart';
+import 'platform/app_dirs.dart' show pathBaseName;
 import 'theme.dart';
 
 /// What the gallery is painted with.
@@ -321,10 +322,12 @@ class Backdrops {
   static bool adoptImage(File source, Directory into) {
     try {
       if (!into.existsSync()) into.createSync(recursive: true);
-      final dot = source.path.lastIndexOf('.');
-      final ext = dot > source.path.lastIndexOf('/') && dot >= 0
-          ? source.path.substring(dot).toLowerCase()
-          : '.img';
+      // M390 — the dot has to be in the FILE NAME, and on Windows the file
+      // name does not start after a forward slash. `C:\My.Pictures\wallpaper`
+      // would otherwise have taken `.Pictures\wallpaper` for its extension.
+      final base = pathBaseName(source.path);
+      final dot = base.lastIndexOf('.');
+      final ext = dot > 0 ? base.substring(dot).toLowerCase() : '.img';
       final target = File('${into.path}/$imageBase$ext');
       // Any previous wallpaper goes, whatever it was called: only the
       // extension varies, and two of them would leave a stale file behind

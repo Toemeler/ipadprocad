@@ -2083,10 +2083,13 @@ class AppState extends ChangeNotifier {
     final ref = _findDoc(from);
     if (ref == null) return false;
     final ext = extForKind(ref.kind);
+    // M390 — [pathParent], not a search for a forward slash. A Windows path
+    // has none, so an external document's folder came out as '.' and the
+    // rename landed in the process's working directory instead of beside the
+    // file it renamed.
+    final parent = pathParent(ref.path);
     final dir = ref.source == DocSource.external
-        ? (ref.path.contains('/')
-            ? ref.path.substring(0, ref.path.lastIndexOf('/'))
-            : '.')
+        ? (parent.isEmpty ? '.' : parent)
         : _docsDir!.path;
     final target = '$dir/$to.$ext';
     try {
@@ -2490,8 +2493,11 @@ class AppState extends ChangeNotifier {
   /// The folder an external document sits in, for disambiguating two
   /// documents that share a name.
   static String _folderLabel(String path) {
-    final parts = path.split('/')..removeLast();
-    return parts.isEmpty ? 'elsewhere' : parts.last;
+    // M390 — split on both separators. A Windows path has no forward slash in
+    // it, so this returned the whole path minus nothing and the disambiguating
+    // label read as `C:\Users\t\Desktop\Bracket.ptp` instead of `Desktop`.
+    final parts = path.split(RegExp(r'[/\\]'))..removeLast();
+    return parts.isEmpty || parts.last.isEmpty ? 'elsewhere' : parts.last;
   }
 
   /// The gallery thumbnail for [ref], extracted from the document when the
@@ -2916,7 +2922,10 @@ class AppState extends ChangeNotifier {
   /// source, not a document, and the app folder is where the user's documents
   /// belong. Returns the new document's name.
   Future<String?> importAsNewDocument(String path) async {
-    var base = path.split('/').last;
+    // M390 — the FILE NAME, on Windows too. `split('/').last` returned the
+    // whole `C:\Users\t\Desktop\thing.step`, which then became a document
+    // name and, a moment later, a file name the app folder could not hold.
+    var base = pathBaseName(path);
     final dot = base.lastIndexOf('.');
     if (dot > 0) base = base.substring(0, dot);
     var name = base.isEmpty ? 'Imported' : base;
@@ -18399,7 +18408,11 @@ class AppState extends ChangeNotifier {
     String? rel;
     try {
       final dir = _partImportDir(curTab!);
-      final base = path.split('/').last;
+      // M390 — see [pathBaseName]. This built
+      // `imports/C:\Users\t\Desktop\flange.step` on Windows, which cannot
+      // be created, so the STEP source was quietly not stashed and the feature
+      // had nothing to re-read on open.
+      final base = pathBaseName(path);
       final dst = File('${dir.path}/$base');
       File(path).copySync(dst.path);
       rel = 'imports/$base';
@@ -18624,7 +18637,7 @@ class AppState extends ChangeNotifier {
     String? abs;
     try {
       final dir = _partImportDir(curTab!);
-      var base = path.split('/').last;
+      var base = pathBaseName(path); // M390 — Windows separators too
       final dot = base.lastIndexOf('.');
       if (dot > 0) base = base.substring(0, dot);
       final dst = File('${dir.path}/$base.step');

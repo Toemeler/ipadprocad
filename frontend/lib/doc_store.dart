@@ -40,8 +40,9 @@ class DocHeader {
   const DocHeader(this.kind, this.entries, this.base);
 
   DocEntryRef? entry(String name) {
+    final wanted = docEntryName(name);
     for (final e in entries) {
-      if (e.name == name) return e;
+      if (e.name == wanted) return e;
     }
     return null;
   }
@@ -77,7 +78,11 @@ DocHeader? readDocHeader(String path) {
       final o = (e['o'] as num?)?.toInt();
       final l = (e['l'] as num?)?.toInt();
       if (n == null || o == null || l == null || o < 0 || l < 0) continue;
-      out.add(DocEntryRef(n, o, l));
+      // M390 — the same normalisation [DocFile.decode] does, and for the same
+      // reason: this is the reader the GALLERY uses (header only, no payload),
+      // so a document written on Windows finds its preview.png here or
+      // nowhere.
+      out.add(DocEntryRef(docEntryName(n), o, l));
     }
     return DocHeader(
         json['kind'] as String? ?? 'part', out, _magic.length + 4 + hlen);
@@ -134,6 +139,18 @@ const String kPreviewEntry = 'preview.png';
 /// so renaming one must not have to rewrite anything inside it.
 const String kSketchBase = 'sketch';
 
+/// The entry name [filePath] gets inside a document packed from [dirPath].
+///
+/// Pure, and separate from [packDir], because it is the whole of the M390 bug
+/// and the only part of it a test on a Linux host can reach: `Directory.list`
+/// joins with the platform separator, so this has to be right for a path that
+/// arrives with backslashes in it even though no test host produces one.
+String docEntryNameFor(String dirPath, String filePath) {
+  final rel =
+      filePath.startsWith(dirPath) ? filePath.substring(dirPath.length) : filePath;
+  return docEntryName(rel);
+}
+
 /// Packs everything under [dir] into a document.
 ///
 /// Entry names are POSIX-relative to [dir], so `sketches/Sketch1.dxf` stays
@@ -147,10 +164,12 @@ DocFile packDir(Directory dir, String kind) {
     final files = dir.listSync(recursive: true).whereType<File>().toList()
       ..sort((a, b) => a.path.compareTo(b.path));
     for (final f in files) {
-      var rel = f.path.substring(dir.path.length);
-      while (rel.startsWith('/')) {
-        rel = rel.substring(1);
-      }
+      // M390 — [docEntryName], because this slice is where the Windows
+      // backslash got in. `listSync` joins the parent and the child with the
+      // PLATFORM separator, so on Windows this came back as `\preview.png`
+      // and the loop below — which only ever looked for a forward slash —
+      // left it there. See [docEntryName] for what that cost.
+      final rel = docEntryNameFor(dir.path, f.path);
       if (rel.isEmpty) continue;
       try {
         entries[rel] = f.readAsBytesSync();
@@ -215,10 +234,24 @@ void unpackDoc(DocFile doc, Directory dir) {
 }
 
 /// Null when [name] is not a plain relative path inside the target folder.
+///
+/// M390 — a backslash is a SEPARATOR here now rather than grounds for
+/// rejection on its own. The old rule was right about the danger and wrong
+/// about the population: every document the Windows build has ever written
+/// names its own entries `\meta.json` and `\sketches\Sketch1.dxf`, and
+/// dropping those unpacked an EMPTY folder over a perfectly good document.
+///
+/// NOTHING ELSE IS RELAXED. An absolute name is still refused outright rather
+/// than quietly relativised into the folder, and `..` is still caught
+/// whichever separator wrote it — so a hostile `..\..\x` escapes no better
+/// than `../../x` did. The leading separator a Windows-written entry carries
+/// is already gone by the time it reaches here: [DocFile.decode] normalises
+/// the index, and this is only ever called on a decoded document.
 String? _safeRelative(String name) {
-  if (name.isEmpty) return null;
-  if (name.startsWith('/') || name.contains('\\')) return null;
-  final parts = name.split('/');
+  final normalised = name.replaceAll('\\', '/');
+  if (normalised.isEmpty) return null;
+  if (normalised.startsWith('/')) return null;
+  final parts = normalised.split('/');
   for (final p in parts) {
     if (p.isEmpty || p == '.' || p == '..') return null;
   }

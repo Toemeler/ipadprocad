@@ -482,6 +482,24 @@ jobs:
         working-directory: frontend
         run: flutter pub get
 
+      # THE ONE TEST FILE THIS JOB RUNS, and the exception is deliberate.
+      #
+      # This job runs no host tests on purpose — m1-core-build's `dart-checks`
+      # already runs the whole suite on an ubuntu runner, and a second copy is
+      # a second thing to keep in step. That is exactly why M390 shipped: the
+      # bug was IN THE PLATFORM. `Directory.list` joins a parent and a child
+      # with the platform separator, so `packDir` — which names each entry by
+      # slicing the parent path off the front — produced `\preview.png` on
+      # Windows and `preview.png` everywhere the suite runs. Every document the
+      # Windows build wrote named its entries that way, `readDocEntry` found
+      # none of them, and every gallery card fell back to its cube glyph.
+      #
+      # No Linux or macOS runner can fail that test, so one file runs HERE,
+      # where the join is the Windows one. It costs about a minute.
+      - name: The document container, on the platform that broke it
+        working-directory: frontend
+        run: flutter test test/m390_windows_doc_entries_test.dart
+
       # THE THREE DEFINES ARE NOT OPTIONAL, and leaving them off was a silent
       # feature removal rather than a missing nicety.
       #
