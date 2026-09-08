@@ -4373,7 +4373,7 @@ class AppL10nDe extends AppL10n {
 
   @override
   String msgProfileGapHere(String gap, String x, String y) {
-    return 'Kein geschlossenes Profil — die Skizze ist bei ($x, $y) um $gap offen.';
+    return 'Kein geschlossenes Profil — die Skizze ist bei ($x; $y) um $gap offen.';
   }
 
   @override

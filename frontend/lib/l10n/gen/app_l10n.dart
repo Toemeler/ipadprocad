@@ -7237,10 +7237,10 @@ abstract class AppL10n {
   /// **'{n, plural, =1{1 Objekt ausgeschnitten} other{{n} Objekte ausgeschnitten}}'**
   String msgCutEntities(int n);
 
-  /// M397
+  /// SEMIKOLON zwischen den Koordinaten, nicht Komma: {x} und {y} kommen aus Fmt.fixed und schreiben das Dezimalzeichen auf Deutsch als Komma, also stuende in "(1,23, 4,56)" dasselbe Zeichen fuer den Nachkommateil und fuer die zweite Achse — vier Zahlen oder zwei, das ist nicht zu unterscheiden. DIN 1338 trennt genau deshalb mit Semikolon. Im Englischen bleibt das Komma richtig, weil der Dezimalpunkt dort ein Punkt ist.
   ///
   /// In de, this message translates to:
-  /// **'Kein geschlossenes Profil — die Skizze ist bei ({x}, {y}) um {gap} offen.'**
+  /// **'Kein geschlossenes Profil — die Skizze ist bei ({x}; {y}) um {gap} offen.'**
   String msgProfileGapHere(String gap, String x, String y);
 
   /// M345
