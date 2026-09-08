@@ -1889,7 +1889,17 @@ class _Viewport3DState extends State<Viewport3D>
     if (dir.length < 1e-9 && type != kFacePlane) return null;
     switch (type) {
       case kFacePlane:
-        return WorkRef.plane('Face', at, dir);
+        // M412 — the anchor is the TAP projected onto the face's plane, not
+        // the plane record's own point. This is M244's trap on the part path:
+        // `pl.Location()` for an extruded face is the SKETCH ORIGIN — on the
+        // plane, and routinely a quarter of a metre from the face you touched.
+        // Naming the same plane from a point on the face itself is free (the
+        // arithmetic only ever uses n and n.at) and it is what lets
+        // [midPlaneFrame] tell the two bisectors of a chamfer pair apart (#29),
+        // as well as putting a plane built "through" the pick where the user
+        // pointed rather than where the sketch happened to start.
+        final n = dir.normalized();
+        return WorkRef.plane('Face', hit - n * ((hit - at).dot(n)), n);
       case kFaceCylinder:
         // M224 — radius (slot 10) and the tapped point: everything a tangent
         // plane needs beyond the axis.

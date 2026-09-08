@@ -9588,7 +9588,17 @@ class AppState extends ChangeNotifier {
     // M151 — see planePicked. A face and an origin plane are interchangeable
     // inputs here; both are just a PlaneFrame by the time they arrive.
     if (workPlaneArm != null) {
-      _workPlaneInput(frame, 'face');
+      // M412 — but anchored ON the face. [faceFrame] puts a picked face's
+      // origin at the plane's closest point to the world origin, which names
+      // the plane correctly and says nothing about where the face is; the
+      // midplane of two crossing faces needs to know which side each one is
+      // on (#29). The fingerprint the pick already carries has the face's
+      // area-weighted centre, which is that point.
+      _workPlaneInput(
+          ref == null
+              ? frame
+              : PlaneFrame(frame.key, frame.u, frame.v, frame.n, ref.c),
+          'face');
       return;
     }
     // M228 — the split panel asks the same question, so it reads the same pick.

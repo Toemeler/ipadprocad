@@ -268,19 +268,50 @@ PlaneFrame anglePlaneFrame(
 /// intersecting planes and answers with the bisector through their common
 /// line, and a chamfer pair is the case it is most often asked for.
 ///
-/// WHICH OF THE TWO BISECTORS. Two intersecting planes have two, at right
-/// angles to each other. Written as signed distances, a point is equidistant
-/// when `x.n1 - h1 == x.n2 - h2` (the INTERNAL bisector, through the wedge the
-/// faces enclose) or when one is the negative of the other (the external one,
-/// through the opposite wedge). A face's normal points OUT of its solid, so
-/// the material is where both signed distances are negative — the internal
-/// bisector is the one that passes between the two faces, and it is the only
-/// one that is the plain continuation of the parallel case:
+/// WHICH OF THE TWO BISECTORS, and why the answer does not come from the
+/// normals. Two intersecting planes have two bisectors, at right angles to
+/// each other, and both make equal angles with the inputs — equal angles alone
+/// cannot tell them apart. Written as signed distances, a point is equidistant
+/// either when `x.n1 - h1 == x.n2 - h2` or when one is the negative of the
+/// other, and those two readings are the two planes.
 ///
-///   * anti-parallel (n2 = -n1) reduces to `n1` with the two offsets averaged,
-///     which is exactly what the parallel branch computes, to the last digit;
-///   * parallel and same-facing (n2 = n1) makes `n1 - n2` vanish, which is why
-///     that case keeps its own branch rather than falling through to this one.
+/// M401 chose between them by NORMAL SIGN: `n1 - n2` is the bisector through
+/// the wedge the two faces enclose PROVIDED both normals point out of the
+/// solid, because then the material is where both signed distances are
+/// negative. M412 — #29 is that proviso failing: "the midplane between two non
+/// parallel faces does not make a vertical plane. it makes a horizontal plane
+/// where the other 2 planes cross each other." On the reported part (a 50 mm
+/// chamfer taken off both ends of a bracket) one of the two chamfer faces came
+/// back from the kernel with its record normal INVERTED — the face record
+/// carries `pl.Axis()` flipped by the face's own orientation, and after a
+/// chamfer over a boolean the shell's face orientations are not uniformly
+/// outward (that part's mesh reports 13% of its vertex normals pointing in).
+/// One flipped normal swaps `n1 - n2` for `n1 + n2`, which is exactly the
+/// symptom: the plane came out at right angles to the one wanted, and the two
+/// bisectors only agree on the line where the faces cross, so it was drawn
+/// 105 mm outside a part 50 mm thick.
+///
+/// So ask WHERE THE FACES ARE instead, which is not a matter of convention.
+/// [PlaneFrame.origin] is each input's anchor — a point on the face itself,
+/// the tap projected onto its plane (see the M244 note in asm_work_features
+/// and its twin on the part path in viewport3d). The bisector that lies
+/// between two faces is the one they sit on OPPOSITE sides of, and because an
+/// anchor is on its own plane the test needs only one dot product each:
+/// `sa = (b.origin - at).n1` and `sb = (a.origin - at).n2` are the two
+/// anchors' positions measured against the OTHER plane, and the signed
+/// distances along `n1 ± n2` reduce to `sb ± sa`. Matching signs mean
+/// `n1 - n2` separates them; opposite signs mean `n1 + n2` does. Exactly one
+/// always does, and flipping either input's normal flips both that normal's
+/// dot product and which expression names which plane — so the answer is the
+/// same plane whichever way the kernel happened to point.
+///
+/// The normal-sign rule stays as the fallback for the one case the anchors
+/// cannot answer: an anchor ON the shared line says nothing about sides. That
+/// is what a synthetic frame built straight through the crossing point is, and
+/// it keeps the M401 reading for callers that have no real face to point at.
+///
+/// The parallel branch above needs none of this — it projects both origins
+/// onto ONE normal, so a flipped input averages to the same plane either way.
 ///
 /// The origin is a point ON the intersection line, for the reason
 /// [anglePlaneFrame] gives: that line is the one thing the two planes share,
@@ -294,21 +325,29 @@ PlaneFrame? midPlaneFrame(PlaneFrame a, PlaneFrame b, {double tol = 1e-6}) {
     final mid = (a.origin.dot(n) + b.origin.dot(n)) / 2;
     return PlaneFrame(kWorkPlaneKey, a.u, a.v, n, n * mid);
   }
-  final m = a.n - b.n;
-  final len = m.length;
-  // Unreachable while the branch above owns every parallel pair, and cheap
-  // insurance against a caller that hands over two normals it has scaled.
-  if (len < 1e-12) return null;
-  final n = m * (1 / len);
   final h1 = a.origin.dot(a.n), h2 = b.origin.dot(b.n);
   // A point on the line the two planes share: the three-plane intersection of
   // a, b and the plane through the world origin normal to the line itself.
+  // Independent of which way either normal points — flip one and `axis`, `h`
+  // and the cross products flip with it, and the point comes out the same.
   final axis = a.n.cross(b.n);
   final k = a.n.dot(b.n.cross(axis));
-  final at = k.abs() < 1e-12
-      ? n * ((h1 - h2) / len)
-      : (b.n.cross(axis) * h1 + axis.cross(a.n) * h2) * (1 / k);
-  return workPlaneFrameAt(at, n);
+  // |k| is |a.n x b.n|^2 for the unit normals every caller hands over, so the
+  // branch above owns every case that reaches zero. Cheap insurance against a
+  // caller that has scaled its normals.
+  if (k.abs() < 1e-12) return null;
+  final at = (b.n.cross(axis) * h1 + axis.cross(a.n) * h2) * (1 / k);
+  // Which bisector — see the note above. The anchors decide; the normals only
+  // answer for a frame that was built through the crossing line itself.
+  final ra = a.origin - at, rb = b.origin - at;
+  final sa = rb.dot(a.n), sb = ra.dot(b.n);
+  final eps = 1e-9 * math.max(1.0, math.max(ra.length, rb.length));
+  final m = (sa.abs() > eps && sb.abs() > eps && sa * sb < 0)
+      ? a.n + b.n
+      : a.n - b.n;
+  final len = m.length;
+  if (len < 1e-12) return null;
+  return workPlaneFrameAt(at, m * (1 / len));
 }
 
 /// A user-created work plane. The frame is baked at creation; [def] is what

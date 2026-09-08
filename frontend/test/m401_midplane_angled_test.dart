@@ -54,9 +54,11 @@ void main() {
 
   group('THE REPORT: two chamfers that meet at an angle', () {
     // A 90-degree corner chamfered from both sides: two planar faces whose
-    // outward normals are a right angle apart, meeting along the z axis.
-    final a = plane(const Vec3(0, 0, 0), const Vec3(1, 0, 0));
-    final b = plane(const Vec3(0, 0, 0), const Vec3(0, 1, 0));
+    // outward normals are a right angle apart, meeting along the z axis. The
+    // solid is the quadrant x < 0, y < 0, so each face's ANCHOR — the point on
+    // the face the pick contributes — sits on the other's negative side.
+    final a = plane(const Vec3(0, -7, 0), const Vec3(1, 0, 0));
+    final b = plane(const Vec3(-5, 0, 0), const Vec3(0, 1, 0));
 
     test('there is an answer at all', () {
       expect(midPlaneFrame(a, b), isNotNull,
@@ -87,11 +89,12 @@ void main() {
       expect(mid.n.dot(a.n).abs(), closeTo(mid.n.dot(b.n).abs(), 1e-9));
 
       // What separates them is the SIGN. A point is equidistant either with
-      // `d_a == d_b` or with `d_a == -d_b`; a face normal points out of its
-      // solid, so the material is where both are negative, and `d_a == d_b`
-      // is the bisector running through it. That is the one this returns —
-      // the equidistance test above is exactly that statement — and it is the
-      // one whose normal is along `a.n - b.n`.
+      // `d_a == d_b` or with `d_a == -d_b`, and the two readings are the two
+      // planes. The one wanted is the one the two faces sit on OPPOSITE sides
+      // of, which here — both anchors on the other face's negative side — is
+      // the `d_a == d_b` reading, the bisector whose normal is along
+      // `a.n - b.n`. M412: it is the ANCHORS that say so and not the normals,
+      // which is the whole of #29; see the test below.
       final internal = (a.n - b.n).normalized();
       final external = (a.n + b.n).normalized();
       expect(mid.n.dot(internal).abs(), closeTo(1, 1e-9));
@@ -124,8 +127,10 @@ void main() {
 
     test('planes that do not pass through the world origin', () {
       // The offsets have to survive: the bisector of two shifted planes is
-      // not the bisector of two planes through the origin.
-      final a = plane(const Vec3(5, 0, 0), const Vec3(1, 0, 0));
+      // not the bisector of two planes through the origin. The corner is the
+      // solid x < 5, y < -3, and each anchor is on its own face out beyond the
+      // other one — the same arrangement as the chamfer pair above, moved.
+      final a = plane(const Vec3(5, -10, 0), const Vec3(1, 0, 0));
       final b = plane(const Vec3(0, -3, 0), const Vec3(0, 1, 0));
       final mid = midPlaneFrame(a, b)!;
       for (final p in onPlane(mid)) {
