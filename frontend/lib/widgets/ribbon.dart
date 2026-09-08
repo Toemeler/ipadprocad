@@ -3706,8 +3706,18 @@ class _RendererChipState extends State<_RendererChip> {
 
   /// The user-visible name of a renderer. In the ARB, like every other string
   /// — the enum's own ids are 'realitykit'/'cycles' and are storage keys.
+  ///
+  /// M404 — the real-time one names the engine that is ACTUALLY drawing here,
+  /// which is RealityKit only on iOS. On Windows it had been offering
+  /// "RealityKit" for a view flutter_scene draws, which is #36: "on windows
+  /// there is still the option reality kit or cycles but reality kit doesnt
+  /// exist at all on windows". The choice itself was never wrong — every frame
+  /// versus one path-traced image — only the name on it.
   String _name(AppL10n t, RenderEngine e) => switch (e) {
-        RenderEngine.realityKit => t.rendererRealtime,
+        RenderEngine.realtime => switch (realtimeEngineName()) {
+            final n? => t.rendererRealtimeOn(n),
+            _ => t.rendererRealtime,
+          },
         RenderEngine.cycles => t.rendererRaytraced,
       };
 

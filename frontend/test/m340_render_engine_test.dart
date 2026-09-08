@@ -18,13 +18,13 @@ void main() {
       // Rendered mode has to stay INSTANT by default. A first switch into it
       // that hangs for thirty seconds compiling Metal kernels is not a nicer
       // render, it is a broken mode. Cycles is something you ask for.
-      expect(kRenderEngineDefault, RenderEngine.realityKit);
-      expect(RenderEngines.current, RenderEngine.realityKit);
+      expect(kRenderEngineDefault, RenderEngine.realtime);
+      expect(RenderEngines.current, RenderEngine.realtime);
       expect(RenderEngines.isCycles, isFalse);
     });
 
     test('ids are spelled out, so renaming a value cannot silently reset it', () {
-      expect(RenderEngine.realityKit.id, 'realitykit');
+      expect(RenderEngine.realtime.id, 'realitykit');
       expect(RenderEngine.cycles.id, 'cycles');
       for (final e in RenderEngine.values) {
         expect(RenderEngine.byId(e.id), e);
@@ -51,7 +51,7 @@ void main() {
       // Setting the same value again is not a change.
       RenderEngines.set(RenderEngine.cycles);
       expect(fired, 1);
-      RenderEngines.set(RenderEngine.realityKit);
+      RenderEngines.set(RenderEngine.realtime);
       expect(fired, 2);
     });
   });

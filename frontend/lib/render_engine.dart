@@ -1,9 +1,16 @@
 // M340 — WHICH RENDERER DRAWS THE RENDERED VIEW, as a value rather than a
 // widget.
 //
-// The app has two of them now. RealityKit draws every frame, on the GPU,
-// through the platform view; Cycles path-traces one image when the camera
-// stops and lays it over the top. They are not a progression from worse to
+// The app has two of them now. One draws every frame, on the GPU — RealityKit
+// through a platform view on iOS, flutter_scene on Flutter GPU everywhere else
+// — and Cycles path-traces one image when the camera stops and lays it over
+// the top.
+//
+// M404 — WHICH real-time renderer is a fact about the platform, not a choice
+// (#36: "on windows there is still the option reality kit or cycles but
+// reality kit doesnt exist at all on windows"). The choice is between drawing
+// every frame and path-tracing one; the enum below is named for that now, and
+// the label says which engine is doing the drawing here. They are not a progression from worse to
 // better — they answer different questions. RealityKit is instant and follows
 // you through an orbit; Cycles is seconds of work and knows about bounced
 // light, contact shadows and a real specular response. Which one you want
@@ -44,13 +51,16 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:gpu_view/gpu_view.dart' show GpuView;
+import 'package:reality_view/reality_view.dart' show RealityView;
 
 import 'log.dart';
 
 /// Which renderer draws the rendered view.
 enum RenderEngine {
-  /// The platform view. Every frame, follows the camera, no path tracing.
-  realityKit,
+  /// Every frame, follows the camera, no path tracing. RealityKit on iOS,
+  /// flutter_scene on Flutter GPU elsewhere — see [realtimeEngineName].
+  realtime,
 
   /// Cycles. One path-traced image once the camera settles.
   cycles;
@@ -58,8 +68,11 @@ enum RenderEngine {
   /// The stored id. The enum's own `name` would do until somebody renames a
   /// value and every saved setting silently reverts, which is the same reason
   /// [RibbonPosition] and [Accent] spell theirs out.
+  /// M404 — the real-time engine's stored id KEEPS its old spelling. It is a
+  /// storage key, every settings.json in the field already holds it, and
+  /// renaming it would silently reset everybody's choice to the default.
   String get id => switch (this) {
-        RenderEngine.realityKit => 'realitykit',
+        RenderEngine.realtime => 'realitykit',
         RenderEngine.cycles => 'cycles',
       };
 
@@ -78,7 +91,22 @@ enum RenderEngine {
 /// to stay instant by default: a first switch into it that hangs for thirty
 /// seconds compiling Metal kernels is not a better picture, it is a broken
 /// mode. Cycles is something you ask for.
-const RenderEngine kRenderEngineDefault = RenderEngine.realityKit;
+const RenderEngine kRenderEngineDefault = RenderEngine.realtime;
+
+/// M404 — the name of the engine that actually draws the real-time view in
+/// THIS build, or null where nothing has a name worth showing.
+///
+/// The viewport picks its surface with exactly this test (see the M372 note in
+/// viewport3d.dart): RealityKit where it exists, flutter_scene on Flutter GPU
+/// where that probe succeeded, and the CPU painter otherwise. The label has to
+/// ask the same question, or it goes on naming a renderer that is not in the
+/// build — which is what #36 saw on Windows, where the picker offered
+/// "RealityKit" for a view flutter_scene had been drawing all along.
+String? realtimeEngineName() {
+  if (RealityView.isSupported) return 'RealityKit';
+  if (GpuView.isSupported) return 'Flutter GPU';
+  return null;
+}
 
 /// The live setting, as something the viewport can listen to.
 ///
@@ -93,7 +121,7 @@ class RenderEngines {
 
   static RenderEngine get current => engine.value;
   static bool get isCycles => current == RenderEngine.cycles;
-  static bool get isRealityKit => current == RenderEngine.realityKit;
+  static bool get isRealtime => current == RenderEngine.realtime;
 
   static RenderEngineStore? _store;
 

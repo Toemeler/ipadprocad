@@ -3789,9 +3789,18 @@
   "@cyclesBadge": {
     "description": "M304 — das Abzeichen ueber dem Viewport, waehrend der Pfadverfolger noch wartet. \"Cycles\" ist der Name des Renderers und bleibt in jeder Sprache stehen."
   },
-  "rendererRealtime": "Echtzeit (RealityKit)",
+  "rendererRealtime": "Echtzeit",
   "@rendererRealtime": {
-    "description": "M340 — Auswahl im Anzeigemodus-Band: der Renderer, der jedes Bild zeichnet und der Kamera sofort folgt. Nur im gerenderten Modus sichtbar. RealityKit ist ein Produktname und bleibt stehen."
+    "description": "M340/M404 — Auswahl im Anzeigemodus-Band: der Renderer, der jedes Bild zeichnet und der Kamera sofort folgt. Nur im gerenderten Modus sichtbar. Ohne Namen, wo dieser Build keine GPU-Fläche hat."
+  },
+  "rendererRealtimeOn": "Echtzeit ({engine})",
+  "@rendererRealtimeOn": {
+    "description": "M404 — dasselbe, mit dem Namen der Engine, die hier tatsächlich zeichnet: RealityKit auf iOS, Flutter GPU sonst. Produktnamen bleiben stehen.",
+    "placeholders": {
+      "engine": {
+        "type": "String"
+      }
+    }
   },
   "rendererRaytraced": "Raytracing (Cycles)",
   "@rendererRaytraced": {

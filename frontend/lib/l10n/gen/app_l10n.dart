@@ -7057,6 +7057,12 @@ abstract class AppL10n {
   /// **'Echtzeit (RealityKit)'**
   String get rendererRealtime;
 
+  /// M404
+  ///
+  /// In de, this message translates to:
+  /// **'Echtzeit ({engine})'**
+  String rendererRealtimeOn(String engine);
+
   /// M340 — Auswahl im Anzeigemodus-Band: der Pfadverfolger, der ein Bild berechnet, sobald die Kamera stillsteht. Nur im gerenderten Modus sichtbar. Cycles ist ein Produktname und bleibt stehen.
   ///
   /// In de, this message translates to:

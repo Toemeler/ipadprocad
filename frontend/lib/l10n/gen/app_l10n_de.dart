@@ -4214,7 +4214,12 @@ class AppL10nDe extends AppL10n {
   String get cyclesBadge => 'Cycles';
 
   @override
-  String get rendererRealtime => 'Echtzeit (RealityKit)';
+  String get rendererRealtime => 'Echtzeit';
+
+  @override
+  String rendererRealtimeOn(String engine) {
+    return 'Echtzeit ($engine)';
+  }
 
   @override
   String get rendererRaytraced => 'Raytracing (Cycles)';
