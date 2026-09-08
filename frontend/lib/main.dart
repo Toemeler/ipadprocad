@@ -364,7 +364,12 @@ class PrototypeApp extends StatelessWidget {
           // the same reason the dock does.
           builder: (context, _, __) => ValueListenableBuilder<bool>(
             valueListenable: RibbonLabels.show,
-            builder: (context, _____, ______) =>
+            // M405 — and whether the band is RETRACTED, which takes its whole
+            // row out of the layout (#38). Same reason as the labels flag one
+            // line up: it changes the shell's edges, so it rebuilds the shell.
+            builder: (context, _____, ______) => ValueListenableBuilder<bool>(
+              valueListenable: RibbonRetract.retracted,
+              builder: (context, _________, __________) =>
                 ValueListenableBuilder<RibbonPosition>(
             valueListenable: RibbonDock.position,
             // Bug report #11 — and the accent, for the same reason as the
@@ -375,6 +380,7 @@ class PrototypeApp extends StatelessWidget {
               valueListenable: T.accentChoice,
               builder: (context, _______, ________) => _app(locale, palette),
             ),
+          ),
           ),
           ),
         ),

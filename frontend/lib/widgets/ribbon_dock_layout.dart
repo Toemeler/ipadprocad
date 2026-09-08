@@ -62,7 +62,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
 import '../app_state.dart';
+import '../device_class.dart' show isPhoneDevice;
+import '../l10n/l.dart';
 import '../ribbon_dock.dart';
+import '../theme.dart';
 import 'ribbon.dart';
 import 'ribbon_chrome.dart';
 
@@ -147,6 +150,13 @@ class RibbonDockLayout extends StatelessWidget {
     // background would otherwise orbit the model behind it. The glass itself
     // cannot take the hit (it is a platform view with interaction switched
     // off, deliberately — see GlassPanelView), so the swallow goes here.
+    // M405 — the band retracts on a PHONE, and only there (#38).
+    //
+    // The handle is drawn only where the retract is offered, so on an iPad and
+    // on every desktop this is exactly the layout it has always been: no
+    // strip, no extra row, nothing to lay out differently. See RibbonRetract.
+    final canRetract = isPhoneDevice();
+    final retracted = canRetract && RibbonRetract.on;
     final Widget band = _Bleed(
       dock: RibbonDock.current,
       // Docked, the document is laid out inside the stage and covers nothing
@@ -155,7 +165,10 @@ class RibbonDockLayout extends StatelessWidget {
       report: floats,
       child: Listener(
         behavior: HitTestBehavior.opaque,
-        child: Ribbon(app: app),
+        // Retracted the band is GONE rather than merely thin: the whole point
+        // is the space, and a hidden ribbon that still swallows pointers over
+        // a fifth of the screen would be worse than the one that was visible.
+        child: retracted ? const SizedBox.shrink() : Ribbon(app: app),
       ),
     );
     // M346 — CrossAxisAlignment.stretch, and it is the whole of the "the
@@ -178,24 +191,35 @@ class RibbonDockLayout extends StatelessWidget {
     // wraps whatever goes beside the band; the band itself is never inside it,
     // which is exactly why it now reaches the top edge. Top dock is the
     // exception documented on [caption] and takes the old outer row.
+    // The handle sits on the band's INNER edge, the side the ribbon slides
+    // away from — the same place and the same chevron the model browser's
+    // retract has used since M244, so it reads as the control it is.
+    final Widget? grip =
+        canRetract ? _RibbonGrip(dock: RibbonDock.current) : null;
     final Widget rows = switch (RibbonDock.current) {
       RibbonPosition.top => Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [band, Expanded(child: _inner())]),
+          children: [band, if (grip != null) grip, Expanded(child: _inner())]),
       RibbonPosition.bottom => Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [Expanded(child: _staged(_inner())), band]),
+          children: [
+            Expanded(child: _staged(_inner())),
+            if (grip != null) grip,
+            band
+          ]),
       RibbonPosition.left => Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _rail(band),
+            _rail(band, retracted),
+            if (grip != null) grip,
             Expanded(child: _staged(_inner())),
           ]),
       RibbonPosition.right => Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Expanded(child: _staged(_inner())),
-            _rail(band),
+            if (grip != null) grip,
+            _rail(band, retracted),
           ]),
     };
     if (RibbonDock.current == RibbonPosition.top) {
@@ -216,10 +240,10 @@ class RibbonDockLayout extends StatelessWidget {
   /// panels could stand in one column, and a one-column rail is 46 points
   /// against a two-column rail's 84. Listening here rather than rebuilding the
   /// world keeps that to the one widget whose size it changes.
-  Widget _rail(Widget band) => ValueListenableBuilder<int>(
+  Widget _rail(Widget band, bool retracted) => ValueListenableBuilder<int>(
         valueListenable: RibbonRail.columns,
-        builder: (_, __, child) =>
-            SizedBox(width: RibbonMetrics.railWidth, child: child),
+        builder: (_, __, child) => SizedBox(
+            width: retracted ? 0 : RibbonMetrics.railWidth, child: child),
         child: band,
       );
 
@@ -250,6 +274,79 @@ class RibbonDockLayout extends StatelessWidget {
         Positioned.fill(child: bleed),
         Positioned.fill(child: stage),
       ]);
+}
+
+/// M405 — the retract handle, and the only way in or out of the retracted
+/// state (#38).
+///
+/// A slim strip on the band's inner edge with a chevron on it, pointing the
+/// way the band is about to move. Drawn only on a phone — the one place the
+/// retract is offered — so on every other device this widget does not exist
+/// and the layout is untouched.
+///
+/// Eighteen points is the strip, which is under half the width of one ribbon
+/// icon and about a twentieth of what the band it hides was taking. It is
+/// deliberately not smaller: it is the whole ribbon's front door, and a door
+/// nobody can hit is a ribbon nobody can get back.
+class _RibbonGrip extends StatelessWidget {
+  final RibbonPosition dock;
+  const _RibbonGrip({required this.dock});
+
+  static const double extent = 18;
+
+  /// Which way the chevron points: at the edge the band hides into while it is
+  /// out, and back at the document while it is away.
+  IconData _glyph(bool retracted) => switch (dock) {
+        RibbonPosition.left =>
+          retracted ? Icons.chevron_right : Icons.chevron_left,
+        RibbonPosition.right =>
+          retracted ? Icons.chevron_left : Icons.chevron_right,
+        RibbonPosition.top =>
+          retracted ? Icons.expand_more : Icons.expand_less,
+        RibbonPosition.bottom =>
+          retracted ? Icons.expand_less : Icons.expand_more,
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    final t = L.of(context);
+    final retracted = RibbonRetract.on;
+    final bar = DecoratedBox(
+      decoration: BoxDecoration(color: T.hover6),
+      child: Center(
+        child: Icon(_glyph(retracted), size: 16, color: T.dim),
+      ),
+    );
+    return Tooltip(
+      message: retracted ? t.ribbonShow : t.ribbonHide,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: RibbonRetract.toggle,
+        // A flick works too, in the direction the band would go, which is how
+        // the browser's handle behaves and what a thumb does without being
+        // told (M244).
+        onHorizontalDragEnd: dock.isVertical
+            ? (d) {
+                final v = d.primaryVelocity ?? 0;
+                if (v.abs() < 50) return;
+                RibbonRetract.set(
+                    dock == RibbonPosition.left ? v < 0 : v > 0);
+              }
+            : null,
+        onVerticalDragEnd: dock.isHorizontal
+            ? (d) {
+                final v = d.primaryVelocity ?? 0;
+                if (v.abs() < 50) return;
+                RibbonRetract.set(
+                    dock == RibbonPosition.top ? v < 0 : v > 0);
+              }
+            : null,
+        child: dock.isVertical
+            ? SizedBox(width: extent, child: bar)
+            : SizedBox(height: extent, child: bar),
+      ),
+    );
+  }
 }
 
 /// M357 — the band, reporting the edge of the document it covers.

@@ -7051,10 +7051,22 @@ abstract class AppL10n {
   /// **'Cycles'**
   String get cyclesBadge;
 
-  /// M340 — Auswahl im Anzeigemodus-Band: der Renderer, der jedes Bild zeichnet und der Kamera sofort folgt. Nur im gerenderten Modus sichtbar. RealityKit ist ein Produktname und bleibt stehen.
+  /// M405 — Tooltip am Griff neben dem Menüband: blendet es aus. Nur auf dem iPhone sichtbar.
   ///
   /// In de, this message translates to:
-  /// **'Echtzeit (RealityKit)'**
+  /// **'Menüband ausblenden'**
+  String get ribbonHide;
+
+  /// M405
+  ///
+  /// In de, this message translates to:
+  /// **'Menüband einblenden'**
+  String get ribbonShow;
+
+  /// M340/M404 — Auswahl im Anzeigemodus-Band: der Renderer, der jedes Bild zeichnet und der Kamera sofort folgt. Nur im gerenderten Modus sichtbar. Ohne Namen, wo dieser Build keine GPU-Fläche hat.
+  ///
+  /// In de, this message translates to:
+  /// **'Echtzeit'**
   String get rendererRealtime;
 
   /// M404

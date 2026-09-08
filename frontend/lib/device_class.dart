@@ -103,6 +103,22 @@ Size? _viewSize() {
   }
 }
 
+/// M405 — is this an iPhone?
+///
+/// The same question [preferredOrientations] answers to decide the lock,
+/// asked of the same DISPLAY, and given its own name because a second caller
+/// now needs it: the ribbon retracts by default here and nowhere else (#38).
+///
+/// False before the engine has measured the display, which is the
+/// conservative answer — it means an iPad's ribbon is never retracted by a
+/// measurement that had not arrived yet, and a phone gets its default on the
+/// first build after the view exists.
+bool isPhoneDevice() {
+  if (defaultTargetPlatform != TargetPlatform.iOS) return false;
+  final size = _viewSize();
+  return size != null && isPhoneSize(size);
+}
+
 bool _retried = false;
 
 /// Applies [preferredOrientations] for whatever this device turns out to be.

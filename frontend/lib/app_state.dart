@@ -34,6 +34,7 @@ import 'diag.dart';
 import 'face_project.dart';
 import 'clipboard.dart';
 import 'cycles_session.dart';
+import 'device_class.dart' show isPhoneDevice;
 import 'display_mode.dart';
 import 'doc_file.dart';
 import 'doc_ref.dart';
@@ -1795,6 +1796,12 @@ class AppState extends ChangeNotifier {
     // M349 — the band's other preference, out of the same file and read in
     // the same breath: whether it writes the name under each command.
     RibbonLabels.attachStore(RibbonStore(_cacheRoot));
+    // M405 — and whether it is retracted (#38). The DEFAULT is asked of the
+    // device first and the stored choice lands on top of it, in that order:
+    // an iPhone starts with the band away, and an iPhone whose owner has
+    // pulled it out keeps it out.
+    RibbonRetract.adoptDefault(phone: isPhoneDevice());
+    RibbonRetract.attachStore(RibbonStore(_cacheRoot));
     RenderEngines.attachStore(RenderEngineStore(_cacheRoot));
     // M367 — and how many samples that renderer aims at. Same file,
     // same shape, read in the same breath: which renderer draws the
@@ -2392,6 +2399,7 @@ class AppState extends ChangeNotifier {
       Backdrops.attachStore(BackdropStore(_cacheRoot));
       RibbonDock.attachStore(RibbonStore(_cacheRoot));
       RibbonLabels.attachStore(RibbonStore(_cacheRoot));
+      RibbonRetract.attachStore(RibbonStore(_cacheRoot));
       RenderEngines.attachStore(RenderEngineStore(_cacheRoot));
       RenderSamples.attachStore(RenderSamplesStore(_cacheRoot));
       IconPreview.attachStore(IconPreviewStore(_cacheRoot));

@@ -4164,6 +4164,12 @@ class AppL10nEn extends AppL10n {
   String get cyclesBadge => 'Cycles';
 
   @override
+  String get ribbonHide => 'Hide the ribbon';
+
+  @override
+  String get ribbonShow => 'Show the ribbon';
+
+  @override
   String get rendererRealtime => 'Real-time';
 
   @override

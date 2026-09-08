@@ -3789,6 +3789,14 @@
   "@cyclesBadge": {
     "description": "M304 — das Abzeichen ueber dem Viewport, waehrend der Pfadverfolger noch wartet. \"Cycles\" ist der Name des Renderers und bleibt in jeder Sprache stehen."
   },
+  "ribbonHide": "Menüband ausblenden",
+  "@ribbonHide": {
+    "description": "M405 — Tooltip am Griff neben dem Menüband: blendet es aus. Nur auf dem iPhone sichtbar."
+  },
+  "ribbonShow": "Menüband einblenden",
+  "@ribbonShow": {
+    "description": "M405 — derselbe Griff, wenn das Band ausgeblendet ist."
+  },
   "rendererRealtime": "Echtzeit",
   "@rendererRealtime": {
     "description": "M340/M404 — Auswahl im Anzeigemodus-Band: der Renderer, der jedes Bild zeichnet und der Kamera sofort folgt. Nur im gerenderten Modus sichtbar. Ohne Namen, wo dieser Build keine GPU-Fläche hat."

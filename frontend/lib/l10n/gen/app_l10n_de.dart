@@ -4214,6 +4214,12 @@ class AppL10nDe extends AppL10n {
   String get cyclesBadge => 'Cycles';
 
   @override
+  String get ribbonHide => 'Menüband ausblenden';
+
+  @override
+  String get ribbonShow => 'Menüband einblenden';
+
+  @override
   String get rendererRealtime => 'Echtzeit';
 
   @override

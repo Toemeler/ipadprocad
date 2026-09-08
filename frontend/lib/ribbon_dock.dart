@@ -165,6 +165,62 @@ class RibbonLabels {
   }
 }
 
+/// M405 — whether the band is RETRACTED to a handle. (#38)
+///
+/// "the ribbon should also be retracted when the App is installed on iphone.
+/// retracted by default. but only on iphone, Not on ipad."
+///
+/// The model browser has retracted by default since M242 and this is its
+/// twin, for the same reason and only where that reason applies: on a phone
+/// the band is a rail of icons eating a fifth of a 390-point screen, and the
+/// screen is the thing there is least of. On an iPad, where the browser
+/// retracts and the ribbon does not, that is a judgement someone already made
+/// with the space to make it — so nothing changes there, or anywhere else.
+///
+/// WHERE IT IS OFFERED AT ALL is [ribbonRetractAvailable], not this value:
+/// the switch exists everywhere, and the handle that works it is drawn only
+/// on a phone. A value nobody can reach is a value nobody can get stuck in.
+class RibbonRetract {
+  RibbonRetract._();
+
+  static final ValueNotifier<bool> retracted = ValueNotifier<bool>(false);
+
+  static bool get on => retracted.value;
+
+  static RibbonStore? _store;
+
+  /// The default for THIS device, applied before any stored choice.
+  ///
+  /// Separate from [attachStore] and called first, so a user who has retracted
+  /// or expanded the band by hand keeps what they chose: the store's answer
+  /// lands on top of this one.
+  static void adoptDefault({required bool phone}) {
+    retracted.value = phone;
+  }
+
+  /// Point the switch at the same settings file the dock uses, and adopt what
+  /// it remembers. Same contract as [RibbonDock.attachStore].
+  static void attachStore(RibbonStore store) {
+    _store = store;
+    final saved = store.loadRetracted();
+    if (saved != null) retracted.value = saved;
+  }
+
+  static void set(bool v) {
+    if (v == retracted.value) return;
+    retracted.value = v;
+    _store?.saveRetracted(v);
+  }
+
+  static void toggle() => set(!on);
+
+  @visibleForTesting
+  static void resetForTest() {
+    retracted.value = false;
+    _store = null;
+  }
+}
+
 /// The default: names OFF, so the band is as thin as its icons.
 const bool kRibbonLabelsDefault = false;
 
@@ -182,6 +238,9 @@ class RibbonStore {
 
   /// M349 — the labels flag, beside the dock in the same file.
   static const String namesKey = 'ribbonNames';
+
+  /// M405 — and whether the band is retracted, in the same file again.
+  static const String retractedKey = 'ribbonRetracted';
 
   File get file => File('${dir.path}/$fileName');
 
@@ -222,6 +281,22 @@ class RibbonStore {
   void save(RibbonPosition p) => _merge(key, p.id, 'position');
 
   void saveNames(bool on) => _merge(namesKey, on, 'labels flag');
+
+  bool? loadRetracted() {
+    try {
+      final f = file;
+      if (!f.existsSync()) return null;
+      final raw = jsonDecode(f.readAsStringSync());
+      if (raw is! Map) return null;
+      final v = raw[retractedKey];
+      return v is bool ? v : null;
+    } catch (e) {
+      Log.w('ribbon', 'could not read the ribbon retract flag: $e');
+      return null;
+    }
+  }
+
+  void saveRetracted(bool on) => _merge(retractedKey, on, 'retract flag');
 
   /// Writes one key and leaves the rest of settings.json alone.
   ///
