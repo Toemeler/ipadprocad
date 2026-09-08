@@ -213,8 +213,26 @@ enum TrackpadGesture {
   drag,
 }
 
-/// Five percent, which no pure slide reaches and every deliberate pinch does.
-const double kTrackpadZoomSlop = 0.05;
+/// Two and a half percent, which no pure slide reaches and every deliberate
+/// pinch passes almost at once.
+///
+/// M398 — it was five, and the header above says why that is the wrong side to
+/// err on: "a slow pinch can travel eight points before it has grown five
+/// percent, and answering 'drag' there is the bug this exists to remove."
+/// Asking scale first only settles a tie WITHIN one event; across events it is
+/// whichever threshold is crossed first in time that decides, so the ordering
+/// argument is really an argument about the two numbers. At five percent an
+/// asymmetric pinch can still reach eight points of centroid drift first and
+/// be called a drag — which is the reported bug, back again in the corner of
+/// the envelope.
+///
+/// Halved rather than trading it against the drag slop, because the drag slop
+/// is the one that is felt: eight points is what a finger gets everywhere else
+/// in this app, and raising it would make every two-finger orbit start late to
+/// protect a case that ends the moment the pinch declares itself. Two and a
+/// half percent is still 250x the `1e-4` guard this replaced, so an orbit's
+/// incidental jitter comes nowhere near it.
+const double kTrackpadZoomSlop = 0.025;
 
 /// Eight logical points — the same slop a finger gets elsewhere in the app.
 const double kTrackpadDragSlop = 8.0;

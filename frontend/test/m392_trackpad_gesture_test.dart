@@ -69,4 +69,40 @@ void main() {
     expect(trackpadGesture(undecided, scale: 0, pan: const Offset(9, 0)),
         TrackpadGesture.drag);
   });
+
+  test('a slow asymmetric pinch is a pinch, not a drag', () {
+    // M398 — the corner the thresholds decide, and the one the report lives
+    // in. A pinch whose fingers close unevenly drags its centroid while it
+    // grows; whichever threshold it crosses FIRST IN TIME wins, so the two
+    // numbers are what say whether it is called a zoom or an orbit. Walked
+    // here as a real gesture rather than asserted at one point.
+    var g = TrackpadGesture.undecided;
+    for (var step = 1; step <= 12; step++) {
+      // 0.5% of scale and 1.2 points of drift per event: a deliberate but
+      // slow pinch on a trackpad that reports generously.
+      g = trackpadGesture(g,
+          scale: 1 + 0.005 * step, pan: Offset(1.2 * step, 0));
+      if (g != TrackpadGesture.undecided) break;
+    }
+    expect(g, TrackpadGesture.zoom,
+        reason: 'at five percent the drift reached eight points first and '
+            'this came back a drag — the model spinning under a pinch, which '
+            'is the bug #21 reported');
+  });
+
+  test('a two-finger slide is still a drag, and still starts promptly', () {
+    // The mirror case, and the reason the drag slop was left alone: eight
+    // points is what a finger gets everywhere else in the app, and an orbit
+    // that starts late is felt on every single use.
+    var g = TrackpadGesture.undecided;
+    var events = 0;
+    for (var step = 1; step <= 12; step++) {
+      events = step;
+      // A slide carries a little scale noise; it must not read as a pinch.
+      g = trackpadGesture(g, scale: 1 + 0.001 * step, pan: Offset(0, 3.0 * step));
+      if (g != TrackpadGesture.undecided) break;
+    }
+    expect(g, TrackpadGesture.drag);
+    expect(events, lessThanOrEqualTo(3), reason: 'an orbit must not feel sticky');
+  });
 }
