@@ -7237,6 +7237,12 @@ abstract class AppL10n {
   /// **'{n, plural, =1{1 Objekt ausgeschnitten} other{{n} Objekte ausgeschnitten}}'**
   String msgCutEntities(int n);
 
+  /// M397
+  ///
+  /// In de, this message translates to:
+  /// **'Kein geschlossenes Profil — die Skizze ist bei {at} um {gap} offen.'**
+  String msgProfileGapHere(String gap, String at);
+
   /// M345
   ///
   /// In de, this message translates to:

@@ -1385,6 +1385,97 @@ double _perimeterOf(List<Offset> p) {
   return (lo, hi);
 }
 
+/// M397 — where a sketch ALMOST closes, and by how much.
+///
+/// "the mirrored part of the sketch is somehow not closed and i cant extrude
+/// it or select it for extrusion but it clearly should be closed" (#25). It
+/// was six MICROMETRES open: the mirror axis sat at y=167.9969 instead of
+/// 168, so every mirrored point landed 0.0062 mm off the edge it was supposed
+/// to meet. Nothing on screen could show that, and the profile finder — which
+/// welds nodes only within 1e-6, as it must, or two walls 20 um apart would
+/// become one — correctly found no region. So the sketch simply did not react
+/// to the tap, and there was no way to find out why.
+///
+/// This measures it: for every LOOSE END (an endpoint of an open curve that
+/// nothing else touches), the distance to the nearest other profile curve.
+/// The smallest is returned, with the loose end's position, so a caller can
+/// say where to look.
+class ProfileGap {
+  /// How far the loose end is from the curve it nearly meets, in sketch units.
+  final double gap;
+
+  /// The loose end itself — the point to send the user to.
+  final Offset at;
+
+  const ProfileGap(this.gap, this.at);
+
+  @override
+  String toString() => 'ProfileGap(${gap.toStringAsFixed(6)} at $at)';
+}
+
+ProfileGap? nearestProfileGap(SketchModel s) =>
+    profileGapIn(ProfileInput.of(s));
+
+/// [nearestProfileGap] over an arbitrary candidate geometry list.
+ProfileGap? profileGapIn(ProfileInput pi) {
+  const tol = 1e-6;
+  // Every profile curve as straight segments, plus the endpoints of the OPEN
+  // ones — a closed curve has no loose end to report.
+  final segA = <Offset>[], segB = <Offset>[], segE = <int>[];
+  final ends = <(Offset, int)>[]; // (point, owning entity)
+  for (var i = 0; i < pi.geometry.length; i++) {
+    final g = pi.geometry[i];
+    if (!_profileGeo(pi, g)) continue;
+    final (pts, closed) = _profileChain(g);
+    if (pts.length < 2) continue;
+    for (var k = 0; k + 1 < pts.length; k++) {
+      segA.add(pts[k]);
+      segB.add(pts[k + 1]);
+      segE.add(i);
+    }
+    if (closed) {
+      if ((pts.first - pts.last).distance > tol) {
+        segA.add(pts.last);
+        segB.add(pts.first);
+        segE.add(i);
+      }
+      continue;
+    }
+    if ((pts.first - pts.last).distance < tol) continue; // meets itself
+    ends..add((pts.first, i))..add((pts.last, i));
+  }
+  if (ends.isEmpty || segA.isEmpty) return null;
+
+  ProfileGap? best;
+  for (final (q, owner) in ends) {
+    // An end that another end sits on, or that lands on another curve, is
+    // already joined — the arrangement will have welded it, so it is not the
+    // reason anything failed to close.
+    var joined = false;
+    for (final (r, other) in ends) {
+      if (other == owner) continue;
+      if ((q - r).distance < tol) {
+        joined = true;
+        break;
+      }
+    }
+    var near = double.infinity;
+    for (var k = 0; k < segA.length && !joined; k++) {
+      if (segE[k] == owner) continue; // its own curve is not a partner
+      final (d2, _) = segDistSq(q, segA[k], segB[k], eps: 1e-18);
+      final d = math.sqrt(d2);
+      if (d < tol) {
+        joined = true;
+        break;
+      }
+      if (d < near) near = d;
+    }
+    if (joined || !near.isFinite) continue;
+    if (best == null || near < best.gap) best = ProfileGap(near, q);
+  }
+  return best;
+}
+
 List<ProfileLoop> _profileLoops(ProfileInput pi) {
   // The arrangement subsumes the endpoint-chaining finder below and adds
   // crossings; the old path stays as a fallback so a bail-out can never leave

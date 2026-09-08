@@ -1218,6 +1218,17 @@
       }
     }
   },
+  "msgProfileGapHere": "No closed profile here — the sketch is open by {gap} at {at}.",
+  "@msgProfileGapHere": {
+    "placeholders": {
+      "gap": {
+        "type": "String"
+      },
+      "at": {
+        "type": "String"
+      }
+    }
+  },
   "msgCopiedSketch": "Sketch “{name}” copied.",
   "@msgCopiedSketch": {
     "placeholders": {

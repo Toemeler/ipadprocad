@@ -4372,6 +4372,11 @@ class AppL10nDe extends AppL10n {
   }
 
   @override
+  String msgProfileGapHere(String gap, String at) {
+    return 'Kein geschlossenes Profil — die Skizze ist bei $at um $gap offen.';
+  }
+
+  @override
   String msgCopiedSketch(String name) {
     return 'Skizze „$name“ kopiert.';
   }

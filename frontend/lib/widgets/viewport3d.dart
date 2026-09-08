@@ -46,6 +46,7 @@ import 'package:native_menu/native_menu.dart'
 import 'bottom_tabbar.dart';
 import 'native_browser_host.dart';
 import 'scene_sink.dart';
+import '../l10n/fmt.dart';
 import '../l10n/l.dart';
 import 'ribbon_chrome.dart';
 
@@ -2835,6 +2836,25 @@ class _Viewport3DState extends State<Viewport3D>
             sess.profiles.isNotEmpty) {
           break; // genuinely locked to this sketch
         }
+      }
+      // M397 — the tap found nothing. Say WHY when the sketch nearly closes.
+      //
+      // "the mirrored part of the sketch is somehow not closed and i cant
+      // extrude it or select it for extrusion but it clearly should be
+      // closed" (#25) — it was six micrometres open, which no screen can
+      // show and no amount of tapping can explain. A silent nothing is the
+      // worst possible answer to that; the measurement is one line away.
+      //
+      // Only a NEAR miss is worth saying: a sketch that is open by a
+      // centimetre is a sketch the user has not finished drawing, and
+      // telling them so on every stray tap would be noise. One millimetre is
+      // the line — wide enough to cover any gap that came from arithmetic
+      // rather than from intent.
+      final gap =
+          order.isEmpty ? null : nearestProfileGap(order.first.model);
+      if (gap != null && gap.gap < 1.0) {
+        app.toast(L.current.msgProfileGapHere(Fmt.mm(gap.gap, decimals: 4),
+            '(${Fmt.fixed(gap.at.dx, 2)}, ${Fmt.fixed(gap.at.dy, 2)})'));
       }
       return;
     }

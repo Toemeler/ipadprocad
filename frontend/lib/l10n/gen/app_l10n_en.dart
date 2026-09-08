@@ -4322,6 +4322,11 @@ class AppL10nEn extends AppL10n {
   }
 
   @override
+  String msgProfileGapHere(String gap, String at) {
+    return 'No closed profile here — the sketch is open by $gap at $at.';
+  }
+
+  @override
   String msgCopiedSketch(String name) {
     return 'Sketch “$name” copied.';
   }

@@ -3966,6 +3966,17 @@
       }
     }
   },
+  "msgProfileGapHere": "Kein geschlossenes Profil — die Skizze ist bei {at} um {gap} offen.",
+  "@msgProfileGapHere": {
+    "placeholders": {
+      "gap": {
+        "type": "String"
+      },
+      "at": {
+        "type": "String"
+      }
+    }
+  },
   "msgCopiedSketch": "Skizze „{name}“ kopiert.",
   "@msgCopiedSketch": {
     "description": "M345",
