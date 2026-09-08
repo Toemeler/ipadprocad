@@ -34,16 +34,17 @@ import 'package:flutter/widgets.dart';
 /// either from a pointer event or from `localToGlobal` — both of which are
 /// in the ROOT view's coordinates. That is the same space the Overlay is in,
 /// right up until something puts a transform between the root and the
-/// Overlay: the Windows UI scale (widgets/windows_ui_scale.dart) does
-/// exactly that, and without this conversion every menu opens at 75% of the
-/// distance to where it was asked for — a drift that grows the further right
-/// and further down you click, which is the shape of a bug nobody attributes
-/// to a scale factor.
+/// Overlay — and then every menu opens some fraction of the way to where it
+/// was asked for, a drift that grows the further right and further down you
+/// click, which is the shape of a bug nobody attributes to a transform.
 ///
-/// Going through the Overlay's own box is the conversion Flutter's own
+/// A Windows-wide 0.75 scale did exactly that for one afternoon (M388, since
+/// reverted — see M391), which is how these came to be written. They are
+/// kept because they are RIGHT, not because that scale is coming back:
+/// going through the Overlay's own box is the conversion Flutter's own
 /// `showMenu` makes, and it is the IDENTITY wherever there is no transform
-/// in between. So this is not a Windows special case; it is the correct
-/// arithmetic everywhere, which happens to have been unnecessary until now.
+/// in between. Nothing in the app is scaled today and every one of these is
+/// a no-op; the day something is, the menus already follow it.
 Offset overlayPosition(BuildContext context, Offset global) {
   final box = Overlay.maybeOf(context)?.context.findRenderObject();
   if (box is! RenderBox || !box.hasSize) return global;

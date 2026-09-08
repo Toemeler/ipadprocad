@@ -1,13 +1,14 @@
-// M388 — the Windows UI scale puts a transform between the root view and the
-// Navigator's Overlay, and every menu in this app is positioned from a point
-// measured in the ROOT's coordinates (a pointer event, or localToGlobal).
+// M388 — a transform between the root view and the Navigator's Overlay puts
+// every menu in this app in the wrong place, because each one is positioned
+// from a point measured in the ROOT's coordinates (a pointer event, or
+// localToGlobal).
 //
-// That is the whole risk of scaling the app this way, and it is not visible
-// by reading either side: both are "the position", and they agree exactly
-// until something scales one of them. These two cases are the claim
-// overlayPosition/overlayRect make — identity when nothing is scaled, and the
-// correction when something is — so a regression shows up here rather than as
-// menus that open a few hundred pixels up and to the left on one platform.
+// The Windows UI scale was such a transform for one afternoon and is gone
+// again (M391), so nothing in the app is scaled today and both helpers are
+// no-ops. They are still worth pinning: the mismatch is invisible by reading
+// either side — both are "the position", and they agree exactly until
+// something scales one of them — so the scaled case below is what keeps the
+// arithmetic honest for whatever introduces a transform next.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/menus.dart';
@@ -15,8 +16,8 @@ import 'package:prototype/menus.dart';
 Future<BuildContext> pumpBelowOverlay(WidgetTester t, {double scale = 1}) async {
   late BuildContext ctx;
   await t.pumpWidget(MaterialApp(
-    // The shape WindowsUiScale uses: the transform wraps the routed app, so
-    // the Overlay inside it is in the scaled space and `home` is below both.
+    // The shape an app-wide scale takes: the transform wraps the routed app,
+    // so the Overlay inside it is in the scaled space and `home` is below both.
     builder: (context, child) => scale == 1
         ? child!
         : Transform.scale(

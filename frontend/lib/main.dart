@@ -51,7 +51,6 @@ import 'widgets/make_part_dialog.dart';
 import 'widgets/measure_panel.dart';
 import 'widgets/viewport_window.dart';
 import 'widgets/window_titlebar.dart';
-import 'widgets/windows_ui_scale.dart';
 import 'widgets/work_plane_offset_field.dart';
 
 void main([List<String> args = const <String>[]]) {
@@ -554,7 +553,6 @@ class PrototypeApp extends StatelessWidget {
       supportedLocales: AppL10n.supportedLocales,
       debugShowCheckedModeBanner: false,
       theme: materialTheme(palette, accent: T.accent),
-      builder: (context, child) => WindowsUiScale(child: child),
       home: Scaffold(
         // M42-Fix: the CAD canvas must NOT reflow when the software keyboard
         // appears (inline dimension editor). Resizing re-centres the world
