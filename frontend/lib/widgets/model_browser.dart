@@ -30,6 +30,9 @@ import '../svg_icons.dart';
 import '../icon_preview.dart';
 import '../ios_design.dart';
 import '../theme.dart';
+// M408 — one definition of "this work feature could not be re-solved",
+// shared with the native tree so the two cannot disagree about a red row.
+import 'native_browser.dart' show workFeatureError;
 import 'native_prompts.dart';
 import '../l10n/l.dart';
 
@@ -1605,6 +1608,15 @@ class _ModelBrowserState extends State<ModelBrowser> {
                       ..._componentRows(app, asm, o, indent: 8, path: ''),
                   for (final p in asm.patterns)
                     ..._patternRows(app, asm, p, indent: 8),
+                  // M408 (#32) — an assembly's work features, below the
+                  // components exactly as the native tree lists them. There is
+                  // no timeline here to interleave with, so seq order alone.
+                  for (final (_, build) in _workFeatures(app,
+                      planes: asm.workPlanes,
+                      axes: asm.workAxes,
+                      points: asm.workPoints,
+                      inAssembly: true))
+                    build(),
                 ],
                 // M250 — the assembly a part is being edited inside, and the
                 // way back to it. The native tree's twin; see there for why it
@@ -1637,8 +1649,23 @@ class _ModelBrowserState extends State<ModelBrowser> {
                     // index and can sit above a sketch.
                     final timeline = partTimeline(part);
                     final eop = _shownEop(part);
+                    // M408 (#32) — and the work features, interleaved by seq.
+                    // See [_workFeatures] for why they were missing entirely.
+                    final work = _workFeatures(app,
+                        planes: part.workPlanes,
+                        axes: part.workAxes,
+                        points: part.workPoints);
+                    var nextWork = 0;
+                    void workBefore(int seq) {
+                      while (nextWork < work.length && work[nextWork].$1 < seq) {
+                        rows.add(work[nextWork++].$2());
+                      }
+                    }
+
                     for (var ti = 0; ti < timeline.length; ti++) {
                       final n = timeline[ti];
+                      workBefore(
+                          n.isFeature ? n.feature!.seq : n.sketch!.seq);
                       if (ti == eop) rows.add(_eopRow(app, part));
                       if (n.isFeature) {
                         rows.add(_featureRow(app, part, n.feature!,
@@ -1647,6 +1674,9 @@ class _ModelBrowserState extends State<ModelBrowser> {
                         rows.add(_sketchRow(app, n.sketch!, indent: 8));
                       }
                     }
+                    // Made after the last timeline row, and still ABOVE End of
+                    // Part: a work feature is never rolled back.
+                    workBefore(1 << 30);
                     if (eop >= timeline.length) rows.add(_eopRow(app, part));
                     return rows;
                   }(),
@@ -2129,6 +2159,137 @@ class _ModelBrowserState extends State<ModelBrowser> {
           onTap: () => app.patternSuppressOccurrence(f, index, !off)),
     );
     return off ? Opacity(opacity: 0.4, child: row) : row;
+  }
+
+  /// M408 — THE WORK FEATURES, WHICH THIS TREE HAS NEVER SHOWN.
+  ///
+  /// #32: "the plane which was made somehow does not appear in the model
+  /// browser. idk why. also only tested on windows". The "why" is that off
+  /// iOS the browser IS this widget — [NativeModelBrowser] renders the
+  /// platform list where GlassBrowser is supported and this Flutter tree
+  /// everywhere else — and planes, axes and points have lived only in the
+  /// native tree since M169 and M215. Nothing was wrong with the plane: it
+  /// was in the document, drawn in the viewport, and had no row anywhere.
+  ///
+  /// The rules are the native tree's, taken from it rather than re-derived:
+  ///
+  ///   * ONE interleaved stream for all three kinds, ordered by `seq`, so a
+  ///     plane and an axis made either side of an extrusion land either side
+  ///     of it (M215 — three separate emitters put every axis after every
+  ///     plane, which is the "grouped by type" layout M169 removed);
+  ///   * a work feature sits at its CREATION position and never below End of
+  ///     Part, because End of Part does not roll one back;
+  ///   * blue when it is fine, red when a re-solve could not place it (M247),
+  ///     which only an assembly's can be.
+  ///
+  /// Each entry builds its row LAZILY: [_row] counts rows and folder gaps as
+  /// they stream past, so a row built ahead of its turn would be counted in
+  /// the wrong place.
+  List<(int, Widget Function())> _workFeatures(
+    AppState app, {
+    required List<WorkPlane> planes,
+    required List<WorkAxis> axes,
+    required List<WorkPoint> points,
+    bool inAssembly = false,
+  }) =>
+      <(int, Widget Function())>[
+        for (final w in planes)
+          (w.seq, () => _workPlaneRow(app, w, inAssembly: inAssembly)),
+        for (final a in axes) (a.seq, () => _workAxisRow(app, a)),
+        for (final pt in points) (pt.seq, () => _workPointRow(app, pt)),
+      ]..sort((a, b) => a.$1.compareTo(b.$1));
+
+  /// One work plane. Tap selects and tapping again clears (M254); double-tap
+  /// starts a sketch on it, which is the native menu's first entry and "the
+  /// route that cannot miss" — naming the plane beats racing a solid face for
+  /// the tap in the viewport. In an assembly there is nothing to sketch on, so
+  /// the double-tap does nothing there, exactly as the menu omits the entry.
+  Widget _workPlaneRow(AppState app, WorkPlane w, {bool inAssembly = false}) =>
+      _workRow(
+        icon: planeIcon,
+        label: w.name,
+        error: workFeatureError(w),
+        visible: w.visible,
+        active: identical(app.selectedWorkPlane, w),
+        onTap: () => app.toggleWorkPlaneSelected(w),
+        onEye: () => app.toggleWorkPlaneVisible(w),
+        onOpen: inAssembly ? null : () => app.startSketchOnWorkPlane(w),
+        onDelete: () => _confirmDeleteWork(w.name, () => app.deleteWorkPlane(w)),
+      );
+
+  Widget _workAxisRow(AppState app, WorkAxis a) => _workRow(
+        icon: xAxisIcon,
+        label: a.name,
+        error: workFeatureError(a),
+        visible: a.visible,
+        active: identical(app.selectedWorkAxis, a),
+        onTap: () => app.selectWorkAxis(
+            identical(app.selectedWorkAxis, a) ? null : a),
+        onEye: () => app.toggleWorkAxisVisible(a),
+        // M215 — an axis has no number behind it to edit, so the double-tap
+        // is the one thing there is to do to one: turn it round.
+        onOpen: () => app.flipWorkAxis(a),
+        onDelete: () => _confirmDeleteWork(a.name, () => app.deleteWorkAxis(a)),
+      );
+
+  Widget _workPointRow(AppState app, WorkPoint pt) => _workRow(
+        icon: pt.grounded ? groundedPinIcon : centerPointIcon,
+        label: pt.name,
+        error: workFeatureError(pt),
+        visible: pt.visible,
+        active: identical(app.selectedWorkPoint, pt),
+        onTap: () => app.selectWorkPoint(
+            identical(app.selectedWorkPoint, pt) ? null : pt),
+        onEye: () => app.toggleWorkPointVisible(pt),
+        onDelete:
+            () => _confirmDeleteWork(pt.name, () => app.deleteWorkPoint(pt)),
+      );
+
+  /// The shape all three share: icon, name, eye, and the same two ways to
+  /// delete a row this tree already gives a feature (long press, or a right
+  /// click with a mouse).
+  Widget _workRow({
+    required String icon,
+    required String label,
+    required String? error,
+    required bool visible,
+    required bool active,
+    required VoidCallback onTap,
+    required VoidCallback onEye,
+    required VoidCallback onDelete,
+    VoidCallback? onOpen,
+  }) {
+    final row = _row(
+      indent: 8,
+      exp: ' ',
+      icon: error != null ? endOfSketchIcon : icon,
+      label: label,
+      active: active,
+      onTap: onTap,
+      trailing: _EyeButton(visible: visible, onTap: onEye),
+    );
+    return Listener(
+      onPointerDown: (e) {
+        if (e.kind == PointerDeviceKind.mouse &&
+            e.buttons == kSecondaryMouseButton) {
+          onDelete();
+        }
+      },
+      child: GestureDetector(
+        onDoubleTap: onOpen,
+        onLongPress: onDelete,
+        child: error == null ? row : Tooltip(message: error, child: row),
+      ),
+    );
+  }
+
+  Future<void> _confirmDeleteWork(String name, VoidCallback remove) async {
+    final ok = await confirmAction(
+      context,
+      title: L.of(context).dlgDeleteNamed(name),
+      confirmLabel: L.of(context).delete,
+    );
+    if (ok) remove();
   }
 
   Future<void> _confirmDeleteFeature(PartFeature f) async {
