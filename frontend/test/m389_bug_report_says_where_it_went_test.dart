@@ -88,6 +88,20 @@ void main() {
     expect(_words(t), isNot(contains(_l.msgBugUploadFailed)));
   });
 
+  testWidgets('a bundle that was never written claims no local copy',
+      (t) async {
+    // The one case where the two are independent: [noRelay] is a property of
+    // the BUILD, not of this report, so it is true even when nothing was
+    // written. Both complaints end with "only the local copy above exists",
+    // and there is no copy above — msgBugBundleFailed has already said so.
+    await _pump(t, bugResultDialogForTest(path: null, noRelay: true));
+
+    expect(_words(t), contains(_l.msgBugBundleFailed));
+    expect(_words(t), isNot(contains(_l.msgBugNoRelay)));
+    expect(_words(t), isNot(contains(_l.msgBugUploadFailed)));
+    expect(find.text(_l.btnCopyPath), findsNothing);
+  });
+
   // ---- and where the file is, in the words of the right platform ----------
   //
   // Second-order, and the reporter would have hit it the moment they went

@@ -288,7 +288,15 @@ class _ResultDialog extends StatelessWidget {
               Text(L.of(context).msgBugUploaded, style: ts(12, T.dim)),
               const SizedBox(height: 4),
               SelectableText(issueUrl!, style: ts(11, T.dim)),
-            ] else if (uploadFailed || noRelay) ...[
+              // `ok` GUARDS BOTH COMPLAINTS. Each of them ends with "only the
+              // local copy above exists", and when the bundle could not be
+              // written there is no copy above — msgBugBundleFailed has
+              // already said the truth and this would take it back.
+              // [uploadFailed] could not reach here without a bundle (nothing
+              // is uploaded that was not written); [noRelay] is a property of
+              // the BUILD and can, which is what makes the guard necessary
+              // rather than decorative.
+            ] else if (ok && (uploadFailed || noRelay)) ...[
               const SizedBox(height: 10),
               Text(
                 noRelay
