@@ -2457,6 +2457,30 @@ class AppState extends ChangeNotifier {
     }
     list.sort((a, b) => b.modified.compareTo(a.modified));
     saved = list;
+    // M388 — AND SAY SO, which this did not.
+    //
+    // "The sync only updates when I open a part and go back to the menu, or if
+    // I close and open the app. But not if I'm just in the menu."
+    //
+    // `saved` is what the gallery draws, and rewriting it is invisible until
+    // something asks the widget tree to rebuild. Every OTHER caller of this
+    // method happened to do that itself — fifteen of them, each with a
+    // `notifyListeners()` on the line after — so the omission was survivable
+    // everywhere a person had just tapped something. The exception is the one
+    // path where nobody tapped anything: a document arriving from another
+    // device. `_adoptSynced` calls this and returns, the mirror goes quiet,
+    // and the gallery keeps drawing the list it built at launch.
+    //
+    // Then opening a part and coming back rebuilds the route, and the file is
+    // suddenly there — which reads as "sync only works when I navigate", and
+    // is really "sync worked immediately and nothing repainted".
+    //
+    // Notifying HERE rather than at the call site is what stops it coming
+    // back: the method that changes what the gallery shows is the method that
+    // announces it, and a sixteenth caller cannot forget. The callers that
+    // already notify now do so twice, which costs one coalesced rebuild —
+    // Flutter merges both into the same frame.
+    notifyListeners();
     // NOT awaited: the gallery must appear now. The repair decodes a handful
     // of PNGs, fixes the ones that carry a palette, and asks for a repaint if
     // any did.
