@@ -3966,13 +3966,16 @@
       }
     }
   },
-  "msgProfileGapHere": "Kein geschlossenes Profil — die Skizze ist bei {at} um {gap} offen.",
+  "msgProfileGapHere": "Kein geschlossenes Profil — die Skizze ist bei ({x}, {y}) um {gap} offen.",
   "@msgProfileGapHere": {
     "placeholders": {
       "gap": {
         "type": "String"
       },
-      "at": {
+      "x": {
+        "type": "String"
+      },
+      "y": {
         "type": "String"
       }
     }

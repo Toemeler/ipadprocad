@@ -7240,8 +7240,8 @@ abstract class AppL10n {
   /// M397
   ///
   /// In de, this message translates to:
-  /// **'Kein geschlossenes Profil — die Skizze ist bei {at} um {gap} offen.'**
-  String msgProfileGapHere(String gap, String at);
+  /// **'Kein geschlossenes Profil — die Skizze ist bei ({x}, {y}) um {gap} offen.'**
+  String msgProfileGapHere(String gap, String x, String y);
 
   /// M345
   ///

@@ -1218,13 +1218,16 @@
       }
     }
   },
-  "msgProfileGapHere": "No closed profile here — the sketch is open by {gap} at {at}.",
+  "msgProfileGapHere": "No closed profile here — the sketch is open by {gap} at ({x}, {y}).",
   "@msgProfileGapHere": {
     "placeholders": {
       "gap": {
         "type": "String"
       },
-      "at": {
+      "x": {
+        "type": "String"
+      },
+      "y": {
         "type": "String"
       }
     }

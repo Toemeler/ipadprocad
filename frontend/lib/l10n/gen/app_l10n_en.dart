@@ -4322,8 +4322,8 @@ class AppL10nEn extends AppL10n {
   }
 
   @override
-  String msgProfileGapHere(String gap, String at) {
-    return 'No closed profile here — the sketch is open by $gap at $at.';
+  String msgProfileGapHere(String gap, String x, String y) {
+    return 'No closed profile here — the sketch is open by $gap at ($x, $y).';
   }
 
   @override

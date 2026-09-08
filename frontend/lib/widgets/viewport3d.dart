@@ -2853,8 +2853,10 @@ class _Viewport3DState extends State<Viewport3D>
       final gap =
           order.isEmpty ? null : nearestProfileGap(order.first.model);
       if (gap != null && gap.gap < 1.0) {
-        app.toast(L.current.msgProfileGapHere(Fmt.mm(gap.gap, decimals: 4),
-            '(${Fmt.fixed(gap.at.dx, 2)}, ${Fmt.fixed(gap.at.dy, 2)})'));
+        app.toast(L.current.msgProfileGapHere(
+            Fmt.mm(gap.gap, decimals: 4),
+            Fmt.fixed(gap.at.dx, 2),
+            Fmt.fixed(gap.at.dy, 2)));
       }
       return;
     }

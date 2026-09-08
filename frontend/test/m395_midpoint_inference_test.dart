@@ -31,13 +31,18 @@ AppState makeApp() {
 }
 
 /// The rectangle the reported sketch was drawn in: 50 wide, 336 tall, with
-/// the left edge on x=0. (Projected edges in the real sketch; plain lines
-/// here — inference does not distinguish them.)
+/// the left edge on x=0.
+///
+/// PROJECTED, as it was there — these are the four edges of the face the
+/// sketch sits on. That matters for more than fidelity: a projection is
+/// pinned reference geometry, so its midpoint is a FIXED point, which is
+/// what makes the middle line fully constrained and the horizontal read off
+/// it redundant. The same lines drawn in mid-air would be neither.
 List<Geo> frame() => [
-      Geo(Geo.line, [0, 0, -50, 0]), // bottom
-      Geo(Geo.line, [0, 336, -50, 336]), // top
-      Geo(Geo.line, [0, 0, 0, 336]), // right
-      Geo(Geo.line, [-50, 0, -50, 336]), // left
+      Geo(Geo.line, [0, 0, -50, 0]).withProj(Geo.projSolid), // bottom
+      Geo(Geo.line, [0, 336, -50, 336]).withProj(Geo.projSolid), // top
+      Geo(Geo.line, [0, 0, 0, 336]).withProj(Geo.projSolid), // right
+      Geo(Geo.line, [-50, 0, -50, 336]).withProj(Geo.projSolid), // left
     ];
 
 List<Constraint> ofType(List<Constraint> cs, CType t) =>
@@ -79,11 +84,9 @@ void main() {
     // line's four parameters are answered by the two midpoint constraints.
     final gs = frame()..add(Geo(Geo.line, [0, 168, -50, 168]));
     final inferred = inferConstraints(gs, 4);
+    // The frame needs no constraints of its own: analyzeSketch pins every
+    // projection where its source is, exactly as the solver does.
     final cs = <Constraint>[
-      Constraint(CType.fix, ents: [0]),
-      Constraint(CType.fix, ents: [1]),
-      Constraint(CType.fix, ents: [2]),
-      Constraint(CType.fix, ents: [3]),
       // What the commit path keeps: the bindings, and no direction constraint
       // they have already implied.
       for (final c in inferred)
@@ -102,15 +105,11 @@ void main() {
     final inferred = inferConstraints(gs, 4);
     final horiz = ofType(inferred, CType.horizontal);
     expect(horiz, hasLength(1), reason: 'inference still reads it off');
-    final fixed = [
-      for (var i = 0; i < 4; i++) Constraint(CType.fix, ents: [i]),
-    ];
     final bindings = [
       for (final c in inferred)
         if (!isDirectionConstraint(c)) c
     ];
-    expect(wouldOverconstrain(gs, [...fixed, ...bindings], horiz.single),
-        isTrue);
+    expect(wouldOverconstrain(gs, bindings, horiz.single), isTrue);
   });
 
   test('but the closing edge of a free rectangle keeps its horizontal', () {
@@ -145,37 +144,32 @@ void main() {
     final cs = inferConstraints(gs, 4);
     expect(ofType(cs, CType.midpoint), hasLength(1));
     expect(ofType(cs, CType.horizontal), hasLength(1));
-    final fixed = [
-      for (var i = 0; i < 4; i++) Constraint(CType.fix, ents: [i]),
-    ];
     final bindings = [
       for (final c in cs)
         if (!isDirectionConstraint(c)) c
     ];
     expect(
         wouldOverconstrain(
-            gs, [...fixed, ...bindings], ofType(cs, CType.horizontal).single),
+            gs, bindings, ofType(cs, CType.horizontal).single),
         isFalse);
   });
 
   test('drawn through the app, the middle line comes out fully constrained',
       () {
-    // The report, end to end. The frame stands in for the projected edges of
-    // the face — fixed reference geometry, exactly what a projection is.
+    // The report, end to end: the projected edges of the face, and one line
+    // drawn from the middle of one to the middle of the other.
     final app = makeApp();
     final s = app.current!;
     s.geometry.addAll(frame());
-    for (var i = 0; i < 4; i++) {
-      s.constraints.add(Constraint(CType.fix, ents: [i]));
+    app.editingLayer = kDefaultLayer;
+    for (final g in s.geometry) {
+      if (!s.layers.contains(g.layer)) s.layers.add(g.layer);
     }
     app.selectTool(Tool.line);
     app.toolClick(const Offset(0, 168)); // the midpoint snap put it here
     app.toolClick(const Offset(-50, 168));
     expect(s.geometry, hasLength(5));
-    final mine = [
-      for (final c in s.constraints)
-        if (c.type != CType.fix) c
-    ];
+    final mine = s.constraints;
     expect(ofType(mine, CType.midpoint), hasLength(2),
         reason: 'both ends (${mine.map((c) => c.toJson())})');
     expect(ofType(mine, CType.horizontal), isEmpty,

@@ -3103,6 +3103,18 @@ bool wouldOverconstrain(
     List<Geo> gs, List<Constraint> cs, Constraint candidate) {
   final added = residualCount(gs, candidate);
   if (added == 0) return false;
+  // M395 — projected geometry is PINNED, here as everywhere else.
+  //
+  // `solveConstraints` and `analyzeSketch` both open by adding the implicit
+  // fixes that hold a projection where its source is; this one did not, and
+  // so answered a different question than the two functions that act on its
+  // answer. Everything a projection touches looked freer than it is: a
+  // relation that is already implied by two fixed edges came back "adds a new
+  // equation", was accepted, and then the solve it made impossible reported
+  // the whole set unsatisfiable. That is the difference between a sketch
+  // drawn on a projected face — which is most of them — and the same sketch
+  // drawn in mid-air.
+  cs = _withProjectionPins(gs, cs);
   int rankOf(List<Constraint> list) {
     final off = _offsets(gs);
     final total = off.last;
