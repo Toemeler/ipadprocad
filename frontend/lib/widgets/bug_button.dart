@@ -17,11 +17,15 @@
 // nothing: the reason to drag it went away, and one less thing floats over the
 // model. What is left here is the flow — the two dialogs and the capture
 // between them — with no widget of its own.
+import 'dart:io' show Platform;
+
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../app_state.dart';
 import '../bug_capture.dart';
+import '../bug_upload.dart';
 import '../log.dart';
 import '../theme.dart';
 import '../l10n/l.dart';
@@ -59,6 +63,20 @@ class BugReport {
         path: result.file?.path,
         issueUrl: result.upload?.issueUrl,
         uploadFailed: result.upload != null && !result.upload!.ok,
+        // M389 — THE DIALOG USED TO BE SILENT ABOUT THE CASE THAT ACTUALLY
+        // HAPPENED. `result.upload` is null when the build has no relay
+        // compiled in, and null failed both branches below: the user got
+        // "Report saved" and a path, with nothing to say the report had not
+        // been filed. That is exactly what the Windows and Linux builds did
+        // for their whole life, because neither workflow passed
+        // --dart-define=BUG_RELAY_URL (fixed in the same commit) — and it is
+        // indistinguishable, on screen, from a report that went through.
+        //
+        // Both workflows now pass it, so this should never be true in a CI
+        // build again. It stays because "the upload silently did not happen"
+        // must be a thing the dialog SAYS, not a thing only the build
+        // configuration knows.
+        noRelay: !bugUploadConfigured,
       ),
     );
   }
@@ -190,12 +208,48 @@ class _BugDialogState extends State<_BugDialog> {
   }
 }
 
+/// The result dialog, for a test.
+///
+/// The flow it belongs to ([BugReport.open]) writes a real bundle to a real
+/// directory and grabs a screenshot between two dialogs, which is the wrong
+/// amount of machinery to stand up in order to read one sentence. What the
+/// M389 report was actually about is what this dialog SAYS about the upload,
+/// so that is what is exposed.
+@visibleForTesting
+Widget bugResultDialogForTest({
+  String? path,
+  String? issueUrl,
+  bool uploadFailed = false,
+  bool noRelay = false,
+}) =>
+    _ResultDialog(
+      path: path,
+      issueUrl: issueUrl,
+      uploadFailed: uploadFailed,
+      noRelay: noRelay,
+    );
+
+/// Windows, Linux or macOS — the three places where "Files app > On My iPad"
+/// is not an address. Guarded on [kIsWeb] because `Platform` throws there.
+bool get _desktop =>
+    !kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
+
 class _ResultDialog extends StatelessWidget {
-  const _ResultDialog({required this.path, this.issueUrl, this.uploadFailed = false});
+  const _ResultDialog({
+    required this.path,
+    this.issueUrl,
+    this.uploadFailed = false,
+    this.noRelay = false,
+  });
 
   final String? path;
   final String? issueUrl;
   final bool uploadFailed;
+
+  /// No relay was compiled into this build, so no upload was even attempted.
+  /// Distinct from [uploadFailed], which means one was configured and could
+  /// not be reached — the user's next move differs.
+  final bool noRelay;
 
   @override
   Widget build(BuildContext context) {
@@ -215,7 +269,13 @@ class _ResultDialog extends StatelessWidget {
           children: [
             Text(
               ok
-                  ? L.of(context).msgBugSaved
+                  // WHERE THE FILE IS, in the words of the platform the user
+                  // is actually on. The iPad wording ("Files app > On My
+                  // iPad") was shown on Windows and Linux too, where there is
+                  // no Files app and the path below is the only true part.
+                  ? (_desktop
+                      ? L.of(context).msgBugSavedDesktop
+                      : L.of(context).msgBugSaved)
                   : L.of(context).msgBugBundleFailed,
               style: ts(12, T.dim),
             ),
@@ -228,9 +288,14 @@ class _ResultDialog extends StatelessWidget {
               Text(L.of(context).msgBugUploaded, style: ts(12, T.dim)),
               const SizedBox(height: 4),
               SelectableText(issueUrl!, style: ts(11, T.dim)),
-            ] else if (uploadFailed) ...[
+            ] else if (uploadFailed || noRelay) ...[
               const SizedBox(height: 10),
-              Text(L.of(context).msgBugUploadFailed, style: ts(12, T.dim)),
+              Text(
+                noRelay
+                    ? L.of(context).msgBugNoRelay
+                    : L.of(context).msgBugUploadFailed,
+                style: ts(12, T.dim),
+              ),
             ],
           ],
         ),

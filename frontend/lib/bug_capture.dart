@@ -28,6 +28,7 @@ import 'ffi/occt_engine.dart';
 import 'log.dart';
 import 'part_model.dart';
 import 'perf.dart';
+import 'platform/app_dirs.dart';
 import 'perf_scenarios.dart';
 import 'perf_scenarios_profile.dart';
 import 'perf_scenarios_soak.dart';
@@ -530,6 +531,17 @@ String _docsRoot(AppState app) {
   if (d != null) return d.path;
   // Same derivation Log.init uses, so a report is still written when the
   // platform channel never came up.
+  //
+  // M389 — AND THAT MEANS `desktopAppDirectory()` ON A DESKTOP. This branch
+  // used to be `$HOME/Documents` for every platform, which is Log.init's iOS
+  // answer and nobody else's: Windows does not set HOME at all, so the
+  // fallback landed the bundle in the TEMP directory under a name the
+  // reporter would never think to look for — and next to a result dialog
+  // saying the report was saved, which is the same shape of quiet failure as
+  // the upload that never happened. `desktopAppDirectory()` is what Log.init
+  // and Perf.init already derive, and it is where the logs the bundle is
+  // gathered from are.
+  if (isDesktopHost) return desktopAppDirectory().path;
   final home = Platform.environment['HOME'];
   if (home != null && home.isNotEmpty) return '$home/Documents';
   return Directory.systemTemp.path;

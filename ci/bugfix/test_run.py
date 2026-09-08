@@ -2108,3 +2108,100 @@ class ReleaseIfClaimedTest(unittest.TestCase):
                 released, calls = self.run_release(labels)
                 self.assertFalse(released)
                 self.assertEqual(calls, [])
+
+
+class RelayIsCompiledInTest(unittest.TestCase):
+    """M389 — every shipping build must carry the relay's address.
+
+    THE BUG THIS EXISTS FOR, in the reporter's words: "I wrote a bug report on
+    windows but it doesnt show up in the issues. Somehow bugreports from
+    windows dont work."
+
+    They worked exactly as written. `bug_upload.dart` reads the relay's URL
+    through `String.fromEnvironment('BUG_RELAY_URL')`, which is a BUILD-TIME
+    constant: without `--dart-define` it is the empty string, `bugUploadConfigured`
+    is false, and `bug_capture.dart` writes the bundle to disk and never calls
+    the relay at all. `m1-core-build.yml` has passed the define since M285;
+    `windows-build.yml` and `linux-build.yml` were written later and from each
+    other, and neither ever did — so a report filed from the desktop app was a
+    zip on the reporter's own disk and nothing else, and the result dialog
+    (which only had a branch for "the upload failed") said nothing about it.
+
+    Nothing else could have caught this. The Dart tests run with no defines by
+    design, `flutter analyze` cannot see a missing build flag, and the failure
+    mode on the device is a dialog that says "Report saved". The one place the
+    fact lives is the workflow, so the workflow is what gets asserted.
+    """
+
+    #: Every workflow that builds a SHIPPING bundle, and the flutter
+    #: sub-command each one calls. sim-perf.yml is deliberately absent: it
+    #: builds for the simulator to measure frames and files no reports.
+    BUILDS = {
+        'm1-core-build.yml': 'flutter build ios',
+        'linux-build.yml': 'flutter build linux',
+        'windows-build.yml': 'flutter build windows',
+    }
+
+    def _workflow(self, name):
+        return (pathlib.Path(run.__file__).resolve().parents[2]
+                / '.github' / 'workflows' / name).read_text()
+
+    def test_every_platform_bakes_in_the_relay(self):
+        for name in self.BUILDS:
+            with self.subTest(workflow=name):
+                text = self._workflow(name)
+                self.assertIn('--dart-define=BUG_RELAY_URL=', text,
+                              f'{name} builds an app that cannot file a report')
+                self.assertIn('--dart-define=BUG_RELAY_SECRET=', text, name)
+                self.assertIn('--dart-define=GIT_SHA=', text,
+                              f'{name}: a report must be able to name its build')
+
+    @staticmethod
+    def _step_containing(text, needle):
+        """The whole `- name:` step the needle sits in.
+
+        Not a window of N characters around it: the Windows job builds its
+        defines into a pwsh array on the lines BEFORE the command and the
+        others put them after it, and a step is the unit that actually decides
+        what one invocation is handed.
+        """
+        at = text.index(needle)
+        head = text.rfind('\n      - ', 0, at)
+        tail = text.find('\n      - ', at)
+        return text[head if head >= 0 else 0:tail if tail >= 0 else len(text)]
+
+    def test_the_define_is_in_the_step_that_builds(self):
+        """Present in the file is not the same as passed to the build.
+
+        The defines are build-time constants, and a workflow can mention
+        BUG_RELAY_URL in a step that has nothing to do with the bundle. What
+        has to carry them is the step that runs `flutter build`.
+        """
+        for name, cmd in self.BUILDS.items():
+            with self.subTest(workflow=name):
+                text = self._workflow(name)
+                self.assertIn(cmd, text, f'{name} no longer runs {cmd!r}')
+                step = self._step_containing(text, cmd)
+                self.assertIn('BUG_RELAY_URL', step,
+                              f'{name}: {cmd!r} runs without the relay define')
+                self.assertIn('BUG_RELAY_SECRET', step, name)
+                self.assertIn('GIT_SHA', step, name)
+
+    def test_the_secret_is_never_a_github_token(self):
+        """M195's constraint, kept where it can be checked.
+
+        The app holds an abuse-throttle string and no write access of its own;
+        the relay holds the GitHub token. A workflow that started handing the
+        app a token would be the credential-in-the-bundle mistake M195 built
+        and reverted — see the header of frontend/lib/bug_upload.dart.
+        """
+        for name in self.BUILDS:
+            with self.subTest(workflow=name):
+                text = self._workflow(name)
+                for line in text.splitlines():
+                    if '--dart-define=' not in line:
+                        continue
+                    lowered = line.lower()
+                    self.assertNotIn('github_token', lowered, line)
+                    self.assertNotIn('gh_token', lowered, line)
+                    self.assertNotIn('secrets.github', lowered, line)

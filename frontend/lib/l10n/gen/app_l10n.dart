@@ -5575,6 +5575,12 @@ abstract class AppL10n {
   /// **'Dateien-App > Auf meinem iPad > prototype > bugreports\nDie .zip verschicken — sie enthält alles Nötige; es muss keine Erklärung mitreisen.'**
   String get msgBugSaved;
 
+  /// M389 — dasselbe wie msgBugSaved, aber fuer Windows und Linux: dort gibt es keine Dateien-App und kein "Auf meinem iPad". "bugreports" ist ein Ordnername auf der Platte und bleibt.
+  ///
+  /// In de, this message translates to:
+  /// **'Der Ordner „bugreports“ neben den Dokumenten der App — der Pfad steht unten.\nDie .zip verschicken — sie enthält alles Nötige; es muss keine Erklärung mitreisen.'**
+  String get msgBugSavedDesktop;
+
   /// prototype_log.txt und die Logmarke "bug" sind Dateiname und Logmarke — sie bleiben, wie sie auf der Platte stehen.
   ///
   /// In de, this message translates to:
@@ -5592,6 +5598,12 @@ abstract class AppL10n {
   /// In de, this message translates to:
   /// **'Der Relay war nicht erreichbar — es gibt nur die lokale Kopie oben. Von Hand verschicken, oder es später erneut versuchen.'**
   String get msgBugUploadFailed;
+
+  /// M389 — sichtbar, wenn gar kein Relay einkompiliert ist (BUG_RELAY_URL leer). Unterscheidet sich bewusst von msgBugUploadFailed: da war ein Relay konfiguriert und nicht erreichbar, hier gibt es keins. Vorher sagte der Dialog in diesem Fall NICHTS, und ein Bericht sah aus wie eingereicht.
+  ///
+  /// In de, this message translates to:
+  /// **'Dieser Build kann nichts online ablegen — es gibt nur die lokale Kopie oben. Die .zip von Hand verschicken.'**
+  String get msgBugNoRelay;
 
   /// No description provided for @hintPickBodyTapCancel.
   ///

@@ -302,9 +302,22 @@ jobs:
         working-directory: frontend
         run: flutter pub get
 
+      # THE SAME THREE DEFINES THE iOS JOB PASSES, for the same reason, and
+      # their absence here had the same consequence: `bug_upload.dart` reads
+      # BUG_RELAY_URL through `String.fromEnvironment`, an empty one means "no
+      # relay configured", and the upload is skipped without the report dialog
+      # ever saying so. A bug filed from the desktop app was a zip on the
+      # user's own disk and nothing more.
+      #
+      # BUG_RELAY_SECRET is an abuse throttle, not a GitHub credential — the
+      # relay holds the token. See frontend/lib/bug_upload.dart's header.
       - name: Build the release bundle
         working-directory: frontend
-        run: flutter build linux --release
+        run: |
+          flutter build linux --release \
+            --dart-define=GIT_SHA=${GITHUB_SHA::7} \
+            --dart-define=BUG_RELAY_URL=${{ vars.BUG_RELAY_URL }} \
+            --dart-define=BUG_RELAY_SECRET=${{ secrets.BUG_RELAY_SECRET }}
 
       # WHAT THE RUNNER IS FOR. This machine has the GTK stack and no Qt, which
       # is the shape of a user's machine and NOT the shape of the one that

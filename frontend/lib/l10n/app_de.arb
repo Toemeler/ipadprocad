@@ -2802,6 +2802,10 @@
   "@msgBugSaved": {
     "description": "Der Pfad ist der, den iPadOS auf Deutsch anzeigt — die Dateien-App heisst so. \"prototype\" und \"bugreports\" sind Ordnernamen auf der Platte und bleiben."
   },
+  "msgBugSavedDesktop": "Der Ordner „bugreports“ neben den Dokumenten der App — der Pfad steht unten.\nDie .zip verschicken — sie enthält alles Nötige; es muss keine Erklärung mitreisen.",
+  "@msgBugSavedDesktop": {
+    "description": "M389 — dasselbe wie msgBugSaved, aber fuer Windows und Linux: dort gibt es keine Dateien-App und kein \"Auf meinem iPad\". \"bugreports\" ist ein Ordnername auf der Platte und bleibt."
+  },
   "msgBugBundleFailed": "Das Paket ließ sich nicht schreiben. Das Protokoll enthält die Beschreibung noch, die Sitzung ist also nicht verloren — siehe die „bug“-Zeilen in prototype_log.txt.",
   "@msgBugBundleFailed": {
     "description": "prototype_log.txt und die Logmarke \"bug\" sind Dateiname und Logmarke — sie bleiben, wie sie auf der Platte stehen."
@@ -2813,6 +2817,10 @@
   "msgBugUploadFailed": "Der Relay war nicht erreichbar — es gibt nur die lokale Kopie oben. Von Hand verschicken, oder es später erneut versuchen.",
   "@msgBugUploadFailed": {
     "description": "M285 — nur sichtbar, wenn ein Relay konfiguriert ist und der Versand fehlgeschlagen ist; die lokale Kopie existiert in jedem Fall, das hier ist rein zusaetzlich."
+  },
+  "msgBugNoRelay": "Dieser Build kann nichts online ablegen — es gibt nur die lokale Kopie oben. Die .zip von Hand verschicken.",
+  "@msgBugNoRelay": {
+    "description": "M389 — sichtbar, wenn gar kein Relay einkompiliert ist (BUG_RELAY_URL leer). Unterscheidet sich bewusst von msgBugUploadFailed: da war ein Relay konfiguriert und nicht erreichbar, hier gibt es keins. Vorher sagte der Dialog in diesem Fall NICHTS, und ein Bericht sah aus wie eingereicht."
   },
   "hintPickBodyTapCancel": "Körper wählen… (zum Abbrechen tippen)",
   "lblSelectBodyIn3d": "Körper in 3D / im Browser wählen",

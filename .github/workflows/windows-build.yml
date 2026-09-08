@@ -482,9 +482,48 @@ jobs:
         working-directory: frontend
         run: flutter pub get
 
+      # THE THREE DEFINES ARE NOT OPTIONAL, and leaving them off was a silent
+      # feature removal rather than a missing nicety.
+      #
+      # `bug_upload.dart` gates the whole upload on
+      # `String.fromEnvironment('BUG_RELAY_URL')`. Without the define the
+      # constant is the empty string, `bugUploadConfigured` is false,
+      # `bug_capture.dart` never calls the relay — and the result dialog said
+      # "Report saved" with a local path and nothing else. So a report written
+      # on Windows was complete, durable, and went precisely nowhere, while
+      # looking exactly like one that had been filed. The iOS job
+      # (m1-core-build.yml) has passed these since M285; this job was written
+      # from the Linux one, which never had them either.
+      #
+      # BUG_RELAY_SECRET IS NOT A GITHUB CREDENTIAL and putting it in a
+      # shipped .exe is not the mistake M195 reverted. The relay holds the
+      # token; this is the abuse throttle it checks before spending it. See
+      # the header of frontend/lib/bug_upload.dart and relay/README.md.
+      #
+      # GIT_SHA rides along because a bug report that cannot name its build is
+      # half a bug report — log.dart reads it and falls back to 'local'.
+      #
+      # AN ARRAY AND A SPLAT, not a backtick-continued command line. This step
+      # has no `shell:` and so runs under pwsh, where the continuation is a
+      # backtick that a single trailing space silently turns into the end of
+      # the command — and the failure would be a bundle that builds fine and
+      # simply cannot file a report, which is the exact bug being fixed.
+      #
+      # The values are SINGLE-quoted. GitHub substitutes `${{ }}` before pwsh
+      # ever sees the line, so what is left is a literal, and single quotes
+      # keep pwsh from expanding a `$` that happens to be inside a relay URL
+      # or a throttle string. The sha is sliced from a string literal rather
+      # than from $env: for the same reason: nothing to parse.
       - name: Build the release bundle
         working-directory: frontend
-        run: flutter build windows --release
+        run: |
+          $sha = "${{ github.sha }}".Substring(0, 7)
+          $defines = @(
+            "--dart-define=GIT_SHA=$sha"
+            '--dart-define=BUG_RELAY_URL=${{ vars.BUG_RELAY_URL }}'
+            '--dart-define=BUG_RELAY_SECRET=${{ secrets.BUG_RELAY_SECRET }}'
+          )
+          flutter build windows --release @defines
 
       # WHAT LANDED. The runner directory IS the product on Windows — the exe,
       # the engine DLL, the plugin DLLs and `data/` — so this is both a

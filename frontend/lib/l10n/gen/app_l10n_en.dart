@@ -3332,6 +3332,10 @@ class AppL10nEn extends AppL10n {
       'Files app > On My iPad > prototype > bugreports\nSend the .zip — it contains everything needed; no explanation has to travel with it.';
 
   @override
+  String get msgBugSavedDesktop =>
+      'The \"bugreports\" folder beside the app\'s documents — the path is below.\nSend the .zip — it contains everything needed; no explanation has to travel with it.';
+
+  @override
   String get msgBugBundleFailed =>
       'The bundle could not be written. The log still has the description, so the session is not lost — see the \"bug\" lines in prototype_log.txt.';
 
@@ -3342,6 +3346,10 @@ class AppL10nEn extends AppL10n {
   @override
   String get msgBugUploadFailed =>
       'Could not reach the relay — only the local copy above exists. Send it by hand, or try again once you have a connection.';
+
+  @override
+  String get msgBugNoRelay =>
+      'This build cannot file anything online — only the local copy above exists. Send the .zip by hand.';
 
   @override
   String get hintPickBodyTapCancel => 'Pick a body… (tap to cancel)';
