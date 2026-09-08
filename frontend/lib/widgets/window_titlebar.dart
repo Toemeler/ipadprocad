@@ -16,11 +16,13 @@
 // to DestroyWindow — so it still runs the willClose save handshake.
 import 'dart:io' show Platform;
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, visibleForTesting;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../ribbon_dock.dart';
 import '../theme.dart';
+import 'ribbon_dock_layout.dart';
 
 /// The Dart side of the three `prototype/desktop` calls this file's buttons
 /// make, plus the drag and the maximized query. Kept beside
@@ -46,7 +48,39 @@ class WindowChrome {
 /// True where this bar belongs: Windows only. iOS has its own status bar,
 /// macOS its traffic lights, Linux its window manager's decoration — none of
 /// those were part of the report and none of them are touched.
-bool get windowChromeIsCustom => !kIsWeb && Platform.isWindows;
+bool get windowChromeIsCustom =>
+    debugWindowChromeIsCustom ?? (!kIsWeb && Platform.isWindows);
+
+/// Tests only: pretend this platform draws its own window chrome.
+///
+/// The same seam, and for the same reason, as `RibbonSurface.glassOverride`:
+/// what the caption strip does to the layout around it is a rule with four
+/// dock cases in it, and a suite that can only ever run on Linux would leave
+/// every one of them unmeasured — which is how #33 shipped.
+@visibleForTesting
+bool? debugWindowChromeIsCustom;
+
+/// M410 — how much of the DOCUMENT LAYER's top edge the caption strip covers.
+///
+/// #33: "the top right corner is somehow under the minimise close or maximise
+/// buttons on windows." The ViewCube and its Home button sit at the top right
+/// of the viewport, and the viewport is the layer that BLEEDS — M389 moved the
+/// caption strip into the stage so the band could reach the window's top edge,
+/// and the document has run edge to edge underneath it ever since. The stage's
+/// own panels were laid out below the strip and were fine; the cube was not in
+/// the stage, so it kept the corner the window buttons were standing in.
+///
+/// The two arrangements that put the caption ABOVE the document instead —
+/// a TOP dock, where the strip takes the outer row so close and maximise are
+/// not stranded under a full-width ribbon, and a DOCKED band, where the
+/// document is laid out inside the stage — need no clearance and get none.
+/// See RibbonDockLayout's `_withCaption` and `_staged` for both.
+double get windowCaptionOverlap {
+  if (!windowChromeIsCustom) return 0;
+  if (RibbonDock.current == RibbonPosition.top) return 0;
+  if (!RibbonDockLayout.floats) return 0;
+  return WindowTitleBar.height;
+}
 
 class WindowTitleBar extends StatefulWidget {
   const WindowTitleBar({super.key});

@@ -35,6 +35,25 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   // boilerplate here.
   ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
 
+  // M410 — NO GHOST WINDOW (#33): "when the app is not responding, there is
+  // still the normal windows native white top bar."
+  //
+  // That bar is not this app's. When a top-level window stops pumping messages
+  // for about five seconds, Windows hides it and puts a GHOST in its place —
+  // a system-owned window with the same title, "(Not Responding)" appended,
+  // and the DEFAULT frame. The ghost belongs to the system, not to this
+  // process, so it never sees the WM_NCCALCSIZE answer that removes this
+  // app's caption (see flutter_window.cpp): the app is drawn with no title bar
+  // at all and then, the moment a rebuild runs long, sprouts a white one.
+  //
+  // DisableProcessWindowsGhosting is the documented switch for exactly this
+  // and is what every application that draws its own frame calls. The cost is
+  // that a genuinely hung window no longer offers the system's "close the
+  // program" sheet — but the window still repaints as itself, it is still
+  // draggable once the thread comes back, and Task Manager is unaffected. A
+  // foreign title bar appearing over a custom frame is the worse of the two.
+  ::DisableProcessWindowsGhosting();
+
   flutter::DartProject project(L"data");
 
   // FLUTTER GPU, which the 3D viewport is drawn with.

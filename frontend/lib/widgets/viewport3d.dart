@@ -49,6 +49,7 @@ import 'scene_sink.dart';
 import '../l10n/fmt.dart';
 import '../l10n/l.dart';
 import 'ribbon_chrome.dart';
+import 'window_titlebar.dart' show windowCaptionOverlap;
 
 // M83: the origin planes/axes are no longer a fixed 20 mm square — they frame
 // the part (originPlaneRect / originAxisSpan in part_model.dart). This constant
@@ -1086,7 +1087,13 @@ class _Viewport3DState extends State<Viewport3D>
           child: ValueListenableBuilder<EdgeInsets>(
             valueListenable: RibbonBleed.inset,
             builder: (_, bleed, __) => Padding(
-              padding: bleed,
+              // M410 — plus the caption strip on Windows (#33). M389 moved
+              // that strip into the STAGE so the band could reach the window's
+              // top edge, which left the document — this layer — bleeding
+              // underneath it, and the ViewCube kept a corner the window
+              // buttons were standing in. See [windowCaptionOverlap] for the
+              // two arrangements that need no clearance.
+              padding: bleed + EdgeInsets.only(top: windowCaptionOverlap),
               child: Stack(children: [
         // ViewCube + Home, top-right.
         //
