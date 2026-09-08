@@ -100,8 +100,17 @@ class _WindowTitleBarState extends State<WindowTitleBar>
       height: WindowTitleBar.height,
       child: Row(children: [
         Expanded(
+          // M389 — OPAQUE, and the change matters now in a way it did not
+          // before. This strip used to be a row above the whole app with
+          // nothing behind it, so translucent and opaque behaved identically.
+          // It is a row of the STAGE now (see [RibbonDockLayout.caption]) and
+          // the document bleeds edge to edge underneath it — so translucent
+          // would let a drag reach the viewport as well, and one gesture at
+          // the top of the window would both move the window and orbit the
+          // model. A caption strip claims its own 32 points, as the system
+          // one it stands in for does.
           child: GestureDetector(
-            behavior: HitTestBehavior.translucent,
+            behavior: HitTestBehavior.opaque,
             onPanStart: (_) => WindowChrome.startDrag(),
             onDoubleTap: _toggleMaximize,
             child: const SizedBox.expand(),

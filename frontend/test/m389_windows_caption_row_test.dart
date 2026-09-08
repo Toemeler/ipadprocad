@@ -25,12 +25,14 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/app_state.dart';
 import 'package:prototype/ffi/qcad_engine.dart';
 import 'package:prototype/ribbon_dock.dart';
 import 'package:prototype/widgets/ribbon.dart';
 import 'package:prototype/widgets/ribbon_dock_layout.dart';
+import 'package:prototype/widgets/window_titlebar.dart';
 
 const Size _screen = Size(1600, 900);
 const Key _stageKey = Key('stage');
@@ -188,4 +190,55 @@ void main() {
           reason: 'the band and the stage still tile the whole content area');
     });
   }
+
+  // ---- and the strip claims its own 32 points ---------------------------
+  //
+  // A row of the stage sits OVER the document where the band floats, which is
+  // new: the strip used to be a row above the whole app with nothing behind
+  // it, and translucent hit-test behaviour was therefore invisible. With the
+  // viewport underneath, translucent would let one gesture at the top of the
+  // window both move the window and orbit the model.
+  testWidgets('the real bar swallows a press instead of passing it through',
+      (t) async {
+    // WindowTitleBar asks native whether the window is maximised on init.
+    final ch = const MethodChannel('prototype/desktop');
+    t.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(ch, (call) async => false);
+    addTearDown(() => t.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(ch, null));
+
+    var reachedBehind = 0;
+    await t.binding.setSurfaceSize(_screen);
+    await t.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Stack(children: [
+          Positioned.fill(
+            // Opaque: a bare SizedBox has no child to defer to and would
+            // never be hit, which would make the first expectation below pass
+            // for the wrong reason.
+            child: Listener(
+              behavior: HitTestBehavior.opaque,
+              onPointerDown: (_) => reachedBehind++,
+              child: const SizedBox.expand(),
+            ),
+          ),
+          const Align(alignment: Alignment.topLeft, child: WindowTitleBar()),
+        ]),
+      ),
+    ));
+    await t.pump();
+
+    // Well inside the drag strip, clear of the three buttons on the right.
+    await t.tapAt(const Offset(200, _captionHeight / 2));
+    // Past the double-tap window: onDoubleTap leaves a timer running, and a
+    // pending timer at teardown is an error rather than a warning.
+    await t.pump(const Duration(milliseconds: 400));
+    expect(reachedBehind, 0,
+        reason: 'a press on the caption strip must not also reach the model');
+
+    // And just below it the document is still perfectly reachable.
+    await t.tapAt(const Offset(200, _captionHeight + 20));
+    await t.pump(const Duration(milliseconds: 400));
+    expect(reachedBehind, 1);
+  });
 }
