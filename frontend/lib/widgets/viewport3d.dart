@@ -36,6 +36,7 @@ import '../reality_scene.dart';
 import '../text_geometry.dart' show textContours, textLayerOf;
 import '../menus.dart';
 import '../mouse_nav.dart';
+import '../text_focus.dart';
 import '../work_features.dart';
 import '../svg_icons.dart' show homeTabIcon;
 import '../icon_preview.dart';
@@ -150,6 +151,12 @@ class _Viewport3DState extends State<Viewport3D>
 
   bool _onKey(KeyEvent e) {
     if (e is! KeyDownEvent) return false;
+    // Bug #17 — this handler is on HardwareKeyboard, which sees every key
+    // press in the app whether or not a 3D viewport is anywhere on screen,
+    // and every one of Ctrl+Z/Y/C/X/V and M means something here. A text
+    // field focused elsewhere — a rename, the bug reporter's own textarea —
+    // gets first claim on all of them; see text_focus.dart.
+    if (isTypingInTextField) return false;
     // M182 — part-level Undo/Redo: Ctrl+Z / Cmd+Z steps back through the
     // destructive-operation journal (delete feature/body/sketch/below EOP),
     // Ctrl+Shift+Z / Cmd+Shift+Z (or Ctrl+Y) steps forward again.

@@ -70,6 +70,7 @@ import '../part_model.dart';
 import '../part_render.dart';
 import '../perf.dart';
 import '../reality_assembly.dart';
+import '../text_focus.dart';
 import '../reality_payload.dart';
 import '../reality_scene.dart'
     show RealityPush, logMeshConvention, samePayload;
@@ -354,6 +355,10 @@ class _ViewportAssemblyState extends State<ViewportAssembly>
   /// guarded against exactly the overlap this does not have.
   bool _onKey(KeyEvent e) {
     if (e is! KeyDownEvent) return false;
+    // Bug #17 — see the note in viewport3d.dart's _onKey: this is the same
+    // global HardwareKeyboard hook, with the same M-steals-the-letter-M
+    // problem, for the assembly viewport's own Measure toggle.
+    if (isTypingInTextField) return false;
     final ctrl = HardwareKeyboard.instance.isControlPressed ||
         HardwareKeyboard.instance.isMetaPressed;
     if (ctrl || HardwareKeyboard.instance.isAltPressed) return false;
