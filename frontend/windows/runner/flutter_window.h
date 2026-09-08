@@ -29,6 +29,11 @@ class FlutterWindow : public Win32Window {
   // F11. See the note at its use.
   void ToggleFullscreen(HWND window);
 
+  // M402 — rounded corners restored, square maximised. See the note at its
+  // definition.
+  void UpdateRoundedCorners(HWND window);
+  void ClearCornerRegion(HWND window);
+
   // The close handshake. See the long note in flutter_window.cpp.
   void BeginClose(HWND window);
   void FinishClose();
@@ -58,6 +63,10 @@ class FlutterWindow : public Win32Window {
   WINDOWPLACEMENT placement_ = {sizeof(WINDOWPLACEMENT)};
   LONG_PTR style_before_fullscreen_ = 0;
   bool fullscreen_ = false;
+
+  // M402 — whether a rounded window REGION is currently applied (the Windows
+  // 10 path only; Windows 11 does the clipping itself).
+  bool has_corner_region_ = false;
 
   // A close is in flight: the WM_CLOSE was refused and the app is being asked.
   bool closing_ = false;

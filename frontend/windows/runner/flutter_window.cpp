@@ -1,5 +1,6 @@
 #include "flutter_window.h"
 
+#include <dwmapi.h>
 #include <flutter_windows.h>
 #include <windowsx.h>
 
@@ -31,6 +32,23 @@ constexpr UINT_PTR kCloseTimerId = 1;
 // The app still runs; it stops being the app the screenshots are of.
 constexpr LONG kMinWidth = 1024;
 constexpr LONG kMinHeight = 700;
+
+// M402 — the rounded corners, asked for explicitly.
+//
+// Redefined here for the same reason DWMWA_USE_IMMERSIVE_DARK_MODE is in
+// win32_window.cpp: a developer on an SDK older than 10.0.22000 must still be
+// able to build the runner. The attribute is simply ignored by Windows 10,
+// where there are no rounded corners to ask for.
+#ifndef DWMWA_WINDOW_CORNER_PREFERENCE
+#define DWMWA_WINDOW_CORNER_PREFERENCE 33
+#endif
+constexpr DWORD kCornerDoNotRound = 1;  // DWMWCP_DONOTROUND
+constexpr DWORD kCornerRound = 2;       // DWMWCP_ROUND
+
+// Corner radius for the Windows 10 fallback, in logical pixels. Windows 11
+// rounds its own windows at 8; matching it is what makes the fallback look
+// like the same app rather than a different one.
+constexpr int kCornerRadius = 8;
 
 }  // namespace
 
@@ -67,6 +85,10 @@ bool FlutterWindow::OnCreate() {
              std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
                  result) { HandleDesktopMethodCall(call, std::move(result)); });
 
+  // M402 — before the first frame is shown, so the window never appears with
+  // square corners and then changes its mind.
+  UpdateRoundedCorners(GetHandle());
+
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
     this->Show();
   });
@@ -97,6 +119,82 @@ void FlutterWindow::OnDestroy() {
 // The classic Win32 recipe: remember the placement and the style, strip the
 // frame, fill the monitor, and put both back. Remembering the PLACEMENT rather
 // than the rect is what makes a maximised window come back maximised.
+// ---------------------------------------------------------------------------
+// M402 — "when the app is not maximised, the window should have round
+// corners" (#34).
+//
+// TWO reasons they were square, and the note above HandleNcCalcSize asserts
+// the opposite of both: it says the window keeps the Windows 11 rounded
+// corners for free because it still carries WS_OVERLAPPEDWINDOW.
+//
+//   * DWM rounds the FRAME, and a window whose WM_NCCALCSIZE answer leaves it
+//     no frame at all has nothing there to round. Windows 11 has to be ASKED,
+//     through DWMWA_WINDOW_CORNER_PREFERENCE.
+//   * The report was filed from Windows 10 (10.0.19045), where that attribute
+//     does not exist at all — it arrived in Windows 11 — and neither do
+//     automatic rounded corners. Asking is not enough there; the window has
+//     to be clipped to a rounded rectangle by hand.
+//
+// So: ask, and fall back to a window REGION when the ask is refused. The
+// region's corners are hard-edged where Windows 11's are antialiased, which
+// is visible if you look for it and is still the difference between the app
+// looking like it belongs on the desktop and looking like a box dropped on
+// it.
+//
+// Either way it has to be redone on every change of state, because the answer
+// is not the same in all of them: maximised (and fullscreen) a rounded corner
+// would show a notch of desktop where the window is supposed to reach the
+// edge of the screen, which is why Windows squares its own windows off there
+// too. And the region, unlike the preference, is measured in pixels — so it
+// is also rebuilt on every resize.
+void FlutterWindow::UpdateRoundedCorners(HWND window) {
+  const bool square = fullscreen_ || ::IsZoomed(window);
+
+  DWORD preference = square ? kCornerDoNotRound : kCornerRound;
+  if (SUCCEEDED(::DwmSetWindowAttribute(window, DWMWA_WINDOW_CORNER_PREFERENCE,
+                                        &preference, sizeof(preference)))) {
+    // Windows 11 clips the window itself — antialiased, with the shadow cut
+    // to match. A region on top of that would only add a second, harder set
+    // of corners inside the first.
+    ClearCornerRegion(window);
+    return;
+  }
+
+  // WINDOWS 10, which is what the report was filed from ("Windows 10 Home"
+  // 10.0.19045). The attribute arrived in Windows 11 and returns E_INVALIDARG
+  // here, so the rounding has to be done by clipping the window to a rounded
+  // rectangle. That is how every custom-chrome app on Windows 10 does it: the
+  // corners are hard-edged rather than antialiased, which is visible if you
+  // look for it and is still the difference between the app looking like it
+  // belongs on the desktop and looking like a box someone dropped on it.
+  if (square) {
+    ClearCornerRegion(window);
+    return;
+  }
+  RECT rc;
+  if (!::GetWindowRect(window, &rc)) return;
+  const int w = rc.right - rc.left, h = rc.bottom - rc.top;
+  if (w <= 0 || h <= 0) return;
+  const UINT dpi = FlutterDesktopGetDpiForMonitor(
+      ::MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST));
+  // The ellipse AXES, so twice the radius. +1 on the extent because
+  // CreateRoundRectRgn's right and bottom edges are exclusive and clipping a
+  // column of pixels off the right of the window is exactly the kind of
+  // one-pixel bug nobody finds by looking.
+  const int d = static_cast<int>(kCornerRadius * 2 * dpi / 96.0 + 0.5);
+  HRGN region = ::CreateRoundRectRgn(0, 0, w + 1, h + 1, d, d);
+  if (region == nullptr) return;
+  // The window owns the region after this call; it must not be deleted here.
+  ::SetWindowRgn(window, region, TRUE);
+  has_corner_region_ = true;
+}
+
+void FlutterWindow::ClearCornerRegion(HWND window) {
+  if (!has_corner_region_) return;
+  ::SetWindowRgn(window, nullptr, TRUE);
+  has_corner_region_ = false;
+}
+
 void FlutterWindow::ToggleFullscreen(HWND window) {
   if (!fullscreen_) {
     MONITORINFO mi = {sizeof(MONITORINFO)};
@@ -113,6 +211,7 @@ void FlutterWindow::ToggleFullscreen(HWND window) {
                    mi.rcMonitor.bottom - mi.rcMonitor.top,
                    SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
     fullscreen_ = true;
+    UpdateRoundedCorners(window);
     return;
   }
   ::SetWindowLongPtr(window, GWL_STYLE, style_before_fullscreen_);
@@ -121,6 +220,7 @@ void FlutterWindow::ToggleFullscreen(HWND window) {
                  SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER |
                      SWP_FRAMECHANGED);
   fullscreen_ = false;
+  UpdateRoundedCorners(window);
 }
 
 // ---------------------------------------------------------------------------
@@ -206,6 +306,12 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
       info->ptMinTrackSize.y = static_cast<LONG>(kMinHeight * scale);
       return 0;
     }
+
+    // M402 — maximise and restore each change the answer. Deliberately not
+    // returning: the controller and Win32Window still have a resize to do.
+    case WM_SIZE:
+      UpdateRoundedCorners(hwnd);
+      break;
 
     case WM_CLOSE:
       // A second click on the close button while the first is still in flight
