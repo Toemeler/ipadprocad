@@ -16,6 +16,7 @@ import 'package:gpu_view/gpu_view.dart';
 import 'package:reality_view/perf_hook.dart';
 
 import 'cycles_boot.dart';
+import 'device_class.dart';
 import 'platform/desktop_launch.dart';
 import 'platform/desktop_shell.dart';
 import 'app_state.dart';
@@ -125,11 +126,11 @@ void main([List<String> args = const <String>[]]) {
           .then((_) => Log.i('main', 'system UI hidden'),
               onError: (e, st) => Log.e('main', 'hide system UI failed', e, st));
     });
+    // M393 — the lock is landscape on an iPad and portrait on an iPhone
+    // (#18), decided from the view's own width; see device_class.dart for why
+    // it is a size and not a device name.
     Log.step('main', 'setPreferredOrientations (fire-and-forget)', () {
-      SystemChrome.setPreferredOrientations([
-        DeviceOrientation.landscapeLeft,
-        DeviceOrientation.landscapeRight,
-      ]).then((_) => Log.i('main', 'orientation set'),
+      applyPreferredOrientations().then((_) => Log.i('main', 'orientation set'),
           onError: (e, st) => Log.e('main', 'orientation failed', e, st));
     });
     // M306 — find out at LAUNCH whether this build can path-trace, rather
