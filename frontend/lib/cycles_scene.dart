@@ -35,6 +35,7 @@ import 'cycles_boot.dart';
 import 'cycles_session.dart';
 import 'cycles_view.dart';
 import 'materials.dart' show materialArgb;
+import 'part_model.dart' show Vec3;
 import 'part_render.dart' show Cam3;
 import 'render_engine.dart';
 import 'reality_assembly.dart' show assemblyPieces, assemblySceneSignature;
@@ -75,16 +76,45 @@ String cyclesSceneKey(AppState app, Cam3 cam) {
   }();
   if (base.isEmpty) return base;
   // The one bit of camera the GEOMETRY depends on. See the header.
-  return '$base|${cyclesLookingDown(cam) ? 'd' : 'u'}';
+  //
+  // M403 — and the model's up, which the floor is now built from: redefining
+  // front moves the floor, and a scene key that did not say so would leave
+  // the old image on screen until something else changed.
+  final up = cyclesUpAxis(app);
+  final orient = up.y > 0.999999
+      ? ''
+      : '|u${up.x.toStringAsFixed(4)},${up.y.toStringAsFixed(4)},'
+          '${up.z.toStringAsFixed(4)}';
+  return '$base|${cyclesLookingDown(cam, up: up) ? 'd' : 'u'}$orient';
 }
 
 /// Is the camera above the floor, looking down at it?
 ///
-/// The Y component of the direction the camera LOOKS — column 2 of the matrix
-/// [cyclesCameraMatrix] builds, which for this app's camera is -dir. Taken
-/// from the camera rather than from the matrix so it can be asked before the
-/// matrix is built, which is the order [cyclesSceneData] needs.
-bool cyclesLookingDown(Cam3 cam) => cam.dir.y > 0;
+/// The component along UP of the direction the camera LOOKS — column 2 of the
+/// matrix [cyclesCameraMatrix] builds, which for this app's camera is -dir.
+/// Taken from the camera rather than from the matrix so it can be asked before
+/// the matrix is built, which is the order [cyclesSceneData] needs.
+///
+/// M403 — along the MODEL's up, not the world's, for the same reason the floor
+/// itself is: after "Set Current View as Front" they are different vectors.
+bool cyclesLookingDown(Cam3 cam, {Vec3 up = const Vec3(0, 1, 0)}) =>
+    cam.dir.x * up.x + cam.dir.y * up.y + cam.dir.z * up.z > 0;
+
+/// M403 — which way the MODEL stands up, in world coordinates.
+///
+/// "when i set a new view as front, the placing of the bottom plane in
+/// rendered mode should change too" (#35).
+///
+/// The ViewCube's orientation is the document's answer to "which way is up",
+/// and every view off the cube has honoured it since M399. The rendered floor
+/// did not: it was a horizontal quad at the model's lowest world Y, so a part
+/// whose front had been redefined stood on a plane cutting through it at an
+/// angle — the one thing in the picture still using the old up.
+///
+/// Identity until the user redefines front, which is world +Y and exactly
+/// what every existing document gets.
+Vec3 cyclesUpAxis(AppState app) =>
+    app.cubeOrient.rotate(const Vec3(0, 1, 0)).normalized();
 
 /// The meshes of whatever is on screen, in world coordinates, each carrying
 /// the appearance its body was given.
@@ -157,8 +187,11 @@ CyclesScene cyclesSceneData(AppState app, Cam3 cam,
   // without limit.
   final reach = cyclesMeshReach(meshes);
   if (cyclesFloorWanted(app)) {
+    final up = cyclesUpAxis(app);
     final floor = cyclesFloorMesh(meshes,
-        argb: T.floor.toARGB32(), lookingDown: cyclesLookingDown(cam));
+        argb: T.floor.toARGB32(),
+        lookingDown: cyclesLookingDown(cam, up: up),
+        up: up);
     if (floor != null) meshes.add(floor);
   }
   return CyclesScene(

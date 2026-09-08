@@ -858,16 +858,41 @@ CyclesEnv cyclesEnvFor(int argb, {String? hdri}) {
 /// The world is Y-UP (see RealityPartView.commonInit — the sketch planes make
 /// it look otherwise, but the camera basis, the ViewCube's top face and
 /// PartCamera.dir all agree on +Y), so this is what the model is standing on.
-double? cyclesMeshLowY(List<CyclesMesh> meshes) {
+double? cyclesMeshLowY(List<CyclesMesh> meshes) =>
+    cyclesMeshLowAlong(meshes, const Vec3(0, 1, 0));
+
+/// M403 — the same question asked along an arbitrary UP.
+///
+/// How far the model reaches in the direction the floor is BELOW, which is
+/// world -Y until the user redefines which way the model stands up. See
+/// [cyclesFloorMesh].
+double? cyclesMeshLowAlong(List<CyclesMesh> meshes, Vec3 up) {
   double? low;
   for (final (v, _, _, _) in meshes) {
-    for (var i = 1; i < v.length; i += 3) {
-      final y = v[i];
-      if (!y.isFinite) continue;
-      if (low == null || y < low) low = y;
+    for (var i = 0; i + 2 < v.length; i += 3) {
+      final d = v[i] * up.x + v[i + 1] * up.y + v[i + 2] * up.z;
+      if (!d.isFinite) continue;
+      if (low == null || d < low) low = d;
     }
   }
   return low;
+}
+
+/// A unit vector perpendicular to [n], chosen so that the world axis LEAST
+/// aligned with [n] survives it.
+///
+/// Any perpendicular would do for a square floor — it can only rotate the quad
+/// within its own plane — but picking deterministically, and picking the one
+/// that leaves the identity case exactly as it was, keeps the vertices this
+/// function produced before M403 byte-for-byte the same.
+Vec3 cyclesPerpTo(Vec3 n) {
+  final ax = n.x.abs(), ay = n.y.abs(), az = n.z.abs();
+  final seed = (ax <= ay && ax <= az)
+      ? const Vec3(1, 0, 0)
+      : (ay <= az ? const Vec3(0, 1, 0) : const Vec3(0, 0, 1));
+  final p = seed - n * seed.dot(n);
+  final len = p.length;
+  return len < 1e-9 ? const Vec3(1, 0, 0) : p * (1 / len);
 }
 
 /// How far across the floor reaches, as a multiple of the model's own radius.
@@ -929,24 +954,35 @@ CyclesMesh? cyclesFloorMesh(
   List<CyclesMesh> meshes, {
   required int argb,
   required bool lookingDown,
+  Vec3 up = const Vec3(0, 1, 0),
 }) {
   if (!lookingDown) return null;
-  final low = cyclesMeshLowY(meshes);
+  final n = up.length < 1e-9 ? const Vec3(0, 1, 0) : up.normalized();
+  final low = cyclesMeshLowAlong(meshes, n);
   if (low == null) return null;
   final radius = cyclesMeshReach(meshes);
   final side = math.max(2.0, radius * kCyclesFloorSpan);
   if (!side.isFinite) return null;
-  final y = low - math.max(1e-4, radius * kCyclesFloorDrop);
-  if (!y.isFinite) return null;
+  final drop = low - math.max(1e-4, radius * kCyclesFloorDrop);
+  if (!drop.isFinite) return null;
   final h = side / 2;
+  // The quad's own plane. `b = a x n` rather than `n x a`, which is what makes
+  // the winding below come out the way it always has.
+  final a = cyclesPerpTo(n);
+  final b = a.cross(n);
+  final c = n * drop;
+  Iterable<double> at(double sa, double sb) {
+    final p = c + a * (sa * h) + b * (sb * h);
+    return [p.x, p.y, p.z];
+  }
 
-  /// Wound so that (v1-v0) x (v2-v0) is +Y: a floor whose normal points at the
-  /// ground is lit from underneath and comes out black.
+  /// Wound so that (v1-v0) x (v2-v0) is +[n]: a floor whose normal points at
+  /// the ground is lit from underneath and comes out black.
   final verts = Float32List.fromList([
-    -h, y, h, //
-    h, y, h, //
-    h, y, -h, //
-    -h, y, -h,
+    ...at(-1, 1),
+    ...at(1, 1),
+    ...at(1, -1),
+    ...at(-1, -1),
   ]);
   final tris = Int32List.fromList([0, 1, 2, 0, 2, 3]);
   return (
