@@ -742,7 +742,10 @@ class _Viewport3DState extends State<Viewport3D>
               // a pick, and a middle button that happens to land on a work
               // plane must move the view, not the plane.
               final nav = mouseDrag(e.kind, e.buttons,
-                  shift: HardwareKeyboard.instance.isShiftPressed);
+                  shift: HardwareKeyboard.instance.isShiftPressed,
+                  // M396 — on iOS the middle button arrives with no mask at
+                  // all; see isMiddleDrag.
+                  emptyMaskIsMiddle: platformEmptyMaskIsMiddle);
               if (nav != MouseDrag.none) {
                 _mouseNav = nav;
                 _navLast = e.localPosition;

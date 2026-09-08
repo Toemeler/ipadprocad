@@ -21,6 +21,7 @@
 
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 
 /// Wheel travel, in logical pixels, that means one doubling (or halving) of
@@ -143,11 +144,41 @@ enum MouseDrag {
 /// [MouseDrag.none] — they have their own two-finger gestures and no middle
 /// button — and so does a plain left or right drag, which stays a pick, a box
 /// select or a grip exactly as before.
-MouseDrag mouseDrag(PointerDeviceKind kind, int buttons, {required bool shift}) {
+MouseDrag mouseDrag(PointerDeviceKind kind, int buttons,
+    {required bool shift, bool emptyMaskIsMiddle = false}) {
   if (kind != PointerDeviceKind.mouse) return MouseDrag.none;
-  if (buttons & kMiddleMouseButton == 0) return MouseDrag.none;
+  if (!isMiddleDrag(buttons, emptyMaskIsMiddle: emptyMaskIsMiddle)) {
+    return MouseDrag.none;
+  }
   return shift ? MouseDrag.orbit : MouseDrag.pan;
 }
+
+/// M396 — does this button mask mean the MIDDLE button?
+///
+/// Everywhere but iOS the answer is the obvious one. On iPadOS it cannot be:
+/// UIKit describes a pointer press with `UIEventButtonMask`, and that mask
+/// has exactly two members — primary and secondary. A press of any OTHER
+/// button reaches Flutter as a pointer whose `buttons` is **zero**: not
+/// kMiddleMouseButton, not a guess, nothing at all. The device trace behind
+/// the report shows it plainly — sixteen down/drag/up sequences with no mask
+/// among 158 ordinary left drags that all report 1 — and every one of them
+/// was the user trying to pan ("middle mouse button doesnt work for pan or
+/// orbit with shift. it seems like middle mouse button isnt recognized on
+/// iOS", #24). They were recognised as a press; they just had no name.
+///
+/// So on iOS an empty mask on a MOUSE pointer is read as the middle button.
+/// It cannot swallow an ordinary click: a left press reports 1 and a right
+/// press 2, and a hover carries no press at all. It also, deliberately,
+/// takes the extra thumb buttons of a multi-button mouse the same way —
+/// they are equally nameless there, and panning is a better answer than
+/// nothing.
+bool isMiddleDrag(int buttons, {required bool emptyMaskIsMiddle}) =>
+    buttons & kMiddleMouseButton != 0 || (emptyMaskIsMiddle && buttons == 0);
+
+/// Whether THIS platform reports a nameless button mask for the middle
+/// button. True on iOS only; see [isMiddleDrag].
+bool get platformEmptyMaskIsMiddle =>
+    defaultTargetPlatform == TargetPlatform.iOS;
 
 /// M392 — what a trackpad's two-finger gesture turned out to be.
 ///

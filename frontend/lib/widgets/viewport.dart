@@ -1785,7 +1785,10 @@ class _Viewport2DState extends State<Viewport2D>
             // on. (Registered with [_live] first: the up path removes
             // unconditionally.)
             if (mouseDrag(e.kind, e.buttons,
-                    shift: HardwareKeyboard.instance.isShiftPressed) !=
+                    shift: HardwareKeyboard.instance.isShiftPressed,
+                    // M396 — on iOS the middle button arrives with no mask
+                    // at all; see isMiddleDrag.
+                    emptyMaskIsMiddle: platformEmptyMaskIsMiddle) !=
                 MouseDrag.none) {
               _mousePan = true;
               _mousePanLast = e.localPosition;
