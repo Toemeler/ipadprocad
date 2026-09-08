@@ -18,31 +18,46 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/app_state.dart';
-import 'package:prototype/part_model.dart';
 
-AppState appWithPart() {
+import 'm56_part_test.dart' show FakeKernel;
+
+/// A part with one finished sketch holding a closed profile — which is what
+/// `openExtrude` requires before it will open at all ("Zuerst eine 2D-Skizze
+/// anlegen"), and therefore what any test of the dialog's picks needs.
+Future<AppState> appWithProfile() async {
   final app = AppState();
-  app.docsDirForTest = Directory.systemTemp.createTempSync('m407');
-  app.parts['Part1'] = PartModel('Part1');
-  app.curTab = 'Part1';
+  app.docsDirForTest = Directory.systemTemp.createTempSync('m407_');
+  app.partKernel = FakeKernel();
+  await app.createNamedPart('P');
+  app.startPartSketch();
+  app.planePicked('xy');
+  final sk = app.activeChild!;
+  sk.engine.setCurrentLayer(app.editingLayer!);
+  sk.engine.addCircle(0, 0, 15);
+  sk.refresh();
+  app.finishPartSketch();
   return app;
 }
 
 void main() {
-  test('no dialog, no region hover', () {
+  test('no dialog, no region hover', () async {
     // Nothing to pick profiles for: the whole computation is skipped, as it
     // always has been.
-    expect(appWithPart().hoveringProfileRegions, isFalse);
+    final app = await appWithProfile();
+    expect(app.extrudeSession, isNull);
+    expect(app.hoveringProfileRegions, isFalse);
   });
 
-  test('the extrude dialog hovers profile regions', () {
-    final app = appWithPart()..openExtrude();
+  test('the extrude dialog hovers profile regions', () async {
+    final app = await appWithProfile();
+    app.openExtrude();
     expect(app.extrudeSession, isNotNull);
     expect(app.hoveringProfileRegions, isTrue);
   });
 
-  test('but not while the To-face extent is the pick in hand', () {
-    final app = appWithPart()..openExtrude();
+  test('but not while the To-face extent is the pick in hand', () async {
+    final app = await appWithProfile();
+    app.openExtrude();
     app.beginPickExtentFace();
     expect(app.pickingExtentFace, isTrue);
     expect(app.hoveringProfileRegions, isFalse,
@@ -52,18 +67,20 @@ void main() {
     expect(app.pickingPlanarFace, isTrue);
   });
 
-  test('and it comes back the moment that pick ends', () {
-    final app = appWithPart()..openExtrude();
+  test('and it comes back the moment that pick ends', () async {
+    final app = await appWithProfile();
+    app.openExtrude();
     app.beginPickExtentFace();
     app.cancelPickExtentFace();
     expect(app.hoveringProfileRegions, isTrue);
     expect(app.pickingPlanarFace, isFalse);
   });
 
-  test('the two never both claim the pointer', () {
+  test('the two never both claim the pointer', () async {
     // The invariant under both halves: whatever the tap would take is what
     // lights up, and never two things at once.
-    final app = appWithPart()..openExtrude();
+    final app = await appWithProfile();
+    app.openExtrude();
     for (final picking in [false, true, false]) {
       if (picking) {
         app.beginPickExtentFace();
