@@ -8907,6 +8907,25 @@ class AppState extends ChangeNotifier {
   bool get pickWorkGeometry =>
       workAxisArm != null || workPointArm != null || workPlaneMethodArm != null;
 
+  /// True while ANY command is collecting a planar face by tapping it in 3D.
+  ///
+  /// M400 — #26: "while i want to extrude to a face. i have no face
+  /// highlight. i can select a face and it works but i dont have a
+  /// highlight."
+  ///
+  /// The viewport pre-lights the face under the pointer, and its gate listed
+  /// the two modes that existed when it was written — [pickPlane] and
+  /// [pickWorkGeometry] — while the tap path grew a third,
+  /// [pickingExtentFace], and took its pick through the very same
+  /// `_pickSolidFace`. So the extent face could be chosen and never showed
+  /// which face was about to be chosen: a pick command with the lights off,
+  /// which is the phrase M260 used about the last one of these.
+  ///
+  /// One getter so the two halves cannot drift apart again: whatever can be
+  /// TAPPED as a planar face is what pre-lights.
+  bool get pickingPlanarFace =>
+      pickPlane || pickWorkGeometry || pickingExtentFace;
+
   /// The prompt currently shown for the armed command, or '' when none is.
   String workFeaturePrompt = '';
 
