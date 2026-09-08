@@ -77,11 +77,44 @@ class RibbonDockLayout extends StatelessWidget {
   /// the quick tools, the modeless dialogues.
   final Widget stage;
 
+  /// M389 — Windows' stand-in caption strip, which takes a row of the STAGE
+  /// rather than a row of the window.
+  ///
+  /// "The ribbon should on Windows go all the way up, not stop on the top
+  /// bar." It stopped because main.dart put [WindowTitleBar] above this whole
+  /// widget: a 32-point row across the full width, so the left-hand rail began
+  /// 32 points down and the window had a bare strip over it that exists on no
+  /// other platform. The iPad has no such row and the band starts at the top
+  /// of the screen; this is what makes Windows do the same.
+  ///
+  /// It goes in with the STAGE, on the far side of the band, for every dock
+  /// but [RibbonPosition.top]:
+  ///
+  ///   * the band gets the window's real top edge, which is the whole request;
+  ///   * nothing else moves. The model browser, the quick tools and the
+  ///     gallery are laid out UNDER this row exactly as they were under the
+  ///     old one, so no panel gains a 32-point strip of window buttons over
+  ///     its head and no hit test changes;
+  ///   * the document, where it bleeds, runs edge to edge behind it — the
+  ///     strip is transparent apart from its three buttons, so the model
+  ///     reaches y=0 as it does on the iPad instead of stopping at a band of
+  ///     ground colour.
+  ///
+  /// TOP DOCK IS THE ONE EXCEPTION and keeps the row above the band. A
+  /// top-docked ribbon spans the full width, so there is no corner left for
+  /// the window buttons that is not ribbon — putting the strip inside the
+  /// stage would leave close and maximise stranded UNDER the ribbon, which
+  /// is worse than the 32 points it saves.
+  ///
+  /// Null everywhere but Windows: see `windowChromeIsCustom`.
+  final Widget? caption;
+
   const RibbonDockLayout({
     super.key,
     required this.app,
     required this.stage,
     this.bleed = const SizedBox.shrink(),
+    this.caption,
   });
 
   /// True when the band floats over the document rather than taking a row of
@@ -105,7 +138,7 @@ class RibbonDockLayout extends StatelessWidget {
     // against M284 — "the gallery clearing a band that was not drawn").
     if (app.isHome) {
       RibbonBleed.publish(EdgeInsets.zero);
-      return _layered();
+      return _withCaption(_layered());
     }
     // M350 — the band SWALLOWS pointers.
     //
@@ -141,26 +174,35 @@ class RibbonDockLayout extends StatelessWidget {
     // never showed because a ribbon is nearly always wider than the screen —
     // which is exactly the kind of thing that surfaces the day someone opens a
     // document with three panels in it.
+    // M389 — [caption] is a row of the STAGE, not of the window. `_staged`
+    // wraps whatever goes beside the band; the band itself is never inside it,
+    // which is exactly why it now reaches the top edge. Top dock is the
+    // exception documented on [caption] and takes the old outer row.
     final Widget rows = switch (RibbonDock.current) {
       RibbonPosition.top => Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [band, Expanded(child: _inner())]),
       RibbonPosition.bottom => Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [Expanded(child: _inner()), band]),
+          children: [Expanded(child: _staged(_inner())), band]),
       RibbonPosition.left => Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _rail(band),
-            Expanded(child: _inner()),
+            Expanded(child: _staged(_inner())),
           ]),
       RibbonPosition.right => Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Expanded(child: _inner()),
+            Expanded(child: _staged(_inner())),
             _rail(band),
           ]),
     };
+    if (RibbonDock.current == RibbonPosition.top) {
+      return _withCaption(floats
+          ? Stack(children: [Positioned.fill(child: bleed), rows])
+          : rows);
+    }
     if (!floats) return rows;
     // The document first, at full size, and the band's row over it. The stage
     // is inside [rows], so it still gets the box that excludes the band.
@@ -185,6 +227,24 @@ class RibbonDockLayout extends StatelessWidget {
   /// is docked, the floating chrome alone when it floats (the document is
   /// then behind everything, at full size).
   Widget _inner() => floats ? stage : _layered();
+
+  /// The stage with Windows' caption strip above it — the band excluded, which
+  /// is the point. A no-op off Windows, where [caption] is null.
+  Widget _staged(Widget inner) => caption == null
+      ? inner
+      : Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [caption!, Expanded(child: inner)],
+        );
+
+  /// The caption above EVERYTHING — the home gallery, which has no band at
+  /// all, and top dock, where the band owns the full width.
+  Widget _withCaption(Widget child) => caption == null
+      ? child
+      : Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [caption!, Expanded(child: child)],
+        );
 
   Widget _layered() => Stack(children: [
         Positioned.fill(child: bleed),

@@ -623,13 +623,26 @@ class PrototypeApp extends StatelessWidget {
               child: SafeArea(
                 bottom: false,
                 child: Column(children: [
-                  // Windows only — no standard title bar (win32_window.cpp /
-                  // flutter_window.cpp answer WM_NCCALCSIZE with the whole
-                  // window as client area), so this is what stands in for
-                  // one: an invisible drag strip and three small buttons,
-                  // always on top of whatever the ribbon dock is doing below
-                  // it. See widgets/window_titlebar.dart.
-                  if (windowChromeIsCustom) const WindowTitleBar(),
+                  // M389 — THE CAPTION STRIP USED TO BE A ROW RIGHT HERE, and
+                  // that is what the report "the ribbon should on Windows go
+                  // all the way up, not stop on the top bar" was about: a
+                  // 32-point row across the full window, above everything, so
+                  // the left-hand rail began 32 points down and a strip of
+                  // ground colour ran over the top of the app that no other
+                  // platform has.
+                  //
+                  // It is [RibbonDockLayout.caption] now, which puts it in the
+                  // STAGE — the box that already excludes the band. The band
+                  // gets the window's top edge; the browser, the quick tools
+                  // and the gallery are laid out under the strip exactly as
+                  // they were, so nothing else moves. See the doc on that
+                  // field for the one dock that still takes the outer row.
+                  //
+                  // Windows only — win32_window.cpp / flutter_window.cpp
+                  // answer WM_NCCALCSIZE with the whole window as client
+                  // area, so there is no system caption and this stands in for
+                  // one: an invisible drag strip and three small buttons. See
+                  // widgets/window_titlebar.dart.
                   // M290 — THE BAND TAKES A ROW OF THE LAYOUT.
                   //
                   // On the home gallery there is no ribbon at all — the "+"
@@ -658,6 +671,8 @@ class PrototypeApp extends StatelessWidget {
                       // that no panel has to subtract anything.
                       bleed: _document(app),
                       stage: _chrome(app),
+                      caption:
+                          windowChromeIsCustom ? const WindowTitleBar() : null,
                     ),
                   ),
                   if (!GlassPanel.isSupported) BottomTabBar(app: app),
