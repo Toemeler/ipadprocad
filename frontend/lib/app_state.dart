@@ -19159,6 +19159,10 @@ class AppState extends ChangeNotifier {
     }
     final geos = buildToolGeometry(tool, List.of(toolPoints),
         existing: s.geometry, params: toolParams, expr: toolExpr);
+    // M394 — where the NEXT line of a chain starts. Filled in below from the
+    // geometry as it stands after the solve, because the raw click no longer
+    // describes it; see the chain block at the end of this method.
+    Offset? chainFrom;
     if (geos != null) {
       // The ONE place new geometry enters the sketch — stamp the layer here and
       // nothing can ever be layerless. toolClick already refuses to run outside
@@ -19500,6 +19504,29 @@ class AppState extends ChangeNotifier {
       } else {
         _rebuildEngine(s, gs);
       }
+      // M394 — the chain continues from where the line ACTUALLY ENDS.
+      //
+      // Committing a line runs the solve, and the solve moves geometry: the
+      // constraints inference just added (a perpendicular to the previous
+      // segment, a parallel, a horizontal) are equations the as-drawn points
+      // do not satisfy, so the endpoint lands a few hundredths of a
+      // millimetre from where it was clicked. The chain used to carry the
+      // RAW CLICK forward, so the next line started at a point the sketch no
+      // longer had — near the corner, not on it — and [inferPointBindings],
+      // which compares at 1e-6, saw no coincidence to infer. The corner was
+      // then held together by nothing, and the next solve pulled it visibly
+      // apart: "one corner of the sketch has no point on point constraint but
+      // it should have made it automatically" (#22).
+      //
+      // Read back from s.geometry rather than from gs: _rebuildEngine puts the
+      // geometry through the backend and refreshes the model from it, so this
+      // is the position the next commit will compare against.
+      if (tool == Tool.line &&
+          placed.length == 1 &&
+          firstNew < s.geometry.length &&
+          s.geometry[firstNew].type == Geo.line) {
+        chainFrom = getPt(s.geometry[firstNew], 1);
+      }
     } else {
       // M203 — a tool that built NOTHING now says so. The rect builders refuse
       // a zero-width or zero-height box here (a 20 ms tap bounce makes one),
@@ -19513,7 +19540,7 @@ class AppState extends ChangeNotifier {
     _hudResetAll(); // per-shape HUD state does not carry into the next shape
     // CAD-style chaining for plain lines: next line starts at the endpoint
     if (tool == Tool.line && toolPoints.length >= 2) {
-      final last = toolPoints.last;
+      final last = chainFrom ?? toolPoints.last;
       toolPoints
         ..clear()
         ..add(last);
