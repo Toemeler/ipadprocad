@@ -1074,6 +1074,34 @@ jobs:
           /usr/libexec/PlistBuddy -c 'Add :UIStatusBarHidden bool true' ios/Runner/Info.plist
           /usr/libexec/PlistBuddy -c 'Add :UIViewControllerBasedStatusBarAppearance bool false' ios/Runner/Info.plist
           /usr/libexec/PlistBuddy -c 'Print :UIStatusBarHidden' ios/Runner/Info.plist
+          # M393 follow-up — THE LAUNCH ORIENTATIONS, which the runtime call
+          # cannot reach.
+          #
+          # `SystemChrome.setPreferredOrientations` overrides this plist the
+          # moment Dart runs, but the launch image and every frame before it
+          # come from here — and `flutter create` writes its own default, which
+          # allows portrait on both families. So an iPad flashed a portrait
+          # launch screen before turning itself sideways, and after M393 an
+          # iPhone held sideways does the mirror image of that.
+          #
+          # These two lists are exactly what `preferredOrientations()` answers
+          # (lib/device_class.dart): portrait on iPhone, landscape on iPad.
+          # The launch and the lock have to agree, or every launch rotates once
+          # in front of the user.
+          #
+          # Delete before Add: both keys already exist, and PlistBuddy's Add on
+          # an existing key fails rather than replaces.
+          ORIENT=ios/Runner/Info.plist
+          /usr/libexec/PlistBuddy -c 'Delete :UISupportedInterfaceOrientations' $ORIENT || true
+          /usr/libexec/PlistBuddy -c 'Add :UISupportedInterfaceOrientations array' $ORIENT
+          /usr/libexec/PlistBuddy -c 'Add :UISupportedInterfaceOrientations:0 string UIInterfaceOrientationPortrait' $ORIENT
+          /usr/libexec/PlistBuddy -c 'Add :UISupportedInterfaceOrientations:1 string UIInterfaceOrientationPortraitUpsideDown' $ORIENT
+          /usr/libexec/PlistBuddy -c 'Delete :UISupportedInterfaceOrientations~ipad' $ORIENT || true
+          /usr/libexec/PlistBuddy -c 'Add :UISupportedInterfaceOrientations~ipad array' $ORIENT
+          /usr/libexec/PlistBuddy -c 'Add :UISupportedInterfaceOrientations~ipad:0 string UIInterfaceOrientationLandscapeLeft' $ORIENT
+          /usr/libexec/PlistBuddy -c 'Add :UISupportedInterfaceOrientations~ipad:1 string UIInterfaceOrientationLandscapeRight' $ORIENT
+          /usr/libexec/PlistBuddy -c 'Print :UISupportedInterfaceOrientations' $ORIENT
+          /usr/libexec/PlistBuddy -c 'Print :UISupportedInterfaceOrientations~ipad' $ORIENT
           # M177 — a part is one file (.ptp) and a sketch is one file (.pts).
           # Declaring the types is what makes iOS show them in Open, give them
           # our icon in Files, and let one be AirDropped to the app. Without

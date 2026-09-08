@@ -72,6 +72,33 @@ void main() {
     }
   });
 
+  test('an iPad in Split View is still an iPad', () {
+    // M393 follow-up — the measurement is the DISPLAY, not the window, and
+    // this is the case that makes the difference. An 11" iPad running two
+    // apps side by side hands each of them a window narrower than any iPhone;
+    // a third of one is about 320 points. Sizing off that would stand a
+    // full-size iPad on end because somebody dragged a divider.
+    //
+    // `SystemChrome.setPreferredOrientations` requires the display for exactly
+    // this reason ("Applications that make decisions about whether to lock
+    // orientation based on the screen size must use the `display` property of
+    // the current FlutterView"), and Android's letterboxing is the second
+    // case: an app that locks its orientation is letterboxed, and the
+    // letterboxed size then reports back as narrow — a measurement the lock
+    // itself caused.
+    const splitViewWindow = Size(320, 1210);
+    const theDisplay = Size(834, 1210);
+
+    // What a window measurement says, and why it is the wrong question:
+    expect(isPhoneSize(splitViewWindow), isTrue);
+    // What _viewSize now asks:
+    expect(isPhoneSize(theDisplay), isFalse);
+    expect(
+        preferredOrientations(
+            platform: TargetPlatform.iOS, logical: theDisplay),
+        landscape);
+  });
+
   test('an unmeasured view is not mistaken for a phone', () {
     // Size.zero is an engine that has not sized the view yet. Reading it as
     // "narrow, therefore a phone" would stand an iPad on end on a slow

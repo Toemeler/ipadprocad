@@ -15,9 +15,12 @@
 // week Apple ships anything. The screen is the honest question anyway, and
 // the two families do not overlap or come close to it: the widest iPhone is
 // 440 points across (16 Pro Max), the narrowest iPad 744 (mini). Six hundred
-// sits in an empty three-hundred-point gap, and it answers Stage Manager and
-// a resized macOS window correctly for free — a window that narrow wants the
-// portrait layout whatever it is running on.
+// sits in an empty three-hundred-point gap.
+//
+// The size asked for is the DISPLAY's, not the window's, which the framework
+// requires rather than merely suggests — see [_viewSize]. A window is not a
+// device: an iPad in Split View is narrower than any phone, and it must not
+// be stood on end because somebody dragged a divider.
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
@@ -60,15 +63,44 @@ List<DeviceOrientation> preferredOrientations({
   ];
 }
 
-/// The implicit view's size in logical points, or null before the engine has
-/// measured it.
+/// The DISPLAY this app is on, in logical points, or null before the engine
+/// has measured it.
+///
+/// THE DISPLAY AND NOT THE WINDOW, which is the framework's own instruction
+/// rather than a preference. `SystemChrome.setPreferredOrientations` says it
+/// in as many words:
+///
+///   "Applications that make decisions about whether to lock orientation
+///    based on the screen size must use the `display` property of the current
+///    [FlutterView]."
+///
+/// — and the worked example beside it divides `display.size` by
+/// `display.devicePixelRatio` against a 600-point breakpoint, which is this
+/// function. Two ways the window lies about the device:
+///
+///   * an iPad in Split View or Slide Over hands the app a window narrower
+///     than any phone. A third of an 11" iPad is about 320 points, so a
+///     window measurement calls a full-size iPad a phone because somebody
+///     dragged a divider;
+///   * Android letterboxes an app that locks its orientation, and the
+///     framework notes that `MediaQueryData.size` then reports the
+///     LETTERBOXED size — a measurement this decision itself caused.
+///
+/// The display moves for neither.
 Size? _viewSize() {
   final view = ui.PlatformDispatcher.instance.implicitView;
   if (view == null) return null;
-  final dpr = view.devicePixelRatio;
-  if (dpr <= 0) return null;
-  final size = view.physicalSize / dpr;
-  return size.isEmpty ? null : size;
+  try {
+    final display = view.display;
+    final dpr = display.devicePixelRatio;
+    if (dpr <= 0) return null;
+    final size = display.size / dpr;
+    return size.isEmpty ? null : size;
+  } catch (_) {
+    // `display` throws for a view not attached to one. Unmeasured, which is
+    // what null means here — the caller waits a frame and asks again.
+    return null;
+  }
 }
 
 bool _retried = false;

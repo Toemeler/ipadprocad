@@ -34,6 +34,7 @@
 // fails to load, this degrades one step rather than all the way: blur and
 // tint, no refraction. A missing shader must cost fidelity, never a frame.
 import 'dart:io' as io;
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
@@ -418,7 +419,13 @@ class _LiquidGlassState extends State<LiquidGlass> {
             shader: _shader,
             style: widget.style,
             cornerRadius: widget.cornerRadius,
-            devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+            // M392 — the VIEW's ratio, not the MediaQuery's. This one
+            // converts a GLOBAL position into backdrop pixels, and
+            // widgets/windows_ui_scale.dart deliberately publishes a
+            // MediaQuery ratio that is 0.75x the truth (right for sizing a
+            // raster, wrong for this). A view cannot be overridden out from
+            // under a widget the way an inherited MediaQuery can.
+            devicePixelRatio: View.of(context).devicePixelRatio,
             // A child, and not because anything is drawn into it: a
             // BackdropFilterLayer with no children is not pushed at all (see
             // RenderBackdropFilter, which returns early when child is null),
@@ -474,6 +481,55 @@ class _LiquidGlassSurface extends SingleChildRenderObjectWidget {
 /// ratio. Using the paint offset instead would be right only while no ancestor
 /// is a repaint boundary or a transform, which is a condition no widget should
 /// have to rely on.
+/// A panel's rectangle in BACKDROP PIXELS, and what one of its own logical
+/// points is worth there.
+class GlassDeviceRect {
+  const GlassDeviceRect(this.rect, this.unit);
+
+  /// The panel, in the backdrop texture's pixels — which is what the shader's
+  /// `FlutterFragCoord()` is in.
+  final Rect rect;
+
+  /// Device pixels per LOCAL logical point. Equal to the device pixel ratio
+  /// when no ancestor scales the panel, and to ratio x scale when one does.
+  /// Radii, bevels and rim widths are authored in local points and have to be
+  /// converted with this rather than with the ratio.
+  final double unit;
+}
+
+/// Where [localSize] lands in the backdrop, given its two corners in GLOBAL
+/// logical coordinates.
+///
+/// Both corners go through the caller's `localToGlobal`, so every ancestor
+/// transform applies to the extent as well as to the origin. Taking the origin
+/// from the global position and the extent from the local size — which is what
+/// this replaced — is right exactly until something scales the subtree, and on
+/// Windows something does: see widgets/windows_ui_scale.dart, and issue #19.
+///
+/// Assumes the panel is axis-aligned. Every surface in this app is; a rotated
+/// one would need the transform itself rather than two of its corners.
+GlassDeviceRect glassDeviceRect({
+  required Offset topLeftGlobal,
+  required Offset bottomRightGlobal,
+  required Size localSize,
+  required double devicePixelRatio,
+}) {
+  final a = topLeftGlobal * devicePixelRatio;
+  final b = bottomRightGlobal * devicePixelRatio;
+  // Sorted rather than assumed: a mirroring transform would otherwise hand the
+  // shader a negative width, which is not a rectangle.
+  final rect = Rect.fromLTRB(
+    math.min(a.dx, b.dx),
+    math.min(a.dy, b.dy),
+    math.max(a.dx, b.dx),
+    math.max(a.dy, b.dy),
+  );
+  final unit = localSize.width > 0
+      ? rect.width / localSize.width
+      : (localSize.height > 0 ? rect.height / localSize.height : devicePixelRatio);
+  return GlassDeviceRect(rect, unit);
+}
+
 class _RenderLiquidGlass extends RenderProxyBox {
   _RenderLiquidGlass({
     required ui.FragmentShader? shader,
@@ -575,10 +631,41 @@ class _RenderLiquidGlass extends RenderProxyBox {
   }
 
   void _writeUniforms(ui.FragmentShader s) {
-    final dpr = _devicePixelRatio;
-    final topLeft = localToGlobal(Offset.zero) * dpr;
-    final w = size.width * dpr;
-    final h = size.height * dpr;
+    // M392 — BOTH CORNERS THROUGH localToGlobal, and the device ratio from the
+    // VIEW rather than from a MediaQuery.
+    //
+    // "liquidglass elements look false" (issue #19), on Windows, where the
+    // whole app is drawn inside a 0.75 Transform (widgets/windows_ui_scale.dart).
+    //
+    // This used to take the top-left through `localToGlobal` — which applies
+    // every ancestor transform, exactly as the note above this class says it
+    // must — and then the WIDTH AND HEIGHT from the panel's own local size,
+    // which does not. Under the scale the origin was where the panel really
+    // is and the extent was 1/0.75 too large, so every panel sampled the
+    // backdrop from the wrong rectangle: least wrong at the top-left corner of
+    // the window and worse the further away, which is what "looks false"
+    // looks like.
+    //
+    // The ratio was `MediaQuery.devicePixelRatioOf`, which that same file
+    // deliberately falsifies (a canvas 1/0.75 wider at 0.75x the density is
+    // the same pixel count, which is right for sizing a raster and wrong for
+    // converting a GLOBAL position into backdrop pixels). `View.of` is the
+    // real one and cannot be overridden out from under this.
+    //
+    // `unit` — device pixels per LOCAL logical point — is what the radii and
+    // widths below need instead, and it is derived from the rect rather than
+    // assumed, so it stays right under any ancestor scale and equals `dpr`
+    // exactly when there is none.
+    final g = glassDeviceRect(
+      topLeftGlobal: localToGlobal(Offset.zero),
+      bottomRightGlobal: localToGlobal(size.bottomRight(Offset.zero)),
+      localSize: size,
+      devicePixelRatio: _devicePixelRatio,
+    );
+    final topLeft = g.rect.topLeft;
+    final w = g.rect.width;
+    final h = g.rect.height;
+    final dpr = g.unit;
     final style = _style;
     final tint = style.tint;
 
