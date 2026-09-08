@@ -8934,6 +8934,30 @@ class AppState extends ChangeNotifier {
   bool get pickingPlanarFace =>
       pickPlane || pickWorkGeometry || pickingExtentFace;
 
+  /// True while the viewport should pre-light a sketch PROFILE REGION under
+  /// the pointer — the extrude dialog's other pick.
+  ///
+  /// M407 — and NOT while the To-face extent is the pick in hand, which is the
+  /// half of #26 that M400 left standing. Two things go wrong when a region
+  /// lights up during that pick, and the second is the reported bug all over
+  /// again:
+  ///
+  ///   * it advertises a pick that cannot happen. The tap path tests
+  ///     [pickingExtentFace] FIRST and takes the face; a region that
+  ///     highlighted under the cursor would be offering something the tap has
+  ///     already decided against;
+  ///   * it puts the face highlight out. The viewport's gate is
+  ///     `pickingPlanarFace && region == null`, so a region found here
+  ///     SUPPRESSES the face — and the extrude dialog is open with a sketch
+  ///     locked in at exactly that moment, so any ray landing inside a profile
+  ///     on that plane takes the lights back off. Which is where the To-face
+  ///     pick is used: over the body, next to the sketch it is extruding.
+  ///
+  /// The rule underneath both is the one the Measure branch states in full at
+  /// the top of `_updateHover`: hover follows the tap, or it is lying.
+  bool get hoveringProfileRegions =>
+      extrudeSession != null && !pickingExtentFace;
+
   /// The prompt currently shown for the armed command, or '' when none is.
   String workFeaturePrompt = '';
 

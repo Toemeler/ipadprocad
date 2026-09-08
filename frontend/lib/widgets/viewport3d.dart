@@ -1462,9 +1462,13 @@ class _Viewport3DState extends State<Viewport3D>
     }
     String? hit;
     int? region;
-    // profile-region hover while the extrude dialog is picking profiles
+    // profile-region hover while the extrude dialog is picking profiles —
+    // M407: and not while it is picking the TERMINATION face instead. See
+    // AppState.hoveringProfileRegions, which is the whole of why.
     final sess = app.extrudeSession;
-    if (sess != null && sess.sketchName != null) {
+    if (sess != null &&
+        app.hoveringProfileRegions &&
+        sess.sketchName != null) {
       final cs = p.sketchByName(sess.sketchName!);
       if (cs != null) {
         final frame = sketchFrameOf(cs);
