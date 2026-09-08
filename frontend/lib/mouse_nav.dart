@@ -148,3 +148,58 @@ MouseDrag mouseDrag(PointerDeviceKind kind, int buttons, {required bool shift}) 
   if (buttons & kMiddleMouseButton == 0) return MouseDrag.none;
   return shift ? MouseDrag.orbit : MouseDrag.pan;
 }
+
+/// M392 — what a trackpad's two-finger gesture turned out to be.
+///
+/// A `PointerPanZoomUpdateEvent` carries a scale AND a pan, always, and the
+/// two viewports acted on both in the same breath: scale zoomed, pan orbited.
+/// But a pinch is not a pure scale. The two fingers' centroid wanders by a
+/// few points as they close — nobody pinches symmetrically — so every pinch
+/// arrived with a pan attached and the model turned while it zoomed. That is
+/// the whole of "pinch zooming on windows laptop with trackpad is fucked up
+/// and rotates the modell somehow" (#21), and it is not a Windows fault; a
+/// precision touchpad there is simply more willing to report the drift than
+/// the Magic Trackpad this was written on.
+///
+/// So the gesture picks ONE meaning and keeps it: whichever threshold it
+/// crosses first, for as long as the fingers are down. That is what a CAD
+/// application does, and it also fixes the mirror-image case nobody had
+/// reported yet — a two-finger orbit whose scale jitters a fraction of a
+/// percent was zooming the camera the whole way round, because the old guard
+/// was `(scale - 1).abs() > 1e-4`.
+///
+/// SCALE IS ASKED FIRST, deliberately. A slow pinch can travel eight points
+/// before it has grown five percent, and answering "drag" there is the bug
+/// this exists to remove.
+enum TrackpadGesture {
+  /// Neither threshold crossed yet: the fingers have moved too little to say.
+  undecided,
+
+  /// A pinch. Zooms, and never orbits, however far the centroid wanders.
+  zoom,
+
+  /// A two-finger slide. Orbits, or pans with shift, and never zooms.
+  drag,
+}
+
+/// Five percent, which no pure slide reaches and every deliberate pinch does.
+const double kTrackpadZoomSlop = 0.05;
+
+/// Eight logical points — the same slop a finger gets elsewhere in the app.
+const double kTrackpadDragSlop = 8.0;
+
+/// [current] is the gesture's decision so far, [scale] and [pan] the event's
+/// CUMULATIVE values since it began (which is what PointerPanZoomUpdateEvent
+/// reports). Returns the decision, which never goes back to undecided.
+TrackpadGesture trackpadGesture(
+  TrackpadGesture current, {
+  required double scale,
+  required Offset pan,
+}) {
+  if (current != TrackpadGesture.undecided) return current;
+  if (scale > 0 && (scale - 1).abs() >= kTrackpadZoomSlop) {
+    return TrackpadGesture.zoom;
+  }
+  if (pan.distance >= kTrackpadDragSlop) return TrackpadGesture.drag;
+  return TrackpadGesture.undecided;
+}

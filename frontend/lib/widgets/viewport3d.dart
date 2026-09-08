@@ -326,6 +326,10 @@ class _Viewport3DState extends State<Viewport3D>
   /// trackpad gets Inventor-style navigation instead.
   bool _tpActive = false;
   Offset _tpLastPan = Offset.zero;
+
+  /// M392 — what THIS trackpad gesture is, once it has moved
+  /// far enough to say. Reset on every start; see trackpadGesture.
+  TrackpadGesture _tpGesture = TrackpadGesture.undecided;
   PointerDeviceKind _dragKind = PointerDeviceKind.touch;
 
   String? _hoverSketch;
@@ -926,17 +930,30 @@ class _Viewport3DState extends State<Viewport3D>
               _wheel.cancel(); // the trackpad takes over from a wheel glide
               _tpActive = true;
               _tpLastPan = Offset.zero;
+              _tpGesture = TrackpadGesture.undecided;
               _scaleStartH = p.camera.halfH;
             },
             onPointerPanZoomUpdate: (e) {
               if (!_tpActive) return;
               setState(() {
-                if (e.scale > 0 && (e.scale - 1).abs() > 1e-4) {
-                  final f = (_scaleStartH / e.scale) / p.camera.halfH;
-                  _zoomAt(p, Cam3(p.camera, size), e.localPosition, f);
+                // M392 — ONE meaning per gesture. A pinch drifts sideways as
+                // the fingers close, and acting on both halves turned the
+                // model while it zoomed (#21). See trackpadGesture.
+                _tpGesture =
+                    trackpadGesture(_tpGesture, scale: e.scale, pan: e.pan);
+                if (_tpGesture == TrackpadGesture.zoom) {
+                  if (e.scale > 0) {
+                    final f = (_scaleStartH / e.scale) / p.camera.halfH;
+                    _zoomAt(p, Cam3(p.camera, size), e.localPosition, f);
+                  }
+                  // Kept level with the fingers so that nothing is banked up
+                  // to spend if this ever stops being a zoom.
+                  _tpLastPan = e.pan;
+                  return;
                 }
                 final d = e.pan - _tpLastPan;
                 _tpLastPan = e.pan;
+                if (_tpGesture != TrackpadGesture.drag) return;
                 if (d == Offset.zero) return;
                 if (HardwareKeyboard.instance.isShiftPressed) {
                   _pan(p, d, size);
