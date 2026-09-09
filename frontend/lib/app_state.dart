@@ -76,6 +76,7 @@ import 'render_samples.dart';
 import 'ribbon_dock.dart';
 import 'sync/lan_sync.dart';
 import 'sync/sync_store.dart';
+import 'update_check.dart';
 import 'work_features.dart';
 
 /// Drawing tools. M6: the ENTIRE Create panel draws real backend geometry
@@ -1825,6 +1826,11 @@ class AppState extends ChangeNotifier {
     );
     LanSync.instance.onApplied = _adoptSynced;
     ShareCodes.attachStore(SyncStore(_cacheRoot));
+    // Linux/Windows only, and a no-op even there until something asks — see
+    // update_check.dart. Attached here rather than checked from a bare
+    // constant so a test can point it at its own temp directory instead of
+    // wherever this device's real settings.json lives.
+    UpdateCheck.attachStore(UpdateStore(_cacheRoot));
     final probe = Log.step(
         'state', 'Engine.create (backend probe)', () => Engine.create());
     backendReal = probe.isRealBackend;

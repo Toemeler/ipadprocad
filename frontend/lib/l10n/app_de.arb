@@ -276,6 +276,34 @@
   "@syncCodeCopied": {
     "description": "Bestätigung nach dem Kopieren."
   },
+  "updateAvailableTitle": "Update verfügbar",
+  "@updateAvailableTitle": {
+    "description": "Titel der Rückfrage beim Start auf Windows und Linux, wenn ein neuerer Build als der laufende gefunden wurde."
+  },
+  "updateAvailableMessage": "Eine neuere Version von Prototype steht bereit. Jetzt aktualisieren?",
+  "@updateAvailableMessage": {
+    "description": "Text der Rückfrage. Bewusst ohne Versionsnummer oder Commit — die Desktop-Builds tragen keine, nur eine Build-ID, die niemandem etwas sagt."
+  },
+  "updateNow": "Jetzt aktualisieren",
+  "@updateNow": {
+    "description": "Bestätigen-Knopf der Update-Rückfrage."
+  },
+  "updateDownloading": "Update wird heruntergeladen …",
+  "@updateDownloading": {
+    "description": "Kurzmeldung (toast), waehrend der Download laeuft, bevor die App sich zum Installieren beendet."
+  },
+  "updateFailed": "Update fehlgeschlagen. Später erneut versuchen.",
+  "@updateFailed": {
+    "description": "Kurzmeldung (toast), wenn der Download oder das Starten des Installers fehlgeschlagen ist. Die App laeuft normal weiter."
+  },
+  "updateManualMessage": "Eine neuere Version ist verfügbar. Die Downloadseite öffnen?",
+  "@updateManualMessage": {
+    "description": "Rückfrage-Text fuer den einen Kanal, den diese App nicht selbst ersetzen kann: ein aus dem tar.gz entpackter Ordner unter Linux, statt eines AppImage. Statt Dutzende Dateien unter dem laufenden Prozess auszutauschen, oeffnet das nur die Release-Seite."
+  },
+  "updateOpenDownloadPage": "Downloadseite öffnen",
+  "@updateOpenDownloadPage": {
+    "description": "Bestätigen-Knopf, wenn nur die Release-Seite geoeffnet werden kann (siehe updateManualMessage)."
+  },
   "settingsDiagnostics": "Diagnose",
   "@settingsDiagnostics": {
     "description": "Abschnittstitel: Fehler melden, Protokoll teilen."

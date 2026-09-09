@@ -35,6 +35,7 @@ import 'package:native_menu/native_menu.dart';
 
 import 'widgets/native_browser_host.dart';
 import 'widgets/quick_tools.dart';
+import 'widgets/update_prompt.dart';
 import 'widgets/pattern_panel_3d.dart';
 import 'widgets/ribbon_dock_layout.dart';
 import 'widgets/viewport.dart';
@@ -702,6 +703,14 @@ class PrototypeApp extends StatelessWidget {
           // circle. It is the last button of the quick-tool bar now (which
           // renders on the home gallery too, so it is still reachable from
           // every view) and nothing of it floats over the canvas any more.
+          //
+          // The desktop update prompt DOES belong here, for the reason the
+          // comment above the Stack gives: it paints nothing itself
+          // (SizedBox.shrink), it exists only to hand confirmAction a
+          // BuildContext with a Navigator above it, from outside any one
+          // screen — the same reason the bug button used to live here before
+          // it moved onto the quick-tool bar.
+          UpdatePrompt(app: app),
         ]),
           ),
         ),

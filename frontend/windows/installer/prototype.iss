@@ -82,6 +82,23 @@ PrivilegesRequiredOverridesAllowed=dialog
 
 UninstallDisplayIcon={app}\{#MyAppExeName}
 UninstallDisplayName={#MyAppName}
+; THE SELF-UPDATE PATH. The app itself (update_check.dart) can download this
+; installer and re-run it silently while it is still running — the user
+; already said yes inside the app, so there is nothing left for Setup's own
+; wizard to ask. That means prototype.exe is open and its own DLL/asset files
+; are locked at the exact moment [Files] needs to overwrite them.
+;
+; CloseApplications uses the Windows Restart Manager to find which running
+; processes hold a lock on a file Setup is about to replace and close them —
+; here, that is this app closing itself, a moment after it launched the very
+; installer doing the closing. RestartApplications reopens whatever it closed
+; once the copy is done, so a silent update also finishes back at a running
+; app with no code in update_check.dart telling Setup to relaunch anything.
+; Both are complete no-ops when nothing is running against these files, which
+; is every OTHER install — a first install, and windows-build.yml's own
+; silent smoke test — so this changes nothing for either of those.
+CloseApplications=yes
+RestartApplications=yes
 ; The same glyph the taskbar and the window already show — the installer,
 ; the "Installed apps" entry and the uninstaller all carry it, one logo
 ; rather than a generic installer-box icon standing in for it.

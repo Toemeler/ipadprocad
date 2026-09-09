@@ -469,6 +469,48 @@ abstract class AppL10n {
   /// **'Freigabecode kopiert.'**
   String get syncCodeCopied;
 
+  /// Titel der Rückfrage beim Start auf Windows und Linux, wenn ein neuerer Build als der laufende gefunden wurde.
+  ///
+  /// In de, this message translates to:
+  /// **'Update verfügbar'**
+  String get updateAvailableTitle;
+
+  /// Text der Rückfrage. Bewusst ohne Versionsnummer oder Commit — die Desktop-Builds tragen keine, nur eine Build-ID, die niemandem etwas sagt.
+  ///
+  /// In de, this message translates to:
+  /// **'Eine neuere Version von Prototype steht bereit. Jetzt aktualisieren?'**
+  String get updateAvailableMessage;
+
+  /// Bestätigen-Knopf der Update-Rückfrage.
+  ///
+  /// In de, this message translates to:
+  /// **'Jetzt aktualisieren'**
+  String get updateNow;
+
+  /// Kurzmeldung (toast), waehrend der Download laeuft, bevor die App sich zum Installieren beendet.
+  ///
+  /// In de, this message translates to:
+  /// **'Update wird heruntergeladen …'**
+  String get updateDownloading;
+
+  /// Kurzmeldung (toast), wenn der Download oder das Starten des Installers fehlgeschlagen ist. Die App laeuft normal weiter.
+  ///
+  /// In de, this message translates to:
+  /// **'Update fehlgeschlagen. Später erneut versuchen.'**
+  String get updateFailed;
+
+  /// Rückfrage-Text fuer den einen Kanal, den diese App nicht selbst ersetzen kann: ein aus dem tar.gz entpackter Ordner unter Linux, statt eines AppImage. Statt Dutzende Dateien unter dem laufenden Prozess auszutauschen, oeffnet das nur die Release-Seite.
+  ///
+  /// In de, this message translates to:
+  /// **'Eine neuere Version ist verfügbar. Die Downloadseite öffnen?'**
+  String get updateManualMessage;
+
+  /// Bestätigen-Knopf, wenn nur die Release-Seite geoeffnet werden kann (siehe updateManualMessage).
+  ///
+  /// In de, this message translates to:
+  /// **'Downloadseite öffnen'**
+  String get updateOpenDownloadPage;
+
   /// Abschnittstitel: Fehler melden, Protokoll teilen.
   ///
   /// In de, this message translates to:

@@ -231,6 +231,27 @@ class AppL10nEn extends AppL10n {
   String get syncCodeCopied => 'Share code copied.';
 
   @override
+  String get updateAvailableTitle => 'Update available';
+
+  @override
+  String get updateAvailableMessage => 'A newer version of Prototype is ready. Update now?';
+
+  @override
+  String get updateNow => 'Update Now';
+
+  @override
+  String get updateDownloading => 'Downloading the update…';
+
+  @override
+  String get updateFailed => 'Couldn’t update. Try again later.';
+
+  @override
+  String get updateManualMessage => 'A newer version is available. Open the download page?';
+
+  @override
+  String get updateOpenDownloadPage => 'Open Download Page';
+
+  @override
   String get settingsDiagnostics => 'Diagnostics';
 
   @override
