@@ -24,6 +24,7 @@ import 'package:native_menu/native_menu.dart';
 
 import '../app_state.dart';
 import '../backdrop.dart';
+import '../doc_file.dart';
 import '../doc_ref.dart';
 import '../l10n/l.dart';
 import '../log.dart';
@@ -57,7 +58,15 @@ const double _kThumbRadius = 14; // matches the card's BorderRadius
 /// into a part or an open sketch as well as back into the gallery) and "Create
 /// Part from Sketch". Defaulted so the existing callers — and the tests that
 /// pin this contract — read exactly as they did.
-List<List<NativeMenuItem>> sketchMenuGroups(AppL10n t, {bool isSketch = false}) => [
+/// M420 — [hasLocalChanges] adds "Discard changes", in its OWN section above
+/// Delete. Only when that document has actually been changed here since this
+/// device and the group last agreed: an entry that would do nothing is worse
+/// than no entry, because it invites a press and then has to explain itself.
+/// Its own section rather than beside Rename, because it throws work away and
+/// the separator is what says so before the words do.
+List<List<NativeMenuItem>> sketchMenuGroups(AppL10n t,
+        {bool isSketch = false, bool hasLocalChanges = false}) =>
+    [
       [
         NativeMenuItem(id: 'rename', title: t.rename, symbol: 'pencil'),
         NativeMenuItem(
@@ -79,6 +88,14 @@ List<List<NativeMenuItem>> sketchMenuGroups(AppL10n t, {bool isSketch = false}) 
             title: t.shareEllipsis,
             symbol: 'square.and.arrow.up'),
       ],
+      if (hasLocalChanges)
+        [
+          NativeMenuItem(
+              id: 'discard',
+              title: t.syncDiscard,
+              symbol: 'arrow.uturn.backward',
+              destructive: true),
+        ],
       [
         NativeMenuItem(
             id: 'delete', title: t.delete, symbol: 'trash', destructive: true),
@@ -189,6 +206,9 @@ class _HomeViewState extends State<HomeView> {
   /// tap, and by the next refresh.
   String? _syncNote;
 
+  /// M421 — versions the last refresh replaced, while Undo is still offered.
+  List<SyncBackup> _undoable = const <SyncBackup>[];
+
   @override
   void initState() {
     super.initState();
@@ -258,7 +278,9 @@ class _HomeViewState extends State<HomeView> {
             Rect.fromLTWH(full.left, full.top, full.width, full.width / _kCardAspect),
         cornerRadius: _kThumbRadius,
         previewImagePath: s.preview?.path,
-        groups: sketchMenuGroups(L.of(context), isSketch: s.kind == 'sketch'),
+        groups: sketchMenuGroups(L.of(context),
+            isSketch: s.kind == 'sketch',
+            hasLocalChanges: _hasLocalChanges(s)),
       ));
     }
     final payload = jsonEncode([for (final t in targets) t.toMap()]);
@@ -284,7 +306,9 @@ class _HomeViewState extends State<HomeView> {
       context,
       at: at,
       title: name,
-      groups: sketchMenuGroups(L.current, isSketch: doc.first.kind == 'sketch'),
+      groups: sketchMenuGroups(L.current,
+          isSketch: doc.first.kind == 'sketch',
+          hasLocalChanges: _hasLocalChanges(doc.first)),
     );
     if (choice != null) _onMenuSelection(name, choice);
   }
@@ -292,6 +316,9 @@ class _HomeViewState extends State<HomeView> {
   void _onMenuSelection(String sketch, String item) {
     if (!mounted) return;
     switch (item) {
+      case 'discard':
+        unawaited(_discardChanges(sketch));
+        break;
       case 'rename':
         _promptRename(sketch);
         break;
@@ -398,6 +425,47 @@ class _HomeViewState extends State<HomeView> {
         onContextMenu: NativeMenu.isSupported ? null : _showCardMenu,
       );
 
+  /// M420 — has THIS document been changed here since the group last agreed?
+  ///
+  /// Answered against the gallery's own entries, which are exactly the
+  /// documents in the app's folder — the ones the mirror carries. A file
+  /// opened from somewhere else never reaches this: it is not in `saved` under
+  /// a mirror name, so it has no agreed version and nothing to be put back to.
+  static bool _hasLocalChanges(SavedSketchInfo d) =>
+      LanSync.instance.hasLocalChanges(_mirrorPath(d));
+
+  /// The name the mirror knows a document by: `Bracket` + its kind's
+  /// extension, which is how [DocFile] names it on disk.
+  static String _mirrorPath(SavedSketchInfo d) =>
+      '${d.name}.${extForKind(d.kind)}';
+
+  /// M420 — GIVE UP THIS DEVICE'S CHANGES to one document.
+  ///
+  /// "I want a clear all changes button but also when I longpress a menu item
+  /// a clear changes button only for this item."
+  ///
+  /// The confirmation says what actually happens AND that a copy is kept,
+  /// which is the difference between "gone" and "recoverable" and the reason
+  /// this can be put in front of a beginner at all.
+  Future<void> _discardChanges(String name) async {
+    final t = L.current;
+    final doc = widget.app.saved.where((d) => d.name == name);
+    if (doc.isEmpty) return;
+    final path = _mirrorPath(doc.first);
+    if (!LanSync.instance.hasLocalChanges(path)) return;
+    final ok = await confirmAction(
+      context,
+      title: t.syncDiscardTitle(name),
+      message: t.syncDiscardBody,
+      confirmLabel: t.syncDiscard,
+    );
+    if (!ok || !mounted) return;
+    final done = await LanSync.instance.discardLocalChanges([path]);
+    if (!mounted) return;
+    setState(() => _syncNote =
+        done.isEmpty ? t.syncDiscardOffline : t.syncDiscardDone(done.length));
+  }
+
   /// M418 — SYNC NOW. The button on the desktop and the drag-down on a touch
   /// screen both land here.
   ///
@@ -416,7 +484,33 @@ class _HomeViewState extends State<HomeView> {
     setState(() {
       _refreshing = false;
       _syncNote = _noteFor(result);
+      // M421 — UNDO, for the ten seconds in which somebody realises the
+      // version that just arrived was not the one they wanted. It is offered
+      // only when something was actually replaced: a refresh that took a
+      // document this device did not have has nothing to undo.
+      _undoable = result.outcome == SyncRefreshOutcome.updated
+          ? LanSync.instance
+              .backups()
+              .where((b) =>
+                  b.reason == 'replaced' &&
+                  DateTime.now().difference(b.at) < const Duration(minutes: 1))
+              .toList()
+          : const <SyncBackup>[];
     });
+  }
+
+  /// M421 — puts back everything the last refresh replaced.
+  Future<void> _undoLast() async {
+    final items = _undoable;
+    if (items.isEmpty) return;
+    setState(() => _undoable = const <SyncBackup>[]);
+    var n = 0;
+    for (final b in items) {
+      if (LanSync.instance.restore(b)) n++;
+    }
+    if (!mounted) return;
+    setState(() => _syncNote =
+        n == 0 ? null : L.current.syncRestoreDone(items.first.documentName));
   }
 
   /// The one line a refresh leaves behind, in plain words.
@@ -475,7 +569,10 @@ class _HomeViewState extends State<HomeView> {
 
   void _dismissNote() {
     LanSync.instance.recentForks.value = const <SyncFork>[];
-    setState(() => _syncNote = null);
+    setState(() {
+      _syncNote = null;
+      _undoable = const <SyncBackup>[];
+    });
   }
 
   /// M261 — Settings. A real UIKit form sheet on the iPad; a Flutter dialog
@@ -870,7 +967,9 @@ class _HomeViewState extends State<HomeView> {
         if (_currentNote() != null)
           _SyncNote(
               text: _currentNote()!,
-              onDismiss: _refreshing ? null : _dismissNote),
+              onDismiss: _refreshing ? null : _dismissNote,
+              undoLabel: _undoable.isEmpty ? null : L.of(context).syncUndo,
+              onUndo: _undoable.isEmpty ? null : _undoLast),
         Expanded(
           child: app.saved.isEmpty
               ? const _EmptyState()
@@ -1047,7 +1146,12 @@ class _SyncNote extends StatelessWidget {
   /// Null while a refresh is running: there is nothing to dismiss yet, and a
   /// close cross on a progress message invites a press that cannot help.
   final VoidCallback? onDismiss;
-  const _SyncNote({required this.text, this.onDismiss});
+
+  /// M421 — offered only when the last refresh actually replaced something.
+  final String? undoLabel;
+  final VoidCallback? onUndo;
+  const _SyncNote(
+      {required this.text, this.onDismiss, this.undoLabel, this.onUndo});
 
   @override
   Widget build(BuildContext context) {
@@ -1064,6 +1168,15 @@ class _SyncNote extends StatelessWidget {
               child: Text(text,
                   style: ts(12.5, g.cardDate), overflow: TextOverflow.ellipsis),
             ),
+            if (undoLabel != null && onUndo != null) ...[
+              const SizedBox(width: 12),
+              GestureDetector(
+                onTap: onUndo,
+                behavior: HitTestBehavior.opaque,
+                child: Text(undoLabel!,
+                    style: ts(12.5, T.accent, w: FontWeight.w600)),
+              ),
+            ],
             if (onDismiss != null) ...[
               const SizedBox(width: 8),
               Icon(Icons.close, size: 14, color: g.cardDate),

@@ -189,6 +189,64 @@ class AppL10nDe extends AppL10n {
   String get syncNow => 'Aktualisieren';
 
   @override
+  String get syncDiscard => 'Änderungen verwerfen';
+
+  @override
+  String syncDiscardTitle(String name) {
+    return 'Änderungen an „$name“ verwerfen?';
+  }
+
+  @override
+  String get syncDiscardBody =>
+      'Das Dokument geht auf den Stand der anderen Geräte zurück. Was hier geändert wurde, ist danach nicht mehr in diesem Dokument — eine Kopie bleibt 30 Tage lang unter „Ersetzte Fassungen“.';
+
+  @override
+  String get syncDiscardAll => 'Änderungen dieses Geräts verwerfen';
+
+  @override
+  String syncDiscardAllTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Änderungen an $count Dokumenten verwerfen?',
+      one: 'Änderungen an einem Dokument verwerfen?',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get syncDiscardNothing => 'Keine ungeteilten Änderungen';
+
+  @override
+  String get syncDiscardOffline =>
+      'Die anderen Geräte sind nicht erreichbar — es gibt gerade nichts, worauf zurückgegangen werden könnte';
+
+  @override
+  String syncDiscardDone(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Dokumente zurückgesetzt',
+      one: 'Ein Dokument zurückgesetzt',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get syncRestoreRow => 'Ersetzte Fassungen';
+
+  @override
+  String get syncRestoreEmpty => 'Nichts ersetzt oder entfernt';
+
+  @override
+  String syncRestoreDone(String name) {
+    return '„$name“ wiederhergestellt';
+  }
+
+  @override
+  String get syncUndo => 'Rückgängig';
+
+  @override
   String get syncChecking => 'Wird abgeglichen …';
 
   @override

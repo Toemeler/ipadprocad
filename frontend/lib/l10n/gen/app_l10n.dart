@@ -421,6 +421,78 @@ abstract class AppL10n {
   /// **'Aktualisieren'**
   String get syncNow;
 
+  /// M420 — im Kontextmenue einer Karte, eigener Abschnitt ueber Loeschen. Nur sichtbar, wenn dieses Dokument hier tatsaechlich abweicht: eine Aktion, die nichts tut, ist schlimmer als keine.
+  ///
+  /// In de, this message translates to:
+  /// **'Änderungen verwerfen'**
+  String get syncDiscard;
+
+  /// M420 — Bestaetigung fuer ein einzelnes Dokument.
+  ///
+  /// In de, this message translates to:
+  /// **'Änderungen an „{name}“ verwerfen?'**
+  String syncDiscardTitle(String name);
+
+  /// M420 — was wirklich passiert, ohne Beschoenigung, aber MIT dem Hinweis auf das Netz darunter: das ist der Unterschied zwischen 'weg' und 'zurueckholbar' und der Grund, warum man einem Anfaenger diesen Knopf ueberhaupt hinstellen darf.
+  ///
+  /// In de, this message translates to:
+  /// **'Das Dokument geht auf den Stand der anderen Geräte zurück. Was hier geändert wurde, ist danach nicht mehr in diesem Dokument — eine Kopie bleibt 30 Tage lang unter „Ersetzte Fassungen“.'**
+  String get syncDiscardBody;
+
+  /// M420 — in den Einstellungen, NICHT in der Galerie-Kopfzeile: dort saesse er neben dem Plus und wuerde versehentlich getroffen.
+  ///
+  /// In de, this message translates to:
+  /// **'Änderungen dieses Geräts verwerfen'**
+  String get syncDiscardAll;
+
+  /// M420 — Bestaetigung fuer alle auf einmal; die Anzahl steht im Titel, die Namen im Text.
+  ///
+  /// In de, this message translates to:
+  /// **'{count, plural, =1{Änderungen an einem Dokument verwerfen?} other{Änderungen an {count} Dokumenten verwerfen?}}'**
+  String syncDiscardAllTitle(int count);
+
+  /// M420 — die Zeile in den Einstellungen, wenn nichts abweicht. Der Eintrag bleibt sichtbar und sagt, dass es nichts zu tun gibt, statt zu verschwinden.
+  ///
+  /// In de, this message translates to:
+  /// **'Keine ungeteilten Änderungen'**
+  String get syncDiscardNothing;
+
+  /// M420 — die Absage. Eigene Arbeit gegen NICHTS einzutauschen ist der einzige Ausgang, den diese Funktion nie haben darf.
+  ///
+  /// In de, this message translates to:
+  /// **'Die anderen Geräte sind nicht erreichbar — es gibt gerade nichts, worauf zurückgegangen werden könnte'**
+  String get syncDiscardOffline;
+
+  /// M420 — die Ergebniszeile in der Galerie.
+  ///
+  /// In de, this message translates to:
+  /// **'{count, plural, =1{Ein Dokument zurückgesetzt} other{{count} Dokumente zurückgesetzt}}'**
+  String syncDiscardDone(int count);
+
+  /// M421 — die Einstellungszeile, die die Sicherungskopien zeigt. Bewusst nicht 'Backup' oder 'Versionen': es ist die Liste dessen, was der Abgleich ersetzt oder entfernt hat.
+  ///
+  /// In de, this message translates to:
+  /// **'Ersetzte Fassungen'**
+  String get syncRestoreRow;
+
+  /// M421 — wenn die Schublade leer ist.
+  ///
+  /// In de, this message translates to:
+  /// **'Nichts ersetzt oder entfernt'**
+  String get syncRestoreEmpty;
+
+  /// M421 — nach dem Wiederherstellen. Es ist ein SPEICHERN, kein Zurueckspulen: die anderen Geraete bekommen diese Fassung als die neueste.
+  ///
+  /// In de, this message translates to:
+  /// **'„{name}“ wiederhergestellt'**
+  String syncRestoreDone(String name);
+
+  /// M421 — neben der Ergebniszeile nach einem Abgleich, der etwas ersetzt hat.
+  ///
+  /// In de, this message translates to:
+  /// **'Rückgängig'**
+  String get syncUndo;
+
   /// M418 — waehrend der Abgleich laeuft. Der Knopf wartet bis zu drei Sekunden auf die anderen Geraete, und drei Sekunden Stille nach einem Tastendruck sind genau das 'es tut scheinbar nichts', wegen dem Leute fuenfmal druecken.
   ///
   /// In de, this message translates to:

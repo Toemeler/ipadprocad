@@ -250,6 +250,31 @@ enum SyncVerdict {
   fork,
 }
 
+/// A copy of a document taken before the mirror overwrote or removed it.
+@immutable
+class SyncBackup {
+  /// The document's mirror path, e.g. `Bracket.ptp`.
+  final String path;
+
+  /// When the copy was taken.
+  final DateTime at;
+
+  /// Why: `replaced` (a peer's version arrived), `removed` (deleted on another
+  /// device) or `discarded` (this device gave up its own changes).
+  final String reason;
+
+  /// The file holding the bytes.
+  final File file;
+
+  const SyncBackup(this.path, this.at, this.reason, this.file);
+
+  /// `Bracket.ptp` -> `Bracket`, for anything that shows this to a person.
+  String get documentName {
+    final dot = path.lastIndexOf('.');
+    return dot <= 0 ? path : path.substring(0, dot);
+  }
+}
+
 /// How a "sync now" went, in the terms the person who pressed it thinks in.
 enum SyncRefreshOutcome {
   /// Sharing is switched off on this device. Nothing was attempted.
@@ -1096,6 +1121,98 @@ class LanSync {
     }
   }
 
+  /// Documents this device has changed since it and the group last agreed —
+  /// the ones "discard my changes" would actually undo.
+  ///
+  /// M420 — a document with no agreed version behind it is NOT in this list.
+  /// It has never been anywhere else, so there is nothing to go back TO, and
+  /// offering to discard it would be offering to delete it.
+  List<String> get divergentDocuments {
+    final out = <String>[];
+    for (final e in _mine.entries) {
+      if (e.key.startsWith(_prefsPrefix)) continue;
+      final base = _base[e.key];
+      if (base != null && base != e.value.sha) out.add(e.key);
+    }
+    out.sort();
+    return out;
+  }
+
+  /// True when [path] is one of them.
+  bool hasLocalChanges(String path) {
+    final mine = _mine[path];
+    if (mine == null || path.startsWith(_prefsPrefix)) return false;
+    final base = _base[path];
+    return base != null && base != mine.sha;
+  }
+
+  /// GIVE UP THIS DEVICE'S CHANGES to [paths] and take the group's versions.
+  ///
+  /// M420 — "I want a clear all changes button but also when I longpress a
+  /// menu item a clear changes button only for this item" (#43).
+  ///
+  /// The recovery hatch, and the only destructive thing in the whole mirror
+  /// that the user asks for on purpose. Three rules make it safe enough to put
+  /// in front of a beginner:
+  ///
+  ///   * IT REFUSES WHEN THERE IS NOTHING TO GO BACK TO. No peer connected
+  ///     means the replacement cannot be fetched, and deleting somebody's work
+  ///     in exchange for nothing is the one outcome this must never have. The
+  ///     caller shows "your other devices aren't reachable" and nothing
+  ///     happens.
+  ///   * The previous bytes are BACKED UP first (M421), so even the asked-for
+  ///     destruction is undoable.
+  ///   * It only ever touches a document with an agreed version behind it: one
+  ///     that has never left this device has nothing to be discarded in favour
+  ///     of, and dropping it would be a delete wearing another name.
+  ///
+  /// Returns the paths actually given up. The bytes arrive afterwards, through
+  /// the ordinary manifest exchange: forgetting our version and asking is all
+  /// this has to do, and doing it that way means the arrival path is the one
+  /// that is already tested.
+  Future<List<String>> discardLocalChanges(List<String> paths) async {
+    if (_code == null && !_pretendLiveForTest) return const <String>[];
+    if (!_pretendLiveForTest && !_sessions.values.any((s) => s.live)) {
+      Log.w('sync', 'discard refused: no other device is reachable');
+      return const <String>[];
+    }
+    final done = <String>[];
+    for (final path in paths) {
+      if (!hasLocalChanges(path)) continue;
+      final f = _fileFor(path);
+      if (f == null || !f.existsSync()) continue;
+      if (!backup(path, 'discarded')) {
+        Log.w('sync', 'discard skipped $path — it could not be backed up');
+        continue;
+      }
+      // Forget that we hold anything at this path. The peer's version then
+      // reads as "nothing here to lose" and arrives through the ordinary
+      // route, rather than through a second write path nobody else exercises.
+      try {
+        f.deleteSync();
+      } catch (e) {
+        Log.w('sync', 'could not put $path back: $e');
+        continue;
+      }
+      _mine.remove(path);
+      _hashes.remove(path);
+      _justApplied.remove(path);
+      // NOT a deletion: no tombstone is written, and the base is dropped so
+      // the copy coming back is taken rather than refused as one we threw
+      // away on purpose.
+      _base.remove(path);
+      done.add(path);
+    }
+    if (done.isEmpty) return done;
+    _saveBase();
+    Log.i('sync', 'gave up local changes to ${done.join(", ")}');
+    // Ask for them back. The manifest request is the same one the refresh
+    // button sends.
+    if (!_pretendLiveForTest) _requestManifests();
+    _applied(done.toSet());
+    return done;
+  }
+
   /// Asks every paired device for its list. Returns how many were asked.
   int _requestManifests() {
     var n = 0;
@@ -1455,6 +1572,11 @@ class LanSync {
     final verdict = verdictFor(e);
     if (verdict == SyncVerdict.skip) return false;
     if (verdict == SyncVerdict.fork) return _fork(e, bytes, peerName);
+    // M421 — the version about to be replaced, kept for a month. This is the
+    // case M417 reasons about correctly and can still be WRONG about: the
+    // rules said this device was simply behind, and the rules do not know
+    // that the person wanted what was here.
+    backup(e.path, 'replaced');
     try {
       f.parent.createSync(recursive: true);
       // Written beside and renamed: a mirror that truncates a document and
@@ -1813,6 +1935,9 @@ class LanSync {
     var removed = false;
     if (f != null && f.existsSync()) {
       try {
+        // M421 — a delete is the one operation whose failure mode is losing
+        // work everywhere at once, so the copy comes first.
+        backup(t.path, 'removed');
         f.deleteSync();
         removed = true;
         Log.i('sync', 'removed ${t.path} — deleted on another device');
@@ -1832,6 +1957,133 @@ class LanSync {
     if (mine != null) _setBase(t.path, mine.sha);
     if (removed) _lastApplied = DateTime.now();
     return removed;
+  }
+
+  // -------------------------------------------------------------------------
+  // Backups (M421)
+  // -------------------------------------------------------------------------
+
+  /// Where a copy is kept of everything the mirror was about to destroy.
+  ///
+  /// M421 — THE THING THAT MAKES THE REST SAFE TO OFFER. M417 stops the mirror
+  /// losing work by accident; this is what covers the cases it cannot reason
+  /// about — a delete that was correct by the rules and wrong by the user, a
+  /// version taken from a peer that turned out to be the wrong one, and above
+  /// all "discard my changes", which is destruction the person ASKED for and
+  /// may still regret ten seconds later.
+  ///
+  /// Under the preferences directory rather than beside the documents: the
+  /// gallery lists what is in the documents folder, and a drawer of old
+  /// versions is not a drawer of documents. Never mirrored, for the same
+  /// reason the journals are not — it is this device's undo history, not a
+  /// shared fact.
+  static const String _backupDir = 'sync-backup';
+
+  /// Long enough to cover "I noticed on Monday", short enough not to grow
+  /// without bound. The same month the tombstones get.
+  static const Duration _backupLife = Duration(days: 30);
+
+  Directory? get _backupRoot {
+    final prefs = _prefs;
+    return prefs == null ? null : Directory('${prefs.path}/$_backupDir');
+  }
+
+  /// Copies what is at [path] now into the backup drawer. True when there is
+  /// a copy afterwards — including when there was nothing to copy, because a
+  /// caller's question is "is it safe to go ahead", and it is.
+  bool backup(String path, String reason) {
+    final f = _fileFor(path);
+    final dir = _backupRoot;
+    if (f == null || dir == null) return false;
+    if (!f.existsSync()) return true;
+    try {
+      dir.createSync(recursive: true);
+      final stamp = DateTime.now().millisecondsSinceEpoch;
+      final safe = path.replaceAll(RegExp(r'[^A-Za-z0-9._ ()-]'), '_');
+      f.copySync('${dir.path}/$stamp-$reason-$safe');
+      _expireBackups();
+      return true;
+    } catch (e) {
+      Log.w('sync', 'could not keep a copy of $path: $e');
+      return false;
+    }
+  }
+
+  /// Everything in the drawer, newest first.
+  List<SyncBackup> backups() {
+    final dir = _backupRoot;
+    if (dir == null || !dir.existsSync()) return const <SyncBackup>[];
+    final out = <SyncBackup>[];
+    try {
+      for (final e in dir.listSync(followLinks: false)) {
+        if (e is! File) continue;
+        final name = e.uri.pathSegments.last;
+        final dash = name.indexOf('-');
+        if (dash <= 0) continue;
+        final ms = int.tryParse(name.substring(0, dash));
+        if (ms == null) continue;
+        final rest = name.substring(dash + 1);
+        final dash2 = rest.indexOf('-');
+        if (dash2 <= 0) continue;
+        out.add(SyncBackup(
+            rest.substring(dash2 + 1),
+            DateTime.fromMillisecondsSinceEpoch(ms),
+            rest.substring(0, dash2),
+            e));
+      }
+    } catch (e) {
+      Log.w('sync', 'could not read the backup drawer: $e');
+    }
+    out.sort((a, b) => b.at.compareTo(a.at));
+    return out;
+  }
+
+  /// Puts a backed-up version back, as a new save.
+  ///
+  /// M421 — AND IT IS A SAVE, not a rewind. The group still holds the version
+  /// that replaced this one and would simply send it again; restoring has to
+  /// mean "this is what the document is now", which is what publishing it as
+  /// the newest version does. Anything else looks to the user like an undo
+  /// that undid itself a second later.
+  bool restore(SyncBackup b) {
+    final target = _fileFor(b.path);
+    if (target == null) return false;
+    try {
+      final bytes = b.file.readAsBytesSync();
+      // The version being replaced goes into the drawer too: an undo that
+      // cannot itself be undone is a trap.
+      backup(b.path, 'replaced');
+      if (!_writeAtomic(target, bytes)) return false;
+      _rememberOnDisk(
+          b.path, target, sha256.convert(bytes).toString());
+      // No base and no tombstone: this is a local save like any other, and the
+      // next announcement carries it to the other devices as the winner.
+      _base.remove(b.path);
+      _saveBase();
+      if (_tombs.remove(b.path) != null) _saveTombs();
+      _justApplied.remove(b.path);
+      Log.i('sync', 'restored ${b.path} from ${b.at}');
+      nudge();
+      _applied(<String>{b.path});
+      return true;
+    } catch (e) {
+      Log.w('sync', 'could not restore ${b.path}: $e');
+      return false;
+    }
+  }
+
+  void _expireBackups() {
+    final dir = _backupRoot;
+    if (dir == null || !dir.existsSync()) return;
+    final cutoff = DateTime.now().subtract(_backupLife);
+    try {
+      for (final e in dir.listSync(followLinks: false)) {
+        if (e is! File) continue;
+        if (e.statSync().modified.isBefore(cutoff)) e.deleteSync();
+      }
+    } catch (e) {
+      Log.w('sync', 'could not tidy the backup drawer: $e');
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -1957,6 +2209,21 @@ class LanSync {
 
   @visibleForTesting
   void pruneBaseForTest() => _pruneBase();
+
+  @visibleForTesting
+  Future<List<String>> discardForTest(List<String> paths,
+      {required bool pretendPeer}) async {
+    _pretendLiveForTest = pretendPeer;
+    try {
+      return await discardLocalChanges(paths);
+    } finally {
+      _pretendLiveForTest = false;
+    }
+  }
+
+  /// Stands in for "a device is reachable" in a host test, where there are no
+  /// sockets. Nothing else reads it.
+  bool _pretendLiveForTest = false;
 
   @visibleForTesting
   void attachForTest(

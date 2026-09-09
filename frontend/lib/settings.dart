@@ -208,6 +208,15 @@ const String kRowStopSharing = 'stopsharing';
 /// The read-only line: looking / N devices / off.
 const String kRowSyncStatus = 'syncstatus';
 
+/// M420 — give up this device's own changes and take the group's versions.
+/// Destructive, and in SETTINGS rather than in the gallery header: beside the
+/// "+" it would be mis-tapped by somebody reaching for a new document.
+const String kRowDiscardChanges = 'discardchanges';
+
+/// M421 — the drawer of versions the mirror replaced or removed, and the way
+/// back out of any of them.
+const String kRowReplacedVersions = 'replacedversions';
+
 const String kSecDiagnostics = 'diagnostics';
 const String kSecAbout = 'about';
 
@@ -296,6 +305,13 @@ List<SettingsSection> buildSettings(
   /// What the mirror is doing right now, as one short line. Only read when
   /// [shareCode] is set.
   String? syncDetail,
+  /// M420 — how many documents this device has changed since it and the group
+  /// last agreed. The row is shown either way and says so when it is zero:
+  /// an action that vanishes when there is nothing to do is one the user
+  /// cannot find when there is.
+  int syncLocalChanges = 0,
+  /// M421 — how many replaced or removed versions are still in the drawer.
+  int syncBackups = 0,
 }) =>
     [
       SettingsSection(
@@ -493,12 +509,34 @@ List<SettingsSection> buildSettings(
               symbol: 'antenna.radiowaves.left.and.right',
             ),
             SettingsRow(
+              id: kRowDiscardChanges,
+              title: t.syncDiscardAll,
+              detail: syncLocalChanges == 0 ? t.syncDiscardNothing : null,
+              kind: syncLocalChanges == 0
+                  ? SettingsRowKind.value
+                  : SettingsRowKind.action,
+              symbol: 'arrow.uturn.backward',
+              destructive: syncLocalChanges > 0,
+            ),
+            SettingsRow(
               id: kRowStopSharing,
               title: t.settingsStopSharing,
               symbol: 'xmark.circle',
               destructive: true,
             ),
           ],
+          // M421 — outside the `shareCode != null` block on purpose: turning
+          // sharing off does not empty the drawer, and the way back to a
+          // version the mirror took is exactly what somebody who has just
+          // switched it off in a panic is looking for.
+          if (syncBackups > 0)
+            SettingsRow(
+              id: kRowReplacedVersions,
+              title: t.syncRestoreRow,
+              detail: '$syncBackups',
+              kind: SettingsRowKind.value,
+              symbol: 'clock.arrow.circlepath',
+            ),
         ],
         footer: t.settingsSyncFooter,
       ),

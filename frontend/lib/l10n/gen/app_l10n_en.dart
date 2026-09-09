@@ -188,6 +188,64 @@ class AppL10nEn extends AppL10n {
   String get syncNow => 'Sync now';
 
   @override
+  String get syncDiscard => 'Discard changes';
+
+  @override
+  String syncDiscardTitle(String name) {
+    return 'Discard changes to “$name”?';
+  }
+
+  @override
+  String get syncDiscardBody =>
+      'The document goes back to the version on your other devices. What was changed here will no longer be in it — a copy is kept for 30 days under “Replaced versions”.';
+
+  @override
+  String get syncDiscardAll => 'Discard this device’s changes';
+
+  @override
+  String syncDiscardAllTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Discard changes to $count documents?',
+      one: 'Discard changes to one document?',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get syncDiscardNothing => 'Nothing on this device is unshared';
+
+  @override
+  String get syncDiscardOffline =>
+      'Your other devices aren’t reachable — there is nothing to go back to right now';
+
+  @override
+  String syncDiscardDone(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count documents put back',
+      one: 'One document put back',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get syncRestoreRow => 'Replaced versions';
+
+  @override
+  String get syncRestoreEmpty => 'Nothing replaced or removed';
+
+  @override
+  String syncRestoreDone(String name) {
+    return '“$name” restored';
+  }
+
+  @override
+  String get syncUndo => 'Undo';
+
+  @override
   String get syncChecking => 'Checking…';
 
   @override

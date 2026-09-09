@@ -37,6 +37,7 @@ import '../ribbon_dock.dart';
 import '../sync/lan_sync.dart';
 import '../sync/share_code.dart';
 import '../sync/sync_store.dart';
+import 'context_menu.dart';
 import 'native_prompts.dart';
 
 /// The live facts the About section reports.
@@ -134,6 +135,10 @@ class SettingsSheet {
             ? null
             : formatShareCode(ShareCodes.current.value!),
         syncDetail: _syncDetail(),
+        // M420/M421 — both are counts the sheet reads live, so switching a
+        // document back updates the row without the sheet being reopened.
+        syncLocalChanges: LanSync.instance.divergentDocuments.length,
+        syncBackups: LanSync.instance.backups().length,
       );
 
   /// One line for the status row: what the mirror is doing right now.
@@ -617,6 +622,10 @@ Future<void> applySyncRow(BuildContext context, String row) async {
             destructive: true,
           );
           if (sure) await ShareCodes.set(null);
+        case kRowDiscardChanges:
+          await _discardAll(context);
+        case kRowReplacedVersions:
+          await _showReplaced(context);
         default:
           break; // the status row is not selectable
       }
@@ -624,3 +633,78 @@ Future<void> applySyncRow(BuildContext context, String row) async {
     Log.w('sync', 'the sharing row failed: $e');
   }
 }
+
+/// M420 — GIVE UP THIS DEVICE'S CHANGES, all of them.
+///
+/// The confirmation names the documents rather than only counting them: "3
+/// documents" is a number somebody agrees to without knowing what they have
+/// agreed to, and the whole point of this dialog is that they should.
+Future<void> _discardAll(BuildContext context) async {
+  final t = L.current;
+  final paths = LanSync.instance.divergentDocuments;
+  if (paths.isEmpty) return;
+  final names = paths.map((p) {
+    final dot = p.lastIndexOf('.');
+    return dot <= 0 ? p : p.substring(0, dot);
+  }).toList();
+  final sure = await confirmAction(
+    context,
+    title: t.syncDiscardAllTitle(paths.length),
+    message: '${names.join(', ')}\n\n${t.syncDiscardBody}',
+    confirmLabel: t.syncDiscard,
+    destructive: true,
+  );
+  if (!sure) return;
+  final done = await LanSync.instance.discardLocalChanges(paths);
+  if (!context.mounted) return;
+  // The refusal is the important half: no device reachable means there is
+  // nothing to go back TO, and swapping somebody's work for nothing is the one
+  // outcome this feature must never have.
+  await confirmAction(
+    context,
+    title: done.isEmpty ? t.syncDiscardOffline : t.syncDiscardDone(done.length),
+    confirmLabel: t.ok,
+    destructive: false,
+  );
+}
+
+/// M421 — the drawer of versions the mirror replaced or removed, newest first,
+/// and the way back out of any of them.
+Future<void> _showReplaced(BuildContext context) async {
+  final t = L.current;
+  final items = LanSync.instance.backups();
+  if (items.isEmpty) return;
+  final chosen = await showAppContextMenu(
+    context,
+    at: Offset(MediaQuery.sizeOf(context).width / 2,
+        MediaQuery.sizeOf(context).height / 3),
+    title: t.syncRestoreRow,
+    groups: [
+      [
+        for (var i = 0; i < items.length && i < 20; i++)
+          NativeMenuItem(
+              id: '$i',
+              title: '${items[i].documentName}  ·  '
+                  '${_stamp(items[i].at)}',
+              symbol: 'clock.arrow.circlepath'),
+      ],
+    ],
+  );
+  if (chosen == null || !context.mounted) return;
+  final i = int.tryParse(chosen);
+  if (i == null || i < 0 || i >= items.length) return;
+  final b = items[i];
+  final sure = await confirmAction(
+    context,
+    title: t.syncRestoreDone(b.documentName),
+    message: t.syncDiscardBody,
+    confirmLabel: t.ok,
+    destructive: false,
+  );
+  if (!sure) return;
+  LanSync.instance.restore(b);
+}
+
+String _stamp(DateTime d) =>
+    '${d.day.toString().padLeft(2, '0')}.${d.month.toString().padLeft(2, '0')}. '
+    '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
