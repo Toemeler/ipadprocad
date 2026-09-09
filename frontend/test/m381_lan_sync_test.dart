@@ -210,46 +210,48 @@ void main() {
       expect(File('${docs.path}/Bracket.ptp').existsSync(), isFalse);
     });
 
-    test('the newest write wins, and an identical file never moves', () {
+    // M417 — WHAT REPLACED "THE NEWEST WRITE WINS".
+    //
+    // These two tests used to pin the clock rule: an incoming file won if its
+    // modification time was more than a second ahead of the local one. That
+    // rule cannot tell "I am behind" from "we both changed it", so the second
+    // case silently destroyed one side's work and which side depended on
+    // whose clock ran fast. The rule is now read off three content hashes —
+    // local, remote, and the version the two last agreed on — and no clock is
+    // consulted at all. m417 pins the full table; what is kept here is that
+    // the OLD rule is genuinely gone.
+    test('an identical file never moves, whatever the clock says', () {
       final f = File('${docs.path}/Bracket.ptp')..writeAsStringSync('mine');
       LanSync.instance.attachForTest(documents: docs, preferences: prefs);
       final mine = LanSync.instance.localManifestForTest['Bracket.ptp']!;
-
-      // The same bytes, whatever the clock says: nothing to do. Without this a
-      // pair of devices copies every document to each other forever.
       expect(
           LanSync.instance.wantsForTest(
               SyncEntry('Bracket.ptp', mine.size, mine.mtimeMs + 60000, mine.sha)),
-          isFalse);
-
-      // Different bytes, older: keep what is here.
-      expect(
-          LanSync.instance.wantsForTest(
-              SyncEntry('Bracket.ptp', 4, mine.mtimeMs - 60000, 'other')),
-          isFalse);
-
-      // Different bytes, newer: take theirs.
-      expect(
-          LanSync.instance.wantsForTest(
-              SyncEntry('Bracket.ptp', 4, mine.mtimeMs + 60000, 'other')),
-          isTrue);
-
-      // A document this device has never seen.
+          isFalse,
+          reason: 'without this a pair of devices copies forever');
       expect(LanSync.instance.wantsForTest(SyncEntry('New.ptp', 1, 1, 'x')),
-          isTrue);
+          isTrue, reason: 'a document this device has never seen');
       expect(f.readAsStringSync(), 'mine');
     });
 
-    test('a difference of milliseconds is not a decision anybody made', () {
+    test('a newer timestamp no longer wins on its own', () {
       File('${docs.path}/Bracket.ptp').writeAsStringSync('mine');
       LanSync.instance.attachForTest(documents: docs, preferences: prefs);
       final mine = LanSync.instance.localManifestForTest['Bracket.ptp']!;
-      // Two devices' clocks are never equal. Inside the slack, this device
-      // keeps what it has rather than ping-ponging with its neighbour.
+      // An hour ahead and completely different bytes, with no agreed version
+      // behind them: this is two people editing at once, not one device being
+      // behind, and the answer is to keep both rather than to overwrite.
       expect(
-          LanSync.instance.wantsForTest(
-              SyncEntry('Bracket.ptp', 4, mine.mtimeMs + 200, 'other')),
-          isFalse);
+          LanSync.instance.verdictFor(
+              SyncEntry('Bracket.ptp', 4, mine.mtimeMs + 3600000, 'other')),
+          SyncVerdict.fork);
+      // And with an agreed version behind them it is a plain update, however
+      // the two clocks happen to be set — here, deliberately, an hour BEHIND.
+      LanSync.instance.setBaseForTest('Bracket.ptp', mine.sha);
+      expect(
+          LanSync.instance.verdictFor(
+              SyncEntry('Bracket.ptp', 4, mine.mtimeMs - 3600000, 'other')),
+          SyncVerdict.take);
     });
 
     test('a document lands whole or not at all', () {

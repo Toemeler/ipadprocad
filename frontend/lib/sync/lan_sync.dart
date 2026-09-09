@@ -105,21 +105,35 @@ class SyncTomb {
   final String path;
   final int deletedAtMs;
 
-  const SyncTomb(this.path, this.deletedAtMs);
+  /// M417 — THE VERSION THAT WAS THROWN AWAY, when the deleting device knew
+  /// it. This is what lets the other side answer "have I got anything to
+  /// lose?" instead of "is my clock ahead?": a device holding exactly these
+  /// bytes has nothing to lose and removes them, and a device holding
+  /// anything else has an edit, which outlives a deletion.
+  ///
+  /// Null from a peer that predates this, and from a journal written by one.
+  /// [LanSync._applyTomb] falls back to what it knew before in that case
+  /// rather than refusing every delete it cannot prove is safe.
+  final String? sha;
 
-  Map<String, Object?> toJson() => {'p': path, 'd': deletedAtMs};
+  const SyncTomb(this.path, this.deletedAtMs, [this.sha]);
+
+  Map<String, Object?> toJson() => {
+        'p': path,
+        'd': deletedAtMs,
+        if (sha != null) 'h': sha,
+      };
 
   static SyncTomb? fromJson(Object? o) {
     if (o is! Map) return null;
     final p = o['p'];
     final d = (o['d'] as num?)?.toInt();
     if (p is! String || p.isEmpty || d == null) return null;
-    return SyncTomb(p, d);
+    final h = o['h'];
+    return SyncTomb(p, d, h is String && h.isNotEmpty ? h : null);
   }
 }
 
-/// A device this one can see.
-@immutable
 class SyncPeer {
   final String id;
   final String name;
@@ -186,6 +200,54 @@ class SyncStatus {
 
   @override
   int get hashCode => Object.hash(state, peers, lastChange, detail);
+}
+
+/// A document that was changed in two places at once, and what was done about
+/// it: BOTH versions were kept, one under its own name and one under [copy].
+///
+/// M417 — there is no merge for a B-Rep feature tree, so the only honest
+/// answers are "pick one" and "keep both", and only one of those can be given
+/// without asking a question the person cannot answer. A beginner cannot say
+/// whether they want "mine" or "theirs" from a filename and a time; they can
+/// say it from two thumbnails they can open and look at. So the app keeps both
+/// and says so, and deleting the one you do not want is the Delete you already
+/// know.
+@immutable
+class SyncFork {
+  /// The document that kept its name — the newer of the two.
+  final String original;
+
+  /// The copy the older version was kept under, e.g. `Bracket (iPad).ptp`.
+  final String copy;
+
+  /// The device the copied version was last saved on, which is what [copy] is
+  /// named after.
+  final String owner;
+
+  const SyncFork(this.original, this.copy, this.owner);
+
+  @override
+  bool operator ==(Object other) =>
+      other is SyncFork &&
+      other.original == original &&
+      other.copy == copy &&
+      other.owner == owner;
+
+  @override
+  int get hashCode => Object.hash(original, copy, owner);
+}
+
+/// What should happen to a file a peer is offering.
+enum SyncVerdict {
+  /// Nothing: already the same, older than what is here, or deleted here.
+  skip,
+
+  /// Take it. Either this device does not have the file, or it has exactly
+  /// the version the group last agreed on and the peer has moved on from it.
+  take,
+
+  /// BOTH sides changed it since they last agreed. Keep both.
+  fork,
 }
 
 /// The mirror.
@@ -263,6 +325,33 @@ class LanSync {
   /// announces the change, which the peer applies, which fires its watcher.
   final Map<String, int> _justApplied = <String, int>{};
 
+  /// THE VERSION THIS DEVICE AND THE GROUP LAST AGREED ON, by path: the sha of
+  /// the bytes that were either taken from a peer or handed to one.
+  ///
+  /// M417 — THE PIECE THAT WAS MISSING, and the whole of why this used to lose
+  /// work. Without it the only question that can be asked about an incoming
+  /// file is "is it newer than mine", and that question cannot tell these two
+  /// apart:
+  ///
+  ///   * I have an old version and they saved a new one — they should win;
+  ///   * I edited mine and they edited theirs — NOBODY should win.
+  ///
+  /// Both look like "their timestamp is larger", so the second silently
+  /// destroyed one side's afternoon, and which side depended on two clocks
+  /// that were never synchronised. With a base version the two are different
+  /// questions with different answers (see [verdictFor]) and no clock is
+  /// consulted at all.
+  ///
+  /// Kept beside the delete journal, in the same shape and for the same
+  /// reason: it has to survive a restart, and it is about THIS device's
+  /// relationship with the group, so it is never mirrored.
+  Map<String, String> _base = <String, String>{};
+
+  /// Divergences resolved since the app last cleared them, for the gallery to
+  /// tell the user about. Newest last.
+  final ValueNotifier<List<SyncFork>> recentForks =
+      ValueNotifier<List<SyncFork>>(const <SyncFork>[]);
+
   bool get enabled => _code != null;
   String? get code => _code;
   List<SyncPeer> get peers => _peers.values.toList(growable: false);
@@ -311,6 +400,7 @@ class LanSync {
     _prefs = preferences;
     _deviceName = deviceName ?? _defaultDeviceName();
     _loadTombs();
+    _loadBase();
   }
 
   static String _defaultDeviceName() {
@@ -397,6 +487,7 @@ class LanSync {
     try {
       _loadTombs();
       _mine = _scanLocal();
+      _pruneBase();
       await _startServer();
       await _startBeacon();
       await _startBonjour();
@@ -1106,7 +1197,11 @@ class LanSync {
       final f = _fileFor(path);
       if (f == null || f.existsSync()) continue;
       _tombs[path] = at;
-      out.add(SyncTomb(path, at));
+      final was = _mine[path];
+      // The version that went, kept for [verdictFor] and sent with the
+      // tombstone so the other devices can answer the same question.
+      if (was != null) _setBase(path, was.sha);
+      out.add(SyncTomb(path, at, was?.sha));
     }
     if (out.isNotEmpty) _saveTombs();
     return out;
@@ -1116,24 +1211,71 @@ class LanSync {
   // Applying what a peer sent
   // -------------------------------------------------------------------------
 
-  /// True when [remote] should replace what is here.
-  bool _wants(SyncEntry remote) {
-    // Deleted here, and the file on offer is older than the deletion: this is
-    // the copy that was thrown away, coming back from a device that has not
-    // heard yet. Refusing it is what makes a delete stick — otherwise every
-    // device that still has the file would hand it straight back.
+  /// What should happen to [remote]: nothing, take it, or keep both.
+  ///
+  /// M417 — THE CONFLICT RULE, and it reads off three shas rather than two
+  /// clocks. L is what this device holds, R is what the peer is offering, B is
+  /// the version the two last agreed on ([_base]).
+  ///
+  ///   L == R                  they already agree            -> skip
+  ///   L absent                nothing here to lose          -> take
+  ///   L == B, R != B          only THEY moved on            -> take
+  ///   R == B, L != B          only I moved on               -> skip (I push)
+  ///   L != B, R != B, L != R  BOTH moved on                 -> fork
+  ///   B absent, L != R        both invented the same name   -> fork
+  ///
+  /// The last two are the cases the old rule could not see. It compared
+  /// modification times and let the larger one win, so two people editing the
+  /// same document meant one of them lost, silently, decided by whichever
+  /// machine's clock happened to run ahead. Nothing here consults a clock.
+  SyncVerdict verdictFor(SyncEntry remote) {
+    // PREFERENCES ARE NOT DOCUMENTS. `settings.json` is MERGED rather than
+    // replaced (see [_applySettings]), so there is nothing here to lose and
+    // nothing to keep two copies of — a preference that loses is a tick box in
+    // the wrong position, not an afternoon's modelling. It keeps the rule it
+    // has always had, which also keeps two devices from handing merged files
+    // back to each other forever.
+    if (remote.path.startsWith(_prefsPrefix)) {
+      final mine = _mine[remote.path];
+      if (mine == null) return SyncVerdict.take;
+      if (mine.sha == remote.sha) return SyncVerdict.skip;
+      return remote.mtimeMs > mine.mtimeMs + 1000
+          ? SyncVerdict.take
+          : SyncVerdict.skip;
+    }
+    // Deleted here, and the file on offer is the copy that was thrown away
+    // coming back from a device that has not heard yet. Refusing it is what
+    // makes a delete stick. A file SAVED again since the deletion is a
+    // different thing and is caught below, by its sha differing from the one
+    // the tombstone was written for.
     final tomb = _tombs[remote.path];
-    if (tomb != null && tomb > remote.mtimeMs + 1000) return false;
     final mine = _mine[remote.path];
-    if (mine == null) return true;
-    if (mine.sha == remote.sha) return false;
-    // A second of slack, because two devices' clocks are never equal and a
-    // difference of milliseconds is not a decision anybody made.
-    return remote.mtimeMs > mine.mtimeMs + 1000;
+    if (tomb != null && mine == null) {
+      // The version we deleted is exactly the one being offered back.
+      if (_base[remote.path] == remote.sha) return SyncVerdict.skip;
+      // Something else: it was edited elsewhere after the delete travelled,
+      // and an edit outlives a deletion (see [_applyTomb]).
+      return SyncVerdict.take;
+    }
+    if (mine == null) return SyncVerdict.take;
+    if (mine.sha == remote.sha) return SyncVerdict.skip;
+    final base = _base[remote.path];
+    if (base == null) return SyncVerdict.fork;
+    if (mine.sha == base) return SyncVerdict.take;
+    if (remote.sha == base) return SyncVerdict.skip;
+    return SyncVerdict.fork;
   }
 
+  /// The paths worth asking a peer for: everything we would either take or
+  /// keep a second copy of. Both need the bytes.
+  bool _wants(SyncEntry remote) =>
+      verdictFor(remote) != SyncVerdict.skip;
+
   /// Writes a file a peer sent, atomically, and remembers it.
-  bool _apply(SyncEntry e, Uint8List bytes) {
+  ///
+  /// [peerName] names the device it came from, which is what a kept-both copy
+  /// is named after when this turns out to be a divergence.
+  bool _apply(SyncEntry e, Uint8List bytes, {String peerName = 'another device'}) {
     final f = _fileFor(e.path);
     if (f == null) return false;
     final actual = sha256.convert(bytes).toString();
@@ -1141,10 +1283,25 @@ class LanSync {
       Log.w('sync', '${e.path} arrived corrupt — dropped');
       return false;
     }
-    try {
-      if (e.path == '${_prefsPrefix}settings.json') {
+    // The preference merge decides for itself what it keeps, key by key, and
+    // is asked before the verdict for that reason.
+    if (e.path == '${_prefsPrefix}settings.json') {
+      try {
         return _applySettings(e, bytes);
+      } catch (err) {
+        Log.w('sync', 'could not merge ${e.path}: $err');
+        return false;
       }
+    }
+    // M417 — asked AGAIN here, not just when the manifest arrived. The bytes
+    // travel asynchronously and this device may have saved the document in
+    // between; deciding on the state at the moment of the write is what makes
+    // that save count rather than be overwritten by a decision taken before
+    // it happened.
+    final verdict = verdictFor(e);
+    if (verdict == SyncVerdict.skip) return false;
+    if (verdict == SyncVerdict.fork) return _fork(e, bytes, peerName);
+    try {
       f.parent.createSync(recursive: true);
       // Written beside and renamed: a mirror that truncates a document and
       // then dies has destroyed it, and this app's documents are single files
@@ -1156,6 +1313,10 @@ class LanSync {
       _remember(SyncEntry(
           e.path, st.size, st.modified.millisecondsSinceEpoch, e.sha));
       _justApplied[e.path] = st.modified.millisecondsSinceEpoch;
+      // M417 — we now hold exactly what the group holds. That is the whole
+      // definition of the base version, and recording it here is what lets
+      // the NEXT change be told apart from a divergence.
+      _setBase(e.path, e.sha);
       _lastApplied = DateTime.now();
       // It got past _wants, so it is newer than any tombstone we hold: the
       // document is back, and the record of its deletion has to go with it or
@@ -1167,6 +1328,137 @@ class LanSync {
       Log.w('sync', 'could not write ${e.path}: $err');
       return false;
     }
+  }
+
+  /// KEEPS BOTH VERSIONS. Returns true when something landed.
+  ///
+  /// M417 — the answer to "we both changed it". The newer of the two keeps the
+  /// document's name and the older is kept beside it as
+  /// `Bracket (Tom's iPad).ptp`, named after the device it was last saved on.
+  /// Nothing is overwritten without its previous contents being written down
+  /// first, so the worst this can cost is a card to tidy up.
+  ///
+  /// BOTH DEVICES RUN THIS, on the same pair of versions, and they have to
+  /// reach the same two filenames holding the same two documents or the
+  /// mirror would never settle. That is why the winner is chosen by
+  /// modification time with the SHA as the tie-break rather than by "mine
+  /// versus theirs": every device comparing the same L and R gets the same
+  /// answer, whereas "mine wins" gets a different answer on each of them and
+  /// the two would copy back and forth forever.
+  bool _fork(SyncEntry remote, Uint8List remoteBytes, String peerName) {
+    final mine = _mine[remote.path];
+    if (mine == null) return false;
+    final target = _fileFor(remote.path);
+    if (target == null) return false;
+    Uint8List myBytes;
+    try {
+      myBytes = target.readAsBytesSync();
+    } catch (err) {
+      Log.w('sync', 'could not read ${remote.path} to keep both: $err');
+      return false;
+    }
+    // Deterministic, and identical on both devices: newer keeps the name; if
+    // the two clocks say the same millisecond, the smaller SHA does.
+    final theirsWins = remote.mtimeMs != mine.mtimeMs
+        ? remote.mtimeMs > mine.mtimeMs
+        : remote.sha.compareTo(mine.sha) < 0;
+    final loserSha = theirsWins ? mine.sha : remote.sha;
+    final loserBytes = theirsWins ? myBytes : remoteBytes;
+    final loserOwner = theirsWins ? _deviceName : peerName;
+    final copyPath = _freeCopyPath(remote.path, loserOwner, loserSha);
+    if (copyPath == null) return false;
+    final copyFile = _fileFor(copyPath);
+    if (copyFile == null) return false;
+    try {
+      // The LOSER is written first, always. If anything fails after this the
+      // worst outcome is a duplicate, never a missing version.
+      if (!_writeAtomic(copyFile, loserBytes)) return false;
+      _rememberOnDisk(copyPath, copyFile, loserSha);
+      _setBase(copyPath, loserSha);
+      if (theirsWins) {
+        if (!_writeAtomic(target, remoteBytes)) return false;
+        _rememberOnDisk(remote.path, target, remote.sha);
+        _justApplied[remote.path] = target.statSync().modified
+            .millisecondsSinceEpoch;
+      }
+      // THE REMOTE SHA, whichever version won, and the distinction matters:
+      // the base has to say "this device has SEEN AND DEALT WITH that
+      // version", not merely "this is what I hold". Recording my own sha when
+      // mine won would leave `mine == base` true, which reads as "only they
+      // moved on" — and the very next announcement of the version we just
+      // decided against would overwrite the winner with the loser, forever.
+      _setBase(remote.path, remote.sha);
+      // A tombstone cannot outlive a document that is demonstrably still
+      // being worked on, on two devices at once.
+      if (_tombs.remove(remote.path) != null) _saveTombs();
+      _lastApplied = DateTime.now();
+      final fork = SyncFork(remote.path, copyPath, loserOwner);
+      recentForks.value = <SyncFork>[...recentForks.value, fork];
+      Log.i(
+          'sync',
+          '${remote.path} was changed here and on $peerName — '
+          'both kept, the older one as $copyPath');
+      return true;
+    } catch (err) {
+      Log.w('sync', 'could not keep both versions of ${remote.path}: $err');
+      return false;
+    }
+  }
+
+  /// `Bracket.ptp` + `Tom's iPad` -> `Bracket (Tom's iPad).ptp`, or the next
+  /// free numbering of it. Null when the name cannot be formed.
+  ///
+  /// A target that ALREADY holds the bytes we were going to write is reused
+  /// rather than numbered around: the two devices resolve the same divergence
+  /// independently and a moment apart, and without this the second one to
+  /// arrive would make `Bracket (iPad) 2.ptp` out of a file that is already
+  /// there and identical.
+  String? _freeCopyPath(String path, String owner, String sha) {
+    final dot = path.lastIndexOf('.');
+    if (dot <= 0) return null;
+    final stem = path.substring(0, dot), ext = path.substring(dot);
+    final tag = _safeName(owner);
+    for (var n = 1; n <= 50; n++) {
+      final candidate = n == 1 ? '$stem ($tag)$ext' : '$stem ($tag) $n$ext';
+      if (_fileFor(candidate) == null) return null;
+      final held = _mine[candidate];
+      if (held == null) return candidate;
+      if (held.sha == sha) return candidate; // already exactly this
+    }
+    return null;
+  }
+
+  /// A device name reduced to something every filesystem this app runs on
+  /// will accept, and short enough to leave the document's own name readable.
+  static String _safeName(String raw) {
+    final cleaned = raw
+        .replaceAll(RegExp(r'[\\/:*?"<>|]'), ' ')
+        .replaceAll(RegExp(r'[\x00-\x1f]'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    if (cleaned.isEmpty) return 'another device';
+    return cleaned.length <= 40 ? cleaned : cleaned.substring(0, 40).trim();
+  }
+
+  /// Beside-and-rename, the same way [_apply] writes: a mirror that truncates
+  /// a document and then dies has destroyed it.
+  bool _writeAtomic(File f, Uint8List bytes) {
+    try {
+      f.parent.createSync(recursive: true);
+      final tmp = File('${f.path}.sync-part');
+      tmp.writeAsBytesSync(bytes, flush: true);
+      tmp.renameSync(f.path);
+      return true;
+    } catch (e) {
+      Log.w('sync', 'could not write ${f.path}: $e');
+      return false;
+    }
+  }
+
+  void _rememberOnDisk(String path, File f, String sha) {
+    final st = f.statSync();
+    _remember(
+        SyncEntry(path, st.size, st.modified.millisecondsSinceEpoch, sha));
   }
 
   /// settings.json is MERGED, not replaced.
@@ -1229,6 +1521,19 @@ class LanSync {
     } catch (e) {
       Log.w('sync', 'the app could not take what arrived: $e');
     }
+  }
+
+  /// A peer holds exactly what this device holds: that is an agreement, and
+  /// it is worth writing down even though nothing moved.
+  void _noteAgreement(SyncEntry remote) {
+    final mine = _mine[remote.path];
+    if (mine != null && mine.sha == remote.sha) _setBase(remote.path, remote.sha);
+  }
+
+  /// This device has just handed [path] to a peer.
+  void _noteHandedOver(String path, String sha) {
+    final mine = _mine[path];
+    if (mine != null && mine.sha == sha) _setBase(path, sha);
   }
 
   /// Reads a file for a peer that asked for it.
@@ -1312,18 +1617,31 @@ class LanSync {
 
   /// Applies a peer's tombstone. Returns true when a file actually went.
   ///
-  /// THE RULE IS THE SAME ONE FILES USE — the later of the two wins — so a
-  /// document deleted on one device and then saved again on another comes
-  /// back, and a document saved and then deleted stays gone. The one second of
-  /// slack is [_wants]'s, for [_wants]'s reason: two clocks are never equal.
+  /// M417 — A DELETE NEVER BEATS AN EDIT, and that is the whole rule now.
+  /// This used to be "the later of the two wins", decided by comparing a
+  /// tombstone's timestamp against a file's modification time — two clocks on
+  /// two machines — so whether your afternoon survived somebody else's tidying
+  /// up came down to which device was running fast. It is a question about
+  /// versions, not times: if this device holds exactly the version that was
+  /// thrown away it has nothing to lose and the delete applies; if it holds
+  /// anything else, somebody changed it here since, and the edit stays.
+  ///
+  /// The failure mode this protects against is the worst one the mirror has —
+  /// a deletion propagating through a bug loses work everywhere at once — so
+  /// it errs, deliberately, towards keeping a file nobody wanted rather than
+  /// removing one somebody did.
   bool _applyTomb(SyncTomb t) {
     if (!_deletable(t.path)) return false;
     final known = _tombs[t.path];
     if (known != null && known >= t.deletedAtMs) return false;
     final mine = _mine[t.path];
-    if (mine != null && mine.mtimeMs > t.deletedAtMs + 1000) {
-      // Saved again here AFTER it was deleted there. The save wins; the next
-      // announcement carries it back.
+    if (mine != null && !_deleteIsSafe(t, mine)) {
+      // Changed here since this device and the group last agreed. Keep it;
+      // the next announcement carries it back to whoever deleted it.
+      Log.i(
+          'sync',
+          'kept ${t.path} — deleted elsewhere, but it has been changed here '
+          'since the two devices last agreed');
       return false;
     }
     _tombs[t.path] = t.deletedAtMs;
@@ -1345,8 +1663,95 @@ class LanSync {
     _mine.remove(t.path);
     _hashes.remove(t.path);
     _justApplied.remove(t.path);
+    // NOT dropped: the sha of the version that went is exactly what lets
+    // [verdictFor] recognise the copy a peer who has not heard yet offers
+    // back, and refuse it. Dropping it is how a delete fails to stick.
+    if (mine != null) _setBase(t.path, mine.sha);
     if (removed) _lastApplied = DateTime.now();
     return removed;
+  }
+
+  // -------------------------------------------------------------------------
+  // The base version (M417)
+  // -------------------------------------------------------------------------
+
+  /// Where the agreed-version journal lives. Beside the delete journal, and
+  /// like it never mirrored as a FILE: it describes this device's
+  /// relationship with the group, and two devices overwriting each other's
+  /// copies would destroy the very records that keep them apart.
+  static const String _baseFile = 'sync-base.json';
+
+  File? get _basePath {
+    final prefs = _prefs;
+    return prefs == null ? null : File('${prefs.path}/$_baseFile');
+  }
+
+  void _loadBase() {
+    _base = <String, String>{};
+    final f = _basePath;
+    if (f == null || !f.existsSync()) return;
+    try {
+      final raw = jsonDecode(f.readAsStringSync());
+      if (raw is! Map) return;
+      for (final e in raw.entries) {
+        final v = e.value;
+        if (v is String && v.isNotEmpty) _base['${e.key}'] = v;
+      }
+    } catch (e) {
+      Log.w('sync', 'could not read the agreed-version journal: $e');
+    }
+  }
+
+  void _saveBase() {
+    final f = _basePath;
+    if (f == null) return;
+    try {
+      f.parent.createSync(recursive: true);
+      final tmp = File('${f.path}.sync-part');
+      tmp.writeAsStringSync(jsonEncode(_base), flush: true);
+      tmp.renameSync(f.path);
+    } catch (e) {
+      Log.w('sync', 'could not write the agreed-version journal: $e');
+    }
+  }
+
+  void _setBase(String path, String sha) {
+    if (_base[path] == sha) return;
+    _base[path] = sha;
+    _saveBase();
+  }
+
+  /// Forgets the agreed version of everything this device neither holds nor
+  /// remembers deleting, so the journal follows the gallery instead of growing
+  /// with everything that ever passed through it.
+  void _pruneBase() {
+    final before = _base.length;
+    _base.removeWhere((p, _) => !_mine.containsKey(p) && !_tombs.containsKey(p));
+    if (_base.length != before) _saveBase();
+  }
+
+  @visibleForTesting
+  Map<String, String> get baseForTest => _base;
+
+  @visibleForTesting
+  void setBaseForTest(String path, String sha) => _setBase(path, sha);
+
+  /// Is removing [mine] safe — i.e. does this device hold exactly the version
+  /// that was thrown away, with nothing of its own on top?
+  ///
+  /// Three sources of truth, best first. The tombstone's own sha is the good
+  /// one and needs nothing else. The base version answers it for a peer too
+  /// old to send one. With neither — an old journal, an old peer, a file this
+  /// device has never exchanged — there is nothing to compare and the old
+  /// timestamp heuristic is kept rather than refusing every delete that cannot
+  /// be proved safe, which would leave documents undeletable across an
+  /// upgrade.
+  bool _deleteIsSafe(SyncTomb t, SyncEntry mine) {
+    final theirs = t.sha;
+    if (theirs != null) return mine.sha == theirs;
+    final base = _base[t.path];
+    if (base != null) return mine.sha == base;
+    return mine.mtimeMs <= t.deletedAtMs + 1000;
   }
 
   /// The tombstones worth sending: everything still inside [_tombLife].
@@ -1376,13 +1781,36 @@ class LanSync {
   bool wantsForTest(SyncEntry e) => _wants(e);
 
   @visibleForTesting
-  bool applyForTest(SyncEntry e, Uint8List bytes) => _apply(e, bytes);
+  bool applyForTest(SyncEntry e, Uint8List bytes,
+          {String peerName = 'another device'}) =>
+      _apply(e, bytes, peerName: peerName);
 
   @visibleForTesting
-  void attachForTest({required Directory documents, required Directory preferences}) {
+  void noteAgreementForTest(SyncEntry e) => _noteAgreement(e);
+
+  @visibleForTesting
+  void noteHandedOverForTest(String path, String sha) =>
+      _noteHandedOver(path, sha);
+
+  @visibleForTesting
+  void pruneBaseForTest() => _pruneBase();
+
+  @visibleForTesting
+  void attachForTest(
+      {required Directory documents,
+      required Directory preferences,
+      String deviceName = 'device'}) {
     _docs = documents;
     _prefs = preferences;
+    _deviceName = deviceName;
     _loadTombs();
+    // M417 — and the agreed-version journal, for the same reason the delete
+    // journal is loaded here: this is a singleton, so a test that inherited
+    // the previous test's idea of what the group had agreed would be reading
+    // state nothing in it put there.
+    _loadBase();
+    _hashes.clear();
+    recentForks.value = const <SyncFork>[];
     _mine = _scanLocal();
   }
 }
@@ -1555,7 +1983,7 @@ class _SyncSession {
         final e = SyncEntry.fromJson(f.header['e']);
         final body = f.payload;
         if (e == null || body == null) return;
-        if (_sync._apply(e, body)) {
+        if (_sync._apply(e, body, peerName: peerName)) {
           _applied.add(e.path);
           // One notification for a burst, not one per file: a first pair-up
           // can be thirty documents and the gallery should rebuild once.
@@ -1620,6 +2048,11 @@ class _SyncSession {
       final e = SyncEntry.fromJson(raw);
       if (e == null) continue;
       if (_sync._fileFor(e.path) == null) continue;
+      // M417 — TWO DEVICES THAT ALREADY HOLD THE SAME BYTES HAVE AGREED, and
+      // saying so is what gives an install that predates the journal a base to
+      // reason from. Without it the first edit after an upgrade would look
+      // like a divergence and be kept twice.
+      _sync._noteAgreement(e);
       if (_sync._wants(e)) want.add(e.path);
     }
     if (removed.isNotEmpty) _sync._applied(removed);
@@ -1665,12 +2098,17 @@ class _SyncSession {
     final f = _sync._fileFor(path);
     if (f == null) return;
     final st = f.statSync();
+    final sha = sha256.convert(bytes).toString();
     _send(SyncFrame({
       't': SyncMsg.file,
-      'e': SyncEntry(path, st.size, st.modified.millisecondsSinceEpoch,
-              sha256.convert(bytes).toString())
+      'e': SyncEntry(path, st.size, st.modified.millisecondsSinceEpoch, sha)
           .toJson(),
     }, bytes));
+    // M417 — HANDING IT OVER IS AGREEING ON IT. The other half of the base
+    // version: a file this device has published is one the group holds, so the
+    // NEXT edit here is a change on top of a known version rather than an
+    // unexplained difference that would be kept twice.
+    _sync._noteHandedOver(path, sha);
   }
 
   void _send(SyncFrame f) {
