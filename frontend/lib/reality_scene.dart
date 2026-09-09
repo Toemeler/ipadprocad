@@ -827,7 +827,7 @@ List<Map<String, dynamic>> _inPlaceContextPayloads(AppState app,
   ];
 }
 
-/// M414 — which way the MODEL stands up, in world coordinates.
+/// M416 — which way the MODEL stands up, in world coordinates.
 ///
 /// The RealityKit twin of `cyclesUpAxis` in cycles_scene.dart: same formula,
 /// same reason, duplicated rather than imported because this file and the
@@ -892,7 +892,7 @@ Map<String, dynamic> buildScenePayload(AppState app, PartModel p,
     // M286 — the floor is only meaningful in rendered mode, but it is sent
     // always so the renderer never has to guess between modes.
     'floor': p.showFloor,
-    // M414 — and which way it stands, for the same reason: the floor is
+    // M416 — and which way it stands, for the same reason: the floor is
     // built perpendicular to this, not to world +Y (#35).
     'up': () {
       final u = realityUpAxis(app.cubeOrient);

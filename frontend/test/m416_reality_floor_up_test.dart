@@ -1,4 +1,4 @@
-// M414 — #35: "when i set a new view as front, the placing of the bottom
+// M416 — #35: "when i set a new view as front, the placing of the bottom
 // plane in rendered mode should change too."
 //
 // M403 fixed this for the Cycles/Windows floor. This is the same fix for the

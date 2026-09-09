@@ -252,7 +252,7 @@ final class PartRenderer: NSObject {
     /// already makes.
     private var sceneLowY: Float = .greatestFiniteMagnitude
 
-    /// M414 — which way the MODEL stands up, in world coordinates (#35).
+    /// M416 — which way the MODEL stands up, in world coordinates (#35).
     ///
     /// The ViewCube's orientation is the document's answer to "which way is
     /// up" — the Dart side sends it as `cubeOrient.rotate(+Y)`, see
@@ -899,7 +899,7 @@ final class PartRenderer: NSObject {
         // in whatever each call site recomputed.
         rendered = (a["render"] as? NSNumber)?.boolValue ?? false
         showFloor = (a["floor"] as? NSNumber)?.boolValue ?? true
-        // M414 — #35. Falls back to world +Y for a payload from before this
+        // M416 — #35. Falls back to world +Y for a payload from before this
         // key existed and for the one Dart sends that is not actually a unit
         // vector: the zero vector a malformed message could carry, which
         // would otherwise turn every dot product below into zero and the
@@ -1046,7 +1046,7 @@ final class PartRenderer: NSObject {
         }
     }
 
-    /// M414 — a rotation taking world +Y onto [to] (#35).
+    /// M416 — a rotation taking world +Y onto [to] (#35).
     ///
     /// `generatePlane` always lies in the XZ plane with its normal along +Y,
     /// so this is what stands the floor mesh up along the model's own up
@@ -1120,7 +1120,7 @@ final class PartRenderer: NSObject {
             ? -sceneRadius
             : sceneLowY
         let drop = low - max(1e-4, sceneRadius * 1e-4)
-        // M414 — ON the model's own up (#35), not always world Y: `drop` is a
+        // M416 — ON the model's own up (#35), not always world Y: `drop` is a
         // distance measured along [upAxis] (see [lowestY]), so the point it
         // names is `upAxis * drop`, and the plane has to be turned to stand
         // perpendicular to that axis rather than to +Y.

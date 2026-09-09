@@ -389,7 +389,7 @@ struct SolidGeom {
     /// is a bound rather than the value — it would put the floor a visible gap
     /// below a turned component and the shadow would come loose from the body.
     ///
-    /// M414 — [up] defaults to world +Y, which is every document that has
+    /// M416 — [up] defaults to world +Y, which is every document that has
     /// never redefined front (#35: "when i set a new view as front, the
     /// placing of the bottom plane in rendered mode should change too"). The
     /// question is `dot(up, R * p + at)`; written as `dot(R^T * up, p) +
