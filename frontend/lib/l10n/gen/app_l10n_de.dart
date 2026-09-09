@@ -237,7 +237,8 @@ class AppL10nDe extends AppL10n {
   String get updateAvailableTitle => 'Update verfügbar';
 
   @override
-  String get updateAvailableMessage => 'Eine neuere Version von Prototype steht bereit. Jetzt aktualisieren?';
+  String get updateAvailableMessage =>
+      'Eine neuere Version von Prototype steht bereit. Jetzt aktualisieren?';
 
   @override
   String get updateNow => 'Jetzt aktualisieren';
@@ -249,7 +250,8 @@ class AppL10nDe extends AppL10n {
   String get updateFailed => 'Update fehlgeschlagen. Später erneut versuchen.';
 
   @override
-  String get updateManualMessage => 'Eine neuere Version ist verfügbar. Die Downloadseite öffnen?';
+  String get updateManualMessage =>
+      'Eine neuere Version ist verfügbar. Die Downloadseite öffnen?';
 
   @override
   String get updateOpenDownloadPage => 'Downloadseite öffnen';
