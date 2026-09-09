@@ -23,6 +23,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart' show sha256;
 import 'package:http/http.dart' as http;
 
 import 'log.dart';
@@ -40,6 +41,16 @@ class UpdateInfo {
   /// and there is nothing to download — see updateManualMessage.
   final String assetUrl;
 
+  /// [assetUrl]'s own filename — what a line in [checksumsUrl] names it as.
+  final String assetName;
+
+  /// Where the release's SHA256SUMS file for this platform lives (see
+  /// build.yml's "ONE CHECKSUM FILE PER PLATFORM" step and
+  /// ci/release_attach.sh, which both the rolling and named channels go
+  /// through), or empty when the release carries none. [apply] refuses to
+  /// run anything it cannot check against this — see [_verify].
+  final String checksumsUrl;
+
   /// The release's own page, for the one channel this cannot apply itself.
   final String releaseUrl;
 
@@ -53,6 +64,8 @@ class UpdateInfo {
   const UpdateInfo({
     required this.tag,
     required this.assetUrl,
+    required this.assetName,
+    required this.checksumsUrl,
     required this.releaseUrl,
     required this.selfUpdatable,
   });
@@ -86,11 +99,20 @@ class UpdateStore {
     }
   }
 
+  /// Reads whatever is there, merges [patch] into this store's own section,
+  /// and writes it back.
+  ///
+  /// A file that fails to PARSE is read as empty rather than aborting the
+  /// write: the alternative — the read throwing, caught by an outer
+  /// try/catch that covers the write too — means this store can never save
+  /// anything again once settings.json is corrupt once, which is a worse
+  /// failure than losing whatever else was in the file that one time. Only
+  /// the write itself (a full disk, a permissions problem) is left to abort
+  /// silently; there is nothing more useful to do about that.
   void _merge(Map<String, Object?> patch) {
+    Map<String, Object?> data = <String, Object?>{};
+    final f = _file;
     try {
-      if (!dir.existsSync()) dir.createSync(recursive: true);
-      Map<String, Object?> data = <String, Object?>{};
-      final f = _file;
       if (f.existsSync()) {
         final raw = jsonDecode(f.readAsStringSync());
         if (raw is Map) {
@@ -99,8 +121,13 @@ class UpdateStore {
           };
         }
       }
-      final section = <String, Object?>{..._section(), ...patch};
-      data[key] = section;
+    } catch (e) {
+      Log.w('update', 'settings.json unreadable, replacing it: $e');
+    }
+    final section = <String, Object?>{..._section(), ...patch};
+    data[key] = section;
+    try {
+      if (!dir.existsSync()) dir.createSync(recursive: true);
       f.writeAsStringSync(jsonEncode(data));
     } catch (e) {
       Log.w('update', 'could not save settings: $e');
@@ -197,13 +224,14 @@ class UpdateCheck {
   }
 
   static UpdateInfo? _pickAsset(String tag, List assets, String releaseUrl) {
-    String? urlEndingWith(String suffix) {
+    // Positional record: .$1 is the asset's name, .$2 its download URL.
+    (String, String)? findEndingWith(String suffix) {
       for (final a in assets) {
         if (a is Map) {
           final name = a['name'];
           final url = a['browser_download_url'];
           if (name is String && url is String && name.endsWith(suffix)) {
-            return url;
+            return (name, url);
           }
         }
       }
@@ -211,24 +239,41 @@ class UpdateCheck {
     }
 
     if (Platform.isWindows) {
-      final url = urlEndingWith('-windows-setup.exe');
-      if (url == null) return null; // no matching asset on this release
+      final asset = findEndingWith('-windows-setup.exe');
+      if (asset == null) return null; // no matching asset on this release
+      final checksums = findEndingWith('SHA256SUMS-windows.txt');
       return UpdateInfo(
-          tag: tag, assetUrl: url, releaseUrl: releaseUrl, selfUpdatable: true);
+          tag: tag,
+          assetUrl: asset.$2,
+          assetName: asset.$1,
+          checksumsUrl: checksums?.$2 ?? '',
+          releaseUrl: releaseUrl,
+          selfUpdatable: true);
     }
 
     if (Platform.isLinux) {
       if (_appImagePath != null) {
-        final url = urlEndingWith('.AppImage');
-        if (url != null) {
-          return UpdateInfo(tag: tag, assetUrl: url, releaseUrl: releaseUrl,
+        final asset = findEndingWith('.AppImage');
+        if (asset != null) {
+          final checksums = findEndingWith('SHA256SUMS-linux.txt');
+          return UpdateInfo(
+              tag: tag,
+              assetUrl: asset.$2,
+              assetName: asset.$1,
+              checksumsUrl: checksums?.$2 ?? '',
+              releaseUrl: releaseUrl,
               selfUpdatable: true);
         }
       }
       // The tar.gz channel (or an AppImage release that, for whatever
       // reason, shipped none this time): see UpdateInfo.selfUpdatable.
       return UpdateInfo(
-          tag: tag, assetUrl: '', releaseUrl: releaseUrl, selfUpdatable: false);
+          tag: tag,
+          assetUrl: '',
+          assetName: '',
+          checksumsUrl: '',
+          releaseUrl: releaseUrl,
+          selfUpdatable: false);
     }
 
     return null;
@@ -261,6 +306,15 @@ class UpdateCheck {
 
     final downloaded = await _download(info);
     if (downloaded == null) return false;
+
+    if (!await _verify(downloaded, info)) {
+      try {
+        await downloaded.delete();
+      } catch (_) {
+        // Nothing more to do about a temp file that would not go away.
+      }
+      return false;
+    }
 
     if (Platform.isWindows) {
       try {
@@ -298,6 +352,64 @@ class UpdateCheck {
     }
 
     return false;
+  }
+
+  /// The hash [assetName] is recorded against in a `sha256sum`-format file
+  /// ([sumsBody]), lower-cased, or null when no line names it or the token in
+  /// that position is not a plausible sha256 hex digest.
+  ///
+  /// Pure and exported for testing (see [_verify]): the network fetch around
+  /// it is the only part that needs a release to exercise.
+  static String? checksumFor(String sumsBody, String assetName) {
+    final line = sumsBody
+        .split('\n')
+        .firstWhere((l) => l.contains(assetName), orElse: () => '');
+    if (line.isEmpty) return null;
+    final hash = line.trim().split(RegExp(r'\s+')).first.toLowerCase();
+    return RegExp(r'^[0-9a-f]{64}$').hasMatch(hash) ? hash : null;
+  }
+
+  /// Checks [downloaded] against the release's own SHA256SUMS file before
+  /// [apply] does anything with it — a corrupted or tampered download must
+  /// never be run silently, which is exactly what the caller was about to do.
+  ///
+  /// False on a mismatch, and equally on any reason the check itself could
+  /// not be completed: no checksums file on the release, a network failure
+  /// fetching it, or no line naming this asset. Both channels this app
+  /// offers publish one (see [UpdateInfo.checksumsUrl]), so this is not
+  /// expected to fail in ordinary operation — but where it does, "no update"
+  /// is the safe answer, the same choice M413 made about a screenshot it
+  /// could not verify.
+  static Future<bool> _verify(File downloaded, UpdateInfo info) async {
+    if (info.checksumsUrl.isEmpty || info.assetName.isEmpty) {
+      Log.w('update', 'no checksums published for ${info.tag} — not applying');
+      return false;
+    }
+    String expected;
+    try {
+      final resp = await http
+          .get(Uri.parse(info.checksumsUrl))
+          .timeout(const Duration(seconds: 8));
+      if (resp.statusCode != 200) {
+        Log.w('update', 'checksums: HTTP ${resp.statusCode}');
+        return false;
+      }
+      final hash = checksumFor(resp.body, info.assetName);
+      if (hash == null) {
+        Log.w('update', 'no usable checksum line for ${info.assetName}');
+        return false;
+      }
+      expected = hash;
+    } catch (e) {
+      Log.w('update', 'could not fetch checksums: $e');
+      return false;
+    }
+    final actual = sha256.convert(await downloaded.readAsBytes()).toString();
+    if (actual != expected) {
+      Log.w('update', '${info.assetName} failed its checksum — not applying');
+      return false;
+    }
+    return true;
   }
 
   static Future<File?> _download(UpdateInfo info) async {
