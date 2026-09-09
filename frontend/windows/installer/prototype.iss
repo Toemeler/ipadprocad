@@ -5,11 +5,20 @@
 ; to launch, no Start Menu entry, no listing in "Installed apps", and running
 ; a second build over the first left two unrelated folders wherever the first
 ; zip happened to be unpacked. This is an Inno Setup script that turns the
-; SAME release bundle into a real installer: a wizard with the app's own
-; icon, a Start Menu shortcut, an optional desktop shortcut, a proper
+; SAME release bundle into a real installer: a custom-drawn wizard carrying
+; the app's own mark, a Start Menu shortcut, a desktop shortcut, a proper
 ; "Installed apps" entry with an Uninstall button Windows itself puts there —
 ; and, run again over an existing install, an UPDATE rather than a second
 ; copy: see IsUpgrade below.
+;
+; THE WIZARD ITSELF IS CUSTOM-DRAWN — see [Code]. Setup no longer shows
+; Inno's stock title-barred, multi-page wizard: it is a single borderless,
+; rounded, dark card matching the app icon, with exactly three screens
+; (Welcome, Installing, Finished) and no decisions to make beyond "Install".
+; Every other page Inno normally shows (license, select components, select
+; program group, select tasks, ready-to-install) is skipped via
+; ShouldSkipPage — their defaults (desktop icon on, default install folder)
+; apply automatically, which is what "completely automatic" means here.
 ;
 ; THE VERSION AND THE SOURCE BUNDLE ARE NOT HERE. windows-build.yml passes
 ; them on the command line —
@@ -78,6 +87,11 @@ UninstallDisplayName={#MyAppName}
 ; rather than a generic installer-box icon standing in for it.
 SetupIconFile=..\runner\resources\app_icon.ico
 WizardStyle=modern
+; The custom [Code] below replaces the wizard's chrome entirely (see
+; InitializeWizard), but WizardStyle stays "modern" as the fallback any
+; control this script does not touch — a MsgBox, the UAC prompt text — still
+; renders under, and as the base the wizard form is built from before the
+; skin is applied.
 
 Compression=lzma2
 SolidCompression=yes
@@ -88,14 +102,45 @@ ArchitecturesInstallIn64BitMode=x64compatible
 ; One page fewer: nothing on the ready-to-install summary page is a decision
 ; the wizard has not already made (destination, shortcuts) — Next simply
 ; starts the copy, which DisableReadyPage does directly instead of via an
-; extra click through a page that only restates the last two.
+; extra click through a page that only restates the last two. ShouldSkipPage
+; in [Code] skips it too, belt and suspenders.
 DisableReadyPage=yes
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "german"; MessagesFile: "compiler:Languages\German.isl"
 
+; THE CUSTOM WIZARD'S OWN STRINGS, in both languages the stock wizard
+; already spoke. {#MyAppName} is expanded by the preprocessor here exactly
+; as it is in [Setup] above, so the German strings never go stale against a
+; renamed app without this file being touched anyway.
+[CustomMessages]
+english.InstallerWelcomeFresh=Ready to install.
+english.InstallerWelcomeUpgrade=Updates your install. Files and settings stay put.
+english.InstallerInstall=Install
+english.InstallerChooseLocation=Choose install location
+english.InstallerInstalling=Installing {#MyAppName}...
+english.InstallerCancel=Cancel
+english.InstallerFinishedTitle=You are all set
+english.InstallerFinishedSubtitle={#MyAppName} is installed.
+english.InstallerLaunch=Launch {#MyAppName}
+english.InstallerClose=Close
+
+german.InstallerWelcomeFresh=Bereit zur Installation.
+german.InstallerWelcomeUpgrade=Aktualisiert Ihre Installation. Dateien und Einstellungen bleiben erhalten.
+german.InstallerInstall=Installieren
+german.InstallerChooseLocation=Installationsort wählen
+german.InstallerInstalling={#MyAppName} wird installiert...
+german.InstallerCancel=Abbrechen
+german.InstallerFinishedTitle=Fertig
+german.InstallerFinishedSubtitle={#MyAppName} wurde installiert.
+german.InstallerLaunch={#MyAppName} starten
+german.InstallerClose=Schließen
+
 [Tasks]
+; No page ever asks about this now (see ShouldSkipPage) — no "unchecked"
+; flag means it stays at Inno's own default of CHECKED, so a desktop
+; shortcut simply appears, matching the wizard's one-click promise.
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 
 [Files]
@@ -105,6 +150,12 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 ; here re-decides what belongs in the app; it packages what was already
 ; proven to launch.
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
+
+; THE WIZARD'S OWN ART, not part of the app. `dontcopy` means these never
+; land in {app} — they are pulled into Setup's own temp folder on demand by
+; ExtractTemporaryFile in [Code] and read from there while the wizard runs.
+Source: "assets\card-bg.png"; DestDir: "{tmp}"; Flags: dontcopy
+Source: "assets\logo.png"; DestDir: "{tmp}"; Flags: dontcopy
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
@@ -149,6 +200,12 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""{#MyAppName} (LAN sharing)"""; Flags: runhidden; Check: IsAdminInstallMode; StatusMsg: "Allowing {#MyAppName} through the firewall..."
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""{#MyAppName} (LAN sharing)"" dir=in action=allow program=""{app}\{#MyAppExeName}"" enable=yes profile=any"; Flags: runhidden; Check: IsAdminInstallMode; StatusMsg: "Allowing {#MyAppName} through the firewall..."
 
+; The checkbox this used to be tied to is gone from the finished page (it is
+; a "Launch"/"Close" pill button pair instead — see SetupFinishedPage), but
+; the entry itself is unchanged: LaunchBtnClick/CloseLinkClick in [Code] just
+; set WizardForm.RunList.Checked[0] before triggering the same Next click
+; Setup's own Finished page would have, so this still runs, or does not, the
+; same way it always did.
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
@@ -157,28 +214,99 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""{#MyAppName} (LAN sharing)"""; Flags: runhidden; RunOnceId: "RemoveSharingFirewallRule"; Check: IsAdminInstallMode
 
 ; ---------------------------------------------------------------------------
-; RECOGNISING AN EXISTING INSTALL.
+; THE CUSTOM WIZARD.
 ;
-; Inno already does the mechanical half of "update" for free: AppId ties this
-; script to whatever an earlier version registered, so running Setup again
-; reuses the SAME install directory (UsePreviousAppDir, on by default) and
-; [Files]'s ignoreversion simply overwrites what changed — no second copy,
-; no leftover old files from a moved install. What is added here is telling
-; the PERSON that is what is about to happen, which the stock wizard does
-; not do on its own: the welcome page says "This will install..." whether or
-; not anything is already there.
+; Inno's stock wizard is a title-barred window with a page-name header, a
+; Back/Next/Cancel row, and as many pages as there are decisions to make.
+; This app has exactly one decision ("go") and an icon worth building around,
+; so the wizard below is a single borderless, rounded 660x420 card skinned to
+; match it — three screens (Welcome, Installing, Finished), no title bar, no
+; page count, dragged by its own background the way a modern app window is.
+;
+; HOW: the stock WizardForm still exists — its pages, its DirEdit, its
+; RunList, its NextButton — this only hides the stock chrome (MainPanel, the
+; three navigation buttons, every default label) and lays custom, hand-drawn
+; controls over the same page panels, wiring them to the SAME underlying
+; controls (WizardForm.NextButton.Click, WizardForm.DirEdit.Text,
+; WizardForm.RunList.Checked[0]) rather than reimplementing what Setup
+; already does correctly. ShouldSkipPage removes every OTHER page from the
+; sequence, so a single Install click walks straight from Welcome to
+; Installing to Finished.
+;
+; SILENT INSTALLS SEE NONE OF THIS. InitializeWizard is called even under
+; /SILENT and /VERYSILENT — see the Inno Setup help for that event — and the
+; very first line below is `if WizardSilent then Exit`. A scripted deploy
+; (this is exactly what windows-build.yml's own installer smoke test does)
+; never touches the wizard form at all, so nothing here can be what breaks a
+; silent install; it can only be what a person doing this by hand sees.
 ; ---------------------------------------------------------------------------
 [Code]
 const
-  // A LINE MAY NOT BEGIN WITH '#'. The Inno preprocessor reads the first
-  // non-space character of every line, [Code] included, and takes '#' as the
-  // start of a directive — so a continuation line beginning `#13#10 + ...`
-  // is read as an unknown directive named `13` and the compile aborts before
-  // Pascal ever sees it. Mid-line it is fine, which is why only one of the
-  // four line breaks in InitializeWizard's caption below was the fault.
-  // Naming it removes the trap rather than tiptoeing around it.
   CRLF = #13#10;
 
+  // The card, in the CSS-pixel-equivalent units ScaleX/ScaleY (Inno's own
+  // per-monitor-DPI helpers) convert to real pixels at whatever scaling the
+  // screen this runs on is set to. Matches the approved design canvas.
+  WinW = 660;
+  WinH = 420;
+  CardRadius = 20;
+
+  // The two Win32 messages a borderless window needs to be dragged by a
+  // click anywhere on its own background — see BgMouseDown.
+  WM_NCLBUTTONDOWN = $A1;
+  HTCAPTION = 2;
+
+var
+  // Set once, from InitializeWizard, before anything is drawn — every
+  // drawing routine below reads these rather than hard-coding a color, so
+  // the palette lives in exactly one place.
+  ClrTextPrimary, ClrTextSecondary, ClrTextTertiary: Integer;
+  ClrAccentStart, ClrAccentEnd, ClrBtnText: Integer;
+  ClrChromeFill, ClrChromeBorder, ClrChromeIcon: Integer;
+  ClrRingTrack, ClrCardEdge: Integer;
+
+  // The progress ring on the Installing page redraws itself as
+  // CurInstallProgressChanged fires; both are nil/-1 until that page's
+  // controls exist, which CurInstallProgressChanged checks for (silent
+  // installs never create RingImg at all).
+  RingImg: TBitmapImage;
+  LastRingPercent: Integer;
+
+  // The inline "type a different folder" field the Welcome page's "Choose
+  // install location" link reveals — see ChooseLocationClick.
+  CustomDirEdit: TNewEdit;
+
+// ---------------------------------------------------------------------------
+// External Win32 calls. All four are the standard, narrow set countless
+// skinned-Inno-Setup wizards use for exactly this purpose: a rounded window
+// region, dragging a window with no title bar to grab, and clipping a
+// gradient fill to a rounded button shape while it is drawn. None of them
+// touch anything outside the handles this script itself creates.
+// ---------------------------------------------------------------------------
+function CreateRoundRectRgn(X1, Y1, X2, Y2, X3, Y3: Integer): Longint;
+  external 'CreateRoundRectRgn@gdi32.dll stdcall';
+function SetWindowRgn(hWnd: Longint; hRgn: Longint; bRedraw: Boolean): Integer;
+  external 'SetWindowRgn@user32.dll stdcall';
+function SelectClipRgn(DC: Longint; hRgn: Longint): Integer;
+  external 'SelectClipRgn@gdi32.dll stdcall';
+function DeleteObject(hObject: Longint): Boolean;
+  external 'DeleteObject@gdi32.dll stdcall';
+function ReleaseCapture: Boolean;
+  external 'ReleaseCapture@user32.dll stdcall';
+function SendMessage(hWnd: Longint; Msg, wParam, lParam: Longint): Longint;
+  external 'SendMessageA@user32.dll stdcall';
+
+// ---------------------------------------------------------------------------
+// RECOGNISING AN EXISTING INSTALL.
+//
+// Inno already does the mechanical half of "update" for free: AppId ties this
+// script to whatever an earlier version registered, so running Setup again
+// reuses the SAME install directory (UsePreviousAppDir, on by default) and
+// [Files]'s ignoreversion simply overwrites what changed — no second copy,
+// no leftover old files from a moved install. What is added here is telling
+// the PERSON that is what is about to happen — SetupWelcomePage below picks
+// between InstallerWelcomeFresh and InstallerWelcomeUpgrade from this.
+// ---------------------------------------------------------------------------
 function GetUninstallString(): String;
 var
   key: String;
@@ -210,18 +338,613 @@ begin
   Result := (GetUninstallString() <> '');
 end;
 
-procedure InitializeWizard();
+// ---------------------------------------------------------------------------
+// Small drawing/layout helpers shared by every page.
+// ---------------------------------------------------------------------------
+
+function MakeColor(R, G, B: Byte): Integer;
 begin
-  if IsUpgrade() then
+  Result := R or (G shl 8) or (B shl 16);
+end;
+
+function LerpInt(A, B: Integer; T: Extended): Integer;
+begin
+  Result := A + Round((B - A) * T);
+end;
+
+// A left-to-right approximation of the design's 135-degree button gradient:
+// close enough at pill-button width that the diagonal is not missed, and it
+// sidesteps hand-rolling per-pixel diagonal fills in Pascal.
+function LerpColor(C1, C2: Integer; T: Extended): Integer;
+var
+  R1, G1, B1, R2, G2, B2: Integer;
+begin
+  R1 := C1 and $FF;         G1 := (C1 shr 8) and $FF;  B1 := (C1 shr 16) and $FF;
+  R2 := C2 and $FF;         G2 := (C2 shr 8) and $FF;  B2 := (C2 shr 16) and $FF;
+  Result := MakeColor(LerpInt(R1, R2, T), LerpInt(G1, G2, T), LerpInt(B1, B2, T));
+end;
+
+procedure CenterH(C: TControl; ParentWidth: Integer);
+begin
+  C.Left := (ParentWidth - C.Width) div 2;
+end;
+
+function MakeLabel(AParent: TWinControl; AText: String; AColor: Integer;
+  AFontSize: Integer; ABold: Boolean): TNewStaticText;
+var
+  Lbl: TNewStaticText;
+begin
+  Lbl := TNewStaticText.Create(AParent);
+  Lbl.Parent := AParent;
+  Lbl.AutoSize := True;
+  Lbl.Caption := AText;
+  Lbl.Font.Color := AColor;
+  if ABold then
+    Lbl.Font.Name := 'Segoe UI Semibold'
+  else
+    Lbl.Font.Name := 'Segoe UI';
+  Lbl.Font.Size := AFontSize;
+  Result := Lbl;
+end;
+
+// ---------------------------------------------------------------------------
+// Event handlers. Every one of these reuses a REAL Setup control
+// (NextButton, CancelButton, DirEdit, RunList) rather than reimplementing
+// navigation, directory handling or the post-install launch — so the wizard
+// looks custom while the install itself runs exactly the code Inno's own
+// stock wizard would have run.
+// ---------------------------------------------------------------------------
+
+procedure MinimizeClick(Sender: TObject);
+begin
+  WizardForm.WindowState := wsMinimized;
+end;
+
+procedure CloseClick(Sender: TObject);
+begin
+  // WizardForm.Close, not a bare halt — this still routes through Setup's
+  // own cancel-confirmation dialog if a copy is in progress, same as
+  // clicking a real title bar's close box always did.
+  WizardForm.Close;
+end;
+
+// The trick a borderless window needs to be draggable at all: telling
+// Windows the button-down that just happened on the CLIENT area was really
+// on the CAPTION (title bar) lets the OS run its own window-drag loop, the
+// same one a real title bar uses — no manual mouse tracking required.
+procedure BgMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState;
+  X, Y: Integer);
+begin
+  if Button = mbLeft then
   begin
-    WizardForm.WelcomeLabel2.Caption :=
-      'An earlier version of {#MyAppName} is already installed on this ' +
-      'computer.' + CRLF + CRLF +
-      'Click Next to update it to version {#MyAppVersion} - your ' +
-      'documents and settings are not touched, only the app itself.' +
-      CRLF + CRLF +
-      'To remove {#MyAppName} instead, close this window and use ' +
-      '"Uninstall {#MyAppName}" from the Start Menu, or "Installed apps" ' +
-      'in Windows Settings.';
+    ReleaseCapture;
+    SendMessage(WizardForm.Handle, WM_NCLBUTTONDOWN, HTCAPTION, 0);
   end;
+end;
+
+procedure InstallBtnClick(Sender: TObject);
+begin
+  if CustomDirEdit.Visible and (Trim(CustomDirEdit.Text) <> '') then
+    WizardForm.DirEdit.Text := CustomDirEdit.Text;
+  // wpSelectDir is skipped (ShouldSkipPage), but the control behind it —
+  // DirEdit — is still what Setup reads {app} from, whether its own page
+  // was ever shown or not. Clicking Next here walks straight through every
+  // skipped page to wpInstalling in one step.
+  WizardForm.NextButton.Click;
+end;
+
+procedure ChooseLocationClick(Sender: TObject);
+begin
+  CustomDirEdit.Visible := not CustomDirEdit.Visible;
+  if CustomDirEdit.Visible and (Trim(CustomDirEdit.Text) = '') then
+    CustomDirEdit.Text := WizardForm.DirEdit.Text;
+end;
+
+procedure CancelLinkClick(Sender: TObject);
+begin
+  WizardForm.CancelButton.Click;
+end;
+
+procedure LaunchBtnClick(Sender: TObject);
+begin
+  if WizardForm.RunList.Items.Count > 0 then
+    WizardForm.RunList.Checked[0] := True;
+  WizardForm.NextButton.Click;
+end;
+
+procedure CloseLinkClick(Sender: TObject);
+begin
+  if WizardForm.RunList.Items.Count > 0 then
+    WizardForm.RunList.Checked[0] := False;
+  WizardForm.NextButton.Click;
+end;
+
+// ---------------------------------------------------------------------------
+// Drawing. Everything below paints onto a TBitmapImage's own Bitmap.Canvas
+// and then keys a sentinel magenta out to transparent, since plain GDI has
+// no alpha blending to lean on — the same reason the button gradient is a
+// flat left-to-right lerp rather than a true diagonal.
+// ---------------------------------------------------------------------------
+
+// The card itself: the dark gradient + soft glow baked into card-bg.png at
+// 2x resolution (see frontend/windows/installer/assets), stretched to the
+// card's logical size so it stays crisp from 100% to 200% display scaling.
+// Its rounded corners are why the WINDOW's own region (set once, in
+// InitializeWizard) uses the same radius — the bitmap's corners and the
+// window's clip have to agree, or the mismatch shows as a seam.
+function LoadCardBackground(AParent: TWinControl): TBitmapImage;
+var
+  Img: TBitmapImage;
+begin
+  Img := TBitmapImage.Create(AParent);
+  Img.Parent := AParent;
+  Img.AutoSize := False;
+  Img.Stretch := True;
+  Img.Left := 0;
+  Img.Top := 0;
+  Img.Width := ScaleX(WinW);
+  Img.Height := ScaleY(WinH);
+  Img.Bitmap.LoadFromFile(ExpandConstant('{tmp}\card-bg.png'));
+  Img.OnMouseDown := @BgMouseDown;
+  Img.SendToBack;
+  Result := Img;
+end;
+
+function MakeChromeCircle(AParent: TWinControl; ALeft, ATop: Integer;
+  IsClose: Boolean): TBitmapImage;
+var
+  Img: TBitmapImage;
+  Sz, Cy, Pad: Integer;
+begin
+  Sz := ScaleX(26);
+  Img := TBitmapImage.Create(AParent);
+  Img.Parent := AParent;
+  Img.AutoSize := False;
+  Img.Width := Sz;
+  Img.Height := Sz;
+  Img.Left := ALeft;
+  Img.Top := ATop;
+  Img.Bitmap.Width := Sz;
+  Img.Bitmap.Height := Sz;
+
+  Img.Bitmap.Canvas.Brush.Color := clFuchsia;
+  Img.Bitmap.Canvas.FillRect(Rect(0, 0, Sz, Sz));
+
+  Img.Bitmap.Canvas.Brush.Color := ClrChromeFill;
+  Img.Bitmap.Canvas.Pen.Color := ClrChromeBorder;
+  Img.Bitmap.Canvas.Ellipse(0, 0, Sz, Sz);
+
+  Cy := Sz div 2;
+  Pad := ScaleX(8);
+  Img.Bitmap.Canvas.Pen.Color := ClrChromeIcon;
+  if IsClose then
+  begin
+    Img.Bitmap.Canvas.MoveTo(Pad, Pad);
+    Img.Bitmap.Canvas.LineTo(Sz - Pad, Sz - Pad);
+    Img.Bitmap.Canvas.MoveTo(Sz - Pad, Pad);
+    Img.Bitmap.Canvas.LineTo(Pad, Sz - Pad);
+  end
+  else
+  begin
+    Img.Bitmap.Canvas.MoveTo(Pad, Cy);
+    Img.Bitmap.Canvas.LineTo(Sz - Pad, Cy);
+  end;
+
+  Img.Bitmap.Transparent := True;
+  Img.Bitmap.TransparentColor := clFuchsia;
+  Img.Cursor := crHand;
+  Result := Img;
+end;
+
+// The two minimize/close dots every page carries top-right — a borderless
+// window still needs SOME way to minimize or dismiss it that is not
+// Alt-F4, since there is no system title bar left to provide one.
+procedure AddChromeButtons(AParent: TWinControl);
+var
+  MinBtn, CloseBtn: TBitmapImage;
+  Sz, Gap, CloseLeft, MinLeft: Integer;
+begin
+  Sz := ScaleX(26);
+  Gap := ScaleX(8);
+  CloseLeft := ScaleX(WinW) - ScaleX(16) - Sz;
+  MinLeft := CloseLeft - Gap - Sz;
+
+  MinBtn := MakeChromeCircle(AParent, MinLeft, ScaleY(16), False);
+  MinBtn.OnClick := @MinimizeClick;
+  CloseBtn := MakeChromeCircle(AParent, CloseLeft, ScaleY(16), True);
+  CloseBtn.OnClick := @CloseClick;
+end;
+
+// The "Install" / "Launch Prototype" pills: a gradient fill clipped to a
+// fully-rounded rect (corner ellipse = the button's own height, which is
+// what makes it a pill rather than a rounded rectangle) with its label
+// drawn on top, all inside one bitmap so it behaves as a single clickable
+// control.
+function MakePillButton(AParent: TWinControl; AWidth, AHeight: Integer;
+  AText: String): TBitmapImage;
+var
+  Img: TBitmapImage;
+  Rgn: Longint;
+  X, TW, TH: Integer;
+  T: Extended;
+begin
+  Img := TBitmapImage.Create(AParent);
+  Img.Parent := AParent;
+  Img.AutoSize := False;
+  Img.Width := AWidth;
+  Img.Height := AHeight;
+  Img.Bitmap.Width := AWidth;
+  Img.Bitmap.Height := AHeight;
+
+  Img.Bitmap.Canvas.Brush.Color := clFuchsia;
+  Img.Bitmap.Canvas.FillRect(Rect(0, 0, AWidth, AHeight));
+
+  // Clip to the pill shape before filling, so the gradient stripes below
+  // never paint past the rounded outline into the corners.
+  Rgn := CreateRoundRectRgn(0, 0, AWidth, AHeight, AHeight, AHeight);
+  SelectClipRgn(Img.Bitmap.Canvas.Handle, Rgn);
+  for X := 0 to AWidth - 1 do
+  begin
+    T := X / (AWidth - 1);
+    Img.Bitmap.Canvas.Pen.Color := LerpColor(ClrAccentStart, ClrAccentEnd, T);
+    Img.Bitmap.Canvas.MoveTo(X, 0);
+    Img.Bitmap.Canvas.LineTo(X, AHeight);
+  end;
+  SelectClipRgn(Img.Bitmap.Canvas.Handle, 0);
+  DeleteObject(Rgn);
+
+  Img.Bitmap.Canvas.Brush.Style := bsClear;
+  Img.Bitmap.Canvas.Font.Name := 'Segoe UI Semibold';
+  Img.Bitmap.Canvas.Font.Size := 11;
+  Img.Bitmap.Canvas.Font.Color := ClrBtnText;
+  TW := Img.Bitmap.Canvas.TextWidth(AText);
+  TH := Img.Bitmap.Canvas.TextHeight(AText);
+  Img.Bitmap.Canvas.TextOut((AWidth - TW) div 2, (AHeight - TH) div 2, AText);
+
+  Img.Bitmap.Transparent := True;
+  Img.Bitmap.TransparentColor := clFuchsia;
+  Img.Cursor := crHand;
+  Result := Img;
+end;
+
+// The Installing page's ring: 48 short radial ticks rather than a single
+// swept arc. GDI's Arc() draws counterclockwise in a coordinate system that
+// does not visually mean what it sounds like once Y points down (the usual
+// MM_TEXT screen mapping), which makes "does the progress sweep the right
+// way" a real risk with no Windows machine on hand to check it against.
+// Ticks sidestep the question entirely: each one's position comes from sin/
+// cos this script controls directly, so "clockwise from the top" is just
+// the loop below, not a GDI angle convention taken on faith. It also reads
+// as the dashed ring the design called for, rather than a smooth stroke.
+procedure DrawRing(Percent: Integer);
+var
+  Bmp: TBitmap;
+  Cx, Cy, R, Len, I, N, Filled: Integer;
+  Ang: Extended;
+  X1, Y1, X2, Y2: Integer;
+  PctText: String;
+  TW, TH: Integer;
+begin
+  if RingImg = nil then Exit;
+  Bmp := RingImg.Bitmap;
+
+  Bmp.Canvas.Brush.Color := clFuchsia;
+  Bmp.Canvas.FillRect(Rect(0, 0, Bmp.Width, Bmp.Height));
+
+  Cx := Bmp.Width div 2;
+  Cy := Bmp.Height div 2;
+  R := (Bmp.Width div 2) - ScaleX(4);
+  Len := ScaleX(6);
+  N := 48;
+  Filled := Round(N * (Percent / 100));
+
+  Bmp.Canvas.Pen.Width := ScaleX(2);
+  for I := 0 to N - 1 do
+  begin
+    Ang := (I / N) * 2 * Pi;
+    X1 := Cx + Round((R - Len) * Sin(Ang));
+    Y1 := Cy - Round((R - Len) * Cos(Ang));
+    X2 := Cx + Round(R * Sin(Ang));
+    Y2 := Cy - Round(R * Cos(Ang));
+    if I < Filled then
+      Bmp.Canvas.Pen.Color := ClrAccentEnd
+    else
+      Bmp.Canvas.Pen.Color := ClrRingTrack;
+    Bmp.Canvas.MoveTo(X1, Y1);
+    Bmp.Canvas.LineTo(X2, Y2);
+  end;
+
+  Bmp.Canvas.Brush.Style := bsClear;
+  Bmp.Canvas.Font.Name := 'Segoe UI Semibold';
+  Bmp.Canvas.Font.Size := 17;
+  Bmp.Canvas.Font.Color := ClrTextPrimary;
+  PctText := IntToStr(Percent) + '%';
+  TW := Bmp.Canvas.TextWidth(PctText);
+  TH := Bmp.Canvas.TextHeight(PctText);
+  Bmp.Canvas.TextOut(Cx - TW div 2, Cy - TH div 2, PctText);
+
+  Bmp.Transparent := True;
+  Bmp.TransparentColor := clFuchsia;
+  RingImg.Invalidate;
+end;
+
+// The Finished page's small checkmark badge, overlapping the logo's
+// bottom-right corner — on-brand orange rather than a generic green check.
+procedure DrawBadge(Img: TBitmapImage);
+var
+  Sz: Integer;
+begin
+  Sz := Img.Width;
+  Img.Bitmap.Width := Sz;
+  Img.Bitmap.Height := Sz;
+
+  Img.Bitmap.Canvas.Brush.Color := clFuchsia;
+  Img.Bitmap.Canvas.FillRect(Rect(0, 0, Sz, Sz));
+
+  Img.Bitmap.Canvas.Brush.Color := ClrAccentEnd;
+  Img.Bitmap.Canvas.Pen.Color := ClrCardEdge;
+  Img.Bitmap.Canvas.Pen.Width := ScaleX(3);
+  Img.Bitmap.Canvas.Ellipse(0, 0, Sz, Sz);
+
+  Img.Bitmap.Canvas.Pen.Color := ClrBtnText;
+  Img.Bitmap.Canvas.Pen.Width := ScaleX(2);
+  Img.Bitmap.Canvas.MoveTo(Round(Sz * 0.24), Round(Sz * 0.52));
+  Img.Bitmap.Canvas.LineTo(Round(Sz * 0.42), Round(Sz * 0.70));
+  Img.Bitmap.Canvas.LineTo(Round(Sz * 0.78), Round(Sz * 0.30));
+
+  Img.Bitmap.Transparent := True;
+  Img.Bitmap.TransparentColor := clFuchsia;
+end;
+
+// ---------------------------------------------------------------------------
+// The three pages. Each grabs its page panel via an existing stock
+// control's .Parent (WelcomeLabel1, ProgressGauge, FinishedHeadingLabel —
+// all children of the panel Inno already built for that page), hides that
+// page's default controls, and lays the custom ones over the same panel.
+// Coordinates are hand-placed (there is no layout engine here) but every
+// one goes through ScaleX/ScaleY, so the whole card scales correctly on a
+// 150%/200% display rather than just the window frame around it.
+// ---------------------------------------------------------------------------
+
+procedure SetupWelcomePage;
+var
+  Page: TWinControl;
+  ParentW: Integer;
+  Logo: TBitmapImage;
+  LogoW, LogoH: Integer;
+  Title, Subtitle, ChooseLink: TNewStaticText;
+  InstallBtn: TBitmapImage;
+begin
+  Page := WizardForm.WelcomeLabel1.Parent;
+  WizardForm.WelcomeLabel1.Visible := False;
+  WizardForm.WelcomeLabel2.Visible := False;
+  ParentW := ScaleX(WinW);
+
+  LoadCardBackground(Page);
+  AddChromeButtons(Page);
+
+  LogoH := ScaleY(84);
+  LogoW := Round(LogoH * (160 / 260));
+  Logo := TBitmapImage.Create(Page);
+  Logo.Parent := Page;
+  Logo.AutoSize := False;
+  Logo.Stretch := True;
+  Logo.Width := LogoW;
+  Logo.Height := LogoH;
+  Logo.Top := ScaleY(56);
+  Logo.Left := (ParentW - LogoW) div 2;
+  Logo.Bitmap.LoadFromFile(ExpandConstant('{tmp}\logo.png'));
+
+  Title := MakeLabel(Page, '{#MyAppName}', ClrTextPrimary, 19, True);
+  Title.Top := ScaleY(156);
+  CenterH(Title, ParentW);
+
+  if IsUpgrade() then
+    Subtitle := MakeLabel(Page, CustomMessage('InstallerWelcomeUpgrade'), ClrTextSecondary, 10, False)
+  else
+    Subtitle := MakeLabel(Page, CustomMessage('InstallerWelcomeFresh'), ClrTextSecondary, 10, False);
+  Subtitle.Top := ScaleY(190);
+  CenterH(Subtitle, ParentW);
+
+  InstallBtn := MakePillButton(Page, ScaleX(170), ScaleY(46), CustomMessage('InstallerInstall'));
+  InstallBtn.Top := ScaleY(232);
+  CenterH(InstallBtn, ParentW);
+  InstallBtn.OnClick := @InstallBtnClick;
+
+  ChooseLink := MakeLabel(Page, CustomMessage('InstallerChooseLocation'), ClrTextTertiary, 8, False);
+  ChooseLink.Top := ScaleY(292);
+  ChooseLink.Cursor := crHand;
+  CenterH(ChooseLink, ParentW);
+  ChooseLink.OnClick := @ChooseLocationClick;
+
+  CustomDirEdit := TNewEdit.Create(Page);
+  CustomDirEdit.Parent := Page;
+  CustomDirEdit.Width := ScaleX(380);
+  CustomDirEdit.Top := ScaleY(316);
+  CustomDirEdit.Left := (ParentW - CustomDirEdit.Width) div 2;
+  CustomDirEdit.Font.Name := 'Segoe UI';
+  CustomDirEdit.Font.Size := 9;
+  CustomDirEdit.Text := WizardForm.DirEdit.Text;
+  CustomDirEdit.Visible := False;
+end;
+
+procedure SetupInstallingPage;
+var
+  Page: TWinControl;
+  ParentW, Sz: Integer;
+  StatusLbl, CancelLink: TNewStaticText;
+begin
+  Page := WizardForm.ProgressGauge.Parent;
+  WizardForm.ProgressGauge.Visible := False;
+  WizardForm.StatusLabel.Visible := False;
+  WizardForm.FilenameLabel.Visible := False;
+  ParentW := ScaleX(WinW);
+
+  LoadCardBackground(Page);
+  AddChromeButtons(Page);
+
+  Sz := ScaleX(132);
+  RingImg := TBitmapImage.Create(Page);
+  RingImg.Parent := Page;
+  RingImg.AutoSize := False;
+  RingImg.Width := Sz;
+  RingImg.Height := Sz;
+  RingImg.Top := ScaleY(107);
+  RingImg.Left := (ParentW - Sz) div 2;
+  RingImg.Bitmap.Width := Sz;
+  RingImg.Bitmap.Height := Sz;
+  LastRingPercent := -1;
+  DrawRing(0);
+
+  StatusLbl := MakeLabel(Page, CustomMessage('InstallerInstalling'), ClrTextSecondary, 10, False);
+  StatusLbl.Top := ScaleY(263);
+  CenterH(StatusLbl, ParentW);
+
+  CancelLink := MakeLabel(Page, CustomMessage('InstallerCancel'), ClrTextTertiary, 8, False);
+  CancelLink.Top := ScaleY(297);
+  CancelLink.Cursor := crHand;
+  CenterH(CancelLink, ParentW);
+  CancelLink.OnClick := @CancelLinkClick;
+end;
+
+procedure SetupFinishedPage;
+var
+  Page: TWinControl;
+  ParentW: Integer;
+  Logo, Badge: TBitmapImage;
+  LogoW, LogoH, BadgeSz: Integer;
+  Title, Subtitle, CloseLink: TNewStaticText;
+  LaunchBtn: TBitmapImage;
+begin
+  Page := WizardForm.FinishedHeadingLabel.Parent;
+  WizardForm.FinishedHeadingLabel.Visible := False;
+  WizardForm.FinishedLabel.Visible := False;
+  WizardForm.RunList.Visible := False;
+  ParentW := ScaleX(WinW);
+
+  LoadCardBackground(Page);
+  AddChromeButtons(Page);
+
+  LogoH := ScaleY(84);
+  LogoW := Round(LogoH * (160 / 260));
+  Logo := TBitmapImage.Create(Page);
+  Logo.Parent := Page;
+  Logo.AutoSize := False;
+  Logo.Stretch := True;
+  Logo.Width := LogoW;
+  Logo.Height := LogoH;
+  Logo.Top := ScaleY(64);
+  Logo.Left := (ParentW - LogoW) div 2;
+  Logo.Bitmap.LoadFromFile(ExpandConstant('{tmp}\logo.png'));
+
+  BadgeSz := ScaleX(32);
+  Badge := TBitmapImage.Create(Page);
+  Badge.Parent := Page;
+  Badge.AutoSize := False;
+  Badge.Width := BadgeSz;
+  Badge.Height := BadgeSz;
+  Badge.Left := Logo.Left + LogoW - Round(BadgeSz * 0.68);
+  Badge.Top := Logo.Top + LogoH - Round(BadgeSz * 0.68);
+  DrawBadge(Badge);
+
+  Title := MakeLabel(Page, CustomMessage('InstallerFinishedTitle'), ClrTextPrimary, 17, True);
+  Title.Top := ScaleY(164);
+  CenterH(Title, ParentW);
+
+  Subtitle := MakeLabel(Page, CustomMessage('InstallerFinishedSubtitle'), ClrTextSecondary, 10, False);
+  Subtitle.Top := ScaleY(196);
+  CenterH(Subtitle, ParentW);
+
+  LaunchBtn := MakePillButton(Page, ScaleX(200), ScaleY(46), CustomMessage('InstallerLaunch'));
+  LaunchBtn.Top := ScaleY(230);
+  CenterH(LaunchBtn, ParentW);
+  LaunchBtn.OnClick := @LaunchBtnClick;
+
+  CloseLink := MakeLabel(Page, CustomMessage('InstallerClose'), ClrTextTertiary, 8, False);
+  CloseLink.Top := ScaleY(290);
+  CloseLink.Cursor := crHand;
+  CenterH(CloseLink, ParentW);
+  CloseLink.OnClick := @CloseLinkClick;
+end;
+
+procedure InitializeWizard();
+var
+  Rgn: Longint;
+begin
+  // See the header comment above [Code]: a scripted/silent install must
+  // come out byte-for-byte the same as before this wizard existed, so
+  // nothing past this line ever runs for one.
+  if WizardSilent then Exit;
+
+  ClrTextPrimary   := MakeColor(246, 244, 241);
+  ClrTextSecondary := MakeColor(150, 148, 145);
+  ClrTextTertiary  := MakeColor(120, 118, 116);
+  ClrAccentStart   := MakeColor(255, 106, 56);
+  ClrAccentEnd     := MakeColor(224, 67, 26);
+  ClrBtnText       := MakeColor(26, 14, 8);
+  ClrChromeFill    := MakeColor(41, 39, 45);
+  ClrChromeBorder  := MakeColor(58, 56, 62);
+  ClrChromeIcon    := MakeColor(205, 203, 200);
+  ClrRingTrack     := MakeColor(64, 61, 68);
+  ClrCardEdge      := MakeColor(23, 21, 27);
+
+  ExtractTemporaryFile('card-bg.png');
+  ExtractTemporaryFile('logo.png');
+
+  WizardForm.BorderStyle := bsNone;
+  WizardForm.ClientWidth := ScaleX(WinW);
+  WizardForm.ClientHeight := ScaleY(WinH);
+  WizardForm.Position := poScreenCenter;
+
+  WizardForm.MainPanel.Visible := False;
+  WizardForm.NextButton.Visible := False;
+  WizardForm.BackButton.Visible := False;
+  WizardForm.CancelButton.Visible := False;
+  // The stock wizard's page area does not start at (0,0) — it leaves room
+  // above for MainPanel's header and below for the button row, both now
+  // hidden. Stretching it to the full client area is what makes the custom
+  // background actually reach every edge instead of leaving a stock-colored
+  // margin around it.
+  WizardForm.InnerNotebook.SetBounds(0, 0, WizardForm.ClientWidth, WizardForm.ClientHeight);
+
+  // The window's own shape: a rounded rect matching the background bitmap's
+  // baked-in corners (CardRadius, both in the same ScaleX/ScaleY units), so
+  // Windows itself treats the area outside it as outside the window rather
+  // than painting square corners the desktop shows through as black.
+  Rgn := CreateRoundRectRgn(0, 0, ScaleX(WinW), ScaleY(WinH),
+    ScaleX(CardRadius * 2), ScaleY(CardRadius * 2));
+  SetWindowRgn(WizardForm.Handle, Rgn, True);
+
+  SetupWelcomePage;
+  SetupInstallingPage;
+  SetupFinishedPage;
+end;
+
+procedure CurInstallProgressChanged(CurProgress, MaxProgress: Integer);
+var
+  Pct: Integer;
+begin
+  if RingImg = nil then Exit;
+  if MaxProgress <= 0 then
+    Pct := 0
+  else
+    Pct := (CurProgress * 100) div MaxProgress;
+  if Pct <> LastRingPercent then
+  begin
+    DrawRing(Pct);
+    LastRingPercent := Pct;
+  end;
+end;
+
+// Every OTHER page Inno would normally show — license, select components,
+// select program group, select tasks, ready-to-install — is skipped, which
+// is what makes this a one-click install: their defaults (the default
+// folder DirEdit already holds, the desktop-icon task's default-checked
+// state) simply apply. wpPreparing is deliberately left off this list: it
+// runs Setup's own pre-install checks (disk space and the like) and should
+// keep doing whatever it would otherwise do, styled or not.
+function ShouldSkipPage(PageID: Integer): Boolean;
+begin
+  Result := (PageID <> wpWelcome) and (PageID <> wpPreparing) and
+    (PageID <> wpInstalling) and (PageID <> wpFinished);
 end;
