@@ -59,22 +59,66 @@ constexpr int kCornerRadius = 8;
 #define PW_RENDERFULLCONTENT 0x00000002
 #endif
 
-// M406 — a 32-bit top-down BGRX buffer as PNG bytes, through WIC.
+// M413 — a 32-bit top-down BGRX buffer as PNG bytes, through WIC.
 //
 // WIC because it is in the box: no new dependency, no bundled encoder, and
 // `windowscodecs.lib` is a link line rather than a build step. COM is already
 // initialised for this thread — main.cpp does it before the window exists.
 //
-// The pixel format asked for is BGR and not BGRA, deliberately: see the note
-// in CaptureWindowPng about GDI and the alpha byte.
+// THE BUG M413 IS ABOUT (#40). This wrote the DIB's bytes straight at the
+// frame with `WritePixels`, and that is only ever correct when the frame is
+// in the SAME pixel format as the buffer. It was not, and could not be:
+// `IWICBitmapFrameEncode::SetPixelFormat` takes its argument IN/OUT — it
+// answers with the nearest format the encoder actually supports and the PNG
+// encoder has no 32-bit BGR — so the frame quietly became 24bppBGR while the
+// buffer stayed 32-bit and the stride stayed `width * 4`. Three bytes were
+// then taken where four belonged, per pixel, for a whole window: every
+// screenshot in every bug report since came out squashed, colour-rotated and
+// striped with the alpha byte, and it was NOT possible to tell from one what
+// the reporter had actually been looking at. #37 and #39 were both filed
+// against pictures like that.
+//
+// So the buffer is handed over as a SOURCE — an IWICBitmap in its real
+// format, converted by WIC into the frame's — instead of as raw bytes. The
+// conversion is then WIC's problem and it cannot silently disagree with us
+// about the layout. The negotiated format is checked as well: if the encoder
+// ever answers with something other than what the converter was pointed at,
+// that is a picture we would be guessing at again, and no screenshot is
+// better than a wrong one.
 std::vector<uint8_t> EncodeBgrPng(const uint8_t* bgrx, int width, int height) {
   using Microsoft::WRL::ComPtr;
+  if (bgrx == nullptr || width <= 0 || height <= 0) return {};
   ComPtr<IWICImagingFactory> factory;
   if (FAILED(::CoCreateInstance(CLSID_WICImagingFactory, nullptr,
                                 CLSCTX_INPROC_SERVER,
                                 IID_PPV_ARGS(&factory)))) {
     return {};
   }
+
+  // The DIB as WIC sees it: top-down, four bytes a pixel, alpha ignored.
+  // 32bppBGR (not BGRA) is the honest description of what GDI left behind —
+  // PrintWindow and BitBlt both leave the fourth byte undefined, so naming it
+  // alpha would ask the converter to multiply the picture by garbage.
+  const UINT src_stride = static_cast<UINT>(width) * 4;
+  const UINT src_size = src_stride * static_cast<UINT>(height);
+  ComPtr<IWICBitmap> source;
+  if (FAILED(factory->CreateBitmapFromMemory(
+          static_cast<UINT>(width), static_cast<UINT>(height),
+          GUID_WICPixelFormat32bppBGR, src_stride, src_size,
+          const_cast<BYTE*>(bgrx), &source))) {
+    return {};
+  }
+
+  // 24bppBGR is a native PNG format, so this converter is a channel drop and
+  // the encoder below will take it without a second conversion.
+  ComPtr<IWICFormatConverter> converter;
+  if (FAILED(factory->CreateFormatConverter(&converter)) ||
+      FAILED(converter->Initialize(source.Get(), GUID_WICPixelFormat24bppBGR,
+                                   WICBitmapDitherTypeNone, nullptr, 0.0,
+                                   WICBitmapPaletteTypeCustom))) {
+    return {};
+  }
+
   ComPtr<IStream> stream;
   if (FAILED(::CreateStreamOnHGlobal(nullptr, TRUE, &stream))) return {};
   ComPtr<IWICBitmapEncoder> encoder;
@@ -91,12 +135,15 @@ std::vector<uint8_t> EncodeBgrPng(const uint8_t* bgrx, int width, int height) {
                             static_cast<UINT>(height)))) {
     return {};
   }
-  WICPixelFormatGUID format = GUID_WICPixelFormat32bppBGR;
-  if (FAILED(frame->SetPixelFormat(&format))) return {};
-  const UINT stride = static_cast<UINT>(width) * 4;
-  if (FAILED(frame->WritePixels(static_cast<UINT>(height), stride,
-                                stride * static_cast<UINT>(height),
-                                const_cast<BYTE*>(bgrx))) ||
+  // IN/OUT: the encoder answers with what it will really write. It has to be
+  // the converter's format, or the two disagree about the bytes again — which
+  // is the whole of the bug this function is named for.
+  WICPixelFormatGUID format = GUID_WICPixelFormat24bppBGR;
+  if (FAILED(frame->SetPixelFormat(&format)) ||
+      !::IsEqualGUID(format, GUID_WICPixelFormat24bppBGR)) {
+    return {};
+  }
+  if (FAILED(frame->WriteSource(converter.Get(), nullptr)) ||
       FAILED(frame->Commit()) || FAILED(encoder->Commit())) {
     return {};
   }
