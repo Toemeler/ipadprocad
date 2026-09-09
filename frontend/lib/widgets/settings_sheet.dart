@@ -694,15 +694,16 @@ Future<void> _showReplaced(BuildContext context) async {
   final i = int.tryParse(chosen);
   if (i == null || i < 0 || i >= items.length) return;
   final b = items[i];
-  final sure = await confirmAction(
+  // restore() is a save, not a rewind — it takes its own backup of whatever
+  // it replaces (see LanSync.restore) — so, like _undoLast, this notifies
+  // AFTER acting rather than asking first with borrowed discard copy.
+  if (!LanSync.instance.restore(b) || !context.mounted) return;
+  await confirmAction(
     context,
     title: t.syncRestoreDone(b.documentName),
-    message: t.syncDiscardBody,
     confirmLabel: t.ok,
     destructive: false,
   );
-  if (!sure) return;
-  LanSync.instance.restore(b);
 }
 
 String _stamp(DateTime d) =>
