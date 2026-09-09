@@ -24,12 +24,50 @@
 //
 // Every window that floats over the viewport asks here now. They stay
 // DRAGGABLE — this decides only where they open.
+//
+// M419 — AND THEY ASK ABOUT THE RIGHT BOX. "the extrude dialog spawns behind
+// stuff and in front of other stuff and part of it is out of the screen. it
+// should spawn a bit more on the left and up so that it is directly fully
+// cleared" (#42).
+//
+// Every one of these dialogs measured `MediaQuery.sizeOf(context)` — the
+// WINDOW — and was then laid out by RibbonDockLayout in the STAGE, which is
+// the window minus the ribbon band and, on Windows, minus the caption row as
+// well. The parking spot was therefore computed in one coordinate space and
+// used in a smaller one: centred against a height it did not have it hung off
+// the bottom, and docked against a width it did not have it slid under the
+// quick-tool bar. All three halves of that report are the same arithmetic —
+// too far down, too far right, and so partly underneath things.
+//
+// [DialogDockScope] carries the box the dialogs are ACTUALLY laid out in,
+// published once by the stage. Asking through [DialogDock.viewport] rather
+// than at each call site is the discipline the rest of this file exists for:
+// twelve dialogs answering the same question twelve ways is how they drifted
+// apart the first time.
 import 'package:flutter/widgets.dart';
 
 import 'quick_tools.dart';
 
+/// The box the floating dialogs are laid out in, published by the stage.
+class DialogDockScope extends InheritedWidget {
+  final Size size;
+  const DialogDockScope({required this.size, required super.child, super.key});
+
+  @override
+  bool updateShouldNotify(DialogDockScope old) => old.size != size;
+}
+
 class DialogDock {
   DialogDock._();
+
+  /// The box a floating dialog should park itself in.
+  ///
+  /// The stage's box where one is published, and the window otherwise — a
+  /// dialog pumped on its own in a test still gets a sane answer rather than
+  /// a zero.
+  static Size viewport(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<DialogDockScope>()?.size ??
+      MediaQuery.sizeOf(context);
 
   /// Breathing room between a docked dialog and whatever chrome is beside it.
   static const double gap = 12;
@@ -60,7 +98,24 @@ class DialogDock {
     return t + ((free - height) / 2).clamp(0.0, double.infinity);
   }
 
+  /// M419 — [middle], but never leaving a dialog hanging off the bottom of a
+  /// box it would otherwise fit in.
+  ///
+  /// Centring is right and is not sufficient: a panel a few points taller than
+  /// the free space is pushed to the top by [middle]'s clamp and still
+  /// overflows, and the report this is named for is exactly that shape. Where
+  /// even the top edge is not enough — a window too short for the panel at all
+  /// — the top wins, because a dialog whose title bar is off screen cannot be
+  /// dragged back.
+  static double topFor(Size viewport, double height) {
+    final t = top();
+    final lowest = viewport.height - gap - height;
+    final centred = middle(viewport, height);
+    if (centred <= lowest) return centred;
+    return lowest < t ? t : lowest;
+  }
+
   /// The whole parking offset in one call.
   static Offset spot(Size viewport, Size dialog) =>
-      Offset(left(viewport, dialog.width), middle(viewport, dialog.height));
+      Offset(left(viewport, dialog.width), topFor(viewport, dialog.height));
 }

@@ -27,6 +27,7 @@ import 'theme.dart';
 import 'bug_capture.dart';
 import 'gesture_trace.dart';
 import 'sync/lan_sync.dart';
+import 'widgets/dialog_dock.dart';
 import 'widgets/bottom_tabbar.dart';
 import 'widgets/home_view.dart';
 import 'widgets/model_browser.dart';
@@ -456,7 +457,18 @@ class PrototypeApp extends StatelessWidget {
   /// right-hand edge of the CONTENT area (M206's [DialogDock]), and "the
   /// content area" is precisely this box: they were the one part of the old
   /// stage that would have gone under a floating band.
-  Widget _chrome(AppState app) {
+  Widget _chrome(AppState app) => LayoutBuilder(
+        // M419 — THE BOX THE DIALOGS ARE ACTUALLY IN, published once so the
+        // twelve of them stop measuring the window instead (#42). This is the
+        // stage: the window minus the ribbon band, and on Windows minus the
+        // caption row as well. See DialogDock.
+        builder: (context, c) => DialogDockScope(
+          size: Size(c.maxWidth, c.maxHeight),
+          child: _chromeBody(app),
+        ),
+      );
+
+  Widget _chromeBody(AppState app) {
     if (app.isHome) {
       return Stack(children: [
         if (GlassPanel.isSupported)

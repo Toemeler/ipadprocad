@@ -109,7 +109,10 @@ class _DriveDialogState extends State<DriveDialog> {
     _sync(_steps, '${s.totalSteps}');
     _sync(_cycles, '${s.cycles}');
 
-    final vp = MediaQuery.sizeOf(context);
+    // M419 — the STAGE, not the window: the two differ by the ribbon
+    // band and the caption row, and parking against the wrong one is
+    // what put this panel half off the bottom (#42).
+    final vp = DialogDock.viewport(context);
     final pos = _pos ?? DialogDock.spot(vp, _size);
     return Positioned(
       left: pos.dx,
