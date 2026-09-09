@@ -238,17 +238,23 @@ Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=
 ; This app has exactly one decision ("go") and an icon worth building around,
 ; so the wizard below is a single borderless, rounded 660x420 card skinned to
 ; match it — three screens (Welcome, Installing, Finished), no title bar, no
-; page count, dragged by its own background the way a modern app window is.
+; page count. It does not drag: the usual click-the-background trick needs
+; TBitmapImage.OnMouseDown (or WizardForm.OnMouseDown, tried as a fallback),
+; and neither compiles against Inno's Pascal Script binding — confirmed
+; against a real Inno Setup 6.7 compile, not assumed. Centered on screen for
+; the whole install instead, which a wizard this short (three screens, no
+; typing) does not suffer for.
 ;
 ; HOW: the stock WizardForm still exists — its pages, its DirEdit, its
 ; RunList, its NextButton — this only hides the stock chrome (MainPanel, the
 ; three navigation buttons, every default label) and lays custom, hand-drawn
 ; controls over the same page panels, wiring them to the SAME underlying
-; controls (WizardForm.NextButton.Click, WizardForm.DirEdit.Text,
+; controls (SimulateClick(WizardForm.NextButton), WizardForm.DirEdit.Text,
 ; WizardForm.RunList.Checked[0]) rather than reimplementing what Setup
-; already does correctly. ShouldSkipPage removes every OTHER page from the
-; sequence, so a single Install click walks straight from Welcome to
-; Installing to Finished.
+; already does correctly — see SimulateClick's own comment for why it is a
+; simulated Win32 button click and not literally .Click. ShouldSkipPage
+; removes every OTHER page from the sequence, so a single Install click
+; walks straight from Welcome to Installing to Finished.
 ;
 ; SILENT INSTALLS SEE NONE OF THIS. InitializeWizard is called even under
 ; /SILENT and /VERYSILENT — see the Inno Setup help for that event — and the
@@ -268,10 +274,8 @@ const
   WinH = 420;
   CardRadius = 20;
 
-  // The two Win32 messages a borderless window needs to be dragged by a
-  // click anywhere on its own background — see BgMouseDown.
-  WM_NCLBUTTONDOWN = $A1;
-  HTCAPTION = 2;
+  SW_MINIMIZE = 6;
+  BM_CLICK = $00F5;
 
 var
   // Set once, from InitializeWizard, before anything is drawn — every
@@ -281,6 +285,17 @@ var
   ClrAccentStart, ClrAccentEnd, ClrBtnText: Integer;
   ClrChromeFill, ClrChromeBorder, ClrChromeIcon: Integer;
   ClrRingTrack, ClrCardEdge: Integer;
+  // TBitmap/TBitmapImage.Transparent and .TransparentColor do not compile
+  // ("Unknown identifier 'TRANSPARENT'" — confirmed against a real Inno
+  // Setup 6.7 compile) on either class, so a hand-drawn shape's bitmap
+  // cannot be color-keyed transparent the way a loaded PNG's own alpha
+  // channel still renders correctly when just stretched onto the page.
+  // Every hand-drawn control below (the chrome dots, the pill buttons,
+  // the ring, the badge) fills its small bitmap with this approximation
+  // of the card gradient instead, so the square corners GDI's rounding
+  // or clipping leaves outside the shape read as background rather than
+  // a bright, obviously-wrong box.
+  ClrCardApprox: Integer;
 
   // The progress ring on the Installing page redraws itself as
   // CurInstallProgressChanged fires; both are nil/-1 until that page's
@@ -294,11 +309,12 @@ var
   CustomDirEdit: TNewEdit;
 
 // ---------------------------------------------------------------------------
-// External Win32 calls. All four are the standard, narrow set countless
-// skinned-Inno-Setup wizards use for exactly this purpose: a rounded window
-// region, dragging a window with no title bar to grab, and clipping a
-// gradient fill to a rounded button shape while it is drawn. None of them
-// touch anything outside the handles this script itself creates.
+// External Win32 calls. The standard, narrow set skinned-Inno-Setup wizards
+// use for a rounded window region, clipping a gradient fill to a rounded
+// button shape while it is drawn, minimizing a borderless window, and
+// simulating a button click (see SimulateClick — TNewButton.Click itself
+// does not compile). None of them touch anything outside the handles this
+// script itself creates.
 // ---------------------------------------------------------------------------
 function CreateRoundRectRgn(X1, Y1, X2, Y2, X3, Y3: Integer): Longint;
   external 'CreateRoundRectRgn@gdi32.dll stdcall';
@@ -308,10 +324,16 @@ function SelectClipRgn(DC: Longint; hRgn: Longint): Integer;
   external 'SelectClipRgn@gdi32.dll stdcall';
 function DeleteObject(hObject: Longint): Boolean;
   external 'DeleteObject@gdi32.dll stdcall';
-function ReleaseCapture: Boolean;
-  external 'ReleaseCapture@user32.dll stdcall';
 function SendMessage(hWnd: Longint; Msg, wParam, lParam: Longint): Longint;
   external 'SendMessageA@user32.dll stdcall';
+// WizardForm.WindowState := wsMinimized does not compile — Inno's Pascal
+// Script binding for TForm does not expose WindowState (confirmed against a
+// real Inno Setup 6.7 compile: "Unknown identifier 'WINDOWSTATE'"), even
+// though it is an ordinary Delphi TForm property. ShowWindow needs no
+// property registration at all, only WizardForm.Handle (which IS exposed
+// and used elsewhere in this file for the same reason).
+function ShowWindow(hWnd: Longint; nCmdShow: Integer): Boolean;
+  external 'ShowWindow@user32.dll stdcall';
 
 // ---------------------------------------------------------------------------
 // RECOGNISING AN EXISTING INSTALL.
@@ -369,6 +391,21 @@ begin
   Result := A + Round((B - A) * T);
 end;
 
+// The global Rect() constructor does not compile ("Unknown identifier
+// 'Rect'" — confirmed against a real Inno Setup 6.7 compile) even though
+// TCanvas.FillRect and the TRect type it takes both do. Building one field
+// by field is the only way left to call FillRect at all.
+function MakeRect(X1, Y1, X2, Y2: Integer): TRect;
+var
+  R: TRect;
+begin
+  R.Left := X1;
+  R.Top := Y1;
+  R.Right := X2;
+  R.Bottom := Y2;
+  Result := R;
+end;
+
 // A left-to-right approximation of the design's 135-degree button gradient:
 // close enough at pill-button width that the diagonal is not missed, and it
 // sidesteps hand-rolling per-pixel diagonal fills in Pascal.
@@ -414,7 +451,7 @@ end;
 
 procedure MinimizeClick(Sender: TObject);
 begin
-  WizardForm.WindowState := wsMinimized;
+  ShowWindow(WizardForm.Handle, SW_MINIMIZE);
 end;
 
 procedure CloseClick(Sender: TObject);
@@ -425,18 +462,16 @@ begin
   WizardForm.Close;
 end;
 
-// The trick a borderless window needs to be draggable at all: telling
-// Windows the button-down that just happened on the CLIENT area was really
-// on the CAPTION (title bar) lets the OS run its own window-drag loop, the
-// same one a real title bar uses — no manual mouse tracking required.
-procedure BgMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState;
-  X, Y: Integer);
+// TNewButton.Click does not compile ("Unknown identifier 'CLICK'" — confirmed
+// against a real Inno Setup 6.7 compile) — Click is not part of what Inno's
+// Pascal Script binding exposes for it, even though the hidden Back/Next/
+// Cancel buttons are real Win32 button controls underneath. BM_CLICK is the
+// standard message any such control answers exactly as a mouse click would;
+// this is what every custom button below uses to trigger Setup's own
+// navigation instead of reimplementing it.
+procedure SimulateClick(C: TWinControl);
 begin
-  if Button = mbLeft then
-  begin
-    ReleaseCapture;
-    SendMessage(WizardForm.Handle, WM_NCLBUTTONDOWN, HTCAPTION, 0);
-  end;
+  SendMessage(C.Handle, BM_CLICK, 0, 0);
 end;
 
 procedure InstallBtnClick(Sender: TObject);
@@ -447,7 +482,7 @@ begin
   // DirEdit — is still what Setup reads {app} from, whether its own page
   // was ever shown or not. Clicking Next here walks straight through every
   // skipped page to wpInstalling in one step.
-  WizardForm.NextButton.Click;
+  SimulateClick(WizardForm.NextButton);
 end;
 
 procedure ChooseLocationClick(Sender: TObject);
@@ -459,28 +494,29 @@ end;
 
 procedure CancelLinkClick(Sender: TObject);
 begin
-  WizardForm.CancelButton.Click;
+  SimulateClick(WizardForm.CancelButton);
 end;
 
 procedure LaunchBtnClick(Sender: TObject);
 begin
   if WizardForm.RunList.Items.Count > 0 then
     WizardForm.RunList.Checked[0] := True;
-  WizardForm.NextButton.Click;
+  SimulateClick(WizardForm.NextButton);
 end;
 
 procedure CloseLinkClick(Sender: TObject);
 begin
   if WizardForm.RunList.Items.Count > 0 then
     WizardForm.RunList.Checked[0] := False;
-  WizardForm.NextButton.Click;
+  SimulateClick(WizardForm.NextButton);
 end;
 
 // ---------------------------------------------------------------------------
-// Drawing. Everything below paints onto a TBitmapImage's own Bitmap.Canvas
-// and then keys a sentinel magenta out to transparent, since plain GDI has
-// no alpha blending to lean on — the same reason the button gradient is a
-// flat left-to-right lerp rather than a true diagonal.
+// Drawing. Everything below paints onto a TBitmapImage's own Bitmap.Canvas.
+// Plain GDI has no alpha blending to lean on and Inno's Pascal Script binding
+// exposes neither TBitmap.Transparent/TransparentColor nor a way around them
+// (see ClrCardApprox) — the same absence of alpha is why the button gradient
+// is a flat left-to-right lerp rather than a true diagonal.
 // ---------------------------------------------------------------------------
 
 // The card itself: the dark gradient + soft glow baked into card-bg.png at
@@ -502,7 +538,6 @@ begin
   Img.Width := ScaleX(WinW);
   Img.Height := ScaleY(WinH);
   Img.Bitmap.LoadFromFile(ExpandConstant('{tmp}\card-bg.png'));
-  Img.OnMouseDown := @BgMouseDown;
   Img.SendToBack;
   Result := Img;
 end;
@@ -524,8 +559,8 @@ begin
   Img.Bitmap.Width := Sz;
   Img.Bitmap.Height := Sz;
 
-  Img.Bitmap.Canvas.Brush.Color := clFuchsia;
-  Img.Bitmap.Canvas.FillRect(Rect(0, 0, Sz, Sz));
+  Img.Bitmap.Canvas.Brush.Color := ClrCardApprox;
+  Img.Bitmap.Canvas.FillRect(MakeRect(0, 0, Sz, Sz));
 
   Img.Bitmap.Canvas.Brush.Color := ClrChromeFill;
   Img.Bitmap.Canvas.Pen.Color := ClrChromeBorder;
@@ -547,8 +582,6 @@ begin
     Img.Bitmap.Canvas.LineTo(Sz - Pad, Cy);
   end;
 
-  Img.Bitmap.Transparent := True;
-  Img.Bitmap.TransparentColor := clFuchsia;
   Img.Cursor := crHand;
   Result := Img;
 end;
@@ -593,8 +626,8 @@ begin
   Img.Bitmap.Width := AWidth;
   Img.Bitmap.Height := AHeight;
 
-  Img.Bitmap.Canvas.Brush.Color := clFuchsia;
-  Img.Bitmap.Canvas.FillRect(Rect(0, 0, AWidth, AHeight));
+  Img.Bitmap.Canvas.Brush.Color := ClrCardApprox;
+  Img.Bitmap.Canvas.FillRect(MakeRect(0, 0, AWidth, AHeight));
 
   // Clip to the pill shape before filling, so the gradient stripes below
   // never paint past the rounded outline into the corners.
@@ -618,8 +651,6 @@ begin
   TH := Img.Bitmap.Canvas.TextHeight(AText);
   Img.Bitmap.Canvas.TextOut((AWidth - TW) div 2, (AHeight - TH) div 2, AText);
 
-  Img.Bitmap.Transparent := True;
-  Img.Bitmap.TransparentColor := clFuchsia;
   Img.Cursor := crHand;
   Result := Img;
 end;
@@ -645,8 +676,8 @@ begin
   if RingImg = nil then Exit;
   Bmp := RingImg.Bitmap;
 
-  Bmp.Canvas.Brush.Color := clFuchsia;
-  Bmp.Canvas.FillRect(Rect(0, 0, Bmp.Width, Bmp.Height));
+  Bmp.Canvas.Brush.Color := ClrCardApprox;
+  Bmp.Canvas.FillRect(MakeRect(0, 0, Bmp.Width, Bmp.Height));
 
   Cx := Bmp.Width div 2;
   Cy := Bmp.Height div 2;
@@ -680,8 +711,6 @@ begin
   TH := Bmp.Canvas.TextHeight(PctText);
   Bmp.Canvas.TextOut(Cx - TW div 2, Cy - TH div 2, PctText);
 
-  Bmp.Transparent := True;
-  Bmp.TransparentColor := clFuchsia;
   RingImg.Invalidate;
 end;
 
@@ -695,8 +724,8 @@ begin
   Img.Bitmap.Width := Sz;
   Img.Bitmap.Height := Sz;
 
-  Img.Bitmap.Canvas.Brush.Color := clFuchsia;
-  Img.Bitmap.Canvas.FillRect(Rect(0, 0, Sz, Sz));
+  Img.Bitmap.Canvas.Brush.Color := ClrCardApprox;
+  Img.Bitmap.Canvas.FillRect(MakeRect(0, 0, Sz, Sz));
 
   Img.Bitmap.Canvas.Brush.Color := ClrAccentEnd;
   Img.Bitmap.Canvas.Pen.Color := ClrCardEdge;
@@ -709,8 +738,6 @@ begin
   Img.Bitmap.Canvas.LineTo(Round(Sz * 0.42), Round(Sz * 0.70));
   Img.Bitmap.Canvas.LineTo(Round(Sz * 0.78), Round(Sz * 0.30));
 
-  Img.Bitmap.Transparent := True;
-  Img.Bitmap.TransparentColor := clFuchsia;
 end;
 
 // ---------------------------------------------------------------------------
@@ -904,6 +931,7 @@ begin
   ClrChromeIcon    := MakeColor(205, 203, 200);
   ClrRingTrack     := MakeColor(64, 61, 68);
   ClrCardEdge      := MakeColor(23, 21, 27);
+  ClrCardApprox    := MakeColor(27, 23, 22);
 
   ExtractTemporaryFile('card-bg.png');
   ExtractTemporaryFile('logo.png');
