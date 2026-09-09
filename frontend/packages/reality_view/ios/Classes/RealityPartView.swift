@@ -241,8 +241,8 @@ final class PartRenderer: NSObject {
     /// to visible so a payload from before the checkbox keeps its floor.
     private var showFloor = true
 
-    /// M276 — the lowest point the model reaches in world Y, or +inf when the
-    /// scene holds no solids. The rendered view's floor sits exactly on it.
+    /// M276 — the lowest point the model reaches along [upAxis], or +inf when
+    /// the scene holds no solids. The rendered view's floor sits exactly on it.
     ///
     /// Accumulated in rebuildSolids and therefore only current after a HEAVY
     /// push, which is deliberate: it is an exact per-vertex minimum, and
@@ -251,6 +251,16 @@ final class PartRenderer: NSObject {
     /// drag and settles on the next rebuild — the same bargain sceneRadius
     /// already makes.
     private var sceneLowY: Float = .greatestFiniteMagnitude
+
+    /// M414 — which way the MODEL stands up, in world coordinates (#35).
+    ///
+    /// The ViewCube's orientation is the document's answer to "which way is
+    /// up" — the Dart side sends it as `cubeOrient.rotate(+Y)`, see
+    /// `realityUpAxis` in reality_scene.dart — and the rendered floor is built
+    /// perpendicular to THIS, not to world +Y, or a redefined front leaves the
+    /// floor standing in the old direction while the model turns under it.
+    /// Identity (world +Y) is every document that has never redefined front.
+    private var upAxis = SIMD3<Float>(0, 1, 0)
 
     /// The ground the rendered view's shadows fall on.
     ///
@@ -889,6 +899,14 @@ final class PartRenderer: NSObject {
         // in whatever each call site recomputed.
         rendered = (a["render"] as? NSNumber)?.boolValue ?? false
         showFloor = (a["floor"] as? NSNumber)?.boolValue ?? true
+        // M414 — #35. Falls back to world +Y for a payload from before this
+        // key existed and for the one Dart sends that is not actually a unit
+        // vector: the zero vector a malformed message could carry, which
+        // would otherwise turn every dot product below into zero and the
+        // floor's "lowest point" into every point at once.
+        let sentUp = Payload.vec3(a["up"]) ?? SIMD3<Float>(0, 1, 0)
+        let sentUpLen = simd_length(sentUp)
+        upAxis = sentUpLen > 1e-4 ? sentUp / sentUpLen : SIMD3<Float>(0, 1, 0)
         sceneLowY = .greatestFiniteMagnitude
         // Latch the stroke for the whole rebuild BEFORE any of it runs: every
         // builder below reads builtStyle, so a scene comes out at one line
@@ -1028,6 +1046,42 @@ final class PartRenderer: NSObject {
         }
     }
 
+    /// M414 — a rotation taking world +Y onto [to] (#35).
+    ///
+    /// `generatePlane` always lies in the XZ plane with its normal along +Y,
+    /// so this is what stands the floor mesh up along the model's own up
+    /// instead: [applyGround] rotates the entity by it rather than rebuilding
+    /// the mesh, for the reason the note there gives about not re-uploading a
+    /// floor whose only change is its size or direction.
+    ///
+    /// The shortest rotation taking unit vector (0, 1, 0) onto unit vector
+    /// [to]: the half-way-vector construction Quat.fromTo already uses on the
+    /// Dart side (quat.dart) — `(1 + dot(up, to), cross(up, to))`, normalised
+    /// — built here from the same `ix/iy/iz/r` initialiser [Payload.quat]
+    /// above already uses, so this needs nothing from `simd_quaternion.h`
+    /// beyond what this file already calls.
+    ///
+    /// Exact everywhere EXCEPT the precise 180° case, where `1 + dot` is zero
+    /// and there is nothing to normalise: a document whose front was set to
+    /// what used to be its back. Any 180° turn is a valid answer there, so the
+    /// axis is picked by hand instead — perpendicular to +Y, deterministic
+    /// rather than left to divide by zero — and a rotation of `.pi` about a
+    /// unit axis `a` is `(r: 0, imag: a)` directly, no trig needed.
+    private func floorOrientation(to: SIMD3<Float>) -> simd_quatf {
+        let up = SIMD3<Float>(0, 1, 0)
+        let d = simd_dot(up, to)
+        if d < -0.9999 {
+            var axis = simd_cross(SIMD3<Float>(1, 0, 0), up)
+            if simd_length(axis) < 1e-4 {
+                axis = simd_cross(SIMD3<Float>(0, 0, 1), up)
+            }
+            axis = simd_normalize(axis)
+            return simd_quatf(ix: axis.x, iy: axis.y, iz: axis.z, r: 0)
+        }
+        let c = simd_cross(up, to)
+        return simd_quatf(ix: c.x, iy: c.y, iz: c.z, r: 1 + d).normalized
+    }
+
     /// The floor, in the rendered view only.
     ///
     /// Sized from the scene rather than fixed: the same renderer draws a 10 mm
@@ -1066,8 +1120,15 @@ final class PartRenderer: NSObject {
             ? -sceneRadius
             : sceneLowY
         let drop = low - max(1e-4, sceneRadius * 1e-4)
+        // M414 — ON the model's own up (#35), not always world Y: `drop` is a
+        // distance measured along [upAxis] (see [lowestY]), so the point it
+        // names is `upAxis * drop`, and the plane has to be turned to stand
+        // perpendicular to that axis rather than to +Y.
+        let position = upAxis * drop
+        let orientation = floorOrientation(to: upAxis)
         if let g = groundEntity {
-            g.position = SIMD3<Float>(0, drop, 0)
+            g.position = position
+            g.orientation = orientation
             g.scale = SIMD3<Float>(repeating: side / 100)
             // Re-tint rather than rebuild: the floor's colour is pushed from
             // the palette and must follow a scheme change, while the mesh is
@@ -1077,14 +1138,14 @@ final class PartRenderer: NSObject {
         }
         // 100 x 100 once, then scaled: MeshResource.generatePlane allocates a
         // mesh, and re-generating one every scene rebuild for a floor whose
-        // only change is its size is an upload nobody asked for.
+        // only change is its size or direction is an upload nobody asked for.
         let mesh = MeshResource.generatePlane(width: 100, depth: 100)
         let e = ModelEntity(mesh: mesh, materials: [Self.groundMaterial()])
-        // generatePlane already lies in the XZ plane with its normal along +Y,
-        // which is the floor this world wants (see commonInit on the up axis).
-        // No rotation: turning it a quarter turn would stand it on edge beside
-        // the model instead of putting it under one.
-        e.position = SIMD3<Float>(0, drop, 0)
+        // generatePlane lies in the XZ plane with its normal along +Y;
+        // [floorOrientation] is what turns that onto the model's own up when
+        // a redefined front has moved it away from world +Y.
+        e.position = position
+        e.orientation = orientation
         e.scale = SIMD3<Float>(repeating: side / 100)
         root.addChild(e)
         groundEntity = e
@@ -1272,7 +1333,8 @@ final class PartRenderer: NSObject {
                     applyTint(id, tint)
                     sceneRadius = max(sceneRadius,
                                       cached.boundingRadius + simd_length(at))
-                    sceneLowY = min(sceneLowY, cached.lowestY(rot: rot, at: at))
+                    sceneLowY = min(sceneLowY,
+                                    cached.lowestY(rot: rot, at: at, up: upAxis))
                     solidRev[id] = rev
                 }
                 continue
@@ -1287,7 +1349,7 @@ final class PartRenderer: NSObject {
                 tint: tint,
                 preview: (s["material"] as? NSNumber)?.intValue == 1)
             sceneRadius = max(sceneRadius, geom.boundingRadius + simd_length(at))
-            sceneLowY = min(sceneLowY, geom.lowestY(rot: rot, at: at))
+            sceneLowY = min(sceneLowY, geom.lowestY(rot: rot, at: at, up: upAxis))
             let shaded = geom.shadedEntity(material: material)
             // M273 — NO EDGE OVERLAY in the rendered view. Not built rather
             // than built and hidden: the edge tubes are real geometry (one

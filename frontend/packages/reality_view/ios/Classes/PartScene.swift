@@ -382,23 +382,28 @@ struct SolidGeom {
         return r
     }
 
-    /// M276 — the LOWEST point this solid reaches once placed, in world Y.
+    /// M276 — the LOWEST point this solid reaches once placed, along [up].
     ///
     /// Exact, over every vertex, and not from a bounding box: the rendered
     /// view's floor sits ON this number, and an AABB corner under a rotation
     /// is a bound rather than the value — it would put the floor a visible gap
     /// below a turned component and the shadow would come loose from the body.
     ///
-    /// Only the second ROW of the rotation matrix is needed, since only Y is
-    /// wanted, so this is one dot product per vertex rather than a full
-    /// quaternion rotation.
-    func lowestY(rot: simd_quatf, at: SIMD3<Float>) -> Float {
-        let m = simd_float3x3(rot)
-        let r1 = SIMD3<Float>(m[0][1], m[1][1], m[2][1])
+    /// M414 — [up] defaults to world +Y, which is every document that has
+    /// never redefined front (#35: "when i set a new view as front, the
+    /// placing of the bottom plane in rendered mode should change too"). The
+    /// question is `dot(up, R * p + at)`; written as `dot(R^T * up, p) +
+    /// dot(up, at)` it costs one quaternion rotation of [up] — not of every
+    /// vertex — plus the one dot product per vertex the old world-Y-only form
+    /// already paid, since `R^T * (0, 1, 0)` is exactly the row it used to
+    /// pull out of the matrix by hand.
+    func lowestY(rot: simd_quatf, at: SIMD3<Float>,
+                 up: SIMD3<Float> = SIMD3<Float>(0, 1, 0)) -> Float {
+        let ru = rot.inverse.act(up)
         var lo = Float.greatestFiniteMagnitude
-        for p in positions { lo = min(lo, simd_dot(r1, p)) }
+        for p in positions { lo = min(lo, simd_dot(ru, p)) }
         return lo == .greatestFiniteMagnitude ? .greatestFiniteMagnitude
-                                              : lo + at.y
+                                              : lo + simd_dot(up, at)
     }
 
     /// Every triangle in BOTH windings. RealityKit culls strictly by winding,

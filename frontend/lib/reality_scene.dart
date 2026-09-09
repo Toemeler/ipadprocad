@@ -18,6 +18,7 @@ import 'ffi/occt_engine.dart' show OcctMeshData;
 import 'log.dart';
 import 'materials.dart';
 import 'part_model.dart';
+import 'quat.dart' show Quat;
 import 'reality_payload.dart';
 import 'text_geometry.dart' show textContours, textLayerOf;
 import 'theme.dart';
@@ -826,6 +827,21 @@ List<Map<String, dynamic>> _inPlaceContextPayloads(AppState app,
   ];
 }
 
+/// M414 — which way the MODEL stands up, in world coordinates.
+///
+/// The RealityKit twin of `cyclesUpAxis` in cycles_scene.dart: same formula,
+/// same reason, duplicated rather than imported because this file and the
+/// assembly's payload builder each need it without taking on the other's
+/// dependencies. The ViewCube's orientation is the document's answer to
+/// "which way is up", and the rendered floor has to be built from it — see
+/// [buildScenePayload]'s `'up'` key — or a redefined front leaves the floor
+/// standing in the old direction while the model turns under it (#35).
+///
+/// Identity until the user redefines front, which is world +Y and exactly
+/// what every existing document gets.
+Vec3 realityUpAxis(Quat cubeOrient) =>
+    cubeOrient.rotate(const Vec3(0, 1, 0)).normalized();
+
 Map<String, dynamic> buildScenePayload(AppState app, PartModel p,
     {String? hover,
     (KernelSolid, int)? hoverFace,
@@ -876,6 +892,12 @@ Map<String, dynamic> buildScenePayload(AppState app, PartModel p,
     // M286 — the floor is only meaningful in rendered mode, but it is sent
     // always so the renderer never has to guess between modes.
     'floor': p.showFloor,
+    // M414 — and which way it stands, for the same reason: the floor is
+    // built perpendicular to this, not to world +Y (#35).
+    'up': () {
+      final u = realityUpAxis(app.cubeOrient);
+      return [u.x, u.y, u.z];
+    }(),
     'planes': _planePayloads(app, p, hover: hover),
     'axes': _axisPayloads(p, hover: hover),
     'cp': {'visible': p.vis['cp'] == true, 'hot': hover == 'cp'},

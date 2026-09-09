@@ -111,6 +111,14 @@ Map<String, int> assemblySceneRevs(AssemblyModel a, {AppState? app}) => {
         id: identityHashCode(s.mesh),
     };
 
+/// M414 — which way the MODEL stands up, in world coordinates. The assembly
+/// twin of `realityUpAxis` in reality_scene.dart (same formula, same reason,
+/// duplicated rather than imported so this file keeps the app_state-free
+/// dependency footprint the note at the top of the file describes) — see
+/// [buildAssemblyScenePayload]'s `'up'` key (#35).
+Vec3 assemblyUpAxis(Quat cubeOrient) =>
+    cubeOrient.rotate(const Vec3(0, 1, 0)).normalized();
+
 /// The full scene: solids with their placements, the origin planes, the origin
 /// axes and the centre point.
 ///
@@ -141,6 +149,11 @@ Map<String, dynamic> buildAssemblyScenePayload(
       'render': a.displayMode.isRendered,
       // M286 — see buildScenePayload.
       'floor': a.showFloor,
+      // M414 — see buildScenePayload.
+      'up': () {
+        final u = assemblyUpAxis(a.cubeOrient);
+        return [u.x, u.y, u.z];
+      }(),
       'planes': assemblyPlanePayloads(a),
       'axes': assemblyAxisPayloads(a),
       'cp': {'visible': a.vis['cp'] == true, 'hot': false},
