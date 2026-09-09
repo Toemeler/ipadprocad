@@ -1658,7 +1658,7 @@ class _Viewport3DState extends State<Viewport3D>
       if (wp == null) continue;
       final sp0 = f.toSketch(wp);
       final uu = sp0.dx, vv = sp0.dy;
-      final (uMin, uMax, vMin, vMax) = planeRectFor(p, f);
+      final (uMin, uMax, vMin, vMax) = workPlaneRect(p, f);
       if (uu >= uMin && uu <= uMax && vv >= vMin && vv <= vMax) {
         final d = cam.depth(wp);
         if (d < bestD) {
@@ -1667,7 +1667,66 @@ class _Viewport3DState extends State<Viewport3D>
         }
       }
     }
+    // M414 — A PLANE BEHIND THE MODEL IS NOT WHAT YOU ARE POINTING AT (#39).
+    //
+    // The planes were compared against each OTHER by depth and against
+    // nothing else, so a plane won the pointer through the solid standing in
+    // front of it. On a work plane — which is visible by default, unlike the
+    // origin planes — that meant the whole model area prehighlighted the
+    // plane GREEN, and a tap there selected the plane rather than the body.
+    // `_planeOrFaceAt` has always applied this rule for the plane PICKERS,
+    // one method below; it belongs here, where hover and tap both read it,
+    // or what lights up is not what you grab.
+    //
+    // Only reached when a visible plane is actually under the pointer, so a
+    // part with the origin planes off and no work planes — the common case —
+    // pays nothing for it. Ties go to the face, as they do in
+    // `_planeOrFaceAt` and in the hover path's own face comparison.
+    if (best != null && _solidCoversAt(cam, px, bestD)) return null;
     return best;
+  }
+
+  /// M414 — is a solid front face at [px] at least as near as [depth]?
+  ///
+  /// The question `_hitOriginInner` asks about the plane it just chose, and
+  /// asked directly rather than through [_pickSolidFace]: that one finds the
+  /// NEAREST face and therefore always walks every triangle, while this stops
+  /// at the first one that answers yes — which is the case that matters, the
+  /// pointer being over the model. Same facing rule, same screen-space
+  /// barycentric test and same interpolated depth as [_pickSolidAny], so the
+  /// three agree about what is in front of what.
+  bool _solidCoversAt(Cam3 cam, Offset px, double depth) {
+    for (final s in _liveSolids()) {
+      final m = s.mesh;
+      for (var t = 0; t < m.indices.length; t += 3) {
+        final i0 = m.indices[t] * 3,
+            i1 = m.indices[t + 1] * 3,
+            i2 = m.indices[t + 2] * 3;
+        final w0 =
+            Vec3(m.positions[i0], m.positions[i0 + 1], m.positions[i0 + 2]);
+        final w1 =
+            Vec3(m.positions[i1], m.positions[i1 + 1], m.positions[i1 + 2]);
+        final w2 =
+            Vec3(m.positions[i2], m.positions[i2 + 1], m.positions[i2 + 2]);
+        final n = (w1 - w0).cross(w2 - w0);
+        if (n.length < 1e-12 || !cam.facesCamera(n)) continue;
+        final a = cam.project(w0), b = cam.project(w1), c = cam.project(w2);
+        final d = (b.dx - a.dx) * (c.dy - a.dy) - (c.dx - a.dx) * (b.dy - a.dy);
+        if (d.abs() < 1e-9) continue;
+        final u = ((px.dx - a.dx) * (c.dy - a.dy) -
+                (c.dx - a.dx) * (px.dy - a.dy)) /
+            d;
+        final v = ((b.dx - a.dx) * (px.dy - a.dy) -
+                (px.dx - a.dx) * (b.dy - a.dy)) /
+            d;
+        if (u < -1e-6 || v < -1e-6 || u + v > 1 + 1e-6) continue;
+        final z = cam.depth(w0) * (1 - u - v) +
+            cam.depth(w1) * u +
+            cam.depth(w2) * v;
+        if (z <= depth + 1e-6) return true;
+      }
+    }
+    return false;
   }
 
   /// M174 — the plane or FACE under [px] to build a new work plane from, with
@@ -3107,7 +3166,9 @@ class _ScenePainter extends CustomPainter {
     for (final w in part.workPlanes) {
       if (!w.visible) continue;
       final f = w.frame;
-      final (uMin, uMax, vMin, vMax) = planeRectFor(part, f);
+      // M414 — sized off everything EXCEPT what is drawn on the plane itself
+      // (#39). The hit test below reads the same rectangle.
+      final (uMin, uMax, vMin, vMax) = workPlaneRect(part, f);
       final c0 = f.toWorld(Offset(uMin, vMin));
       final c1 = f.toWorld(Offset(uMax, vMin));
       final c2 = f.toWorld(Offset(uMax, vMax));

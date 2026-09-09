@@ -508,7 +508,10 @@ List<Map<String, dynamic>> _planePayloads(AppState app, PartModel p,
   // the origin planes use (M151 kept it shared on purpose), so a work plane
   // frames the model exactly as they do instead of being a fixed square.
   for (final w in p.workPlanes) {
-    final (uMin, uMax, vMin, vMax) = planeRectFor(p, w.frame);
+    // M414 — `workPlaneRect`, not `planeRectFor`: a plane is not sized by the
+    // sketch drawn on it (#39). The painter and the hit test call the same
+    // function, which is M151's rule and M83's lesson.
+    final (uMin, uMax, vMin, vMax) = workPlaneRect(p, w.frame);
     out.add({
       'key': w.id,
       'frame': frame9(w.frame),
@@ -528,7 +531,7 @@ List<Map<String, dynamic>> _planePayloads(AppState app, PartModel p,
   // drag ends: it is a preview, not a document object.
   final prev = app.wpCreatePreview;
   if (prev != null) {
-    final (uMin, uMax, vMin, vMax) = planeRectFor(p, prev);
+    final (uMin, uMax, vMin, vMax) = workPlaneRect(p, prev);
     out.add({
       'key': 'wp:preview',
       'frame': frame9(prev),

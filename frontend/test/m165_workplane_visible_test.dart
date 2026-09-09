@@ -55,7 +55,13 @@ void main() {
       final app = AppState();
       final p = _partWithPlane();
       final w = _planes(app, p).firstWhere((m) => m['key'] == 'wp:1');
-      final (uMin, uMax, vMin, vMax) = planeRectFor(p, p.workPlanes.single.frame);
+      // M414 — `workPlaneRect`, which is `planeRectFor` minus whatever is
+      // drawn ON the plane. With no sketches at all the two agree, which is
+      // what keeps this test about the thing it was written for.
+      final (uMin, uMax, vMin, vMax) =
+          workPlaneRect(p, p.workPlanes.single.frame);
+      expect((uMin, uMax, vMin, vMax),
+          planeRectFor(p, p.workPlanes.single.frame));
       expect(w['uMin'], uMin);
       expect(w['uMax'], uMax);
       expect(w['vMin'], vMin);

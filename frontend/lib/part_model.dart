@@ -5847,6 +5847,13 @@ class PartModel {
   /// document — a pure cache, rebuilt on demand.
   String? extentSig;
   (Vec3, Vec3)? extentCache;
+
+  /// Memo for [partContentBoundsOffPlane] (M414), keyed by plane. Same
+  /// contract as [extentSig]/[extentCache] and thrown away by the same
+  /// signature: one entry per plane that has actually been measured, which is
+  /// the work planes the part carries and nothing else.
+  String? offPlaneSig;
+  final Map<String, (Vec3, Vec3)?> offPlaneCache = {};
   int featureN = 0, solidN = 0;
   bool dirty = false;
 
@@ -10623,7 +10630,7 @@ String _contentSignature(PartModel p) {
   return b.toString();
 }
 
-(Vec3, Vec3)? _partContentBounds(PartModel p) {
+(Vec3, Vec3)? _partContentBounds(PartModel p, {PlaneFrame? skipSketchesOn}) {
   var minX = double.infinity, minY = double.infinity, minZ = double.infinity;
   var maxX = -double.infinity, maxY = -double.infinity, maxZ = -double.infinity;
   var any = false;
@@ -10649,6 +10656,9 @@ String _contentSignature(PartModel p) {
   for (final cs in p.childSketches) {
     if (!cs.visible) continue;
     final fr = sketchFrameOf(cs);
+    // M414 — a sketch lying IN the plane being measured does not count
+    // towards it. See [partContentBoundsOffPlane].
+    if (skipSketchesOn != null && framesCoplanar(skipSketchesOn, fr)) continue;
     for (final g in cs.model.geometry) {
       if (cs.model.hiddenLayers.contains(g.layer)) continue;
       // Construction geometry is scaffolding, not the part — and M45's
@@ -10737,6 +10747,63 @@ String _contentSignature(PartModel p) {
     along(f.v, true)
   );
 }
+
+/// True when [a] and [b] are the SAME plane in space — same normal (either
+/// way round) and the same distance along it. The frames may still differ in
+/// how they spin their u/v inside it.
+bool framesCoplanar(PlaneFrame a, PlaneFrame b) {
+  // The normals are unit, so for a small angle between them 1 - |dot| is
+  // about half the angle squared: 1e-9 admits roughly 0.003 degrees, which
+  // is float noise and nothing a user could have built on purpose.
+  if (a.n.dot(b.n).abs() < 1 - 1e-9) return false;
+  return (a.origin.dot(a.n) - b.origin.dot(a.n)).abs() <= 1e-6;
+}
+
+/// [partContentBounds] with everything that lies IN the plane [f] left out, or
+/// null when that is everything.
+///
+/// M414 — A PLANE IS NOT SIZED BY WHAT IS DRAWN ON IT (#39). The extent walk
+/// counts visible sketch geometry, which is right — on a fresh part the first
+/// sketch exists before any solid, and a plane that ignored it would be the
+/// one thing on screen not framing the drawing. But a sketch on a WORK plane
+/// then sizes the work plane it is drawn on, and that is a feedback loop with
+/// nothing to stop it: the report this is named for had a 50 x 352 mm part
+/// under a plane 343 x 664 mm, all of the difference coming from four
+/// construction-ish lines the user had drawn on the plane itself. It is also
+/// why the plane was permanently GREEN — it covered most of the viewport, so
+/// the pointer was hovering it wherever it went.
+///
+/// Memoised exactly like [partContentBounds], and for the same reason: this
+/// is on the per-frame and per-pointer-move path.
+(Vec3, Vec3)? partContentBoundsOffPlane(PartModel p, PlaneFrame f) {
+  final sig = _contentSignature(p);
+  if (p.offPlaneSig != sig) {
+    p.offPlaneSig = sig;
+    p.offPlaneCache.clear();
+  }
+  final key = '${f.n.x},${f.n.y},${f.n.z}|${f.origin.dot(f.n)}';
+  if (p.offPlaneCache.containsKey(key)) return p.offPlaneCache[key];
+  final b = _partContentBounds(p, skipSketchesOn: f);
+  p.offPlaneCache[key] = b;
+  return b;
+}
+
+/// The rectangle a WORK plane should occupy, in its own (u, v).
+///
+/// [planeRectFor] measured against everything the part holds; this leaves out
+/// what is drawn on the plane itself (see [partContentBoundsOffPlane]) and
+/// falls back to the full measurement when that is all there is — a plane
+/// created in an empty part, with one sketch on it, still has to frame the
+/// sketch rather than collapse to the default cube.
+///
+/// The painter, the RealityKit payload and the hit test ALL call this, for
+/// M83's reason: the drawn rectangle and the clickable one drifting apart is
+/// a bug this file has already had once.
+(double, double, double, double) workPlaneRect(PartModel p, PlaneFrame f) =>
+    planeRectInBounds(
+        paddedOriginExtent(
+            partContentBoundsOffPlane(p, f) ?? partContentBounds(p)),
+        f);
 
 /// How far origin axis [dir] should reach: (lo, hi) along the axis, so the
 /// axes span the same box the planes do instead of poking out of them (or
