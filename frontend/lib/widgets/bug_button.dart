@@ -63,6 +63,12 @@ class BugReport {
         path: result.file?.path,
         issueUrl: result.upload?.issueUrl,
         uploadFailed: result.upload != null && !result.upload!.ok,
+        // M415 — and WHY, verbatim (#41). The reporter is the only person who
+        // can see what their connection was doing, and until now the dialog
+        // told them nothing they could pass on: "could not reach the relay"
+        // reads the same for a timeout, a DNS failure and a 500 from the
+        // Worker, and the three have nothing in common to do about them.
+        uploadError: result.upload?.error,
         // M389 — THE DIALOG USED TO BE SILENT ABOUT THE CASE THAT ACTUALLY
         // HAPPENED. `result.upload` is null when the build has no relay
         // compiled in, and null failed both branches below: the user got
@@ -220,12 +226,14 @@ Widget bugResultDialogForTest({
   String? path,
   String? issueUrl,
   bool uploadFailed = false,
+  String? uploadError,
   bool noRelay = false,
 }) =>
     _ResultDialog(
       path: path,
       issueUrl: issueUrl,
       uploadFailed: uploadFailed,
+      uploadError: uploadError,
       noRelay: noRelay,
     );
 
@@ -239,12 +247,18 @@ class _ResultDialog extends StatelessWidget {
     required this.path,
     this.issueUrl,
     this.uploadFailed = false,
+    this.uploadError,
     this.noRelay = false,
   });
 
   final String? path;
   final String? issueUrl;
   final bool uploadFailed;
+
+  /// M415 — the relay failure in its own words, shown under the sentence that
+  /// says one happened. Selectable, because its whole purpose is to be copied
+  /// into the report about it.
+  final String? uploadError;
 
   /// No relay was compiled into this build, so no upload was even attempted.
   /// Distinct from [uploadFailed], which means one was configured and could
@@ -304,6 +318,14 @@ class _ResultDialog extends StatelessWidget {
                     : L.of(context).msgBugUploadFailed,
                 style: ts(12, T.dim),
               ),
+              // Not for [noRelay]: nothing was attempted there, so there is no
+              // reason to show — msgBugNoRelay has already said the whole of
+              // it, and an empty line under it would only look like something
+              // went missing.
+              if (!noRelay && uploadError != null) ...[
+                const SizedBox(height: 4),
+                SelectableText(uploadError!, style: ts(11, T.dim)),
+              ],
             ],
           ],
         ),

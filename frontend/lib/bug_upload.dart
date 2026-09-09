@@ -13,6 +13,7 @@
 // disk in bug_capture.dart, and a failure here must never make that report
 // disappear or look like it failed. Every path returns a result; nothing
 // throws out of [uploadBugReport].
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -89,11 +90,48 @@ class BugUploadResult {
   bool get ok => issueUrl != null;
 }
 
+/// How long an upload of [bytes] is allowed to take.
+///
+/// M415 — "i have internet but my ipad could not reach the relay when i make
+/// a bug report. on windows it works but on ipad it wont reach the relay"
+/// (#41).
+///
+/// THE BUDGET WAS A CONSTANT AND THE PAYLOAD IS NOT. Twenty seconds covered
+/// the DNS lookup, the TLS handshake, the whole multipart body going up, the
+/// Worker committing the zip to GitHub and opening an issue about it, and the
+/// response coming back. The two bundles filed from the desktop on the day
+/// #41 was written are 1.3 MB and 2.2 MB, so twenty seconds is asking for
+/// better than 900 kbit/s of UPLINK, sustained, before anything else in that
+/// list has cost a millisecond. A desktop on Ethernet or a good access point
+/// clears that every time; a tablet on Wi-Fi at the far end of a flat, or on
+/// a cellular uplink, does not clear it reliably — which is exactly the shape
+/// of the report, the same relay working from one machine and not the other,
+/// with the connection fine in both cases.
+///
+/// So the budget follows the payload: a fixed part for everything that does
+/// not scale, plus an allowance per megabyte that assumes a genuinely poor
+/// uplink rather than a good one. Capped, because there is deliberately no
+/// progress indicator on this path (see `BugReport.open`) and a wait nobody
+/// can see has to end.
+Duration bugUploadTimeoutFor(int bytes) {
+  const base = Duration(seconds: 20);
+  // 25 s per MiB is about 340 kbit/s — slow, and the point: the fast case
+  // finishes long before its budget and never notices this number at all.
+  const perMiB = 25.0;
+  const cap = Duration(seconds: 90);
+  final scaled = base +
+      Duration(milliseconds: (bytes / (1 << 20) * perMiB * 1000).round());
+  return scaled > cap ? cap : scaled;
+}
+
 /// POSTs [zipBytes] to the configured relay. Never throws: a network failure,
 /// a timeout, or a malformed response all come back as a failed
 /// [BugUploadResult] rather than an exception, because losing the (already
 /// locally-saved) report to an upload error would be strictly worse than not
 /// trying at all.
+///
+/// [timeout] defaults to [bugUploadTimeoutFor] of the bundle's size; pass one
+/// to override it (the tests do).
 Future<BugUploadResult> uploadBugReport({
   required Uint8List zipBytes,
   required String stem,
@@ -113,11 +151,24 @@ Future<BugUploadResult> uploadBugReport({
   ///
   /// They agree by construction: both are derived from this one argument.
   bool autofix = true,
-  Duration timeout = const Duration(seconds: 20),
+  Duration? timeout,
 }) async {
   if (!bugUploadConfigured) {
     return const BugUploadResult.failed('no relay configured');
   }
+  final budget = timeout ?? bugUploadTimeoutFor(zipBytes.length);
+  final started = DateTime.now();
+  // M415 — WHAT WAS ATTEMPTED, in the log, before it is attempted. The only
+  // record of a failed upload that survives is this line: the bundle is
+  // written BEFORE the upload runs, so a failure can never be inside the zip
+  // it is about — it reaches a reader in the NEXT report's
+  // `performance_logs_prev`/previous log instead. Without the size and the
+  // budget beside the error, "could not reach the relay" is not a fault
+  // anyone can tell apart from a tablet being off Wi-Fi.
+  Log.i(
+      'bug',
+      'upload: ${zipBytes.length} bytes to the relay, '
+      '${budget.inSeconds}s allowed');
   try {
     final req = http.MultipartRequest('POST', Uri.parse(bugRelayUrl))
       ..fields['stem'] = stem
@@ -131,12 +182,16 @@ Future<BugUploadResult> uploadBugReport({
     if (bugRelaySecret.isNotEmpty) {
       req.headers['x-bug-relay-secret'] = bugRelaySecret;
     }
-    final streamed = await req.send().timeout(timeout);
+    final streamed = await req.send().timeout(budget);
     final body = await streamed.stream.bytesToString();
     if (streamed.statusCode != 200) {
       Log.w('bug', 'upload failed: HTTP ${streamed.statusCode} $body');
       return BugUploadResult.failed('HTTP ${streamed.statusCode}');
     }
+    Log.i(
+        'bug',
+        'upload: relay answered 200 after '
+        '${DateTime.now().difference(started).inMilliseconds}ms');
     final decoded = jsonDecode(body);
     if (decoded is! Map) {
       return const BugUploadResult.failed('relay returned malformed JSON');
@@ -151,7 +206,17 @@ Future<BugUploadResult> uploadBugReport({
     return BugUploadResult.ok(
         issueUrl: issueUrl, fileUrl: fileUrl is String ? fileUrl : null);
   } catch (e) {
-    Log.w('bug', 'upload failed: $e');
-    return BugUploadResult.failed('$e');
+    // M415 — the reason, spelled out for the DIALOG and not just the log. It
+    // reaches the person standing in front of the failure, who is the only
+    // one who can say what their connection was doing; a timeout that says
+    // how many bytes over how many seconds is a fault they can report, and
+    // "could not reach the relay" on its own is not.
+    final ms = DateTime.now().difference(started).inMilliseconds;
+    final why = e is TimeoutException
+        ? 'timed out after ${budget.inSeconds}s '
+            'uploading ${zipBytes.length} bytes'
+        : '$e';
+    Log.w('bug', 'upload failed after ${ms}ms: $why');
+    return BugUploadResult.failed(why);
   }
 }
