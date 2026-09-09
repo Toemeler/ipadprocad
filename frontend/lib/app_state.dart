@@ -2020,6 +2020,12 @@ class AppState extends ChangeNotifier {
   /// session, not once per read.
   final Set<String> _staged = {};
 
+  /// The on-disk mtime this device last read or wrote for [name] — what it
+  /// believes it is caught up with. Compared against the file's CURRENT mtime
+  /// by [_diskChangedSinceStaged] to tell "a sync landed while this document
+  /// sat open" from "I already wrote this myself".
+  final Map<String, int> _stagedAtMs = {};
+
   void _ensureStaged(String name) {
     if (_staged.contains(name)) return;
     final ref = _findDoc(name);
@@ -2030,6 +2036,43 @@ class AppState extends ChangeNotifier {
       }
     }
     _staged.add(name);
+    _rebaselineStageMtime(name);
+  }
+
+  /// Records the file's current mtime as "caught up with", after staging it
+  /// (open) or writing it (save).
+  void _rebaselineStageMtime(String name) {
+    final ref = _findDoc(name);
+    if (ref == null) {
+      _stagedAtMs.remove(name);
+      return;
+    }
+    try {
+      _stagedAtMs[name] =
+          File(ref.path).statSync().modified.millisecondsSinceEpoch;
+    } catch (_) {
+      _stagedAtMs.remove(name);
+    }
+  }
+
+  /// M422 — true when the document file on disk is not the one this device
+  /// staged or last wrote: the shape of a sync landing a newer version from
+  /// another device while this one sat open, un-edited, in a tab. A part or
+  /// sketch that is open is never reloaded (see [_adoptSynced]), so nothing
+  /// in memory learns this happened — this is what a save path checks
+  /// instead, right before it would otherwise pack the (now-stale) staged
+  /// copy back over the top of it.
+  bool _diskChangedSinceStaged(String name) {
+    final staged = _stagedAtMs[name];
+    if (staged == null) return false;
+    final ref = _findDoc(name);
+    if (ref == null) return false;
+    try {
+      return File(ref.path).statSync().modified.millisecondsSinceEpoch !=
+          staged;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Packs [name]'s staging folder into its document file.
@@ -2335,6 +2378,7 @@ class AppState extends ChangeNotifier {
   /// Drops [name]'s staging folder (after a delete or rename).
   void _dropStage(String name) {
     _staged.remove(name);
+    _stagedAtMs.remove(name);
     try {
       final d = Directory('${_cacheRoot.path}/docs/$name');
       if (d.existsSync()) d.deleteSync(recursive: true);
@@ -4283,6 +4327,16 @@ class AppState extends ChangeNotifier {
     final p = parts[name];
     if (p == null || _docsDir == null) return false;
     _ensureStaged(name);
+    // M422 — nothing changed here, and the file on disk is not the one this
+    // device staged: a sync brought in a newer version from another device
+    // while this part sat open (an open document is never reloaded — see
+    // [_adoptSynced]). Packing the stale staged copy back now would silently
+    // regress what the other device just sent; the synced bytes are already
+    // the truth, and there is nothing of THIS device's to save.
+    if (!p.dirty && _diskChangedSinceStaged(name)) {
+      _rebaselineStageMtime(name);
+      return true;
+    }
     try {
       _partJson(name).writeAsStringSync(jsonEncode(p.toJson()));
       // copy: the loop awaits, and a plane pick during that window would
@@ -4302,6 +4356,7 @@ class AppState extends ChangeNotifier {
     }
     await _writePartPreview(name, p);
     if (!_commitStage(name, 'part')) return false;
+    _rebaselineStageMtime(name);
     await refreshSaved();
     notifyListeners();
     return true;
@@ -20032,6 +20087,13 @@ class AppState extends ChangeNotifier {
     final s = sketches[name];
     if (s == null || _docsDir == null) return false;
     _ensureStaged(name);
+    // M422 — same guard as [_savePartInner]: nothing changed here, and a
+    // sync brought in a newer version of this sketch while it sat open.
+    // Nothing of this device's is waiting to be saved, so don't overwrite it.
+    if (!s.dirty && _diskChangedSinceStaged(name)) {
+      _rebaselineStageMtime(name);
+      return true;
+    }
     final ok = s.engine.saveDxf(_dxfFile(name).path);
     try {
       File('${_stage(name).path}/$kSketchBase.cons.json')
@@ -20139,6 +20201,7 @@ class AppState extends ChangeNotifier {
     await _writePreview(name, s);
     if (!_commitStage(name, 'sketch')) return false;
     s.dirty = false;
+    _rebaselineStageMtime(name);
     await refreshSaved();
     notifyListeners();
     return ok;
