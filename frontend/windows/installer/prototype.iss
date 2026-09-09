@@ -73,12 +73,15 @@ DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 DisableWelcomePage=no
 
-; No admin prompt by default — a zip never asked for one either, and a
-; single-user CAD tool has no reason to start demanding elevation now.
-; `dialog` still lets someone choose an all-users install from Setup's own
-; elevation prompt, for the one machine that wants it shared.
+; No admin prompt, no choice offered either — a zip never asked for one,
+; and a single-user CAD tool has no reason to start demanding elevation
+; now. PrivilegesRequiredOverridesAllowed is deliberately NOT set: it is
+; what draws Setup's own "Install for me only / for all users" picker
+; BEFORE the custom wizard below ever gets a chance to run — a second
+; stock dialog undermining the same one-click promise ShowLanguageDialog
+; further down exists to keep. Anyone who genuinely needs an all-users
+; install still has the command-line switches; nobody sees a prompt for it.
 PrivilegesRequired=lowest
-PrivilegesRequiredOverridesAllowed=dialog
 
 UninstallDisplayIcon={app}\{#MyAppExeName}
 UninstallDisplayName={#MyAppName}
@@ -122,6 +125,18 @@ ArchitecturesInstallIn64BitMode=x64compatible
 ; extra click through a page that only restates the last two. ShouldSkipPage
 ; in [Code] skips it too, belt and suspenders.
 DisableReadyPage=yes
+
+; THE OTHER STOCK DIALOG BEFORE THE CUSTOM WIZARD. Two [Languages] entries
+; make Setup show its own "Select the language to use during the
+; installation" picker before InitializeWizard ever runs — the same kind of
+; interruption PrivilegesRequiredOverridesAllowed above was removed for.
+; ShowLanguageDialog=no silences it; LanguageDetectionMethod=uilanguage
+; (Inno 6's own default, named explicitly so it is not silently relying on
+; a default that could change) is what still gets German instead of English
+; in front of a German Windows install without asking — matched against
+; the OS's own UI language, not guessed.
+ShowLanguageDialog=no
+LanguageDetectionMethod=uilanguage
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -171,8 +186,8 @@ Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdi
 ; THE WIZARD'S OWN ART, not part of the app. `dontcopy` means these never
 ; land in {app} — they are pulled into Setup's own temp folder on demand by
 ; ExtractTemporaryFile in [Code] and read from there while the wizard runs.
-Source: "assets\card-bg.png"; DestDir: "{tmp}"; Flags: dontcopy
-Source: "assets\logo.png"; DestDir: "{tmp}"; Flags: dontcopy
+Source: "assets\card-bg.bmp"; DestDir: "{tmp}"; Flags: dontcopy
+Source: "assets\logo.bmp"; DestDir: "{tmp}"; Flags: dontcopy
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
@@ -519,12 +534,17 @@ end;
 // is a flat left-to-right lerp rather than a true diagonal.
 // ---------------------------------------------------------------------------
 
-// The card itself: the dark gradient + soft glow baked into card-bg.png at
+// The card itself: the dark gradient + soft glow baked into card-bg.bmp at
 // 2x resolution (see frontend/windows/installer/assets), stretched to the
 // card's logical size so it stays crisp from 100% to 200% display scaling.
-// Its rounded corners are why the WINDOW's own region (set once, in
-// InitializeWizard) uses the same radius — the bitmap's corners and the
-// window's clip have to agree, or the mismatch shows as a seam.
+// BMP, not PNG: TBitmap.LoadFromFile only reads the BMP signature — handed
+// a PNG's bytes it raises "Bitmap image is not valid" (confirmed against
+// the classic Delphi VCL behaviour; TBitmapImage's own PNG support for
+// WizardImageFile does not extend to a script calling Bitmap.LoadFromFile
+// directly). A plain rectangle is enough: the rounded corners are the
+// WINDOW's own region (set once, in InitializeWizard), which clips
+// whatever the bitmap draws in the corners regardless of the bitmap's own
+// shape — nothing here needs to be pre-masked for that to look right.
 function LoadCardBackground(AParent: TWinControl): TBitmapImage;
 var
   Img: TBitmapImage;
@@ -537,7 +557,7 @@ begin
   Img.Top := 0;
   Img.Width := ScaleX(WinW);
   Img.Height := ScaleY(WinH);
-  Img.Bitmap.LoadFromFile(ExpandConstant('{tmp}\card-bg.png'));
+  Img.Bitmap.LoadFromFile(ExpandConstant('{tmp}\card-bg.bmp'));
   Img.SendToBack;
   Result := Img;
 end;
@@ -767,8 +787,14 @@ begin
   LoadCardBackground(Page);
   AddChromeButtons(Page);
 
+  // logo.bmp is pre-composited (see assets/ generation) onto the exact
+  // patch of card-bg it sits over at THIS position — 52x84 logical, top
+  // 56 — so it can be a plain opaque BMP with no runtime transparency at
+  // all. Both pages that show the logo use this same position for
+  // exactly that reason: a different position here would show the wrong
+  // slice of gradient behind it.
   LogoH := ScaleY(84);
-  LogoW := Round(LogoH * (160 / 260));
+  LogoW := ScaleX(52);
   Logo := TBitmapImage.Create(Page);
   Logo.Parent := Page;
   Logo.AutoSize := False;
@@ -777,7 +803,7 @@ begin
   Logo.Height := LogoH;
   Logo.Top := ScaleY(56);
   Logo.Left := (ParentW - LogoW) div 2;
-  Logo.Bitmap.LoadFromFile(ExpandConstant('{tmp}\logo.png'));
+  Logo.Bitmap.LoadFromFile(ExpandConstant('{tmp}\logo.bmp'));
 
   Title := MakeLabel(Page, '{#MyAppName}', ClrTextPrimary, 19, True);
   Title.Top := ScaleY(156);
@@ -869,17 +895,20 @@ begin
   LoadCardBackground(Page);
   AddChromeButtons(Page);
 
+  // Same position as the Welcome page's logo, and for the same reason —
+  // see the comment there. Using a different Top here would show this
+  // page's logo sitting on the wrong slice of the pre-composited gradient.
   LogoH := ScaleY(84);
-  LogoW := Round(LogoH * (160 / 260));
+  LogoW := ScaleX(52);
   Logo := TBitmapImage.Create(Page);
   Logo.Parent := Page;
   Logo.AutoSize := False;
   Logo.Stretch := True;
   Logo.Width := LogoW;
   Logo.Height := LogoH;
-  Logo.Top := ScaleY(64);
+  Logo.Top := ScaleY(56);
   Logo.Left := (ParentW - LogoW) div 2;
-  Logo.Bitmap.LoadFromFile(ExpandConstant('{tmp}\logo.png'));
+  Logo.Bitmap.LoadFromFile(ExpandConstant('{tmp}\logo.bmp'));
 
   BadgeSz := ScaleX(32);
   Badge := TBitmapImage.Create(Page);
@@ -891,21 +920,24 @@ begin
   Badge.Top := Logo.Top + LogoH - Round(BadgeSz * 0.68);
   DrawBadge(Badge);
 
+  // Shifted up 8 from the original 164/196/230/290 to follow the logo's
+  // own 8px move (64 -> 56, see above) — the gaps between them are
+  // unchanged, only the whole group's position within the card is.
   Title := MakeLabel(Page, CustomMessage('InstallerFinishedTitle'), ClrTextPrimary, 17, True);
-  Title.Top := ScaleY(164);
+  Title.Top := ScaleY(156);
   CenterH(Title, ParentW);
 
   Subtitle := MakeLabel(Page, CustomMessage('InstallerFinishedSubtitle'), ClrTextSecondary, 10, False);
-  Subtitle.Top := ScaleY(196);
+  Subtitle.Top := ScaleY(188);
   CenterH(Subtitle, ParentW);
 
   LaunchBtn := MakePillButton(Page, ScaleX(200), ScaleY(46), CustomMessage('InstallerLaunch'));
-  LaunchBtn.Top := ScaleY(230);
+  LaunchBtn.Top := ScaleY(222);
   CenterH(LaunchBtn, ParentW);
   LaunchBtn.OnClick := @LaunchBtnClick;
 
   CloseLink := MakeLabel(Page, CustomMessage('InstallerClose'), ClrTextTertiary, 8, False);
-  CloseLink.Top := ScaleY(290);
+  CloseLink.Top := ScaleY(282);
   CloseLink.Cursor := crHand;
   CenterH(CloseLink, ParentW);
   CloseLink.OnClick := @CloseLinkClick;
@@ -933,8 +965,8 @@ begin
   ClrCardEdge      := MakeColor(23, 21, 27);
   ClrCardApprox    := MakeColor(27, 23, 22);
 
-  ExtractTemporaryFile('card-bg.png');
-  ExtractTemporaryFile('logo.png');
+  ExtractTemporaryFile('card-bg.bmp');
+  ExtractTemporaryFile('logo.bmp');
 
   WizardForm.BorderStyle := bsNone;
   WizardForm.ClientWidth := ScaleX(WinW);
