@@ -28,6 +28,8 @@ import '../doc_ref.dart';
 import '../l10n/l.dart';
 import '../log.dart';
 import '../menus.dart';
+import '../sync/lan_sync.dart';
+import '../sync/sync_store.dart';
 import '../svg_icons.dart';
 import '../icon_preview.dart';
 import '../theme.dart';
@@ -178,15 +180,34 @@ class _HomeViewState extends State<HomeView> {
   String? _lastPayload;
   bool _pushScheduled = false;
 
+  /// M418 — a refresh is running. The button spins and a second press is
+  /// ignored: pressing it again does not make the network faster, and two
+  /// overlapping refreshes would report each other's results.
+  bool _refreshing = false;
+
+  /// The one line under the header: what the last refresh did. Cleared by a
+  /// tap, and by the next refresh.
+  String? _syncNote;
+
   @override
   void initState() {
     super.initState();
     NativeMenu.setSelectionHandler(NativeMenu.kGallery, _onMenuSelection);
+    // Both are what the note reads, so both have to repaint it: forks arrive
+    // on their own, without anyone having pressed anything.
+    LanSync.instance.recentForks.addListener(_onSyncChanged);
+    ShareCodes.current.addListener(_onSyncChanged);
     _schedulePush();
+  }
+
+  void _onSyncChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
+    LanSync.instance.recentForks.removeListener(_onSyncChanged);
+    ShareCodes.current.removeListener(_onSyncChanged);
     // Pushing an empty list REMOVES the interaction from the Flutter view, so
     // leaving the gallery cannot shadow the CAD viewport's own long press.
     NativeMenu.setSelectionHandler(NativeMenu.kGallery, null);
@@ -364,6 +385,97 @@ class _HomeViewState extends State<HomeView> {
     // that drive the "+" still find something to tap.
     return _RoundButton(key: anchor, icon: icon, semanticLabel: label,
         onTap: onTap);
+  }
+
+  Widget _buildGrid(AppState app) => _Grid(
+        app: app,
+        scrollKey: _scrollKey,
+        keyFor: _keyFor,
+        onLayoutChanged: _schedulePush,
+        // On the iPad the UIKit interaction registered by _pushTargets owns
+        // the long press; a second menu on the same card would be two menus
+        // racing for one gesture.
+        onContextMenu: NativeMenu.isSupported ? null : _showCardMenu,
+      );
+
+  /// M418 — SYNC NOW. The button on the desktop and the drag-down on a touch
+  /// screen both land here.
+  ///
+  /// The mirror is continuous, so this is not what makes sharing work — it is
+  /// what makes it ANSWERABLE. "Did it sync?" had no way of being asked, and
+  /// somebody who cannot ask that does not trust the feature, which was most
+  /// of what "the syncing is dangerous" was about.
+  Future<void> _syncNow() async {
+    if (_refreshing) return;
+    setState(() {
+      _refreshing = true;
+      _syncNote = null;
+    });
+    final result = await LanSync.instance.refresh();
+    if (!mounted) return;
+    setState(() {
+      _refreshing = false;
+      _syncNote = _noteFor(result);
+    });
+  }
+
+  /// The one line a refresh leaves behind, in plain words.
+  ///
+  /// Never null for a refresh somebody asked for: a control that appears to do
+  /// nothing is a control people press five times. A divergence outranks a
+  /// count, because "both versions are here" is the sentence worth reading and
+  /// "3 documents updated" is not, when one of the three was that.
+  String? _noteFor(SyncRefreshResult r) {
+    final t = L.of(context);
+    switch (r.outcome) {
+      case SyncRefreshOutcome.off:
+        return null; // the button is not even shown
+      case SyncRefreshOutcome.alone:
+        return t.syncNoDevices;
+      case SyncRefreshOutcome.failed:
+        return t.syncFailedNote;
+      case SyncRefreshOutcome.kept:
+        return r.forks.length == 1
+            ? t.syncKeptBoth(_documentName(r.forks.single.original))
+            : t.syncKeptBothMany(r.forks.length);
+      case SyncRefreshOutcome.updated:
+        return t.syncUpdated(r.documents);
+      case SyncRefreshOutcome.upToDate:
+        return t.syncUpToDate;
+    }
+  }
+
+  /// `Bracket.ptp` -> `Bracket`. The gallery never shows an extension and this
+  /// sentence must not be the one place that does.
+  static String _documentName(String path) {
+    final dot = path.lastIndexOf('.');
+    return dot <= 0 ? path : path.substring(0, dot);
+  }
+
+  /// The note the gallery is currently showing, or null for none.
+  ///
+  /// A divergence that arrived on its own — nobody pressed anything, the other
+  /// device simply saved — outranks the last refresh's result, and stays until
+  /// it is dismissed rather than being replaced by the next thing that
+  /// happens. It is the only message here that is about the user's work.
+  String? _currentNote() {
+    // While it is running, say so. The refresh waits up to three seconds for
+    // the other devices to answer, and three seconds of silence after a press
+    // is the "it does nothing" this whole control exists to avoid.
+    if (_refreshing) return L.of(context).syncChecking;
+    final forks = LanSync.instance.recentForks.value;
+    if (forks.isNotEmpty) {
+      final t = L.of(context);
+      return forks.length == 1
+          ? t.syncKeptBoth(_documentName(forks.single.original))
+          : t.syncKeptBothMany(forks.length);
+    }
+    return _syncNote;
+  }
+
+  void _dismissNote() {
+    LanSync.instance.recentForks.value = const <SyncFork>[];
+    setState(() => _syncNote = null);
   }
 
   /// M261 — Settings. A real UIKit form sheet on the iPad; a Flutter dialog
@@ -723,32 +835,56 @@ class _HomeViewState extends State<HomeView> {
                 label: t.settingsButton,
                 onTap: _showSettings,
               ),
-              _headerButton(
-                anchor: _plusKey,
-                id: 'new',
-                symbol: 'plus',
-                fallbackSymbol: 'plus',
-                icon: Icons.add,
-                label: t.galleryNew2dSketch,
-                onTap: _showNewMenu,
-              ),
+              Row(children: [
+                // M418 — only where there is something to sync WITH. A button
+                // that cannot do anything is worse than no button: it invites
+                // a press and then has to explain itself.
+                if (ShareCodes.current.value != null) ...[
+                  _headerButton(
+                    id: 'sync',
+                    symbol: 'arrow.clockwise',
+                    fallbackSymbol: 'arrow.2.circlepath',
+                    icon: Icons.refresh,
+                    label: t.syncNow,
+                    onTap: _syncNow,
+                  ),
+                  const SizedBox(width: 10),
+                ],
+                _headerButton(
+                  anchor: _plusKey,
+                  id: 'new',
+                  symbol: 'plus',
+                  fallbackSymbol: 'plus',
+                  icon: Icons.add,
+                  label: t.galleryNew2dSketch,
+                  onTap: _showNewMenu,
+                ),
+              ]),
             ],
           ),
         ),
+        // M418/M417 — ONE line, and only when there is something to say.
+        // Everything the mirror has to tell the user goes through here: what
+        // the last refresh did, and — outranking it — a document that was
+        // changed in two places and has been kept twice.
+        if (_currentNote() != null)
+          _SyncNote(
+              text: _currentNote()!,
+              onDismiss: _refreshing ? null : _dismissNote),
         Expanded(
           child: app.saved.isEmpty
               ? const _EmptyState()
-              : _Grid(
-                  app: app,
-                  scrollKey: _scrollKey,
-                  keyFor: _keyFor,
-                  onLayoutChanged: _schedulePush,
-                  // On the iPad the UIKit interaction registered by
-                  // _pushTargets owns the long press; a second menu on the
-                  // same card would be two menus racing for one gesture.
-                  onContextMenu:
-                      NativeMenu.isSupported ? null : _showCardMenu,
-                ),
+              // M418 — DRAG DOWN TO SYNC, which is the whole gesture on a
+              // touch screen and needs no button to explain it. Wrapped
+              // around the grid rather than the whole page so the header's
+              // own buttons keep their hit area, and only where sharing is on
+              // — a drag that cannot do anything should not spin.
+              : ShareCodes.current.value == null
+                  ? _buildGrid(app)
+                  : RefreshIndicator(
+                      onRefresh: _syncNow,
+                      child: _buildGrid(app),
+                    ),
         ),
         ]),
       ]),
@@ -892,6 +1028,47 @@ class _RoundButtonState extends State<_RoundButton> {
               Icon(widget.icon, color: g.text, size: 24),
             ]),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// M418/M417 — the gallery's one sync sentence.
+///
+/// Deliberately a LINE and not a dialog. Everything it can say is either good
+/// news or a fact about a document that is safely on disk; none of it is a
+/// question, and none of it should stop somebody getting to their work. It
+/// dismisses on a tap, because the one thing worse than a message nobody reads
+/// is a message nobody can get rid of.
+class _SyncNote extends StatelessWidget {
+  final String text;
+
+  /// Null while a refresh is running: there is nothing to dismiss yet, and a
+  /// close cross on a progress message invites a press that cannot help.
+  final VoidCallback? onDismiss;
+  const _SyncNote({required this.text, this.onDismiss});
+
+  @override
+  Widget build(BuildContext context) {
+    final g = galleryPalette;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(_kPad, 0, _kPad, 10),
+      child: GestureDetector(
+        onTap: onDismiss,
+        behavior: HitTestBehavior.opaque,
+        child: MouseRegion(
+          cursor: SystemMouseCursors.click,
+          child: Row(children: [
+            Flexible(
+              child: Text(text,
+                  style: ts(12.5, g.cardDate), overflow: TextOverflow.ellipsis),
+            ),
+            if (onDismiss != null) ...[
+              const SizedBox(width: 8),
+              Icon(Icons.close, size: 14, color: g.cardDate),
+            ],
+          ]),
         ),
       ),
     );

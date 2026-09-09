@@ -186,6 +186,51 @@ class AppL10nDe extends AppL10n {
       'Dieses Gerät behält seine Dokumente und sendet und empfängt nichts mehr. Die anderen Geräte bleiben unverändert.';
 
   @override
+  String get syncNow => 'Aktualisieren';
+
+  @override
+  String get syncChecking => 'Wird abgeglichen …';
+
+  @override
+  String get syncUpToDate => 'Alles aktuell';
+
+  @override
+  String syncUpdated(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Dokumente aktualisiert',
+      one: 'Ein Dokument aktualisiert',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get syncNoDevices => 'Keine anderen Geräte gefunden';
+
+  @override
+  String get syncFailedNote =>
+      'Die anderen Geräte sind gerade nicht erreichbar';
+
+  @override
+  String syncKeptBoth(String name) {
+    return '„$name“ wurde auf zwei Geräten geändert. Beide Fassungen sind da.';
+  }
+
+  @override
+  String syncKeptBothMany(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          '$count Dokumente wurden auf zwei Geräten geändert. Beide Fassungen sind da.',
+      one:
+          'Ein Dokument wurde auf zwei Geräten geändert. Beide Fassungen sind da.',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get syncCodeCopied => 'Freigabecode kopiert.';
 
   @override

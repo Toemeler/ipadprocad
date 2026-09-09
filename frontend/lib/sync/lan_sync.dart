@@ -250,6 +250,58 @@ enum SyncVerdict {
   fork,
 }
 
+/// How a "sync now" went, in the terms the person who pressed it thinks in.
+enum SyncRefreshOutcome {
+  /// Sharing is switched off on this device. Nothing was attempted.
+  off,
+
+  /// No other device answered.
+  alone,
+
+  /// Everything already matched.
+  upToDate,
+
+  /// Documents arrived or were replaced.
+  updated,
+
+  /// At least one document had been changed in two places and both copies
+  /// were kept. Outranks [updated]: it is the thing worth reading.
+  kept,
+
+  /// The mirror could not be brought up at all.
+  failed,
+}
+
+/// What a refresh did, for the one line the gallery shows afterwards.
+///
+/// M418 — A REFRESH THAT APPEARS TO DO NOTHING is why people press a button
+/// five times, so this always carries enough to say something true and
+/// specific. "Up to date" is a result; silence is not.
+@immutable
+class SyncRefreshResult {
+  final SyncRefreshOutcome outcome;
+
+  /// Documents that arrived or were replaced. Preferences are not counted —
+  /// nobody presses refresh for a tick box.
+  final int documents;
+
+  /// Divergences resolved during this refresh, if any.
+  final List<SyncFork> forks;
+
+  /// Devices that answered.
+  final int peers;
+
+  final String? detail;
+
+  const SyncRefreshResult(
+    this.outcome, {
+    this.documents = 0,
+    this.forks = const <SyncFork>[],
+    this.peers = 0,
+    this.detail,
+  });
+}
+
 /// The mirror.
 ///
 /// A singleton, like the other cross-cutting services in this app (Log, Perf,
@@ -351,6 +403,14 @@ class LanSync {
   /// tell the user about. Newest last.
   final ValueNotifier<List<SyncFork>> recentForks =
       ValueNotifier<List<SyncFork>>(const <SyncFork>[]);
+
+  /// Paths written by something other than a peer's file message — the second
+  /// copy [_fork] keeps — waiting to be folded into the next [_applied] call
+  /// so the gallery hears about them like anything else that landed.
+  final Set<String> _extraApplied = <String>{};
+
+  /// Non-null while [refresh] is running: what has landed since it started.
+  Set<String>? _refreshApplied;
 
   bool get enabled => _code != null;
   String? get code => _code;
@@ -953,6 +1013,100 @@ class LanSync {
     _publish();
   }
 
+  /// SYNC NOW — everything [resume] does, plus asking every paired device for
+  /// its list and waiting for the answer, and then saying what happened.
+  ///
+  /// M418 — the refresh button, and the drag-down on a touch screen. The
+  /// mirror is continuous, so this is not what makes sync work; it is what
+  /// makes it ANSWERABLE. "Did it sync?" had no way of being asked, and a
+  /// person who cannot ask it does not trust the thing — which is most of what
+  /// "the syncing is dangerous" was about.
+  ///
+  /// The manifest request is a header flag on the message both sides already
+  /// exchange when they pair, not a new message type: a peer too old to
+  /// understand it ignores an unknown key and the refresh degrades to what
+  /// [resume] always did, rather than failing.
+  Future<SyncRefreshResult> refresh(
+      {Duration settle = const Duration(seconds: 3)}) async {
+    if (_code == null) return const SyncRefreshResult(SyncRefreshOutcome.off);
+    final forksBefore = recentForks.value.length;
+    final landed = _refreshApplied = <String>{};
+    try {
+      if (_server == null || (_beacon == null && !_bonjour.running)) {
+        Log.i('sync', 'refresh: the listener is not up — restarting it');
+        final gen = ++_codeGen;
+        await _stop();
+        if (gen != _codeGen) {
+          return const SyncRefreshResult(SyncRefreshOutcome.off);
+        }
+        await _start();
+      }
+      await _refreshInterfaces();
+      _sendBeacon();
+      await _startBonjour();
+      for (final s in _sessions.values) {
+        if (s.live) s.pingNow();
+      }
+      // Ours goes out first: a refresh is as much "take what I have" as it is
+      // "give me what you have", and a peer that hears about our saves in the
+      // same breath answers both in one round trip.
+      _announceChanges();
+      var asked = _requestManifests();
+      if (asked == 0) {
+        // Nobody paired YET. The beacon has just gone out, so give the
+        // handshake the time it needs before concluding this device is alone.
+        await Future<void>.delayed(const Duration(milliseconds: 900));
+        asked = _requestManifests();
+      }
+      if (asked == 0) return const SyncRefreshResult(SyncRefreshOutcome.alone);
+      // Wait for the exchange to go quiet rather than for a fixed time: a
+      // first pair-up can be thirty documents and a routine check is none.
+      final deadline = DateTime.now().add(settle);
+      var seen = landed.length;
+      var quiet = 0;
+      while (DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+        if (landed.length != seen) {
+          seen = landed.length;
+          quiet = 0;
+        } else if (++quiet >= 4) {
+          break; // six hundred milliseconds with nothing arriving
+        }
+      }
+      final forks = recentForks.value.length > forksBefore
+          ? recentForks.value.sublist(forksBefore)
+          : const <SyncFork>[];
+      final docs =
+          landed.where((p) => !p.startsWith(_prefsPrefix)).toSet().length;
+      if (forks.isNotEmpty) {
+        return SyncRefreshResult(SyncRefreshOutcome.kept,
+            documents: docs, forks: forks, peers: asked);
+      }
+      if (docs > 0) {
+        return SyncRefreshResult(SyncRefreshOutcome.updated,
+            documents: docs, peers: asked);
+      }
+      return SyncRefreshResult(SyncRefreshOutcome.upToDate, peers: asked);
+    } catch (e) {
+      Log.w('sync', 'refresh failed: $e');
+      return SyncRefreshResult(SyncRefreshOutcome.failed, detail: '$e');
+    } finally {
+      _refreshApplied = null;
+      _publish();
+    }
+  }
+
+  /// Asks every paired device for its list. Returns how many were asked.
+  int _requestManifests() {
+    var n = 0;
+    for (final s in _sessions.values) {
+      if (!s.live) continue;
+      s.requestManifest();
+      n++;
+    }
+    return n;
+  }
+
   // -------------------------------------------------------------------------
   // The local side
   // -------------------------------------------------------------------------
@@ -1394,6 +1548,10 @@ class LanSync {
       _lastApplied = DateTime.now();
       final fork = SyncFork(remote.path, copyPath, loserOwner);
       recentForks.value = <SyncFork>[...recentForks.value, fork];
+      // The copy is a new document nobody asked for and everybody has to see:
+      // the session only reports the path the peer NAMED, so this one has to
+      // let itself be known.
+      _extraApplied.add(copyPath);
       Log.i(
           'sync',
           '${remote.path} was changed here and on $peerName — '
@@ -1514,7 +1672,12 @@ class LanSync {
   }
 
   void _applied(Set<String> paths) {
+    if (_extraApplied.isNotEmpty) {
+      paths = <String>{...paths, ..._extraApplied};
+      _extraApplied.clear();
+    }
     if (paths.isEmpty) return;
+    _refreshApplied?.addAll(paths);
     _publish();
     try {
       onApplied?.call(paths);
@@ -2056,6 +2219,15 @@ class _SyncSession {
       if (_sync._wants(e)) want.add(e.path);
     }
     if (removed.isNotEmpty) _sync._applied(removed);
+    // Answer a REQUEST with our own list — and without the flag, or the two
+    // devices would answer each other forever.
+    if (f.header['reply'] == true) {
+      _send(SyncFrame({
+        't': SyncMsg.manifest,
+        'files': [for (final e in _sync._scanLocal().values) e.toJson()],
+        'tombs': [for (final t in _sync._tombList) t.toJson()],
+      }));
+    }
     if (want.isEmpty) return;
     Log.i('sync', 'asking $peerName for ${want.join(", ")}');
     _send(SyncFrame({'t': SyncMsg.want, 'paths': want}));
@@ -2082,6 +2254,19 @@ class _SyncSession {
   /// question is whether the connections survived being suspended.
   void pingNow() {
     if (live) _send(SyncFrame({'t': SyncMsg.ping}));
+  }
+
+  /// "Here is my list — send me yours." The `reply` flag is what makes this a
+  /// REQUEST rather than the announcement the same message usually is; a peer
+  /// too old to know the key ignores it, which costs this device the answer
+  /// and nothing else.
+  void requestManifest() {
+    _send(SyncFrame({
+      't': SyncMsg.manifest,
+      'files': [for (final e in _sync._scanLocal().values) e.toJson()],
+      'tombs': [for (final t in _sync._tombList) t.toJson()],
+      'reply': true,
+    }));
   }
 
   void announce(List<SyncEntry> changed, [List<SyncTomb> gone = const []]) {

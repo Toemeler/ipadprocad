@@ -185,6 +185,49 @@ class AppL10nEn extends AppL10n {
       'This device keeps the documents it has and stops sending and receiving. The other devices are not affected.';
 
   @override
+  String get syncNow => 'Sync now';
+
+  @override
+  String get syncChecking => 'Checking…';
+
+  @override
+  String get syncUpToDate => 'Up to date';
+
+  @override
+  String syncUpdated(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count documents updated',
+      one: 'One document updated',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get syncNoDevices => 'No other devices found';
+
+  @override
+  String get syncFailedNote => 'Your other devices aren’t reachable right now';
+
+  @override
+  String syncKeptBoth(String name) {
+    return '“$name” was changed on two devices. Both versions are here.';
+  }
+
+  @override
+  String syncKeptBothMany(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          '$count documents were changed on two devices. Both versions are here.',
+      one: 'One document was changed on two devices. Both versions are here.',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get syncCodeCopied => 'Share code copied.';
 
   @override

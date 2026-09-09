@@ -225,6 +225,53 @@
   "@syncStopBody": {
     "description": "Text der Rückfrage."
   },
+  "syncNow": "Aktualisieren",
+  "@syncNow": {
+    "description": "M418 — der Aktualisieren-Knopf in der Galerie (Desktop) und die Beschriftung der Zieh-zum-Aktualisieren-Geste. Der Abgleich laeuft ohnehin dauernd; das hier ist nicht, was ihn funktionieren laesst, sondern was ihn BEANTWORTBAR macht."
+  },
+  "syncChecking": "Wird abgeglichen …",
+  "@syncChecking": {
+    "description": "M418 — waehrend der Abgleich laeuft. Der Knopf wartet bis zu drei Sekunden auf die anderen Geraete, und drei Sekunden Stille nach einem Tastendruck sind genau das 'es tut scheinbar nichts', wegen dem Leute fuenfmal druecken."
+  },
+  "syncUpToDate": "Alles aktuell",
+  "@syncUpToDate": {
+    "description": "M418 — Ergebniszeile nach dem Aktualisieren, wenn nichts zu tun war. Ein Aktualisieren, das scheinbar nichts tut, ist der Grund, warum Leute fuenfmal draufdruecken: 'nichts' ist ein Ergebnis und muss dastehen."
+  },
+  "syncUpdated": "{count, plural, =1{Ein Dokument aktualisiert} other{{count} Dokumente aktualisiert}}",
+  "@syncUpdated": {
+    "description": "M418 — Ergebniszeile: so viele Dokumente kamen an oder wurden ersetzt. Einstellungen zaehlen nicht mit, dafuer drueckt niemand auf Aktualisieren.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "syncNoDevices": "Keine anderen Geräte gefunden",
+  "@syncNoDevices": {
+    "description": "M418 — Ergebniszeile, wenn niemand geantwortet hat. Bewusst nicht als Fehler formuliert: das andere Gerät ist meistens einfach aus."
+  },
+  "syncFailedNote": "Die anderen Geräte sind gerade nicht erreichbar",
+  "@syncFailedNote": {
+    "description": "M418 — Ergebniszeile, wenn der Abgleich selbst nicht hochkam (kein Netz, Port belegt)."
+  },
+  "syncKeptBoth": "„{name}“ wurde auf zwei Geräten geändert. Beide Fassungen sind da.",
+  "@syncKeptBoth": {
+    "description": "M417 — die Meldung fuer den Fall, den es vorher gar nicht gab: beide Seiten haben geaendert. KEIN Dialog mit 'meine oder deine' — das kann ein Anfaenger an einem Dateinamen und einer Uhrzeit nicht entscheiden, an zwei Vorschaubildern schon. Der Satz sagt nur, was passiert ist; entschieden wird mit dem Loeschen, das man schon kennt.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "syncKeptBothMany": "{count, plural, =1{Ein Dokument wurde auf zwei Geräten geändert. Beide Fassungen sind da.} other{{count} Dokumente wurden auf zwei Geräten geändert. Beide Fassungen sind da.}}",
+  "@syncKeptBothMany": {
+    "description": "M417 — dasselbe fuer mehrere auf einmal, etwa nach dem ersten Verbinden zweier Geraete, die eine Weile getrennt waren.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "syncCodeCopied": "Freigabecode kopiert.",
   "@syncCodeCopied": {
     "description": "Bestätigung nach dem Kopieren."

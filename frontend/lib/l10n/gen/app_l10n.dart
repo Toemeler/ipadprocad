@@ -415,6 +415,54 @@ abstract class AppL10n {
   /// **'Dieses Gerät behält seine Dokumente und sendet und empfängt nichts mehr. Die anderen Geräte bleiben unverändert.'**
   String get syncStopBody;
 
+  /// M418 — der Aktualisieren-Knopf in der Galerie (Desktop) und die Beschriftung der Zieh-zum-Aktualisieren-Geste. Der Abgleich laeuft ohnehin dauernd; das hier ist nicht, was ihn funktionieren laesst, sondern was ihn BEANTWORTBAR macht.
+  ///
+  /// In de, this message translates to:
+  /// **'Aktualisieren'**
+  String get syncNow;
+
+  /// M418 — waehrend der Abgleich laeuft. Der Knopf wartet bis zu drei Sekunden auf die anderen Geraete, und drei Sekunden Stille nach einem Tastendruck sind genau das 'es tut scheinbar nichts', wegen dem Leute fuenfmal druecken.
+  ///
+  /// In de, this message translates to:
+  /// **'Wird abgeglichen …'**
+  String get syncChecking;
+
+  /// M418 — Ergebniszeile nach dem Aktualisieren, wenn nichts zu tun war. Ein Aktualisieren, das scheinbar nichts tut, ist der Grund, warum Leute fuenfmal draufdruecken: 'nichts' ist ein Ergebnis und muss dastehen.
+  ///
+  /// In de, this message translates to:
+  /// **'Alles aktuell'**
+  String get syncUpToDate;
+
+  /// M418 — Ergebniszeile: so viele Dokumente kamen an oder wurden ersetzt. Einstellungen zaehlen nicht mit, dafuer drueckt niemand auf Aktualisieren.
+  ///
+  /// In de, this message translates to:
+  /// **'{count, plural, =1{Ein Dokument aktualisiert} other{{count} Dokumente aktualisiert}}'**
+  String syncUpdated(int count);
+
+  /// M418 — Ergebniszeile, wenn niemand geantwortet hat. Bewusst nicht als Fehler formuliert: das andere Gerät ist meistens einfach aus.
+  ///
+  /// In de, this message translates to:
+  /// **'Keine anderen Geräte gefunden'**
+  String get syncNoDevices;
+
+  /// M418 — Ergebniszeile, wenn der Abgleich selbst nicht hochkam (kein Netz, Port belegt).
+  ///
+  /// In de, this message translates to:
+  /// **'Die anderen Geräte sind gerade nicht erreichbar'**
+  String get syncFailedNote;
+
+  /// M417 — die Meldung fuer den Fall, den es vorher gar nicht gab: beide Seiten haben geaendert. KEIN Dialog mit 'meine oder deine' — das kann ein Anfaenger an einem Dateinamen und einer Uhrzeit nicht entscheiden, an zwei Vorschaubildern schon. Der Satz sagt nur, was passiert ist; entschieden wird mit dem Loeschen, das man schon kennt.
+  ///
+  /// In de, this message translates to:
+  /// **'„{name}“ wurde auf zwei Geräten geändert. Beide Fassungen sind da.'**
+  String syncKeptBoth(String name);
+
+  /// M417 — dasselbe fuer mehrere auf einmal, etwa nach dem ersten Verbinden zweier Geraete, die eine Weile getrennt waren.
+  ///
+  /// In de, this message translates to:
+  /// **'{count, plural, =1{Ein Dokument wurde auf zwei Geräten geändert. Beide Fassungen sind da.} other{{count} Dokumente wurden auf zwei Geräten geändert. Beide Fassungen sind da.}}'**
+  String syncKeptBothMany(int count);
+
   /// Bestätigung nach dem Kopieren.
   ///
   /// In de, this message translates to:
@@ -7057,7 +7105,7 @@ abstract class AppL10n {
   /// **'Menüband ausblenden'**
   String get ribbonHide;
 
-  /// M405
+  /// M405 — derselbe Griff, wenn das Band ausgeblendet ist.
   ///
   /// In de, this message translates to:
   /// **'Menüband einblenden'**
@@ -7069,7 +7117,7 @@ abstract class AppL10n {
   /// **'Echtzeit'**
   String get rendererRealtime;
 
-  /// M404
+  /// M404 — dasselbe, mit dem Namen der Engine, die hier tatsächlich zeichnet: RealityKit auf iOS, Flutter GPU sonst. Produktnamen bleiben stehen.
   ///
   /// In de, this message translates to:
   /// **'Echtzeit ({engine})'**
