@@ -261,11 +261,14 @@ Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=
 ; typing) does not suffer for.
 ;
 ; HOW: the stock WizardForm still exists — its pages, its DirEdit, its
-; RunList, its NextButton — this only hides the stock chrome (MainPanel, the
-; three navigation buttons, every default label) and lays custom, hand-drawn
-; controls over the same page panels, wiring them to the SAME underlying
-; controls (SimulateClick(WizardForm.NextButton), WizardForm.DirEdit.Text,
-; WizardForm.RunList.Checked[0]) rather than reimplementing what Setup
+; RunList, its NextButton — this hides the stock chrome (MainPanel, the
+; three navigation buttons, the classic-style left-hand image, every
+; default label — see HideStockChrome) and lays custom, hand-drawn
+; controls over the same page panels, resized to the full card now that
+; the image is not there to share it with, wiring them to the SAME
+; underlying controls (SimulateClick(WizardForm.NextButton),
+; WizardForm.DirEdit.Text, WizardForm.RunList.Checked[0]) rather than
+; reimplementing what Setup
 ; already does correctly — see SimulateClick's own comment for why it is a
 ; simulated Win32 button click and not literally .Click. ShouldSkipPage
 ; removes every OTHER page from the sequence, so a single Install click
@@ -396,9 +399,23 @@ end;
 // Small drawing/layout helpers shared by every page.
 // ---------------------------------------------------------------------------
 
+// THE BUG THAT MADE EVERY COLOR IN THIS WIZARD SOME SHADE OF RED. R, G and
+// B are Byte — 8 bits — and `shl` on a Byte operand shifts within THAT
+// width before the result widens to Integer: G shl 8 and B shl 16 both
+// shift every one of their bits stright out of an 8-bit value, leaving
+// zero. MakeColor returned R and nothing else, for every call, always —
+// which is a valid TColor (the low byte is red in Windows' BBGGRR order),
+// just one with no green or blue in it whatsoever. Widening to Integer
+// FIRST, then shifting the widened copy, is what makes the shift actually
+// land in the byte position it is meant to.
 function MakeColor(R, G, B: Byte): Integer;
+var
+  Ri, Gi, Bi: Integer;
 begin
-  Result := R or (G shl 8) or (B shl 16);
+  Ri := R;
+  Gi := G;
+  Bi := B;
+  Result := Ri or (Gi shl 8) or (Bi shl 16);
 end;
 
 function LerpInt(A, B: Integer; T: Extended): Integer;
@@ -780,6 +797,10 @@ var
   InstallBtn: TBitmapImage;
 begin
   Page := WizardForm.WelcomeLabel1.Parent;
+  // This panel's own bounds originally left room beside the (now
+  // hidden) WizardBitmapImage — reclaiming its full share of the
+  // card is what lets the background actually reach the left edge.
+  Page.SetBounds(0, 0, WizardForm.ClientWidth, WizardForm.ClientHeight);
   WizardForm.WelcomeLabel1.Visible := False;
   WizardForm.WelcomeLabel2.Visible := False;
   ParentW := ScaleX(WinW);
@@ -845,6 +866,7 @@ var
   StatusLbl, CancelLink: TNewStaticText;
 begin
   Page := WizardForm.ProgressGauge.Parent;
+  Page.SetBounds(0, 0, WizardForm.ClientWidth, WizardForm.ClientHeight);
   WizardForm.ProgressGauge.Visible := False;
   WizardForm.StatusLabel.Visible := False;
   WizardForm.FilenameLabel.Visible := False;
@@ -887,6 +909,7 @@ var
   LaunchBtn: TBitmapImage;
 begin
   Page := WizardForm.FinishedHeadingLabel.Parent;
+  Page.SetBounds(0, 0, WizardForm.ClientWidth, WizardForm.ClientHeight);
   WizardForm.FinishedHeadingLabel.Visible := False;
   WizardForm.FinishedLabel.Visible := False;
   WizardForm.RunList.Visible := False;
@@ -943,6 +966,41 @@ begin
   CloseLink.OnClick := @CloseLinkClick;
 end;
 
+// Called from InitializeWizard AND from CurPageChanged, every time — a
+// ONE-TIME hide here is not enough. Inno's own internal per-page button
+// logic (which runs on every page transition, including the very first
+// display of wpWelcome, before this script's own CurPageChanged below
+// gets a turn) unconditionally sets Next/Back/Cancel .Visible := True
+// again, which is why a real Windows run of an earlier build of this
+// script still showed a live "Next"/"Cancel" bar under the custom card.
+// WizardBitmapImage/WizardBitmapImage2 — the classic-style image down the
+// left edge that WizardStyle=modern still lays out room for — had never
+// been touched at all before now, which is the other half of the same
+// screenshot: a stock box-and-disc graphic occupying real width beside
+// the custom content instead of the custom content filling the card.
+procedure HideStockChrome;
+begin
+  WizardForm.MainPanel.Visible := False;
+  WizardForm.NextButton.Visible := False;
+  WizardForm.BackButton.Visible := False;
+  WizardForm.CancelButton.Visible := False;
+  WizardForm.WizardBitmapImage.Visible := False;
+  WizardForm.WizardBitmapImage2.Visible := False;
+  WizardForm.Bevel.Visible := False;
+  // The stock wizard's page area does not start at (0,0) — it leaves room
+  // above for MainPanel's header, left for the image, and below for the
+  // button row, all now hidden. Stretching it to the full client area is
+  // what makes the custom background actually reach every edge instead of
+  // leaving a stock-colored margin around it.
+  WizardForm.InnerNotebook.SetBounds(0, 0, WizardForm.ClientWidth, WizardForm.ClientHeight);
+end;
+
+procedure CurPageChanged(CurPageID: Integer);
+begin
+  if WizardSilent then Exit;
+  HideStockChrome;
+end;
+
 procedure InitializeWizard();
 var
   Rgn: Longint;
@@ -973,16 +1031,7 @@ begin
   WizardForm.ClientHeight := ScaleY(WinH);
   WizardForm.Position := poScreenCenter;
 
-  WizardForm.MainPanel.Visible := False;
-  WizardForm.NextButton.Visible := False;
-  WizardForm.BackButton.Visible := False;
-  WizardForm.CancelButton.Visible := False;
-  // The stock wizard's page area does not start at (0,0) — it leaves room
-  // above for MainPanel's header and below for the button row, both now
-  // hidden. Stretching it to the full client area is what makes the custom
-  // background actually reach every edge instead of leaving a stock-colored
-  // margin around it.
-  WizardForm.InnerNotebook.SetBounds(0, 0, WizardForm.ClientWidth, WizardForm.ClientHeight);
+  HideStockChrome;
 
   // The window's own shape: a rounded rect matching the background bitmap's
   // baked-in corners (CardRadius, both in the same ScaleX/ScaleY units), so
