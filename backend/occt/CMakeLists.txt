@@ -97,4 +97,12 @@ if(OCCT_SMOKE)
     add_executable(occt_mesh_recon_test tests/mesh_recon_test.cpp)
     target_link_libraries(occt_mesh_recon_test PRIVATE occt_capi
         TKFillet Threads::Threads ${CMAKE_DL_LIBS})
+
+    # M232 — a terminal driver over the same pipeline, for the files that
+    # actually break it. The suite above builds its meshes with OCCT and can
+    # only ever test what OCCT can tessellate; this opens a downloaded one.
+    # Host only.
+    add_executable(occt_mesh_cli tests/mesh_cli.cpp)
+    target_link_libraries(occt_mesh_cli PRIVATE occt_capi
+        Threads::Threads ${CMAKE_DL_LIBS})
 endif()

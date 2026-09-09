@@ -929,6 +929,10 @@ struct PatchData
 {
     std::vector<V3> pts;        /* unique vertices, for the residual */
     std::vector<V3> spos, snrm; /* corner positions + owning triangle normal */
+    /* Scratch for the vertex dedup above — see PatchPoints. Kept here so it
+     * is allocated once per caller instead of once per call. */
+    std::vector<int> seen;
+    int stamp = 0;
 };
 
 /* The surface normal at p, as the gradient of the distance function.
@@ -1551,6 +1555,42 @@ const double kCreaseRatio = 2.0;
  * at a two-degree "crease" that is really its own curvature. */
 const double kMinCreaseAngle = 2.0 * M_PI / 180.0;
 
+/* How far the crease population has to stand clear of the tessellation below
+ * it, as a fraction of its own angle: the EMPTY band between the two, over the
+ * angle at the top of it.
+ *
+ * M422 — the ratio test above compares the sharpest edges of a patch with its
+ * typical ones and asks whether the first is twice the second. Every smooth
+ * surface whose curvature varies answers yes. A 20 mm cable holder — a dome
+ * with a swept groove through it, 17,640 triangles, not one plane or cylinder
+ * anywhere except the base it stands on — has a median bend of 1.7 degrees and
+ * a 98th percentile of 7.9, so the test fired, put the line at 4.3, and cut
+ * 3,836 of the patch's 26,247 edges. That is not a crease. A crease is a
+ * CURVE; 15% of the edges of a surface is the surface. What came out was one
+ * component holding 92% of the mesh and 373 specks around it, at every one of
+ * the four depths the recursion allows, and the model was never seen whole
+ * again: 31 seconds, 755 faces, an open shell.
+ *
+ * What separates a crease from curvature is not how steep it is but whether
+ * anything lies BETWEEN it and the tessellation. Two surfaces meeting at ten
+ * degrees leave the band from the facet angle up to ten degrees empty, because
+ * no edge on either surface bends by anything in it. A dome bends by every
+ * angle from nothing to its tightest and leaves no band empty anywhere —
+ * measured on that model, the widest relative gap above the median is 6.9%,
+ * and this bar is more than four times it.
+ *
+ * The same reasoning, and the same evidence, as FeatureAngleDeg: below the gap
+ * is how finely the mesh was cut up, above it is the part. There it decides
+ * one angle for the whole model from a histogram; here it decides one for a
+ * patch, from the patch's own sorted edges, because a crease inside a smooth
+ * run is by construction shallower than the angle that bounded the run. */
+const double kCreaseGapFraction = 0.30;
+
+/* How many edges have to lie above the gap before it is a crease and not a
+ * handful of bad triangles. A crease that divides a patch runs the width of
+ * it; four is a floor, not a target. */
+const int kCreaseMinEdges = 4;
+
 /* A patch with more creases than this is not a pair of surfaces, it is noise. */
 const int kMaxCreaseDepth = 4;
 
@@ -1562,6 +1602,24 @@ const int kMaxSplitDepth = 6;
  * nothing, and being thorough on a pathological patch at the cost of being
  * slow on every model is not a trade worth making. */
 const int kRansacRounds = 32;   /* surfaces extracted per patch */
+/* How many rounds in a row may find nothing before the search gives up.
+ *
+ * M422 — a round that is refused still costs its 72 proposals, and on a shape
+ * with no analytic surface in it every round is refused: a 17,540-triangle
+ * cable holder spent 63 of its 64 rounds proposing a cone or a torus through
+ * a smooth dome, having it fail the exact-fit bar, barring the seed and trying
+ * again. That is 3.3 s of a 16 s conversion spent proving the same thing over
+ * and over.
+ *
+ * Stopping on the FIRST refusal is wrong and was measured to be wrong — a bad
+ * seed says nothing about the rest of the patch, and stopping there left two
+ * thirds of a real part unexplained (see the reseeding comment below). A RUN
+ * of refusals is different: the seeds are drawn from what is left, so six in a
+ * row means six different places in the remainder had nothing to offer. On the
+ * fixtures that motivated the reseeding — a bracket, a broom holder, a plate
+ * with 28 faces — no run of refusals that long happens before the last real
+ * surface has been taken. */
+const int kRansacBarrenRounds = 6;
 const int kRansacMinPatch = 10; /* below this, growing is fine */
 const int kRansacMinSupport = 6;/* triangles a winner must explain */
 const double kRansacNormalGate = 0.90;
@@ -2026,6 +2084,12 @@ const int kShatterTrianglesPerPatch = 10;
  * five patches for ten triangles and exactly right. */
 const int kShatterFloorTriangles = 200;
 
+/* How many times the face build may be repeated after a patch has been
+ * demoted to triangles. Each round strictly removes surfaces, so it always
+ * settles; three is far more than any model has needed (one on every fixture
+ * measured, two on the cable holder). */
+const int kMaxBuildRounds = 3;
+
 /* Largest fitted radius worth believing, as a multiple of the part's own
  * bounding-box diagonal. */
 const double kMaxRadiusFactor = 4.0;
@@ -2280,8 +2344,20 @@ void PatchPoints(const Mesh &m, const std::vector<int> &tris, PatchData &d,
     d.pts.clear();
     d.spos.clear();
     d.snrm.clear();
-    std::unordered_map<int, char> seen;
-    seen.reserve(tris.size() * 2);
+    /* Which vertices are already in `pts`, as a stamp array rather than a hash
+     * map rebuilt on every call.
+     *
+     * M422 — this function runs once per surface fit, and a conversion makes
+     * thousands of them: 7,300 on a 17,640-triangle cable holder, each
+     * allocating and freeing a hash node per vertex it looks at. The set is
+     * the same set; only its representation changes. The array lives with the
+     * PatchData, so it is allocated once per caller rather than once per
+     * call, and clearing it is an increment. */
+    if (static_cast<int>(d.seen.size()) != m.vertCount()) {
+        d.seen.assign(m.vertCount(), 0);
+        d.stamp = 0;
+    }
+    ++d.stamp;
     /* Fitting a million points buys no accuracy over fitting four thousand of
      * them, and costs a second per patch. Stride, do not truncate: the first
      * four thousand triangles of a patch are one corner of it. */
@@ -2296,8 +2372,10 @@ void PatchPoints(const Mesh &m, const std::vector<int> &tris, PatchData &d,
             const int v = m.tri[t * 3 + k];
             d.spos.push_back(m.pos[v]);
             d.snrm.push_back(m.tnorm[t]);
-            if (seen.emplace(v, 1).second)
+            if (d.seen[v] != d.stamp) {
+                d.seen[v] = d.stamp;
                 d.pts.push_back(m.pos[v]);
+            }
         }
     }
 }
@@ -2852,11 +2930,37 @@ bool SplitAtCrease(const Mesh &m, const std::vector<int> &tris, int minTris,
     if (hi < kCreaseRatio * std::max(step, 1e-4))
         return false;
 
-    /* Cut between the two: above every ordinary curvature step, below the
-     * crease. The geometric mean puts it there on any tessellation. */
-    double thr = std::sqrt(std::max(step, 1e-6) * hi);
-    thr = std::max(thr, 1.5 * step);
-    thr = std::min(thr, 0.8 * hi);
+    /* Cut in the EMPTY BAND between the tessellation and the crease — and only
+     * if there is one. See kCreaseGapFraction: the two tests above ask how
+     * steep the sharpest edges are, and every curved surface whose curvature
+     * varies passes them. What no curved surface does is leave a band of
+     * angles that nothing in it bends by.
+     *
+     * Searched upwards from the median, and the FIRST sufficient gap wins
+     * rather than the widest: everything below the lowest gap is tessellation
+     * by construction, and a wider gap higher up would leave a real feature —
+     * the shallower of two creases in the same patch — on the tessellation's
+     * side of the line. */
+    const size_t nAng = ang.size();
+    double thr = 0;
+    for (size_t i = nAng / 2; i + 1 < nAng; ++i) {
+        if (nAng - 1 - i < static_cast<size_t>(kCreaseMinEdges))
+            break;
+        const double below = ang[i], above = ang[i + 1];
+        if (above < kMinCreaseAngle)
+            continue;
+        if (above - below < above * kCreaseGapFraction)
+            continue;
+        thr = 0.5 * (below + above);
+        break;
+    }
+    if (thr <= 0)
+        return false;
+    /* Never below the tessellation it is meant to sit above, and never so high
+     * that it cuts nothing: the gap is empty, so anywhere inside it separates
+     * the same two populations. */
+    thr = std::max(thr, std::max(kMinCreaseAngle, 1.5 * step));
+    thr = std::min(thr, ang[nAng - kCreaseMinEdges]);
     const double cosThr = std::cos(thr);
 
     std::vector<int> comp(tris.size(), -1);
@@ -3184,9 +3288,32 @@ void SplitByRansac(const Mesh &m, const std::vector<int> &tris, double tol,
         leftover = tris;
         return;
     }
-    std::unordered_map<int, int> local;
+    /* Triangle id -> index within this patch, and the two visited-sets the
+     * flood fills use, as arrays rather than hash maps.
+     *
+     * M422 — the seed grow and the support flood each built an
+     * unordered_map per TRIAL, and there are 72 trials in each of up to 32
+     * rounds. On a 17,540-triangle smooth run that is a few million node
+     * allocations for sets that are cleared immediately afterwards, and it
+     * was 5.0 s of a 18 s conversion. A stamp array is the same set with the
+     * same semantics: an entry belongs when its stamp matches the current
+     * trial, so clearing is an increment. Nothing about which triangles are
+     * visited changes. */
+    std::vector<int> local(m.triCount(), -1);
     for (int i = 0; i < n; ++i)
-        local.emplace(tris[i], i);
+        local[tris[i]] = i;
+    struct LocalGuard
+    {
+        std::vector<int> &v;
+        const std::vector<int> &t;
+        ~LocalGuard()
+        {
+            for (int x : t)
+                v[x] = -1;
+        }
+    } localGuard{local, tris};
+    std::vector<int> seenSeed(n, 0), seenFlood(n, 0);
+    int seedStamp = 0, floodStamp = 0;
     const size_t before = out.size();
     std::vector<char> taken(n, 0);
     std::vector<char> barred(n, 0); /* seeds that led nowhere */
@@ -3205,6 +3332,7 @@ void SplitByRansac(const Mesh &m, const std::vector<int> &tris, double tol,
     Fit bestFit;
     double bestRms = 1e300;
     int bestStart = -1;
+    int barren = 0; /* rounds since the last surface was accepted */
     const int trials = kRansacLadderSteps * kRansacTrialsPerSize;
     std::vector<int> pool;
     for (int round = 0; round < kRansacRounds && remaining >= minTris; ++round) {
@@ -3236,8 +3364,8 @@ void SplitByRansac(const Mesh &m, const std::vector<int> &tris, double tol,
                 continue;
             seedRegion.clear();
             stack.assign(1, start);
-            std::unordered_map<int, char> inSeed;
-            inSeed.emplace(tris[start], 1);
+            ++seedStamp;
+            seenSeed[start] = seedStamp;
             while (!stack.empty() && (int)seedRegion.size() < want) {
                 const int i = stack.back();
                 stack.pop_back();
@@ -3246,13 +3374,13 @@ void SplitByRansac(const Mesh &m, const std::vector<int> &tris, double tol,
                     const int o = m.adj[tris[i] * 3 + k];
                     if (o < 0)
                         continue;
-                    auto it = local.find(o);
-                    if (it == local.end() || taken[it->second])
+                    const int li = local[o];
+                    if (li < 0 || taken[li])
                         continue;
-                    if (inSeed.find(o) != inSeed.end())
+                    if (seenSeed[li] == seedStamp)
                         continue;
-                    inSeed.emplace(o, 1);
-                    stack.push_back(it->second);
+                    seenSeed[li] = seedStamp;
+                    stack.push_back(li);
                 }
             }
             if ((int)seedRegion.size() < 4)
@@ -3268,9 +3396,9 @@ void SplitByRansac(const Mesh &m, const std::vector<int> &tris, double tol,
             inliers.clear();
             double ss = 0;
             int sn2 = 0;
-            std::unordered_map<int, char> mark;
+            ++floodStamp;
             stack.assign(1, start);
-            mark.emplace(tris[start], 1);
+            seenFlood[start] = floodStamp;
             while (!stack.empty()) {
                 const int i = stack.back();
                 stack.pop_back();
@@ -3312,13 +3440,13 @@ void SplitByRansac(const Mesh &m, const std::vector<int> &tris, double tol,
                     const int o = m.adj[t * 3 + k];
                     if (o < 0)
                         continue;
-                    auto it = local.find(o);
-                    if (it == local.end() || taken[it->second])
+                    const int li = local[o];
+                    if (li < 0 || taken[li])
                         continue;
-                    if (mark.find(o) != mark.end())
+                    if (seenFlood[li] == floodStamp)
                         continue;
-                    mark.emplace(o, 1);
-                    stack.push_back(it->second);
+                    seenFlood[li] = floodStamp;
+                    stack.push_back(li);
                 }
             }
             const double candRms = sn2 ? std::sqrt(ss / sn2) : 1e300;
@@ -3398,9 +3526,9 @@ void SplitByRansac(const Mesh &m, const std::vector<int> &tris, double tol,
              * triangles. */
             const double tight = std::max(scale * kMeshPrecisionFrac, 1e-9);
             std::vector<int> tightened;
-            std::unordered_map<int, char> mark2;
+            ++floodStamp;
             stack.assign(1, bestStart);
-            mark2.emplace(tris[bestStart], 1);
+            seenFlood[bestStart] = floodStamp;
             while (!stack.empty()) {
                 const int i = stack.back();
                 stack.pop_back();
@@ -3417,13 +3545,13 @@ void SplitByRansac(const Mesh &m, const std::vector<int> &tris, double tol,
                     const int o = m.adj[t * 3 + k];
                     if (o < 0)
                         continue;
-                    auto it = local.find(o);
-                    if (it == local.end() || taken[it->second])
+                    const int li = local[o];
+                    if (li < 0 || taken[li])
                         continue;
-                    if (mark2.find(o) != mark2.end())
+                    if (seenFlood[li] == floodStamp)
                         continue;
-                    mark2.emplace(o, 1);
-                    stack.push_back(it->second);
+                    seenFlood[li] = floodStamp;
+                    stack.push_back(li);
                 }
             }
             if ((int)tightened.size() >= std::max(minTris, kRansacMinSupport))
@@ -3506,6 +3634,11 @@ void SplitByRansac(const Mesh &m, const std::vector<int> &tris, double tol,
                 }
             if (!anyNew)
                 break;
+            if (++barren >= kRansacBarrenRounds) {
+                MR_TRACE("        -> %d rounds in a row found nothing, stop\n",
+                         barren);
+                break;
+            }
             continue;
         }
         MR_TRACE("        -> KEEP %s %d tri rms %.6f q=[%.3f %.3f %.3f | "
@@ -3515,6 +3648,7 @@ void SplitByRansac(const Mesh &m, const std::vector<int> &tris, double tol,
                  pa.fit.q[4], pa.fit.q[5], pa.fit.q[6], pa.fit.q[7]);
         out.push_back(pa);
         Retire(out); /* a whole extraction can be seconds; tick per surface */
+        barren = 0;
         for (int i : best) {
             taken[i] = 1;
             remaining--;
@@ -3538,9 +3672,8 @@ void SplitByRansac(const Mesh &m, const std::vector<int> &tris, double tol,
         std::vector<int> owner(n, -1);
         for (size_t p = before; p < out.size(); ++p)
             for (int t : out[p].tris) {
-                auto it = local.find(t);
-                if (it != local.end())
-                    owner[it->second] = static_cast<int>(p);
+                if (local[t] >= 0)
+                    owner[local[t]] = static_cast<int>(p);
             }
         bool moved = true;
         while (moved) {
@@ -3554,10 +3687,10 @@ void SplitByRansac(const Mesh &m, const std::vector<int> &tris, double tol,
                     const int o = m.adj[t * 3 + k];
                     if (o < 0)
                         continue;
-                    auto it = local.find(o);
-                    if (it == local.end() || owner[it->second] < 0)
+                    const int li = local[o];
+                    if (li < 0 || owner[li] < 0)
                         continue;
-                    const Fit &f = out[owner[it->second]].fit;
+                    const Fit &f = out[owner[li]].fit;
                     bool ok = true;
                     for (int v = 0; v < 3 && ok; ++v)
                         if (std::fabs(SurfDist(f.kind, f.q,
@@ -3579,7 +3712,7 @@ void SplitByRansac(const Mesh &m, const std::vector<int> &tris, double tol,
                             ok = false;
                     }
                     if (ok)
-                        into = owner[it->second];
+                        into = owner[li];
                 }
                 if (into >= 0) {
                     out[into].tris.push_back(t);
@@ -4117,6 +4250,41 @@ void MergeRegions(const Mesh &m, std::vector<Patch> &patches, double tol,
                   const std::unordered_set<int> &skipOrigins)
 {
     PatchData pd;
+    /* Pairs already asked and refused, so that a later pass does not ask
+     * again.
+     *
+     * M422 — the passes exist because a merge makes new neighbours, not
+     * because the same two patches might answer differently the second time:
+     * FitPatch is a function of the triangles, and neither patch has changed.
+     * Measured on a 17,640-triangle cable holder, which is nearly all one
+     * smooth run and therefore nearly all adjacent pairs: 1,969 fits, of which
+     * 1,308 were a question already answered — 13.5 s of the 26 s the whole
+     * conversion took.
+     *
+     * A patch is identified by its LOWEST triangle, which is unique because
+     * patches are disjoint, together with its size, which is what changes when
+     * it absorbs another. The two together move if and only if the patch's
+     * triangles do, so a memo entry can never survive the patch it was about.
+     * Nothing here changes which merges happen; only how many times each is
+     * considered. */
+    struct Fingerprint
+    {
+        int lowest;
+        int count;
+    };
+    auto fingerprint = [](const Patch &p) {
+        Fingerprint f;
+        f.lowest = p.tris.empty() ? -1 : *std::min_element(p.tris.begin(),
+                                                           p.tris.end());
+        f.count = static_cast<int>(p.tris.size());
+        return f;
+    };
+    std::set<std::pair<long long, long long>> refused;
+    auto keyOf = [](const Fingerprint &x, const Fingerprint &y) {
+        const long long a = static_cast<long long>(x.lowest) * 1000003 + x.count;
+        const long long b = static_cast<long long>(y.lowest) * 1000003 + y.count;
+        return std::make_pair(std::min(a, b), std::max(a, b));
+    };
     for (int pass = 0; pass < maxPasses; ++pass) {
         const int n = static_cast<int>(patches.size());
         if (n < 2)
@@ -4197,6 +4365,10 @@ void MergeRegions(const Mesh &m, std::vector<Patch> &patches, double tol,
              * fails. */
             if (skipOrigins.find(patches[a].origin) != skipOrigins.end())
                 continue;
+            const std::pair<long long, long long> key =
+                keyOf(fingerprint(patches[a]), fingerprint(patches[b]));
+            if (refused.find(key) != refused.end())
+                continue;
             uni.clear();
             uni.reserve(patches[a].tris.size() + patches[b].tris.size());
             uni.insert(uni.end(), patches[a].tris.begin(),
@@ -4212,8 +4384,10 @@ void MergeRegions(const Mesh &m, std::vector<Patch> &patches, double tol,
                      KindName(patches[b].fit.kind),
                      (int)patches[b].tris.size(), KindName(f.kind), f.rms,
                      f.agree, tol);
-            if (f.kind == kNone || f.rms > tol)
+            if (f.kind == kNone || f.rms > tol) {
+                refused.insert(key);
                 continue;
+            }
             /* Merging is never obligatory, so it should only happen on strong
              * evidence. The residual alone is not strong: a side face and the
              * first facets of the blend leaving it are fitted to within
@@ -4234,8 +4408,10 @@ void MergeRegions(const Mesh &m, std::vector<Patch> &patches, double tol,
              * agree better than that; the surface underneath them is still the
              * torus. The facet test below is what keeps this honest. */
             const bool mergedExact = f.rms <= tol * kExactFitFraction;
-            if (!mergedExact && f.agree < kMergeNormalGate)
+            if (!mergedExact && f.agree < kMergeNormalGate) {
+                refused.insert(key);
                 continue;
+            }
             /* Merging two surfaces that were each already RECOGNISED must not
              * make the fit worse than either of them was.
              *
@@ -4266,14 +4442,18 @@ void MergeRegions(const Mesh &m, std::vector<Patch> &patches, double tol,
                         std::max(bar, tol))
                         bulges = true;
                 }
-                if (bulges)
+                if (bulges) {
+                    refused.insert(key);
                     continue;
+                }
             }
             if (patches[a].fit.kind != kNone && patches[b].fit.kind != kNone) {
                 const double worse =
                     std::max(patches[a].fit.rms, patches[b].fit.rms);
-                if (f.rms > std::max(worse, tol * kExactFitFraction))
+                if (f.rms > std::max(worse, tol * kExactFitFraction)) {
+                    refused.insert(key);
                     continue;
+                }
             }
             patches[a].tris.swap(uni);
             patches[a].fit = f;
@@ -4866,77 +5046,193 @@ struct Chain
     bool closed = false;
 };
 
+/* Vertices where SOME patch's boundary passes more than once.
+ *
+ * A boundary vertex normally has exactly two boundary edges of the patch it
+ * bounds — one in, one out. A vertex with more is a PINCH: the patch touches
+ * itself there, and its boundary walk arrives in one sector and must leave by
+ * the same sector, while the patch on the other side of the seam walks
+ * straight through. The two then disagree about where a run of shared edges
+ * begins and ends, and disagreeing about that means building the seam twice,
+ * as two curves a millimetre apart that sewing has to reconcile by distance.
+ *
+ * M422 — measured on a cable holder: its spherical shell pinches in several
+ * places, and one twenty-eight-edge seam came out as six chains from the
+ * shell's side and one from its neighbour's. Cutting EVERY chain at EVERY
+ * pinch, whichever patch pinches there, makes the two decompositions
+ * identical by construction — both sides stop at the same vertices — at the
+ * cost of a few extra edges on a shell that has such a vertex at all.
+ *
+ * Computed from the whole mesh rather than from `self`, because a pinch that
+ * only the neighbour has still has to be cut on both sides. */
+void BoundaryPinchVertices(const Mesh &m, const std::vector<int> &patchOf,
+                           std::unordered_set<int> &out)
+{
+    out.clear();
+    const long long nv = m.vertCount();
+    std::unordered_map<long long, int> at; /* (patch, vertex) -> boundary edges */
+    at.reserve(m.triCount());
+    for (int t = 0; t < m.triCount(); ++t) {
+        const int p = patchOf[t];
+        if (p < 0)
+            continue;
+        for (int k = 0; k < 3; ++k) {
+            const int o = m.adj[t * 3 + k];
+            if (o >= 0 && patchOf[o] == p)
+                continue;
+            for (int e = 0; e < 2; ++e) {
+                const int v = m.tri[t * 3 + (k + e) % 3];
+                const long long key = static_cast<long long>(p) * nv + v;
+                if (++at[key] > 2)
+                    out.insert(v);
+            }
+        }
+    }
+}
+
 /* Walks a patch's boundary into oriented loops, then cuts each loop into
- * chains at the points where the neighbouring patch changes. */
+ * chains at the points where the neighbouring patch changes — and at every
+ * pinch, so that the patch on the other side cuts in the same places. */
 void PatchChains(const Mesh &m, const std::vector<int> &tris,
                  const std::vector<int> &patchOf, int self,
                  std::vector<std::vector<Chain>> &loops)
 {
+    std::unordered_set<int> pinch;
+    BoundaryPinchVertices(m, patchOf, pinch);
     /* Directed boundary edges, in the winding of the owning triangle, so the
      * loop already runs anticlockwise about the patch's own normal. */
+    /* Every boundary edge as (triangle, edge index), which is what the walk
+     * needs: at a vertex the patch touches TWICE, the vertex alone does not
+     * say which way the boundary goes, and the triangle fan does.
+     *
+     * M422 — this used to be a list of outgoing edges per vertex, taken in the
+     * order they happened to be recorded. At a pinch that picks a turn at
+     * random, and a wrong turn does not merely reorder the loops: it cuts the
+     * boundary between two patches into a different set of runs on each side.
+     * Measured on a cable holder whose spherical shell has fifteen boundary
+     * loops: the shell described its seam with one neighbour as five chains,
+     * the neighbour described the same twenty-eight edges as one, and the two
+     * faces then carried two different curves along one seam — which sewing
+     * has to reconcile by distance and, eight times out of the model's 344
+     * edges, could not. The shell came back open.
+     *
+     * Rotating through the fan is the standard answer and the only one that is
+     * a property of the SURFACE rather than of the order things were stored
+     * in: leaving b by the boundary edge (a->b) of triangle t, the next
+     * boundary edge is found by pivoting round b inside the patch until the
+     * patch ends. Both sides of a seam then cut it in the same places. */
     struct BE
     {
-        int b;
-        int other;
+        int tri;
+        int k; /* the edge tri[k] -> tri[(k+1)%3] */
     };
-    std::unordered_map<int, std::vector<BE>> outgoing;
-    size_t total = 0;
+    std::unordered_map<long long, size_t> slotOf; /* (tri,k) -> index */
+    std::vector<BE> bedges;
+    std::vector<int> bother;
     for (int t : tris) {
         for (int k = 0; k < 3; ++k) {
             const int o = m.adj[t * 3 + k];
             const int op = (o < 0) ? -1 : patchOf[o];
             if (op == self)
                 continue;
-            const int a = m.tri[t * 3 + k], b = m.tri[t * 3 + (k + 1) % 3];
             BE e;
-            e.b = b;
-            e.other = op;
-            outgoing[a].push_back(e);
-            total++;
+            e.tri = t;
+            e.k = k;
+            slotOf.emplace(static_cast<long long>(t) * 3 + k, bedges.size());
+            bedges.push_back(e);
+            bother.push_back(op);
         }
     }
+    const size_t total = bedges.size();
     if (total == 0)
         return;
 
-    std::unordered_map<int, size_t> cursor;
+    /* The boundary edge that leaves `b` next, given that we arrived along
+     * edge `k` of triangle `t`. Pivots round b through the patch's own
+     * triangles; -1 when the fan is broken, which a manifold mesh's is not. */
+    auto nextSlot = [&](int t, int k) -> long long {
+        int cur = t, kk = (k + 1) % 3; /* the other edge of `cur` at b */
+        for (int guard = 0; guard < 4096; ++guard) {
+            const int o = m.adj[cur * 3 + kk];
+            if (o < 0 || patchOf[o] != self)
+                return static_cast<long long>(cur) * 3 + kk;
+            /* Step into the neighbour and find b's other edge there. */
+            const int b = m.tri[cur * 3 + kk];
+            int kn = -1;
+            for (int j = 0; j < 3; ++j)
+                if (m.tri[o * 3 + j] == b) {
+                    kn = j;
+                    break;
+                }
+            if (kn < 0)
+                return -1;
+            cur = o;
+            kk = kn;
+        }
+        return -1;
+    };
+
+    std::vector<char> used(total, 0);
     size_t consumed = 0;
     while (consumed < total) {
-        /* Start at the LOWEST-numbered vertex with an unused outgoing edge.
-         * Not "any": an unordered_map's order is its implementation's, and the
-         * two the app is built with do not agree. See "Ties decide the
-         * model". */
-        int start = -1;
-        for (std::unordered_map<int, std::vector<BE>>::iterator it =
-                 outgoing.begin();
-             it != outgoing.end(); ++it) {
-            if (cursor[it->first] < it->second.size() &&
-                (start < 0 || it->first < start))
-                start = it->first;
+        /* Start at the LOWEST-numbered unused boundary edge, by the vertex it
+         * leaves and then by the triangle: an unordered_map's order is its
+         * implementation's, and the two the app is built with do not agree.
+         * See "Ties decide the model". */
+        size_t startSlot = total;
+        {
+            long long best = -1;
+            for (size_t i = 0; i < total; ++i) {
+                if (used[i])
+                    continue;
+                const long long score =
+                    static_cast<long long>(m.tri[bedges[i].tri * 3 +
+                                                 bedges[i].k]) *
+                        (static_cast<long long>(m.triCount()) * 3 + 3) +
+                    static_cast<long long>(bedges[i].tri) * 3 + bedges[i].k;
+                if (best < 0 || score < best) {
+                    best = score;
+                    startSlot = i;
+                }
+            }
         }
-        if (start < 0)
+        if (startSlot >= total)
             break;
 
         std::vector<int> loopVerts;
         std::vector<int> loopOther;
+        const int start = m.tri[bedges[startSlot].tri * 3 + bedges[startSlot].k];
+        size_t at = startSlot;
         int v = start;
+        bool closedLoop = false;
         while (true) {
-            auto it = outgoing.find(v);
-            if (it == outgoing.end())
+            if (used[at]) {
+                /* Back where it began. Closed on the EDGE, not on the vertex:
+                 * a boundary that passes through one vertex twice — which is
+                 * every patch that pinches, and the spherical shell of the
+                 * cable holder pinches in five places — comes back to the
+                 * starting vertex halfway round, and a walk that stopped there
+                 * left the other half to be picked up later as a fragment.
+                 * Six fragments where the neighbour saw one rim. */
+                closedLoop = (at == startSlot);
                 break;
-            size_t &c = cursor[v];
-            if (c >= it->second.size())
-                break;
-            const BE e = it->second[c++];
+            }
+            used[at] = 1;
             consumed++;
             loopVerts.push_back(v);
-            loopOther.push_back(e.other);
-            v = e.b;
-            if (v == start)
+            loopOther.push_back(bother[at]);
+            const BE e = bedges[at];
+            v = m.tri[e.tri * 3 + (e.k + 1) % 3];
+            const long long nxt = nextSlot(e.tri, e.k);
+            if (nxt < 0)
                 break;
+            auto sit = slotOf.find(nxt);
+            if (sit == slotOf.end())
+                break;
+            at = sit->second;
         }
         if (loopVerts.size() < 2)
             continue;
-        const bool closedLoop = (v == start);
 
         /* Cut into chains where `other` changes. Rotate a closed loop so it
          * starts at a change, or the first and last chain would be two halves
@@ -4946,7 +5242,8 @@ void PatchChains(const Mesh &m, const std::vector<int> &tris,
         if (closedLoop) {
             size_t k = 0;
             for (; k < n; ++k) {
-                if (loopOther[k] != loopOther[(k + n - 1) % n])
+                if (loopOther[k] != loopOther[(k + n - 1) % n] ||
+                    pinch.count(loopVerts[k]))
                     break;
             }
             begin =
@@ -4967,7 +5264,7 @@ void PatchChains(const Mesh &m, const std::vector<int> &tris,
             cur.verts.push_back(vertex);
             if (i == n)
                 break;
-            if (nextOther != cur.other) {
+            if (nextOther != cur.other || pinch.count(vertex)) {
                 chains.push_back(cur);
                 cur = Chain();
                 cur.other = nextOther;
@@ -7766,8 +8063,14 @@ void FreeformSurfaces(const Mesh &m, std::vector<Patch> &patches, double tol,
  * A patch with NO boundary at all — a whole sphere, a whole torus — is left
  * alone: there is no wire to be had there under any cut, and having no
  * neighbours it has nothing to disagree with either. */
+/* Defined with the face builder, which is the other place that has to know a
+ * rim from an opening; declared here because the split has to happen first. */
+bool LoopWrapsPeriod(const Handle(Geom_Surface) & surf, const Mesh &m,
+                     const std::vector<Chain> &chains, bool inU);
+
 void SplitFullWraps(const Mesh &m, std::vector<Patch> &patches,
-                    std::vector<int> &patchOf, int &splitCount)
+                    std::vector<int> &patchOf, int &splitCount,
+                    bool onlyOpenings = false)
 {
     const size_t n0 = patches.size();
     std::vector<int> local(m.triCount(), -1);
@@ -7842,21 +8145,48 @@ void SplitFullWraps(const Mesh &m, std::vector<Patch> &patches,
          * chains its neighbours share. Two half-barrels are a perfectly good
          * B-Rep — most kernels write a drilled hole exactly that way. */
         bool rimsAreWhole = true;
+        bool hasOpening = false;
         {
             std::vector<std::vector<Chain>> loops;
             PatchChains(m, patches[i].tris, patchOf, static_cast<int>(i),
                         loops);
             for (const std::vector<Chain> &cs : loops) {
                 if (cs.size() != 1 ||
-                    cs[0].verts.front() != cs[0].verts.back()) {
+                    cs[0].verts.front() != cs[0].verts.back())
                     rimsAreWhole = false;
-                    break;
-                }
+                /* A loop that does NOT run the whole way round the periodic
+                 * direction is an OPENING cut through the middle of the patch
+                 * — a hole drilled through a barrel, the mouth of a slot
+                 * through a dome — and it is the one thing the parametric
+                 * rescue cannot express.
+                 *
+                 * M422 — the rescue trims the patch to the surface's own
+                 * rectangle, whose boundary is its two rims and nothing else,
+                 * so every such opening is simply covered over: a hemisphere
+                 * with a tunnel through it came back as the whole hemisphere,
+                 * a valid face enclosing the tunnel as solid material. And
+                 * refusing the rescue is not the answer either, because a rim
+                 * that wraps cannot be a wire at all — in the surface's own
+                 * parameters it is a straight line at v = 0, not a loop round
+                 * an area, and MakeFace has nothing to bound.
+                 *
+                 * So cut the patch instead. Halved, it no longer wraps, both
+                 * halves are ordinary trimmed faces, and the openings become
+                 * the inner wires they always were. */
+                if (!LoopWrapsPeriod(surf, m, cs, inU))
+                    hasOpening = true;
             }
             MR_TRACE("  patch %3d full wrap: %d loops ->%s\n", (int)i,
-                     (int)loops.size(), rimsAreWhole ? " share" : " SPLIT");
+                     (int)loops.size(),
+                     (rimsAreWhole && !hasOpening) ? " share" : " SPLIT");
         }
-        if (rimsAreWhole)
+        if (rimsAreWhole && !hasOpening)
+            continue;
+        /* The pre-pass before the first assembly only takes the patches the
+         * parametric rescue would RUIN; everything else keeps the cheaper
+         * whole-patch attempt it has always had, and is cut only if that
+         * attempt fails to close. */
+        if (onlyOpenings && !hasOpening)
             continue;
 
         Standard_Real nu1, nu2, nv1, nv2;
@@ -7987,6 +8317,117 @@ bool BuildParametricFace(BuildCtx &ctx, const Mesh &m, const Patch &patch,
     }
 }
 
+/* Is the face on the same side of its own boundary as the triangles are?
+ *
+ * A closed wire on a periodic surface bounds two regions, not one: the circle
+ * round the equator of a sphere bounds the northern cap and equally the
+ * southern one plus everything else, and BRepBuilderAPI_MakeFace picks by the
+ * surface's own parametrisation rather than by the mesh. The comment two
+ * screens down has said so since the blend ring round a boss came back as
+ * three quarters of its tube — but nothing acted on it, and the same thing
+ * happens whenever a rim wraps: a dome sliced off a sphere and drilled through
+ * came back as three quarters of the whole ball, area 942 where the cap is
+ * 628, a valid face that BRepCheck is perfectly happy with and every area
+ * screen lets through.
+ *
+ * The mesh settles it. Its triangles lie ON the region the face is meant to
+ * be, so classifying a sample of them against the trimmed face answers the
+ * question directly: they are IN the face that is right and OUT of its
+ * complement. Sampled rather than exhaustive — a wrong side is wrong
+ * everywhere, so thirty-two witnesses are as good as thirty thousand.
+ *
+ * True when it cannot tell (a freeform surface has no elementary parameters,
+ * and no seam to be on the wrong side of either). */
+bool FaceHoldsPatch(const TopoDS_Face &face, const Mesh &m,
+                    const std::vector<int> &tris,
+                    const Handle(Geom_Surface) & surf)
+{
+    if (tris.empty() || face.IsNull())
+        return true;
+    try {
+        BRepTopAdaptor_FClass2d cls(face, Precision::PConfusion());
+        const size_t step = std::max<size_t>(1, tris.size() / 32);
+        int in = 0, tested = 0;
+        for (size_t i = 0; i < tris.size(); i += step) {
+            V3 c;
+            for (int k = 0; k < 3; ++k)
+                c += m.pos[m.tri[tris[i] * 3 + k]];
+            c = c * (1.0 / 3.0);
+            double u = 0, v = 0;
+            if (!ElementaryUv(surf, P(c), u, v))
+                return true; /* not an elementary surface: no verdict */
+            ++tested;
+            if (cls.Perform(gp_Pnt2d(u, v)) != TopAbs_OUT)
+                ++in;
+        }
+        return tested == 0 || in * 2 > tested;
+    } catch (const Standard_Failure &) {
+        return true;
+    }
+}
+
+/* Does this boundary loop go the whole way ROUND the periodic direction?
+ *
+ * The rims of a parameter rectangle do — the two circles at the ends of a
+ * barrel, the bottom edge of a spherical cap. An opening cut through the
+ * middle of the patch does not, and that is the difference between a
+ * parametric face that is right and one that covers a feature over.
+ *
+ * Summed as a WINDING, each step taken to the nearer image of the period,
+ * because a rim crosses the parametric seam and its raw parameters jump a
+ * whole period there. A rim comes back at one period, anything contractible
+ * at nothing. Sampled, not walked vertex by vertex: a dozen points round a
+ * circle already have steps far inside half a period, and projecting every
+ * vertex of a rim onto its surface is the expensive part.
+ *
+ * Answers NO when it cannot measure. A wire built from the mesh's own edges
+ * is the safe path; the parametric rectangle is the one that has to earn it. */
+bool LoopWrapsPeriod(const Handle(Geom_Surface) & surf, const Mesh &m,
+                     const std::vector<Chain> &chains, bool inU)
+{
+    std::vector<int> verts;
+    for (const Chain &c : chains) {
+        for (size_t i = 0; i < c.verts.size(); ++i) {
+            if (!verts.empty() && verts.back() == c.verts[i])
+                continue;
+            verts.push_back(c.verts[i]);
+        }
+    }
+    while (verts.size() > 1 && verts.front() == verts.back())
+        verts.pop_back();
+    if (verts.size() < 3)
+        return false;
+    /* Enough samples that no step can be half a period — a dozen would do; a
+     * hundred and twenty-eight is still cheap and leaves no doubt. */
+    const size_t want = 128;
+    const size_t step = std::max<size_t>(1, verts.size() / want);
+    std::vector<double> t;
+    try {
+        for (size_t i = 0; i < verts.size(); i += step) {
+            double u = 0, v = 0;
+            if (!ElementaryUv(surf, P(m.pos[verts[i]]), u, v))
+                return false;
+            t.push_back(inU ? u : v);
+        }
+    } catch (const Standard_Failure &) {
+        return false;
+    }
+    if (t.size() < 3)
+        return false;
+    Standard_Real nu1, nu2, nv1, nv2;
+    surf->Bounds(nu1, nu2, nv1, nv2);
+    const double per = inU ? (nu2 - nu1) : (nv2 - nv1);
+    if (!(per > 0))
+        return false;
+    double wind = 0;
+    for (size_t i = 0; i < t.size(); ++i) {
+        double d = t[(i + 1) % t.size()] - t[i];
+        d -= std::floor(d / per + 0.5) * per;
+        wind += d;
+    }
+    return std::fabs(wind) > per * 0.5;
+}
+
 /* Builds one analytic face. Returns false when the patch has to go faceted. */
 bool BuildAnalyticFace(BuildCtx &ctx, const Mesh &m, const Patch &patch,
                        int self, const std::vector<int> &patchOf,
@@ -8028,7 +8469,37 @@ bool BuildAnalyticFace(BuildCtx &ctx, const Mesh &m, const Patch &patch,
                  (int)e.ok, e.u1, e.u2, e.uFull ? " FULL" : "", e.v1, e.v2,
                  e.vFull ? " FULL" : "");
         if (e.ok && (e.uFull || e.vFull)) {
-            if (BuildParametricFace(ctx, m, patch, surf, out))
+            /* The rectangle may only replace the boundary the patch actually
+             * has, and it is the boundary of a rectangle: two rims and nothing
+             * else. A loop that does NOT run the whole way round is an opening
+             * cut through the patch — the rectangle has no way to express it,
+             * so it covers it over, silently, and the feature is gone.
+             *
+             * M422 — this is the failure a 20 mm cable holder came back as.
+             * Its outer shell is an exact spherical cap, rms 0.000003 over
+             * 3,346 triangles, and the cable slot swept through it leaves that
+             * cap with fifteen boundary loops. The cap wraps fully in u, so
+             * the rectangle was taken, all fifteen loops were dropped, and the
+             * face came back as the whole dome with the slot filled in: a
+             * plausible-looking body that is not the part, 3.1 mm proud of the
+             * mesh at the worst point. Nothing downstream could see it —
+             * FaceWithinPatch reads boxes and the patch's box IS the dome's,
+             * FaceIsSound screens on area and 606 over 449 is inside its
+             * fold bar of 1.5.
+             *
+             * So ask the loops. Two rims: the rectangle IS the boundary, and a
+             * barrel between two caps takes the same path it always did.
+             * Anything else: build the wire, which is what the mesh says. */
+            bool rimsOnly = true;
+            for (const std::vector<Chain> &cs : loops) {
+                if (!LoopWrapsPeriod(surf, m, cs, e.uFull)) {
+                    rimsOnly = false;
+                    break;
+                }
+            }
+            MR_TRACE("      periodic: %d loops, rims only=%d\n",
+                     (int)loops.size(), (int)rimsOnly);
+            if (rimsOnly && BuildParametricFace(ctx, m, patch, surf, out))
                 return true;
         }
     }
@@ -8183,9 +8654,21 @@ bool BuildAnalyticFace(BuildCtx &ctx, const Mesh &m, const Patch &patch,
              * which is how a recognised blend ring stays a blend ring when a
              * neighbouring patch leaves a nick in its edge. FaceWithinPatch
              * has the last word on anything that overreaches, and sends it to
-             * triangles as before. */
-            if (surf->IsUPeriodic() || surf->IsVPeriodic())
-                return BuildParametricFace(ctx, m, patch, surf, out);
+             * triangles as before.
+             *
+             * M422 — and only where the rectangle can express the boundary at
+             * all. Where a loop does not run the whole way round, the
+             * rectangle covers it over rather than trimming to it, which is a
+             * hole not cut by a different route; the patch goes to triangles
+             * instead, which is honest and which the mesh can always do. */
+            if (surf->IsUPeriodic() || surf->IsVPeriodic()) {
+                const UvExtent e = MeasureUv(m, patch.tris, surf);
+                bool rimsOnly = e.ok;
+                for (size_t li = 0; rimsOnly && li < loops.size(); ++li)
+                    rimsOnly = LoopWrapsPeriod(surf, m, loops[li], e.uFull);
+                if (rimsOnly)
+                    return BuildParametricFace(ctx, m, patch, surf, out);
+            }
             return false;
         }
         wires.push_back(mw.Wire());
@@ -8236,7 +8719,25 @@ bool BuildAnalyticFace(BuildCtx &ctx, const Mesh &m, const Patch &patch,
         }
         TopoDS_Face face = mf.Face();
         const Handle(Geom_Surface) carrier = surf;
-        (void)periodic;
+        /* And if it took the other side, walk the wire the other way. A wire
+         * reversed bounds the complement, which is the region the triangles
+         * are actually on — see FaceHoldsPatch. Only ever swapped when the
+         * mesh says the first answer was wrong, so a face that was right is
+         * untouched. */
+        if (periodic && !FaceHoldsPatch(face, m, patch.tris, surf)) {
+            try {
+                BRepBuilderAPI_MakeFace mr(
+                    surf, TopoDS::Wire(wires[0].Reversed()), Standard_False);
+                if (mr.IsDone() &&
+                    FaceHoldsPatch(mr.Face(), m, patch.tris, surf)) {
+                    MR_TRACE("      face %d: outer wire bounded the COMPLEMENT,"
+                             " reversed\n", self);
+                    face = mr.Face();
+                    wires[0] = TopoDS::Wire(wires[0].Reversed());
+                }
+            } catch (const Standard_Failure &) {
+            }
+        }
 
         /* Inner wires go on TOPOLOGICALLY, not through MakeFace::Add.
          *
@@ -11071,53 +11572,92 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
                         std::string &err) -> TopoDS_Shape {
         std::vector<TopoDS_Face> faces;
         std::vector<Handle(Geom_Surface)> surfs(patches.size());
-        double rmsNum = 0, rmsDen = 0;
         for (size_t i = 0; i < patches.size(); ++i) {
             surfs[i] = patches[i].fit.kind == kFreeform
                            ? patches[i].freeSurf
                            : MakeSurface(patches[i].fit);
-            if (surfs[i].IsNull())
-                continue;
-            AlignSurfaceSeam(surfs[i], m, patches[i].tris);
-            double area = 0;
-            for (int t : patches[i].tris)
-                area += m.tarea[t];
-            rmsNum += patches[i].fit.rms * area;
-            rmsDen += area;
-            if (i >= recognisedPatches)
-                continue; /* the far half of a cut barrel is the same surface */
-            switch (patches[i].fit.kind) {
-            case kPlane:
-                rep.planes++;
-                break;
-            case kCylinder:
-                rep.cylinders++;
-                break;
-            case kCone:
-                rep.cones++;
-                break;
-            case kSphere:
-                rep.spheres++;
-                break;
-            case kTorus:
-                rep.tori++;
-                break;
-            case kFreeform:
-                rep.freeform++;
-                break;
-            default:
-                break;
-            }
+            if (!surfs[i].IsNull())
+                AlignSurfaceSeam(surfs[i], m, patches[i].tris);
         }
-        rep.fit_rms = rmsDen > 0 ? rmsNum / rmsDen : 0;
 
+        /* What the report says about surfaces is counted from the ones the
+         * body actually CARRIES, so it is taken after the rounds below have
+         * settled rather than from the set that went in — a surface demoted
+         * to triangles is not a cylinder the user can select. */
+        auto countSurfaces = [&]() {
+            double rmsNum = 0, rmsDen = 0;
+            for (size_t i = 0; i < patches.size(); ++i) {
+                if (surfs[i].IsNull())
+                    continue;
+                double area = 0;
+                for (int t : patches[i].tris)
+                    area += m.tarea[t];
+                rmsNum += patches[i].fit.rms * area;
+                rmsDen += area;
+                if (i >= recognisedPatches)
+                    continue; /* the far half of a cut barrel: same surface */
+                switch (patches[i].fit.kind) {
+                case kPlane:
+                    rep.planes++;
+                    break;
+                case kCylinder:
+                    rep.cylinders++;
+                    break;
+                case kCone:
+                    rep.cones++;
+                    break;
+                case kSphere:
+                    rep.spheres++;
+                    break;
+                case kTorus:
+                    rep.tori++;
+                    break;
+                case kFreeform:
+                    rep.freeform++;
+                    break;
+                default:
+                    break;
+                }
+            }
+            rep.fit_rms = rmsDen > 0 ? rmsNum / rmsDen : 0;
+        };
+
+        /* Build, and if any patch had to fall back to triangles, build AGAIN
+         * with that patch's surface taken away.
+         *
+         * M422 — a face is built from chains, and a chain against a
+         * neighbour that HAS a surface is one exact curve while a chain
+         * against a neighbour that has none is the neighbour's own mesh
+         * edges, one per triangle. Both faces either side of a seam have to
+         * make the same choice or the seam exists twice, and until now the
+         * choice could change halfway through: patch 13 of the cable holder
+         * was a plane until its face was found to fold through itself, by
+         * which time three neighbours had already built a single curve
+         * against a face that no longer existed. Those seams cannot sew, the
+         * shell cannot close by construction, and BRepBuilderAPI_Sewing is
+         * left to rediscover by distance what was known exactly.
+         *
+         * Rebuilding is cheap next to the rest of the conversion — 0.6 s of
+         * 19 on that model — and a round happens at all only when something
+         * was demoted. Bounded, because a demotion strictly shrinks the set
+         * of surfaces and there are finitely many. */
         BuildCtx ctx;
+        int facetedTriangles = 0;
+        std::vector<std::vector<int>> deferred;
+        const int builtBefore = rep.faces_built, failedBefore = rep.faces_failed;
+        const int facetedBefore = rep.faceted_patches;
+        for (int round = 0; round < kMaxBuildRounds; ++round) {
+        bool demoted = false;
+        faces.clear();
+        deferred.clear();
+        facetedTriangles = 0;
+        ctx = BuildCtx();
         ctx.m = &m;
         ctx.tol = tol;
         ctx.scale = scale;
-
-        int facetedTriangles = 0;
-        std::vector<std::vector<int>> deferred;
+        rep.faces_built = builtBefore;
+        rep.faces_failed = failedBefore;
+        rep.faceted_patches = facetedBefore;
         SetStage(kStageBuilding, static_cast<int>(patches.size()));
         for (size_t i = 0; i < patches.size(); ++i) {
             if (Cancelled())
@@ -11186,13 +11726,24 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
                 rep.faces_built++;
             } else {
                 faces.resize(before);
-                if (!surfs[i].IsNull())
+                if (!surfs[i].IsNull()) {
                     rep.faces_failed++;
+                    /* Triangles from here on, to this patch AND to everyone
+                     * who builds a chain against it. */
+                    surfs[i] = Handle(Geom_Surface)();
+                    demoted = true;
+                }
                 rep.faceted_patches++;
                 facetedTriangles += static_cast<int>(patches[i].tris.size());
                 deferred.push_back(patches[i].tris);
             }
         }
+        if (!demoted || Cancelled())
+            break;
+        MR_TRACE("      rebuilding: %d patches went to triangles\n",
+                 rep.faces_failed - failedBefore);
+        }
+        countSurfaces();
 
         if (facetedTriangles > prm.max_faceted_triangles) {
             char buf[224];
@@ -11261,6 +11812,29 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
         }
         return out;
     };
+
+    /* Cut the patches whose openings the parametric rescue would swallow,
+     * BEFORE the first attempt rather than after it fails.
+     *
+     * M422 — the two-attempt structure below exists to spare an ordinary
+     * barrel the extra face a cut costs, and that is still what it does: this
+     * pass takes only patches that both wrap the whole way round AND have a
+     * loop that does not, which is the one combination the rescue cannot
+     * describe. Left whole, such a patch does not merely fail to close — it
+     * builds a face that covers its own openings, and a body that has silently
+     * gained the material inside a slot is the worst thing this converter can
+     * hand back, because the user keeps it. */
+    {
+        int preSplit = 0;
+        try {
+            SplitFullWraps(m, patches, patchOf, preSplit, true);
+        } catch (const Standard_Failure &) {
+        }
+        if (preSplit > 0) {
+            rep.patches = static_cast<int>(patches.size());
+            MR_STAGE("split openings");
+        }
+    }
 
     std::string err1 = err;
     Report rep1 = rep;

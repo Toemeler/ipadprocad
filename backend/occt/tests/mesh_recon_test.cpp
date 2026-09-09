@@ -50,6 +50,7 @@
 #include <BRepBuilderAPI_GTransform.hxx>
 #include <BRepCheck_Analyzer.hxx>
 #include <Bnd_Box.hxx>
+#include <gp_Ax2.hxx>
 #include <gp_GTrsf.hxx>
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepTopAdaptor_FClass2d.hxx>
@@ -62,6 +63,16 @@
 #include <string>
 #include <array>
 #include <map>
+
+/* An ordering for TopoDS_Shape so a std::map can count edge uses. Identity of
+ * the underlying TShape is what matters; orientation is not part of it. */
+struct TopoDS_Shape_Less
+{
+    bool operator()(const TopoDS_Shape &a, const TopoDS_Shape &b) const
+    {
+        return a.TShape().get() < b.TShape().get();
+    }
+};
 
 static int passes = 0, fails = 0;
 static void chk(const char *what, bool ok, const std::string &extra = "")
@@ -1939,6 +1950,106 @@ int main()
             chk("organic: it is still the same body",
                 mv > 0 && std::fabs(got - mv) / mv < 0.02,
                 std::to_string(got) + " vs mesh " + std::to_string(mv));
+        }
+    }
+
+    /* ---- M422: a dome with a slot cut through it --------------------------
+     *
+     * The shape of every failure a downloaded organic model produced, in one
+     * fixture: an exact analytic surface — a spherical cap — that WRAPS the
+     * whole way round its axis and has openings cut through the middle of it.
+     * A 20 mm cable holder from MakerWorld is exactly this, and it came back
+     * wrong in four separate ways at once:
+     *
+     *   the crease splitter cut the smooth dome at 4.3 degrees, because the
+     *   sharpest edges of a curved surface are always some multiple of its
+     *   typical ones, and shattered it into 373 specks;
+     *
+     *   the cap wraps in u, so the face was built from the surface's own
+     *   parameter rectangle — which threw away all fifteen boundary loops and
+     *   FILLED THE SLOT IN, silently, 3.1 mm proud of the mesh;
+     *
+     *   the boundary walk turned at random where the cap pinches, so the two
+     *   patches either side of a seam cut it into different runs and built it
+     *   as two curves a hair apart;
+     *
+     *   and a patch whose face was rejected went to triangles AFTER its
+     *   neighbours had already built a single curve against it.
+     *
+     * Each one on its own leaves an open shell; the second leaves a plausible
+     * body that is not the part, which is worse. The assertions below are one
+     * per failure, and the volume is what catches a filled-in slot: the cap
+     * without its slot encloses 12% more than the mesh does. */
+    {
+        std::printf("== a dome with a slot cut through it ==\n");
+        const TopoDS_Shape ball = BRepPrimAPI_MakeSphere(10.).Shape();
+        const TopoDS_Shape lower =
+            BRepPrimAPI_MakeBox(gp_Pnt(-12, -12, 0), 24., 24., 12.).Shape();
+        const TopoDS_Shape dome = BRepAlgoAPI_Common(ball, lower).Shape();
+        /* A tunnel straight through the cap, entering one side and leaving the
+         * other, so the cap keeps a full turn in u and gains two openings. */
+        const TopoDS_Shape bar =
+            BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(-15, 0, 6), gp_Dir(1, 0, 0)),
+                                     3.5, 30.).Shape();
+        const TopoDS_Shape src = BRepAlgoAPI_Cut(dome, bar).Shape();
+
+        std::vector<double> xyz;
+        std::vector<int> tri;
+        Tessellate(src, 0.05, xyz, tri);
+        const int nTri = (int)(tri.size() / 3);
+        const double mv = MeshVolume(xyz, tri);
+        meshrecon::Params p = meshrecon::Defaults();
+        meshrecon::Report r;
+        std::string err;
+        TopoDS_Shape out = meshrecon::Reconstruct(
+            xyz.data(), (int)(xyz.size() / 3), tri.data(), nTri, p, r, err);
+        report(r);
+        chk("slotted dome: it converts", !out.IsNull(), err);
+        if (!out.IsNull()) {
+            int nFaces = 0, freeEdges = 0;
+            for (TopExp_Explorer ex(out, TopAbs_FACE); ex.More(); ex.Next())
+                ++nFaces;
+            {
+                /* Counting USES, not neighbouring faces, and skipping
+                 * degenerate edges — the same definition ShellIsClosed uses,
+                 * and for the same reason: a seam edge is used twice by the
+                 * one face it belongs to, and a sphere's pole is not a
+                 * boundary at all. */
+                std::map<TopoDS_Shape, int, TopoDS_Shape_Less> uses;
+                for (TopExp_Explorer fx(out, TopAbs_FACE); fx.More(); fx.Next())
+                    for (TopExp_Explorer ex(fx.Current(), TopAbs_EDGE);
+                         ex.More(); ex.Next()) {
+                        const TopoDS_Edge e = TopoDS::Edge(ex.Current());
+                        if (BRep_Tool::Degenerated(e))
+                            continue;
+                        uses[e.Located(TopLoc_Location())]++;
+                    }
+                for (const auto &kv : uses)
+                    if (kv.second != 2)
+                        ++freeEdges;
+            }
+            std::printf("   %d faces, %d free edges, volume %.3f "
+                        "(mesh %.3f)\n", nFaces, freeEdges, Volume(out), mv);
+            /* The slot is still a slot. A face built from the surface's own
+             * parameter rectangle covers both mouths of the tunnel, and the
+             * body then encloses the tunnel too — which no other check here
+             * would notice, because such a face is perfectly valid. */
+            const double got = Volume(out);
+            chk("slotted dome: the slot was not filled in",
+                mv > 0 && std::fabs(got - mv) / mv < 0.03,
+                std::to_string(got) + " vs mesh " + std::to_string(mv));
+            chk("slotted dome: it closes into a solid", r.closed == 1,
+                std::to_string(r.shells) + " shell(s)");
+            chk("slotted dome: no edge is left open", freeEdges == 0,
+                std::to_string(freeEdges) + " free edge(s)");
+            /* Not shattered: a smooth cap has no crease in it, so the reading
+             * is a handful of surfaces and not one face per few triangles. */
+            chk("slotted dome: the smooth cap was not shattered",
+                nFaces * 20 <= nTri,
+                std::to_string(nFaces) + " faces for " + std::to_string(nTri) +
+                    " triangles");
+            chk("slotted dome: the cap came back as one sphere",
+                r.spheres >= 1, std::to_string(r.spheres) + " sphere(s)");
         }
     }
 

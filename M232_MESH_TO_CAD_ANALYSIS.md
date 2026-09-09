@@ -554,6 +554,113 @@ A side effect worth recording: the curved shell with four drilled holes, which
 had never closed, now does. Fewer invented scraps between the real cylinders
 and the triangles means fewer seams for the sewing to reconcile.
 
+### M422 — a cable holder came back as a dome with no slot in it
+
+The report was *"the mesh to cad converter completely failed on this model"*,
+and the file is a 20 mm cable holder from MakerWorld: 17,640 triangles, a dome
+with a slot swept through it, closed, manifold, consistently wound — as clean
+an input as this converter will ever be handed. It came back in **31 seconds**
+as 755 faces and an open shell, and after the first fix it came back as
+something worse: a closed-looking body **with the slot filled in**, 3.1 mm
+proud of the mesh where the slot should be. A body that has silently gained the
+material inside its own feature is the worst thing this converter can produce,
+because the user keeps it.
+
+Five separate faults, and the file needs all five fixed before it converts.
+
+**1. The crease splitter cut a surface that has no creases.** `SplitAtCrease`
+compared the sharpest edges of a patch with its typical ones and cut when the
+first was twice the second — a purely relative test, which every curved surface
+whose curvature varies passes. This dome has a median bend of 1.7 degrees and a
+98th percentile of 7.9, so the test fired, put the line at 4.3, and cut 3,836
+of the patch's 26,247 edges. Fifteen per cent of the edges of a surface is not
+a crease; a crease is a CURVE. What came out was one component holding 92% of
+the mesh and 373 specks around it, at every one of the four depths the
+recursion allows, and the model was never seen whole again.
+
+What separates a crease from curvature is not how steep it is but whether
+anything lies BETWEEN it and the tessellation. Two surfaces meeting at ten
+degrees leave the band from the facet angle up to ten degrees empty; a dome
+bends by every angle from nothing to its tightest and leaves no band empty
+anywhere. That is the same evidence `FeatureAngleDeg` has always demanded of
+the whole model, asked here of one patch: the widest relative gap above this
+dome's median is 6.9%, and the bar is 30%.
+
+**2. A face built from the surface's own parameter rectangle covered its
+openings over.** The dome's outer shell is an exact spherical cap — rms
+0.000003 over 3,346 triangles — and a cap wraps the whole way round its axis,
+so the face was trimmed from the surface's parameters. That rectangle's
+boundary is its two rims and nothing else, so all fifteen of the patch's
+boundary loops were dropped and the slot vanished. Nothing downstream could
+see it: `FaceWithinPatch` reads bounding boxes and the patch's box IS the
+dome's, `FaceIsSound` screens on area and 606 over 449 is inside its fold bar,
+and `BRepCheck` calls such a face perfectly valid, because it is.
+
+**3. The boundary walk turned at random where a patch pinches.** `PatchChains`
+took the next unused outgoing edge at each vertex. At a pinch — a vertex the
+patch touches twice — that picks a turn arbitrarily, and a wrong turn does not
+merely reorder the loops: it cuts the boundary between two patches into a
+different set of runs on each side, so one seam is built as two curves a hair
+apart and sewing is left to reconcile by distance what was known exactly. The
+walk now rotates through the triangle fan, which is a property of the surface
+rather than of the order things were stored in, and every chain is additionally
+cut at every pinch, whichever patch pinches there, so both sides stop in the
+same places. On this model: 37 seams described differently by their two faces,
+then none.
+
+**4. A patch demoted to triangles left its neighbours holding a curve for a
+face that no longer existed.** A chain against a neighbour that HAS a surface
+is one exact curve; against a neighbour that has none it is that neighbour's
+own mesh edges, one per triangle. Both faces either side of a seam must make
+the same choice, and the choice could change halfway through the build. The
+face pass now repeats with the demoted patch's surface taken away — one extra
+round, 0.6 s here — and the shell closes by construction instead of by sewing.
+
+**5. A patch that wraps AND has an opening can be built neither way.** The
+rectangle covers the opening; refusing the rectangle does not help either,
+because a rim that wraps is a straight line at v = 0 in the surface's own
+parameters, not a loop round an area, and `MakeFace` has nothing to bound. Such
+a patch is cut in half BEFORE the first attempt — `SplitFullWraps` already knew
+how, and now knows when — after which both halves are ordinary trimmed faces
+and the openings are the inner wires they always were. A hemisphere with a
+tunnel drilled through it, which is the fixture this fault was found on, came
+back at 6.7 times its own volume before and 0.7% over it after.
+
+| | before | after |
+|---|---|---|
+| result | open shell, 3 shells, 56 free edges | **closed solid**, 1 shell, 0 free edges |
+| the slot | filled in | present |
+| worst deviation from the mesh | 3.1186 mm | **0.0875 mm** (tolerance 0.0598) |
+| volume against the mesh's own | +20% | **+0.12%** |
+| faces | 755 | **73** — a sphere, 2 cylinders, a torus, 4 planes, 25 B-splines |
+| time | 31.3 s | **10.3 s** |
+
+The time is three separate things, none of them geometry. `MergeRegions` asked
+the same refused pair again on every one of its eight passes, and a memo of
+what it has already refused took 7.4 s off with byte-identical output. RANSAC
+ran its full 32 rounds on a shape with nothing to find, proposing a cone
+through a smooth dome, refusing it, barring the seed and repeating: it now
+stops after six rounds in a row that find nothing, which no fixture with a real
+surface left in it ever reaches. And the seed grow and support flood built a
+hash map per trial — 72 trials in each of 32 rounds — where a stamp array is
+the same set with the same semantics.
+
+`occt_mesh_recon_test` goes from 244 assertions to 250, with the six new ones
+pinning the dome-with-a-slot fixture, and one existing fixture improves along
+the way: a curved shell with four drilled holes goes from 296 patches to 143
+and from 277 faceted to 124, for the same 23 faces and the same residual.
+
+**What this does not fix.** 761 of the 17,640 triangles still sit further than
+tolerance from the result, the worst at 0.11 mm — about twice tolerance, on the
+two B-spline patches either side of the slot's tightest turn. And 10 s for
+17,640 triangles is still an order off the prismatic rate: what is left is the
+fitter's Levenberg-Marquardt loop with its numerical Jacobian, two distance
+evaluations per parameter per point per iteration, and making that cheaper
+means either analytic derivatives or fewer points — both of which move every
+residual in the suite, so neither was taken here.
+
+---
+
 The suite is 132 assertions and covers all of it: a plain torus at two
 tessellations; the coarse plate — the shape of the file that started this —
 which must come back as exactly 7 planes and 10 cylinders with every radius
