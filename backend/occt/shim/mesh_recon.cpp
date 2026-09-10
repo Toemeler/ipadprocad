@@ -6261,7 +6261,12 @@ bool FaceNearPatch(const TopoDS_Face &face, const Mesh &m,
                     bin[((size_t)k * ny + j) * nx + i].push_back(t);
     }
     const double bar = tol * kFaceOffMeshBar;
-    auto near = [&](const gp_Pnt &q) {
+    /* isNearMesh, not near: <windef.h> still #defines near empty (see
+     * NodeGrid's own comment on forEachNear/farthest below) and a Windows
+     * build turns `auto near = [&](...)` into `auto = [&](...)` — MSVC error
+     * C2513, then C2678/C2088 at every call site once the macro eats the
+     * name there too. */
+    auto isNearMesh = [&](const gp_Pnt &q) {
         const V3 p(q.X(), q.Y(), q.Z());
         if (p.x < lo.x - bar || p.x > hi.x + bar || p.y < lo.y - bar ||
             p.y > hi.y + bar || p.z < lo.z - bar || p.z > hi.z + bar)
@@ -6315,7 +6320,7 @@ bool FaceNearPatch(const TopoDS_Face &face, const Mesh &m,
                 if (cls.Perform(gp_Pnt2d(u, v)) == TopAbs_OUT)
                     continue;
                 ++inside;
-                if (!near(surf->Value(u, v)))
+                if (!isNearMesh(surf->Value(u, v)))
                     ++off;
             }
         }
