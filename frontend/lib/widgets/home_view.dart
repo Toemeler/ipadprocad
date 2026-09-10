@@ -29,6 +29,7 @@ import '../doc_ref.dart';
 import '../l10n/l.dart';
 import '../log.dart';
 import '../menus.dart';
+import '../platform/app_dirs.dart';
 import '../sync/lan_sync.dart';
 import '../sync/sync_store.dart';
 import '../svg_icons.dart';
@@ -936,7 +937,15 @@ class _HomeViewState extends State<HomeView> {
                 // M418 — only where there is something to sync WITH. A button
                 // that cannot do anything is worse than no button: it invites
                 // a press and then has to explain itself.
-                if (ShareCodes.current.value != null) ...[
+                //
+                // AND ONLY ON DESKTOP. A touch device already has the native
+                // gesture for this — drag down to refresh, wired below onto
+                // the grid itself — and a second, explicit control for the
+                // same action is exactly the "not like every other iOS app"
+                // friction a touch user is not asking for. Desktop has no
+                // pull-to-refresh gesture to lean on, so the button stays
+                // there.
+                if (ShareCodes.current.value != null && isDesktopHost) ...[
                   _headerButton(
                     id: 'sync',
                     symbol: 'arrow.clockwise',
