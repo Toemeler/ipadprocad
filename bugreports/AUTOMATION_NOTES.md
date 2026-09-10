@@ -110,4 +110,4 @@ the model reasoning badly, and each fix is general:
   no deadline (only `send()` did), so a relay that stalled its answer left the
   app waiting forever behind a UI that shows nothing; and a non-200 threw away
   the relay's own explanation, so "bundle too large: N bytes" reached the
-  reporter as "HTTP 413". Commit `f25a138`.
+  reporter as "HTTP 413". Commit `a6fcc8d`.
