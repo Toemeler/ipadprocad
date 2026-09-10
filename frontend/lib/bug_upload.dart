@@ -124,6 +124,33 @@ Duration bugUploadTimeoutFor(int bytes) {
   return scaled > cap ? cap : scaled;
 }
 
+/// The relay's own words about a refusal, as a suffix for the dialog.
+///
+/// Public, like [bugDescriptionFor], because it decides what a person reads
+/// when a report does not file and it is worth a test of its own.
+///
+/// `relay/worker.js` answers a refusal with `{"error": "..."}` — "bundle too
+/// large: 26214401 bytes", "bad secret" — which is exactly what the person in
+/// front of the failure needs and nothing they can otherwise see. Trimmed,
+/// because this lands in a dialog: a Worker stack trace or an HTML error page
+/// from something in between must not become the whole of what it says.
+String bugRelayRefusalDetail(String body) {
+  var said = body.trim();
+  if (said.isEmpty) return '';
+  try {
+    final decoded = jsonDecode(said);
+    if (decoded is Map && decoded['error'] is String) {
+      said = decoded['error'] as String;
+    }
+  } catch (_) {
+    // Not JSON — an HTML error page from a proxy, most likely. The first line
+    // of it is still more use than nothing.
+    said = said.split('\n').first.trim();
+  }
+  if (said.length > 200) said = '${said.substring(0, 200)}...';
+  return ' — $said';
+}
+
 /// POSTs [zipBytes] to the configured relay. Never throws: a network failure,
 /// a timeout, or a malformed response all come back as a failed
 /// [BugUploadResult] rather than an exception, because losing the (already
@@ -182,11 +209,35 @@ Future<BugUploadResult> uploadBugReport({
     if (bugRelaySecret.isNotEmpty) {
       req.headers['x-bug-relay-secret'] = bugRelaySecret;
     }
-    final streamed = await req.send().timeout(budget);
-    final body = await streamed.stream.bytesToString();
+    // ONE deadline over the WHOLE exchange, not just over the request.
+    //
+    // BUG #46 — `req.send()` completes when the response HEADERS arrive. The
+    // body still has to be read off the socket after that, and that read had
+    // no deadline of its own: `budget` was already spent by the time it
+    // started. A relay that accepted the POST and then stalled its answer —
+    // a Worker hitting the GitHub API on a slow link, a captive portal
+    // holding the connection open — left this await pending forever.
+    //
+    // Forever is the worst possible shape for it. `BugReport.open`
+    // deliberately puts nothing on screen while the capture runs, so what the
+    // reporter sees is the report dialog closing and then nothing at all: no
+    // result dialog, no error, no issue, no way to tell it apart from a
+    // button that does not work. Which is how it was reported.
+    final (streamed, body) = await (() async {
+      final s = await req.send();
+      return (s, await s.stream.bytesToString());
+    })()
+        .timeout(budget);
     if (streamed.statusCode != 200) {
       Log.w('bug', 'upload failed: HTTP ${streamed.statusCode} $body');
-      return BugUploadResult.failed('HTTP ${streamed.statusCode}');
+      // Bug #46 — WITH THE REASON THE RELAY ALREADY GAVE. This branch had the
+      // answer in its hand and put it in the log only: the dialog said
+      // "HTTP 413" to someone who cannot read the log and cannot guess that it
+      // means their bundle was over the relay's limit. Every other failure
+      // path here spells itself out (M415); this one is the one the reporter
+      // can act on, and it was the one staying quiet.
+      return BugUploadResult.failed(
+          'HTTP ${streamed.statusCode}${bugRelayRefusalDetail(body)}');
     }
     Log.i(
         'bug',

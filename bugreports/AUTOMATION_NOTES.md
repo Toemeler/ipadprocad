@@ -91,3 +91,23 @@ the model reasoning badly, and each fix is general:
 - #12 — `exportFormatsFor` was never called by the gallery export action; the action still branched on `isPartName(name)`, which returns false for dotted names like `flange.ptp`. Part cards therefore skipped the STL/STEP chooser and fell into the sketch export path, producing no file. The format chooser also only existed for non-share part exports, with hardcoded items. Commit `0e0f480`.
 
 - #12 — `exportFormatsFor` was never called by the gallery export action; the action still branched on `isPartName(name)`, which returns false for dotted document names like `flange.ptp`. Part cards therefore skipped the STL/STEP chooser and fell into the sketch export path, producing no file. `exportFormatsFor` also did not understand dotted names, returning only `['step']` for them even when called. Commit `220e3f9`.
+
+- #46 — the bug-report upload stopped working on the iPad because the BUNDLE
+  had grown, not because the relay had moved. Every rolling log went into the
+  zip whole: the report filed on 2026-09-10 is 10.74 MB, of which 10.22 MB —
+  95 % — is `performance_logs_prev.txt`, 57.6 MB of previous-session perf lines
+  that nothing ever capped. That breaks the upload on a tablet twice over. By
+  SIZE: `bugUploadTimeoutFor` caps its budget at 90 s, so 10.24 MiB asks for
+  ~950 kbit/s of sustained uplink, which is the exact figure M415 wrote down
+  as what a tablet does not clear and a desktop does — M415 made the budget
+  follow the payload, and the payload then grew past where it still could. By
+  MEMORY: `readAsStringSync` on 57.6 MB, re-encoded by the zip writer and
+  deflated into a third buffer, is a few hundred MB of peak allocation on top
+  of a CAD app holding meshes; Windows pages it out, iOS kills the process.
+  Rolling logs are now read as their last 2 MiB via a seek (`readLogTail`),
+  which takes that bundle under a megabyte and never materialises the rest.
+  Two smaller faults on the same path went with it: the response BODY read had
+  no deadline (only `send()` did), so a relay that stalled its answer left the
+  app waiting forever behind a UI that shows nothing; and a non-200 threw away
+  the relay's own explanation, so "bundle too large: N bytes" reached the
+  reporter as "HTTP 413". Commit `77e90d8`.

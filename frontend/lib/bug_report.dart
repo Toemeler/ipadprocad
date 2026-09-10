@@ -415,6 +415,77 @@ Map<String, String> buildBundle({
   return files;
 }
 
+/// How much of a rolling log a bundle carries: the most recent 2 MiB of it.
+///
+/// BUG #46 — "the auto upload of bug reports doesnt work anymore on my ipad".
+///
+/// THE ROLLING LOGS WENT IN WHOLE, AND ONE OF THEM IS NOT SMALL. The bundle
+/// filed on 2026-09-10 is 10.74 MB, and 10.22 MB of that — 95 % of the zip —
+/// is a single member: `performance_logs_prev.txt`, 57.6 MB of previous-session
+/// perf lines read with `readAsStringSync` and handed to the zip writer
+/// untouched. Everything else in that report together is half a megabyte.
+///
+/// That one member breaks the upload twice over, and both breaks land on the
+/// tablet and not on the desktop:
+///
+///   * SIZE. `bugUploadTimeoutFor` grows the budget with the payload but caps
+///     it at 90 s, so a 10.24 MiB bundle is asking for ~950 kbit/s of sustained
+///     UPLINK — the very number M415 identified as what a tablet on Wi-Fi at
+///     the far end of a flat does not clear and a desktop on Ethernet does.
+///     M415 fixed #41 by making the budget follow the payload; the payload then
+///     grew past where it still could.
+///   * MEMORY. 57.6 MB off disk becomes a Dart String, is encoded back to bytes
+///     by the zip writer, and is deflated into a third buffer — a few hundred
+///     megabytes of peak allocation on top of a CAD app already holding meshes.
+///     Windows pages that out and carries on. iOS terminates the process for
+///     it, and a killed app files no report and shows no error.
+///
+/// A rolling log's TAIL is the part that matters anyway: the report is written
+/// at the END of the session it describes, which is what `report.md` tells its
+/// reader. 2 MiB of it is ~24 000 lines at the ~88 bytes/line these logs run
+/// at, and it takes that 10.74 MB bundle under a megabyte.
+const int bugLogTailBytes = 2 * 1024 * 1024;
+
+/// What a truncated member says, in its own first line, in place of everything
+/// it left behind. A reader who does not know the head was dropped will read
+/// the first surviving line as the start of the session.
+const String bugLogTailMarker = '[bug bundle: truncated to the most recent';
+
+/// The last [maxBytes] of the rolling log at [path], or the whole file when it
+/// is smaller than that. Null when there is no such file, or it cannot be read
+/// — the caller treats every rolling log as optional.
+///
+/// Only the tail is ever READ: the seek is the point, not a trim afterwards.
+/// A 57 MB member that is read and then shortened has already cost the memory
+/// that kills the app on iOS (see [bugLogTailBytes]).
+String? readLogTail(String path, {int maxBytes = bugLogTailBytes}) {
+  try {
+    final f = File(path);
+    if (!f.existsSync()) return null;
+    final total = f.lengthSync();
+    if (maxBytes <= 0 || total <= maxBytes) return f.readAsStringSync();
+    final raf = f.openSync();
+    final List<int> bytes;
+    try {
+      raf.setPositionSync(total - maxBytes);
+      bytes = raf.readSync(maxBytes);
+    } finally {
+      raf.closeSync();
+    }
+    // The seek lands on a BYTE offset, which is both mid-character and
+    // mid-line. Dropping to the first newline fixes the second and makes the
+    // first impossible; `allowMalformed` covers the case where the window
+    // holds no newline at all and the first character stays broken.
+    final nl = bytes.indexOf(0x0a);
+    final kept = nl >= 0 ? bytes.sublist(nl + 1) : bytes;
+    final text = utf8.decode(kept, allowMalformed: true);
+    return '$bugLogTailMarker ${kept.length} of $total bytes; '
+        'the ${total - kept.length} bytes before this are older]\n$text';
+  } catch (_) {
+    return null;
+  }
+}
+
 /// Zips [files] and writes the archive to [dir]. Returns the file, or null if
 /// it could not be written — a failing bug reporter must never take the app
 /// down with it.

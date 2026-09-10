@@ -150,15 +150,6 @@ String _try(String what, String Function() f) {
   }
 }
 
-String? _readIfExists(String path) {
-  try {
-    final f = File(path);
-    return f.existsSync() ? f.readAsStringSync() : null;
-  } catch (_) {
-    return null;
-  }
-}
-
 /// Build, device and backend identity — the first thing to check when a report
 /// does not reproduce.
 Map<String, String> captureEnv(AppState app) {
@@ -334,8 +325,11 @@ Future<BugCaptureResult> captureBugReport(
     final png = await captureScreenshot();
 
     final logPath = Log.path;
-    final logText = _readIfExists(logPath);
-    final prevText = _readIfExists(
+    // Bug #46 — the TAIL of every rolling log, never the whole file. A log
+    // that has been running long enough is the reason the bundle stops being
+    // uploadable at all; see [bugLogTailBytes] for the arithmetic.
+    final logText = readLogTail(logPath);
+    final prevText = readLogTail(
         logPath.replaceFirst('prototype_log.txt', 'prototype_log_prev.txt'));
 
     final files = buildBundle(
@@ -350,7 +344,7 @@ Future<BugCaptureResult> captureBugReport(
       // Frame and remesh timings. The 10.7-second remesh in the device log
       // was a perf line, not a log line, so a bundle without this can miss
       // the whole character of a "it froze" report.
-      perfText: Perf.path.isEmpty ? null : _readIfExists(Perf.path),
+      perfText: Perf.path.isEmpty ? null : readLogTail(Perf.path),
       gestureText: GestureTrace.dump().join('\n'),
       realityText: RealityPush.dump().join('\n'),
       hasScreenshot: png != null,
@@ -558,14 +552,19 @@ Future<BugCaptureResult> captureBugReport(
     // human-readable file said `rv.setCamera` was slow, and only the machine
     // one said the 2.7 seconds inside it were the sketch rebuild.
     if (Perf.path.isNotEmpty) {
-      final fresh = _readIfExists(Perf.path);
+      final fresh = readLogTail(Perf.path);
       if (fresh != null && fresh.isNotEmpty) files['perf.txt'] = fresh;
     }
     // The PREVIOUS perf session too. A "it got slow after a while" report is
     // about a trend, and the trend is exactly what rotation threw out of the
     // current file.
+    //
+    // Bug #46 — AND THIS IS THE MEMBER THAT BROKE THE UPLOAD. Rotation caps
+    // nothing here: the file the last report carried was 57.6 MB, it deflated
+    // to 10.22 MB, and it was 95 % of a bundle no tablet could push inside the
+    // budget. Tail-capped like every other rolling log now.
     if (Perf.path.isNotEmpty) {
-      final prevPerf = _readIfExists(Perf.path
+      final prevPerf = readLogTail(Perf.path
           .replaceFirst('performance_logs.txt', 'performance_logs_prev.txt'));
       if (prevPerf != null && prevPerf.isNotEmpty) {
         files['performance_logs_prev.txt'] = prevPerf;
