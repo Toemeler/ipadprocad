@@ -465,6 +465,16 @@ begin
   Lbl.AutoSize := True;
   Lbl.Caption := AText;
   Lbl.Font.Color := AColor;
+  // TNewStaticText paints its own background — it is not the ordinarily-
+  // transparent TLabel this looked like it should be, and .Transparent
+  // does not compile on it either (same absent property as TBitmap's, see
+  // ClrCardApprox's own comment) to turn that off. Left alone this shows
+  // as a stock light box behind every line of text, sitting on the dark
+  // card like a sticky note. Coloring it to the same gradient
+  // approximation the hand-drawn controls use is the same trade as
+  // theirs: not literally invisible, close enough that it reads as
+  // background rather than as its own box.
+  Lbl.Color := ClrCardApprox;
   if ABold then
     Lbl.Font.Name := 'Segoe UI Semibold'
   else
@@ -993,6 +1003,24 @@ begin
   // what makes the custom background actually reach every edge instead of
   // leaving a stock-colored margin around it.
   WizardForm.InnerNotebook.SetBounds(0, 0, WizardForm.ClientWidth, WizardForm.ClientHeight);
+  // InnerNotebook's own parent, OuterNotebook, keeps the original smaller
+  // bounds it was laid out with (room reserved around the now-hidden
+  // MainPanel/image/button row). Leaving it unresized is why a stock-grey
+  // strip remained visible along the bottom edge even after InnerNotebook
+  // itself was stretched to fill the client area.
+  WizardForm.OuterNotebook.SetBounds(0, 0, WizardForm.ClientWidth, WizardForm.ClientHeight);
+  // RunList (the stock "Launch Prototype" checkbox on wpFinished) and the
+  // various per-page stock labels are recreated/reshown by Inno's own page
+  // logic on each transition, same as Next/Back/Cancel above — hiding them
+  // once in InitializeWizard doesn't stick.
+  WizardForm.RunList.Visible := False;
+  WizardForm.WelcomeLabel1.Visible := False;
+  WizardForm.WelcomeLabel2.Visible := False;
+  WizardForm.ProgressGauge.Visible := False;
+  WizardForm.StatusLabel.Visible := False;
+  WizardForm.FilenameLabel.Visible := False;
+  WizardForm.FinishedHeadingLabel.Visible := False;
+  WizardForm.FinishedLabel.Visible := False;
 end;
 
 procedure CurPageChanged(CurPageID: Integer);
