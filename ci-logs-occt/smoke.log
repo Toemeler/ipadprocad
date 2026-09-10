@@ -1,0 +1,217 @@
+Prototype OCCT shim v29 (OCCT 7.9.3) (shim ABI v29)
+[1] box faces=6 edges=12 vertices=8
+[1] box volume=6000.000000 (want 6000)
+[2] L-prism faces=8 edges=18 vertices=12
+[2] L-prism volume=3000.000000 (want 3000)
+[3] cylinder faces=3
+[3] cylinder volume=1130.973355 (want 1130.973355)
+[4] fused volume=8785.398163 (want 8785.398163)
+[4] fused faces=8
+[32;1m
+*******************************************************************
+******        Statistics on Transfer (Write)                 ******[0m
+[32;1m
+*******************************************************************
+******        Transfer Mode = 0  I.E.  As Is       ******[0m
+[32;1m******        Transferring Shape, ShapeType = 0                      ******[0m
+[32;1m** WorkSession : Sending all data[0m
+[32;1m Step File Name : /tmp/prototype_smoke.step(440 ents)  Write  Done[0m
+[5] STEP file /tmp/prototype_smoke.step size=19193 bytes
+[5] roundtrip faces 8->8 edges 15->15 vertices 10->10
+[5] roundtrip volume 8785.398163 -> 8785.398163
+[6] missing-file import -> NULL, last_error="occt_import_step: file missing or not parseable as STEP"
+[7] profile prism faces=8 edges=18 vertices=12
+[7] profile prism volume=3000.000000 (want 3000)
+[8] holed plate faces=10 edges=24 vertices=16
+[8] holed plate volume=920.000000 (want 920)
+[9] tapered square volume=593.345358 (want 593.345358)
+[9] neg-taper volume=417.018377 (want 417.018377)
+[10] tapered holed volume=1802.484129 (want 1802.484129)
+[11] box mesh: 24 verts, 12 tris, 12 edges, 24 edge pts
+[11] mesh signed volume=6000.000000 (want +6000)
+[12] cylinder mesh: 170 verts, 164 tris, 2 edges, 254 edge pts
+[12] mesh volume=1126.7595 (analytic 1130.9734)
+[13] rotated bbox x[-20.000,0.000] y[-0.000,10.000]
+[13b] mirrored bbox x[-10.000,0.000]
+[15] arc cylinder faces=3
+[15] arc cylinder volume=1570.796327 (analytic 1570.796327)
+[15] arc cylinder mesh edges=2
+[16] faces=3 tris=164 edges=2
+[16] planes=2 cylinders=1 cylR=10.000000000
+[16] analytic circle edges=2
+[16] fuse faces 14 -> unify 6, volume 1500.000000 -> 1500.000000
+[17] cut volume 6000.000000 faces 10
+[18] common volume 1000.000000
+[19] lens volume 205.428179 (analytic 205.428179)
+[19] lens bbox y 2.733648..8.371665 (want 2.733648..8.371665)
+[20] tube volume 706.858347 (analytic 706.858347)
+[20] tube faces 4 (want 4)
+[21] cube topological edges 12 (want 12)
+[21] filleted cube volume 7892.699082 (analytic 7892.699082)
+[22] chamfered cube volume 7840.000000 (want 7840)
+[21c] full-quarter-round fillet -> built (scale 0.999999000)
+[21c] volume 6283.188741 (cylinder 6283.185307)
+[21d] mixed set -> built (dropped 0,1)
+[23] ray hits 2 at 10.000000, 30.000000 (want 2: 10, 30)
+[24] notched block: 22 convex, 2 concave, 0 tangent (of 24 edges)
+[25] revolve hits 2 at 19.4712, 340.5288 (want 2: 19.4712, 340.5288)
+[26] variable 7924.1899, const2 7982.8319, const6 7845.4867, mean 7914.1593
+[27] face hits 1 at 340.5288 (want 1: 340.5288)
+[28] cylinder: 2 display edges, 3 topological
+[28] map is a REMAP
+[29] display edges: plain cube 12, filleted 15
+[29] tangent-continuous edges on the filleted solid: 2
+[30] swept prism volume 4000.000000 (want 4000), faces 6
+[31] lofted prism volume 2500.000000 (want 2500)
+[31] lofted frustum volume 5833.333333 (analytic 5833.333333)
+[32] coil volume 2521.2203 (helix-length estimate 2521.2193)
+[32;1m
+*******************************************************************
+******        Statistics on Transfer (Write)                 ******[0m
+[32;1m
+*******************************************************************
+******        Transfer Mode = 0  I.E.  As Is       ******[0m
+[32;1m******        Transferring Shape, ShapeType = 2                      ******[0m
+[32;1m
+*******************************************************************
+******        Statistics on Transfer (Write)                 ******[0m
+[32;1m
+*******************************************************************
+******        Transfer Mode = 0  I.E.  As Is       ******[0m
+[32;1m******        Transferring Shape, ShapeType = 2                      ******[0m
+[32;1m** WorkSession : Sending all data[0m
+[32;1m Step File Name : /tmp/prototype_multi.step(694 ents)  Write  Done[0m
+[33] re-imported solids=2 (want 2)
+[33] total volume 1125.0000 (want 1125)
+[33] in file: Solid1=1 Solid2=1 SmokePart=1 MILLI=1
+[32;1m
+*******************************************************************
+******        Statistics on Transfer (Write)                 ******[0m
+[32;1m
+*******************************************************************
+******        Transfer Mode = 0  I.E.  As Is       ******[0m
+[32;1m******        Transferring Shape, ShapeType = 2                      ******[0m
+[34] drilled volume 6429.2037 (want 6429.2037)
+[34] cylindrical face topo index = 7 (of 7 faces)
+[34] after Delete Face volume 8000.0000 (want 8000.0000)
+[34] top face topo index = 3
+[34] after Move Faces volume 8036.5046 (want 8036.5046)
+[34] after Scale x2 volume 51433.6294 (want 51433.6294)
+[35] box: 12 edges, bulk wrote 12
+[35] box: 0 of 12 records differ
+[35] cylinder: 3 edges, bulk wrote 3
+[35] cylinder: 0 of 3 records differ
+[35] L-prism: 18 edges, bulk wrote 18
+[35] L-prism: 0 of 18 records differ
+[35] filleted: 15 edges, bulk wrote 15
+[35] filleted: 0 of 15 records differ
+[35] 24-gon: 72 edges, bulk wrote 72
+[35] 24-gon: 0 of 72 records differ
+[35] coverage: convex edges 116, concave edges 1, curve-kind mask 0x6
+[36] box 20: 12 edges, fields 0..10 differ on 0, convexity differs on 0
+[36] cylinder r6 h10 (seam): 3 edges, fields 0..10 differ on 0, convexity differs on 0
+[36] L-prism (one concave edge): 18 edges, fields 0..10 differ on 0, convexity differs on 0
+[36] 10-point star (alternating): 60 edges, fields 0..10 differ on 0, convexity differs on 0
+[36] 24-gon prism: 72 edges, fields 0..10 differ on 0, convexity differs on 0
+[36] box minus through-hole: 15 edges, fields 0..10 differ on 0, convexity differs on 0
+[36] box with an internal void: 24 edges, fields 0..10 differ on 0, convexity differs on 0
+[36] box 200 x 0.1 x 20 (THIN) edge 1: dihedral 90.0000 deg, new +1 ref -1 (expected: the probe crosses the wall)
+[36] box 200 x 0.1 x 20 (THIN) edge 3: dihedral 90.0000 deg, new +1 ref -1 (expected: the probe crosses the wall)
+[36] box 200 x 0.1 x 20 (THIN) edge 5: dihedral 90.0000 deg, new +1 ref -1 (expected: the probe crosses the wall)
+[36] box 200 x 0.1 x 20 (THIN): 12 edges, fields 0..10 differ on 0, convexity differs on 8
+[36] box 200 x 0.1 x 20 (THIN): reference got 8 of 12 box edges wrong, shipping path 0
+[36] box 60 x 0.04 x 40 (THIN) edge 1: dihedral 90.0000 deg, new +1 ref -1 (expected: the probe crosses the wall)
+[36] box 60 x 0.04 x 40 (THIN) edge 3: dihedral 90.0000 deg, new +1 ref -1 (expected: the probe crosses the wall)
+[36] box 60 x 0.04 x 40 (THIN) edge 5: dihedral 90.0000 deg, new +1 ref -1 (expected: the probe crosses the wall)
+[36] box 60 x 0.04 x 40 (THIN): 12 edges, fields 0..10 differ on 0, convexity differs on 8
+[36] box 60 x 0.04 x 40 (THIN): reference got 8 of 12 box edges wrong, shipping path 0
+[36] coverage: convex 203, concave 23, curve-kind mask 0x6, thin fixtures 2 with 16 repaired signs
+[37a] L path 90 deg: AUTO vol=6000.000000000 f=8 e=18 v=12 | POLY vol=6000.000000000 f=8 e=18 v=12
+[37b] 64 seg x 16 spans: AUTO f=66 vol=6774.914831 | POLY f=1026 vol=6774.944740 | analytic 6774.942852
+[37b] the same arc DECLARED smooth: f=66 vol=6774.914831 (AUTO inferred the same)
+[37c] joint 5.0 deg -> 6 faces (smoothed), 6.5 deg -> 8 faces (mitered); threshold 5.625
+[37c] the SAME 5.0-degree joint declared POLY -> 8 faces (mitered, not smoothed)
+[37d] 1200 seg x 16 spans: f=1202 vol=6785.779141 (analytic 6785.807235) — v23 FAILED here
+[37f] tube on a STRAIGHT path: vol=3354.294825 (analytic 3354.294825) valid
+[37f] tube on a tilted arc, orientation 0: vol=5031.442237  outer-hole=5031.442237  (+0.0000 %) valid
+[37f] tube on a tilted arc, orientation 1: vol=5031.442237  outer-hole=5031.442237  (-0.0000 %) valid
+[37f] tube on a tilted arc, orientation 2: vol=5560.491666  outer-hole=5560.491666  (-0.0000 %) valid
+[37f] holed AUTO f=50 vol=5031.037365 | POLY f=386 vol=5031.442237 (analytic 5031.440835) valid
+[37h] 5 collinear points: AUTO vol=4000.000000000 f=6 e=12 | POLY vol=4000.000000000 f=6 e=12
+[37e] 64 seg x 32 spans: f=66 vol=6774.943168 (analytic 6774.942852) valid
+[37e] 64 seg x 64 spans: f=66 vol=6774.943032 (analytic 6774.942852) valid
+[38] straight +Z, orientation 1: vol=4000.000000000 f=6 valid (analytic 4000)
+[38] arc  2 spans, orientation 1, POLY: vol=6000.000000000 valid (analytic 6000; v23 gave 7448 / 8981 / 16429, all INVALID)
+[38] arc  4 spans, orientation 1, POLY: vol=6000.000000000 valid (analytic 6000; v23 gave 7448 / 8981 / 16429, all INVALID)
+[38] arc 16 spans, orientation 1, POLY: vol=6000.000000000 valid (analytic 6000; v23 gave 7448 / 8981 / 16429, all INVALID)
+[38] arc  2 spans, orientation 1, AUTO: vol=6000.000000000 valid (analytic 6000; v23 gave 7448 / 8981 / 16429, all INVALID)
+[38] arc  4 spans, orientation 1, AUTO: vol=6000.000000000 valid (analytic 6000; v23 gave 7448 / 8981 / 16429, all INVALID)
+[38] arc 16 spans, orientation 1, AUTO: vol=6000.000000000 valid (analytic 6000; v23 gave 7448 / 8981 / 16429, all INVALID)
+[39a] 2 holes, straight: vol=3913.343961950 (analytic 3913.343961950) valid
+[39a] 3 holes, straight: vol=3935.705927447 (analytic 3935.705927447) valid
+[39a] 3 holes, tilted arc: vol=5903.558891165 outer-holes=5903.558891165 (+7.549e-15) valid
+[39b] tapered tube, straight: vol=3656.315817683 (analytic 3656.315817683) valid
+[39b] tapered tube, tilted arc, POLY: vol=8265.696519537 cut(outer,hole)=8265.696519537 (+0.000e+00, EXACT) tube INVALID / unholed INVALID
+[39b] tapered tube, tilted arc, SMOOTH: vol=5484.032418099 cut(outer,hole)=5484.032418099 (+1.658e-16) tube valid / unholed valid
+[39g] assembled vs boolean, POLY: vol=5031.442236788 vs 5031.442236788 (+3.615e-16) f=386 vs 386 valid
+[39g] assembled vs boolean, SMOOTH: vol=5031.037365496 vs 5031.037365496 (+1.808e-16) f=50 vs 50 valid
+[39c] hole poking outside, orientation 0: vol=6239.885825828  cut(outer,hole)=6239.885825828 (+0.000e+00) valid
+[39c] hole poking outside, orientation 1: vol=6250.977383979  cut(outer,hole)=6250.977383979 (+1.455e-16) valid
+[39d] two OVERLAPPING holes: vol=3548.350261969 cut(cut(outer,h1),h2)=3548.350261969 (+0.000e+00) valid
+[39e] holed coil: vol=5562.133035056 outer-hole=5562.133035056 (-8.176e-16) f=50 valid
+[39h] TRUE circle r=5 with a 24-gon r=1 hole: vol=3017.359511941 (analytic 3017.359511941, -3.01e-16) valid
+[39h] hole STRADDLING an arc wall: vol=3121.926488718 cut(outer,hole)=3121.926488718 (-2.301e-14)  outer-hole=3101.592653590 valid
+[39f] 1200 seg x 16 spans, HOLED: f=2402 vol=5089.335272 (analytic 5089.356844) valid — v26 FAILED here after 490 s
+[40a] Rodrigues residual: orthonormality 4.163e-17, |det-1| 0.000e+00 (guard is 1e-9)
+[40a] round trip bbox [-0.000000100 -0.000000100 -0.000000100]-[10.000000100 20.000000100 30.000000100] (occt_bbox carries the shape tolerance, ~1e-7, as a gap)
+[40b] oblique-axis revolve 838.805239 (Pappus 838.805239)
+[40b] reversed-axis revolve 838.805239 (want 838.805239)
+[40c] holed oblique revolve 3267.256360 (Pappus 3267.256360)
+[40d] ccw vol 2521.2203 z[-0.9968,50.9969] | cw vol 2521.2203 z[-0.9968,50.9969] (rise asked for: 50)
+[40d] azimuth-90 ray: ccw 10 hits, cw 10 hits
+[40d]   pass 0: ccw z 2.5000 (want 2.5) | cw z 7.5000 (want 7.5)
+[40d]   pass 1: ccw z 12.5000 (want 12.5) | cw z 17.5000 (want 17.5)
+[40d]   pass 2: ccw z 22.5000 (want 22.5) | cw z 27.5000 (want 27.5)
+[40d]   pass 3: ccw z 32.5000 (want 32.5) | cw z 37.5000 (want 37.5)
+[40d]   pass 4: ccw z 42.5000 (want 42.5) | cw z 47.5000 (want 47.5)
+[40e] coil equivariance: +Z 2521.220250105, oblique 2521.220250105, rel diff 6.674e-15
+[40f] oblique mirror fuse volume 12000.000000 (two DISJOINT halves of 6000 — see the overlapping pair below for the test with teeth)
+[40f] overlapping oblique mirror: fuse 10530.000000 (want 10530), cut 4530.000000 (want 4530)
+[40g] boolean equivariance: 7280.000000000 vs 7280.000000000, rel diff 1.249e-16
+[40h] rotated-frame loft 2500.000000000 (want 2500)
+[40h] tilted-section loft 2595.625848 (bracket 2157.979857 .. 2842.020143)
+[40i] oblique move volume 10000.000000 (perpendicular move gives 10000 too), valid=1, x-max 20.0000, ray x=2 hits=2 0.0000 25.0000 (the moved plane says 25; the old leaning prism said 22 and reached x = 25)
+[40i]   x=2: oblique exits 25.000000, perpendicular exits 25.000000
+[40i]   x=18: oblique exits 25.000000, perpendicular exits 25.000000
+[40i] continuity: (5,0,0) vol 8000.000000 x-max 20.0000 | (5,0,0.001) vol 8000.400000 x-max 20.0000
+[40j] wedge volume 7794.228634 (want 7794.228634), 60-degree edge index 1
+[40j] theta=60 edge (bound 120): mode2 alpha=80 -> built | alpha=100 -> built | alpha=110 -> built | alpha=125 -> refused | mode1 (d1=2, d2=5.758770) -> built
+[40j] mode1 removed 99.744831 (analytic 99.744831)
+[40j] mode2 alpha=100 removed 99.744831 — the same chamfer, the spelling that used to be REFUSED
+[40j] mode2 alpha=110 removed 187.458963 (analytic 187.458963)
+[40k] 135-degree edges on the chamfered cube: 2
+[40k] 135-degree fillet removed 1.721158454 (analytic 1.721158454)
+[40l] wedge extents 4/2 (2.0000 4.0000 20.0000) vs 2/4 (4.0000 2.0000 20.0000)
+[41a] theta=135 edge (bound 45): mode2 alpha=30 -> built | alpha=60 -> refused (occt_chamfer_edges: chamfer angle must be in (0, 45) deg on this edge: its faces meet at 135 deg, and the chamfer degenerates when the angle reaches 180 minus that)
+[41a] alpha=30 removed 54.641016 (analytic 54.641016, d2 = 3.863703)
+[41b] theta=90 alpha=45: d2 = 2.000000000 (want 2.000000000)
+[41b] theta=60 alpha=100: d2 = 5.758770483 (want 5.758770483)
+[41b] theta=135 alpha=30: d2 = 3.863703305 (want 3.863703305)
+[41c] theta=90 edge (bound 90): alpha=45 -> built | alpha=80 (d2=11.3426) -> built | alpha=85 (d2=22.8601) -> refused | alpha=90 -> refused
+[41c] alpha=45 removed 40.000000 (analytic 40)
+[42] tangent cut volume 14005.220050 (removed 508.938010, want 508.938010) faces 7 solids 1
+[42b] clearing cut removed 508.938010 (want 508.938010)
+[43] converted 11328 triangles -> 69 faces, volume 11708.151 (the ellipsoid itself is 11728.613)
+[43] 9 of 9 holes came back a valid solid and 9 of 9 took only what the drill holds; the body is now still valid at volume 11708.151 (was 11708.151)
+[32;1m
+*******************************************************************
+******        Statistics on Transfer (Write)                 ******[0m
+[32;1m
+*******************************************************************
+******        Transfer Mode = 0  I.E.  As Is       ******[0m
+[32;1m******        Transferring Shape, ShapeType = 3                      ******[0m
+[32;1m** WorkSession : Sending all data[0m
+[32;1m Step File Name : /tmp/prototype-occt-m352.step(18859 ents)  Write  Done[0m
+[43] the file declares an uncertainty of 0.722871 mm (the body's faces meet to about 0.69)
+[43] reopened from STEP: valid, volume 11708.152 (was 11708.151); cutting it again: valid
+OCCT SMOKE: PASS
