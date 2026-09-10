@@ -2055,7 +2055,7 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  /// M422 — true when the document file on disk is not the one this device
+  /// M424 — true when the document file on disk is not the one this device
   /// staged or last wrote: the shape of a sync landing a newer version from
   /// another device while this one sat open, un-edited, in a tab. A part or
   /// sketch that is open is never reloaded (see [_adoptSynced]), so nothing
@@ -4327,7 +4327,7 @@ class AppState extends ChangeNotifier {
     final p = parts[name];
     if (p == null || _docsDir == null) return false;
     _ensureStaged(name);
-    // M422 — nothing changed here, and the file on disk is not the one this
+    // M424 — nothing changed here, and the file on disk is not the one this
     // device staged: a sync brought in a newer version from another device
     // while this part sat open (an open document is never reloaded — see
     // [_adoptSynced]). Packing the stale staged copy back now would silently
@@ -20087,7 +20087,7 @@ class AppState extends ChangeNotifier {
     final s = sketches[name];
     if (s == null || _docsDir == null) return false;
     _ensureStaged(name);
-    // M422 — same guard as [_savePartInner]: nothing changed here, and a
+    // M424 — same guard as [_savePartInner]: nothing changed here, and a
     // sync brought in a newer version of this sketch while it sat open.
     // Nothing of this device's is waiting to be saved, so don't overwrite it.
     if (!s.dirty && _diskChangedSinceStaged(name)) {

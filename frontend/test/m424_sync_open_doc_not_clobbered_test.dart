@@ -1,4 +1,4 @@
-// M422 — "the sync clearly doesn't work, I just synced and still have an
+// M424 — "the sync clearly doesn't work, I just synced and still have an
 // old version" (issue #44).
 //
 // The bug report's own log has the shape exactly: a part was OPEN on the
@@ -29,7 +29,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/app_state.dart';
 import 'package:prototype/display_mode.dart';
 
-Directory _scratch() => Directory.systemTemp.createTempSync('m422');
+Directory _scratch() => Directory.systemTemp.createTempSync('m424');
 
 AppState _app(Directory docs) => AppState()
   ..docsDirForTest = docs
