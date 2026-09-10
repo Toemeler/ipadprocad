@@ -29,6 +29,7 @@ import 'platform/app_dirs.dart';
 import 'cycles_warmup.dart';
 import 'ffi/cycles_engine.dart';
 import 'log.dart';
+import 'render_engine.dart' show realtimeEngineName;
 import 'materials.dart' show materialIds;
 
 /// The directory Cycles is given as its resource root, or null where the app
@@ -88,7 +89,17 @@ void initCycles() {
   _ready = false;
   final ffi = CyclesFfi.instance;
   if (ffi == null) {
-    Log.i('cycles', 'no renderer in this build; rendered mode stays RealityKit');
+    // NAMED, not assumed. This line said "stays RealityKit" on every platform,
+    // and RealityKit does not exist on two of the three the app ships on — so
+    // a Linux or Windows log answered "what draws rendered mode here?" with a
+    // renderer that is not in the build. That is #36's mistake in the log
+    // instead of the picker, and it misleads exactly the person reading a
+    // desktop report to find out why a render did nothing.
+    //
+    // `realtimeEngineName` is the same question the viewport and the picker
+    // ask, so all three keep one answer.
+    final falls = realtimeEngineName() ?? 'the CPU painter';
+    Log.i('cycles', 'no renderer in this build; rendered mode stays $falls');
     return;
   }
   final root = cyclesResourceRoot();

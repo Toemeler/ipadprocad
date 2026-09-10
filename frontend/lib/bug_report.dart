@@ -304,6 +304,10 @@ Map<String, String> buildBundle({
   String? gestureText,
   String? realityText,
   bool hasScreenshot = false,
+  /// True where the shaded viewport is a native platform view composited
+  /// outside Flutter — iOS and nowhere else. It decides what the contents page
+  /// says `reality.txt` IS, which is what sends a reader to the right file.
+  bool bodyIsPlatformView = false,
   bool screenshotOmits3D = false,
   bool screenshotIsLayerTree = false,
 }) {
@@ -377,9 +381,21 @@ Map<String, String> buildBundle({
   }
   if (realityText != null) {
     files['reality.txt'] = realityText;
-    contents.add('`reality.txt` — what Dart last handed the native renderer. '
-        'The 3D body is drawn by RealityKit behind a platform view, so this '
-        'is the last thing visible from this side of that boundary');
+    // The SAME sentence went into every report, and half of it is only true on
+    // iOS. On a desktop the shaded body is drawn by flutter_scene INSIDE
+    // Flutter — it is in the screenshot, and there is no platform-view
+    // boundary for this file to be the far side of. A reader told otherwise
+    // goes looking in reality.txt for a body that is in the picture, and the
+    // maintainer protocol's "the 3D body is NEVER in the screenshot" is built
+    // on this line. `screenshotOmits3D` already asks the same question one
+    // field along; this one just never did.
+    contents.add(bodyIsPlatformView
+        ? '`reality.txt` — what Dart last handed the native renderer. '
+            'The 3D body is drawn by RealityKit behind a platform view, so '
+            'this is the last thing visible from this side of that boundary'
+        : '`reality.txt` — what Dart last handed the renderer. The shaded '
+            'body is drawn by flutter_scene INSIDE Flutter here, so it is in '
+            '`screenshot.png` too; this is the scene it was drawn from');
   }
   if (hasScreenshot) {
     contents.add('`screenshot.png` — what was on screen.'

@@ -352,6 +352,7 @@ Future<BugCaptureResult> captureBugReport(
       // grab shows the screen, so saying otherwise beside it would send the
       // reader looking for a missing body that is right there in the picture.
       //
+      bodyIsPlatformView: Platform.isIOS,
       screenshotOmits3D: Platform.isIOS && !nativeScreenshot,
       // M406 — and the OTHER caveat, which is about the CAPTURE rather than
       // about one platform: wherever the fallback ran, the picture is
