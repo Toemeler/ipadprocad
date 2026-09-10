@@ -135,6 +135,7 @@ class SettingsSheet {
             ? null
             : formatShareCode(ShareCodes.current.value!),
         syncDetail: _syncDetail(),
+        syncPeer: ShareCodes.peer.value,
         // M420/M421 — both are counts the sheet reads live, so switching a
         // document back updates the row without the sheet being reopened.
         syncLocalChanges: LanSync.instance.divergentDocuments.length,
@@ -432,6 +433,7 @@ class _FallbackDialogState extends State<_FallbackDialog> {
           ? null
           : formatShareCode(ShareCodes.current.value!),
       syncDetail: SettingsSheet._syncDetail(),
+      syncPeer: ShareCodes.peer.value,
     );
     return AlertDialog(
       backgroundColor: T.panel,
@@ -493,7 +495,8 @@ class _FallbackDialogState extends State<_FallbackDialog> {
                     // when tapped. The native sheet decides that for itself;
                     // here it has to be said.
                     onTap: (r.kind == SettingsRowKind.value &&
-                            r.id != kRowShareCode)
+                            r.id != kRowShareCode &&
+                            r.id != kRowSyncPeer)
                         ? null
                         : () => _tap(s.id, r.id),
                   ),
@@ -612,6 +615,24 @@ Future<void> applySyncRow(BuildContext context, String row) async {
           // nothing to type, and making it type what the app just invented
           // would be a form for the sake of symmetry.
           await ShareCodes.set(normaliseShareCode(generateShareCode()));
+        case kRowSyncPeer:
+          final t = L.current;
+          final entered = await promptForText(
+            context,
+            title: t.syncPeerPromptTitle,
+            message: t.syncPeerPromptBody,
+            initialValue: ShareCodes.peer.value ?? '',
+            placeholder: t.syncPeerPromptPlaceholder,
+            confirmLabel: t.ok,
+            // An EMPTY field is how the address is removed, so it has to pass
+            // the validator — which is why this asks "is it blank OR an
+            // address" rather than "is it an address".
+            validate: (v) => v.trim().isEmpty || parseSyncAddress(v) != null
+                ? null
+                : t.syncBadPeer,
+          );
+          if (entered == null) break;
+          await ShareCodes.setPeer(entered.trim().isEmpty ? null : entered);
         case kRowStopSharing:
           final t = L.current;
           final sure = await confirmAction(

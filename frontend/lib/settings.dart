@@ -208,6 +208,10 @@ const String kRowStopSharing = 'stopsharing';
 /// The read-only line: looking / N devices / off.
 const String kRowSyncStatus = 'syncstatus';
 
+/// M423 — the address of a device to dial rather than look for: the way to
+/// use the mirror between two networks. See `LanSync.manualPeer`.
+const String kRowSyncPeer = 'syncpeer';
+
 /// M420 — give up this device's own changes and take the group's versions.
 /// Destructive, and in SETTINGS rather than in the gallery header: beside the
 /// "+" it would be mis-tapped by somebody reaching for a new document.
@@ -312,6 +316,9 @@ List<SettingsSection> buildSettings(
   int syncLocalChanges = 0,
   /// M421 — how many replaced or removed versions are still in the drawer.
   int syncBackups = 0,
+  /// M423 — the address this device dials by hand, or null when it only ever
+  /// looks for devices on its own network.
+  String? syncPeer,
 }) =>
     [
       SettingsSection(
@@ -507,6 +514,16 @@ List<SettingsSection> buildSettings(
               detail: syncDetail,
               kind: SettingsRowKind.value,
               symbol: 'antenna.radiowaves.left.and.right',
+            ),
+            // M423 — under the status row, because it is the answer to what
+            // that row says when it says "looking" for ever: the other device
+            // is somewhere this one cannot shout.
+            SettingsRow(
+              id: kRowSyncPeer,
+              title: t.settingsSyncPeer,
+              detail: syncPeer ?? t.settingsSyncPeerNone,
+              kind: SettingsRowKind.value,
+              symbol: 'point.3.connected.trianglepath.dotted',
             ),
             SettingsRow(
               id: kRowDiscardChanges,

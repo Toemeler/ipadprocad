@@ -26,15 +26,21 @@ class SyncStore {
 
   File get file => File('${dir.path}/$fileName');
 
+  /// The `sync` section of the file, or null when there is none to read.
+  Map<Object?, Object?>? _section() {
+    final f = file;
+    if (!f.existsSync()) return null;
+    final raw = jsonDecode(f.readAsStringSync());
+    if (raw is! Map) return null;
+    final s = raw[key];
+    return s is Map ? s : null;
+  }
+
   /// The remembered code, or null if this device is not sharing.
   String? load() {
     try {
-      final f = file;
-      if (!f.existsSync()) return null;
-      final raw = jsonDecode(f.readAsStringSync());
-      if (raw is! Map) return null;
-      final s = raw[key];
-      if (s is! Map) return null;
+      final s = _section();
+      if (s == null) return null;
       final code = s['code'];
       if (code is! String) return null;
       // Validated on the way out as well as in: a hand-edited file, or one
@@ -47,7 +53,37 @@ class SyncStore {
     }
   }
 
-  void save(String? canonical) {
+  void save(String? canonical) => _write('code', canonical);
+
+  /// M423 — the address this device dials by hand, or null. See
+  /// [LanSync.manualPeer]; it lives here rather than in its own file because
+  /// it is the same kind of thing as the code — about THIS install, never
+  /// mirrored — and [LanSync._localOnlyPrefs] already keeps the whole `sync`
+  /// section from travelling.
+  String? loadPeer() {
+    try {
+      final s = _section();
+      if (s == null) return null;
+      final peer = s['peer'];
+      if (peer is! String || peer.trim().isEmpty) return null;
+      return peer.trim();
+    } catch (e) {
+      Log.w('sync', 'could not read the peer address: $e');
+      return null;
+    }
+  }
+
+  void savePeer(String? address) => _write('peer', address);
+
+  /// Merges one field of the `sync` section, leaving the rest of the file —
+  /// and the rest of the section — exactly as it was.
+  ///
+  /// THE SECTION IS MERGED INTO rather than replaced, which is the same rule
+  /// the file itself follows and now matters twice: turning sharing off must
+  /// not silently forget the address somebody typed, or turning it back on
+  /// would strand them looking at a status row that says "looking" for a
+  /// reason nothing on the screen explains.
+  void _write(String field, String? value) {
     try {
       if (!dir.existsSync()) dir.createSync(recursive: true);
       Map<String, Object?> data = <String, Object?>{};
@@ -60,14 +96,24 @@ class SyncStore {
           };
         }
       }
-      if (canonical == null) {
+      final was = data[key];
+      final section = <String, Object?>{
+        if (was is Map)
+          for (final e in was.entries) '${e.key}': e.value,
+      };
+      if (value == null) {
+        section.remove(field);
+      } else {
+        section[field] = value;
+      }
+      if (section.isEmpty) {
         data.remove(key);
       } else {
-        data[key] = <String, Object?>{'code': canonical};
+        data[key] = section;
       }
       f.writeAsStringSync(jsonEncode(data));
     } catch (e) {
-      Log.w('sync', 'could not remember the share code: $e');
+      Log.w('sync', 'could not remember the $field: $e');
     }
   }
 }
@@ -83,6 +129,10 @@ class ShareCodes {
   /// The canonical code, or null when this device is not sharing.
   static final ValueNotifier<String?> current = ValueNotifier<String?>(null);
 
+  /// M423 — the address this device dials by hand, or null. Watched by the
+  /// settings sheet exactly like [current].
+  static final ValueNotifier<String?> peer = ValueNotifier<String?>(null);
+
   static SyncStore? _store;
 
   /// Point the setting at a file, adopt what it remembers, and START the
@@ -90,6 +140,15 @@ class ShareCodes {
   /// path, like the other preference stores.
   static void attachStore(SyncStore store) {
     _store = store;
+    // THE ADDRESS IS ADOPTED FIRST, and the order is not cosmetic: the mirror
+    // dials it as part of coming up, and setting it afterwards would leave it
+    // waiting for the next sweep for no reason.
+    final address = store.loadPeer();
+    if (address != null) {
+      peer.value = address;
+      LanSync.instance.setManualPeer(address).catchError((Object e) =>
+          Log.w('sync', 'could not use the saved address: $e'));
+    }
     final saved = store.load();
     if (saved != null) {
       current.value = saved;
@@ -107,10 +166,21 @@ class ShareCodes {
     await LanSync.instance.setCode(canonical);
   }
 
+  /// Sets (or clears) the address this device dials by hand.
+  static Future<void> setPeer(String? address) async {
+    final next =
+        (address == null || address.trim().isEmpty) ? null : address.trim();
+    if (next == peer.value) return;
+    peer.value = next;
+    _store?.savePeer(next);
+    await LanSync.instance.setManualPeer(next);
+  }
+
   @visibleForTesting
   static void resetForTest() {
     _store = null;
     current.value = null;
+    peer.value = null;
   }
 }
 

@@ -370,8 +370,44 @@ abstract class AppL10n {
   /// Fußnote des Teilen-Abschnitts.
   ///
   /// In de, this message translates to:
-  /// **'Geräte im selben Netzwerk mit demselben Code halten dieselben Dokumente und Einstellungen. Ein Dokument, das Sie auf einem Gerät anlegen, ändern oder löschen, wird es auf allen. Nichts verlässt Ihr Netzwerk, und es gibt kein Konto. Die Verbindung ist nicht verschlüsselt — nutzen Sie sie in einem Netzwerk, dem Sie vertrauen.'**
+  /// **'Geräte im selben Netzwerk mit demselben Code halten dieselben Dokumente und Einstellungen. Ein Dokument, das Sie auf einem Gerät anlegen, ändern oder löschen, wird es auf allen. Ein Gerät in einem anderen Netzwerk erreichen Sie über „Gerät per Adresse“. Es gibt kein Konto und keinen Server. Die Verbindung selbst ist nicht verschlüsselt — nutzen Sie sie in einem Netzwerk, dem Sie vertrauen, oder über einen Tunnel wie Tailscale, der das übernimmt.'**
   String get settingsSyncFooter;
+
+  /// Zeile: das per Adresse gewählte Gerät.
+  ///
+  /// In de, this message translates to:
+  /// **'Gerät per Adresse'**
+  String get settingsSyncPeer;
+
+  /// Detail dieser Zeile, wenn keine Adresse gesetzt ist.
+  ///
+  /// In de, this message translates to:
+  /// **'keine'**
+  String get settingsSyncPeerNone;
+
+  /// Titel des Adress-Dialogs.
+  ///
+  /// In de, this message translates to:
+  /// **'Gerät per Adresse'**
+  String get syncPeerPromptTitle;
+
+  /// Text des Adress-Dialogs.
+  ///
+  /// In de, this message translates to:
+  /// **'Die Adresse Ihres anderen Geräts — für den Fall, dass die beiden sich nicht selbst finden, weil sie in verschiedenen Netzwerken sind. Hängen Sie beide in dasselbe Overlay-Netz (etwa Tailscale) und tragen Sie hier die Adresse des anderen ein. Leer lassen entfernt sie wieder.'**
+  String get syncPeerPromptBody;
+
+  /// Platzhalter im Adressfeld.
+  ///
+  /// In de, this message translates to:
+  /// **'100.64.0.2'**
+  String get syncPeerPromptPlaceholder;
+
+  /// Fehlermeldung im Adress-Dialog.
+  ///
+  /// In de, this message translates to:
+  /// **'Das ist keine Adresse. Erwartet wird ein Name oder eine IP, wahlweise gefolgt von :Port.'**
+  String get syncBadPeer;
 
   /// Titel des Code-Dialogs.
   ///

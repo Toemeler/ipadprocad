@@ -158,7 +158,27 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get settingsSyncFooter =>
-      'Devices on the same network that use the same code keep the same documents and settings. Adding, changing or deleting a document on one device does the same on all of them. Nothing leaves your network and there is no account. The connection is not encrypted, so use it on a network you trust.';
+      'Devices on the same network that use the same code keep the same documents and settings. Adding, changing or deleting a document on one device does the same on all of them. A device on another network is reached with “Device by Address”. There is no account and no server. The connection itself is not encrypted, so use it on a network you trust, or over a tunnel such as Tailscale, which does that for you.';
+
+  @override
+  String get settingsSyncPeer => 'Device by Address';
+
+  @override
+  String get settingsSyncPeerNone => 'None';
+
+  @override
+  String get syncPeerPromptTitle => 'Device by Address';
+
+  @override
+  String get syncPeerPromptBody =>
+      'The address of your other device, for when the two cannot find each other because they are on different networks. Put both on one overlay network (Tailscale, for example) and type the other one\'s address here. Leaving it empty removes it.';
+
+  @override
+  String get syncPeerPromptPlaceholder => '100.64.0.2';
+
+  @override
+  String get syncBadPeer =>
+      'That is not an address. It is a name or an IP, optionally followed by :port.';
 
   @override
   String get syncPromptTitle => 'Share Code';

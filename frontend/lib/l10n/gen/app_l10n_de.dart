@@ -159,7 +159,27 @@ class AppL10nDe extends AppL10n {
 
   @override
   String get settingsSyncFooter =>
-      'Geräte im selben Netzwerk mit demselben Code halten dieselben Dokumente und Einstellungen. Ein Dokument, das Sie auf einem Gerät anlegen, ändern oder löschen, wird es auf allen. Nichts verlässt Ihr Netzwerk, und es gibt kein Konto. Die Verbindung ist nicht verschlüsselt — nutzen Sie sie in einem Netzwerk, dem Sie vertrauen.';
+      'Geräte im selben Netzwerk mit demselben Code halten dieselben Dokumente und Einstellungen. Ein Dokument, das Sie auf einem Gerät anlegen, ändern oder löschen, wird es auf allen. Ein Gerät in einem anderen Netzwerk erreichen Sie über „Gerät per Adresse“. Es gibt kein Konto und keinen Server. Die Verbindung selbst ist nicht verschlüsselt — nutzen Sie sie in einem Netzwerk, dem Sie vertrauen, oder über einen Tunnel wie Tailscale, der das übernimmt.';
+
+  @override
+  String get settingsSyncPeer => 'Gerät per Adresse';
+
+  @override
+  String get settingsSyncPeerNone => 'keine';
+
+  @override
+  String get syncPeerPromptTitle => 'Gerät per Adresse';
+
+  @override
+  String get syncPeerPromptBody =>
+      'Die Adresse Ihres anderen Geräts — für den Fall, dass die beiden sich nicht selbst finden, weil sie in verschiedenen Netzwerken sind. Hängen Sie beide in dasselbe Overlay-Netz (etwa Tailscale) und tragen Sie hier die Adresse des anderen ein. Leer lassen entfernt sie wieder.';
+
+  @override
+  String get syncPeerPromptPlaceholder => '100.64.0.2';
+
+  @override
+  String get syncBadPeer =>
+      'Das ist keine Adresse. Erwartet wird ein Name oder eine IP, wahlweise gefolgt von :Port.';
 
   @override
   String get syncPromptTitle => 'Freigabecode';

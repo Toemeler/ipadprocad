@@ -193,9 +193,33 @@
       }
     }
   },
-  "settingsSyncFooter": "Geräte im selben Netzwerk mit demselben Code halten dieselben Dokumente und Einstellungen. Ein Dokument, das Sie auf einem Gerät anlegen, ändern oder löschen, wird es auf allen. Nichts verlässt Ihr Netzwerk, und es gibt kein Konto. Die Verbindung ist nicht verschlüsselt — nutzen Sie sie in einem Netzwerk, dem Sie vertrauen.",
+  "settingsSyncFooter": "Geräte im selben Netzwerk mit demselben Code halten dieselben Dokumente und Einstellungen. Ein Dokument, das Sie auf einem Gerät anlegen, ändern oder löschen, wird es auf allen. Ein Gerät in einem anderen Netzwerk erreichen Sie über „Gerät per Adresse“. Es gibt kein Konto und keinen Server. Die Verbindung selbst ist nicht verschlüsselt — nutzen Sie sie in einem Netzwerk, dem Sie vertrauen, oder über einen Tunnel wie Tailscale, der das übernimmt.",
   "@settingsSyncFooter": {
     "description": "Fußnote des Teilen-Abschnitts."
+  },
+  "settingsSyncPeer": "Gerät per Adresse",
+  "@settingsSyncPeer": {
+    "description": "Zeile: das per Adresse gewählte Gerät."
+  },
+  "settingsSyncPeerNone": "keine",
+  "@settingsSyncPeerNone": {
+    "description": "Detail dieser Zeile, wenn keine Adresse gesetzt ist."
+  },
+  "syncPeerPromptTitle": "Gerät per Adresse",
+  "@syncPeerPromptTitle": {
+    "description": "Titel des Adress-Dialogs."
+  },
+  "syncPeerPromptBody": "Die Adresse Ihres anderen Geräts — für den Fall, dass die beiden sich nicht selbst finden, weil sie in verschiedenen Netzwerken sind. Hängen Sie beide in dasselbe Overlay-Netz (etwa Tailscale) und tragen Sie hier die Adresse des anderen ein. Leer lassen entfernt sie wieder.",
+  "@syncPeerPromptBody": {
+    "description": "Text des Adress-Dialogs."
+  },
+  "syncPeerPromptPlaceholder": "100.64.0.2",
+  "@syncPeerPromptPlaceholder": {
+    "description": "Platzhalter im Adressfeld."
+  },
+  "syncBadPeer": "Das ist keine Adresse. Erwartet wird ein Name oder eine IP, wahlweise gefolgt von :Port.",
+  "@syncBadPeer": {
+    "description": "Fehlermeldung im Adress-Dialog."
   },
   "syncPromptTitle": "Freigabecode",
   "@syncPromptTitle": {

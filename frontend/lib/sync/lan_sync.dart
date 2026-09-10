@@ -78,18 +78,41 @@ class SyncEntry {
   final int mtimeMs;
   final String sha;
 
-  const SyncEntry(this.path, this.size, this.mtimeMs, this.sha);
+  /// M423 — THE SENDER'S OWN BASE VERSION for this path, when it is telling.
+  ///
+  /// Only ever set on an entry that is travelling: this device fills it in
+  /// from [LanSync._base] on the way out and reads the peer's out of the
+  /// wire. It is what lets the two sides notice that they do not even AGREE
+  /// on what they last agreed on — see [LanSync.verdictFor], where a base
+  /// that differs from ours is the difference between a divergence and a
+  /// mirror that swaps two versions back and forth for ever.
+  ///
+  /// Null from a peer too old to send it, and on every entry this device
+  /// merely holds. Both fall back to the rule as it was.
+  final String? base;
 
-  Map<String, Object?> toJson() =>
-      {'p': path, 's': size, 'm': mtimeMs, 'h': sha};
+  const SyncEntry(this.path, this.size, this.mtimeMs, this.sha, {this.base});
+
+  /// The same entry as it goes out to a peer, carrying [b].
+  SyncEntry withBase(String? b) => SyncEntry(path, size, mtimeMs, sha, base: b);
+
+  Map<String, Object?> toJson() => {
+        'p': path,
+        's': size,
+        'm': mtimeMs,
+        'h': sha,
+        if (base != null) 'b': base,
+      };
 
   static SyncEntry? fromJson(Object? o) {
     if (o is! Map) return null;
     final p = o['p'];
     final h = o['h'];
     if (p is! String || p.isEmpty || h is! String) return null;
+    final b = o['b'];
     return SyncEntry(p, (o['s'] as num?)?.toInt() ?? 0,
-        (o['m'] as num?)?.toInt() ?? 0, h);
+        (o['m'] as num?)?.toInt() ?? 0, h,
+        base: b is String && b.isNotEmpty ? b : null);
   }
 }
 
@@ -378,6 +401,39 @@ class LanSync {
   /// once rather than on every sweep that finds the same asymmetry.
   final Set<String> _reverseDialled = <String>{};
 
+  /// M423 — ONE PEER THIS DEVICE DIALS BY ADDRESS instead of finding.
+  ///
+  /// Discovery is a broadcast and an mDNS query, and both stop at the edge of
+  /// the network: two devices that cannot hear each other never pair, however
+  /// well they could talk if they were introduced. That is every pair on
+  /// different networks — the iPad on a phone connection, the PC at home —
+  /// and until now the answer was "it is a LAN mirror, that is not what it
+  /// does".
+  ///
+  /// It is what it does now, and the whole of the change is this address: put
+  /// both devices on one overlay network (Tailscale, ZeroTier, a VPN, a port
+  /// forward if you must), type the other one's address here, and the mirror
+  /// runs over that instead. Nothing else moves — the same handshake, the
+  /// same frames, the same conflict rule. WHAT THE OVERLAY ADDS is the part
+  /// [lan_sync.dart]'s header comment says this does not have: on Tailscale
+  /// or any WireGuard tunnel the bytes are encrypted end to end, which is the
+  /// difference between "use it on a network you trust" and "use it".
+  ///
+  /// Deliberately ONE address and not a list. The case is "my other device",
+  /// and a list is a management screen for a feature whose whole job is to be
+  /// a way in when discovery cannot find the one device you own.
+  String? _manualPeer;
+
+  /// The connection to [_manualPeer], live or still being made.
+  _SyncSession? _manualSlot;
+
+  /// The earliest moment the address may be dialled again.
+  DateTime? _manualNext;
+
+  /// False once a dial has failed, so an address that is simply not answering
+  /// yet says so once rather than every quarter of a minute for an hour.
+  bool _manualQuiet = false;
+
   /// Content hashes, by mirror path, trusted only while the file's size and
   /// modification time are what they were when it was hashed. See [_entryFor]
   /// — this is what makes a one-second poll cost a `stat` per document
@@ -423,6 +479,30 @@ class LanSync {
   /// reason: it has to survive a restart, and it is about THIS device's
   /// relationship with the group, so it is never mirrored.
   Map<String, String> _base = <String, String>{};
+
+  /// M423 — VERSIONS THIS DEVICE HAS ALREADY REPLACED, by path, with the
+  /// moment it replaced them.
+  ///
+  /// The net under [verdictFor], and it catches the case the base version
+  /// cannot: a peer too old to send its own base, or any other route into the
+  /// same shape. Two devices that apply each other's version at the same
+  /// moment end up HOLDING EACH OTHER'S — and from there the three-sha rule
+  /// reads each side as "only they moved on", so they swap, and swap back,
+  /// for as long as both are running. That is issue #45: the same two
+  /// versions of one document, alternating every few seconds, with the person
+  /// looking at whichever one lost the last round.
+  ///
+  /// A version this device has just thrown away is not news coming back. It
+  /// is this device's own past, and taking it again is how the swap keeps its
+  /// rhythm. Kept in memory only, briefly, and per path — long enough to
+  /// break the loop, short enough that somebody deliberately restoring an old
+  /// version an hour later is not argued with.
+  final Map<String, Map<String, DateTime>> _superseded =
+      <String, Map<String, DateTime>>{};
+
+  /// Paths a crossing has already been reported for, so the log says it once
+  /// per document rather than on every manifest that repeats it.
+  final Set<String> _crossingLogged = <String>{};
 
   /// Divergences resolved since the app last cleared them, for the gallery to
   /// tell the user about. Newest last.
@@ -583,6 +663,8 @@ class LanSync {
       _announce =
           Timer.periodic(const Duration(seconds: 2), (_) => _sendBeacon());
       _scan = Timer.periodic(_sweepEvery, (_) => _sweep());
+      _manualNext = null;
+      _dialManual();
       _sendBeacon();
       _publish();
     } catch (e) {
@@ -603,6 +685,9 @@ class LanSync {
     for (final s in _sessions.values.toList()) {
       s.close('sharing off');
     }
+    _manualSlot?.close('sharing off');
+    _manualSlot = null;
+    _manualNext = null;
     _sessions.clear();
     _peers.clear();
     _firstSeen.clear();
@@ -859,6 +944,83 @@ class LanSync {
     unawaited(_dial(peer));
   }
 
+  /// The address this device dials by hand, or null. See [_manualPeer].
+  String? get manualPeer => _manualPeer;
+
+  /// Sets (or clears) that address and acts on it now.
+  Future<void> setManualPeer(String? address) async {
+    final next =
+        (address == null || address.trim().isEmpty) ? null : address.trim();
+    if (next == _manualPeer) return;
+    _manualPeer = next;
+    _manualNext = null;
+    _manualQuiet = false;
+    final slot = _manualSlot;
+    _manualSlot = null;
+    slot?.close('the address changed');
+    if (next != null) {
+      Log.i('sync', 'dialling $next by address');
+      _dialManual();
+    }
+    _publish();
+  }
+
+  /// Dials [_manualPeer] if it is time to. Called from every sweep.
+  ///
+  /// RETRIED FOR EVER, gently. The address names a device that may be asleep,
+  /// off, or on a tunnel that has not come up yet, and the one thing this
+  /// must not do is give up before the person does — "it worked yesterday" is
+  /// the whole reason to type an address rather than rely on discovery.
+  void _dialManual() {
+    final address = _manualPeer;
+    if (address == null || _code == null) return;
+    final slot = _manualSlot;
+    // Connected, or connecting and not yet written off.
+    if (slot != null && (slot.live || !slot.stale)) return;
+    final next = _manualNext;
+    if (next != null && DateTime.now().isBefore(next)) return;
+    _manualNext = DateTime.now().add(_manualRetry);
+    final target = parseSyncAddress(address);
+    if (target == null) {
+      if (!_manualQuiet) {
+        _manualQuiet = true;
+        Log.w('sync', '"$address" is not an address this can dial');
+      }
+      return;
+    }
+    if (slot != null) {
+      _manualSlot = null;
+      slot.close('the handshake never finished');
+    }
+    unawaited(_dialAddress(target));
+  }
+
+  Future<void> _dialAddress(SyncAddress target) async {
+    // The slot is claimed BEFORE the await for the same reason [_dial] claims
+    // one: a sweep two seconds later must not start a second connection to a
+    // machine that is simply slow to answer.
+    final pending = _SyncSession.pending(null);
+    _manualSlot = pending;
+    try {
+      final sock = await Socket.connect(target.host, target.port,
+          timeout: _dialTimeout);
+      if (!identical(_manualSlot, pending)) {
+        sock.destroy(); // the address changed while this was connecting
+        return;
+      }
+      final s = _SyncSession(this, sock, outgoing: true);
+      _manualSlot = s;
+      _manualQuiet = false;
+      s.start();
+    } catch (e) {
+      if (identical(_manualSlot, pending)) _manualSlot = null;
+      if (!_manualQuiet) {
+        _manualQuiet = true;
+        Log.w('sync', 'could not reach ${target.host}:${target.port}: $e');
+      }
+    }
+  }
+
   Future<void> _dial(SyncPeer peer) async {
     if (_sessions.containsKey(peer.id)) return;
     // Claim the slot BEFORE the await, or two beacons a millisecond apart
@@ -916,6 +1078,7 @@ class LanSync {
         _maybeDial(id);
       }
     }
+    _dialManual();
     _publish();
   }
 
@@ -932,6 +1095,11 @@ class LanSync {
   /// How long the lower-id-dials rule is given before it is dropped. See
   /// [_maybeDial] and [shouldDial].
   static const Duration dialGrace = Duration(seconds: 4);
+
+  /// How often the hand-typed address is dialled again while it is not
+  /// answering. Longer than a sweep: it is usually a machine on the other
+  /// side of a tunnel, and there is no beacon to say when it wakes up.
+  static const Duration _manualRetry = Duration(seconds: 15);
 
   /// How long to wait for a TCP connection to a peer that has just announced
   /// itself. It is one hop away; a machine that has not answered in four
@@ -987,6 +1155,13 @@ class LanSync {
       final p = _peers[id];
       if (p != null) _peers[id] = p.withConnected(false);
     }
+    if (identical(_manualSlot, s)) {
+      // Whatever ended it — the peer hung up, the tunnel dropped, [_adopt]
+      // kept the other side's connection instead — the address is free to be
+      // dialled again, after a pause rather than on the next sweep.
+      _manualSlot = null;
+      _manualNext = DateTime.now().add(_manualRetry);
+    }
     _publish();
   }
 
@@ -1034,6 +1209,10 @@ class LanSync {
     for (final s in _sessions.values) {
       if (s.live) s.pingNow();
     }
+    // Coming back to the foreground is exactly when a tunnel has just come up
+    // again, so the address gets its try now rather than at the next sweep.
+    _manualNext = null;
+    _dialManual();
     nudge();
     _publish();
   }
@@ -1495,7 +1674,17 @@ class LanSync {
   ///   L != B, R != B, L != R  BOTH moved on                 -> fork
   ///   B absent, L != R        both invented the same name   -> fork
   ///
-  /// The last two are the cases the old rule could not see. It compared
+  /// M423 adds the two the rule above could not see either, because they are
+  /// about B ITSELF rather than about L and R:
+  ///
+  ///   their B != my B         we never agreed on anything   -> fork
+  ///   no their B, R is one I replaced minutes ago           -> fork
+  ///
+  /// Both are the same situation reached by two roads — two devices that have
+  /// swapped versions rather than converged on one — and forking is what ends
+  /// it. See m423_sync_crossing_test.dart for the report that named it.
+  ///
+  /// The fork cases are the ones the pre-M417 rule could not see. It compared
   /// modification times and let the larger one win, so two people editing the
   /// same document meant one of them lost, silently, decided by whichever
   /// machine's clock happened to run ahead. Nothing here consults a clock.
@@ -1529,13 +1718,94 @@ class LanSync {
       return SyncVerdict.take;
     }
     if (mine == null) return SyncVerdict.take;
+    // Identical bytes are an agreement whatever either side thinks it last
+    // agreed on, and this line is what heals the disagreement below: the pair
+    // that has just been forked holds the same winner a moment later, and
+    // [_noteAgreement] then writes the same base on both devices.
     if (mine.sha == remote.sha) return SyncVerdict.skip;
     final base = _base[remote.path];
+    // M423 — DO THE TWO DEVICES EVEN MEAN THE SAME THING BY "the version we
+    // last agreed on"? Everything below this point assumes they do: the whole
+    // three-sha rule is read against ONE base, and "only they moved on" is
+    // only true if their B and mine are the same bytes.
+    //
+    // They come apart when both devices apply each other's version at the
+    // same moment — a first pair-up where each side asks before either has
+    // answered, which is precisely the shape of a manifest exchange. Each
+    // ends up holding what the other had, and each writes THAT down as the
+    // agreed version. From then on both read the other's offer as news, both
+    // take it, and the same two versions cross the room every few seconds
+    // until somebody closes the app. Nothing is corrupted and nothing is
+    // ever settled; the person just sees the old one about half the time.
+    //
+    // Two bases that disagree are two devices that never agreed. That is the
+    // definition of a divergence, and the mirror already knows what to do
+    // with one — keep both, deterministically, so both sides land on the same
+    // two files and it is OVER.
+    final theirBase = remote.base;
+    if (base != null && theirBase != null && theirBase != base) {
+      _noteCrossing(remote.path, 'the base versions do not match');
+      return SyncVerdict.fork;
+    }
+    // The same conclusion from this side alone, and ONLY for a peer too old
+    // to say what its base is: bytes this device replaced minutes ago are not
+    // an edit arriving, they are its own past coming back.
+    //
+    // Narrowed to that peer on purpose. Where the base IS on the wire the
+    // rule above is exact, and this one is a guess that would be wrong in one
+    // real case: somebody who undoes back to a version byte for byte and
+    // saves it. A modern peer says "my base is still the newer one", which
+    // reads correctly as an edit; only a peer that can say nothing needs to
+    // be second-guessed.
+    if (theirBase == null && _supersededRecently(remote.path, remote.sha)) {
+      _noteCrossing(remote.path, 'this version was already replaced here');
+      return SyncVerdict.fork;
+    }
     if (base == null) return SyncVerdict.fork;
     if (mine.sha == base) return SyncVerdict.take;
     if (remote.sha == base) return SyncVerdict.skip;
     return SyncVerdict.fork;
   }
+
+  /// M423 — remembers that [sha] was this device's copy of [path] until now.
+  void _noteSuperseded(String path, String sha) {
+    final seen = _superseded.putIfAbsent(path, () => <String, DateTime>{});
+    seen[sha] = DateTime.now();
+    while (seen.length > _supersededKeep) {
+      var oldest = seen.entries.first;
+      for (final e in seen.entries) {
+        if (e.value.isBefore(oldest.value)) oldest = e;
+      }
+      seen.remove(oldest.key);
+    }
+  }
+
+  /// Whether [sha] is a version of [path] this device threw away recently.
+  bool _supersededRecently(String path, String sha) {
+    final seen = _superseded[path];
+    final at = seen?[sha];
+    if (at == null) return false;
+    if (DateTime.now().difference(at) > _supersededFor) {
+      seen!.remove(sha);
+      return false;
+    }
+    return true;
+  }
+
+  /// Says once, per document, that the two devices had come apart — the line
+  /// a report like #45 needs in order to be diagnosed from the log alone.
+  void _noteCrossing(String path, String why) {
+    if (!_crossingLogged.add(path)) return;
+    Log.i('sync', '$path changed on two devices at once ($why) — keeping both');
+  }
+
+  /// How long a replaced version stays remembered. Long enough to outlast the
+  /// swap it is there to break, short enough not to argue with a person who
+  /// puts an old version back on purpose.
+  static const Duration _supersededFor = Duration(minutes: 5);
+
+  /// How many replaced versions are remembered per document.
+  static const int _supersededKeep = 4;
 
   /// The paths worth asking a peer for: everything we would either take or
   /// keep a second copy of. Both need the bytes.
@@ -1577,6 +1847,10 @@ class LanSync {
     // rules said this device was simply behind, and the rules do not know
     // that the person wanted what was here.
     backup(e.path, 'replaced');
+    // M423 — what this device is about to stop holding. See [_superseded]:
+    // the same bytes coming back later are its own past, not a peer's edit.
+    final replaced = _mine[e.path];
+    if (replaced != null) _noteSuperseded(e.path, replaced.sha);
     try {
       f.parent.createSync(recursive: true);
       // Written beside and renamed: a mirror that truncates a document and
@@ -1812,8 +2086,20 @@ class LanSync {
   /// it is worth writing down even though nothing moved.
   void _noteAgreement(SyncEntry remote) {
     final mine = _mine[remote.path];
-    if (mine != null && mine.sha == remote.sha) _setBase(remote.path, remote.sha);
+    if (mine == null || mine.sha != remote.sha) return;
+    _setBase(remote.path, remote.sha);
+    // Whatever the two devices had come apart over, they are back together on
+    // this document. A next time is news again.
+    _crossingLogged.remove(remote.path);
   }
+
+  /// M423 — an entry as it goes OUT, carrying this device's base version for
+  /// it. See [SyncEntry.base] and [verdictFor].
+  SyncEntry _outgoing(SyncEntry e) => e.withBase(_base[e.path]);
+
+  /// This device's whole manifest, as it goes on the wire.
+  List<Map<String, Object?>> _manifestJson() =>
+      [for (final e in _scanLocal().values) _outgoing(e).toJson()];
 
   /// This device has just handed [path] to a peer.
   void _noteHandedOver(String path, String sha) {
@@ -2193,6 +2479,9 @@ class LanSync {
   Map<String, SyncEntry> scanForTest() => _scanLocal();
 
   @visibleForTesting
+  List<Map<String, Object?>> manifestJsonForTest() => _manifestJson();
+
+  @visibleForTesting
   bool wantsForTest(SyncEntry e) => _wants(e);
 
   @visibleForTesting
@@ -2240,6 +2529,8 @@ class LanSync {
     // state nothing in it put there.
     _loadBase();
     _hashes.clear();
+    _superseded.clear();
+    _crossingLogged.clear();
     recentForks.value = const <SyncFork>[];
     _mine = _scanLocal();
   }
@@ -2457,7 +2748,7 @@ class _SyncSession {
     // round trip instead of a negotiation.
     _send(SyncFrame({
       't': SyncMsg.manifest,
-      'files': [for (final e in _sync._scanLocal().values) e.toJson()],
+      'files': _sync._manifestJson(),
       'tombs': [for (final t in _sync._tombList) t.toJson()],
     }));
   }
@@ -2491,7 +2782,7 @@ class _SyncSession {
     if (f.header['reply'] == true) {
       _send(SyncFrame({
         't': SyncMsg.manifest,
-        'files': [for (final e in _sync._scanLocal().values) e.toJson()],
+        'files': _sync._manifestJson(),
         'tombs': [for (final t in _sync._tombList) t.toJson()],
       }));
     }
@@ -2530,7 +2821,7 @@ class _SyncSession {
   void requestManifest() {
     _send(SyncFrame({
       't': SyncMsg.manifest,
-      'files': [for (final e in _sync._scanLocal().values) e.toJson()],
+      'files': _sync._manifestJson(),
       'tombs': [for (final t in _sync._tombList) t.toJson()],
       'reply': true,
     }));
@@ -2539,7 +2830,7 @@ class _SyncSession {
   void announce(List<SyncEntry> changed, [List<SyncTomb> gone = const []]) {
     _send(SyncFrame({
       't': SyncMsg.changed,
-      'files': [for (final e in changed) e.toJson()],
+      'files': [for (final e in changed) _sync._outgoing(e).toJson()],
       'tombs': [for (final t in gone) t.toJson()],
     }));
   }
@@ -2551,9 +2842,16 @@ class _SyncSession {
     if (f == null) return;
     final st = f.statSync();
     final sha = sha256.convert(bytes).toString();
+    // The BASE travels with the bytes as well as with the manifest: [_apply]
+    // asks [verdictFor] a second time, at the moment of the write, and it has
+    // to be able to reach the same answer it reached when the manifest
+    // arrived. Without it that second look would see no crossing and take a
+    // file the first look had decided to keep both of.
     _send(SyncFrame({
       't': SyncMsg.file,
-      'e': SyncEntry(path, st.size, st.modified.millisecondsSinceEpoch, sha)
+      'e': _sync
+          ._outgoing(
+              SyncEntry(path, st.size, st.modified.millisecondsSinceEpoch, sha))
           .toJson(),
     }, bytes));
     // M417 — HANDING IT OVER IS AGREEING ON IT. The other half of the base
@@ -2591,6 +2889,62 @@ class _SyncSession {
     }
     _sync._forget(this);
   }
+}
+
+/// M423 — a host and a port, as typed by a person. See [LanSync.manualPeer].
+@immutable
+class SyncAddress {
+  final String host;
+  final int port;
+
+  const SyncAddress(this.host, this.port);
+
+  @override
+  String toString() => host.contains(':') ? '[$host]:$port' : '$host:$port';
+}
+
+/// Reads an address a person typed, or null when it is not one.
+///
+/// Accepts `100.64.0.2`, `100.64.0.2:47821`, `laptop.local`, a Tailscale name
+/// like `tom-pc.tail1234.ts.net`, and IPv6 in the brackets it is written in:
+/// `[fd7a:115c::1]:47821`. The port is [kSyncFirstDataPort] when it is left
+/// off, which is what the other device is listening on unless a second copy
+/// of the app is running there.
+///
+/// A FREE FUNCTION because it is the part with the edge cases and none of the
+/// I/O — and because the settings prompt validates with it, so a typo is
+/// refused where it was made rather than becoming an address that is dialled
+/// for ever and never answers.
+SyncAddress? parseSyncAddress(String raw) {
+  final s = raw.trim();
+  if (s.isEmpty) return null;
+  // Anything with whitespace or a path in it is a URL or a sentence, not an
+  // address, and guessing at one is worse than saying so.
+  if (s.contains(RegExp(r'[\s/\\?#@]'))) return null;
+  if (s.startsWith('[')) {
+    final end = s.indexOf(']');
+    if (end <= 1) return null;
+    final host = s.substring(1, end);
+    final rest = s.substring(end + 1);
+    if (rest.isEmpty) return SyncAddress(host, kSyncFirstDataPort);
+    if (!rest.startsWith(':')) return null;
+    final port = int.tryParse(rest.substring(1));
+    if (port == null || port < 1 || port > 65535) return null;
+    return SyncAddress(host, port);
+  }
+  final colon = s.indexOf(':');
+  if (colon >= 0) {
+    // More than one colon and no brackets: a bare IPv6 address, which cannot
+    // carry a port without them.
+    if (s.indexOf(':', colon + 1) >= 0) {
+      return SyncAddress(s, kSyncFirstDataPort);
+    }
+    if (colon == 0) return null;
+    final port = int.tryParse(s.substring(colon + 1));
+    if (port == null || port < 1 || port > 65535) return null;
+    return SyncAddress(s.substring(0, colon), port);
+  }
+  return SyncAddress(s, kSyncFirstDataPort);
 }
 
 /// Whether this device should open the connection to [peerId].
