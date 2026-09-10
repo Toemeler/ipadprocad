@@ -659,6 +659,100 @@ evaluations per parameter per point per iteration, and making that cheaper
 means either analytic derivatives or fewer points — both of which move every
 residual in the suite, so neither was taken here.
 
+### M422b — the model was right and the picture was still wrong
+
+With the five faults above fixed the cable holder converts to 36 faces, one
+closed solid, no free edge, and every face within 0.005 mm of the mesh it came
+off. It still did not LOOK right: short black arcs floating on a smooth dome,
+and a shading break along the lower rim. Three more faults, all of them in the
+half of the pipeline that runs after the surfaces are correct.
+
+**6. The pcurve named a different point than the 3D curve did.** A boundary
+node of the display mesh takes its position from the edge's 3D curve and its
+(u, v) from that edge's pcurve on the face, at the same parameter. Those are
+two descriptions of one point, and they are allowed to disagree by the edge's
+tolerance — but the disagreement that matters is not the one tolerance
+measures. On this model the surface passed **0.0002 mm** from the boundary
+curve and the pcurve still pointed **0.143 mm** along it: `ShapeFix_Edge`
+approximates the pcurve to a DEVIATION bar, and a parameterisation that slides
+along the surface costs deviation nothing. The node then lands in the
+triangulation at a (u, v) that its neighbours have already passed, and the two
+triangles either side of it turn inside out — hundreds of pairs meeting at a
+hundred and eighty degrees, with no fold anywhere in the surfaces they sit on
+(checked: an 80x80 normal grid per face, not one reversal) and every
+triangulation consistently wound.
+
+`RePCurve` projects the curve itself and checks the answer in 3D at every
+sample: a degree-1 pcurve whose poles ARE the projected points, on the 3D
+curve's own parameters, names the right point at every one of them by
+construction. Three guards earn their place, each for a failure it was measured
+against. The two ends stay where the healer put them, because a wire closes in
+the surface's parameters corner to corner and those corners belong to the edges
+either side — projecting them instead left four faces of the ellipsoid fixture
+holding no triangles and 169 mm of rim showing through. No sample may move more
+than a twentieth of the face's parameter box from where the old pcurve puts it,
+because on a periodic surface the nearest point to (u, v) is equally the
+nearest to (u + 2*pi, v), and a pcurve that changes period halfway along
+encloses nothing. And the result is kept only if it meets the bar outright, not
+merely beats what was there: a half-repaired pcurve trims its face in the wrong
+place, and accepting those cost the body 1.2% of its volume while adding 1.7%
+to its area.
+
+Measured on the cable holder: the worst curve-to-surface disagreement falls
+**0.303 mm to 0.088**, the p95 **0.081 to 0.029**, and the pass costs 0.26 s of
+a 9 s conversion.
+
+**7. Every face's near-mesh screen was applied to faces that had a better
+one.** `FaceNearPatch` samples a face's parameter box, keeps what
+`BRepTopAdaptor_FClass2d` calls inside, and refuses the face if those samples
+miss the patch's triangles. That classifier does not reliably answer for the
+wires this file builds before the shape is sewn: over each hole of the drilled
+shell, all 625 samples came back INSIDE a 2*pi-by-thickness box that the wavy
+band through the shell fills barely half of, so the corners of the box were
+measured against a mesh that is nowhere near them and **four perfect cylinders,
+radius right to four decimals, were refused** — with 115 of the shell's
+triangles following them out. The slotted-dome fixture lost its cap the same
+way. The screen is the freeform counterpart of `FaceWithinPatch` and belongs
+where that one is skipped: on freeform faces only. Analytic faces have the box
+test, which is the check that suits them.
+
+**8. A line was drawn where two patches of one dome happened to change type.**
+The viewport draws an edge unless the two faces meet tangentially, and since
+v14 that rule has been narrowed to protect designed geometry: a fillet is
+tangent to its neighbours by construction and a filleted box must still show
+the line where the round meets the flat. A reconstructed body has no such line
+to protect, and it changes surface type wherever the fitter found a better
+answer — so this dome drew a **0.34 mm** arc where its groove's cylinder meets
+the torus that caps it at a QUARTER of a degree, and four more like it. Nothing
+local separates the two cases: both are a cylinder running tangentially into a
+torus.
+
+What separates them is where the line ENDS. A model edge is where two surfaces
+of the part meet, so it ends where a third arrives — at another edge — or it
+closes on itself. A filleted box's tangent lines meet at its corners, a hole's
+rim is one closed circle, a chamfer runs corner to corner. None of them stops
+in the middle of a smooth face, because there is nothing there to stop at. The
+five arcs all did, which is exactly how they read on screen: scratches on a
+dome. So `display_edges` takes the drawn edges as a graph on the model's
+vertices and cuts back the loose ends until every remaining edge has company at
+both of its own — eligible only where the surfaces barely crease, so a real
+feature is kept wherever it ends.
+
+The cable holder's outlines fall from **7 to 2** — the two halves of its base
+rim, which are the only edges its mesh has, and the only ones any of its 17,640
+triangles creases at (91 degrees, against a median of 1.7). The filleted box
+keeps all 48 of its lines and the drilled plate all 31.
+
+`occt_mesh_recon_test` stays at 250 of 251, with the one standing failure the
+same one it had before: a node's parameter on the ellipsoid, p99 0.458 mm.
+
+**What this still does not fix.** 2.2% of the mesh's vertices sit further than
+0.2 mm from the converted body, the worst at 0.54 mm, all of them along the
+groove's upper lip where a run of thin B-spline patches rounds a crease the
+mesh turns 36 degrees through. The body is within 0.087 mm of the mesh
+everywhere — it is the mesh that has detail the body does not — so this is the
+fitter giving a sharp feature a radius, not a surface going astray.
+
 ---
 
 The suite is 132 assertions and covers all of it: a plain torus at two

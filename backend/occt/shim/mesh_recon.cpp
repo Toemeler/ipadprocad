@@ -95,6 +95,8 @@
 #include <ShapeFix_Shape.hxx>
 #include <ShapeFix_Shell.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
+#include <Geom2d_BSplineCurve.hxx>
+#include <TColgp_Array1OfPnt2d.hxx>
 #include <TColStd_Array1OfInteger.hxx>
 #include <TColStd_Array1OfReal.hxx>
 #include <TColgp_Array1OfPnt.hxx>
@@ -1586,6 +1588,12 @@ const double kMinCreaseAngle = 2.0 * M_PI / 180.0;
  * run is by construction shallower than the angle that bounded the run. */
 const double kCreaseGapFraction = 0.30;
 
+/* How flat, across the OTHER parameter, a boundary loop must be to count as a
+ * rim of the surface's own rectangle rather than a loop encircling its pole.
+ * A tenth of the patch's span: a rim is an edge of the rectangle and sits at
+ * one value, a loop round the pole runs the whole way down it. */
+const double kRimFlatFraction = 0.10;
+
 /* How many edges have to lie above the gap before it is a crease and not a
  * handful of bad triangles. A crease that divides a patch runs the width of
  * it; four is a floor, not a target. */
@@ -2016,6 +2024,29 @@ const double kVolumeDivergenceBar = 0.25;
  * now supplies it properly, by continuing the surface rather than inventing
  * heights for it. */
 const double kFreeformNetMargin = 0.06;
+
+/* THE PCURVE IS A PARAMETERISATION, NOT JUST A PATH — see RePCurve.
+ *
+ * How close surf(pcurve(t)) has to come to curve3d(t) before the pcurve is
+ * left alone, and how many samples may be spent getting it there. The bar is
+ * a TWENTIETH of the conversion tolerance, because it is not a shape
+ * tolerance: the shape is already right at that boundary — measured, the
+ * surface passes 0.0002 mm from it — and what this asks is whether the two
+ * descriptions of the same point agree at the SAME parameter. A rewritten
+ * pcurve has to MEET that bar to be kept, not merely beat what was there: a
+ * half-repaired one trims its face in the wrong place, and accepting those
+ * cost the cable holder 1.2% of its volume while adding 1.7% to its area.
+ * The pole cap is what keeps a hopeless edge — one where the surface really
+ * is far from its curve — from being refined forever; it stops, and the
+ * healer's answer stands. */
+const double kPCurveBarFraction = 0.05;
+const int kPCurveMinSamples = 32;
+const int kPCurveMaxPoles = 512;
+const int kPCurveCheckSamples = 256;
+const int kPCurveRefinePasses = 8;
+/* How far, as a fraction of the face's own parameter box, the re-projection
+ * may move a point from where the pcurve already puts it. */
+const double kPCurveReachFraction = 0.05;
 
 /* Above this many faces, sewing is not a fallback, it is a hang.
  *
@@ -6143,6 +6174,163 @@ bool FaceWithinPatch(const TopoDS_Face &face, const Mesh &m,
  * that way. They are sound, BRepCheck says so, and they are kept. */
 const double kFaceAreaScreen = 1.5;
 
+/* Defined with the freeform fitter, which needs the same distance. */
+double PointTriangle2(const V3 &p, const V3 &a, const V3 &b, const V3 &c);
+
+/* How far a point of a built face may be from the triangles it was built from,
+ * as a multiple of tolerance.
+ *
+ * M422 — FaceWithinPatch asks whether the face stays inside the patch's
+ * BOUNDING BOX and FaceIsSound asks whether it folds through itself. Neither
+ * asks the question a picture answers immediately: is the face ON the model?
+ * A face can pass exactly through every vertex of its patch — residual
+ * 0.000446 — and still bow away from the mesh between them, or trim to a
+ * region a little wider than the triangles that witnessed it.
+ *
+ * On a cable holder that was one torus of 2.3 mm², fitted to a smooth stretch
+ * beside the slot, reaching 0.1412 mm from the mesh where tolerance is
+ * 0.0598. It was the model's worst face by a factor of two, and because it is
+ * a torus meeting a sphere it also drew an outline the shading had already
+ * merged — a visible mark on an otherwise clean shape. Refused, that stretch
+ * becomes a B-spline like its neighbours, the mark goes with it, and the
+ * model's worst deviation falls to 0.0875.
+ *
+ * Two tolerances of slack, because a face legitimately stands slightly proud
+ * of a chord: the triangles are secants of whatever the mesh came off, so the
+ * true surface is always a little outside them. Measured across the suite,
+ * nothing sound comes close to the bar. */
+const double kFaceOffMeshBar = 2.0;
+
+/* How many points of the face are asked. A face that has strayed has strayed
+ * over an area, not at a point, so a coarse net finds it; and this runs once
+ * per built face on every conversion, so it may not be lavish. */
+const int kFaceOffMeshSamples = 24; /* per parametric direction */
+/* How much of a facet's own edge the surface over it may stand off by. */
+const double kFaceChordFraction = 0.25;
+
+/* Is the built face ON the triangles it was built from?
+ *
+ * Samples the face's own parameter rectangle, keeps the samples that lie
+ * inside its trim, and measures each to the nearest triangle of the patch. A
+ * uniform grid over the patch makes that a bounded lookup rather than a scan.
+ *
+ * True when it cannot tell — an unmeasurable face is not evidence of a bad
+ * one, and FaceWithinPatch and FaceIsSound still have their say. */
+bool FaceNearPatch(const TopoDS_Face &face, const Mesh &m,
+                   const std::vector<int> &tris, double tol)
+{
+    if (tris.empty() || face.IsNull())
+        return true;
+    const Handle(Geom_Surface) surf = BRep_Tool::Surface(face);
+    if (surf.IsNull())
+        return true;
+    /* A grid over the patch's triangles, by their boxes so a long triangle is
+     * found from every cell it crosses. */
+    V3 lo(1e300, 1e300, 1e300), hi(-1e300, -1e300, -1e300);
+    for (int t : tris)
+        for (int k = 0; k < 3; ++k) {
+            const V3 &p = m.pos[m.tri[t * 3 + k]];
+            lo = V3(std::min(lo.x, p.x), std::min(lo.y, p.y),
+                    std::min(lo.z, p.z));
+            hi = V3(std::max(hi.x, p.x), std::max(hi.y, p.y),
+                    std::max(hi.z, p.z));
+        }
+    const double span = std::max(Norm(hi - lo), 1e-9);
+    const double cell = std::max(span / 24.0, tol);
+    const int nx = std::min(32, std::max(1, int((hi.x - lo.x) / cell) + 1));
+    const int ny = std::min(32, std::max(1, int((hi.y - lo.y) / cell) + 1));
+    const int nz = std::min(32, std::max(1, int((hi.z - lo.z) / cell) + 1));
+    const double cx = (hi.x - lo.x) / nx, cy = (hi.y - lo.y) / ny,
+                 cz = (hi.z - lo.z) / nz;
+    auto at = [&](double v, double o, double c, int n) {
+        if (!(c > 0))
+            return 0;
+        return std::min(n - 1, std::max(0, int((v - o) / c)));
+    };
+    std::vector<std::vector<int>> bin((size_t)nx * ny * nz);
+    for (int t : tris) {
+        V3 tl(1e300, 1e300, 1e300), th(-1e300, -1e300, -1e300);
+        for (int k = 0; k < 3; ++k) {
+            const V3 &p = m.pos[m.tri[t * 3 + k]];
+            tl = V3(std::min(tl.x, p.x), std::min(tl.y, p.y), std::min(tl.z, p.z));
+            th = V3(std::max(th.x, p.x), std::max(th.y, p.y), std::max(th.z, p.z));
+        }
+        for (int i = at(tl.x, lo.x, cx, nx); i <= at(th.x, lo.x, cx, nx); ++i)
+            for (int j = at(tl.y, lo.y, cy, ny); j <= at(th.y, lo.y, cy, ny); ++j)
+                for (int k = at(tl.z, lo.z, cz, nz); k <= at(th.z, lo.z, cz, nz); ++k)
+                    bin[((size_t)k * ny + j) * nx + i].push_back(t);
+    }
+    const double bar = tol * kFaceOffMeshBar;
+    auto near = [&](const gp_Pnt &q) {
+        const V3 p(q.X(), q.Y(), q.Z());
+        if (p.x < lo.x - bar || p.x > hi.x + bar || p.y < lo.y - bar ||
+            p.y > hi.y + bar || p.z < lo.z - bar || p.z > hi.z + bar)
+            return false;
+        const int i = at(p.x, lo.x, cx, nx), j = at(p.y, lo.y, cy, ny),
+                  k = at(p.z, lo.z, cz, nz);
+        /* One ring is enough: the bar is far smaller than a cell. */
+        for (int a = std::max(0, i - 1); a <= std::min(nx - 1, i + 1); ++a)
+            for (int b = std::max(0, j - 1); b <= std::min(ny - 1, j + 1); ++b)
+                for (int c = std::max(0, k - 1); c <= std::min(nz - 1, k + 1); ++c)
+                    for (int t : bin[((size_t)c * ny + b) * nx + a]) {
+                        const V3 &A = m.pos[m.tri[t * 3]];
+                        const V3 &B = m.pos[m.tri[t * 3 + 1]];
+                        const V3 &C = m.pos[m.tri[t * 3 + 2]];
+                        /* A CHORD IS NOT THE SURFACE, and the difference is
+                         * the facet's own sagitta.
+                         *
+                         * The triangles are the inside of the shape they came
+                         * off: over a hole, a curved flank, anything convex,
+                         * the surface that fits their vertices EXACTLY stands
+                         * off the chord between them, by more the coarser the
+                         * mesh is. Measured against the flat bar this refused
+                         * the four holes of the drilled shell — perfect
+                         * cylinders, radius right to four decimals — and sent
+                         * 115 of its triangles back to being triangles.
+                         *
+                         * The sagitta of a chord of length L across a surface
+                         * that turns by theta over it is about L*theta/8, so a
+                         * quarter of the longest edge covers any facet a
+                         * conversion has business trusting, and is still far
+                         * under the diameters an untrimmed face escapes by. */
+                        const double lmax = std::max(
+                            std::max(Norm(B - A), Norm(C - B)), Norm(A - C));
+                        if (std::sqrt(PointTriangle2(p, A, B, C)) <=
+                            std::max(bar, lmax * kFaceChordFraction))
+                            return true;
+                    }
+        return false;
+    };
+    try {
+        BRepTopAdaptor_FClass2d cls(face, Precision::PConfusion());
+        Standard_Real u0, u1, v0, v1;
+        BRepTools::UVBounds(face, u0, u1, v0, v1);
+        if (!(u1 > u0) || !(v1 > v0))
+            return true;
+        int off = 0, inside = 0;
+        for (int i = 0; i <= kFaceOffMeshSamples; ++i) {
+            const double u = u0 + (u1 - u0) * i / kFaceOffMeshSamples;
+            for (int j = 0; j <= kFaceOffMeshSamples; ++j) {
+                const double v = v0 + (v1 - v0) * j / kFaceOffMeshSamples;
+                if (cls.Perform(gp_Pnt2d(u, v)) == TopAbs_OUT)
+                    continue;
+                ++inside;
+                if (!near(surf->Value(u, v)))
+                    ++off;
+            }
+        }
+        MR_TRACE("        near-mesh: %d of %d samples off (%d tris)\n", off,
+                 inside, (int)tris.size());
+        if (inside < 4)
+            return true; /* nothing to go on */
+        /* A handful of samples may land just past a jagged trim; a face that
+         * is really off the model misses in quantity. */
+        return off * 50 <= inside;
+    } catch (const Standard_Failure &) {
+        return true;
+    }
+}
+
 bool FaceIsSound(const TopoDS_Face &face, const Mesh &m,
                  const std::vector<int> &tris)
 {
@@ -8038,6 +8226,146 @@ void FreeformSurfaces(const Mesh &m, std::vector<Patch> &patches, double tol,
     MR_TRACE("  freeform: %d surfaces over %d runs\n", made, (int)origins.size());
 }
 
+/* Hands the last loose triangles to a surface that already describes them.
+ *
+ * M422 — DissolveUnexplained does this job before the freeform pass, and can
+ * only offer a triangle to a patch that has a fit BY THEN. The B-splines that
+ * cover an organic model do not exist yet, so anything the freeform pass
+ * cannot make a region of — its floor is kFreeformMinRegion triangles — is
+ * stranded among faces that arrived afterwards, and is emitted as its own
+ * B-Rep face, one per triangle.
+ *
+ * On a 17,640-triangle cable holder that was 38 faces averaging four
+ * THOUSANDTHS of a square millimetre: invisible as surfaces, and each one
+ * drawing three edges in the viewport's outline pass. The model came back
+ * covered in short lines that correspond to nothing in the shape. It is the
+ * single most visible defect a converted body can have, because the outline
+ * pass draws every B-Rep edge and cannot know that these ones are noise.
+ *
+ * They are slivers of the tessellation, not features: the shortest edge in
+ * that mesh is 0.0025 mm where the conversion tolerance is 0.0598, and no
+ * surface fit can be asked of four triangles that thin. Welding them away is
+ * the obvious answer and is the wrong one, measured: a weld coarse enough to
+ * collapse them (0.003 mm) moves the other vertices off the surfaces they
+ * came from, and the sphere, both cylinders and the torus stop being
+ * recognised — 73 faces become 279.
+ *
+ * So give them away instead. A stray whose vertices lie within tolerance of a
+ * neighbour's surface IS part of that face as far as the model is concerned;
+ * moving it there costs nothing, removes a face, and removes three edges from
+ * the picture. Nothing is moved that the receiving surface does not already
+ * pass through, so no geometry is invented — and a stray that no neighbour can
+ * account for stays exactly as it was, as triangles, which is honest. */
+const int kAbsorbMaxTriangles = 24;
+
+void AbsorbStrays(const Mesh &m, std::vector<Patch> &patches, double tol,
+                  int &absorbed)
+{
+    absorbed = 0;
+    /* The surface of every patch that has one, built once. */
+    std::vector<Handle(Geom_Surface)> surf(patches.size());
+    for (size_t i = 0; i < patches.size(); ++i) {
+        if (patches[i].fit.kind == kFreeform)
+            surf[i] = patches[i].freeSurf;
+        else if (patches[i].fit.kind != kNone)
+            surf[i] = MakeSurface(patches[i].fit);
+    }
+
+    /* How far the patch's vertices sit off a candidate surface, worst first —
+     * 1e300 when the projection cannot be made at all. */
+    auto worstOff = [&](const std::vector<int> &tris,
+                        const Handle(Geom_Surface) & s) {
+        double worst = 0;
+        try {
+            for (int t : tris) {
+                /* The three corners AND the middle. A surface can pass through
+                 * every vertex of a facet and still bulge through the face of
+                 * it — the same thing FacetBulge guards everywhere else in
+                 * this file, and the reason a torus absorbed a stray it did
+                 * not describe and took the model's worst deviation from
+                 * 0.0875 mm to 0.1412. */
+                V3 c;
+                for (int k = 0; k < 3; ++k)
+                    c += m.pos[m.tri[t * 3 + k]];
+                c = c * (1.0 / 3.0);
+                const V3 at[4] = {m.pos[m.tri[t * 3]], m.pos[m.tri[t * 3 + 1]],
+                                  m.pos[m.tri[t * 3 + 2]], c};
+                for (int k = 0; k < 4; ++k) {
+                    GeomAPI_ProjectPointOnSurf pp(P(at[k]), s);
+                    if (pp.NbPoints() < 1)
+                        return 1e300;
+                    worst = std::max(worst, pp.LowerDistance());
+                    if (worst > tol)
+                        return worst;
+                }
+            }
+        } catch (const Standard_Failure &) {
+            return 1e300;
+        }
+        return worst;
+    };
+
+    std::vector<int> own(m.triCount(), -1);
+    for (int pass = 0; pass < 3; ++pass) {
+        bool moved = false;
+        for (size_t i = 0; i < patches.size(); ++i)
+            for (int t : patches[i].tris)
+                own[t] = static_cast<int>(i);
+        for (size_t i = 0; i < patches.size(); ++i) {
+            if (patches[i].fit.kind != kNone || patches[i].tris.empty())
+                continue;
+            if (static_cast<int>(patches[i].tris.size()) > kAbsorbMaxTriangles)
+                continue;
+            /* Which patches it touches, in a TOTAL order — see "Ties decide
+             * the model": two candidates can be equally good and the answer
+             * may not depend on which the hash happened to yield first. */
+            std::vector<int> nb;
+            for (int t : patches[i].tris)
+                for (int k = 0; k < 3; ++k) {
+                    const int o = m.adj[t * 3 + k];
+                    if (o < 0)
+                        continue;
+                    const int j = own[o];
+                    if (j >= 0 && j != static_cast<int>(i) && !surf[j].IsNull())
+                        nb.push_back(j);
+                }
+            std::sort(nb.begin(), nb.end());
+            nb.erase(std::unique(nb.begin(), nb.end()), nb.end());
+            int best = -1;
+            double bestOff = tol;
+            for (int j : nb) {
+                const double off = worstOff(patches[i].tris, surf[j]);
+                if (off < bestOff) {
+                    bestOff = off;
+                    best = j;
+                }
+            }
+            if (best < 0)
+                continue;
+            MR_TRACE("  absorb: %d tri from patch %d into %d (%s, off %.5f)\n",
+                     (int)patches[i].tris.size(), (int)i, best,
+                     KindName(patches[best].fit.kind), bestOff);
+            patches[best].tris.insert(patches[best].tris.end(),
+                                      patches[i].tris.begin(),
+                                      patches[i].tris.end());
+            std::sort(patches[best].tris.begin(), patches[best].tris.end());
+            absorbed += static_cast<int>(patches[i].tris.size());
+            patches[i].tris.clear();
+            moved = true;
+        }
+        if (!moved)
+            break;
+    }
+    if (absorbed == 0)
+        return;
+    std::vector<Patch> keep;
+    keep.reserve(patches.size());
+    for (Patch &pa : patches)
+        if (!pa.tris.empty())
+            keep.push_back(std::move(pa));
+    patches.swap(keep);
+}
+
 /* Cuts in half every patch that wraps the whole way round.
  *
  * A patch that closes on itself — a hole's barrel, the ring of a boss blend —
@@ -8425,7 +8753,255 @@ bool LoopWrapsPeriod(const Handle(Geom_Surface) & surf, const Mesh &m,
         d -= std::floor(d / per + 0.5) * per;
         wind += d;
     }
-    return std::fabs(wind) > per * 0.5;
+    if (std::fabs(wind) <= per * 0.5)
+        return false;
+
+    /* Winding is necessary and not sufficient: a loop that ENCIRCLES THE POLE
+     * winds a whole turn too.
+     *
+     * M422 — the cable holder's slot cuts across the top of its dome, so the
+     * outline of that opening goes right round the sphere's pole and sweeps
+     * every value of u on the way. Read as a rim, it let the parametric
+     * rectangle be taken again and the slot was covered over again — the very
+     * failure this function exists to prevent, from the other side.
+     *
+     * What separates them is the OTHER parameter. A rim of a parameter
+     * rectangle is one of its edges: constant in v, at the top or the bottom
+     * of the patch's own v range. A loop round the pole runs the whole height
+     * of the patch. So measure the loop's v span against the patch's. */
+    std::vector<double> other;
+    other.reserve(t.size());
+    try {
+        const size_t step2 = std::max<size_t>(1, verts.size() / want);
+        for (size_t i = 0; i < verts.size(); i += step2) {
+            double u = 0, v = 0;
+            if (!ElementaryUv(surf, P(m.pos[verts[i]]), u, v))
+                return false;
+            other.push_back(inU ? v : u);
+        }
+    } catch (const Standard_Failure &) {
+        return false;
+    }
+    if (other.size() < 3)
+        return false;
+    double olo = other[0], ohi = other[0];
+    for (double x : other) {
+        olo = std::min(olo, x);
+        ohi = std::max(ohi, x);
+    }
+    const double oper = inU ? (nv2 - nv1) : (nu2 - nu1);
+    return !(oper > 0) || (ohi - olo) <= oper * kRimFlatFraction;
+}
+
+/* Re-parameterise a pcurve so it names the SAME point as the 3D curve does.
+ *
+ * M422 — the converted cable holder shaded with dark spikes radiating out of
+ * its dome, and the display mesh explained why: several hundred triangle
+ * pairs meeting at a hundred and eighty degrees, folded flat back over each
+ * other. They were not slivers, the surfaces they sat on had no fold in them
+ * anywhere (checked on an 80x80 grid per face: not one normal reversal), and
+ * every face's triangulation was consistently wound. The folds were all along
+ * face BOUNDARIES.
+ *
+ * A boundary node gets its 3D position from the edge's curve and its (u, v)
+ * from that edge's pcurve on the face, at the same parameter. Those are two
+ * descriptions of one point and they are allowed to disagree by the edge's
+ * tolerance — but the disagreement that matters is not the one tolerance
+ * measures. On this model the surface passed 0.0002 mm from the curve and the
+ * pcurve still pointed 0.143 mm along it, because ShapeFix_Edge's projection
+ * approximates the pcurve to a DEVIATION bar and a parameterisation that
+ * slides along the surface costs deviation nothing. The node then lands in the
+ * triangulation at a (u, v) its neighbours have already passed, and the two
+ * triangles either side of it turn inside out.
+ *
+ * So project the curve ourselves and check the answer in 3D at every sample:
+ * a degree-1 pcurve whose poles ARE the projected points, on the 3D curve's
+ * own parameters, names the right point at every one of them by construction,
+ * and between them it is as wrong as the chord is, which is what the
+ * refinement below measures and fixes. Continuity comes from seeding each
+ * projection with its predecessor (a sphere's pcurve must not jump a period
+ * mid-edge), and every seeded answer is checked against an unseeded one
+ * before it is believed.
+ *
+ * Measured on the cable holder: display-mesh edges over 30 degrees 396 -> 232,
+ * the p99 dihedral within a face 145 -> 33 degrees, and the worst
+ * curve-to-surface disagreement 0.303 -> 0.088 mm.
+ *
+ * Kept only when it is an improvement, so an edge whose surface genuinely is
+ * far from its curve is left as the healer had it. */
+bool RePCurve(const TopoDS_Edge &edge, const TopoDS_Face &face, double tol)
+{
+    if (BRep_Tool::Degenerated(edge))
+        return false;
+    /* A seam is one edge with two pcurves on one face; UpdateEdge cannot say
+     * which of them it means, and the tessellator does not fold there. */
+    if (BRep_Tool::IsClosed(edge, face))
+        return false;
+    double t0 = 0, t1 = 0, p0 = 0, p1 = 0;
+    Handle(Geom_Curve) c3 = BRep_Tool::Curve(edge, t0, t1);
+    Handle(Geom2d_Curve) pc = BRep_Tool::CurveOnSurface(edge, face, p0, p1);
+    Handle(Geom_Surface) surf = BRep_Tool::Surface(face);
+    if (c3.IsNull() || pc.IsNull() || surf.IsNull() || !(t1 > t0))
+        return false;
+    /* The two ranges are read off the same edge and are the same range on any
+     * same-parameter edge. Where they are not, the fraction-to-parameter map
+     * below is not a comparison of one point against itself, and there is
+     * nothing here to measure. */
+    if (std::fabs(p0 - t0) + std::fabs(p1 - t1) > (t1 - t0) * 1e-6)
+        return false;
+
+    const double bar = tol * kPCurveBarFraction;
+    /* What the pcurve that is there already costs, measured the only way that
+     * matters: the same parameter through both descriptions. */
+    auto disagreement = [&](const Handle(Geom2d_Curve) & c, double a0, double a1,
+                            int n) {
+        double worst = 0;
+        for (int i = 0; i <= n; ++i) {
+            const double f = static_cast<double>(i) / n;
+            const gp_Pnt2d q = c->Value(a0 + (a1 - a0) * f);
+            worst = std::max(worst, c3->Value(t0 + (t1 - t0) * f)
+                                        .Distance(surf->Value(q.X(), q.Y())));
+        }
+        return worst;
+    };
+    double was = 0;
+    try {
+        was = disagreement(pc, p0, p1, kPCurveCheckSamples);
+    } catch (const Standard_Failure &) {
+        return false;
+    }
+    if (was <= bar)
+        return false;
+
+    /* A RE-PARAMETERISATION MOVES POINTS ALONG THE CURVE. It does not move
+     * them to another part of the surface, and on a periodic one — a sphere,
+     * a cylinder, a torus — that is exactly what a projection is free to do:
+     * the nearest point to (u, v) is equally the nearest point to (u + 2*pi,
+     * v), and a pcurve that changes period halfway along leaves its face with
+     * a wire that encloses nothing. So the answer has to stay in the
+     * neighbourhood of the pcurve that is already there, which is right where
+     * the curve runs — being off ALONG the surface is the whole complaint,
+     * and along is small in the parameters. */
+    double fu0 = 0, fu1 = 0, fv0 = 0, fv1 = 0;
+    BRepTools::UVBounds(face, fu0, fu1, fv0, fv1);
+    const double reachU = std::max(std::fabs(fu1 - fu0) * kPCurveReachFraction,
+                                   Precision::PConfusion());
+    const double reachV = std::max(std::fabs(fv1 - fv0) * kPCurveReachFraction,
+                                   Precision::PConfusion());
+
+    Handle(ShapeAnalysis_Surface) sas = new ShapeAnalysis_Surface(surf);
+    std::vector<double> par;
+    std::vector<gp_Pnt2d> uv;
+    /* Seeded where there is a predecessor, and never trusted over an unseeded
+     * answer that lands closer — nor over the pcurve that is already there. */
+    auto project = [&](double t, const gp_Pnt2d *seed, gp_Pnt2d &q) {
+        const gp_Pnt p = c3->Value(t);
+        const gp_Pnt2d was2 = pc->Value(t);
+        auto reachable = [&](const gp_Pnt2d &c) {
+            return std::fabs(c.X() - was2.X()) <= reachU &&
+                   std::fabs(c.Y() - was2.Y()) <= reachV;
+        };
+        q = seed ? sas->NextValueOfUV(*seed, p, bar * 0.01)
+                 : sas->ValueOfUV(p, bar * 0.01);
+        double gap = reachable(q) ? p.Distance(surf->Value(q.X(), q.Y())) : 1e300;
+        /* The unseeded projection is a RESCUE, not a second opinion: asking
+         * for one on every sample that merely misses the refinement bar
+         * doubles the cost of the whole pass and changes nothing, because a
+         * seeded answer that close is already the right branch. */
+        if (gap > tol * 0.25) {
+            const gp_Pnt2d f = sas->ValueOfUV(p, bar * 0.01);
+            if (reachable(f)) {
+                const double g2 = p.Distance(surf->Value(f.X(), f.Y()));
+                if (g2 < gap) {
+                    q = f;
+                    gap = g2;
+                }
+            }
+        }
+        return gap;
+    };
+    try {
+        for (int i = 0; i <= kPCurveMinSamples; ++i) {
+            const double t =
+                t0 + (t1 - t0) * (static_cast<double>(i) / kPCurveMinSamples);
+            gp_Pnt2d q;
+            /* Farther off than the whole conversion tolerance means the
+             * projection has lost the curve, not that the sample is coarse. */
+            if (project(t, i ? &uv.back() : nullptr, q) > tol)
+                return false;
+            par.push_back(t);
+            uv.push_back(q);
+        }
+        /* Halve the spans whose chord does not carry their own midpoint. */
+        for (int pass = 0; pass < kPCurveRefinePasses; ++pass) {
+            if (static_cast<int>(par.size()) * 2 > kPCurveMaxPoles)
+                break;
+            std::vector<double> np;
+            std::vector<gp_Pnt2d> nq;
+            np.reserve(par.size() * 2);
+            nq.reserve(par.size() * 2);
+            bool any = false;
+            for (size_t i = 0; i + 1 < par.size(); ++i) {
+                np.push_back(par[i]);
+                nq.push_back(uv[i]);
+                const double tm = 0.5 * (par[i] + par[i + 1]);
+                const gp_Pnt2d mid(0.5 * (uv[i].X() + uv[i + 1].X()),
+                                   0.5 * (uv[i].Y() + uv[i + 1].Y()));
+                if (c3->Value(tm).Distance(surf->Value(mid.X(), mid.Y())) <= bar)
+                    continue;
+                gp_Pnt2d q;
+                if (project(tm, &uv[i], q) > tol)
+                    continue;
+                np.push_back(tm);
+                nq.push_back(q);
+                any = true;
+            }
+            np.push_back(par.back());
+            nq.push_back(uv.back());
+            par.swap(np);
+            uv.swap(nq);
+            if (!any)
+                break;
+        }
+        const int n = static_cast<int>(par.size());
+        if (n < 2)
+            return false;
+        /* THE TWO ENDS STAY WHERE THE HEALER PUT THEM.
+         *
+         * A wire closes in the SURFACE's parameters, corner to corner, and the
+         * corners are shared with the edges either side of this one. Projecting
+         * the curve's own ends lands near them but not on them, and a 2D wire
+         * that no longer closes is a face BRepMesh gives up on: the ellipsoid
+         * came back with four faces holding no triangles at all and 169 mm of
+         * rim showing through it. Only the path BETWEEN the corners was ever
+         * wrong, so only the path between them is rewritten. */
+        uv.front() = pc->Value(p0);
+        uv.back() = pc->Value(p1);
+        TColgp_Array1OfPnt2d poles(1, n);
+        TColStd_Array1OfReal knots(1, n);
+        TColStd_Array1OfInteger mult(1, n);
+        for (int i = 0; i < n; ++i) {
+            poles.SetValue(i + 1, uv[i]);
+            knots.SetValue(i + 1, par[i]);
+            mult.SetValue(i + 1, 1);
+        }
+        mult.SetValue(1, 2);
+        mult.SetValue(n, 2);
+        Handle(Geom2d_BSplineCurve) fitted =
+            new Geom2d_BSplineCurve(poles, knots, mult, 1);
+        const double now = disagreement(fitted, t0, t1, kPCurveCheckSamples * 2);
+        if (!(now < was) || now > bar)
+            return false;
+        BRep_Builder bb;
+        bb.UpdateEdge(edge, Handle(Geom2d_Curve)(fitted), face,
+                      std::max(now, Precision::Confusion()));
+        MR_TRACE("        pcurve re-parameterised: %.4f -> %.4f (%d poles)\n",
+                 was, now, n);
+        return true;
+    } catch (const Standard_Failure &) {
+    } catch (...) {
+    }
+    return false;
 }
 
 /* Builds one analytic face. Returns false when the patch has to go faceted. */
@@ -8821,6 +9397,7 @@ bool BuildAnalyticFace(BuildCtx &ctx, const Mesh &m, const Patch &patch,
                 }
             }
         }
+
         Handle(ShapeFix_Face) fix = new ShapeFix_Face(face);
         /* The context is NOT optional, and leaving it out is what killed the
          * app on real models.
@@ -8972,6 +9549,29 @@ public:
     }
 };
 
+/* RePCurve over a whole shape: every (edge, face) pair it has. */
+void RePCurveShape(const TopoDS_Shape &shape, double tol)
+{
+    if (shape.IsNull())
+        return;
+    TopTools_IndexedDataMapOfShapeListOfShape ef;
+    try {
+        TopExp::MapShapesAndAncestors(shape, TopAbs_EDGE, TopAbs_FACE, ef);
+    } catch (const Standard_Failure &) {
+        return;
+    }
+    int fixed = 0;
+    for (int i = 1; i <= ef.Extent(); ++i) {
+        if (Cancelled())
+            return;
+        const TopoDS_Edge &e = TopoDS::Edge(ef.FindKey(i));
+        for (TopTools_ListIteratorOfListOfShape it(ef(i)); it.More(); it.Next())
+            if (RePCurve(e, TopoDS::Face(it.Value()), tol))
+                ++fixed;
+    }
+    MR_TRACE("  pcurves re-parameterised: %d\n", fixed);
+}
+
 TopoDS_Shape SewAndSolidify(const std::vector<TopoDS_Face> &faces, double tol,
                             Report &rep)
 {
@@ -9058,6 +9658,18 @@ TopoDS_Shape SewAndSolidify(const std::vector<TopoDS_Face> &faces, double tol,
             }
         }
     }
+
+    /* Last, and only now: make every pcurve name the same point its 3D curve
+     * does, at the same parameter.
+     *
+     * It has to be here and not where the pcurves are first made. Sewing
+     * merges the two edges either side of a seam into one and keeps ONE of
+     * their geometries, re-projecting the other's pcurve, and ShapeFix_Shape
+     * rebuilds more of them again — so a face repaired before sewing arrives
+     * afterwards with the healer's answer back in place. Measured: repairing
+     * per face left the worst disagreement at 0.225 mm, exactly where it
+     * started, for twelve seconds of work. */
+    RePCurveShape(sewn, tol);
 
     return Solidify(sewn, rep);
 }
@@ -11437,13 +12049,24 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
         } catch (const std::exception &) {
         } catch (...) {
         }
-        if (madeFree > 0) {
+        /* And the last loose triangles go to the surfaces that now surround
+         * them — see AbsorbStrays. This has to be here, after the freeform
+         * pass, because those surfaces did not exist when DissolveUnexplained
+         * asked the same question. */
+        int absorbed = 0;
+        try {
+            AbsorbStrays(m, patches, tol, absorbed);
+        } catch (const Standard_Failure &) {
+        } catch (...) {
+        }
+        if (madeFree > 0 || absorbed > 0) {
             rep.patches = static_cast<int>(patches.size());
             patchOf.assign(m.triCount(), -1);
             for (size_t i = 0; i < patches.size(); ++i)
                 for (int t : patches[i].tris)
                     patchOf[t] = static_cast<int>(i);
         }
+        MR_TRACE("  absorbed %d stray triangles\n", absorbed);
         MR_STAGE("freeform surfaces");
     }
     if (Cancelled()) {
@@ -11712,6 +12335,29 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
                     if (!FaceIsSound(faces[k], m, patches[i].tris)) {
                         built = false;
                         why = "face folds through itself";
+                        break;
+                    }
+                    /* The freeform counterpart of FaceWithinPatch above, and
+                     * for the same reason it is skipped there: a fitted
+                     * patch's control net stands outside its own surface, so
+                     * the box test is too strict, and this asks the surface
+                     * itself instead.
+                     *
+                     * ONLY for freeform. An analytic face is trimmed by wires
+                     * this file built and BRepTopAdaptor_FClass2d does not
+                     * reliably classify against them before the shape is sewn:
+                     * on the drilled shell every one of 625 samples over each
+                     * hole came back INSIDE a 2*pi-by-thickness parameter box
+                     * that the wavy band through the shell fills barely half
+                     * of, so the corners of the box were measured against the
+                     * mesh, found far from it, and four perfect cylinders —
+                     * radius right to four decimals — were refused. Analytic
+                     * faces have FaceWithinPatch, which is the check that
+                     * suits them. */
+                    if (freeform &&
+                        !FaceNearPatch(faces[k], m, patches[i].tris, tol)) {
+                        built = false;
+                        why = "face strays off the mesh";
                         break;
                     }
                 }

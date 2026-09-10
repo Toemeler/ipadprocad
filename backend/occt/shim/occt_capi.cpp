@@ -1941,6 +1941,175 @@ static bool edge_is_smooth(const TopoDS_Edge &e, const TopoDS_Face &f1,
     }
 }
 
+/* WHICH EDGES THE VIEWPORT DRAWS, and the one rule that is about the picture
+ * rather than about a pair of faces.
+ *
+ * The tests below are all local: they look at one edge and the two surfaces
+ * that meet along it. That is enough to decide a designed part, where every
+ * crease runs from one corner of the model to another. It is not enough for a
+ * reconstructed one.
+ *
+ * M422 — the converted cable holder drew five short arcs that correspond to
+ * nothing in its mesh: a 0.34 mm line where its groove's cylinder meets the
+ * torus that caps it at a QUARTER of a degree, and four more like it. Each is
+ * a boundary between two analytic patches of one smooth dome, kept by the v14
+ * rule because a designed fillet meets its neighbours tangentially too and
+ * must still show its line. Nothing local separates the two cases: both are a
+ * cylinder running tangentially into a torus.
+ *
+ * What separates them is where the line ENDS. A model edge is where two
+ * surfaces of the part meet, so it ends where a third one arrives — at
+ * another edge — or it closes on itself. A filleted box's tangent lines meet
+ * each other at its corners; a hole's rim is one closed circle; a chamfer runs
+ * corner to corner. None of them simply stops in the middle of a smooth face,
+ * because there is nothing there for it to stop at. The five arcs all did,
+ * and that is exactly how they read on screen: scratches on a dome.
+ *
+ * So take the drawn edges as a graph on the model's vertices and cut back the
+ * loose ends, repeatedly, until every remaining edge has company at both of
+ * its own. Only edges the surfaces barely crease at are eligible — anything
+ * over the crease angle is a real feature and is kept wherever it ends, so a
+ * genuine line that fades out tangentially at one end survives.
+ *
+ * Measured: the cable holder's outlines fall from 7 to 2 — the two halves of
+ * its base rim, which are the only edges its mesh has — while the filleted box
+ * (48) and the drilled plate (31) do not lose a single one. */
+static std::vector<char> display_edges(
+    const TopoDS_Shape &shape, const TopTools_IndexedMapOfShape &edgeMap,
+    const TopTools_IndexedDataMapOfShapeListOfShape &edgeFaces)
+{
+    const int n = edgeMap.Extent();
+    std::vector<char> draw(n + 1, 0);
+    /* Eligible for pruning: the two faces meet under the crease angle, so the
+     * edge is drawn on a technicality rather than because the part creases. */
+    std::vector<char> faint(n + 1, 0);
+    const double cosTangent =
+        std::cos(meshrecon::kTangentAngleDeg * M_PI / 180.0);
+    const double cosCrease =
+        std::cos(meshrecon::kCreaseAngleDeg * M_PI / 180.0);
+    for (int i = 1; i <= n; ++i) {
+        const TopoDS_Edge edge = TopoDS::Edge(edgeMap.FindKey(i));
+        if (BRep_Tool::Degenerated(edge))
+            continue;
+        bool seam = false;
+        if (edgeFaces.Contains(edge)) {
+            const TopTools_ListOfShape &fl = edgeFaces.FindFromKey(edge);
+            for (TopTools_ListIteratorOfListOfShape it(fl); it.More(); it.Next())
+                if (BRep_Tool::IsClosed(edge, TopoDS::Face(it.Value()))) {
+                    seam = true;
+                    break;
+                }
+        }
+        if (seam)
+            continue;
+        if (edgeFaces.Contains(edge)) {
+            const TopTools_ListOfShape &fl = edgeFaces.FindFromKey(edge);
+            if (fl.Extent() == 2) {
+                const TopoDS_Face fa = TopoDS::Face(fl.First());
+                const TopoDS_Face fb = TopoDS::Face(fl.Last());
+                BRepAdaptor_Surface sa(fa, Standard_False);
+                BRepAdaptor_Surface sb(fb, Standard_False);
+                /* v9: drop tangent-continuous joins (see edge_is_smooth) — a
+                 * real model crease is far sharper, and the arc-chain joins
+                 * this removes are well under one degree.
+                 *
+                 * v14: ONLY when the two faces are the SAME surface type. A
+                 * fillet is tangent to its neighbours BY CONSTRUCTION, so the
+                 * blanket rule threw away exactly the line where the round
+                 * meets the flat — a filleted box rendered as one smooth blob
+                 * with no outline at either end of the radius, which is not
+                 * what any CAD package draws. An arc-chain join (the artifact
+                 * this rule exists for) is cylinder-to-cylinder, so
+                 * restricting it to same-type pairs keeps that cleanup intact
+                 * while plane-to-cylinder and cylinder-to-torus boundaries
+                 * come back.
+                 *
+                 * Known limit: a fillet running tangentially into ANOTHER
+                 * fillet of the same surface type is still suppressed.
+                 * Distinguishing that from an arc chain needs more than the
+                 * surface type. */
+                if (sa.GetType() == sb.GetType() &&
+                    edge_is_smooth(edge, fa, fb, cosTangent))
+                    continue;
+                /* Between two patches, whatever is shaded as one surface must
+                 * not also be drawn as a line across it. Without this the two
+                 * halves of the picture contradict each other: a converted
+                 * whale would shade smoothly and still carry a black outline
+                 * along every patch boundary it had just stopped creasing. */
+                if (is_freeform(sa.GetType()) && is_freeform(sb.GetType()) &&
+                    edge_is_smooth(edge, fa, fb, cosCrease))
+                    continue;
+                /* M422 — and the same where only ONE side is freeform.
+                 *
+                 * A converted mesh does not cut its smooth shell along type
+                 * lines. A 20 mm cable holder comes back as a spherical cap,
+                 * two cylinders, a torus and twenty-five B-splines, all
+                 * describing one continuous dome, and the boundaries BETWEEN
+                 * those kinds are tangent to a few degrees because there was
+                 * never an edge there: measured on that model, 35 of the 44
+                 * outlines it drew were joins of under 8 degrees, 190 mm of
+                 * black line scribbled across a shape whose own mesh has no
+                 * crease anywhere in it. ShareNormalsAcrossSeams had already
+                 * merged every one of them for shading — this is the same
+                 * verdict, reached the same way, applied to the other half of
+                 * the picture.
+                 *
+                 * At the TANGENT bar and not the crease bar, because that is
+                 * what keeps v14's finding intact for the joins a designed
+                 * part makes. What is left over — two ANALYTIC patches of one
+                 * reconstructed dome meeting tangentially — is what the prune
+                 * below is for. */
+                if ((is_freeform(sa.GetType()) || is_freeform(sb.GetType())) &&
+                    edge_is_smooth(edge, fa, fb, cosTangent))
+                    continue;
+                faint[i] = edge_is_smooth(edge, fa, fb, cosCrease) ? 1 : 0;
+            }
+        }
+        draw[i] = 1;
+    }
+
+    TopTools_IndexedMapOfShape vertMap;
+    try {
+        TopExp::MapShapes(shape, TopAbs_VERTEX, vertMap);
+    } catch (const Standard_Failure &) {
+        return draw;
+    }
+    std::vector<int> degree(vertMap.Extent() + 1, 0);
+    for (int pass = 0; pass < 64; ++pass) {
+        std::fill(degree.begin(), degree.end(), 0);
+        for (int i = 1; i <= n; ++i) {
+            if (!draw[i])
+                continue;
+            TopoDS_Vertex v1, v2;
+            TopExp::Vertices(TopoDS::Edge(edgeMap.FindKey(i)), v1, v2);
+            const int a = vertMap.FindIndex(v1), b = vertMap.FindIndex(v2);
+            if (a > 0)
+                ++degree[a];
+            if (b > 0)
+                ++degree[b];
+        }
+        bool cut = false;
+        for (int i = 1; i <= n; ++i) {
+            if (!draw[i] || !faint[i])
+                continue;
+            TopoDS_Vertex v1, v2;
+            TopExp::Vertices(TopoDS::Edge(edgeMap.FindKey(i)), v1, v2);
+            const int a = vertMap.FindIndex(v1), b = vertMap.FindIndex(v2);
+            /* A closed edge — a hole's rim, a full circle — has no loose end
+             * to cut: it already goes all the way round. */
+            if (a <= 0 || b <= 0 || a == b)
+                continue;
+            if (degree[a] < 2 || degree[b] < 2) {
+                draw[i] = 0;
+                cut = true;
+            }
+        }
+        if (!cut)
+            break;
+    }
+    return draw;
+}
+
 struct occt_mesh
 {
     std::vector<double> verts;      /* 3 per vertex */
@@ -2168,61 +2337,12 @@ extern "C" occt_mesh *occt_mesh_create(const occt_shape *shape,
     TopTools_IndexedDataMapOfShapeListOfShape edgeFaces;
     TopExp::MapShapesAndAncestors(shape->s, TopAbs_EDGE, TopAbs_FACE,
                                   edgeFaces);
+    const std::vector<char> drawEdge =
+        display_edges(shape->s, edgeMap, edgeFaces);
     for (int i = 1; i <= edgeMap.Extent(); ++i) {
+        if (!drawEdge[i])
+            continue;
         const TopoDS_Edge edge = TopoDS::Edge(edgeMap.FindKey(i));
-        if (BRep_Tool::Degenerated(edge))
-            continue;
-        bool seam = false;
-        if (edgeFaces.Contains(edge)) {
-            const TopTools_ListOfShape &fl = edgeFaces.FindFromKey(edge);
-            for (TopTools_ListIteratorOfListOfShape it(fl); it.More();
-                 it.Next()) {
-                if (BRep_Tool::IsClosed(edge, TopoDS::Face(it.Value()))) {
-                    seam = true;
-                    break;
-                }
-            }
-        }
-        if (seam)
-            continue;
-        /* v9: drop tangent-continuous joins (see edge_is_smooth). cos(8 deg)
-         * — a real model crease is far sharper, and the arc-chain joins this
-         * removes are well under one degree.
-         *
-         * v14: ONLY when the two faces are the SAME surface type. A fillet is
-         * tangent to its neighbours BY CONSTRUCTION, so the blanket rule threw
-         * away exactly the line where the round meets the flat — a filleted
-         * box rendered as one smooth blob with no outline at either end of the
-         * radius, which is not what any CAD package draws. An arc-chain join
-         * (the artifact this rule exists for) is cylinder-to-cylinder, so
-         * restricting it to same-type pairs keeps that cleanup intact while
-         * plane-to-cylinder and cylinder-to-torus boundaries come back.
-         *
-         * Known limit: a fillet running tangentially into ANOTHER fillet of
-         * the same surface type is still suppressed. Distinguishing that from
-         * an arc chain needs more than the surface type. */
-        if (edgeFaces.Contains(edge)) {
-            const TopTools_ListOfShape &fl2 = edgeFaces.FindFromKey(edge);
-            if (fl2.Extent() == 2) {
-                const TopoDS_Face fa = TopoDS::Face(fl2.First());
-                const TopoDS_Face fb = TopoDS::Face(fl2.Last());
-                BRepAdaptor_Surface sa(fa, Standard_False);
-                BRepAdaptor_Surface sb(fb, Standard_False);
-                if (sa.GetType() == sb.GetType() &&
-                    edge_is_smooth(edge, fa, fb, 0.990268))
-                    continue;
-                /* Between two patches, whatever is shaded as one surface must
-                 * not also be drawn as a line across it. Without this the two
-                 * halves of the picture contradict each other: a converted
-                 * whale would shade smoothly and still carry a black outline
-                 * along every patch boundary it had just stopped creasing. */
-                if (is_freeform(sa.GetType()) && is_freeform(sb.GetType()) &&
-                    edge_is_smooth(edge, fa, fb,
-                                   std::cos(meshrecon::kCreaseAngleDeg *
-                                            M_PI / 180.0)))
-                    continue;
-            }
-        }
         BRepAdaptor_Curve curve(edge);
         /* v11: edges are discretised MUCH finer than the faces. An edge is a
          * 1D curve, so points on it are nearly free, while the face
