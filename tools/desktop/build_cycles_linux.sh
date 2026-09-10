@@ -305,6 +305,34 @@ say "configuring (OpenImageDenoise: $oidn)"
 # under WITH_GHOST_X11 and hard-fails the configure on a machine without the
 # development headers. That is a CI failure and not a local one — a desktop has
 # them for other reasons — so it is off explicitly rather than by luck.
+# A CONFIGURE THAT FAILED MUST NOT DECIDE THE NEXT ONE.
+#
+# CMake caches what it found, and Blender's FindOpenEXR caches what it did NOT:
+# `OPENEXR_VERSION` defaults to "2.0" when the headers are absent and is
+# written to the cache as a CACHE STRING, which pins the finder to OpenEXR 2's
+# library names — Half, IlmImf — for the life of the build directory.
+#
+# So a first run on a machine that cannot reach projects.blender.org, and does
+# not yet have the system packages, leaves a cache saying OpenEXR 2. The user
+# then installs exactly the packages the message above just printed, runs this
+# again, and gets:
+#
+#   OPENEXR_HALF_LIBRARY (ADVANCED)     ... set to NOTFOUND
+#   OPENEXR_ILMIMF_LIBRARY (ADVANCED)   ... set to NOTFOUND
+#
+# naming two libraries that no longer exist in any OpenEXR they could install,
+# about a dependency that is now correctly installed. The build is unfixable by
+# doing what it says, which is the worst shape a build error has.
+#
+# The stamp is written only after a configure SUCCEEDS. A cache without it is
+# the wreckage of one that did not, and is thrown away rather than trusted.
+configured_stamp="$work/build/.configure-succeeded"
+if [ -f "$work/build/CMakeCache.txt" ] && [ ! -f "$configured_stamp" ]; then
+  echo "discarding the cache left by a configure that did not finish"
+  rm -rf "$work/build"
+fi
+rm -f "$configured_stamp"
+
 cmake -S "$blender" -B "$work/build" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
@@ -323,6 +351,9 @@ cmake -S "$blender" -B "$work/build" -G Ninja \
   -DWITH_CYCLES_PATH_GUIDING=OFF \
   "${extra_flags[@]}" \
   > "$work/configure.log" 2>&1 || { tail -40 "$work/configure.log"; exit 1; }
+# Only now — see the note above the cmake call. Everything the cache holds was
+# resolved against the dependencies that are actually here.
+touch "$configured_stamp"
 
 say "building Cycles and the shim"
 # bf_intern_guardedalloc and bf_intern_sky are Blender's, not Cycles': built
