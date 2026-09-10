@@ -35,6 +35,26 @@ associations:
 tools/desktop/package_linux.sh --appimage
 ```
 
+And then check that what came out works somewhere other than here:
+
+```bash
+tools/desktop/verify_linux.sh          # everything, or name the checks: 1 3 5
+```
+
+CI asserts that the bundle it just made LAUNCHES — a first frame, the real
+kernels, both smokes, the path tracer, the GPU viewport. That is the build
+machine asking whether the build machine can run it. This asks the question
+somebody downloading it has: the app with the system's Qt taken away,
+documents resolving with no `xdg-user-dir` on `PATH`, the window close
+answering inside the runner's 2.5 s ceiling, two installs mirroring a
+document, the tarball unpacked under an empty `$HOME` with `install.sh`
+registering what it promises, a `.ptp` opened from the command line — the
+double-click path — and the AppImage. Every check runs the shipping artefact,
+and each one targets a failure that is otherwise SILENT: no kernels looks like
+a working app until the first extrude, no Flutter GPU looks like a working app
+in a screenshot, and documents in `/tmp` look like a working app until the
+machine reboots. Needs `Xvfb` and `xdotool`.
+
 **In a hurry, or only touching UI?** Skip the kernels:
 
 ```bash
@@ -358,9 +378,11 @@ the copy sitting beside it. `build_native.sh` therefore rewrites the runpath of
 **everything** it bundles to `$ORIGIN` with `patchelf`, which takes the whole
 question of inheritance and ordering away.
 
-To check by hand what CI checks for you, move the Qt-only sonames out of
-`/usr/lib/x86_64-linux-gnu`, run `ldconfig`, launch the bundle, and put them
-back. If the log still says `REAL backend active`, the bundle is self-contained.
+`tools/desktop/verify_linux.sh 2` is that check, run for you: it moves the
+Qt-only sonames out of `/usr/lib/x86_64-linux-gnu`, runs `ldconfig`, launches
+the bundle, asserts the log still says `REAL backend active`, and puts them
+back — from a trap rather than at the end, so interrupting it cannot leave the
+machine without Qt. By hand, it is those same four steps.
 
 The tail is why `deps/` is ~75 MB rather than ~20: `libQt6Network` needs
 `libproxy`, which needs its backend, which needs libcurl, which needs gnutls,
