@@ -444,14 +444,22 @@ class LanSync {
   /// comparison on the platforms with no usable file watcher.
   Map<String, SyncEntry> _mine = <String, SyncEntry>{};
 
-  /// What has been deleted, by path, with the moment it happened.
+  /// What has been deleted, by path: the moment it happened AND the version
+  /// that went.
   ///
   /// Kept in a small journal beside the preferences rather than in memory
   /// only: a device that is switched off while another one deletes something
   /// must still learn about it, and a device that deletes something and is
   /// then restarted must still be able to TELL anyone. Both of those are the
   /// normal case rather than an edge one.
-  Map<String, int> _tombs = <String, int>{};
+  ///
+  /// M425 — THE WHOLE TOMBSTONE, not just its timestamp, and that was issue
+  /// #47. This used to be `Map<String, int>`: the sha M417 added — the version
+  /// that was thrown away, the thing that lets a peer answer "have I got
+  /// anything to lose?" — was carried on the wire, used once, and then dropped
+  /// on the floor by whoever stored it. Every re-announcement after that went
+  /// out bare, and a bare tombstone falls back to guesswork.
+  Map<String, SyncTomb> _tombs = <String, SyncTomb>{};
 
   /// Paths this device has just WRITTEN because a peer sent them. Suppresses
   /// the echo: without it, applying a peer's file fires the watcher, which
@@ -652,6 +660,7 @@ class LanSync {
     try {
       _loadTombs();
       _mine = _scanLocal();
+      _noticeResurrections(_mine);
       _pruneBase();
       await _startServer();
       await _startBeacon();
@@ -1607,6 +1616,7 @@ class LanSync {
   void _announceChanges() {
     if (_code == null) return;
     final now = _scanLocal();
+    _noticeResurrections(now);
     final gone = _noticeDeletes(now);
     final changed = <SyncEntry>[];
     for (final e in now.entries) {
@@ -1631,6 +1641,33 @@ class LanSync {
     }
   }
 
+  /// M425 — A DOCUMENT THAT EXISTS AGAIN IS NOT A DELETED DOCUMENT.
+  ///
+  /// The other half of issue #47, and the half that starts it. A tombstone was
+  /// only ever dropped when a file came back FROM A PEER ([_apply]); a file
+  /// created here, at a path this device remembers deleting, left the record
+  /// standing. So the device holding the new document went on telling the
+  /// whole group, in every manifest, that the document at that path is
+  /// deleted — and the group believed it, because a tombstone is a fact with
+  /// a time on it and nothing about it says "this is about some other file
+  /// that happened to have the same name".
+  ///
+  /// WHICH IS NOT AN EXOTIC CASE. New documents are named `Part1`, `Part2`,
+  /// … by counting the ones that exist, so the name of a deleted document is
+  /// the first one handed out again. Delete `Part1`, make a new document, and
+  /// it is called `Part1` — carrying a month-old death certificate.
+  void _noticeResurrections(Map<String, SyncEntry> now) {
+    if (_tombs.isEmpty) return;
+    var changed = false;
+    for (final path in now.keys) {
+      final was = _tombs.remove(path);
+      if (was == null) continue;
+      changed = true;
+      Log.i('sync', '$path is here again — forgetting that it was deleted');
+    }
+    if (changed) _saveTombs();
+  }
+
   /// Turns "it was in the last scan and is not in this one" into tombstones.
   ///
   /// The EXISTENCE CHECK is not redundant with the scan. [_scanLocal] drops a
@@ -1646,12 +1683,13 @@ class LanSync {
       if (!_deletable(path)) continue;
       final f = _fileFor(path);
       if (f == null || f.existsSync()) continue;
-      _tombs[path] = at;
       final was = _mine[path];
       // The version that went, kept for [verdictFor] and sent with the
       // tombstone so the other devices can answer the same question.
       if (was != null) _setBase(path, was.sha);
-      out.add(SyncTomb(path, at, was?.sha));
+      final tomb = SyncTomb(path, at, was?.sha);
+      _tombs[path] = tomb;
+      out.add(tomb);
     }
     if (out.isNotEmpty) _saveTombs();
     return out;
@@ -1711,8 +1749,12 @@ class LanSync {
     final tomb = _tombs[remote.path];
     final mine = _mine[remote.path];
     if (tomb != null && mine == null) {
-      // The version we deleted is exactly the one being offered back.
-      if (_base[remote.path] == remote.sha) return SyncVerdict.skip;
+      // The version we deleted is exactly the one being offered back. The
+      // tombstone's own sha answers that where there is one (M425); the base
+      // is the fallback for a record written before the journal kept it.
+      if ((tomb.sha ?? _base[remote.path]) == remote.sha) {
+        return SyncVerdict.skip;
+      }
       // Something else: it was edited elsewhere after the delete travelled,
       // and an edit outlives a deletion (see [_applyTomb]).
       return SyncVerdict.take;
@@ -2142,16 +2184,32 @@ class LanSync {
     return prefs == null ? null : File('${prefs.path}/$_tombFile');
   }
 
+  /// Reads the journal, in either shape it has ever had.
+  ///
+  /// A BARE NUMBER IS THE OLD SHAPE — `{"Bracket.ptp": 1757500000000}` — and
+  /// it is read as a tombstone with no sha, which is exactly what it is: a
+  /// record written before the journal kept one. It then heals itself, since
+  /// [_applyTomb] fills the sha in from what it actually removed.
   void _loadTombs() {
-    _tombs = <String, int>{};
+    _tombs = <String, SyncTomb>{};
     final f = _tombPath;
     if (f == null || !f.existsSync()) return;
     try {
       final raw = jsonDecode(f.readAsStringSync());
       if (raw is! Map) return;
       for (final e in raw.entries) {
-        final d = (e.value as num?)?.toInt();
-        if (d != null) _tombs['${e.key}'] = d;
+        final path = '${e.key}';
+        final v = e.value;
+        if (v is num) {
+          _tombs[path] = SyncTomb(path, v.toInt());
+          continue;
+        }
+        if (v is! Map) continue;
+        final d = (v['d'] as num?)?.toInt();
+        if (d == null) continue;
+        final h = v['h'];
+        _tombs[path] =
+            SyncTomb(path, d, h is String && h.isNotEmpty ? h : null);
       }
       _expireTombs();
     } catch (e) {
@@ -2165,7 +2223,15 @@ class LanSync {
     try {
       f.parent.createSync(recursive: true);
       final tmp = File('${f.path}.sync-part');
-      tmp.writeAsStringSync(jsonEncode(_tombs), flush: true);
+      tmp.writeAsStringSync(
+          jsonEncode(<String, Object?>{
+            for (final e in _tombs.entries)
+              e.key: <String, Object?>{
+                'd': e.value.deletedAtMs,
+                if (e.value.sha != null) 'h': e.value.sha,
+              }
+          }),
+          flush: true);
       tmp.renameSync(f.path);
     } catch (e) {
       Log.w('sync', 'could not write the delete journal: $e');
@@ -2175,7 +2241,7 @@ class LanSync {
   void _expireTombs() {
     final cutoff =
         DateTime.now().subtract(_tombLife).millisecondsSinceEpoch;
-    _tombs.removeWhere((_, d) => d < cutoff);
+    _tombs.removeWhere((_, t) => t.deletedAtMs < cutoff);
   }
 
   /// True when [path] may carry a tombstone at all.
@@ -2204,7 +2270,7 @@ class LanSync {
   bool _applyTomb(SyncTomb t) {
     if (!_deletable(t.path)) return false;
     final known = _tombs[t.path];
-    if (known != null && known >= t.deletedAtMs) return false;
+    if (known != null && known.deletedAtMs >= t.deletedAtMs) return false;
     final mine = _mine[t.path];
     if (mine != null && !_deleteIsSafe(t, mine)) {
       // Changed here since this device and the group last agreed. Keep it;
@@ -2215,7 +2281,13 @@ class LanSync {
           'since the two devices last agreed');
       return false;
     }
-    _tombs[t.path] = t.deletedAtMs;
+    // M425 — RECORDED WITH A SHA IF THERE IS ONE TO BE HAD, because this
+    // record is what this device will announce to everyone else from now on.
+    // A peer too old to send one still told us which file; what it threw away
+    // is what we are about to throw away, so that is the version to write
+    // down rather than passing the gap on.
+    _tombs[t.path] =
+        t.sha != null ? t : SyncTomb(t.path, t.deletedAtMs, mine?.sha);
     _saveTombs();
     final f = _fileFor(t.path);
     var removed = false;
@@ -2450,21 +2522,44 @@ class LanSync {
   bool _deleteIsSafe(SyncTomb t, SyncEntry mine) {
     final theirs = t.sha;
     if (theirs != null) return mine.sha == theirs;
+    // M425 — WITHOUT A SHA, THE BASE ALONE PROVES NOTHING, and believing it
+    // did is the second half of issue #47. "I hold exactly the group's
+    // version" is the ordinary state of every file that arrived from a peer
+    // and has not been touched since — it says nothing about whether THIS
+    // tombstone is about THAT version. A month-old record of a deleted
+    // `Part1.ptp`, re-announced bare, therefore read as permission to delete
+    // a `Part1.ptp` created yesterday and synced an hour ago.
+    //
+    // So a sha-less tombstone has to clear both bars: the version here must be
+    // the one the group agreed on AND older than the deletion it is being
+    // measured against. A document saved after the delete keeps itself, which
+    // is the rule the timestamp heuristic was always meant to express.
     final base = _base[t.path];
-    if (base != null) return mine.sha == base;
+    if (base != null && mine.sha != base) return false;
     return mine.mtimeMs <= t.deletedAtMs + 1000;
   }
 
   /// The tombstones worth sending: everything still inside [_tombLife].
+  ///
+  /// M425 — SENT WHOLE. Rebuilding them here as `SyncTomb(path, time)` is
+  /// what threw the sha away on every hop after the first, which left every
+  /// device but the one that did the deleting announcing a fact nobody could
+  /// check.
   List<SyncTomb> get _tombList {
     _expireTombs();
-    return <SyncTomb>[
-      for (final e in _tombs.entries) SyncTomb(e.key, e.value)
-    ];
+    return _tombs.values.toList(growable: false);
   }
 
   @visibleForTesting
-  Map<String, int> get tombsForTest => _tombs;
+  Map<String, SyncTomb> get tombsForTest => _tombs;
+
+  /// What this device would ANNOUNCE — which is the thing #47 was about, and
+  /// not the same list as the one [noticeDeletesForTest] returns.
+  @visibleForTesting
+  List<SyncTomb> tombListForTest() => _tombList;
+
+  @visibleForTesting
+  void noticeResurrectionsForTest() => _noticeResurrections(_scanLocal());
 
   @visibleForTesting
   bool applyTombForTest(SyncTomb t) => _applyTomb(t);
