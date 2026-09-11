@@ -276,6 +276,16 @@ class RibbonDockLayout extends StatelessWidget {
       ]);
 }
 
+/// #49 — whether the retract grip paints its bar and chevron.
+///
+/// Pulled its own top-level function (rather than inlined in [_RibbonGrip]'s
+/// build method) so the "no bar while retracted" rule is a fact the test
+/// suite can pin directly: `_RibbonGrip` only exists on a phone-shaped iOS
+/// display, which this suite's host is not and — per m405_ribbon_retract_test
+/// — must never be faked into pretending to be.
+@visibleForTesting
+bool ribbonGripPaintsBar(bool retracted) => !retracted;
+
 /// M405 — the retract handle, and the only way in or out of the retracted
 /// state (#38).
 ///
@@ -288,6 +298,17 @@ class RibbonDockLayout extends StatelessWidget {
 /// icon and about a twentieth of what the band it hides was taking. It is
 /// deliberately not smaller: it is the whole ribbon's front door, and a door
 /// nobody can hit is a ribbon nobody can get back.
+///
+/// #49 — RETRACTED, the strip PAINTS NOTHING. Before, the coloured bar and
+/// its chevron stayed on screen the whole time the ribbon was away, because
+/// the strip is also the only hit target that can bring it back and hit
+/// targets in this codebase are never invisible by habit. But retracted is
+/// the state a phone spends most of its life in, and a permanent bar down
+/// the screen's edge is exactly the "why is this here" chrome the retract
+/// exists to remove — iOS's own edge-swipe affordances (the back gesture,
+/// the app-switcher edge) draw nothing until touched. The strip keeps its
+/// size and both gestures either way — [ribbonGripPaintsBar] is the one
+/// thing that changes.
 class _RibbonGrip extends StatelessWidget {
   final RibbonPosition dock;
   const _RibbonGrip({required this.dock});
@@ -311,12 +332,16 @@ class _RibbonGrip extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = L.of(context);
     final retracted = RibbonRetract.on;
-    final bar = DecoratedBox(
-      decoration: BoxDecoration(color: T.hover6),
-      child: Center(
-        child: Icon(_glyph(retracted), size: 16, color: T.dim),
-      ),
-    );
+    final bar = ribbonGripPaintsBar(retracted)
+        ? DecoratedBox(
+            decoration: BoxDecoration(color: T.hover6),
+            child: Center(
+              child: Icon(_glyph(retracted), size: 16, color: T.dim),
+            ),
+          )
+        // Same footprint, nothing drawn: HitTestBehavior.opaque below hits by
+        // geometry, not by paint, so the tap and the swipe both still land.
+        : const SizedBox.expand();
     return Tooltip(
       message: retracted ? t.ribbonShow : t.ribbonHide,
       child: GestureDetector(
