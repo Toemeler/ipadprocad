@@ -18,8 +18,9 @@
 // Each origin plane now takes the colour of the axis it stands across, so the
 // wash in front of a border is a different HUE. These tests do the same
 // arithmetic the renderer does and hold the result to a margin the old scheme
-// could not have met — `oldSchemeWouldFail` runs it against the two oranges
-// and shows exactly how far short they fall.
+// could not have met — "the old single-orange scheme misses that margin by a
+// factor of three" runs it against the two oranges and holds them BELOW the
+// bar, so the state this issue reports cannot quietly come back.
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
