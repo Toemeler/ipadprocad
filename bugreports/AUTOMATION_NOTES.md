@@ -146,3 +146,63 @@ the model reasoning badly, and each fix is general:
   downloaded Linux Swift 6.0.3 toolchain (`swiftc -parse`, clean) since no
   Dart-testable seam exists for native RealityKit geometry — CI's macOS
   build remains the source of truth for the type-check. Commit `b49fc80`.
+
+- #49 — **the entry above is a third of the fix, and the test under it proved
+  nothing.** Appended rather than edited, per this file's own rule. The report
+  asks for three things and `b8928e7` did one of them:
+
+  * there was NO ANIMATION, which the report names outright. The rail stayed
+    `SizedBox(width: retracted ? 0 : railWidth)` — absent to full width
+    between two frames — before the fix and after it;
+  * the strip stopped PAINTING but was still an 18 pt row child with
+    `HitTestBehavior.opaque` on it, so it went on eating every tap and orbit
+    landing at the screen edge, now with nothing drawn to explain why. An
+    invisible dead zone is worse than the bar that was reported;
+  * the swipe was never the reported one: `onHorizontalDragEnd` needed
+    50 px/s AT RELEASE, so a slow deliberate drag did nothing and nothing
+    tracked the finger;
+  * and `expect(ribbonGripPaintsBar(true), isFalse)` asserted a constant, on
+    a function written so that something could be asserted. Every gate passed
+    and none of them asked what the report asked.
+
+  `fixed:` (5a1c0ff) the handle is drawn only while the band is OUT;
+  `_RibbonEdgeSwipe` is a translucent 20 pt overlay claiming horizontal drags
+  and nothing else; it tracks the thumb by ABSOLUTE position (a drag competing
+  with another recognizer spends its first move winning the gesture arena and
+  that delta is never delivered, so summing deltas left the band a movement
+  behind); it commits past halfway at any speed or on a flick; and the reveal
+  is a 320 ms ease-out that clips the band to a fraction of its full size so
+  the icons slide rigidly instead of squashing.
+
+  Two faults the rework found that no gate would have reported: wrapping the
+  tree in a Stack only while retracted REPARENTED the whole band on the frame
+  the flag flipped, so the tween re-initialised at its target and snapped — an
+  animation that is written and never runs; and `RibbonDockLayout` read the
+  retract flag without listening, animating correctly only because main.dart
+  happens to rebuild the shell.
+
+  `frontend/test/issue49_ribbon_edge_swipe_test.dart` — seven widget tests on
+  a 393x852 surface, each run against the behaviour it pins: forcing
+  `kRibbonReveal` to zero fails exactly the animation test, forcing the edge
+  zone back to `opaque` fails exactly the dead-zone test. `isPhoneOverride`
+  (device_class.dart) is the seam, mirroring `RibbonSurface.glassOverride`;
+  driving `defaultTargetPlatform` instead would make the host a phone for
+  every widget test at once, which m405_ribbon_retract_test forbids.
+
+- #51 — "somehow the planes look weird. the edges are the same color and
+  exactly the same even when they are behind another plane." Not a matter of
+  taste, and it did not need the colour decision I first asked the reporter
+  for: it is arithmetic. All three origin planes were one frozen orange with
+  the border a second orange beside it, and a plane draws as a 28% fill over
+  an opaque border — so a border seen through the plane in front of it came to
+  (238.3, 165.2, 100.6) against (240, 168, 104) in the open. Under four parts
+  in 255: no depth cue at all, exactly as reported, and nothing to tell two
+  crossing borders apart either. `fixed:` each origin plane takes the colour
+  of the axis it stands ACROSS (`yz`->X, `xz`->Y, `xy`->Z), the same axisX/Y/Z
+  the triad already draws, so the wash over a border is a different HUE and
+  the same comparison lands in the tens of parts. Pushed from Dart on the
+  existing `tint` payload road rather than named in PartScene.swift, per
+  M237's rule about this app having two palettes; work planes and older native
+  builds fall back to the orange unchanged. `issue51_plane_depth_cue_test.dart`
+  runs the renderer's own compositing over both palettes and keeps a permanent
+  negative control that holds the two oranges BELOW the bar. Commit `598a1ad`.
