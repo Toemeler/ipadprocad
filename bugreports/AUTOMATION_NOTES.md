@@ -206,3 +206,31 @@ the model reasoning badly, and each fix is general:
   builds fall back to the orange unchanged. `issue51_plane_depth_cue_test.dart`
   runs the renderer's own compositing over both palettes and keeps a permanent
   negative control that holds the two oranges BELOW the bar. Commit `598a1ad`.
+
+- #52 — "this is Not a clean design. the ribbon doesnt go to the top. the
+  right bar on the ribbon looks awful and this is not a apple native
+  Animation." Filed against `b49fc80`, i.e. against #49's first fix, so all
+  three are fair; the animation is the one 5a1c0ff already answered.
+  `fixed:` (f59e99a) TWO things. The band began ~47 pt down a phone because
+  the whole shell sits in a SafeArea — an inset small enough on an iPad that
+  it never showed — so the inset moved to the STAGE and the band takes the
+  window's real top edge, which is M389's answer to the identical shape on
+  Windows. And the handle, an 18 pt slab of `T.hover6` running the full
+  height of the screen with a chevron in it, is now the iOS grabber: one
+  4x36 rounded bar, centred, on nothing, with the 18 pt hit target
+  deliberately unchanged (the tests measure paint and touch area separately,
+  because one that looked only at the strip would pass before and after).
+  The handle also shares `_RibbonEdgeSwipe` now rather than keeping its own
+  50 px/s flick, so putting the band away and pulling it back out are one
+  position-tracked motion. `issue52_phone_band_chrome_test.dart`, each test
+  run against the behaviour it pins. The full suite caught the one thing it
+  broke — issue49's handle assertion, which named the chevron this replaces.
+
+- #53 — "the workplanes and Their edges are still rendered very weird." Also
+  `b49fc80`: it carries #50's corner fix (and the corners in the screenshot
+  are indeed sharp now) but NOT #51's colour fix, which landed after it was
+  filed. The screenshot is #51's uniform orange exactly. Left OPEN with a
+  request to retest on a build carrying 598a1ad rather than closed on my own
+  say-so — if it still reads wrong after that, it is something not yet
+  identified and the fresh report is worth more than another guess at the
+  old one.
