@@ -1,0 +1,267 @@
+name: Cache GC  # hold the Actions cache under its budget, on purpose
+
+# WARUM ES DIESE DATEI GIBT.
+#
+# GitHub gibt jedem Repository 10 GB Actions-Cache. Wer darueber liegt,
+# verliert Eintraege — die am laengsten nicht benutzten zuerst, ohne Warnung
+# und ohne dass es irgendwo im Log eines Builds auftaucht. Was danach fehlt,
+# wird beim naechsten Run einfach neu gebaut, und ein Build, der eine halbe
+# Stunde laenger dauert, sieht aus wie ein Build, der eben so lange dauert.
+#
+# Genau das ist hier passiert. `occt-ios-arm64-V7_9_3-r1` ist der teuerste
+# Eintrag, den dieses Repo hat: ein halbstuendiger Cross-Compile von
+# OpenCASCADE, den `m5-flutter-ipa` restauriert. Die Runs 34478689042 und
+# 34493818656, beide auf main und zweieinhalb Stunden auseinander, haben ihn
+# BEIDE als Fehltreffer vorgefunden, neu gebaut (38:20 bzw. 29:35) und danach
+# erfolgreich gespeichert — und ein `actions/cache`-Save gelingt nur, wenn der
+# Schluessel frei ist. Der Baum wurde also zwischen den beiden Runs geraeumt.
+# Ein Drittel der Gesamtlaufzeit des Builds ging dafuer drauf, dreimal
+# hintereinander, fuer dasselbe Ergebnis.
+#
+# Das Repo kommt auf ein Vielfaches der 10 GB: sechs OCCT-Baeume, Blenders
+# vorkompilierte Bibliotheken fuer iOS und macOS, Qt fuer vier Ziele, zwei
+# ccache-Baeume, ein Flutter-SDK von 2,2 GB pro Plattform und Patch-Release —
+# und die schluesselrotierenden Eintraege (`ccache-ipa-<hash>`,
+# `cycles-linux-<ref>-<hash>`) legen bei jeder Aenderung einen NEUEN an, ohne
+# den alten je wegzuraeumen. Ohne Aufraeumen laeuft das Kontingent zwangslaeufig
+# voll, und was dann faellt, entscheidet der Zufall statt jemand mit einer
+# Meinung dazu.
+#
+# Dieser Job hat die Meinung. Er raeumt in zwei Durchgaengen:
+#
+#   1  Caches von Workflows, die NICHT zu build.yml gehoeren (kernel-bench,
+#      sim-perf, cycles-render-test, die isolierte occt-build). Die sind
+#      wertvoll, wenn man sie braucht, und liegen die anderen 99% der Zeit im
+#      Weg. Sie bauen sich beim naechsten Lauf des jeweiligen Workflows neu.
+#
+#   2  Von jeder rotierenden Familie alles ausser den zwei neuesten. Der
+#      drittneueste ccache-Baum gehoert zu einem Stand, zu dem niemand mehr
+#      zurueckgeht; `restore-keys` greift ohnehin immer nur den neuesten.
+#
+# GESCHUETZT und in keinem Durchgang anfassbar ist, was build.yml auf dem
+# kritischen Pfad restauriert und was teuer ist: die drei OCCT-Baeume der drei
+# Plattformen und Blenders iOS-Bibliotheken. Die Liste steht unten als Code,
+# nicht als Kommentar.
+
+on:
+  schedule:
+    # Alle sechs Stunden. Die Raeumung passierte zwischen zwei Builds am
+    # selben Nachmittag, ein taeglicher Lauf waere also zu langsam gewesen,
+    # um sie zu verhindern.
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Nur auflisten, nichts loeschen.'
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  actions: write  # Caches loeschen
+
+concurrency:
+  group: cache-gc
+  cancel-in-progress: false
+
+jobs:
+  gc:
+    name: Keep the cache under budget
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DRY_RUN: ${{ inputs.dry_run }}
+    steps:
+      - name: Sweep
+        run: |
+          set -euo pipefail
+
+          api="repos/$GITHUB_REPOSITORY/actions/caches"
+
+          # Alle Eintraege, seitenweise: die API liefert hoechstens 100 pro
+          # Seite und dieses Repo liegt darueber.
+          all="$(mktemp)"
+          page=1
+          while :; do
+            got="$(gh api "$api?per_page=100&page=$page" \
+                     --jq '.actions_caches[] | [.id, .size_in_bytes, .last_accessed_at, .key] | @tsv')"
+            [ -z "$got" ] && break
+            printf '%s\n' "$got" >> "$all"
+            page=$((page + 1))
+            # Nicht `[ ... ] && break`: unter `set -e` ist ein falscher Test am
+            # Ende eines Schleifenrumpfes der Fehler, der das Skript faellt.
+            if [ "$page" -gt 20 ]; then break; fi
+          done
+
+          before="$(awk -F'\t' '{s += $2} END {printf "%d", s + 0}' "$all")"
+          count="$(wc -l < "$all" | tr -d ' ')"
+          echo "VORHER: $count Eintraege, $((before / 1048576)) MiB von 10240 MiB"
+          echo
+
+          # --- was unantastbar ist -------------------------------------------
+          # Teuer UND auf dem kritischen Pfad von build.yml. Ein Fehltreffer
+          # hier kostet eine halbe Stunde bis Stunde Gesamtlaufzeit, also wird
+          # hier nie aufgeraeumt, egal wie alt der Eintrag ist.
+          protected='^(occt-ios-arm64-|occt-linux-|occt-windows-|blender-ios-libs-)'
+
+          # Qt kommt als Muster dazu, nicht als Praefix: den Schluessel
+          # vergibt install-qt-action und nicht dieses Repo, seine Form ist
+          # also nichts, worauf man sich festlegen sollte. Ein Fehltreffer
+          # kostet in m5 rund fuenf Minuten auf dem kritischen Pfad — Run
+          # 34478689042 hat Qt kalt installiert und brauchte 1:46 fuer den
+          # Host und 4:52 fuer iOS, gegen 0:20 und 0:50 mit Treffer.
+          #
+          # Zu breit zu schuetzen ist hier der billige Fehler: es bleibt dann
+          # etwas liegen, das haette fallen koennen. Zu eng zu schuetzen
+          # kostet Minuten in jedem Build danach.
+          protected_qt='(^|[-_])qt([-_]|$)'
+
+          is_protected() {
+            printf '%s' "$1" | grep -Eq  "$protected"    && return 0
+            printf '%s' "$1" | grep -Eqi "$protected_qt" && return 0
+            return 1
+          }
+
+          # --- Durchgang 1: fremde Workflows ---------------------------------
+          # kernel-bench.yml, sim-perf.yml, cycles-render-test.yml und die
+          # isolierte occt-build.yml. Keiner davon laeuft bei einem Push auf
+          # main mit; ihre Caches bauen sich beim naechsten eigenen Lauf neu.
+          foreign='^(occt-host-|occt-macos-arm64-|occt-sim-x86_64-|blender-macos-libs-|ccache-sim-)'
+
+          # --- Durchgang 2: rotierende Familien ------------------------------
+          # Schluessel, die einen Inhalts-Hash tragen und deshalb bei jeder
+          # Aenderung einen neuen Eintrag anlegen. Der Praefix bis zum Hash ist
+          # die Familie; von jeder bleiben die zwei neuesten stehen.
+          rotating='^(ccache-ipa-|cycles-linux-|cycles-windows-|cycles-dist-v4-|flutter-|Linux-flutter|macOS-flutter|Windows-flutter)'
+          keep_per_family=1
+
+          # DIE FAMILIE IST ALLES VOR DEM ERSTEN SEGMENT MIT EINER ZIFFER.
+          #
+          # Der naheliegende Schnitt — "alles ausser dem letzten Segment" —
+          # funktioniert fuer `ccache-ipa-<hash>` und faellt bei Flutter genau
+          # dort um, wo es teuer ist: `flutter-macos-stable-3.47.3-arm64-e811`
+          # und `flutter-macos-stable-3.45.0-arm64-bbbb` unterscheiden sich in
+          # der VERSION, nicht im letzten Segment. Jedes Patch-Release waere
+          # damit seine eigene Familie, jede Familie haette ein Mitglied, und
+          # kein einziger der 2,2-GB-Baeume wuerde je eingesammelt. Genau so
+          # ist das Kontingent vollgelaufen.
+          #
+          # Die Ziffernregel schneidet bei `3.47.3` bzw. beim Hash ab und legt
+          # alle Versionen in `flutter-macos-stable` zusammen. Fuer
+          # `cycles-linux-refA-<hash>` bleibt der Ref-Name erhalten (keine
+          # Ziffer), was richtig ist: zwei Refs sind zwei Familien.
+          family() {
+            printf '%s' "$1" | awk -F- '{
+              out = ""
+              for (i = 1; i <= NF; i++) {
+                if ($i ~ /[0-9]/) break
+                out = (out == "" ? $i : out "-" $i)
+              }
+              print (out == "" ? $1 : out)
+            }'
+          }
+
+          doomed="$(mktemp)"
+
+          while IFS=$'\t' read -r id size accessed key; do
+            [ -z "${id:-}" ] && continue
+            if is_protected "$key"; then
+              continue
+            fi
+            if printf '%s' "$key" | grep -Eq "$foreign"; then
+              printf '%s\t%s\t%s\tfremder Workflow\n' "$id" "$size" "$key" >> "$doomed"
+            fi
+          done < "$all"
+
+          # Rotierende Familien: nach Familie gruppieren, nach Zugriffszeit
+          # absteigend sortieren, ab Position keep_per_family+1 loeschen.
+          # Die Familie ist der Schluessel ohne sein letztes '-'-Segment, was
+          # fuer jedes der obigen Muster genau den Hash abschneidet.
+          # Jeden rotierenden Schluessel mit seiner Familie voranstellen, dann
+          # je Familie nach Zugriffszeit absteigend sortieren und ab
+          # keep_per_family+1 verurteilen.
+          famtab="$(mktemp)"
+          while IFS=$'\t' read -r id size accessed key; do
+            [ -z "${id:-}" ] && continue
+            is_protected "$key" && continue
+            printf '%s' "$key" | grep -Eq "$rotating" || continue
+            printf '%s\t%s\t%s\t%s\t%s\n' "$(family "$key")" "$id" "$size" "$accessed" "$key"
+          done < "$all" > "$famtab"
+
+          for fam in $(cut -f1 "$famtab" | sort -u); do
+            awk -F'\t' -v f="$fam" '$1 == f' "$famtab" \
+              | sort -t$'\t' -k4,4r \
+              | tail -n "+$((keep_per_family + 1))" \
+              | while IFS=$'\t' read -r f id size accessed key; do
+                  printf '%s\t%s\t%s\tueberholt (%s behaelt %d)\n' \
+                    "$id" "$size" "$key" "$fam" "$keep_per_family" >> "$doomed"
+                done
+          done
+
+          # --- Durchgang 3: notfalls nach Budget ------------------------------
+          # Die beiden Regeln oben sind Meinungen darueber, was entbehrlich
+          # IST. Diese hier ist die Versicherung dagegen, dass die Meinungen
+          # nicht reichen: solange die Rechnung ueber dem Ziel liegt, faellt
+          # der am laengsten nicht benutzte ungeschuetzte Eintrag, bis sie
+          # darunter liegt.
+          #
+          # Das ist genau die Reihenfolge, in der GitHub selbst raeumen wuerde
+          # — nur trifft es hier nie den OCCT-Baum, weil der geschuetzt ist,
+          # und es passiert zu einem Zeitpunkt, an dem kein Build wartet.
+          #
+          # Qt taucht in keiner Liste oben auf und braucht das auch nicht:
+          # install-qt-action greift bei jedem Run darauf zu, also stehen die
+          # Qt-Eintraege ganz vorn bei "zuletzt benutzt" und damit ganz hinten
+          # in dieser Schlange. Dasselbe gilt fuer alles andere, was der Build
+          # wirklich benutzt. Was hier faellt, ist per Konstruktion das, was
+          # am laengsten niemand angefasst hat.
+          target=8589934592  # 8 GiB, der Rest ist Luft fuer die naechsten Runs
+          projected="$before"
+          while IFS=$'\t' read -r id size key why; do
+            projected=$((projected - size))
+          done < "$doomed"
+
+          if [ "$projected" -gt "$target" ]; then
+            echo "Nach Regel 1+2 blieben $((projected / 1048576)) MiB — ueber dem Ziel"
+            echo "von $((target / 1048576)) MiB. Es faellt weiter, aeltester Zugriff zuerst:"
+            already="$(cut -f1 "$doomed" | sort -u)"
+            sort -t$'\t' -k3,3 "$all" | while IFS=$'\t' read -r id size accessed key; do
+              [ -z "${id:-}" ] && continue
+              is_protected "$key" && continue
+              printf '%s\n' "$already" | grep -qx "$id" && continue
+              printf '%s\t%s\t%s\tueber Budget (letzter Zugriff %s)\n' \
+                "$id" "$size" "$key" "$accessed" >> "$doomed"
+              projected=$((projected - size))
+              if [ "$projected" -le "$target" ]; then break; fi
+            done
+          fi
+
+          sort -u -o "$doomed" "$doomed"
+
+          if [ ! -s "$doomed" ]; then
+            echo "Nichts zu raeumen."
+            exit 0
+          fi
+
+          freed=0
+          while IFS=$'\t' read -r id size key why; do
+            [ -z "${id:-}" ] && continue
+            echo "  $((size / 1048576)) MiB  $key  — $why"
+            if [ "${DRY_RUN:-false}" = "true" ]; then
+              continue
+            fi
+            # Ein Eintrag, den ein laufender Job gerade neu geschrieben hat,
+            # ist beim Loeschen schon weg. Das ist kein Fehler.
+            gh api -X DELETE "$api/$id" >/dev/null 2>&1 \
+              || echo "    (war schon weg)"
+            freed=$((freed + size))
+          done < "$doomed"
+
+          echo
+          if [ "${DRY_RUN:-false}" = "true" ]; then
+            echo "DRY RUN — $(wc -l < "$doomed" | tr -d ' ') Eintraege waeren gefallen."
+          else
+            echo "NACHHER: $((freed / 1048576)) MiB freigegeben, rechnerisch"
+            echo "         $(((before - freed) / 1048576)) MiB von 10240 MiB belegt"
+          fi

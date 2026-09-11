@@ -98,6 +98,11 @@ jobs:
     permissions:
       # It pushes its own build logs to ci-debug-logs-m5.
       contents: write
+      # And it reads the repository's cache usage, to say in its own log why
+      # the OCCT tree was or was not there (M426). A `permissions:` block here
+      # REPLACES the default set rather than adding to it, so both lines have
+      # to stand — dropping this one turns the diagnostic into a silent 403.
+      actions: read
     secrets: inherit
 
   linux:

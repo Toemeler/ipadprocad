@@ -11,26 +11,43 @@ name: Core + C-API Build (iOS)  # M1 core (green) + M2 C-ABI wrapper & iOS bundl
 on:
   workflow_call:
 
+# actions: read kommt zu contents: write dazu, damit der Diagnoseschritt in
+# m5-flutter-ipa die Cache-Auslastung des Repositories abfragen darf (M426).
+# Der aufrufende Job in build.yml muss BEIDE setzen: ein `permissions:`-Block
+# am Aufruf ersetzt die Vorgabe, er ergaenzt sie nicht.
 permissions:
   contents: write
+  actions: read
 
 # Bei schnellen aufeinanderfolgenden Pushes den veralteten Run abbrechen
 # (spart Minuten & Artefakt-Storage).
 jobs:
-  # FAST FEEDBACK — läuft parallel zu allem anderen und wird in ~3 min rot.
+  # THE GATE — es haelt m5 auf, also ist es genau so schnell wie es sein muss
+  # und keinen Schritt langsamer.
   #
-  # Warum: `flutter analyze` + die Host-Tests laufen ausserdem in
+  # Warum es ueberhaupt existiert: `flutter analyze` lief ausserdem in
   # `m5-flutter-ipa`, dort aber erst NACH Qt-Install, OCCT-Cache und
   # Core-Build. Ein Dart-Tippfehler kostete dadurch ~20 Minuten statt ~3.
-  # Dieser Job dupliziert die beiden Schritte bewusst auf einem billigen
-  # ubuntu-Runner; die Prüfungen in m5 bleiben als Absicherung stehen (sie
-  # laufen dort gegen das per `flutter create` erzeugte Projekt).
+  #
+  # WARUM DIE TESTS HIER RAUS SIND. Sie standen bis M426 in diesem Job, und
+  # weil `m5-flutter-ipa` auf ihn wartet, kostete jede einzelne Suite-Minute
+  # eine Minute Gesamtlaufzeit — 4:26 davon, bevor der teuerste Runner des
+  # Builds ueberhaupt anfangen durfte. Sie laufen jetzt nebenan in
+  # `dart-tests`, parallel statt davor: ein roter Test faerbt den Run
+  # weiterhin rot und verhindert ueber `needs` im aufrufenden build.yml jedes
+  # Release, er haelt m5 nur nicht mehr an.
+  #
+  # Das Argument fuer das Gate bleibt trotzdem intakt, denn es war nie ein
+  # Argument ueber Tests: der Fall, den der Kommentar oben beschreibt, ist ein
+  # TIPPFEHLER, und den findet `analyze` in fuenfzehn Sekunden. Ein
+  # fehlschlagender Test ist ein Logikfehler in Code, der compiliert — dafuer
+  # eine Viertelstunde macOS zu verbrennen ist der guenstigere Handel.
   #
   # Kein iOS-Scaffolding hier: `flutter analyze`/`test` brauchen nur
   # `pub get`. Die In-Repo-Plugin-Pods sind Path-Dependencies mit reinem
   # Dart-Interface, das auf Linux auflösbar ist.
   dart-checks:
-    name: Dart analyze + host tests (fast)
+    name: Dart analyze (gate)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -71,6 +88,41 @@ jobs:
           flutter analyze --no-pub --no-fatal-infos --no-fatal-warnings 2>&1 \
             | tee ../ci-dart-analyze.log
 
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dart-analyze-log
+          path: ci-dart-analyze.log
+          if-no-files-found: ignore
+
+  # DIE SUITE, NEBEN DEM GATE STATT DAVOR (M426).
+  #
+  # Identischer Aufbau zu `dart-checks` — derselbe Runner, dasselbe `pub get`,
+  # dieselben Flags —, nur ohne dass irgendwer darauf wartet. Die doppelten
+  # dreissig Sekunden Setup laufen parallel und kosten deshalb nichts an
+  # Gesamtlaufzeit; die 4:26 Suite taten das vorher sehr wohl.
+  #
+  # Dies ist ab M426 der EINZIGE Ort, an dem die Dart-Suite laeuft. m5 hat sie
+  # bis dahin ein zweites Mal ausgefuehrt, auf macOS, fuer 11:35 — dieselben
+  # Tests, derselbe Befehl, mitten auf dem kritischen Pfad und auf dem Runner,
+  # der zehnfach abgerechnet wird.
+  dart-tests:
+    name: Dart host tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: flutter pub get
+        working-directory: frontend
+        run: flutter pub get
+
       - name: Host tests
         working-directory: frontend
         run: |
@@ -80,11 +132,10 @@ jobs:
           # Flutter-Versionen.
           flutter test 2>&1 | tee ../ci-dart-tests.log
 
-      - name: Commit dart-check logs
+      - name: Commit dart-test logs
         if: always()
         run: |
           mkdir -p ci-logs-dart
-          cp ci-dart-analyze.log ci-logs-dart/ 2>/dev/null || true
           # The whole log, gzipped. Two attempts at extracting "just the
           # failure" both missed it — the tail caught 400 lines of passing
           # tests and the marker grep matched nothing — and each miss cost a
@@ -95,7 +146,7 @@ jobs:
           git config user.email "ci@prototype.local"
           git config user.name "Prototype CI"
           git add -f ci-logs-dart
-          git commit -m "CI(dart): analyze+test logs from run ${{ github.run_id }}" \
+          git commit -m "CI(dart): test logs from run ${{ github.run_id }}" \
             || exit 0
           git push origin HEAD:ci-debug-logs-dart --force
 
@@ -103,10 +154,8 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: dart-checks-logs
-          path: |
-            ci-dart-analyze.log
-            ci-dart-tests.log
+          name: dart-tests-log
+          path: ci-dart-tests.log
           if-no-files-found: ignore
 
   build-core-ios:
@@ -989,6 +1038,20 @@ jobs:
         run: |
           set -o pipefail
           {
+          # M426 — DIE LAUNCHER-FLAGS FEHLTEN AUSGERECHNET HIER.
+          #
+          # Der Job installiert ccache, cached ~/Library/Caches/ccache und
+          # setzt CMAKE_*_COMPILER_LAUNCHER an libslvs und am OCCT-Shim — an
+          # zwei Builds von fuenfzehn bzw. siebzehn Sekunden. Der Build, der
+          # 4:40 braucht, ist DIESER, und er bekam die Flags nie. Der
+          # gespeicherte ccache-Baum war entsprechend 985 kB gross: er enthielt
+          # nur die beiden Winzlinge.
+          #
+          # Das ist der Schritt, der bei einer reinen Dart-Aenderung — dem
+          # Fall, um den es beim schnellen Bauen ueberhaupt geht — vollstaendig
+          # aus dem Cache kommen kann, weil sich an backend/ nichts geaendert
+          # hat. `restore-keys: ccache-ipa-` steht schon oben, also traegt auch
+          # eine C++-Aenderung nur ihre eigenen Objekte neu.
           cmake -B build \
             -G Ninja \
             -DCMAKE_TOOLCHAIN_FILE="${{ steps.qt_ios.outputs.path }}/lib/cmake/Qt6/qt.toolchain.cmake" \
@@ -997,6 +1060,8 @@ jobs:
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
             -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DBUILD_QT6=ON \
             -DQCAD_CAPI_SMOKE=ON
           # The smoke exe is built for the DEVICE here purely to make CMake
@@ -1015,11 +1080,37 @@ jobs:
           lipo -info release/libprototype.a
           } 2>&1 | tee ../../ci-m5-core.log
 
+      # M426 — `cache: true` STAND HIER UND HAT DEN BUILD EINE HALBE STUNDE
+      # GEKOSTET. Nicht hier, sondern drei Schritte weiter unten.
+      #
+      # Die Rechnung aus Run 34493818656 gegen 34478689042, beide auf main:
+      # mit Cache-Treffer brauchte dieser Schritt 1:17, ohne 1:31. Der Cache
+      # sparte VIERZEHN SEKUNDEN. Bezahlt wurden sie mit 2,22 GB im
+      # Actions-Cache des Repositories und 1:14 im Post-Job, der sie hochlaedt
+      # — zu sehen in genau diesem Log:
+      #
+      #   Sent 2220287154 of 2220287154 (100.0%), 122.8 MBs/sec
+      #   Cache saved with key: flutter-macos-stable-3.47.3-arm64-...
+      #
+      # Das Kontingent pro Repository sind 10 GB, und wer es ueberschreitet,
+      # verliert seine am laengsten nicht benutzten Eintraege. Dieses Repo
+      # haelt sechs OCCT-Baeume, Blenders vorkompilierte Bibliotheken zweimal,
+      # Qt fuer drei Ziele, zwei ccache-Baeume — und dazu ein Flutter-SDK pro
+      # Plattform und Patch-Release. Der Eintrag, der die Raeumung verlor, war
+      # `occt-ios-arm64-V7_9_3-r1`, und das Log zeigt es dreimal
+      # hintereinander: Restore 0 s (Fehltreffer), 29:35 neu gebaut, danach
+      # "Cache saved with key" — ein Save GELINGT nur, wenn der Schluessel
+      # nicht mehr da ist. Der Baum wurde also zwischen zwei Runs am selben
+      # Nachmittag geraeumt, wieder gebaut und wieder geraeumt.
+      #
+      # Vierzehn gesparte Sekunden gegen eine halbe Stunde OCCT ist kein
+      # knapper Handel. Das SDK wird hier frisch geladen; die Schwergewichte
+      # behalten dafuer ihren Platz.
       - name: Install Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
-          cache: true
+          cache: false
 
       - name: Scaffold iOS project (flutter create) + pub get
         working-directory: frontend
@@ -1210,14 +1301,26 @@ jobs:
           fi
           } 2>&1 | tee ../ci-m5-scaffold.log
 
-      - name: Dart unit tests (solver + dimension system)
-        working-directory: frontend
-        run: |
-          set -o pipefail
-          # pipefail makes flutter test's exit code authoritative. Do NOT grep
-          # for a success phrase: the wording changes between Flutter versions
-          # ("All tests passed!" vs "🎉 18 tests passed.").
-          flutter test 2>&1 | tee ../ci-m5-dart-tests.log
+      # M426 — DIE SUITE LIEF HIER EIN ZWEITES MAL, UND ZWAR AN DER TEUERSTEN
+      # STELLE, DIE ES DAFUER GIBT.
+      #
+      # `flutter test`, derselbe Befehl im selben Verzeichnis wie im
+      # `dart-tests`-Job, stand genau hier: hinter dem Core-Build, vor OCCT,
+      # mitten auf dem kritischen Pfad — auf macOS, das zehnfach abgerechnet
+      # wird und die Suite in 11:35 statt in 4:26 durchlaeuft. Elfeinhalb
+      # Minuten Gesamtlaufzeit fuer eine Antwort, die ein ubuntu-Runner zu
+      # diesem Zeitpunkt laengst gegeben hatte.
+      #
+      # Und sie gatete nichts: `needs: [dart-checks, ...]` liess diesen Job
+      # ohnehin erst los, nachdem die Dart-Pruefungen gruen waren.
+      #
+      # WAS DAMIT WEGFAELLT, ehrlich benannt: ein Test, der NUR auf einem
+      # macOS-Host fehlschlaegt, faellt jetzt niemandem mehr auf. Die Suite
+      # ist Host-Code — Solver, Dimensionssystem, Dokument-Container —, kein
+      # Test darin fragt das Betriebssystem etwas, und der iOS-Teil der App
+      # wird von dieser Suite ohnehin nicht ausgefuehrt. Wenn das eines Tages
+      # nicht mehr stimmt, ist die Antwort ein eigener macOS-Job NEBEN diesem
+      # hier, nicht wieder ein Schritt mittendrin.
 
       - name: Build libslvs static (iOS device, arm64)
         working-directory: backend/slvs
@@ -1249,6 +1352,55 @@ jobs:
           path: backend/occt/install-ios
           key: occt-ios-arm64-V7_9_3-r1
 
+      # M426 — EIN FEHLTREFFER HIER KOSTET EINE HALBE STUNDE UND SAGTE ES
+      # NIEMANDEM.
+      #
+      # Der Schritt darunter heisst "cache miss only" und wird uebersprungen,
+      # wenn der Cache traegt — im Log sieht ein Treffer damit aus wie ein
+      # Fehltreffer, den jemand schon behoben hat, und ein Fehltreffer sieht
+      # aus wie ein Build, der eben so lange dauert. Drei Runs hintereinander
+      # haben deshalb je eine halbe Stunde OCCT gebaut, ohne dass das irgendwo
+      # als Auffaelligkeit auftauchte.
+      #
+      # Die Cache-Auslastung dazu, weil sie die Ursache ist und nicht die
+      # Begleiterscheinung: ueber 10 GB raeumt GitHub die am laengsten nicht
+      # benutzten Eintraege weg, und der OCCT-Baum verliert dieses Rennen
+      # gegen alles, was jeder Run neu schreibt. `|| true` ueberall — eine
+      # Diagnose darf keinen Build faellen.
+      - name: What the OCCT cache did, and what the budget looks like
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ steps.occt-cache.outputs.cache-hit }}" = "true" ]; then
+            echo "OCCT IOS CACHE: HIT — der 30-Minuten-Build entfaellt."
+          else
+            echo "OCCT IOS CACHE: MISS auf occt-ios-arm64-V7_9_3-r1."
+            echo "  Dieser Run baut OCCT neu (~30 min). Wenn der Schluessel"
+            echo "  sich nicht geaendert hat, wurde der Eintrag geraeumt —"
+            echo "  siehe die Auslastung unten."
+          fi
+          USAGE="$(gh api "repos/$GITHUB_REPOSITORY/actions/cache/usage" \
+            --jq '.active_caches_size_in_bytes' 2>/dev/null || echo "")"
+          # Nicht `[ ... ] && echo ...`: `run:` laeuft unter `bash -e`, und ein
+          # && -Test, der am Ende eines Schrittes falsch ist, faellt den Schritt.
+          case "$USAGE" in
+            ''|*[!0-9]*) ;;
+            *)
+              echo "CACHE BUDGET: $((USAGE / 1048576)) MiB von 10240 MiB belegt"
+              if [ "$USAGE" -gt 9663676416 ]; then
+                echo "  UEBER 9 GiB — es wird geraeumt, und zwar das Aelteste zuerst."
+              fi
+              ;;
+          esac
+          echo "Die groessten Eintraege:"
+          gh api "repos/$GITHUB_REPOSITORY/actions/caches?per_page=100" \
+            --jq '.actions_caches | sort_by(-.size_in_bytes)[:15]
+                  | .[] | "\(.size_in_bytes / 1048576 | floor) MiB  \(.last_accessed_at)  \(.key)"' \
+            2>/dev/null || echo "  (nicht abfragbar — fehlt dem Token actions:read?)"
+          true
+
       - name: Build OpenCASCADE static (iOS device, arm64, cache miss only)
         if: steps.occt-cache.outputs.cache-hit != 'true'
         timeout-minutes: 150
@@ -1267,6 +1419,8 @@ jobs:
             -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
             -DINSTALL_DIR="$GITHUB_WORKSPACE/backend/occt/install-ios" \
             -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DBUILD_LIBRARY_TYPE=Static \
             -DBUILD_MODULE_FoundationClasses=ON \
             -DBUILD_MODULE_ModelingData=ON \
@@ -1613,13 +1767,6 @@ jobs:
           for l in ci-m5-core ci-m5-scaffold ci-m5-xcconfig ci-m5-analyze ci-m5-build ci-m5-verify; do
             cp "$l.log" ci-logs-m5/ 2>/dev/null || true
           done
-          # The test log was the one omission that mattered: M5 runs the suite
-          # on macOS where dart-checks runs it on ubuntu, so it is the only
-          # place a platform-specific test failure is visible — and when one
-          # happened there was nothing to read. Gzipped, because a green run
-          # is megabytes of per-test chatter.
-          gzip -9 -c ci-m5-dart-tests.log \
-            > ci-logs-m5/ci-m5-dart-tests.log.gz 2>/dev/null || true
           git config user.email "ci@prototype.local"
           git config user.name "Prototype CI"
           git add -f ci-logs-m5
