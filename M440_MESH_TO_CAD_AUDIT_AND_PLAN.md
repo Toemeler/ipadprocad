@@ -820,7 +820,40 @@ not checked reports **−1, never 0**.
 improved on every axis and are honest about it. No model regressed, and no model
 costs materially more time.
 
-### 9.6 What this does not do
+### 9.6 The Bunny, which is repaired but still does not close
+
+The file the repair stage was written for. Measured end to end, at default
+parameters:
+
+| | baseline | after repair |
+|---|---|---|
+| non-manifold edges entering segmentation | **465** | **3** |
+| inconsistently wound triangles | **6 935** | **111** |
+| boundary edges | 64 | 70 |
+| shells / solids out | 536 / 77 | **49 / 39** |
+| free edges in the result | 421 | **321** |
+| edges on more than two faces in the result | 465 | **14** |
+| closed | 0 | **0** |
+| time | 938 s | 862 s |
+
+**Non-manifold edges are down 99.4 % and inconsistent winding 98.4 %**, and the
+mesh handed to the segmentation is very nearly a manifold. The order is what
+did it: removing the 264 zero-thickness sheets *first* takes the non-manifold
+count from 442 to 19 on its own, because those sheets were what made most of
+those edges non-manifold. Confirmed twice — once by the shim, once
+independently in NumPy against the raw STL.
+
+**It still does not close**, and the reason is the 70 boundary edges that
+survive. `FillHoles` traces 61 loops and fills them, and the greedy walk it
+uses fails on boundary vertices where several loops meet — which is exactly
+what cutting 45 non-manifold fans produces. A proper loop extraction (sort the
+boundary half-edges around each vertex and walk them as a permutation, rather
+than taking the first unused successor) is the fix, and it is not written.
+
+**And it still takes fourteen minutes**, which is the Phase 6 problem and
+untouched. This is honest remaining work, not a claim.
+
+### 9.7 What this does not do
 
 - **TOKA_Base still has one self-intersection.** It is a genuinely mixed
   prismatic/freeform part and the remaining defect is a sliver at a boundary
