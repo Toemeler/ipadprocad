@@ -128,3 +128,21 @@ the model reasoning badly, and each fix is general:
   `frontend/test/issue49_ribbon_grip_edge_test.dart`, confirmed failing
   against the old unconditional-paint behaviour and passing with the fix.
   Commit `b8928e7`.
+
+- #50 — "the main workplanes when highlighted have these round circle
+  corners which look awfull. the corners should be very small quadratic
+  points." A work plane's border is a closed rectangle stroked as four
+  independent round tube segments (`OutlineBuilder.tube`,
+  `PartScene.swift`); that method's own comment already says the round
+  joints are only invisible because "tiny joint gaps are invisible at these
+  radii" on the free-form polylines it was written for — a work plane's
+  sharp 90° corners are exactly the case where the circular cross-section
+  shows past the corner. `fixed:` `OutlineBuilder.rectFrame` (new) strokes
+  the same rectangle as four SQUARE cross-section boxes, mitered by
+  extending each edge by its own half-width into the corner, so two boxes
+  always meet flush there instead of showing a circle. Swift-only (the iOS
+  platform code under `frontend/packages/*/ios/` cannot be compiled without
+  Xcode, per this file's standing guidance); syntax-checked with a
+  downloaded Linux Swift 6.0.3 toolchain (`swiftc -parse`, clean) since no
+  Dart-testable seam exists for native RealityKit geometry — CI's macOS
+  build remains the source of truth for the type-check. Commit `b49fc80`.
