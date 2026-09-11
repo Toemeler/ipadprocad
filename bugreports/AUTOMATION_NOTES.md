@@ -234,3 +234,32 @@ the model reasoning badly, and each fix is general:
   say-so — if it still reads wrong after that, it is something not yet
   identified and the fresh report is worth more than another guess at the
   old one.
+
+## Guidance (persistent) — added 2026-09-11
+
+- **The automation is OPT-IN now** (2524cd9). `gh.autofix_wanted` used to read an
+  absent marker as "yes", so #54 and #55 were taken by `ci/bugfix` when they
+  were meant for a session — "None of These should be for the automation".
+  It requires `[autofix: on]` in the body, OFF wins if a mangled body has both,
+  and `workflow_dispatch` still overrides everything. The app writes the ticked
+  box down as well as the cleared one, so the checkbox reads as it behaves.
+
+- **Check the build hash in report.md before diagnosing.** Four reports in one
+  day (#52, #53, #54, #55) were filed against a build that predated the fix for
+  what they describe. `git log` the hash first; it is two seconds and it has
+  twice been the whole answer.
+
+- #54 / #55 — "when the ribbon is retracted, the Modell Browser should Move to
+  the left" and "the Triad too should move Left". Both `b49fc80`. Traced rather
+  than changed: the browser is already `Align(topLeft)` with no left inset of
+  its own, the triad is already at `left: triadInset(occupied) == 0` while the
+  browser is collapsed (M207/#6 working), and nothing reserves band space since
+  M290 deleted `contentInsetsFor(ribbonDrawn)`. What pushed both in was the
+  retract handle still taking an 18 pt ROW in that build, which f59e99a removed.
+  The remainder is intrinsic: the browser card's own 14 pt inset (M121/M204),
+  and `TriadPainter` projecting the origin to the CENTRE of its 118x118 box —
+  a box sized so the arrows and labels (reach ~50 pt, direction changes as you
+  orbit) do not clip, leaving only ~9 pt of real slack per side. Left OPEN
+  pending a retest on f59e99a rather than stacking an unverifiable visual
+  change on one the reporter has not seen; if it still reads wrong the options
+  are the card's inset, or anchoring the triad by its origin instead of its box.
