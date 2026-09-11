@@ -13571,8 +13571,21 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
      * That holds whatever the mechanism turns out to be. */
     /* M440. Merge same-surface faces, then certify — before the volume check
      * below, so everything that follows judges the body that will actually be
-     * returned rather than an intermediate one. */
-    if (!out.IsNull() && !Cancelled()) {
+     * returned rather than an intermediate one.
+     *
+     * ONLY ON A BODY THAT CLOSED, and this is a precondition rather than a
+     * preference. ShapeUpgrade_UnifySameDomain SEGFAULTS on a large open
+     * shell: the Bunny reaches this point with 2,007 built faces across 48
+     * shells and nothing closed, and the merge takes the process down. A
+     * segfault cannot be caught, so the try/catch around it is worth nothing
+     * and the only defence is not to call it. That costs nothing real either —
+     * tidying the faces of something that is not a body does not make it one,
+     * and a shell that did not close is going to the faceted fallback or to an
+     * error in a few lines' time.
+     *
+     * A body that is not merged is also not certified, and reports valid and
+     * self_intersections as -1: not measured, which is the truth. */
+    if (!out.IsNull() && !Cancelled() && rep.closed == 1) {
         SetStage(kStageMerging, 0);
         out = MergeSameSurface(out, rep);
         Certify(out, m.diagonal, rep);
