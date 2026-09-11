@@ -131,6 +131,21 @@ class RibbonDockLayout extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // #52 — "the ribbon doesnt go to the top."
+    //
+    // It did not: the whole shell sits in a SafeArea, so on a phone the band
+    // began about 48 points down and a strip of ground colour ran over the top
+    // of it. On an iPad the same inset is a couple of points and nobody ever
+    // saw it. M389 hit this exact shape on Windows — a row above everything
+    // that pushed the rail down — and answered it the same way: the inset
+    // belongs to the STAGE, not to the window.
+    //
+    // So main.dart hands a phone the real top edge (`SafeArea(top: false)`)
+    // and the inset is re-applied HERE, to the floating chrome alone. The band
+    // reaches y = 0 the way a UIKit sidebar does, the document keeps running
+    // edge to edge under it (M350), and the browser, the tab bar and the
+    // quick tools stay clear of the status bar exactly as before.
+    final staged = _stage(context);
     // No band on the home gallery: the "+" in the gallery header is the only
     // new-document affordance there. Both layers come straight back, so the
     // question of clearing a band that is not drawn cannot arise — which is
@@ -141,7 +156,7 @@ class RibbonDockLayout extends StatelessWidget {
     // against M284 — "the gallery clearing a band that was not drawn").
     if (app.isHome) {
       RibbonBleed.publish(EdgeInsets.zero);
-      return _withCaption(_layered());
+      return _withCaption(_layered(staged));
     }
     // M350 — the band SWALLOWS pointers.
     //
@@ -199,12 +214,12 @@ class RibbonDockLayout extends StatelessWidget {
           children: [
             _reveal(canRetract),
             if (grip != null) grip,
-            Expanded(child: _inner())
+            Expanded(child: _inner(staged))
           ]),
       RibbonPosition.bottom => Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Expanded(child: _staged(_inner())),
+            Expanded(child: _staged(_inner(staged))),
             if (grip != null) grip,
             _reveal(canRetract),
           ]),
@@ -213,12 +228,12 @@ class RibbonDockLayout extends StatelessWidget {
           children: [
             _reveal(canRetract),
             if (grip != null) grip,
-            Expanded(child: _staged(_inner())),
+            Expanded(child: _staged(_inner(staged))),
           ]),
       RibbonPosition.right => Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Expanded(child: _staged(_inner())),
+            Expanded(child: _staged(_inner(staged))),
             if (grip != null) grip,
             _reveal(canRetract),
           ]),
@@ -382,7 +397,7 @@ class RibbonDockLayout extends StatelessWidget {
   /// What goes in the row the band does NOT take: both layers when the band
   /// is docked, the floating chrome alone when it floats (the document is
   /// then behind everything, at full size).
-  Widget _inner() => floats ? stage : _layered();
+  Widget _inner(Widget staged) => floats ? staged : _layered(staged);
 
   /// The stage with Windows' caption strip above it — the band excluded, which
   /// is the point. A no-op off Windows, where [caption] is null.
@@ -402,10 +417,22 @@ class RibbonDockLayout extends StatelessWidget {
           children: [caption!, Expanded(child: child)],
         );
 
-  Widget _layered() => Stack(children: [
+  Widget _layered(Widget staged) => Stack(children: [
         Positioned.fill(child: bleed),
-        Positioned.fill(child: stage),
+        Positioned.fill(child: staged),
       ]);
+
+  /// [stage] with the status bar's inset on a phone, and untouched everywhere
+  /// else — see the note at the top of [build]. Zero on any device whose shell
+  /// still applies the inset itself, so this is a no-op rather than a double
+  /// inset if main.dart's SafeArea is ever put back.
+  Widget _stage(BuildContext context) {
+    if (!isPhoneDevice()) return stage;
+    final top = MediaQuery.paddingOf(context).top;
+    return top <= 0
+        ? stage
+        : Padding(padding: EdgeInsets.only(top: top), child: stage);
+  }
 }
 
 /// #49 — how long the band takes to slide in or out, and on what curve.
@@ -434,6 +461,11 @@ const double kRibbonEdgeSwipe = 20;
 /// at every stage of the animation. This node is the part you can see.
 const Key kRibbonBandSlot = Key('ribbon.band.slot');
 
+/// #52 — the handle's grabber, keyed so a test can measure what is DRAWN
+/// there. The hit target stays 18 pt whatever the paint does, so its size
+/// cannot answer "is there a bar down the side of the screen" — this can.
+const Key kRibbonGrabber = Key('ribbon.band.grabber');
+
 /// #49 — the swipe that brings a retracted band back.
 ///
 /// "it should only come expand when I swipe right from the left edge with a
@@ -452,7 +484,16 @@ const Key kRibbonBandSlot = Key('ribbon.band.slot');
 ///     that has thrown the panel does not expect it to fall back.
 class _RibbonEdgeSwipe extends StatefulWidget {
   final RibbonPosition dock;
-  const _RibbonEdgeSwipe({required this.dock});
+
+  /// Drawn inside the zone, if anything is. The edge overlay draws nothing;
+  /// the handle draws its grabber.
+  final Widget? child;
+
+  /// #52 — the handle also toggles on a tap. The edge overlay does NOT: a tap
+  /// at the screen edge belongs to the viewport behind it.
+  final VoidCallback? onTap;
+
+  const _RibbonEdgeSwipe({required this.dock, this.child, this.onTap});
 
   /// Released past this fraction of the travel, it opens whatever the speed.
   static const double commitAt = 0.5;
@@ -506,13 +547,24 @@ class _RibbonEdgeSwipeState extends State<_RibbonEdgeSwipe> {
     RibbonRetract.drag.value = _pulled / _travel;
   }
 
+  /// #52 — commits in EITHER direction, because the same gesture now opens the
+  /// band from the edge and puts it away from the handle. Position-based
+  /// tracking made that free: "how far out is it" is one number whichever way
+  /// the finger is going.
   void _end(double velocity) {
-    final open = _pulled / _travel >= _RibbonEdgeSwipe.commitAt ||
-        velocity * _sign >= _RibbonEdgeSwipe.flick;
+    final v = velocity * _sign;
+    final bool open;
+    if (v >= _RibbonEdgeSwipe.flick) {
+      open = true; // thrown out
+    } else if (v <= -_RibbonEdgeSwipe.flick) {
+      open = false; // thrown away
+    } else {
+      open = _pulled / _travel >= _RibbonEdgeSwipe.commitAt;
+    }
     // The committed state first and the transient second: clearing [drag]
     // hands the reveal back to its tween, which then carries on from exactly
     // the fraction the finger let go at instead of restarting from nothing.
-    if (open) RibbonRetract.set(false);
+    RibbonRetract.set(!open);
     _cancel();
   }
 
@@ -539,6 +591,7 @@ class _RibbonEdgeSwipeState extends State<_RibbonEdgeSwipe> {
       // beginning at the edge is not this gesture, and must reach the viewport
       // underneath rather than dying here.
       behavior: HitTestBehavior.translucent,
+      onTap: widget.onTap,
       onHorizontalDragStart:
           vertical ? (d) => _track(d.globalPosition, screen) : null,
       onHorizontalDragUpdate:
@@ -551,87 +604,71 @@ class _RibbonEdgeSwipeState extends State<_RibbonEdgeSwipe> {
           vertical ? null : (d) => _track(d.globalPosition, screen),
       onVerticalDragEnd: vertical ? null : (d) => _end(d.primaryVelocity ?? 0),
       onVerticalDragCancel: vertical ? null : _cancel,
+      child: widget.child,
     );
   }
 }
 
-/// M405 — the retract handle, and the only way in or out of the retracted
-/// state (#38).
+/// M405 — the retract handle (#38), and since #52 a GRABBER rather than a bar.
 ///
-/// A slim strip on the band's inner edge with a chevron on it, pointing the
-/// way the band is about to move. Drawn only on a phone — the one place the
-/// retract is offered — so on every other device this widget does not exist
-/// and the layout is untouched.
+/// Drawn only on a phone, and only while the band is OUT, where it is how the
+/// band is put away. Two reports shaped what it is now:
 ///
-/// Eighteen points is the strip, which is under half the width of one ribbon
-/// icon and about a twentieth of what the band it hides was taking.
+///   * "if the ribbon is retracted on ios there shouldbt be this Vertical bar"
+///     (#49) — so retracted it is not here at all, and [_RibbonEdgeSwipe] is
+///     the way back in;
+///   * "the right bar on the ribbon looks awful" (#52) — and it was: an 18 pt
+///     slab of `T.hover6` running the FULL HEIGHT of the screen beside the
+///     band, with a chevron in the middle of it. A strip that size is read as
+///     a second panel, which is exactly what it looked like.
 ///
-/// #49 — AND IT IS DRAWN ONLY WHILE THE BAND IS OUT, where it is the way to
-/// put the band away. Retracted it used to stay on screen the whole time, a
-/// coloured bar down the edge of a phone that had never opened the ribbon —
-/// "if the ribbon is retracted on ios there shouldnt be this Vertical bar."
-/// Making it merely invisible (this issue's first fix) was worse: the strip
-/// was still a row child with `HitTestBehavior.opaque` on it, so it went on
-/// eating every tap and orbit that landed at the edge, with nothing left on
-/// screen to explain why. The way back in is [_RibbonEdgeSwipe], which draws
-/// nothing, costs no layout and claims only the one gesture — which is what
-/// iOS's own edge affordances do.
+/// What is drawn now is the iOS grabber: one short rounded bar, centred on the
+/// band's inner edge, on nothing. The 18 pt strip survives as the HIT TARGET
+/// only — a grabber you can see but not reliably hit would be worse than
+/// either — so the touch area is unchanged and all that went is the paint.
+///
+/// The gesture is [_RibbonEdgeSwipe]'s, the same one that opens the band from
+/// the screen edge: it tracks the thumb by absolute position, so pulling the
+/// band away from here and pulling it back out from the edge are one motion
+/// with one rule, rather than a flick switch at one end and a drag at the
+/// other. The tap it always had still toggles.
 class _RibbonGrip extends StatelessWidget {
   final RibbonPosition dock;
   const _RibbonGrip({required this.dock});
 
   static const double extent = 18;
 
-  /// Which way the chevron points: at the edge the band hides into while it is
-  /// out, and back at the document while it is away.
-  IconData _glyph(bool retracted) => switch (dock) {
-        RibbonPosition.left =>
-          retracted ? Icons.chevron_right : Icons.chevron_left,
-        RibbonPosition.right =>
-          retracted ? Icons.chevron_left : Icons.chevron_right,
-        RibbonPosition.top =>
-          retracted ? Icons.expand_more : Icons.expand_less,
-        RibbonPosition.bottom =>
-          retracted ? Icons.expand_less : Icons.expand_more,
-      };
+  /// The grabber: 4 points thick, 36 long. UIKit's own is 5 x 36 at the top of
+  /// a sheet; a hair thinner reads better standing on its end against a band
+  /// of icons.
+  static const double _grabThickness = 4;
+  static const double _grabLength = 36;
 
   @override
   Widget build(BuildContext context) {
     final t = L.of(context);
-    final retracted = RibbonRetract.on;
-    final bar = DecoratedBox(
-      decoration: BoxDecoration(color: T.hover6),
-      child: Center(
-        child: Icon(_glyph(retracted), size: 16, color: T.dim),
+    final vertical = dock.isVertical;
+    final grabber = Center(
+      child: Container(
+        key: kRibbonGrabber,
+        width: vertical ? _grabThickness : _grabLength,
+        height: vertical ? _grabLength : _grabThickness,
+        decoration: BoxDecoration(
+          color: T.dim,
+          borderRadius: BorderRadius.circular(_grabThickness / 2),
+        ),
       ),
     );
     return Tooltip(
-      message: retracted ? t.ribbonShow : t.ribbonHide,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: RibbonRetract.toggle,
-        // A flick works too, in the direction the band would go, which is how
-        // the browser's handle behaves and what a thumb does without being
-        // told (M244).
-        onHorizontalDragEnd: dock.isVertical
-            ? (d) {
-                final v = d.primaryVelocity ?? 0;
-                if (v.abs() < 50) return;
-                RibbonRetract.set(
-                    dock == RibbonPosition.left ? v < 0 : v > 0);
-              }
-            : null,
-        onVerticalDragEnd: dock.isHorizontal
-            ? (d) {
-                final v = d.primaryVelocity ?? 0;
-                if (v.abs() < 50) return;
-                RibbonRetract.set(
-                    dock == RibbonPosition.top ? v < 0 : v > 0);
-              }
-            : null,
-        child: dock.isVertical
-            ? SizedBox(width: extent, child: bar)
-            : SizedBox(height: extent, child: bar),
+      message: t.ribbonHide,
+      child: SizedBox(
+        width: vertical ? extent : null,
+        height: vertical ? null : extent,
+        child: _RibbonEdgeSwipe(
+          dock: dock,
+          onTap: RibbonRetract.toggle,
+          child: grabber,
+        ),
       ),
     );
   }

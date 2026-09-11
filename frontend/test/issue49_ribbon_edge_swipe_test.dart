@@ -102,7 +102,7 @@ void main() {
 
     // The handle is the only thing that ever drew a bar there, and retracted
     // it is not in the tree at all — not merely painted transparent.
-    expect(find.byIcon(Icons.chevron_right), findsNothing);
+    expect(find.byKey(kRibbonGrabber), findsNothing);
     expect(_bandWidth(t), 0, reason: 'the band takes no width either');
   });
 
@@ -183,10 +183,12 @@ void main() {
     RibbonRetract.set(false);
     await _pump(t, _document());
 
-    // The band is out, so the handle is the affordance again: drawn, and
-    // pointing at the edge the band will hide into.
-    expect(find.byIcon(Icons.chevron_left), findsOneWidget);
-    await t.tap(find.byIcon(Icons.chevron_left));
+    // The band is out, so the handle is the affordance again. #52 turned it
+    // from a full-height bar into a grabber; what matters here is that it
+    // exists while the band is out and that tapping it puts the band away.
+    // issue52_phone_band_chrome_test measures what it now looks like.
+    expect(find.byKey(kRibbonGrabber), findsOneWidget);
+    await t.tap(find.byKey(kRibbonGrabber));
     await t.pumpAndSettle();
     expect(RibbonRetract.on, isTrue);
   });
@@ -196,7 +198,7 @@ void main() {
     isPhoneOverride = false;
     await _pump(t, _document());
 
-    expect(find.byIcon(Icons.chevron_left), findsNothing,
+    expect(find.byKey(kRibbonGrabber), findsNothing,
         reason: 'the retract is not offered here at all');
     expect(_bandWidth(t), RibbonMetrics.railWidth,
         reason: 'and the band is simply out, at full width');

@@ -640,6 +640,20 @@ class PrototypeApp extends StatelessWidget {
                   : T.viewport,
               child: SafeArea(
                 bottom: false,
+                // #52 — "the ribbon doesnt go to the top." On a phone the
+                // status bar's inset is ~48 points, and applying it HERE put
+                // that much ground colour over the band: the ribbon started
+                // half an inch down the screen with a black strip above it.
+                // On an iPad the same inset is small enough that nobody ever
+                // saw it, which is why it stood this long.
+                //
+                // The band gets the window's real top edge instead, and
+                // RibbonDockLayout re-applies the inset to the STAGE — the
+                // floating chrome — so the browser, the tab bar and the quick
+                // tools clear the status bar exactly as they did. Same move
+                // M389 made for Windows' caption strip, for the same reason:
+                // the inset belongs to what floats, not to the window.
+                top: !isPhoneDevice(),
                 child: Column(children: [
                   // M389 — THE CAPTION STRIP USED TO BE A ROW RIGHT HERE, and
                   // that is what the report "the ribbon should on Windows go
