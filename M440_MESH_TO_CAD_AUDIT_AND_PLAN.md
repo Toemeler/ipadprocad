@@ -202,6 +202,14 @@ Every line of that is a defect.
   edges shared by more than two faces. The input's defects were not merely
   carried through — they were multiplied.
 
+And the audit could not be completed on it: `BOPAlgo_CheckerSI` at level 9 was
+still running after **50 minutes** on the 10 397-face result and was killed at
+its cap, having printed nothing. That is a measurement in its own right — the
+body is pathological enough that the kernel's own checker will not terminate on
+it in any time a person would wait. The self-intersection count for `Bunny` is
+therefore not "zero" and not a number; it is **unmeasurable**, which is strictly
+worse than a large one.
+
 There is no parameter setting that fixes this, because the mesh violates the
 precondition every later stage assumes. This is §4.5, measured.
 
