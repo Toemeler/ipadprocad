@@ -52,6 +52,7 @@
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
 #include <BRepBuilderAPI_MakeSolid.hxx>
+#include <BRepAdaptor_Surface.hxx>
 #include <BRepBndLib.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
@@ -693,6 +694,319 @@ void FlipTriangle(Mesh &m, int t)
     if (!m.adj.empty())
         std::swap(m.adj[t * 3 + 0], m.adj[t * 3 + 2]);
     m.tnorm[t] = V3(-m.tnorm[t].x, -m.tnorm[t].y, -m.tnorm[t].z);
+}
+
+/* ---- M440: repair the mesh before anything reads it -------------------
+ *
+ * Everything downstream assumes a closed, orientable 2-manifold, and nothing
+ * established one. BuildMesh welds and drops triangles of zero area; that is
+ * the whole of the preprocessing. BuildAdjacency then leaves a non-manifold
+ * edge unlinked BY DESIGN, on the argument that such an edge is a feature
+ * boundary — which is right for a CAD export and wrong for a damaged
+ * download.
+ *
+ * The difference is measurable. The whale looks broken and is not: sixteen
+ * zero-area triangles carry all twelve of its non-manifold edges, and the
+ * degenerate drop removes them, leaving three closed genus-0 shells. The
+ * print-ready Bunny is broken and stays broken — 442 non-manifold edges, a
+ * single 64-edge hole, 884 inconsistently wound triangles, 264 duplicate
+ * faces of opposite winding, 30 components, Euler characteristic 323 over
+ * those components for a genus of -131.5, which no surface has. The
+ * converter reported all of it and converted anyway: 15 minutes 38 seconds,
+ * 2814 patches including 52 spheres and 100 tori fitted to a rabbit, and a
+ * result of 536 shells, 77 solids, 10,397 faces, 421 free edges and no
+ * closed body at all.
+ *
+ * So the mesh is repaired here, in the order the defects depend on each
+ * other, and every repair is counted so the caller can say what was changed.
+ * None of this invents geometry: it removes what is not surface and closes
+ * what is demonstrably a hole. */
+
+/* Two triangles on the same three vertices.
+ *
+ * SAME winding is a duplicate: keep one. OPPOSITE winding is a zero-thickness
+ * sheet — a face and its own back, enclosing nothing — and both go. They come
+ * from booleans and repair tools that unioned overlapping parts, and they are
+ * the reason a mesh can be "closed" by edge count and enclose no volume. The
+ * Bunny has 264, every one of them opposite. */
+int DropDuplicateFaces(Mesh &m)
+{
+    struct Key
+    {
+        int a, b, c;
+        bool operator==(const Key &o) const
+        {
+            return a == o.a && b == o.b && c == o.c;
+        }
+    };
+    struct Hash
+    {
+        size_t operator()(const Key &k) const
+        {
+            return (static_cast<size_t>(k.a) * 73856093u) ^
+                   (static_cast<size_t>(k.b) * 19349663u) ^
+                   (static_cast<size_t>(k.c) * 83492791u);
+        }
+    };
+    std::unordered_map<Key, std::vector<int>, Hash> seen;
+    seen.reserve(m.triCount());
+    for (int t = 0; t < m.triCount(); ++t) {
+        int v[3] = {m.tri[t * 3], m.tri[t * 3 + 1], m.tri[t * 3 + 2]};
+        std::sort(v, v + 3);
+        seen[Key{v[0], v[1], v[2]}].push_back(t);
+    }
+    std::vector<char> kill(m.triCount(), 0);
+    int dropped = 0;
+    for (const auto &kv : seen) {
+        if (kv.second.size() < 2)
+            continue;
+        /* Winding is read off the first one; anything wound the other way is
+         * its back. Keep at most one of each orientation, then, if both
+         * survive, drop the pair. */
+        const int first = kv.second[0];
+        int keepFwd = first, keepRev = -1;
+        for (size_t i = 1; i < kv.second.size(); ++i) {
+            const int t = kv.second[i];
+            const bool same = Dot(m.tnorm[t], m.tnorm[first]) > 0;
+            if (same) {
+                kill[t] = 1;
+                ++dropped;
+            } else if (keepRev < 0) {
+                keepRev = t;
+            } else {
+                kill[t] = 1;
+                ++dropped;
+            }
+        }
+        if (keepRev >= 0) {
+            kill[keepFwd] = 1;
+            kill[keepRev] = 1;
+            dropped += 2;
+        }
+    }
+    if (!dropped)
+        return 0;
+    std::vector<int> tri;
+    std::vector<V3> tn;
+    std::vector<double> ta;
+    tri.reserve(m.tri.size());
+    for (int t = 0; t < m.triCount(); ++t) {
+        if (kill[t])
+            continue;
+        tri.push_back(m.tri[t * 3]);
+        tri.push_back(m.tri[t * 3 + 1]);
+        tri.push_back(m.tri[t * 3 + 2]);
+        tn.push_back(m.tnorm[t]);
+        ta.push_back(m.tarea[t]);
+    }
+    m.tri.swap(tri);
+    m.tnorm.swap(tn);
+    m.tarea.swap(ta);
+    m.area = 0;
+    for (double a : m.tarea)
+        m.area += a;
+    return dropped;
+}
+
+/* An edge used by more than two triangles, made manifold by splitting the
+ * vertices along it.
+ *
+ * The fan around such an edge is not a surface: there is no consistent inside.
+ * Cutting it into pairs and giving each pair its own copy of the two end
+ * vertices turns one illegal edge into several legal ones, which is the
+ * standard repair (Attene 2010) and the only one that does not throw geometry
+ * away. Pairing is by how nearly the two triangles are coplanar across the
+ * edge, so the pieces that were one surface stay one surface.
+ *
+ * Every triangle keeps its position and its area; only the indices change. */
+int CutNonManifoldEdges(Mesh &m)
+{
+    std::unordered_map<long long, std::vector<int>> fan; /* edge -> corners */
+    fan.reserve(m.tri.size());
+    auto key = [](int a, int b) {
+        const long long lo = std::min(a, b), hi = std::max(a, b);
+        return lo * 4294967311LL + hi;
+    };
+    for (int t = 0; t < m.triCount(); ++t)
+        for (int k = 0; k < 3; ++k)
+            fan[key(m.tri[t * 3 + k], m.tri[t * 3 + (k + 1) % 3])].push_back(
+                t * 3 + k);
+
+    int cut = 0;
+    for (auto &kv : fan) {
+        std::vector<int> &corners = kv.second;
+        if (corners.size() <= 2)
+            continue;
+        /* Greedy pairing on dihedral agreement. */
+        std::vector<char> taken(corners.size(), 0);
+        std::vector<std::pair<int, int>> pairs;
+        for (size_t i = 0; i < corners.size(); ++i) {
+            if (taken[i])
+                continue;
+            int best = -1;
+            double bestDot = -2;
+            for (size_t j = i + 1; j < corners.size(); ++j) {
+                if (taken[j])
+                    continue;
+                const double d = Dot(m.tnorm[corners[i] / 3],
+                                     m.tnorm[corners[j] / 3]);
+                if (d > bestDot) {
+                    bestDot = d;
+                    best = static_cast<int>(j);
+                }
+            }
+            taken[i] = 1;
+            if (best >= 0) {
+                taken[best] = 1;
+                pairs.emplace_back(corners[i], corners[best]);
+            } else {
+                pairs.emplace_back(corners[i], -1);
+            }
+        }
+        /* The first pair keeps the original vertices; every later one gets its
+         * own copies, so the fan comes apart into separate sheets. */
+        for (size_t p = 1; p < pairs.size(); ++p) {
+            const int c0 = pairs[p].first;
+            const int a = m.tri[c0], b = m.tri[c0 / 3 * 3 + (c0 % 3 + 1) % 3];
+            const int na = static_cast<int>(m.pos.size());
+            m.pos.push_back(m.pos[a]);
+            const int nb = static_cast<int>(m.pos.size());
+            m.pos.push_back(m.pos[b]);
+            for (int which = 0; which < 2; ++which) {
+                const int c = which ? pairs[p].second : pairs[p].first;
+                if (c < 0)
+                    continue;
+                for (int k = 0; k < 3; ++k) {
+                    int &idx = m.tri[c / 3 * 3 + k];
+                    if (idx == a)
+                        idx = na;
+                    else if (idx == b)
+                        idx = nb;
+                }
+            }
+            ++cut;
+        }
+    }
+    return cut;
+}
+
+/* Close the holes.
+ *
+ * A boundary edge is one with a single triangle. They form loops, and a loop
+ * is a hole. Filled by a fan from the loop's own centroid, which is the fill
+ * that cannot self-intersect for a convex loop and is good enough for the
+ * rest: the point is to make the shell closable, and the triangles added here
+ * are ordinary triangles that the segmentation will treat like any other.
+ *
+ * Loops are filled smallest first and only up to a bounded size — a "hole"
+ * the size of the model is not a hole, it is an open sheet, and covering it
+ * would invent a face that was never there. The Bunny's single 64-edge loop
+ * is 0.4% of its boundary length and fills cleanly. */
+const double kMaxHoleFraction = 0.25;
+
+int FillHoles(Mesh &m, int &filledLoops)
+{
+    std::unordered_map<long long, int> count;
+    std::unordered_map<long long, int> owner;
+    auto key = [](int a, int b) {
+        const long long lo = std::min(a, b), hi = std::max(a, b);
+        return lo * 4294967311LL + hi;
+    };
+    for (int t = 0; t < m.triCount(); ++t)
+        for (int k = 0; k < 3; ++k) {
+            const long long e =
+                key(m.tri[t * 3 + k], m.tri[t * 3 + (k + 1) % 3]);
+            count[e]++;
+            owner[e] = t * 3 + k;
+        }
+    /* Directed boundary edges, oriented so the fill winds with the surface. */
+    std::unordered_map<int, std::vector<int>> next;
+    int boundary = 0;
+    for (const auto &kv : count) {
+        if (kv.second != 1)
+            continue;
+        const int c = owner[kv.first];
+        const int a = m.tri[c], b = m.tri[c / 3 * 3 + (c % 3 + 1) % 3];
+        next[b].push_back(a); /* reversed: the hole winds the other way */
+        ++boundary;
+    }
+    if (!boundary)
+        return 0;
+
+    int added = 0;
+    filledLoops = 0;
+    std::unordered_map<int, size_t> cursor;
+    std::vector<char> used;
+    std::vector<int> loop;
+    std::unordered_map<int, char> onLoop;
+    for (const auto &start : next) {
+        if (cursor[start.first] >= next[start.first].size())
+            continue;
+        loop.clear();
+        onLoop.clear();
+        int v = start.first;
+        while (true) {
+            auto it = next.find(v);
+            if (it == next.end() || cursor[v] >= it->second.size())
+                break;
+            const int nv = it->second[cursor[v]++];
+            if (onLoop.count(nv)) {
+                loop.push_back(nv);
+                break;
+            }
+            loop.push_back(nv);
+            onLoop[nv] = 1;
+            v = nv;
+            if (static_cast<int>(loop.size()) > boundary + 2)
+                break;
+        }
+        if (loop.size() < 3)
+            continue;
+        if (static_cast<double>(loop.size()) > boundary * kMaxHoleFraction &&
+            loop.size() > 3)
+            continue; /* too big to be a hole */
+        V3 c;
+        for (int x : loop)
+            c += m.pos[x];
+        c = c * (1.0 / static_cast<double>(loop.size()));
+        const int ci = static_cast<int>(m.pos.size());
+        m.pos.push_back(c);
+        for (size_t i = 0; i < loop.size(); ++i) {
+            const int a = loop[i], b = loop[(i + 1) % loop.size()];
+            if (a == b)
+                continue;
+            const V3 n = Cross(m.pos[b] - m.pos[a], c - m.pos[a]);
+            const double len = Norm(n);
+            if (len <= 1e-24 * m.diagonal * m.diagonal)
+                continue;
+            m.tri.push_back(a);
+            m.tri.push_back(b);
+            m.tri.push_back(ci);
+            m.tnorm.push_back(n * (1.0 / len));
+            m.tarea.push_back(len * 0.5);
+            m.area += len * 0.5;
+            ++added;
+        }
+        ++filledLoops;
+    }
+    return added;
+}
+
+/* What the repair did, so the caller can say so. */
+struct RepairLog
+{
+    int duplicate_faces = 0;
+    int non_manifold_cuts = 0;
+    int holes_filled = 0;
+    int triangles_added = 0;
+};
+
+void RepairMesh(Mesh &m, RepairLog &log)
+{
+    log.duplicate_faces = DropDuplicateFaces(m);
+    log.non_manifold_cuts = CutNonManifoldEdges(m);
+    log.triangles_added = FillHoles(m, log.holes_filled);
+    /* Traced at the call site: MR_TRACE is defined further down the file. */
 }
 
 /* Fills m.adj. An edge shared by more than two triangles is non-manifold; both
@@ -11929,7 +12243,16 @@ int TessellateCovered(const TopoDS_Shape &s, double lin, double ang,
  * nothing printed. So it is asked only of bodies small enough that the answer
  * arrives, and the report says -1 rather than 0 for the rest: "not measured"
  * and "clean" are different facts and the fallback must not confuse them. */
-const int kMaxFacesForSelfIntersectionCheck = 2000;
+/* The number is a TIME budget expressed in faces, and it was measured rather
+ * than guessed. At 1,316 faces — the butterfly — one check costs about twenty
+ * seconds, and the heal loop below can ask for five: with the budget at 2,000
+ * that model's conversion went from 22 seconds to 135. At 44 faces, which is
+ * the TOKA base, the whole certify-and-heal cycle is lost in the noise. The
+ * conversion runs on the UI thread by contract, so a check costing longer than
+ * the conversion is not one anyone can ship. Six hundred keeps it under a
+ * second on everything in the corpus that gets one; the merge, which is cheap
+ * and is where most of the gain is, runs whatever the size. */
+const int kMaxFacesForSelfIntersectionCheck = 600;
 
 /* How many times to try removing slivers before accepting what is left. */
 const int kHealPasses = 4;
@@ -11955,11 +12278,46 @@ bool ShapeIsValid(const TopoDS_Shape &s)
     }
 }
 
+/* And a second budget, because face COUNT is the wrong measure on its own.
+ *
+ * CheckerSI is cheap on planes and quadrics — it has closed forms for them —
+ * and it is not on trimmed B-splines, where every pair costs a numerical
+ * surface-surface intersection. The whale is 192 faces after the merge, well
+ * inside the count budget, and 87 of them are freeform: checking it took six
+ * and a half minutes against a 25-second conversion. The butterfly at 34
+ * freeform faces is the same story more slowly.
+ *
+ * So a body that is mostly freeform is not checked, and says so. That is the
+ * honest answer as well as the affordable one: an organic model has no
+ * analytic structure for the check to be diagnosing, and the defects it would
+ * report are not ones this pipeline can act on yet. */
+const int kMaxFreeformFacesForSelfIntersectionCheck = 16;
+
+int CountFreeformFaces(const TopoDS_Shape &s)
+{
+    int n = 0;
+    for (TopExp_Explorer e(s, TopAbs_FACE); e.More(); e.Next()) {
+        try {
+            BRepAdaptor_Surface ad(TopoDS::Face(e.Current()), Standard_False);
+            const GeomAbs_SurfaceType k = ad.GetType();
+            if (k == GeomAbs_BSplineSurface || k == GeomAbs_BezierSurface ||
+                k == GeomAbs_SurfaceOfRevolution ||
+                k == GeomAbs_SurfaceOfExtrusion || k == GeomAbs_OffsetSurface)
+                ++n;
+        } catch (const Standard_Failure &) {
+            ++n; /* unreadable counts as expensive */
+        }
+    }
+    return n;
+}
+
 int SelfIntersectionCount(const TopoDS_Shape &s)
 {
     if (s.IsNull())
         return -1;
     if (CountFaces(s) > kMaxFacesForSelfIntersectionCheck)
+        return -1;
+    if (CountFreeformFaces(s) > kMaxFreeformFacesForSelfIntersectionCheck)
         return -1;
     try {
         BOPAlgo_CheckerSI ck;
@@ -12105,8 +12463,28 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
             err = "the mesh has no usable triangles";
             return TopoDS_Shape();
         }
+        /* M440. Repair before adjacency, because adjacency is where a
+         * non-manifold edge becomes a permanent hole in the shell: it is left
+         * unlinked, the patches on either side end at it, and nothing later
+         * puts them back together. See RepairMesh. */
+        RepairLog fixlog;
+        RepairMesh(m, fixlog);
+        MR_TRACE("  repair: %d duplicate faces, %d non-manifold edges cut, "
+                 "%d holes filled with %d triangles\n",
+                 fixlog.duplicate_faces, fixlog.non_manifold_cuts,
+                 fixlog.holes_filled, fixlog.triangles_added);
         BuildAdjacency(m, rep);
         OrientMesh(m, rep);
+        if (fixlog.duplicate_faces || fixlog.non_manifold_cuts ||
+            fixlog.holes_filled) {
+            rep.repaired_duplicate_faces = fixlog.duplicate_faces;
+            rep.repaired_nonmanifold_cuts = fixlog.non_manifold_cuts;
+            rep.repaired_holes_filled = fixlog.holes_filled;
+            rep.triangles_used = m.triCount();
+            /* The mesh the rest of the pipeline sees is the repaired one, so
+             * the counts BuildAdjacency just wrote describe it — which is the
+             * point. What came IN is still in triangles_in / vertices_in. */
+        }
     } catch (const std::bad_alloc &) {
         err = "the mesh is too large to load";
         return TopoDS_Shape();

@@ -240,6 +240,18 @@ struct Report
     int self_intersections;
     int merged_faces;
     double bbox_ratio;
+
+    /* ---- M440: what the mesh repair changed ---------------------------
+     *
+     * A downloaded mesh is not a manifold and the pipeline assumed one. These
+     * say what had to be fixed before it could be believed, so a caller can
+     * tell the user their file was mended rather than silently converting
+     * something that was not what they handed over. All zero on a clean mesh
+     * — the whale's defects, for instance, are all carried by its sixteen
+     * zero-area triangles and are gone with them before this runs. */
+    int repaired_duplicate_faces;  /* incl. zero-thickness sheets, both sides */
+    int repaired_nonmanifold_cuts; /* fans split into separate sheets */
+    int repaired_holes_filled;     /* boundary loops closed */
 };
 
 void ClearReport(Report &r);
