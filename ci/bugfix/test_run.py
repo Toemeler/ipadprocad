@@ -1690,16 +1690,35 @@ class ManualLabelTest(unittest.TestCase):
                 / 'lib' / 'bug_upload.dart').read_text()
         self.assertIn(f"bugAutofixOffMarker = '{gh.AUTOFIX_OFF}';", dart,
                       'the app and the triage step must agree byte for byte')
+        self.assertIn(f"bugAutofixOnMarker = '{gh.AUTOFIX_ON}';", dart,
+                      'and on the opt IN too, which is now the deciding one')
 
-    def test_an_absent_marker_means_the_automation_may_take_it(self):
+    def test_an_absent_marker_LEAVES_IT_FOR_A_SESSION(self):
+        """The reversal. "None of These should be for the automation".
+
+        This test asserted the opposite until two reports meant for a session
+        were taken by the pipeline because their body said nothing. Absence is
+        now the safe direction rather than the old one: a session polls
+        `needs-session`, so an unclaimed report is seen, while an unwanted
+        autofix pushes to main.
+        """
         import gh
-        for body in (None, '', 'the floor is dark', 'autofix', '[autofix: on]'):
-            self.assertTrue(gh.autofix_wanted(body), repr(body))
+        for body in (None, '', 'the floor is dark', 'autofix',
+                     'let the automation fix it'):
+            self.assertFalse(gh.autofix_wanted(body), repr(body))
 
-    def test_the_marker_stands_the_automation_down(self):
+    def test_the_off_marker_stands_the_automation_down(self):
         import gh
         self.assertFalse(gh.autofix_wanted(
             'the floor is dark\n\n[autofix: off]\n\nBundle: http://x/y.zip'))
+
+    def test_only_the_ticked_box_hands_it_over(self):
+        import gh
+        self.assertTrue(gh.autofix_wanted(
+            'the floor is dark\n\n[autofix: on]\n\nBundle: http://x/y.zip'))
+        # Both present is a mangled body; OFF is the safe read, and it is the
+        # one the old default could never give.
+        self.assertFalse(gh.autofix_wanted('x\n[autofix: on]\n[autofix: off]'))
 
     def test_triage_parks_an_opted_out_issue_and_reports_it(self):
         """The whole point: REPORT off, MANUAL on, before any model is called."""
@@ -1730,18 +1749,40 @@ class ManualLabelTest(unittest.TestCase):
         self.assertEqual(len(notes), 1)
         self.assertIn(gh.MANUAL, notes[0])
 
-    def test_triage_hands_a_normal_report_straight_through(self):
+    def test_triage_hands_an_OPTED_IN_report_straight_through(self):
+        """Only a ticked box goes through untouched now.
+
+        This used to be a body with no marker at all. It is the opt IN that
+        earns the straight-through path since the default flipped — see
+        `test_an_absent_marker_LEAVES_IT_FOR_A_SESSION`.
+        """
         import gh
         calls = []
 
         def fake(method, path, body=None, retries=3):
             calls.append((method, path, body))
-            return {'body': 'the floor is dark', 'labels': []}
+            return {'body': f'the floor is dark\n\n{gh.AUTOFIX_ON}',
+                    'labels': []}
 
         with mock.patch.object(gh, '_request', side_effect=fake):
             self.assertTrue(gh.triage(7))
         self.assertEqual([m for m, _p, _b in calls], ['GET'],
                          'a wanted report must not be touched at all')
+
+    def test_triage_parks_a_report_that_says_nothing(self):
+        """The case the reversal is for: no marker, so it waits for a session."""
+        import gh
+
+        def fake(method, path, body=None, retries=3):
+            if path.endswith('/issues/7'):
+                return {'body': 'the floor is dark',
+                        'labels': [{'name': gh.REPORT}]}
+            if method == 'GET' and '/labels/' in path:
+                return {}
+            return {}
+
+        with mock.patch.object(gh, '_request', side_effect=fake):
+            self.assertFalse(gh.triage(7))
 
     def test_parking_twice_does_not_comment_twice(self):
         """`labeled` can fire more than once for one report."""

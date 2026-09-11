@@ -72,18 +72,39 @@ MANUAL = 'needs-session'
 # `frontend/lib/bug_upload.dart`. `test_run.py` fails if it drifts.
 AUTOFIX_OFF = '[autofix: off]'
 
+# The opt IN, written by the same checkbox when it is ticked.
+#
+# Must stay byte-identical to `bugAutofixOnMarker` in
+# `frontend/lib/bug_upload.dart`, for the same reason AUTOFIX_OFF must — the
+# test below is the contract.
+AUTOFIX_ON = '[autofix: on]'
+
 
 def autofix_wanted(body):
     """Whether the automation is allowed to take a report with this body.
 
-    ABSENCE MEANS YES, in the same way and for the same reason the missing
-    form field does: an app build from before the checkbox shipped, or a body
-    this never reached, must get the automation rather than be parked in a
-    queue nobody is watching. Only the OFF direction is ever written down, so
-    the failure mode of every mangled, truncated or hand-edited body is the
-    old behaviour and not silence.
+    ABSENCE NOW MEANS NO, and that is a reversal — "None of These should be
+    for the automation", from the owner, after two reports went to the
+    pipeline that were meant for a session.
+
+    The old default was the other way round and had a reason: a body this
+    marker never reached must not be parked in a queue nobody is watching. It
+    is the wrong trade HERE, because the queue is being watched — a session
+    polls `needs-session` — and the two failure directions are not equal. An
+    unwanted session costs a person's attention on an issue that was going to
+    get it anyway; an unwanted autofix PUSHES TO MAIN. Silence is the cheaper
+    mistake, so absence takes the cheaper one.
+
+    Ticking the box still hands it over: the app writes AUTOFIX_ON and this
+    reads it. And `workflow_dispatch` bypasses this function entirely, so
+    starting the workflow by hand on an issue number remains the deliberate
+    way in, exactly as it was.
+
+    A body carrying BOTH is mangled or hand-edited, and OFF wins: every
+    ambiguity here resolves toward the direction that cannot push.
     """
-    return AUTOFIX_OFF not in (body or '')
+    text = body or ''
+    return AUTOFIX_ON in text and AUTOFIX_OFF not in text
 
 
 def _request(method, path, body=None, retries=3):

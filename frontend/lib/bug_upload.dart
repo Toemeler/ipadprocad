@@ -55,9 +55,18 @@ bool get bugUploadConfigured => bugRelayUrl.isNotEmpty;
 /// the relay could not — see `ci/bugfix.AUTOFIX_OFF`, which must stay
 /// byte-identical to this and has a test that says so.
 ///
-/// Only the OFF direction is ever written. Absent means yes, exactly as the
-/// missing field does, so nothing here can park a report nobody is watching.
+/// BOTH directions are written now. The gate in `ci/bugfix/gh.py` used to read
+/// absence as yes — and two reports meant for a session went to the pipeline
+/// because of it ("None of These should be for the automation"). Absence means
+/// NO there now, so a ticked box has to say so out loud, which is what
+/// [bugAutofixOnMarker] is for. The two failure directions are not equal: an
+/// unwanted session costs someone's attention on an issue that was getting it
+/// anyway, an unwanted autofix pushes to main.
 const String bugAutofixOffMarker = '[autofix: off]';
+
+/// The opt IN. Byte-identical to `ci/bugfix.AUTOFIX_ON`, same contract and
+/// same test as the marker above.
+const String bugAutofixOnMarker = '[autofix: on]';
 
 /// The description to send, with the cleared box folded into it.
 ///
@@ -67,9 +76,8 @@ const String bugAutofixOffMarker = '[autofix: off]';
 /// marker, so it gets the same placeholder first line the relay would have
 /// written for it and keeps the marker out of the title either way.
 String bugDescriptionFor(String text, {required bool autofix}) {
-  if (autofix) return text;
   final head = text.trim().isEmpty ? '(no description given)' : text;
-  return '$head\n\n$bugAutofixOffMarker';
+  return '$head\n\n${autofix ? bugAutofixOnMarker : bugAutofixOffMarker}';
 }
 
 /// What came back from trying to hand the bundle to the relay.

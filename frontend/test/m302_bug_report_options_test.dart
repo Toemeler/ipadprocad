@@ -54,10 +54,15 @@ void main() {
   // the issue body untouched, so the answer travels there too and the workflow
   // reads it back. These pin the three properties that make that work.
 
-  test('a report that wants the automation is sent completely unchanged', () {
-    expect(bugDescriptionFor('the floor is dark', autofix: true),
-        'the floor is dark');
-    expect(bugDescriptionFor('', autofix: true), '');
+  test('a ticked box SAYS SO — absence no longer means yes', () {
+    // The reversal: ci/bugfix's gate used to take a report whose body said
+    // nothing, and two reports meant for a session went to the pipeline
+    // because of it. Absence means "leave it for a session" now, so the box
+    // being ticked has to be written down like the box being cleared is.
+    final sent = bugDescriptionFor('the floor is dark', autofix: true);
+    expect(sent, startsWith('the floor is dark'));
+    expect(sent, contains(bugAutofixOnMarker));
+    expect(sent, isNot(contains(bugAutofixOffMarker)));
   });
 
   test('a cleared box appends the marker the workflow greps for', () {
