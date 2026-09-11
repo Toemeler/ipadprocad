@@ -6,6 +6,7 @@ job and step timings — not from estimates.
 | run | commit | wall clock |
 |---|---|---|
 | [34478689042](https://github.com/Toemeler/ipadprocad/actions/runs/34478689042) | `7b0af49` | **78 min** |
+| [34568753636](https://github.com/Toemeler/ipadprocad/actions/runs/34568753636) | `8c7a3a1` | **69 min** |
 | [34493818656](https://github.com/Toemeler/ipadprocad/actions/runs/34493818656) | `9076e08` | **65 min** |
 | [34471044060](https://github.com/Toemeler/ipadprocad/actions/runs/34471044060) | `0fa7246` | 54 min |
 
@@ -48,114 +49,153 @@ late.
 | Qt6 host + iOS | 1:10 | 2% |
 | everything else | ~1:20 | 2% |
 
-## 3. The OCCT cache was being evicted, and nothing said so
+## 3. Every OCCT cache was being evicted, and nothing said so
 
 The step is called "cache miss only" and is skipped on a hit, so in the log a
 hit looks like a miss somebody already fixed, and a miss looks like a build
-that simply takes that long. It took reading three runs side by side to see it:
+that simply takes that long. Run 34568753636, on `main`, missed **all three**:
 
-| run | restore step | build step | post-job save |
-|---|---|---|---|
-| 34478689042 | 1 s | **38:20** | 7 s → `Cache saved with key: occt-ios-arm64-V7_9_3-r1` |
-| 34493818656 | 0 s | **29:35** | 5 s → `Cache saved with key: occt-ios-arm64-V7_9_3-r1` |
+| OCCT cache | run 34493818656 (Sep 10) | run 34568753636 (Sep 11) |
+|---|---|---|
+| Linux | hit, 0:25 | **miss — rebuilt 22:25** |
+| Windows | hit, 0:41 | **miss — rebuilt 29:35** |
+| iOS (inside M5) | miss — rebuilt 29:35 | **miss — rebuilt 31:26** |
 
-The key is a constant — `occt-ios-arm64-V7_9_3-r1`, no hash, no `hashFiles`.
-Both runs were on `main`, two and a half hours apart. Both missed. And both
-**saved successfully afterwards**, which is the part that settles it: a cache
-save only succeeds when the key is free. So the entry existed at 14:03, was
-gone by 15:37, was rebuilt, and was gone again by the next run.
+**83 minutes of recomputation in one run**, all of it work done the day before.
+The keys are constants — `occt-ios-arm64-V7_9_3-r1` and friends, no hash — and
+each run **saved successfully afterwards**, which settles it: a cache save only
+succeeds when the key is free. The entries existed and then did not.
 
-Nothing in the repository deletes caches. GitHub does, when a repository is
-over its 10 GB allowance: least recently used first, silently.
+Nothing in this repository deletes caches. GitHub does, above 10 GB, least
+recently used first, silently.
 
-This repository is far over it. Six OCCT install trees (`ios-arm64`, `linux`,
-`windows`, `host`, `macos-arm64`, `sim-x86_64`), Blender's precompiled library
-set for iOS *and* macOS, Qt for four targets, two ccache trees, the Cycles
-distributions — and a 2.22 GB Flutter SDK per platform per patch release. On
-top of that, every content-hashed key (`ccache-ipa-<hash>`,
-`cycles-linux-<ref>-<hash>`) writes a *new* entry on every change and never
-removes the old one.
+## 4. What is actually in the 10 GB — measured, not guessed
 
-The OCCT iOS tree is the single most expensive thing in the cache and one of
-the least frequently written, so it is exactly what LRU eviction takes first.
+The diagnostic added in M426 prints it from inside the job. Run 34574418966:
 
-## 4. What changed (M426)
+```
+CACHE BUDGET: 9671 MiB von 10240 MiB belegt
+  UEBER 9 GiB — es wird geraeumt, und zwar das Aelteste zuerst.
+Die groessten Eintraege:
+3207 MiB  install-qt-action-mac-23.6.0-ios-6.7.*-.../qt-ios/Qt-...
+3207 MiB  install-qt-action-mac-25.6.0-ios-6.7.*-.../qt-ios/Qt-...
+1116 MiB  install-qt-action-mac-23.6.0-desktop-6.7.*-.../qt-host/Qt-...
+1116 MiB  install-qt-action-mac-25.6.0-desktop-6.7.*-.../qt-host/Qt-...
+ 548 MiB  blender-ios-libs-m294-v1
+ 143 MiB  cycles-dist-v4-...
+ 114 MiB  occt-windows-V7_9_3-r1
+  42 MiB  occt-linux-V7_9_3-r1
+```
 
-**The eviction.** `subosito/flutter-action` had `cache: true` on the macOS
-runner. Measured against each other, run 34478689042 (hit) installed Flutter in
-1:17 and run 34493818656 (miss) in 1:31 — the cache saved **14 seconds**, and
-cost 2.22 GB of the allowance plus 1:14 uploading it in the post-job. It is off.
-`.github/workflows/cache-gc.yml` now holds the allowance under 8 GiB on a
-six-hourly schedule, in three passes: caches belonging to workflows that are
-not part of `build.yml`; superseded generations of every rotating key; and, if
-that is not enough, least-recently-accessed first until it is. The three OCCT
-trees, Blender's iOS libraries and anything Qt are protected in every pass.
-`m5-flutter-ipa` now also prints, in its own log, whether the OCCT cache hit
-and how full the allowance is — so this cannot be invisible a second time.
+**Qt is 8646 of the 9671 occupied MiB — 89% of the allowance — and exactly half
+of that is a duplicate of the other half.**
+
+`23.6.0` and `25.6.0` are not Qt versions. They are **Darwin kernel versions**:
+macos-14 is Darwin 23.6.0, macos-26 is Darwin 25.6.0. `install-qt-action` puts
+the runner's OS version in its cache key, so the same Qt 6.7, for the same
+target, into the same path, was cached once for the jobs on macos-14
+(`build-core-ios`, `m3-ios-sim-logic`) and again for the job on macos-26
+(`m5-flutter-ipa`).
+
+**4323 MiB of the allowance was one redundant copy of Qt** — and what it
+crowded out was a **37 MiB** OCCT tree whose absence costs half an hour.
+
+That is the whole mechanism. The first version of this document blamed the
+2.22 GB Flutter SDK, which was real but second-order; the number that mattered
+could not be guessed and had to be printed.
+
+## 5. What changed
+
+**The duplication (M426b).** `build-core-ios` and `m3-ios-sim-logic` moved from
+macos-14 to macos-26, so all three Qt-installing jobs share one image and one
+Qt cache generation. This was due regardless: macos-14 entered deprecation on
+2026-07-06 and is unsupported from 2026-11-02. The risk the m5 comment names —
+"Qt 6.7 + the Xcode 26 toolchain building qcad-core" — is already retired, because
+m5 does exactly that on macos-26 today, with the same flags and the same Qt.
+
+**The Flutter SDK cache** on the macOS runner is off. Measured hit against
+miss, it saved **14 seconds** and cost 2.22 GB plus 1:14 uploading it.
+
+**`cache-gc.yml`** holds the allowance under 8 GiB every six hours: caches of
+workflows outside `build.yml`, then superseded generations of each rotating
+key, then least-recently-accessed until under target. The OCCT trees and
+Blender's iOS libraries are protected unconditionally. **Qt is protected only
+while it is in use** — an entry touched in the last 24 hours stays, one that is
+not (a generation belonging to a withdrawn runner image) is collectable. The
+first draft protected anything matching `qt` outright, which would have
+protected the problem and collected the 37 MiB it displaces.
 
 **The duplicated suite.** `flutter test` ran twice: once in `dart-checks` on
-ubuntu (4:26) and again inside M5 on macOS (11:35), same command, same
-directory. The macOS copy gated nothing — M5 already `needs: dart-checks` — and
-sat on the critical path on the runner that bills at ten times the rate. It is
-gone. What that gives up, stated plainly: a test that fails only on a macOS
-host will no longer be caught. The suite is host logic (solver, dimension
-system, document container) and asks the operating system nothing, so this is
-judged cheap; if it stops being true, the answer is a parallel macOS job, not a
-step in the middle of this one.
+ubuntu (4:26) and again inside M5 on macOS (9:09-11:35 depending on the run),
+same command, same directory. It gated nothing — M5 already `needs:
+dart-checks` — and sat on the critical path on the runner billed at ten times
+the rate. Removed. What that gives up: a test that fails only on a macOS host.
+The suite is host logic and asks the operating system nothing; if that stops
+being true, the answer is a parallel macOS job, not a step inside this one.
 
-**The gate.** `m5-flutter-ipa` waited for all of `dart-checks`, so the 4:26
-test suite ran *before* the expensive runner was allowed to start. The suite
-moved to its own parallel `dart-tests` job and the gate is now `flutter
-analyze` alone, ~45 s. A red test still fails the run and still blocks the
-release through `needs` in `build.yml`; it just no longer holds M5 back. The
-gate's original argument survives intact, because it was never an argument
-about tests — the case its comment describes is a *typo*, and `analyze` finds
-those in fifteen seconds.
+**The gate.** M5 waited for all of `dart-checks`, so the 4:26 suite ran before
+the expensive runner could start. The suite is its own parallel `dart-tests`
+job now and the gate is `flutter analyze` alone. **Measured: 5:20 to 0:54.**
+A red test still fails the run and still blocks the release through `needs`.
+The gate's argument survives because it was never about tests — the case its
+own comment describes is a typo, and `analyze` finds those in fifteen seconds.
 
-**ccache on the build that is actually big.** The job installs ccache, caches
-`~/Library/Caches/ccache`, and set `CMAKE_*_COMPILER_LAUNCHER` on libslvs (0:15)
-and the OCCT shim (0:17) — but not on the 4:40 core build. The saved ccache
-tree was 985 kB, because it only ever held those two. The flags are on the core
-build and the OCCT rebuild now. `restore-keys: ccache-ipa-` was already there,
-so a C++ change recompiles only what it touched, and a Dart-only change — the
-case this is all for — should come out of the cache entirely.
+**ccache on the build that is big.** The job installed ccache, cached
+`~/Library/Caches/ccache` and set `CMAKE_*_COMPILER_LAUNCHER` on libslvs (0:15)
+and the OCCT shim (0:17) — but not on the 4:40 core build. The saved tree was
+**985 kB**, because it only ever held those two. With the flags on the core
+build it saved **329 MB**. Whether that converts into time is not yet
+measured: the run that populates a cache cannot benefit from it.
 
-## 5. What to expect, and what is not reachable
+## 6. Measured so far, and what is still open
 
-With the OCCT cache holding, the arithmetic on run 34493818656's own step times
-is 65 min → **≈15 min**: 29:35 of OCCT and 11:35 of duplicated tests leave the
-critical path, the gate gives back ~4:30, and ccache should take most of the
-4:40 core build with it on a Dart-only change.
+From run 34574418966 against run 34568753636:
 
-**Five minutes is not reachable for this build, and it is worth being exact
-about why.** With every cache hitting and nothing wasted, M5 still has to
-install Qt and Flutter (~2:40), scaffold the iOS project and run `pub get`
-(1:01), link the core (4:40, less with a warm ccache), run `flutter build ios
---release` (4:42), and package and upload the IPA (0:30). `flutter build ios`
-and the Xcode link are irreducible: they compile this application. That floor
-is **10–15 minutes**, and it is the floor for producing a signed-shaped IPA plus
-a Windows installer plus a Linux tarball — not for finding out whether a change
-is good.
+| | before | after |
+|---|---|---|
+| Dart gate blocking M5 | 5:20 | **0:54** |
+| Dart suite inside M5 | 9:09 | **gone** |
+| Install Flutter (`cache: false`) | 1:16 | 1:21 — no regression |
+| ccache tree saved | 985 kB | **329 MB** |
+| Configure + build core | 5:06 | 5:34 — no gain yet, cache was cold |
+| OCCT iOS | miss, 31:26 | miss, ~31 min |
+| **total** | **68m53s** | **65m54s** |
 
-For that, the thing to watch is the two-tier split this already has:
+Three minutes, because the two changes that matter most had not taken effect
+yet: the OCCT cache was still being evicted by the Qt duplicate (fixed in
+M426b, unmeasured), and the ccache was cold on the run that filled it.
 
-- **`dart-checks` (~45 s) and `dart-tests` (~4:30)** answer "is this change
+**The honest state: the structural changes are confirmed, the cache changes are
+not.** The measurement that settles it is the first push to `main` after this
+merges, because `cache-gc.yml` only runs from the default branch — GitHub fires
+`schedule` and lists `workflow_dispatch` there and nowhere else.
+
+## 7. Why five minutes is not reachable for the full build
+
+With every cache hitting, M5 still has to install Qt and Flutter (~2:40),
+scaffold the iOS project and run `pub get` (1:01), link the core (4:40, less
+with a warm ccache), run `flutter build ios --release` (3:30-4:42), and package
+and upload the IPA (0:30). `flutter build ios` and the Xcode link are
+irreducible: they compile this application. The floor is **10-15 minutes**, and
+it is the floor for producing an IPA plus a Windows installer plus a Linux
+tarball — not for finding out whether a change is good.
+
+For that, the two-tier split already exists:
+
+- **`dart-checks` (0:54) and `dart-tests` (~6:18)** answer "is this change
   correct?" and are the jobs to read on a push. That is the one-to-five-minute
-  loop, and it exists today.
-- **the full run (~15 min)** answers "does this ship on three platforms?", and
-  is worth waiting for once, not on every keystroke.
+  loop.
+- **the full run** answers "does this ship on three platforms?", and is worth
+  waiting for once, not on every keystroke.
 
-## 6. If more is wanted after this
+## 8. If more is wanted after this
 
-Roughly in order of return:
-
-1. **`flutter build ios` (4:42) is the largest remaining item.** Most of it is
-   Dart AOT plus the Xcode link, and neither caches well across runners.
-2. **A Dart-only change still rebuilds every native artifact.** All of them
-   come from caches, but the jobs still spin up. A path filter that reuses the
-   previous run's native artifacts when nothing under `backend/` changed would
-   cut the desktop jobs out entirely — they are off the critical path, so it
-   buys billing rather than wall clock.
-3. **Pin OCCT as a release asset instead of a cache.** It changes only when the
-   submodule pin does, it is 37 MB compressed, and a release asset cannot be
-   evicted. That removes this failure mode permanently rather than managing it.
+1. **`cycles-ios`'s cache key hashes the whole 89 KB `m1-core-build.yml`**, so
+   editing a comment in any of its six jobs discards a ~7:30 build and writes a
+   fresh 143 MiB entry. Hashing only that job's own inputs would fix it.
+2. **`flutter build ios` (3:30-4:42) is the largest remaining step.** Mostly
+   Dart AOT plus the Xcode link; neither caches well across runners.
+3. **Pin the OCCT trees as release assets rather than caches.** 37 MiB for iOS,
+   and they change only when the submodule pin or the configure flags do. A
+   release asset cannot be evicted, which removes this failure mode rather than
+   managing it.

@@ -105,21 +105,45 @@ jobs:
           # hier nie aufgeraeumt, egal wie alt der Eintrag ist.
           protected='^(occt-ios-arm64-|occt-linux-|occt-windows-|blender-ios-libs-)'
 
-          # Qt kommt als Muster dazu, nicht als Praefix: den Schluessel
-          # vergibt install-qt-action und nicht dieses Repo, seine Form ist
-          # also nichts, worauf man sich festlegen sollte. Ein Fehltreffer
-          # kostet in m5 rund fuenf Minuten auf dem kritischen Pfad — Run
-          # 34478689042 hat Qt kalt installiert und brauchte 1:46 fuer den
-          # Host und 4:52 fuer iOS, gegen 0:20 und 0:50 mit Treffer.
+          # Qt IST DER CACHE DIESES REPOSITORIES, UND DESHALB WIRD ES NUR
+          # SOLANGE GESCHUETZT, WIE ES BENUTZT WIRD (M426b).
           #
-          # Zu breit zu schuetzen ist hier der billige Fehler: es bleibt dann
-          # etwas liegen, das haette fallen koennen. Zu eng zu schuetzen
-          # kostet Minuten in jedem Build danach.
+          # Die erste Fassung dieser Datei hat alles mit "qt" im Schluessel
+          # bedingungslos geschuetzt. Das war geraten, und die Messung hat es
+          # widerlegt: der Diagnoseschritt in m5 hat in Run 34574418966
+          #
+          #   3207 MiB  install-qt-action-mac-23.6.0-ios-...
+          #   3207 MiB  install-qt-action-mac-25.6.0-ios-...
+          #   1116 MiB  install-qt-action-mac-23.6.0-desktop-...
+          #   1116 MiB  install-qt-action-mac-25.6.0-desktop-...
+          #
+          # ausgedruckt — 8646 von 9671 belegten MiB. Ein Schutz, der das
+          # umfasst, schuetzt das Problem und raeumt die 37 MiB weg, um die es
+          # geht. Genau falsch herum.
+          #
+          # Die Zahl vor `-ios` ist die Darwin-Version des Runners, nicht die
+          # von Qt. Sobald alle Qt-Jobs auf einem Image laufen (m1-core-build
+          # tut das seit M426b), wird eine der beiden Generationen nie wieder
+          # angefasst — und ist damit genau das, was hier fallen soll.
+          #
+          # Also: Qt ist geschuetzt, wenn es in den letzten 24 Stunden benutzt
+          # wurde, und sonst nicht. Ein Qt, das der Build noch braucht, wird
+          # bei jedem Run angefasst und ueberlebt; eine Generation, die zu
+          # einem zurueckgezogenen Runner-Image gehoert, verfaellt von selbst.
+          # Kein Praefix muss dafuer gepflegt werden.
           protected_qt='(^|[-_])qt([-_]|$)'
+          qt_cutoff="$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%S 2>/dev/null \
+                       || date -u -v-24H +%Y-%m-%dT%H:%M:%S)"
+          echo "Qt gilt als in Benutzung ab letztem Zugriff $qt_cutoff"
+          echo
 
+          # $1 = Schluessel, $2 = last_accessed_at (RFC3339, lexikografisch
+          # vergleichbar, weil beide dasselbe Format haben).
           is_protected() {
-            printf '%s' "$1" | grep -Eq  "$protected"    && return 0
-            printf '%s' "$1" | grep -Eqi "$protected_qt" && return 0
+            printf '%s' "$1" | grep -Eq "$protected" && return 0
+            if printf '%s' "$1" | grep -Eqi "$protected_qt"; then
+              [ "$2" \> "$qt_cutoff" ] && return 0
+            fi
             return 1
           }
 
@@ -166,7 +190,7 @@ jobs:
 
           while IFS=$'\t' read -r id size accessed key; do
             [ -z "${id:-}" ] && continue
-            if is_protected "$key"; then
+            if is_protected "$key" "$accessed"; then
               continue
             fi
             if printf '%s' "$key" | grep -Eq "$foreign"; then
@@ -184,7 +208,7 @@ jobs:
           famtab="$(mktemp)"
           while IFS=$'\t' read -r id size accessed key; do
             [ -z "${id:-}" ] && continue
-            is_protected "$key" && continue
+            is_protected "$key" "$accessed" && continue
             printf '%s' "$key" | grep -Eq "$rotating" || continue
             printf '%s\t%s\t%s\t%s\t%s\n' "$(family "$key")" "$id" "$size" "$accessed" "$key"
           done < "$all" > "$famtab"
@@ -228,7 +252,7 @@ jobs:
             already="$(cut -f1 "$doomed" | sort -u)"
             sort -t$'\t' -k3,3 "$all" | while IFS=$'\t' read -r id size accessed key; do
               [ -z "${id:-}" ] && continue
-              is_protected "$key" && continue
+              is_protected "$key" "$accessed" && continue
               printf '%s\n' "$already" | grep -qx "$id" && continue
               printf '%s\t%s\t%s\tueber Budget (letzter Zugriff %s)\n' \
                 "$id" "$size" "$key" "$accessed" >> "$doomed"

@@ -158,8 +158,40 @@ jobs:
           path: ci-dart-tests.log
           if-no-files-found: ignore
 
+  # macos-26 UND NICHT macos-14 — AUS EINEM GRUND, DER NICHTS MIT DIESEM JOB
+  # ZU TUN HAT: 4,3 GB DOPPELT GECACHTES Qt (M426b).
+  #
+  # `install-qt-action` schreibt die DARWIN-VERSION DES RUNNERS in seinen
+  # Cache-Schluessel. macos-14 ist Darwin 23.6.0, macos-26 ist Darwin 25.6.0 —
+  # also legt dasselbe Qt 6.7 fuer dasselbe Ziel zwei Eintraege an, je nachdem
+  # welches Image den Job gefahren hat. Der Diagnoseschritt in m5 hat sie
+  # nebeneinander ausgedruckt (Run 34574418966):
+  #
+  #   3207 MiB  install-qt-action-mac-23.6.0-ios-6.7.*-...
+  #   3207 MiB  install-qt-action-mac-25.6.0-ios-6.7.*-...
+  #   1116 MiB  install-qt-action-mac-23.6.0-desktop-6.7.*-...
+  #   1116 MiB  install-qt-action-mac-25.6.0-desktop-6.7.*-...
+  #
+  # 8646 MiB Qt bei 9671 MiB Gesamtbelegung und 10240 MiB Kontingent: Qt IST
+  # der Cache dieses Repositories, und die Haelfte davon ist eine Kopie. Was
+  # dadurch hinausgeraeumt wird, ist der 37-MiB-OCCT-Baum, und das kostet eine
+  # halbe Stunde pro Build.
+  #
+  # Ein Image fuer alle drei Qt-Jobs macht aus zwei Generationen eine.
+  #
+  # DAS RISIKO, DAS DER KOMMENTAR AN m5 BESCHREIBT, IST BEREITS EINGELOEST.
+  # Dort steht, der Unbekannte sei "Qt 6.7 + die Xcode-26-Toolchain beim Bauen
+  # von qcad-core" — genau das tut m5 auf macos-26 seit dem Umzug erfolgreich,
+  # mit denselben Flags und demselben Qt wie dieser Job hier. Es wird also
+  # nichts ausprobiert, was nicht schon laeuft.
+  #
+  # Und es stand ohnehin an: macos-14 ist seit 2026-07-06 deprecated und ab
+  # 2026-11-02 komplett weg.
+  #
+  # REVERT: zurueck auf macos-14, falls dieser Job an Qt oder am Core-Build
+  # scheitert — dann kostet es wieder 4,3 GB, aber der Build laeuft.
   build-core-ios:
-    runs-on: macos-14
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
 
@@ -340,7 +372,12 @@ jobs:
   # ---------------------------------------------------------------------------
   m3-ios-sim-logic:
     name: M3 headless logic test (iOS Simulator)
-    runs-on: macos-14
+    # macos-26, aus demselben Grund wie build-core-ios: ein Runner-Image fuer
+    # alle Qt-Jobs, sonst cached install-qt-action Qt ein zweites Mal (M426b).
+    # Dieser Job baut fuer den SIMULATOR; der Simulator des macos-26-Images
+    # gehoert zu dessen eigenem Xcode, `simctl` nimmt also ohnehin das, was
+    # daneben liegt.
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
 
