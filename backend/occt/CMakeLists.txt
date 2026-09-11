@@ -105,4 +105,20 @@ if(OCCT_SMOKE)
     add_executable(occt_mesh_cli tests/mesh_cli.cpp)
     target_link_libraries(occt_mesh_cli PRIVATE occt_capi
         Threads::Threads ${CMAKE_DL_LIBS})
+
+    # M232 — does the rebuilt body hold up as CAD? mesh_check asks whether it
+    # is in the right PLACE; this asks whether a kernel will operate on it.
+    # Validity, self-intersection, orientation, spikes, continuity. Host only;
+    # needs TKBO for the self-intersection checker and TKDESTEP to read a
+    # reference body out of a STEP file.
+    add_executable(occt_cad_audit tests/cad_audit.cpp)
+    target_link_libraries(occt_cad_audit PRIVATE occt_capi
+        TKBO Threads::Threads ${CMAKE_DL_LIBS})
+
+    # M232 — tessellate a B-Rep to STL, so a body that came FROM CAD can be
+    # round-tripped: mesh it, reconstruct from the triangles alone, and audit
+    # the result against the original. The only test with exact ground truth.
+    add_executable(occt_tessellate tests/tessellate.cpp)
+    target_link_libraries(occt_tessellate PRIVATE occt_capi
+        Threads::Threads ${CMAKE_DL_LIBS})
 endif()
