@@ -232,19 +232,70 @@ enum OutlineBuilder {
     /// Always the swept tube, whatever the style says.
     ///
     /// For chrome that lies IN a surface it has to beat in the depth buffer:
-    /// a work-plane border against its own translucent fill, an origin axis
-    /// against the two origin planes that contain it. A ribbon is flat, so
-    /// seen face-on it lands EXACTLY in that surface and z-fights with it,
-    /// where half of a tube always stands proud of it — which is why these
-    /// have always read cleanly and must keep doing so. The WIDTH still comes
-    /// from [style], which is the part that was broken; what is given up is
-    /// the 16-gon's residual wobble, under 2% (see TubeBuilder.sides) and so
-    /// under a pixel at a hairline.
+    /// an origin axis against the two origin planes that contain it. A ribbon
+    /// is flat, so seen face-on it lands EXACTLY in that surface and
+    /// z-fights with it, where half of a tube always stands proud of it —
+    /// which is why these have always read cleanly and must keep doing so.
+    /// The WIDTH still comes from [style], which is the part that was
+    /// broken; what is given up is the 16-gon's residual wobble, under 2%
+    /// (see TubeBuilder.sides) and so under a pixel at a hairline.
+    ///
+    /// A work-plane border used to share this — see [rectFrame] for why it
+    /// no longer does (#50).
     static func tube(_ pts: [SIMD3<Float>], color: UIColor,
                      style: OutlineStyle,
                      weight: Float = Stroke.line) -> ModelEntity? {
         return TubeBuilder.polyline(pts, radius: style.halfWidth(weight),
                                     material: Materials.unlit(color))
+    }
+
+    /// A closed, axis-aligned RECTANGLE, stroked with sharp mitered corners.
+    ///
+    /// #50 — "the main workplanes when highlighted have these round circle
+    /// corners which look awfull. the corners should be very small quadratic
+    /// points." [tube] sweeps an independent round cross-section per
+    /// segment; at the free 90° turn of a work-plane's four corners the
+    /// circular cap of each segment shows past the sharp corner — that circle
+    /// is the report. A work-plane border is always an axis-aligned
+    /// rectangle in the plane's own (u, v) frame, so this does not need a
+    /// general miter solver: each edge is stroked as a SQUARE cross-section
+    /// box — half-width [style]'s stroke weight along the in-plane
+    /// perpendicular (the visible border width) and along [normal] (so it
+    /// still stands proud of the plane's own fill on both sides, [tube]'s
+    /// same reason to be a solid rather than a flat ribbon) — extended by
+    /// that same half-width at both ends, into the corner. Two boxes always
+    /// meet flush there: their in-plane widths are equal and their
+    /// directions are exactly perpendicular by construction, so the union is
+    /// a sharp square corner rather than a circle.
+    static func rectFrame(_ corners: [SIMD3<Float>], normal: SIMD3<Float>,
+                          color: UIColor, style: OutlineStyle,
+                          weight: Float = Stroke.line) -> ModelEntity? {
+        guard corners.count == 4 else { return nil }
+        let radius = style.halfWidth(weight)
+        let n = simd_normalize(normal)
+        var positions = [SIMD3<Float>]()
+        var normals = [SIMD3<Float>]()
+        var indices = [UInt32]()
+        for i in 0..<4 {
+            let a = corners[i]
+            let b = corners[(i + 1) % 4]
+            let axis = b - a
+            let len = simd_length(axis)
+            guard len > 1e-7 else { continue }
+            let dir = axis / len
+            let perp = simd_normalize(simd_cross(n, dir))
+            TubeBuilder.appendBox(a - dir * radius, b + dir * radius,
+                                  perp: perp, normal: n, radius: radius,
+                                  positions: &positions, normals: &normals,
+                                  indices: &indices)
+        }
+        guard !positions.isEmpty else { return nil }
+        var d = MeshDescriptor(name: "planeFrame")
+        d.positions = MeshBuffers.Positions(positions)
+        d.normals = MeshBuffers.Normals(normals)
+        d.primitives = .triangles(indices)
+        guard let mesh = try? MeshResource.generate(from: [d]) else { return nil }
+        return ModelEntity(mesh: mesh, materials: [Materials.unlit(color)])
     }
 }
 
@@ -654,12 +705,22 @@ final class PlaneEntity {
     }
 
     /// The border, at the scene's current line weight and facing.
+    ///
+    /// #50 — "the main workplanes when highlighted have these round circle
+    /// corners which look awfull. the corners should be very small quadratic
+    /// points." A closed rectangle stroked with [OutlineBuilder.tube] joins
+    /// its four segments as independent round tubes — fine for the free-form
+    /// polylines that call it, per that method's own note that "tiny joint
+    /// gaps are invisible at these radii", but a work plane's corners are a
+    /// sharp 90° turn where each segment's circular cross-section shows past
+    /// the corner as exactly the circle being reported. [rectFrame] strokes
+    /// the same closed shape with mitered square corners instead.
     private func buildOutline() {
         outline?.removeFromParent()
         outline = nil
         let edgeColor = hot ? Colors.greenBright : Colors.orangeEdge
-        if let o = OutlineBuilder.tube(corners + [corners[0]],
-                                       color: edgeColor, style: style) {
+        if let o = OutlineBuilder.rectFrame(corners, normal: normal,
+                                            color: edgeColor, style: style) {
             outline = o
             entity.addChild(o)
         }
@@ -1083,6 +1144,40 @@ enum TubeBuilder {
             let i0 = base + UInt32(i * 2)
             let i1 = base + UInt32(i * 2 + 1)
             let j = (i + 1) % sides
+            let j0 = base + UInt32(j * 2)
+            let j1 = base + UInt32(j * 2 + 1)
+            indices.append(contentsOf: [i0, i1, j1, i0, j1, j0])
+        }
+    }
+
+    /// #50 — [appendPrism]'s square-cross-section twin, for [OutlineBuilder
+    /// .rectFrame]'s mitered corners. Same four side faces, no end caps
+    /// (every segment's ends are extended into — and hidden by — the next
+    /// segment's overlap in a closed frame, exactly as [appendPrism]'s own
+    /// tube segments already rely on being invisible at their joints).
+    ///
+    /// [perp] and [normal] are given rather than derived like [appendPrism]'s
+    /// own "up" guess: the caller already knows both — [perp] is the in-plane
+    /// direction across the border, [normal] the plane's own normal — and
+    /// reusing them is what makes adjacent edges' cross-sections agree
+    /// exactly, which is the one thing a mitered corner cannot approximate.
+    static func appendBox(_ a: SIMD3<Float>, _ b: SIMD3<Float>,
+                          perp: SIMD3<Float>, normal: SIMD3<Float>, radius r: Float,
+                          positions: inout [SIMD3<Float>],
+                          normals: inout [SIMD3<Float>],
+                          indices: inout [UInt32]) {
+        let corners = [perp * r + normal * r, -perp * r + normal * r,
+                       -perp * r - normal * r, perp * r - normal * r]
+        let base = UInt32(positions.count)
+        for c in corners {
+            let nrm = simd_normalize(c)
+            positions.append(a + c); normals.append(nrm)
+            positions.append(b + c); normals.append(nrm)
+        }
+        for i in 0..<4 {
+            let i0 = base + UInt32(i * 2)
+            let i1 = base + UInt32(i * 2 + 1)
+            let j = (i + 1) % 4
             let j0 = base + UInt32(j * 2)
             let j1 = base + UInt32(j * 2 + 1)
             indices.append(contentsOf: [i0, i1, j1, i0, j1, j0])
