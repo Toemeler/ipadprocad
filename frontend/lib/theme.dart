@@ -1019,6 +1019,46 @@ class T {
   static Color get axisX => scheme.value.axisX;
   static Color get axisY => scheme.value.axisY;
   static Color get axisZ => scheme.value.axisZ;
+
+  /// #51 — an origin plane's fill and its border.
+  ///
+  /// "somehow the planes look weird. the edges are the same color and exactly
+  /// the same even when they are behind another plane."
+  ///
+  /// They were, and measurably so. All three origin planes were one frozen
+  /// orange in the renderer, and the border was a second orange 6/10/12 away
+  /// from it. A border seen THROUGH another plane is that border under a 28%
+  /// wash of the fill in front of it, which came to
+  ///
+  ///     behind (238.3, 165.2, 100.6)   in front (240, 168, 104)
+  ///
+  /// — under four parts in 255 on the widest channel. That is not a weak depth
+  /// cue, it is none: "exactly the same" is the literal reading. And with one
+  /// colour for all three, two borders crossing said nothing about which plane
+  /// either belonged to either.
+  ///
+  /// Each plane now takes the colour of the axis it stands ACROSS — the axis
+  /// its normal runs along, and the same axisX/Y/Z the coordinate triad has
+  /// always drawn. So the language is the app's own rather than a new one, and
+  /// a border seen through a neighbour is washed by a different HUE, which
+  /// moves the same comparison to tens of parts in 255. `yz` is normal to X,
+  /// `xz` to Y, `xy` to Z.
+  ///
+  /// Origin planes only. A user's own work plane is at whatever angle they
+  /// built it and belongs to no axis, so it keeps the orange it has always
+  /// had — see `planeTintPayload`.
+  static (Color fill, Color edge) originPlane(String key) {
+    final base = switch (key) {
+      'yz' => axisX,
+      'xz' => axisY,
+      'xy' => axisZ,
+      _ => scheme.value.previewFill,
+    };
+    // The border is the fill lifted toward white: bright enough to read as a
+    // line against its own translucent sheet, near enough to still name the
+    // plane it belongs to.
+    return (base, Color.lerp(base, const Color(0xFFFFFFFF), 0.34)!);
+  }
   static Color get cubeFace => scheme.value.cubeFace;
   static Color get cubeFaceTop => scheme.value.cubeFaceTop;
   static Color get cubeFaceDim => scheme.value.cubeFaceDim;

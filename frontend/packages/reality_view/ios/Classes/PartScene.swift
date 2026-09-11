@@ -656,6 +656,26 @@ final class PlaneEntity {
     /// ten times made it a 22 pt one.
     private var style: OutlineStyle
 
+    /// #51 — this plane's own colours, PUSHED from Dart rather than named
+    /// here, exactly as an assembly solid's `tint` already is.
+    ///
+    /// All three origin planes used to be one frozen orange, with a border a
+    /// few parts away from it, and that is the whole of the report: a border
+    /// seen through a plane in front of it is that border under a 28% wash of
+    /// the fill, which came to under four parts in 255 on the widest channel.
+    /// No perceptible difference between in front and behind, and nothing to
+    /// tell two crossing borders apart. Each origin plane now arrives in the
+    /// colour of the axis it stands across — see `T.originPlane`, where the
+    /// app's two palettes both live and where M237's rule says a colour has to
+    /// be decided, because one named in this file is right in one scheme and
+    /// wrong in the other.
+    ///
+    /// A payload without them — a user's own work plane, which stands across
+    /// no axis, or an older Dart build — falls back to the orange this class
+    /// has always drawn, so nothing that does not opt in changes at all.
+    private let tint: UIColor
+    private let edge: UIColor
+
     init?(payload p: [String: Any], style s: OutlineStyle) {
         style = s
         guard let frame = Payload.doubles(p["frame"]), frame.count >= 9 else { return nil }
@@ -679,6 +699,8 @@ final class PlaneEntity {
         ]
         hot = (p["hot"] as? NSNumber)?.boolValue ?? false
         visible = (p["visible"] as? NSNumber)?.boolValue ?? true
+        tint = Payload.color(Payload.argb(p["tint"])) ?? Colors.orange
+        edge = Payload.color(Payload.argb(p["edge"])) ?? Colors.orangeEdge
         buildFill()
         buildOutline()
         entity.isEnabled = visible
@@ -688,7 +710,7 @@ final class PlaneEntity {
     /// changes the border weight leaves this mesh alone.
     private func buildFill() {
         fill?.removeFromParent()
-        let fillColor = hot ? Colors.green : Colors.orange
+        let fillColor = hot ? Colors.green : tint
         // Two triangles, both windings, so the plane shows from either side
         // without relying on per-material face-culling toggles.
         let pos = corners
@@ -718,7 +740,7 @@ final class PlaneEntity {
     private func buildOutline() {
         outline?.removeFromParent()
         outline = nil
-        let edgeColor = hot ? Colors.greenBright : Colors.orangeEdge
+        let edgeColor = hot ? Colors.greenBright : edge
         if let o = OutlineBuilder.rectFrame(corners, normal: normal,
                                             color: edgeColor, style: style) {
             outline = o
@@ -741,11 +763,11 @@ final class PlaneEntity {
     /// see PartRenderer.applyTint — for exactly this reason.
     private func applyColors() {
         fill?.model?.materials = [
-            Materials.unlitTransparent(hot ? Colors.green : Colors.orange,
+            Materials.unlitTransparent(hot ? Colors.green : tint,
                                        hot ? 0.42 : 0.28)
         ]
         outline?.model?.materials = [
-            Materials.unlit(hot ? Colors.greenBright : Colors.orangeEdge)
+            Materials.unlit(hot ? Colors.greenBright : edge)
         ]
     }
 

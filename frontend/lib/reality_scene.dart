@@ -476,6 +476,27 @@ Map<String, int> sceneRevs(AppState app, PartModel p) => {
             identityHashCode(sol.mesh),
     };
 
+/// #51 — the `tint`/`edge` pair for a plane, or nothing at all.
+///
+/// Only the three ORIGIN planes carry one. A user's work plane sits at
+/// whatever angle it was built at and stands across no axis, so there is no
+/// colour it could take that would mean anything — it falls through to the
+/// orange the renderer has always defaulted to, which is also what an older
+/// native build does with a payload it has never seen these keys in.
+///
+/// ARGB ints, the same packing `tint` already uses for an assembly's solid.
+Map<String, dynamic> planeTintPayload(String key) {
+  if (!kPlaneKeys.contains(key)) return const {};
+  final (fill, edge) = T.originPlane(key);
+  return {'tint': _argb(fill), 'edge': _argb(edge)};
+}
+
+int _argb(Color c) =>
+    (((c.a * 255).round() & 0xFF) << 24) |
+    (((c.r * 255).round() & 0xFF) << 16) |
+    (((c.g * 255).round() & 0xFF) << 8) |
+    ((c.b * 255).round() & 0xFF);
+
 List<Map<String, dynamic>> _planePayloads(AppState app, PartModel p,
     {String? hover}) {
   final out = <Map<String, dynamic>>[];
@@ -498,6 +519,11 @@ List<Map<String, dynamic>> _planePayloads(AppState app, PartModel p,
           .reduce((a, b) => a > b ? a : b),
       'visible': p.vis[key] == true || (app.pickPlane && !p.hasSolid),
       'hot': hover == key,
+      // #51 — the plane's own colour, pushed rather than frozen in the
+      // renderer. M237's rule, and the same `tint` road an assembly's solid
+      // already travels: the app has two palettes, so a UIColor named in Swift
+      // is right in one of them and wrong in the other.
+      ...planeTintPayload(key),
     });
   }
   // M165 — user work planes ride the SAME list. They were built, named and
