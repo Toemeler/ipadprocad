@@ -902,7 +902,20 @@ int CutNonManifoldEdges(Mesh &m)
  * the size of the model is not a hole, it is an open sheet, and covering it
  * would invent a face that was never there. The Bunny's single 64-edge loop
  * is 0.4% of its boundary length and fills cleanly. */
-const double kMaxHoleFraction = 0.25;
+/* A loop is too big to be a hole when it is large against the MODEL, not
+ * against the boundary.
+ *
+ * The first cut of this compared the loop to the total boundary-edge count,
+ * which is wrong in exactly the case that matters: a mesh with one hole has
+ * all of its boundary in that one loop, so the loop is 100% of the boundary
+ * and was refused every time. The Bunny's single 64-edge hole — the one this
+ * was written for — was rejected on those grounds and left open.
+ *
+ * Against the model it is unambiguous: 64 edges on a mesh of 283,189
+ * triangles is nothing, and a "hole" that really is an open sheet is a
+ * substantial fraction of the model's own size. */
+const double kMaxHoleTriangleFraction = 0.02;
+const size_t kMaxHoleLoopVertices = 2000;
 
 int FillHoles(Mesh &m, int &filledLoops)
 {
@@ -962,9 +975,11 @@ int FillHoles(Mesh &m, int &filledLoops)
         }
         if (loop.size() < 3)
             continue;
-        if (static_cast<double>(loop.size()) > boundary * kMaxHoleFraction &&
-            loop.size() > 3)
-            continue; /* too big to be a hole */
+        if (loop.size() > 3 &&
+            (loop.size() > kMaxHoleLoopVertices ||
+             static_cast<double>(loop.size()) >
+                 m.triCount() * kMaxHoleTriangleFraction))
+            continue; /* an open sheet, not a hole: covering it invents a face */
         V3 c;
         for (int x : loop)
             c += m.pos[x];
@@ -1001,11 +1016,26 @@ struct RepairLog
     int triangles_added = 0;
 };
 
+/* Cutting a non-manifold fan apart OPENS the surface along that edge, and the
+ * opening is a hole that was not there before — so filling once, before those
+ * exist, closes the wrong set. Repeat until nothing moves, bounded: on the
+ * Bunny the first pass removes 442 fans and the second finds the boundaries
+ * they left. */
+const int kRepairPasses = 3;
+
 void RepairMesh(Mesh &m, RepairLog &log)
 {
     log.duplicate_faces = DropDuplicateFaces(m);
-    log.non_manifold_cuts = CutNonManifoldEdges(m);
-    log.triangles_added = FillHoles(m, log.holes_filled);
+    for (int pass = 0; pass < kRepairPasses; ++pass) {
+        const int cuts = CutNonManifoldEdges(m);
+        int loops = 0;
+        const int added = FillHoles(m, loops);
+        log.non_manifold_cuts += cuts;
+        log.holes_filled += loops;
+        log.triangles_added += added;
+        if (!cuts && !added)
+            break;
+    }
     /* Traced at the call site: MR_TRACE is defined further down the file. */
 }
 
