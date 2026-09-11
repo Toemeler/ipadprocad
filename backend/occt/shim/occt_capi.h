@@ -922,8 +922,8 @@ void occt_mesh_cancel(void);
 #define OCCT_MS_FACETED     7
 #define OCCT_MS_MERGING     8
 
-#define OCCT_MESH_REPORT_INTS 22
-#define OCCT_MESH_REPORT_REALS 2
+#define OCCT_MESH_REPORT_INTS 25
+#define OCCT_MESH_REPORT_REALS 3
 
 /* Indices into `report_ints`. */
 #define OCCT_MR_TRIANGLES_IN       0
@@ -948,10 +948,24 @@ void occt_mesh_cancel(void);
 #define OCCT_MR_SHELLS             19
 #define OCCT_MR_SOLIDS             20
 #define OCCT_MR_CLOSED             21  /* 1 when the result is a closed solid */
+/* M440 — whether the body is one a kernel will operate on. Closure was never
+ * the whole verdict: measured across the corpus, every model that came back
+ * broken reported CLOSED=1 while carrying faces that pass through each other.
+ * VALID and SELF_INTERSECTIONS are -1 for "not measured", which is a different
+ * fact from 0 and must not be read as one — the self-intersection checker is
+ * not run on bodies too large for it to finish on. */
+#define OCCT_MR_VALID              22  /* 1 valid, 0 not, -1 not measured */
+#define OCCT_MR_SELF_INTERSECTIONS 23  /* pairs found; -1 not measured */
+#define OCCT_MR_MERGED_FACES       24  /* faces the same-surface merge removed */
 
 /* Indices into `report_reals`. */
 #define OCCT_MR_FIT_RMS  0   /* area-weighted, in model units */
 #define OCCT_MR_DIAGONAL 1   /* bounding-box diagonal of the input mesh */
+/* The body's diagonal over the mesh's. A reconstruction cannot be larger than
+ * its own input, so anything above 1 is a face reaching where the mesh never
+ * went. M440 measured 1.11 on the reference part before the fix and 1.0001
+ * after. */
+#define OCCT_MR_BBOX_RATIO 2
 
 #ifdef __cplusplus
 } /* extern "C" */
