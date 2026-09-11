@@ -3054,6 +3054,33 @@ void paintWorkAxesAndPoints(
   }
 }
 
+/// How wide a corner mark on an origin plane is, in logical pixels.
+///
+/// "very small": the round dot this replaced measured 8 across, and at that
+/// size a marker on a corner is bigger than the corner.
+const double kPlaneCornerMark = 5;
+
+/// The mark on one corner of a highlighted origin plane.
+///
+/// Reported twice. M254 first: "die punkte an den ecken der plane sollten
+/// punkte sein nicht kreise" — they were stroked rings, and a ring reads as a
+/// thing with a hole in it. Then #50, with a screenshot arrowing the dots that
+/// replaced them: "the main workplanes when highlighted have these round
+/// circle corners which look awfull. the corners should be very small
+/// quadratic points." A corner is the square meeting of two edges, so the mark
+/// that stands on one is a SQUARE, screen-aligned and small enough to read as
+/// a point rather than as a blob sitting on the geometry.
+///
+/// Both viewports draw it through here on purpose: the CPU painter and the
+/// iOS screen-space overlay draw the same chrome, and M254 was reported
+/// against the two of them disagreeing.
+void drawPlaneCornerMark(Canvas canvas, Offset at, Paint paint) {
+  canvas.drawRect(
+      Rect.fromCenter(
+          center: at, width: kPlaneCornerMark, height: kPlaneCornerMark),
+      paint);
+}
+
 class _ScenePainter extends CustomPainter {
   final AppState app;
   final PartModel part;
@@ -3228,11 +3255,12 @@ class _ScenePainter extends CustomPainter {
           close: true,
           extra: occ?.edgeMargin ?? 0);
       if (hot) {
-        // M254 — corner DOTS (not rings), centre dot, name label lying on the
-        // plane. Same marker as the iOS overlay painter draws, and it has to
-        // stay the same marker: the two viewports draw the same chrome.
+        // M254 / #50 — square corner marks, centre dot, name label lying on
+        // the plane. Same markers as the iOS overlay painter draws, and they
+        // have to stay the same: the two viewports draw the same chrome.
+        final mark = Paint()..color = _greenBright;
         for (final c in corners) {
-          canvas.drawCircle(cam.project(c), 4, Paint()..color = _greenBright);
+          drawPlaneCornerMark(canvas, cam.project(c), mark);
         }
         canvas.drawCircle(cam.project(Vec3.zero), 4,
             Paint()..color = T.dofArrow);
@@ -3419,14 +3447,17 @@ class _OverlayPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2
       ..color = _greenBright;
-    // M254 — the corner and end markers are DOTS. Reported: "die punkte an den
-    // ecken der plane sollten punkte sein nicht kreise". They were stroked
-    // rings, and a ring reads as a thing with a hole in it, where what these
-    // mark is a point. [ring] stays for the centre-point hover, which really
-    // is a ring drawn AROUND a dot that already exists.
+    // M254 — the corner and end markers are SOLID, not stroked. Reported:
+    // "die punkte an den ecken der plane sollten punkte sein nicht kreise".
+    // They were stroked rings, and a ring reads as a thing with a hole in it,
+    // where what these mark is a point. [ring] stays for the centre-point
+    // hover, which really is a ring drawn AROUND a dot that already exists.
+    // The plane's corners went on to become squares — see
+    // [drawPlaneCornerMark] — while an axis END is a point on a line, not a
+    // corner, so it stays a dot.
     final dot = Paint()..color = _greenBright;
 
-    // ---- hovered origin plane: corner rings + centre dot + name label ----
+    // ---- hovered origin plane: corner marks + centre dot + name label ----
     if (hover != null && kPlaneKeys.contains(hover)) {
       final f = planeFrame(hover!);
       // M83: the plane's own padded rectangle around the part, NOT a fixed
@@ -3439,7 +3470,7 @@ class _OverlayPainter extends CustomPainter {
         f.toWorld(Offset(uMin, vMax)),
       ];
       for (final c in corners) {
-        canvas.drawCircle(cam.project(c), 4, dot);
+        drawPlaneCornerMark(canvas, cam.project(c), dot);
       }
       canvas.drawCircle(
           cam.project(Vec3.zero), 4, Paint()..color = T.dofArrow);

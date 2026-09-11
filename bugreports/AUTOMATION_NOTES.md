@@ -263,3 +263,39 @@ the model reasoning badly, and each fix is general:
   pending a retest on f59e99a rather than stacking an unverifiable visual
   change on one the reporter has not seen; if it still reads wrong the options
   are the card's inset, or anchoring the triad by its origin instead of its box.
+
+## #50, read a second time — 2026-09-11
+
+- The report was "the main workplanes **when highlighted** have these round
+  circle corners which look awfull. the corners should be very small quadratic
+  points", and `b49fc80` answered it by rewriting the BORDER: a plane's outline
+  is a closed rectangle stroked as four independent round tubes, whose circular
+  cross-sections do show past a sharp 90° corner. That was a real defect and
+  the fix stands. It was not what the reporter meant. They sent the screenshot
+  back with an arrow on it: the subject is the small round MARKERS standing on
+  each corner of a highlighted plane. "When highlighted" said so all along —
+  the border is drawn hot or not, those markers only exist while it is hot.
+
+- The lesson, and it cost a whole round trip: **the report's own qualifier is
+  evidence**. "When highlighted" narrowed the candidates to the chrome that
+  only appears on hover, and the border is not in that set. Read the sentence
+  for what it excludes before picking the thing it could describe.
+
+- Fixed in Dart, where it is testable and where BOTH viewports draw it: the
+  CPU painter and the iOS screen-space overlay painter each drew their own
+  `drawCircle(p, 4)`, which is the disagreement M254 was reported against in
+  the first place. They now share `drawPlaneCornerMark` — a screen-aligned
+  5-wide square, against the dot's 8 across.
+
+- `issue50_plane_corner_marks_test.dart` RASTERISES the marker and reads the
+  pixels back, because "the code calls drawRect" would pass on a rect nobody
+  could tell from the dot. Two measurements, and neither pins the shape alone:
+  a round dot big enough covers a small box's corners, and a small enough round
+  dot is small. Something that is both 5 across AND filled out to the corners
+  of those 5 is a square. The old `drawCircle(p, 4)` call is kept in the file
+  as a permanent negative control and held to failing both.
+
+- Swift under `frontend/packages/*/ios/` still cannot be compiled here, which
+  is exactly why this belonged in Dart: the `b49fc80` half of #50 remains
+  unverified outside CI's macOS build, and the half the reporter actually
+  asked for now has a test.
