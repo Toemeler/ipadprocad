@@ -111,3 +111,20 @@ the model reasoning badly, and each fix is general:
   app waiting forever behind a UI that shows nothing; and a non-200 threw away
   the relay's own explanation, so "bundle too large: N bytes" reached the
   reporter as "HTTP 413". Commit `a6fcc8d`.
+
+## 2026-09-11
+
+- #49 — "if the ribbon is retracted on ios there shouldnt be this Vertical
+  bar. and it should only come expand when I swipe right from the left edge
+  with a clean native Apple style animation." The retract grip (M405,
+  `ribbon_dock_layout.dart`) already answered a tap AND a swipe toward the
+  document, so the gesture asked for was already there; what was not is that
+  retracted, the 18 pt strip kept painting a solid coloured bar with a
+  chevron on it for as long as the ribbon stayed away — on a phone, where the
+  ribbon retracts by default (M405/#38), that is most of the app's life.
+  `fixed:` `ribbonGripPaintsBar(retracted)` — the strip keeps its size and
+  both gestures either way, it just paints nothing while retracted, matching
+  how iOS's own edge-swipe affordances draw nothing until touched. New
+  `frontend/test/issue49_ribbon_grip_edge_test.dart`, confirmed failing
+  against the old unconditional-paint behaviour and passing with the fix.
+  Commit `b8928e7`.
