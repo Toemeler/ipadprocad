@@ -206,6 +206,18 @@ class RibbonRetract {
     if (saved != null) retracted.value = saved;
   }
 
+  /// #49 — how far the band is pulled out WHILE A FINGER IS ON IT (0 away, 1
+  /// fully out), or null when nothing is dragging.
+  ///
+  /// The edge-swipe that brings the band back tracks the thumb rather than
+  /// waiting for it to lift: that is the difference between "a gesture that
+  /// opens a panel" and the native one the report asked for, where the panel
+  /// is under your finger the whole way and follows it back if you change
+  /// your mind. [retracted] is still the only COMMITTED state — this is the
+  /// transient the reveal reads while the gesture is live, and it is null
+  /// again the moment the finger lifts.
+  static final ValueNotifier<double?> drag = ValueNotifier<double?>(null);
+
   static void set(bool v) {
     if (v == retracted.value) return;
     retracted.value = v;
@@ -217,6 +229,7 @@ class RibbonRetract {
   @visibleForTesting
   static void resetForTest() {
     retracted.value = false;
+    drag.value = null;
     _store = null;
   }
 }

@@ -114,10 +114,27 @@ Size? _viewSize() {
 /// measurement that had not arrived yet, and a phone gets its default on the
 /// first build after the view exists.
 bool isPhoneDevice() {
+  if (isPhoneOverride != null) return isPhoneOverride!;
   if (defaultTargetPlatform != TargetPlatform.iOS) return false;
   final size = _viewSize();
   return size != null && isPhoneSize(size);
 }
+
+/// Tests only: answer [isPhoneDevice] with this instead of asking the display.
+///
+/// Worth the seam, and for the same reason `RibbonSurface.glassOverride` is:
+/// the retracted band, its edge-swipe and its reveal animation exist ONLY on a
+/// phone, so a suite that can never be one proves nothing about the branch
+/// that actually ships — which is how #49 came to be "fixed" with a test that
+/// asserted a constant.
+///
+/// The alternative is driving `defaultTargetPlatform` and the view's display,
+/// and that is exactly what must not happen: it would make the host a phone
+/// for EVERY widget test at once, which m405_ribbon_retract_test names as the
+/// thing that would cost the whole suite its ribbon. One value, set and
+/// cleared by the one suite that needs it, cannot leak that far.
+@visibleForTesting
+bool? isPhoneOverride;
 
 bool _retried = false;
 

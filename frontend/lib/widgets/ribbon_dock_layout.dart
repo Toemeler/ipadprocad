@@ -157,20 +157,6 @@ class RibbonDockLayout extends StatelessWidget {
     // strip, no extra row, nothing to lay out differently. See RibbonRetract.
     final canRetract = isPhoneDevice();
     final retracted = canRetract && RibbonRetract.on;
-    final Widget band = _Bleed(
-      dock: RibbonDock.current,
-      // Docked, the document is laid out inside the stage and covers nothing
-      // (M290's layout, unchanged off iOS). Only a FLOATING band has an edge
-      // to report.
-      report: floats,
-      child: Listener(
-        behavior: HitTestBehavior.opaque,
-        // Retracted the band is GONE rather than merely thin: the whole point
-        // is the space, and a hidden ribbon that still swallows pointers over
-        // a fifth of the screen would be worse than the one that was visible.
-        child: retracted ? const SizedBox.shrink() : Ribbon(app: app),
-      ),
-    );
     // M346 — CrossAxisAlignment.stretch, and it is the whole of the "the
     // ribbon on the right does not go over the full height" report.
     //
@@ -194,23 +180,38 @@ class RibbonDockLayout extends StatelessWidget {
     // The handle sits on the band's INNER edge, the side the ribbon slides
     // away from — the same place and the same chevron the model browser's
     // retract has used since M244, so it reads as the control it is.
-    final Widget? grip =
-        canRetract ? _RibbonGrip(dock: RibbonDock.current) : null;
+    // #49 — the handle is drawn only while the band is OUT.
+    //
+    // Retracted it used to stay: an 18 pt strip, first painted and then (in
+    // this issue's first fix) merely invisible, but in both cases a real child
+    // of the row with `HitTestBehavior.opaque` on it. That is a column of dead
+    // screen down the edge the whole time the band is away — it swallowed the
+    // taps and the orbit drags that land there, and being invisible made it
+    // worse, not better, because nothing said why the model would not turn.
+    // The way back in is now the edge-swipe overlay below, which takes no
+    // layout space and lets everything it does not claim fall through.
+    final Widget? grip = canRetract && !retracted
+        ? _RibbonGrip(dock: RibbonDock.current)
+        : null;
     final Widget rows = switch (RibbonDock.current) {
       RibbonPosition.top => Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [band, if (grip != null) grip, Expanded(child: _inner())]),
+          children: [
+            _reveal(canRetract),
+            if (grip != null) grip,
+            Expanded(child: _inner())
+          ]),
       RibbonPosition.bottom => Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Expanded(child: _staged(_inner())),
             if (grip != null) grip,
-            band
+            _reveal(canRetract),
           ]),
       RibbonPosition.left => Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _rail(band, retracted),
+            _reveal(canRetract),
             if (grip != null) grip,
             Expanded(child: _staged(_inner())),
           ]),
@@ -219,18 +220,149 @@ class RibbonDockLayout extends StatelessWidget {
           children: [
             Expanded(child: _staged(_inner())),
             if (grip != null) grip,
-            _rail(band, retracted),
+            _reveal(canRetract),
           ]),
     };
     if (RibbonDock.current == RibbonPosition.top) {
-      return _withCaption(floats
-          ? Stack(children: [Positioned.fill(child: bleed), rows])
-          : rows);
+      return _edged(
+          canRetract,
+          retracted,
+          _withCaption(floats
+              ? Stack(children: [Positioned.fill(child: bleed), rows])
+              : rows));
     }
-    if (!floats) return rows;
+    if (!floats) return _edged(canRetract, retracted, rows);
     // The document first, at full size, and the band's row over it. The stage
     // is inside [rows], so it still gets the box that excludes the band.
-    return Stack(children: [Positioned.fill(child: bleed), rows]);
+    return _edged(canRetract, retracted,
+        Stack(children: [Positioned.fill(child: bleed), rows]));
+  }
+
+  /// #49 — the band's own slot, at whatever fraction of itself is showing.
+  ///
+  /// "it should only come expand when I swipe right from the left edge with a
+  /// clean native Apple style animation." There was no animation at all: the
+  /// rail was `SizedBox(width: retracted ? 0 : railWidth)`, so the band went
+  /// from absent to full width between two frames, which on a device reads as
+  /// a glitch rather than as a panel opening.
+  ///
+  /// Three things make this the native one rather than a fade:
+  ///
+  ///   * the band keeps its FULL size and is clipped to a fraction of it
+  ///     ([Align]'s width/height factor), anchored to the edge it slides out
+  ///     of. So the icons travel in from off-screen together, rigidly, the way
+  ///     a UIKit panel does — they do not squash from 0 pt wide to 46, which
+  ///     is what animating the child's own constraint would have done;
+  ///   * [RibbonRetract.drag] short-circuits the tween while a finger is down,
+  ///     at [Duration.zero], so the band is under the thumb rather than
+  ///     chasing it — and because the tween is still the thing being driven,
+  ///     the release animates on from exactly where the finger left it instead
+  ///     of snapping back to 0 first;
+  ///   * [kRibbonReveal] is an ease-out: fast to start, settling at the end.
+  ///
+  /// The band is only BUILT while some of it shows. Fully away it is gone from
+  /// the tree, which is M405's own rule and the reason a retracted phone pays
+  /// nothing for a 2 900-line ribbon it cannot see. [_Bleed] stays either way,
+  /// so the inset it publishes can never go stale behind a band that left.
+  /// Takes [canRetract] and reads the RETRACTED flag itself, rather than being
+  /// handed the answer: the flag decides an animation, and an animation that
+  /// is only correct when some ancestor happens to be listening is a lit fuse.
+  /// main.dart does listen (it rebuilds the shell, because the band's row
+  /// changes the stage's edges) — this makes the band's own movement true
+  /// whether or not it ever does.
+  /// Keyed for the same reason [_edged] keeps its shape: the handle beside it
+  /// comes and goes as the flag flips, and an unkeyed child that changes
+  /// position in a row is a NEW element — which would throw the tween away and
+  /// snap, exactly the failure [_edged] describes.
+  Widget _reveal(bool canRetract) => ValueListenableBuilder<bool>(
+        key: const Key('ribbon.band.reveal'),
+        valueListenable: RibbonRetract.retracted,
+        builder: (_, away, __) => ValueListenableBuilder<double?>(
+          valueListenable: RibbonRetract.drag,
+          builder: (_, live, __) => TweenAnimationBuilder<double>(
+            tween: Tween<double>(
+                end: live ?? (canRetract && away ? 0.0 : 1.0)),
+            duration: live != null ? Duration.zero : kRibbonReveal,
+            curve: kRibbonRevealCurve,
+            builder: (_, t, __) => _slice(t),
+          ),
+        ),
+      );
+
+  /// The band clipped to [t] of its extent, anchored to its own edge.
+  Widget _slice(double t) {
+    final dock = RibbonDock.current;
+    final band = _Bleed(
+      dock: dock,
+      // Docked, the document is laid out inside the stage and covers nothing
+      // (M290's layout, unchanged off iOS). Only a FLOATING band has an edge
+      // to report.
+      report: floats,
+      child: Listener(
+        behavior: HitTestBehavior.opaque,
+        // Retracted the band is GONE rather than merely thin: the whole point
+        // is the space, and a hidden ribbon that still swallows pointers over
+        // a fifth of the screen would be worse than the one that was visible.
+        child: t <= 0 ? const SizedBox.shrink() : Ribbon(app: app),
+      ),
+    );
+    final sized = dock.isVertical ? _rail(band) : band;
+    if (t >= 1) return KeyedSubtree(key: kRibbonBandSlot, child: sized);
+    return ClipRect(
+      key: kRibbonBandSlot,
+      child: Align(
+        // The edge the band lives on stays pinned while the far edge travels,
+        // so it slides out of its own side rather than growing from the middle.
+        alignment: switch (dock) {
+          RibbonPosition.left => Alignment.centerRight,
+          RibbonPosition.right => Alignment.centerLeft,
+          RibbonPosition.top => Alignment.bottomCenter,
+          RibbonPosition.bottom => Alignment.topCenter,
+        },
+        widthFactor: dock.isVertical ? t.clamp(0.0, 1.0) : null,
+        heightFactor: dock.isVertical ? null : t.clamp(0.0, 1.0),
+        child: sized,
+      ),
+    );
+  }
+
+  /// The leading-edge swipe zone, over everything, when the band is away.
+  ///
+  /// [HitTestBehavior.translucent] and no `onTap`: it claims a horizontal drag
+  /// that starts at the edge and nothing else, so a tap, a pinch and an orbit
+  /// that begin there still reach the viewport underneath. It is `Positioned`
+  /// rather than a row child for the same reason — it must cost the layout
+  /// nothing, or it is the dead strip again by another name.
+  /// THE SHAPE OF THIS TREE DOES NOT CHANGE WITH [retracted], and that is load
+  /// bearing rather than tidiness. Wrapping only while retracted put the whole
+  /// band under one more Stack on exactly the frame the flag flipped, so every
+  /// element below was rebuilt from scratch — including the tween, which then
+  /// initialised AT its new target instead of animating toward it. The reveal
+  /// snapped, silently, and looked precisely like having written no animation
+  /// at all. So the Stack and the slot are always here on a phone; only what
+  /// sits in the slot changes.
+  ///
+  /// [StackFit.passthrough] hands [child] the constraints this widget was
+  /// given, unchanged, so the row inside is laid out exactly as it is without
+  /// the Stack. And nothing is built at all where the retract is not offered,
+  /// so an iPad and every desktop keep the tree they have always had.
+  Widget _edged(bool canRetract, bool retracted, Widget child) {
+    if (!canRetract) return child;
+    final dock = RibbonDock.current;
+    return Stack(fit: StackFit.passthrough, children: [
+      child,
+      Positioned(
+        left: dock == RibbonPosition.right ? null : 0,
+        right: dock == RibbonPosition.left ? null : 0,
+        top: dock == RibbonPosition.bottom ? null : 0,
+        bottom: dock == RibbonPosition.top ? null : 0,
+        width: dock.isVertical ? kRibbonEdgeSwipe : null,
+        height: dock.isVertical ? null : kRibbonEdgeSwipe,
+        child: retracted
+            ? _RibbonEdgeSwipe(dock: dock)
+            : const SizedBox.shrink(),
+      ),
+    ]);
   }
 
   /// M360 — the rail, at whatever width its content needs.
@@ -240,10 +372,10 @@ class RibbonDockLayout extends StatelessWidget {
   /// panels could stand in one column, and a one-column rail is 46 points
   /// against a two-column rail's 84. Listening here rather than rebuilding the
   /// world keeps that to the one widget whose size it changes.
-  Widget _rail(Widget band, bool retracted) => ValueListenableBuilder<int>(
+  Widget _rail(Widget band) => ValueListenableBuilder<int>(
         valueListenable: RibbonRail.columns,
-        builder: (_, __, child) => SizedBox(
-            width: retracted ? 0 : RibbonMetrics.railWidth, child: child),
+        builder: (_, __, child) =>
+            SizedBox(width: RibbonMetrics.railWidth, child: child),
         child: band,
       );
 
@@ -276,15 +408,152 @@ class RibbonDockLayout extends StatelessWidget {
       ]);
 }
 
-/// #49 — whether the retract grip paints its bar and chevron.
+/// #49 — how long the band takes to slide in or out, and on what curve.
 ///
-/// Pulled its own top-level function (rather than inlined in [_RibbonGrip]'s
-/// build method) so the "no bar while retracted" rule is a fact the test
-/// suite can pin directly: `_RibbonGrip` only exists on a phone-shaped iOS
-/// display, which this suite's host is not and — per m405_ribbon_retract_test
-/// — must never be faked into pretending to be.
-@visibleForTesting
-bool ribbonGripPaintsBar(bool retracted) => !retracted;
+/// 320 ms on an ease-out is the shape UIKit gives a panel this size: most of
+/// the travel is over in the first third, and it settles rather than stopping.
+/// Long enough to read as movement on a 390-point screen, short enough that a
+/// thumb which flicks and then reaches for the ribbon is not left waiting.
+const Duration kRibbonReveal = Duration(milliseconds: 320);
+const Curve kRibbonRevealCurve = Curves.easeOutCubic;
+
+/// #49 — the invisible strip on the band's own edge that a swipe may start in
+/// while the band is away.
+///
+/// Twenty points is what UIKit gives its own screen-edge gestures. Unlike the
+/// handle this replaced it takes no layout space and claims no tap, so the
+/// only thing that changes for a finger landing here is that a drag ACROSS it
+/// brings the ribbon back.
+const double kRibbonEdgeSwipe = 20;
+
+/// #49 — the band's own slot, whatever fraction of it is currently showing.
+///
+/// Keyed because how much of the band SHOWS is the claim of this issue's fix
+/// and it is not otherwise measurable: mid-reveal the band keeps its full
+/// width and is clipped to part of it, so the ribbon's own box reads the same
+/// at every stage of the animation. This node is the part you can see.
+const Key kRibbonBandSlot = Key('ribbon.band.slot');
+
+/// #49 — the swipe that brings a retracted band back.
+///
+/// "it should only come expand when I swipe right from the left edge with a
+/// clean native Apple style animation." Three properties make this that
+/// gesture rather than the flick switch that was already on the handle:
+///
+///   * it TRACKS. Every update writes [RibbonRetract.drag], so the band is
+///     under the thumb for the whole pull and follows it back out again if
+///     the finger reverses. `onHorizontalDragEnd` alone cannot do that: it
+///     sees the gesture only once it is over.
+///   * a SLOW pull works. The handle's flick needed 50 px/s AT RELEASE or
+///     nothing happened at all — so a deliberate drag, which is exactly what
+///     someone does when finding out whether a gesture exists, was silently
+///     ignored. Past halfway commits here whatever the speed.
+///   * a FAST flick still works from anywhere in the travel, because a thumb
+///     that has thrown the panel does not expect it to fall back.
+class _RibbonEdgeSwipe extends StatefulWidget {
+  final RibbonPosition dock;
+  const _RibbonEdgeSwipe({required this.dock});
+
+  /// Released past this fraction of the travel, it opens whatever the speed.
+  static const double commitAt = 0.5;
+
+  /// …and at this speed it opens from anywhere, in points per second.
+  static const double flick = 250;
+
+  @override
+  State<_RibbonEdgeSwipe> createState() => _RibbonEdgeSwipeState();
+}
+
+class _RibbonEdgeSwipeState extends State<_RibbonEdgeSwipe> {
+  /// How far the finger is from the band's edge, in points.
+  double _pulled = 0;
+
+  /// What a full reveal is worth. The rail's own width for a side dock, which
+  /// is the distance the band really moves; for a top or bottom dock the
+  /// band's height belongs to its content and is not known here, so the same
+  /// number stands in as the gesture's scale — it sets how far a thumb pulls
+  /// for a full reveal, not how large anything is drawn.
+  double get _travel => RibbonMetrics.railWidth;
+
+  /// WHERE THE FINGER IS, not how far it has moved.
+  ///
+  /// Summing `details.delta` looks equivalent and is not, for a reason worth
+  /// writing down: a drag competing with another recognizer — and this one
+  /// always competes, with whatever the viewport puts under it — spends its
+  /// FIRST move resolving the gesture arena, and that delta is never
+  /// delivered. The band then sat at zero for the whole first movement and
+  /// started following one event late, which a test with a single large move
+  /// catches and a test with twenty small ones does not.
+  ///
+  /// An absolute position cannot drift and cannot lose an event. It is also
+  /// the more honest mapping: the band's open edge ends up exactly under the
+  /// thumb, which is what a panel being pulled out is.
+  double _distanceFromEdge(Offset global, Size screen) => switch (widget.dock) {
+        RibbonPosition.left => global.dx,
+        RibbonPosition.right => screen.width - global.dx,
+        RibbonPosition.top => global.dy,
+        RibbonPosition.bottom => screen.height - global.dy,
+      };
+
+  /// +1 where an opening flick has a positive velocity along its own axis.
+  double get _sign => switch (widget.dock) {
+        RibbonPosition.left || RibbonPosition.top => 1,
+        RibbonPosition.right || RibbonPosition.bottom => -1,
+      };
+
+  void _track(Offset global, Size screen) {
+    _pulled = _distanceFromEdge(global, screen).clamp(0.0, _travel);
+    RibbonRetract.drag.value = _pulled / _travel;
+  }
+
+  void _end(double velocity) {
+    final open = _pulled / _travel >= _RibbonEdgeSwipe.commitAt ||
+        velocity * _sign >= _RibbonEdgeSwipe.flick;
+    // The committed state first and the transient second: clearing [drag]
+    // hands the reveal back to its tween, which then carries on from exactly
+    // the fraction the finger let go at instead of restarting from nothing.
+    if (open) RibbonRetract.set(false);
+    _cancel();
+  }
+
+  void _cancel() {
+    RibbonRetract.drag.value = null;
+    _pulled = 0;
+  }
+
+  @override
+  void dispose() {
+    // A gesture interrupted by the band being rebuilt out from under it — a
+    // dock change, a rotation — must not leave the reveal pinned to a finger
+    // that is no longer there.
+    if (RibbonRetract.drag.value != null) RibbonRetract.drag.value = null;
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final vertical = widget.dock.isVertical;
+    final screen = MediaQuery.sizeOf(context);
+    return GestureDetector(
+      // Translucent, and with no tap of its own: a tap, a pinch or an orbit
+      // beginning at the edge is not this gesture, and must reach the viewport
+      // underneath rather than dying here.
+      behavior: HitTestBehavior.translucent,
+      onHorizontalDragStart:
+          vertical ? (d) => _track(d.globalPosition, screen) : null,
+      onHorizontalDragUpdate:
+          vertical ? (d) => _track(d.globalPosition, screen) : null,
+      onHorizontalDragEnd: vertical ? (d) => _end(d.primaryVelocity ?? 0) : null,
+      onHorizontalDragCancel: vertical ? _cancel : null,
+      onVerticalDragStart:
+          vertical ? null : (d) => _track(d.globalPosition, screen),
+      onVerticalDragUpdate:
+          vertical ? null : (d) => _track(d.globalPosition, screen),
+      onVerticalDragEnd: vertical ? null : (d) => _end(d.primaryVelocity ?? 0),
+      onVerticalDragCancel: vertical ? null : _cancel,
+    );
+  }
+}
 
 /// M405 — the retract handle, and the only way in or out of the retracted
 /// state (#38).
@@ -295,20 +564,18 @@ bool ribbonGripPaintsBar(bool retracted) => !retracted;
 /// and the layout is untouched.
 ///
 /// Eighteen points is the strip, which is under half the width of one ribbon
-/// icon and about a twentieth of what the band it hides was taking. It is
-/// deliberately not smaller: it is the whole ribbon's front door, and a door
-/// nobody can hit is a ribbon nobody can get back.
+/// icon and about a twentieth of what the band it hides was taking.
 ///
-/// #49 — RETRACTED, the strip PAINTS NOTHING. Before, the coloured bar and
-/// its chevron stayed on screen the whole time the ribbon was away, because
-/// the strip is also the only hit target that can bring it back and hit
-/// targets in this codebase are never invisible by habit. But retracted is
-/// the state a phone spends most of its life in, and a permanent bar down
-/// the screen's edge is exactly the "why is this here" chrome the retract
-/// exists to remove — iOS's own edge-swipe affordances (the back gesture,
-/// the app-switcher edge) draw nothing until touched. The strip keeps its
-/// size and both gestures either way — [ribbonGripPaintsBar] is the one
-/// thing that changes.
+/// #49 — AND IT IS DRAWN ONLY WHILE THE BAND IS OUT, where it is the way to
+/// put the band away. Retracted it used to stay on screen the whole time, a
+/// coloured bar down the edge of a phone that had never opened the ribbon —
+/// "if the ribbon is retracted on ios there shouldnt be this Vertical bar."
+/// Making it merely invisible (this issue's first fix) was worse: the strip
+/// was still a row child with `HitTestBehavior.opaque` on it, so it went on
+/// eating every tap and orbit that landed at the edge, with nothing left on
+/// screen to explain why. The way back in is [_RibbonEdgeSwipe], which draws
+/// nothing, costs no layout and claims only the one gesture — which is what
+/// iOS's own edge affordances do.
 class _RibbonGrip extends StatelessWidget {
   final RibbonPosition dock;
   const _RibbonGrip({required this.dock});
@@ -332,16 +599,12 @@ class _RibbonGrip extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = L.of(context);
     final retracted = RibbonRetract.on;
-    final bar = ribbonGripPaintsBar(retracted)
-        ? DecoratedBox(
-            decoration: BoxDecoration(color: T.hover6),
-            child: Center(
-              child: Icon(_glyph(retracted), size: 16, color: T.dim),
-            ),
-          )
-        // Same footprint, nothing drawn: HitTestBehavior.opaque below hits by
-        // geometry, not by paint, so the tap and the swipe both still land.
-        : const SizedBox.expand();
+    final bar = DecoratedBox(
+      decoration: BoxDecoration(color: T.hover6),
+      child: Center(
+        child: Icon(_glyph(retracted), size: 16, color: T.dim),
+      ),
+    );
     return Tooltip(
       message: retracted ? t.ribbonShow : t.ribbonHide,
       child: GestureDetector(
