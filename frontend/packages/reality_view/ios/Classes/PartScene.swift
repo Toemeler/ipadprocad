@@ -676,8 +676,12 @@ final class PlaneEntity {
     private let tint: UIColor
     private let edge: UIColor
 
-    init?(payload p: [String: Any], style s: OutlineStyle) {
+    /// True when the fills are drawn by the PlaneStackEntity instead (#53).
+    private let stacked: Bool
+
+    init?(payload p: [String: Any], style s: OutlineStyle, stacked st: Bool) {
         style = s
+        stacked = st
         guard let frame = Payload.doubles(p["frame"]), frame.count >= 9 else { return nil }
         let u = SIMD3<Float>(Float(frame[0]), Float(frame[1]), Float(frame[2]))
         let v = SIMD3<Float>(Float(frame[3]), Float(frame[4]), Float(frame[5]))
@@ -701,7 +705,12 @@ final class PlaneEntity {
         visible = (p["visible"] as? NSNumber)?.boolValue ?? true
         tint = Payload.color(Payload.argb(p["tint"])) ?? Colors.orange
         edge = Payload.color(Payload.argb(p["edge"])) ?? Colors.orangeEdge
-        buildFill()
+        // #53 — when the scene carries a plane stack, the FILLS are drawn
+        // there, all of them together and in depth order. A plane drawing its
+        // own would be the second copy, and the one that cannot be ordered.
+        // The border stays here: it is opaque, so the depth buffer already
+        // puts it where it belongs.
+        if !stacked { buildFill() }
         buildOutline()
         entity.isEnabled = visible
     }
@@ -766,6 +775,7 @@ final class PlaneEntity {
             Materials.unlitTransparent(hot ? Colors.green : tint,
                                        hot ? 0.42 : 0.28)
         ]
+        // (nil when the stack owns the fill — see init.)
         outline?.model?.materials = [
             Materials.unlit(hot ? Colors.greenBright : edge)
         ]
@@ -800,6 +810,218 @@ final class PlaneEntity {
     func applyBias(camDir: SIMD3<Float>, eps: Float) {
         let side: Float = simd_dot(normal, camDir) >= 0 ? 1 : -1
         entity.position = normal * (eps * side)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The translucent plane fills, as ONE entity, drawn back-to-front.
+//
+// #53 (reopened 2026-09-12) — "the workplanes still have issues with
+// displaying the handling which is in front and what behind something is
+// completely off", with two screenshots a few degrees of orbit apart in which
+// the blue and red planes swap which one washes over the other.
+//
+// A plane fill used to be a child of its own PlaneEntity, which left the
+// question "is the XY plane in front of the YZ plane?" to RealityKit's
+// transparent sort. That question has no answer: the origin planes INTERSECT,
+// so half of each is in front of the other and half is behind, and no ordering
+// of whole planes can be right. And all three of those entities had their
+// centre on the world ORIGIN, which leaves any sort that separates objects by
+// distance breaking a three-way tie with floating-point noise — consistent
+// with a few degrees of orbit changing the picture, though the sort's own
+// rule is not something this file can measure. (1) needs no such inference.
+//
+// Dart now sends the fills already cut apart at every plane they cross
+// (twelve quadrants for the three origin planes, none of which intersects
+// another) together with the BSP over their planes. Walking that tree
+// far-subtree-first from the eye gives the exact back-to-front order for any
+// camera, and the pieces are put into ONE mesh in that order, so the order
+// that reaches the GPU is the order written here rather than one a sort
+// guesses at. The walk is a handful of sign tests and only touches the mesh
+// when the eye actually crosses a plane.
+// ---------------------------------------------------------------------------
+@available(iOS 15.0, *)
+final class PlaneStackEntity {
+    let entity = Entity()
+
+    private struct Piece {
+        /// The plane this piece was cut from. Hover arrives on the LIGHT push
+        /// as one key, and a plane's pieces are scattered through the draw
+        /// order, so each one has to know which plane it belongs to.
+        let key: String
+        let pts: [SIMD3<Float>]
+        let color: UIColor
+        let alpha: Float
+    }
+    private struct Node {
+        let n: SIMD3<Float>
+        let d: Float
+        let pieces: [Int]
+        let front: Int
+        let back: Int
+    }
+
+    private let pieces: [Piece]
+    private let nodes: [Node]
+    private var builtOrder: [Int] = []
+    private var model: ModelEntity?
+    /// Which plane is hovered, if any.
+    private var hotKey: String?
+
+    init?(payload p: [String: Any]) {
+        guard let rawPieces = p["pieces"] as? [[String: Any]],
+              let rawNodes = p["nodes"] as? [[String: Any]],
+              !rawPieces.isEmpty, !rawNodes.isEmpty else { return nil }
+        var ps = [Piece]()
+        for r in rawPieces {
+            guard let flat = Payload.doubles(r["pts"]), flat.count >= 9,
+                  flat.count % 3 == 0 else { return nil }
+            var pts = [SIMD3<Float>]()
+            var i = 0
+            while i + 2 < flat.count {
+                pts.append(SIMD3<Float>(Float(flat[i]), Float(flat[i + 1]),
+                                        Float(flat[i + 2])))
+                i += 3
+            }
+            let argb = Payload.argb(r["argb"])
+            // The wash alpha rides in the same int as the colour, so the two
+            // engines cannot drift apart on it the way 0.22 and 0.28 did.
+            let a = Float((argb >> 24) & 0xFF) / 255.0
+            ps.append(Piece(key: (r["key"] as? String) ?? "",
+                            pts: pts,
+                            // Opaque colour + separate alpha: Payload.color
+                            // would fold the wash into the UIColor and the
+                            // material's own opacity would then square it.
+                            color: Payload.color(argb | 0xFF00_0000)
+                                ?? Colors.orange,
+                            alpha: a))
+        }
+        var ns = [Node]()
+        for r in rawNodes {
+            guard let nv = Payload.vec3(r["n"]),
+                  let dd = (r["d"] as? NSNumber)?.doubleValue else { return nil }
+            let ids = (Payload.ints(r["pieces"]) ?? []).map { Int($0) }
+            ns.append(Node(
+                n: nv,
+                d: Float(dd),
+                pieces: ids,
+                front: Int((r["front"] as? NSNumber)?.intValue ?? -1),
+                back: Int((r["back"] as? NSNumber)?.intValue ?? -1)))
+        }
+        pieces = ps
+        nodes = ns
+        // The colours above are the RESTING ones; which plane is hot arrives
+        // as a key, here and again on every light push.
+        hotKey = p["hot"] as? String
+    }
+
+    /// Back-to-front piece order for an eye at [eye]: far subtree, this node's
+    /// own coplanar pieces, near subtree. Iterative rather than recursive so a
+    /// malformed tree cannot blow the stack, and each node is entered once.
+    private func order(eye: SIMD3<Float>) -> [Int] {
+        var out = [Int]()
+        out.reserveCapacity(pieces.count)
+        // (node, stage): 0 = far subtree, 1 = own pieces + near subtree.
+        var stack: [(Int, Int)] = [(0, 0)]
+        var guardCount = 0
+        while let (idx, stage) = stack.popLast() {
+            guardCount += 1
+            if guardCount > 4 * (nodes.count + 1) { break }
+            guard idx >= 0 && idx < nodes.count else { continue }
+            let n = nodes[idx]
+            let eyeInFront = simd_dot(n.n, eye) - n.d >= 0
+            if stage == 0 {
+                stack.append((idx, 1))
+                stack.append((eyeInFront ? n.back : n.front, 0))
+            } else {
+                for i in n.pieces where i >= 0 && i < pieces.count {
+                    out.append(i)
+                }
+                stack.append((eyeInFront ? n.front : n.back, 0))
+            }
+        }
+        return out
+    }
+
+    /// Rebuild the merged mesh for [ord].
+    ///
+    /// One mesh, and one material PER PIECE indexed by its rank in the draw
+    /// order. Triangles inside a mesh are rasterised in the order they are
+    /// written, so the blend happens in this order; and should RealityKit ever
+    /// split the mesh into parts by material index instead, those indices ARE
+    /// the draw order, so the picture is the same either way.
+    private func build(_ ord: [Int]) {
+        model?.removeFromParent()
+        model = nil
+        guard !ord.isEmpty else { return }
+        var positions = [SIMD3<Float>]()
+        var indices = [UInt32]()
+        var perFace = [UInt32]()
+        let materials: [RealityKit.Material]
+        for (rank, pi) in ord.enumerated() {
+            let piece = pieces[pi]
+            let base = UInt32(positions.count)
+            positions.append(contentsOf: piece.pts)
+            // Fan from the first corner; every piece is convex. Both windings,
+            // so the sheet shows from either side without a culling toggle —
+            // the same reason PlaneEntity.buildFill gave.
+            for k in 1..<(piece.pts.count - 1) {
+                let a = base, b = base + UInt32(k), c = base + UInt32(k + 1)
+                indices.append(contentsOf: [a, b, c, a, c, b])
+                perFace.append(contentsOf: [UInt32(rank), UInt32(rank)])
+            }
+        }
+        materials = materialList(ord)
+        guard positions.count >= 3, !indices.isEmpty else { return }
+        var d = MeshDescriptor(name: "planeStack")
+        d.positions = MeshBuffers.Positions(positions)
+        d.primitives = .triangles(indices)
+        d.materials = .perFace(perFace)
+        guard let mesh = try? MeshResource.generate(from: [d]) else { return }
+        let e = ModelEntity(mesh: mesh, materials: materials)
+        model = e
+        entity.addChild(e)
+    }
+
+    /// One material per piece, in draw-order rank. The hovered plane's pieces
+    /// take the hover green and its heavier wash — the same pair
+    /// PlaneEntity.applyColors uses, because it is the same highlight.
+    private func materialList(_ ord: [Int]) -> [RealityKit.Material] {
+        ord.map { pi in
+            let piece = pieces[pi]
+            let hot = hotKey != nil && piece.key == hotKey
+            return Materials.unlitTransparent(hot ? Colors.green : piece.color,
+                                              hot ? 0.42 : piece.alpha)
+        }
+    }
+
+    /// Re-order for a new camera. Cheap when nothing moved across a plane,
+    /// which is nearly every frame of an orbit.
+    func update(eye: SIMD3<Float>) {
+        let ord = order(eye: eye)
+        guard ord != builtOrder else { return }
+        builtOrder = ord
+        build(ord)
+    }
+
+    /// Hover, from the LIGHT push — a colour, so it never rebuilds the mesh.
+    /// M254's lesson: setHot arrives on every pointer move.
+    func setHot(key: String?) {
+        guard key != hotKey else { return }
+        hotKey = key
+        model?.model?.materials = materialList(builtOrder)
+    }
+
+    /// The same lift PlaneEntity applies, for the same reason: a solid face
+    /// exactly coplanar with a plane must not win the depth test against it.
+    ///
+    /// Along the VIEW direction rather than along each plane's own normal,
+    /// which PlaneEntity has to use because it only knows one plane. One
+    /// entity holds pieces of several here, and "toward the eye" is what
+    /// actually wins a depth test — it is the same lift for a plane facing the
+    /// camera and a better one for a plane seen at an angle.
+    func applyBias(camDir: SIMD3<Float>, eps: Float) {
+        entity.position = camDir * eps
     }
 }
 

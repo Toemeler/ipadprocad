@@ -299,3 +299,77 @@ the model reasoning badly, and each fix is general:
   is exactly why this belonged in Dart: the `b49fc80` half of #50 remains
   unverified outside CI's macOS build, and the half the reporter actually
   asked for now has a test.
+
+## 2026-09-12
+
+- #50 / #53, both reopened in one message: "The rectangles on the corners of
+  the workplane highlight are still way too big. Also the workplanes still have
+  issues with displaying the handling which is in front and what behind
+  something is completely off." Two screenshots came with it, the same Part4
+  from two camera angles a few degrees apart, in which the blue and the red
+  origin plane SWAP which one washes over the other through the middle of the
+  star.
+
+- **The depth one is not a sorting bug, it is an impossible question.** A plane
+  fill was one translucent quad per plane, left to whatever order the renderer
+  drew them in — `kPlaneKeys` order in the CPU painter, RealityKit's transparent
+  sort on the device. The three origin planes INTERSECT each other, so "is the
+  XY plane in front of the YZ plane?" has no answer: half of it is in front and
+  half is behind, and every possible order of whole planes is wrong over half of
+  every overlap. Measured at the isometric camera of the screenshots, on a
+  70x70 sample of the viewport: **220 of the 220 samples where planes overlap
+  were blended in the wrong order.** Not a near miss — there was no camera from
+  which the old arrangement was right.
+
+  Second, smaller, and the reason the two screenshots DIFFER rather than merely
+  being wrong: all three plane entities had their centre on the world origin, so
+  any sort that separates whole objects by distance is breaking a three-way tie.
+  That much is measured (the test asserts the three centroids coincide); what
+  the native sort then does with the tie is inference and is written down as
+  inference.
+
+- `fixed:` `frontend/lib/plane_stack.dart` — the textbook answer, which is
+  exact rather than better. Every translucent plane is cut by the supporting
+  planes of all the others (the three origin planes become twelve quadrants,
+  none of which intersects another) and the pieces are drawn strictly
+  back-to-front by a BSP walk from the eye. It cannot tie, so it cannot
+  flicker, and it is right from every camera rather than from most.
+
+  The cutting and the tree are Dart and shared. The CPU painter walks the tree
+  itself. The device gets the pieces AND the tree in the payload — the tree,
+  not a finished order, because which subtree is far depends on where the eye
+  is and the eye moves on every orbit frame while the scene payload does not.
+  `PlaneStackEntity` (PartScene.swift) walks it with a handful of sign tests and
+  puts every piece into ONE mesh in that order, so the order reaching the GPU is
+  the order written rather than one a sort guesses at; per-piece material
+  indices are the rank as well, so a renderer that groups by material instead of
+  honouring triangle order lands on the same picture. It only touches the mesh
+  when the eye actually crosses a plane.
+
+- Two things went with it because the stack is now the one place a plane's wash
+  is decided: the CPU painter never got #51's per-plane COLOURS (that fix
+  shipped to RealityKit only, so on desktop all three planes were still one
+  orange — the very thing #51 reported), and the two engines disagreed about a
+  work plane's alpha, 0.22 against 0.28. Both now read one constant.
+
+- `issue53_plane_depth_order_test.dart` asserts the PROPERTY, not an
+  arrangement: at every point of the screen, each polygon covering it must be
+  nearer than the one drawn before it. That is run over an 80-camera sweep plus
+  a fine orbit through the reported view. The old behaviour is kept in the file
+  as a permanent negative control and held to FAILING the same measurement from
+  most cameras, and a second control pins the coincident centroids.
+
+- The corner marks: reported for the THIRD time. Rings (M254) became 8-across
+  dots, which became 5-across squares (#50), which are "still way too big".
+  Now 3, and set against something for once — the border the mark stands on is
+  a 1 pt line, so a mark that reads as a point on that line rather than a blob
+  sitting on it is of that order. `issue50_plane_corner_marks_test.dart` gained
+  a second negative control, because at 3 px the old one stopped discriminating:
+  the 8-across dot is held to failing the SIZE measurement, and a circle
+  inscribed in the mark's own 3-wide box to failing the CORNER one.
+
+- Swift under `frontend/packages/*/ios/` still cannot be compiled here (no
+  Xcode); `swiftc -parse` over every file in reality_view/ios/Classes is clean
+  and CI's macOS build type-checks it. The geometry and the ordering — which is
+  the whole substance — are Dart and tested; the Swift is a tree walk and a
+  mesh write.

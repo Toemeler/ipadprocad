@@ -3056,9 +3056,19 @@ void paintWorkAxesAndPoints(
 
 /// How wide a corner mark on an origin plane is, in logical pixels.
 ///
-/// "very small": the round dot this replaced measured 8 across, and at that
-/// size a marker on a corner is bigger than the corner.
-const double kPlaneCornerMark = 5;
+/// "very small", reported THREE times now: the stroked rings of M254, then the
+/// 8-across dots that replaced them (#50), then the 5-across squares that
+/// replaced THOSE — "the rectangles on the corners of the workplane highlight
+/// are still way too big" (2026-09-12).
+///
+/// The measure this is finally set against is the thing the mark stands on:
+/// the plane's border is a 1 pt line, and a corner marker that reads as a
+/// point on that line rather than as a blob sitting on it has to be of the
+/// same order. Three is that — three times the border, still an odd number of
+/// pixels so the square lands centred on the corner rather than straddling a
+/// half-pixel, and above the two below which a filled square stops reading as
+/// square at all.
+const double kPlaneCornerMark = 3;
 
 /// The mark on one corner of a highlighted origin plane.
 ///
@@ -3185,6 +3195,24 @@ class _ScenePainter extends CustomPainter {
           context: context);
     }
 
+    // ---- translucent plane fills, back-to-front (#53) ----
+    // All of them together — origin planes, work planes and the create
+    // preview — because they INTERSECT each other, and a set of intersecting
+    // translucent surfaces has no correct per-plane draw order at all. The
+    // pieces arrive already split at every plane they cross and sorted for
+    // this exact camera; see plane_stack.dart.
+    for (final piece in planesBackToFront(
+        buildPlaneBsp(translucentPlanePieces(app, part,
+            hover: hover,
+            preview: false,
+            visible: (key) =>
+                part.vis[key] == true ||
+                (app.pickPlane && !part.hasSolid) ||
+                app.sectionPicking)),
+        orthoEye(cam.dir))) {
+      drawOccludedPolyFill(canvas, cam, piece.pts, piece.color, occ: occ);
+    }
+
     // ---- work planes (M151) ----
     // Drawn with the origin planes and by the same helpers: an occluded fill
     // so the plane passes THROUGH the model rather than floating on it, and
@@ -3201,9 +3229,9 @@ class _ScenePainter extends CustomPainter {
       final c2 = f.toWorld(Offset(uMax, vMax));
       final c3 = f.toWorld(Offset(uMin, vMax));
       final hot = hover == w.id;
-      drawOccludedQuadFill(canvas, cam, c0, c1, c2, c3,
-          (hot ? _green : _orange).withValues(alpha: hot ? 0.42 : 0.22),
-          occ: occ);
+      // The FILL is drawn by the plane stack above, back-to-front with every
+      // other translucent plane — see plane_stack.dart. Only the border,
+      // which is opaque and needs no ordering, is drawn per plane.
       drawOccludedPolyline(
           canvas,
           cam,
@@ -3238,11 +3266,10 @@ class _ScenePainter extends CustomPainter {
         f.toWorld(Offset(uMin, vMax)),
       ];
       final hot = hover == key;
-      // The construction plane fill is a real 3D surface: it is occluded by
-      // the solids so it passes THROUGH the model instead of floating on top.
-      drawOccludedQuadFill(canvas, cam, corners[0], corners[1], corners[2],
-          corners[3], (hot ? _green : _orange).withOpacity(hot ? 0.42 : 0.28),
-          occ: occ);
+      // The fill is drawn by the plane stack above. It is a real 3D surface —
+      // occluded by the solids so the plane passes THROUGH the model instead
+      // of floating on it — and it is ordered against the OTHER planes there,
+      // which is the one thing drawing it here could never do (#53).
       drawOccludedPolyline(
           canvas,
           cam,
@@ -3250,7 +3277,11 @@ class _ScenePainter extends CustomPainter {
           Paint()
             ..style = PaintingStyle.stroke
             ..strokeWidth = 1
-            ..color = hot ? _greenBright : _orangeEdge,
+            // #51 gave each origin plane the colour of the axis it stands
+            // across, and only the RealityKit half of that shipped: this
+            // painter still drew all three in one orange, which is the very
+            // thing #51 reported. Same palette entry both engines read.
+            ..color = hot ? _greenBright : T.originPlane(key).$2,
           occ: occ,
           close: true,
           extra: occ?.edgeMargin ?? 0);

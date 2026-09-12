@@ -1522,6 +1522,70 @@ void drawOccludedPolyline(
 /// its centre is not hidden behind a nearer solid front face. This is what
 /// lets a construction plane pass THROUGH the model instead of floating on
 /// top of it. [occ] null -> the whole quad is filled.
+/// Fill a CONVEX polygon with the same occluder test [drawOccludedQuadFill]
+/// uses on a quad.
+///
+/// #53 (reopened) — the plane fills are no longer whole quads: they arrive
+/// already split at every other plane they cross, so a piece is a triangle,
+/// a quad or a pentagon. Fan-triangulated from the first vertex (valid
+/// because every piece is convex — a convex polygon cut by a plane stays
+/// convex), then each triangle is diced so the occluder is sampled at the
+/// same density a quad's grid gives it.
+void drawOccludedPolyFill(
+  Canvas canvas,
+  Cam3 cam,
+  List<Vec3> poly,
+  Color color, {
+  SceneOccluders? occ,
+  int grid = 12,
+}) {
+  if (poly.length < 3) return;
+  final pos = <double>[];
+  void tri(Vec3 p0, Vec3 p1, Vec3 p2) {
+    final s0 = cam.project(p0), s1 = cam.project(p1), s2 = cam.project(p2);
+    pos
+      ..add(s0.dx)
+      ..add(s0.dy)
+      ..add(s1.dx)
+      ..add(s1.dy)
+      ..add(s2.dx)
+      ..add(s2.dy);
+  }
+
+  void diced(Vec3 a, Vec3 b, Vec3 c) {
+    // Barycentric lattice: row i has (grid - i) upward and (grid - i - 1)
+    // downward cells, which tiles the triangle exactly.
+    Vec3 at(int i, int j) =>
+        a + (b - a) * (i / grid) + (c - a) * (j / grid);
+    for (var i = 0; i < grid; i++) {
+      for (var j = 0; j < grid - i; j++) {
+        final p00 = at(i, j), p10 = at(i + 1, j), p01 = at(i, j + 1);
+        if (occ == null ||
+            !occ.hidden(cam.project((p00 + p10 + p01) * (1 / 3)),
+                cam.depth((p00 + p10 + p01) * (1 / 3)))) {
+          tri(p00, p10, p01);
+        }
+        if (j + i + 1 < grid) {
+          final p11 = at(i + 1, j + 1);
+          final mid = (p10 + p01 + p11) * (1 / 3);
+          if (occ == null || !occ.hidden(cam.project(mid), cam.depth(mid))) {
+            tri(p10, p11, p01);
+          }
+        }
+      }
+    }
+  }
+
+  for (var k = 1; k + 1 < poly.length; k++) {
+    diced(poly[0], poly[k], poly[k + 1]);
+  }
+  if (pos.isEmpty) return;
+  canvas.drawVertices(
+      ui.Vertices.raw(ui.VertexMode.triangles, Float32List.fromList(pos)),
+      BlendMode.srcOver,
+      Paint()..color = color);
+}
+
 void drawOccludedQuadFill(
   Canvas canvas,
   Cam3 cam,

@@ -19,15 +19,23 @@
 // what reaches the screen, so the mark is painted into a real image and read
 // back:
 //
-//   * the CORNER pixel of its box is painted;
-//   * it is small: 5 across, where the dot was 8.
+//   * the CORNER pixel of its box is painted SOLID;
+//   * it is small: 3 across, where the dot was 8 and the first square was 5.
 //
 // The two together are what pin the shape, and neither would on its own: a
 // round dot big enough covers a small box's corners, and a small enough round
-// dot is small. A marker that is BOTH 5 across and filled out to the corners
-// of those 5 is a square. `the round dot this replaced fails both of these`
-// runs the exact old call through the same two measurements and holds it to
-// failing them, so the state this issue reports cannot quietly come back.
+// dot is small. A marker that is BOTH 3 across and filled out to the corners
+// of those 3 is a square. There is one negative control for each measurement,
+// so neither can quietly stop measuring: the 8-across dot both painters used
+// to draw is held to failing the SIZE test, and a circle inscribed in the
+// mark's own 3-wide box is held to failing the CORNER test — at this size it
+// leaves that corner pixel part-covered where the square fills it.
+//
+// 5 across was reported too, on 2026-09-12: "the rectangles on the corners of
+// the workplane highlight are still way too big". The size these tests pin is
+// the third answer to the same sentence and the first one set against
+// something — the 1 pt border the mark stands on — rather than against the
+// thing it replaced.
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -36,15 +44,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/widgets/viewport3d.dart';
 
-/// A canvas of [_side], with the marker centred on a pixel BOUNDARY so a
-/// 5-wide box covers whole pixels either side of it and there is no
+/// A canvas of [_side], with the marker centred on a pixel BOUNDARY so an
+/// odd-width box covers whole pixels either side of it and there is no
 /// antialiasing at its edges to argue about.
 const int _side = 21;
 const Offset _centre = Offset(10.5, 10.5);
 
-/// The pixels a 5-wide mark centred on [_centre] covers: x and y in 8..12. So
-/// 8 and 12 are its extremes and 7 and 13 are outside it.
-const int _in = 8, _out = 7;
+/// The pixels a 3-wide mark centred on [_centre] covers: x and y in 9..11. So
+/// 9 and 11 are its extremes and 8 and 12 are outside it.
+const int _in = 9, _out = 8;
 
 /// Paints [draw] into an [_side]x[_side] RGBA buffer over a transparent
 /// ground, so "painted here" is just "alpha here".
@@ -81,27 +89,42 @@ void main() {
     expect(_painted(px, 10, 10), isTrue, reason: 'and it is solid, not a ring');
   });
 
-  test('...and very small: 5 across, and nothing beyond that', () async {
-    expect(kPlaneCornerMark, 5);
+  test('...and very small: 3 across, and nothing beyond that', () async {
+    expect(kPlaneCornerMark, 3);
     final px = await _raster((c) => drawPlaneCornerMark(c, _centre, paint));
     for (final d in [_out, 20 - _out]) {
-      expect(_painted(px, d, 10), isFalse, reason: 'it stops at 5 across ($d)');
+      expect(_painted(px, d, 10), isFalse, reason: 'it stops at 3 across ($d)');
       expect(_painted(px, 10, d), isFalse, reason: 'in both axes ($d)');
     }
   });
 
-  test('the round dot this replaced fails both of these', () async {
+  test('NEGATIVE CONTROL: the round dot this replaced is not small', () async {
     // The exact call both painters made: `canvas.drawCircle(p, 4, paint)`.
     final px = await _raster((c) => c.drawCircle(_centre, 4, paint));
+    // 8 across where the mark is 3: still going well past the pixel the mark
+    // has already stopped at, in every direction.
+    for (final d in [_out, 20 - _out]) {
+      expect(_painted(px, d, 10), isTrue,
+          reason: 'the dot reaches past the mark ($d)');
+      expect(_painted(px, 10, d), isTrue, reason: 'in both axes ($d)');
+    }
+    // A corner of ITS OWN box (7, 7) is 4*sqrt(2) away, so it reads as a
+    // circle with four bites out of it — "round circle corners", measured.
+    expect(_painted(px, 7, 7), isFalse);
+  });
 
-    // A corner of ITS box (x, y in 7..13) is 4*sqrt(2) from the centre, so the
-    // box reads as a circle with four bites out of it — the report, measured.
-    expect(_painted(px, _out, _out), isFalse,
-        reason: 'which is what "round circle corners" was looking at');
-    // And it is 8 across where the mark is 5, so it is not small either: it is
-    // still going at the pixel the mark has already stopped at.
-    expect(_painted(px, 20 - _out, 10), isTrue,
-        reason: 'the dot reaches past the mark on every side');
+  test('NEGATIVE CONTROL: a circle of the mark\'s own size is not square',
+      () async {
+    // Small enough to pass the size test, so only the corner test can tell it
+    // apart — and it does: inscribed in the same 3-wide box, the corner pixel
+    // is part-covered where the square fills it.
+    final px =
+        await _raster((c) => c.drawCircle(_centre, kPlaneCornerMark / 2, paint));
+    for (final d in [_out, 20 - _out]) {
+      expect(_painted(px, d, 10), isFalse, reason: 'small enough ($d)');
+    }
+    expect(_painted(px, _in, _in), isFalse,
+        reason: 'but round, so its box corner is not filled');
   });
 
   test('both viewports draw the corner through the one function', () {

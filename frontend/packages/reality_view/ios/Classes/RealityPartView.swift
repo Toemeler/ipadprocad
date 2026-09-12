@@ -292,6 +292,10 @@ final class PartRenderer: NSObject {
     /// anything else here, and it does so through the LIGHT overlay push.
     private var solidOrientation: [String: simd_quatf] = [:]
     private var planeEntities: [String: PlaneEntity] = [:]
+    /// #53 — every translucent plane fill in one entity, ordered back-to-front
+    /// per camera. See PlaneStackEntity: the fills cannot be ordered as whole
+    /// planes because the planes intersect each other.
+    private var planeStack: PlaneStackEntity?
     private var axisEntities: [String: AxisEntity] = [:]
     private var cpEntity: Entity?
     private var sketchRoot = Entity()
@@ -856,6 +860,12 @@ final class PartRenderer: NSObject {
         // solid face — "the work plane / sketch is in front", like Inventor.
         let bias = max(Float(cam.halfH) * 5e-4, 1e-6)
         for (_, pe) in planeEntities { pe.applyBias(camDir: dir, eps: bias) }
+        // #53 — the plane fills are ordered from where the eye actually is, so
+        // the order is redone whenever the camera moves. It only touches the
+        // mesh when the eye crosses one of the planes, which an orbit does a
+        // handful of times and a zoom never.
+        planeStack?.applyBias(camDir: dir, eps: bias)
+        planeStack?.update(eye: pos)
         // M277 — the rendered view's shadow volume and its floor are sized from
         // the CAMERA as well as from the scene, so both have to be redone when
         // the camera moves. See applyLighting: doing this only in setScene is
@@ -920,7 +930,8 @@ final class PartRenderer: NSObject {
             rebuildSolids(a["solids"] as? [[String: Any]] ?? [])
         }
         RvPerf.time("rv.native.planes") {
-            rebuildPlanes(a["planes"] as? [[String: Any]] ?? [])
+            rebuildPlanes(a["planes"] as? [[String: Any]] ?? [],
+                          stack: a["planeStack"] as? [String: Any])
             rebuildAxes(a["axes"] as? [[String: Any]] ?? [])
             rebuildCenterPoint(a["cp"] as? [String: Any])
         }
@@ -1197,11 +1208,18 @@ final class PartRenderer: NSObject {
             }
         }
         if let planes = a["planes"] as? [[String: Any]] {
+            var hotPlane: String?
             for p in planes {
                 guard let key = p["key"] as? String, let e = planeEntities[key] else { continue }
                 e.setVisible((p["visible"] as? NSNumber)?.boolValue ?? true)
-                e.setHot((p["hot"] as? NSNumber)?.boolValue ?? false)
+                let h = (p["hot"] as? NSNumber)?.boolValue ?? false
+                e.setHot(h)
+                if h { hotPlane = key }
             }
+            // #53 — the fill now lives in the stack, so the hover has to reach
+            // it too or hovering a plane would light its border and leave its
+            // wash cold. Colour only; the mesh is untouched.
+            planeStack?.setHot(key: hotPlane)
         }
         if let axes = a["axes"] as? [[String: Any]] {
             for ax in axes {
@@ -1418,12 +1436,21 @@ final class PartRenderer: NSObject {
         me.model?.materials = [solidMaterial(tint: tint, preview: false)]
     }
 
-    private func rebuildPlanes(_ planes: [[String: Any]]) {
+    private func rebuildPlanes(_ planes: [[String: Any]],
+                               stack: [String: Any]?) {
         for (_, e) in planeEntities { e.entity.removeFromParent() }
         planeEntities.removeAll()
+        planeStack?.entity.removeFromParent()
+        // #53 — built FIRST, because whether it exists decides who draws the
+        // fills. A payload from a Dart build that predates this key leaves it
+        // nil and every plane draws its own, exactly as before.
+        planeStack = stack.flatMap { PlaneStackEntity(payload: $0) }
+        if let st = planeStack { root.addChild(st.entity) }
         for p in planes {
             guard let key = p["key"] as? String,
-                  let e = PlaneEntity(payload: p, style: builtStyle) else { continue }
+                  let e = PlaneEntity(payload: p, style: builtStyle,
+                                      stacked: planeStack != nil)
+            else { continue }
             root.addChild(e.entity)
             planeEntities[key] = e
         }

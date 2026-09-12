@@ -11,17 +11,19 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
-import 'package:flutter/painting.dart' show Color;
+import 'package:flutter/painting.dart' show Color, Offset;
 
 import 'app_state.dart';
 import 'ffi/occt_engine.dart' show OcctMeshData;
 import 'log.dart';
 import 'materials.dart';
 import 'part_model.dart';
+import 'plane_stack.dart';
 import 'quat.dart' show Quat;
 import 'reality_payload.dart';
 import 'text_geometry.dart' show textContours, textLayerOf;
 import 'theme.dart';
+export 'plane_stack.dart';
 export 'reality_payload.dart';
 
 /// The committed solids the viewport draws: visible, non-consumed features,
@@ -497,6 +499,128 @@ int _argb(Color c) =>
     (((c.g * 255).round() & 0xFF) << 8) |
     ((c.b * 255).round() & 0xFF);
 
+/// Alpha of a plane's translucent wash. One pair of numbers for both
+/// viewports: the CPU painter and RealityKit used to carry their own, and
+/// 0.22 against 0.28 on a work plane is a visible difference between the two
+/// engines drawing the same scene.
+const double kPlaneWashAlpha = 0.28;
+const double kPlaneWashAlphaHot = 0.42;
+const double kWorkPlaneWashAlpha = 0.22;
+
+/// Every translucent plane quad the viewport draws, as BSP input.
+///
+/// #53 (reopened) — the fills are the only plane geometry with an ordering
+/// problem: the borders are opaque, so the depth buffer already puts them in
+/// the right place. See plane_stack.dart for why these cannot be ordered as
+/// whole planes at all.
+///
+/// [visible] is asked rather than assumed because the two callers do not agree
+/// on when an origin plane is shown — the CPU painter also shows all three
+/// while a section command is picking (M291) — and unifying that here would
+/// change what the device draws, which is not this fix's business.
+List<PlanePiece> translucentPlanePieces(AppState app, PartModel p,
+    {String? hover,
+    required bool Function(String key) visible,
+    bool preview = true}) {
+  final out = <PlanePiece>[];
+  void quad(String key, PlaneFrame f,
+      (double, double, double, double) rect, Color base, double alpha) {
+    final (uMin, uMax, vMin, vMax) = rect;
+    out.add(planePieceFromQuad(
+        key,
+        [
+          f.toWorld(Offset(uMin, vMin)),
+          f.toWorld(Offset(uMax, vMin)),
+          f.toWorld(Offset(uMax, vMax)),
+          f.toWorld(Offset(uMin, vMax)),
+        ],
+        base.withValues(alpha: alpha)));
+  }
+
+  for (final key in kPlaneKeys) {
+    if (!visible(key)) continue;
+    final hot = hover == key;
+    quad(key, planeFrame(key), originPlaneRect(p, key),
+        hot ? T.okSolid : T.originPlane(key).$1,
+        hot ? kPlaneWashAlphaHot : kPlaneWashAlpha);
+  }
+  for (final w in p.workPlanes) {
+    if (!w.visible) continue;
+    final hot = hover == w.id;
+    quad(w.id, w.frame, workPlaneRect(p, w.frame),
+        hot ? T.okSolid : T.previewFill,
+        hot ? kPlaneWashAlphaHot : kWorkPlaneWashAlpha);
+  }
+  // M174's create preview reaches the device through this list. The CPU
+  // painter has never drawn it and opts out: adding it would be a visual
+  // change nobody asked for, in a fix about the order of the ones already
+  // there.
+  final prev = preview ? app.wpCreatePreview : null;
+  if (prev != null) {
+    quad('wp:preview', prev, workPlaneRect(p, prev), T.okSolid,
+        kPlaneWashAlphaHot);
+  }
+  return out;
+}
+
+/// The plane fills, split so that nothing intersects and ordered back-to-front
+/// — as a payload the native side can re-walk when the camera moves.
+///
+/// The TREE travels, not a finished order: which subtree is far depends on
+/// where the eye is, and the eye moves on every orbit frame while this payload
+/// is only rebuilt when the scene changes.
+Map<String, dynamic>? planeStackPayload(AppState app, PartModel p,
+    {String? hover}) {
+  // RESTING colours, with the hover sent alongside as a key rather than baked
+  // into them. Hover rides the LIGHT push and never rebuilds this payload, so
+  // a stack built while a plane happened to be hot would keep that plane green
+  // until the next structural change — the native side applies the highlight
+  // itself, exactly as PlaneEntity does with its tint.
+  final pieces = translucentPlanePieces(app, p,
+      visible: (key) =>
+          p.vis[key] == true || (app.pickPlane && !p.hasSolid));
+  final root = buildPlaneBsp(pieces);
+  if (root == null) return null;
+  final flatPieces = <Map<String, dynamic>>[];
+  final nodes = <Map<String, dynamic>>[];
+  int emit(PlaneBspNode n) {
+    final idx = nodes.length;
+    nodes.add({});
+    final ids = <int>[];
+    for (final c in n.coplanar) {
+      ids.add(flatPieces.length);
+      flatPieces.add({
+        'key': c.key,
+        'argb': _argb(c.color),
+        // Typed data, like every other buffer on this wire: the native
+        // Payload readers take FlutterStandardTypedData, and a plain List
+        // arrives as boxed NSNumbers they return nil for.
+        'pts': Float64List.fromList(
+            <double>[for (final v in c.pts) ...[v.x, v.y, v.z]]),
+      });
+    }
+    // Children AFTER this node's own index is reserved, so the list is a
+    // valid flat tree however deep it goes.
+    final f = n.front == null ? -1 : emit(n.front!);
+    final b = n.back == null ? -1 : emit(n.back!);
+    nodes[idx] = {
+      'n': [n.plane.n.x, n.plane.n.y, n.plane.n.z],
+      'd': n.plane.d,
+      'pieces': Int32List.fromList(ids),
+      'front': f,
+      'back': b,
+    };
+    return idx;
+  }
+
+  emit(root);
+  return {
+    'pieces': flatPieces,
+    'nodes': nodes,
+    if (hover != null) 'hot': hover,
+  };
+}
+
 List<Map<String, dynamic>> _planePayloads(AppState app, PartModel p,
     {String? hover}) {
   final out = <Map<String, dynamic>>[];
@@ -925,6 +1049,11 @@ Map<String, dynamic> buildScenePayload(AppState app, PartModel p,
       return [u.x, u.y, u.z];
     }(),
     'planes': _planePayloads(app, p, hover: hover),
+    // #53 (reopened) — the fills of every translucent plane, split so that no
+    // two intersect and carried as a BSP the renderer walks per camera. A
+    // native build that does not know this key falls through to the per-plane
+    // fills `planes` still carries, exactly as before.
+    if (planeStackPayload(app, p, hover: hover) case final st?) 'planeStack': st,
     'axes': _axisPayloads(p, hover: hover),
     'cp': {'visible': p.vis['cp'] == true, 'hot': hover == 'cp'},
     'sketches': _sketchPayloads(app, p),
