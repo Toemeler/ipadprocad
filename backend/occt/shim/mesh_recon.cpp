@@ -919,12 +919,14 @@ const size_t kMaxHoleLoopVertices = 2000;
 
 int FillHoles(Mesh &m, int &filledLoops)
 {
-    std::unordered_map<long long, int> count;
-    std::unordered_map<long long, int> owner;
+    filledLoops = 0;
     auto key = [](int a, int b) {
         const long long lo = std::min(a, b), hi = std::max(a, b);
         return lo * 4294967311LL + hi;
     };
+    std::unordered_map<long long, int> count, owner;
+    count.reserve(m.tri.size());
+    owner.reserve(m.tri.size());
     for (int t = 0; t < m.triCount(); ++t)
         for (int k = 0; k < 3; ++k) {
             const long long e =
@@ -932,46 +934,89 @@ int FillHoles(Mesh &m, int &filledLoops)
             count[e]++;
             owner[e] = t * 3 + k;
         }
-    /* Directed boundary edges, oriented so the fill winds with the surface. */
-    std::unordered_map<int, std::vector<int>> next;
-    int boundary = 0;
+
+    /* The boundary as DIRECTED half-edges, wound the way the hole runs.
+     *
+     * A triangle's edge (a,b) has the surface on its left; the hole on the
+     * other side therefore runs (b,a), so that is what is collected and what
+     * the fill triangles will wind along.
+     *
+     * M440. The walk is the part that was wrong. Taking the first unused
+     * successor at each vertex is only correct when a vertex carries at most
+     * one boundary edge, and cutting a non-manifold fan apart produces exactly
+     * the opposite: several boundary loops meeting at one vertex. There the
+     * greedy walk hops from one loop onto another, closes early on a vertex it
+     * has already seen, and leaves the rest of both loops unfilled — 70 of the
+     * Bunny's boundary edges survived that way and its shell never closed.
+     *
+     * A boundary is a PERMUTATION: every vertex on it has exactly as many
+     * outgoing half-edges as incoming, and the loops are that permutation's
+     * cycles. So pair each vertex's outgoing half-edges with its incoming ones
+     * and follow the pairing. Which outgoing is paired with which incoming is
+     * a choice at a vertex of degree > 1, and the one that keeps a loop on the
+     * same sheet is the one whose two edges are most nearly collinear — the
+     * boundary of one hole turns gently, while a hop onto a different loop
+     * doubles back. */
+    struct Half { int from, to; };
+    std::vector<Half> halves;
+    std::unordered_map<int, std::vector<int>> outAt, inAt;
     for (const auto &kv : count) {
         if (kv.second != 1)
             continue;
-        const int c = owner[kv.first];
+        const int c = owner.find(kv.first)->second;
         const int a = m.tri[c], b = m.tri[c / 3 * 3 + (c % 3 + 1) % 3];
-        next[b].push_back(a); /* reversed: the hole winds the other way */
-        ++boundary;
+        const int id = static_cast<int>(halves.size());
+        halves.push_back(Half{b, a});
+        outAt[b].push_back(id);
+        inAt[a].push_back(id);
     }
-    if (!boundary)
+    if (halves.empty())
         return 0;
 
+    /* successor[h] — which half-edge follows h around its loop. */
+    std::vector<int> successor(halves.size(), -1);
+    for (const auto &kv : inAt) {
+        const int v = kv.first;
+        auto o = outAt.find(v);
+        if (o == outAt.end())
+            continue;
+        const std::vector<int> &ins = kv.second;
+        const std::vector<int> &outs = o->second;
+        std::vector<char> taken(outs.size(), 0);
+        for (int hi : ins) {
+            const V3 dirIn = Unit(m.pos[halves[hi].to] - m.pos[halves[hi].from]);
+            int best = -1;
+            double bestDot = -2;
+            for (size_t j = 0; j < outs.size(); ++j) {
+                if (taken[j])
+                    continue;
+                const Half &ho = halves[outs[j]];
+                const V3 dirOut = Unit(m.pos[ho.to] - m.pos[ho.from]);
+                const double d = Dot(dirIn, dirOut);
+                if (d > bestDot) {
+                    bestDot = d;
+                    best = static_cast<int>(j);
+                }
+            }
+            if (best >= 0) {
+                taken[best] = 1;
+                successor[hi] = outs[best];
+            }
+        }
+    }
+
     int added = 0;
-    filledLoops = 0;
-    std::unordered_map<int, size_t> cursor;
-    std::vector<char> used;
+    std::vector<char> seen(halves.size(), 0);
     std::vector<int> loop;
-    std::unordered_map<int, char> onLoop;
-    for (const auto &start : next) {
-        if (cursor[start.first] >= next[start.first].size())
+    for (size_t s = 0; s < halves.size(); ++s) {
+        if (seen[s])
             continue;
         loop.clear();
-        onLoop.clear();
-        int v = start.first;
-        while (true) {
-            auto it = next.find(v);
-            if (it == next.end() || cursor[v] >= it->second.size())
-                break;
-            const int nv = it->second[cursor[v]++];
-            if (onLoop.count(nv)) {
-                loop.push_back(nv);
-                break;
-            }
-            loop.push_back(nv);
-            onLoop[nv] = 1;
-            v = nv;
-            if (static_cast<int>(loop.size()) > boundary + 2)
-                break;
+        int h = static_cast<int>(s);
+        while (h >= 0 && !seen[h]) {
+            seen[h] = 1;
+            loop.push_back(halves[h].from);
+            h = successor[h];
         }
         if (loop.size() < 3)
             continue;
@@ -986,6 +1031,7 @@ int FillHoles(Mesh &m, int &filledLoops)
         c = c * (1.0 / static_cast<double>(loop.size()));
         const int ci = static_cast<int>(m.pos.size());
         m.pos.push_back(c);
+        int made = 0;
         for (size_t i = 0; i < loop.size(); ++i) {
             const int a = loop[i], b = loop[(i + 1) % loop.size()];
             if (a == b)
@@ -1000,8 +1046,13 @@ int FillHoles(Mesh &m, int &filledLoops)
             m.tnorm.push_back(n * (1.0 / len));
             m.tarea.push_back(len * 0.5);
             m.area += len * 0.5;
-            ++added;
+            ++made;
         }
+        if (!made) {
+            m.pos.pop_back(); /* nothing was built on it */
+            continue;
+        }
+        added += made;
         ++filledLoops;
     }
     return added;
@@ -12505,6 +12556,9 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
                  fixlog.holes_filled, fixlog.triangles_added);
         BuildAdjacency(m, rep);
         OrientMesh(m, rep);
+        MR_TRACE("  after repair: %d tri, %d non-manifold, %d boundary, "
+                 "%d flipped\n", m.triCount(), rep.non_manifold_edges,
+                 rep.boundary_edges, rep.flipped_triangles);
         if (fixlog.duplicate_faces || fixlog.non_manifold_cuts ||
             fixlog.holes_filled) {
             rep.repaired_duplicate_faces = fixlog.duplicate_faces;
