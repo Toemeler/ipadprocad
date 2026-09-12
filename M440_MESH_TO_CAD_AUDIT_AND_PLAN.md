@@ -820,40 +820,43 @@ not checked reports **−1, never 0**.
 improved on every axis and are honest about it. No model regressed, and no model
 costs materially more time.
 
-### 9.6 The Bunny, which is repaired but still does not close
+### 9.6 The Bunny: the mesh is fixed, the body is not
 
-The file the repair stage was written for. Measured end to end, at default
-parameters:
+The file the repair stage was written for. Measured end to end:
 
-| | baseline | after repair |
-|---|---|---|
-| non-manifold edges entering segmentation | **465** | **3** |
-| inconsistently wound triangles | **6 935** | **111** |
-| boundary edges | 64 | 70 |
-| shells / solids out | 536 / 77 | **49 / 39** |
-| free edges in the result | 421 | **321** |
-| edges on more than two faces in the result | 465 | **14** |
-| closed | 0 | **0** |
-| time | 938 s | 862 s |
+| | baseline | greedy fill | permutation fill |
+|---|---|---|---|
+| **non-manifold edges into segmentation** | **465** | 3 | **0** |
+| **boundary edges into segmentation** | **64** | 70 | **0** |
+| non-manifold cuts needed | — | 45 | **16** |
+| holes filled | — | 61 | 33 |
+| shells / solids out | 536 / 77 | 49 / 39 | 48 / 39 |
+| free edges in the result | 421 | 321 | **293** |
+| edges on >2 faces in the result | 465 | 14 | **14** |
+| closed | 0 | 0 | **0** |
+| **time** | **938 s** | 862 s | **455 s** |
 
-**Non-manifold edges are down 99.4 % and inconsistent winding 98.4 %**, and the
-mesh handed to the segmentation is very nearly a manifold. The order is what
-did it: removing the 264 zero-thickness sheets *first* takes the non-manifold
-count from 442 to 19 on its own, because those sheets were what made most of
-those edges non-manifold. Confirmed twice — once by the shim, once
-independently in NumPy against the raw STL.
+**The mesh handed to the segmentation is now a closed, orientable
+2-manifold** — the precondition every stage after it has always assumed and
+never had — and the conversion is a little over twice as fast, because a
+correct mesh is cheaper to segment than a broken one.
 
-**It still does not close**, and the reason is the 70 boundary edges that
-survive. `FillHoles` traces 61 loops and fills them, and the greedy walk it
-uses fails on boundary vertices where several loops meet — which is exactly
-what cutting 45 non-manifold fans produces. A proper loop extraction (sort the
-boundary half-edges around each vertex and walk them as a permutation, rather
-than taking the first unused successor) is the fix, and it is not written.
+**The body still does not close**, and the reason has moved. It is no longer
+the mesh. It is that 2 286 patches are fitted to a rabbit, among them **50
+spheres, 81 tori, 200 cones and 106 cylinders**, and faces built on primitives
+that were fitted to organic noise do not meet their neighbours: 293 free edges
+across 48 shells. This is D4 — recognition inventing structure that is not
+there — and the fix for it is not more healing. It is either the global model
+selection of Phase 3, which would refuse those primitives on the grounds that
+the run they came from is not accounted for, or Phase 5's organic path, which
+is the right answer for this model and does not fit primitives at all.
 
-**And it still takes fourteen minutes**, which is the Phase 6 problem and
-untouched. This is honest remaining work, not a claim.
+Worth stating plainly: **for a 283 632-triangle organic scan, the honest
+output is not a prismatic B-Rep.** Seven and a half minutes spent producing
+15 618 faces that are not a solid is a worse answer than declining with a
+reason, and that is a product decision rather than a geometry one.
 
-### 9.7 What this does not do
+### 9.7 What this does not do### 9.7 What this does not do
 
 - **TOKA_Base still has one self-intersection.** It is a genuinely mixed
   prismatic/freeform part and the remaining defect is a sliver at a boundary
