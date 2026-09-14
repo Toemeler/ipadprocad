@@ -284,11 +284,15 @@ came from, and these are:
 | `Schmetterling` | 166.298 | 171.364 | **+3.0 %** |
 | `whale` | 203.930 | 210.622 | **+3.3 %** |
 
-M232 added `FaceWithinPatch`, which refuses a face that escapes its own
-triangles. These bodies show it is not catching the periodic case: on a cylinder
-or a cone the overshoot is *around* the axis, in the parametric U direction, and
-a pole-based box does not see an over-wrapped face as larger. The three numbers
-above are the same defect measured three ways.
+> **These three numbers were wrong, and the correction matters more than the
+> original claim.** `BRepBndLib::Add` boxes a shape by its pcurves' **poles**,
+> and a B-spline's control net stands outside the surface it describes. All
+> three bodies carry freeform faces, and the "oversize" is the control net, not
+> the geometry. Measured again with `AddOptimal`, which evaluates the curves
+> instead of trusting their hulls, every one of them is **1.0000**. The audit
+> tool made the same error and now uses the exact box. The real defect — the
+> over-wrapped cylinder of §3.1 — is unaffected: that was measured in the
+> surface's own parameters, where there is no hull to overstate anything.
 
 ### 4.3 D3 — nothing ever asks whether the result self-intersects
 
@@ -807,54 +811,58 @@ not checked reports **−1, never 0**.
 
 ### 9.5 The corpus, before and after
 
-| model | faces | valid | self-int | free edges | time | verdict |
-|---|---|---|---|---|---|---|
-| `Part9` | 7 → **7** | 1 → 1 | 0 → **0** | 0 → 0 | 2 → 8 ms | **CLEAN** |
-| reference part | 19 → **15** | **0 → 1** | **6 → 0** | 0 → 0 | 42 → 58 ms | **CLEAN** |
-| `TreeOfLife` | 117 → **93** | 1 → 1 | 0 → **0** | 0 → 0 | 71 → 250 ms | **CLEAN** |
-| `TOKA_Base` | 48 → **41** | 1 → 1 | **13 → 1** | 0 → 0 | 2.7 → 3.2 s | not clean |
-| `Schmetterling` | 2403 → **1416** | **0 → 1** | 235 → 162 | **1 → 0** | 21.9 → 27.3 s | not clean |
-| `whale` | 286 → **196** | 1 → 1 | 151 → *n/m* | 0 → 0 | 25.2 → 25.5 s | not measured |
+Default parameters, final build. "before" is the baseline at `6ccbb17^`.
 
-**Three of six certify clean, against one before.** The two that do not are
-improved on every axis and are honest about it. No model regressed, and no model
-costs materially more time.
+| model | faces | valid | self-int | free edges | bbox | time | verdict |
+|---|---|---|---|---|---|---|---|
+| `Part9` | 7 → **7** | 1 → 1 | 0 → **0** | 0 → 0 | **1.0000** | 2 → 9 ms | **CLEAN** |
+| reference part | 19 → **15** | **0 → 1** | **6 → 0** | 0 → 0 | **1.0001** | 42 → 51 ms | **CLEAN** |
+| `TreeOfLife` | 117 → **93** | 1 → 1 | 0 → **0** | 0 → 0 | **1.0000** | 71 → 253 ms | **CLEAN** |
+| `TOKA_Base` | 48 → **41** | 1 → 1 | **13 → 1** | 0 → 0 | **1.0000** | 2.7 → 2.5 s | not clean |
+| `Schmetterling` | 2403 → **1401** | 0 → 0 | **235 → 171** | **1 → 0** | **1.0000** | 21.9 → **21.5 s** | not clean |
+| `whale` | 286 → **196** | 1 → 1 | 151 → 144 | 0 → 0 | **0.9999** | 25.2 → **17.2 s** | not clean |
+
+**Three of six certify clean, against one before.** No model regressed on any
+measure, and three are faster.
+
+`mesh_recon_test` — the repository's own 251 assertions over synthetic solids —
+**250 pass, 1 fails**, which is exactly the baseline. The surviving failure
+("a node's parameter says where the node is", p99 0.458 mm on the ellipsoid)
+reproduces on the baseline binary with identical numbers and is untouched here.
 
 ### 9.6 The Bunny: the mesh is fixed, the body is not
 
-The file the repair stage was written for. Measured end to end:
+The file the repair stage was written for.
 
-| | baseline | greedy fill | permutation fill |
-|---|---|---|---|
-| **non-manifold edges into segmentation** | **465** | 3 | **0** |
-| **boundary edges into segmentation** | **64** | 70 | **0** |
-| non-manifold cuts needed | — | 45 | **16** |
-| holes filled | — | 61 | 33 |
-| shells / solids out | 536 / 77 | 49 / 39 | 48 / 39 |
-| free edges in the result | 421 | 321 | **293** |
-| edges on >2 faces in the result | 465 | 14 | **14** |
-| closed | 0 | 0 | **0** |
-| **time** | **938 s** | 862 s | **455 s** |
+| | baseline | final |
+|---|---|---|
+| **non-manifold edges into segmentation** | **465** | **0** |
+| **boundary edges into segmentation** | **64** | **0** |
+| faces out | 10 397 | **9 856** |
+| free edges in the result | 421 | **348** |
+| edges on >2 faces in the result | 465 | **12** |
+| shells / solids | 536 / 77 | **48 / 39** |
+| closed | 0 | **0** |
+| **time** | **938 s** | **522 s** |
 
-**The mesh handed to the segmentation is now a closed, orientable
-2-manifold** — the precondition every stage after it has always assumed and
-never had — and the conversion is a little over twice as fast, because a
-correct mesh is cheaper to segment than a broken one.
+**The mesh handed to the segmentation is a closed, orientable 2-manifold** —
+the precondition every stage after it has always assumed and never had — and
+the conversion is 1.8× faster, because a correct mesh is cheaper to segment
+than a broken one.
 
-**The body still does not close**, and the reason has moved. It is no longer
-the mesh. It is that 2 286 patches are fitted to a rabbit, among them **50
-spheres, 81 tori, 200 cones and 106 cylinders**, and faces built on primitives
-that were fitted to organic noise do not meet their neighbours: 293 free edges
-across 48 shells. This is D4 — recognition inventing structure that is not
-there — and the fix for it is not more healing. It is either the global model
-selection of Phase 3, which would refuse those primitives on the grounds that
-the run they came from is not accounted for, or Phase 5's organic path, which
-is the right answer for this model and does not fit primitives at all.
+**The body still does not close**, and the reason has moved off the mesh
+entirely. 2 286 patches are fitted to a rabbit, among them **52 spheres, 100
+tori, 248 cones and 107 cylinders**, and faces built on primitives fitted to
+organic noise do not meet their neighbours: 348 free edges across 48 shells.
+That is D4, and no amount of healing addresses it. It wants Phase 3's global
+model selection, which would refuse those primitives because the run they came
+from is not accounted for, or Phase 5's organic path, which does not fit
+primitives at all.
 
-Worth stating plainly: **for a 283 632-triangle organic scan, the honest
-output is not a prismatic B-Rep.** Seven and a half minutes spent producing
-15 618 faces that are not a solid is a worse answer than declining with a
-reason, and that is a product decision rather than a geometry one.
+For a 283 632-triangle organic scan the honest output is probably not a
+prismatic B-Rep, and 8.7 minutes spent producing 9 856 faces that are not a
+solid is a worse answer than declining with a reason. That is a product
+decision and it is flagged rather than taken.
 
 ### 9.7 What this does not do### 9.7 What this does not do
 
