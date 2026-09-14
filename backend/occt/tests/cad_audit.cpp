@@ -181,7 +181,12 @@ int main(int argc, char **argv)
     std::printf("faces=%d edges=%d vertices=%d wires=%d shells=%d solids=%d\n",
                 nf, ne, nv, nw, nsh, nso);
 
-    Bnd_Box bb; BRepBndLib::Add(s, bb);
+    /* AddOptimal, not Add: the cheap box is the POLES box, and a B-spline's
+     * control net stands outside the surface it describes. Measured, that
+     * reads as 3.0-3.3% of oversize on the butterfly and the whale which the
+     * surfaces do not actually have — an artifact this tool reported as a
+     * defect until it was chased down. */
+    Bnd_Box bb; BRepBndLib::AddOptimal(s, bb, Standard_False, Standard_False);
     double x0,y0,z0,x1,y1,z1; bb.Get(x0,y0,z0,x1,y1,z1);
     const double diag = std::sqrt((x1-x0)*(x1-x0)+(y1-y0)*(y1-y0)+(z1-z0)*(z1-z0));
     std::printf("diagonal=%.6f\n", diag);

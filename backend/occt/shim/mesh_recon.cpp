@@ -5413,6 +5413,7 @@ void Regularise(std::vector<Patch> &patches, const Mesh &m, const Params &prm,
             }
         }
     }
+
 }
 
 /* ====================================================================== */
@@ -5468,6 +5469,204 @@ Handle(Geom_Surface) MakeSurface(const Fit &f)
     } catch (const Standard_Failure &) {
         return nullptr;
     }
+}
+
+/* Tangency, which is the relation a fillet is DEFINED by.
+ *
+ * M440. A cylinder that blends into a wall touches it; it does not cross it.
+ * Nothing enforced that, and nothing had to until the rest of the body was
+ * sound enough for it to be the thing left over. On the TOKA base, most of its
+ * cylinder/plane pairs come out exactly tangent by luck of the fit and four do
+ * not, the worst a radius-1 fillet whose axis sits 0.97948 from its wall: the
+ * cylinder penetrates the plane by 0.0197 mm, and that is the body's last
+ * self-intersection.
+ *
+ * RUN LATE, and that is the whole reason this is not a fourth pass inside
+ * Regularise, where it was first written. Regularise runs before the second
+ * merge, Consolidate, AdoptStronger and the eviction, and those change the
+ * fits: measured on the TOKA base the cylinders Regularise sees have radii
+ * 1.25, 2.00028 and 2.50082, and the ones that reach the B-Rep have 0.99917,
+ * 0.99975 and 5.0. Snapping the first set is snapping surfaces that will not
+ * be there. This runs where the patch set is final and nothing after it moves
+ * a fit.
+ *
+ * Snapped the way every other relation here is: propose it, re-fit under it,
+ * keep it only if the surface still describes its own triangles. The proposal
+ * translates the axis along the wall's normal until the distance equals the
+ * radius; that alone moves the surface off its points by the amount it moved,
+ * so it is followed by a refit with the axis DIRECTION held and the position
+ * and radius free, then projected onto the constraint again — three rounds,
+ * ending on a projection, so tangency holds exactly rather than nearly.
+ *
+ * The cylinder moves and the plane does not: a wall carries far more triangles
+ * than the fillet rolling along it, and the surface with the most evidence
+ * should set the convention.
+ *
+ * The acceptance test is the safety. If a cylinder genuinely sits a designed
+ * distance from a plane, moving it there costs its fit everything, the rms
+ * rises by the distance moved, and the snap is refused — so the bar can be
+ * generous about WHICH pairs to try without being generous about which ones it
+ * changes. */
+void SnapTangency(std::vector<Patch> &patches, const Mesh &m,
+                  const Params &prm, double tol, double scale)
+{
+    if (!(prm.snap_deg > 0) || !(prm.snap_radius_frac > 0))
+        return;
+    PatchData pd;
+
+    std::vector<int> patchOf(m.triCount(), -1);
+    for (size_t i = 0; i < patches.size(); ++i)
+        for (int t : patches[i].tris)
+            patchOf[t] = static_cast<int>(i);
+
+    /* Which planes does each cylinder touch, and how big is each? */
+    std::map<std::pair<int, int>, int> touch; /* (cyl, plane) -> shared facets */
+    for (int t = 0; t < m.triCount(); ++t) {
+        const int a = patchOf[t];
+        if (a < 0 || patches[a].fit.kind != kCylinder)
+            continue;
+        for (int k = 0; k < 3; ++k) {
+            const int o = m.adj[t * 3 + k];
+            if (o < 0)
+                continue;
+            const int b = patchOf[o];
+            if (b < 0 || b == a || patches[b].fit.kind != kPlane)
+                continue;
+            touch[{a, b}]++;
+        }
+    }
+    /* ONE constraint per cylinder: two non-parallel walls cannot both be
+     * tangent to one cylinder, and trying would just undo each other. The wall
+     * a fillet rolls along is the one it shares the most facets with — a
+     * cylinder can clip a corner of a dozen other planes over a single facet
+     * each, and on this model one does exactly that against thirteen of them.
+     * Size breaks a tie. */
+    struct Pick { int plane; int shared; size_t size; };
+    std::map<int, Pick> best;
+    for (const auto &kv : touch) {
+        const int cyl = kv.first.first, pl = kv.first.second;
+        const Pick cand{pl, kv.second, patches[pl].tris.size()};
+        auto it = best.find(cyl);
+        if (it == best.end() || cand.shared > it->second.shared ||
+            (cand.shared == it->second.shared && cand.size > it->second.size))
+            best[cyl] = cand;
+    }
+
+    const double gapBar = scale * prm.snap_radius_frac;
+    const double sinTol = std::sin(prm.snap_deg * M_PI / 180.0);
+    int snapped = 0;
+    for (const auto &kv : best) {
+        Fit &fc = patches[kv.first].fit;
+        const Fit &fp = patches[kv.second.plane].fit;
+        const V3 n(fp.q[0], fp.q[1], fp.q[2]);
+        const V3 ax = Unit(V3(fc.q[3], fc.q[4], fc.q[5]));
+        /* Tangency along the length only makes sense when the axis runs
+         * parallel to the wall. A cylinder poking THROUGH a plane end-on has
+         * no tangency to snap to. */
+        if (std::fabs(Dot(ax, n)) > sinTol)
+            continue;
+        const V3 c0(fc.q[0], fc.q[1], fc.q[2]);
+        const double s = Dot(n, c0) - fp.q[3];
+        const double want = (s >= 0 ? fc.q[6] : -fc.q[6]);
+        if (std::fabs(want - s) > gapBar)
+            continue;
+        if (std::fabs(want - s) <= 0)
+            continue; /* already exact */
+
+        Fit trial = fc;
+        PatchPoints(m, patches[kv.first].tris, pd, 4000);
+
+        /* Fit the cylinder AGAIN, under the constraint, in the two degrees of
+         * freedom the constraint leaves it.
+         *
+         * The first version of this projected onto tangency and then called
+         * RefineFit with the axis position free, and it diverged: translating
+         * a cylinder's axis point ALONG its own axis changes nothing, so that
+         * direction is null in the normal equations and the optimiser wanders
+         * off down it. Measured, a snap of 0.0012 mm came back with the rms up
+         * from 0.0013 to 0.0157 — the refit, not the snap.
+         *
+         * With the axis direction `ax` held and the wall normal `n` held, the
+         * axis point can only move in the plane they span, and tangency pins
+         * one of those two directions to the radius. So the free parameters
+         * are exactly two: the radius r, and the slide `b` along
+         * e = ax x n. Write the axis point as
+         *
+         *     c = c0 + n*alpha(r) + e*b,   alpha(r) = (+/-r + d - n.c0)
+         *
+         * and the residual for a point p is |w| - r, where w is (p - c) with
+         * its component along the axis removed. Because both n and e are
+         * perpendicular to ax, that removal does not depend on r or b:
+         *
+         *     w = w0 - n*alpha(r) - e*b
+         *
+         * with w0 computed once per point. Two-parameter Gauss-Newton on that
+         * is small, well conditioned, and has no null direction. */
+        {
+            const V3 e = Unit(Cross(ax, n));
+            const V3 cOrig(fc.q[0], fc.q[1], fc.q[2]);
+            const double nc0 = Dot(n, cOrig);
+            const double sgn = (s >= 0 ? 1.0 : -1.0);
+            std::vector<V3> w0;
+            w0.reserve(pd.pts.size());
+            for (const V3 &pt : pd.pts) {
+                const V3 v = pt - cOrig;
+                w0.push_back(v - ax * Dot(v, ax));
+            }
+            double r = fc.q[6], b = 0.0;
+            for (int iter = 0; iter < 12; ++iter) {
+                const double alpha = sgn * r + fp.q[3] - nc0;
+                /* Normal equations for [dr, db]. */
+                double A00 = 0, A01 = 0, A11 = 0, g0 = 0, g1 = 0;
+                for (const V3 &q0 : w0) {
+                    const V3 w = q0 - n * alpha - e * b;
+                    const double L = Norm(w);
+                    if (!(L > 1e-15))
+                        continue;
+                    const V3 u = w * (1.0 / L);
+                    /* d(residual)/dr = -(u.n)*sgn - 1 ; d/db = -(u.e) */
+                    const double jr = -Dot(u, n) * sgn - 1.0;
+                    const double jb = -Dot(u, e);
+                    const double res = L - r;
+                    A00 += jr * jr; A01 += jr * jb; A11 += jb * jb;
+                    g0 += jr * res; g1 += jb * res;
+                }
+                const double det = A00 * A11 - A01 * A01;
+                if (!(std::fabs(det) > 1e-18))
+                    break;
+                const double dr = (-g0 * A11 + g1 * A01) / det;
+                const double db = (-g1 * A00 + g0 * A01) / det;
+                r += dr;
+                b += db;
+                if (!(r > 0)) { r = fc.q[6]; break; }
+                if (std::fabs(dr) + std::fabs(db) < scale * 1e-12)
+                    break;
+            }
+            const double alpha = sgn * r + fp.q[3] - nc0;
+            const V3 c = cOrig + n * alpha + e * b;
+            trial.q[0] = c.x; trial.q[1] = c.y; trial.q[2] = c.z;
+            trial.q[6] = r;
+        }
+        const double rms = FitRms(trial.kind, trial.q, pd.pts);
+        /* Generous against the original, because the original was not tangent
+         * and a tangent surface has one fewer degree of freedom to fit with —
+         * but still held to the tolerance the whole conversion is run at. */
+        if (rms <= std::max(fc.rms * 4.0, tol * kExactFitFraction)) {
+            MR_TRACE("  tangency: cylinder r=%.5f snapped to its wall, gap "
+                     "%.6f -> 0, rms %.6f -> %.6f\n",
+                     fc.q[6], std::fabs(want - s), fc.rms, rms);
+            fc = trial;
+            fc.rms = rms;
+            ++snapped;
+        } else {
+            MR_TRACE("  tangency: refused for r=%.5f, gap %.6f, rms would go "
+                     "%.6f -> %.6f\n", fc.q[6], std::fabs(want - s), fc.rms,
+                     rms);
+        }
+    }
+    if (snapped)
+        MR_TRACE("  tangency: %d cylinders made tangent to their walls\n",
+                 snapped);
 }
 
 /* One run of boundary edges of a patch that all face the SAME neighbouring
@@ -9196,6 +9395,70 @@ bool BuildParametricFace(BuildCtx &ctx, const Mesh &m, const Patch &patch,
     }
 }
 
+/* Does the face reach outside the MESH — not its patch, the whole model?
+ *
+ * M440. The one bound on a reconstruction that needs no judgement: it cannot
+ * be bigger than the thing it was built from. FaceWithinPatch asks the sharper
+ * question and carries an 8% slack to survive a B-spline's control net;
+ * FaceOverrunsUv asks it in parameter space but only where a direction is
+ * periodic AND the patch does not wrap all the way round. A face that wraps
+ * ALL the way round passes both, and that is what the TOKA base's tori do:
+ * five of them, the largest a ring of major radius 10.9 on a part 20 mm wide,
+ * reaching 0.886 mm past the model and up to z = 1.70 where the mesh stops at
+ * 1.0. Together they are why that body's bounding box is 3.2% larger than its
+ * own mesh.
+ *
+ * Against the mesh box there is nothing to argue about and nothing to tune. A
+ * facet is a chord, so a surface fitted to facets stands at most a sagitta
+ * proud of them, which is quadratic in facet size and tiny; a tolerance's
+ * worth of slack covers it and covers nothing else. A face that fails this is
+ * not a face of this model, whatever else is true about it, and its patch goes
+ * to triangles — which always fit inside the box, because they ARE the box. */
+bool FaceWithinMesh(const TopoDS_Face &face, const Mesh &m, double tol)
+{
+    if (face.IsNull())
+        return true;
+    const double slack = std::max(tol, m.diagonal * 1e-6);
+    auto inside = [&](const Bnd_Box &b) {
+        if (b.IsVoid())
+            return true;
+        if (b.IsWhole() || b.IsOpenXmin() || b.IsOpenXmax() || b.IsOpenYmin() ||
+            b.IsOpenYmax() || b.IsOpenZmin() || b.IsOpenZmax())
+            return false;
+        Standard_Real x0, y0, z0, x1, y1, z1;
+        b.Get(x0, y0, z0, x1, y1, z1);
+        const double v[6] = {x0, y0, z0, x1, y1, z1};
+        for (int k = 0; k < 6; ++k)
+            if (!(v[k] > -1e99 && v[k] < 1e99))
+                return false;
+        return x0 >= m.bbmin.x - slack && y0 >= m.bbmin.y - slack &&
+               z0 >= m.bbmin.z - slack && x1 <= m.bbmax.x + slack &&
+               y1 <= m.bbmax.y + slack && z1 <= m.bbmax.z + slack;
+    };
+    /* Two boxes, cheap first — the same discipline FaceWithinPatch uses, and
+     * for the same reason, which this function learned the hard way.
+     *
+     * BRepBndLib::Add boxes a face by its pcurves' POLES, and a B-spline's
+     * control net stands OUTSIDE the surface it describes. At the edge of the
+     * model that overstatement lands exactly where it does the most damage:
+     * the first cut of this trusted the cheap box alone, and on the whale it
+     * refused most of the freeform faces, took the body from 196 faces to
+     * 20,368, and left it with no solid at all. AddOptimal evaluates the
+     * curves instead of trusting their hulls, so a failure of the cheap box is
+     * a reason to pay for the exact one, never a verdict on its own. */
+    try {
+        Bnd_Box quick;
+        BRepBndLib::Add(face, quick, Standard_False);
+        if (inside(quick))
+            return true;
+        Bnd_Box tight;
+        BRepBndLib::AddOptimal(face, tight, Standard_False, Standard_False);
+        return inside(tight);
+    } catch (const Standard_Failure &) {
+        return false;
+    }
+}
+
 /* Does the face wrap FURTHER ROUND a periodic surface than its triangles do?
  *
  * M440. FaceWithinPatch asks the same question with a world-space box, and on
@@ -12419,8 +12682,13 @@ int SelfIntersectionCount(const TopoDS_Shape &s)
 double ShapeDiagonal(const TopoDS_Shape &s)
 {
     try {
+        /* AddOptimal, not Add. The cheap box is the poles box, and a
+         * B-spline's control net stands outside its own surface — on the whale
+         * that reads as 3.3% of oversize which the surfaces do not actually
+         * have. A number in the report has to be the truth, and this one is
+         * computed once per body. */
         Bnd_Box b;
-        BRepBndLib::Add(s, b, Standard_False);
+        BRepBndLib::AddOptimal(s, b, Standard_False, Standard_False);
         if (b.IsVoid())
             return 0;
         Standard_Real x0, y0, z0, x1, y1, z1;
@@ -12967,6 +13235,14 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
         } catch (const Standard_Failure &) {
         } catch (...) {
         }
+        /* M440. And now that no stage after this moves a fit, make the fillets
+         * touch the walls they roll along rather than cut into them. See
+         * SnapTangency for why it is here and not in Regularise. */
+        try {
+            SnapTangency(patches, m, prm, tol, scale);
+        } catch (const Standard_Failure &) {
+        } catch (...) {
+        }
         if (madeFree > 0 || absorbed > 0 || evicted > 0) {
             rep.patches = static_cast<int>(patches.size());
             patchOf.assign(m.triCount(), -1);
@@ -13258,6 +13534,53 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
                      * the corpus — the reference part's face now measures
                      * 1.000 of its own extent. It stays as the check that says
                      * so. */
+                    /* M440. The cheapest and least arguable check first: a
+                     * face outside the mesh's own box is not a face of this
+                     * model. It costs one box comparison and it is the only
+                     * one of these tests that needs no slack beyond the
+                     * tolerance — see FaceWithinMesh. Applied to freeform
+                     * faces too, unlike FaceWithinPatch: the control-net
+                     * overstatement that made that test too strict per-patch
+                     * is nothing against the whole model's box. */
+                    if (!FaceWithinMesh(faces[k], m, tol)) {
+                        /* Rebuilt before it is refused, when there is a
+                         * parameter rectangle that can hold it.
+                         *
+                         * A face outside the mesh box is wrong beyond
+                         * argument, so unlike the UV-overrun case there is
+                         * nothing to lose by replacing it: the alternative is
+                         * not "keep the face", it is "send the whole patch to
+                         * triangles". On the TOKA base that alternative costs
+                         * five real corner fillets and takes the body from 41
+                         * faces to 251.
+                         *
+                         * The replacement is built on the extent the mesh
+                         * states, and it is kept only if it then fits inside
+                         * the box — a rebuild that is still outside is not an
+                         * improvement, it is the same defect at a different
+                         * size. Only single-wire faces: a parameter rectangle
+                         * has no holes in it, and rebuilding one that had
+                         * inner wires would fill them in silently. */
+                        bool remade = false;
+                        if (!surfs[i].IsNull() && WireCount(faces[k]) <= 1) {
+                            std::vector<TopoDS_Face> fix;
+                            if (BuildParametricFace(ctx, m, patches[i],
+                                                    surfs[i], fix) &&
+                                fix.size() == 1 && !fix[0].IsNull() &&
+                                FaceWithinMesh(fix[0], m, tol)) {
+                                faces[k] = fix[0];
+                                remade = true;
+                                MR_TRACE("      patch %d: face was outside the "
+                                         "mesh, rebuilt on its own extent\n",
+                                         (int)i);
+                            }
+                        }
+                        if (!remade) {
+                            built = false;
+                            why = "face reaches outside the mesh";
+                            break;
+                        }
+                    }
                     double uvRatio = 1.0;
                     if (!freeform && !surfs[i].IsNull() &&
                         FaceOverrunsUv(faces[k], m, patches[i].tris, surfs[i],
