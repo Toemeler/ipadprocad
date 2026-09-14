@@ -121,4 +121,12 @@ if(OCCT_SMOKE)
     add_executable(occt_tessellate tests/tessellate.cpp)
     target_link_libraries(occt_tessellate PRIVATE occt_capi
         Threads::Threads ${CMAKE_DL_LIBS})
+
+    # M440 — will a kernel actually operate on the body? cad_audit asks
+    # whether it is valid; this cuts it in half and looks at what comes back,
+    # which is the question a user asks and a harder one. Host only; needs
+    # TKBO for the boolean and TKPrim for the tool box.
+    add_executable(occt_boolean_check tests/boolean_check.cpp)
+    target_link_libraries(occt_boolean_check PRIVATE occt_capi
+        TKBO TKPrim Threads::Threads ${CMAKE_DL_LIBS})
 endif()

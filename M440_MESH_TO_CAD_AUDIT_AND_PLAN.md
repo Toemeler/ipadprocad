@@ -436,6 +436,14 @@ conversion is **certified** when all of the following hold, checked by
 10. **Determinism and monotonicity:** the same input gives the same output, and
     tightening the tolerance never reduces the number of recognised surfaces nor
     breaks closure.
+11. **It survives a boolean.** Cut the body in half and the answer is valid and
+    the right size. This was added after the rest, because it turned out to be
+    the only criterion that separates a body a user can work with from one that
+    merely draws: measured, every model that passes 1–9 cuts to half its volume
+    validly in tens of milliseconds, and every model that fails them reports the
+    cut as *done* and returns rubbish — the butterfly 0.8 mm³ of a 6,296 mm³
+    part, the Bunny 1,221% of its own volume in 219,756 faces after three and a
+    quarter minutes. `IsDone()` is not the test. `occt_boolean_check` is.
 
 Criteria 1–9 are implemented in `cad_audit.cpp` today. Criterion 10 needs the
 sweep harness of §6 Phase 0. Of the seven conversions in §3, **one passes.**
