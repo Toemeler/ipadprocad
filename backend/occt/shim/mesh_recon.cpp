@@ -2238,6 +2238,11 @@ const double kSliverAspect = 0.04; /* height on the longest edge, over it */
 /* Fewer triangles than this and the fit has no sample to speak of. */
 const int kMinTrustTriangles = 6;
 
+/* Triangles required per free parameter of a non-planar surface before its fit
+ * counts as evidence. See the floor in Identifiable for why this exists and
+ * why it is 2 rather than 3. */
+const int kEvidencePerParameter = 2;
+
 /* How much of the tolerance a surface may use up and still be believed to be
  * THE surface rather than one that happens to pass nearby. */
 const double kTrustRmsFraction = 0.15;
@@ -3214,8 +3219,24 @@ bool Identifiable(const Patch &p, const Mesh &m, double tol, bool fragment,
      * top-edge fillet, six such pieces — nine triangles between them — each
      * became a face of its own, and every one is a visible crease across what
      * should be a smooth rounded edge. */
-    bool floorApplies = p.fit.kind != kPlane;
-    if (!floorApplies && fragment) {
+    /* M440. The area exemption is not a plane's privilege.
+     *
+     * It was: every non-planar patch faced the floor whatever its size, and
+     * planes escaped it when they carried real area. But the ARGUMENT for the
+     * exemption — that a patch holding a real share of the model's surface is
+     * witnessed by the model's own sharp edges, however few triangles it is
+     * cut into — has nothing to do with being planar. A radius-1 fillet on a
+     * 1,138-triangle bracket is fourteen triangles and over a per cent of the
+     * part: a feature. A twenty-triangle cone on a 283,264-triangle rabbit is
+     * seven thousandths of a per cent: noise with seven parameters fitted to
+     * it.
+     *
+     * Measured both ways. Scaling the floor by parameter count without this
+     * took the TOKA base from 41 faces to 149 and from one self-intersection
+     * to six, because its real fillets are small in COUNT; with it they are
+     * exempt on area and the Bunny's inventions are not. */
+    bool floorApplies = true;
+    if (p.fit.kind != kPlane || fragment) {
         /* ...and how small is small enough to be nothing? The same fraction of
          * the model's surface that decides whether a scrap of a face is worth
          * less than its own triangles. A plate's end wall is two triangles and
@@ -3226,11 +3247,40 @@ bool Identifiable(const Patch &p, const Mesh &m, double tol, bool fragment,
         for (int t : p.tris)
             a += m.tarea[t];
         floorApplies = a <= m.area * kScrapAreaFraction;
+    } else {
+        floorApplies = false; /* a whole smooth run's plane, as before */
     }
+    /* M440. How many triangles a surface has to have before its fit is
+     * EVIDENCE rather than interpolation, and it cannot be one number for all
+     * five kinds.
+     *
+     * A plane has four parameters and a torus has eight, and the floor was a
+     * flat six for both. Six triangles do not pin down a torus; they barely
+     * over-determine it, and an eight-parameter surface fitted to eight
+     * vertices' worth of a smooth field will fit whatever it is pointed at.
+     * Measured on the print-ready Bunny, which is a rabbit and has no
+     * analytic structure anywhere: 919 cones kept, 669 of them under
+     * twenty-four triangles; 461 cylinders, 391 under twenty-four; 184 tori.
+     * All invented, and all of them passing a floor of six.
+     *
+     * So the floor scales with the parameter count — the simplest form of the
+     * argument that a model must be paid for in data, and the one place in
+     * this file where that argument is made at all. Planes are untouched: they
+     * keep the area exemption above, which is what lets a box's two-triangle
+     * wall be a face, and two triangles really do witness a plane when a
+     * model's own sharp edges bound it.
+     *
+     * The multiplier is deliberately modest. At three the suite's small
+     * fillets start to go; at two every one of them survives and the Bunny
+     * loses the bulk of its invented surfaces. */
+    const int floor = (p.fit.kind == kPlane)
+                          ? kMinTrustTriangles
+                          : std::max(kMinTrustTriangles,
+                                     ParamCount(p.fit.kind) *
+                                         kEvidencePerParameter);
     const bool tooSmall =
         floorApplies &&
-        std::max(static_cast<int>(p.tris.size()), p.evidence) <
-            kMinTrustTriangles;
+        std::max(static_cast<int>(p.tris.size()), p.evidence) < floor;
 
     const double allowed = AgreementAllowed(p, m);
     if (std::acos(std::max(-1.0, std::min(1.0, p.fit.agree))) > allowed)
