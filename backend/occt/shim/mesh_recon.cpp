@@ -64,6 +64,8 @@
 #include <BOPDS_DS.hxx>
 #include <TopTools_ListOfShape.hxx>
 #include <BRepCheck_Analyzer.hxx>
+#include <BRepCheck_ListOfStatus.hxx>
+#include <BRepCheck_Result.hxx>
 #include <BRepGProp.hxx>
 #include <BRepLib.hxx>
 #include <BRepMesh_IncrementalMesh.hxx>
@@ -110,6 +112,7 @@
 #include <Poly_Triangulation.hxx>
 #include <queue>
 #include <TopExp.hxx>
+#include <TopTools_IndexedMapOfShape.hxx>
 #include <TopTools_DataMapOfShapeInteger.hxx>
 #include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
 #include <TopTools_ListIteratorOfListOfShape.hxx>
@@ -6950,7 +6953,19 @@ bool FaceIsSound(const TopoDS_Face &face, const Mesh &m,
     try {
         GProp_GProps g;
         BRepGProp::SurfaceProperties(face, g);
-        if (g.Mass() <= patchArea * kFaceAreaScreen)
+        const double a = g.Mass();
+        /* M440. A face whose area is NOT POSITIVE is folded, and the screen
+         * below let every one of them through: it asks whether the area is
+         * under a multiple of the patch's, and a negative number is under
+         * anything. So BRepCheck was never consulted about exactly the faces
+         * it would have refused. Measured on the butterfly, one face of area
+         * -2.227 mm2 survived to the finished body and took it from valid to
+         * invalid with two SelfIntersectingWire and two UnorientableShape
+         * against it. There is no area at which a fold becomes acceptable, so
+         * this is a verdict rather than a screen. */
+        if (!(a > 0))
+            return false;
+        if (a <= patchArea * kFaceAreaScreen)
             return true;
     } catch (const Standard_Failure &) {
         return true; /* no measurement is not evidence of a fold */
@@ -12613,6 +12628,45 @@ int CountFreeformFaces(const TopoDS_Shape &s)
     return n;
 }
 
+/* How many things BRepCheck has to say about the body, counted rather than
+ * reduced to a bool — so two states that are both "invalid" can still be
+ * compared. */
+int CountProblems(const TopoDS_Shape &s)
+{
+    if (s.IsNull())
+        return 1 << 20;
+    int n = 0;
+    try {
+        BRepCheck_Analyzer an(s, Standard_True);
+        const TopAbs_ShapeEnum kinds[] = {TopAbs_VERTEX, TopAbs_EDGE,
+                                          TopAbs_WIRE,   TopAbs_FACE,
+                                          TopAbs_SHELL,  TopAbs_SOLID};
+        for (TopAbs_ShapeEnum k : kinds) {
+            TopTools_IndexedMapOfShape mp;
+            TopExp::MapShapes(s, k, mp);
+            for (int i = 1; i <= mp.Extent(); ++i) {
+                Handle(BRepCheck_Result) res;
+                try {
+                    res = an.Result(mp(i));
+                } catch (const Standard_Failure &) {
+                    continue;
+                }
+                if (res.IsNull())
+                    continue;
+                for (BRepCheck_ListIteratorOfListOfStatus it(res->Status());
+                     it.More(); it.Next())
+                    if (it.Value() != BRepCheck_NoError)
+                        ++n;
+            }
+        }
+    } catch (const Standard_Failure &) {
+        return 1 << 20;
+    } catch (...) {
+        return 1 << 20;
+    }
+    return n;
+}
+
 int SelfIntersectionCount(const TopoDS_Shape &s)
 {
     if (s.IsNull())
@@ -12682,6 +12736,24 @@ TopoDS_Shape MergeSameSurface(const TopoDS_Shape &in, Report &rep)
      * whatever it did to the face count. */
     if (wasValid && !ShapeIsValid(out)) {
         MR_TRACE("  unify: refused — valid body came back invalid\n");
+        return in;
+    }
+    /* And a merge may not leave the body WORSE CHECKED than it found it.
+     *
+     * M440. `wasValid` above is a boolean and most bodies that reach here are
+     * already invalid, so it has nothing to compare and the merge goes through
+     * unexamined. Counting is the useful question. On the butterfly the merge
+     * takes BRepCheck's complaints from six to four and the self-intersections
+     * from 235 to 171 while removing 1,002 faces — clearly worth having — and
+     * it also folds exactly one face, area -2.227 mm2 out of 1,401, which is
+     * the body's remaining invalidity.
+     *
+     * Refusing the whole merge over that one face was tried and is wrong: it
+     * costs all thousand good merges to avoid one bad one, and leaves the body
+     * measurably worse on every other axis. So the test is whether the count
+     * went UP, and a merge that only ever reduces it is kept. */
+    if (CountProblems(out) > CountProblems(in)) {
+        MR_TRACE("  unify: refused — it added BRepCheck problems\n");
         return in;
     }
     const int after = CountFaces(out);
