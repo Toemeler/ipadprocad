@@ -3270,9 +3270,15 @@ bool Identifiable(const Patch &p, const Mesh &m, double tol, bool fragment,
      * wall be a face, and two triangles really do witness a plane when a
      * model's own sharp edges bound it.
      *
-     * The multiplier is deliberately modest. At three the suite's small
-     * fillets start to go; at two every one of them survives and the Bunny
-     * loses the bulk of its invented surfaces. */
+     * Two rather than three, and measured rather than assumed — an earlier
+     * version of this comment claimed three broke the suite's small fillets
+     * and that was never run. It does not: three passes the suite too, and
+     * leaves Part9, the reference part, TreeOfLife and the TOKA base
+     * bit-identical. It is worse where it differs. On the butterfly three
+     * gives 1,504 faces against 1,444 and a volume error of -0.13% against
+     * +0.042%, so it refuses surfaces that were carrying real geometry. Two
+     * is the better number on the models closest to clean, which is where the
+     * evidence is. */
     const int floor = (p.fit.kind == kPlane)
                           ? kMinTrustTriangles
                           : std::max(kMinTrustTriangles,
