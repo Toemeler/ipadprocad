@@ -314,6 +314,17 @@ int main(int argc, char **argv)
                 r.approximated_edges);
     std::printf("  result   shells %d solids %d closed %d  fit rms %.6f\n",
                 r.shells, r.solids, r.closed, r.fit_rms);
+    {   /* M440. Closure was never the whole verdict; these are the rest of
+         * it, and a run that cannot answer says so rather than saying zero. */
+        char v[16], s[16];
+        if (r.valid < 0) std::snprintf(v, sizeof(v), "not measured");
+        else std::snprintf(v, sizeof(v), "%d", r.valid);
+        if (r.self_intersections < 0) std::snprintf(s, sizeof(s), "not measured");
+        else std::snprintf(s, sizeof(s), "%d", r.self_intersections);
+        std::printf("  certify  valid %s, self-intersections %s, merged %d "
+                    "faces, bbox %.4fx the mesh\n",
+                    v, s, r.merged_faces, r.bbox_ratio);
+    }
     if (out.IsNull()) {
         std::printf("  FAILED: %s\n", err.c_str());
         return 1;

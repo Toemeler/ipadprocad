@@ -52,6 +52,7 @@
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
 #include <BRepBuilderAPI_MakeSolid.hxx>
+#include <BRepAdaptor_Surface.hxx>
 #include <BRepBndLib.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
@@ -59,7 +60,12 @@
 #include <Message_ProgressScope.hxx>
 #include <Message_ProgressRange.hxx>
 #include <BRepBuilderAPI_Sewing.hxx>
+#include <BOPAlgo_CheckerSI.hxx>
+#include <BOPDS_DS.hxx>
+#include <TopTools_ListOfShape.hxx>
 #include <BRepCheck_Analyzer.hxx>
+#include <BRepCheck_ListOfStatus.hxx>
+#include <BRepCheck_Result.hxx>
 #include <BRepGProp.hxx>
 #include <BRepLib.hxx>
 #include <BRepMesh_IncrementalMesh.hxx>
@@ -92,6 +98,7 @@
 #include <ShapeBuild_ReShape.hxx>
 #include <ShapeFix_Edge.hxx>
 #include <ShapeFix_Face.hxx>
+#include <ShapeFix_FixSmallFace.hxx>
 #include <ShapeFix_Shape.hxx>
 #include <ShapeFix_Shell.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
@@ -105,6 +112,7 @@
 #include <Poly_Triangulation.hxx>
 #include <queue>
 #include <TopExp.hxx>
+#include <TopTools_IndexedMapOfShape.hxx>
 #include <TopTools_DataMapOfShapeInteger.hxx>
 #include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
 #include <TopTools_ListIteratorOfListOfShape.hxx>
@@ -379,6 +387,11 @@ Params Defaults()
 void ClearReport(Report &r)
 {
     std::memset(&r, 0, sizeof(r));
+    /* M440. Zero is a real answer for these two — "valid" and "no
+     * self-intersections" — and a report that was never filled in must not
+     * claim either. Not-measured is -1. */
+    r.valid = -1;
+    r.self_intersections = -1;
 }
 
 /* ====================================================================== */
@@ -684,6 +697,400 @@ void FlipTriangle(Mesh &m, int t)
     if (!m.adj.empty())
         std::swap(m.adj[t * 3 + 0], m.adj[t * 3 + 2]);
     m.tnorm[t] = V3(-m.tnorm[t].x, -m.tnorm[t].y, -m.tnorm[t].z);
+}
+
+/* ---- M440: repair the mesh before anything reads it -------------------
+ *
+ * Everything downstream assumes a closed, orientable 2-manifold, and nothing
+ * established one. BuildMesh welds and drops triangles of zero area; that is
+ * the whole of the preprocessing. BuildAdjacency then leaves a non-manifold
+ * edge unlinked BY DESIGN, on the argument that such an edge is a feature
+ * boundary — which is right for a CAD export and wrong for a damaged
+ * download.
+ *
+ * The difference is measurable. The whale looks broken and is not: sixteen
+ * zero-area triangles carry all twelve of its non-manifold edges, and the
+ * degenerate drop removes them, leaving three closed genus-0 shells. The
+ * print-ready Bunny is broken and stays broken — 442 non-manifold edges, a
+ * single 64-edge hole, 884 inconsistently wound triangles, 264 duplicate
+ * faces of opposite winding, 30 components, Euler characteristic 323 over
+ * those components for a genus of -131.5, which no surface has. The
+ * converter reported all of it and converted anyway: 15 minutes 38 seconds,
+ * 2814 patches including 52 spheres and 100 tori fitted to a rabbit, and a
+ * result of 536 shells, 77 solids, 10,397 faces, 421 free edges and no
+ * closed body at all.
+ *
+ * So the mesh is repaired here, in the order the defects depend on each
+ * other, and every repair is counted so the caller can say what was changed.
+ * None of this invents geometry: it removes what is not surface and closes
+ * what is demonstrably a hole. */
+
+/* Two triangles on the same three vertices.
+ *
+ * SAME winding is a duplicate: keep one. OPPOSITE winding is a zero-thickness
+ * sheet — a face and its own back, enclosing nothing — and both go. They come
+ * from booleans and repair tools that unioned overlapping parts, and they are
+ * the reason a mesh can be "closed" by edge count and enclose no volume. The
+ * Bunny has 264, every one of them opposite. */
+int DropDuplicateFaces(Mesh &m)
+{
+    struct Key
+    {
+        int a, b, c;
+        bool operator==(const Key &o) const
+        {
+            return a == o.a && b == o.b && c == o.c;
+        }
+    };
+    struct Hash
+    {
+        size_t operator()(const Key &k) const
+        {
+            return (static_cast<size_t>(k.a) * 73856093u) ^
+                   (static_cast<size_t>(k.b) * 19349663u) ^
+                   (static_cast<size_t>(k.c) * 83492791u);
+        }
+    };
+    std::unordered_map<Key, std::vector<int>, Hash> seen;
+    seen.reserve(m.triCount());
+    for (int t = 0; t < m.triCount(); ++t) {
+        int v[3] = {m.tri[t * 3], m.tri[t * 3 + 1], m.tri[t * 3 + 2]};
+        std::sort(v, v + 3);
+        seen[Key{v[0], v[1], v[2]}].push_back(t);
+    }
+    std::vector<char> kill(m.triCount(), 0);
+    int dropped = 0;
+    for (const auto &kv : seen) {
+        if (kv.second.size() < 2)
+            continue;
+        /* Winding is read off the first one; anything wound the other way is
+         * its back. Keep at most one of each orientation, then, if both
+         * survive, drop the pair. */
+        const int first = kv.second[0];
+        int keepFwd = first, keepRev = -1;
+        for (size_t i = 1; i < kv.second.size(); ++i) {
+            const int t = kv.second[i];
+            const bool same = Dot(m.tnorm[t], m.tnorm[first]) > 0;
+            if (same) {
+                kill[t] = 1;
+                ++dropped;
+            } else if (keepRev < 0) {
+                keepRev = t;
+            } else {
+                kill[t] = 1;
+                ++dropped;
+            }
+        }
+        if (keepRev >= 0) {
+            kill[keepFwd] = 1;
+            kill[keepRev] = 1;
+            dropped += 2;
+        }
+    }
+    if (!dropped)
+        return 0;
+    std::vector<int> tri;
+    std::vector<V3> tn;
+    std::vector<double> ta;
+    tri.reserve(m.tri.size());
+    for (int t = 0; t < m.triCount(); ++t) {
+        if (kill[t])
+            continue;
+        tri.push_back(m.tri[t * 3]);
+        tri.push_back(m.tri[t * 3 + 1]);
+        tri.push_back(m.tri[t * 3 + 2]);
+        tn.push_back(m.tnorm[t]);
+        ta.push_back(m.tarea[t]);
+    }
+    m.tri.swap(tri);
+    m.tnorm.swap(tn);
+    m.tarea.swap(ta);
+    m.area = 0;
+    for (double a : m.tarea)
+        m.area += a;
+    return dropped;
+}
+
+/* An edge used by more than two triangles, made manifold by splitting the
+ * vertices along it.
+ *
+ * The fan around such an edge is not a surface: there is no consistent inside.
+ * Cutting it into pairs and giving each pair its own copy of the two end
+ * vertices turns one illegal edge into several legal ones, which is the
+ * standard repair (Attene 2010) and the only one that does not throw geometry
+ * away. Pairing is by how nearly the two triangles are coplanar across the
+ * edge, so the pieces that were one surface stay one surface.
+ *
+ * Every triangle keeps its position and its area; only the indices change. */
+int CutNonManifoldEdges(Mesh &m)
+{
+    std::unordered_map<long long, std::vector<int>> fan; /* edge -> corners */
+    fan.reserve(m.tri.size());
+    auto key = [](int a, int b) {
+        const long long lo = std::min(a, b), hi = std::max(a, b);
+        return lo * 4294967311LL + hi;
+    };
+    for (int t = 0; t < m.triCount(); ++t)
+        for (int k = 0; k < 3; ++k)
+            fan[key(m.tri[t * 3 + k], m.tri[t * 3 + (k + 1) % 3])].push_back(
+                t * 3 + k);
+
+    int cut = 0;
+    for (auto &kv : fan) {
+        std::vector<int> &corners = kv.second;
+        if (corners.size() <= 2)
+            continue;
+        /* Greedy pairing on dihedral agreement. */
+        std::vector<char> taken(corners.size(), 0);
+        std::vector<std::pair<int, int>> pairs;
+        for (size_t i = 0; i < corners.size(); ++i) {
+            if (taken[i])
+                continue;
+            int best = -1;
+            double bestDot = -2;
+            for (size_t j = i + 1; j < corners.size(); ++j) {
+                if (taken[j])
+                    continue;
+                const double d = Dot(m.tnorm[corners[i] / 3],
+                                     m.tnorm[corners[j] / 3]);
+                if (d > bestDot) {
+                    bestDot = d;
+                    best = static_cast<int>(j);
+                }
+            }
+            taken[i] = 1;
+            if (best >= 0) {
+                taken[best] = 1;
+                pairs.emplace_back(corners[i], corners[best]);
+            } else {
+                pairs.emplace_back(corners[i], -1);
+            }
+        }
+        /* The first pair keeps the original vertices; every later one gets its
+         * own copies, so the fan comes apart into separate sheets. */
+        for (size_t p = 1; p < pairs.size(); ++p) {
+            const int c0 = pairs[p].first;
+            const int a = m.tri[c0], b = m.tri[c0 / 3 * 3 + (c0 % 3 + 1) % 3];
+            const int na = static_cast<int>(m.pos.size());
+            m.pos.push_back(m.pos[a]);
+            const int nb = static_cast<int>(m.pos.size());
+            m.pos.push_back(m.pos[b]);
+            for (int which = 0; which < 2; ++which) {
+                const int c = which ? pairs[p].second : pairs[p].first;
+                if (c < 0)
+                    continue;
+                for (int k = 0; k < 3; ++k) {
+                    int &idx = m.tri[c / 3 * 3 + k];
+                    if (idx == a)
+                        idx = na;
+                    else if (idx == b)
+                        idx = nb;
+                }
+            }
+            ++cut;
+        }
+    }
+    return cut;
+}
+
+/* Close the holes.
+ *
+ * A boundary edge is one with a single triangle. They form loops, and a loop
+ * is a hole. Filled by a fan from the loop's own centroid, which is the fill
+ * that cannot self-intersect for a convex loop and is good enough for the
+ * rest: the point is to make the shell closable, and the triangles added here
+ * are ordinary triangles that the segmentation will treat like any other.
+ *
+ * Loops are filled smallest first and only up to a bounded size — a "hole"
+ * the size of the model is not a hole, it is an open sheet, and covering it
+ * would invent a face that was never there. The Bunny's single 64-edge loop
+ * is 0.4% of its boundary length and fills cleanly. */
+/* A loop is too big to be a hole when it is large against the MODEL, not
+ * against the boundary.
+ *
+ * The first cut of this compared the loop to the total boundary-edge count,
+ * which is wrong in exactly the case that matters: a mesh with one hole has
+ * all of its boundary in that one loop, so the loop is 100% of the boundary
+ * and was refused every time. The Bunny's single 64-edge hole — the one this
+ * was written for — was rejected on those grounds and left open.
+ *
+ * Against the model it is unambiguous: 64 edges on a mesh of 283,189
+ * triangles is nothing, and a "hole" that really is an open sheet is a
+ * substantial fraction of the model's own size. */
+const double kMaxHoleTriangleFraction = 0.02;
+const size_t kMaxHoleLoopVertices = 2000;
+
+int FillHoles(Mesh &m, int &filledLoops)
+{
+    filledLoops = 0;
+    auto key = [](int a, int b) {
+        const long long lo = std::min(a, b), hi = std::max(a, b);
+        return lo * 4294967311LL + hi;
+    };
+    std::unordered_map<long long, int> count, owner;
+    count.reserve(m.tri.size());
+    owner.reserve(m.tri.size());
+    for (int t = 0; t < m.triCount(); ++t)
+        for (int k = 0; k < 3; ++k) {
+            const long long e =
+                key(m.tri[t * 3 + k], m.tri[t * 3 + (k + 1) % 3]);
+            count[e]++;
+            owner[e] = t * 3 + k;
+        }
+
+    /* The boundary as DIRECTED half-edges, wound the way the hole runs.
+     *
+     * A triangle's edge (a,b) has the surface on its left; the hole on the
+     * other side therefore runs (b,a), so that is what is collected and what
+     * the fill triangles will wind along.
+     *
+     * M440. The walk is the part that was wrong. Taking the first unused
+     * successor at each vertex is only correct when a vertex carries at most
+     * one boundary edge, and cutting a non-manifold fan apart produces exactly
+     * the opposite: several boundary loops meeting at one vertex. There the
+     * greedy walk hops from one loop onto another, closes early on a vertex it
+     * has already seen, and leaves the rest of both loops unfilled — 70 of the
+     * Bunny's boundary edges survived that way and its shell never closed.
+     *
+     * A boundary is a PERMUTATION: every vertex on it has exactly as many
+     * outgoing half-edges as incoming, and the loops are that permutation's
+     * cycles. So pair each vertex's outgoing half-edges with its incoming ones
+     * and follow the pairing. Which outgoing is paired with which incoming is
+     * a choice at a vertex of degree > 1, and the one that keeps a loop on the
+     * same sheet is the one whose two edges are most nearly collinear — the
+     * boundary of one hole turns gently, while a hop onto a different loop
+     * doubles back. */
+    struct Half { int from, to; };
+    std::vector<Half> halves;
+    std::unordered_map<int, std::vector<int>> outAt, inAt;
+    for (const auto &kv : count) {
+        if (kv.second != 1)
+            continue;
+        const int c = owner.find(kv.first)->second;
+        const int a = m.tri[c], b = m.tri[c / 3 * 3 + (c % 3 + 1) % 3];
+        const int id = static_cast<int>(halves.size());
+        halves.push_back(Half{b, a});
+        outAt[b].push_back(id);
+        inAt[a].push_back(id);
+    }
+    if (halves.empty())
+        return 0;
+
+    /* successor[h] — which half-edge follows h around its loop. */
+    std::vector<int> successor(halves.size(), -1);
+    for (const auto &kv : inAt) {
+        const int v = kv.first;
+        auto o = outAt.find(v);
+        if (o == outAt.end())
+            continue;
+        const std::vector<int> &ins = kv.second;
+        const std::vector<int> &outs = o->second;
+        std::vector<char> taken(outs.size(), 0);
+        for (int hi : ins) {
+            const V3 dirIn = Unit(m.pos[halves[hi].to] - m.pos[halves[hi].from]);
+            int best = -1;
+            double bestDot = -2;
+            for (size_t j = 0; j < outs.size(); ++j) {
+                if (taken[j])
+                    continue;
+                const Half &ho = halves[outs[j]];
+                const V3 dirOut = Unit(m.pos[ho.to] - m.pos[ho.from]);
+                const double d = Dot(dirIn, dirOut);
+                if (d > bestDot) {
+                    bestDot = d;
+                    best = static_cast<int>(j);
+                }
+            }
+            if (best >= 0) {
+                taken[best] = 1;
+                successor[hi] = outs[best];
+            }
+        }
+    }
+
+    int added = 0;
+    std::vector<char> seen(halves.size(), 0);
+    std::vector<int> loop;
+    for (size_t s = 0; s < halves.size(); ++s) {
+        if (seen[s])
+            continue;
+        loop.clear();
+        int h = static_cast<int>(s);
+        while (h >= 0 && !seen[h]) {
+            seen[h] = 1;
+            loop.push_back(halves[h].from);
+            h = successor[h];
+        }
+        if (loop.size() < 3)
+            continue;
+        if (loop.size() > 3 &&
+            (loop.size() > kMaxHoleLoopVertices ||
+             static_cast<double>(loop.size()) >
+                 m.triCount() * kMaxHoleTriangleFraction))
+            continue; /* an open sheet, not a hole: covering it invents a face */
+        V3 c;
+        for (int x : loop)
+            c += m.pos[x];
+        c = c * (1.0 / static_cast<double>(loop.size()));
+        const int ci = static_cast<int>(m.pos.size());
+        m.pos.push_back(c);
+        int made = 0;
+        for (size_t i = 0; i < loop.size(); ++i) {
+            const int a = loop[i], b = loop[(i + 1) % loop.size()];
+            if (a == b)
+                continue;
+            const V3 n = Cross(m.pos[b] - m.pos[a], c - m.pos[a]);
+            const double len = Norm(n);
+            if (len <= 1e-24 * m.diagonal * m.diagonal)
+                continue;
+            m.tri.push_back(a);
+            m.tri.push_back(b);
+            m.tri.push_back(ci);
+            m.tnorm.push_back(n * (1.0 / len));
+            m.tarea.push_back(len * 0.5);
+            m.area += len * 0.5;
+            ++made;
+        }
+        if (!made) {
+            m.pos.pop_back(); /* nothing was built on it */
+            continue;
+        }
+        added += made;
+        ++filledLoops;
+    }
+    return added;
+}
+
+/* What the repair did, so the caller can say so. */
+struct RepairLog
+{
+    int duplicate_faces = 0;
+    int non_manifold_cuts = 0;
+    int holes_filled = 0;
+    int triangles_added = 0;
+};
+
+/* Cutting a non-manifold fan apart OPENS the surface along that edge, and the
+ * opening is a hole that was not there before — so filling once, before those
+ * exist, closes the wrong set. Repeat until nothing moves, bounded: on the
+ * Bunny the first pass removes 442 fans and the second finds the boundaries
+ * they left. */
+const int kRepairPasses = 3;
+
+void RepairMesh(Mesh &m, RepairLog &log)
+{
+    log.duplicate_faces = DropDuplicateFaces(m);
+    for (int pass = 0; pass < kRepairPasses; ++pass) {
+        const int cuts = CutNonManifoldEdges(m);
+        int loops = 0;
+        const int added = FillHoles(m, loops);
+        log.non_manifold_cuts += cuts;
+        log.holes_filled += loops;
+        log.triangles_added += added;
+        if (!cuts && !added)
+            break;
+    }
+    /* Traced at the call site: MR_TRACE is defined further down the file. */
 }
 
 /* Fills m.adj. An edge shared by more than two triangles is non-manifold; both
@@ -1831,6 +2238,11 @@ const double kSliverAspect = 0.04; /* height on the longest edge, over it */
 /* Fewer triangles than this and the fit has no sample to speak of. */
 const int kMinTrustTriangles = 6;
 
+/* Triangles required per free parameter of a non-planar surface before its fit
+ * counts as evidence. See the floor in Identifiable for why this exists and
+ * why it is 2 rather than 3. */
+const int kEvidencePerParameter = 2;
+
 /* How much of the tolerance a surface may use up and still be believed to be
  * THE surface rather than one that happens to pass nearby. */
 const double kTrustRmsFraction = 0.15;
@@ -2807,8 +3219,24 @@ bool Identifiable(const Patch &p, const Mesh &m, double tol, bool fragment,
      * top-edge fillet, six such pieces — nine triangles between them — each
      * became a face of its own, and every one is a visible crease across what
      * should be a smooth rounded edge. */
-    bool floorApplies = p.fit.kind != kPlane;
-    if (!floorApplies && fragment) {
+    /* M440. The area exemption is not a plane's privilege.
+     *
+     * It was: every non-planar patch faced the floor whatever its size, and
+     * planes escaped it when they carried real area. But the ARGUMENT for the
+     * exemption — that a patch holding a real share of the model's surface is
+     * witnessed by the model's own sharp edges, however few triangles it is
+     * cut into — has nothing to do with being planar. A radius-1 fillet on a
+     * 1,138-triangle bracket is fourteen triangles and over a per cent of the
+     * part: a feature. A twenty-triangle cone on a 283,264-triangle rabbit is
+     * seven thousandths of a per cent: noise with seven parameters fitted to
+     * it.
+     *
+     * Measured both ways. Scaling the floor by parameter count without this
+     * took the TOKA base from 41 faces to 149 and from one self-intersection
+     * to six, because its real fillets are small in COUNT; with it they are
+     * exempt on area and the Bunny's inventions are not. */
+    bool floorApplies = true;
+    if (p.fit.kind != kPlane || fragment) {
         /* ...and how small is small enough to be nothing? The same fraction of
          * the model's surface that decides whether a scrap of a face is worth
          * less than its own triangles. A plate's end wall is two triangles and
@@ -2819,11 +3247,46 @@ bool Identifiable(const Patch &p, const Mesh &m, double tol, bool fragment,
         for (int t : p.tris)
             a += m.tarea[t];
         floorApplies = a <= m.area * kScrapAreaFraction;
+    } else {
+        floorApplies = false; /* a whole smooth run's plane, as before */
     }
+    /* M440. How many triangles a surface has to have before its fit is
+     * EVIDENCE rather than interpolation, and it cannot be one number for all
+     * five kinds.
+     *
+     * A plane has four parameters and a torus has eight, and the floor was a
+     * flat six for both. Six triangles do not pin down a torus; they barely
+     * over-determine it, and an eight-parameter surface fitted to eight
+     * vertices' worth of a smooth field will fit whatever it is pointed at.
+     * Measured on the print-ready Bunny, which is a rabbit and has no
+     * analytic structure anywhere: 919 cones kept, 669 of them under
+     * twenty-four triangles; 461 cylinders, 391 under twenty-four; 184 tori.
+     * All invented, and all of them passing a floor of six.
+     *
+     * So the floor scales with the parameter count — the simplest form of the
+     * argument that a model must be paid for in data, and the one place in
+     * this file where that argument is made at all. Planes are untouched: they
+     * keep the area exemption above, which is what lets a box's two-triangle
+     * wall be a face, and two triangles really do witness a plane when a
+     * model's own sharp edges bound it.
+     *
+     * Two rather than three, and measured rather than assumed — an earlier
+     * version of this comment claimed three broke the suite's small fillets
+     * and that was never run. It does not: three passes the suite too, and
+     * leaves Part9, the reference part, TreeOfLife and the TOKA base
+     * bit-identical. It is worse where it differs. On the butterfly three
+     * gives 1,504 faces against 1,444 and a volume error of -0.13% against
+     * +0.042%, so it refuses surfaces that were carrying real geometry. Two
+     * is the better number on the models closest to clean, which is where the
+     * evidence is. */
+    const int floor = (p.fit.kind == kPlane)
+                          ? kMinTrustTriangles
+                          : std::max(kMinTrustTriangles,
+                                     ParamCount(p.fit.kind) *
+                                         kEvidencePerParameter);
     const bool tooSmall =
         floorApplies &&
-        std::max(static_cast<int>(p.tris.size()), p.evidence) <
-            kMinTrustTriangles;
+        std::max(static_cast<int>(p.tris.size()), p.evidence) < floor;
 
     const double allowed = AgreementAllowed(p, m);
     if (std::acos(std::max(-1.0, std::min(1.0, p.fit.agree))) > allowed)
@@ -5009,6 +5472,7 @@ void Regularise(std::vector<Patch> &patches, const Mesh &m, const Params &prm,
             }
         }
     }
+
 }
 
 /* ====================================================================== */
@@ -5064,6 +5528,204 @@ Handle(Geom_Surface) MakeSurface(const Fit &f)
     } catch (const Standard_Failure &) {
         return nullptr;
     }
+}
+
+/* Tangency, which is the relation a fillet is DEFINED by.
+ *
+ * M440. A cylinder that blends into a wall touches it; it does not cross it.
+ * Nothing enforced that, and nothing had to until the rest of the body was
+ * sound enough for it to be the thing left over. On the TOKA base, most of its
+ * cylinder/plane pairs come out exactly tangent by luck of the fit and four do
+ * not, the worst a radius-1 fillet whose axis sits 0.97948 from its wall: the
+ * cylinder penetrates the plane by 0.0197 mm, and that is the body's last
+ * self-intersection.
+ *
+ * RUN LATE, and that is the whole reason this is not a fourth pass inside
+ * Regularise, where it was first written. Regularise runs before the second
+ * merge, Consolidate, AdoptStronger and the eviction, and those change the
+ * fits: measured on the TOKA base the cylinders Regularise sees have radii
+ * 1.25, 2.00028 and 2.50082, and the ones that reach the B-Rep have 0.99917,
+ * 0.99975 and 5.0. Snapping the first set is snapping surfaces that will not
+ * be there. This runs where the patch set is final and nothing after it moves
+ * a fit.
+ *
+ * Snapped the way every other relation here is: propose it, re-fit under it,
+ * keep it only if the surface still describes its own triangles. The proposal
+ * translates the axis along the wall's normal until the distance equals the
+ * radius; that alone moves the surface off its points by the amount it moved,
+ * so it is followed by a refit with the axis DIRECTION held and the position
+ * and radius free, then projected onto the constraint again — three rounds,
+ * ending on a projection, so tangency holds exactly rather than nearly.
+ *
+ * The cylinder moves and the plane does not: a wall carries far more triangles
+ * than the fillet rolling along it, and the surface with the most evidence
+ * should set the convention.
+ *
+ * The acceptance test is the safety. If a cylinder genuinely sits a designed
+ * distance from a plane, moving it there costs its fit everything, the rms
+ * rises by the distance moved, and the snap is refused — so the bar can be
+ * generous about WHICH pairs to try without being generous about which ones it
+ * changes. */
+void SnapTangency(std::vector<Patch> &patches, const Mesh &m,
+                  const Params &prm, double tol, double scale)
+{
+    if (!(prm.snap_deg > 0) || !(prm.snap_radius_frac > 0))
+        return;
+    PatchData pd;
+
+    std::vector<int> patchOf(m.triCount(), -1);
+    for (size_t i = 0; i < patches.size(); ++i)
+        for (int t : patches[i].tris)
+            patchOf[t] = static_cast<int>(i);
+
+    /* Which planes does each cylinder touch, and how big is each? */
+    std::map<std::pair<int, int>, int> touch; /* (cyl, plane) -> shared facets */
+    for (int t = 0; t < m.triCount(); ++t) {
+        const int a = patchOf[t];
+        if (a < 0 || patches[a].fit.kind != kCylinder)
+            continue;
+        for (int k = 0; k < 3; ++k) {
+            const int o = m.adj[t * 3 + k];
+            if (o < 0)
+                continue;
+            const int b = patchOf[o];
+            if (b < 0 || b == a || patches[b].fit.kind != kPlane)
+                continue;
+            touch[{a, b}]++;
+        }
+    }
+    /* ONE constraint per cylinder: two non-parallel walls cannot both be
+     * tangent to one cylinder, and trying would just undo each other. The wall
+     * a fillet rolls along is the one it shares the most facets with — a
+     * cylinder can clip a corner of a dozen other planes over a single facet
+     * each, and on this model one does exactly that against thirteen of them.
+     * Size breaks a tie. */
+    struct Pick { int plane; int shared; size_t size; };
+    std::map<int, Pick> best;
+    for (const auto &kv : touch) {
+        const int cyl = kv.first.first, pl = kv.first.second;
+        const Pick cand{pl, kv.second, patches[pl].tris.size()};
+        auto it = best.find(cyl);
+        if (it == best.end() || cand.shared > it->second.shared ||
+            (cand.shared == it->second.shared && cand.size > it->second.size))
+            best[cyl] = cand;
+    }
+
+    const double gapBar = scale * prm.snap_radius_frac;
+    const double sinTol = std::sin(prm.snap_deg * M_PI / 180.0);
+    int snapped = 0;
+    for (const auto &kv : best) {
+        Fit &fc = patches[kv.first].fit;
+        const Fit &fp = patches[kv.second.plane].fit;
+        const V3 n(fp.q[0], fp.q[1], fp.q[2]);
+        const V3 ax = Unit(V3(fc.q[3], fc.q[4], fc.q[5]));
+        /* Tangency along the length only makes sense when the axis runs
+         * parallel to the wall. A cylinder poking THROUGH a plane end-on has
+         * no tangency to snap to. */
+        if (std::fabs(Dot(ax, n)) > sinTol)
+            continue;
+        const V3 c0(fc.q[0], fc.q[1], fc.q[2]);
+        const double s = Dot(n, c0) - fp.q[3];
+        const double want = (s >= 0 ? fc.q[6] : -fc.q[6]);
+        if (std::fabs(want - s) > gapBar)
+            continue;
+        if (std::fabs(want - s) <= 0)
+            continue; /* already exact */
+
+        Fit trial = fc;
+        PatchPoints(m, patches[kv.first].tris, pd, 4000);
+
+        /* Fit the cylinder AGAIN, under the constraint, in the two degrees of
+         * freedom the constraint leaves it.
+         *
+         * The first version of this projected onto tangency and then called
+         * RefineFit with the axis position free, and it diverged: translating
+         * a cylinder's axis point ALONG its own axis changes nothing, so that
+         * direction is null in the normal equations and the optimiser wanders
+         * off down it. Measured, a snap of 0.0012 mm came back with the rms up
+         * from 0.0013 to 0.0157 — the refit, not the snap.
+         *
+         * With the axis direction `ax` held and the wall normal `n` held, the
+         * axis point can only move in the plane they span, and tangency pins
+         * one of those two directions to the radius. So the free parameters
+         * are exactly two: the radius r, and the slide `b` along
+         * e = ax x n. Write the axis point as
+         *
+         *     c = c0 + n*alpha(r) + e*b,   alpha(r) = (+/-r + d - n.c0)
+         *
+         * and the residual for a point p is |w| - r, where w is (p - c) with
+         * its component along the axis removed. Because both n and e are
+         * perpendicular to ax, that removal does not depend on r or b:
+         *
+         *     w = w0 - n*alpha(r) - e*b
+         *
+         * with w0 computed once per point. Two-parameter Gauss-Newton on that
+         * is small, well conditioned, and has no null direction. */
+        {
+            const V3 e = Unit(Cross(ax, n));
+            const V3 cOrig(fc.q[0], fc.q[1], fc.q[2]);
+            const double nc0 = Dot(n, cOrig);
+            const double sgn = (s >= 0 ? 1.0 : -1.0);
+            std::vector<V3> w0;
+            w0.reserve(pd.pts.size());
+            for (const V3 &pt : pd.pts) {
+                const V3 v = pt - cOrig;
+                w0.push_back(v - ax * Dot(v, ax));
+            }
+            double r = fc.q[6], b = 0.0;
+            for (int iter = 0; iter < 12; ++iter) {
+                const double alpha = sgn * r + fp.q[3] - nc0;
+                /* Normal equations for [dr, db]. */
+                double A00 = 0, A01 = 0, A11 = 0, g0 = 0, g1 = 0;
+                for (const V3 &q0 : w0) {
+                    const V3 w = q0 - n * alpha - e * b;
+                    const double L = Norm(w);
+                    if (!(L > 1e-15))
+                        continue;
+                    const V3 u = w * (1.0 / L);
+                    /* d(residual)/dr = -(u.n)*sgn - 1 ; d/db = -(u.e) */
+                    const double jr = -Dot(u, n) * sgn - 1.0;
+                    const double jb = -Dot(u, e);
+                    const double res = L - r;
+                    A00 += jr * jr; A01 += jr * jb; A11 += jb * jb;
+                    g0 += jr * res; g1 += jb * res;
+                }
+                const double det = A00 * A11 - A01 * A01;
+                if (!(std::fabs(det) > 1e-18))
+                    break;
+                const double dr = (-g0 * A11 + g1 * A01) / det;
+                const double db = (-g1 * A00 + g0 * A01) / det;
+                r += dr;
+                b += db;
+                if (!(r > 0)) { r = fc.q[6]; break; }
+                if (std::fabs(dr) + std::fabs(db) < scale * 1e-12)
+                    break;
+            }
+            const double alpha = sgn * r + fp.q[3] - nc0;
+            const V3 c = cOrig + n * alpha + e * b;
+            trial.q[0] = c.x; trial.q[1] = c.y; trial.q[2] = c.z;
+            trial.q[6] = r;
+        }
+        const double rms = FitRms(trial.kind, trial.q, pd.pts);
+        /* Generous against the original, because the original was not tangent
+         * and a tangent surface has one fewer degree of freedom to fit with —
+         * but still held to the tolerance the whole conversion is run at. */
+        if (rms <= std::max(fc.rms * 4.0, tol * kExactFitFraction)) {
+            MR_TRACE("  tangency: cylinder r=%.5f snapped to its wall, gap "
+                     "%.6f -> 0, rms %.6f -> %.6f\n",
+                     fc.q[6], std::fabs(want - s), fc.rms, rms);
+            fc = trial;
+            fc.rms = rms;
+            ++snapped;
+        } else {
+            MR_TRACE("  tangency: refused for r=%.5f, gap %.6f, rms would go "
+                     "%.6f -> %.6f\n", fc.q[6], std::fabs(want - s), fc.rms,
+                     rms);
+        }
+    }
+    if (snapped)
+        MR_TRACE("  tangency: %d cylinders made tangent to their walls\n",
+                 snapped);
 }
 
 /* One run of boundary edges of a patch that all face the SAME neighbouring
@@ -6347,7 +7009,19 @@ bool FaceIsSound(const TopoDS_Face &face, const Mesh &m,
     try {
         GProp_GProps g;
         BRepGProp::SurfaceProperties(face, g);
-        if (g.Mass() <= patchArea * kFaceAreaScreen)
+        const double a = g.Mass();
+        /* M440. A face whose area is NOT POSITIVE is folded, and the screen
+         * below let every one of them through: it asks whether the area is
+         * under a multiple of the patch's, and a negative number is under
+         * anything. So BRepCheck was never consulted about exactly the faces
+         * it would have refused. Measured on the butterfly, one face of area
+         * -2.227 mm2 survived to the finished body and took it from valid to
+         * invalid with two SelfIntersectingWire and two UnorientableShape
+         * against it. There is no area at which a fold becomes acceptable, so
+         * this is a verdict rather than a screen. */
+        if (!(a > 0))
+            return false;
+        if (a <= patchArea * kFaceAreaScreen)
             return true;
     } catch (const Standard_Failure &) {
         return true; /* no measurement is not evidence of a fold */
@@ -6463,8 +7137,29 @@ struct UvExtent
     bool ok = false;
 };
 
+/* M440. `tol` is how far a vertex may be from `surf` and still be allowed to
+ * say where the patch reaches. Zero, the default, keeps the old behaviour of
+ * believing every vertex.
+ *
+ * A patch is not always exactly the set of triangles that lie on its surface.
+ * Region growing hands it the odd neighbour, and one of those is enough: on
+ * the reference part the r=15 quarter-cylinder's patch carries nineteen
+ * triangles, eighteen of them on the barrel and one reaching 18.03 mm from a
+ * 15 mm axis — three millimetres off a surface fitted to 0.19. Projected onto
+ * the cylinder, that stray's vertices land a long way round it, and the extent
+ * measured here went from the 90.0000 degrees the barrel actually occupies to
+ * 123.6902. The face is then built faithfully on that, which is a third of a
+ * turn of cylinder standing through the two planes beside it: six
+ * self-intersections and a 2.16 mm gap where those faces should meet.
+ *
+ * So a sample only votes on the extent if it is on the surface it is voting
+ * about. If too few survive the fit was poor and the extent is not this
+ * function's problem to diagnose, so every sample is used and the caller's
+ * other screens have their say as before. */
+const double kUvExtentKeepFraction = 0.6;
+
 UvExtent MeasureUv(const Mesh &m, const std::vector<int> &tris,
-                   const Handle(Geom_Surface) & surf)
+                   const Handle(Geom_Surface) & surf, double tol = 0.0)
 {
     UvExtent e;
     Standard_Real nu1, nu2, nv1, nv2;
@@ -6482,6 +7177,7 @@ UvExtent MeasureUv(const Mesh &m, const std::vector<int> &tris,
             vids.push_back(m.tri[tris[i] * 3 + k]);
     }
     std::vector<double> us, vs;
+    std::vector<double> allU, allV;
     us.reserve(vids.size());
     vs.reserve(vids.size());
     try {
@@ -6491,11 +7187,22 @@ UvExtent MeasureUv(const Mesh &m, const std::vector<int> &tris,
                 continue;
             Standard_Real u, w;
             proj.LowerDistanceParameters(u, w);
+            allU.push_back(u);
+            allV.push_back(w);
+            if (tol > 0 && proj.LowerDistance() > tol)
+                continue; /* not on this surface — no vote on its extent */
             us.push_back(u);
             vs.push_back(w);
         }
     } catch (const Standard_Failure &) {
         return e;
+    }
+    if (tol > 0 && !allU.empty() &&
+        us.size() < static_cast<size_t>(allU.size() * kUvExtentKeepFraction)) {
+        MR_TRACE("      uv extent: only %d of %d samples lie on the surface — "
+                 "using all\n", (int)us.size(), (int)allU.size());
+        us = allU;
+        vs = allV;
     }
     if (us.size() < 3)
         return e;
@@ -8263,6 +8970,115 @@ void FreeformSurfaces(const Mesh &m, std::vector<Patch> &patches, double tol,
  * account for stays exactly as it was, as triangles, which is honest. */
 const int kAbsorbMaxTriangles = 24;
 
+/* Does every triangle in this patch actually lie on the patch's own surface?
+ *
+ * M440. It is the invariant the whole build rests on and nothing enforced it.
+ * A patch acquires triangles after it is fitted — MergeRegions, AdoptStronger,
+ * RefineBoundaries and the dissolve all move them — and `fit` still records
+ * the fit made before, so TrimStrays, which only looks at patches whose
+ * recorded fit is poor, never asks. The patch is then trusted everywhere
+ * downstream, and the first thing that reads it is MeasureUv, which projects
+ * every vertex onto the surface to find how far the patch reaches.
+ *
+ * On the reference part that is the whole bug. The r=15 quarter-cylinder's
+ * patch holds nineteen triangles: eighteen on the barrel and one reaching
+ * 18.03 mm from a 15 mm axis, three millimetres off a surface fitted to 0.19
+ * and carrying an rms of 0.000000 because it was fitted before that triangle
+ * arrived. Projected onto the cylinder, the stray's vertices land far round
+ * the barrel, and the extent went from the 90.0000 degrees the quarter
+ * occupies to 123.6902. The face built on it stands a third of a turn through
+ * the two planes beside it: six self-intersections, and a 2.16 mm gap where
+ * those two faces should have met.
+ *
+ * Narrowing the extent alone is not enough and was tried: the face then stops
+ * where the barrel stops, the stray's region is covered by nothing, and the
+ * shell does not close — measured, closed went 1 to 0 and the whole model fell
+ * back to facets. The triangle has to LEAVE the patch, so that the sweep below
+ * gives it a face of its own.
+ *
+ * Only ever a minority, and only ever from an analytic patch. If a third of a
+ * patch is off its surface then the surface is what is in doubt, and evicting
+ * to fit would be inventing evidence rather than reading it — that patch is
+ * left exactly as it was for Identifiable to refuse in the ordinary way. */
+const double kEvictMaxFraction = 0.25;
+
+/* How far off its patch's surface a triangle has to be before evicting it does
+ * more good than harm — as a multiple of the build tolerance.
+ *
+ * Not 1. A triangle a little over tolerance is a boundary facet the fit did
+ * not quite reach, and evicting it cuts a notch out of the patch that the
+ * face's wires cannot follow: the neighbouring faces are trimmed on smooth
+ * intersection curves that still run along the old boundary, so the notch
+ * becomes free edges. Measured on the butterfly, evicting four such triangles
+ * took the shell from closed to sixteen free edges and cost it its solid.
+ *
+ * A triangle GROSSLY off is a different thing — it is not a boundary facet at
+ * all, it belongs to another surface, and it is the one that corrupts the
+ * extent. The reference part's stray sits three millimetres off a surface
+ * fitted to 0.19: sixteen times over. Four is well clear of the boundary
+ * facets on every model in the corpus and well under that. */
+const double kEvictSeverity = 4.0;
+
+void EvictOffSurface(const Mesh &m, std::vector<Patch> &patches, double tol,
+                     int &evicted)
+{
+    std::vector<Patch> born;
+    const size_t n0 = patches.size();
+    for (size_t pi = 0; pi < n0; ++pi) {
+        Patch &pa = patches[pi];
+        if (pa.fit.kind == kNone || pa.fit.kind == kFreeform)
+            continue;
+        if (pa.tris.size() < 3)
+            continue;
+        std::vector<int> keep, drop;
+        keep.reserve(pa.tris.size());
+        double worstDropped = 0;
+        for (int t : pa.tris) {
+            double worst = 0;
+            for (int j = 0; j < 3; ++j) {
+                const V3 &q = m.pos[m.tri[t * 3 + j]];
+                worst = std::max(worst,
+                                 std::fabs(SurfDist(pa.fit.kind, pa.fit.q, q)));
+            }
+            if (worst > tol * kEvictSeverity) {
+                drop.push_back(t);
+                worstDropped = std::max(worstDropped, worst);
+            } else {
+                keep.push_back(t);
+            }
+        }
+        if (drop.empty())
+            continue;
+        if (drop.size() > pa.tris.size() * kEvictMaxFraction ||
+            keep.size() < 2) {
+            MR_TRACE("  evict: patch of %d tri has %d off its %s — too many, "
+                     "leaving it to Identifiable\n",
+                     (int)pa.tris.size(), (int)drop.size(),
+                     KindName(pa.fit.kind));
+            continue;
+        }
+        MR_TRACE("  evict: %d of %d tri off the %s, worst %.4f (bar %.4f = "
+                 "%.0fx tol)\n",
+                 (int)drop.size(), (int)pa.tris.size(), KindName(pa.fit.kind),
+                 worstDropped, tol * kEvictSeverity, kEvictSeverity);
+        const int origin = pa.origin;
+        pa.tris.swap(keep);
+        evicted += static_cast<int>(drop.size());
+        /* Released, not discarded. A triangle in no patch is a triangle in no
+         * face, which is a hole in the shell exactly its own size — so each
+         * one becomes its own faceted patch here rather than being left for a
+         * sweep that has already run. */
+        for (int t : drop) {
+            Patch np;
+            np.origin = origin;
+            np.tris.assign(1, t);
+            born.push_back(np);
+        }
+    }
+    for (Patch &np : born)
+        patches.push_back(np);
+}
+
 void AbsorbStrays(const Mesh &m, std::vector<Patch> &patches, double tol,
                   int &absorbed)
 {
@@ -8619,7 +9435,7 @@ bool BuildParametricFace(BuildCtx &ctx, const Mesh &m, const Patch &patch,
                          std::vector<TopoDS_Face> &out)
 {
     try {
-        const UvExtent e = MeasureUv(m, patch.tris, surf);
+        const UvExtent e = MeasureUv(m, patch.tris, surf, ctx.tol);
         TopoDS_Face face;
         if (!e.ok) {
             BRepBuilderAPI_MakeFace mf(surf, ctx.tol);
@@ -8648,6 +9464,111 @@ bool BuildParametricFace(BuildCtx &ctx, const Mesh &m, const Patch &patch,
                  f.GetMessageString() ? f.GetMessageString() : "(none)");
         return false;
     }
+}
+
+/* Does the face reach outside the MESH — not its patch, the whole model?
+ *
+ * M440. The one bound on a reconstruction that needs no judgement: it cannot
+ * be bigger than the thing it was built from. FaceWithinPatch asks the sharper
+ * question and carries an 8% slack to survive a B-spline's control net;
+ * FaceOverrunsUv asks it in parameter space but only where a direction is
+ * periodic AND the patch does not wrap all the way round. A face that wraps
+ * ALL the way round passes both, and that is what the TOKA base's tori do:
+ * five of them, the largest a ring of major radius 10.9 on a part 20 mm wide,
+ * reaching 0.886 mm past the model and up to z = 1.70 where the mesh stops at
+ * 1.0. Together they are why that body's bounding box is 3.2% larger than its
+ * own mesh.
+ *
+ * Against the mesh box there is nothing to argue about and nothing to tune. A
+ * facet is a chord, so a surface fitted to facets stands at most a sagitta
+ * proud of them, which is quadratic in facet size and tiny; a tolerance's
+ * worth of slack covers it and covers nothing else. A face that fails this is
+ * not a face of this model, whatever else is true about it, and its patch goes
+ * to triangles — which always fit inside the box, because they ARE the box. */
+bool FaceWithinMesh(const TopoDS_Face &face, const Mesh &m, double tol)
+{
+    if (face.IsNull())
+        return true;
+    const double slack = std::max(tol, m.diagonal * 1e-6);
+    auto inside = [&](const Bnd_Box &b) {
+        if (b.IsVoid())
+            return true;
+        if (b.IsWhole() || b.IsOpenXmin() || b.IsOpenXmax() || b.IsOpenYmin() ||
+            b.IsOpenYmax() || b.IsOpenZmin() || b.IsOpenZmax())
+            return false;
+        Standard_Real x0, y0, z0, x1, y1, z1;
+        b.Get(x0, y0, z0, x1, y1, z1);
+        const double v[6] = {x0, y0, z0, x1, y1, z1};
+        for (int k = 0; k < 6; ++k)
+            if (!(v[k] > -1e99 && v[k] < 1e99))
+                return false;
+        return x0 >= m.bbmin.x - slack && y0 >= m.bbmin.y - slack &&
+               z0 >= m.bbmin.z - slack && x1 <= m.bbmax.x + slack &&
+               y1 <= m.bbmax.y + slack && z1 <= m.bbmax.z + slack;
+    };
+    /* Two boxes, cheap first — the same discipline FaceWithinPatch uses, and
+     * for the same reason, which this function learned the hard way.
+     *
+     * BRepBndLib::Add boxes a face by its pcurves' POLES, and a B-spline's
+     * control net stands OUTSIDE the surface it describes. At the edge of the
+     * model that overstatement lands exactly where it does the most damage:
+     * the first cut of this trusted the cheap box alone, and on the whale it
+     * refused most of the freeform faces, took the body from 196 faces to
+     * 20,368, and left it with no solid at all. AddOptimal evaluates the
+     * curves instead of trusting their hulls, so a failure of the cheap box is
+     * a reason to pay for the exact one, never a verdict on its own. */
+    try {
+        Bnd_Box quick;
+        BRepBndLib::Add(face, quick, Standard_False);
+        if (inside(quick))
+            return true;
+        Bnd_Box tight;
+        BRepBndLib::AddOptimal(face, tight, Standard_False, Standard_False);
+        return inside(tight);
+    } catch (const Standard_Failure &) {
+        return false;
+    }
+}
+
+/* WHY THERE IS NO "DOES THE FACE WRAP TOO FAR ROUND" CHECK.
+ *
+ * M440. There was one, and it is worth saying why it went rather than leaving
+ * the idea to be had again. The reference part's r=15 quarter-cylinder came
+ * back spanning 123.6902 degrees of a 90 degree barrel, and the obvious guard
+ * is to measure the face's extent in the surface's own parameters against the
+ * extent of its triangles, refusing anything that reaches much further round.
+ * It reads well and it is wrong twice over.
+ *
+ * It was aimed at the wrong thing. The face was faithful to its patch; the
+ * PATCH was wrong, carrying one triangle three millimetres off the cylinder
+ * that then set the extent. EvictOffSurface fixes that at the source, and
+ * with it in place the same face measures 1.000 of its own extent — the guard
+ * had nothing left to catch anywhere in the corpus.
+ *
+ * And it has false positives it cannot tell from the real thing. MeasureUv
+ * finds a periodic extent by taking the largest CYCLIC GAP in the samples,
+ * which assumes the patch is a band. A spherical cap with a slot cut through
+ * it is not: its triangles leave a gap where the slot is, the extent comes
+ * back as the complement, and the face — correctly spanning nearly the whole
+ * circle — measures as wrapping far past it. That is the suite's slotted
+ * dome, and the guard sent its 484-triangle cap to triangles, taking the body
+ * from 5 faces to 487.
+ *
+ * A check that catches nothing real and refuses something sound is worse than
+ * no check. FaceWithinMesh is the bound that survived: it asks the same
+ * question in world space, where a cap with a slot in it has nothing to
+ * explain. */
+
+/* How many wires the face has. A face that overruns and has ONE boundary can
+ * be rebuilt on the patch's own parameter rectangle; one with inner wires
+ * cannot, because the rectangle has no holes in it and rebuilding would fill
+ * them in silently. That one is refused instead. */
+int WireCount(const TopoDS_Face &face)
+{
+    int n = 0;
+    for (TopExp_Explorer w(face, TopAbs_WIRE); w.More(); w.Next())
+        ++n;
+    return n;
 }
 
 /* Is the face on the same side of its own boundary as the triangles are?
@@ -9045,7 +9966,7 @@ bool BuildAnalyticFace(BuildCtx &ctx, const Mesh &m, const Patch &patch,
      * triangles. So whenever a direction comes back FULL, trim
      * parametrically and do not ask MakeFace to guess. */
     if (surf->IsUPeriodic() || surf->IsVPeriodic()) {
-        const UvExtent e = MeasureUv(m, patch.tris, surf);
+        const UvExtent e = MeasureUv(m, patch.tris, surf, ctx.tol);
         MR_TRACE("      periodic: uv ok=%d u[%.3f %.3f]%s v[%.3f %.3f]%s\n",
                  (int)e.ok, e.u1, e.u2, e.uFull ? " FULL" : "", e.v1, e.v2,
                  e.vFull ? " FULL" : "");
@@ -9243,7 +10164,7 @@ bool BuildAnalyticFace(BuildCtx &ctx, const Mesh &m, const Patch &patch,
              * hole not cut by a different route; the patch goes to triangles
              * instead, which is honest and which the mesh can always do. */
             if (surf->IsUPeriodic() || surf->IsVPeriodic()) {
-                const UvExtent e = MeasureUv(m, patch.tris, surf);
+                const UvExtent e = MeasureUv(m, patch.tris, surf, ctx.tol);
                 bool rimsOnly = e.ok;
                 for (size_t li = 0; rimsOnly && li < loops.size(); ++li)
                     rimsOnly = LoopWrapsPeriod(surf, m, loops[li], e.uFull);
@@ -11661,6 +12582,306 @@ int TessellateCovered(const TopoDS_Shape &s, double lin, double ang,
 }
 
 
+/* ---- M440: the body a kernel will accept ------------------------------
+ *
+ * Everything above decides what the model IS. This decides whether what came
+ * out of it is a body at all, and it is the check the converter never had:
+ * across the corpus every failing model reported closed=1 while carrying
+ * faces that pass through each other, so closure — the only gate there was —
+ * let all of them through.
+ *
+ * Three things happen here, in this order, and the order matters.
+ *
+ * MERGE. ShapeUpgrade_UnifySameDomain puts back together faces that landed on
+ * one surface. The faceted path has always run it, with a comment calling it
+ * "the only thing that makes a faceted conversion usable at all"; the fit
+ * path never did, and it is worth exactly as much there. The reference part
+ * is built as four rectangles split along their own tessellation diagonals
+ * into eight faces whose plane equations agree to seven digits — 19 faces for
+ * a model with 15 — and one pass removes all four. The butterfly loses 1,002.
+ *
+ * HEAL, because the merge is not free. Measured on the TOKA base, unifying
+ * takes a body from valid to invalid by leaving a SelfIntersectingWire behind,
+ * so the merge is kept only if the body is no worse after it than before.
+ * That is a comparison, not an assertion, and it needs the validity check to
+ * run twice.
+ *
+ * CHECK, and record. BRepCheck with geometric controls, then CheckerSI under a
+ * time budget, then the bounding box against the mesh's own. None of these
+ * change the shape; they fill in the report so the caller, the tests and the
+ * fallback below can all see the same thing. */
+
+/* CheckerSI has no interrupt and no progress, and on a body with ten thousand
+ * faces it does not come back. Fifty minutes on the Bunny's result, with
+ * nothing printed. So it is asked only of bodies small enough that the answer
+ * arrives, and the report says -1 rather than 0 for the rest: "not measured"
+ * and "clean" are different facts and the fallback must not confuse them. */
+/* The number is a TIME budget expressed in faces, and it was measured rather
+ * than guessed. At 1,316 faces — the butterfly — one check costs about twenty
+ * seconds, and the heal loop below can ask for five: with the budget at 2,000
+ * that model's conversion went from 22 seconds to 135. At 44 faces, which is
+ * the TOKA base, the whole certify-and-heal cycle is lost in the noise. The
+ * conversion runs on the UI thread by contract, so a check costing longer than
+ * the conversion is not one anyone can ship. Six hundred keeps it under a
+ * second on everything in the corpus that gets one; the merge, which is cheap
+ * and is where most of the gain is, runs whatever the size. */
+const int kMaxFacesForSelfIntersectionCheck = 600;
+
+/* How many times to try removing slivers before accepting what is left. */
+const int kHealPasses = 4;
+
+int CountFaces(const TopoDS_Shape &s)
+{
+    int n = 0;
+    for (TopExp_Explorer e(s, TopAbs_FACE); e.More(); e.Next())
+        ++n;
+    return n;
+}
+
+bool ShapeIsValid(const TopoDS_Shape &s)
+{
+    if (s.IsNull())
+        return false;
+    try {
+        return BRepCheck_Analyzer(s, Standard_True).IsValid() == Standard_True;
+    } catch (const Standard_Failure &) {
+        return false;
+    } catch (...) {
+        return false;
+    }
+}
+
+/* And a second budget, because face COUNT is the wrong measure on its own.
+ *
+ * CheckerSI is cheap on planes and quadrics — it has closed forms for them —
+ * and it is not on trimmed B-splines, where every pair costs a numerical
+ * surface-surface intersection. The whale is 192 faces after the merge, well
+ * inside the count budget, and 87 of them are freeform: checking it took six
+ * and a half minutes against a 25-second conversion. The butterfly at 34
+ * freeform faces is the same story more slowly.
+ *
+ * So a body that is mostly freeform is not checked, and says so. That is the
+ * honest answer as well as the affordable one: an organic model has no
+ * analytic structure for the check to be diagnosing, and the defects it would
+ * report are not ones this pipeline can act on yet. */
+const int kMaxFreeformFacesForSelfIntersectionCheck = 16;
+
+int CountFreeformFaces(const TopoDS_Shape &s)
+{
+    int n = 0;
+    for (TopExp_Explorer e(s, TopAbs_FACE); e.More(); e.Next()) {
+        try {
+            BRepAdaptor_Surface ad(TopoDS::Face(e.Current()), Standard_False);
+            const GeomAbs_SurfaceType k = ad.GetType();
+            if (k == GeomAbs_BSplineSurface || k == GeomAbs_BezierSurface ||
+                k == GeomAbs_SurfaceOfRevolution ||
+                k == GeomAbs_SurfaceOfExtrusion || k == GeomAbs_OffsetSurface)
+                ++n;
+        } catch (const Standard_Failure &) {
+            ++n; /* unreadable counts as expensive */
+        }
+    }
+    return n;
+}
+
+/* How many things BRepCheck has to say about the body, counted rather than
+ * reduced to a bool — so two states that are both "invalid" can still be
+ * compared. */
+int CountProblems(const TopoDS_Shape &s)
+{
+    if (s.IsNull())
+        return 1 << 20;
+    int n = 0;
+    try {
+        BRepCheck_Analyzer an(s, Standard_True);
+        const TopAbs_ShapeEnum kinds[] = {TopAbs_VERTEX, TopAbs_EDGE,
+                                          TopAbs_WIRE,   TopAbs_FACE,
+                                          TopAbs_SHELL,  TopAbs_SOLID};
+        for (TopAbs_ShapeEnum k : kinds) {
+            TopTools_IndexedMapOfShape mp;
+            TopExp::MapShapes(s, k, mp);
+            for (int i = 1; i <= mp.Extent(); ++i) {
+                Handle(BRepCheck_Result) res;
+                try {
+                    res = an.Result(mp(i));
+                } catch (const Standard_Failure &) {
+                    continue;
+                }
+                if (res.IsNull())
+                    continue;
+                for (BRepCheck_ListIteratorOfListOfStatus it(res->Status());
+                     it.More(); it.Next())
+                    if (it.Value() != BRepCheck_NoError)
+                        ++n;
+            }
+        }
+    } catch (const Standard_Failure &) {
+        return 1 << 20;
+    } catch (...) {
+        return 1 << 20;
+    }
+    return n;
+}
+
+int SelfIntersectionCount(const TopoDS_Shape &s)
+{
+    if (s.IsNull())
+        return -1;
+    if (CountFaces(s) > kMaxFacesForSelfIntersectionCheck)
+        return -1;
+    if (CountFreeformFaces(s) > kMaxFreeformFacesForSelfIntersectionCheck)
+        return -1;
+    try {
+        BOPAlgo_CheckerSI ck;
+        TopTools_ListOfShape args;
+        args.Append(s);
+        ck.SetArguments(args);
+        ck.SetLevelOfCheck(9);
+        ck.SetRunParallel(Standard_False);
+        ck.Perform();
+        return static_cast<int>(ck.DS().Interferences().Size());
+    } catch (const Standard_Failure &) {
+        return -1;
+    } catch (...) {
+        return -1;
+    }
+}
+
+double ShapeDiagonal(const TopoDS_Shape &s)
+{
+    try {
+        /* AddOptimal, not Add. The cheap box is the poles box, and a
+         * B-spline's control net stands outside its own surface — on the whale
+         * that reads as 3.3% of oversize which the surfaces do not actually
+         * have. A number in the report has to be the truth, and this one is
+         * computed once per body. */
+        Bnd_Box b;
+        BRepBndLib::AddOptimal(s, b, Standard_False, Standard_False);
+        if (b.IsVoid())
+            return 0;
+        Standard_Real x0, y0, z0, x1, y1, z1;
+        b.Get(x0, y0, z0, x1, y1, z1);
+        return std::sqrt((x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0) +
+                         (z1 - z0) * (z1 - z0));
+    } catch (const Standard_Failure &) {
+        return 0;
+    }
+}
+
+/* Merge same-surface faces, keeping the result only if it is no worse. */
+TopoDS_Shape MergeSameSurface(const TopoDS_Shape &in, Report &rep)
+{
+    if (in.IsNull())
+        return in;
+    const int before = CountFaces(in);
+    const bool wasValid = ShapeIsValid(in);
+    TopoDS_Shape out;
+    try {
+        ShapeUpgrade_UnifySameDomain uni(in, Standard_True, Standard_True,
+                                         Standard_False);
+        uni.Build();
+        out = uni.Shape();
+    } catch (const Standard_Failure &) {
+        return in;
+    } catch (...) {
+        return in;
+    }
+    if (out.IsNull())
+        return in;
+    /* A merge that breaks a body it was handed intact is not an improvement,
+     * whatever it did to the face count. */
+    if (wasValid && !ShapeIsValid(out)) {
+        MR_TRACE("  unify: refused — valid body came back invalid\n");
+        return in;
+    }
+    /* And a merge may not leave the body WORSE CHECKED than it found it.
+     *
+     * M440. `wasValid` above is a boolean and most bodies that reach here are
+     * already invalid, so it has nothing to compare and the merge goes through
+     * unexamined. Counting is the useful question. On the butterfly the merge
+     * takes BRepCheck's complaints from six to four and the self-intersections
+     * from 235 to 171 while removing 1,002 faces — clearly worth having — and
+     * it also folds exactly one face, area -2.227 mm2 out of 1,401, which is
+     * the body's remaining invalidity.
+     *
+     * Refusing the whole merge over that one face was tried and is wrong: it
+     * costs all thousand good merges to avoid one bad one, and leaves the body
+     * measurably worse on every other axis. So the test is whether the count
+     * went UP, and a merge that only ever reduces it is kept. */
+    if (CountProblems(out) > CountProblems(in)) {
+        MR_TRACE("  unify: refused — it added BRepCheck problems\n");
+        return in;
+    }
+    const int after = CountFaces(out);
+    if (after > before)
+        return in;
+    rep.merged_faces = before - after;
+    MR_TRACE("  unify: %d faces -> %d (%d merged)\n", before, after,
+             rep.merged_faces);
+    return out;
+}
+
+/* Faces too small to be geometry, removed.
+ *
+ * M440. After the extent bug above was fixed the reference part came back
+ * exactly right and the TOKA base did not: fourteen self-intersections, and
+ * every one of them on a face of area 0.019 to 0.6 mm2 in a body of 2,636 —
+ * slivers left where three surfaces nearly, but not quite, meet at a point.
+ * They are not needles by the shape test (4*pi*A/P^2 puts the worst at 0.015,
+ * above the 1e-3 bar) and they are not invalid on their own; they are simply
+ * below the size at which a face means anything, and they are what the checker
+ * trips on.
+ *
+ * ShapeFix_FixSmallFace is the kernel's own answer and it knows the two shapes
+ * this takes — a spot, which collapses to a vertex, and a strip, which
+ * collapses to an edge. Given the same treatment as the merge: run it, and
+ * keep the result only if the body is no worse for it. A healer that breaks
+ * what it was handed is not a healer. */
+TopoDS_Shape RemoveMicroFaces(const TopoDS_Shape &in, double prec)
+{
+    if (in.IsNull() || !(prec > 0))
+        return in;
+    const bool wasValid = ShapeIsValid(in);
+    TopoDS_Shape out;
+    try {
+        ShapeFix_FixSmallFace fx;
+        fx.Init(in);
+        fx.SetPrecision(prec);
+        fx.Perform();
+        out = fx.Shape();
+    } catch (const Standard_Failure &) {
+        return in;
+    } catch (...) {
+        return in;
+    }
+    if (out.IsNull())
+        return in;
+    if (CountFaces(out) > CountFaces(in))
+        return in;
+    if (wasValid && !ShapeIsValid(out)) {
+        MR_TRACE("  small faces: refused — valid body came back invalid\n");
+        return in;
+    }
+    MR_TRACE("  small faces: %d -> %d (prec %.5f)\n", CountFaces(in),
+             CountFaces(out), prec);
+    return out;
+}
+
+/* Fill in valid / self_intersections / bbox_ratio for the finished body. */
+void Certify(const TopoDS_Shape &s, double meshDiagonal, Report &rep)
+{
+    if (s.IsNull()) {
+        rep.valid = 0;
+        return;
+    }
+    rep.valid = ShapeIsValid(s) ? 1 : 0;
+    rep.self_intersections = SelfIntersectionCount(s);
+    const double d = ShapeDiagonal(s);
+    rep.bbox_ratio = (meshDiagonal > 0 && d > 0) ? d / meshDiagonal : 0.0;
+    MR_TRACE("  certify: valid=%d self-int=%d bbox=%.4fx\n", rep.valid,
+             rep.self_intersections, rep.bbox_ratio);
+}
+
 TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
                          const Params &prm, Report &rep, std::string &err)
 {
@@ -11677,8 +12898,31 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
             err = "the mesh has no usable triangles";
             return TopoDS_Shape();
         }
+        /* M440. Repair before adjacency, because adjacency is where a
+         * non-manifold edge becomes a permanent hole in the shell: it is left
+         * unlinked, the patches on either side end at it, and nothing later
+         * puts them back together. See RepairMesh. */
+        RepairLog fixlog;
+        RepairMesh(m, fixlog);
+        MR_TRACE("  repair: %d duplicate faces, %d non-manifold edges cut, "
+                 "%d holes filled with %d triangles\n",
+                 fixlog.duplicate_faces, fixlog.non_manifold_cuts,
+                 fixlog.holes_filled, fixlog.triangles_added);
         BuildAdjacency(m, rep);
         OrientMesh(m, rep);
+        MR_TRACE("  after repair: %d tri, %d non-manifold, %d boundary, "
+                 "%d flipped\n", m.triCount(), rep.non_manifold_edges,
+                 rep.boundary_edges, rep.flipped_triangles);
+        if (fixlog.duplicate_faces || fixlog.non_manifold_cuts ||
+            fixlog.holes_filled) {
+            rep.repaired_duplicate_faces = fixlog.duplicate_faces;
+            rep.repaired_nonmanifold_cuts = fixlog.non_manifold_cuts;
+            rep.repaired_holes_filled = fixlog.holes_filled;
+            rep.triangles_used = m.triCount();
+            /* The mesh the rest of the pipeline sees is the repaired one, so
+             * the counts BuildAdjacency just wrote describe it — which is the
+             * point. What came IN is still in triangles_in / vertices_in. */
+        }
     } catch (const std::bad_alloc &) {
         err = "the mesh is too large to load";
         return TopoDS_Shape();
@@ -12064,14 +13308,36 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
         } catch (const Standard_Failure &) {
         } catch (...) {
         }
-        if (madeFree > 0 || absorbed > 0) {
+        /* M440. AbsorbStrays is the LAST thing that moves a triangle into a
+         * patch, so this is the first moment at which "every triangle lies on
+         * its patch's surface" can be asserted and still be true when the
+         * faces are built. It is also the moment it matters: absorbing is
+         * exactly how the reference part's quarter-cylinder acquired the
+         * triangle three millimetres off it that then set its parameter
+         * extent. See EvictOffSurface. */
+        int evicted = 0;
+        try {
+            EvictOffSurface(m, patches, tol, evicted);
+        } catch (const Standard_Failure &) {
+        } catch (...) {
+        }
+        /* M440. And now that no stage after this moves a fit, make the fillets
+         * touch the walls they roll along rather than cut into them. See
+         * SnapTangency for why it is here and not in Regularise. */
+        try {
+            SnapTangency(patches, m, prm, tol, scale);
+        } catch (const Standard_Failure &) {
+        } catch (...) {
+        }
+        if (madeFree > 0 || absorbed > 0 || evicted > 0) {
             rep.patches = static_cast<int>(patches.size());
             patchOf.assign(m.triCount(), -1);
             for (size_t i = 0; i < patches.size(); ++i)
                 for (int t : patches[i].tris)
                     patchOf[t] = static_cast<int>(i);
         }
-        MR_TRACE("  absorbed %d stray triangles\n", absorbed);
+        MR_TRACE("  absorbed %d stray triangles, evicted %d off-surface\n",
+                 absorbed, evicted);
         MR_STAGE("freeform surfaces");
     }
     if (Cancelled()) {
@@ -12716,6 +13982,50 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
      * against the volume of the mesh that came in, and when they are not the
      * same object take the faceted build, which reproduces the mesh exactly.
      * That holds whatever the mechanism turns out to be. */
+    /* M440. Merge same-surface faces, then certify — before the volume check
+     * below, so everything that follows judges the body that will actually be
+     * returned rather than an intermediate one.
+     *
+     * ONLY ON A BODY THAT CLOSED, and this is a precondition rather than a
+     * preference. ShapeUpgrade_UnifySameDomain SEGFAULTS on a large open
+     * shell: the Bunny reaches this point with 2,007 built faces across 48
+     * shells and nothing closed, and the merge takes the process down. A
+     * segfault cannot be caught, so the try/catch around it is worth nothing
+     * and the only defence is not to call it. That costs nothing real either —
+     * tidying the faces of something that is not a body does not make it one,
+     * and a shell that did not close is going to the faceted fallback or to an
+     * error in a few lines' time.
+     *
+     * A body that is not merged is also not certified, and reports valid and
+     * self_intersections as -1: not measured, which is the truth. */
+    if (!out.IsNull() && !Cancelled() && rep.closed == 1) {
+        SetStage(kStageMerging, 0);
+        out = MergeSameSurface(out, rep);
+        Certify(out, m.diagonal, rep);
+        /* Only when there is something to gain: the healer is not free, and a
+         * body the checker is already happy with has nothing for it to do. */
+        /* Repeated, because removing a sliver makes its neighbours meet
+         * properly and can expose the next one: on the TOKA base one pass
+         * takes fourteen self-intersections to two. Bounded, and every pass
+         * has to earn its place — the moment one stops reducing them, or
+         * costs validity, the previous body is the answer. */
+        for (int pass = 0; pass < kHealPasses && rep.self_intersections > 0;
+             ++pass) {
+            if (Cancelled())
+                break;
+            const TopoDS_Shape healed = RemoveMicroFaces(out, tol);
+            if (healed.IsNull() || healed.IsSame(out))
+                break;
+            Report probe = rep;
+            Certify(healed, m.diagonal, probe);
+            if (probe.valid < rep.valid || probe.self_intersections < 0 ||
+                probe.self_intersections >= rep.self_intersections)
+                break;
+            out = healed;
+            rep = probe;
+        }
+    }
+
     bool volumeWrong = false;
     if (rep.closed == 1 && meshVolume > 0 && !out.IsNull()) {
         try {

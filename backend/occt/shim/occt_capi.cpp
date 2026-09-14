@@ -6162,10 +6162,14 @@ extern "C" occt_shape *occt_brep_from_mesh(const double *xyz, int nv,
                 ints[OCCT_MR_SHELLS] = r.shells;
                 ints[OCCT_MR_SOLIDS] = r.solids;
                 ints[OCCT_MR_CLOSED] = r.closed;
+                ints[OCCT_MR_VALID] = r.valid;
+                ints[OCCT_MR_SELF_INTERSECTIONS] = r.self_intersections;
+                ints[OCCT_MR_MERGED_FACES] = r.merged_faces;
             }
             if (reals) {
                 reals[OCCT_MR_FIT_RMS] = r.fit_rms;
                 reals[OCCT_MR_DIAGONAL] = r.diagonal;
+                reals[OCCT_MR_BBOX_RATIO] = r.bbox_ratio;
             }
         }
     } publish{rep, report_ints, report_reals};

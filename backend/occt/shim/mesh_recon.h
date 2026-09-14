@@ -214,6 +214,44 @@ struct Report
     int closed;      /* 1 when the result is a closed solid */
     double fit_rms;  /* area-weighted, in model units */
     double diagonal; /* bounding-box diagonal of the input */
+
+    /* ---- M440: is the body one a kernel will actually operate on? -------
+     *
+     * `closed` was the only verdict this struct carried, and it is the wrong
+     * one to stop at: a shell can close, sit exactly on its mesh, and still
+     * carry faces that pass through each other. Measured across the corpus,
+     * every model that failed did so while reporting closed=1. So the two
+     * questions a boolean or a fillet will ask are asked here, once, on the
+     * finished body, and answered in the report the caller already reads.
+     *
+     * `valid`  — BRepCheck_Analyzer with geometric controls on. -1 when it
+     *            could not be run.
+     * `self_intersections` — pairs BOPAlgo_CheckerSI found. -1 when the check
+     *            did not finish inside its budget, which is itself a verdict:
+     *            the Bunny's 10,397-face result ran the checker for fifty
+     *            minutes without returning.
+     * `merged_faces` — how many faces the same-surface merge removed. On the
+     *            reference part this is exactly 4, taking 19 faces to the 15
+     *            the model actually has.
+     * `bbox_ratio` — the body's diagonal over the mesh's. A reconstruction
+     *            cannot be larger than its own input; anything above 1 is a
+     *            face reaching somewhere the mesh never went. */
+    int valid;
+    int self_intersections;
+    int merged_faces;
+    double bbox_ratio;
+
+    /* ---- M440: what the mesh repair changed ---------------------------
+     *
+     * A downloaded mesh is not a manifold and the pipeline assumed one. These
+     * say what had to be fixed before it could be believed, so a caller can
+     * tell the user their file was mended rather than silently converting
+     * something that was not what they handed over. All zero on a clean mesh
+     * — the whale's defects, for instance, are all carried by its sixteen
+     * zero-area triangles and are gone with them before this runs. */
+    int repaired_duplicate_faces;  /* incl. zero-thickness sheets, both sides */
+    int repaired_nonmanifold_cuts; /* fans split into separate sheets */
+    int repaired_holes_filled;     /* boundary loops closed */
 };
 
 void ClearReport(Report &r);
