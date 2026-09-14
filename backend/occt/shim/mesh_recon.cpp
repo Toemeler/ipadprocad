@@ -9459,76 +9459,34 @@ bool FaceWithinMesh(const TopoDS_Face &face, const Mesh &m, double tol)
     }
 }
 
-/* Does the face wrap FURTHER ROUND a periodic surface than its triangles do?
+/* WHY THERE IS NO "DOES THE FACE WRAP TOO FAR ROUND" CHECK.
  *
- * M440. FaceWithinPatch asks the same question with a world-space box, and on
- * a periodic surface that box cannot answer it. The reference part's r=15
- * quarter-cylinder is the case: its own eighteen triangles span 89.9997 deg of
- * the barrel — the exact quarter it is — and the face built on it spans
- * 123.6902. Thirty-three degrees of cylinder standing through the two planes
- * beside it, which is six self-intersections and a 2.16 mm gap where those
- * faces should meet. The box never sees it, because wrapping further round a
- * cylinder of radius r moves the surface by at most r(1-cos) in a direction
- * the patch's box already covers, and the eight per cent slack absorbs the
- * rest.
+ * M440. There was one, and it is worth saying why it went rather than leaving
+ * the idea to be had again. The reference part's r=15 quarter-cylinder came
+ * back spanning 123.6902 degrees of a 90 degree barrel, and the obvious guard
+ * is to measure the face's extent in the surface's own parameters against the
+ * extent of its triangles, refusing anything that reaches much further round.
+ * It reads well and it is wrong twice over.
  *
- * In the surface's OWN parameters it is not subtle: 2.1588 against 1.5708, a
- * ratio of 1.37, measured against an extent the mesh states exactly. So this
- * is asked in U and V rather than in x, y, z, and only where the direction is
- * periodic and the patch does not go all the way round — a full barrel has no
- * overrun to detect and a non-periodic direction is already bounded by the
- * wire's own ends.
+ * It was aimed at the wrong thing. The face was faithful to its patch; the
+ * PATCH was wrong, carrying one triangle three millimetres off the cylinder
+ * that then set the extent. EvictOffSurface fixes that at the source, and
+ * with it in place the same face measures 1.000 of its own extent — the guard
+ * had nothing left to catch anywhere in the corpus.
  *
- * The bar is deliberately loose. MeasureUv subsamples above 400 triangles and
- * can understate a large patch's extent by a facet, and a face legitimately
- * reaches a little past its vertices so its boundary has somewhere to sit.
- * Nothing anywhere in the corpus sits between 1.0 and 1.25; the cylinder sits
- * at 1.37 and the whale's worst honest face at 1.04. */
-const double kUvOverrunBar = 1.25;
-
-bool FaceOverrunsUv(const TopoDS_Face &face, const Mesh &m,
-                    const std::vector<int> &tris,
-                    const Handle(Geom_Surface) & surf, double tol,
-                    double &ratio)
-{
-    ratio = 1.0;
-    if (face.IsNull() || surf.IsNull() || tris.empty())
-        return false;
-    const bool uPer = surf->IsUPeriodic() != Standard_False;
-    const bool vPer = surf->IsVPeriodic() != Standard_False;
-    if (!uPer && !vPer)
-        return false;
-    try {
-        const UvExtent e = MeasureUv(m, tris, surf, tol);
-        if (!e.ok)
-            return false;
-        Standard_Real fu1, fu2, fv1, fv2;
-        BRepTools::UVBounds(face, fu1, fu2, fv1, fv2);
-        bool over = false;
-        if (uPer && !e.uFull && (e.u2 - e.u1) > 0) {
-            const double r = (fu2 - fu1) / (e.u2 - e.u1);
-            if (r > ratio)
-                ratio = r;
-            if (r > kUvOverrunBar)
-                over = true;
-        }
-        if (vPer && !e.vFull && (e.v2 - e.v1) > 0) {
-            const double r = (fv2 - fv1) / (e.v2 - e.v1);
-            if (r > ratio)
-                ratio = r;
-            if (r > kUvOverrunBar)
-                over = true;
-        }
-        MR_TRACE("      uvchk: patch u[%.4f %.4f]%s v[%.4f %.4f]%s  "
-                 "face u[%.4f %.4f] v[%.4f %.4f]  ratio %.3f%s\n",
-                 e.u1, e.u2, e.uFull ? "(full)" : "", e.v1, e.v2,
-                 e.vFull ? "(full)" : "", fu1, fu2, fv1, fv2, ratio,
-                 over ? "  OVERRUN" : "");
-        return over;
-    } catch (const Standard_Failure &) {
-        return false;
-    }
-}
+ * And it has false positives it cannot tell from the real thing. MeasureUv
+ * finds a periodic extent by taking the largest CYCLIC GAP in the samples,
+ * which assumes the patch is a band. A spherical cap with a slot cut through
+ * it is not: its triangles leave a gap where the slot is, the extent comes
+ * back as the complement, and the face — correctly spanning nearly the whole
+ * circle — measures as wrapping far past it. That is the suite's slotted
+ * dome, and the guard sent its 484-triangle cap to triangles, taking the body
+ * from 5 faces to 487.
+ *
+ * A check that catches nothing real and refuses something sound is worse than
+ * no check. FaceWithinMesh is the bound that survived: it asks the same
+ * question in world space, where a cap with a slot in it has nothing to
+ * explain. */
 
 /* How many wires the face has. A face that overruns and has ONE boundary can
  * be rebuilt on the patch's own parameter rectangle; one with inner wires
@@ -13511,86 +13469,6 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
                  * being 1,650 triangles. FaceIsSound still applies. */
                 const bool freeform = patches[i].fit.kind == kFreeform;
                 for (size_t k = before; k < faces.size(); ++k) {
-                    /* M440. Before the box tests, the one they cannot make:
-                     * has the face wrapped further round a periodic surface
-                     * than its own triangles go? The reference part's
-                     * quarter-cylinder came back as 123.69 degrees of a 90
-                     * degree barrel, and every box it has is the patch's box,
-                     * because wrapping further round a cylinder moves the
-                     * surface by at most r(1-cos) in a direction that box
-                     * already covers.
-                     *
-                     * Refused, the same way an escaped face is, and NOT
-                     * rebuilt on the patch's parameter rectangle. Rebuilding
-                     * was tried and is wrong: the replacement is trimmed by
-                     * the rectangle instead of by the wires its neighbours
-                     * were built against, so the shared edges stop being
-                     * shared. On the butterfly that turned one refused cone
-                     * into a built one and took the shell from closed to
-                     * sixteen free edges. A patch whose face wraps too far
-                     * goes to triangles, which always close.
-                     *
-                     * With EvictOffSurface upstream this fires on nothing in
-                     * the corpus — the reference part's face now measures
-                     * 1.000 of its own extent. It stays as the check that says
-                     * so. */
-                    /* M440. The cheapest and least arguable check first: a
-                     * face outside the mesh's own box is not a face of this
-                     * model. It costs one box comparison and it is the only
-                     * one of these tests that needs no slack beyond the
-                     * tolerance — see FaceWithinMesh. Applied to freeform
-                     * faces too, unlike FaceWithinPatch: the control-net
-                     * overstatement that made that test too strict per-patch
-                     * is nothing against the whole model's box. */
-                    if (!FaceWithinMesh(faces[k], m, tol)) {
-                        /* Rebuilt before it is refused, when there is a
-                         * parameter rectangle that can hold it.
-                         *
-                         * A face outside the mesh box is wrong beyond
-                         * argument, so unlike the UV-overrun case there is
-                         * nothing to lose by replacing it: the alternative is
-                         * not "keep the face", it is "send the whole patch to
-                         * triangles". On the TOKA base that alternative costs
-                         * five real corner fillets and takes the body from 41
-                         * faces to 251.
-                         *
-                         * The replacement is built on the extent the mesh
-                         * states, and it is kept only if it then fits inside
-                         * the box — a rebuild that is still outside is not an
-                         * improvement, it is the same defect at a different
-                         * size. Only single-wire faces: a parameter rectangle
-                         * has no holes in it, and rebuilding one that had
-                         * inner wires would fill them in silently. */
-                        bool remade = false;
-                        if (!surfs[i].IsNull() && WireCount(faces[k]) <= 1) {
-                            std::vector<TopoDS_Face> fix;
-                            if (BuildParametricFace(ctx, m, patches[i],
-                                                    surfs[i], fix) &&
-                                fix.size() == 1 && !fix[0].IsNull() &&
-                                FaceWithinMesh(fix[0], m, tol)) {
-                                faces[k] = fix[0];
-                                remade = true;
-                                MR_TRACE("      patch %d: face was outside the "
-                                         "mesh, rebuilt on its own extent\n",
-                                         (int)i);
-                            }
-                        }
-                        if (!remade) {
-                            built = false;
-                            why = "face reaches outside the mesh";
-                            break;
-                        }
-                    }
-                    double uvRatio = 1.0;
-                    if (!freeform && !surfs[i].IsNull() &&
-                        FaceOverrunsUv(faces[k], m, patches[i].tris, surfs[i],
-                                       tol, uvRatio)) {
-                        MR_TRACE("      patch %d: face spans %.2fx its own uv "
-                                 "extent\n", (int)i, uvRatio);
-                        built = false;
-                        why = "face wraps past its patch";
-                        break;
-                    }
                     if (!freeform &&
                         !FaceWithinPatch(faces[k], m, patches[i].tris, tol)) {
                         built = false;
