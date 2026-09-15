@@ -8,7 +8,7 @@ library;
 
 import 'dart:io' show Platform;
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, visibleForTesting;
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 
@@ -773,7 +773,24 @@ class GlassPanel extends StatelessWidget {
   /// layout that jumps at launch. A program that fails to load costs
   /// refraction, not the surface.
   static bool get isSupported =>
-      !kIsWeb && (Platform.isIOS || LiquidGlass.isAvailable);
+      supportedOverride ?? (!kIsWeb && (Platform.isIOS || LiquidGlass.isAvailable));
+
+  /// Tests only: answer [isSupported] with this instead of asking the platform.
+  ///
+  /// The same seam `RibbonSurface.glassOverride` is, and for a sharper reason.
+  /// EVERY layout decision about the model browser hangs off this getter — a
+  /// floating card with a 14 pt inset and a 24 pt retract strip where it is
+  /// true, an opaque wall beside the viewport where it is false — and on the
+  /// host it is always false. So the branch that actually ships to an iPad and
+  /// to every desktop was, until this existed, the one branch no test in the
+  /// suite could mount. #56 lived in exactly that gap: the panel and the
+  /// rectangle it hands its shader disagreed by 38 pt, and nothing could look.
+  ///
+  /// It changes the LAYOUT only. `LiquidGlass.isAvailable` is untouched, so
+  /// the surface still paints nothing on a host with no Impeller — which is
+  /// what makes this safe to turn on in a widget test.
+  @visibleForTesting
+  static bool? supportedOverride;
 
   @override
   Widget build(BuildContext context) {
