@@ -373,3 +373,38 @@ the model reasoning badly, and each fix is general:
   and CI's macOS build type-checks it. The geometry and the ordering — which is
   the whole substance — are Dart and tested; the Swift is a tree walk and a
   mesh write.
+
+## #54, #55, #56 — a session, not the pipeline
+
+- All three were filed with automatic fixing off (`needs-session`), so nothing
+  in `ci/bugfix` touched them. #54 and #55 had already been traced in a comment
+  each; this pass finished them and took #56 from the pixels.
+
+- **#56's screenshot is real.** Worth writing down, because the first instinct
+  with "white artifacts" is now M406's re-rasterised layer tree (#37) — and
+  that instinct is wrong here. The bundle's `report.md` carries no
+  `screenshotIsLayerTree` note, and an external GPU overlay is IN the image, so
+  it is a window grab. The white is on the screen.
+
+- **Measure the edges before blaming the material.** What resolved #56 was
+  scanning the card's four edges and comparing them with the other glass
+  surfaces in the same frame: top and bottom textbook (contour, hairline, 4 px
+  exponential tail), left blown out for 24 px with the whole rim structure
+  reappearing 38 px in, right rim missing by the same 38 px, and the band, both
+  tab-bar pills and the quick tools correct on every edge. That is a rect/clip
+  disagreement in one panel, not a shader that is wrong everywhere — and the
+  scrim of the bug dialogue is what makes the white read as 175 rather than
+  255, which is also how the card's interior resolves to the tint the dark
+  style predicts.
+
+- **The Dart half is exonerated by a test, not by reading.**
+  `issue56_glass_rect_matches_the_clip_test` builds the browser's own ancestor
+  chain and reports both answers to "where is this panel" — `localToGlobal`,
+  which is what the shader is handed, and the paint offset, which is what the
+  clip is drawn at. They agree. So the 38 px is engine-side, and the fix that
+  could be made from here is that the shader no longer answers a disagreement
+  with an exponential.
+
+- `flutter analyze` 0 errors; `flutter test` 4251 pass. The 3 failures in
+  `m384_import_solid_binding_test.dart` are pre-existing and reproduce on a
+  clean tree — they want the native OCCT kernel, which no Linux session has.
