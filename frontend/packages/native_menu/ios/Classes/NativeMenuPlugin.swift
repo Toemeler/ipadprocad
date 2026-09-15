@@ -298,9 +298,35 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
         // question is asked at all and why it is asked in UIKit.
         case "importChoice":
             var answered = false
+            // THE CARD GOES UP HERE, NOT ON A LATER ROUND TRIP.
+            //
+            // M440. The header of ImportChoiceSheet has always said the
+            // sheet's dismissal is where the busy card appears — "no gap, no
+            // double-tap getting through" — and it was not what the code did:
+            // the reply went back to Dart, Dart sent `busyShow`, and the card
+            // arrived a round trip later, into whatever window was key at that
+            // instant, which while an alert is dismissing is the alert's own.
+            // From the user's side that is a tap followed by nothing at all,
+            // for as long as the conversion takes.
+            //
+            // So the card is raised on this thread, in the same turn as the
+            // choice, before the answer is sent. Dart's own NativeBusy.show
+            // still runs and simply re-labels a card that is already up, so
+            // every other host behaves exactly as it did.
+            let busy = args["busy"] as? [String: Any]
             let reply: (String?) -> Void = { value in
                 if answered { return }
                 answered = true
+                if let v = value, v != "cancel", let b = busy {
+                    let titles = b["titles"] as? [String: String] ?? [:]
+                    let details = b["details"] as? [String: String] ?? [:]
+                    BusyOverlay.shared.show(
+                        title: titles[v] ?? "",
+                        detail: details[v] ?? "",
+                        stages: b["stages"] as? [String] ?? [],
+                        cancelTitle: b["cancelTitle"] as? String ?? "",
+                        cancellingTitle: b["cancellingTitle"] as? String ?? "")
+                }
                 result(value)
             }
             let sheet = ImportChoiceSheet.make(

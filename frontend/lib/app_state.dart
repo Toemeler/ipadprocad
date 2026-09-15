@@ -18661,6 +18661,19 @@ class AppState extends ChangeNotifier {
     // and then fails, after a wait, is a worse dialog than one that says up
     // front why there is only one way in.
     final canFacet = canImportAsTriangles(soup.triangleCount);
+    // The busy card travels WITH the question, so the platform side can raise
+    // it the instant the sheet goes away rather than after a round trip back
+    // through Dart — see the note on `busy` in NativeMenuPlugin. Which card
+    // depends on which way in they pick, so both are sent and the tap chooses.
+    final busyStageNames = MeshStage.names(
+      reading: L.current.meshStageReading,
+      finding: L.current.meshStageFinding,
+      fitting: L.current.meshStageFitting,
+      shaping: L.current.meshStageShaping,
+      building: L.current.meshStageBuilding,
+      finishing: L.current.meshStageFinishing,
+      simplifying: L.current.meshStageSimplifying,
+    );
     final choice = await NativeMenu.importChoice(
       title: L.current.askMeshImportTitle,
       message: L.current.askMeshImportBody(
@@ -18672,6 +18685,19 @@ class AppState extends ChangeNotifier {
           ? L.current.askMeshImportFacetedWhy
           : L.current.askMeshImportTooManyFaceted(kMaxFacetedTriangles),
       cancelLabel: L.current.cancel,
+      busyTitles: {
+        MeshImportChoice.convert.id: L.current.msgMeshConvertTitle,
+        MeshImportChoice.faceted.id: L.current.msgMeshBuildTitle,
+      },
+      busyDetails: {
+        MeshImportChoice.convert.id:
+            L.current.msgMeshConverting(soup.triangleCount),
+        MeshImportChoice.faceted.id:
+            L.current.msgMeshBuilding(soup.triangleCount),
+      },
+      busyStages: busyStageNames,
+      busyCancelTitle: L.current.cancel,
+      busyCancellingTitle: L.current.actionCancelling,
     );
     if (choice == null && NativeMenu.isSupported) {
       Log.milestone('import', 'mesh: cancelled at the import dialog');
@@ -18707,15 +18733,7 @@ class AppState extends ChangeNotifier {
       busyTitle,
       busyDetail,
       // The card is UIKit and has no localisations of its own.
-      stages: MeshStage.names(
-        reading: L.current.meshStageReading,
-        finding: L.current.meshStageFinding,
-        fitting: L.current.meshStageFitting,
-        shaping: L.current.meshStageShaping,
-        building: L.current.meshStageBuilding,
-        finishing: L.current.meshStageFinishing,
-        simplifying: L.current.meshStageSimplifying,
-      ),
+      stages: busyStageNames,
       cancelTitle: L.current.cancel,
       cancellingTitle: L.current.actionCancelling,
     );
@@ -18805,11 +18823,8 @@ class AppState extends ChangeNotifier {
         solid.dispose(); // the file is the source of truth from here on
       }
     }
-    // Everything that blocks the isolate is done: the conversion, the STEP
-    // write and the read back, all native calls and on a big model not fast
-    // ones.
-    await NativeBusy.hide();
     if (rel == null) {
+      await NativeBusy.hide();
       // Without a file on disk the body would come back empty on reopen, and
       // geometry that vanishes without explanation is the worse failure.
       solid.dispose();
@@ -18839,6 +18854,24 @@ class AppState extends ChangeNotifier {
         'mesh: done, ${bodies.length} body/bodies (rss ${Log.rssMb() ?? -1} MB)');
     toast(_meshSuccessMessage(res.report));
     notifyListeners();
+
+    // THE CARD COMES DOWN WHEN THE MODEL IS ON SCREEN, NOT WHEN THE KERNEL
+    // RETURNS.
+    //
+    // M440. It used to be hidden as soon as the conversion, the STEP write and
+    // the read-back were done — with the features not yet appended, the part
+    // not rebuilt, not saved, and not a single frame of the new body drawn.
+    // Everything after that point runs on the isolate too, so what the user
+    // got was the bar vanishing and THEN a wait on an unchanged screen, which
+    // is the one moment in the whole import where an app looks broken:
+    // finished, and nothing to show for it.
+    //
+    // `endOfFrame` completes after the next frame is rendered, and
+    // notifyListeners above is what makes that frame the one carrying the new
+    // geometry. So the card is up from the tap to the picture, without a gap
+    // at either end.
+    await WidgetsBinding.instance.endOfFrame;
+    await NativeBusy.hide();
     return bodies.length;
   }
 

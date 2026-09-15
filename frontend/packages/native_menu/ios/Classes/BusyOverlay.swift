@@ -490,12 +490,37 @@ final class BusyOverlay {
         }
     }
 
+    /// The window the card belongs in: the one showing the Flutter view.
+    ///
+    /// NOT the key window. A UIAlertController presents itself in a window of
+    /// its own, which is KEY for as long as it is up and is torn down when it
+    /// finishes dismissing — and the card goes up in the moment the import
+    /// sheet is going away, so "the key window" is exactly the wrong answer at
+    /// exactly the wrong time: the card would be added to a window that is
+    /// about to be destroyed, and the user would watch a whole conversion with
+    /// nothing on screen. The card belongs over the FlutterView, so that is
+    /// what is looked for, and the old sweep is only the fallback for a host
+    /// that somehow has none.
     private static func keyWindow() -> UIWindow? {
+        for scene in UIApplication.shared.connectedScenes {
+            guard let ws = scene as? UIWindowScene else { continue }
+            for w in ws.windows where !w.isHidden {
+                if let root = w.rootViewController, hostsFlutter(root) {
+                    return w
+                }
+            }
+        }
         for scene in UIApplication.shared.connectedScenes {
             guard let ws = scene as? UIWindowScene else { continue }
             if let w = ws.windows.first(where: { $0.isKeyWindow }) { return w }
             if let w = ws.windows.first { return w }
         }
         return nil
+    }
+
+    private static func hostsFlutter(_ vc: UIViewController) -> Bool {
+        if vc is FlutterViewController { return true }
+        for child in vc.children where hostsFlutter(child) { return true }
+        return false
     }
 }

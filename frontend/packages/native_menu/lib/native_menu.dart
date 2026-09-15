@@ -540,6 +540,11 @@ class NativeMenu {
     required String? facetedLabel,
     required String facetedDetail,
     String cancelLabel = 'Cancel',
+    Map<String, String> busyTitles = const {},
+    Map<String, String> busyDetails = const {},
+    List<String> busyStages = const [],
+    String busyCancelTitle = '',
+    String busyCancellingTitle = '',
   }) async {
     if (!hasFileSurfaces) return null;
     final id = await _invoke<String>('importChoice', {
@@ -550,6 +555,18 @@ class NativeMenu {
       if (facetedLabel != null) 'facetedLabel': facetedLabel,
       'facetedDetail': facetedDetail,
       'cancelLabel': cancelLabel,
+      // The busy card, so the platform side can raise it in the same turn as
+      // the choice instead of waiting for Dart to ask on a second round trip.
+      // Keyed by choice id: which card goes up depends on which way in the
+      // user picked, and only they know that when the tap lands.
+      if (busyTitles.isNotEmpty)
+        'busy': {
+          'titles': busyTitles,
+          'details': busyDetails,
+          'stages': busyStages,
+          'cancelTitle': busyCancelTitle,
+          'cancellingTitle': busyCancellingTitle,
+        },
     });
     return MeshImportChoice.byId(id);
   }
