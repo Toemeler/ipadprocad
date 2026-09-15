@@ -41,6 +41,8 @@
 #include <Bnd_Box.hxx>
 #include <BOPAlgo_CheckerSI.hxx>
 #include <BOPDS_DS.hxx>
+#include <BOPDS_Interf.hxx>
+#include <BOPDS_MapOfPair.hxx>
 #include <TopTools_ListOfShape.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
@@ -54,6 +56,9 @@
 #include <GeomAPI_ProjectPointOnSurf.hxx>
 #include <STEPControl_Reader.hxx>
 #include <Geom_Surface.hxx>
+#include <BRepTopAdaptor_FClass2d.hxx>
+#include <Precision.hxx>
+#include <gp_Pnt2d.hxx>
 #include <gp_Pnt.hxx>
 #include <gp_Vec.hxx>
 
@@ -110,6 +115,21 @@ const char *StatusName(BRepCheck_Status s)
     }
 }
 
+std::string SurfKindOf(const TopoDS_Face &f);
+
+const char *ShapeTypeName(TopAbs_ShapeEnum t)
+{
+    switch (t) {
+    case TopAbs_VERTEX: return "vertex";
+    case TopAbs_EDGE: return "edge";
+    case TopAbs_WIRE: return "wire";
+    case TopAbs_FACE: return "face";
+    case TopAbs_SHELL: return "shell";
+    case TopAbs_SOLID: return "solid";
+    default: return "shape";
+    }
+}
+
 const char *SurfName(GeomAbs_SurfaceType t)
 {
     switch (t) {
@@ -124,6 +144,16 @@ const char *SurfName(GeomAbs_SurfaceType t)
     case GeomAbs_SurfaceOfExtrusion: return "extrusion";
     case GeomAbs_OffsetSurface: return "offset";
     default: return "other";
+    }
+}
+
+std::string SurfKindOf(const TopoDS_Face &f)
+{
+    try {
+        BRepAdaptor_Surface ad(f, Standard_False);
+        return SurfName(ad.GetType());
+    } catch (const Standard_Failure &) {
+        return "?";
     }
 }
 
@@ -160,15 +190,84 @@ int main(int argc, char **argv)
     }
     const char *path = argv[1];
     const char *refPath = nullptr;
+    int oneFace = 0;
     for (int i = 2; i < argc; ++i) {
         const std::string a = argv[i];
         if (a == "--ref" && i + 1 < argc) refPath = argv[++i];
+        if (a == "--face" && i + 1 < argc) oneFace = std::atoi(argv[++i]);
     }
 
     TopoDS_Shape s;
     if (!ReadShape(path, s) || s.IsNull()) {
         std::fprintf(stderr, "cannot read %s\n", path);
         return 1;
+    }
+
+    /* --face N: everything known about ONE face, for when the body-level
+     * numbers say a face is wrong and the question is HOW. */
+    if (oneFace > 0) {
+        TopTools_IndexedMapOfShape fm;
+        TopExp::MapShapes(s, TopAbs_FACE, fm);
+        if (oneFace > fm.Extent()) {
+            std::fprintf(stderr, "only %d faces\n", fm.Extent());
+            return 1;
+        }
+        const TopoDS_Face f = TopoDS::Face(fm(oneFace));
+        BRepAdaptor_Surface ad(f, Standard_False);
+        const Handle(Geom_Surface) su = BRep_Tool::Surface(f);
+        Standard_Real u0, u1, v0, v1;
+        BRepTools::UVBounds(f, u0, u1, v0, v1);
+        std::printf("face=%d kind=%s u=[%g %g] v=[%g %g] tol=%g\n", oneFace,
+                    SurfKindOf(f).c_str(), u0, u1, v0, v1,
+                    BRep_Tool::Tolerance(f));
+        BRepTopAdaptor_FClass2d cls(f, Precision::Confusion());
+        const int N = 60;
+        std::vector<gp_Pnt> pts;
+        std::vector<double> pu, pv;
+        int flipped = 0;
+        gp_Vec nAvg(0, 0, 0);
+        std::vector<gp_Vec> nrm;
+        for (int a = 0; a <= N; ++a)
+            for (int b = 0; b <= N; ++b) {
+                const double uu = u0 + (u1 - u0) * a / N;
+                const double vv = v0 + (v1 - v0) * b / N;
+                if (cls.Perform(gp_Pnt2d(uu, vv)) == TopAbs_OUT) continue;
+                GeomLProp_SLProps pr(su, uu, vv, 1, 1e-9);
+                if (!pr.IsNormalDefined()) continue;
+                pts.push_back(pr.Value());
+                pu.push_back(uu); pv.push_back(vv);
+                gp_Vec n(pr.Normal());
+                nrm.push_back(n);
+                nAvg += n;
+            }
+        if (nAvg.Magnitude() > 0) nAvg.Normalize();
+        double worstAng = 0;
+        for (size_t i = 0; i < nrm.size(); ++i) {
+            const double ang = nAvg.Angle(nrm[i]) * 180.0 / M_PI;
+            if (ang > worstAng) worstAng = ang;
+            if (ang > 90) ++flipped;
+        }
+        /* The closest approach between two parts of the face that are FAR
+         * apart in parameter: that is what a self-intersection is. */
+        double closest = 1e300;
+        double cu1 = 0, cv1 = 0, cu2 = 0, cv2 = 0;
+        const double duFar = 0.15 * (u1 - u0), dvFar = 0.15 * (v1 - v0);
+        for (size_t i = 0; i < pts.size(); ++i)
+            for (size_t j = i + 1; j < pts.size(); ++j) {
+                if (std::fabs(pu[i] - pu[j]) < duFar &&
+                    std::fabs(pv[i] - pv[j]) < dvFar)
+                    continue;
+                const double d = pts[i].Distance(pts[j]);
+                if (d < closest) {
+                    closest = d; cu1 = pu[i]; cv1 = pv[i];
+                    cu2 = pu[j]; cv2 = pv[j];
+                }
+            }
+        std::printf("face.samples=%d normal_spread_deg=%.2f flipped=%d\n",
+                    (int)pts.size(), worstAng, flipped);
+        std::printf("face.closest_far_approach=%.6f at (%g,%g)-(%g,%g)\n",
+                    closest, cu1, cv1, cu2, cv2);
+        return 0;
     }
 
     int problems = 0;
@@ -219,6 +318,75 @@ int main(int argc, char **argv)
     }
 
     /* ---- self-intersection ---- */
+    /* WHICH FACE, on its own.
+     *
+     * M440. A pair of indices from the whole-body check says two faces cross;
+     * it does not say whether the fault is in one of them. A face that
+     * intersects ITSELF is a different and worse bug — the surface under it
+     * folds — and the whole-body check reports it as the pair (n, n), which is
+     * easy to read past. So each face is also checked alone, which is both
+     * authoritative and fast (the whale: 91 seconds for the body, under two
+     * for all 195 faces one at a time). */
+    {
+        TopTools_IndexedMapOfShape fm;
+        TopExp::MapShapes(s, TopAbs_FACE, fm);
+        int folded = 0;
+        std::map<std::string, int> byKind, allWhat;
+        for (int i = 1; i <= fm.Extent(); ++i) {
+            const TopoDS_Face f = TopoDS::Face(fm(i));
+            try {
+                BOPAlgo_CheckerSI ck;
+                TopTools_ListOfShape one;
+                one.Append(f);
+                ck.SetArguments(one);
+                ck.SetLevelOfCheck(9);
+                ck.SetRunParallel(Standard_False);
+                ck.Perform();
+                BOPDS_DS &d1 = const_cast<BOPDS_DS &>(ck.DS());
+                if (d1.Interferences().Size() > 0) {
+                    ++folded;
+                    byKind[SurfKindOf(f)]++;
+                    /* WHAT kind of interference. A surface that folds shows up
+                     * as face/face; a boundary that crosses itself, or a
+                     * vertex whose inflated tolerance swallows one of its own
+                     * edges, shows up as vertex/edge or edge/edge — a
+                     * completely different bug with a completely different
+                     * fix. */
+                    std::map<std::string, int> what;
+                    for (BOPDS_MapOfPair::Iterator it(d1.Interferences());
+                         it.More(); it.Next()) {
+                        Standard_Integer a = 0, b = 0;
+                        it.Value().Indices(a, b);
+                        const char *k1 = ShapeTypeName(d1.Shape(a).ShapeType());
+                        const char *k2 = ShapeTypeName(d1.Shape(b).ShapeType());
+                        std::string key = std::string(k1) < std::string(k2)
+                                              ? std::string(k1) + "/" + k2
+                                              : std::string(k2) + "/" + k1;
+                        what[key]++;
+                        allWhat[key]++;
+                    }
+                    if (folded <= 6) {
+                        std::printf("face.folds=%d kind=%s", i,
+                                    SurfKindOf(f).c_str());
+                        for (std::map<std::string, int>::const_iterator w =
+                                 what.begin(); w != what.end(); ++w)
+                            std::printf(" %s:%d", w->first.c_str(), w->second);
+                        std::printf("\n");
+                    }
+                }
+            } catch (const Standard_Failure &) {
+            }
+        }
+        std::printf("faces_self_intersecting=%d\n", folded);
+        for (std::map<std::string, int>::const_iterator it = byKind.begin();
+             it != byKind.end(); ++it)
+            std::printf("face.folds.%s=%d\n", it->first.c_str(), it->second);
+        for (std::map<std::string, int>::const_iterator it = allWhat.begin();
+             it != allWhat.end(); ++it)
+            std::printf("face.folds.what.%s=%d\n", it->first.c_str(),
+                        it->second);
+    }
+
     {
         int pairs = -1;
         try {
@@ -228,8 +396,55 @@ int main(int argc, char **argv)
             ck.SetLevelOfCheck(9);
             ck.SetRunParallel(Standard_False);
             ck.Perform();
-            const BOPDS_DS &ds = ck.DS();
+            BOPDS_DS &ds = const_cast<BOPDS_DS &>(ck.DS());
             pairs = static_cast<int>(ds.Interferences().Size());
+            /* WHICH faces cross, not just how many. A count says the body is
+             * unusable; the pairs say where to look, and on a fitted organic
+             * model the answer — B-spline against B-spline, or B-spline
+             * against its own neighbour — is the difference between a fitting
+             * bug and a sewing one. */
+            /* WHICH sub-shapes cross, not just how many. A count says the
+             * body is unusable; the pairs say where to look, and on a fitted
+             * organic model "B-spline against B-spline" and "plane against
+             * its own neighbour" are different bugs.
+             *
+             * ds.Interferences() and not InterfFF: the FF vector holds every
+             * pair the checker LOOKED at, adjacent faces that legitimately
+             * share an edge included — 1,247 of them on the whale against 142
+             * real ones. Only the map is the verdict. */
+            if (pairs > 0) {
+                TopTools_IndexedMapOfShape fm;
+                TopExp::MapShapes(s, TopAbs_FACE, fm);
+                std::map<std::string, int> byKind;
+                int shown = 0;
+                for (BOPDS_MapOfPair::Iterator it(ds.Interferences());
+                     it.More(); it.Next()) {
+                    Standard_Integer i1 = 0, i2 = 0;
+                    it.Value().Indices(i1, i2);
+                    const TopoDS_Shape &s1 = ds.Shape(i1);
+                    const TopoDS_Shape &s2 = ds.Shape(i2);
+                    const std::string k1 =
+                        s1.ShapeType() == TopAbs_FACE
+                            ? SurfKindOf(TopoDS::Face(s1))
+                            : std::string(ShapeTypeName(s1.ShapeType()));
+                    const std::string k2 =
+                        s2.ShapeType() == TopAbs_FACE
+                            ? SurfKindOf(TopoDS::Face(s2))
+                            : std::string(ShapeTypeName(s2.ShapeType()));
+                    byKind[k1 < k2 ? k1 + "/" + k2 : k2 + "/" + k1]++;
+                    if (shown++ < 12)
+                        std::printf("selfint.pair=%d,%d %s/%s\n",
+                                    s1.ShapeType() == TopAbs_FACE
+                                        ? fm.FindIndex(s1) : -1,
+                                    s2.ShapeType() == TopAbs_FACE
+                                        ? fm.FindIndex(s2) : -1,
+                                    k1.c_str(), k2.c_str());
+                }
+                for (std::map<std::string, int>::const_iterator it =
+                         byKind.begin(); it != byKind.end(); ++it)
+                    std::printf("selfint.kinds.%s=%d\n", it->first.c_str(),
+                                it->second);
+            }
         } catch (const Standard_Failure &e) {
             std::printf("selfint.error=%s\n", e.GetMessageString() ? e.GetMessageString() : "?");
         }
