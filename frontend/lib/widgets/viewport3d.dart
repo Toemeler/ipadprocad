@@ -40,6 +40,7 @@ import '../text_focus.dart';
 import '../work_features.dart';
 import '../svg_icons.dart' show homeTabIcon;
 import '../icon_preview.dart';
+import '../device_class.dart' show isPhoneDevice;
 import '../theme.dart';
 import 'package:native_menu/native_menu.dart'
     show GlassBrowser, GlassPanel, NativeMenu, NativeMenuItem;
@@ -1142,7 +1143,7 @@ class _Viewport3DState extends State<Viewport3D>
             child: IgnorePointer(
                 child: CustomPaint(
                     painter: TriadPainter(p.camera),
-                    size: const Size(118, 118))),
+                    size: Size(triadBox(), triadBox()))),
           )
         else
           Positioned(
@@ -1151,7 +1152,7 @@ class _Viewport3DState extends State<Viewport3D>
               child: IgnorePointer(
                   child: CustomPaint(
                       painter: TriadPainter(p.camera),
-                      size: const Size(118, 118)))),
+                      size: Size(triadBox(), triadBox())))),
         if (app.message != null)
           Positioned(
             left: 0,
@@ -4229,14 +4230,65 @@ class _CubePainter extends CustomPainter {
 }
 
 /// The bottom-left coordinate triad. Public for the same reason [ViewCube] is.
+/// #55 — how big the coordinate triad is drawn, in points.
+///
+/// The painter puts the world origin at the CENTRE of this box, because the
+/// axes swing through every direction as the camera orbits and the glyph has
+/// to fit whichever way they point. So HALF of this is the gap between the
+/// screen's corner and the point the triad actually marks — and that gap is
+/// the whole of what was left of "the Triad too should move Left when Modell
+/// Browser is retracted" (#55) once the ribbon's own 18 pt strip was gone
+/// (#52) and [NativeModelBrowser.triadInset] had returned the panel's inset to
+/// zero. Both of those were already right; the triad still read as standing
+/// out in the room, because the box it is centred in is 118 pt wide.
+///
+/// On an iPad or a desktop that is a sixteenth of the window and nobody has
+/// ever minded. On the 390 pt phone the report came from it is 59 pt — a
+/// SEVENTH of the screen — so the corner still looks occupied after the
+/// browser has left it.
+///
+/// The phone therefore gets a smaller glyph rather than a clipped one: the box
+/// cannot simply be trimmed, since the axes and their labels already reach
+/// within a point or two of its edge (see [TriadPainter.halfHeightFor], which
+/// is what keeps that true for any box rather than leaving it to a number that
+/// happened to be right once).
+double triadBox() => isPhoneDevice() ? 86 : 118;
+
 class TriadPainter extends CustomPainter {
   final PartCamera camera;
   TriadPainter(this.camera);
 
+  /// How far past its anchor the furthest glyph puts ink, in points.
+  ///
+  /// The labels are the outermost thing the painter draws — parked at 1.28
+  /// world units along an axis and CENTRED on that point — so this is half a
+  /// 12 pt bold "X"/"Y"/"Z" plus the arrow's own half-width, whichever way the
+  /// axis happens to be pointing.
+  static const double labelReach = 8;
+
+  /// The world half-height to draw a triad at, for a box that is [half] points
+  /// from its centre to its edge.
+  ///
+  /// The furthest ink sits at `1.28 * half / halfH + labelReach` points from
+  /// the origin, where `half / halfH` is points per world unit. Solving that
+  /// against [half] is what keeps a smaller box from clipping the X or the Z
+  /// arrow at some camera angles and not others — the box cannot be scaled on
+  /// its own, because the label's type does not scale with it.
+  ///
+  /// Floored at the 1.5 the triad has always been drawn at, so the box every
+  /// platform but the phone still uses comes out at exactly the glyph it
+  /// already had: 118 pt solves to 1.481, and this returns 1.5.
+  static double halfHeightFor(double half) => math.max(
+      1.5, 1.28 * half / math.max(half - labelReach, 1.0));
+
   @override
   void paint(Canvas canvas, Size size) {
-    final cam =
-        Cam3(PartCamera(az: camera.az, pol: camera.pol, halfH: 1.5), size);
+    final cam = Cam3(
+        PartCamera(
+            az: camera.az,
+            pol: camera.pol,
+            halfH: halfHeightFor(size.height / 2)),
+        size);
     void arrow(Vec3 d, Color col, String label) {
       final a = cam.project(Vec3.zero), b = cam.project(d);
       final p = Paint()
