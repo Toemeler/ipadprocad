@@ -1437,6 +1437,16 @@ class ExtrudeSession {
   }
 }
 
+/// How long a caller will wait for the frame that carries new geometry before
+/// giving up on seeing it.
+///
+/// M440 keeps the busy card up until that frame is on screen; this is the
+/// ceiling on that wait, so a pipeline which is not producing frames — a test
+/// driving AppState directly, an app in the background — costs the card's
+/// last beat rather than the import's return value. See the note at the end of
+/// [AppState.importMeshIntoPart], which is the one place it applies.
+const Duration _kFramePresentWait = Duration(seconds: 1);
+
 class AppState extends ChangeNotifier {
   /// Scratch used only while parsing a part sidecar: sketch name -> stored
   /// visibility (null = key absent in a legacy file).
@@ -18870,7 +18880,28 @@ class AppState extends ChangeNotifier {
     // notifyListeners above is what makes that frame the one carrying the new
     // geometry. So the card is up from the tap to the picture, without a gap
     // at either end.
-    await WidgetsBinding.instance.endOfFrame;
+    //
+    // BOUNDED, THOUGH, BECAUSE A FRAME IS NOT SOMETHING THIS METHOD CAN
+    // PROMISE. `endOfFrame` schedules one if the binding is idle, which is
+    // enough in the app and is exactly nothing under
+    // `AutomatedTestWidgetsFlutterBinding`, where `scheduleFrame` is inert and
+    // a frame happens only when a test pumps. An import driven straight off
+    // AppState therefore waited for a frame that was never coming — and took
+    // its own Future down with it, because this await is the last thing
+    // between here and the return. `mesh: done` in the log, the card still up,
+    // and every caller of [importMeshIntoPart] stopped behind an await that
+    // never completes: that is M384's three mesh cases timing out at 30 s
+    // apiece, which is what red main was made of. A backgrounded app is the
+    // same shape for a real user — the engine stops producing frames there, so
+    // an import finished with the app away would not return until it came
+    // back.
+    //
+    // A card that comes down a beat early is a cosmetic miss. An import that
+    // never returns is not. So the wait is capped well above the frame it is
+    // actually waiting for — 16 ms at 60 Hz, a few hundred after a rebuild
+    // this size — and far below anything a person would call a hang.
+    await WidgetsBinding.instance.endOfFrame
+        .timeout(_kFramePresentWait, onTimeout: () {});
     await NativeBusy.hide();
     return bodies.length;
   }
