@@ -129,4 +129,14 @@ if(OCCT_SMOKE)
     add_executable(occt_boolean_check tests/boolean_check.cpp)
     target_link_libraries(occt_boolean_check PRIVATE occt_capi
         TKBO TKPrim Threads::Threads ${CMAKE_DL_LIBS})
+
+    # M440 — what the progress bar would actually have DONE, for one model.
+    # The suite checks the bar's invariants (never backwards, never past the
+    # ceiling); it cannot check that the thing a person watches for ten
+    # seconds moves during those ten seconds. This prints the percentages a
+    # viewer would have seen, against the clock, and is how "nothing, then a
+    # flash of bar, then the model" was found and fixed.
+    add_executable(occt_bar_watch tests/bar_watch.cpp)
+    target_link_libraries(occt_bar_watch PRIVATE occt_capi
+        Threads::Threads ${CMAKE_DL_LIBS})
 endif()

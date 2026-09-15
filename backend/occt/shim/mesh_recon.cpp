@@ -51,6 +51,10 @@
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
+#include <BRepAlgoAPI_Fuse.hxx>
+#include <BRepPrimAPI_MakePrism.hxx>
+#include <GC_MakeArcOfCircle.hxx>
+#include <GC_MakeCircle.hxx>
 #include <BRepBuilderAPI_MakeSolid.hxx>
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepBndLib.hxx>
@@ -111,6 +115,7 @@
 #include <Poly_PolygonOnTriangulation.hxx>
 #include <Poly_Triangulation.hxx>
 #include <queue>
+#include <BRepAdaptor_Curve.hxx>
 #include <TopExp.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
 #include <TopTools_DataMapOfShapeInteger.hxx>
@@ -175,15 +180,40 @@ std::atomic<int> g_total(0);
  * stage is clamped to its own span. */
 struct Span { double a, b; };
 
+/* Which set of spans is in force.
+ *
+ * M440. The prism path is a DIFFERENT job with a different shape, and reusing
+ * the fitted path's spans for it puts the bar at half a per cent for the whole
+ * conversion: everything the prism path does happens under what the fitted
+ * path calls "reading the model". Measured on the butterfly bookmark, 10.8 s
+ * end to end: cap regions 0.0%, profiles and sweeps 1.6%, the fuse 48.4%,
+ * checking the volume and validity 25.4%, certifying 24.9% — so those are the
+ * spans below, and the last three are opaque OCCT calls the bar has to ease
+ * across rather than count. */
+std::atomic<bool> g_prismPath(false);
+
 Span SpanOf(int stage)
 {
+    if (g_prismPath.load(std::memory_order_relaxed)) {
+        switch (stage) {
+        case kStageWelding:    return {0.000, 0.020};
+        case kStageSegmenting: return {0.020, 0.040};
+        case kStageBuilding:   return {0.040, 0.120};
+        case kStageMerging:    return {0.120, 0.550};
+        case kStageSewing:     return {0.550, 1.000};
+        default:               return {0.0, 0.0};
+        }
+    }
     switch (stage) {
     case kStageWelding:    return {0.000, 0.005};
     case kStageSegmenting: return {0.005, 0.010};
     case kStageFitting:    return {0.010, 0.660};
     case kStageFreeform:   return {0.660, 0.720};
     case kStageBuilding:   return {0.720, 0.800};
-    case kStageFaceted:    return {0.000, 0.450};
+    /* Starts where welding ended, not at zero: the spans have to PARTITION
+     * the bar, and an overlap here only ever hid behind the fact that the bar
+     * refuses to retreat. */
+    case kStageFaceted:    return {0.005, 0.450};
     case kStageMerging:    return {0.610, 1.000};
     /* Sewing ends both paths, and starts wherever the path before it ended. */
     case kStageSewing:     return {0.800, 1.000};
@@ -276,6 +306,21 @@ void SetStage(int stage, int total)
     PublishOverall();
 }
 
+/* Puts the bar back to nothing.
+ *
+ * M440. Only for the one case that needs it: the prism path got far enough up
+ * its own span to move the bar and then handed the model to the general path
+ * after all. `g_overall` never retreats on its own — a bar that goes backwards
+ * reads as work being undone — so without this the general path would run its
+ * first half against a bar frozen where the abandoned attempt left it. One
+ * visible reset, once, is the honest reading of "that did not work, starting
+ * the other way". */
+void RestartBar()
+{
+    g_overall.store(0, std::memory_order_relaxed);
+    g_ceiling.store(0, std::memory_order_relaxed);
+}
+
 void SetDone(int done)
 {
     g_done.store(done, std::memory_order_relaxed);
@@ -307,6 +352,10 @@ struct StageGuard
      * for, and to no other. */
     StageGuard() { g_cancel.store(false, std::memory_order_relaxed); }
 
+    /* The prism path either takes the model or hands it to the general one,
+     * and the spans have to follow. Reset here so the next conversion cannot
+     * inherit the last one's shape. */
+
     ~StageGuard()
     {
         SetStage(kStageIdle, 0);
@@ -315,6 +364,7 @@ struct StageGuard
         /* A cancellation is consumed by the run it stopped. Leaving it set
          * would cancel the NEXT import before it drew a triangle. */
         g_cancel.store(false, std::memory_order_relaxed);
+        g_prismPath.store(false, std::memory_order_relaxed);
     }
 };
 
@@ -9530,6 +9580,786 @@ bool FaceWithinMesh(const TopoDS_Face &face, const Mesh &m, double tol)
     }
 }
 
+/* ---- M440: a prism is not a pile of surfaces, it is a prism ------------
+ *
+ * Four of the seven models in the corpus are extrusions — a closed profile
+ * swept along one axis — and the general pipeline has no idea. It segments
+ * them, fits each wall separately, invents B-splines where the profile
+ * curves, and sews the pieces back together. On the butterfly bookmark that
+ * produces 1,444 faces including 38 B-splines and 210 faceted patches, and
+ * the body it produces is destroyed by the first boolean: cut in half it
+ * comes back as two faces and 0.84 mm3 of a 6,296 mm3 part.
+ *
+ * Yet the butterfly is a PURE prism. Every one of its 10,714 triangles is
+ * either a cap perpendicular to z or a wall containing z — measured, the
+ * worst wall is 1.15 degrees off vertical, which is float32 wobble in an STL
+ * and nothing else. A prism built as a prism has no seams to get wrong,
+ * because there is only one face per profile segment and two caps, and every
+ * edge is exact by construction.
+ *
+ * So: recognise it, and build it with BRepPrimAPI_MakePrism, which is the
+ * kernel's own sweep and produces topology no sewing has to guess at.
+ *
+ * The test is deliberately strict — the whole point is that this path is only
+ * taken when the answer is certain — and the result is verified against the
+ * mesh before it is accepted, so a prism that comes out the wrong size loses
+ * to the general path rather than replacing it. */
+
+/* Is this mesh a prism, and along which axis? */
+bool PrismAxis(const Mesh &m, V3 &axis, double &lo, double &hi)
+{
+    if (m.triCount() < 4)
+        return false;
+    /* Candidates: the three global axes, then the most common face normal.
+     * A prism's walls all contain the axis, so the axis is perpendicular to
+     * the most-represented normal direction — but trying the globals first is
+     * cheaper and covers every model in the corpus. */
+    V3 cands[4] = {V3(1, 0, 0), V3(0, 1, 0), V3(0, 0, 1), V3(0, 0, 0)};
+    {   /* the largest-area normal is a cap normal on a prism */
+        double best = -1;
+        for (int t = 0; t < m.triCount(); ++t) {
+            if (m.tarea[t] > best) {
+                best = m.tarea[t];
+                cands[3] = m.tnorm[t];
+            }
+        }
+    }
+    /* 2 degrees: float32 STL wobble on a wall measured 1.15 on the butterfly,
+     * and a real draft angle on a moulded part is several degrees at least, so
+     * this separates the two without argument. */
+    const double capBar = std::cos(2.0 * M_PI / 180.0);
+    const double wallBar = std::sin(2.0 * M_PI / 180.0);
+    for (const V3 &c : cands) {
+        if (!(Norm(c) > 0.5))
+            continue;
+        const V3 d = Unit(c);
+        bool ok = true;
+        double capArea = 0, wallArea = 0;
+        for (int t = 0; ok && t < m.triCount(); ++t) {
+            const double x = std::fabs(Dot(m.tnorm[t], d));
+            if (x >= capBar)
+                capArea += m.tarea[t];
+            else if (x <= wallBar)
+                wallArea += m.tarea[t];
+            else
+                ok = false;
+        }
+        if (!ok || !(capArea > 0) || !(wallArea > 0)) {
+            MR_TRACE("  prism: axis (%.2f %.2f %.2f) rejected — %s\n", d.x,
+                     d.y, d.z,
+                     !ok ? "a face is neither cap nor wall"
+                         : (capArea > 0 ? "no walls" : "no caps"));
+            continue;
+        }
+        /* Every cap-facing triangle has to be FLAT — all three of its
+         * vertices at one height — but there may be several such heights. A
+         * plate with a shelf milled into it is not one prism and is still
+         * entirely prismatic: the butterfly bookmark has three levels, with a
+         * 919 mm2 shelf at the middle one, and it is built here as slabs. */
+        double a = 1e300, b = -1e300;
+        for (const V3 &p : m.pos) {
+            const double u = Dot(p, d);
+            a = std::min(a, u);
+            b = std::max(b, u);
+        }
+        if (!(b - a > m.diagonal * 1e-6))
+            continue;
+        const double band = std::max(m.diagonal * 1e-5, (b - a) * 1e-4);
+        bool flat = true;
+        for (int t = 0; flat && t < m.triCount(); ++t) {
+            if (std::fabs(Dot(m.tnorm[t], d)) < capBar)
+                continue;
+            const double u0 = Dot(m.pos[m.tri[t * 3]], d);
+            for (int k = 1; k < 3; ++k)
+                if (std::fabs(Dot(m.pos[m.tri[t * 3 + k]], d) - u0) > band)
+                    flat = false;
+        }
+        if (!flat) {
+            MR_TRACE("  prism: axis (%.2f %.2f %.2f) rejected — a cap-facing "
+                     "triangle is not flat\n", d.x, d.y, d.z);
+            continue;
+        }
+        axis = d;
+        lo = a;
+        hi = b;
+        return true;
+    }
+    return false;
+}
+
+/* One profile ring -> a wire of lines and arcs.
+ *
+ * A tessellated profile is a polyline, and building one edge per segment is
+ * correct and useless: the butterfly's outline is 2,638 segments, which is
+ * 2,638 wall faces for a shape a person would draw with a few hundred. So
+ * each ring is segmented greedily into the longest runs that a straight line
+ * or a circular arc fits within tolerance, exactly as a person reading the
+ * drawing would.
+ *
+ * Greedy rather than optimal on purpose. The optimal segmentation of a noisy
+ * polyline is a dynamic program over every start and end, and the difference
+ * it buys is a few per cent of the primitive count on a shape whose profile
+ * was quantised to float32 anyway. What matters is that every primitive is
+ * within tolerance of every point it claims, which is checked here, and that
+ * the ring still closes, which is why the last run is always joined back to
+ * the first vertex. */
+bool FitRingArc(const std::vector<gp_Pnt> &p, size_t a, size_t b, size_t n,
+                const gp_Dir &up, double tol, gp_Circ &out)
+{
+    const size_t cnt = (b >= a) ? (b - a + 1) : (n - a + b + 1);
+    if (cnt < 4)
+        return false;
+    /* Circle through the first, middle and last point, then verified against
+     * every point in the run — three points always define a circle, so the
+     * verification is the whole test. */
+    const gp_Pnt &p0 = p[a % n];
+    const gp_Pnt &p1 = p[(a + cnt / 2) % n];
+    const gp_Pnt &p2 = p[b % n];
+    gp_Circ c;
+    try {
+        GC_MakeCircle mk(p0, p1, p2);
+        if (!mk.IsDone())
+            return false;
+        c = mk.Value()->Circ();
+    } catch (const Standard_Failure &) {
+        return false;
+    }
+    if (!(c.Radius() > 0) || c.Radius() > 1e8)
+        return false;
+    double worst = 0;
+    for (size_t i = 0; i < cnt; ++i) {
+        const gp_Pnt &q = p[(a + i) % n];
+        worst = std::max(worst,
+                         std::fabs(q.Distance(c.Location()) - c.Radius()));
+    }
+    if (worst > tol)
+        return false;
+
+    /* THE SWEEP, AND WHY IT IS MEASURED RATHER THAN INFERRED FROM THE ENDS.
+     *
+     * M440. A circle has two arcs between any two points and the builder picks
+     * by the circle's axis, so the axis has to be SET to the sense the ring
+     * actually turns — not, as this did first, flipped from whatever sense
+     * GC_MakeCircle happened to give three points. That produced the major arc
+     * for two 50-degree runs of the Tree of Life's outline and added 518 mm2
+     * to a 3,972 mm2 profile: each arc came back as very nearly its whole
+     * circle, and the two circles of r=9.2 are 532 mm2 between them.
+     *
+     * Inferring it from the first and last point alone is not enough either,
+     * because the cross product of the two radii changes sign past a half
+     * turn. So the angles of every point in the run are unwrapped about the
+     * centre: the run must advance monotonically — which also rejects a
+     * zig-zag that happens to sit on the circle — and the total is the sweep,
+     * whose sign is the axis and whose magnitude must stay inside one turn. */
+    const gp_Vec upv(up);
+    const gp_Vec r0(c.Location(), p[a % n]);
+    if (r0.Magnitude() <= 0)
+        return false;
+    double total = 0, prev = 0;
+    int sign = 0;
+    for (size_t i = 1; i < cnt; ++i) {
+        const gp_Vec rk(c.Location(), p[(a + i) % n]);
+        if (rk.Magnitude() <= 0)
+            return false;
+        double ang = std::atan2(r0.Crossed(rk).Dot(upv), r0.Dot(rk));
+        /* Unwrap onto the branch that continues the run. */
+        while (ang - prev > M_PI)
+            ang -= 2 * M_PI;
+        while (prev - ang > M_PI)
+            ang += 2 * M_PI;
+        const double step = ang - prev;
+        if (step == 0)
+            return false;
+        const int s = step > 0 ? 1 : -1;
+        if (sign == 0)
+            sign = s;
+        else if (s != sign)
+            return false; /* the run doubles back: not an arc of this circle */
+        prev = ang;
+        total = ang;
+    }
+    if (sign == 0 || std::fabs(total) >= 2 * M_PI)
+        return false;
+    c.SetAxis(gp_Ax1(c.Location(),
+                     sign > 0 ? up : gp_Dir(-up.X(), -up.Y(), -up.Z())));
+    out = c;
+    return true;
+}
+
+bool LineFitsRing(const std::vector<gp_Pnt> &p, size_t a, size_t b, size_t n,
+                  double tol)
+{
+    const size_t cnt = (b >= a) ? (b - a + 1) : (n - a + b + 1);
+    if (cnt < 2)
+        return false;
+    const gp_Pnt &p0 = p[a % n];
+    const gp_Pnt &p1 = p[b % n];
+    const double len = p0.Distance(p1);
+    if (!(len > 0))
+        return false;
+    const gp_Dir d(gp_Vec(p0, p1));
+    for (size_t i = 1; i + 1 < cnt; ++i) {
+        const gp_Pnt &q = p[(a + i) % n];
+        const gp_Vec v(p0, q);
+        const double along = v.Dot(gp_Vec(d));
+        if (along < -tol || along > len + tol)
+            return false;
+        if (v.Crossed(gp_Vec(d)).Magnitude() > tol)
+            return false;
+    }
+    return true;
+}
+
+/* The up-facing caps of a prismatic mesh, each as its own set of loops.
+ *
+ * M440. THE PROFILE IS READ FROM THE CAPS, NOT FROM A SLICE. The obvious way
+ * to get a stepped part's cross-section is to cut it at the middle of each
+ * slab, where no vertex can be, and that is what this did first. It is wrong,
+ * and the way it is wrong is worth recording because it looks right.
+ *
+ * Slicing a tessellated cylinder at an arbitrary height does not give points
+ * on the cylinder. A triangulated barrel has vertical edges at each angular
+ * station and a diagonal across every quad between them; the plane meets the
+ * vertical edges ON the true circle and the diagonals INSIDE it, by the sagitta
+ * of half a station. The slice is therefore a zig-zag that alternates on and
+ * off the circle, and no arc fits four consecutive points of it — measured on
+ * the reference part, whose r=15 barrel came back as 21 straight primitives
+ * where the drawing has 13. The tolerance cannot be loosened to cover it
+ * either: the error is a property of the tessellation, not of the fit.
+ *
+ * A cap boundary has no such problem. Its points ARE mesh vertices, so every
+ * one of them lies exactly where the original surface put it, and the arc that
+ * the modeller drew is recovered to the precision the file was written in.
+ *
+ * What makes this legitimate as a construction and not just a nicer source of
+ * points is the floor test. If ALL the down-facing area of the mesh sits at one
+ * height, then every column of material in the body runs from that floor up to
+ * the first up-facing cap above it — there is nowhere else for it to stop. The
+ * body is then exactly the union, over the up-facing caps, of each cap's
+ * footprint swept down to the floor, and that union needs no reasoning about
+ * which cap is a pocket bottom and which is a plate top: a blind pocket is a
+ * hole in the upper cap that a lower cap's sweep fills part of the way. Every
+ * model in the corpus that is prismatic at all passes the floor test.
+ *
+ * Caps at one height that are not connected to each other are separate
+ * regions, because two bosses standing at the same height are two profiles,
+ * and the outer/holes split has to be made within each of them. */
+struct CapRegion
+{
+    double level = 0;
+    std::vector<std::vector<gp_Pnt>> loops; /* [0] outer, the rest holes */
+    /* walls[i][q] is the outward normal of the face the mesh hangs below the
+     * segment loops[i][q] -> loops[i][q+1], or (0,0,0) where there is none.
+     * It is what tells a sampled circle from a real polygon: see RingWire. */
+    std::vector<std::vector<V3>> walls;
+};
+
+bool UpCapRegions(const Mesh &m, const V3 &axis, double capBar, double band,
+                  double lo, std::vector<CapRegion> &regions)
+{
+    regions.clear();
+    const int nt = m.triCount();
+    std::vector<signed char> face(nt, 0); /* +1 up-facing cap, -1 down, 0 wall */
+    std::vector<double> height(nt, 0);
+    for (int t = 0; t < nt; ++t) {
+        const double x = Dot(m.tnorm[t], axis);
+        if (std::fabs(x) < capBar)
+            continue;
+        face[t] = (x > 0) ? 1 : -1;
+        height[t] = Dot(m.pos[m.tri[t * 3]], axis);
+        /* THE FLOOR TEST. One down-facing height, and it is the bottom. */
+        if (face[t] < 0 && std::fabs(height[t] - lo) > band) {
+            MR_TRACE("  prism: down-facing cap at %.4f, not the floor %.4f — "
+                     "the body is not a stack of columns\n", height[t], lo);
+            return false;
+        }
+    }
+
+    /* Connected components of up-facing caps, joined across shared edges when
+     * both sides sit at the same height. */
+    std::vector<int> comp(nt, -1);
+    int ncomp = 0;
+    std::vector<int> stack;
+    for (int seed = 0; seed < nt; ++seed) {
+        if (face[seed] <= 0 || comp[seed] >= 0)
+            continue;
+        const int id = ncomp++;
+        stack.assign(1, seed);
+        comp[seed] = id;
+        while (!stack.empty()) {
+            const int t = stack.back();
+            stack.pop_back();
+            for (int k = 0; k < 3; ++k) {
+                const int n = m.adj[t * 3 + k];
+                if (n < 0 || comp[n] >= 0 || face[n] <= 0)
+                    continue;
+                if (std::fabs(height[n] - height[t]) > band)
+                    continue;
+                comp[n] = id;
+                stack.push_back(n);
+            }
+        }
+    }
+    if (ncomp == 0 || ncomp > 256)
+        return false;
+
+    for (int id = 0; id < ncomp; ++id) {
+        std::vector<int> tris;
+        double wsum = 0, asum = 0;
+        for (int t = 0; t < nt; ++t)
+            if (comp[t] == id) {
+                tris.push_back(t);
+                wsum += height[t] * m.tarea[t];
+                asum += m.tarea[t];
+            }
+        if (tris.empty() || !(asum > 0))
+            continue;
+
+        /* Boundary half-edges: those whose neighbour is outside the region.
+         * Each is kept directed as its triangle winds, so walking them head to
+         * tail traces the outer loop one way round and every hole the other —
+         * which is what the face builder needs and what nothing else has to
+         * work out afterwards. */
+        struct HalfEdge { int a, b; V3 wall; };
+        std::unordered_map<int, std::vector<int>> from;
+        std::vector<HalfEdge> he;
+        for (int t : tris)
+            for (int k = 0; k < 3; ++k) {
+                const int n = m.adj[t * 3 + k];
+                if (n >= 0 && comp[n] == id)
+                    continue;
+                const int a = m.tri[t * 3 + k], b = m.tri[t * 3 + (k + 1) % 3];
+                if (a == b)
+                    continue;
+                from[a].push_back(static_cast<int>(he.size()));
+                he.push_back(HalfEdge{a, b, n >= 0 ? m.tnorm[n] : V3(0, 0, 0)});
+            }
+        if (he.empty())
+            continue;
+
+        CapRegion reg;
+        reg.level = wsum / asum;
+        std::vector<char> used(he.size(), 0);
+        for (size_t s = 0; s < he.size(); ++s) {
+            if (used[s])
+                continue;
+            std::vector<int> loop;
+            std::vector<V3> wall;
+            int cur = static_cast<int>(s);
+            int guard = 0;
+            while (cur >= 0 && !used[cur] &&
+                   guard++ <= static_cast<int>(he.size())) {
+                used[cur] = 1;
+                loop.push_back(he[cur].a);
+                wall.push_back(he[cur].wall);
+                const int nxt = he[cur].b;
+                cur = -1;
+                auto it = from.find(nxt);
+                if (it != from.end())
+                    for (int c : it->second)
+                        if (!used[c]) {
+                            cur = c;
+                            break;
+                        }
+            }
+            if (loop.size() < 3)
+                continue;
+            std::vector<gp_Pnt> r;
+            r.reserve(loop.size());
+            for (int v : loop) {
+                /* Flatten onto the region's own height. The vertices are
+                 * already flat to within `band` — PrismAxis refused the axis
+                 * otherwise — and this removes the float32 wobble that would
+                 * otherwise leave the wire off its plane. */
+                const V3 &p = m.pos[v];
+                const double d = reg.level - Dot(p, axis);
+                r.push_back(P(p + axis * d));
+            }
+            reg.loops.push_back(r);
+            reg.walls.push_back(wall);
+        }
+        if (reg.loops.empty())
+            continue;
+        /* Biggest first: the outer boundary, then the holes. */
+        std::vector<std::pair<double, size_t>> byArea;
+        for (size_t i = 0; i < reg.loops.size(); ++i) {
+            const std::vector<gp_Pnt> &r = reg.loops[i];
+            V3 acc(0, 0, 0);
+            for (size_t k = 0; k < r.size(); ++k) {
+                const gp_Pnt &u = r[k];
+                const gp_Pnt &v = r[(k + 1) % r.size()];
+                acc = acc + Cross(V3(u.X(), u.Y(), u.Z()),
+                                  V3(v.X(), v.Y(), v.Z()));
+            }
+            byArea.emplace_back(std::fabs(0.5 * Dot(acc, axis)), i);
+            MR_TRACE("    loop %d: %d pts, signed area %+.4f\n", (int)i,
+                     (int)r.size(), 0.5 * Dot(acc, axis));
+        }
+        std::sort(byArea.rbegin(), byArea.rend());
+        std::vector<std::vector<gp_Pnt>> sortedLoops;
+        std::vector<std::vector<V3>> sortedWalls;
+        for (const std::pair<double, size_t> &e : byArea) {
+            sortedLoops.push_back(reg.loops[e.second]);
+            sortedWalls.push_back(reg.walls[e.second]);
+        }
+        reg.loops.swap(sortedLoops);
+        reg.walls.swap(sortedWalls);
+        MR_TRACE("  prism: cap region %d at %.4f — %d tri, %.2f area, %d "
+                 "loop(s)\n", id, reg.level, (int)tris.size(), asum,
+                 (int)reg.loops.size());
+        regions.push_back(reg);
+    }
+    return !regions.empty();
+}
+
+/* One ring of points -> a wire of lines and arcs.
+ *
+ * WHY AN ARC NEEDS A WITNESS AND NOT JUST A RESIDUAL. M440. Fitting a circle
+ * through three of the run's points and checking the rest against it is the
+ * obvious test and it is not sufficient, for a reason that is easy to miss:
+ * the points are a SAMPLE, and what has to lie near the circle is the
+ * POLYLINE, not the sample. The four corners of a rectangle are exactly
+ * concyclic — every rectangle has a circumcircle — so Part9's five-point
+ * profile was read as two lines and one arc bulging 2.3 mm outside a part
+ * 13 mm across, and came out at 3.4% of its volume. Every regular polygon
+ * fails the same way, and no tolerance separates the cases, because the
+ * sample really is on the circle. Tightening the residual cannot help.
+ *
+ * The witness is the mesh itself. A circular profile leaves a SMOOTH wall
+ * below it — consecutive wall facets differing by the tessellation step —
+ * and a polygonal profile leaves a creased one. So an arc is allowed only
+ * across junctions the model itself does not call sharp, at the same
+ * dihedral the segmenter uses everywhere else. A twenty-sided hole turns 18
+ * degrees a facet and is a circle; a hexagonal boss turns 60 and is a
+ * hexagon; and the answer does not depend on a constant invented here. */
+TopoDS_Wire RingWire(const std::vector<gp_Pnt> &p, const std::vector<V3> &wall,
+                     const gp_Dir &up, double tol, double cosSharp, int &prims)
+{
+    const size_t n = p.size();
+    /* Smooth at point j: the walls of the two segments meeting there agree.
+     * Absent a wall on either side the junction counts as sharp, which costs
+     * at worst a straight edge where an arc would have done. */
+    std::vector<char> smooth(n, 0);
+    if (wall.size() == n)
+        for (size_t j = 0; j < n; ++j) {
+            const V3 &a = wall[(j + n - 1) % n], &b = wall[j];
+            if (Norm(a) > 0.5 && Norm(b) > 0.5 && Dot(a, b) >= cosSharp)
+                smooth[j] = 1;
+        }
+    /* An arc may span the run i..to only if every junction strictly inside it
+     * is smooth. */
+    auto arcAllowed = [&](size_t i, size_t to) {
+        for (size_t j = i + 1; j < to; ++j)
+            if (!smooth[j % n])
+                return false;
+        return true;
+    };
+
+    /* WHERE THE GREEDY STARTS DECIDES HOW MANY PRIMITIVES COME OUT.
+     *
+     * M440. A ring is a cycle and the segmentation below is a walk, so the
+     * walk has to be cut somewhere — and cutting it in the middle of a run
+     * splits that run in two. Starting at index 0 cost exactly one extra
+     * primitive per loop wherever the walk happened to begin mid-edge: the
+     * filleted block came back with eleven faces for ten, because its outer
+     * profile began part-way along a side.
+     *
+     * A corner is the one place the cut costs nothing, because the run ends
+     * there anyway. So the ring is rotated to begin at a junction the model
+     * itself calls sharp. */
+    size_t start = 0;
+    while (start < n && smooth[start])
+        ++start;
+    if (start >= n) {
+        /* No corner anywhere: the profile is one closed smooth curve. If a
+         * single circle carries the whole ring it is ONE circular edge, and
+         * cutting it into arcs would invent a seam — which is what gave the
+         * block with a d=10 hole two half-cylinders where it has one bore. */
+        gp_Circ full;
+        if (n >= 4 && FitRingArc(p, 0, n - 1, n, up, tol, full)) {
+            double worst = 0;
+            for (size_t k = 0; k < n; ++k)
+                worst = std::max(worst,
+                                 std::fabs(p[k].Distance(full.Location()) -
+                                           full.Radius()));
+            if (worst <= tol) {
+                try {
+                    BRepBuilderAPI_MakeWire one(
+                        BRepBuilderAPI_MakeEdge(full).Edge());
+                    if (one.IsDone()) {
+                        prims = 1;
+                        TopoDS_Wire cw = one.Wire();
+                        cw.Closed(Standard_True);
+                        return cw;
+                    }
+                } catch (const Standard_Failure &) {
+                }
+            }
+        }
+        /* A rounded rectangle has no corner either: a fillet is TANGENT to
+         * the sides it joins, so every junction on it is smooth and there is
+         * no sharp place to cut. But there is still a natural one — wherever
+         * a run ends because the fit stopped, which is the tangent point
+         * between a flat and a fillet. So the greedy is run once from an
+         * arbitrary start purely to find where its first run ends, and the
+         * real walk begins there. That breakpoint is real geometry, not an
+         * artefact of where the walk started, so the second pass closes on
+         * it exactly: the filleted block goes from nine profile primitives
+         * to its eight. */
+        size_t lineTo = 0, arcTo = 0;
+        gp_Circ probe;
+        for (size_t j = 1; j <= n; ++j) {
+            if (!LineFitsRing(p, 0, j % n, n, tol))
+                break;
+            lineTo = j;
+            if (j == n)
+                break;
+        }
+        for (size_t j = 3; j <= n; ++j) {
+            if (!FitRingArc(p, 0, j % n, n, up, tol, probe))
+                break;
+            arcTo = j;
+            if (j == n)
+                break;
+        }
+        const size_t brk = std::max<size_t>(std::max(lineTo, arcTo), 1);
+        start = (brk >= n) ? 0 : brk;
+    }
+    /* Rotate so the walk begins at that corner. Everything below reads `q`. */
+    std::vector<gp_Pnt> rot;
+    std::vector<char> rotSmooth;
+    if (start != 0) {
+        rot.reserve(n);
+        rotSmooth.reserve(n);
+        for (size_t k = 0; k < n; ++k) {
+            rot.push_back(p[(start + k) % n]);
+            rotSmooth.push_back(smooth[(start + k) % n]);
+        }
+        smooth.swap(rotSmooth);
+    } else {
+        rot.assign(p.begin(), p.end());
+    }
+    const std::vector<gp_Pnt> &q = rot;
+    BRepBuilderAPI_MakeWire mw;
+    size_t i = 0;
+    prims = 0;
+    int guard = 0;
+    while (i < n && guard++ < static_cast<int>(n) + 4) {
+        size_t lineTo = i, arcTo = i;
+        gp_Circ arc, bestArc;
+        for (size_t j = i + 1; j <= n; ++j) {
+            if (!LineFitsRing(q, i, j % n, n, tol))
+                break;
+            lineTo = j;
+            if (j == n)
+                break;
+        }
+        for (size_t j = i + 3; j <= n; ++j) {
+            if (!arcAllowed(i, j))
+                break;
+            if (!FitRingArc(q, i, j % n, n, up, tol, arc))
+                break;
+            arcTo = j;
+            bestArc = arc;
+            if (j == n)
+                break;
+        }
+        size_t to = lineTo;
+        bool useArc = false;
+        if (arcTo > lineTo) {
+            to = arcTo;
+            useArc = true;
+        }
+        if (to <= i)
+            to = i + 1;
+        const gp_Pnt &A = q[i % n];
+        const gp_Pnt &B = q[to % n];
+        if (A.Distance(B) > 0) {
+            try {
+                TopoDS_Edge e;
+                if (useArc) {
+                    GC_MakeArcOfCircle mk(bestArc, A, B, Standard_True);
+                    if (mk.IsDone())
+                        e = BRepBuilderAPI_MakeEdge(mk.Value()).Edge();
+                }
+                if (e.IsNull())
+                    e = BRepBuilderAPI_MakeEdge(A, B).Edge();
+                mw.Add(e);
+                ++prims;
+            } catch (const Standard_Failure &) {
+                return TopoDS_Wire();
+            }
+        }
+        if (to >= n)
+            break;
+        i = to;
+    }
+    if (!mw.IsDone())
+        return TopoDS_Wire();
+    TopoDS_Wire w = mw.Wire();
+    w.Closed(Standard_True);
+    return w;
+}
+
+/* Build the whole body from its up-facing caps, or return a null shape.
+ *
+ * M440. Once the floor test holds (see UpCapRegions) the body is the union,
+ * over every up-facing cap, of that cap's footprint swept down to the floor.
+ * Each sweep is a BRepPrimAPI_MakePrism of a planar face whose boundary is
+ * made of lines and circular arcs fitted to exact mesh vertices, so every face
+ * of the result is a plane or a cylinder, every edge is a line or a circle,
+ * and no correspondence anywhere in it was guessed: there is nothing for a
+ * sewing step to get wrong because there is no sewing step.
+ *
+ * The sweeps overlap on purpose — a pocket floor's column sits inside the hole
+ * the plate's top cap leaves — and BRepAlgoAPI_Fuse resolves the overlap
+ * exactly, because the solids meet on whole planar and cylindrical faces that
+ * are the same surfaces, not two approximations of one.
+ *
+ * The result is then verified against the mesh by volume before the caller
+ * accepts it, so a body that comes out the wrong size loses to the general
+ * path rather than replacing it. That matters more than it sounds: the general
+ * pipeline gave the butterfly bookmark 1,444 faces including 38 B-splines, and
+ * a boolean against that body returned two faces and 0.84 mm3 of a 6,296 mm3
+ * part. */
+TopoDS_Shape BuildPrism(const Mesh &m, double tol, double sharpDeg,
+                        Report &rep)
+{
+    V3 ax;
+    double lo = 0, hi = 0;
+    if (!PrismAxis(m, ax, lo, hi))
+        return TopoDS_Shape();
+    const double band = std::max(m.diagonal * 1e-5, (hi - lo) * 1e-4);
+    const double capBar = std::cos(2.0 * M_PI / 180.0);
+    const double cosSharp = std::cos(sharpDeg * M_PI / 180.0);
+
+    MR_STAGE("start");
+    /* From here the conversion is this function's, so the bar is too. */
+    g_prismPath.store(true, std::memory_order_relaxed);
+    /* Sewing's span is the one PublishOverall takes from here rather than
+     * from SpanOf, so this path has to say where its own ends up: checking
+     * the volume, the validity and the certificate is the last 45%. Left at
+     * the fitted path's 800 the bar would jump from 55 to 80 the moment the
+     * fuse finished. */
+    g_sewFrom.store(550, std::memory_order_relaxed);
+    g_sewTo.store(1000, std::memory_order_relaxed);
+    SetStage(kStageSegmenting, 0);
+    std::vector<CapRegion> regions;
+    if (!UpCapRegions(m, ax, capBar, band, lo, regions)) {
+        g_prismPath.store(false, std::memory_order_relaxed);
+        g_sewFrom.store(800, std::memory_order_relaxed);
+        g_sewTo.store(1000, std::memory_order_relaxed);
+        RestartBar();
+        SetStage(kStageWelding, 0);
+        return TopoDS_Shape();
+    }
+    MR_TRACE("  prism: axis (%.3f %.3f %.3f), floor %.4f, %d cap region(s) "
+             "over %.4f\n", ax.x, ax.y, ax.z, lo, (int)regions.size(),
+             hi - lo);
+
+    MR_STAGE("prism: cap regions");
+    const gp_Dir up(ax.x, ax.y, ax.z);
+    std::vector<TopoDS_Shape> cols;
+    int totalPrims = 0, totalSegs = 0;
+
+    {   /* Profile fitting is the one part of this path that can count itself:
+         * the work is one pass over the cap boundary points. */
+        int pts = 0;
+        for (const CapRegion &reg : regions)
+            for (const std::vector<gp_Pnt> &r : reg.loops)
+                pts += static_cast<int>(r.size());
+        SetStage(kStageBuilding, pts);
+    }
+
+    for (const CapRegion &reg : regions) {
+        const double h = reg.level;
+        if (!(h - lo > band))
+            continue; /* a cap lying on the floor sweeps nothing */
+        const gp_Pln plane(gp_Pnt(ax.x * h, ax.y * h, ax.z * h), up);
+        TopoDS_Face face;
+        try {
+            for (size_t k = 0; k < reg.loops.size(); ++k) {
+                const std::vector<gp_Pnt> &r = reg.loops[k];
+                totalSegs += static_cast<int>(r.size());
+                AddDone(static_cast<int>(r.size()));
+                int prims = 0;
+                const TopoDS_Wire w =
+                    RingWire(r, reg.walls[k], up, tol, cosSharp, prims);
+                if (w.IsNull()) {
+                    MR_TRACE("  prism: loop %d of the cap at %.4f would not "
+                             "close\n", (int)k, h);
+                    return TopoDS_Shape();
+                }
+                totalPrims += prims;
+                BRepBuilderAPI_MakeFace mf =
+                    (k == 0) ? BRepBuilderAPI_MakeFace(plane, w)
+                             : BRepBuilderAPI_MakeFace(face, w);
+                if (!mf.IsDone())
+                    return TopoDS_Shape();
+                face = mf.Face();
+            }
+            if (face.IsNull())
+                return TopoDS_Shape();
+            ShapeFix_Face fx(face);
+            fx.FixOrientation();
+            face = fx.Face();
+            {
+                GProp_GProps sp;
+                BRepGProp::SurfaceProperties(face, sp);
+                int nw = 0;
+                for (TopExp_Explorer we(face, TopAbs_WIRE); we.More(); we.Next())
+                    ++nw;
+                MR_TRACE("    face at %.4f: %d wire(s), area %.4f\n", h, nw,
+                         sp.Mass());
+            }
+            const TopoDS_Shape col =
+                BRepPrimAPI_MakePrism(face, gp_Vec(-ax.x * (h - lo),
+                                                   -ax.y * (h - lo),
+                                                   -ax.z * (h - lo)))
+                    .Shape();
+            if (col.IsNull())
+                return TopoDS_Shape();
+            cols.push_back(col);
+        } catch (const Standard_Failure &f) {
+            MR_TRACE("  prism: the cap at %.4f failed — %s\n", h,
+                     f.GetMessageString() ? f.GetMessageString() : "(failed)");
+            return TopoDS_Shape();
+        }
+    }
+    MR_STAGE("prism: profiles + sweeps");
+    if (cols.empty())
+        return TopoDS_Shape();
+
+    /* The fuse and the unify are half the run on a big profile — 5.2 s of the
+     * butterfly's 10.8 — and OCCT offers no way inside either, so the stage
+     * publishes no count and the card eases across its span. */
+    SetStage(kStageMerging, 0);
+    TopoDS_Shape out = cols[0];
+    try {
+        for (size_t i = 1; i < cols.size(); ++i) {
+            BRepAlgoAPI_Fuse fu(out, cols[i]);
+            fu.SetRunParallel(Standard_False);
+            fu.Build();
+            if (!fu.IsDone())
+                return TopoDS_Shape();
+            out = fu.Shape();
+        }
+        if (cols.size() > 1) {
+            ShapeUpgrade_UnifySameDomain uni(out, Standard_True, Standard_True,
+                                             Standard_False);
+            uni.Build();
+            if (!uni.Shape().IsNull())
+                out = uni.Shape();
+        }
+    } catch (const Standard_Failure &) {
+        return TopoDS_Shape();
+    }
+    MR_STAGE("prism: fuse + unify");
+    MR_TRACE("  prism: %d column(s), %d profile primitives for %d cap "
+             "boundary points\n", (int)cols.size(), totalPrims, totalSegs);
+    return out;
+}
+
 /* WHY THERE IS NO "DOES THE FACE WRAP TOO FAR ROUND" CHECK.
  *
  * M440. There was one, and it is worth saying why it went rather than leaving
@@ -12892,7 +13722,23 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
         return TopoDS_Shape();
     }
 
+    /* THE BAR STARTS HERE, NOT AFTER THE WORK DOES.
+     *
+     * M440. This guard and the first SetStage used to sit BELOW the whole of
+     * mesh loading, repair, adjacency, orientation and the prism path — so
+     * occt_mesh_overall reported nothing at all while those ran, and the card
+     * drawing it had no choice but to sweep. On a fitted model that was 0.7%
+     * of the run (130 ms of the whale's 18.8 s) and merely wrong; on a
+     * prismatic one the prism path finishes the entire conversion up here, so
+     * the bar never moved once in 10.8 seconds and then the model appeared.
+     * Everything from the first triangle is inside the guard now. */
+    StageGuard stageGuard;
+    g_sewFrom.store(800, std::memory_order_relaxed);
+    g_sewTo.store(1000, std::memory_order_relaxed);
+    SetStage(kStageWelding, 0);
+
     Mesh m;
+    MR_STAGE("start");
     try {
         if (!BuildMesh(xyz, nv, tri, nt, prm, m, rep)) {
             err = "the mesh has no usable triangles";
@@ -12913,6 +13759,121 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
         MR_TRACE("  after repair: %d tri, %d non-manifold, %d boundary, "
                  "%d flipped\n", m.triCount(), rep.non_manifold_edges,
                  rep.boundary_edges, rep.flipped_triangles);
+        /* M440. A prism is built as a prism, when it certainly is one.
+         *
+         * Taken before segmentation because there is nothing to segment: the
+         * profile and the sweep ARE the model, and going round by way of
+         * patches can only lose them. Accepted only if the body it makes is
+         * closed, valid, and encloses the mesh's own volume — so a prism that
+         * comes out the wrong size loses to the general path rather than
+         * replacing it. */
+        if (prm.mode != 0 && !Cancelled()) {
+            /* The mesh's own volume, by the divergence theorem. Computed here
+             * rather than reused from below because the check that decides
+             * this path has to run before any of that. */
+            double meshVol = 0;
+            for (int tr = 0; tr < m.triCount(); ++tr) {
+                const V3 &a = m.pos[m.tri[tr * 3]];
+                const V3 &b = m.pos[m.tri[tr * 3 + 1]];
+                const V3 &c = m.pos[m.tri[tr * 3 + 2]];
+                meshVol += Dot(a, Cross(b, c));
+            }
+            meshVol = std::fabs(meshVol) / 6.0;
+            /* A MUCH tighter tolerance than the surface fit runs at, because
+             * a profile is not an approximation of the model — it IS the
+             * model, and its points are exact mesh vertices. At the
+             * conversion's own 0.002 of the diagonal a line happily spans a
+             * corner: the reference part's thirteen-segment profile came back
+             * as nine primitives and a solid 3.4% short. One part in a hundred
+             * thousand of the diagonal is still forty times the float32
+             * quantisation an STL stores, and it keeps every real corner. */
+            const double ptol = std::max(m.diagonal * 1e-5, 1e-9);
+            TopoDS_Shape prism;
+            try {
+                prism = BuildPrism(m, ptol, prm.sharp_deg, rep);
+            } catch (const Standard_Failure &) {
+            } catch (...) {
+            }
+            if (!prism.IsNull()) {
+                /* Checking the volume, the validity and the certificate is
+                 * the other half of this path's time; same reason as the
+                 * fuse, same treatment. Inside this branch and not above it:
+                 * when BuildPrism declines it has already put the bar back to
+                 * the general path's, and announcing a stage it is not in
+                 * would jump the bar to 80% and strand every later stage
+                 * under a ceiling it had already passed. */
+                SetStage(kStageSewing, 0);
+                double got = 0;
+                bool okShape = false;
+                try {
+                    GProp_GProps vg;
+                    BRepGProp::VolumeProperties(prism, vg);
+                    got = std::fabs(vg.Mass());
+                    okShape = ShapeIsValid(prism);
+                    MR_STAGE("prism: volume + validity");
+                } catch (const Standard_Failure &) {
+                }
+                const double want = meshVol;
+                const double off =
+                    want > 0 ? std::fabs(got - want) / want : 1.0;
+                MR_TRACE("  prism: valid=%d volume %.4f vs mesh %.4f (%+.3f%%)\n",
+                         (int)okShape, got, want, 100.0 * (got - want) / want);
+                if (okShape && want > 0 && off < 0.005) {
+                    /* Census the body that was actually built. Reporting the
+                     * face count as "planes" because most of them are is how
+                     * a cylinder r=8 h=25 came back as four planes and no
+                     * cylinder: the shape was right and the report was not. */
+                    int nf = 0;
+                    for (TopExp_Explorer e(prism, TopAbs_FACE); e.More();
+                         e.Next()) {
+                        ++nf;
+                        BRepAdaptor_Surface sa(TopoDS::Face(e.Current()),
+                                               Standard_False);
+                        switch (sa.GetType()) {
+                        case GeomAbs_Plane: ++rep.planes; break;
+                        case GeomAbs_Cylinder: ++rep.cylinders; break;
+                        case GeomAbs_Cone: ++rep.cones; break;
+                        case GeomAbs_Sphere: ++rep.spheres; break;
+                        case GeomAbs_Torus: ++rep.tori; break;
+                        default: ++rep.freeform; break;
+                        }
+                    }
+                    TopTools_IndexedMapOfShape emap;
+                    TopExp::MapShapes(prism, TopAbs_EDGE, emap);
+                    for (int ei = 1; ei <= emap.Extent(); ++ei) {
+                        BRepAdaptor_Curve ca(TopoDS::Edge(emap(ei)));
+                        if (ca.GetType() == GeomAbs_Line ||
+                            ca.GetType() == GeomAbs_Circle)
+                            ++rep.analytic_edges;
+                        else
+                            ++rep.approximated_edges;
+                    }
+                    rep.patches = nf;
+                    rep.faces_built = nf;
+                    rep.shells = 1;
+                    rep.solids = 1;
+                    rep.closed = 1;
+                    rep.fit_rms = 0;
+                    Certify(prism, m.diagonal, rep);
+                    MR_STAGE("prism: certify");
+                    MR_TRACE("  prism: taken — %d faces\n", nf);
+                    return prism;
+                }
+            }
+        }
+
+        /* The prism path did not take it: the general one runs, and its
+         * spans are the ones that describe what happens next. Only reset the
+         * bar if the prism path got far enough to move it — in 1:1 mode it
+         * never even starts, and zeroing a bar nothing has written is how a
+         * later stage ends up starting below the one before it. */
+        if (g_prismPath.exchange(false, std::memory_order_relaxed)) {
+            g_sewFrom.store(800, std::memory_order_relaxed);
+            g_sewTo.store(1000, std::memory_order_relaxed);
+            RestartBar();
+            SetStage(kStageWelding, 0);
+        }
+
         if (fixlog.duplicate_faces || fixlog.non_manifold_cuts ||
             fixlog.holes_filled) {
             rep.repaired_duplicate_faces = fixlog.duplicate_faces;
@@ -12938,10 +13899,7 @@ TopoDS_Shape Reconstruct(const double *xyz, int nv, const int *tri, int nt,
         return TopoDS_Shape();
     }
 
-    StageGuard stageGuard;
-    g_sewFrom.store(800, std::memory_order_relaxed);
-    g_sewTo.store(1000, std::memory_order_relaxed);
-    SetStage(kStageWelding, 0);
+    MR_STAGE("pre: load, repair, orient, prism");
 
     const double scale = m.diagonal;
     const double tol = std::max(scale * prm.tol_frac, 1e-9);
