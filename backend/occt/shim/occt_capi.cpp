@@ -3143,7 +3143,7 @@ extern "C" int occt_import_step_tree(const char *path, occt_step_node *nodes,
         /* Say so rather than return a TRUNCATED tree that looks complete: a
          * silently clipped assembly is a document missing parts the file had,
          * and the caller can retry with a bigger buffer. */
-        for (int i = 0; i < o.n_solids; ++i) occt_free(o.solids[i]);
+        for (int i = 0; i < o.n_solids; ++i) occt_free_shape(o.solids[i]);
         set_err("occt_import_step_tree", "assembly larger than the buffers");
         return 0;
     }
