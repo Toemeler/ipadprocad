@@ -49,6 +49,9 @@ export 'src/scene_builder.dart' show mergeDecorPayload;
 // same reason: the rule that decides whether zooming in clips the model is
 // worth a test and is not worth a GPU (#30).
 export 'src/scene_extent.dart' show SceneExtent, orthoDepthBracket;
+// #57/#64 — the same renderer, aimed at a recorder instead of the screen, so
+// the gallery still and the viewport are one engine again (M82).
+export 'src/thumbnailer.dart' show GpuThumbnailer;
 
 /// Drives one GPU viewport. Obtained from [GpuView] via [GpuView.onCreated].
 ///

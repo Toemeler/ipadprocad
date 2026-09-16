@@ -16,6 +16,7 @@ import 'package:native_menu/native_menu.dart'
 import 'package:path_provider/path_provider.dart';
 
 import 'platform/app_dirs.dart';
+import 'package:gpu_view/gpu_view.dart' show GpuThumbnailer;
 import 'package:reality_view/reality_view.dart' show RealityThumbnailer;
 
 import 'asm_constraints.dart';
@@ -1445,6 +1446,21 @@ class ExtrudeSession {
 /// driving AppState directly, an app in the background — costs the card's
 /// last beat rather than the import's return value. See the note at the end of
 /// [AppState.importMeshIntoPart], which is the one place it applies.
+/// One renderer that can produce a gallery still, and its name.
+///
+/// The name is for the log and for the tests: which engine drew a card is the
+/// single most useful thing to know when one looks wrong, and #57/#64 are two
+/// reports of exactly that question being unanswerable from the outside.
+typedef StillEngine = ({
+  String name,
+  Future<Uint8List?> Function({
+    required Map<String, dynamic> scene,
+    required Map<String, dynamic> camera,
+    required int width,
+    required int height,
+  }) render,
+});
+
 const Duration _kFramePresentWait = Duration(seconds: 1);
 
 class AppState extends ChangeNotifier {
@@ -4477,17 +4493,73 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// The still renderers, in PREFERENCE order.
+  ///
+  /// M82's rule is ONE ENGINE — the still comes from whatever draws the live
+  /// viewport, so a body looks on the card exactly as it looks in the
+  /// viewport. It was written when there were two renderers to choose
+  /// between and the answer off iOS was always the CPU painter. M372 gave the
+  /// viewport a third, flutter_scene on Flutter GPU, and this list is what
+  /// did not grow with it: on Windows the viewport went to the GPU and the
+  /// card stayed on the painter, which is #57 and #64.
+  ///
+  /// Preference, not capability. Each entry answers null for "not here"
+  /// rather than throwing, so this stays a straight line and the painter at
+  /// the end of it is reached by falling through rather than by a platform
+  /// test. Replaceable so the ORDER can be pinned on a host that has neither.
+  @visibleForTesting
+  static List<StillEngine> stillEngines = <StillEngine>[
+    (name: 'reality', render: RealityThumbnailer.render),
+    (name: 'gpu', render: GpuThumbnailer.render),
+  ];
+
+  /// The first still any engine will give up, or null — paint it yourself.
+  ///
+  /// Static because it reads nothing but the list above, which is also what
+  /// lets [renderStillForTest] exercise the walk without a document.
+  static Future<Uint8List?> _renderStill({
+    required Map<String, dynamic> scene,
+    required Map<String, dynamic> camera,
+    required int width,
+    required int height,
+  }) async {
+    for (final e in stillEngines) {
+      final shot = await e.render(
+          scene: scene, camera: camera, width: width, height: height);
+      if (shot != null && shot.isNotEmpty) {
+        Log.d('preview', 'still drawn by ${e.name}');
+        return shot;
+      }
+    }
+    return null;
+  }
+
+  /// Tests only: the walk above, with payloads no stub engine reads.
+  @visibleForTesting
+  static Future<Uint8List?> renderStillForTest() => _renderStill(
+      scene: const <String, dynamic>{},
+      camera: const <String, dynamic>{},
+      width: 380,
+      height: 240);
+
   /// Renders the part's solids to <name>.png (380x240) for the gallery card
   /// and the long-press lift preview.
   ///
-  /// M82 — ONE ENGINE. The still is produced by the same RealityKit renderer
-  /// that draws the live 3D viewport ([RealityThumbnailer.render] spins up an
-  /// off-screen ARView and pushes the very same scene payload), so a body looks
-  /// on the card exactly as it looks in the viewport. The Dart CPU painter
-  /// (paintPartSolids) remains as the FALLBACK for every place RealityKit is
-  /// unavailable — host tests, non-iOS, iOS < 15, app backgrounded with no key
-  /// window, or any failed snapshot — and is still the only path exercised by
-  /// the widget tests.
+  /// M82 — ONE ENGINE. The still is produced by the same renderer that draws
+  /// the live 3D viewport, so a body looks on the card exactly as it looks in
+  /// the viewport. [stillEngines] is that choice, in preference order:
+  /// RealityKit ([RealityThumbnailer.render] spins up an off-screen ARView and
+  /// pushes the very same scene payload), then Flutter GPU
+  /// ([GpuThumbnailer.render] aims the very same three verbs at a
+  /// PictureRecorder). The Dart CPU painter (paintPartSolids) is the FALLBACK
+  /// below both — host tests, iOS < 15, app backgrounded with no key window, a
+  /// desktop build without the Flutter GPU switch, or any failed snapshot —
+  /// and is still the only path exercised by the widget tests.
+  ///
+  /// #57/#64 are what the second entry is: M372 gave the desktop a GPU
+  /// viewport and this list did not grow with it, so on Windows the viewport
+  /// went to the GPU and the card stayed on the painter — two renderers
+  /// drawing the same part.
   ///
   /// Both engines are handed the IDENTICAL camera from [fitThumbCamera]: the
   /// fixed TOP-FRONT-RIGHT isometric corner, framed to the silhouette and
@@ -4522,7 +4594,7 @@ class AppState extends ChangeNotifier {
       // its own surface behind the PNG, so the file carries the part and never
       // a palette: a thumbnail written in Ember still looks right in Chalk,
       // and a scheme switch does not invalidate a single cached still.
-      final shot = await RealityThumbnailer.render(
+      final shot = await _renderStill(
         // M272 — the appearances too. `named` is keyed by FEATURE name and a
         // material belongs to a body, so this is the same feature -> body ->
         // material walk _bodyRowTint does.
@@ -5264,7 +5336,7 @@ class AppState extends ChangeNotifier {
       // M237 — a TRANSPARENT ground: the card paints its own surface behind
       // the PNG, so a still written in one scheme still looks right in the
       // other and a palette switch invalidates no cached file.
-      final shot = await RealityThumbnailer.render(
+      final shot = await _renderStill(
         // M272 — and each component's own appearance.
         scene: buildPlacedThumbScenePayload(pieces,
             tintOf: (id) => pieceTint[id] ?? kNoTint),
