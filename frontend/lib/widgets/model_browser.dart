@@ -1306,6 +1306,45 @@ class _ModelBrowserState extends State<ModelBrowser> {
     return _CtxRow(label: label, onTap: onTap, danger: danger);
   }
 
+  /// #67 — the SAME menu the iPad gets, drawn by Flutter.
+  ///
+  ///   "when i rightclick on a extrusion a sketch or something in windows i
+  ///    only get the toolbar but not the normal rightclick menu. i want to
+  ///    get both in a normal rightclickmenu all of the options"
+  ///
+  /// Every row in this tree already HAS a full menu — `_featureMenu`,
+  /// `_sketchMenu`, `_bodyMenu` — and until now only UIKit could show one.
+  /// Off iOS the rows fell back to whatever single action seemed most likely:
+  /// a sketch LAYER got a real menu through `_showCtx`, and a feature, a body
+  /// and a work feature got a delete confirmation and nothing else. Edit,
+  /// Show/Hide, Rename, Share, Copy, Cut, "to document" — all defined, all
+  /// reachable on an iPad, none of them reachable with a mouse.
+  ///
+  /// ONE SOURCE OF TRUTH, TWO PRESENTATIONS. This renders the very same
+  /// `NativeMenuItem` groups and hands the taps to the very same
+  /// `_onMenuSelection`, so a menu can never again be added on one platform
+  /// and forgotten on the other — which is exactly how this drifted.
+  ///
+  /// [targetId] is the prefixed id `_onMenuSelection` dispatches on (`ft:`,
+  /// `sk:`, `skn:`, `bd:`), not the bare name.
+  void _showNativeStyleCtx(
+      Offset globalPos, String targetId, List<List<NativeMenuItem>> groups) {
+    _closeCtx();
+    final items = <Widget>[];
+    for (final group in groups) {
+      // A separator between groups, which is what UIKit draws and what makes
+      // Delete read as the thing apart from the rest that it is.
+      if (items.isNotEmpty && group.isNotEmpty) items.add(const _CtxSeparator());
+      for (final it in group) {
+        items.add(_ctxItem(it.title, () {
+          _closeCtx();
+          _onMenuSelection(targetId, it.id);
+        }, danger: it.destructive));
+      }
+    }
+    _showCtxItems(globalPos, items);
+  }
+
   @override
   Widget build(BuildContext context) {
     // See [_rowCount]: the tree is rebuilt from scratch every time, so the
@@ -2021,6 +2060,26 @@ class _ModelBrowserState extends State<ModelBrowser> {
       },
       child: out,
     );
+    // #67 — and a solid body had no menu off iOS either. `_bodyMenu` carries
+    // Pick, Show/Hide and the rest, and UIKit was the only thing that could
+    // open it.
+    void bodyCtx(Offset at) => _showNativeStyleCtx(
+        at, '$_kBodyPrefix$bodyName', _bodyMenu(app, part, bodyName));
+
+    out = Listener(
+      onPointerDown: (e) {
+        if (e.kind == PointerDeviceKind.mouse &&
+            e.buttons == kSecondaryMouseButton) {
+          bodyCtx(e.position);
+        }
+      },
+      child: GestureDetector(
+        onLongPressStart: NativeMenu.isSupported
+            ? null // the UIKit menu owns the long press on device
+            : (d) => bodyCtx(d.globalPosition),
+        child: out,
+      ),
+    );
     return on ? out : Opacity(opacity: 0.45, child: out);
   }
 
@@ -2068,12 +2127,40 @@ class _ModelBrowserState extends State<ModelBrowser> {
         ),
       ),
     );
-    return cs.visible ? row : Opacity(opacity: 0.45, child: row);
+    // #67 — a child sketch had NO menu at all off iOS: not a reduced one, not
+    // a delete, nothing. Edit, Show/Hide, Share, Copy, Cut and "to document"
+    // were all defined in `_sketchMenu` and reachable only by long-pressing on
+    // an iPad.
+    final part = app.currentPart;
+    void sketchCtx(Offset at) {
+      if (part == null) return;
+      _showNativeStyleCtx(
+          at,
+          '${nested ? _kNestedSketchPrefix : _kSketchPrefix}${cs.model.name}',
+          _sketchMenu(app, part, cs));
+    }
+
+    final dimmed = cs.visible ? row : Opacity(opacity: 0.45, child: row);
+    return Listener(
+      onPointerDown: (e) {
+        if (e.kind == PointerDeviceKind.mouse &&
+            e.buttons == kSecondaryMouseButton) {
+          sketchCtx(e.position);
+        }
+      },
+      child: GestureDetector(
+        onLongPressStart: NativeMenu.isSupported
+            ? null // the UIKit menu owns the long press on device
+            : (d) => sketchCtx(d.globalPosition),
+        child: dimmed,
+      ),
+    );
   }
 
   /// One feature row (Extrusion1, ...): eye toggles it, double-tap edits
-  /// it in the properties panel, long-press / right-click deletes. The "+"
-  /// expander reveals the consumed sketch nested beneath (M59, Inventor).
+  /// it in the properties panel, long-press / right-click opens the same
+  /// menu the iPad shows (#67). The "+" expander reveals the consumed sketch
+  /// nested beneath (M59, Inventor).
   Widget _featureRow(AppState app, PartModel part, PartFeature f,
       {bool rolled = false}) {
     final broken = f.computeError != null;
@@ -2111,17 +2198,25 @@ class _ModelBrowserState extends State<ModelBrowser> {
       trailing: _EyeButton(
           visible: f.visible, onTap: () => app.toggleFeatureVisible(f)),
     );
+    // #67 — the FULL menu, the same one the iPad shows. Right-click used to
+    // go straight to the delete confirmation, so Edit, Show/Hide and Rename
+    // existed and could not be reached with a mouse.
+    void featureCtx(Offset at) =>
+        _showNativeStyleCtx(at, '$_kFeaturePrefix${f.name}',
+            _featureMenu(widget.app, f));
     final wrapped = Listener(
       key: _featureKeyFor(f.name),
       onPointerDown: (e) {
         if (e.kind == PointerDeviceKind.mouse &&
             e.buttons == kSecondaryMouseButton) {
-          _confirmDeleteFeature(f);
+          featureCtx(e.position);
         }
       },
       child: GestureDetector(
         onDoubleTap: () => app.editFeature(f),
-        onLongPress: () => _confirmDeleteFeature(f),
+        onLongPressStart: NativeMenu.isSupported
+            ? null // the UIKit menu owns the long press on device
+            : (d) => featureCtx(d.globalPosition),
         child: broken ? Tooltip(message: f.computeError!, child: row) : row,
       ),
     );
@@ -2516,6 +2611,22 @@ class _TreeRowState extends State<_TreeRow> {
       ),
     );
   }
+}
+
+/// #67 — the hairline between two groups of a context menu.
+///
+/// UIKit draws one between the groups `_featureMenu` and friends return, and
+/// it is doing work rather than decoration: it is what makes Delete read as
+/// the row apart from the rest instead of one more entry under Rename.
+class _CtxSeparator extends StatelessWidget {
+  const _CtxSeparator();
+
+  @override
+  Widget build(BuildContext context) => Container(
+        height: 1,
+        margin: const EdgeInsets.symmetric(vertical: 4),
+        color: T.mbBorder,
+      );
 }
 
 class _CtxRow extends StatefulWidget {
