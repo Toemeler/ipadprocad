@@ -324,6 +324,12 @@ class _Ctx {
   final Map<int, double> sign = {};
   final Map<int, double> mode = {};
 
+  /// M202 follow-up — frozen rim side per 'plinetan' constraint index: +1 when
+  /// the line runs OUTSIDE the circle (the near extreme point lies between the
+  /// line and the centre), -1 when the line CUTS it (the near extreme point is
+  /// past the centre, on the far side of the line). See the residual.
+  final Map<int, double> rimSide = {};
+
   /// M123 — frozen local frame per point-on-CURVE constraint index.
   final Map<int, _OnCurve> onCurve = {};
 }
@@ -578,6 +584,18 @@ void _prepare(List<Geo> gs, List<int> off, List<double> x,
           final d = b - a;
           final cross = (p - a).dx * d.dy - (p - a).dy * d.dx;
           ctx.sign[i] = cross < 0 ? -1.0 : 1.0;
+          if (c.dimKind == 'plinetan' &&
+              c.ents.isNotEmpty &&
+              c.ents[0] < gs.length) {
+            // ...and for the tangent flavour, WHICH of the circle's two
+            // extreme points the dimension runs to. Frozen for the same
+            // reason the side is: the choice flips exactly at tangency, and a
+            // solve that crossed it mid-iteration would chase a moving target.
+            final len = d.distance;
+            final perp =
+                len < 1e-12 ? (p - a).distance : ctx.sign[i]! * cross / len;
+            ctx.rimSide[i] = perp < x[off[c.ents[0]] + 2] ? -1.0 : 1.0;
+          }
         } else if (c.dimKind == 'ang3' && c.pts.length >= 3) {
           final a = _pointAt(gs, off, x, c.pts[0]);
           final o = _pointAt(gs, off, x, c.pts[1]);
@@ -1010,9 +1028,21 @@ void _dimResidual(List<Geo> gs, List<int> off, List<double> x, _Ctx ctx,
       break;
     case 'plinetan':
       // M202 — Inventor's tangent dimension: the gap between the line and the
-      // NEAREST point of the circle, i.e. the centre distance less the radius.
-      // Same frozen sign as 'pline', for the same reason: a distance must not
-      // be satisfied by mirroring the circle through the line.
+      // NEAREST point of the circle. Same frozen sign as 'pline', for the same
+      // reason: a distance must not be satisfied by mirroring the circle
+      // through the line.
+      //
+      // `centre distance less the radius` is that gap only while the line
+      // stays OUTSIDE the circle. Let it cut — a chord, which is the ordinary
+      // way to dimension a line to the top or the bottom of a circle — and
+      // that expression goes negative while the gap the user is pointing at,
+      // from the chord out to the quadrant point beyond the centre, is
+      // `radius less the centre distance`. Asking for a positive value then
+      // demanded a centre distance LARGER than the radius, which the chord's
+      // own point-on-circle binds forbid: the system was unsatisfiable, the
+      // solver thrashed and the edit came back "value cannot be satisfied".
+      // `rimSide` is which of the two it is, so both read as the positive
+      // distance the painter has been drawing all along.
       if (c.ents.isEmpty || c.ents[0] >= gs.length) {
         r.add(0);
         break;
@@ -1023,13 +1053,14 @@ void _dimResidual(List<Geo> gs, List<int> off, List<double> x, _Ctx ctx,
       final rad = x[off[c.ents[0]] + 2];
       final tdl = tb - ta;
       final tlen = tdl.distance;
+      final rim = ctx.rimSide[i] ?? 1.0;
       if (tlen < 1e-12) {
-        r.add((tp - ta).distance - rad - v);
+        r.add(rim * ((tp - ta).distance - rad) - v);
         break;
       }
       final tcross = ((tp - ta).dx * tdl.dy - (tp - ta).dy * tdl.dx) / tlen;
       final sgn = ctx.sign[i] ?? 1.0;
-      r.add(sgn * tcross - rad - v);
+      r.add(rim * (sgn * tcross - rad) - v);
       break;
     case 'ang3':
       final pa = _pointAt(gs, off, x, c.pts[0]);

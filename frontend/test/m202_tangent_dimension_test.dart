@@ -165,7 +165,18 @@ void main() {
     expect(measureDim(s.geometry, d), closeTo(15, 1e-6));
   });
 
-  test('a line that CUTS the circle reads 0, not a negative gap', () {
+  test('a line that CUTS the circle measures to the far quadrant point', () {
+    // REVERSED by #63. This used to assert 0, on the reading that a negative
+    // centre-distance-less-radius "reads more honestly as 0". It does not: it
+    // reads as a dimension that measures nothing, and #63 is what that cost —
+    // a chord is the ordinary way to dimension a line to the top or the
+    // bottom of a circle, every such dimension opened its value box on 0, and
+    // driving one asked the solver for a centre distance larger than the
+    // radius, which a chord cannot have. The sketch was rejected outright.
+    //
+    // The nearest point of the circle to a chord is the quadrant point past
+    // the centre, and the gap to it is the radius less the centre distance.
+    // It is also, and always was, the point the painter puts the arrow on.
     final app = makeApp();
     final s = app.current!;
     s.engine.addLine(-40, 19, 40, 19); // 1 below the centre: it cuts
@@ -176,6 +187,7 @@ void main() {
         ents: [1],
         dimKind: 'plinetan',
         value: 0);
-    expect(measureDim(s.geometry, d), 0);
+    // y=19 to the lower quadrant point at y=15.
+    expect(measureDim(s.geometry, d), closeTo(4, 1e-9));
   });
 }
