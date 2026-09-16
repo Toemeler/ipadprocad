@@ -15970,14 +15970,43 @@ class AppState extends ChangeNotifier {
   /// and ARC on the editing layer, never projected reference geometry — the
   /// same scope as picking/selection. Circles, splines, ellipses and single
   /// polylines are whole shapes and offset on their own.
-  Set<int> _chainEligible(SketchModel s) => {
+  /// #66 — and of the SAME KIND as the seed.
+  ///
+  ///   "i cant offset this circle with the line in one offset somehow it
+  ///    seems not connected."
+  ///
+  /// The sketch in that report is a chord across a circle that had been split
+  /// at the chord's own ends, so it is three entities: the line, the arc below
+  /// it, and a CONSTRUCTION arc above it. Three curves meet at each end of the
+  /// chord, the walk needs exactly one unvisited neighbour to continue, and it
+  /// stopped on the seed — `offset chain from e0: +1 segs (open)` in the log.
+  ///
+  /// It is not a branch in any sense the user would recognise. Construction
+  /// geometry is scaffolding: it crosses the sketch wherever it is useful, and
+  /// a chain that may step onto it will find a junction at every crossing and
+  /// stop there. Projections were excluded from the start for exactly this
+  /// reason; this is the same rule, applied to the other kind of reference
+  /// geometry, and with it the reporter's three entities are two — line and
+  /// arc — which closes into the loop they were pointing at.
+  ///
+  /// Matching the seed rather than excluding construction outright, so a
+  /// construction chain can still be offset on its own terms. What a chain
+  /// may not do is CROSS between the two.
+  Set<int> _chainEligible(SketchModel s, {bool construction = false}) => {
         for (var i = 0; i < s.geometry.length; i++)
           if ((s.geometry[i].type == Geo.line ||
                   s.geometry[i].type == Geo.arc) &&
               geoEditable(s.geometry[i]) &&
-              !s.geometry[i].isProjection)
+              !s.geometry[i].isProjection &&
+              s.geometry[i].isConstruction == construction)
             i
       };
+
+  /// [_chainEligible] for the chain [seed] belongs to.
+  Set<int> _chainEligibleFor(SketchModel s, int seed) => _chainEligible(s,
+      construction: seed >= 0 &&
+          seed < s.geometry.length &&
+          s.geometry[seed].isConstruction);
 
   /// Nearest pickable entity to [w], or null.
   ///
@@ -16984,7 +17013,8 @@ class AppState extends ChangeNotifier {
     if (!modifyTools.contains(tool)) return const [];
     if (tool == Tool.moffset && modEntity != null) {
       final chain =
-          offsetChainAt(s.geometry, modEntity!, hover, _chainEligible(s));
+          offsetChainAt(s.geometry, modEntity!, hover,
+              _chainEligibleFor(s, modEntity!));
       return chain == null ? const [] : chain.offsets;
     }
     if (selection.isEmpty || toolPoints.isEmpty) return const [];
@@ -17016,7 +17046,8 @@ class AppState extends ChangeNotifier {
   /// on local copies; if the constrained result cannot be solved it degrades to
   /// the bare geometry rather than corrupting the sketch.
   void _commitOffset(SketchModel s, int seed, Offset w) {
-    final chain = offsetChainAt(s.geometry, seed, w, _chainEligible(s));
+    final chain =
+        offsetChainAt(s.geometry, seed, w, _chainEligibleFor(s, seed));
     if (chain == null) {
       toast(L.current.msgNothingToOffset);
       return;
