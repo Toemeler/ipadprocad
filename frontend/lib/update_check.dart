@@ -285,20 +285,33 @@ class UpdateCheck {
 
   /// Downloads and applies [info], ending with the new build ready to run.
   ///
-  /// Returns true when the CALLER must now exit the process — Setup and the
-  /// replaced AppImage both need this one's own executable to let go of its
-  /// files, on Windows because a locked exe cannot be overwritten and on
-  /// Linux because the just-launched new copy and this one must not both be
-  /// running. Windows relies on Inno Setup's own CloseApplications /
-  /// RestartApplications (see windows/installer/prototype.iss) as a
-  /// backstop if the caller's exit is not fast enough; Linux has no such
-  /// backstop, which is exactly why the caller is told to exit rather than
-  /// left to find out.
+  /// Returns true when the CALLER must now exit the process, and it must do
+  /// so IMMEDIATELY — everything slow has already been done.
+  ///
+  /// [beforeInstall] is where the caller saves. It runs after the download is
+  /// downloaded and verified and BEFORE anything is launched, and that order
+  /// is the whole of this method's contract.
+  ///
+  /// WHY, because it was the other way round and that is the bug. The Windows
+  /// path used to launch Setup and return, leaving the caller to flush its
+  /// documents afterwards. Setup is `CloseApplications=yes`
+  /// (windows/installer/prototype.iss), which means the Restart Manager
+  /// reaches for this process within a second or two of starting — while the
+  /// caller was still writing a part file. The app vanished mid-save. From
+  /// the outside that is indistinguishable from a crash, it happened on a
+  /// document large enough to take a moment, and it could take the document
+  /// with it. "the auto update is crashing the app often and is very
+  /// unreliable" is that race.
+  ///
+  /// Nothing after [beforeInstall] can block: the script is spawned detached
+  /// and this returns at once.
   ///
   /// False means nothing was applied — either it opened the release page
-  /// instead (the non-self-updatable Linux channel) or the download/launch
-  /// failed, logged, with the app left running exactly as it was.
-  static Future<bool> apply(UpdateInfo info) async {
+  /// instead (the non-self-updatable Linux channel) or the download, the
+  /// checksum or the launch failed, logged, with the app left running exactly
+  /// as it was and no installer started.
+  static Future<bool> apply(UpdateInfo info,
+      {Future<void> Function()? beforeInstall}) async {
     if (!info.selfUpdatable) {
       _openInBrowser(info.releaseUrl);
       return false;
@@ -316,17 +329,23 @@ class UpdateCheck {
       return false;
     }
 
+    // The last point at which failing is still free. After this the installer
+    // is running and the app is going away.
+    if (beforeInstall != null) {
+      try {
+        await beforeInstall().timeout(_flushWindow);
+      } catch (e) {
+        // A save that failed or hung must not strand the user on a build they
+        // have already agreed to replace, and must not skip the exit below
+        // and leave the Restart Manager to do the closing. Say so and go on:
+        // the document is no worse off than if they had closed the window.
+        Log.w('update', 'pre-install flush did not finish: $e');
+      }
+    }
+
     if (Platform.isWindows) {
       try {
-        // Silent: the user already answered "update now" inside the app —
-        // Inno's own wizard asking again would be a second confirmation for
-        // one already-given answer. /NORESTART because CloseApplications
-        // does not need a reboot to replace a file only this app has open.
-        await Process.start(
-          downloaded.path,
-          const ['/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART'],
-          mode: ProcessStartMode.detached,
-        );
+        await _runWindowsInstaller(downloaded);
         return true;
       } catch (e) {
         Log.w('update', 'could not launch the installer: $e');
@@ -352,6 +371,72 @@ class UpdateCheck {
     }
 
     return false;
+  }
+
+  /// How long [apply] waits for the caller's save before going ahead.
+  static const Duration _flushWindow = Duration(seconds: 30);
+
+  /// The batch file that runs Setup once this process is gone, and brings the
+  /// app back afterwards.
+  ///
+  /// THREE THINGS THE OLD ONE-LINER DID NOT DO.
+  ///
+  /// It waits for US. Setup's `CloseApplications=yes` would otherwise reach
+  /// for a process that is already on its way out, and the two racing is what
+  /// made an update look like a crash. Waiting on the PID means Setup finds
+  /// nothing to close, which also settles the second problem below.
+  ///
+  /// It brings the app BACK. Setup is `RestartApplications=yes`, but the
+  /// Restart Manager only restarts what IT closed — and after a clean exit
+  /// there is nothing for it to have closed, so the app simply did not come
+  /// back. Updating and being left staring at the desktop is most of "very
+  /// unreliable". Now exactly one thing relaunches the app: this script,
+  /// after Setup has finished, whatever the Restart Manager did or did not do.
+  ///
+  /// It CLEANS UP. The installer and the script both go, so %TEMP% does not
+  /// collect a 100 MB installer per update.
+  ///
+  /// Pure and exported for testing: the quoting is the part that goes wrong,
+  /// and `Program Files` has a space in it.
+  static String windowsRelaunchScript({
+    required int waitForPid,
+    required String installerPath,
+    required String exePath,
+  }) =>
+      '@echo off\r\n'
+      'setlocal\r\n'
+      'rem Wait for the app to let go of its files. `tasklist` is on every\r\n'
+      'rem supported Windows; `ping -n 2 127.0.0.1` is the sleep that is.\r\n'
+      ':wait\r\n'
+      'tasklist /FI "PID eq $waitForPid" 2>NUL | find "$waitForPid" >NUL\r\n'
+      'if not errorlevel 1 (\r\n'
+      '  ping -n 2 127.0.0.1 >NUL\r\n'
+      '  goto wait\r\n'
+      ')\r\n'
+      'rem Silent: the user already answered "update now" inside the app.\r\n'
+      'rem /NORESTART is about REBOOTING, not about the app.\r\n'
+      '"$installerPath" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART\r\n'
+      'start "" "$exePath"\r\n'
+      'del /f /q "$installerPath" >NUL 2>&1\r\n'
+      'del /f /q "%~f0" >NUL 2>&1\r\n';
+
+  /// Writes [windowsRelaunchScript] and starts it detached.
+  static Future<void> _runWindowsInstaller(File installer) async {
+    final script = File(
+        '${installer.parent.path}/${_downloadPrefix}$pid.cmd');
+    await script.writeAsString(windowsRelaunchScript(
+      waitForPid: pid,
+      installerPath: installer.path,
+      exePath: Platform.resolvedExecutable,
+    ));
+    // `cmd /c` rather than the .cmd directly: a detached batch file needs an
+    // interpreter, and this is the one every Windows has.
+    await Process.start(
+      'cmd',
+      ['/c', script.path],
+      mode: ProcessStartMode.detached,
+    );
+    Log.i('update', 'installer queued; this process may now exit');
   }
 
   /// The hash [assetName] is recorded against in a `sha256sum`-format file
@@ -404,7 +489,12 @@ class UpdateCheck {
       Log.w('update', 'could not fetch checksums: $e');
       return false;
     }
-    final actual = sha256.convert(await downloaded.readAsBytes()).toString();
+    // STREAMED, not readAsBytes. A Windows installer is ~100 MB and this ran
+    // on the UI isolate: loading it whole spikes the heap by the size of the
+    // download at the exact moment the app is also holding a document and a
+    // kernel, which on a small machine is the difference between an update
+    // and an out-of-memory kill. `sha256.bind` hashes the file in chunks.
+    final actual = (await sha256.bind(downloaded.openRead()).first).toString();
     if (actual != expected) {
       Log.w('update', '${info.assetName} failed its checksum — not applying');
       return false;
@@ -412,8 +502,54 @@ class UpdateCheck {
     return true;
   }
 
+  /// The name a downloaded asset is written under.
+  ///
+  /// It ENDS IN THE ASSET'S OWN EXTENSION, and on Windows that matters: the
+  /// old name was `.prototype-update-<millis>`, with no extension and a
+  /// leading dot. An extensionless binary in %TEMP% is what a good deal of
+  /// endpoint security is tuned to block, and a leading dot buys nothing on a
+  /// filesystem that has no notion of it. Naming it `prototype-update.exe`
+  /// makes it what it is.
+  ///
+  /// One name per PROCESS rather than per download: two runs cannot collide,
+  /// and [_clearStaleDownloads] can recognise its own leavings without a
+  /// timestamp to parse.
+  static String downloadName(String assetName) {
+    final dot = assetName.lastIndexOf('.');
+    final ext = dot > 0 ? assetName.substring(dot) : '';
+    return '$_downloadPrefix$pid$ext';
+  }
+
+  static const String _downloadPrefix = 'prototype-update-';
+
+  /// Removes what earlier runs left behind.
+  ///
+  /// Every applied update used to leave its whole installer in %TEMP% — about
+  /// 100 MB a time, never collected, because the process that downloaded it
+  /// exits by design and nothing else knew the name. Skips anything belonging
+  /// to THIS process, which is the file about to be written.
+  static Future<void> _clearStaleDownloads(Directory dir) async {
+    try {
+      await for (final e in dir.list(followLinks: false)) {
+        if (e is! File) continue;
+        final name = e.uri.pathSegments.last;
+        if (!name.startsWith(_downloadPrefix)) continue;
+        if (name.startsWith('$_downloadPrefix$pid')) continue;
+        try {
+          await e.delete();
+        } catch (_) {
+          // Another process may still be running it. Leave it; the next
+          // launch will try again.
+        }
+      }
+    } catch (e) {
+      Log.w('update', 'could not sweep old downloads: $e');
+    }
+  }
+
   static Future<File?> _download(UpdateInfo info) async {
     final client = http.Client();
+    File? out;
     try {
       final req = await client
           .send(http.Request('GET', Uri.parse(info.assetUrl)))
@@ -426,18 +562,40 @@ class UpdateCheck {
       // later rename is on one filesystem; anywhere writable otherwise.
       final appImage = _appImagePath;
       final dir = appImage != null ? File(appImage).parent : Directory.systemTemp;
-      final out = File('${dir.path}/.prototype-update-${DateTime.now().millisecondsSinceEpoch}');
+      await _clearStaleDownloads(dir);
+      out = File('${dir.path}/${downloadName(info.assetName)}');
       final sink = out.openWrite();
-      await req.stream.pipe(sink);
-      await sink.close();
+      try {
+        // BOUNDED. The 20 s above covers the response HEADERS and nothing
+        // else, so a connection that opened and then stalled left this
+        // awaiting a body that never came — with the app showing
+        // "downloading" for as long as the user was willing to watch it. An
+        // update that cannot finish has to fail and say so.
+        await req.stream.pipe(sink).timeout(_downloadWindow);
+      } finally {
+        await sink.close();
+      }
       return out;
     } catch (e) {
       Log.w('update', 'download failed: $e');
+      // A partial file is worse than none: it fails its checksum, which is
+      // right, but it also sits in %TEMP% at the size it got to.
+      if (out != null) {
+        try {
+          await out.delete();
+        } catch (_) {
+          // Nothing more to do about a temp file that would not go away.
+        }
+      }
       return null;
     } finally {
       client.close();
     }
   }
+
+  /// How long the asset body may take. Generous — this is a ~100 MB installer
+  /// on whatever connection the user has — but finite.
+  static const Duration _downloadWindow = Duration(minutes: 10);
 
   static void _openInBrowser(String url) {
     if (url.isEmpty) return;

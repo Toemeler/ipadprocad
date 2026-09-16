@@ -2859,12 +2859,37 @@ class AppState extends ChangeNotifier {
   Future<void> flushCurrentDocument() async {
     final name = curTab;
     if (name == null) return;
+    await _flushDocument(name);
+  }
+
+  Future<void> _flushDocument(String name) async {
     if (assemblies.containsKey(name)) {
       await saveAssembly(name);
     } else if (parts.containsKey(name)) {
       await savePart(name);
     } else if (sketches.containsKey(name)) {
       await saveSketch(name);
+    }
+  }
+
+  /// Saves EVERY open document, for a shutdown that is about to happen
+  /// whether the app likes it or not.
+  ///
+  /// [flushCurrentDocument] saves the tab in front of you, which is right for
+  /// a checkpoint and wrong for this: an update replaces the executable and
+  /// the process goes with it, so a document open in another tab is a
+  /// document that loses whatever was not written. The one caller is the
+  /// updater.
+  ///
+  /// One failure does not stop the rest. A document that cannot be saved is
+  /// worth a line in the log, and the other four tabs are still worth saving.
+  Future<void> flushAllDocuments() async {
+    for (final name in List<String>.of(openTabs)) {
+      try {
+        await _flushDocument(name);
+      } catch (e) {
+        Log.w('doc', 'could not flush "$name" before shutdown: $e');
+      }
     }
   }
 
