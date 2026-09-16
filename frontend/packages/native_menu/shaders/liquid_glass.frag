@@ -100,8 +100,41 @@ vec2 glassNormal(vec2 p, vec2 b, float r, float n) {
 void main() {
   vec2 fc = FlutterFragCoord().xy;
 
-  vec2 centre = 0.5 * (uRect.xy + uRect.zw);
-  vec2 halfSize = 0.5 * (uRect.zw - uRect.xy);
+  // THE RECT AND THE FRAGMENT HAVE TO BE IN THE SAME SPACE, and nothing
+  // guarantees they are.
+  //
+  // `uRect` is measured on the Dart side through `localToGlobal`, so it is in
+  // the WINDOW's device pixels. `FlutterFragCoord()` is in the BACKDROP's.
+  // Those are one space only while the backdrop IS the window, and the engine
+  // never promised that: a backdrop filter under a clip — which this material
+  // always is, because GlassPanel clips it to the panel — may be handed a
+  // texture covering the clipped region alone. The fragment at the panel's
+  // top-left then reads 0 while the rect says 98.
+  //
+  // THAT IS #56. The card came out as two rectangles — glass where the shader
+  // believed the panel to be, untouched backdrop across the rest of it — with
+  // the rim drawn 38 px inside the card's own right edge, on two different
+  // windows and two different card heights, while every measurement on the
+  // Dart side said the rect was the card's to the pixel. Both are true: the
+  // rect was right, and it was right about the wrong space.
+  //
+  // `uSize` settles it, and it is already here: the engine writes the
+  // backdrop's size into the first uniform. A backdrop no larger than the
+  // panel in BOTH axes cannot be the window, so it is the panel's own region,
+  // and the panel's box in that space is the whole of it. When the backdrop IS
+  // the window the test is false and nothing changes — which is the band, both
+  // tab-bar pills and the quick tools, every surface that renders correctly
+  // today and must go on doing so.
+  vec2 rectLo = uRect.xy;
+  vec2 rectHi = uRect.zw;
+  vec2 rectSize = rectHi - rectLo;
+  if (uSize.x <= rectSize.x + 1.0 && uSize.y <= rectSize.y + 1.0) {
+    rectLo = vec2(0.0);
+    rectHi = uSize;
+  }
+
+  vec2 centre = 0.5 * (rectLo + rectHi);
+  vec2 halfSize = 0.5 * (rectHi - rectLo);
   vec2 p = fc - centre;
 
   float radius = clamp(uShape.x, 0.0, min(halfSize.x, halfSize.y));
