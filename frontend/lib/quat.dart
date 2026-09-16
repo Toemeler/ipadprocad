@@ -37,6 +37,75 @@ class Quat {
     return Quat(math.cos(h), n.x * s, n.y * s, n.z * s);
   }
 
+  /// The rotation of a 3x3 ROTATION MATRIX, given row-major as 9 doubles
+  /// (or as the first 9 of a row-major 3x4, whose fourth column is the
+  /// translation and is not read).
+  ///
+  /// #58 — a STEP assembly's placements arrive as matrices, because that is
+  /// what `gp_Trsf` is, and every occurrence in this app is a (rot, offset)
+  /// pair. This is the conversion between them.
+  ///
+  /// SHEPPERD'S METHOD, and the branch is the whole of it. Reading w from the
+  /// trace alone, `w = sqrt(1 + trace) / 2`, divides by a number that goes to
+  /// zero as the rotation approaches a half turn — and a half turn is not an
+  /// exotic case in an assembly, it is every part that was flipped over. So
+  /// the largest of the four is computed first and the other three are
+  /// divided by it, which keeps the divisor at least 1/2.
+  ///
+  /// A matrix that is not a rotation (a reflection, or numerical drift) still
+  /// returns a unit quaternion — the nearest rotation to it — rather than a
+  /// NaN. Mirrored placements are carried by [Placement.reflect], not here.
+  factory Quat.fromRotation(List<double> m) {
+    if (m.length < 9) return identity;
+    double at(int r, int c) => m[r * (m.length >= 12 ? 4 : 3) + c];
+    final m00 = at(0, 0), m01 = at(0, 1), m02 = at(0, 2);
+    final m10 = at(1, 0), m11 = at(1, 1), m12 = at(1, 2);
+    final m20 = at(2, 0), m21 = at(2, 1), m22 = at(2, 2);
+    // A DEGENERATE matrix has no nearest rotation to be. Shepperd's branches
+    // all divide by a square root that only the rows' own lengths keep away
+    // from zero, and on an all-zero matrix the last branch happily returns a
+    // half turn about Z — a rotation nobody asked for, silently applied to a
+    // component. Refuse it here instead.
+    for (final row in [
+      [m00, m01, m02],
+      [m10, m11, m12],
+      [m20, m21, m22],
+    ]) {
+      final n2 = row[0] * row[0] + row[1] * row[1] + row[2] * row[2];
+      if (!n2.isFinite || n2 < 1e-12) return identity;
+    }
+    final trace = m00 + m11 + m22;
+    double w, x, y, z;
+    if (trace > 0) {
+      final s = math.sqrt(trace + 1.0) * 2; // s = 4w
+      w = 0.25 * s;
+      x = (m21 - m12) / s;
+      y = (m02 - m20) / s;
+      z = (m10 - m01) / s;
+    } else if (m00 > m11 && m00 > m22) {
+      final s = math.sqrt(1.0 + m00 - m11 - m22) * 2; // s = 4x
+      w = (m21 - m12) / s;
+      x = 0.25 * s;
+      y = (m01 + m10) / s;
+      z = (m02 + m20) / s;
+    } else if (m11 > m22) {
+      final s = math.sqrt(1.0 + m11 - m00 - m22) * 2; // s = 4y
+      w = (m02 - m20) / s;
+      x = (m01 + m10) / s;
+      y = 0.25 * s;
+      z = (m12 + m21) / s;
+    } else {
+      final s = math.sqrt(1.0 + m22 - m00 - m11) * 2; // s = 4z
+      w = (m10 - m01) / s;
+      x = (m02 + m20) / s;
+      y = (m12 + m21) / s;
+      z = 0.25 * s;
+    }
+    final n = math.sqrt(w * w + x * x + y * y + z * z);
+    if (!n.isFinite || n < 1e-12) return identity;
+    return Quat(w / n, x / n, y / n, z / n);
+  }
+
   /// The SHORTEST rotation taking unit vector [from] onto unit vector [to].
   ///
   /// This is the solver's workhorse: every orientation constraint reduces to

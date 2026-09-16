@@ -644,8 +644,16 @@ bool _segIntersectsRect(Offset a, Offset b, Rect r) {
 
 /// Inventor semantics: window (crossing == false) selects only entities
 /// FULLY inside; crossing selects everything the rectangle touches.
-bool entityInRect(Geo g, Rect r, {required bool crossing}) {
-  final pts = sampleEntity(g);
+bool entityInRect(Geo g, Rect r, {required bool crossing}) =>
+    polylineInRect(sampleEntity(g), r, crossing: crossing);
+
+/// The window/crossing rule itself, for a polyline that is not a [Geo].
+///
+/// #65 — a box select over MODEL edges, which arrive as projected polylines
+/// rather than as sketch entities. Inventor's two box gestures mean the same
+/// thing whatever is under them, and one implementation is how they stay
+/// meaning the same thing.
+bool polylineInRect(List<Offset> pts, Rect r, {required bool crossing}) {
   if (pts.isEmpty) return false;
   if (crossing) {
     for (final p in pts) {

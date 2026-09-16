@@ -373,6 +373,24 @@ int occt_mesh_edge_curves(const occt_mesh *m, double *out);
  * Returns 1/0. */
 int occt_mesh_face_ids(const occt_mesh *m, int *out);
 
+/*
+ * v30 (#65) — WHICH MESH FACES each display edge bounds.
+ *
+ * `out` receives 2 * nedges ints: two MESH face indices per display edge, in
+ * the same numbering `occt_mesh_tri_faces` uses, with -1 for an absent slot.
+ * A manifold edge fills both, a free edge one, and an edge whose neighbouring
+ * face carries no triangulation leaves that slot empty rather than pointing
+ * somewhere wrong.
+ *
+ * This adjacency was always computed here — the seam test in occt_mesh_create
+ * needs it — and simply never left the shim, so "which edges bound this face"
+ * had to be guessed from the geometry instead. It cannot be: edges are
+ * discretised at their own, much finer parameters than the faces (the v11
+ * note), so a curved edge's polyline shares no interior point with the face
+ * triangulation and a shared-point test keeps only the odd straight edge.
+ */
+int occt_mesh_edge_faces(const occt_mesh *m, int *out);
+
 /* Release a mesh returned by occt_mesh_create. NULL is ignored. */
 void occt_free_mesh(occt_mesh *m);
 

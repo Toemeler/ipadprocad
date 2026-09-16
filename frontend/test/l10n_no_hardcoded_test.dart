@@ -39,6 +39,12 @@ const Map<String, Set<String>> kAllowed = {
     // 'Part\$n' and 'Sketch\$n' below it: it is written into the document and
     // into its file name, so translating it would be a data change.
     'Assembly\$n',
+    // #58 — the fallback DOCUMENT NAMES for a STEP product the file did not
+    // name. Same footing as 'Part\$n' and 'Assembly\$n' above: they are
+    // written into the document and into its file name, so translating them
+    // would be a data change — and a German user re-importing the same file
+    // would get a second set of documents.
+    'Assembly',
     'Chamfer',
     'Coil',
     'Combine',
@@ -61,6 +67,7 @@ const Map<String, Set<String>> kAllowed = {
     'Midplane between \${_wpNames[0]} and \${_wpNames[1]}',
     'Offset \${d.toStringAsFixed(2)} mm from \$wpCreateLabel',
     'Offset \${workPlaneOffset.toStringAsFixed(2)} mm from \$label',
+    'Part',
     'Part\$n',
     // M345 — the base name a document made out of the clipboard falls back to
     // when the copy carries none, and the feature label of a pasted body

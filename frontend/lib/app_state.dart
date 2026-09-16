@@ -3019,6 +3019,14 @@ class AppState extends ChangeNotifier {
     final lower = path.toLowerCase();
     try {
       if (lower.endsWith('.step') || lower.endsWith('.stp')) {
+        // #58 — AS AN ASSEMBLY where the file is one, which is what it says
+        // it is. Tried first and falling through on 0, so a file with no
+        // structure (a single product, the common export from a part) still
+        // arrives as one part exactly as it always has. The assembly path
+        // names its own documents after the file's products, so the name
+        // computed above is not used on that branch.
+        final placed = await importStepAssembly(path);
+        if (placed > 0) return curTab;
         if (!await createNamedPart(name)) return null;
         await importStepIntoPart(path);
         await savePart(name);
@@ -4824,18 +4832,23 @@ class AppState extends ChangeNotifier {
     return out;
   }
 
-  Future<bool> createNamedAssembly(String name) async {
+  Future<bool> createNamedAssembly(String name, {bool open = true}) async {
     final clean = name.trim();
     if (validateSketchName(clean) != null) return false;
     if (docNameExists(clean)) return false;
     final a = AssemblyModel(clean);
     assemblies[clean] = a;
-    if (!openTabs.contains(clean)) openTabs.add(clean);
-    curTab = clean;
-    activeChild = null;
-    editingLayer = null;
-    tool = Tool.none;
-    _reanalyze();
+    // [open] for createNamedPart's reason, and #58 is the caller that needs
+    // it: a STEP import makes one document per sub-assembly, and a tab per
+    // sub-assembly is not what was asked for.
+    if (open) {
+      if (!openTabs.contains(clean)) openTabs.add(clean);
+      curTab = clean;
+      activeChild = null;
+      editingLayer = null;
+      tool = Tool.none;
+      _reanalyze();
+    }
     await saveAssembly(clean);
     return true;
   }
@@ -4940,6 +4953,20 @@ class AppState extends ChangeNotifier {
   /// The one model for assembly [name], or null.
   AssemblyModel? _sourceAssembly(String name) =>
       assemblies[name] ?? _componentAssemblies[name];
+
+  /// Tests only: the same lookup, for a document a test made but did not open.
+  @visibleForTesting
+  AssemblyModel? assemblyModelForTest(String name) => _sourceAssembly(name);
+
+  /// Tests only: every document name this session holds, open or not.
+  @visibleForTesting
+  Set<String> allDocumentNames() => {
+        ...sketches.keys,
+        ...parts.keys,
+        ..._componentModels.keys,
+        ...assemblies.keys,
+        ..._componentAssemblies.keys,
+      };
 
   /// Every document any OPEN assembly places, transitively.
   ///
@@ -5388,6 +5415,18 @@ class AppState extends ChangeNotifier {
       {Placement? at}) async {
     final a = currentAssembly;
     if (a == null) return null;
+    return _placeInto(a, source, at: at);
+  }
+
+  /// The same placement, into an assembly that need not be the OPEN one.
+  ///
+  /// #58 — importing a STEP assembly builds a whole tree of documents before
+  /// any of them is opened, and each sub-assembly has to be filled where it
+  /// stands. Opening each one in turn to place into it would leave a tab per
+  /// sub-assembly and would make the import's last step decide which document
+  /// the user is looking at.
+  Future<AssemblyOccurrence?> _placeInto(AssemblyModel a, String source,
+      {Placement? at}) async {
     // M246 — a subassembly is placed by the same command, which is Inventor's
     // Place Component exactly: one button, and what you pick decides.
     final asSub = isAssemblyName(source);
@@ -13792,6 +13831,19 @@ class AppState extends ChangeNotifier {
       final r = Rect.fromPoints(boxStart!, boxEnd!);
       if (r.width > 1e-9 && r.height > 1e-9) {
         lastBoxRect = r;
+        // #65 — "i also want to project using the select boxes".
+        //
+        // With Project active a box is a PROJECTION, not a selection: the
+        // tool's whole job is to take what you point at, and a box is how you
+        // point at twenty things. Inventor's window/crossing rule is
+        // unchanged, and so is the order of preference inside it — model
+        // edges and other layers' geometry, exactly what a single tap takes.
+        if (tool == Tool.project) {
+          _projectBox(s, r);
+          boxStart = boxEnd = null;
+          notifyListeners();
+          return;
+        }
         selection.clear();
         for (var i = 0; i < s.geometry.length; i++) {
           if (!geoVisible(s.geometry[i])) continue;
@@ -16267,6 +16319,35 @@ class AppState extends ChangeNotifier {
   /// face whose outline you projected by hand should still bring its holes
   /// across, and "already projected" is an answer about one edge, not about a
   /// face that is merely partly there.
+  /// #65 — projects every MODEL edge the box [r] caught.
+  ///
+  /// Model edges only, and that is the scope rather than a shortcut: both
+  /// halves of the report are about getting model geometry into a sketch in
+  /// one go ("project the whole face", "project using the select boxes").
+  /// Projecting one sketch layer onto another by the box is a different
+  /// gesture nobody has asked for, and adding it here would make a box over a
+  /// busy sketch do something surprising.
+  ///
+  /// A box that catches nothing says so. Silence would be indistinguishable
+  /// from the tool being inactive, which is how the single-tap path already
+  /// behaves and why it toasts too.
+  void _projectBox(SketchModel s, Rect r) {
+    final lay = editingLayer;
+    if (lay == null) return;
+    final hits =
+        partEdgesInRect(projectableEdges(), r, crossing: boxCrossing);
+    Log.i(
+        'project',
+        'box ${boxCrossing ? "crossing" : "window"} '
+            '${r.width.toStringAsFixed(2)}x${r.height.toStringAsFixed(2)} '
+            '-> ${hits.length} model edges');
+    if (hits.isEmpty) {
+      toast(L.current.msgTapGeometryOtherLayer);
+      return;
+    }
+    _projectSolidEdges(s, hits, lay);
+  }
+
   void _projectSolidEdges(SketchModel s, List<int> edgeIndices, String lay) {
     final edges = projectableEdges();
     final tags = List<Geo>.of(s.geometry);
@@ -18597,6 +18678,179 @@ class AppState extends ChangeNotifier {
   /// because the imported B-Rep is not serialised — re-reading the STEP on
   /// open is simpler and lossless, and it keeps the document a description of
   /// where geometry came from rather than a second copy of it.
+  /// #58 — a document name for a STEP product, free of the instance suffix.
+  ///
+  /// The file names an OCCURRENCE ("base:2", "radlein8mm:1"); the DOCUMENT is
+  /// the product behind it. Stripping ":n" is what makes two occurrences of
+  /// one product resolve to one document rather than to "base:1" and
+  /// "base:2", which would be the flat import again with better names.
+  static String stepDocName(String raw, String fallback) {
+    var n = raw.trim();
+    final colon = n.lastIndexOf(':');
+    // The NUMBER is what marks an instance: "base:2" is an occurrence of
+    // "base", while "Rev:A" is just a name with a colon in it. A colon at the
+    // front leaves nothing behind, which is a product the file did not name —
+    // the fallback, not a document called "_2".
+    if (colon >= 0 && int.tryParse(n.substring(colon + 1)) != null) {
+      n = n.substring(0, colon);
+    }
+    // The gallery's own rules decide what a name may be; a STEP file's does
+    // not have to agree with them.
+    n = n.replaceAll(RegExp(r'[^A-Za-z0-9 _\-]'), '_').trim();
+    return n.isEmpty ? fallback : n;
+  }
+
+  /// [base], or the first "base (2)", "base (3)", … that no document holds.
+  String _freeDocName(String base) {
+    if (!docNameExists(base)) return base;
+    for (var i = 2; i < 10000; i++) {
+      final n = '$base ($i)';
+      if (!docNameExists(n)) return n;
+    }
+    return '$base ${DateTime.now().millisecondsSinceEpoch}';
+  }
+
+  /// #58 — imports a STEP file AS AN ASSEMBLY: one document per product, one
+  /// occurrence per placement.
+  ///
+  ///   "this step was an assembly, with other assemblys in the assembly and
+  ///    so on. but after import it was just one part with lots of solids."
+  ///
+  /// Returns the number of occurrences placed, or 0 when the file has no
+  /// structure worth keeping — a single product with solids in it is a PART,
+  /// and a one-component assembly would be a worse answer than the flat
+  /// import. The caller falls back to [importStepIntoPart] on 0.
+  ///
+  /// The LINKING the sequel asks for falls out of this rather than being a
+  /// second feature: two occurrences of one product share a `def`, so they
+  /// share the document this writes for it, and that document is an ordinary
+  /// part or assembly in the gallery — open it, edit it, and every occurrence
+  /// follows, because that is what an occurrence already is (M245).
+  Future<int> importStepAssembly(String path) async {
+    final tree = partKernel.importStepAssembly(path);
+    if (tree == null) return 0;
+    try {
+      if (!tree.isStructured) return 0;
+      final nodes = tree.pieces;
+
+      // The FIRST occurrence of each definition: every other one is the same
+      // product, so one of them is enough to describe the document.
+      final rep = <int, int>{};
+      for (var i = 0; i < nodes.length; i++) {
+        rep.putIfAbsent(nodes[i].def, () => i);
+      }
+      // Depth, so assemblies can be built from the leaves up: a parent cannot
+      // place a child whose document does not exist yet.
+      final depth = List<int>.filled(nodes.length, 0);
+      for (var i = 0; i < nodes.length; i++) {
+        final p = nodes[i].parent;
+        depth[i] = p < 0 ? 0 : depth[p] + 1; // pre-order: p < i always
+      }
+
+      final docOf = <int, String>{}; // def -> document name
+      var parts0 = 0, subs = 0, placed = 0;
+
+      // 1. Every LEAF definition becomes a part document, holding the one
+      //    imported body, in the product's OWN frame. Not opened: the user
+      //    asked for the assembly.
+      for (final e in rep.entries) {
+        final n = nodes[e.value];
+        if (n.isAssembly) continue;
+        if (n.solid < 0 || n.solid >= tree.solids.length) continue;
+        final body = tree.solids[n.solid];
+        if (body == null) continue; // could not be tessellated
+        final name = _freeDocName(stepDocName(n.name, 'Part'));
+        if (!await createNamedPart(name, open: false)) continue;
+        final p = parts[name];
+        if (p == null) continue;
+        p.appendFeature(ExtrudeFeature(
+          name: p.nextFeatureName('Import'),
+          bodyName: p.nextSolidName(),
+          sketchName: '',
+          profiles: const [],
+          output: 'new',
+        )
+          ..imported = true
+          ..importIndex = n.solid
+          ..solid = body
+          ..seq = p.nextSeq());
+        applyEndOfPart(p);
+        p.dirty = true;
+        await savePart(name);
+        // M245's invariant: a document not open in a tab lives in the shared
+        // map, so every occurrence of it points at the same model.
+        final m = parts.remove(name);
+        if (m != null) _componentModels[name] = m;
+        docOf[e.key] = name;
+        parts0++;
+      }
+
+      // 2. Every ASSEMBLY definition becomes an assembly document, DEEPEST
+      //    FIRST so its children already exist when it places them.
+      final asmDefs = [
+        for (final e in rep.entries)
+          if (nodes[e.value].isAssembly) e.key
+      ]..sort((a, b) => depth[rep[b]!].compareTo(depth[rep[a]!]));
+
+      for (final def in asmDefs) {
+        final at = rep[def]!;
+        final name = _freeDocName(stepDocName(nodes[at].name, 'Assembly'));
+        if (!await createNamedAssembly(name, open: false)) continue;
+        final a = assemblies[name];
+        if (a == null) continue;
+        for (var c = 0; c < nodes.length; c++) {
+          if (nodes[c].parent != at) continue;
+          final child = docOf[nodes[c].def];
+          if (child == null) continue; // a definition that could not be made
+          final occ = await _placeInto(a, child,
+              at: Placement(nodes[c].rot, nodes[c].at));
+          if (occ != null) placed++;
+        }
+        await saveAssembly(name);
+        // Same invariant as the parts: an assembly nothing has open is a
+        // SOURCE, and a sub-assembly placed twice must resolve to one model.
+        final m = assemblies.remove(name);
+        if (m != null) _componentAssemblies[name] = m;
+        docOf[def] = name;
+        subs++;
+      }
+
+      // 3. The root, which IS opened — it is the document that was asked for.
+      final rootDefs = {for (final r in tree.roots) nodes[r].def};
+      String? opened;
+      for (final d in rootDefs) {
+        final name = docOf[d];
+        if (name == null) continue;
+        final held = _componentAssemblies.remove(name);
+        if (held != null) {
+          assemblies[name] = held;
+        } else if (_componentModels.containsKey(name)) {
+          parts[name] = _componentModels.remove(name)!;
+        }
+        opened = name;
+      }
+      if (opened == null) return 0;
+      if (assemblies.containsKey(opened)) {
+        await openAssembly(opened);
+        currentAssembly?.needsFit = true;
+      } else {
+        await openPart(opened);
+      }
+
+      Log.i(
+          'import',
+          'STEP assembly "$opened": ${nodes.length} nodes, '
+              '${tree.defCount} definitions -> $parts0 part document(s), '
+              '$subs sub-assembly document(s), $placed occurrence(s)');
+      toast(L.current.msgImportedBodies(placed));
+      notifyListeners();
+      return placed;
+    } catch (e, st) {
+      Log.e('import', 'STEP assembly import failed', e, st);
+      return 0;
+    }
+  }
+
   Future<int> importStepIntoPart(String path) async {
     final p = currentPart;
     if (p == null) {

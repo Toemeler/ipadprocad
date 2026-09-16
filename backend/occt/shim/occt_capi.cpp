@@ -156,6 +156,7 @@
 #include <STEPCAFControl_Reader.hxx>
 #include <STEPControl_Reader.hxx>
 #include <TDF_Label.hxx>
+#include <TopTools_DataMapOfShapeInteger.hxx>
 #include <TDF_LabelSequence.hxx>
 #include <TDF_Tool.hxx>
 #include <TDataStd_Name.hxx>
@@ -2134,6 +2135,8 @@ struct occt_mesh
     std::vector<int> edge_ids;      /* 1-based topological index per display edge */
     /* v20 */
     std::vector<int> face_ids;      /* 1-based topological index per mesh face */
+    /* v30 (#65) */
+    std::vector<int> edge_faces;    /* 2 MESH face indices per display edge */
 };
 
 extern "C" occt_mesh *occt_mesh_create(const occt_shape *shape,
@@ -2180,6 +2183,21 @@ extern "C" occt_mesh *occt_mesh_create(const occt_shape *shape,
      * Deriving it later by re-exploring would be guesswork; recording it here,
      * where both numbers are in hand, cannot be wrong. */
     std::vector<int> face_ids;
+    /* v30 (#65) — WHICH MESH FACES each display edge bounds.
+     *
+     * The adjacency is already computed below, for the seam test; it was
+     * simply never exported, and M279 had to guess at it from the geometry
+     * instead. It could not: this shim discretises edges MUCH finer than
+     * faces and at its own parameters (see the v11 note in the edge loop), so
+     * a curved edge's polyline shares no interior point with the face
+     * triangulation, and a test that asked for shared points kept only the
+     * odd straight edge. The device said so exactly — "projected 1 edges of a
+     * face" on a face with a whole boundary.
+     *
+     * Bound in the face loop because that is where a face's MESH index is in
+     * hand; the edge loop below only has the TopoDS_Face. */
+    TopTools_DataMapOfShapeInteger meshFaceOf;
+    std::vector<int> edge_faces;
     /* One byte per vertex: is its face a freeform patch? Decides how far two
      * faces may disagree at a shared node and still be shaded as one — see
      * meshrecon::ShareNormalsAcrossSeams. */
@@ -2200,6 +2218,7 @@ extern "C" occt_mesh *occt_mesh_create(const occt_shape *shape,
         if (tri.IsNull() || tri->NbTriangles() < 1)
             continue;
         face_ids.push_back(topo_face);
+        meshFaceOf.Bind(face, (int)face_ids.size() - 1); /* v30 */
         /* v4: one 15-double surface record per triangulated face */
         {
             BRepAdaptor_Surface surf(face, Standard_True);
@@ -2382,6 +2401,26 @@ extern "C" occt_mesh *occt_mesh_create(const occt_shape *shape,
          * index. Without this row the two silently disagree and the fillet
          * lands on a different edge than the one the user tapped. */
         edge_ids.push_back(i);
+        /* v30 (#65): the mesh faces this edge bounds. Two slots — a manifold
+         * edge has exactly two faces and a free edge one; -1 fills the rest.
+         * A face with no triangulation was skipped above and is not in the
+         * map, so it reads as absent rather than as a wrong index. */
+        {
+            int fa = -1, fb = -1;
+            if (edgeFaces.Contains(edge)) {
+                for (TopTools_ListIteratorOfListOfShape it(
+                         edgeFaces.FindFromKey(edge));
+                     it.More(); it.Next()) {
+                    int mi = -1;
+                    if (!meshFaceOf.Find(it.Value(), mi)) continue;
+                    if (mi == fa || mi == fb) continue;
+                    if (fa < 0) fa = mi;
+                    else if (fb < 0) fb = mi;
+                }
+            }
+            edge_faces.push_back(fa);
+            edge_faces.push_back(fb);
+        }
         /* v4: one 16-double analytic record per exported edge, so the
          * display can draw lines/circles/ellipses as exact vector curves.
          * Anything else keeps type 0 and renders from the polyline. */
@@ -2448,6 +2487,7 @@ extern "C" occt_mesh *occt_mesh_create(const occt_shape *shape,
     m->edge_curves.swap(edge_curves);
     m->edge_ids.swap(edge_ids);
     m->face_ids.swap(face_ids);
+    m->edge_faces.swap(edge_faces);
     return m;
     OCCT_CATCH("occt_mesh_create", nullptr)
 }
@@ -4211,6 +4251,20 @@ extern "C" int occt_mesh_face_ids(const occt_mesh *m, int *out)
         out[i] = m->face_ids[i];
     return 1;
     OCCT_CATCH("occt_mesh_face_ids", 0)
+}
+
+/* v30 (#65) — 2 MESH face indices per display edge; -1 for an absent slot. */
+extern "C" int occt_mesh_edge_faces(const occt_mesh *m, int *out)
+{
+    OCCT_TRY("occt_mesh_edge_faces")
+    if (!m || !out) {
+        set_err("occt_mesh_edge_faces", "null argument");
+        return 0;
+    }
+    for (size_t i = 0; i < m->edge_faces.size(); ++i)
+        out[i] = m->edge_faces[i];
+    return 1;
+    OCCT_CATCH("occt_mesh_edge_faces", 0)
 }
 
 /* ---- v16: a fillet and chamfer that cannot hand back a broken solid ------ */
