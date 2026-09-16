@@ -3240,7 +3240,17 @@ class _ScenePainter extends CustomPainter {
           Paint()
             ..color =
                 (hot ? _green : _orange).withValues(alpha: hot ? 0.95 : 0.65)
-            ..strokeWidth = hot ? 2.0 : 1.2
+            // #69 — "plane outlines should in every case be just one pixel in
+            // thickness". One, and the same one hot or not: a work plane is a
+            // plane, an origin plane three blocks down already strokes at 1
+            // either way, the RealityKit renderer draws both at Stroke.line,
+            // and [kPlaneCornerMark] is sized against "the plane's border is a
+            // 1 pt line" — so 1.2 and 2.0 disagreed with three things that
+            // already agreed with each other. Highlighting is the COLOUR and
+            // the alpha above, which is how the origin planes have always said
+            // it; a line that thickens under the finger is a second, louder
+            // answer to a question that was already answered.
+            ..strokeWidth = 1
             ..style = PaintingStyle.stroke,
           occ: occ);
     }

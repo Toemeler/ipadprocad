@@ -217,6 +217,44 @@ struct OutlineStyle: Equatable {
     /// takes as `halfWidth` and TubeBuilder as `radius`. Both are half the
     /// drawn width, which is why one number serves both.
     func halfWidth(_ pt: Float) -> Float { max(mmPerPoint * pt * 0.5, 1e-6) }
+
+    /// #69 — what a SQUARE cross-section has to be scaled by to read one
+    /// stroke wide on screen.
+    ///
+    /// "plane outlines should in every case be just one pixel in thickness."
+    /// A ribbon is aimed at the camera and is therefore its stated width
+    /// whatever the camera does; a box is not. [OutlineBuilder.rectFrame]
+    /// strokes a plane's border as a box `2r` across in BOTH [perp] (the
+    /// visible width) and [normal] (what keeps it clear of the plane's own
+    /// fill), and the silhouette of a square seen from anywhere but along one
+    /// of its own axes is wider than its side:
+    ///
+    ///     width = 2r * (|u·perp| + |u·normal|)
+    ///
+    /// where `u` is the screen direction ACROSS the line. That is 2r only
+    /// looking straight down the plane or straight along it, and 2r*sqrt(2) —
+    /// 41% over — at 45 degrees, which is the default three-quarter view. It
+    /// also CHANGES as the model is orbited, which is the "in every case" in
+    /// the report: the plane's border was the one line in the scene whose
+    /// weight was not a fixed number of points.
+    ///
+    /// Dividing by that sum makes the silhouette the width that was asked
+    /// for. The box shrinks along [normal] by the same factor, which it can
+    /// afford: what it has to beat there is a fill of zero thickness.
+    ///
+    /// 1 when there is no view direction yet (the first frames, before a
+    /// camera push) and when the line runs straight at the camera, where it
+    /// projects to a point and no width is right or wrong.
+    func silhouetteScale(dir: SIMD3<Float>, perp: SIMD3<Float>,
+                         normal: SIMD3<Float>) -> Float {
+        guard let d = viewDir else { return 1 }
+        let across = simd_cross(d, dir)
+        let l = simd_length(across)
+        guard l > 1e-5 else { return 1 }
+        let u = across / l
+        let w = abs(simd_dot(u, perp)) + abs(simd_dot(u, normal))
+        return w > 1e-5 ? 1 / w : 1
+    }
 }
 
 /// Chrome stroked as a swept TUBE in the current style — work-plane borders
@@ -259,33 +297,60 @@ enum OutlineBuilder {
     /// is the report. A work-plane border is always an axis-aligned
     /// rectangle in the plane's own (u, v) frame, so this does not need a
     /// general miter solver: each edge is stroked as a SQUARE cross-section
-    /// box — half-width [style]'s stroke weight along the in-plane
-    /// perpendicular (the visible border width) and along [normal] (so it
-    /// still stands proud of the plane's own fill on both sides, [tube]'s
-    /// same reason to be a solid rather than a flat ribbon) — extended by
-    /// that same half-width at both ends, into the corner. Two boxes always
-    /// meet flush there: their in-plane widths are equal and their
-    /// directions are exactly perpendicular by construction, so the union is
-    /// a sharp square corner rather than a circle.
+    /// box — along the in-plane perpendicular (the visible border width) and
+    /// along [normal] (so it still stands proud of the plane's own fill on
+    /// both sides, [tube]'s same reason to be a solid rather than a flat
+    /// ribbon) — extended at both ends into the corner, where the two boxes
+    /// meet flush and the union is a sharp square corner rather than a
+    /// circle.
+    ///
+    /// #69 — "plane outlines should in every case be just one pixel in
+    /// thickness". Those boxes were all [style]'s stroke weight wide, which
+    /// is the width of the SIDE of the square and not the width of what it
+    /// projects to: see [OutlineStyle.silhouetteScale], which is what each
+    /// edge is now scaled by. So the four edges no longer share a half-width
+    /// — each is seen at its own angle — and the corner is what that costs
+    /// attention. An edge is extended into the corner by its NEIGHBOUR's
+    /// half-width rather than its own, and then the corner square is exactly
+    /// covered whatever the two widths are: the edge arriving spans the full
+    /// depth of the edge leaving and reaches exactly across it. Equal widths
+    /// are the case that used to be, so this is the same mesh it always was
+    /// wherever the camera happens to look along an axis of the square.
     static func rectFrame(_ corners: [SIMD3<Float>], normal: SIMD3<Float>,
                           color: UIColor, style: OutlineStyle,
                           weight: Float = Stroke.line) -> ModelEntity? {
         guard corners.count == 4 else { return nil }
-        let radius = style.halfWidth(weight)
+        let base = style.halfWidth(weight)
         let n = simd_normalize(normal)
+        // Every edge's direction, in-plane perpendicular and half-width, in
+        // one pass: the build below needs the NEIGHBOURS' radii and so cannot
+        // compute them as it goes. A degenerate edge keeps a nil frame and is
+        // skipped, but still holds its slot so `i` indexes both lists alike.
+        var frames = [(dir: SIMD3<Float>, perp: SIMD3<Float>, r: Float)?]()
+        for i in 0..<4 {
+            let axis = corners[(i + 1) % 4] - corners[i]
+            let len = simd_length(axis)
+            guard len > 1e-7 else { frames.append(nil); continue }
+            let dir = axis / len
+            let perp = simd_normalize(simd_cross(n, dir))
+            frames.append((dir: dir, perp: perp,
+                           r: base * style.silhouetteScale(dir: dir,
+                                                           perp: perp,
+                                                           normal: n)))
+        }
         var positions = [SIMD3<Float>]()
         var normals = [SIMD3<Float>]()
         var indices = [UInt32]()
         for i in 0..<4 {
-            let a = corners[i]
-            let b = corners[(i + 1) % 4]
-            let axis = b - a
-            let len = simd_length(axis)
-            guard len > 1e-7 else { continue }
-            let dir = axis / len
-            let perp = simd_normalize(simd_cross(n, dir))
-            TubeBuilder.appendBox(a - dir * radius, b + dir * radius,
-                                  perp: perp, normal: n, radius: radius,
+            guard let f = frames[i] else { continue }
+            // A missing neighbour cannot say how far to reach, so fall back to
+            // this edge's own radius — the pre-#69 behaviour, and the corner
+            // it would have mitered against does not exist anyway.
+            let head = frames[(i + 3) % 4]?.r ?? f.r
+            let tail = frames[(i + 1) % 4]?.r ?? f.r
+            TubeBuilder.appendBox(corners[i] - f.dir * head,
+                                  corners[(i + 1) % 4] + f.dir * tail,
+                                  perp: f.perp, normal: n, radius: f.r,
                                   positions: &positions, normals: &normals,
                                   indices: &indices)
         }
@@ -787,13 +852,23 @@ final class PlaneEntity {
         applyColors()
     }
 
-    /// Re-stroke the border for a new zoom.
+    /// Re-stroke the border for a new zoom OR a new facing.
     ///
-    /// Only the WIDTH is looked at: the border is a tube, and a tube is
-    /// orientation-independent, so a pure camera turn — which is most of what
-    /// makes the renderer re-stroke — leaves this mesh alone entirely.
+    /// The facing half is #69. This used to look at the width alone, on the
+    /// stated grounds that "the border is a tube, and a tube is orientation-
+    /// independent, so a pure camera turn leaves this mesh alone entirely" —
+    /// true of the 16-gon it was then, and false of the square-section box
+    /// #50 replaced it with, whose silhouette is 41% wider at 45 degrees than
+    /// face-on. The border held its old width through every orbit BECAUSE of
+    /// this early return, which is the half of the report that reads "in
+    /// every case": the number was not merely wrong, it was frozen at
+    /// whatever the last zoom happened to make it.
+    ///
+    /// The cost is four boxes, 32 vertices, on a path that is already
+    /// re-aiming every ribbon in the scene — rebuildOutlines calls this one
+    /// "rounding error" next to the solid edges, and it still is.
     func setStyle(_ s: OutlineStyle) {
-        let changed = s.mmPerPoint != style.mmPerPoint
+        let changed = s != style
         style = s
         if changed { buildOutline() }
     }
