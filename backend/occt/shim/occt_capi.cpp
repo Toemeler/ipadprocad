@@ -153,7 +153,16 @@
 #include <BRepAlgoAPI_Defeaturing.hxx>
 #include <BRepGProp_Face.hxx>
 
+#include <STEPCAFControl_Reader.hxx>
 #include <STEPControl_Reader.hxx>
+#include <TDF_Label.hxx>
+#include <TDF_LabelSequence.hxx>
+#include <TDF_Tool.hxx>
+#include <TDataStd_Name.hxx>
+#include <TDocStd_Document.hxx>
+#include <XCAFApp_Application.hxx>
+#include <XCAFDoc_DocumentTool.hxx>
+#include <XCAFDoc_ShapeTool.hxx>
 #include <STEPControl_Writer.hxx>
 #include <STEPControl_StepModelType.hxx>
 #include <IFSelect_ReturnStatus.hxx>
@@ -411,7 +420,7 @@ extern "C" const char *occt_version(void)
  *
  * Taken by the session that owns backend/occt/shim/**, per the collision notes
  * above. */
-extern "C" int occt_shim_version(void) { return 29; }
+extern "C" int occt_shim_version(void) { return 30; }
 
 extern "C" const char *occt_last_error(void) { return g_err; }
 
@@ -2898,6 +2907,210 @@ extern "C" occt_shape *occt_import_step(const char *path)
     }
     return wrap(reader.OneShape(), "occt_import_step");
     OCCT_CATCH("occt_import_step", nullptr)
+}
+
+/* ---- v30 (#58): the STEP assembly TREE ---------------------------------
+ *
+ *   "this step was an assembly, with other assemblys in the assembly and so
+ *    on. but after import it was just one part with lots of solids."
+ *
+ * occt_import_step above reads a STEP file with STEPControl_Reader, which
+ * transfers GEOMETRY and nothing else: OneShape() hands back one compound and
+ * occt_split_solids then flattens it into a heap of bodies. Every product
+ * name, every instance and the whole nesting is discarded in the reader —
+ * they were never in the shape to begin with.
+ *
+ * The product structure lives in STEP's PRODUCT_DEFINITION / NEXT_ASSEMBLY_
+ * USAGE_OCCURRENCE records, and OCCT reads it only through the XDE layer:
+ * STEPCAFControl_Reader into an XCAF document, walked with XCAFDoc_ShapeTool.
+ * That is what this does, and the SHAPE OF THE RESULT is the point.
+ *
+ * WHY A FLAT ARRAY WITH PARENT INDICES rather than a nested structure: it
+ * crosses the FFI boundary as one block of plain data, with no pointer graph
+ * for the Dart side to walk and free. `parent` indexes backwards into the same
+ * array (-1 for a root) and the array is a PRE-ORDER flattening, so a parent
+ * always precedes its children and the caller can rebuild the tree in one
+ * forward pass.
+ *
+ * WHY `def` IS SEPARATE FROM `solid`, and this is the half the report's
+ * sequel asks for. Two nodes with the same `def` are the same product placed
+ * twice — `base:1` and `base:2` in the reporter's own file, an eight-part
+ * sub-assembly instanced twice, and `radlein8mm` four times. A definition is
+ * therefore ONE document the importer writes once, and the occurrences are
+ * placements of it. Flattening threw that away too: 26 bodies where the file
+ * says 26 occurrences of 8 parts.
+ *
+ * Geometry is emitted ONCE PER LEAF DEFINITION, in its own local frame, and
+ * every occurrence of that definition carries the same `solid` index. `xf` is
+ * the placement relative to the PARENT, so a child's world placement is the
+ * product down its own branch — which is what keeps a sub-assembly rigid when
+ * the assembly it sits in is moved.
+ */
+
+namespace {
+
+/* The XCAF name of a label, empty when it carries none. */
+std::string xcaf_name(const TDF_Label &l)
+{
+    Handle(TDataStd_Name) n;
+    if (!l.IsNull() && l.FindAttribute(TDataStd_Name::GetID(), n)) {
+        return std::string(TCollection_AsciiString(n->Get()).ToCString());
+    }
+    return std::string();
+}
+
+struct StepTreeOut {
+    occt_step_node *nodes;
+    int max_nodes;
+    int n_nodes;
+    occt_shape **solids;
+    int max_solids;
+    int n_solids;
+    /* definition entry -> def index, and -> solid index for leaves. */
+    std::vector<std::string> defs;
+    std::vector<int> def_solid;
+    bool overflow;
+};
+
+int def_index(StepTreeOut &o, const TDF_Label &def)
+{
+    TCollection_AsciiString e;
+    TDF_Tool::Entry(def, e);
+    const std::string key(e.ToCString());
+    for (size_t i = 0; i < o.defs.size(); ++i) {
+        if (o.defs[i] == key) return (int)i;
+    }
+    o.defs.push_back(key);
+    o.def_solid.push_back(-1);
+    return (int)o.defs.size() - 1;
+}
+
+void walk_step(const Handle(XCAFDoc_ShapeTool) & st, const TDF_Label &lab,
+               const TopLoc_Location &loc, int parent, StepTreeOut &o)
+{
+    if (o.n_nodes >= o.max_nodes) {
+        o.overflow = true;
+        return;
+    }
+    /* An assembly COMPONENT is a reference label; the product it refers to is
+     * the definition. A free shape at the top is already its own definition,
+     * and GetReferredShape leaves it alone. */
+    TDF_Label def = lab;
+    if (!st->GetReferredShape(lab, def) || def.IsNull()) def = lab;
+
+    const int d = def_index(o, def);
+    const int me = o.n_nodes++;
+    occt_step_node &n = o.nodes[me];
+    n.parent = parent;
+    n.def = d;
+    n.solid = -1;
+
+    const gp_Trsf t = loc.Transformation();
+    for (int r = 1; r <= 3; ++r) {
+        for (int c = 1; c <= 4; ++c) n.xf[(r - 1) * 4 + (c - 1)] = t.Value(r, c);
+    }
+
+    /* The INSTANCE's name where it has one ("base:2"), else the definition's.
+     * Inventor shows the instance name in the browser and so does this. */
+    std::string nm = xcaf_name(lab);
+    if (nm.empty()) nm = xcaf_name(def);
+    std::snprintf(n.name, sizeof(n.name), "%s", nm.c_str());
+
+    if (st->IsAssembly(def)) {
+        TDF_LabelSequence comps;
+        st->GetComponents(def, comps);
+        for (Standard_Integer i = 1; i <= comps.Length(); ++i) {
+            const TDF_Label c = comps.Value(i);
+            walk_step(st, c, st->GetLocation(c), me, o);
+        }
+        return;
+    }
+
+    /* A leaf. Its geometry is emitted once for the DEFINITION, in the
+     * definition's own frame — `GetShape` on the definition label is already
+     * unlocated, which is exactly the local frame a child document wants. */
+    if (o.def_solid[d] >= 0) {
+        o.nodes[me].solid = o.def_solid[d];
+        return;
+    }
+    if (o.n_solids >= o.max_solids) {
+        o.overflow = true;
+        return;
+    }
+    TopoDS_Shape sh = st->GetShape(def);
+    if (sh.IsNull()) return;
+    occt_shape *w = wrap(sh, "occt_import_step_tree");
+    if (!w) return;
+    o.solids[o.n_solids] = w;
+    o.def_solid[d] = o.n_solids;
+    o.nodes[me].solid = o.n_solids;
+    ++o.n_solids;
+}
+
+} // namespace
+
+extern "C" int occt_import_step_tree(const char *path, occt_step_node *nodes,
+                                     int max_nodes, occt_shape **solids,
+                                     int max_solids, int *n_solids,
+                                     int *n_defs)
+{
+    if (n_solids) *n_solids = 0;
+    if (n_defs) *n_defs = 0;
+    OCCT_TRY("occt_import_step_tree")
+    if (!path || !*path || !nodes || !solids || max_nodes <= 0 ||
+        max_solids <= 0) {
+        set_err("occt_import_step_tree", "null path/out or max <= 0");
+        return 0;
+    }
+
+    Handle(TDocStd_Document) doc;
+    XCAFApp_Application::GetApplication()->NewDocument("BinXCAF", doc);
+
+    STEPCAFControl_Reader reader;
+    /* Names are the whole point of reading it this way — without them every
+     * child document would be called "Solid1". Colours ride along for free and
+     * are what a later milestone will hang per-body appearance on. */
+    reader.SetNameMode(Standard_True);
+    reader.SetColorMode(Standard_True);
+    reader.SetLayerMode(Standard_True);
+    if (reader.ReadFile(path) != IFSelect_RetDone) {
+        set_err("occt_import_step_tree",
+                "file missing or not parseable as STEP");
+        return 0;
+    }
+    if (!reader.Transfer(doc)) {
+        set_err("occt_import_step_tree", "no transferable roots in STEP file");
+        return 0;
+    }
+
+    Handle(XCAFDoc_ShapeTool) st = XCAFDoc_DocumentTool::ShapeTool(doc->Main());
+    if (st.IsNull()) {
+        set_err("occt_import_step_tree", "no shape tool in the XCAF document");
+        return 0;
+    }
+    TDF_LabelSequence roots;
+    st->GetFreeShapes(roots);
+    if (roots.Length() < 1) {
+        set_err("occt_import_step_tree", "no free shapes in the XCAF document");
+        return 0;
+    }
+
+    StepTreeOut o{nodes, max_nodes, 0, solids, max_solids, 0, {}, {}, false};
+    for (Standard_Integer i = 1; i <= roots.Length(); ++i) {
+        walk_step(st, roots.Value(i), st->GetLocation(roots.Value(i)), -1, o);
+    }
+    if (o.overflow) {
+        /* Say so rather than return a TRUNCATED tree that looks complete: a
+         * silently clipped assembly is a document missing parts the file had,
+         * and the caller can retry with a bigger buffer. */
+        for (int i = 0; i < o.n_solids; ++i) occt_free(o.solids[i]);
+        set_err("occt_import_step_tree", "assembly larger than the buffers");
+        return 0;
+    }
+    if (n_solids) *n_solids = o.n_solids;
+    if (n_defs) *n_defs = (int)o.defs.size();
+    return o.n_nodes;
+    OCCT_CATCH("occt_import_step_tree", 0)
 }
 
 /* M110 — explodes a shape into its SOLIDS.

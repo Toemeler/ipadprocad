@@ -223,8 +223,66 @@ int occt_export_step_named(const occt_shape **shapes, const char **names,
                            const char *path, const char *product);
 
 /* Read a STEP file and return all roots as one shape (compound if several).
- * NULL on failure (missing/garbage file included — never crashes). */
+ * NULL on failure (missing/garbage file included — never crashes).
+ *
+ * GEOMETRY ONLY. STEPControl_Reader does not read the product structure, so
+ * an assembly arrives as one compound and occt_split_solids flattens it into
+ * a heap of bodies with no names, no instances and no nesting. Use
+ * occt_import_step_tree below when the structure matters (#58); this stays
+ * for the single-body case and for every caller that only wants a shape. */
 occt_shape *occt_import_step(const char *path);
+
+/* ---- v30 (#58): STEP assemblies ----------------------------------------- */
+
+/*
+ * One node of an imported STEP assembly tree.
+ *
+ * The node array is a PRE-ORDER flattening: `parent` indexes backwards into
+ * the same array (-1 for a root), so a parent always precedes its children
+ * and the tree rebuilds in one forward pass with no pointer graph to free.
+ *
+ * `def` is the DEFINITION this node is an occurrence of. Two nodes sharing a
+ * `def` are the same product placed twice, which is the difference between an
+ * assembly and a heap of bodies: a definition is ONE document written once,
+ * and its occurrences are placements of it.
+ *
+ * `solid` indexes the shape array for a leaf, or is -1 for an assembly node.
+ * Geometry is emitted ONCE PER LEAF DEFINITION in its own local frame, so all
+ * occurrences of a part carry the SAME `solid`.
+ *
+ * `xf` is the placement relative to the PARENT, row-major 3x4 (the first
+ * three columns are the rotation, the fourth the translation in mm). A node's
+ * world placement is the product down its own branch.
+ *
+ * `name` is the instance name where the file gives one ("base:2"), else the
+ * definition's; empty when the file names neither.
+ */
+typedef struct occt_step_node {
+    int parent;
+    int def;
+    int solid;
+    double xf[12];
+    char name[128];
+} occt_step_node;
+
+/*
+ * Read a STEP file WITH its product structure, through XDE.
+ *
+ * Writes at most [max_nodes] nodes and [max_solids] shapes; returns the node
+ * count, or 0 on failure (occt_last_error says why). [n_solids] receives the
+ * number of shapes written and [n_defs] the number of distinct definitions;
+ * both may be NULL.
+ *
+ * A tree that does not FIT is a failure, not a truncation: every shape
+ * already written is freed and 0 is returned, because a silently clipped
+ * assembly is a document missing parts the file had. Retry with bigger
+ * buffers.
+ *
+ * The caller owns every returned shape.
+ */
+int occt_import_step_tree(const char *path, occt_step_node *nodes,
+                          int max_nodes, occt_shape **solids, int max_solids,
+                          int *n_solids, int *n_defs);
 
 /* ---- v2: Tessellation (display mesh) ------------------------------------ */
 

@@ -65,7 +65,9 @@ target_compile_definitions(occt_capi PUBLIC OCCT_STATIC_BUILD)
 # so only the host job, which actually links an executable, caught it.
 # Never rely on a toolkit arriving transitively.
 target_link_libraries(occt_capi PUBLIC
-    TKDESTEP    # STEPControl_* reader/writer
+    TKDESTEP    # STEPControl_* reader/writer, STEPCAFControl_Reader (v30)
+    TKXCAF      # XCAFApp_Application, XCAFDoc_* (v30: the STEP assembly tree)
+    TKLCAF      # TDocStd_Document, TDF_*, TDataStd_Name — the XCAF document
     TKPrim      # BRepPrimAPI_* box/cylinder/prism
     TKOffset    # BRepOffsetAPI_DraftAngle (v2 taper)
     TKBO        # BRepAlgoAPI_Fuse
