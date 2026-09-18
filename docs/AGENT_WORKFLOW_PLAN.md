@@ -1,1465 +1,1225 @@
-# The Agent Layer — how an LLM models in this app
+# An AI modeling workflow for iPadProCAD
 
-**Scope of this document.** The *workflow* only: what an AI can do, how it says it,
-how it sees what it made, how it knows it is good, and how it works like a product
-developer rather than a lucky guesser. No implementation, no file layout, no code.
-That comes next, and only if this is right.
+**Recommended workflow design · 18 September 2026 · revision 2**
 
-**Status.** Design proposal, round 5. Grounded in a full read of the codebase and in
-the 2025–2026 literature on LLM-driven CAD (sources in Appendix D).
+**Repository:** [Toemeler/ipadprocad](https://github.com/Toemeler/ipadprocad)  
+**Requested branch:** `claude/gallant-dirac-dwuge7`  
+**Code baseline reviewed:** [`8141d2c5f3f8e6a1f96c4422523ed913e3f013c5`](https://github.com/Toemeler/ipadprocad/commit/8141d2c5f3f8e6a1f96c4422523ed913e3f013c5)
 
----
+This document replaces the supplied workflow proposal. It specifies what the AI can do, how it expresses intent, how it observes geometry, how it edits and recovers, and what evidence supports completion. It does **not** authorize or describe a file-by-file implementation. API names and examples below specify proposed behavior; they are not existing commands.
 
-## Contents
+The review combined five successive research/design/critique passes, independent evidence and CAD workflow reviews, and inspection of the branch's principal app subsystems. The repository tree was inventoried; core source paths were inspected in depth. This was not a line-by-line audit of every file, a running-app test, or an executed CAD-agent benchmark. The worked examples are explicitly illustrative.
 
-**The case** — [0. Thesis](#0-the-one-paragraph-thesis) ·
-[1. What the app already is](#1-what-this-app-already-is-and-why-it-is-unusually-well-suited) ·
-[2. What LLMs are good and bad at](#2-what-llms-are-actually-good-and-bad-at) ·
-[3. The eight laws](#3-the-eight-laws)
+## Reading guide
 
-**The workflow** — [4. The loop](#4-the-loop) ·
-[5. How the AI points at things](#5-how-the-ai-points-at-things) ·
-[6. What the AI says — the verb set](#6-what-the-ai-says--the-verb-set) ·
-[7. Sketching](#7-sketching--the-place-where-token-budgets-and-accuracy-go-to-die) ·
-[8. How the AI sees](#8-how-the-ai-sees--the-perception-ladder) ·
-[9. How the AI knows it is good](#9-how-the-ai-knows-it-is-good--the-proof-layer) ·
-[10. The playbook](#10-the-playbook--modelling-like-a-product-developer) ·
-[11. Errors and repair](#11-errors-repair-and-never-getting-stuck)
+- [1. The recommendation](#1-the-recommendation)
+- [2. What changes from the supplied plan](#2-what-changes-from-the-supplied-plan)
+- [3. What the branch actually provides](#3-what-the-branch-actually-provides)
+- [4. The division of work](#4-the-division-of-work)
+- [5. From an idea to a design brief](#5-from-an-idea-to-a-design-brief)
+- [6. The modeling loop](#6-the-modeling-loop)
+- [7. What the AI can do](#7-what-the-ai-can-do)
+- [8. References that survive edits](#8-references-that-survive-edits)
+- [9. Frames, units, and tolerances](#9-frames-units-and-tolerances)
+- [10. Native sketches, parameters, and recipes](#10-native-sketches-parameters-and-recipes)
+- [11. How the AI sees and senses](#11-how-the-ai-sees-and-senses)
+- [12. What a successful check means](#12-what-a-successful-check-means)
+- [13. Editing without unnoticed damage](#13-editing-without-unnoticed-damage)
+- [14. Failures and recovery](#14-failures-and-recovery)
+- [15. Advanced geometry and assemblies](#15-advanced-geometry-and-assemblies)
+- [16. Product development and human collaboration](#16-product-development-and-human-collaboration)
+- [17. Efficiency across model sizes](#17-efficiency-across-model-sizes)
+- [18. Worked creation and edit](#18-worked-creation-and-edit)
+- [19. Harder workflow walkthroughs](#19-harder-workflow-walkthroughs)
+- [20. Evaluation and acceptance](#20-evaluation-and-acceptance)
+- [21. Workflow delivery order](#21-workflow-delivery-order)
+- [22. Decisions and remaining uncertainty](#22-decisions-and-remaining-uncertainty)
+- [Appendix A. Five review rounds](#appendix-a-five-review-rounds)
+- [Appendix B. Research corrections and sources](#appendix-b-research-corrections-and-sources)
+- [Appendix C. Source inspection map](#appendix-c-source-inspection-map)
 
-**The consequences** — [12. Structural decisions](#12-structural-decisions-workflow-level-not-implementation) ·
-[13. Flash to Opus](#13-making-it-work-from-gemini-flash-to-opus-5) ·
-[14. Risks and decisions I need from you](#14-risks-and-the-decisions-i-need-from-you) ·
-[15. What is genuinely new](#15-what-is-genuinely-new-here) ·
-[16. How we know it worked](#16-how-we-will-know-it-worked) ·
-[17. Build phases](#17-the-shape-of-the-build-in-phases)
+## 1. The recommendation
 
-**Appendices** — [A. Rejected alternatives](#appendix-a--alternatives-considered-and-rejected) ·
-[B. The critical passes](#appendix-b--the-critical-passes-this-document-survived) ·
-[C. A worked session](#appendix-c--a-worked-session-end-to-end) ·
-[D. Sources](#appendix-d--sources)
+Build a **native, inspectable design workspace** in which an AI can express a coherent modeling intention, have the app execute it deterministically, inspect the resulting geometry through targeted measurements and aligned views, and accept or revise the result without losing the last good model.
 
-**If you read three sections:** §3 (the laws), §8 (how it sees), §9 (how it proves it).
-**If you read one:** Appendix C.
+The central interaction is:
 
----
+> **Describe the intended change and what must stay true → build a candidate → receive evidence about the actual result → commit it or repair it.**
 
-## 0. The one-paragraph thesis
+The model chooses a design strategy. The app owns geometry, units, reference resolution, computation, transaction boundaries, and evidence provenance. The user owns the brief and design preferences. The app does not magically understand engineering intent; the model does not become an accurate geometric solver merely because it can call tools.
 
-Every serious attempt to put an LLM in a CAD program has made the same bet: *give the
-model a picture and a scripting API, and let it figure out the geometry.* The 2026
-evidence says that bet loses. On mental-rotation tasks where humans score ~100 %, most
-models score **under 10 %** and the best reach **50–62 %**; handing them a real 3D
-render-and-rotate tool lifts them to **62.5 %** and no further; and **58 % of CAD code
-that executes cleanly still violates the requirements the model was given**. The models
-are not bad at CAD. They are bad at *being a pair of eyes in a 3D scene* — and that is
-the job we keep giving them.
+The recommended system has five closely connected elements:
 
-So this plan inverts it. **The app does the spatial reasoning. The model does the design
-reasoning.** The app resolves "which edge", computes "did anything else move", measures
-"is the wall thick enough", and hands back sentences and numbers. The model decides what
-the part should be, declares what "correct" means for it in machine-checkable terms, and
-drives a short, verified loop to get there. Pictures exist — annotated with the same
-names the text uses — but they are the *gestalt check*, never the evidence.
+1. **A persistent design brief.** User requirements, assumptions, protected interfaces, editable parameters, and unresolved decisions remain available across sessions.
+2. **Native modeling operations at several levels.** Compact primitives and reusable feature recipes handle common work; complete native operations preserve expressive power and human editability.
+3. **Reversible, coherent changes.** A change may contain several dependent operations. It produces one candidate and, when accepted, one atomic document revision and one understandable undo action.
+4. **Question-directed observation.** The AI asks about a dimension, interface, cavity, selection, silhouette, or change. The app supplies the relevant facts, witness geometry, and views.
+5. **Explicit evidence for completion.** Successful construction, dimensional correctness, parameter behavior, visual quality, and physical suitability are separate claims with separate evidence.
 
-That single inversion is what will make this fast, accurate, cheap, and usable by a
-Gemini Flash as well as an Opus.
+This should make good modeling easier for both a fast model and a highly capable model. It does not promise that every model will solve every part. Difficult design decisions remain difficult, but the interface removes avoidable bookkeeping, spatial guessing, and repeated low-level work.
 
----
+**The quality goal is an editable design that satisfies the user's stated purpose within declared verification coverage.** Minimum tool calls, attractive renders, and a passing kernel check are useful intermediate results, not that goal by themselves.
 
-## 1. What this app already is (and why it is unusually well-suited)
+## 2. What changes from the supplied plan
 
-This matters, because the plan below is not a bolt-on: it is mostly **exposing what is
-already here.**
+Keep its strongest ideas: native features, meaningful names, compact feedback, explicit requirements, numerical sensing, parameter variation, and a common path for human and AI edits. Several proposed guarantees need substantial correction.
 
-### 1.1 The modelling core
-
-| Layer | Reality today |
-|---|---|
-| Kernel | OCCT via a C shim (`backend/occt/shim/occt_capi.h`), ~60 entry points: box, cylinder, extrude (polygon / profile-with-holes / arcs), revolve, sweep, loft, coil, boolean fuse/cut/common, fillet & chamfer (constant + variable, by topological edge id), delete/move faces, scale, mirror, transform, split solids, STEP import/export (with assembly tree), mesh→B-Rep, tessellation with **per-face ids, per-edge ids, face surface records and edge curve records** |
-| Feature model | `PartModel` + 14 `PartFeature` subclasses (extrude, revolve, sweep, loft, coil, fillet, chamfer, hole, pattern, combine, split, derive, delete-face, direct-edit), each with `toJson`/`fromJson`, a rebuild signature, an End-of-Part marker, per-feature `computeError` |
-| Sketcher | Full 2D: lines, arcs, circles, ellipses, splines (CV / fit / Bézier chains), slots, polygons, rectangles (4 construction methods), gears, text, points; **12 constraint tools + dimensions** (15 constraint types internally); a real solver (`solver.dart`, 3.4 k lines) |
-| Parameters | `params.dart` — a complete expression language: named parameters, units (mm/cm/m/deg/rad/ul), `+ - * / ^ %`, precedence, parentheses, `PI`/`E`, 18 functions, and **cross-references between dimensions** |
-| Profiles | Half-edge region detection (`ProfileRegion`) — outer loop + the loops directly inside it, exactly Inventor's pickable profile, plus a gap detector (`ProfileGap`) |
-| Assemblies | Occurrences, joints, constraints (`asm_*.dart`), patterns, view reps, drive |
-| Measure | `measure.dart` (2.8 k lines): length, distance, angle, area, volume, radius/diameter, extents, dual units, totals |
-| Views | 6 canonical planes + trackball, section views (half/quarter/three-quarter), display modes, materials, **an off-screen still renderer** (`_renderStill` → PNG, GPU with a deterministic CPU fallback) |
-| History | Per-sketch undo journal, per-part `PartSnap` undo/redo, End-of-Part rollback |
-| Documents | Single-file `.ptp` / `.pts` / `.pas` containers; STEP/STL/OBJ/3MF/DXF I/O |
-| Tests | 327 Dart test files that already drive `AppState` **headlessly with fake kernels** |
-
-### 1.2 The three assets that make this different from every other host
-
-**(a) The app already solved persistent naming — geometrically.**
-`EdgeSel` and `FacePick` do not store "edge 7". They store a *fingerprint* — world
-midpoint, length, curve kind, radius — and re-match it after every rebuild with a scored
-search, a scale-aware tolerance, and an **explicit ambiguity refusal**: if the runner-up
-is within margin, the selection is reported LOST rather than silently moved
-(`part_model.dart`, M158/M373). That is precisely the discipline an LLM needs, and it is
-already written, already battle-tested against real bug reports, and already the app's
-idiom. We are not inventing a reference system; we are giving it a query front end.
-
-**(b) The tessellation already carries semantics.**
-`occt_mesh_face_infos` returns a 15-double record per face (type, axis, origin, normal,
-radius…), `occt_mesh_face_ids` / `occt_mesh_edge_ids` map display entities back to
-topology, `occt_shape_edges_info` returns 12 doubles per edge. The app can therefore
-describe a body *in words and numbers* — "12 planar faces, 4 cylindrical (Ø8.0, axis
-+Z), 24 straight edges, 8 circular" — without rendering anything.
-
-**(c) Off-screen rendering already exists and is deterministic.**
-`_renderStill(scene, camera, w, h)` with a GPU path and a pure-Dart `paintPartSolids`
-fallback, plus `fitThumbCamera`. Annotated multi-view generation is a composition
-problem, not a new subsystem.
-
-### 1.3 The honest gaps
-
-These are *findings*, not complaints. They shape the plan.
-
-1. **There is no agent surface of any kind.** No API, no script host, no command layer.
-   Every modelling operation is reached through a *dialog session* object
-   (`ExtrudeSession`, `HoleSession`, `PatternSession`, …) that a finger fills in.
-   `applyExtrude()` reads `extrudeSession` and nothing else. **This is the single
-   biggest structural decision in the plan** (§12.1).
-2. **The world is XYZ right-handed, but the camera is Y-up.**
-   `planeFrame('xy')` has normal +Z; `PartCamera` derives polar angle from `n.y`
-   (`acos(n.y)`), so *screen up is +Y* and the "top" view looks down −Y. Every LLM's
-   prior says *Z is up and the top face's normal is +Z* (STEP, Fusion, SolidWorks,
-   CadQuery, build123d). Left unaddressed this will silently produce parts lying on
-   their side. It must be pinned, mapped, and conformance-tested (§5.4).
-3. **No shell, no draft, no thread, no rib.** Shell in particular is required by almost
-   every plastic or cast part. The agent cannot model what the app cannot build (§14.2).
-4. **No interference / clash check.** Trivial to derive (`occt_common` → volume > 0) but
-   it does not exist, and assemblies need it (§9.3).
-5. **No mass properties beyond volume.** No density, no centre of mass, no inertia.
-   "≤ 250 g" is the most natural requirement an engineer states and we cannot check it.
-
----
-
-## 2. What LLMs are actually good and bad at
-
-Everything below is an evidence-backed constraint, not an opinion. Sources in Appendix D.
-
-### 2.1 Strong — build the workflow on these
-
-| Capability | Evidence / note |
-|---|---|
-| Emitting **valid JSON against a schema** | Constrained decoding is universal; format choice moves accuracy only −7.7 %…+2.7 % |
-| Writing **declarative, code-shaped** descriptions | CadQuery beat a low-level command DSL by **2.2×** on Chamfer Distance at L2 |
-| **Naming** and maintaining a symbol table | Native strength; parameters, feature names, face names |
-| **Explicit arithmetic** written out | Reliable when the numbers are in the transcript |
-| **Following a checklist** with gates | The whole agentic-coding success story |
-| Recalling **engineering idiom** | M4 clearance 4.5 mm, 3 mm min wall for FDM, 45° chamfer |
-| Reading **tabular structured text** | Strong; far better than interpreting an image |
-| **Repairing an error** given cause + fix | The dominant lever in every compile-test-repair paper |
-| **Single-feature edits** | **99.6 % success** (CADEngBench L2-E) |
-
-### 2.2 Weak — the workflow must route around these
-
-| Weakness | Evidence | Consequence for us |
+| Supplied proposal | Revised decision | Why it matters |
 |---|---|---|
-| **Mental rotation** | < 20 % vs ~100 % human; GPT-5.2 tier 50–62 % | Never ask "which face is this in the iso view" |
-| **Perceiving change between two images** | Models predicted rotation *direction* backwards; treat frames as unrelated | Never send before/after pictures — send the diff |
-| **Predicting a transformed state** | Image models output the input unchanged when asked to rotate 30° | Never ask the model to imagine a result |
-| **Rendering tools do not rescue it** | Full 3D + render + rotate module → still only **62.5 %** | Vision is a gate, not evidence |
-| **Index bookkeeping** | "Index ambiguity" is a named failure class | No entity is ever addressed by number |
-| **Local vs global frames** | "Coordinate-frame errors" is a named failure class | One frame, declared, echoed on every coordinate |
-| **Long chains without feedback** | L3 invalidity **68–93 %** | Short batches, verified each time |
-| **Multi-feature / coupled edits** | **40–46 %** vs 99.6 % single-feature | Force one feature per edit + prove nothing else moved |
-| **Knowing when it is done** | **58.1 %** of *executable* code violated stated requirements | Requirements must be machine-checked, not self-assessed |
-| **Sweep / loft / path geometry** | Called out as the specific L3 collapse | Offer guided macros; treat raw sweep as expert-tier |
-| **Parameter→feature binding** | "Named dimension controls the wrong feature" | Publish the binding table; test it by sweeping |
+| Pictures are never evidence; render tools plateau at 62.5% | Combine computed geometry with carefully aligned visual evidence | The cited spatial study also reports 85–97.5% with canonical alignment on its particular task. That is useful tool-design evidence, not a general CAD success rate. |
+| `expect` makes wrong selections impossible | Count + scoped identity + provenance + geometric conditions + revision | The wrong unique face still passes `expect: 1`. |
+| Geometric fingerprints solve persistent naming | Use fingerprints as one source of evidence, with explicit loss/split/merge handling | Symmetric entities and topology changes defeat simple nearest-match rules. |
+| One feature per edit | One coherent design intention per transaction | A correct change can require several coupled parameter or feature updates. |
+| Commit each operation in a batch | Stage the entire logical change; commit atomically | A failed batch must not leave half a modification accepted. |
+| Every error carries a working fix | Facts, diagnosis confidence, and bounded candidate repairs | Kernel failures and design conflicts do not always have a known fix. |
+| Rebuild signatures prove collateral changes | Signatures identify invalidated work; protected geometry is checked separately | Equal volume and bounding box can hide a relocated hole. |
+| Recheck everything on every rebuild | Invalidate immediately; recompute checks according to dependencies and cost | Freshness remains explicit without making every keystroke expensive. |
+| A section proves minimum wall thickness | A section proves facts on that section; broader claims need broader methods | The thin region may be elsewhere. |
+| Sampled parameter sweep proves a range | Publish tested configurations, boundaries, and unresolved coverage | Finite samples do not establish continuous validity. |
+| Normally omit constraints | Let compact primitives generate native editable constraints or equivalent native dependencies | Human edits and future parameter changes must preserve intent. |
+| Universal Z-up agent frame requires a blocking choice | Preserve document coordinates; publish explicit part/workplane/view/export frames | The app deliberately uses Y-up, which is not inconsistent with right-handed XYZ. |
+| Arbitrary raw kernel escape hatch | Advanced operations must still obey native history, validation, and undo | Bypassing these rules defeats the intended workflow. |
+| “95 seconds / 8.5k tokens / zero errors” example | Measured evaluation plan; illustrations labeled as illustrations | These are not established performance results. |
 
-### 2.3 The one finding that decides the architecture
+No claim of unprecedented invention is needed. Existing systems already have historical queries, solver-grounded agents, executable geometry checks, reusable CAD procedures, and AI editing. The opportunity is to combine them into a dependable experience in this app. [Onshape queries](https://cad.onshape.com/FsDoc/library.html#module-query.fs), [Embodied CAD](https://arxiv.org/html/2606.31252), [CADTests](https://arxiv.org/html/2605.07807).
 
-> LLMs perform **significantly better with quantitative feedback than with VLM judgements
-> of 2D images** (SPADA). Test-driven CAD agents lifted assembly success **20.4 % → 41.9 %**
-> and cut invalid single-part rate to **1.8 %**.
+## 3. What the branch actually provides
 
-and, from the opposite direction:
+### 3.1 Useful foundations
 
-> Multi-view render feedback shows **limited effectiveness**; visual information alone
-> cannot compensate for missing parametric comprehension (BenchCAD).
+The application has a substantial native modeling base. It is not necessary to replace it with a separate text-to-mesh generator or import every AI result as an opaque solid.
 
-**Therefore: numbers first, pictures second, always.**
-
----
-
-## 3. The eight laws
-
-Every decision in this document derives from one of these.
-
-**Law 1 — The app reasons about space; the model reasons about design.**
-Rotation, projection, adjacency, "which side", "does it break through", "what changed" —
-all computed by the app and delivered as text. The model is never asked to visualise.
-
-**Law 2 — Name everything; index nothing.**
-Every parameter, sketch, feature, body, face and edge has a stable, meaningful,
-*published* name. No op ever takes an ordinal. The model reads names from a table; it
-never invents or counts them.
-
-**Law 3 — Ambiguity is an error, never a guess.**
-If a selector matches more or fewer entities than declared, the op fails and returns the
-candidates with the properties that distinguish them, plus a refined selector that would
-work. (The app's own `bestMatch` already refuses a coin toss — we surface that refusal.)
-
-**Law 4 — Answer with the diff, not the state.**
-Every op returns what *changed*: Δvolume, Δbounding box, faces gained and lost by name,
-new warnings. Models cannot diff two states; we diff for them.
-
-**Law 5 — Intent before geometry, as assertions the app keeps checking.**
-The design contract (parameters + requirements) is written before or alongside the model,
-stored *in the document*, and re-evaluated on every rebuild — forever, including after a
-human edits the part by hand.
-
-**Law 6 — One feature per edit; prove nothing else moved.**
-Edits are serialised. After each, the app reports collateral change to every feature the
-edit did not name. Silence is the success signal.
-
-**Law 7 — Every error carries its own fix.**
-`{code, what, where, numbers, why, fix}` where `fix` is a corrected call the model can
-resubmit. No opaque kernel strings.
-
-**Law 8 — Cheap by default, deep on request.**
-The default response is the smallest thing that keeps the loop honest (~60–150 tokens).
-Everything expensive — full inventories, sections, renders — is opt-in and paginated.
-
-**And one guarantee, not a law:**
-
-**Parity.** Anything a finger can do in this app, a verb can do; anything a verb can do,
-the GUI can show and undo. Enforced by a test that enumerates both surfaces and fails on
-a gap. The agent is not a side door into a subset of the app.
-
----
-
-## 4. The loop
-
-```
-        ┌─────────────────────────────────────────────────────────────┐
-        │                                                             │
-   BRIEF ──▶ CONTRACT ──▶ PLAN ──▶ BUILD ──▶ SENSE ──▶ PROVE ──▶ SHIP │
-     │          │                    │  ▲       │        │            │
-     │          │                    │  └───────┘        │            │
-     └──ask?────┘                    │   diff (auto)     │            │
-                                     └───────────────────┘            │
-                                        repair (typed error)          │
-        └─────────────────────── contract violated ───────────────────┘
-```
-
-| Stage | Who acts | What crosses the wire |
+| Subsystem | Observed foundation | Workflow consequence |
 |---|---|---|
-| **BRIEF** | human | free text, optionally an image or a reference part |
-| **CONTRACT** | model → app | parameters + requirements + orientation + material; stored in the document |
-| **PLAN** | model | a named feature plan (no geometry yet) — cheap, reviewable, revisable |
-| **BUILD** | model → app | batches of 1–5 ops; each independently validated and committed |
-| **SENSE** | app → model | the diff (automatic) + targeted inspect/measure/section on demand |
-| **PROVE** | app → model | contract check, flex sweep, collateral guard, hygiene audit |
-| **SHIP** | app → human | export, thumbnail, a written report, a live editable feature tree |
+| Solid modeling | OCCT shim; extrusion, revolution, sweep, loft, coil, booleans, blends, direct edits, patterns and exchange functions | Build on native parametric features and existing kernel behavior. |
+| Feature history | Fourteen concrete `PartFeature` types, serialization, dependency-sensitive rebuilds, End-of-Part rollback and pattern-occurrence suppression | AI changes can be visible and editable in the same feature tree. |
+| Sketching | Geometric entities, profile finding, constraints, dimensions, solver, workplanes and projections | Offer compact intent-level sketch operations with native expansion. |
+| Parameters | Rich expression evaluation for sketch parameters and dimensions | Useful base, but a document-wide typed parameter graph is additional work. |
+| Geometry metadata | Tessellation maps to topological faces/edges and analytic surface/curve records | Cross-link text, highlighted geometry, and numerical observations. |
+| Measurements | Analytic answers for supported relations; mesh/polyline fallbacks for others; kernel volume | Preserve distinctions between analytic, numerical, sampled and approximate results. |
+| Assembly | Occurrences, placement, constraints, joints, patterns, driving and representations | Treat an occurrence separately from its source part; expose assembly-specific evidence. |
+| Views | Camera control, section views, display styles, offscreen still paths and CPU fallback | Reuse rendering foundations; add controlled inspection views and evidence binding. |
+| Documents | Native part/sketch/assembly containers, referenced/imported geometry, exchange paths | Save the editable model plus design intent and evidence provenance. |
+| Existing tests | Numerous frontend and native tests, including headless state/kernel fixtures | Reuse testability; mocked kernels alone cannot establish real geometry correctness. |
 
-Two repair edges, and they are different:
+### 3.2 Important corrections to the original code assessment
 
-* **Op-level repair** — an op failed. The typed error carries the fix. The model
-  resubmits. Budgeted (default 2 automatic attempts, then escalate to the human).
-* **Contract-level repair** — everything built, but a requirement fails. This is a
-  *design* problem, not a syntax problem: the model re-enters PLAN with the violating
-  numbers in hand.
+**There is no uniform transactional agent surface.** Major feature authoring uses `AppState` sessions, but the app also has direct commands and headless domain functions. The design requirement is shared operation semantics, not mechanically exposing dialogs or assuming all behavior passes through one existing function.
 
-Keeping those two separate is what stops the classic death spiral where a model responds
-to "wall too thin" by re-emitting the same op with different punctuation.
+**Face and edge matching have different safeguards.** `EdgeSel.bestMatch` has displacement and ambiguity checks. `FacePick` resolution uses a nearest finite match, consumes that candidate and re-anchors; it does not inherit the same protection. Agent reference reliability cannot be claimed from `EdgeSel` alone. [Selection source](https://github.com/Toemeler/ipadprocad/blob/8141d2c5f3f8e6a1f96c4422523ed913e3f013c5/frontend/lib/part_model.dart#L2023).
 
----
+**Expression text is not the same as a reactive feature binding.** The sketch expression system exists, but feature dialogs also use a more limited value parser; feature records store evaluated values and expression strings. The proposed ability to change `plate_t` and reliably update every dependent feature must be established explicitly. The expression engine also states that it does not implement dimensional algebra. [Sketch expressions](https://github.com/Toemeler/ipadprocad/blob/8141d2c5f3f8e6a1f96c4422523ed913e3f013c5/frontend/lib/params.dart#L1), [feature value parser](https://github.com/Toemeler/ipadprocad/blob/8141d2c5f3f8e6a1f96c4422523ed913e3f013c5/frontend/lib/part_model.dart#L9367).
 
-## 5. How the AI points at things
+**Existing undo is not sufficient for agent transactions.** Part undo has a narrower existing scope. Some edit paths mutate before rebuilding, retain a failed edit, and save. Some command return values indicate that the command ran even though a feature has a compute error. Last-good geometry can remain visible. A successful tool response must therefore examine document and geometry state, not simply wrap a GUI method's Boolean result. [Edit path](https://github.com/Toemeler/ipadprocad/blob/8141d2c5f3f8e6a1f96c4422523ed913e3f013c5/frontend/lib/app_state.dart#L12919).
 
-This is where most LLM-CAD systems die. Index-based references break on reorder;
-coordinate-based references are imprecise; and "the top face" is meaningless after the
-third feature. Three layers, working together.
+**Y-up is an intentional app convention.** The modeling source describes a Y-up world. Import code maps several Z-up mesh formats into it. Camera, workplane, imported data and export conventions must be reconciled, but `acos(n.y)` alone does not demonstrate a defect. [World frame](https://github.com/Toemeler/ipadprocad/blob/8141d2c5f3f8e6a1f96c4422523ed913e3f013c5/frontend/lib/part_model.dart#L64), [mesh conventions](https://github.com/Toemeler/ipadprocad/blob/8141d2c5f3f8e6a1f96c4422523ed913e3f013c5/frontend/lib/mesh_io.dart#L384).
 
-### 5.1 Layer 1 — Published names
+**Sections and still images are foundations, not finished AI perception.** Existing sections use solid-cut machinery for views. They are not a published symbolic section/thickness API. Offscreen rendering exists; stable inspection framing, geometry labels, clean/annotated pairs, revision stamps and renderer conformance remain requirements.
 
-Every entity gets a **deterministic, human-readable name**, derived — never stored as an
-index — from `(creating feature, role, orientation in the canonical frame, canonical
-ordinal)`.
+**Feature gaps must be stated precisely.** A general shell tool and standalone draft workflow were not found in the inspected surface; extrusion taper using OCCT draft machinery does exist. Appearance materials are not density/material-property records. General wall certification, mass/center-of-mass reporting, interference/clearance analysis, and contract evaluation cannot be assumed present merely because OCCT offers building blocks.
 
-```
-param     plate_t, bore_d, n_holes
-sketch    sk_base, sk_bosses
-feature   base_plate, mount_bosses, bore_1, edge_breaks
-body      main, insert
-face      base_plate.top          base_plate.bottom
-          base_plate.side.+x      base_plate.side.-y
-          bore_1.wall             bore_1.floor
-          mount_bosses.wall#1..#4
-edge      base_plate.top.edge.+x
-          bore_1.rim.top
-          base_plate.top.edges          (a set)
-```
+**Export is another operation to verify.** Existing paths can export surviving geometry while features are broken, and formats differ in body selection. The AI needs an explicit output scope, freshness gate, unit/orientation contract and format-specific round-trip checks. A file existing is not sufficient success evidence.
 
-Three rules make this safe:
+These are reasons to preserve and strengthen the app, not reasons to create a separate modeling engine. Exact implementation work belongs in the next planning stage.
 
-1. **The model never invents a name — it reads one.** `part.inspect` publishes the table.
-   Guessing is impossible because the table is the only source.
-2. **Names are re-derived on every rebuild**, so they track the model instead of drifting.
-   A name that can no longer be derived is *reported as lost*, never silently reassigned.
-3. **The agent may rename.** `base_plate` beats `Extrusion3` for the model, for the human,
-   and for the model's next turn three thousand tokens later. Feature names are already
-   free-form in `PartFeature.name`.
+## 4. The division of work
 
-### 5.2 Layer 2 — Property selectors
+LLMs are often useful at interpreting descriptions, proposing decompositions, writing structured operations, adapting examples, explaining tradeoffs and repairing a design when given good feedback. Reliability varies by model, task and context. None of these strengths should be treated as an unconditional guarantee.
 
-Names are for things you already saw. Selectors are for things you are about to make.
-A selector is a small JSON object — no query language to learn, no parser to fight.
-
-```jsonc
-// the four vertical edges of the base, by property
-{ "edges": { "on": "base_plate", "orientation": "vertical",
-             "kind": "line", "expect": 4 } }
-
-// every Ø8 bore rim on the top face
-{ "edges": { "on_face": "base_plate.top", "kind": "circle",
-             "diameter": 8.0, "expect": "any" } }
-
-// the largest planar face pointing up
-{ "faces": { "facing": "up", "kind": "plane",
-             "pick": "largest", "expect": 1 } }
-
-// everything the last feature created
-{ "faces": { "created_by": "mount_bosses" } }
-```
-
-Selector predicates, chosen because they are the ones an engineer would *say*:
-
-| Group | Predicates |
-|---|---|
-| Scope | `on` (feature/body), `on_face`, `created_by`, `in_sketch` |
-| Type | `kind`: plane / cylinder / cone / sphere / torus / spline · line / circle / arc / ellipse / spline |
-| Orientation | `facing`: up / down / front / back / left / right / outward / inward / `[x,y,z]` · `orientation`: vertical / horizontal / axis-aligned |
-| Size | `diameter`, `radius`, `length`, `area`, each with `±tol` or a range |
-| Position | `extreme`: topmost / bottommost / leftmost … · `near: [x,y,z]` · `within: bbox` |
-| Topology | `convexity`: convex / concave · `closed` · `adjacent_to` |
-| Reduction | `pick`: all / largest / smallest / first-by-axis · `limit` |
-| Contract | **`expect`: an exact count, a range, or `"any"` — mandatory** |
-
-`expect` is the load-bearing field. It turns every selection into a **claim the model is
-making**, which the app can falsify. That is what converts a silent wrong-face bug into a
-loud, correctable message.
-
-### 5.3 Layer 3 — Fingerprint anchoring (invisible, automatic)
-
-Whatever a selector resolves to is *also* persisted as the app's existing geometric
-fingerprint (`EdgeSel` / `FacePick`). On every rebuild both are evaluated:
-
-| Selector | Fingerprint | Result |
+| Responsibility | Primary owner | AI-facing result |
 |---|---|---|
-| resolves, agrees | resolves | silent success |
-| resolves, disagrees | resolves | **warning**: "fillet `edge_breaks` now sits on a different edge than when created" |
-| fails | resolves | fingerprint wins, selector reported stale |
-| resolves | fails | selector wins, fingerprint re-anchored |
-| both fail | | feature reports LOST — the app's existing honest failure |
+| Purpose, taste, actual mating requirements | User, interpreted by model | Brief with sourced requirements and explicit assumptions |
+| Feature strategy and design alternatives | Model, supported by reusable procedures | Short named feature/dependency plan |
+| Arithmetic, unit conversion, transforms | App | Evaluated values, typed units, named frames |
+| Entity lookup and current topology | App | Resolved selection with witnesses and uncertainty |
+| Constraint solving and geometric construction | App/kernel | Candidate geometry and structured failures |
+| Geometric tests and comparison | App | Result, method, scope, revision and coverage |
+| Visual similarity, proportions and design critique | Model and user, aided by controlled views | Visual findings distinguished from dimensional claims |
+| Candidate acceptance and state integrity | App policy + model judgment within brief | Atomic commit, evidence receipt, undo |
+| Physical suitability | Appropriate analysis/test process | Supported result or explicit unresolved requirement |
 
-This is the belt-and-braces that makes parametric edits survivable, and it costs the
-model nothing: it never sees a fingerprint.
+Do not make the model count hundreds of edges, transform coordinates mentally, generate thousands of repeated elements, or estimate a clearance from a perspective image. Do not expect the app to decide what “comfortable,” “elegant,” or “appropriate for this load” means without a defined evaluation.
 
-### 5.4 The canonical frame — decide once, echo forever
+A fast model gets the same reliable operations and checks as a stronger model. A stronger model may formulate better designs or use more advanced operations; it gets no exemption from validation.
 
-**The problem, concretely.** `planeFrame('xy')` has normal `+Z`. `PartCamera` computes
-polar angle as `acos(n.y)`. So the app's *screen up* is `+Y`, while every LLM's prior
-(STEP, CadQuery, build123d, Fusion, SolidWorks, and the app's own STL exporter, which uses
-`MeshUpAxis.z`) says *up is +Z*. A model told "extrude the base upward" will do the right
-thing in world coordinates and then see its part lying on its side.
+## 5. From an idea to a design brief
 
-**The resolution — three parts, all required:**
+### 5.1 Start with the intended use
 
-1. **The agent frame is declared: Z-up, right-handed, millimetres, degrees.** It is stated
-   in the tool description, restated in every state report header, and it is the frame in
-   which every coordinate the model sends or receives is expressed.
-2. **Direction is spoken semantically first.** `"up"`, `"down"`, `"outward"`,
-   `"normal_of: base_plate.top"`, `"along: bore_axis"`. Raw axes are legal but are always
-   echoed with their meaning: `"+Z (up)"`. Views are named — `top`, `front`, `right`,
-   `iso` — never expressed as camera angles.
-3. **A conformance test pins it.** Build a 10×20×30 box via the agent surface; assert its
-   `top` face normal is agent-`+Z`; assert the `top` *view* image shows the 10×20
-   footprint. If the bridge ever drifts, that test fails, not a user's part.
+The first useful output is a compact design brief, not a long questionnaire or an immediate detailed solid. Establish:
 
-Whether the bridge is a transform or a redefinition of the app's camera-up is an
-implementation choice (§14.1). The *contract* above is not.
+- What the object does and what it touches or mates with.
+- Given dimensions, references, images, existing parts and protected geometry.
+- Important use conditions: access, motion, assembly, cleaning or installation where relevant.
+- Manufacturing route, material, loads and tolerances when the user supplies them or they affect a required outcome.
+- What may vary and what is already fixed.
+- Whether the current goal is a concept, a dimensionally specified model, or a design requiring physical validation.
 
----
+Ask only when the missing answer changes a consequential decision that cannot be safely treated as provisional. A sensor's mounting interface is consequential; a cosmetic edge radius often is not. Offer choices when helpful. Do useful independent work while awaiting an answer.
 
-## 6. What the AI says — the verb set
+There is no universal maximum of one clarification round. A question limit is a usability preference, not a reason to invent an interface. Equally, do not demand manufacturing information for a shape exploration that does not need it yet.
 
-### 6.1 The shape of a turn
+### 5.2 Make requirements traceable
 
-One tool, `part.apply`, carrying **a batch of 1–5 ops**. Batching is transport only:
-each op is validated, committed and reported **independently**, and a failure stops the
-batch at that op (everything before it stays committed, everything after is returned
-untried). The whole batch is **one undo step**.
+Each requirement has:
 
-Why this shape, and not the alternatives:
-
-| Alternative | Why rejected |
+| Field | Meaning |
 |---|---|
-| One MCP tool per operation (~60 tools) | Tool definitions alone cost 6–15 k tokens before a word of work; selection confusion rises with count |
-| One call per operation | Round-trip per feature; a 14-feature part costs 14 turns and 14 full context replays |
-| A new textual DSL the model must learn | Violates "without much learning"; every grammar error is a wasted turn; nothing in pretraining |
-| A Python/JS sandbox with a CAD API | Strongest for Opus-class, unusable for Flash-class; huge security and lifecycle surface on an iPad |
-| **Batched, schema'd JSON ops** ✅ | Constrained decoding guarantees validity; zero grammar to learn; amortises round-trips; per-op semantics keeps the 99.6 % single-feature regime |
+| Identity and source | Stable ID; exact relevant user wording or imported interface/reference |
+| Interpretation | What it means for this model, including frame and scope |
+| Priority | Must satisfy, preference, assumption, or unresolved |
+| Value and tolerance | Typed quantity/range if applicable; nominal design tolerance separate from manufacturing tolerance |
+| Verification | Named checker, visual review, external analysis, or currently unavailable |
+| Applicability | Stage/configurations/occurrences to which it applies |
+| Status | Fresh result or explicit reason it cannot currently be evaluated |
 
-**Optional second door for strong models (phase 2, not phase 1):** `part.script`, which
-accepts the *text projection* of the feature tree — the exact artefact `part.read`
-returns — parses it into the same ops, and runs the same validator. This gives an
-Opus-class model the read-edit-write workflow it is best at, with no separate semantics.
-A weak model never sees it.
+Preserve the user's source wording independently of the model's formalization. Every substantive brief clause must map to a check, a review item, or an unresolved item. “Lightweight and easy to install” must not disappear when the model writes only a bounding-box test.
 
-### 6.2 An op
+The AI may add derived checks and propose requirement changes. It must not weaken a user requirement, loosen a tolerance, delete a failing check, or change the definition of success merely to make a candidate pass. User-requested design changes revise the brief openly; they are not disguised repairs.
 
-```jsonc
+### 5.3 Separate fixed interfaces from design freedom
+
+Define interfaces as reusable geometric objects: a mating plane, bolt-axis pattern, bearing seat, sealing land, insertion envelope or keep-out region. Their logical identity persists across surrounding-body changes; their geometric binding may become unresolved and must then be repaired explicitly. They may reference an external part revision.
+
+For example, “four holes at these coordinates” and “four holes 10 mm from the edges” are different intentions. A wider plate should preserve the former and move the latter. This distinction is recorded before editing, not inferred from the resulting damage report.
+
+Parameters have explicit roles: interface, driving design variable, derived value, discrete choice, or measured output. Do not arbitrarily perturb a fixed interface during robustness testing.
+
+### 5.4 Reference inputs are evidence
+
+An image can establish appearance and visible relationships; it cannot establish hidden dimensions or an exact scale unless a reference provides them. An imported solid provides geometry at a declared revision; it does not automatically provide its author's feature intent. Imported notes and document text are design data, not instructions that can override the user's task or application rules.
+
+## 6. The modeling loop
+
+```text
+Understand brief and current revision
+          |
+Choose one design intention + protected conditions
+          |
+Resolve references and build a private candidate
+          |
+Compute relevant checks + obtain targeted views
+          |
+Accept candidate ------- revise strategy / repair candidate
+          |                              |
+Atomic commit, compact receipt <---------+
+          |
+Next intention, final review, or human handoff
+```
+
+### 6.1 Read a compact state capsule
+
+At session start, after context loss, and after substantial human edits, provide a concise current-state summary:
+
+- Document identity, revision, active configuration and occurrence scope.
+- Brief version, protected interfaces and open decisions.
+- Named design frame and unit convention.
+- Relevant feature/parameter dependencies and parameter bindings.
+- Fresh/failed/stale/unknown checks, last successful geometry revision, pending jobs.
+- Current checkpoint, recent accepted changes and next planned action.
+
+Subsequent turns normally consume deltas. A delta always identifies its base and resulting revision. If the consumer missed changes, the app supplies a new capsule or a complete delta chain. Compactness must never hide a stale model.
+
+### 6.2 Choose a coherent intention
+
+Examples: “create the base and its mounting pattern,” “increase capacity while preserving the lid interface,” or “replace this circular passage with a slot.” Include allowed effects and conditions that must remain true.
+
+A change set can contain multiple dependent native operations. Size it around uncertainty and recovery cost. A repeated hole pattern is one deterministic operation even if it produces 100 holes. A difficult loft deserves inspection before finishing dependent features. Fixed limits such as exactly five operations per turn are not architecture.
+
+### 6.3 Stage, build and check
+
+Before modifying the accepted document, validate the operation structure, units, expressions, dependencies, parameter limits, body scope and reference conditions. Build a candidate on an isolated working state. Intermediate operations may be incomplete, but their state must not be mistaken for an accepted document.
+
+Mandatory local integrity and protected-condition checks run before commit. Final requirements not yet applicable to a legitimate intermediate stage are explicitly pending. A future hole requirement must not block creation of the blank; an already established mounting interface must not silently fail during an unrelated edit.
+
+The acceptance policy distinguishes progress from completion:
+
+| Condition | Candidate commit policy |
+|---|---|
+| Invalid resulting geometry, stale reference, or failed designated hard interface protection | Block commit to the accepted model; retain the candidate for repair |
+| Required protection cannot be evaluated | Block an ordinary protected edit; offer a clearly provisional candidate or an explicit recovery scope |
+| Requirement belongs to a future stage | Permit intermediate progress with `PENDING` status |
+| Engineering/visual evidence is incomplete within an agreed concept scope | Permit a valid geometric revision labeled provisional; preserve the unresolved claims |
+| Existing model is already broken | Use the explicit repair workflow in §14, not an ordinary-success path |
+| Final suitability claim | Require fresh evidence and appropriate coverage for that exact claim |
+
+A provisional saved candidate is not silently promoted to a verified design. This distinction lets concept work proceed without calling an unknown physical property a pass or repeatedly asking for permission to do ordinary modeling.
+
+### 6.4 Accept efficiently
+
+For a routine unambiguous operation, the app can build, check and commit in one request under the agreed policy. A separate preview/commit round trip is needed only when the model or user must inspect a candidate, choose between alternatives, or resolve consequential uncertainty.
+
+Uncertain candidates return an evidence bundle. The AI can request additional observations, patch the candidate, discard it, or commit it after its gates pass. Human permission is not required for every reversible step within an already authorized modeling request.
+
+### 6.5 Commit and recover precisely
+
+A committed change has a base revision, request ID, normalized inputs, affected entities, requirement version and evidence references. Repeating the same request ID returns the same outcome; it does not create a second hole. Reusing the ID with different inputs is rejected.
+
+Before commit, compare the base revision with the live document. A concurrent human change triggers revalidation or a conflict report. Do not overwrite it. Independent read-only queries can run together; accepted mutations are serialized.
+
+One accepted logical change becomes one meaningful undo step. Reverting an older AI change after later human edits requires dependency/conflict handling, not blindly invoking global undo. A cancellation or timeout leaves a known accepted revision; if a native computation cannot stop immediately, discard its late candidate result.
+
+Long operations expose job state and retrieval/cancellation. A lost network reply does not leave the AI guessing whether a mutation happened.
+
+These artifacts scale with the task. The app derives and reuses the brief, dependency context and routine checks; the model supplies only changed intent and missing information. A simple dimension edit should normally be one short typed request and its receipt. Detailed alternatives, engineering analysis and visual rubrics are triggered by the task's requirements or uncertainty, not required anew for every primitive.
+
+## 7. What the AI can do
+
+### 7.1 A small entry surface with progressive discovery
+
+Use a small set of distinct entry points, with operation-specific schemas loaded when needed. The following seven families are a recommended starting design, not an empirically optimal tool count:
+
+| Entry family | Purpose |
+|---|---|
+| `cad.context` | Current document, brief, capabilities, revision capsule and relevant history |
+| `cad.help` | Discover a capability, its schema, preconditions and short native examples |
+| `cad.query` | Resolve entities, inspect dependencies, measure, section, compare or render |
+| `cad.change` | Create/edit/stage/commit/discard a coherent change using native operations |
+| `cad.review` | Evaluate brief coverage, integrity, protected conditions, parameter behavior and final readiness |
+| `cad.history` | Checkpoints, transaction inspection, undo/redo and conflict-aware revert |
+| `cad.output` | Save/open/import/export and manage explicitly selected deliverables |
+
+A family is not one enormous untyped JSON dictionary. Once the relevant operation is selected, its arguments are narrow, validated and documented. Models capable of direct typed tools may receive a small focused set of operations instead. Compare both presentations in evaluation while keeping identical semantics.
+
+Within a change set, operations expose documented typed output ports and can declare local aliases. Later operations may reference earlier outputs, such as a new sketch region or extruded body, without another model round trip. Validate dependency order, result type and multiplicity. These aliases do not predict arbitrary future face names; durable identities and current topology handles are published in the result.
+
+The discovery result includes availability on this device/document, supported modes, units, failure states, related operations and one successful example. It explicitly reports whether a real geometry kernel is linked, its version/ABI, and whether a result is only a stored feature definition without computed geometry. The model should not discover missing shell support by spending five calls generating invalid shell requests.
+
+Tool family names do not create exceptions to transaction rules. Import and document replacement are explicit revisioned changes. Opening a document returns a fresh capsule and invalidates context-dependent pending actions. Save persists a specified accepted or explicitly provisional revision. Export pins geometry/configuration/body scope; undoing the document cannot retract an externally delivered file. External sharing remains a separate authorized action.
+
+### 7.2 Full app coverage is a measured obligation
+
+The final target is coverage of every meaningful app action, not merely common extrusion workflows. Coverage is tracked by action and option, including edit/cancel/error/history behavior.
+
+| Domain | Required AI abilities |
+|---|---|
+| Documents | Create, open, rename, duplicate, save, inspect references, import/export, choose scope and units |
+| Sketches | Planes, entities, primitives, dimensions, constraints, projection, trim/extend, patterns, construction geometry, layers, text and supported specialty tools |
+| Features | Create and edit every supported feature and option; explicit target bodies; suppression, deletion, reordering and rollback markers where supported, with missing native support identified |
+| Direct modeling | Inspect/imported geometry; supported face/body modifications; retain import provenance |
+| Work geometry | Create, modify, query and reference planes, axes and points |
+| Assemblies | Place and replace occurrences; joints/constraints; ground, pattern, drive and inspect supported degrees of freedom |
+| Observation | Selection, measurement, sections, named views, camera framing, hiding/isolation, exploded/context views where available |
+| Presentation | Names, visibility, display mode and appearance; keep appearance separate from engineering materials |
+| Recovery | Cancel candidate/job; checkpoint; undo, redo and targeted revert; recover/reopen a session |
+| App utilities | Discover relevant settings/status; expose remaining user operations with their actual availability and normal authorization |
+
+Not every action should be loaded into the prompt. The registry remains complete while the visible subset stays task-relevant. Privacy-sensitive actions such as sharing/uploading remain explicit user intentions, not side effects of modeling.
+
+Parity is about equivalent outcomes, not reproducing every touch gesture. “Create a centered rectangle” replaces a sequence of taps. Every AI-created result must be inspectable in the GUI, editable through native controls, and included in appropriate history.
+
+A capability is not counted as complete merely because it has a tool name. It needs valid inputs, editable native output, failure behavior, cancellation where relevant, undo and save/reopen coverage. Missing coverage remains visible until filled; the first release cannot honestly claim full parity.
+
+### 7.3 Three levels of expression, one modeling system
+
+1. **Intent recipes:** a hole pattern, boss, flange, mounting plate, stepped shaft or a supported enclosure construction. Parameters and intended relationships are compact.
+2. **Native operations:** sketches, extrude/revolve/sweep/loft, booleans, patterns, blends, work features, assemblies and direct edits. These are the general solution path.
+3. **Advanced composition:** constrained code or a text projection of the native operation graph, if evaluation demonstrates value. It compiles to the same operations and transaction/evidence rules.
+
+Do not reject code categorically: strong and small models can both benefit from familiar declarative abstractions. Do not require arbitrary code execution to perform ordinary CAD. A raw kernel call that cannot be represented, edited, replayed or undone natively is outside the accepted modeling path.
+
+## 8. References that survive edits
+
+### 8.1 Separate identity, label and selection intent
+
+There are three different objects:
+
+- **Logical identity:** stable IDs for the document, body, feature, sketch entity, datum, parameter, occurrence and declared interface.
+- **Human-readable label:** useful names such as `sensor_seat` or `mounting_plane`. Renaming changes the label, not identity.
+- **Resolved topological selection:** the faces/edges that currently satisfy a reference, with handles valid for a particular revision and scope.
+
+Never derive persistent identity solely from an entity's ordinal, position, largest-area ranking or current display name. The AI normally sees meaningful labels and short handles; it copies returned handles without inventing them. Temporary IDs are useful when scoped and revision-bound. The prohibition should be on unstable assumptions, not on numbers themselves.
+
+### 8.2 Declare how a reference follows change
+
+| Binding behavior | Intended meaning | Example |
+|---|---|---|
+| Identity/lineage | Follow this entity's supported descendants; stop if the required identity is lost | A specific functional mating surface |
+| Semantic set | Re-evaluate this design role and allowed multiplicity after changes | All outer rim edges of a repeated boss family |
+| Geometric query at this revision | Resolve an exploratory property query; do not imply persistent meaning | Candidate planar faces normal to a datum |
+| Datum/interface | Refer to explicit design geometry rather than incidental B-Rep topology | Sketch on a mounting plane even after its visible face is split |
+
+Historical provenance and property queries are complementary. Onshape already distinguishes these ideas and provides tracking mechanisms; the lesson is to make reference intent explicit. [Onshape modeling queries](https://cad.onshape.com/FsDoc/modeling.html).
+
+### 8.3 Resolve with several independent conditions
+
+A mutation selection states its body/occurrence scope, intended role or provenance when available, geometric predicates, expected multiplicity and relevant relationships. Conditions can include orientation, radius, adjacency, datum distance, inclusion/exclusion regions and membership in an interface.
+
+Example, shown schematically:
+
+```json
 {
-  "op": "extrude",
-  "name": "base_plate",                 // the model names its own work
-  "sketch": "sk_base",
-  "profile": { "pick": "largest", "expect": 1 },
-  "distance": "plate_t",                // an expression, not a number
-  "direction": "up",
-  "output": "new",
-  "note": "main body, 6 mm plate"       // rides into the feature's description
-}
-```
-
-Every op carries `name`. Every dimension accepts a **parameter expression**
-(`"plate_t"`, `"bore_d/2 + 0.5"`, `"12 mm"`) because `params.dart` already evaluates
-them — so parametric intent is the default path, not an advanced one.
-
-### 6.3 The catalogue
-
-Organised so a model can hold it in working memory. Counts are the target surface.
-
-**Document & session (7)**
-`doc.new` · `doc.open` · `doc.save` · `doc.export` (STEP/STL/OBJ/3MF/DXF) ·
-`doc.import` (STEP/mesh) · `doc.list` · `doc.thumbnail`
-
-**Contract & parameters (6)**
-`spec.set` (parameters + requirements + material + orientation) · `spec.get` ·
-`param.define` · `param.set` · `param.delete` · `param.bindings` *(which features each
-parameter drives — the antidote to "named dimension controls the wrong feature")*
-
-**Sketch (11)** — profile primitives first, raw entities last
-`sketch.new` (on an origin plane, a work plane, or a named face) ·
-`sketch.rect` · `sketch.circle` · `sketch.slot` · `sketch.polygon` · `sketch.ellipse` ·
-`sketch.rounded_rect` · `sketch.path` (turtle: `line_to` / `arc_to` / `close`) ·
-`sketch.text` · `sketch.project` (model edges onto the plane) · `sketch.edit`
-
-Constraints and dimensions exist as `sketch.constrain` / `sketch.dimension` but are
-**not on the normal path** — see §7.
-
-**Features from a sketch (5)**
-`extrude` · `revolve` · `sweep` · `loft` · `coil`
-Each takes `output: new | join | cut | intersect` and an extent
-(`distance | symmetric | asymmetric | to_face | to_next | through_all`).
-
-**Body modification (9)**
-`hole` (simple / counterbore / countersink / spotface, by position list or by sketch
-points) · `fillet` · `chamfer` · `delete_face` · `move_face` · `scale_body` ·
-`split` · `combine` · `derive`
-
-**Patterns & mirrors (4)**
-`pattern.rect` · `pattern.circular` · `pattern.sketch_driven` · `mirror`
-
-**Work geometry (3)**
-`work.plane` (offset / midplane / angle / three-point / tangent) · `work.axis` ·
-`work.point`
-
-**Assembly (8)**
-`asm.new` · `asm.place` · `asm.joint` · `asm.constrain` · `asm.pattern` ·
-`asm.ground` · `asm.drive` · `asm.make_part`
-
-**History (8)**
-`history.undo` · `history.redo` · `history.checkpoint` · `history.revert` ·
-`history.list` · `feature.suppress` · `feature.delete` · `feature.reorder`
-
-**Sense — read-only (7)**  ·  **Prove — read-only (5)**  ·  **View (3)**
-Detailed in §8 and §9.
-
-**Escape hatch (1, gated)**
-`raw.kernel` — a direct call into the OCCT shim. Off by default; enabled per session by
-the human. Exists so an expert model is never *blocked*, and so we learn from the logs
-which macro to add next.
-
-**Total: ~77 verbs, one entry point, four schemas to learn (op, selector, expression,
-error).**
-
-### 6.4 Macros — the weak-model lane
-
-A macro is a single op that expands, *deterministically and visibly*, into a documented
-feature sequence. The expansion is written into the feature tree with real names, so the
-human can edit any of it and the model can inspect all of it. Nothing is hidden.
-
-```jsonc
-{ "op": "macro.mounting_plate",
-  "name": "plate",
-  "size": [120, 80], "thickness": "plate_t",
-  "corner_radius": 5,
-  "holes": { "pattern": "corners", "inset": 10, "type": "M4_clearance" } }
-```
-
-Starter set (the shapes that are 80 % of real parts and 100 % of L3 pain):
-`mounting_plate` · `bracket_L` · `boss` · `rib` · `standoff` · `flange` ·
-`hex_pocket` · `bearing_seat` · `slot_array` · `keyway` · `cable_gland`.
-
-Each macro also has a **fastener knowledge table** behind it — `M4_clearance` = Ø4.5,
-`M4_tap` = Ø3.3, counterbore Ø8 × 4.4 deep — so the model states intent, not machinist
-arithmetic. This is the single highest-leverage accuracy feature for Flash-class models,
-because it removes the exact numbers they are most likely to get subtly wrong.
-
-Macros are transparent, not magic: `macro.explain` returns the ops it would emit, so a
-strong model can take the expansion and modify it instead.
-
----
-
-## 7. Sketching — the place where token budgets and accuracy go to die
-
-A 2D profile is the most verbose and most error-prone thing an LLM emits. Four decisions.
-
-### 7.1 Profile primitives, not entity soup
-
-Never `line(0,0,60,0); line(60,0,60,40); …`. Always `rect(60, 40, center)`.
-A rectangle is 1 op instead of 4, cannot fail to close, and carries its own parameters.
-Raw entity drawing stays available for genuinely free-form work.
-
-### 7.2 The app closes loops; the model does not have to
-
-`ProfileRegion` already finds closed regions by half-edge walking, and `ProfileGap`
-already finds near-misses. So:
-
-* the model draws entities; the app finds regions;
-* a gap under `heal` (default 0.05 mm) is closed automatically **and reported**:
-  `healed 1 gap of 0.031 mm between sk_base/line#3 and sk_base/arc#1`;
-* a gap over `heal` is a typed error carrying both endpoints and a `fix` op that snaps
-  them — not "extrude failed".
-
-### 7.3 Constraints are optional, and normally skipped
-
-This is counter-intuitive but it is the right call. Sketch constraints exist so a *human*
-can drag geometry and have it behave. An LLM does not drag. For an LLM, **the parametric
-primitive is the constraint system**: `rect(w: "plate_w", h: "plate_h", center: [0,0])`
-is already fully constrained, symmetric, and parametric — with zero solver involvement
-and zero over-constraint risk.
-
-So the default path emits **no constraints at all**. `sketch.constrain` remains for the
-cases that need it (tangent chains, a sketch that must stay editable by hand, a
-driven/reference dimension) and for parity with the GUI.
-
-Payoff: we delete the largest source of LLM sketch failure — redundant and conflicting
-constraints — by not requiring the model to enter that space.
-
-### 7.4 The sketch frame is stated every single time
-
-`sketch.new` returns, and every later reference repeats:
-
-```
-sk_top on face base_plate.top
-  origin  world (0, 0, 6)
-  +u = world +X      +v = world +Y      normal = world +Z (up)
-  extent of the host face: u ∈ [-60, 60], v ∈ [-40, 40]
-```
-
-That block is ~40 tokens and it eliminates the entire "coordinate-frame error" failure
-class. The model never converts a frame; it is told the conversion.
-
----
-
-## 8. How the AI sees — the perception ladder
-
-**The principle:** the model is given *the answer to a spatial question*, not the raw
-material to answer it from. Ordered cheapest first; nothing expensive happens unasked.
-
-### L0 — The change report (automatic, free, ~60–150 tokens)
-
-Returned by **every** mutating op. This is the workhorse, and it is the direct answer to
-"models cannot compare two states".
-
-```
-✓ bore_1  hole ⌀8.0 through, 4 places
-  Δvolume   −2 010 mm³  (−4.2 %)   now 45 790 mm³
-  Δbbox     none                    120.0 × 80.0 × 6.0
-  +faces    bore_1.wall#1..#4 (cylinder ⌀8.0, axis +Z)
-  −faces    none
-  selectors bore positions resolved from sk_holes: 4 of 4 expected
-  warnings  none
-  contract  6/6 pass
-```
-
-Note what is *not* here: no full face list, no feature tree, no image. Under 150 tokens,
-and it answers "did that do what I meant" completely.
-
-### L1 — `part.tree` (~200–600 tokens)
-
-The feature tree as a readable script: names, types, key parameters, errors, the
-End-of-Part marker, suppression state. This is also the text projection `part.script`
-would consume — one artefact, two uses.
-
-```
-part "sensor_bracket"   frame: Z-up, mm   material: AL6061 (2.70 g/cm³)
-params  plate_t = 6 mm · plate_w = 120 mm · plate_h = 80 mm
-        bore_d = 8 mm · n_holes = 4 ul · web_t = plate_t * 0.6   → 3.6 mm
-
- 1  sk_base      sketch on XY            rect(plate_w, plate_h, center)
- 2  base_plate   extrude sk_base         plate_t, up, new           → body main
- 3  sk_holes     sketch on base_plate.top 4 points, rect array 100×60
- 4  bore_1       hole ⌀bore_d through    from sk_holes (4)
- 5  upright      extrude sk_web          40 mm, up, join
- 6  edge_breaks  fillet r2               base_plate.top.edges (4)   ⚠ 1 edge lost
-    ── End of Part ──
-```
-
-### L2 — `part.inspect` (paginated, ~300–1500 tokens)
-
-The name table, and the only place names come from.
-
-```
-body main   volume 45 790 mm³   area 34 120 mm²   mass 123.6 g
-            bbox 120.0 × 80.0 × 46.0   centre of mass (0.0, 0.0, 11.3)
-            solid: yes   closed: yes   errors: none
-
-faces  22 total — 14 plane, 8 cylinder
-  base_plate.top        plane    n +Z (up)   9 540 mm²   at z = 6.0
-  base_plate.bottom     plane    n −Z        9 600 mm²   at z = 0.0
-  base_plate.side.+x    plane    n +X          720 mm²   at x = +60.0
-  …
-  bore_1.wall#1         cylinder ⌀8.0 axis +Z  centre (−50, −30)
-  …
-
-edges  (request explicitly — 48 entries)
-```
-
-`filter`, `group_by` and `limit` mean the model asks for *the four bore rims*, not for
-forty-eight edges.
-
-### L3 — `part.measure` (~40–80 tokens)
-
-Named entity to named entity, the way a person asks:
-
-```
-measure { from: "bore_1.wall#1", to: "bore_1.wall#2" }
-  → centre distance 100.000 mm · parallel axes · both ⌀8.000
-
-measure { thickness_at: "base_plate.top", direction: "down" }
-  → 6.000 mm to base_plate.bottom
-
-measure { clearance: ["upright", "bore_1.wall#3"] }
-  → 12.400 mm (minimum, between upright.side.-y and bore_1.wall#3)
-```
-
-### L4 — `part.section` (~200–600 tokens) — **the underrated one**
-
-A symbolic cross-section. The app cuts the solid with a named plane and returns the
-*profile of the cut* as dimensioned polylines, plus derived facts.
-
-```
-section at plane "midplane_yz" (x = 0)
-  1 closed region, area 396 mm², perimeter 244 mm
-  extents  y ∈ [−40, +40]   z ∈ [0, 46]
-  wall thicknesses measured normal to the boundary:
-      min 3.60 mm at (y=+18.0, z=22.0)   max 6.00 mm   mean 5.1 mm
-  no voids, no self-intersections
-```
-
-This is how an LLM answers "is it thick enough", "is it hollow where I meant", "does the
-rib actually reach the floor" — questions that are *unanswerable from a render* and
-trivial from a section. It is a direct application of Law 1, and the app already has
-section views.
-
-### L5 — `part.view` (~800–1600 tokens per image) — the gestalt gate
-
-Rendered images, **always annotated**, never bare. Every view carries, burned in:
-
-* a title stating the direction **in words**:
-  `FRONT — looking along +Y; screen right = +X, screen up = +Z`;
-* an axis triad and a scale bar;
-* the bounding-box dimensions;
-* **the same names the text uses**, as leader-line labels (capped at ~12 per view);
-* optional **highlight set** — the entities a selector resolved to, in a single strong
-  colour, with a legend.
-
-Sets: `iso` (default single), `ortho4` (front/right/top/iso), `ortho8` (the canonical
-six + two isometrics).
-
-**The rule that keeps this honest:** a view may never be the *only* evidence for a claim.
-`part.check` results and measurements are the evidence; the view catches the things
-numbers do not — "this is a bracket, not a blob", "the boss is on the wrong side",
-"this looks nothing like what was asked for".
-
-**The best use of vision here is the highlight render.** "Here, in red, is exactly what
-your selector selected." That is a coarse, whole-image judgement — precisely the kind of
-visual task models *are* reliable at — and it also serves the human watching.
-
-### L6 — `part.diff` (explicit, ~100–400 tokens)
-
-The change report between two named checkpoints, for when a repair loop has drifted:
-features added/removed/changed, parameter deltas, volume/bbox deltas, contract deltas.
-
-### Cost ladder, summarised
-
-| Level | Typical tokens | When |
-|---|---|---|
-| L0 diff | 60–150 | every op, automatic |
-| L1 tree | 200–600 | start of a session, after a plan change |
-| L2 inspect | 300–1500 | before a selector-heavy op |
-| L3 measure | 40–80 | to settle one number |
-| L4 section | 200–600 | wall thickness, internals, "is it hollow" |
-| L5 view | 800–1600 /image | milestone gate, final report, human hand-off |
-| L6 diff | 100–400 | after a messy repair |
-
-A well-behaved session spends **~70 % of its perception budget at L0**, which is the
-whole point.
-
----
-
-## 9. How the AI knows it is good — the proof layer
-
-Perception tells the model what *is*. Proof tells it whether that is *right*. This is the
-layer that separates "it compiled" from "it works", and the evidence is unambiguous that
-without it, **58 % of executable models violate their own stated requirements.**
-
-### 9.1 The design contract
-
-Written in `spec.set`, stored **in the `.ptp` document**, re-evaluated on every rebuild —
-including rebuilds triggered by a human dragging a dimension six months later.
-
-```jsonc
-{
-  "op": "spec.set",
-  "intent": "Bracket mounting a 30 mm sensor to 40×40 extrusion, 2 kg static load",
-  "orientation": "mounting face down (−Z), sensor axis along +Y",
-  "material": { "id": "AL6061", "density": 2.70 },
-  "process": "3-axis milling, 6 mm end mill",
-  "params": [
-    { "name": "plate_t",  "value": 6,   "unit": "mm", "role": "driving",
-      "range": [4, 10], "why": "stiffness vs. mass" },
-    { "name": "bore_d",   "value": 8,   "unit": "mm", "role": "interface",
-      "fixed": true,    "why": "M8 clearance for extrusion T-nut" }
+  "scope": "fixture/plate_occurrence",
+  "reference": "mounting_interface.hole_axes",
+  "binding": "interface",
+  "expect": {"count": 4},
+  "require": [
+    {"parallel_to": "plate_frame.n"},
+    {"pattern": "mounting_pattern"},
+    {"diameter": "hole_diameter"}
   ],
-  "requires": [
-    { "id": "envelope",   "bbox_max": [120, 80, 50] },
-    { "id": "mass",       "mass_max_g": 250 },
-    { "id": "wall",       "min_wall_mm": 3.0 },
-    { "id": "mount",      "holes_through": { "select": {"edges": {"kind":"circle","diameter":8}},
-                                             "count": 4, "spacing_mm": 100 } },
-    { "id": "tooling",    "min_internal_radius_mm": 3.0,
-                          "why": "6 mm end mill cannot cut a sharper inside corner" },
-    { "id": "buildable",  "no_feature_errors": true, "manifold": true }
-  ]
+  "at_revision": "r12"
 }
 ```
 
-**Assertion vocabulary** (each returns actual vs. required, never just pass/fail):
+`expect` is one constraint. A correct count cannot certify the intended face. Unbounded `any` is useful for discovery, but broad mutations need an explicit scope and a defensible set definition. Pattern count can be an expression if the intent allows it to change.
 
-| Family | Assertions |
+### 8.4 Return a selection receipt
+
+The resolution result includes selected handles and aliases, role/provenance, scope, count, discriminating properties, and any ambiguity or topology change. A highlight view is available for interpretation. Candidate lists are grouped and paginated when necessary.
+
+A face split is reported as one-to-many; a merge as many-to-one; deletion as loss. If a consuming operation accepts a set or only needs a support plane, it can resolve appropriately under its declared policy. Otherwise, it requires a revised reference. Do not assign the old name to whichever patch happens to sort first.
+
+### 8.5 Disagreement blocks that mutation
+
+If authoritative lineage and semantic conditions imply competing targets, or required conditions fail, return `REFERENCE_CHANGED` or `AMBIGUOUS`. Show the disagreement. Do not choose whichever mechanism happened to return a match, silently re-anchor, or proceed with only a warning on a protected interface.
+
+A fingerprint is a fallible geometric hint. Expected movement or size change under the declared edit is not itself a contradiction. Evaluate it in the appropriate local/occurrence frame and against allowed changes. Strong supported lineage and role conditions can retain a reference despite expected fingerprint drift; an absent weak hint need not force a rebind. Unresolved competing identities or unsupported split/merge transitions still block the mutation.
+
+An agent can explicitly rebind a reference when observations and the brief establish the new target. Ordinary justified rebinding does not require a human interruption. Unresolved functional ambiguity does.
+
+The attainable guarantee is that known ambiguity, stale handles and violated selection conditions block the mutation. The system cannot guarantee that a wrongly formalized intention is impossible.
+
+## 9. Frames, units, and tolerances
+
+### 9.1 Preserve the model; name the design frame
+
+Do not migrate the existing app to Z-up as a prerequisite. Every document retains its native frame. For a new design, publish a named right-handed part frame chosen around its function, such as `u = length`, `v = width`, `n = thickness`. Record the transform to document world coordinates.
+
+The AI can say “extrude along `plate_frame.n`” or “normal to `mounting_plane`.” Raw coordinates always name their frame. The app performs transformations between part, workplane, occurrence, assembly, camera and export frames.
+
+A sketch observation provides origin, positive u/v directions, normal and handedness. A view has an explicit viewing direction and screen-right/up basis. “Top” refers to a named frame or view convention, never an unspecified universal +Z. Mirrored occurrences require explicit reflection handling, not an assumed ordinary rotation.
+
+Conformance fixtures should use asymmetric geometry with unequal dimensions and a marked corner. Check sketches, views, transformed/mirrored occurrences and every exchange format. A symmetric box alone can conceal handedness and axis swaps.
+
+### 9.2 Quantities are typed
+
+Operations distinguish length, angle, count, ratio, area, volume, mass and density. Units are explicit at boundaries and normalized by the app. Expressions use typed parameters with documented scope; `length + angle` is invalid. Counts require integer semantics and range checks.
+
+The existing expression parser is a useful starting point, not already this system. Its multi-argument function syntax uses semicolons; examples must follow the actual chosen grammar or provide a normalized expression form. The AI should obtain expression examples from the capability description, not assume a Python grammar.
+
+### 9.3 Keep tolerances separate
+
+- Kernel/computation tolerance: numerical geometric processing.
+- Selection tolerance: matching a geometric predicate.
+- Approximation error: tessellation, sampling or numerical integration.
+- Design tolerance: acceptable model deviation for a requirement.
+- Manufacturing tolerance: allowed physical variation and fit.
+- Display precision: how many digits are shown.
+- Healing allowance: permitted geometric modification during repair.
+
+These are not interchangeable. No universal 0.05 mm gap healing rule is appropriate. A designed slit must remain a slit. Automatic healing is allowed only for a clearly identified accidental defect within an approved allowance; record the modification and recheck affected requirements.
+
+## 10. Native sketches, parameters, and recipes
+
+### 10.1 Express sketch intent compactly
+
+The normal path uses rectangles, circles, slots, polygons, symmetric profiles, named point patterns and supported constrained paths. The app creates native geometry and the constraints/dependencies needed to express their declared behavior.
+
+For a centered rectangle, “width W, height H, centered on origin” should produce an editable definition preserving rectangularity, size and centering. The model need not manually emit every coincident/horizontal/equal constraint. Raw entities and explicit constraints remain available for less regular designs.
+
+An intentionally underconstrained sketch is allowed, but its free degrees of freedom are identified. A fully specified sketch must not be reported stable while hidden freedoms remain. Sketch diagnosis should identify conflicting or redundant constraints and a localized explanation; a minimal conflict set is useful when the solver can provide one, not a guaranteed capability.
+
+Profile inspection returns named regions, holes, construction exclusions, loop closure and self-intersections. “Largest profile” is an exploratory selector, not a default substitute for the intended region. Avoid dumping dense sampled point lists unless an advanced operation needs them.
+
+### 10.2 Make parameters operational
+
+The document maintains a dependency graph linking parameters, sketch dimensions, feature inputs, interfaces and measured outputs. An expression is persisted as an expression, not only as its evaluated number. Reopening, changing a parameter, undoing and rebuilding must preserve the binding.
+
+Publish a compact binding table when requested:
+
+```text
+plate_t  -> base extrusion depth -> hole passage length
+pitch_u  -> mounting axis positions, fixed interface
+edge_r   -> external corner finish only
+mass     <- measured volume × material density, not a driving value
+```
+
+Missing references, cycles and failed evaluation are explicit. A frozen last-good number must not masquerade as a fresh parameter evaluation. Parameter edits test both the intended dependency and protected non-dependencies.
+
+### 10.3 Recipes are editable, versioned procedures
+
+A recipe is a parameterized sequence of native operations with a documented purpose, preconditions, expansion, outputs, dependencies and checks. It is useful to all model tiers. Start with reliable geometric building blocks and repeated interface patterns; extend to validated part families as evidence supports them.
+
+Store recipe version and instance parameters with the expansion. A user can inspect every child feature. Define ownership: either an edit maps back to the recipe's parameters, or the instance becomes a customized native group. A later recipe rebuild must not overwrite manual child edits silently.
+
+Recipe retrieval should use purpose, topology and constraints, not just similar names. A housing recipe that assumes injection molding may be wrong for a machined enclosure. Standards-backed features record standard/version, thread or fastener variant, fit/clearance class and relevant process assumptions. “M4” alone does not specify every dimension. Do not infer a press fit from “30 mm sensor.”
+
+Recent work such as ArtisanCAD supports investigating reusable parametric procedures; its benchmark result does not establish a success rate for this app or its target models. [ArtisanCAD](https://arxiv.org/abs/2607.05750).
+
+### 10.4 Keep feature history resilient without rigid superstition
+
+Prefer stable datums and interfaces, clear parameter ownership, short understandable dependencies and decorative finishing late. These are defaults. Functional rounds, drafted core shapes, blend-dependent surfaces and manufacturing-specific operations sometimes belong earlier. Audit actual fragility and editing behavior, not a fixed rule that every fillet must be last or every feature may have at most two parents.
+
+Suppressed features and unused sketches can be intentional alternatives/reference geometry. Label them rather than automatically deleting them to improve a hygiene score.
+
+## 11. How the AI sees and senses
+
+The objective is to let the model understand **what exists, what it does, and how it reads visually** without reconstructing the world from a long list of triangles or guessing depth from one image.
+
+### 11.1 Ask an observation question
+
+Prefer requests such as:
+
+- “Show the mounting interface and verify its hole pattern.”
+- “Measure the remaining material between this passage and the outer wall.”
+- “Show whether the handle looks balanced relative to the base.”
+- “Compare this edit with the accepted design, keeping the same views.”
+- “Can the specified fastener and driver approach along this axis?”
+- “Where does this parameter change the geometry?”
+
+The app translates supported questions into declared observation recipes: entity queries, measurements, sections, views and comparisons. Each recipe has a defined result and cost class. The model can request the underlying observations directly when necessary. Natural-language questions do not grant an opaque second agent permission to improvise unverifiable measurements.
+
+### 11.2 A compact evidence bundle
+
+An observation carries:
+
+| Field | Purpose |
 |---|---|
-| Envelope | `bbox_max`, `bbox_min`, `fits_in`, `footprint` |
-| Mass | `mass_max_g`, `mass_min_g`, `volume`, `centre_of_mass_within` |
-| Thickness | `min_wall_mm`, `max_wall_mm`, `uniform_wall_within` |
-| Features | `holes_through`, `hole_count`, `hole_pattern`, `feature_exists`, `face_count_by_kind` |
-| Manufacturability | `min_internal_radius_mm`, `min_hole_diameter_mm`, `min_feature_mm`, `draft_min_deg`*, `overhang_max_deg`, `no_trapped_volume` |
-| Assembly | `clearance_min_mm`, `no_interference`, `mates_with` |
-| Integrity | `manifold`, `no_feature_errors`, `no_lost_selections`, `single_body` |
-| Relations | `param_drives(param, feature)`, `symmetric_about(plane)` |
+| Revision/configuration | Identifies the candidate or accepted geometry actually inspected |
+| Definition and scope | Distinguishes axis distance from surface clearance, local thickness from global minimum, part from occurrence |
+| Value and units | The measured quantity, including relevant extrema |
+| Method | Analytic relation, B-Rep numerical computation, mesh estimate, sample set, image review or external analysis |
+| Accuracy/coverage | Bound or tolerance when known; otherwise explicit approximation and limitations |
+| Witnesses | Entities and locations supporting the result, available for highlighting |
+| Status | Complete, partial, unavailable, stale, or failed computation |
 
-\* requires a draft feature — see §14.2.
+The routine response is concise and references a richer evidence record. It should contain enough information for the next decision, not a fixed token count at the expense of correctness. Critical uncertainty and failures are never truncated away.
 
-### 9.2 `part.check` — the verdict
+### 11.3 Observation levels
 
+| Level | Typical content | Use |
+|---|---|---|
+| Receipt | Change summary, current dimensions, reference/check status and outstanding issues | Every accepted change or failed candidate |
+| Relevant structure | Local feature graph, parameter bindings, interfaces and dependencies | Planning, editing, context recovery |
+| Targeted facts | Dimensions, axes, normals, connectivity, adjacency, material/void relationships | Selection and geometric reasoning |
+| Focused analysis | Sections, local comparison, clearance/thickness observations | Resolve a specific uncertainty |
+| Controlled images | Canonical views, detail crop, section view, context view, aligned comparison | Form, usability, visual quality and correspondence |
+| Extended analysis | Robustness sweeps, motion sampling, process checks, physical analysis | Higher-cost questions justified by the brief |
+
+This is not a mandatory climb from cheap to expensive. If the question is appearance, request the appropriate image immediately. If it is an exact diameter, request the measurement directly.
+
+### 11.4 Views are deliberate instruments
+
+Use a stable, repeatable inspection camera independent of the human's freely orbiting viewport. Cache by geometry revision, camera, display style and overlay specification.
+
+For visual comparison, align before/after or candidate/reference views using a known frame and consistent scale. Keep lighting, material and display settings fixed when comparing geometry; compare intentional appearance changes separately. Provide clean views for silhouette and surface judgment, with an annotated counterpart when labels help. Do not cover the shape with names in every image. Suspected tessellation/shading artifacts trigger an appropriate geometry or higher-quality view check, not an immediate shape edit.
+
+Recommended view choices:
+
+- One orthographic isometric for overall form.
+- Front/top/side views selected to expose relevant relationships.
+- A cropped detail view for a joint, opening, transition or finish.
+- A section or transparency/isolation view for an otherwise hidden feature.
+- An in-context or exploded view for assembly and access.
+- A common-scale comparison between a small number of design alternatives.
+
+Every image identifies revision, frame, camera direction and scale where relevant. Labels refer to the same returned handles as textual observations. Selection overlays, witness markers and added/removed geometry overlays are available on demand. Depth, normal, silhouette or curvature-oriented modes are additional tools when they answer a defined question; they are not always-on prompt payloads.
+
+The spatial study's canonical-alignment result motivates this design, but it used a small synthetic task with objects already in a shared frame. It does not prove that arbitrary user photos can be aligned automatically or that CAD vision is solved. [Spatial imagery study](https://arxiv.org/html/2603.26779v2).
+
+### 11.5 Let observations direct the next view
+
+The app can suggest a view that exposes a reported witness or selected entity, estimate whether it is occluded, or offer a section through it. The model should choose “show the failed wall region,” not spend several turns saying “rotate another 20 degrees.”
+
+If the concern is visual balance, the AI first asks for stable overall views. If those suggest an opening is off-center, it requests the dimension from the appropriate datum. A visual suspicion becomes a targeted measurement; a geometric anomaly becomes a focused visual inspection.
+
+Rendering failure, unavailable vision support, hidden geometry and insufficient resolution remain explicit. A text-only model can still do geometry-driven work, but visual design acceptance remains pending unless a supported visual reviewer or the user performs it.
+
+## 12. What a successful check means
+
+### 12.1 Separate the claims
+
+| Claim | Suitable evidence | What it does not establish |
+|---|---|---|
+| Builds correctly | Native rebuild and scoped geometric/topological validity | Compliance with the user's purpose |
+| Has required geometry | Measurements of resulting geometry and interface checks | Strength or manufacturability |
+| Is parametrically editable | Binding checks and tested parameter changes | Validity at every possible value |
+| Preserves an interface | Protected geometric relationships and comparison | All unrecorded intentions |
+| Looks appropriate | Controlled visual review against a design brief | Hidden dimensions or load capacity |
+| Is feasible for a process | Defined process checks with stated coverage | A complete manufacturing plan |
+| Meets physical requirements | Suitable calculations/simulation/tests with validated assumptions | Suitability outside the analyzed conditions |
+
+OCCT validity and volume routines have defined preconditions and limitations. They should be used deliberately, not described as complete engineering certification. [Shape validity](https://dev.opencascade.org/doc/refman/html/class_b_rep_check___analyzer.html), [volume properties](https://dev.opencascade.org/doc/refman/html/class_b_rep_g_prop.html).
+
+### 12.2 Use more than pass/fail
+
+Recommended requirement states:
+
+- `PASS`: the stated check supports the requirement within its declared scope and tolerance.
+- `FAIL`: the check demonstrates a violation.
+- `UNKNOWN`: the method is unavailable, insufficient, inconclusive or has uncertainty crossing the threshold.
+- `PENDING`: a necessary feature/stage/input does not yet exist.
+- `STALE`: a previously evaluated result no longer applies to the current revision/configuration.
+- `REVIEW_REQUIRED`: a visual, usability or external engineering judgment remains.
+- `WAIVED`: an explicit user decision, with reason and scope; not counted as passed.
+
+Coverage is recorded separately from status. A sampled check can pass all samples while the broader continuous requirement remains unknown. A final report must not collapse those two facts into “all checks passed.”
+
+A numerical result with a justified interval passes a lower-bound requirement only if its lower bound clears the threshold; it fails if its upper bound is below it. An interval that crosses the threshold is inconclusive. If an algorithm has no justified error bound, do not invent one from display precision.
+
+### 12.3 Verify results, not only instructions
+
+A hole feature's input diameter does not establish the diameter or even existence of the final hole. Measure the final B-Rep or a suitable supported representation. A geometry checker must independently test relevant output properties, rather than merely echoing the arguments used to create them.
+
+Independence is imperfect when construction and measurement share a kernel. Use analytic fixtures, alternative methods where justified, and deliberately incorrect model variants to validate critical checkers. CADTests specifically shows why a check suite needs testing against mutations that violate the brief; finite checks can still miss errors. [CADTests](https://arxiv.org/html/2605.07807).
+
+The requirement interpreter, geometry checker and final result are three different failure points. A second LLM repeating the first one's interpretation is not sufficient independence.
+
+### 12.4 Define difficult properties precisely
+
+**Hole and passage checks.** Identify the intended void, axis, entry/exit regions, target body and depth or through condition. Count passages/axes, not circular edges. A through bore can have two rims; countersinks and fillets add more. Check that it remains open in the final body and does not unintentionally penetrate another protected wall.
+
+**Thickness.** Specify the region and meaning: material ligament between a bore and outer boundary, distance across a named planar wall, thickness along a normal field, or a process-specific thin-feature analysis. Avoid a naive global minimum that becomes zero at an intended sharp edge. State exclusions explicitly; they cannot hide a failing functional wall.
+
+For simple supported geometry, use analytical or validated B-Rep measurements. For general shapes, report sample coverage, suspicious regions and available error bounds. A section supplies curves/regions and measurements within its plane. Multiple sections still do not automatically certify the whole solid. [OCCT distance operation](https://dev.opencascade.org/doc/refman/html/class_b_rep_extrema___dist_shape_shape.html), [section operation](https://dev.opencascade.org/doc/refman/html/class_b_rep_algo_a_p_i___section.html).
+
+**Mass.** Validate the relevant solid(s), compute volume with declared method, and use density with explicit units and provenance. For multiple materials or occurrences, aggregate correctly and avoid counting hidden intermediate solids. Density times volume supports a nominal mass estimate; coatings, fasteners, manufacturing variation or print infill require additional assumptions.
+
+**Clearance/contact/interference.** Distinguish positive separation, touching, overlapping solid volume and permitted contact/overlap. A zero intersection volume is not evidence of positive clearance. Use fast spatial bounds only as screening; a narrow-phase method must settle the relevant relationship or report uncertainty. Toleranced fit is distinct from nominal fit.
+
+**Manufacturing.** Internal radius, draft, overhang and minimum feature checks are process-specific rules with scoped coverage. A minimum inside radius alone cannot certify 3-axis tool access. Draft can be analyzed on existing geometry even if a standalone draft creation feature is absent. Machining setups, tool/holder reach, fixtures, support removal, mold opening and part release require additional checks appropriate to the selected process.
+
+**Motion/access.** Collision-free endpoints do not establish collision-free movement. Identify the path, moving occurrences, allowed contacts, tool or hand envelope, and tested states or swept-volume method. Label sampled coverage.
+
+### 12.5 Invalidate immediately; recompute intelligently
+
+Every edit invalidates dependent evidence immediately. Cheap relevant checks run with the transaction. Expensive global checks run at suitable milestones, on explicit request, or before a completion claim that depends on them. Unaffected checks may be reused only when their dependency tracking is trustworthy; otherwise invalidate conservatively.
+
+Evidence records include geometry revision, brief version, configuration, referenced document revisions, checker version and relevant settings. A cached render/check is reusable only for the same inputs. Human edits trigger the same freshness behavior as AI edits.
+
+### 12.6 A completion decision is assembled from evidence
+
+The app derives a readiness report from requirement coverage and fresh results. The AI explains that report; it cannot turn an unknown load requirement into “ready to manufacture” with prose.
+
+Useful completion descriptions are specific: “geometry requirements verified; visual concept accepted; load case not analyzed” or “native model complete for the stated dimensional brief.” A successful exploratory design need not pretend to be production-qualified. Conversely, a request whose goal includes load capacity remains incomplete until that claim has appropriate evidence or the user explicitly changes the scope.
+
+## 13. Editing without unnoticed damage
+
+### 13.1 Establish an edit contract
+
+Before a modification, record:
+
+- The exact requested change and the accepted base revision.
+- Parameters/features likely to cause it.
+- Interfaces and regions that must stay unchanged.
+- Dependent movement that is intended or allowed.
+- Necessary checks and visual comparison views.
+
+The AI can usually derive this from the brief and current dependencies. It asks the user only about consequential ambiguity. “Make the enclosure wider” may mean preserve the lid mating profile or widen the lid as well; those are materially different tasks.
+
+### 13.2 Check the final local effect
+
+Use several levels of comparison:
+
+1. Structural changes: operations, bindings, references, suppression and occurrence transforms.
+2. Cheap numerical summaries: dimensions, volume, body count and relevant topology counts.
+3. Protected relations: interface positions, diameters, mating planes, clearance and passages.
+4. Local geometric comparison: added/removed regions or surface deviation outside allowed change regions, using methods suitable for the representation.
+5. Aligned visual comparison where appearance matters.
+
+The first two levels are useful alarms, not equivalence proofs. A translated internal hole can preserve all global summary values. A surface can deform without changing total volume. Rebuild signatures tell the app what may need recomputation; they do not measure collateral damage.
+
+Report intended propagation separately from unexpected effects. Increasing plate thickness legitimately extends through-hole walls. It need not preserve every coordinate of the old hole face; it must preserve the specified axis, diameter, entry relationship and open passage.
+
+Comparison methods also have failure modes. Boolean differences can fail; mesh deviation is approximate; tiny volume differences may hide a functionally critical change. If a protected relation cannot be checked, return unknown rather than silently declaring no damage.
+
+### 13.3 Parameter robustness is a separate review
+
+Test the nominal configuration, meaningful boundaries, local perturbations, relevant coupled configurations and topology-transition cases. Use sensitivity/dependency information to prioritize likely interactions. For high-dimensional designs, do not attempt a full Cartesian sweep by default.
+
+Distinguish three domains:
+
+- **Requested domain:** what variation the user wants supported.
+- **Feasible domain:** constraints known to permit a design.
+- **Tested domain:** configurations actually evaluated, with methods and outcomes.
+
+State coupled constraints such as `hole_diameter <= flange_width - 2*required_ligament`; separate independent sliders do not express that relationship. A recipe can enforce supported algebraic conditions and also require kernel checks where topology may change.
+
+Robustness jobs run on temporary candidates and restore the nominal state exactly. They check that a parameter changes the intended feature and preserves unrelated requirements, not merely that rebuilding succeeds.
+
+No statement of “valid throughout 4–10 mm” follows from testing 4, 6 and 10 mm. A stronger range claim needs an appropriate analytic guarantee or validated exhaustive/bounded method. Otherwise report “tested at these configurations.”
+
+## 14. Failures and recovery
+
+### Entering an already-broken document
+
+At entry, distinguish saved authoring state, successfully evaluated feature prefix, last-good geometry and known errors. Preserve the original state. Allow read-only inspection of the feature definitions and clearly labeled last-good shape, but never use measurements of that shape to certify the failed current definition.
+
+Create a repair candidate from an explicit revision/checkpoint. Target the earliest relevant failing dependency and preserve independently healthy regions. A repair can improve an already-broken document in stages, but the result remains provisional until the required integrity and protection gates pass. Reopening a broken file does not manufacture a new verified baseline.
+
+### 14.1 Errors should make the next decision easier
+
+Return the operation and candidate revision, what failed, reliable observations, affected entities, causal evidence where available, possible remedies and the accepted revision that remains intact.
+
+Distinguish:
+
+| Failure | Useful response |
+|---|---|
+| Invalid structure/units | Exact field, accepted alternatives, normalized example |
+| Stale state | Current revision and relevant changes; no mutation |
+| Lost/ambiguous reference | Candidates, differing properties, topology transition and suggested inspection |
+| Invalid sketch | Open loop, inconsistent relation, solver status, offending region |
+| Kernel failure | Operation/inputs, kernel message, known precondition failures and uncertain hypotheses |
+| Requirement violation | Measured versus required, witnesses, affected parameter/dependency slice |
+| Collateral change | Protected property changed, local evidence and candidate rollback status |
+| Unavailable capability/check | Honest limitation and supported alternatives |
+| Resource/provider failure | Job/transaction status, retryability, preserved candidate/checkpoint |
+
+The app may fix harmless formatting differences where meaning is unambiguous and echo normalization. It must not “repair” a diameter, target body, hole type or unit assumption by guessing.
+
+### 14.2 Use the smallest justified repair
+
+The model first inspects the relevant failure evidence. It then changes the smallest causal set consistent with the brief. A parameter update is preferable to rebuilding the part if the current design already expresses the right intent.
+
+A local computational search can try a bounded set of fillet radii or feasible parameter values when the operation and objective are defined. Return successful intervals or tested candidates only to the extent actually established. Kernel success is not always monotonic in radius; do not assume binary search proves a universal maximum.
+
+A remedy can be labeled “preflight passed” only after it has been tried on the same relevant candidate. Otherwise it is a hypothesis. The kernel cannot reliably explain every design failure, and a failed thickness requirement may need a design change rather than a mechanical retry.
+
+### 14.3 Prevent repair loops
+
+Track failed normalized operation/input/geometry combinations. Do not repeat an identical failure without new information. Budget retries by progress, elapsed time, cost and uncertainty; two local attempts is a reasonable initial policy, not a statement of feasibility.
+
+After repeated local failure, reconsider the feature strategy: change a fragile face reference to a datum, replace an unsuitable construction, defer a decorative finish, or ask about a genuine tradeoff. Preserve the last accepted design and report what remains unresolved.
+
+“Search budget exhausted” and “constraints proven inconsistent” are different outcomes. Only report infeasibility when the evidence actually establishes it. A lack of automated checking is also different from a failed design.
+
+## 15. Advanced geometry and assemblies
+
+### 15.1 Sweeps, lofts and freeform work
+
+Provide structured helpers without pretending they remove all geometric difficulty:
+
+- Sweep: named profile and path, start frame, alignment/twist policy, continuity, corner handling and self-intersection checks.
+- Loft: named ordered sections, consistent frame/orientation, correspondence/seam control, optional guides and continuity goals.
+- Freeform curve/surface work: compact control structures, symmetry/tangency/curvature intentions where supported, and targeted shape/curvature inspection.
+- Shell/offset: supported thickness definition, removed faces, local failure witnesses and minimum-radius/offset concerns.
+
+The app previews generated correspondence or transported frames so the model can inspect them. A strong model may use raw advanced controls, but outcomes still pass the same validity/reference/evidence rules. Surface smoothness is a separate property from watertightness; engineering radii and visual continuity deserve separate checks.
+
+If the app lacks the required operation, report that capability gap. A modeled cavity may substitute for shell on a simple box if it preserves intended behavior, but should not be advertised as a general shell solution. Existing advanced surface capabilities and any missing ones must be disclosed through discovery.
+
+### 15.2 Imported geometry
+
+On import, report source, units, transform/recentering, representation, body/component structure, available analytic geometry, healing/reconstruction and loss of original feature history. Retain an untouched source reference for comparison.
+
+Use native direct edits or new features where appropriate. Do not claim to have recovered an editable design history from a STEP or mesh merely because a solid exists. Mesh reconstruction quality and geometric deviation are reviewable facts. Recentered DXF geometry must not silently invalidate the user's intended coordinates.
+
+### 15.3 Assemblies require occurrence-aware reasoning
+
+A part definition and each placed occurrence have different identities. An edit to the source part can affect many instances; an occurrence transform affects only that instance. Every assembly operation states its scope and referenced source revisions. Existing subassemblies act rigidly in their parent; flexible nested mechanisms are a separate capability and must not be implied by generic assembly support.
+
+Plan around functional interfaces and joints. The app computes transforms and reports residuals, remaining degrees of freedom, unresolved constraints and actual motion under the joint definition. A mate solver reporting convergence does not establish the intended joint, correct range of travel or collision-free operation.
+
+Review static clearance, expected contacts, motion states, insertion/removal path and fastener/tool access according to the product's use. Use simplified envelopes for early access studies and refine the relevant geometry later. Do not require photorealistic rendering to answer an access question.
+
+### 15.4 Cross-document edits are coherent operations too
+
+Changing a shared part or creating a derived part may touch several documents and references. Identify the write set and lock/revision-check it as one logical change, or explicitly stage a multi-document proposal. Save and rollback must not leave the assembly pointing at a partially updated source.
+
+If the runtime cannot support this transaction guarantee yet, expose the limitation and stage separate candidates with an explicit integration gate. Do not pretend a single-document snapshot is a universal assembly rollback.
+
+## 16. Product development and human collaboration
+
+The AI must do more than issue correct CAD commands. It should understand a design through **function, engineering behavior and visual form**, and use that understanding to choose its next modeling action. Those perspectives are present throughout the workflow, not added as a final cosmetic review.
+
+### 16.1 Maintain three linked views of the design
+
+| View | Questions the AI should answer | Working artifact |
+|---|---|---|
+| Functional | What is it for? What mates, moves, seals, supports or must remain accessible? | Interface/requirement map and use scenario |
+| Engineering | How does the geometry carry loads, maintain fit, assemble and get manufactured? Which assumptions support that conclusion? | Engineering rationale, calculations/checks and unresolved analyses |
+| Visual/product design | What should the object communicate? Are proportions, silhouette, transitions and details coherent? Is the intended use apparent? | Design brief, visual rubric and controlled review views |
+
+These are different projections of the same native model and brief. They do not require three always-running agents or three competing sources of truth.
+
+### 16.2 Give design choices an engineering rationale
+
+For consequential choices, retain a short record:
+
+```text
+Choice: add a web between the upright and base.
+Purpose: reduce bending in the upright while preserving the mounting envelope.
+Expected effect: stiffer load path; increased mass; possible tool-access penalty.
+Evidence needed: supplied load/support case, section geometry, suitable calculation
+                 or simulation, and cutter/fastener access check.
+Current status: geometry and access checked; stiffness benefit not yet quantified.
 ```
-contract check — sensor_bracket                         5 pass · 1 FAIL
 
-  ✓ envelope   bbox 118.0 × 76.0 × 46.0   ≤ 120 × 80 × 50
-  ✓ mass       123.6 g                    ≤ 250 g
-  ✗ wall       min 2.4 mm at (0.0, 18.0, 22.0)   requires ≥ 3.0 mm
-               → the web between upright and bore_1.wall#2
-               → driven by: web_t = plate_t * 0.6
-               → fix: raise web_t to ≥ 3.0, e.g. plate_t * 0.5 + 0.6
-  ✓ mount      4 through holes ⌀8.0, spacing 100.0 × 60.0
-  ✓ tooling    min internal radius 3.0 mm
-  ✓ buildable  manifold, 0 feature errors, 0 lost selections
+The rationale is not a long hidden reasoning transcript. It records the decision, assumptions, alternatives and evidence needed to assess it. If the AI cannot explain how a feature serves the product, the feature deserves reconsideration.
+
+Engineering workflow:
+
+1. Identify the relevant physical interfaces, load path, boundary conditions, material/process and failure modes from the brief.
+2. Obtain missing consequential inputs rather than inventing a load or fit class.
+3. Choose the simplest analysis adequate for the claim: exact geometric relation, established calculation, suitable solver, or physical test/review.
+4. Let computation tools perform arithmetic and analysis. Record input assumptions, units, method applicability and source/version for engineering rules.
+5. Compare alternatives on the actual objective while preserving required interfaces.
+6. Re-evaluate affected analyses after geometry or assumptions change.
+
+A beam approximation is useful only when its assumptions fit the geometry and loading. A simulation needs credible material properties, boundary conditions, meshing and convergence checks; a colorful stress plot is not sufficient. Numerical convergence assesses the numerical solution, not whether the physical model represents reality. If these capabilities are not integrated, the app can prepare the geometry and analysis request and keep that requirement unresolved. The workflow supports engineering understanding without falsely claiming that the current branch already has physical analysis tools.
+
+Engineering method discovery advertises required inputs, applicability, source/version, result scope and cost. The agent selects a method after establishing those inputs; out-of-domain or unavailable analyses are rejected explicitly. If no suitable method exists, save a structured analysis request with load/support assumptions, material, relevant geometry/interfaces and the output needed. A generic measurement tool does not imply an arbitrary fatigue, buckling, thermal or ergonomic solver.
+
+### 16.3 Make visual design critique actionable
+
+Translate the user's style and usability intent into a small review rubric, usually three to six relevant criteria. Examples: balanced proportions, clear functional hierarchy, consistent edge treatment, coherent transitions, appropriate visual weight, comfortable contact areas, accessible controls or alignment with a supplied reference.
+
+For an open-ended design, establish interfaces/keep-outs and a cheap native blockout first. Review its silhouette, proportions, use and basic engineering feasibility before investing in fragile detail. Compare a few concepts only when the brief warrants it. A fully dimensioned mechanical part can skip this exploration and proceed directly to construction.
+
+For each concern, identify the relevant view and an editable parameter/feature. The AI should produce observations such as:
+
+> “The neck looks visually heavy in the side silhouette relative to the base. Two candidates reduce its apparent width while preserving the bore and mounting interface. Their remaining ligament and stiffness checks differ.”
+
+That observation leads to concrete native edits and engineering checks. “Looks better” alone does not.
+
+Use clean common-scale views for overall proportions; detail and curvature-oriented views for transitions; in-context views for use and handling. Show a small number of meaningfully different options when taste is underdetermined. Ask the user for preference at a high-value milestone, not after every fillet. Retain the selected visual direction so later repairs do not erode it accidentally.
+
+Do not manufacture precise numerical beauty scores. A visual rubric can organize judgment without pretending that aesthetics is an objective geometric theorem. Reference similarity is useful, but a design can intentionally depart from a reference for function or manufacture; record the tradeoff.
+
+### 16.4 Couple engineering and design iterations
+
+The loop is: propose a form change, predict its relevant engineering effects, build it, measure those effects, review its appearance in aligned views, then accept or revise it.
+
+When goals conflict, present the tradeoff using actual evidence. A thinner wall can improve visual lightness and reduce mass while hurting stiffness, robustness or manufacturing yield. More rounding can feel better but consume a protected sealing surface. The best candidate is chosen within the brief, not by blindly minimizing mass or maximizing resemblance.
+
+For broad goals such as “as light as possible,” define a bounded search domain and objective after the hard requirements are known. The app can evaluate a small parameter sweep or candidate family and return a feasible tradeoff table. Claim the best among tested candidates, not a global optimum unless established.
+
+### 16.5 Keep the human in control without constant interruption
+
+The user can see what the AI is trying to achieve, the latest accepted design, candidate previews, relevant evidence, assumptions and next action. They can pause, cancel, edit, select a design alternative or revert a change.
+
+A human selecting geometry provides grounded input: the app converts the selection into current revision-bound handles and context. The model still verifies the role when the request is ambiguous. A human edit updates the shared model and evidence, invalidating stale AI plans as needed.
+
+The default handoff contains the native editable document, selected views, a short design rationale, requirements/results, remaining uncertainties and a small list of meaningful controls to edit. Exports are generated only in requested formats or an established workflow preference; STEP plus STL is not an automatic requirement for every design.
+
+## 17. Efficiency across model sizes
+
+### 17.1 Optimize for an accepted design
+
+The useful objective is quality-constrained total cost and time, including repair, review and human correction. A low token count is not efficient if the result quietly violates an interface. A large model is not efficient if it writes custom low-level geometry that a native pattern can produce deterministically.
+
+Use these practical mechanisms:
+
+- Progressive capability discovery and short operation examples.
+- Local deterministic computation of transforms, arithmetic, repetition and standard geometry.
+- Batched independent observations and coherent dependent modeling operations.
+- Incremental rebuild and dependency-aware check invalidation.
+- Compact state capsules, focused deltas and inspectable evidence references.
+- Geometry/view/check caching with explicit revision and configuration keys.
+- Low-cost draft tessellation for exploration; suitable precision for verification/output.
+- Reusable native recipes for recurring constructions.
+- Bounded candidate exploration only when uncertainty justifies it.
+
+Do not run full global wall analysis, all parameter combinations and eight renders after every primitive. Do not omit a required check to satisfy a token budget; report budget exhaustion and preserve the candidate instead.
+
+Provider guidance supports clear tools, relevant compact responses and discovery rather than loading every definition. It does not establish a universal optimal serialization or fixed token saving for CAD. [Anthropic tool design](https://www.anthropic.com/engineering/writing-tools-for-agents), [code execution and discovery](https://www.anthropic.com/engineering/code-execution-with-mcp).
+
+### 17.2 Adapt support, not truth standards
+
+| Task situation | Fast-model support | More capable model support |
+|---|---|---|
+| Common part family | Recipe + typed inputs + automatic routine checks | Same recipe, custom expansion if valuable |
+| Unfamiliar feature | Retrieve one worked example and narrow schema | Retrieve advanced options/dependency context |
+| Difficult reference | Candidate facts and focused highlight view | Same facts; richer topology reasoning if needed |
+| Coupled edit | Smaller coherent steps, explicit protected conditions | Larger coherent proposal if justified |
+| Failure | Local structured diagnosis and tested remedies | Replan feature strategy or evaluate alternatives |
+| Visual refinement | Stable views and a short rubric | More nuanced alternatives; same engineering guards |
+
+Do not assume that a stronger model always beats a smaller one, that a fast model cannot write code, or that a schema guarantees semantic correctness. Supported structured-output/function-calling capabilities vary. Negotiate the actual provider/model features, validate every call locally, and handle refusals, truncation and invalid responses without mutating the model. [Gemini function calling](https://ai.google.dev/gemini-api/docs/function-calling), [structured output](https://ai.google.dev/gemini-api/docs/structured-output).
+
+The user's Gemini Flash 3.6 and Opus 5 examples are target model choices to evaluate, not promised quality levels. Record exact provider model IDs/version/date and available vision/tool support in every evaluation. Avoid hard-coding workflow assumptions to a marketing name.
+
+### 17.3 Escalation is targeted
+
+If configured and authorized, use a more capable model for a difficult plan, unresolved engineering interpretation or visual critique. Transfer the compact brief, current revision, relevant evidence, failed attempts and budget. Do not restart from the entire conversation or repeat all geometry operations.
+
+A second opinion can be helpful on complex design decisions. It should be optional and triggered by uncertainty, not an always-on trio of agents. All reviewers inspect the same candidate and brief; one serialized process owns commits.
+
+Optional multiple candidates can improve exploration, but agreement among generated shapes is not proof of correctness. Use actual constraints and review criteria to select. Research on CAD consensus selection is a reason to test this mode, not to replace verification with majority vote. [CAD consensus selection](https://arxiv.org/abs/2608.09706).
+
+### 17.4 The API-token experience
+
+The user chooses a provider/model, supplies a token through the app's credential flow, and gives a modeling request. Credentials stay outside model-visible context and native CAD documents. Only required descriptions, facts and selected images are sent according to the user's provider/data preferences.
+
+The app establishes available capabilities, configured cost/time limits and continuation policy without requiring the user to learn the command vocabulary. A provider failure pauses or retries within budget while preserving local modeling state. Resumption reads the saved brief and current revision, not a stale assumed state.
+
+A default budget policy should permit normal reversible progress and surface a meaningful cost/quality choice when the task exceeds it. Never silently switch to another paid provider or disclose the design to one outside the user's configured choices.
+
+## 18. Worked creation and edit
+
+**This is a proposed interaction, not an executed app session.** The nominal geometry below was checked independently with elementary arithmetic. No runtime, token count, actual kernel result or visual judgment is claimed.
+
+### 18.1 A precise initial request
+
+> “Create an 80 × 50 × 6 mm plate, centered in its mounting plane, with four 5 mm through holes on a 60 × 30 mm centered rectangular pattern. Keep it as an editable model. Use density 2.70 g/cm³ for a nominal mass estimate.”
+
+The brief is sufficiently defined for geometry. The AI records the supplied dimensions, hole axes and nominal density. It does not invent a fastener standard, fit class, load capacity, manufacturing method or a 3 mm global-wall requirement.
+
+Define `plate_frame` with u along 80 mm, v along 50 mm and n through thickness. Origin is at the center of the bottom face. The app maps that frame into its native world convention.
+
+The intended solid is:
+
+```text
+u extent: -40 to +40 mm
+v extent: -25 to +25 mm
+n extent:   0 to   6 mm
+hole axes: (u,v) = (-30,-15), (-30,+15), (+30,-15), (+30,+15)
+hole diameter: 5 mm; through the plate along n
 ```
 
-Every failure names the **location**, the **number**, the **parameter that drives it**,
-and a **candidate fix**. That is Law 7 applied to design rather than syntax, and it is
-what turns a failure into one cheap corrective turn instead of a guessing spiral.
+### 18.2 One coherent construction
 
-### 9.3 `part.guard` — the collateral-damage report (automatic on every edit)
+The AI plans a centered rectangular sketch, one extrusion, and a point-driven through-hole pattern. It asks the relevant creation schema once. A schematic change request is:
 
-The documented #1 edit failure mode: multi-feature and coupled edits succeed only
-**40–46 %** of the time, and the damage is invisible — "an edit damages a mounting hole".
-
-So: before any edit, the app snapshots an invariant signature of **every feature the edit
-did not name** (bbox, volume, face count by kind, selector resolution status). After the
-rebuild it compares. Anything that moved and should not have is reported *unprompted*:
-
-```
-⚠ collateral change from editing "upright"
-   bore_1        4 → 3 faces        one bore no longer breaks through
-   edge_breaks   selector lost 1 edge (base_plate.top.edge.+y no longer straight)
-   suggest: history.undo, then raise plate_h instead of moving the web
-```
-
-Nobody ships this. It is cheap here — `builtSig` already tells us which features
-rebuilt — and it converts the hardest, most silent failure class into a loud one.
-
-### 9.4 `part.flex` — the parameter sweep
-
-The other documented silent killer: *a named dimension controls the wrong feature*, and
-it only shows when the value changes.
-
-```
-flex { plate_t: [4, 6, 10], bore_d: [6, 8, 10] }
-
-  plate_t=4  ✓ builds   mass  82 g   contract 6/6
-  plate_t=6  ✓ builds   mass 124 g   contract 6/6      (nominal)
-  plate_t=10 ✗ FAILS    edge_breaks: r2 fillet exceeds available face
-             → at plate_t=10 the top chamfer consumes the fillet's run-out
-             → fix: make the fillet radius a function: r = min(2, plate_t/3)
-
-  bore_d=6   ✓ builds   contract 6/6
-  bore_d=8   ✓ builds   contract 6/6
-  bore_d=10  ✗ wall     min 1.8 mm  < 3.0 mm at the plate edge
-```
-
-Cheap because rebuilds are already incremental and signature-cached. This is how a model
-delivers a part that is *parametric in truth*, not just parametric in name — which is
-exactly the gap CADEngBench measures and every current system fails.
-
-### 9.5 `part.audit` — modelling hygiene
-
-Correct is not the same as good. A part a human cannot edit afterwards is a failure of the
-brief, even if every dimension is right. The audit encodes the
-**Resilient Modelling Strategy**, which is the documented industry answer to fragile
-feature trees:
-
-```
-hygiene audit — sensor_bracket                              score 7/9
-
-  ✓ reference geometry first (2 work planes at the top)
-  ✓ fillets and chamfers last (1 group, position 6 of 6)
-  ✓ every feature named meaningfully
-  ✓ no feature depends on more than 2 upstream features
-  ✗ 3 hard-coded dimensions that should be parameters:
-        upright.distance = 40        → suggest param "upright_h"
-        sk_web offset    = 12        → suggest param "web_offset"
-        bore spacing y   = 60        → suggest param "mount_pitch_y"
-  ✗ "upright" is parented to a face created by "edge_breaks" (a detail feature)
-        → detail features should not be parents; re-anchor to base_plate.top
-  ✓ no suppressed features left behind
-  ✓ no orphan sketches
-```
-
-RMS in one line, and the ordering the audit enforces:
-**reference → construct → core → detail → modify → finish (fillets/chamfers last).**
-Fillets and chamfers are fragile and must be the final group; core features may depend
-only on reference geometry; detail features may not depend on each other.
-
-This is what makes the output look like a product developer made it. It is also
-self-serving: a model that follows RMS produces trees that survive its own later edits.
-
-### 9.6 The gate
-
-`part.check` + `part.guard` + `part.audit` (+ `part.flex` at the end) are the exit gates
-between workflow phases. **The model is not permitted to declare success on its own
-judgement.** It declares success by showing a passing check. That single rule is the
-difference between a demo and a tool.
-
----
-
-## 10. The playbook — modelling like a product developer
-
-A product developer does not start by drawing. This is the procedure the system prompt
-teaches, and the phase gates the app enforces.
-
-### Phase 0 — Brief & clarify *(0–1 round-trips)*
-
-Underspecified briefs are the norm, and making unwarranted assumptions is a documented
-source of bad outcomes — but so is interrogating the user. The rule:
-
-> **Ask only about ambiguities that change the geometry and that a sensible default
-> cannot cover. Never more than three questions, in one message, each with a proposed
-> default so the human can answer by saying "all defaults".**
-
-Blocking (ask): the interface the part must mate with · load/duty if it decides
-thickness · the manufacturing process if it changes the whole shape · a hard envelope.
-Non-blocking (assume and declare): fillet radii · cosmetic proportions · material grade
-within a family · hole types when a standard exists.
-
-Everything assumed is written into the contract's `why` fields, so it is visible,
-auditable and cheap to overturn.
-
-### Phase 1 — Contract *(1 op)*
-
-`spec.set`. Parameters with roles and ranges, requirements as assertions, canonical
-orientation, material, process. **Gate:** the contract must contain at least one
-envelope, one integrity and one manufacturability assertion. A contract that cannot fail
-is not a contract.
-
-### Phase 2 — Plan *(0 ops, pure text)*
-
-A named feature plan before any geometry:
-
-```
-1 datums      work.plane mid_yz (symmetry)
-2 core        base_plate   extrude sk_base (120×80) up plate_t
-3 core        upright      extrude sk_web  up 40, join
-4 detail      bore_1       4× ⌀8 through, 100×60 pattern
-5 detail      sensor_bore  ⌀30 H7 in upright
-6 finish      edge_breaks  r2 on all outer top edges
-7 finish      break_sharp  0.5×45° on all remaining sharp edges
-```
-
-Cheap (~120 tokens), reviewable by the human before anything is built, and it is the
-artefact the repair loop returns to when the *design* is wrong rather than the syntax.
-**Gate:** the plan must be ordered reference → core → detail → finish.
-
-### Phase 3 — Datums and core *(1–3 batches)*
-
-The mass of the part. One or two extrudes/revolves. **Gate:** `part.check` passes the
-envelope assertion; body is manifold; a single `iso` view for the gestalt.
-
-### Phase 4 — Detail *(2–5 batches)*
-
-Holes, pockets, bosses, patterns. Each batch followed by its automatic L0 diff.
-**Gate:** all `holes_through` / feature assertions pass; `part.guard` silent.
-
-### Phase 5 — Finish *(1–2 batches)*
-
-Fillets and chamfers, **always last, grouped**. This is enforced, not suggested: a fillet
-op before all detail features are placed produces a warning in the audit and a hint in
-the response.
-**Gate:** `part.check` fully green.
-
-### Phase 6 — Prove *(2–3 calls)*
-
-`part.check` · `part.flex` on every driving parameter's declared range ·
-`part.audit` · `part.view ortho4`.
-**Gate:** contract green at every flex point, audit ≥ 8/9, no collateral warnings.
-
-### Phase 7 — Ship *(2 ops + a report)*
-
-`doc.export` (STEP + STL) · `doc.thumbnail` · and a written report the human actually
-reads:
-
-```
-sensor_bracket — done
-
-  What it is      120 × 80 × 46 mm AL6061 bracket, 124 g
-  Interfaces      4× ⌀8 through, 100 × 60 pitch, for M8 T-nuts
-                  ⌀30 H7 bore on +Y axis, 12 mm deep
-  Contract        6/6 pass, and still passes at plate_t 4–10 and bore_d 6–10
-  Assumed         fillet r2 (not specified); AL6061 (you said "aluminium")
-  Watch           at plate_t = 10 the r2 fillet is close to its run-out limit;
-                  it is parameterised as min(2, plate_t/3) so it stays safe
-  Edit it         plate_t, plate_w, plate_h, bore_d, mount_pitch_x/y, upright_h
-  Files           sensor_bracket.ptp · .step · .stl
-```
-
-### Why phases, and not "just let it model"
-
-L3 invalidity runs **68–93 %** when a model free-runs. Gates convert one long fragile
-chain into five short verified ones. Each gate is ~200–400 tokens and saves a multi-turn
-unwind. This is the same reason software agents run tests between edits.
-
----
-
-## 11. Errors, repair, and never getting stuck
-
-### 11.1 The error object
-
-```jsonc
+```json
 {
-  "code": "SELECTOR_AMBIGUOUS",
-  "op_index": 2,
-  "what": "fillet: selector matched 8 edges, expect was 4",
-  "where": "body main, feature base_plate",
-  "candidates": [
-    { "name": "base_plate.top.edge.+x", "kind": "line", "length": 120.0, "z": 6.0 },
-    { "name": "base_plate.bottom.edge.+x", "kind": "line", "length": 120.0, "z": 0.0 }
-    /* … 6 more, each with the property that distinguishes it … */
+  "request_id": "create_plate_01",
+  "base_revision": "r0",
+  "intent": "Create the specified plate and mounting interface",
+  "frame": "plate_frame",
+  "steps": [
+    {"op": "sketch.rectangle", "as": "profile", "center": [0, 0],
+     "width": "80 mm", "height": "50 mm"},
+    {"op": "extrude", "as": "plate", "profile": "$profile.region",
+     "distance": "6 mm", "direction": "plate_frame.n", "output": "new"},
+    {"op": "hole_pattern", "body": "$plate.body", "diameter": "5 mm",
+     "layout": "rectangular", "count_u": 2, "count_v": 2,
+     "axis": "plate_frame.n", "pitch_u": "60 mm", "pitch_v": "30 mm", "center": [0, 0],
+     "extent": "through_body"}
   ],
-  "why": "both the top and bottom rims are horizontal lines of the same length",
-  "fix": { "op": "fillet", "radius": 2,
-           "select": { "edges": { "on_face": "base_plate.top", "kind": "line", "expect": 4 } } }
+  "commit": "if_required_checks_pass"
 }
 ```
 
-`fix` is a **runnable op**, not prose. That is the difference between one corrective turn
-and four.
+Here `as` names transaction-local outputs with documented typed ports. `$plate.body` references the body produced by this transaction; it is not an invented existing entity name. The app resolves these dependencies internally, avoiding extra discovery calls between a sketch and its extrusion.
 
-### 11.2 The taxonomy — and the different treatment each gets
+After building, the proposed checker would inspect the resulting geometry: one intended solid, correct extents, four correctly located cylindrical passages of the required diameter, and passage continuity across the thickness. It would return actual measurements, not simply copy the inputs above.
 
-| Class | Example | Treatment |
-|---|---|---|
-| **Schema** | wrong enum, missing field, `"6mm"` where a number was wanted | **Auto-repaired inside the app** where unambiguous (units, enum case, known synonyms), applied, and *reported*: `note: read "6mm" as 6 mm`. Costs the model nothing. |
-| **Selector** | ambiguous, empty, wrong count | Returned with candidates + a refined selector. Never guessed. |
-| **Geometric** | profile not closed, self-intersecting, zero-thickness | Returned with the offending coordinates + a heal or snap `fix` |
-| **Kernel** | boolean failed, fillet exceeds face | Translated out of OCCT-speak into a cause and a suggested smaller value or reordering |
-| **Policy** | fillet before details, feature depends on a detail feature | Warning, not an error — it still builds, the audit records it |
-| **Contract** | a requirement fails | **Not an op error.** Routed to Phase 2 (re-plan), never to blind op retry |
+Independent analytic reference values for this unrounded ideal plate are:
 
-### 11.3 The repair budget
-
-* Op-level: **2 automatic attempts**, then stop and ask the human, showing both attempts.
-* Contract-level: **2 re-plan cycles**, then report the conflict honestly —
-  *"a 3 mm minimum wall and a 250 g maximum are not simultaneously satisfiable at
-  120 × 80; which gives?"* That is the right answer, and a system that keeps grinding
-  instead of saying it is a worse system.
-* A hard **op-count and token ceiling** per request, surfaced in the UI, with a resume
-  option. No runaway bills.
-
-### 11.4 The anti-spiral rules
-
-1. The same op failing twice with the same code stops the loop.
-2. An op that undoes the previous op stops the loop.
-3. Volume oscillating between the same two values across three checkpoints stops the loop.
-4. The model may not claim success without a `part.check` result in the same turn.
-
----
-
-## 12. Structural decisions (workflow-level, not implementation)
-
-### 12.1 The verbs must not be a second implementation of the app
-
-The single most dangerous way to build this is: a new module that constructs
-`PartFeature` objects itself. It would work on day one and diverge by month three — two
-validators, two naming schemes, two undo paths, two sets of bugs, and the parity
-guarantee quietly dead.
-
-**The workflow requirement is therefore:** the dialog sessions and the agent ops must
-produce features through **one shared path**. Whatever the eventual shape, the test that
-proves it is the same one that proves parity:
-
-> For every feature-creating command in the GUI, an agent op exists that produces a
-> byte-identical feature; for every agent op, the GUI can display, edit and undo the
-> result. Enumerated by a test that fails when either surface grows without the other.
-
-This is also what makes "the AI can do every single thing in the app" a fact rather than a
-claim — and what makes a human able to pick up, mid-session, exactly what the AI built.
-
-### 12.2 Where the agent runs
-
-Both, over one core:
-
-* **In-app** — the user pastes an API token in Settings, types in a chat panel, and
-  watches the model build in the live viewport. This is the headline experience and the
-  thing the user asked for.
-* **As an MCP server** — so Claude Code, Claude Desktop, Cursor or any agent host can
-  drive the running app. Thin adapter over the same verbs. Costs little and buys the
-  entire external agent ecosystem.
-
-Both are adapters. The verbs, the validator, the perception ladder and the proof layer
-are one core, exercised headlessly by the existing 327-file test harness.
-
-### 12.3 Synchronous, with progress
-
-Kernel ops take 10 ms to a few seconds. Every op is synchronous with a deadline and a
-progress channel (the mesh pipeline already reports stage/permille). A long op returns a
-partial result with a continuation token rather than blocking a chat turn. Nothing about
-the workflow is async; the model always gets its diff before it speaks again.
-
-### 12.4 The human is never locked out
-
-The AI's edits land on the same undo stack as the human's. The human can undo an AI step,
-edit a dimension by hand, and the AI's next `part.tree` reflects it. The contract keeps
-checking after the AI has stopped talking. **The AI is a collaborator in the document,
-not a generator that hands over a file.**
-
----
-
-## 13. Making it work from Gemini Flash to Opus 5
-
-One core, two profiles, chosen automatically from the model id and adjustable by hand.
-
-| | **lite** (Flash / Haiku class) | **full** (Opus / GPT-5 class) |
-|---|---|---|
-| Verbs exposed | ~24 (macros + core features + sense + check) | all ~77 |
-| Ops per batch | 1–2 | up to 5 |
-| Macros | preferred; suggested in every error | available, expansion inspectable |
-| Raw entity sketching | off | on |
-| `raw.kernel` | off | opt-in |
-| `part.script` | off | on (phase 2) |
-| Auto-repair of schema slips | aggressive | aggressive (same) |
-| Perception default | `concise` | `normal` |
-| Views | auto at phase gates | on request |
-| Clarifying questions | max 2 | max 3 |
-| Plan phase | template-filled | free-form |
-| Contract | pre-seeded from a template by part class | authored |
-
-Three things do the heavy lifting for weak models, and none of them weaken strong ones:
-
-1. **Macros with a fastener/standards table** — removes the arithmetic they get wrong.
-2. **Aggressive in-app schema repair** — a unit-string slip costs zero turns.
-3. **`expect` on every selector** — a weak model's wrong guess becomes a caught error
-   with a ready-made fix instead of a silently wrong part.
-
-**The design target:** a Flash-class model completes a bracket-class part, contract-green,
-in **≤ 12 ops, ≤ 3 minutes, ≤ 15 k tokens, with zero human corrections.** An Opus-class
-model does the same part in ≤ 8 ops and handles a swept, lofted, multi-body part that a
-Flash-class model should decline rather than botch.
-
----
-
-## 14. Risks and the decisions I need from you
-
-### 14.1 Decide: the canonical agent frame *(blocking)*
-
-The app's world is XYZ right-handed but its camera is Y-up (§5.4). Three options:
-
-| Option | Cost | Risk |
-|---|---|---|
-| **A. Agent speaks Z-up; the bridge transposes** | small, contained in one mapping | one place to get wrong; caught by a conformance test |
-| **B. Agent speaks the app's world (already XYZ); only *views* are mapped** | smallest — no transform at all | the model's "up" is +Z in geometry but +Y on screen; every render contradicts the numbers unless view naming is airtight |
-| **C. Change the app's camera to Z-up** | touches the viewport, view cube, sketch cameras, saved documents | large blast radius in a shipped app |
-
-**My recommendation: B**, with semantic direction names as the only vocabulary the model
-uses (`up`/`down`/`front`/…) and named views only. It requires no geometric transform,
-keeps the document untouched, and the "screen up" mismatch never reaches the model
-because the model never names a camera axis. A is the fallback if renders prove confusing
-in practice. C only if you want Z-up for human reasons anyway.
-
-### 14.2 Decide: fill the feature gaps before or after *(shapes the first demo)*
-
-Missing today: **shell**, **draft**, **thread**, **rib**, **interference check**,
-**mass properties (density / centre of mass / inertia)**.
-
-* **Shell** is the biggest. Almost every enclosure, housing and plastic part needs it, and
-  an agent that cannot shell will fake it with a boolean subtraction of an offset solid —
-  slow, fragile, and unlike anything a human would have in their tree. OCCT has
-  `BRepOffsetAPI_MakeThickSolid`; this is a shim addition, not a research project.
-* **Mass properties** are needed because "under 250 g" is the most natural requirement an
-  engineer states, and without density we can only check volume. OCCT's `BRepGProp`
-  gives mass, centre of mass and inertia in one call.
-* **Interference** is `occt_common` → volume > 0. Near-free, and assemblies need it.
-* **Draft / thread / rib** can wait; macros can approximate rib, and threads are usually
-  cosmetic or a note on the drawing.
-
-**My recommendation:** shell + mass properties + interference **before** the first agent
-demo; draft, thread, rib after. Without them the contract vocabulary has holes in exactly
-the places engineers care about.
-
-### 14.3 Decide: privacy and cost posture *(policy, needs your call)*
-
-Driving a model means geometry summaries — and, if views are used, images of the part —
-leave the device. Needed:
-
-* an explicit, visible statement of what is sent (and a "numbers only, no images" mode);
-* a per-request and per-day token/cost ceiling shown in the UI;
-* a full transcript log per session, stored with the document, so any AI-built feature
-  can be traced to the words that made it;
-* bring-your-own-key, stored in the platform keychain, never in the document.
-
-### 14.4 Open questions I could not settle from the code alone
-
-1. **Profile region identity.** Regions are recomputed from the half-edge graph each
-   time. Are they stably ordered across sketch edits? If not, `profile: {pick: "largest"}`
-   and `inside_point` are safe but `index` is not — which is fine, but it must be
-   confirmed before the selector set is frozen.
-2. **Rebuild latency at scale.** `PERFORMANCE_PROFILE.md` exists; I have not measured a
-   30-feature part on an iPad. The flex sweep's cost is `rebuilds × parameters × values`,
-   and if a rebuild is 800 ms a 3-parameter sweep is ~7 s — acceptable — but at 4 s it is
-   not, and flex becomes an explicit, opt-in final step rather than a phase gate.
-3. **Assembly scope for v1.** Parts are a clean, complete story. Assemblies add joints,
-   constraint solving, occurrence transforms and a second selection space. My instinct is
-   **parts first, assemblies as phase 3** — the part workflow must be excellent before it
-   is generalised.
-4. **Image token cost on the iPad path.** If the in-app chat pays per image, the phase
-   gates that auto-render need a budget switch.
-
-### 14.5 Risks I am watching
-
-| Risk | Mitigation already in the plan |
-|---|---|
-| The agent layer becomes a second app | §12.1 shared path + enforced parity test |
-| Selector language grows into a query language nobody can learn | Frozen predicate list; `expect` mandatory; every error ships a working selector |
-| Perception costs blow the budget | L0 default; everything else opt-in and paginated |
-| Contract becomes ceremony the model skips | It is a *gate*, not a suggestion: no success claim without a check result |
-| Macros hide geometry the human cannot edit | Macros expand into real, named features; `macro.explain` shows the ops |
-| Weak models produce plausible garbage | `expect` + contract + flex catch it; the model is never the judge of its own work |
-| We optimise for benchmarks instead of real parts | Eval suite is real parts with real contracts (§16) |
-
----
-
-## 15. What is genuinely new here
-
-Measured against every system in Appendix D — the Fusion/FreeCAD/Onshape MCP servers,
-Zoo's KCL, Text2CAD, SPADA, Embodied CAD, CADMorph, BenchCAD — this is what nobody has
-put together:
-
-1. **Symbolic-first perception.** Every other system leads with "render it and let the
-   VLM look". The evidence says that caps out around 62 %. Here the app answers the
-   spatial question and the model gets a sentence. The render is the gestalt gate.
-2. **Cross-modal binding.** When there *is* a picture, it is labelled with the *same
-   names* the text uses, and it can highlight exactly what a selector resolved to. The
-   model never has to establish correspondence between what it reads and what it sees —
-   the thing it is provably worst at.
-3. **`expect` on every selection.** Selection becomes a falsifiable claim. Ambiguity is a
-   typed error with candidates and a ready-made refinement, never a coin toss. This
-   single field converts the most common silent wrong-part bug into a caught one.
-4. **A design contract that lives in the document.** Not a prompt, not a test file — a
-   first-class part of the `.ptp`, re-checked on every rebuild forever, visible to the
-   human, and the only thing the model is allowed to declare success on.
-5. **Automatic collateral-damage reporting on every edit.** The documented 40–46 %
-   failure mode becomes loud instead of silent, and it costs almost nothing because the
-   rebuild signatures already know which features moved.
-6. **`part.flex` as a first-class verb.** Parametric integrity is *tested*, not assumed.
-   This is the difference between a model that is parametric and one that merely has
-   parameters — and it is exactly what current benchmarks show every system failing.
-7. **A hygiene audit that enforces Resilient Modelling.** The output is not just correct,
-   it is *maintainable by a human afterwards*. That is what "like a product developer"
-   actually means, and no LLM-CAD system does it.
-8. **Symbolic sections.** Wall thickness, internal voids and "does the rib reach the
-   floor" answered as numbers. Unanswerable from a render, trivial from a section, and
-   the app already has the machinery.
-9. **Enforced parity with the GUI.** The agent is not a subset or a side door. Anything a
-   finger can do, a verb can do — proven by a test, not by a README.
-10. **The change report as the default response.** Not the new state — the delta. Because
-    models cannot diff, and we can.
-
-Individually several of these exist in research prototypes. **Together, in a shipping,
-touch-native parametric CAD app, with a live GUI the human shares with the agent — that
-combination does not exist.**
-
----
-
-## 16. How we will know it worked
-
-Not a vibe. A suite, run on every change, across three model tiers.
-
-**The corpus: 40 real parts with real contracts**, spread across
-L1 prismatic (plate, spacer, cover) · L2 featured (bracket, housing, clamp, manifold) ·
-L3 advanced (swept handle, lofted duct, coiled spring, revolved knob) ·
-L4 applied ("a mount for this sensor on 40×40 extrusion").
-Each with a written brief, a contract, and a human-built reference part.
-
-**Metrics — generation**
-
-| Metric | Flash-class target | Opus-class target |
-|---|---|---|
-| Builds without error, first pass | ≥ 85 % | ≥ 95 % |
-| Contract green, first pass | ≥ 60 % | ≥ 85 % |
-| Contract green within 2 repair cycles | ≥ 85 % | ≥ 97 % |
-| Ops per part (L2) | ≤ 14 | ≤ 10 |
-| Tokens per part (L2, end to end) | ≤ 15 k | ≤ 25 k |
-| Wall-clock per part (L2) | ≤ 3 min | ≤ 3 min |
-| Human corrections needed | 0 | 0 |
-
-**Metrics — the things everyone else fails** *(these are the real scoreboard)*
-
-| Metric | Target |
-|---|---|
-| Edits with zero collateral damage | ≥ 95 % (industry baseline: 40–46 %) |
-| Parts still contract-green across their declared flex ranges | ≥ 90 % |
-| Selector resolved the intended entity (human-verified) | ≥ 98 % |
-| Hygiene audit ≥ 8/9 | ≥ 90 % |
-| Silent wrong-entity selections | **0** — by construction, `expect` makes it impossible |
-
-**Metrics — the human**
-
-* Time from "I want X" to a part they would actually use.
-* Fraction of AI-built parts a human then edits by hand successfully (the real test of
-  the hygiene audit).
-* Fraction of sessions where the AI correctly refused or asked instead of guessing.
-
-**Ablations we should run**, because they tell us what to invest in next:
-with/without `expect` · with/without contract · with/without views ·
-with/without macros · with/without the collateral guard.
-My prediction, from the literature: `expect` and the contract dominate; views contribute
-least per token; macros dominate for Flash-class only.
-
----
-
-## 17. The shape of the build, in phases
-
-Workflow-level sequencing only — the detailed plan comes after you approve this one.
-
-| Phase | Delivers | Proves |
-|---|---|---|
-| **0. Foundations** | shared feature path + parity test; canonical frame + conformance test; mass properties, shell, interference in the shim | The agent can do what a finger can, and the contract vocabulary has no holes |
-| **1. Act** | op schema, validator, auto-repair, batch runner, undo integration, the ~30 core verbs | A scripted sequence builds a bracket headlessly |
-| **2. Sense** | L0 diff, `part.tree`, `part.inspect`, `part.measure`, name derivation, selector engine with `expect` | A model can find and name anything without an index |
-| **3. Prove** | contract storage + `part.check`, `part.guard`, `part.audit` | A model cannot claim success falsely |
-| **4. Drive** | in-app chat + BYO token; system prompt encoding the playbook; the eval corpus | End-to-end: type a sentence, get a contract-green part |
-| **5. See** | annotated views, highlight renders, `part.section` | The human and the model agree on what is on screen |
-| **6. Extend** | `part.flex`, macros + standards tables, MCP adapter, `part.script` | Parametric integrity, weak-model performance, external hosts |
-| **7. Assemble** | assembly verbs, joints, clearance and interference contracts | Multi-part products |
-
-The ordering is deliberate: **Prove before Drive.** The moment a model can drive the app
-it will produce plausible garbage, and if the proof layer is not already there we will
-spend weeks chasing it by eye.
-
----
-
-## Appendix A — Alternatives considered and rejected
-
-| Option | Why it loses |
-|---|---|
-| **Generate CadQuery / build123d and import the result** | Loses the feature tree — the human gets a dumb solid they cannot edit. Kills the whole premise. Also a second kernel to ship. |
-| **A new textual CAD language (KCL-style)** | Strongest for Opus, but the user's requirement is "without much learning" and Flash-class models will fight the grammar. Revisit as the phase-2 `part.script` door, sharing one semantics. |
-| **Computer use / drive the GUI** | Every documented weakness at once: mental rotation, image diffing, coordinate estimation. Orders of magnitude slower. Fragile against any UI change. |
-| **One MCP tool per operation (~60 tools)** | 6–15 k tokens of definitions before work starts; selection confusion grows with count. |
-| **Let the model pick faces from a rendered image** | The single most-documented failure mode in the field. |
-| **Fine-tune a CAD-specific model** | Fixes nothing about the interaction design, and locks us out of "swap in whatever model is best next year". The interface is the product. |
-| **Auto-constrain every sketch the model draws** | Adds the over-constraint failure class for zero benefit — parametric primitives already encode the intent. |
-| **Multi-agent (requirements / CAD / QA agents)** | The role split is real and useful, but it is a *prompt* decision, not an architecture decision. The contract + gates give the same discipline in one agent at a third of the cost. Keep as a later option for hard parts. |
-| **Store selections as indices, resolve at build time** | The documented failure mode. Also the one this codebase already rejected in M158. |
-
----
-
-## Appendix B — The critical passes this document survived
-
-Recorded because the reasoning matters more than the conclusions.
-
-**Pass 1 — "Code beats command-DSL, so write code."** Wrong inference. The measured 2.2×
-was *CadQuery vs. a low-level command DSL*, and the confound is pretraining familiarity
-and abstraction level, not syntax. The lesson that survives is **be declarative, be
-high-level, be familiar** — which schema'd JSON ops with named parameters satisfy, with
-guaranteed validity that free text cannot offer.
-
-**Pass 2 — "Batch everything for token efficiency."** Half wrong. Batching *transport* is
-free; batching *semantics* walks into the 40–46 % multi-feature edit failure. Resolution:
-batch the wire, serialise the commit, report per op.
-
-**Pass 3 — "Show it renders, let it judge."** Directly contradicted. Mental rotation
-< 20 %; an imagery module only reaches 62.5 %; multi-view feedback shows limited
-effectiveness; quantitative feedback beats VLM judgement. Renders survive only as an
-annotated, cross-bound gestalt gate — and the highlight render, which is the one visual
-task models are actually good at.
-
-**Pass 4 — "Robust selection means good selectors."** Necessary, not sufficient. build123d
-itself warns against static indices *inside* its selector chains. What actually closes the
-gap is `expect` — turning selection into a falsifiable claim — plus echo-back of what was
-resolved, plus the fingerprint anchor underneath. Three layers, not one.
-
-**Pass 5 — "A correct part is the goal."** Too low a bar. CADEngBench shows 58 % of
-executable models violate their requirements, and a correct part with an unmaintainable
-tree fails the human anyway. Hence the contract (correct), flex (correct when changed) and
-audit (correct and editable). Three different kinds of "good", checked separately.
-
-**Pass 6 — "Just expose the app's existing session API."** Tempting and wrong: it is
-dialog-shaped (fill a session, press apply), carries UI state, and would force the model
-into a stateful interaction with a modal panel. The verbs must be stateless and
-declarative. But the *feature construction path* underneath must be shared, or we get two
-apps (§12.1).
-
-**Pass 7 — "The frame is a detail."** No. `acos(n.y)` in `PartCamera` means screen-up is
-+Y while every model's prior says +Z, and the app's own STL export says Z. Unaddressed,
-every part comes out lying on its side and nobody can tell why. It is §5.4 and a blocking
-decision, not a footnote.
-
----
-
-## Appendix C — A worked session, end to end
-
-**Human:** *"I need a bracket to mount a 30 mm sensor onto 40×40 aluminium extrusion.
-Aluminium, as light as you can, under 250 g."*
-
-```
-① CLARIFY (1 message, 2 questions, defaults offered)
-   – Sensor bolt pattern? default: ⌀30 H7 press bore, no bolts
-   – Sensor axis horizontal (along the extrusion) or vertical? default: horizontal
-   Human: "defaults"
-
-② spec.set                                          ~400 tok
-   params   plate_t=6 [4..10] · bore_d=8 fixed · sensor_d=30 fixed
-            mount_pitch=100 · upright_h=40 [30..60]
-   requires envelope ≤120×80×50 · mass ≤250 g · min_wall ≥3
-            4 through ⌀8 @100 pitch · min internal radius ≥3 · manifold
-   material AL6061 2.70 g/cm³        process 3-axis mill, 6 mm cutter
-
-③ PLAN (text only)                                  ~120 tok
-   datums → base_plate → upright → bore_1 → sensor_bore → edge_breaks → break_sharp
-
-④ BUILD batch 1  [work.plane mid_yz, sketch.rect, extrude]        3 ops
-   ✓ base_plate   Δvol +57 600 mm³   bbox 120×80×6   +6 faces
-   ✓ contract 3/6 pass, 3 pending (no holes yet)                  ~150 tok
-
-⑤ BUILD batch 2  [sketch.rect on mid_yz, extrude join]            2 ops
-   ✓ upright      Δvol +9 600 mm³    bbox 120×80×46  +5 faces
-   guard: silent                                                  ~140 tok
-
-⑥ BUILD batch 3  [sketch points, hole ×4, hole sensor]            3 ops
-   ✓ bore_1       4× ⌀8 through, resolved 4 of 4 expected
-   ✓ sensor_bore  ⌀30 × 12 deep in upright.face.+y
-   guard: silent                                                  ~180 tok
-
-⑦ part.check                                                      ~250 tok
-   ✗ wall  min 2.4 mm between sensor_bore and upright.side.-x  (≥3.0 required)
-           driven by upright_w = 40;  fix: upright_w ≥ 42, or sensor_bore depth ≤ 10
-
-⑧ REPAIR — contract-level, so back to PLAN, one op                ~90 tok
-   param.set upright_w = 44
-   ✓ rebuild   Δvol +1 920 mm³   guard: silent   contract 6/6 pass
-
-⑨ BUILD batch 4  [fillet r=min(2,plate_t/3), chamfer 0.5×45°]     2 ops
-   ✓ edge_breaks  resolved 4 of 4 · break_sharp resolved 18 of 18
-   ✓ contract 6/6 pass                                            ~160 tok
-
-⑩ PROVE                                                           ~700 tok
-   flex  plate_t 4/6/10 ✓✓✓ · upright_h 30/40/60 ✓✓✓  all contract-green
-   audit 9/9
-   view  ortho4, annotated — bracket reads correctly, sensor bore on +Y
-
-⑪ SHIP                                                            ~250 tok
-   STEP + STL exported · thumbnail written · report to the human
-
-   Totals   13 ops · 1 repair cycle · ~2 900 tokens of traffic
-            + ~2 400 system/tools + ~3 200 for 4 annotated views
-            ≈ 8.5 k tokens · ~95 s wall-clock · 0 human corrections
+```text
+V = 80*50*6 - 4*pi*(5/2)^2*6 = 23,528.7611 mm³
+m = V * 0.00270 g/mm³          = 63.5277 g
+minimum hole-to-outer-side ligament = 10 - 2.5 = 7.5 mm
 ```
 
-For contrast, the same part through a naive "60 MCP tools + dump the whole model after
-every call + let the VLM look at renders" design: **~14 k tokens of tool definitions,
-~6 k per state dump × 13, ~10 images**, and — on the published numbers — a coin-flip
-chance the sensor bore ends up on the wrong face with nothing to catch it.
+Those formulas are reference checks for the proposed example, not substitutes for inspecting actual created geometry. The example does not include fillets, chamfers or other finishing operations, which would alter its volume.
 
-**≈ 8.5 k tokens versus ≈ 110 k, with a proof instead of a hope.** That is the plan.
+The AI requests a top orthographic view and a simple isometric to confirm the plate's visual reading and hole arrangement. It can then report geometry completion, nominal mass under the supplied density, and the editable controls. Physical load performance was not requested or evaluated.
 
----
+### 18.3 A coupled edit with a protected interface
 
-## Appendix D — Sources
+The user continues:
 
-**Benchmarks and failure analysis**
-- [Text2CAD-Bench: A Benchmark for LLM-based Text-to-Parametric CAD Generation](https://arxiv.org/abs/2605.18430) — CadQuery vs. command sequences (2.2×); L1–L4 invalidity 11 %→93 %; capability independence
-- [BenchCAD: A Comprehensive, Industry-Standard Benchmark for Programmatic CAD](https://arxiv.org/pdf/2605.10865) — geometric similarity ≠ parametric understanding; editing harder than creating; multi-view feedback of limited effectiveness
-- [CADEngBench: It Looks Like CAD, but Does It Work?](https://arxiv.org/html/2608.09296) — 58.1 % of executable code violates requirements; single-feature edits 99.6 % vs multi-feature 40–46 %; parameter misdirection; edit cascade failures
-- [P3D-Bench: Benchmarking MLLMs for Parametric 3D Generation and Structural Reasoning](https://arxiv.org/pdf/2606.11152)
+> “Make it 100 mm long and 8 mm thick. Keep the mounting-hole positions and diameters, and the bottom mounting plane, exactly where they are.”
 
-**Agent architectures**
-- [Embodied CAD: Solver-Grounded LLM Agents for Parametric B-Rep Assembly Modeling](https://arxiv.org/html/2606.31252) — L0–L4 action stratification; operation-family prediction + deterministic resolver; family confusion / index ambiguity / coordinate-frame errors / reward sparsity
-- [SPADA: A Verifiable Test-Driven Agent for Controllable Parametric CAD Assembly Generation](https://icml.cc/virtual/2026/poster/62308) — quantitative feedback beats VLM judgement; assembly 20.4 %→41.9 %; invalid rate 1.8 %
-- [CADMorph: Geometry-Driven Parametric CAD Editing via a Plan-Generate-Verify Loop](https://arxiv.org/html/2512.11480) — edit only the segments that cause the discrepancy
-- [Generating CAD Code with Vision-Language Models for 3D Designs (CADCodeVerify)](https://arxiv.org/abs/2410.05340) — four-angle visual verification; +5.0 % success, −7.3 % point-cloud distance
-- [From Idea to CAD: A Language Model-Driven Multi-Agent System for Collaborative Design](https://arxiv.org/abs/2503.04417) — requirements / CAD / QA role split, V-model
-- [Clarify Before You Draw: Proactive Agents for Robust Text-to-CAD Generation](https://arxiv.org/pdf/2602.03045) — ambiguity taxonomy; selective clarification
-- [TOOLCAD: Tool-Using LLMs in Text-to-CAD with RL](https://arxiv.org/pdf/2604.07960) · [Seek-CAD](https://arxiv.org/pdf/2505.17702) · [Large Language Models for CAD: A Survey](https://arxiv.org/pdf/2505.08137)
+The edit contract allows the outer u extent and upper surface to move, and the through passages to extend. It protects the four axes in `plate_frame`, diameter, bottom plane and through condition. It does not try to freeze all points of the previous cylindrical faces.
 
-**Spatial reasoning limits**
-- [Limits of Spatial Imagery Reasoning in Frontier LLM Models](https://arxiv.org/html/2603.26779v2) — mental rotation 50–62.5 % vs ~79 % human; insensitivity to movement; imagery module reaches only 62.5 %
-- [SpatialViz-Bench](https://arxiv.org/pdf/2507.07610) · [LRR-Bench](https://arxiv.org/pdf/2507.20174) · [Spatial Reasoning in MLLMs: A Survey](https://arxiv.org/pdf/2511.15722)
+The AI stages width and thickness together. The model's dependency graph must hold the hole pattern fixed at ±30/±15, rather than moving it to keep a fixed edge inset.
 
-**Reference and selection**
-- [Pointer-CAD: Unifying B-Rep and Command Sequences via Pointer-based Edges & Faces Selection](https://arxiv.org/pdf/2603.04337) — why index- and coordinate-based references both fail
-- [build123d Selector Tutorial](https://build123d.readthedocs.io/en/latest/tutorial_selectors.html) and [Topology Selection](https://build123d.readthedocs.io/en/latest/topology_selection.html) — property-based selection; the warning against static indices
+Independent expected values are:
 
-**Tool and context design**
-- [Anthropic — Writing effective tools for AI agents](https://www.anthropic.com/engineering/writing-tools-for-agents) — consolidation, namespacing, response formats (65 % token reduction), actionable errors, evaluation
-- [Anthropic — Effective context engineering for AI agents](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents)
-- [Code execution with MCP — token reduction pattern](https://particula.tech/blog/code-execution-mcp-token-reduction-pattern) — up to 98.7 % reduction by batching work into code
-- [Notation Matters: Token-Optimized Formats in Agentic AI Systems](https://arxiv.org/pdf/2605.29676) — format moves accuracy only −7.7 %…+2.7 %; JSON for constrained output
+```text
+new extents: u -50..+50, v -25..+25, n 0..8 mm
+new V: 39,371.6815 mm³
+new nominal m: 106.3035 g
+delta V: +15,842.9204 mm³
+hole axes and diameters: unchanged
+minimum outer-side ligament: still 7.5 mm, now governed by the v sides
+```
 
-**Existing CAD-agent integrations**
-- [autodesk-fusion-mcp](https://github.com/frankhommers/autodesk-fusion-mcp) — 13 tools; viewport capture, selection, script storage; no documented verification strategy
-- [9 MCP Servers for CAD with AI](https://snyk.io/articles/9-mcp-servers-for-computer-aided-drafting-cad-with-ai/) · [AI in Onshape](https://www.onshape.com/en/blog/ai-artificial-intelligence-cloud-native-cad-pdm-platform)
-- [Zoo — KCL: A Programming Language for Parametric CAD](https://zoo.dev/research/introducing-kcl) — text as the editable, machine-readable source of truth
+### 18.4 The failure that count checks miss
 
-**Modelling methodology**
-- [The Resilient Modeling Strategy](https://www.engineering.com/the-resilient-modeling-strategy-2/) and [Review of Resilient Modeling](https://blogs.sw.siemens.com/solidedge/review-of-resilient-modeling/) — feature groups; fillets last; limiting parent/child chains
-- [Parametric CAD modeling: An analysis of strategies for design reusability](https://www.sciencedirect.com/science/article/abs/pii/S0010448516000051)
+Suppose the first candidate incorrectly moves the hole axes to u = ±40 while preserving 10 mm edge insets. There are still four 5 mm holes. Total volume and outer bounding box match the intended edited plate. `expect: 4`, volume and bbox all pass.
 
----
+The protected interface check fails: two columns of holes moved 10 mm. It returns the four axis witnesses and the dependent edge-inset relation. The candidate remains uncommitted. The repair changes the binding to the fixed 60 mm pitch and rechecks the same interface. This is the reason identity, intent, dependencies and result measurements must work together.
 
-*Prepared for review. Nothing here is built yet. If the workflow is right, the next
-document turns §17 into an implementation plan with file-level detail.*
+### 18.5 Reopen, human edit and output
+
+After a successful candidate, one undo restores the previous accepted plate. Redo restores the edited plate. Save/reopen must preserve the same parameters, bindings and reference semantics. A later human edit invalidates affected evidence and is visible in the AI's next state capsule.
+
+If STEP output is requested, export only the selected accepted body's current geometry. Reimport in an isolated verification state and compare body count, orientation, extents and critical hole geometry within declared exchange tolerances. If STL is requested, separately verify tessellation and stated units/orientation; do not expect an STL to preserve a native feature tree.
+
+## 19. Harder workflow walkthroughs
+
+### 19.1 An underspecified sensor bracket
+
+> “Design a light, clean-looking bracket for a 30 mm sensor on 40 × 40 extrusion.”
+
+The AI does not infer a 30 H7 press-fit bore or a bolt spacing from those words. It identifies missing interfaces: sensor mounting/retention method, relevant extrusion/T-slot geometry, sensor direction and access. It asks for the consequential missing information or a reference while proposing provisional overall concepts.
+
+The visual brief might favor a compact form, a clear relationship between sensor axis and mount, restrained edge treatments and low apparent bulk. The engineering brief identifies fixation, load path, assembly sequence, fastener access, envelope and relevant process constraints. Loads/material/process remain explicit inputs or open decisions.
+
+After interfaces are known, the AI can compare a simple L form, a gusseted form or another appropriate supported construction. These are alternatives to assess, not interchangeable aesthetic variants. It stages the selected strategy with stable datums and native features, checks actual mating geometry, shows assembly/tool-access views and runs supported engineering analysis.
+
+If a mass objective conflicts with stiffness or access, the report shows the tradeoff and the evidence. A clean render and a low mass do not override a failed mounting or load requirement. The user can choose the aesthetic direction without having to author CAD commands.
+
+### 19.2 A visual improvement that can be an engineering regression
+
+Consider a deliberately simplified analysis fixture: a straight, prismatic rectangular cantilever with a rigid root, a 20 N transverse tip force, length 50 mm, width 20 mm and assumed linear-elastic modulus 70,000 N/mm². Compare thicknesses of 6 and 4 mm in the bending direction. These are supplied hypothetical inputs, not inferred properties of the sensor bracket.
+
+For the ideal Euler–Bernoulli model, `I = b*t³/12` and `tip deflection = F*L³/(3*E*I)`. The end-loaded cantilever relation is documented in [MIT's solid mechanics reference sheet](https://ocw.mit.edu/courses/1-050-solid-mechanics-fall-2004/fd4eff39aec922b8c07660006f40686e_pset04_11.pdf).
+
+| Candidate | Ideal beam volume | Calculated tip deflection | Visual question |
+|---|---:|---:|---|
+| 6 mm thickness | 6,000 mm³ | 0.0331 mm | Does the side silhouette appear heavier than desired? |
+| 4 mm thickness | 4,000 mm³ | 0.1116 mm | Is the slimmer silhouette preferable in the same view? |
+
+The thinner candidate removes one third of this beam's nominal material but has 3.375 times the calculated bending deflection under these assumptions. If this fixture's allowable deflection were 0.05 mm, the 4 mm candidate would fail that idealized calculation despite looking lighter.
+
+The AI should recognize the tradeoff, not announce that the thinner design is better. It can consider a different section, a web, shorter span or different proportions, then recompute and inspect. Actual mounting compliance, stress concentrations, fatigue, material behavior and manufacturing variation are outside this simple calculation. Even the 6 mm result is not certification of a real bracket. Numerical convergence alone would not validate a different physical model either.
+
+This example illustrates the required behavior: connect a visual choice to a physical consequence, use a suitable computation, and communicate the boundary of that evidence.
+
+### 19.3 An enclosure with hidden problems
+
+For an enclosure, establish electronics/connector envelopes, attachment and opening method, wall regions, assembly access and process. If no general shell is available, a simple supported outer-solid-minus-cavity strategy may suffice for an appropriate shape; preserve its explicit inner/outer parameters and limits.
+
+Inspect sections through critical bosses, connectors and walls, while recognizing that those slices do not certify global thickness. Test lid fit, screw/driver clearance and assembly path. Compare clean exterior views for proportions and transition quality. If wall checking is sampled or a boss-root physical claim is unverified, retain that coverage status.
+
+A later “make it slimmer” edit protects the electronics envelope, mating interface and functional clearances. It does not simply scale the whole enclosure and shrink every hole with it.
+
+### 19.4 A lofted handle or duct
+
+Select section frames and correspondence explicitly; preview the unblended shape and inspect cross-sections before applying finishing details. For a handle, assess grip envelope and surface transitions from relevant views; comfort remains a design judgment unless supported by suitable human-factor inputs/testing. For a duct, verify passage continuity and areas, but do not infer pressure drop from appearance.
+
+Smooth-looking shading can conceal geometric discontinuity. Optional zebra/curvature views can support surface review alongside numerical continuity checks where available. Such diagnostic views are established CAD practice, not a substitute for all surface measurements. [Fusion surface continuity analysis](https://help.autodesk.com/cloudhelp/ENU/Fusion-Model/files/GUID-3F8BA6D3-5DF2-49FA-BE7D-8CCEF718C795.htm).
+
+## 20. Evaluation and acceptance
+
+The workflow is a design hypothesis until tested in this app. Evaluation must distinguish a system that builds plausible geometry from one that understands, edits and explains an acceptable product.
+
+### 20.1 Build the benchmark around user work
+
+Start with a 40-task development suite to shape the interaction. Use a separate held-out suite before claiming general performance; a proposed initial distribution is 120 tasks:
+
+| Family | Tasks | Includes |
+|---|---:|---|
+| Creation | 24 | Prismatic, revolved, patterned and advanced supported shapes |
+| Editing | 24 | Local/coupled edits, fixed interfaces, intended dependent movement |
+| Import and recovery | 16 | STEP/mesh/DXF, missing history, broken models and failed rebuilds |
+| Parameter behavior | 16 | Bindings, coupled domains, topology transitions, save/reopen |
+| Assemblies | 16 | Repeated occurrences, joints, shared sources, motion/access |
+| Engineering and visual design | 24 | Competing concepts, physical assumptions, aesthetic refinement and tradeoffs |
+
+Include concise and ambiguous prompts, expert and non-expert language, reference images and existing models. Split by part/recipe family where possible so memorizing development examples does not masquerade as generalization. A reference part is one acceptable solution; geometry similarity alone must not penalize a different valid design strategy.
+
+Run exact target provider/model versions with recorded settings and budgets. Repeat representative tasks to reveal stochastic variation. Record hardware/kernel/renderer/device mode; an iPad latency claim needs iPad measurement. Never compare providers on different task subsets or repair budgets without labeling it.
+
+### 20.2 Evaluate the judges too
+
+For each important checker, construct correct variants and deliberately broken models: wrong hole location with unchanged count/volume, blind versus through passage, duplicate body, stale shape, flipped occurrence, loosened requirement, thin region between sample planes, and false parameter binding.
+
+The checker must reject the wrong cases and accept legitimate variants. Keep held-out grading independent of the agent's editable self-authored contract; otherwise the agent can succeed by omitting inconvenient requirements. Review disagreements with humans rather than blindly trusting either an LLM judge or one numeric metric.
+
+### 20.3 Report separate quality and efficiency measures
+
+| Measure | What to report |
+|---|---|
+| Task success | Fraction meeting the complete supplied brief within declared capability scope |
+| Geometric correctness | Fresh independent checks on result geometry, with unresolved coverage |
+| Silent false acceptance | Incorrect result labeled complete/verified; severity and cause |
+| Edit preservation | Protected interfaces/regions retained; intended changes achieved |
+| Parameter behavior | Intended bindings and tested configuration outcomes |
+| Native editability | Human can make a requested follow-up edit after save/reopen |
+| Engineering reasoning | Appropriate assumptions, analysis choice, causal predictions and evidence-backed tradeoffs |
+| Visual design quality | Blind review against the stated rubric/reference, plus inter-reviewer disagreement |
+| Recovery | Failed changes preserve accepted state; safe retry, cancel and concurrent edit behavior |
+| Efficiency | Time to accepted design, P50/P95 latency, billed input/output/reasoning/image usage, cache usage, cost, tool calls and human corrections |
+| Honesty of completion | Unknown/stale/unsupported claims correctly reported rather than passed |
+
+Engineering assessment must test whether the model selects a suitable analysis and recognizes its limitations, not merely whether its explanation sounds technical. Visual assessment must test the resulting form and actionable improvements, not adjective-rich commentary.
+
+### 20.4 Release gates and provisional targets
+
+**Non-negotiable behavior gates:** all deterministic regression cases for stale-state rejection, atomic rollback, retry deduplication, protected requirement authority, evidence freshness and selected-output scope must pass. Any known silent corruption or false-success path in a supported workflow blocks its release.
+
+**Proposed performance targets, to validate rather than advertise as achieved:** on the explicitly supported, fully specified core-part subset, aim for at least 90% completion with a selected fast model and 95% with a selected highly capable model within a fixed repair budget. An accepted result has the same quality conditions regardless of model. These targets do not apply automatically to freeform design, unknown physics or unsupported features.
+
+For small supported parts, an initial usability target is P50 under two minutes and P95 under five minutes to a checked, inspectable result, excluding time waiting for human answers. Measure expensive analysis separately and also in the end-to-end total. This is a product target, not a prediction based on the draft's invented 95-second transcript. Cost budgets should use actual provider billing and be set against user willingness to pay.
+
+Track silent false acceptance separately from failure to finish. Aim for zero observed critical false acceptances in the release corpus, while reporting sample size and uncertainty. Zero in a small corpus does not establish a zero population error rate. Stronger reliability claims require larger, appropriately independent tests and continued failure analysis.
+
+Do not average excellent plate performance with poor assembly or design results into one reassuring score. Publish task-family coverage and limitations.
+
+### 20.5 Ablations that can change the design
+
+Compare the proposed workflow with competent baselines using the same native capabilities, model versions and budgets:
+
+- Focused typed tools versus a compact operation dispatcher versus constrained code composition.
+- Summary/measurement feedback versus added controlled visual feedback.
+- Uncontrolled orbit views versus canonical aligned views and focused crops.
+- Cardinality alone versus the full reference contract.
+- Per-operation commits versus intent-sized atomic transactions.
+- Recipe assistance versus native operations alone, for both model tiers.
+- Cheap summary checks versus protected-interface/local geometry checks.
+- With and without explicit engineering rationale and a visual rubric.
+- Single candidate versus bounded alternatives for uncertain design tasks.
+
+Change one important factor at a time or design a controlled factorial test. Record failures, not just averages. Retain an additional mechanism only if it improves quality or cost under the intended workload, or is necessary for state integrity.
+
+### 20.6 Adversarial acceptance cases
+
+| Case | Required behavior |
+|---|---|
+| Wrong singleton satisfies `expect: 1` | Other reference/interface checks catch it or uncertainty remains visible |
+| Two symmetric occurrences | Selection scope names the occurrence, not only the source part |
+| Face splits after a pocket | Explicit split semantics; no silent reassignment |
+| Same volume/bbox, moved hole | Protected location check rejects candidate |
+| Thickness change extends a through hole | Allowed dependency propagation accepted |
+| Coherent edit invalid halfway through | Entire candidate completes or rolls back without publishing the intermediate state |
+| Timeout after commit | Retry returns the recorded outcome without duplicate geometry |
+| Human edits during inference | Stale proposal rejected or revalidated with a visible delta |
+| Existing failed feature shows old solid | Observation identifies last-good geometry and does not certify current feature state |
+| Parameter expression stops evaluating | Stale/frozen value reported; not a fresh pass |
+| Parameter corners pass but an interior configuration fails | Coverage report does not claim the entire range |
+| Sampling misses a thin region | Global requirement remains unproven; checker limitations are exposed |
+| Agent removes or loosens a failing requirement | Requirement authority prevents silent success |
+| Section/render/check describes another revision | Evidence rejected as stale |
+| Native model exports incomplete/duplicate geometry | Output scope/round-trip checks fail |
+| Prettier thin candidate is too flexible | Engineering requirement prevails; alternatives offered |
+| Good dimensions, visually wrong reference interpretation | Visual review flags mismatch before completion |
+| Unsupported shell/analysis on this device | Capability gap disclosed; no invented success |
+
+## 21. Workflow delivery order
+
+This is the sequence of user-visible capabilities and acceptance evidence. Detailed integration design follows only after this workflow is accepted.
+
+| Stage | Workflow delivered | Gate to proceed |
+|---|---|---|
+| 1. Trustworthy single change | Capability discovery, explicit frames/units, native operation semantics, candidate isolation, revision-bound references, one coherent undo | Failed/stale/retried edits cannot corrupt accepted work in the supported subset |
+| 2. Complete small-part loop | Compact primitives, native parameter bindings, brief, measurements, aligned views, requirement coverage and local preservation | Create and edit representative parts with verified geometry and inspectable form |
+| 3. Engineering and visual iteration | Interface maps, rationale, supported calculations/checks, visual rubric, purposeful alternatives and tradeoff comparison | AI can justify a change, measure consequences, critique appearance and retain uncertainty correctly |
+| 4. Robust general editing | Imported/broken models, topology transitions, wider command coverage, parameter robustness, save/reopen and verified output | Human follow-up edits and recovery cases pass; no false completion from stale geometry |
+| 5. Broad native parity | Remaining sketch/feature/view/document actions and validated recipe families | Capability-by-capability coverage demonstrated, including advanced geometry |
+| 6. Assembly/product workflow | Occurrence-aware references, shared-document edits, joints, motion/access and clearances | Multi-part edits preserve intended interfaces and report scoped engineering evidence |
+| 7. Optimization and expansion | Model routing, optional composition interface, specialized analyses and broader evaluation | Demonstrated quality/cost improvement with unchanged integrity standards |
+
+Views and basic parameter behavior belong in the first complete modeling loop, not after a chat demo is already declared useful. Engineering reasoning begins with the brief and appropriate simple analysis; broad FEA/CAM capabilities need not all exist before the first correct plate. Missing capabilities remain visible, and the end-state goal of full app control stays on the coverage ledger.
+
+The first demonstration should be one creation, one coupled edit, one caught wrong selection, one failed candidate, one undo and one human follow-up edit, with geometry and appearance visible throughout. This exercises the workflow's essential promises more meaningfully than an isolated impressive render.
+
+## 22. Decisions and remaining uncertainty
+
+### 22.1 Recommended decisions now
+
+1. Use the existing native model as the authoritative design, with persistent intent and evidence attached.
+2. Give the AI both engineering and visual design responsibilities, supported by different appropriate observations.
+3. Make coherent candidate transactions the fundamental edit unit.
+4. Separate logical identity, semantic reference intent and revision-bound topology handles.
+5. Preserve the app's world coordinates; publish explicit functional frames and transformations.
+6. Generate native constraints/dependencies behind compact sketch and feature recipes.
+7. Measure final geometry and check protected interfaces; do not certify input arguments.
+8. Treat unknown, stale and partial evidence as real states, not failed attempts to say “pass.”
+9. Include aligned visual review and parametric editability in the initial complete workflow.
+10. Keep the operation system provider-neutral and evaluate actual fast and capable models.
+11. Track full app parity explicitly; disclose the supported subset during staged delivery.
+12. Keep implementation and performance claims separate from the workflow specification.
+
+These decisions do not require the user to choose a camera migration, buy a particular model or approve a long list of speculative backend details.
+
+### 22.2 Questions to settle through prototypes and evaluation
+
+| Uncertainty | Recommended way to settle it |
+|---|---|
+| Best tool presentation for each model tier | Controlled dispatcher/typed-tool/composition comparison |
+| Reliable topology lineage across this kernel surface | Split/merge/rebuild fixtures and selective native-history exposure |
+| Cost of geometry comparison and difficult thickness checks on iPad | Measure representative local/global workloads with explicit coverage |
+| Parameter binding completeness | Native editing, GUI synchronization and save/reopen/perturbation fixtures |
+| Renderer consistency and useful view budget | Fixed-camera inspection fixtures and visual-quality ablations |
+| Which engineering analyses belong first | Target product families and real user requirements; validate method applicability |
+| How much visual refinement the fast model handles | Blind rubric-based review with geometry guards held constant |
+| Useful recipe families | Repeated user tasks, failure logs and held-out family evaluation |
+| Appropriate automatic-change and spend budgets | Observed recovery/latency/cost and user preference |
+
+No amount of additional literature review can establish app-specific success rates without implementation and measurement. The design is complete enough to guide that next stage while making its falsifiable assumptions explicit.
+
+## Appendix A. Five review rounds
+
+These are actual review passes carried out for this revision. They are design and source reviews, not claims that an agent prototype was executed five times.
+
+| Round | Research and critical question | Resulting revision |
+|---|---|---|
+| 1. Audit the evidence | Read the supplied plan; retrieve cited spatial/CAD studies. Do the percentages imply the claimed architecture? | Restored canonical aligned visual feedback; removed the universal 62.5% ceiling and one-feature-edit inference. |
+| 2. Audit this branch | Inventory repository and inspect modeling, parameter, session, kernel, measurement, rendering, persistence and assembly paths. Is the foundation already as strong as claimed? | Corrected FacePick versus EdgeSel, expression binding, Y-up, undo/failure, section, material and export claims. |
+| 3. Stress the interaction contract | Compare native historical/state queries and tool guidance. Can counts, names, partial commits or cached summaries quietly select the wrong thing? | Added explicit identity/binding semantics, coherent transactions, revision checks, retry deduplication, protected interfaces and state resynchronization. |
+| 4. Stress understanding and verification | Revisit geometry-checking limitations, mutation-tested CAD checks, visual feedback and surface inspection. Incorporate the user's engineering/design requirement. | Added linked functional/engineering/visual reviews, evidence coverage, independent output checks, scoped analysis and purposeful views. |
+| 5. Walk through and independently challenge the combined plan | Check example arithmetic; try same-count wrong targets, stale geometry, coupled changes, visual-versus-engineering conflicts, incomplete checks and model-cost limits. Three reviewers assess the integrated draft. | Refined output aliases, reference drift, commit policy, broken-document recovery, visual conditions, physical-analysis limits and evaluation gates. |
+
+The review deliberately sought counterexamples instead of adding stronger claims to the original thesis. Stronger evidence changed the design where necessary.
+
+## Appendix B. Research corrections and sources
+
+### B.1 Numerical and architectural claims checked
+
+| Claim in the supplied plan | What the retrieved source supports | Consequence |
+|---|---|---|
+| 62.5% is the ceiling with render/rotate tools | The spatial paper reports that range for incremental rotation; canonical reset/alignment reaches 85–97.5% on its 40-problem synthetic setting. Its cited human baseline is about 79%, not universally 100%. | Reduce mental rotation through tool design; keep controlled visual evidence. |
+| 58.1% of executable CAD violates requirements | CADEngBench reports this for its evaluated single-response outputs and defined tests. It is not a universal interactive-agent failure rate. | Measure requirements beyond build success, without projecting the percentage onto this app. |
+| 99.6% single-feature versus 40–46% multi-feature edits | The relevant CADEngBench distinction is independent additions versus more coupled histories; the edited quantities remain specified dimensions. | Preserve dependency-sensitive geometry; do not infer a universal one-operation rule. |
+| CadQuery's 2.2× result proves a JSON architecture | Text2CAD-Bench's cited comparison is a specific model/task comparison with a low-level CAD sequence representation. | Test abstraction level and interface format separately. |
+| Multi-view feedback is ineffective | BenchCAD's results vary by task/model; they do not test every interactive targeted-view strategy. CADCodeVerify reports benefits from visual verification. | Use views for suitable questions and evaluate them in this app. |
+| SPADA numerical improvements establish the workflow | Existence was found in the official ICML listing; the cited numerical results were not independently verified from successfully retrieved primary full text. | Omit those numerical claims from the recommendation. |
+| Every other system relies on images plus scripts | Embodied CAD already combines planning, deterministic resolution, solver feedback and skills. | Treat this plan as an app-specific synthesis, not a universal novelty claim. |
+| Format changes are limited to −7.7%…+2.7% | The cited Notation Matters passage attributes that range to related SQL work, not a CAD-interface comparison. | Do not use it as a CAD schema-selection guarantee. |
+
+### B.2 Research sources
+
+Sources were checked during 17–18 September 2026. Research findings motivate choices; they do not validate this proposed implementation. Several are recent preprints with task-specific evaluation.
+
+1. [Limits of Spatial Imagery Reasoning in Frontier LLM Models, v2](https://arxiv.org/html/2603.26779v2). Full primary text inspected for task, alignment conditions and claimed ceiling.
+2. [CADEngBench](https://arxiv.org/html/2608.09296). Full primary text inspected for program versus requirement success, edit groups and parameter behavior.
+3. [Text2CAD-Bench](https://arxiv.org/html/2605.18430). Full primary text inspected for representation comparisons and benchmark scope.
+4. [BenchCAD](https://arxiv.org/html/2605.10865). Full primary text inspected for parametric/editing distinctions and visual-input conditions.
+5. [Embodied CAD](https://arxiv.org/html/2606.31252). Full primary text inspected for planner/resolver/solver separation and skill hierarchy.
+6. [Text-to-CAD Evaluation with CADTests](https://arxiv.org/html/2605.07807). Full primary text inspected for executable tests, test mutation and coverage limitations.
+7. [CADCodeVerify](https://arxiv.org/abs/2410.05340). Primary abstract checked; supports complementary visual feedback, not engineering certification.
+8. [ArtisanCAD](https://arxiv.org/abs/2607.05750). Primary abstract checked for reusable procedural CAD representation and skills.
+9. [Test-Time Scaling for CAD Generation via Verifier-Free Consensus Selection](https://arxiv.org/abs/2608.09706). Primary abstract checked; optional exploration evidence only.
+10. [Clarify Before You Draw](https://arxiv.org/abs/2602.03045). Primary abstract checked; targeted clarification precedent, not a universal question policy.
+11. [Pointer-CAD](https://arxiv.org/abs/2603.04337). Primary description checked for grounded references; not a persistent-identity guarantee.
+12. [Notation Matters](https://arxiv.org/html/2605.29676). Full primary text inspected to correct the attribution of the quoted numerical range.
+
+### B.3 Primary technical references
+
+- [Onshape query library](https://cad.onshape.com/FsDoc/library.html#module-query.fs) and [modeling documentation](https://cad.onshape.com/FsDoc/modeling.html): query intent, topology, tracking and historical/state-based selection.
+- [OCCT topology reference](https://dev.opencascade.org/sites/default/files/pdf/Topology.pdf): topology and operation-history concepts.
+- [OCCT BRepCheck_Analyzer](https://dev.opencascade.org/doc/refman/html/class_b_rep_check___analyzer.html): validity scope and checking methods.
+- [OCCT BRepGProp](https://dev.opencascade.org/doc/refman/html/class_b_rep_g_prop.html): mass/volume-property preconditions and computation.
+- [OCCT BRepExtrema_DistShapeShape](https://dev.opencascade.org/doc/refman/html/class_b_rep_extrema___dist_shape_shape.html): distance and witnesses; distinct from arbitrary wall-thickness semantics.
+- [OCCT BRepAlgoAPI_Section](https://dev.opencascade.org/doc/refman/html/class_b_rep_algo_a_p_i___section.html): geometric section operation.
+- [Anthropic: writing tools for agents](https://www.anthropic.com/engineering/writing-tools-for-agents) and [code execution with MCP](https://www.anthropic.com/engineering/code-execution-with-mcp): tool clarity, context efficiency, discovery and execution tradeoffs.
+- [Gemini function calling](https://ai.google.dev/gemini-api/docs/function-calling) and [structured outputs](https://ai.google.dev/gemini-api/docs/structured-output): provider capability references; application semantics still require validation.
+- [Fusion surface continuity analysis](https://help.autodesk.com/cloudhelp/ENU/Fusion-Model/files/GUID-3F8BA6D3-5DF2-49FA-BE7D-8CCEF718C795.htm) and [curvature maps](https://help.autodesk.com/cloudhelp/ENU/Fusion-Model/files/GUID-11FD0802-0100-4131-88D7-37A41F74C6FB.htm): examples of focused surface-inspection modes.
+- [NASA Systems Engineering Handbook: product realization](https://www.nasa.gov/reference/5-0-product-realization/): distinction between checking requirements and validating intended use. This plan borrows that distinction, not NASA's project governance process.
+- [MIT solid mechanics reference sheet](https://ocw.mit.edu/courses/1-050-solid-mechanics-fall-2004/fd4eff39aec922b8c07660006f40686e_pset04_11.pdf): ideal end-loaded cantilever relation used in the hypothetical analysis example.
+
+Current online OCCT documentation may describe a different version from the app's pinned build. API availability, tolerances and behavior must be confirmed against that build in the later integration stage.
+
+## Appendix C. Source inspection map
+
+All links below use the reviewed commit rather than a moving branch. Line anchors identify relevant entry points; the design conclusions also used surrounding code and related callers.
+
+| Source | Relevant finding |
+|---|---|
+| [Kernel interface](https://github.com/Toemeler/ipadprocad/blob/8141d2c5f3f8e6a1f96c4422523ed913e3f013c5/backend/occt/shim/occt_capi.h) and [implementation](https://github.com/Toemeler/ipadprocad/blob/8141d2c5f3f8e6a1f96c4422523ed913e3f013c5/backend/occt/shim/occt_capi.cpp) | Native operations, validity/volume, topology metadata, taper, exchange and existing geometry safeguards |
+| [Part model](https://github.com/Toemeler/ipadprocad/blob/8141d2c5f3f8e6a1f96c4422523ed913e3f013c5/frontend/lib/part_model.dart#L2241) | Feature classes, serialization, state and rebuild signatures |
+| [Edge matching](https://github.com/Toemeler/ipadprocad/blob/8141d2c5f3f8e6a1f96c4422523ed913e3f013c5/frontend/lib/part_model.dart#L2103) | Scored fingerprint matching with displacement/ambiguity protection |
+| [Face matching](https://github.com/Toemeler/ipadprocad/blob/8141d2c5f3f8e6a1f96c4422523ed913e3f013c5/frontend/lib/part_model.dart#L3400) | Different matching policy, mesh-derived witnesses, re-anchoring and partial selection behavior |
+| [Rebuild and last-good geometry](https://github.com/Toemeler/ipadprocad/blob/8141d2c5f3f8e6a1f96c4422523ed913e3f013c5/frontend/lib/part_model.dart#L9541) | Requested state and displayed/computed shape need distinct freshness reporting |
+| [Feature application](https://github.com/Toemeler/ipadprocad/blob/8141d2c5f3f8e6a1f96c4422523ed913e3f013c5/frontend/lib/app_state.dart#L12919) and [part undo](https://github.com/Toemeler/ipadprocad/blob/8141d2c5f3f8e6a1f96c4422523ed913e3f013c5/frontend/lib/app_state.dart#L13202) | Existing session/commit/error/history behavior differs from proposed atomic transactions |
+| [Hole application](https://github.com/Toemeler/ipadprocad/blob/8141d2c5f3f8e6a1f96c4422523ed913e3f013c5/frontend/lib/app_state.dart#L10460) | Command completion must be distinguished from successful feature computation |
+| [Parameters](https://github.com/Toemeler/ipadprocad/blob/8141d2c5f3f8e6a1f96c4422523ed913e3f013c5/frontend/lib/params.dart), [constraints](https://github.com/Toemeler/ipadprocad/blob/8141d2c5f3f8e6a1f96c4422523ed913e3f013c5/frontend/lib/constraints.dart), [solver](https://github.com/Toemeler/ipadprocad/blob/8141d2c5f3f8e6a1f96c4422523ed913e3f013c5/frontend/lib/solver.dart) | Sketch constraints, expression semantics and native parameter foundations |
+| [Expression update path](https://github.com/Toemeler/ipadprocad/blob/8141d2c5f3f8e6a1f96c4422523ed913e3f013c5/frontend/lib/app_state.dart#L18211) | Dependency reevaluation and frozen-value behavior need explicit agent status |
+| [Measurement](https://github.com/Toemeler/ipadprocad/blob/8141d2c5f3f8e6a1f96c4422523ed913e3f013c5/frontend/lib/measure.dart) | Analytic and approximate methods must retain method/coverage information |
+| [Sections](https://github.com/Toemeler/ipadprocad/blob/8141d2c5f3f8e6a1f96c4422523ed913e3f013c5/frontend/lib/section_view.dart) and [still rendering](https://github.com/Toemeler/ipadprocad/blob/8141d2c5f3f8e6a1f96c4422523ed913e3f013c5/frontend/lib/app_state.dart#L4553) | Existing visual foundations; symbolic inspection is additional behavior |
+| [Work geometry](https://github.com/Toemeler/ipadprocad/blob/8141d2c5f3f8e6a1f96c4422523ed913e3f013c5/frontend/lib/work_features.dart) | Datums and plane construction support explicit functional frames |
+| [Assembly](https://github.com/Toemeler/ipadprocad/blob/8141d2c5f3f8e6a1f96c4422523ed913e3f013c5/frontend/lib/assembly.dart) and [assembly solver](https://github.com/Toemeler/ipadprocad/blob/8141d2c5f3f8e6a1f96c4422523ed913e3f013c5/frontend/lib/asm_solver.dart#L83) | Occurrences, shared sources, residuals, degrees of freedom and constraints |
+| [Documents](https://github.com/Toemeler/ipadprocad/blob/8141d2c5f3f8e6a1f96c4422523ed913e3f013c5/frontend/lib/doc_file.dart) | Native persisted document foundation |
+| [Materials](https://github.com/Toemeler/ipadprocad/blob/8141d2c5f3f8e6a1f96c4422523ed913e3f013c5/frontend/lib/materials.dart) | Appearance is not an engineering material model |
+| [Exports](https://github.com/Toemeler/ipadprocad/blob/8141d2c5f3f8e6a1f96c4422523ed913e3f013c5/frontend/lib/app_state.dart#L7512) and [mesh conventions](https://github.com/Toemeler/ipadprocad/blob/8141d2c5f3f8e6a1f96c4422523ed913e3f013c5/frontend/lib/mesh_io.dart#L384) | Output selection, error handling, units/orientation and exchange verification |
+| [Imports](https://github.com/Toemeler/ipadprocad/blob/8141d2c5f3f8e6a1f96c4422523ed913e3f013c5/frontend/lib/app_state.dart#L18910) and [DXF placement](https://github.com/Toemeler/ipadprocad/blob/8141d2c5f3f8e6a1f96c4422523ed913e3f013c5/frontend/lib/app_state.dart#L19375) | Preserved source geometry, reconstructed mesh geometry and import transforms |
+| [Ribbon](https://github.com/Toemeler/ipadprocad/blob/8141d2c5f3f8e6a1f96c4422523ed913e3f013c5/frontend/lib/widgets/ribbon.dart) and [sketch tools](https://github.com/Toemeler/ipadprocad/blob/8141d2c5f3f8e6a1f96c4422523ed913e3f013c5/frontend/lib/tools.dart) | Breadth of the native action surface and coverage obligations |
+
+**Deliverable boundary:** this is the finished workflow proposal for review. It establishes the intended behavior and how to evaluate it. App changes, provider integration, storage schemas and file-level engineering work belong to the next stage after the user accepts this direction.
