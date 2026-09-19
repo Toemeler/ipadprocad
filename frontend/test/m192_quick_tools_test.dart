@@ -47,13 +47,11 @@ GlassToolItem item(AppState app, String id) =>
     buildQuickTools(app).firstWhere((i) => i.id == id);
 
 void main() {
-  test('the home gallery carries the bug reporter and nothing else', () {
-    // M194 — no document, so no command has anything to act on; the bug
-    // reporter stays, because a bug in the gallery is still a bug (it is what
-    // the old floating red circle was reachable for there).
+  test('the home gallery carries AI and the bug reporter', () {
+    // Both are workspace actions, available before a document is open.
     final app = makeApp();
     expect(app.isHome, isTrue);
-    expect(idsOf(app), [QuickToolId.bug]);
+    expect(buttonIdsOf(app), [QuickToolId.ai, QuickToolId.bug]);
   });
 
   test('OK and Cancel lead the bar wherever the sketcher is live', () {
@@ -209,7 +207,7 @@ void main() {
     // No sketch tool can be running here, so OK and Cancel would be dark
     // forever. A button that can never light up does not belong on the bar.
     expect(buttonIdsOf(app),
-        [QuickToolId.undo, QuickToolId.redo, QuickToolId.bug]);
+        [QuickToolId.undo, QuickToolId.redo, QuickToolId.ai, QuickToolId.bug]);
   });
 
   test('every id the bar emits is dispatched — no dead buttons', () {
@@ -235,6 +233,7 @@ void main() {
             QuickToolId.copy,
             QuickToolId.cut,
             QuickToolId.paste,
+            QuickToolId.ai,
             QuickToolId.bug,
           ],
           contains(i.id),
@@ -317,7 +316,9 @@ void main() {
         RibbonDock.set(dock);
         for (final app in [makeApp(), editingApp()]) {
           await pumpBar(t, app);
-          final p = t.widget<Positioned>(find.byType(Positioned));
+          final p = t.widget<Positioned>(QuickToolsMenu.isMenu
+              ? find.byKey(const ValueKey('ai-launcher'))
+              : find.byType(Positioned));
           expect(p.top, 0, reason: '$dock');
           expect(p.right, QuickToolsBar.margin, reason: '$dock');
           expect(p.bottom, BottomTabBar.floatingHeightFor(app),

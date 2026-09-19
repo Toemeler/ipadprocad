@@ -184,7 +184,7 @@
   "@settingsSyncLooking": {
     "description": "Status: ein Code ist gesetzt, aber noch kein Gerät gefunden."
   },
-  "settingsSyncDevices": "{n, plural, =0{Suche\u2026} =1{1 Gerät} other{{n} Geräte}}",
+  "settingsSyncDevices": "{n, plural, =0{Suche…} =1{1 Gerät} other{{n} Geräte}}",
   "@settingsSyncDevices": {
     "description": "Status: wie viele Geräte gerade verbunden sind.",
     "placeholders": {
@@ -4409,7 +4409,7 @@
   },
   "msgFinishSketchToPaste": "Zuerst die Skizze beenden — ein Volumenkörper gehört ins Bauteil, nicht in die Skizze.",
   "@msgFinishSketchToPaste": {
-      "description": "M345 — Einfuegen eines Koerpers oder Bauteils, waehrend der 2D-Editor im Bauteil offen ist."
+    "description": "M345 — Einfuegen eines Koerpers oder Bauteils, waehrend der 2D-Editor im Bauteil offen ist."
   },
   "settingsSamples": "Render-Qualität",
   "@settingsSamples": {
@@ -4430,11 +4430,11 @@
   },
   "settingsRibbonNames": "Namen anzeigen",
   "@settingsRibbonNames": {
-      "description": "M349 — Kontrollkaestchen im Abschnitt Menueband: schreibt die Befehlsnamen unter die Symbole. Standard AUS."
+    "description": "M349 — Kontrollkaestchen im Abschnitt Menueband: schreibt die Befehlsnamen unter die Symbole. Standard AUS."
   },
   "settingsRibbonNamesFooter": "Ohne Namen ist das Band deutlich schmaler; jeder Befehl behält seinen Namen als Kurzhinweis.",
   "@settingsRibbonNamesFooter": {
-      "description": "M349 — Fusszeile des Abschnitts. Sagt, was der Schalter kostet und was er nicht kostet."
+    "description": "M349 — Fusszeile des Abschnitts. Sagt, was der Schalter kostet und was er nicht kostet."
   },
   "panelMeasure": "Messen",
   "@panelMeasure": {
@@ -4739,5 +4739,93 @@
   "measurePriorityEntity": "Kanten & Flächen",
   "@measurePriorityEntity": {
     "description": "M371 — Auswahlpriorität: Kanten, Flaechen und Eckpunkte. Inventors Vorgabe und unsere."
-  }
+  },
+  "aiSettingsTitle": "KI-Einstellungen",
+  "aiSettingsProvider": "Anbieter",
+  "aiSettingsModel": "Modell-ID",
+  "aiSettingsModelHint": "Modell-ID deines Anbieters eingeben",
+  "aiSettingsKey": "API-Schlüssel",
+  "aiSettingsKeyHint": "API-Schlüssel einfügen",
+  "aiSettingsKeySaved": "Schlüssel sicher gespeichert. Zum Beibehalten leer lassen.",
+  "aiSettingsSave": "Sichern",
+  "aiSettingsRemoveKey": "Schlüssel entfernen",
+  "aiSettingsApple": "Apple Intelligence",
+  "aiSettingsAppleInfo": "Kein API-Schlüssel erforderlich. Apple bestimmt das verfügbare Systemmodell. Die Verfügbarkeit hängt von Gerät, Systemversion und Apple-Intelligence-Einstellungen ab. Private Cloud Compute benötigt zusätzlich Apples App-Berechtigung.",
+  "aiSettingsPrivacy": "Beim Senden erhält dieser Anbieter deine Nachrichten, Anhänge und den ausgewählten Dokumentkontext. Gespräche bleiben auf diesem Gerät und werden nicht mit Dokumenten geteilt. Für die Nutzung des Anbieters können Kosten anfallen.",
+  "aiSettingsNoKey": "Ohne gespeicherten Schlüssel wird Apple Intelligence verwendet, sofern verfügbar.",
+  "aiSettingsDeleteHistory": "Alle Gespräche löschen",
+  "aiSettingsDeleteHistoryConfirm": "Alle KI-Gespräche und Anhänge auf diesem Gerät löschen? Deine CAD-Dokumente bleiben erhalten.",
+  "aiProviderOnDevice": "Apple Intelligence · Auf dem Gerät",
+  "aiProviderCloud": "Apple Intelligence · Private Cloud Compute",
+  "aiProviderUnavailable": "Apple Intelligence ist nicht verfügbar. Aktiviere es auf einem geeigneten Gerät oder hinterlege einen API-Schlüssel.",
+  "aiProviderReady": "Bereit",
+  "aiProviderLoading": "Verfügbarkeit wird geprüft …",
+  "aiLibrary": "Bibliothek",
+  "aiDefaultSession": "Neues Gespräch",
+  "aiErrorAttachment": "Wähle eine PNG-, JPEG-, WebP-, PDF- oder UTF-8-Textdatei. CAD-Dokumente kannst du über die Kontextauswahl hinzufügen.",
+  "aiErrorSize": "Der Anhang oder das Gespräch ist zu groß. Verwende Dateien bis 5 MB, höchstens sechs Anhänge je Nachricht und 8 MB je Gespräch. Starte ein neues Gespräch oder lösche ein altes, um Platz zu schaffen.",
+  "aiErrorEmpty": "Schreibe zuerst eine Nachricht oder füge einen Anhang hinzu.",
+  "aiErrorCredentials": "Der API-Schlüssel wurde abgelehnt. Prüfe Schlüssel und Berechtigungen in den KI-Einstellungen.",
+  "aiErrorSecureStorage": "Der sichere Schlüsselspeicher ist gesperrt oder nicht verfügbar. Entsperre Gerät oder Schlüsselbund und versuche es erneut. Keine Speicherung im Klartext.",
+  "aiErrorUnavailable": "Apple Intelligence ist auf diesem Gerät oder System nicht verfügbar. Füge in den KI-Einstellungen einen API-Schlüssel hinzu oder aktiviere Apple Intelligence auf einem unterstützten Gerät.",
+  "aiErrorImages": "Dieses Apple-Modell kann keine Bilder lesen. Wähle einen Anbieter mit Bildunterstützung oder entferne die Bilder vor dem Senden.",
+  "aiErrorPdf": "Diese Apple-Verbindung unterstützt keine PDF-Dateien. Verwende Gemini oder Claude oder hänge einen Textauszug an.",
+  "aiErrorContext": "Dieses Gespräch überschreitet das Kontextbudget des Modells. Starte ein neues Gespräch, kürze die Nachricht oder verringere den ausgewählten Kontext. Es wurde nichts stillschweigend weggelassen.",
+  "aiErrorCancelled": "Antwort gestoppt. Keine CAD-Änderungen vorgenommen.",
+  "aiErrorNetwork": "Der Anbieter konnte nicht erreicht werden oder die Anfrage dauerte zu lange. Prüfe deine Verbindung und versuche es erneut.",
+  "aiErrorQuota": "Das Nutzungslimit des Anbieters wurde erreicht. Warte oder prüfe dein Anbieterkonto, bevor du es erneut versuchst.",
+  "aiErrorModel": "Die Modell-ID ist für diesen Schlüssel nicht verfügbar. Prüfe die Modell-ID in den KI-Einstellungen.",
+  "aiErrorRefused": "Der Anbieter konnte diese Anfrage nicht beantworten. Passe die Anfrage an und versuche es erneut.",
+  "aiErrorStorage": "Das Gespräch konnte nicht gesichert werden. Prüfe freien Speicherplatz und Speicherberechtigungen, bevor du fortfährst.",
+  "aiErrorDocument": "Dieses Dokument ist nicht mehr verfügbar. Wähle es erneut aus der Dokumentliste.",
+  "aiErrorBusy": "Warte auf die aktuelle Antwort oder stoppe sie zuerst.",
+  "aiErrorResponse": "Der Anbieter hat eine unvollständige oder unlesbare Antwort geliefert. Versuche es erneut; deine Nachricht bleibt erhalten.",
+  "aiTitle": "KI-Assistent",
+  "aiSettings": "KI-Einstellungen",
+  "aiNewSession": "Neues Gespräch",
+  "aiSessions": "Gespräche",
+  "aiSessionName": "Gesprächsname",
+  "aiRenameSession": "Gespräch umbenennen",
+  "aiDeleteSession": "Gespräch löschen",
+  "aiDeleteSessionMessage": "„{name}“ samt Anhängen löschen? Dein CAD-Dokument bleibt erhalten.",
+  "aiContinueElsewhere": "In anderem Dokument fortsetzen",
+  "aiContinueExplanation": "Dieses Gespräch beim Dokumentwechsel fortsetzen. Beide Dokumente werden als Kontext hinzugefügt. Das Gespräch bleibt seinem Ursprungsdokument zugeordnet.",
+  "aiContext": "Dokumentkontext",
+  "aiContextCount": "Kontext · {count}",
+  "aiContextExplanation": "Dieses Dokument ist immer enthalten. Wähle weitere Dokumente, um ihre Zusammenfassungen hinzuzufügen.",
+  "aiWelcomeTitle": "Deine nächste Idee entwickeln",
+  "aiWelcomeBody": "Besprich den Entwurf, füge Referenzbilder hinzu oder plane die Modellierung. Jedes Dokument behält seine eigenen Gespräche.",
+  "aiAdviceOnly": "Entwurfsberatung und Gespräche sind verfügbar. Der Assistent kann CAD-Geometrie noch nicht erstellen oder ändern.",
+  "aiThinking": "Antwort wird vorbereitet …",
+  "aiYou": "Du",
+  "aiPromptPlaceholder": "Beschreibe deine Idee oder frage zum Entwurf …",
+  "aiAttachFiles": "Dateien anhängen",
+  "aiPasteImage": "Bild einfügen",
+  "aiRemoveAttachment": "Anhang entfernen",
+  "aiSend": "Nachricht senden",
+  "aiStop": "Antwort stoppen",
+  "aiClipboardEmpty": "Kein unterstütztes Bild in der Zwischenablage. Du kannst auch eine Bilddatei anhängen.",
+  "aiAttachmentSessionChanged": "Das aktive Gespräch wurde gewechselt. Hänge die Datei im gewünschten Gespräch erneut an.",
+  "aiAttachmentUnreadable": "Die gewählte Datei ist nicht lesbar. Wähle sie erneut oder wähle eine andere Datei.",
+  "aiPart": "Bauteil",
+  "aiSketch": "Skizze",
+  "aiAssembly": "Baugruppe",
+  "aiWorkspace": "Arbeitsbereich",
+  "@aiDeleteSessionMessage": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "@aiContextCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "aiRemoveContext": "Dokumentkontext entfernen",
+  "aiProviderGemini": "Gemini",
+  "aiProviderClaude": "Claude"
 }

@@ -18,7 +18,7 @@
 # WHY A TARBALL AND NOT A .deb
 # ----------------------------
 # A .deb has to name its dependencies, and the honest list for this build is
-# "the GTK 3 stack and nothing else" — Qt and OCCT travel INSIDE the bundle
+# "the GTK 3 stack and a desktop Secret Service" — Qt and OCCT travel INSIDE the bundle
 # because the app needs versions no distribution guarantees (Qt 6, OCCT 7.9.3
 # built with a specific option set; Ubuntu 24.04 ships OCCT 7.6, whose toolkit
 # names are different). A package whose dependency list is one line and whose
@@ -58,6 +58,58 @@ say "staging $stage"
 rm -rf "$stage"
 mkdir -p "$stage"
 cp -a "$bundle/." "$stage/"
+
+# Secure storage adds a plugin linked to libsecret. A successful build on a
+# machine with libsecret-dev installed does not make the tarball portable.
+# Bundle its non-GTK library closure; the user's desktop still owns the D-Bus
+# Secret Service and unlocking policy. Never substitute a plaintext key file.
+secure_plugin="$stage/lib/libflutter_secure_storage_linux_plugin.so"
+if [ -f "$secure_plugin" ]; then
+  command -v patchelf >/dev/null 2>&1 || {
+    echo "secure-storage packaging needs patchelf" >&2; exit 1;
+  }
+  secure_deps="$(ldd "$secure_plugin")"
+  if grep -q 'not found' <<< "$secure_deps"; then
+    echo "secure-storage plugin has unresolved shared libraries:" >&2
+    printf '%s\n' "$secure_deps" >&2
+    exit 1
+  fi
+  mkdir -p "$stage/share/licenses/secure-storage-runtime"
+  secret_bundled=0
+  while read -r soname arrow source rest; do
+    case "$soname" in
+      libsecret-1.so.*) license_package=libsecret-1-0; secret_bundled=1 ;;
+      libjsoncpp.so.*) license_package=libjsoncpp25 ;;
+      libgcrypt.so.*) license_package=libgcrypt20 ;;
+      libgpg-error.so.*) license_package=libgpg-error0 ;;
+      *) continue ;;
+    esac
+    [ "$arrow" = '=>' ] && [ -f "$source" ] || {
+      echo "cannot locate secure-storage runtime library $soname" >&2; exit 1;
+    }
+    target="$stage/lib/$soname"
+    if [ "$(readlink -f "$source")" != "$(readlink -f "$target")" ]; then
+      cp -L "$source" "$target"
+    fi
+    patchelf --set-rpath '$ORIGIN' "$target"
+    license="/usr/share/doc/$license_package/copyright"
+    if [ -f "$license" ]; then
+      cp "$license" "$stage/share/licenses/secure-storage-runtime/$license_package.txt"
+    fi
+  done <<< "$secure_deps"
+  [ "$secret_bundled" = 1 ] || {
+    echo "secure-storage plugin was found but libsecret was not resolved" >&2; exit 1;
+  }
+  patchelf --set-rpath '$ORIGIN' "$secure_plugin"
+fi
+
+cat > "$stage/AI-CREDENTIALS.txt" <<'CREDENTIALS'
+AI provider keys use your desktop's Secret Service keyring. The packaged app
+includes libsecret, but a running, unlocked keyring service is still required
+(usually GNOME Keyring or KDE Wallet). A locked/unavailable keyring is an error,
+not permission to write keys into a document or settings file. On Ubuntu/Debian,
+the system runtime package is libsecret-1-0; the desktop normally supplies it.
+CREDENTIALS
 
 # The desktop metadata. Kept OUT of the CMake install so that `flutter build
 # linux` produces exactly what `flutter run` runs — a bundle with an

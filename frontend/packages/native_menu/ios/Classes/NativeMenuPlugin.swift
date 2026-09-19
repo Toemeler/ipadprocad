@@ -62,6 +62,7 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
     static let settingsClosed = "__closed__"
 
     private let channel: FlutterMethodChannel
+    private let aiAssistant = AiAssistant()
     private var targets: [Target] = []
     private var interaction: UIContextMenuInteraction?
     private weak var attachedView: UIView?
@@ -112,6 +113,10 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
     public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         let args = call.arguments as? [String: Any] ?? [:]
         switch call.method {
+        case "aiCapabilities", "aiRespond", "aiCancel", "aiCredentialRead",
+             "aiCredentialWrite", "aiCredentialDelete", "aiClipboardImage":
+            aiAssistant.handle(call.method, args: args, result: result)
+
         case "isSupported":
             result(true)
 

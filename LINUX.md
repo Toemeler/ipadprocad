@@ -16,7 +16,7 @@ anything, that costs on this side. The short answer to the second question is
 ```bash
 sudo apt-get install -y \
   clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev \
-  libstdc++-12-dev zenity \
+  libstdc++-12-dev zenity libsecret-1-dev libjsoncpp-dev patchelf \
   g++ qt6-base-dev qt6-declarative-dev qt6-svg-dev
 
 # The CAD kernels. Once, then forget: ~40 minutes, almost all of it OCCT.
@@ -26,6 +26,15 @@ tools/desktop/build_native.sh
 cd frontend && flutter build linux --release
 ./build/linux/x64/release/bundle/prototype
 ```
+
+AI provider keys use the desktop keyring through `libsecret`. Building requires
+`libsecret-1-dev` (`libjsoncpp-dev` also supports older secure-storage plugin
+versions). Running an unpackaged build requires `libsecret-1-0` and an active,
+unlocked Secret Service provider, usually GNOME Keyring or KDE Wallet. Missing
+or locked keyrings must produce a credential-storage error; the app does not
+fall back to saving API keys in conversation JSON. Distribution packaging
+includes the plugin's non-GTK shared-library dependencies and runtime notes,
+but the user's desktop session still supplies the keyring service.
 
 A distributable tarball, an AppImage, and a per-user `install.sh` that
 registers the icon, the `.desktop` entry and the `.ptp`/`.pts`/`.pas` file

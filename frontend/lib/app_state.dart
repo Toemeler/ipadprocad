@@ -20,6 +20,9 @@ import 'package:gpu_view/gpu_view.dart' show GpuThumbnailer;
 import 'package:reality_view/reality_view.dart' show RealityThumbnailer;
 
 import 'asm_constraints.dart';
+import 'ai/ai_controller.dart';
+import 'ai/ai_store.dart';
+import 'ai/ai_workspace.dart';
 import 'asm_joint.dart';
 import 'asm_pick.dart';
 import 'asm_pattern.dart';
@@ -1464,6 +1467,10 @@ typedef StillEngine = ({
 const Duration _kFramePresentWait = Duration(seconds: 1);
 
 class AppState extends ChangeNotifier {
+  AppState() { _aiWorkspace = AiWorkspace(this); }
+  final AiController ai = AiController();
+  late final AiWorkspace _aiWorkspace;
+
   /// Scratch used only while parsing a part sidecar: sketch name -> stored
   /// visibility (null = key absent in a legacy file).
   final Map<String, bool?> _loadedSketchVis = {};
@@ -1801,6 +1808,14 @@ class AppState extends ChangeNotifier {
     // measurable launch regression in an app whose launch time is a tracked
     // number, and one frame is the cheaper of the two.
     L.attachStore(LocaleStore(_cacheRoot));
+    // Local conversations never enter shared documents or preference sync.
+    try {
+      final support = isDesktopHost ? Directory('${_docsDir!.path}/.ai')
+          : Directory('${(await getApplicationSupportDirectory()).path}/ai');
+      await ai.initialize(AiStore(support));
+    } catch (_) {
+      // The composer refuses unsaved sends if Application Support is unavailable.
+    }
     // M237 — previews written before this milestone have the viewport colour
     // BAKED IN, so every one of them stayed charcoal under the cream scheme.
     // They are derived data, so the repair is to throw them away and draw them
@@ -1999,6 +2014,7 @@ class AppState extends ChangeNotifier {
       if (now != ref.path || fresh != null) {
         _remembered[i] = DocRef(ref.name, ref.kind, now, ref.source,
             ref.lastOpened, fresh ?? ref.bookmark);
+        ai.migrateDocument(AiWorkspace.identity(ref), AiWorkspace.identity(_remembered[i]));
         if (now != ref.path) {
           moved++;
           Log.i('doc', '"${ref.name}" moved: ${ref.path} -> $now');
@@ -2185,6 +2201,7 @@ class AppState extends ChangeNotifier {
       return false;
     }
     final moved = DocRef(to, ref.kind, target, ref.source, DateTime.now());
+    ai.migrateDocument(AiWorkspace.identity(ref), AiWorkspace.identity(moved));
     library.remove(from);
     library[to] = moved;
     // A rename is a deletion and a creation to a mirror that works in names,
@@ -6377,6 +6394,8 @@ class AppState extends ChangeNotifier {
   @override
   void dispose() {
     _driveTimer?.cancel();
+    _aiWorkspace.dispose();
+    ai.dispose();
     _driveTimer = null;
     // M260 — same reason, one gesture later: the linger timer outlives the
     // tree that was orbiting, and a pending timer fails a widget test.

@@ -222,6 +222,7 @@ const String kRowDiscardChanges = 'discardchanges';
 const String kRowReplacedVersions = 'replacedversions';
 
 const String kSecDiagnostics = 'diagnostics';
+const String kSecAi = 'ai';
 const String kSecAbout = 'about';
 
 /// The two diagnostic commands.
@@ -557,6 +558,9 @@ List<SettingsSection> buildSettings(
         ],
         footer: t.settingsSyncFooter,
       ),
+      SettingsSection(id: kSecAi, header: t.aiSettingsTitle, rows: [
+        SettingsRow(id: 'configure', title: t.aiSettingsTitle, symbol: 'sparkles'),
+      ]),
       if (diagnostics)
         SettingsSection(
           id: kSecDiagnostics,

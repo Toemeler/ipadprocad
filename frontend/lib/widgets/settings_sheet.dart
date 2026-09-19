@@ -39,6 +39,7 @@ import '../sync/share_code.dart';
 import '../sync/sync_store.dart';
 import 'context_menu.dart';
 import 'native_prompts.dart';
+import 'ai_settings_sheet.dart';
 
 /// The live facts the About section reports.
 ///
@@ -196,6 +197,12 @@ class SettingsSheet {
       return;
     }
     switch (section) {
+      case kSecAi:
+        _close();
+        unawaited(NativeMenu.dismissSettings().then((_) {
+          if (_context.mounted) return showAiSettings(_context, _app.ai);
+        }));
+        return;
       case kSecAppearance:
         final m = AppThemeMode.byId(row);
         if (m != null) T.set(m);
@@ -516,6 +523,9 @@ class _FallbackDialogState extends State<_FallbackDialog> {
 
   void _tap(String section, String row) {
     switch (section) {
+      case kSecAi:
+        unawaited(showAiSettings(context, widget.app.ai));
+        return;
       case kSecAppearance:
         final m = AppThemeMode.byId(row);
         if (m != null) T.set(m);

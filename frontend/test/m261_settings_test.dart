@@ -87,6 +87,7 @@ void main() {
         kSecRibbon,
         kSecSamples,
         kSecSync,
+        kSecAi,
         kSecDiagnostics,
         kSecAbout
       ]);
@@ -196,6 +197,7 @@ void main() {
         kSecRibbon,
         kSecSamples,
         kSecSync,
+        kSecAi,
         kSecAbout
       ]);
     });
@@ -232,7 +234,7 @@ void main() {
       // Backdrop. Kept as a number rather than `isNotEmpty` on purpose: the
       // Swift sheet renders whatever comes over the wire, so a section that
       // silently stops being sent is exactly the failure this asserts against.
-      expect(maps, hasLength(9));
+      expect(maps, hasLength(10));
       for (final s in maps) {
         expect(s['id'], isA<String>());
         expect(s['header'], isA<String>());

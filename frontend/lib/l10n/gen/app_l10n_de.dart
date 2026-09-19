@@ -4943,4 +4943,262 @@ class AppL10nDe extends AppL10n {
 
   @override
   String get measurePriorityEntity => 'Kanten & Flächen';
+
+  @override
+  String get aiSettingsTitle => 'KI-Einstellungen';
+
+  @override
+  String get aiSettingsProvider => 'Anbieter';
+
+  @override
+  String get aiSettingsModel => 'Modell-ID';
+
+  @override
+  String get aiSettingsModelHint => 'Modell-ID deines Anbieters eingeben';
+
+  @override
+  String get aiSettingsKey => 'API-Schlüssel';
+
+  @override
+  String get aiSettingsKeyHint => 'API-Schlüssel einfügen';
+
+  @override
+  String get aiSettingsKeySaved =>
+      'Schlüssel sicher gespeichert. Zum Beibehalten leer lassen.';
+
+  @override
+  String get aiSettingsSave => 'Sichern';
+
+  @override
+  String get aiSettingsRemoveKey => 'Schlüssel entfernen';
+
+  @override
+  String get aiSettingsApple => 'Apple Intelligence';
+
+  @override
+  String get aiSettingsAppleInfo =>
+      'Kein API-Schlüssel erforderlich. Apple bestimmt das verfügbare Systemmodell. Die Verfügbarkeit hängt von Gerät, Systemversion und Apple-Intelligence-Einstellungen ab. Private Cloud Compute benötigt zusätzlich Apples App-Berechtigung.';
+
+  @override
+  String get aiSettingsPrivacy =>
+      'Beim Senden erhält dieser Anbieter deine Nachrichten, Anhänge und den ausgewählten Dokumentkontext. Gespräche bleiben auf diesem Gerät und werden nicht mit Dokumenten geteilt. Für die Nutzung des Anbieters können Kosten anfallen.';
+
+  @override
+  String get aiSettingsNoKey =>
+      'Ohne gespeicherten Schlüssel wird Apple Intelligence verwendet, sofern verfügbar.';
+
+  @override
+  String get aiSettingsDeleteHistory => 'Alle Gespräche löschen';
+
+  @override
+  String get aiSettingsDeleteHistoryConfirm =>
+      'Alle KI-Gespräche und Anhänge auf diesem Gerät löschen? Deine CAD-Dokumente bleiben erhalten.';
+
+  @override
+  String get aiProviderOnDevice => 'Apple Intelligence · Auf dem Gerät';
+
+  @override
+  String get aiProviderCloud => 'Apple Intelligence · Private Cloud Compute';
+
+  @override
+  String get aiProviderUnavailable =>
+      'Apple Intelligence ist nicht verfügbar. Aktiviere es auf einem geeigneten Gerät oder hinterlege einen API-Schlüssel.';
+
+  @override
+  String get aiProviderReady => 'Bereit';
+
+  @override
+  String get aiProviderLoading => 'Verfügbarkeit wird geprüft …';
+
+  @override
+  String get aiLibrary => 'Bibliothek';
+
+  @override
+  String get aiDefaultSession => 'Neues Gespräch';
+
+  @override
+  String get aiErrorAttachment =>
+      'Wähle eine PNG-, JPEG-, WebP-, PDF- oder UTF-8-Textdatei. CAD-Dokumente kannst du über die Kontextauswahl hinzufügen.';
+
+  @override
+  String get aiErrorSize =>
+      'Der Anhang oder das Gespräch ist zu groß. Verwende Dateien bis 5 MB, höchstens sechs Anhänge je Nachricht und 8 MB je Gespräch. Starte ein neues Gespräch oder lösche ein altes, um Platz zu schaffen.';
+
+  @override
+  String get aiErrorEmpty =>
+      'Schreibe zuerst eine Nachricht oder füge einen Anhang hinzu.';
+
+  @override
+  String get aiErrorCredentials =>
+      'Der API-Schlüssel wurde abgelehnt. Prüfe Schlüssel und Berechtigungen in den KI-Einstellungen.';
+
+  @override
+  String get aiErrorSecureStorage =>
+      'Der sichere Schlüsselspeicher ist gesperrt oder nicht verfügbar. Entsperre Gerät oder Schlüsselbund und versuche es erneut. Keine Speicherung im Klartext.';
+
+  @override
+  String get aiErrorUnavailable =>
+      'Apple Intelligence ist auf diesem Gerät oder System nicht verfügbar. Füge in den KI-Einstellungen einen API-Schlüssel hinzu oder aktiviere Apple Intelligence auf einem unterstützten Gerät.';
+
+  @override
+  String get aiErrorImages =>
+      'Dieses Apple-Modell kann keine Bilder lesen. Wähle einen Anbieter mit Bildunterstützung oder entferne die Bilder vor dem Senden.';
+
+  @override
+  String get aiErrorPdf =>
+      'Diese Apple-Verbindung unterstützt keine PDF-Dateien. Verwende Gemini oder Claude oder hänge einen Textauszug an.';
+
+  @override
+  String get aiErrorContext =>
+      'Dieses Gespräch überschreitet das Kontextbudget des Modells. Starte ein neues Gespräch, kürze die Nachricht oder verringere den ausgewählten Kontext. Es wurde nichts stillschweigend weggelassen.';
+
+  @override
+  String get aiErrorCancelled =>
+      'Antwort gestoppt. Keine CAD-Änderungen vorgenommen.';
+
+  @override
+  String get aiErrorNetwork =>
+      'Der Anbieter konnte nicht erreicht werden oder die Anfrage dauerte zu lange. Prüfe deine Verbindung und versuche es erneut.';
+
+  @override
+  String get aiErrorQuota =>
+      'Das Nutzungslimit des Anbieters wurde erreicht. Warte oder prüfe dein Anbieterkonto, bevor du es erneut versuchst.';
+
+  @override
+  String get aiErrorModel =>
+      'Die Modell-ID ist für diesen Schlüssel nicht verfügbar. Prüfe die Modell-ID in den KI-Einstellungen.';
+
+  @override
+  String get aiErrorRefused =>
+      'Der Anbieter konnte diese Anfrage nicht beantworten. Passe die Anfrage an und versuche es erneut.';
+
+  @override
+  String get aiErrorStorage =>
+      'Das Gespräch konnte nicht gesichert werden. Prüfe freien Speicherplatz und Speicherberechtigungen, bevor du fortfährst.';
+
+  @override
+  String get aiErrorDocument =>
+      'Dieses Dokument ist nicht mehr verfügbar. Wähle es erneut aus der Dokumentliste.';
+
+  @override
+  String get aiErrorBusy =>
+      'Warte auf die aktuelle Antwort oder stoppe sie zuerst.';
+
+  @override
+  String get aiErrorResponse =>
+      'Der Anbieter hat eine unvollständige oder unlesbare Antwort geliefert. Versuche es erneut; deine Nachricht bleibt erhalten.';
+
+  @override
+  String get aiTitle => 'KI-Assistent';
+
+  @override
+  String get aiSettings => 'KI-Einstellungen';
+
+  @override
+  String get aiNewSession => 'Neues Gespräch';
+
+  @override
+  String get aiSessions => 'Gespräche';
+
+  @override
+  String get aiSessionName => 'Gesprächsname';
+
+  @override
+  String get aiRenameSession => 'Gespräch umbenennen';
+
+  @override
+  String get aiDeleteSession => 'Gespräch löschen';
+
+  @override
+  String aiDeleteSessionMessage(String name) {
+    return '„$name“ samt Anhängen löschen? Dein CAD-Dokument bleibt erhalten.';
+  }
+
+  @override
+  String get aiContinueElsewhere => 'In anderem Dokument fortsetzen';
+
+  @override
+  String get aiContinueExplanation =>
+      'Dieses Gespräch beim Dokumentwechsel fortsetzen. Beide Dokumente werden als Kontext hinzugefügt. Das Gespräch bleibt seinem Ursprungsdokument zugeordnet.';
+
+  @override
+  String get aiContext => 'Dokumentkontext';
+
+  @override
+  String aiContextCount(int count) {
+    return 'Kontext · $count';
+  }
+
+  @override
+  String get aiContextExplanation =>
+      'Dieses Dokument ist immer enthalten. Wähle weitere Dokumente, um ihre Zusammenfassungen hinzuzufügen.';
+
+  @override
+  String get aiWelcomeTitle => 'Deine nächste Idee entwickeln';
+
+  @override
+  String get aiWelcomeBody =>
+      'Besprich den Entwurf, füge Referenzbilder hinzu oder plane die Modellierung. Jedes Dokument behält seine eigenen Gespräche.';
+
+  @override
+  String get aiAdviceOnly =>
+      'Entwurfsberatung und Gespräche sind verfügbar. Der Assistent kann CAD-Geometrie noch nicht erstellen oder ändern.';
+
+  @override
+  String get aiThinking => 'Antwort wird vorbereitet …';
+
+  @override
+  String get aiYou => 'Du';
+
+  @override
+  String get aiPromptPlaceholder =>
+      'Beschreibe deine Idee oder frage zum Entwurf …';
+
+  @override
+  String get aiAttachFiles => 'Dateien anhängen';
+
+  @override
+  String get aiPasteImage => 'Bild einfügen';
+
+  @override
+  String get aiRemoveAttachment => 'Anhang entfernen';
+
+  @override
+  String get aiSend => 'Nachricht senden';
+
+  @override
+  String get aiStop => 'Antwort stoppen';
+
+  @override
+  String get aiClipboardEmpty =>
+      'Kein unterstütztes Bild in der Zwischenablage. Du kannst auch eine Bilddatei anhängen.';
+
+  @override
+  String get aiAttachmentSessionChanged =>
+      'Das aktive Gespräch wurde gewechselt. Hänge die Datei im gewünschten Gespräch erneut an.';
+
+  @override
+  String get aiAttachmentUnreadable =>
+      'Die gewählte Datei ist nicht lesbar. Wähle sie erneut oder wähle eine andere Datei.';
+
+  @override
+  String get aiPart => 'Bauteil';
+
+  @override
+  String get aiSketch => 'Skizze';
+
+  @override
+  String get aiAssembly => 'Baugruppe';
+
+  @override
+  String get aiWorkspace => 'Arbeitsbereich';
+
+  @override
+  String get aiRemoveContext => 'Dokumentkontext entfernen';
+
+  @override
+  String get aiProviderGemini => 'Gemini';
+
+  @override
+  String get aiProviderClaude => 'Claude';
 }

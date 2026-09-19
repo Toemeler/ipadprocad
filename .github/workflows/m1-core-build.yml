@@ -81,7 +81,9 @@ jobs:
           flutter test 2>&1 | tee ../ci-dart-tests.log
 
       - name: Commit dart-check logs
-        if: always()
+        # This branch is intentionally isolated. Logs remain available as
+        # Actions artifacts without force-pushing unrelated debug branches.
+        if: always() && github.ref != 'refs/heads/claude/gallant-dirac-dwuge7'
         run: |
           mkdir -p ci-logs-dart
           cp ci-dart-analyze.log ci-logs-dart/ 2>/dev/null || true
@@ -257,7 +259,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Commit debug logs
-        if: always()
+        if: always() && github.ref != 'refs/heads/claude/gallant-dirac-dwuge7'
         run: |
           mkdir -p ci-logs
           for l in env-dump ci-configure ci-build ci-verify ci-bundle ci-xcframework; do
@@ -270,6 +272,15 @@ jobs:
           git add -f ci-logs
           git commit -m "CI: debug logs from run ${{ github.run_id }}" || exit 0
           git push origin HEAD:ci-debug-logs --force
+
+      - name: Upload isolated branch core logs
+        if: always() && github.ref == 'refs/heads/claude/gallant-dirac-dwuge7'
+        uses: actions/upload-artifact@v4
+        with:
+          name: branch-core-logs
+          path: ci-*.log
+          if-no-files-found: ignore
+          retention-days: 3
 
       - name: Upload build log
         if: always()
@@ -460,7 +471,7 @@ jobs:
           } 2>&1 | tee ../../ci-sim-run.log
 
       - name: Commit M3 debug logs
-        if: always()
+        if: always() && github.ref != 'refs/heads/claude/gallant-dirac-dwuge7'
         run: |
           mkdir -p ci-logs-m3
           for l in ci-qt-ios-layout ci-sim-configure ci-sim-build ci-sim-inspect ci-sim-run; do
@@ -472,6 +483,15 @@ jobs:
           git add -f ci-logs-m3
           git commit -m "CI(M3): iOS-sim logic-test logs from run ${{ github.run_id }}" || exit 0
           git push origin HEAD:ci-debug-logs-m3 --force
+
+      - name: Upload isolated branch simulator logs
+        if: always() && github.ref == 'refs/heads/claude/gallant-dirac-dwuge7'
+        uses: actions/upload-artifact@v4
+        with:
+          name: branch-simulator-logs
+          path: ci-*.log
+          if-no-files-found: ignore
+          retention-days: 3
 
       - name: Upload M3 artifacts
         if: always()
@@ -1607,7 +1627,7 @@ jobs:
       # release that is now only complete once every platform has attached.
 
       - name: Commit M5 debug logs
-        if: always()
+        if: always() && github.ref != 'refs/heads/claude/gallant-dirac-dwuge7'
         run: |
           mkdir -p ci-logs-m5
           for l in ci-m5-core ci-m5-scaffold ci-m5-xcconfig ci-m5-analyze ci-m5-build ci-m5-verify; do
@@ -1625,3 +1645,12 @@ jobs:
           git add -f ci-logs-m5
           git commit -m "CI(M5): Flutter-IPA build logs from run ${{ github.run_id }}" || exit 0
           git push origin HEAD:ci-debug-logs-m5 --force
+
+      - name: Upload isolated branch iOS logs
+        if: always() && github.ref == 'refs/heads/claude/gallant-dirac-dwuge7'
+        uses: actions/upload-artifact@v4
+        with:
+          name: branch-ios-logs
+          path: ci-m5-*.log
+          if-no-files-found: ignore
+          retention-days: 3

@@ -8118,6 +8118,450 @@ abstract class AppL10n {
   /// In de, this message translates to:
   /// **'Kanten & Flächen'**
   String get measurePriorityEntity;
+
+  /// No description provided for @aiSettingsTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'KI-Einstellungen'**
+  String get aiSettingsTitle;
+
+  /// No description provided for @aiSettingsProvider.
+  ///
+  /// In de, this message translates to:
+  /// **'Anbieter'**
+  String get aiSettingsProvider;
+
+  /// No description provided for @aiSettingsModel.
+  ///
+  /// In de, this message translates to:
+  /// **'Modell-ID'**
+  String get aiSettingsModel;
+
+  /// No description provided for @aiSettingsModelHint.
+  ///
+  /// In de, this message translates to:
+  /// **'Modell-ID deines Anbieters eingeben'**
+  String get aiSettingsModelHint;
+
+  /// No description provided for @aiSettingsKey.
+  ///
+  /// In de, this message translates to:
+  /// **'API-Schlüssel'**
+  String get aiSettingsKey;
+
+  /// No description provided for @aiSettingsKeyHint.
+  ///
+  /// In de, this message translates to:
+  /// **'API-Schlüssel einfügen'**
+  String get aiSettingsKeyHint;
+
+  /// No description provided for @aiSettingsKeySaved.
+  ///
+  /// In de, this message translates to:
+  /// **'Schlüssel sicher gespeichert. Zum Beibehalten leer lassen.'**
+  String get aiSettingsKeySaved;
+
+  /// No description provided for @aiSettingsSave.
+  ///
+  /// In de, this message translates to:
+  /// **'Sichern'**
+  String get aiSettingsSave;
+
+  /// No description provided for @aiSettingsRemoveKey.
+  ///
+  /// In de, this message translates to:
+  /// **'Schlüssel entfernen'**
+  String get aiSettingsRemoveKey;
+
+  /// No description provided for @aiSettingsApple.
+  ///
+  /// In de, this message translates to:
+  /// **'Apple Intelligence'**
+  String get aiSettingsApple;
+
+  /// No description provided for @aiSettingsAppleInfo.
+  ///
+  /// In de, this message translates to:
+  /// **'Kein API-Schlüssel erforderlich. Apple bestimmt das verfügbare Systemmodell. Die Verfügbarkeit hängt von Gerät, Systemversion und Apple-Intelligence-Einstellungen ab. Private Cloud Compute benötigt zusätzlich Apples App-Berechtigung.'**
+  String get aiSettingsAppleInfo;
+
+  /// No description provided for @aiSettingsPrivacy.
+  ///
+  /// In de, this message translates to:
+  /// **'Beim Senden erhält dieser Anbieter deine Nachrichten, Anhänge und den ausgewählten Dokumentkontext. Gespräche bleiben auf diesem Gerät und werden nicht mit Dokumenten geteilt. Für die Nutzung des Anbieters können Kosten anfallen.'**
+  String get aiSettingsPrivacy;
+
+  /// No description provided for @aiSettingsNoKey.
+  ///
+  /// In de, this message translates to:
+  /// **'Ohne gespeicherten Schlüssel wird Apple Intelligence verwendet, sofern verfügbar.'**
+  String get aiSettingsNoKey;
+
+  /// No description provided for @aiSettingsDeleteHistory.
+  ///
+  /// In de, this message translates to:
+  /// **'Alle Gespräche löschen'**
+  String get aiSettingsDeleteHistory;
+
+  /// No description provided for @aiSettingsDeleteHistoryConfirm.
+  ///
+  /// In de, this message translates to:
+  /// **'Alle KI-Gespräche und Anhänge auf diesem Gerät löschen? Deine CAD-Dokumente bleiben erhalten.'**
+  String get aiSettingsDeleteHistoryConfirm;
+
+  /// No description provided for @aiProviderOnDevice.
+  ///
+  /// In de, this message translates to:
+  /// **'Apple Intelligence · Auf dem Gerät'**
+  String get aiProviderOnDevice;
+
+  /// No description provided for @aiProviderCloud.
+  ///
+  /// In de, this message translates to:
+  /// **'Apple Intelligence · Private Cloud Compute'**
+  String get aiProviderCloud;
+
+  /// No description provided for @aiProviderUnavailable.
+  ///
+  /// In de, this message translates to:
+  /// **'Apple Intelligence ist nicht verfügbar. Aktiviere es auf einem geeigneten Gerät oder hinterlege einen API-Schlüssel.'**
+  String get aiProviderUnavailable;
+
+  /// No description provided for @aiProviderReady.
+  ///
+  /// In de, this message translates to:
+  /// **'Bereit'**
+  String get aiProviderReady;
+
+  /// No description provided for @aiProviderLoading.
+  ///
+  /// In de, this message translates to:
+  /// **'Verfügbarkeit wird geprüft …'**
+  String get aiProviderLoading;
+
+  /// No description provided for @aiLibrary.
+  ///
+  /// In de, this message translates to:
+  /// **'Bibliothek'**
+  String get aiLibrary;
+
+  /// No description provided for @aiDefaultSession.
+  ///
+  /// In de, this message translates to:
+  /// **'Neues Gespräch'**
+  String get aiDefaultSession;
+
+  /// No description provided for @aiErrorAttachment.
+  ///
+  /// In de, this message translates to:
+  /// **'Wähle eine PNG-, JPEG-, WebP-, PDF- oder UTF-8-Textdatei. CAD-Dokumente kannst du über die Kontextauswahl hinzufügen.'**
+  String get aiErrorAttachment;
+
+  /// No description provided for @aiErrorSize.
+  ///
+  /// In de, this message translates to:
+  /// **'Der Anhang oder das Gespräch ist zu groß. Verwende Dateien bis 5 MB, höchstens sechs Anhänge je Nachricht und 8 MB je Gespräch. Starte ein neues Gespräch oder lösche ein altes, um Platz zu schaffen.'**
+  String get aiErrorSize;
+
+  /// No description provided for @aiErrorEmpty.
+  ///
+  /// In de, this message translates to:
+  /// **'Schreibe zuerst eine Nachricht oder füge einen Anhang hinzu.'**
+  String get aiErrorEmpty;
+
+  /// No description provided for @aiErrorCredentials.
+  ///
+  /// In de, this message translates to:
+  /// **'Der API-Schlüssel wurde abgelehnt. Prüfe Schlüssel und Berechtigungen in den KI-Einstellungen.'**
+  String get aiErrorCredentials;
+
+  /// No description provided for @aiErrorSecureStorage.
+  ///
+  /// In de, this message translates to:
+  /// **'Der sichere Schlüsselspeicher ist gesperrt oder nicht verfügbar. Entsperre Gerät oder Schlüsselbund und versuche es erneut. Keine Speicherung im Klartext.'**
+  String get aiErrorSecureStorage;
+
+  /// No description provided for @aiErrorUnavailable.
+  ///
+  /// In de, this message translates to:
+  /// **'Apple Intelligence ist auf diesem Gerät oder System nicht verfügbar. Füge in den KI-Einstellungen einen API-Schlüssel hinzu oder aktiviere Apple Intelligence auf einem unterstützten Gerät.'**
+  String get aiErrorUnavailable;
+
+  /// No description provided for @aiErrorImages.
+  ///
+  /// In de, this message translates to:
+  /// **'Dieses Apple-Modell kann keine Bilder lesen. Wähle einen Anbieter mit Bildunterstützung oder entferne die Bilder vor dem Senden.'**
+  String get aiErrorImages;
+
+  /// No description provided for @aiErrorPdf.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese Apple-Verbindung unterstützt keine PDF-Dateien. Verwende Gemini oder Claude oder hänge einen Textauszug an.'**
+  String get aiErrorPdf;
+
+  /// No description provided for @aiErrorContext.
+  ///
+  /// In de, this message translates to:
+  /// **'Dieses Gespräch überschreitet das Kontextbudget des Modells. Starte ein neues Gespräch, kürze die Nachricht oder verringere den ausgewählten Kontext. Es wurde nichts stillschweigend weggelassen.'**
+  String get aiErrorContext;
+
+  /// No description provided for @aiErrorCancelled.
+  ///
+  /// In de, this message translates to:
+  /// **'Antwort gestoppt. Keine CAD-Änderungen vorgenommen.'**
+  String get aiErrorCancelled;
+
+  /// No description provided for @aiErrorNetwork.
+  ///
+  /// In de, this message translates to:
+  /// **'Der Anbieter konnte nicht erreicht werden oder die Anfrage dauerte zu lange. Prüfe deine Verbindung und versuche es erneut.'**
+  String get aiErrorNetwork;
+
+  /// No description provided for @aiErrorQuota.
+  ///
+  /// In de, this message translates to:
+  /// **'Das Nutzungslimit des Anbieters wurde erreicht. Warte oder prüfe dein Anbieterkonto, bevor du es erneut versuchst.'**
+  String get aiErrorQuota;
+
+  /// No description provided for @aiErrorModel.
+  ///
+  /// In de, this message translates to:
+  /// **'Die Modell-ID ist für diesen Schlüssel nicht verfügbar. Prüfe die Modell-ID in den KI-Einstellungen.'**
+  String get aiErrorModel;
+
+  /// No description provided for @aiErrorRefused.
+  ///
+  /// In de, this message translates to:
+  /// **'Der Anbieter konnte diese Anfrage nicht beantworten. Passe die Anfrage an und versuche es erneut.'**
+  String get aiErrorRefused;
+
+  /// No description provided for @aiErrorStorage.
+  ///
+  /// In de, this message translates to:
+  /// **'Das Gespräch konnte nicht gesichert werden. Prüfe freien Speicherplatz und Speicherberechtigungen, bevor du fortfährst.'**
+  String get aiErrorStorage;
+
+  /// No description provided for @aiErrorDocument.
+  ///
+  /// In de, this message translates to:
+  /// **'Dieses Dokument ist nicht mehr verfügbar. Wähle es erneut aus der Dokumentliste.'**
+  String get aiErrorDocument;
+
+  /// No description provided for @aiErrorBusy.
+  ///
+  /// In de, this message translates to:
+  /// **'Warte auf die aktuelle Antwort oder stoppe sie zuerst.'**
+  String get aiErrorBusy;
+
+  /// No description provided for @aiErrorResponse.
+  ///
+  /// In de, this message translates to:
+  /// **'Der Anbieter hat eine unvollständige oder unlesbare Antwort geliefert. Versuche es erneut; deine Nachricht bleibt erhalten.'**
+  String get aiErrorResponse;
+
+  /// No description provided for @aiTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'KI-Assistent'**
+  String get aiTitle;
+
+  /// No description provided for @aiSettings.
+  ///
+  /// In de, this message translates to:
+  /// **'KI-Einstellungen'**
+  String get aiSettings;
+
+  /// No description provided for @aiNewSession.
+  ///
+  /// In de, this message translates to:
+  /// **'Neues Gespräch'**
+  String get aiNewSession;
+
+  /// No description provided for @aiSessions.
+  ///
+  /// In de, this message translates to:
+  /// **'Gespräche'**
+  String get aiSessions;
+
+  /// No description provided for @aiSessionName.
+  ///
+  /// In de, this message translates to:
+  /// **'Gesprächsname'**
+  String get aiSessionName;
+
+  /// No description provided for @aiRenameSession.
+  ///
+  /// In de, this message translates to:
+  /// **'Gespräch umbenennen'**
+  String get aiRenameSession;
+
+  /// No description provided for @aiDeleteSession.
+  ///
+  /// In de, this message translates to:
+  /// **'Gespräch löschen'**
+  String get aiDeleteSession;
+
+  /// No description provided for @aiDeleteSessionMessage.
+  ///
+  /// In de, this message translates to:
+  /// **'„{name}“ samt Anhängen löschen? Dein CAD-Dokument bleibt erhalten.'**
+  String aiDeleteSessionMessage(String name);
+
+  /// No description provided for @aiContinueElsewhere.
+  ///
+  /// In de, this message translates to:
+  /// **'In anderem Dokument fortsetzen'**
+  String get aiContinueElsewhere;
+
+  /// No description provided for @aiContinueExplanation.
+  ///
+  /// In de, this message translates to:
+  /// **'Dieses Gespräch beim Dokumentwechsel fortsetzen. Beide Dokumente werden als Kontext hinzugefügt. Das Gespräch bleibt seinem Ursprungsdokument zugeordnet.'**
+  String get aiContinueExplanation;
+
+  /// No description provided for @aiContext.
+  ///
+  /// In de, this message translates to:
+  /// **'Dokumentkontext'**
+  String get aiContext;
+
+  /// No description provided for @aiContextCount.
+  ///
+  /// In de, this message translates to:
+  /// **'Kontext · {count}'**
+  String aiContextCount(int count);
+
+  /// No description provided for @aiContextExplanation.
+  ///
+  /// In de, this message translates to:
+  /// **'Dieses Dokument ist immer enthalten. Wähle weitere Dokumente, um ihre Zusammenfassungen hinzuzufügen.'**
+  String get aiContextExplanation;
+
+  /// No description provided for @aiWelcomeTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Deine nächste Idee entwickeln'**
+  String get aiWelcomeTitle;
+
+  /// No description provided for @aiWelcomeBody.
+  ///
+  /// In de, this message translates to:
+  /// **'Besprich den Entwurf, füge Referenzbilder hinzu oder plane die Modellierung. Jedes Dokument behält seine eigenen Gespräche.'**
+  String get aiWelcomeBody;
+
+  /// No description provided for @aiAdviceOnly.
+  ///
+  /// In de, this message translates to:
+  /// **'Entwurfsberatung und Gespräche sind verfügbar. Der Assistent kann CAD-Geometrie noch nicht erstellen oder ändern.'**
+  String get aiAdviceOnly;
+
+  /// No description provided for @aiThinking.
+  ///
+  /// In de, this message translates to:
+  /// **'Antwort wird vorbereitet …'**
+  String get aiThinking;
+
+  /// No description provided for @aiYou.
+  ///
+  /// In de, this message translates to:
+  /// **'Du'**
+  String get aiYou;
+
+  /// No description provided for @aiPromptPlaceholder.
+  ///
+  /// In de, this message translates to:
+  /// **'Beschreibe deine Idee oder frage zum Entwurf …'**
+  String get aiPromptPlaceholder;
+
+  /// No description provided for @aiAttachFiles.
+  ///
+  /// In de, this message translates to:
+  /// **'Dateien anhängen'**
+  String get aiAttachFiles;
+
+  /// No description provided for @aiPasteImage.
+  ///
+  /// In de, this message translates to:
+  /// **'Bild einfügen'**
+  String get aiPasteImage;
+
+  /// No description provided for @aiRemoveAttachment.
+  ///
+  /// In de, this message translates to:
+  /// **'Anhang entfernen'**
+  String get aiRemoveAttachment;
+
+  /// No description provided for @aiSend.
+  ///
+  /// In de, this message translates to:
+  /// **'Nachricht senden'**
+  String get aiSend;
+
+  /// No description provided for @aiStop.
+  ///
+  /// In de, this message translates to:
+  /// **'Antwort stoppen'**
+  String get aiStop;
+
+  /// No description provided for @aiClipboardEmpty.
+  ///
+  /// In de, this message translates to:
+  /// **'Kein unterstütztes Bild in der Zwischenablage. Du kannst auch eine Bilddatei anhängen.'**
+  String get aiClipboardEmpty;
+
+  /// No description provided for @aiAttachmentSessionChanged.
+  ///
+  /// In de, this message translates to:
+  /// **'Das aktive Gespräch wurde gewechselt. Hänge die Datei im gewünschten Gespräch erneut an.'**
+  String get aiAttachmentSessionChanged;
+
+  /// No description provided for @aiAttachmentUnreadable.
+  ///
+  /// In de, this message translates to:
+  /// **'Die gewählte Datei ist nicht lesbar. Wähle sie erneut oder wähle eine andere Datei.'**
+  String get aiAttachmentUnreadable;
+
+  /// No description provided for @aiPart.
+  ///
+  /// In de, this message translates to:
+  /// **'Bauteil'**
+  String get aiPart;
+
+  /// No description provided for @aiSketch.
+  ///
+  /// In de, this message translates to:
+  /// **'Skizze'**
+  String get aiSketch;
+
+  /// No description provided for @aiAssembly.
+  ///
+  /// In de, this message translates to:
+  /// **'Baugruppe'**
+  String get aiAssembly;
+
+  /// No description provided for @aiWorkspace.
+  ///
+  /// In de, this message translates to:
+  /// **'Arbeitsbereich'**
+  String get aiWorkspace;
+
+  /// No description provided for @aiRemoveContext.
+  ///
+  /// In de, this message translates to:
+  /// **'Dokumentkontext entfernen'**
+  String get aiRemoveContext;
+
+  /// No description provided for @aiProviderGemini.
+  ///
+  /// In de, this message translates to:
+  /// **'Gemini'**
+  String get aiProviderGemini;
+
+  /// No description provided for @aiProviderClaude.
+  ///
+  /// In de, this message translates to:
+  /// **'Claude'**
+  String get aiProviderClaude;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

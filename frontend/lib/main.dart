@@ -35,6 +35,7 @@ import 'package:native_menu/native_menu.dart';
 
 import 'widgets/native_browser_host.dart';
 import 'widgets/quick_tools.dart';
+import 'widgets/ai_composer.dart';
 import 'widgets/update_prompt.dart';
 import 'widgets/pattern_panel_3d.dart';
 import 'widgets/ribbon_dock_layout.dart';
@@ -251,7 +252,10 @@ class _LogFlusher extends WidgetsBindingObserver {
 
   /// Persist the open document; completes when it is actually on disk.
   Future<void> flushDocument() {
-    _saves = _saves.then((_) => app.flushCurrentDocument()).then((_) {
+    _saves = _saves.then((_) async {
+      await app.flushCurrentDocument();
+      await app.ai.flush();
+    }).then((_) {
       Log.flush();
     }).catchError((Object e, StackTrace st) {
       // A save that failed must not also break the chain, or every later save
@@ -476,6 +480,7 @@ class PrototypeApp extends StatelessWidget {
           Positioned(
               bottom: 0, left: 0, right: 0, child: BottomTabBar(app: app)),
         QuickToolsBar(app: app),
+        AiComposer(app: app),
       ]);
     }
     return Stack(children: [
@@ -562,6 +567,7 @@ class PrototypeApp extends StatelessWidget {
       // Stack: it must sit ABOVE everything it floats over, and it is the
       // smallest of the floating panels, so it covers least.
       QuickToolsBar(app: app),
+      AiComposer(app: app),
     ]);
   }
 

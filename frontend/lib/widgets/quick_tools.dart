@@ -58,6 +58,7 @@ class QuickToolId {
   static const copy = 'copy';
   static const cut = 'cut';
   static const paste = 'paste';
+  static const ai = 'ai';
   static const bug = 'bug';
 }
 
@@ -129,8 +130,8 @@ const _modifyRing = {Tool.split, Tool.trim, Tool.extendT};
 ///
 /// Three tiers, and each one earns its place:
 ///
-///  * On the home gallery only the bug reporter — there is no document for
-///    any command to act on.
+///  * On the home gallery, AI and the bug reporter remain available. Both
+///    are workspace actions that do not require a document or drawing tool.
 ///  * Undo and Redo everywhere else, because a wrong move is possible
 ///    everywhere else.
 ///  * OK and Cancel wherever the SKETCHER is live (a sketch tab, or a child
@@ -172,7 +173,7 @@ bool quickCanCut(AppState app) {
 }
 
 List<GlassToolItem> buildQuickTools(AppState app) {
-  if (app.isHome) return _withBugReport(const []);
+  if (app.isHome) return _withAiAndBugReport(app, const []);
   final items = <GlassToolItem>[];
   // M210 — ...and in a PART with a command running. The rule below (omit the
   // pair where nothing could ever light them) was right about an idle part and
@@ -239,7 +240,7 @@ List<GlassToolItem> buildQuickTools(AppState app) {
     items.add(const GlassToolItem.separator('sepClip'));
     items.addAll(clip);
   }
-  if (!app.inEditMode) return _withBugReport(items);
+  if (!app.inEditMode) return _withAiAndBugReport(app, items);
   items.addAll([
     const GlassToolItem.separator('sep2'),
     GlassToolItem(
@@ -293,8 +294,23 @@ List<GlassToolItem> buildQuickTools(AppState app) {
       ),
     ]);
   }
-  return _withBugReport(items);
+  return _withAiAndBugReport(app, items);
 }
+
+/// AI is a standing workspace action, including when no drawing tool or
+/// document is active. Its identity is shared by UIKit and the Flutter rail.
+List<GlassToolItem> _withAiAndBugReport(
+    AppState app, List<GlassToolItem> items) => _withBugReport([
+      ...items,
+      if (items.isNotEmpty) const GlassToolItem.separator('sepAi'),
+      GlassToolItem(
+        id: QuickToolId.ai,
+        symbol: 'sparkles',
+        fallback: 'bubble.left.and.bubble.right',
+        label: L.current.aiTitle,
+        selected: app.ai.isOpen,
+      ),
+    ]);
 
 /// M194 — the bug reporter, pinned to the FOOT of the bar.
 ///
@@ -427,6 +443,9 @@ void runQuickTool(AppState app, String id, {BuildContext? context}) {
     case QuickToolId.delete:
       app.deleteSelection();
       break;
+    case QuickToolId.ai:
+      app.ai.toggle();
+      break;
     case QuickToolId.bug:
       if (context != null) BugReport.open(context, app);
       break;
@@ -524,7 +543,28 @@ class QuickToolsBar extends StatelessWidget {
     // WINDOWS TAKES THE OTHER SHAPE. Everything below is the docked rail;
     // there the same items are a right-click menu instead. See
     // [QuickToolsMenu] for why this rail and not the ribbon.
-    if (QuickToolsMenu.isMenu) return _asMenu(context, items);
+    if (QuickToolsMenu.isMenu) {
+      // The CAD shortcuts remain in the Windows context menu. The AI entry
+      // must be discoverable without a right click, on the gallery as well.
+      return Positioned.fill(
+        child: Stack(children: [
+          _asMenu(context, items),
+          Positioned(
+            key: const ValueKey('ai-launcher'),
+            top: 0,
+            bottom: BottomTabBar.floatingHeightFor(app),
+            right: margin,
+            child: Align(
+              alignment: Alignment.centerRight,
+              widthFactor: 1,
+              child: _flutterBar(context, [
+                items.firstWhere((i) => i.id == QuickToolId.ai),
+              ]),
+            ),
+          ),
+        ]),
+      );
+    }
 
     return Positioned(
       top: 0,
@@ -694,6 +734,7 @@ class QuickToolsBar extends StatelessWidget {
       QuickToolId.copy: Icons.copy_outlined,
       QuickToolId.cut: Icons.content_cut,
       QuickToolId.paste: Icons.content_paste_outlined,
+      QuickToolId.ai: Icons.auto_awesome_outlined,
       QuickToolId.bug: Icons.bug_report,
     };
     return Semantics(

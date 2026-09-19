@@ -274,7 +274,8 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq clang cmake ninja-build pkg-config \
-            libgtk-3-dev liblzma-dev libstdc++-12-dev zenity xvfb
+            libgtk-3-dev liblzma-dev libstdc++-12-dev zenity xvfb \
+            libsecret-1-dev libjsoncpp-dev patchelf
 
       # No `cache: true`: the SDK download is tens of seconds and the cache
       # entry is gigabytes, and GitHub's 10 GB per repository is what decides

@@ -4891,4 +4891,259 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get measurePriorityEntity => 'Faces & Edges';
+
+  @override
+  String get aiSettingsTitle => 'AI settings';
+
+  @override
+  String get aiSettingsProvider => 'Provider';
+
+  @override
+  String get aiSettingsModel => 'Model ID';
+
+  @override
+  String get aiSettingsModelHint => 'Use the model ID from your provider';
+
+  @override
+  String get aiSettingsKey => 'API key';
+
+  @override
+  String get aiSettingsKeyHint => 'Paste an API key';
+
+  @override
+  String get aiSettingsKeySaved =>
+      'Key saved securely. Leave blank to keep it.';
+
+  @override
+  String get aiSettingsSave => 'Save';
+
+  @override
+  String get aiSettingsRemoveKey => 'Remove saved key';
+
+  @override
+  String get aiSettingsApple => 'Apple Intelligence';
+
+  @override
+  String get aiSettingsAppleInfo =>
+      'No API key is needed. Apple chooses the available system model. Availability depends on your device, system version and Apple Intelligence settings. Private Cloud Compute also requires Apple’s app entitlement.';
+
+  @override
+  String get aiSettingsPrivacy =>
+      'When you send, your messages, attachments and selected document context go to this provider. Conversations stay on this device and are not included in document sharing. Provider usage may incur charges.';
+
+  @override
+  String get aiSettingsNoKey =>
+      'Without a saved key, Apple Intelligence is used when available.';
+
+  @override
+  String get aiSettingsDeleteHistory => 'Delete all conversations';
+
+  @override
+  String get aiSettingsDeleteHistoryConfirm =>
+      'Delete all AI conversations and attachments on this device? Your CAD documents will stay intact.';
+
+  @override
+  String get aiProviderOnDevice => 'Apple Intelligence · On device';
+
+  @override
+  String get aiProviderCloud => 'Apple Intelligence · Private Cloud Compute';
+
+  @override
+  String get aiProviderUnavailable =>
+      'Apple Intelligence is unavailable. Enable it on a supported device or add an API key in AI settings.';
+
+  @override
+  String get aiProviderReady => 'Ready';
+
+  @override
+  String get aiProviderLoading => 'Checking availability…';
+
+  @override
+  String get aiLibrary => 'Library';
+
+  @override
+  String get aiDefaultSession => 'New conversation';
+
+  @override
+  String get aiErrorAttachment =>
+      'Choose a PNG, JPEG, WebP, PDF or UTF-8 text file. Add CAD documents using the document context picker.';
+
+  @override
+  String get aiErrorSize =>
+      'The attachment or conversation is too large. Use files up to 5 MB, at most six attachments per message and 8 MB per conversation. Start a new conversation or delete an old one to free space.';
+
+  @override
+  String get aiErrorEmpty => 'Write a message or add an attachment first.';
+
+  @override
+  String get aiErrorCredentials =>
+      'The API key was not accepted. Check the key and its permissions in AI settings.';
+
+  @override
+  String get aiErrorSecureStorage =>
+      'Secure key storage is unavailable or locked. Unlock your device or keyring and try again. The key was not saved in plain text.';
+
+  @override
+  String get aiErrorUnavailable =>
+      'Apple Intelligence is unavailable on this device or system. Add an API key in AI settings, or enable Apple Intelligence on a supported device.';
+
+  @override
+  String get aiErrorImages =>
+      'This Apple model cannot read images. Choose a supported image-capable provider or remove the images before sending.';
+
+  @override
+  String get aiErrorPdf =>
+      'This Apple connection does not support PDF files. Use Gemini or Claude, or attach a text excerpt instead.';
+
+  @override
+  String get aiErrorContext =>
+      'This conversation exceeds the model’s context budget. Start a new conversation, shorten your message or reduce the selected context. Nothing was silently omitted.';
+
+  @override
+  String get aiErrorCancelled => 'Reply stopped. No CAD changes were made.';
+
+  @override
+  String get aiErrorNetwork =>
+      'The provider could not be reached or the request timed out. Check your connection and try again.';
+
+  @override
+  String get aiErrorQuota =>
+      'The provider’s usage limit was reached. Wait or check your provider account before trying again.';
+
+  @override
+  String get aiErrorModel =>
+      'The model ID is unavailable for this key. Check the model ID in AI settings.';
+
+  @override
+  String get aiErrorRefused =>
+      'The provider could not answer this request. Revise the request and try again.';
+
+  @override
+  String get aiErrorStorage =>
+      'The conversation could not be saved. Check free space and storage permissions before continuing.';
+
+  @override
+  String get aiErrorDocument =>
+      'That document is no longer available. Choose it again from the document list.';
+
+  @override
+  String get aiErrorBusy => 'Wait for the current reply or stop it first.';
+
+  @override
+  String get aiErrorResponse =>
+      'The provider returned an incomplete or unreadable response. Try again; your message is preserved.';
+
+  @override
+  String get aiTitle => 'AI assistant';
+
+  @override
+  String get aiSettings => 'AI settings';
+
+  @override
+  String get aiNewSession => 'New conversation';
+
+  @override
+  String get aiSessions => 'Conversations';
+
+  @override
+  String get aiSessionName => 'Conversation name';
+
+  @override
+  String get aiRenameSession => 'Rename conversation';
+
+  @override
+  String get aiDeleteSession => 'Delete conversation';
+
+  @override
+  String aiDeleteSessionMessage(String name) {
+    return 'Delete “$name” and its attachments? Your CAD document stays intact.';
+  }
+
+  @override
+  String get aiContinueElsewhere => 'Continue in another document';
+
+  @override
+  String get aiContinueExplanation =>
+      'Keep this conversation open while switching documents. Both documents are added explicitly as context; the conversation keeps its original owner.';
+
+  @override
+  String get aiContext => 'Document context';
+
+  @override
+  String aiContextCount(int count) {
+    return 'Context · $count';
+  }
+
+  @override
+  String get aiContextExplanation =>
+      'This document is always included. Select other documents explicitly to add their summaries to the conversation.';
+
+  @override
+  String get aiWelcomeTitle => 'Develop your next idea';
+
+  @override
+  String get aiWelcomeBody =>
+      'Discuss this design, add reference images, or explore a modeling approach. Each document keeps its own named conversations.';
+
+  @override
+  String get aiAdviceOnly =>
+      'Design advice and discussion are available now. The assistant cannot create or edit CAD geometry yet.';
+
+  @override
+  String get aiThinking => 'Preparing a reply…';
+
+  @override
+  String get aiYou => 'You';
+
+  @override
+  String get aiPromptPlaceholder =>
+      'Describe your idea or ask about this design…';
+
+  @override
+  String get aiAttachFiles => 'Attach files';
+
+  @override
+  String get aiPasteImage => 'Paste image';
+
+  @override
+  String get aiRemoveAttachment => 'Remove attachment';
+
+  @override
+  String get aiSend => 'Send message';
+
+  @override
+  String get aiStop => 'Stop reply';
+
+  @override
+  String get aiClipboardEmpty =>
+      'No supported image is on the clipboard. You can also attach an image file.';
+
+  @override
+  String get aiAttachmentSessionChanged =>
+      'The active conversation changed. Attach the file again in the intended conversation.';
+
+  @override
+  String get aiAttachmentUnreadable =>
+      'The selected file could not be read. Choose it again or select another file.';
+
+  @override
+  String get aiPart => 'Part';
+
+  @override
+  String get aiSketch => 'Sketch';
+
+  @override
+  String get aiAssembly => 'Assembly';
+
+  @override
+  String get aiWorkspace => 'Workspace';
+
+  @override
+  String get aiRemoveContext => 'Remove document context';
+
+  @override
+  String get aiProviderGemini => 'Gemini';
+
+  @override
+  String get aiProviderClaude => 'Claude';
 }

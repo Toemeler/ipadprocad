@@ -94,18 +94,18 @@ void main() {
         reason: 'flipping the debug switch must not empty the bar');
   });
 
-  test('with the switch off the home bar disappears entirely', () {
+  test('with the switch off the home bar retains its AI entry', () {
     addTearDown(() => BugReport.enabled = true);
     BugReport.enabled = false;
-    expect(buildQuickTools(homeApp()), isEmpty,
-        reason: 'the gallery has nothing else to offer');
+    expect(buildQuickTools(homeApp()).map((item) => item.id), [QuickToolId.ai],
+        reason: 'AI is available independently of the debug reporter');
   });
 
   test('no separator is left dangling when the bar is otherwise empty', () {
     // A rule above the first button would be a hairline floating in the glass.
     final items = buildQuickTools(homeApp());
-    expect(items.length, 1);
-    expect(items.single.separator, isFalse);
+    expect(items.first.separator, isFalse);
+    expect(items.last.separator, isFalse);
   });
 
   test('tapping it without a context does nothing rather than throwing', () {
