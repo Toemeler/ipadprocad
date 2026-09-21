@@ -2371,6 +2371,12 @@ abstract class AppL10n {
   /// **'Nicht geschlossen — ein Flächenkörper.'**
   String get msgMeshImportedOpen;
 
+  /// M440 — der Körper wurde geprüft und ist nicht sauber. Das muss dastehen, bevor jemand eine Verrundung darauf versucht.
+  ///
+  /// In de, this message translates to:
+  /// **'Der Körper ist nicht sauber — Verrundungen und Boolesche Operationen können darauf fehlschlagen.'**
+  String get msgMeshImportedUnclean;
+
   /// Vor dem Lesen abgefangen: eine Datei dieser Groesse einzulesen wuerde die App abschiessen, nicht bremsen.
   ///
   /// In de, this message translates to:

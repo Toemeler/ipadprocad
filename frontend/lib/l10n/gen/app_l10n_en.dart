@@ -1381,6 +1381,10 @@ class AppL10nEn extends AppL10n {
   String get msgMeshImportedOpen => 'Not closed — this is a surface body.';
 
   @override
+  String get msgMeshImportedUnclean =>
+      'The body is not clean — fillets and booleans may fail on it.';
+
+  @override
   String msgMeshFileTooLarge(int size, int limit) {
     final intl.NumberFormat sizeNumberFormat =
         intl.NumberFormat.decimalPattern(localeName);

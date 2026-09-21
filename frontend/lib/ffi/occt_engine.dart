@@ -899,8 +899,18 @@ class OcctShape {
 
 /// Field counts of the v21 mesh report — must match OCCT_MESH_REPORT_* in
 /// backend/occt/shim/occt_capi.h.
-const int _kMeshReportInts = 22;
-const int _kMeshReportReals = 2;
+/// The size of the report arrays the kernel writes into.
+///
+/// MUST equal OCCT_MESH_REPORT_INTS / OCCT_MESH_REPORT_REALS in occt_capi.h.
+/// occt_brep_from_mesh writes EVERY index unconditionally, on every exit
+/// including its early refusals, so a number smaller than the header's is not
+/// a missing field — it is a heap overrun on every import, of exactly the
+/// difference. It was 22 and 2 against a header that had moved to 25 and 3,
+/// which is twelve bytes and eight past the end of two calloc'd blocks, on
+/// device, every time anyone imported a mesh. m232_mesh_import_test now reads
+/// the header and fails if these drift again.
+const int kMeshReportInts = 25;
+const int kMeshReportReals = 3;
 
 /// What the mesh converter did, in numbers. Mirrors the OCCT_MR_* indices in
 /// occt_capi.h; keep the two in step.
@@ -959,6 +969,41 @@ class MeshToBrepReport {
   int get solids => _i(20);
   bool get closed => _i(21) == 1;
 
+  /// ---- M440: is this a body a kernel will actually operate on? ----------
+  ///
+  /// `closed` was the only verdict this class carried, and it is the wrong one
+  /// to stop at: a shell can close, sit exactly on its mesh, and still carry
+  /// faces that pass through each other. Measured across the test corpus,
+  /// every model that failed a boolean did so while reporting closed=true.
+  ///
+  /// Three states, not two. 1 and 0 are answers; -1 is "not measured", which
+  /// is what a body too big to check in reasonable time reports, and it must
+  /// never be read as a failure — see [certifiedBroken].
+  int get validity => _i(22);
+
+  /// Face pairs that cross. -1 when the check was too expensive to run.
+  int get selfIntersections => _i(23);
+
+  /// Faces the same-surface merge removed. Diagnostic only.
+  int get mergedFaces => _i(24);
+
+  /// The result's bounding box against the mesh's. 1.0 is exact; well over
+  /// that means a face escaped the model.
+  double get bboxRatio => _d(2);
+
+  /// The body was CHECKED and found unusable — as opposed to not checked.
+  ///
+  /// This is the question the app has to ask before telling someone their
+  /// import went well, and the distinction is the whole point: a body nobody
+  /// had time to check is not a broken one, and reporting it as broken would
+  /// make every large import look like a failure.
+  bool get certifiedBroken =>
+      validity == 0 || (selfIntersections > 0);
+
+  /// Whether the body passed every check that was actually run.
+  bool get certifiedClean =>
+      validity == 1 && selfIntersections == 0;
+
   /// Area-weighted RMS distance from the mesh to the fitted surfaces, in mm.
   double get fitRms => _d(0);
   double get diagonal => _d(1);
@@ -972,7 +1017,12 @@ class MeshToBrepReport {
       '$spheres sphere, $tori torus, $facetedPatches faceted; '
       '$facesBuilt face(s) built ($facesFailed failed), '
       '$analyticEdges exact edge(s), rms ${fitRms.toStringAsFixed(4)}, '
-      'closed=$closed';
+      'closed=$closed, '
+      // In the log because "the fillet refused to build on an imported body"
+      // is otherwise a report with nothing in the bundle to check it against.
+      'valid=${validity < 0 ? "?" : validity}, '
+      'self-int=${selfIntersections < 0 ? "?" : selfIntersections}, '
+      'bbox=${bboxRatio.toStringAsFixed(4)}x';
 }
 
 /// The outcome of [OcctFfi.brepFromMesh]: a body, or a reason there is none.
@@ -1647,8 +1697,8 @@ class OcctFfi {
     }
     final pXyz = calloc<Double>(nv * 3);
     final pTri = calloc<Int32>(nt * 3);
-    final pInts = calloc<Int32>(_kMeshReportInts);
-    final pReals = calloc<Double>(_kMeshReportReals);
+    final pInts = calloc<Int32>(kMeshReportInts);
+    final pReals = calloc<Double>(kMeshReportReals);
     try {
       // setRange, NOT setAll. The buffers are nv*3 and nt*3 long, and those
       // are FLOORED divisions — a list whose length is not a multiple of three
@@ -1666,8 +1716,8 @@ class OcctFfi {
       // The report is filled in even when the conversion failed — that is the
       // point of it, so a refusal can be explained with numbers.
       final report = MeshToBrepReport._(
-          Int32List.fromList(pInts.asTypedList(_kMeshReportInts)),
-          Float64List.fromList(pReals.asTypedList(_kMeshReportReals)));
+          Int32List.fromList(pInts.asTypedList(kMeshReportInts)),
+          Float64List.fromList(pReals.asTypedList(kMeshReportReals)));
       if (h == nullptr) {
         return MeshToBrepResult._(null, report, lastError());
       }

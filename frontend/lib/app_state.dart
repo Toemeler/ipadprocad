@@ -18956,6 +18956,19 @@ class AppState extends ChangeNotifier {
       out.add(l.msgMeshImportedFaceted(r.facetedPatches));
     }
     if (!r.closed) out.add(l.msgMeshImportedOpen);
+    // M440 — SAY SO WHEN THE BODY IS NOT SOUND.
+    //
+    // The kernel certifies what it built: BRepCheck over the whole body, and
+    // BOPAlgo_CheckerSI for faces that pass through each other. Until now
+    // nothing on this side read the verdict, so a body that no fillet and no
+    // boolean would survive was reported as a successful import in the same
+    // words as a perfect one — and the first the user heard of it was an
+    // operation failing later, with nothing to connect it to.
+    //
+    // certifiedBroken is deliberately not "did not certify clean": a body too
+    // large to check reports -1 and must not be called broken, or every big
+    // import would carry a warning it has not earned.
+    if (r.certifiedBroken) out.add(l.msgMeshImportedUnclean);
     return out.join(' ');
   }
 
