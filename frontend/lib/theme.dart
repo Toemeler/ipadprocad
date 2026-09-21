@@ -753,6 +753,28 @@ class ThemeStore {
 /// Every name here existed before M221 as a `static const`; they are getters
 /// now so the palette can change while the app runs. That is the ONE reason a
 /// `const` in front of a widget expression that mentions `T.` had to go.
+/// The Apple Intelligence hue set, as the effect's own identity.
+///
+/// SIX FIXED COLOURS, NOT DERIVED FROM THE ACCENT. Every other colour in this
+/// app bends to the active scheme; these do not, and that is the point — the
+/// shimmer round a thinking assistant is a recognised signal, and a version of
+/// it in the app's teal would read as a loading spinner instead. They are the
+/// same six, in the same order, on both schemes.
+///
+/// Ported with the technique in `widgets/ai_stage.dart` from
+/// jacobamobin/AppleIntelligenceGlowEffect (MIT, (c) 2025 Jacob Mobin). They
+/// live HERE rather than beside the painter because m236 fails the build for a
+/// literal colour outside this file, and that rule is right: this is the one
+/// place a person looks to find out what colour anything in this app is.
+const List<Color> kAiIntelligenceHues = [
+  Color(0xFFBC82F3),
+  Color(0xFFF5B9EA),
+  Color(0xFF8D9FFF),
+  Color(0xFFFF6778),
+  Color(0xFFFFBA71),
+  Color(0xFFC686FF),
+];
+
 class T {
   T._();
 
