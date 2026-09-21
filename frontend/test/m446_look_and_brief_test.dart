@@ -73,13 +73,23 @@ void main() {
       expect(report.outcomes.single.detail!['polDeg'], 30);
     });
 
-    test('a pol outside the sphere is refused, not clamped silently',
-        () async {
+    test('a pol AT the pole is nudged off it, and says so', () async {
+      // M455 supersedes the refusal this used to assert. pol 0 is the view
+      // from straight above — the most useful one for checking a footprint —
+      // and refusing it (twice, in issues #73 and #77) made the model spend a
+      // round discovering a rule it could not have guessed. The basis only
+      // degenerates exactly AT the pole, which the app's own plane views have
+      // always handled by nudging a thousandth of a radian off it.
+      //
+      // "not silently" is the part that still holds: the report says the
+      // angle was moved and what it was moved to.
       final app = await partWithBox();
       final report =
           await AiCad(app).run([const AiAction('look', {'pol': 0})]);
-      expect(report.ok, isFalse);
-      expect(report.outcomes.single.error, contains('between 0 and 180'));
+      expect(report.ok, isTrue, reason: report.encode());
+      final d = report.outcomes.single.detail!;
+      expect(d['polDeg'], greaterThan(0));
+      expect(d['polNote'], contains('along the up axis'));
     });
 
     test('looking is not a change and takes no undo entry', () async {

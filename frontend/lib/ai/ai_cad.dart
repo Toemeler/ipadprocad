@@ -1,9 +1,11 @@
 import 'dart:math' as math;
+import 'dart:ui' show Offset;
 
 import '../app_state.dart';
 import '../ffi/occt_engine.dart' show OcctEdgeInfo;
 import '../ffi/qcad_engine.dart';
 import '../log.dart';
+import '../modify.dart' show arcThrough;
 import '../part_model.dart';
 import '../part_render.dart'
     show kFacePlane, kFaceCylinder, kFaceCone, kFaceSphere, kFaceTorus;
@@ -166,6 +168,9 @@ class AiCad {
       case 'sketch_circle':
       case 'sketch_polygon':
       case 'sketch_line':
+      case 'sketch_arc':
+      case 'sketch_slot':
+      case 'sketch_rounded_rect':
         return _draw(p, a);
       case 'extrude':
         return _extrude(p, a);
@@ -231,7 +236,16 @@ class AiCad {
     if (sketch.layers.isEmpty) sketch.insertLayerAboveMarker(_layerName);
     final layer = sketch.layers[sketch.eosAfter > 0 ? sketch.eosAfter - 1 : 0];
 
-    late final Geo made;
+    // ISSUE #73/#78/#80 — A SLOT IS FOUR ENTITIES, NOT ONE.
+    //
+    // Every draw op used to make exactly one Geo, which is why the op set
+    // stopped at rectangle, circle, polygon and line: anything with a curved
+    // side needs several. The model's way round that was sketch_polygon —
+    // 34 of them across the reported sessions, every one a curve approximated
+    // by straight segments. That is the "handle which looks like circles but
+    // isn't really", and it is why a fillet on it then fails: there is no
+    // circular edge to blend, only a fan of facets.
+    late final List<Geo> made;
     late final Map<String, dynamic> detail;
     // One block per case: switch cases share a scope, and several of these
     // want the same local names.
@@ -245,12 +259,14 @@ class AiCad {
           }
           final centered = a.flag('centered');
           final x0 = centered ? x - w / 2 : x, y0 = centered ? y - h / 2 : y;
-          made = _polyline([
-            [x0, y0],
-            [x0 + w, y0],
-            [x0 + w, y0 + h],
-            [x0, y0 + h]
-          ], closed: true, layer: layer);
+          made = [
+            _polyline([
+              [x0, y0],
+              [x0 + w, y0],
+              [x0 + w, y0 + h],
+              [x0, y0 + h]
+            ], closed: true, layer: layer)
+          ];
           detail = {
             'shape': 'rectangle',
             'corner': [_r(x0), _r(y0)],
@@ -267,7 +283,7 @@ class AiCad {
             return AiActionOutcome.failed(
                 a.op, 'diameter (or radius) must be > 0');
           }
-          made = Geo(Geo.circle, [x, y, r], layer: layer);
+          made = [Geo(Geo.circle, [x, y, r], layer: layer)];
           detail = {
             'shape': 'circle',
             'centre': [_r(x), _r(y)],
@@ -284,8 +300,10 @@ class AiCad {
           if (pts.length > 400) {
             return AiActionOutcome.failed(a.op, 'at most 400 points');
           }
-          made = _polyline(pts,
-              closed: a.flag('closed', fallback: true), layer: layer);
+          made = [
+            _polyline(pts,
+                closed: a.flag('closed', fallback: true), layer: layer)
+          ];
           detail = {'shape': 'polygon', 'points': pts.length};
         }
       case 'sketch_line':
@@ -300,20 +318,170 @@ class AiCad {
             return AiActionOutcome.failed(
                 a.op, 'the two ends are the same point');
           }
-          made = Geo(Geo.line, [x1, y1, x2, y2], layer: layer);
+          made = [Geo(Geo.line, [x1, y1, x2, y2], layer: layer)];
           detail = {
             'shape': 'line',
             'from': [_r(x1), _r(y1)],
             'to': [_r(x2), _r(y2)]
           };
         }
+      case 'sketch_arc':
+        {
+          final three = [
+            for (final k in const ['x1', 'y1', 'x2', 'y2', 'x3', 'y3'])
+              a.number(k)
+          ];
+          if (three.every((v) => v != null)) {
+            final arc = arcThrough(Offset(three[0]!, three[1]!),
+                Offset(three[2]!, three[3]!), Offset(three[4]!, three[5]!));
+            if (arc == null) {
+              return AiActionOutcome.failed(
+                  a.op, 'those three points are collinear — use sketch_line');
+            }
+            made = [Geo(Geo.arc, List<double>.of(arc.data), layer: layer)];
+            detail = {
+              'shape': 'arc',
+              'through': 3,
+              'centre': [_r(arc.data[0]), _r(arc.data[1])],
+              'radius': _r(arc.data[2]),
+            };
+          } else {
+            final diameter = a.number('diameter');
+            final r = diameter != null ? diameter / 2 : a.number('radius');
+            final x = a.number('x') ?? 0, y = a.number('y') ?? 0;
+            final from = a.number('start_deg'), to = a.number('end_deg');
+            if (r == null || r <= 0) {
+              return AiActionOutcome.failed(
+                  a.op, 'radius (or diameter) must be > 0');
+            }
+            if (from == null || to == null) {
+              return AiActionOutcome.failed(
+                  a.op,
+                  'give either three points (x1..y3) or a centre with '
+                  'radius, start_deg and end_deg');
+            }
+            if ((to - from).abs() < 1e-9) {
+              return AiActionOutcome.failed(
+                  a.op, 'start_deg and end_deg are the same angle');
+            }
+            const d2r = math.pi / 180;
+            made = [
+              Geo(Geo.arc, [x, y, r, from * d2r, to * d2r, 0], layer: layer)
+            ];
+            detail = {
+              'shape': 'arc',
+              'centre': [_r(x), _r(y)],
+              'radius': _r(r),
+              'sweepDeg': _r(to - from),
+            };
+          }
+        }
+      case 'sketch_slot':
+        {
+          final x1 = a.number('x1'), y1 = a.number('y1');
+          final x2 = a.number('x2'), y2 = a.number('y2');
+          final width = a.number('width');
+          if (x1 == null || y1 == null || x2 == null || y2 == null) {
+            return AiActionOutcome.failed(
+                a.op, 'x1, y1, x2 and y2 are the centres of the two ends');
+          }
+          if (width == null || width <= 0) {
+            return AiActionOutcome.failed(a.op, 'width must be > 0');
+          }
+          final dx = x2 - x1, dy = y2 - y1;
+          final len = math.sqrt(dx * dx + dy * dy);
+          if (len < 1e-9) {
+            return AiActionOutcome.failed(
+                a.op, 'the two ends are the same point — use sketch_circle');
+          }
+          final ux = dx / len, uy = dy / len;
+          final r = width / 2;
+          // The normal, and the four pieces of a stadium: two parallel sides
+          // and a true semicircle at each end.
+          final nx = -uy * r, ny = ux * r;
+          Geo? capAt(double cx, double cy, double sx, double sy) => arcThrough(
+              Offset(cx + sx, cy + sy),
+              Offset(cx + ux * r * (sx == nx ? 1 : -1),
+                  cy + uy * r * (sx == nx ? 1 : -1)),
+              Offset(cx - sx, cy - sy));
+          final endA = capAt(x2, y2, nx, ny);
+          final endB = capAt(x1, y1, -nx, -ny);
+          if (endA == null || endB == null) {
+            return AiActionOutcome.failed(a.op, 'the slot could not be built');
+          }
+          made = [
+            Geo(Geo.line, [x1 + nx, y1 + ny, x2 + nx, y2 + ny], layer: layer),
+            Geo(Geo.arc, List<double>.of(endA.data), layer: layer),
+            Geo(Geo.line, [x2 - nx, y2 - ny, x1 - nx, y1 - ny], layer: layer),
+            Geo(Geo.arc, List<double>.of(endB.data), layer: layer),
+          ];
+          detail = {
+            'shape': 'slot',
+            'from': [_r(x1), _r(y1)],
+            'to': [_r(x2), _r(y2)],
+            'width': _r(width),
+            'lengthOverall': _r(len + width),
+          };
+        }
+      case 'sketch_rounded_rect':
+        {
+          final w = a.number('width'), h = a.number('height');
+          final x = a.number('x') ?? 0, y = a.number('y') ?? 0;
+          final radius = a.number('radius');
+          if (w == null || h == null || w <= 0 || h <= 0) {
+            return AiActionOutcome.failed(a.op, 'width and height must be > 0');
+          }
+          if (radius == null || radius <= 0) {
+            return AiActionOutcome.failed(a.op, 'radius must be > 0');
+          }
+          if (radius > w / 2 + 1e-9 || radius > h / 2 + 1e-9) {
+            return AiActionOutcome.failed(
+                a.op,
+                'radius ${_mm(radius)} does not fit a '
+                '${_mm(w)} × ${_mm(h)} rectangle — the most that fits is '
+                '${_mm(math.min(w, h) / 2)}');
+          }
+          final centered = a.flag('centered');
+          final x0 = centered ? x - w / 2 : x, y0 = centered ? y - h / 2 : y;
+          final x1r = x0 + w, y1r = y0 + h;
+          const d2r = math.pi / 180;
+          made = [
+            Geo(Geo.line,
+                [x0 + radius, y0, x1r - radius, y0], layer: layer),
+            Geo(Geo.arc, [
+              x1r - radius, y0 + radius, radius, -90 * d2r, 0, 0
+            ], layer: layer),
+            Geo(Geo.line,
+                [x1r, y0 + radius, x1r, y1r - radius], layer: layer),
+            Geo(Geo.arc, [
+              x1r - radius, y1r - radius, radius, 0, 90 * d2r, 0
+            ], layer: layer),
+            Geo(Geo.line,
+                [x1r - radius, y1r, x0 + radius, y1r], layer: layer),
+            Geo(Geo.arc, [
+              x0 + radius, y1r - radius, radius, 90 * d2r, 180 * d2r, 0
+            ], layer: layer),
+            Geo(Geo.line,
+                [x0, y1r - radius, x0, y0 + radius], layer: layer),
+            Geo(Geo.arc, [
+              x0 + radius, y0 + radius, radius, 180 * d2r, 270 * d2r, 0
+            ], layer: layer),
+          ];
+          detail = {
+            'shape': 'rounded rectangle',
+            'corner': [_r(x0), _r(y0)],
+            'width': _r(w),
+            'height': _r(h),
+            'radius': _r(radius),
+          };
+        }
       default:
         return AiActionOutcome.failed(a.op, 'unknown draw op');
     }
-    if (sketch.geometry.length >= 2000) {
+    if (sketch.geometry.length + made.length > 2000) {
       return AiActionOutcome.failed(a.op, 'this sketch already holds 2000 entities');
     }
-    app.aiCommitSketch(sketch, [...sketch.geometry, made]);
+    app.aiCommitSketch(sketch, [...sketch.geometry, ...made]);
     sketch.dirty = true;
     app.aiForgetRegions(sketch.name);
     final regions = app.sessionRegions(cs).length;
@@ -523,14 +691,32 @@ class AiCad {
     }
     final picked = _selectEdges(live, a);
     if (picked.isEmpty) {
-      return AiActionOutcome.failed(a.op,
-          'no edge of "$body" matched that selection (${live.length} live '
-          'edges, of which ${live.where((e) => e.filletable).length} can be '
-          'blended)');
+      // ISSUE #73/#78 — "no edge matched" told the model its selector was
+      // wrong and nothing about what would have been right, so the next block
+      // guessed again. This names what is actually there.
+      final usable = [for (final e in live) if (e.filletable) e];
+      final rings = usable.where((e) => e.kind == 2).length;
+      return AiActionOutcome.failed(
+          a.op,
+          'no edge of "$body" matched that selection. It has ${live.length} '
+          'live edges, ${usable.length} of them blendable: '
+          '${usable.where((e) => e.kind == 1).length} straight, $rings '
+          'circular, ${usable.where((e) => e.convexity > 0).length} convex, '
+          '${usable.where((e) => e.convexity < 0).length} concave, '
+          '${usable.where((e) => e.ty.abs() > 0.9).length} vertical. '
+          'Selectors: all, outer, holes, convex, concave, vertical, '
+          'horizontal, or near with a point in mm.');
     }
     final selections = [
       for (final e in picked) EdgeSel(e.mx, e.my, e.mz, e.length, e.kind, e.radius)
     ];
+    // ISSUE #73 — WHAT A FAILED BLEND HAS TO SAY.
+    //
+    // "no radius in this size range builds on these edges" three times in one
+    // session, each costing a round trip, because the report named the
+    // failure and not the remedy. The kernel can answer "what WOULD build"
+    // directly — so on a failure the executor asks it, by bisection, and
+    // hands back the largest radius that does. One round, not four.
     final f = isFillet
         ? FilletFeature(
             name: p.nextFeatureName('Fillet'),
@@ -546,7 +732,7 @@ class AiCad {
             distance2: size,
             exprD1: '$size mm',
             exprD2: '$size mm');
-    return _commitFeature(p, a, f, currentBodySolid(p, body), {
+    final outcome = await _commitFeature(p, a, f, currentBodySolid(p, body), {
       'body': body,
       'edges': selections.length,
       if (isFillet) 'radius': _r(size) else 'distance': _r(size),
@@ -558,6 +744,66 @@ class AiCad {
       // mistake into one the next round can read and undo.
       'rounded': _describeEdges(picked),
     });
+    if (outcome.ok) return outcome;
+    // The kernel refused this size. Ask it what it WOULD take, so the next
+    // block is a build rather than another guess.
+    final fits = _largestBlendThatBuilds(p, body, selections, isFillet, size);
+    return AiActionOutcome.failed(
+        a.op,
+        fits == null
+            ? '${outcome.error} — no size builds on these '
+                '${selections.length} edge(s). Blend fewer edges, or a '
+                'different set: a blend cannot run off the end of the faces '
+                'it follows.'
+            : '${outcome.error} — but ${_mm(fits)} mm does build on these '
+                '${selections.length} edge(s). Retry at ${_mm(fits)} or less.');
+  }
+
+  /// The largest blend size that the kernel accepts on [edges], by bisection.
+  ///
+  /// Bounded to six probes: each one is a real kernel build, and the answer
+  /// only has to be good enough to retry with. Nothing here reaches the
+  /// document — a probe that succeeds is disposed exactly like one that
+  /// fails, and no feature is ever appended.
+  double? _largestBlendThatBuilds(PartModel p, String body,
+      List<EdgeSel> edges, bool isFillet, double asked) {
+    if (!app.partKernel.available) return null;
+    final base = currentBodySolid(p, body);
+    bool builds(double size) {
+      final probe = isFillet
+          ? FilletFeature(
+              name: '__probe',
+              bodyName: body,
+              edges: edges,
+              radii: [for (var i = 0; i < edges.length; i++) size],
+              exprRadius: '$size mm')
+          : ChamferFeature(
+              name: '__probe',
+              bodyName: body,
+              edges: edges,
+              distance1: size,
+              distance2: size,
+              exprD1: '$size mm',
+              exprD2: '$size mm');
+      final ok = recomputeFeature(p, probe, app.partKernel, base: base);
+      probe.disposeSolid();
+      return ok;
+    }
+
+    var lo = 0.0, hi = asked;
+    double? best;
+    for (var i = 0; i < 6; i++) {
+      final mid = (lo + hi) / 2;
+      if (mid < 0.01) break;
+      if (builds(mid)) {
+        best = mid;
+        lo = mid;
+      } else {
+        hi = mid;
+      }
+    }
+    // Round DOWN to two decimals: a value the model retries must still build.
+    return best == null ? null : (best * 100).floorToDouble() / 100;
   }
 
   /// The picked edges as a person would describe them: straight ones, and
@@ -886,7 +1132,29 @@ class AiCad {
     if (minArea != null) {
       picked = [for (final f in picked) if (f.area >= minArea) f];
     }
-    final axis = a.text('axis')?.toLowerCase();
+    // ISSUES #74 AND #75 — "du hast den haken an der Seite nicht oben
+    // gemacht", and it was still wrong after being told.
+    //
+    // `axis` compared |dot| > 0.99, so "+y" matched the TOP face and the
+    // BOTTOM one equally. A model asking for the top of a holder got both and
+    // had no way to tell them apart, which is exactly how a hook meant to
+    // point up ends up on the far side. The sign is honoured now, and "top"
+    // says it in the words the user used.
+    final where = a.text('where')?.toLowerCase();
+    final axis = a.text('axis')?.toLowerCase() ??
+        switch (where) {
+          'top' || 'up' => '+y',
+          'bottom' || 'down' || 'base' => '-y',
+          'right' => '+x',
+          'left' => '-x',
+          'front' => '+z',
+          'back' || 'rear' => '-z',
+          _ => null,
+        };
+    if (where != null && axis == null) {
+      return AiActionOutcome.failed(
+          a.op, 'where must be top, bottom, left, right, front or back');
+    }
     if (axis != null) {
       final want = switch (axis) {
         'x' || '+x' || '-x' => const Vec3(1, 0, 0),
@@ -897,9 +1165,17 @@ class AiCad {
       if (want == null) {
         return AiActionOutcome.failed(a.op, 'axis must be x, y or z');
       }
+      final signed = axis.startsWith('-')
+          ? -1
+          : axis.startsWith('+')
+              ? 1
+              : 0;
       picked = [
         for (final f in picked)
-          if (f.dir.dot(want).abs() > 0.99) f
+          if (signed == 0
+              ? f.dir.dot(want).abs() > 0.99
+              : f.dir.dot(want) * signed > 0.99)
+            f
       ];
     }
     final near = a.args['near'];
@@ -1172,10 +1448,18 @@ class AiCad {
     // Defaults are the app's own gallery corner: the view a person gets when
     // they open the document, and the one most likely to mean something.
     final az = a.number('az') ?? 45;
-    final pol = a.number('pol') ?? 55;
-    if (pol <= 0 || pol >= 180) {
-      return AiActionOutcome.failed(
-          a.op, 'pol is the angle down from +Y and must be between 0 and 180');
+    // ISSUES #73 AND #77 — "pol must be between 0 and 180" was refused twice,
+    // both times for pol 0: the view from straight above, which is the single
+    // most useful one for checking a footprint. The basis degenerates exactly
+    // AT the pole because up and the view direction become parallel, and the
+    // app's own plane views have always handled that by nudging a thousandth
+    // of a radian off it (planeCameraTarget). Refusing the request instead
+    // made the model spend a round discovering a rule it could not have
+    // guessed, and then settle for an oblique view of a flat face.
+    final asked = a.number('pol') ?? 55;
+    final pol = asked.clamp(0.06, 179.94);
+    if (!asked.isFinite) {
+      return AiActionOutcome.failed(a.op, 'pol must be a number');
     }
     final size = ((a.number('size') ?? 512).clamp(256, 768)).toInt();
 
@@ -1218,6 +1502,9 @@ class AiCad {
       if (image != null) 'view': image.name,
       'azDeg': _r(az),
       'polDeg': _r(pol),
+      if ((pol - asked).abs() > 1e-9)
+        'polNote': 'pol ${_r(asked)} is exactly along the up axis, where a '
+            'view has no orientation; this is ${_r(pol)}, a hair off it.',
       if (image != null) 'pixels': size,
       'projection': 'orthographic',
       // An image with no scale is a picture; with one it is a measurement you

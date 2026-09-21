@@ -32,6 +32,10 @@ const int kAiMaxOutputTokens = 8192;
 /// because a model that fills 32k three times is not going to fit in four.
 const int kAiMaxTruncationRetries = 2;
 
+/// How many times a dropped connection is retried before the user hears about
+/// it (issue #81: one network blip ended a turn outright).
+const int kAiMaxNetworkRetries = 3;
+
 /// For a provider whose API makes the field mandatory.
 int aiRequiredOutputBudget(int attempt) => switch (attempt) {
       <= 0 => kAiMaxOutputTokens,

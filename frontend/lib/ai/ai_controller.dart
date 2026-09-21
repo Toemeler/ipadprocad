@@ -931,10 +931,31 @@ class AiController extends ChangeNotifier {
     int? round,
   }) async {
     AiException? truncation;
+    var networkTries = 0;
     for (var attempt = 0;; attempt++) {
       try {
         return await _backend.respond(preferences, build(attempt));
       } on AiException catch (e) {
+        // ISSUE #81 — "completely failed here". One dropped connection ended
+        // the turn, rolled the draft back into the composer and left the user
+        // to retype nothing at all, because the draft was already restored
+        // and the error said "network". A transient failure is not a reason
+        // to throw away a turn that may already have built half a part: the
+        // same request goes out again, after a short wait that grows.
+        if (e.code == 'network' && networkTries < kAiMaxNetworkRetries) {
+          networkTries++;
+          final wait = Duration(milliseconds: 400 << (networkTries - 1));
+          AiTrace.record('turn.network.retry',
+              requestId: requestId,
+              sessionId: sessionId,
+              round: round,
+              data: {'try': networkTries, 'waitMs': wait.inMilliseconds});
+          Log.w('ai',
+              'network failure — retry $networkTries in ${wait.inMilliseconds}ms');
+          await Future<void>.delayed(wait);
+          attempt--; // the budget did not fail; do not escalate it
+          continue;
+        }
         if (e.code != 'truncated') throw truncation ?? e;
         truncation ??= e;
         if (attempt >= kAiMaxTruncationRetries) rethrow;

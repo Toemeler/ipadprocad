@@ -304,8 +304,15 @@ void main() {
   test('provider failure can retry the same turn without duplicating history',
       () async {
     final backend = _FakeBackend();
+    // M455 — the app now retries a dropped connection by itself (issue #81),
+    // so a turn only reaches the user as a failure once the automatic tries
+    // are spent. What this test is about is unchanged and still matters: the
+    // MANUAL retry after that must not put the user's turn in twice.
+    final persistent = kAiMaxNetworkRetries + 1;
     backend.respondWith = (_) async {
-      if (backend.requests.length == 1) throw const AiException('network');
+      if (backend.requests.length <= persistent) {
+        throw const AiException('network');
+      }
       return const AiReply('Successful retry', 'test');
     };
     final controller = makeController(backend);
@@ -320,7 +327,7 @@ void main() {
     expect(controller.currentSession.attachments.map((value) => value.id),
         [attachment.id]);
     await controller.send();
-    expect(backend.requests, hasLength(2));
+    expect(backend.requests, hasLength(persistent + 1));
     expect(
         backend.requests.last.messages
             .where((message) => message.role == 'user'),
