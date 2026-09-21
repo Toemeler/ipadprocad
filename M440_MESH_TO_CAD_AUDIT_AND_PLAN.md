@@ -1,8 +1,10 @@
 # M440 — Mesh→CAD: an audit against ground truth, and the plan to make it exact
 
-**Status:** analysis complete; **Phase 1 and the measurable half of Phase 2 are
-built and merged** — see §9, which records what changed and what it measured.
-Phases 3–6 remain proposed.
+**Status:** analysis complete; **Phase 1, the measurable half of Phase 2, and a
+prismatic fast path are built and merged** — see §9 and §10, which record what
+changed and what it measured. Five of the seven models now survive a boolean;
+the two that do not are organic, and §10.6 says what they need and why it is
+not a tuning pass. Phases 3–6 remain proposed.
 **Predecessor:** `M232_MESH_TO_CAD_ANALYSIS.md`, which decided to build this and
 built Stages A and B. This document measures what those stages actually produce
 on eight real files, finds eight defect classes, locates the root cause of four
@@ -872,7 +874,7 @@ prismatic B-Rep, and 8.7 minutes spent producing 9 856 faces that are not a
 solid is a worse answer than declining with a reason. That is a product
 decision and it is flagged rather than taken.
 
-### 9.7 What this does not do### 9.7 What this does not do
+### 9.7 What this does not do
 
 - **TOKA_Base still has one self-intersection.** It is a genuinely mixed
   prismatic/freeform part and the remaining defect is a sliver at a boundary
@@ -884,3 +886,161 @@ decision and it is flagged rather than taken.
 - **Nothing here is feature recovery.** `Part9` still converts into seven
   planar faces rather than `Sketch(5 lines) + Extrude(2.0)`. That is Phase 4 and
   it is untouched.
+
+---
+
+## 10. The second round: prisms from their caps, and what the seams turned out to be
+
+Everything in this section was measured on the merged tree with
+`occt_mesh_cli`, `occt_cad_audit`, `occt_boolean_check` and `occt_bar_watch`.
+
+### 10.1 The corpus now
+
+`occt_boolean_check` is the verdict: cut the body in half with a box and ask
+whether what comes back is valid and the right size.
+
+| model | faces | valid | self-int | volume err | boolean |
+|---|---|---|---|---|---|
+| Part9 | 7 | yes | 0 | +0.000% | **USABLE** 50.0% |
+| reference part | 15 | yes | 0 | +0.064% | **USABLE** 55.5% |
+| TreeOfLife | 89 | yes | 0 | −0.044% | **USABLE** 50.0% |
+| Schmetterling | 1 795 | yes | not measured | +0.002% | **USABLE** 42.7% |
+| TOKA_Base | 42 | yes | 2 | — | **USABLE** 40.6% |
+| whale | 195 | yes | not measured | — | NOT USABLE |
+| Bunny | 9 935 | not measured | not measured | — | NOT USABLE |
+
+Five of seven. The butterfly is the change: it was 1 444 faces with 38
+B-splines, `BRepCheck` invalid, 168 self-intersections, and a boolean that
+returned **two faces and 0.0% of a 6 296 mm³ part**. It is now an analytic
+prism — 1 495 planes and 300 cylinders, nothing else — valid, and it cuts.
+
+### 10.2 A prism is read from its CAPS
+
+The fast path built the profile by SLICING between levels, which is wrong in a
+way that looks right. A plane through a tessellated barrel meets the vertical
+edges ON the circle and the diagonals INSIDE it, so the slice zig-zags and no
+arc fits four consecutive points of it. The reference part's r=15 barrel came
+back as 21 straight primitives where the drawing has 13, and no tolerance could
+have fixed it: the error is a property of the tessellation, not of the fit.
+
+Cap boundaries are exact mesh vertices. What makes reading them a
+*construction* and not merely a nicer source of points is the **floor test**: if
+all the down-facing area sits at one height, every column of material runs from
+that floor to the first up-facing cap above it, so the body is exactly the union
+of each cap's footprint swept down. A blind pocket falls out of it — a hole in
+the upper cap that a lower cap's sweep fills part of the way — with nothing to
+classify. All four prismatic models in the corpus pass the floor test.
+
+Three defects were found building it, each by measurement:
+
+1. **Four concyclic points are not an arc.** Every rectangle has a
+   circumcircle, so Part9's five-point profile fitted one and bulged 2.3 mm
+   outside a 13 mm part, at 3.4% of its volume. What has to lie near the circle
+   is the POLYLINE, not the sample. An arc is now allowed only across junctions
+   the mesh itself does not call sharp, at the same dihedral the segmenter uses
+   everywhere else: a 20-sided hole is a circle, a hexagonal boss is a hexagon,
+   and no constant was invented for it.
+2. **The arc sense was flipped rather than set.** Two 50° runs of the Tree of
+   Life's outline came back as very nearly their whole circles, adding 518 mm²
+   to a 3 972 mm² profile. The angles are now unwrapped about the centre: the
+   run must advance monotonically, and the total is the sweep.
+3. **A ring is a cycle, so the walk has to be cut somewhere.** Cutting mid-run
+   splits that run. It now starts at a sharp junction; where there is none it
+   starts at the first real breakpoint — a fillet is tangent to its sides, so a
+   rounded rectangle has no corner at all — and a ring that is one circle is one
+   closed edge rather than two half-cylinders.
+
+### 10.3 The bar, which the prism path had made worse than it found it
+
+`StageGuard` and the first `SetStage` sat BELOW mesh loading, repair, adjacency,
+orientation and the prism path, so `occt_mesh_overall` reported nothing at all
+while those ran. On a fitted model that is 0.7% of the run (130 ms of the
+whale's 18.8 s) and merely wrong. On a prismatic one the prism path finishes the
+whole conversion up there, so **the bar never moved once in eleven seconds and
+then the model appeared** — which is exactly what was reported from the device.
+
+They are at the top of `Reconstruct` now, the prism path publishes its own
+measured spans (cap regions 0.0%, profiles and sweeps 1.6%, the fuse 48.4%,
+volume and validity 25.4%, certify 24.9%), and `occt_bar_watch` prints the
+percentages a person would actually have seen:
+
+```
+butterfly: 0% -> 99% in 28 steps over 11.8 s, no jump anywhere
+whale:     0% -> 99% over 12.4 s
+```
+
+Two app-side faults in the same story: the busy card was raised a method-channel
+round trip after the import sheet closed, into whichever window happened to be
+key — and while a `UIAlertController` is dismissing, that is the alert's own
+window, which UIKit tears down when the dismissal finishes. And it came down
+when the kernel returned, with the features not yet appended, the part not
+rebuilt, not saved, and no frame of the new body drawn.
+
+### 10.4 A heap overrun on every mesh import
+
+`occt_brep_from_mesh` writes every index of both report arrays unconditionally.
+`occt_capi.h` has said `OCCT_MESH_REPORT_INTS 25` since the certification fields
+were added; `occt_engine.dart` still allocated 22. Twelve bytes and eight past
+the end of two `calloc`'d blocks, on device, every time anyone imported a mesh.
+Found by going to read the certification fields and discovering the app had
+never been able to. `m232_mesh_import_test` now reads the header and fails if
+the two drift again.
+
+And the verdict is now surfaced: a body the kernel certified broken says so in
+the import message, instead of being reported in the same words as a perfect
+one. `certifiedBroken` is deliberately not "did not certify clean" — a body too
+large to check reports −1, and calling that broken would put a warning on every
+large import that has not earned one.
+
+### 10.5 The whale: two things that were tried and are wrong
+
+Both are recorded because each looked obviously right.
+
+**A fold test on the fitted nets.** 52 of the whale's 91 B-spline faces
+self-intersect, and `Net`'s own comment says why that should be: control points
+with no data in their support are held by nothing but a fairing term a
+millionth of the data's weight. A height-field test over the region's own
+parameter plane catches exactly that kind of fold, and it fired on 76 of 1 471
+rung candidates. **It bought 25 fewer self-intersections for 1 439 extra faces
+and did not change the verdict.** Reverted.
+
+It was also aimed at the wrong thing, which `cad_audit --face` settled: sampled
+across their trimmed area those surfaces are smooth, their normals spread 30–39°
+with **none reversed**, and no two distant parameters come within 1.7 mm of each
+other. The faces are sound.
+
+**Tightening the shared-edge curve.** The seams are the real defect — 142 edges
+carrying tolerances over 0.2 mm, a worst G0 gap of 0.286 mm on a 204 mm body —
+and the chain curve was being fitted to the conversion's own tolerance (0.41 mm),
+which goes straight into the edge. Tightening it does shrink the gap, and
+destabilises the body:
+
+| fraction of tol | G0 gap | oversize edges | self-int | body valid |
+|---|---|---|---|---|
+| 1.0 (shipping) | 0.286 | 140 | 142 | yes |
+| 0.5 | 0.203 | 114 | 125 | yes |
+| 0.35 | 0.137 | 112 | 162 | **no** |
+| 0.2 | 0.137 | 124 | 122 | **no** |
+| 0.05 | 0.166 | 114 | **5 586** | **no** |
+
+Weighting the region's boundary vertices in the net fit was also tried, and
+moved the gap from 0.2862 to 0.2842 mm — nothing. Both reverted.
+
+### 10.6 What the whale actually needs
+
+`occt_boolean_check` now says why the cut fails: it produces 39 faces of which
+**nine are invalid**, plus a bad wire, shell and solid. The faces going in are
+sound; what OCCT chokes on is the seams between independently fitted patches,
+bridged by inflated tolerances.
+
+That is not a constant. **Independently fitted B-spline patches, sewn with
+tolerance, do not produce a boolean-clean body**, and the sweep above is the
+evidence: every setting that closes the gap opens something else. What closes it
+is a surface NETWORK — neighbouring patches sharing boundary curves by
+construction rather than meeting within a tolerance — which is Phase 5, and it
+is weeks of work rather than a tuning pass.
+
+Until it exists, the honest behaviour is the one §10.4 adds: convert, certify,
+and SAY when the body will not take a fillet. The 1:1 path is already a sound
+fallback for these two models — measured, the faceted whale is one closed solid
+with no free edges and its boolean comes back **valid** — at 82 573 faces.
