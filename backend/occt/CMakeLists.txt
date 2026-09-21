@@ -138,6 +138,13 @@ if(OCCT_SMOKE)
     # seconds moves during those ten seconds. This prints the percentages a
     # viewer would have seen, against the clock, and is how "nothing, then a
     # flash of bar, then the model" was found and fixed.
+    # M440 — an experiment bench for the seam problem: load a finished body,
+    # re-derive its edge tolerances, and say whether the fat seams a sewer left
+    # were a guess or the geometry.
+    add_executable(occt_seam_heal tests/seam_heal.cpp)
+    target_link_libraries(occt_seam_heal PRIVATE occt_capi
+        Threads::Threads ${CMAKE_DL_LIBS})
+
     add_executable(occt_bar_watch tests/bar_watch.cpp)
     target_link_libraries(occt_bar_watch PRIVATE occt_capi
         Threads::Threads ${CMAKE_DL_LIBS})

@@ -1033,12 +1033,30 @@ moved the gap from 0.2862 to 0.2842 mm — nothing. Both reverted.
 sound; what OCCT chokes on is the seams between independently fitted patches,
 bridged by inflated tolerances.
 
+And the gaps are real geometry, not a sewer's guess. `occt_seam_heal` re-derives
+every edge tolerance from its pcurves — `BRepLib::SameParameter`, then
+`ShapeFix_Shape` — which is the same question asked properly:
+
+```
+as built             edges=1098  fat=140  worst_tol=1.033016  valid=1
+SameParameter 1e-5   edges=1098  fat=104  worst_tol=1.033016  valid=0
+ShapeFix_Shape       edges=1098  fat=104  worst_tol=1.033016  valid=0
+```
+
+The count of fat edges falls and **the worst does not move at all**: one edge
+64 mm long really does sit 1.03 mm from a surface it bounds. Every one of the
+eight fattest is `bspline+bspline` — two fitted patches disagreeing, not a
+fitted surface against a faceted region, which the chain builder has a
+dedicated path for and would have been a bug.
+
 That is not a constant. **Independently fitted B-spline patches, sewn with
-tolerance, do not produce a boolean-clean body**, and the sweep above is the
-evidence: every setting that closes the gap opens something else. What closes it
-is a surface NETWORK — neighbouring patches sharing boundary curves by
-construction rather than meeting within a tolerance — which is Phase 5, and it
-is weeks of work rather than a tuning pass.
+tolerance, do not produce a boolean-clean body.** Four probes agree: tightening
+the shared curve destabilises the body, weighting the shared vertices does
+nothing, a fold test finds nothing real, and re-deriving the tolerances leaves
+the worst gap exactly where it was. What closes it is a surface NETWORK —
+neighbouring patches sharing boundary curves by construction rather than meeting
+within a tolerance — which is Phase 5, and it is weeks of work rather than a
+tuning pass.
 
 Until it exists, the honest behaviour is the one §10.4 adds: convert, certify,
 and SAY when the body will not take a fillet. The 1:1 path is already a sound
