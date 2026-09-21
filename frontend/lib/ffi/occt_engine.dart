@@ -20,6 +20,7 @@
 //   - occt_shape* is an opaque handle; every shape returned by a
 //     constructor must go through occt_free_shape exactly once.
 //   - Not thread-safe; call only from the UI thread like qcad/slvs.
+import 'dart:convert';
 import 'dart:ffi';
 import 'dart:typed_data';
 
@@ -65,6 +66,11 @@ typedef _ExportN = Int32 Function(Pointer<Void>, Pointer<Utf8>);
 typedef _ExportD = int Function(Pointer<Void>, Pointer<Utf8>);
 typedef _ImportN = Pointer<Void> Function(Pointer<Utf8>);
 typedef _ImportD = Pointer<Void> Function(Pointer<Utf8>);
+// shim v30 (#58): the STEP assembly tree, through XDE.
+typedef _ImportTreeN = Int32 Function(Pointer<Utf8>, Pointer<_StepNodeC>,
+    Int32, Pointer<Pointer<Void>>, Int32, Pointer<Int32>, Pointer<Int32>);
+typedef _ImportTreeD = int Function(Pointer<Utf8>, Pointer<_StepNodeC>, int,
+    Pointer<Pointer<Void>>, int, Pointer<Int32>, Pointer<Int32>);
 // shim v17 (M214): many bodies -> many NAMED products in one STEP file.
 typedef _ExportNamedN = Int32 Function(Pointer<Pointer<Void>>,
     Pointer<Pointer<Utf8>>, Int32, Pointer<Utf8>, Pointer<Utf8>);
@@ -375,6 +381,89 @@ class BlendReport {
   }
 }
 
+/// #58 — one node of an imported STEP assembly tree.
+///
+/// The array is a PRE-ORDER flattening: [parent] indexes backwards into it
+/// (-1 for a root), so a parent always precedes its children and the tree
+/// rebuilds in one forward pass.
+class StepNode {
+  const StepNode(this.parent, this.def, this.solid, this.xf, this.name);
+
+  /// Index of the parent node, or -1 for a root.
+  final int parent;
+
+  /// Which DEFINITION this node is an occurrence of.
+  ///
+  /// Two nodes sharing a [def] are the same product placed twice — the
+  /// difference between an assembly and a heap of bodies, and the reason an
+  /// importer writes one document and places it many times rather than
+  /// writing the same part over and over.
+  final int def;
+
+  /// Index into [StepTree.solids] for a leaf, or -1 for an assembly node.
+  /// Every occurrence of a part definition carries the SAME index.
+  final int solid;
+
+  /// Placement relative to the PARENT, row-major 3x4: the first three columns
+  /// are the rotation, the fourth the translation in millimetres.
+  final List<double> xf;
+
+  /// The instance name where the file gives one ("base:2"), else the
+  /// definition's; empty when it names neither.
+  final String name;
+
+  bool get isAssembly => solid < 0;
+}
+
+/// #58 — a STEP file's product structure, with one shape per leaf definition.
+class StepTree {
+  const StepTree(this.nodes, this.solids, this.defCount);
+
+  final List<StepNode> nodes;
+
+  /// One shape per leaf DEFINITION, in its own local frame.
+  final List<OcctShape> solids;
+
+  /// How many distinct definitions the file named, assemblies included.
+  final int defCount;
+
+  /// The nodes whose parent is [i], in file order.
+  List<int> childrenOf(int i) =>
+      [for (var k = 0; k < nodes.length; k++) if (nodes[k].parent == i) k];
+
+  /// Root nodes, in file order.
+  List<int> get roots =>
+      [for (var k = 0; k < nodes.length; k++) if (nodes[k].parent < 0) k];
+
+  /// True when this file is worth importing as an ASSEMBLY rather than as a
+  /// heap of bodies: something in it is placed more than once, or is nested.
+  ///
+  /// A single product with one solid in it is a part, and turning it into a
+  /// one-component assembly would be a worse answer than the flat import.
+  bool get isStructured =>
+      nodes.any((n) => n.isAssembly) && nodes.length > 1;
+
+  void dispose() {
+    for (final s in solids) {
+      s.dispose();
+    }
+  }
+}
+
+/// The wire form of [StepNode] — occt_step_node in occt_capi.h.
+final class _StepNodeC extends Struct {
+  @Int32()
+  external int parent;
+  @Int32()
+  external int def;
+  @Int32()
+  external int solid;
+  @Array(12)
+  external Array<Double> xf;
+  @Array(128)
+  external Array<Uint8> name;
+}
+
 class OcctMeshData {
   /// Float32 copies of the vertex buffers, built once per mesh and reused on
   /// every scene push.
@@ -417,18 +506,41 @@ class OcctMeshData {
   /// disable those commands rather than guess an index.
   final Int32List faceIds;
 
+  /// v30 (#65) — the MESH faces each display edge bounds: 2 entries per edge,
+  /// in [triFaces]' numbering, -1 for an absent slot (a free edge, or a
+  /// neighbour the kernel could not triangulate).
+  ///
+  /// The kernel's own answer to "which edges bound this face", which cannot be
+  /// derived here: edges are discretised at their own much finer parameters
+  /// than the faces, so a curved edge's polyline shares no interior point with
+  /// the face triangulation. Empty = unknown (a fake, or a shim older than
+  /// v30); see [faceBoundaryEdges], which falls back rather than answering
+  /// "no edges".
+  final Int32List edgeFaces;
+
   OcctMeshData(this.positions, this.normals, this.indices, this.edgeStarts,
       this.edgePoints,
       {Int32List? triFaces,
       Float64List? faceInfos,
       Float64List? edgeCurves,
       Int32List? edgeIds,
-      Int32List? faceIds})
+      Int32List? faceIds,
+      Int32List? edgeFaces})
       : triFaces = triFaces ?? Int32List(0),
         faceInfos = faceInfos ?? Float64List(0),
         edgeCurves = edgeCurves ?? Float64List(0),
         edgeIds = edgeIds ?? Int32List(0),
-        faceIds = faceIds ?? Int32List(0);
+        faceIds = faceIds ?? Int32List(0),
+        edgeFaces = edgeFaces ?? Int32List(0);
+
+  /// The MESH faces display edge [i] bounds, in [triFaces]' numbering.
+  /// Empty when the mesh carries no adjacency, which is NOT the same as an
+  /// edge that bounds nothing — callers must tell the two apart.
+  List<int> facesOfEdge(int i) {
+    if (i < 0 || i * 2 + 1 >= edgeFaces.length) return const [];
+    final a = edgeFaces[i * 2], b = edgeFaces[i * 2 + 1];
+    return [if (a >= 0) a, if (b >= 0) b];
+  }
 
   /// Topological edge index of display edge [i], or -1 when unknown.
   int topoEdgeId(int i) =>
@@ -826,6 +938,7 @@ class OcctShape {
           final ecBuf = calloc<Double>(16 * (eN > 0 ? eN : 1));
           final eiBuf = calloc<Int32>(eN > 0 ? eN : 1);
           final fidBuf = calloc<Int32>(fN > 0 ? fN : 1);
+          final efBuf = calloc<Int32>(2 * (eN > 0 ? eN : 1));
           try {
             final v4ok = fN >= 0 &&
                 f._meshTriangleFaces(mp, tfBuf) == 1 &&
@@ -839,6 +952,10 @@ class OcctShape {
             // the same reason: losing it must cost Delete Face and Direct Edit
             // and nothing else.
             final v20ok = fN > 0 && f._meshFaceIds(mp, fidBuf) == 1;
+            // v30 (#65): the display-edge -> mesh-face adjacency. Read
+            // separately for the reason v12 and v20 are: losing it must cost
+            // projecting a whole face and nothing else.
+            final v30ok = eN > 0 && f._meshEdgeFaces(mp, efBuf) == 1;
             ffiCount('ffi.occt.meshCopyOut.tris', tN);
             ffiCount('ffi.occt.meshCopyOut.verts', vN);
             return ffiSpan(
@@ -864,12 +981,16 @@ class OcctShape {
                       faceIds: v20ok
                           ? Int32List.fromList(fidBuf.asTypedList(fN))
                           : null,
+                      edgeFaces: v30ok
+                          ? Int32List.fromList(efBuf.asTypedList(2 * eN))
+                          : null,
                     ));
           } finally {
             calloc.free(tfBuf);
             calloc.free(fiBuf);
             calloc.free(eiBuf);
             calloc.free(fidBuf);
+            calloc.free(efBuf);
             calloc.free(ecBuf);
           }
         } finally {
@@ -1056,6 +1177,7 @@ class OcctFfi {
       this._bbox,
       this._exportStep,
       this._importStep,
+      this._importStepTree,
       this._splitSolids,
       this._free,
       this._extrudeProfile,
@@ -1088,6 +1210,7 @@ class OcctFfi {
       this._mirror,
       this._exportStepNamed,
       this._meshFaceIds,
+      this._meshEdgeFaces,
       this._deleteFaces,
       this._moveFaces,
       this._scaleShape,
@@ -1116,12 +1239,14 @@ class OcctFfi {
   final _ExportD _exportStep;
   final _ExportNamedD _exportStepNamed; // v17
   final _MeshIntOutD _meshFaceIds; // v20
+  final _MeshIntOutD _meshEdgeFaces; // v30 (#65)
   final _FaceOpD _deleteFaces; // v20
   final _MoveFacesD _moveFaces; // v20
   final _ScaleD _scaleShape; // v20
   final _EdgesInfoD _shapeEdgesInfo; // v21 (bulk edge enumeration)
   final _BrepFromMeshD _brepFromMesh; // v21 on main's lineage — see v23
   final _ImportD _importStep;
+  final _ImportTreeD _importStepTree; // v30 (#58)
   final _SplitD _splitSolids;
   final _FreeD _free;
   // shim v2 (M56)
@@ -1192,6 +1317,9 @@ class OcctFfi {
         lib.lookupFunction<_BboxN, _BboxD>('occt_bbox'),
         lib.lookupFunction<_ExportN, _ExportD>('occt_export_step'),
         lib.lookupFunction<_ImportN, _ImportD>('occt_import_step'),
+        // v30 (#58) — the assembly tree. Eager, like everything else.
+        lib.lookupFunction<_ImportTreeN, _ImportTreeD>(
+            'occt_import_step_tree'),
         lib.lookupFunction<_SplitN, _SplitD>('occt_split_solids'),
         lib.lookupFunction<_FreeN, _FreeD>('occt_free_shape'),
         lib.lookupFunction<_ExtrudeProfN, _ExtrudeProfD>(
@@ -1239,6 +1367,10 @@ class OcctFfi {
             'occt_export_step_named'),
         // v20 (M217) — face identity, Delete Face, Direct Edit.
         lib.lookupFunction<_MeshIntOutN, _MeshIntOutD>('occt_mesh_face_ids'),
+        // v30 (#65) — the display-edge -> mesh-face adjacency. Eager, like
+        // everything else: a v29 binary probes to null, i.e. "no 3D kernel",
+        // which is the documented policy above.
+        lib.lookupFunction<_MeshIntOutN, _MeshIntOutD>('occt_mesh_edge_faces'),
         lib.lookupFunction<_FaceOpN, _FaceOpD>('occt_delete_faces'),
         lib.lookupFunction<_MoveFacesN, _MoveFacesD>('occt_move_faces'),
         lib.lookupFunction<_ScaleN, _ScaleD>('occt_scale_shape'),
@@ -1737,6 +1869,62 @@ class OcctFfi {
       return ffiSpan('ffi.occt.importStep', () => _wrap(_importStep(p)));
     } finally {
       calloc.free(p);
+    }
+  }
+
+  /// #58 — a STEP file WITH its product structure.
+  ///
+  /// [importStepSolids] flattens an assembly into bodies, because
+  /// STEPControl_Reader transfers geometry and nothing else. This reads the
+  /// same file through XDE and returns the tree: who is an occurrence of
+  /// what, where, and under whom. Null when the shim cannot read it (the
+  /// error is in [lastError]); the caller should fall back to the flat import
+  /// rather than refuse the file.
+  ///
+  /// [maxNodes] and [maxSolids] bound the buffers. The shim treats a tree
+  /// that does not fit as a FAILURE rather than truncating it, so a null
+  /// return on a very large assembly is honest and retryable, not a silently
+  /// short answer.
+  StepTree? importStepTree(String path,
+      {int maxNodes = 8192, int maxSolids = 4096}) {
+    final p = path.toNativeUtf8();
+    final nodes = calloc<_StepNodeC>(maxNodes);
+    final solids = calloc<Pointer<Void>>(maxSolids);
+    final nSolids = calloc<Int32>();
+    final nDefs = calloc<Int32>();
+    try {
+      final n = ffiSpan(
+          'ffi.occt.importStepTree',
+          () => _importStepTree(
+              p, nodes, maxNodes, solids, maxSolids, nSolids, nDefs));
+      if (n <= 0) return null;
+      final out = <StepNode>[];
+      for (var i = 0; i < n; i++) {
+        final c = nodes[i];
+        final xf = <double>[for (var k = 0; k < 12; k++) c.xf[k]];
+        final bytes = <int>[];
+        for (var k = 0; k < 128; k++) {
+          final b = c.name[k];
+          if (b == 0) break;
+          bytes.add(b);
+        }
+        out.add(StepNode(c.parent, c.def, c.solid, xf, utf8.decode(bytes,
+            allowMalformed: true)));
+      }
+      return StepTree(
+        out,
+        [
+          for (var i = 0; i < nSolids.value; i++)
+            if (solids[i] != nullptr) OcctShape._(this, solids[i])
+        ],
+        nDefs.value,
+      );
+    } finally {
+      calloc.free(p);
+      calloc.free(nodes);
+      calloc.free(solids);
+      calloc.free(nSolids);
+      calloc.free(nDefs);
     }
   }
 

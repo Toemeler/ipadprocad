@@ -16,6 +16,7 @@ import 'package:native_menu/native_menu.dart'
 import 'package:path_provider/path_provider.dart';
 
 import 'platform/app_dirs.dart';
+import 'package:gpu_view/gpu_view.dart' show GpuThumbnailer;
 import 'package:reality_view/reality_view.dart' show RealityThumbnailer;
 
 import 'asm_constraints.dart';
@@ -1437,6 +1438,31 @@ class ExtrudeSession {
   }
 }
 
+/// How long a caller will wait for the frame that carries new geometry before
+/// giving up on seeing it.
+///
+/// M440 keeps the busy card up until that frame is on screen; this is the
+/// ceiling on that wait, so a pipeline which is not producing frames — a test
+/// driving AppState directly, an app in the background — costs the card's
+/// last beat rather than the import's return value. See the note at the end of
+/// [AppState.importMeshIntoPart], which is the one place it applies.
+/// One renderer that can produce a gallery still, and its name.
+///
+/// The name is for the log and for the tests: which engine drew a card is the
+/// single most useful thing to know when one looks wrong, and #57/#64 are two
+/// reports of exactly that question being unanswerable from the outside.
+typedef StillEngine = ({
+  String name,
+  Future<Uint8List?> Function({
+    required Map<String, dynamic> scene,
+    required Map<String, dynamic> camera,
+    required int width,
+    required int height,
+  }) render,
+});
+
+const Duration _kFramePresentWait = Duration(seconds: 1);
+
 class AppState extends ChangeNotifier {
   /// Scratch used only while parsing a part sidecar: sketch name -> stored
   /// visibility (null = key absent in a legacy file).
@@ -2833,12 +2859,37 @@ class AppState extends ChangeNotifier {
   Future<void> flushCurrentDocument() async {
     final name = curTab;
     if (name == null) return;
+    await _flushDocument(name);
+  }
+
+  Future<void> _flushDocument(String name) async {
     if (assemblies.containsKey(name)) {
       await saveAssembly(name);
     } else if (parts.containsKey(name)) {
       await savePart(name);
     } else if (sketches.containsKey(name)) {
       await saveSketch(name);
+    }
+  }
+
+  /// Saves EVERY open document, for a shutdown that is about to happen
+  /// whether the app likes it or not.
+  ///
+  /// [flushCurrentDocument] saves the tab in front of you, which is right for
+  /// a checkpoint and wrong for this: an update replaces the executable and
+  /// the process goes with it, so a document open in another tab is a
+  /// document that loses whatever was not written. The one caller is the
+  /// updater.
+  ///
+  /// One failure does not stop the rest. A document that cannot be saved is
+  /// worth a line in the log, and the other four tabs are still worth saving.
+  Future<void> flushAllDocuments() async {
+    for (final name in List<String>.of(openTabs)) {
+      try {
+        await _flushDocument(name);
+      } catch (e) {
+        Log.w('doc', 'could not flush "$name" before shutdown: $e');
+      }
     }
   }
 
@@ -2993,6 +3044,14 @@ class AppState extends ChangeNotifier {
     final lower = path.toLowerCase();
     try {
       if (lower.endsWith('.step') || lower.endsWith('.stp')) {
+        // #58 — AS AN ASSEMBLY where the file is one, which is what it says
+        // it is. Tried first and falling through on 0, so a file with no
+        // structure (a single product, the common export from a part) still
+        // arrives as one part exactly as it always has. The assembly path
+        // names its own documents after the file's products, so the name
+        // computed above is not used on that branch.
+        final placed = await importStepAssembly(path);
+        if (placed > 0) return curTab;
         if (!await createNamedPart(name)) return null;
         await importStepIntoPart(path);
         await savePart(name);
@@ -4467,17 +4526,73 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// The still renderers, in PREFERENCE order.
+  ///
+  /// M82's rule is ONE ENGINE — the still comes from whatever draws the live
+  /// viewport, so a body looks on the card exactly as it looks in the
+  /// viewport. It was written when there were two renderers to choose
+  /// between and the answer off iOS was always the CPU painter. M372 gave the
+  /// viewport a third, flutter_scene on Flutter GPU, and this list is what
+  /// did not grow with it: on Windows the viewport went to the GPU and the
+  /// card stayed on the painter, which is #57 and #64.
+  ///
+  /// Preference, not capability. Each entry answers null for "not here"
+  /// rather than throwing, so this stays a straight line and the painter at
+  /// the end of it is reached by falling through rather than by a platform
+  /// test. Replaceable so the ORDER can be pinned on a host that has neither.
+  @visibleForTesting
+  static List<StillEngine> stillEngines = <StillEngine>[
+    (name: 'reality', render: RealityThumbnailer.render),
+    (name: 'gpu', render: GpuThumbnailer.render),
+  ];
+
+  /// The first still any engine will give up, or null — paint it yourself.
+  ///
+  /// Static because it reads nothing but the list above, which is also what
+  /// lets [renderStillForTest] exercise the walk without a document.
+  static Future<Uint8List?> _renderStill({
+    required Map<String, dynamic> scene,
+    required Map<String, dynamic> camera,
+    required int width,
+    required int height,
+  }) async {
+    for (final e in stillEngines) {
+      final shot = await e.render(
+          scene: scene, camera: camera, width: width, height: height);
+      if (shot != null && shot.isNotEmpty) {
+        Log.d('preview', 'still drawn by ${e.name}');
+        return shot;
+      }
+    }
+    return null;
+  }
+
+  /// Tests only: the walk above, with payloads no stub engine reads.
+  @visibleForTesting
+  static Future<Uint8List?> renderStillForTest() => _renderStill(
+      scene: const <String, dynamic>{},
+      camera: const <String, dynamic>{},
+      width: 380,
+      height: 240);
+
   /// Renders the part's solids to <name>.png (380x240) for the gallery card
   /// and the long-press lift preview.
   ///
-  /// M82 — ONE ENGINE. The still is produced by the same RealityKit renderer
-  /// that draws the live 3D viewport ([RealityThumbnailer.render] spins up an
-  /// off-screen ARView and pushes the very same scene payload), so a body looks
-  /// on the card exactly as it looks in the viewport. The Dart CPU painter
-  /// (paintPartSolids) remains as the FALLBACK for every place RealityKit is
-  /// unavailable — host tests, non-iOS, iOS < 15, app backgrounded with no key
-  /// window, or any failed snapshot — and is still the only path exercised by
-  /// the widget tests.
+  /// M82 — ONE ENGINE. The still is produced by the same renderer that draws
+  /// the live 3D viewport, so a body looks on the card exactly as it looks in
+  /// the viewport. [stillEngines] is that choice, in preference order:
+  /// RealityKit ([RealityThumbnailer.render] spins up an off-screen ARView and
+  /// pushes the very same scene payload), then Flutter GPU
+  /// ([GpuThumbnailer.render] aims the very same three verbs at a
+  /// PictureRecorder). The Dart CPU painter (paintPartSolids) is the FALLBACK
+  /// below both — host tests, iOS < 15, app backgrounded with no key window, a
+  /// desktop build without the Flutter GPU switch, or any failed snapshot —
+  /// and is still the only path exercised by the widget tests.
+  ///
+  /// #57/#64 are what the second entry is: M372 gave the desktop a GPU
+  /// viewport and this list did not grow with it, so on Windows the viewport
+  /// went to the GPU and the card stayed on the painter — two renderers
+  /// drawing the same part.
   ///
   /// Both engines are handed the IDENTICAL camera from [fitThumbCamera]: the
   /// fixed TOP-FRONT-RIGHT isometric corner, framed to the silhouette and
@@ -4512,7 +4627,7 @@ class AppState extends ChangeNotifier {
       // its own surface behind the PNG, so the file carries the part and never
       // a palette: a thumbnail written in Ember still looks right in Chalk,
       // and a scheme switch does not invalidate a single cached still.
-      final shot = await RealityThumbnailer.render(
+      final shot = await _renderStill(
         // M272 — the appearances too. `named` is keyed by FEATURE name and a
         // material belongs to a body, so this is the same feature -> body ->
         // material walk _bodyRowTint does.
@@ -4742,18 +4857,23 @@ class AppState extends ChangeNotifier {
     return out;
   }
 
-  Future<bool> createNamedAssembly(String name) async {
+  Future<bool> createNamedAssembly(String name, {bool open = true}) async {
     final clean = name.trim();
     if (validateSketchName(clean) != null) return false;
     if (docNameExists(clean)) return false;
     final a = AssemblyModel(clean);
     assemblies[clean] = a;
-    if (!openTabs.contains(clean)) openTabs.add(clean);
-    curTab = clean;
-    activeChild = null;
-    editingLayer = null;
-    tool = Tool.none;
-    _reanalyze();
+    // [open] for createNamedPart's reason, and #58 is the caller that needs
+    // it: a STEP import makes one document per sub-assembly, and a tab per
+    // sub-assembly is not what was asked for.
+    if (open) {
+      if (!openTabs.contains(clean)) openTabs.add(clean);
+      curTab = clean;
+      activeChild = null;
+      editingLayer = null;
+      tool = Tool.none;
+      _reanalyze();
+    }
     await saveAssembly(clean);
     return true;
   }
@@ -4858,6 +4978,20 @@ class AppState extends ChangeNotifier {
   /// The one model for assembly [name], or null.
   AssemblyModel? _sourceAssembly(String name) =>
       assemblies[name] ?? _componentAssemblies[name];
+
+  /// Tests only: the same lookup, for a document a test made but did not open.
+  @visibleForTesting
+  AssemblyModel? assemblyModelForTest(String name) => _sourceAssembly(name);
+
+  /// Tests only: every document name this session holds, open or not.
+  @visibleForTesting
+  Set<String> allDocumentNames() => {
+        ...sketches.keys,
+        ...parts.keys,
+        ..._componentModels.keys,
+        ...assemblies.keys,
+        ..._componentAssemblies.keys,
+      };
 
   /// Every document any OPEN assembly places, transitively.
   ///
@@ -5254,7 +5388,7 @@ class AppState extends ChangeNotifier {
       // M237 — a TRANSPARENT ground: the card paints its own surface behind
       // the PNG, so a still written in one scheme still looks right in the
       // other and a palette switch invalidates no cached file.
-      final shot = await RealityThumbnailer.render(
+      final shot = await _renderStill(
         // M272 — and each component's own appearance.
         scene: buildPlacedThumbScenePayload(pieces,
             tintOf: (id) => pieceTint[id] ?? kNoTint),
@@ -5306,6 +5440,18 @@ class AppState extends ChangeNotifier {
       {Placement? at}) async {
     final a = currentAssembly;
     if (a == null) return null;
+    return _placeInto(a, source, at: at);
+  }
+
+  /// The same placement, into an assembly that need not be the OPEN one.
+  ///
+  /// #58 — importing a STEP assembly builds a whole tree of documents before
+  /// any of them is opened, and each sub-assembly has to be filled where it
+  /// stands. Opening each one in turn to place into it would leave a tab per
+  /// sub-assembly and would make the import's last step decide which document
+  /// the user is looking at.
+  Future<AssemblyOccurrence?> _placeInto(AssemblyModel a, String source,
+      {Placement? at}) async {
     // M246 — a subassembly is placed by the same command, which is Inventor's
     // Place Component exactly: one button, and what you pick decides.
     final asSub = isAssemblyName(source);
@@ -13710,6 +13856,19 @@ class AppState extends ChangeNotifier {
       final r = Rect.fromPoints(boxStart!, boxEnd!);
       if (r.width > 1e-9 && r.height > 1e-9) {
         lastBoxRect = r;
+        // #65 — "i also want to project using the select boxes".
+        //
+        // With Project active a box is a PROJECTION, not a selection: the
+        // tool's whole job is to take what you point at, and a box is how you
+        // point at twenty things. Inventor's window/crossing rule is
+        // unchanged, and so is the order of preference inside it — model
+        // edges and other layers' geometry, exactly what a single tap takes.
+        if (tool == Tool.project) {
+          _projectBox(s, r);
+          boxStart = boxEnd = null;
+          notifyListeners();
+          return;
+        }
         selection.clear();
         for (var i = 0; i < s.geometry.length; i++) {
           if (!geoVisible(s.geometry[i])) continue;
@@ -15836,14 +15995,43 @@ class AppState extends ChangeNotifier {
   /// and ARC on the editing layer, never projected reference geometry — the
   /// same scope as picking/selection. Circles, splines, ellipses and single
   /// polylines are whole shapes and offset on their own.
-  Set<int> _chainEligible(SketchModel s) => {
+  /// #66 — and of the SAME KIND as the seed.
+  ///
+  ///   "i cant offset this circle with the line in one offset somehow it
+  ///    seems not connected."
+  ///
+  /// The sketch in that report is a chord across a circle that had been split
+  /// at the chord's own ends, so it is three entities: the line, the arc below
+  /// it, and a CONSTRUCTION arc above it. Three curves meet at each end of the
+  /// chord, the walk needs exactly one unvisited neighbour to continue, and it
+  /// stopped on the seed — `offset chain from e0: +1 segs (open)` in the log.
+  ///
+  /// It is not a branch in any sense the user would recognise. Construction
+  /// geometry is scaffolding: it crosses the sketch wherever it is useful, and
+  /// a chain that may step onto it will find a junction at every crossing and
+  /// stop there. Projections were excluded from the start for exactly this
+  /// reason; this is the same rule, applied to the other kind of reference
+  /// geometry, and with it the reporter's three entities are two — line and
+  /// arc — which closes into the loop they were pointing at.
+  ///
+  /// Matching the seed rather than excluding construction outright, so a
+  /// construction chain can still be offset on its own terms. What a chain
+  /// may not do is CROSS between the two.
+  Set<int> _chainEligible(SketchModel s, {bool construction = false}) => {
         for (var i = 0; i < s.geometry.length; i++)
           if ((s.geometry[i].type == Geo.line ||
                   s.geometry[i].type == Geo.arc) &&
               geoEditable(s.geometry[i]) &&
-              !s.geometry[i].isProjection)
+              !s.geometry[i].isProjection &&
+              s.geometry[i].isConstruction == construction)
             i
       };
+
+  /// [_chainEligible] for the chain [seed] belongs to.
+  Set<int> _chainEligibleFor(SketchModel s, int seed) => _chainEligible(s,
+      construction: seed >= 0 &&
+          seed < s.geometry.length &&
+          s.geometry[seed].isConstruction);
 
   /// Nearest pickable entity to [w], or null.
   ///
@@ -16185,6 +16373,35 @@ class AppState extends ChangeNotifier {
   /// face whose outline you projected by hand should still bring its holes
   /// across, and "already projected" is an answer about one edge, not about a
   /// face that is merely partly there.
+  /// #65 — projects every MODEL edge the box [r] caught.
+  ///
+  /// Model edges only, and that is the scope rather than a shortcut: both
+  /// halves of the report are about getting model geometry into a sketch in
+  /// one go ("project the whole face", "project using the select boxes").
+  /// Projecting one sketch layer onto another by the box is a different
+  /// gesture nobody has asked for, and adding it here would make a box over a
+  /// busy sketch do something surprising.
+  ///
+  /// A box that catches nothing says so. Silence would be indistinguishable
+  /// from the tool being inactive, which is how the single-tap path already
+  /// behaves and why it toasts too.
+  void _projectBox(SketchModel s, Rect r) {
+    final lay = editingLayer;
+    if (lay == null) return;
+    final hits =
+        partEdgesInRect(projectableEdges(), r, crossing: boxCrossing);
+    Log.i(
+        'project',
+        'box ${boxCrossing ? "crossing" : "window"} '
+            '${r.width.toStringAsFixed(2)}x${r.height.toStringAsFixed(2)} '
+            '-> ${hits.length} model edges');
+    if (hits.isEmpty) {
+      toast(L.current.msgTapGeometryOtherLayer);
+      return;
+    }
+    _projectSolidEdges(s, hits, lay);
+  }
+
   void _projectSolidEdges(SketchModel s, List<int> edgeIndices, String lay) {
     final edges = projectableEdges();
     final tags = List<Geo>.of(s.geometry);
@@ -16821,7 +17038,8 @@ class AppState extends ChangeNotifier {
     if (!modifyTools.contains(tool)) return const [];
     if (tool == Tool.moffset && modEntity != null) {
       final chain =
-          offsetChainAt(s.geometry, modEntity!, hover, _chainEligible(s));
+          offsetChainAt(s.geometry, modEntity!, hover,
+              _chainEligibleFor(s, modEntity!));
       return chain == null ? const [] : chain.offsets;
     }
     if (selection.isEmpty || toolPoints.isEmpty) return const [];
@@ -16853,7 +17071,8 @@ class AppState extends ChangeNotifier {
   /// on local copies; if the constrained result cannot be solved it degrades to
   /// the bare geometry rather than corrupting the sketch.
   void _commitOffset(SketchModel s, int seed, Offset w) {
-    final chain = offsetChainAt(s.geometry, seed, w, _chainEligible(s));
+    final chain =
+        offsetChainAt(s.geometry, seed, w, _chainEligibleFor(s, seed));
     if (chain == null) {
       toast(L.current.msgNothingToOffset);
       return;
@@ -18515,6 +18734,179 @@ class AppState extends ChangeNotifier {
   /// because the imported B-Rep is not serialised — re-reading the STEP on
   /// open is simpler and lossless, and it keeps the document a description of
   /// where geometry came from rather than a second copy of it.
+  /// #58 — a document name for a STEP product, free of the instance suffix.
+  ///
+  /// The file names an OCCURRENCE ("base:2", "radlein8mm:1"); the DOCUMENT is
+  /// the product behind it. Stripping ":n" is what makes two occurrences of
+  /// one product resolve to one document rather than to "base:1" and
+  /// "base:2", which would be the flat import again with better names.
+  static String stepDocName(String raw, String fallback) {
+    var n = raw.trim();
+    final colon = n.lastIndexOf(':');
+    // The NUMBER is what marks an instance: "base:2" is an occurrence of
+    // "base", while "Rev:A" is just a name with a colon in it. A colon at the
+    // front leaves nothing behind, which is a product the file did not name —
+    // the fallback, not a document called "_2".
+    if (colon >= 0 && int.tryParse(n.substring(colon + 1)) != null) {
+      n = n.substring(0, colon);
+    }
+    // The gallery's own rules decide what a name may be; a STEP file's does
+    // not have to agree with them.
+    n = n.replaceAll(RegExp(r'[^A-Za-z0-9 _\-]'), '_').trim();
+    return n.isEmpty ? fallback : n;
+  }
+
+  /// [base], or the first "base (2)", "base (3)", … that no document holds.
+  String _freeDocName(String base) {
+    if (!docNameExists(base)) return base;
+    for (var i = 2; i < 10000; i++) {
+      final n = '$base ($i)';
+      if (!docNameExists(n)) return n;
+    }
+    return '$base ${DateTime.now().millisecondsSinceEpoch}';
+  }
+
+  /// #58 — imports a STEP file AS AN ASSEMBLY: one document per product, one
+  /// occurrence per placement.
+  ///
+  ///   "this step was an assembly, with other assemblys in the assembly and
+  ///    so on. but after import it was just one part with lots of solids."
+  ///
+  /// Returns the number of occurrences placed, or 0 when the file has no
+  /// structure worth keeping — a single product with solids in it is a PART,
+  /// and a one-component assembly would be a worse answer than the flat
+  /// import. The caller falls back to [importStepIntoPart] on 0.
+  ///
+  /// The LINKING the sequel asks for falls out of this rather than being a
+  /// second feature: two occurrences of one product share a `def`, so they
+  /// share the document this writes for it, and that document is an ordinary
+  /// part or assembly in the gallery — open it, edit it, and every occurrence
+  /// follows, because that is what an occurrence already is (M245).
+  Future<int> importStepAssembly(String path) async {
+    final tree = partKernel.importStepAssembly(path);
+    if (tree == null) return 0;
+    try {
+      if (!tree.isStructured) return 0;
+      final nodes = tree.pieces;
+
+      // The FIRST occurrence of each definition: every other one is the same
+      // product, so one of them is enough to describe the document.
+      final rep = <int, int>{};
+      for (var i = 0; i < nodes.length; i++) {
+        rep.putIfAbsent(nodes[i].def, () => i);
+      }
+      // Depth, so assemblies can be built from the leaves up: a parent cannot
+      // place a child whose document does not exist yet.
+      final depth = List<int>.filled(nodes.length, 0);
+      for (var i = 0; i < nodes.length; i++) {
+        final p = nodes[i].parent;
+        depth[i] = p < 0 ? 0 : depth[p] + 1; // pre-order: p < i always
+      }
+
+      final docOf = <int, String>{}; // def -> document name
+      var parts0 = 0, subs = 0, placed = 0;
+
+      // 1. Every LEAF definition becomes a part document, holding the one
+      //    imported body, in the product's OWN frame. Not opened: the user
+      //    asked for the assembly.
+      for (final e in rep.entries) {
+        final n = nodes[e.value];
+        if (n.isAssembly) continue;
+        if (n.solid < 0 || n.solid >= tree.solids.length) continue;
+        final body = tree.solids[n.solid];
+        if (body == null) continue; // could not be tessellated
+        final name = _freeDocName(stepDocName(n.name, 'Part'));
+        if (!await createNamedPart(name, open: false)) continue;
+        final p = parts[name];
+        if (p == null) continue;
+        p.appendFeature(ExtrudeFeature(
+          name: p.nextFeatureName('Import'),
+          bodyName: p.nextSolidName(),
+          sketchName: '',
+          profiles: const [],
+          output: 'new',
+        )
+          ..imported = true
+          ..importIndex = n.solid
+          ..solid = body
+          ..seq = p.nextSeq());
+        applyEndOfPart(p);
+        p.dirty = true;
+        await savePart(name);
+        // M245's invariant: a document not open in a tab lives in the shared
+        // map, so every occurrence of it points at the same model.
+        final m = parts.remove(name);
+        if (m != null) _componentModels[name] = m;
+        docOf[e.key] = name;
+        parts0++;
+      }
+
+      // 2. Every ASSEMBLY definition becomes an assembly document, DEEPEST
+      //    FIRST so its children already exist when it places them.
+      final asmDefs = [
+        for (final e in rep.entries)
+          if (nodes[e.value].isAssembly) e.key
+      ]..sort((a, b) => depth[rep[b]!].compareTo(depth[rep[a]!]));
+
+      for (final def in asmDefs) {
+        final at = rep[def]!;
+        final name = _freeDocName(stepDocName(nodes[at].name, 'Assembly'));
+        if (!await createNamedAssembly(name, open: false)) continue;
+        final a = assemblies[name];
+        if (a == null) continue;
+        for (var c = 0; c < nodes.length; c++) {
+          if (nodes[c].parent != at) continue;
+          final child = docOf[nodes[c].def];
+          if (child == null) continue; // a definition that could not be made
+          final occ = await _placeInto(a, child,
+              at: Placement(nodes[c].rot, nodes[c].at));
+          if (occ != null) placed++;
+        }
+        await saveAssembly(name);
+        // Same invariant as the parts: an assembly nothing has open is a
+        // SOURCE, and a sub-assembly placed twice must resolve to one model.
+        final m = assemblies.remove(name);
+        if (m != null) _componentAssemblies[name] = m;
+        docOf[def] = name;
+        subs++;
+      }
+
+      // 3. The root, which IS opened — it is the document that was asked for.
+      final rootDefs = {for (final r in tree.roots) nodes[r].def};
+      String? opened;
+      for (final d in rootDefs) {
+        final name = docOf[d];
+        if (name == null) continue;
+        final held = _componentAssemblies.remove(name);
+        if (held != null) {
+          assemblies[name] = held;
+        } else if (_componentModels.containsKey(name)) {
+          parts[name] = _componentModels.remove(name)!;
+        }
+        opened = name;
+      }
+      if (opened == null) return 0;
+      if (assemblies.containsKey(opened)) {
+        await openAssembly(opened);
+        currentAssembly?.needsFit = true;
+      } else {
+        await openPart(opened);
+      }
+
+      Log.i(
+          'import',
+          'STEP assembly "$opened": ${nodes.length} nodes, '
+              '${tree.defCount} definitions -> $parts0 part document(s), '
+              '$subs sub-assembly document(s), $placed occurrence(s)');
+      toast(L.current.msgImportedBodies(placed));
+      notifyListeners();
+      return placed;
+    } catch (e, st) {
+      Log.e('import', 'STEP assembly import failed', e, st);
+      return 0;
+    }
+  }
+
   Future<int> importStepIntoPart(String path) async {
     final p = currentPart;
     if (p == null) {
@@ -18870,7 +19262,28 @@ class AppState extends ChangeNotifier {
     // notifyListeners above is what makes that frame the one carrying the new
     // geometry. So the card is up from the tap to the picture, without a gap
     // at either end.
-    await WidgetsBinding.instance.endOfFrame;
+    //
+    // BOUNDED, THOUGH, BECAUSE A FRAME IS NOT SOMETHING THIS METHOD CAN
+    // PROMISE. `endOfFrame` schedules one if the binding is idle, which is
+    // enough in the app and is exactly nothing under
+    // `AutomatedTestWidgetsFlutterBinding`, where `scheduleFrame` is inert and
+    // a frame happens only when a test pumps. An import driven straight off
+    // AppState therefore waited for a frame that was never coming — and took
+    // its own Future down with it, because this await is the last thing
+    // between here and the return. `mesh: done` in the log, the card still up,
+    // and every caller of [importMeshIntoPart] stopped behind an await that
+    // never completes: that is M384's three mesh cases timing out at 30 s
+    // apiece, which is what red main was made of. A backgrounded app is the
+    // same shape for a real user — the engine stops producing frames there, so
+    // an import finished with the app away would not return until it came
+    // back.
+    //
+    // A card that comes down a beat early is a cosmetic miss. An import that
+    // never returns is not. So the wait is capped well above the frame it is
+    // actually waiting for — 16 ms at 60 Hz, a few hundred after a rebuild
+    // this size — and far below anything a person would call a hang.
+    await WidgetsBinding.instance.endOfFrame
+        .timeout(_kFramePresentWait, onTimeout: () {});
     await NativeBusy.hide();
     return bodies.length;
   }

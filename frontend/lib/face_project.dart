@@ -90,6 +90,36 @@ double _quantumFor(OcctMeshData m) {
 /// [OcctMeshData.triFaces].
 Set<int> faceBoundaryEdges(OcctMeshData m, int face) {
   if (m.triFaces.isEmpty || face < 0) return const {};
+  // v30 (#65) — ASK THE KERNEL, which has always known.
+  //
+  // Everything below this is a derivation from the mesh, and the paragraph in
+  // this file's header that justified it ("they are the same nodes — OCCT
+  // tessellates an edge and the faces meeting it from one polygon") was not
+  // true of this shim. occt_mesh_create discretises edges at their OWN, much
+  // finer parameters than the faces, on purpose and with a note saying so:
+  // outlines are what the eye judges, so they do not coarsen with the
+  // triangle budget. A curved edge's polyline therefore shares no interior
+  // point with the face triangulation, the segment test below matched none of
+  // it, and a face came across as whichever straight edges happened to sit on
+  // an unsubdivided chord. The device said it in one line —
+  //
+  //   project: projected 1 edges of a face onto "Layer 1"
+  //
+  // — on a face with a whole boundary, which is #65.
+  //
+  // TopExp::MapShapesAndAncestors answers this exactly, and the shim was
+  // already calling it for the seam test; v30 exports the result. The
+  // derivation stays for meshes that carry no adjacency (fakes, and the
+  // widget tests built on them), because "cannot answer" and "no edges" have
+  // to keep being different sentences.
+  if (m.edgeFaces.isNotEmpty) {
+    final out = <int>{};
+    final n = m.edgeStarts.length - 1;
+    for (var e = 0; e < n; e++) {
+      if (m.facesOfEdge(e).contains(face)) out.add(e);
+    }
+    return out;
+  }
   // 1. the sides of this face's triangles, counted.
   final count = <int, int>{};
   final ends = <int, (int, int)>{};
@@ -256,7 +286,8 @@ OcctMeshData meshForTest({
   required Int32List triFaces,
   required Int32List edgeStarts,
   required Float64List edgePoints,
+  Int32List? edgeFaces,
 }) =>
     OcctMeshData(positions, Float64List(positions.length), indices, edgeStarts,
         edgePoints,
-        triFaces: triFaces);
+        triFaces: triFaces, edgeFaces: edgeFaces);

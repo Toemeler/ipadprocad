@@ -223,8 +223,66 @@ int occt_export_step_named(const occt_shape **shapes, const char **names,
                            const char *path, const char *product);
 
 /* Read a STEP file and return all roots as one shape (compound if several).
- * NULL on failure (missing/garbage file included — never crashes). */
+ * NULL on failure (missing/garbage file included — never crashes).
+ *
+ * GEOMETRY ONLY. STEPControl_Reader does not read the product structure, so
+ * an assembly arrives as one compound and occt_split_solids flattens it into
+ * a heap of bodies with no names, no instances and no nesting. Use
+ * occt_import_step_tree below when the structure matters (#58); this stays
+ * for the single-body case and for every caller that only wants a shape. */
 occt_shape *occt_import_step(const char *path);
+
+/* ---- v30 (#58): STEP assemblies ----------------------------------------- */
+
+/*
+ * One node of an imported STEP assembly tree.
+ *
+ * The node array is a PRE-ORDER flattening: `parent` indexes backwards into
+ * the same array (-1 for a root), so a parent always precedes its children
+ * and the tree rebuilds in one forward pass with no pointer graph to free.
+ *
+ * `def` is the DEFINITION this node is an occurrence of. Two nodes sharing a
+ * `def` are the same product placed twice, which is the difference between an
+ * assembly and a heap of bodies: a definition is ONE document written once,
+ * and its occurrences are placements of it.
+ *
+ * `solid` indexes the shape array for a leaf, or is -1 for an assembly node.
+ * Geometry is emitted ONCE PER LEAF DEFINITION in its own local frame, so all
+ * occurrences of a part carry the SAME `solid`.
+ *
+ * `xf` is the placement relative to the PARENT, row-major 3x4 (the first
+ * three columns are the rotation, the fourth the translation in mm). A node's
+ * world placement is the product down its own branch.
+ *
+ * `name` is the instance name where the file gives one ("base:2"), else the
+ * definition's; empty when the file names neither.
+ */
+typedef struct occt_step_node {
+    int parent;
+    int def;
+    int solid;
+    double xf[12];
+    char name[128];
+} occt_step_node;
+
+/*
+ * Read a STEP file WITH its product structure, through XDE.
+ *
+ * Writes at most [max_nodes] nodes and [max_solids] shapes; returns the node
+ * count, or 0 on failure (occt_last_error says why). [n_solids] receives the
+ * number of shapes written and [n_defs] the number of distinct definitions;
+ * both may be NULL.
+ *
+ * A tree that does not FIT is a failure, not a truncation: every shape
+ * already written is freed and 0 is returned, because a silently clipped
+ * assembly is a document missing parts the file had. Retry with bigger
+ * buffers.
+ *
+ * The caller owns every returned shape.
+ */
+int occt_import_step_tree(const char *path, occt_step_node *nodes,
+                          int max_nodes, occt_shape **solids, int max_solids,
+                          int *n_solids, int *n_defs);
 
 /* ---- v2: Tessellation (display mesh) ------------------------------------ */
 
@@ -314,6 +372,24 @@ int occt_mesh_edge_curves(const occt_mesh *m, double *out);
  * mesh index; occt_delete_faces and occt_move_faces name the topological one.
  * Returns 1/0. */
 int occt_mesh_face_ids(const occt_mesh *m, int *out);
+
+/*
+ * v30 (#65) — WHICH MESH FACES each display edge bounds.
+ *
+ * `out` receives 2 * nedges ints: two MESH face indices per display edge, in
+ * the same numbering `occt_mesh_tri_faces` uses, with -1 for an absent slot.
+ * A manifold edge fills both, a free edge one, and an edge whose neighbouring
+ * face carries no triangulation leaves that slot empty rather than pointing
+ * somewhere wrong.
+ *
+ * This adjacency was always computed here — the seam test in occt_mesh_create
+ * needs it — and simply never left the shim, so "which edges bound this face"
+ * had to be guessed from the geometry instead. It cannot be: edges are
+ * discretised at their own, much finer parameters than the faces (the v11
+ * note), so a curved edge's polyline shares no interior point with the face
+ * triangulation and a shared-point test keeps only the odd straight edge.
+ */
+int occt_mesh_edge_faces(const occt_mesh *m, int *out);
 
 /* Release a mesh returned by occt_mesh_create. NULL is ignored. */
 void occt_free_mesh(occt_mesh *m);

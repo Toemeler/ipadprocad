@@ -160,6 +160,36 @@ class _ModelBrowserState extends State<ModelBrowser> {
   /// and it is exact: every row in every tree kind is one [_row], every row is
   /// [_kTreeRowH] tall, and `ListView(children:)` constructs the whole list
   /// during build even though it only lays out what is on screen.
+  /// #68 — the row the browser has selected, as the prefixed id the menus
+  /// already dispatch on (`ft:`, `bd:`, `sk:`, `skn:`, `wf:`, or a bare layer
+  /// name).
+  ///
+  ///   "i want to be able to click on anything in the modell browser and then
+  ///    press the delete key to delete it"
+  ///
+  /// The browser's OWN selection, deliberately separate from `app.selection`
+  /// (sketch entities) and `app.selectedBody` (which drives the 3D
+  /// highlight): those two answer "what is selected in the model", and this
+  /// answers "which row is the keyboard pointing at". Conflating them would
+  /// make Delete in a sketch ambiguous — the geometry, or the row?
+  String? _selRow;
+
+  /// What Delete does to each selectable row, rebuilt with the tree.
+  ///
+  /// A map rather than a switch, because the delete for a row is already
+  /// written where the row is built — `_confirmDeleteFeature`,
+  /// `_confirmDeleteWork`, `deleteChildSketch`, the `bdDelete` menu action —
+  /// and a second copy of that dispatch would drift the way #67's menus did.
+  final Map<String, VoidCallback> _rowDelete = {};
+
+  /// Focus for the tree, so Delete is heard HERE and not everywhere.
+  ///
+  /// A global HardwareKeyboard handler would take the key from the sketch
+  /// editor, where Delete already removes the selected geometry — and from
+  /// every text field in the app. The key is only ours while the tree has
+  /// focus, which a click on a row is what grants.
+  final FocusNode _treeFocus = FocusNode(debugLabel: 'modelBrowserTree');
+
   int _rowCount = 0;
 
   /// How many of those rows carry a folder gap, and the indent of the row
@@ -231,6 +261,10 @@ class _ModelBrowserState extends State<ModelBrowser> {
       _rowKeys.putIfAbsent('$_kFeaturePrefix$name', () => GlobalKey());
 
   static const String _kBodyPrefix = 'bd:';
+
+  /// #68 — work features. Not a NATIVE menu prefix (they have no menu of
+  /// their own yet); this exists so the keyboard has a name for the row.
+  static const String _kWorkPrefix = 'wf:';
 
   GlobalKey _bodyKeyFor(String name) =>
       _rowKeys.putIfAbsent('$_kBodyPrefix$name', () => GlobalKey());
@@ -751,6 +785,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
     _closeCtx();
     NativeMenu.setSelectionHandler(NativeMenu.kLayers, null);
     NativeMenu.setTargets(NativeMenu.kLayers, const []);
+    _treeFocus.dispose();
     super.dispose();
   }
 
@@ -1302,8 +1337,81 @@ class _ModelBrowserState extends State<ModelBrowser> {
     if (ok) app.deleteLayer(layer);
   }
 
+  /// #68 — registers [id] as a row Delete can act on, and selects it on tap.
+  ///
+  /// Called while the row is built, so the map is always as current as the
+  /// tree: a feature deleted by other means takes its entry with it on the
+  /// next frame rather than leaving a callback pointing at a gone object.
+  void _selectable(String id, VoidCallback onDelete) =>
+      _rowDelete[id] = onDelete;
+
+  void _selectRow(String id) {
+    // Focus first: the key handler below is only reached while the tree has
+    // it, and a click on a row is what grants it.
+    _treeFocus.requestFocus();
+    if (_selRow == id) return;
+    setState(() => _selRow = id);
+  }
+
+  /// Delete, and only while this tree has focus.
+  ///
+  /// Backspace too, because that is the delete key on a Mac keyboard and half
+  /// the reason a "press delete" report exists at all is the other key not
+  /// working. Anything with no registered action is IGNORED rather than
+  /// swallowed, so the key falls through to whatever else wants it.
+  KeyEventResult _onTreeKey(FocusNode node, KeyEvent e) {
+    if (e is! KeyDownEvent) return KeyEventResult.ignored;
+    if (e.logicalKey != LogicalKeyboardKey.delete &&
+        e.logicalKey != LogicalKeyboardKey.backspace) {
+      return KeyEventResult.ignored;
+    }
+    final act = _rowDelete[_selRow];
+    if (act == null) return KeyEventResult.ignored;
+    act();
+    return KeyEventResult.handled;
+  }
+
   Widget _ctxItem(String label, VoidCallback onTap, {bool danger = false}) {
     return _CtxRow(label: label, onTap: onTap, danger: danger);
+  }
+
+  /// #67 — the SAME menu the iPad gets, drawn by Flutter.
+  ///
+  ///   "when i rightclick on a extrusion a sketch or something in windows i
+  ///    only get the toolbar but not the normal rightclick menu. i want to
+  ///    get both in a normal rightclickmenu all of the options"
+  ///
+  /// Every row in this tree already HAS a full menu — `_featureMenu`,
+  /// `_sketchMenu`, `_bodyMenu` — and until now only UIKit could show one.
+  /// Off iOS the rows fell back to whatever single action seemed most likely:
+  /// a sketch LAYER got a real menu through `_showCtx`, and a feature, a body
+  /// and a work feature got a delete confirmation and nothing else. Edit,
+  /// Show/Hide, Rename, Share, Copy, Cut, "to document" — all defined, all
+  /// reachable on an iPad, none of them reachable with a mouse.
+  ///
+  /// ONE SOURCE OF TRUTH, TWO PRESENTATIONS. This renders the very same
+  /// `NativeMenuItem` groups and hands the taps to the very same
+  /// `_onMenuSelection`, so a menu can never again be added on one platform
+  /// and forgotten on the other — which is exactly how this drifted.
+  ///
+  /// [targetId] is the prefixed id `_onMenuSelection` dispatches on (`ft:`,
+  /// `sk:`, `skn:`, `bd:`), not the bare name.
+  void _showNativeStyleCtx(
+      Offset globalPos, String targetId, List<List<NativeMenuItem>> groups) {
+    _closeCtx();
+    final items = <Widget>[];
+    for (final group in groups) {
+      // A separator between groups, which is what UIKit draws and what makes
+      // Delete read as the thing apart from the rest that it is.
+      if (items.isNotEmpty && group.isNotEmpty) items.add(const _CtxSeparator());
+      for (final it in group) {
+        items.add(_ctxItem(it.title, () {
+          _closeCtx();
+          _onMenuSelection(targetId, it.id);
+        }, danger: it.destructive));
+      }
+    }
+    _showCtxItems(globalPos, items);
   }
 
   @override
@@ -1313,6 +1421,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
     _rowCount = 0;
     _gapCount = 0;
     _prevIndent = null;
+    _rowDelete.clear(); // #68 — rebuilt with the tree, like the gap state
     final app = widget.app;
     final s = app.current;
     final part = app.activeChild == null ? app.currentPart : null;
@@ -1706,9 +1815,19 @@ class _ModelBrowserState extends State<ModelBrowser> {
 
   /// Wraps the card so that its own width survives the host's tight bounds.
   /// See the note at the top of [build].
-  Widget _fill(bool glass, Widget card) => glass
-      ? Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [card])
-      : card;
+  Widget _fill(bool glass, Widget card) => Focus(
+        // #68 — the tree's own focus, so Delete is heard here and nowhere
+        // else. Not a FocusScope: nothing inside this panel takes the
+        // keyboard, and a scope would trap Tab in a tree that has no fields
+        // to move between.
+        focusNode: _treeFocus,
+        onKeyEvent: _onTreeKey,
+        child: glass
+            ? Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [card])
+            : card,
+      );
 
   /// The seven origin entries, in Inventor's order. One list, so the part tree
   /// and the assembly tree cannot drift apart on what an Origin folder holds.
@@ -1981,9 +2100,14 @@ class _ModelBrowserState extends State<ModelBrowser> {
       icon: treeCubeIcon,
       label: bodyName,
       active: sel,
-      onTap: picking
-          ? () => app.pickBody(bodyName)
-          : () => app.toggleBodySelected(bodyName),
+      onTap: () {
+        _selectRow('$_kBodyPrefix$bodyName'); // #68
+        if (picking) {
+          app.pickBody(bodyName);
+        } else {
+          app.toggleBodySelected(bodyName);
+        }
+      },
       trailing: _EyeButton(
           visible: on, onTap: () => app.toggleBodyVisible(part, bodyName)),
     );
@@ -2021,6 +2145,30 @@ class _ModelBrowserState extends State<ModelBrowser> {
       },
       child: out,
     );
+    // #67 — and a solid body had no menu off iOS either. `_bodyMenu` carries
+    // Pick, Show/Hide and the rest, and UIKit was the only thing that could
+    // open it.
+    void bodyCtx(Offset at) => _showNativeStyleCtx(
+        at, '$_kBodyPrefix$bodyName', _bodyMenu(app, part, bodyName));
+    // #68 — Delete goes through the menu's own action, so the confirmation
+    // and the undo entry are the ones the menu already produces.
+    _selectable('$_kBodyPrefix$bodyName',
+        () => _onMenuSelection('$_kBodyPrefix$bodyName', 'bdDelete'));
+
+    out = Listener(
+      onPointerDown: (e) {
+        if (e.kind == PointerDeviceKind.mouse &&
+            e.buttons == kSecondaryMouseButton) {
+          bodyCtx(e.position);
+        }
+      },
+      child: GestureDetector(
+        onLongPressStart: NativeMenu.isSupported
+            ? null // the UIKit menu owns the long press on device
+            : (d) => bodyCtx(d.globalPosition),
+        child: out,
+      ),
+    );
     return on ? out : Opacity(opacity: 0.45, child: out);
   }
 
@@ -2050,6 +2198,10 @@ class _ModelBrowserState extends State<ModelBrowser> {
     // instance under its parent feature keeps the plain cube, so the two rows
     // are told apart at a glance (they carry the same name).
     final badged = cs.shared && !nested;
+    final skId =
+        '${nested ? _kNestedSketchPrefix : _kSketchPrefix}${cs.model.name}';
+    // #68 — a child sketch had no delete anywhere in the UI, menu included.
+    _selectable(skId, () => _confirmDeleteSketch(cs));
     final row = GestureDetector(
       onDoubleTap: () => app.openChildSketch(cs.model.name),
       child: Container(
@@ -2062,18 +2214,49 @@ class _ModelBrowserState extends State<ModelBrowser> {
           // M212 — while a sketch-driven pattern is asking for its points, a
           // single tap on a sketch row picks that sketch.
           active: app.patternSession?.pointSketch == cs.model.name,
-          onTap: () => app.patternToggleSketch(cs),
+          onTap: () {
+            _selectRow(skId); // #68
+            app.patternToggleSketch(cs);
+          },
           trailing: _EyeButton(
               visible: cs.visible, onTap: () => app.toggleSketchVisible(cs)),
         ),
       ),
     );
-    return cs.visible ? row : Opacity(opacity: 0.45, child: row);
+    // #67 — a child sketch had NO menu at all off iOS: not a reduced one, not
+    // a delete, nothing. Edit, Show/Hide, Share, Copy, Cut and "to document"
+    // were all defined in `_sketchMenu` and reachable only by long-pressing on
+    // an iPad.
+    final part = app.currentPart;
+    void sketchCtx(Offset at) {
+      if (part == null) return;
+      _showNativeStyleCtx(
+          at,
+          '${nested ? _kNestedSketchPrefix : _kSketchPrefix}${cs.model.name}',
+          _sketchMenu(app, part, cs));
+    }
+
+    final dimmed = cs.visible ? row : Opacity(opacity: 0.45, child: row);
+    return Listener(
+      onPointerDown: (e) {
+        if (e.kind == PointerDeviceKind.mouse &&
+            e.buttons == kSecondaryMouseButton) {
+          sketchCtx(e.position);
+        }
+      },
+      child: GestureDetector(
+        onLongPressStart: NativeMenu.isSupported
+            ? null // the UIKit menu owns the long press on device
+            : (d) => sketchCtx(d.globalPosition),
+        child: dimmed,
+      ),
+    );
   }
 
   /// One feature row (Extrusion1, ...): eye toggles it, double-tap edits
-  /// it in the properties panel, long-press / right-click deletes. The "+"
-  /// expander reveals the consumed sketch nested beneath (M59, Inventor).
+  /// it in the properties panel, long-press / right-click opens the same
+  /// menu the iPad shows (#67). The "+" expander reveals the consumed sketch
+  /// nested beneath (M59, Inventor).
   Widget _featureRow(AppState app, PartModel part, PartFeature f,
       {bool rolled = false}) {
     final broken = f.computeError != null;
@@ -2087,6 +2270,8 @@ class _ModelBrowserState extends State<ModelBrowser> {
     final pat = f is PatternFeature ? f : null;
     final nestsOcc = pat != null && pat.occurrenceCount > 1;
     final canExpand = nests || nestsOcc;
+    final ftId = '$_kFeaturePrefix${f.name}';
+    _selectable(ftId, () => _confirmDeleteFeature(f)); // #68
     final row = _row(
       indent: 8,
       exp: canExpand ? (open ? '-' : '+') : ' ',
@@ -2101,6 +2286,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
       // one — the same rule the native browser follows.
       active: app.patternHasFeature(f.name),
       onTap: () {
+        _selectRow(ftId); // #68
         if (app.patternToggleFeature(f)) return;
         if (canExpand) {
           setState(() => open
@@ -2111,17 +2297,25 @@ class _ModelBrowserState extends State<ModelBrowser> {
       trailing: _EyeButton(
           visible: f.visible, onTap: () => app.toggleFeatureVisible(f)),
     );
+    // #67 — the FULL menu, the same one the iPad shows. Right-click used to
+    // go straight to the delete confirmation, so Edit, Show/Hide and Rename
+    // existed and could not be reached with a mouse.
+    void featureCtx(Offset at) =>
+        _showNativeStyleCtx(at, '$_kFeaturePrefix${f.name}',
+            _featureMenu(widget.app, f));
     final wrapped = Listener(
       key: _featureKeyFor(f.name),
       onPointerDown: (e) {
         if (e.kind == PointerDeviceKind.mouse &&
             e.buttons == kSecondaryMouseButton) {
-          _confirmDeleteFeature(f);
+          featureCtx(e.position);
         }
       },
       child: GestureDetector(
         onDoubleTap: () => app.editFeature(f),
-        onLongPress: () => _confirmDeleteFeature(f),
+        onLongPressStart: NativeMenu.isSupported
+            ? null // the UIKit menu owns the long press on device
+            : (d) => featureCtx(d.globalPosition),
         child: broken ? Tooltip(message: f.computeError!, child: row) : row,
       ),
     );
@@ -2259,19 +2453,27 @@ class _ModelBrowserState extends State<ModelBrowser> {
     required VoidCallback onDelete,
     VoidCallback? onOpen,
   }) {
+    // #68 — all three work-feature kinds come through here, so one
+    // registration covers a plane, an axis and a point.
+    final id = '$_kWorkPrefix$label';
+    _selectable(id, onDelete);
     final row = _row(
       indent: 8,
       exp: ' ',
       icon: error != null ? endOfSketchIcon : icon,
       label: label,
       active: active,
-      onTap: onTap,
+      onTap: () {
+        _selectRow(id);
+        onTap();
+      },
       trailing: _EyeButton(visible: visible, onTap: onEye),
     );
     return Listener(
       onPointerDown: (e) {
         if (e.kind == PointerDeviceKind.mouse &&
             e.buttons == kSecondaryMouseButton) {
+          _selectRow(id);
           onDelete();
         }
       },
@@ -2281,6 +2483,19 @@ class _ModelBrowserState extends State<ModelBrowser> {
         child: error == null ? row : Tooltip(message: error, child: row),
       ),
     );
+  }
+
+  /// #68 — a child sketch, with the same confirmation every other row gets.
+  Future<void> _confirmDeleteSketch(ChildSketch cs) async {
+    final ok = await confirmAction(
+      context,
+      title: L.of(context).dlgDeleteNamed(cs.model.name),
+      confirmLabel: L.of(context).delete,
+    );
+    // `deleteChildSketch` refuses a sketch a feature is still built on and
+    // says why — the refusal is the app's, not this row's, so it is simply
+    // passed through.
+    if (ok) widget.app.deleteChildSketch(cs);
   }
 
   Future<void> _confirmDeleteWork(String name, VoidCallback remove) async {
@@ -2304,6 +2519,12 @@ class _ModelBrowserState extends State<ModelBrowser> {
 
   Widget _layerRow(AppState app, String layer, {bool rolled = false}) {
     final active = app.editingLayer == layer;
+    // #68 — layers already had the full menu (_showCtx); this is the keyboard
+    // route to the same delete. The BASE layer has none, and registering
+    // nothing is how Delete stays ignored on it rather than silently failing.
+    if (!app.isBaseLayer(layer)) {
+      _selectable(layer, () => _confirmDelete(layer));
+    }
     final row = _row(
       indent: 8,
       exp: ' ',
@@ -2326,6 +2547,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
       onPointerDown: (e) {
         if (e.kind == PointerDeviceKind.mouse &&
             e.buttons == kSecondaryMouseButton) {
+          _selectRow(layer); // #68
           _showCtx(e.position, layer);
         }
       },
@@ -2516,6 +2738,22 @@ class _TreeRowState extends State<_TreeRow> {
       ),
     );
   }
+}
+
+/// #67 — the hairline between two groups of a context menu.
+///
+/// UIKit draws one between the groups `_featureMenu` and friends return, and
+/// it is doing work rather than decoration: it is what makes Delete read as
+/// the row apart from the rest instead of one more entry under Rename.
+class _CtxSeparator extends StatelessWidget {
+  const _CtxSeparator();
+
+  @override
+  Widget build(BuildContext context) => Container(
+        height: 1,
+        margin: const EdgeInsets.symmetric(vertical: 4),
+        color: T.mbBorder,
+      );
 }
 
 class _CtxRow extends StatefulWidget {

@@ -75,17 +75,30 @@ class _UpdatePromptState extends State<UpdatePrompt> {
     }
 
     widget.app.toast(t.updateDownloading);
-    final applied = await UpdateCheck.apply(info);
+    // SAVING HAPPENS INSIDE apply(), before anything is launched, and that
+    // order is the fix rather than a tidy-up. It used to be here, AFTER the
+    // installer had been started — and Setup closes this app through the
+    // Restart Manager within a second or two of starting, which meant the
+    // window went away while this line was still writing a part file. The
+    // user reported it as the app crashing during updates, which is what it
+    // looked like and very nearly what it was.
+    //
+    // EVERY open document, not just the visible one: the process is about to
+    // be replaced, so a tab nobody is looking at loses just as much.
+    final applied = await UpdateCheck.apply(
+      info,
+      beforeInstall: widget.app.flushAllDocuments,
+    );
     if (!applied) {
       if (mounted) widget.app.toast(t.updateFailed);
       return;
     }
 
-    // The new build is already launching (Windows) or launched (Linux) —
-    // see UpdateCheck.apply. This process now has to let go of its files,
-    // the open document included, as fast as it safely can.
-    Log.i('update', 'applying update — flushing and exiting');
-    await widget.app.flushCurrentDocument();
+    // Everything is saved and the installer is queued behind this process's
+    // own exit (see windowsRelaunchScript). Go, promptly: the script is
+    // waiting on this PID and the user is watching a window that has already
+    // said it is updating.
+    Log.i('update', 'update queued — exiting for the installer');
     exit(0);
   }
 

@@ -960,10 +960,15 @@ double measureDim(List<Geo> gs, Constraint c) {
       final toCentre = tlen < 1e-12
           ? (tp - ta).distance
           : ((tp - ta).dx * td.dy - (tp - ta).dy * td.dx).abs() / tlen;
-      // The near side, which is what "the nearest point on the curve" means.
-      // Negative would say the line cuts the circle; the measure is then the
-      // depth of the cut and reads more honestly as 0.
-      return math.max(0.0, toCentre - gs[c.ents[0]].data[2]);
+      // The near side, which is what "the nearest point on the curve" means —
+      // and it stays the near side when the line CUTS the circle. A chord is
+      // how you dimension a line to the top or the bottom of a circle, and
+      // there the nearest extreme point lies past the centre, `radius less
+      // the centre distance` away. Clamping that to 0 made the measure blind
+      // to the entire family: every such dimension read 0, and driving it to
+      // anything else asked the solver for a centre distance bigger than the
+      // radius, which a chord cannot have.
+      return (toCentre - gs[c.ents[0]].data[2]).abs();
     case 'ang3':
       // pts = [ray end A, VERTEX, ray end B] — Inventor's 3-point angle.
       if (c.pts.length < 3) return 0;

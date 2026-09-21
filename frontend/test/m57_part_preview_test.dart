@@ -103,6 +103,13 @@ class FakeKernel implements PartKernel {
       null;
 
   @override
+
+  // #58 — this fake reads no files, so it has no structure to report.
+
+  StepAssembly? importStepAssembly(String path) => null;
+
+
+  @override
   List<KernelSolid> importStepSolids(String path) => const [];
   // M212 — the two placements a pattern needs. This fake models neither, and
   // says so rather than inventing a solid.

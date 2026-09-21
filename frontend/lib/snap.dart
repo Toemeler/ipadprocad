@@ -171,6 +171,33 @@ Snap? computeSnap(List<Geo> geos, Offset w, double tol,
     }
   }
   if (ax.isNotEmpty || ay.isNotEmpty) {
+    // #59 — "the second point of the line didnt snap to be on the circle."
+    //
+    // An alignment pins ONE coordinate and leaves the other wherever the
+    // cursor happened to be, and until now it returned here without ever
+    // looking at the geometry. Drawing the second end of a chord is exactly
+    // the case that breaks on: the cursor is over the circle AND level with
+    // the point already placed, the alignment fires first, and the point
+    // lands level but 0.006 off the rim — close enough to look right and far
+    // enough to leave the line unattached. The reporter then added the
+    // coincidence by hand, which is how #60 and #61's over-constrained sketch
+    // came about.
+    //
+    // Neither target is wrong; the answer is BOTH, and there is a real point
+    // that satisfies both — where the alignment line crosses the curve. That
+    // is what a chord's far end IS. So the alignment line is intersected with
+    // the geometry, and the crossing is taken when one lands within tolerance
+    // of the cursor.
+    //
+    // Strictly an improvement on what was returned before: with no curve in
+    // range, or the crossing further off than [tol], this falls through to
+    // the same alignment it always gave. And with BOTH axes pinned there is
+    // nothing to intersect — the point is already fully determined.
+    if (ax.isEmpty != ay.isEmpty) {
+      final hit = _alignCrossing(geos, w, Offset(x, y),
+          horizontal: ax.isEmpty, tol: tol, excluded: excluded);
+      if (hit != null) return Snap(hit, 'on', [...ax, ...ay]);
+    }
     return Snap(Offset(x, y), 'align', [...ax, ...ay]);
   }
 
@@ -220,6 +247,92 @@ Snap? computeSnap(List<Geo> geos, Offset w, double tol,
 }
 
 /// True when [ang] lies within the arc's swept span.
+/// #59 — where an alignment guide crosses the geometry, if it does so near
+/// enough to have been what the cursor was aiming at.
+///
+/// [aligned] is the alignment's own answer: one coordinate pinned to a
+/// reference point, the other still the cursor's. [horizontal] says which —
+/// true when the Y is pinned and the X is free, so the guide is the line
+/// `y = aligned.dy`. The crossing nearest the cursor wins, and only if it is
+/// within [tol] of it, so a guide that happens to sweep across geometry on the
+/// far side of the sketch does not drag the point over there.
+///
+/// Lines, circles and arcs only, and that is deliberate rather than partial.
+/// Each of those has a crossing that is a real point of the curve, in closed
+/// form. A spline or a polyline is snapped against its SAMPLES (see
+/// `sampleEntity`), so "the crossing" would be the crossing of a chord between
+/// two samples — a point that is near the curve rather than on it, which is
+/// precisely the almost-right answer this whole change exists to stop
+/// producing. Those keep the alignment they have always had.
+Offset? _alignCrossing(List<Geo> geos, Offset cursor, Offset aligned,
+    {required bool horizontal,
+    required double tol,
+    required bool Function(Offset) excluded}) {
+  Offset? best;
+  var bestD = tol;
+  void offer(Offset q) {
+    if (excluded(q)) return;
+    // On the guide by construction; what has to be near is the CURSOR, which
+    // is the only evidence of what the user was pointing at.
+    final d = (cursor - q).distance;
+    if (d < bestD) {
+      bestD = d;
+      best = q;
+    }
+  }
+
+  // The guide, as a coordinate and a predicate: `at` is the pinned value and
+  // `along` reads the free coordinate off a point.
+  final at = horizontal ? aligned.dy : aligned.dx;
+  Offset make(double free) =>
+      horizontal ? Offset(free, at) : Offset(at, free);
+
+  for (final g in geos) {
+    switch (g.type) {
+      case Geo.line:
+        final a = Offset(g.data[0], g.data[1]);
+        final b = Offset(g.data[2], g.data[3]);
+        final p0 = horizontal ? a.dy : a.dx;
+        final p1 = horizontal ? b.dy : b.dx;
+        final span = p1 - p0;
+        // Parallel to the guide (a horizontal line under a horizontal guide)
+        // meets it everywhere or nowhere; neither is a point to snap to.
+        if (span.abs() < 1e-12) break;
+        final t = (at - p0) / span;
+        if (t < 0 || t > 1) break; // the crossing is off the end of the segment
+        final q0 = horizontal ? a.dx : a.dy;
+        final q1 = horizontal ? b.dx : b.dy;
+        offer(make(q0 + (q1 - q0) * t));
+        break;
+      case Geo.circle:
+      case Geo.arc:
+        // M209's rule: a sketch point has no curve to cross.
+        if (g.type == Geo.circle && g.isSketchPoint) break;
+        final c = Offset(g.data[0], g.data[1]);
+        final r = g.data[2];
+        final off = at - (horizontal ? c.dy : c.dx);
+        final disc = r * r - off * off;
+        // Tangent or clear of the circle: a tangential "crossing" is a point
+        // the guide only touches, and rounding decides which side it lands on,
+        // so it is not offered at all.
+        if (disc <= 1e-12) break;
+        final half = math.sqrt(disc);
+        final mid = horizontal ? c.dx : c.dy;
+        for (final free in [mid - half, mid + half]) {
+          final q = make(free);
+          if (g.type == Geo.arc && !_angleOnArc(g, math.atan2(q.dy - c.dy, q.dx - c.dx))) {
+            continue;
+          }
+          offer(q);
+        }
+        break;
+      default:
+        break;
+    }
+  }
+  return best;
+}
+
 bool _angleOnArc(Geo g, double ang) {
   var a1 = g.data[3], a2 = g.data[4];
   if (g.data.length > 5 && g.data[5] != 0) {
@@ -531,8 +644,16 @@ bool _segIntersectsRect(Offset a, Offset b, Rect r) {
 
 /// Inventor semantics: window (crossing == false) selects only entities
 /// FULLY inside; crossing selects everything the rectangle touches.
-bool entityInRect(Geo g, Rect r, {required bool crossing}) {
-  final pts = sampleEntity(g);
+bool entityInRect(Geo g, Rect r, {required bool crossing}) =>
+    polylineInRect(sampleEntity(g), r, crossing: crossing);
+
+/// The window/crossing rule itself, for a polyline that is not a [Geo].
+///
+/// #65 — a box select over MODEL edges, which arrive as projected polylines
+/// rather than as sketch entities. Inventor's two box gestures mean the same
+/// thing whatever is under them, and one implementation is how they stay
+/// meaning the same thing.
+bool polylineInRect(List<Offset> pts, Rect r, {required bool crossing}) {
   if (pts.isEmpty) return false;
   if (crossing) {
     for (final p in pts) {

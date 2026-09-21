@@ -30,7 +30,7 @@ import 'section_view.dart';
 import 'log.dart';
 import 'materials.dart';
 import 'perf.dart';
-import 'snap.dart' show sampleEntity;
+import 'snap.dart' show sampleEntity, polylineInRect;
 import 'spline.dart' show splineCurveFor, splineArcChain, polyPoints;
 import 'text_geometry.dart' show textContours, textLayerOf;
 import 'pick_math.dart';
@@ -6521,6 +6521,65 @@ class KernelSolid {
 ///
 /// The report comes back either way. A conversion that failed is exactly when
 /// the numbers matter most — "the mesh has 412 open edges" is something the
+/// #58 — one node of an imported STEP assembly tree, in the app's own terms.
+///
+/// The list is a PRE-ORDER flattening: [parent] indexes backwards into it
+/// (-1 for a root), so a parent always precedes its children.
+class StepPiece {
+  const StepPiece(
+      this.parent, this.def, this.solid, this.rot, this.at, this.name);
+
+  /// Index of the parent piece, or -1 for a root.
+  final int parent;
+
+  /// Which DEFINITION this piece is an occurrence of.
+  ///
+  /// Two pieces sharing a [def] are the same product placed twice. That is the
+  /// whole difference between an assembly and a heap of bodies, and it is what
+  /// lets an importer write ONE document per product and place it many times.
+  final int def;
+
+  /// Index into [StepAssembly.solids] for a leaf, -1 for an assembly node.
+  /// Every occurrence of a part definition carries the SAME index.
+  final int solid;
+
+  /// Placement relative to the PARENT.
+  final Quat rot;
+  final Vec3 at;
+
+  /// The instance name the file gives ("base:2"), else the definition's.
+  final String name;
+
+  bool get isAssembly => solid < 0;
+}
+
+/// #58 — a STEP file's product structure, with one body per leaf definition.
+class StepAssembly {
+  const StepAssembly(this.pieces, this.solids, this.defCount);
+
+  final List<StepPiece> pieces;
+
+  /// One body per leaf DEFINITION, in the product's own frame. An entry is
+  /// null when that product could not be tessellated — the piece is then a
+  /// document the importer skips rather than an invisible body.
+  final List<KernelSolid?> solids;
+
+  /// How many distinct definitions the file named, assemblies included.
+  final int defCount;
+
+  /// Roots, in file order.
+  List<int> get roots =>
+      [for (var i = 0; i < pieces.length; i++) if (pieces[i].parent < 0) i];
+
+  /// True when this file is worth importing AS an assembly.
+  ///
+  /// A single product with solids in it is a PART: turning it into a
+  /// one-component assembly would be a worse answer than the flat import, and
+  /// the caller falls back rather than insisting.
+  bool get isStructured =>
+      pieces.length > 1 && pieces.any((p) => p.isAssembly);
+}
+
 /// user can act on, where "sewing failed" is not.
 class MeshImportOutcome {
   const MeshImportOutcome(this.solid, this.report, this.error);
@@ -6672,6 +6731,16 @@ abstract class PartKernel {
   /// assembly becomes several bodies rather than one opaque compound. Empty
   /// list on failure or when the file holds no solids.
   List<KernelSolid> importStepSolids(String path);
+
+  /// #58 — the same file WITH its product structure: who is an occurrence of
+  /// what, where, and under whom.
+  ///
+  /// Null when this kernel cannot read structure at all, which is the honest
+  /// answer for a fake and for a shim older than v30 — the caller then falls
+  /// back to [importStepSolids] and gets today's flat import rather than
+  /// nothing. Concrete and refusing by default for the reason the mesh
+  /// importer below gives.
+  StepAssembly? importStepAssembly(String path) => null;
 
   /// M232 — a triangle mesh from an STL/OBJ/3MF as a real body.
   ///
@@ -7259,6 +7328,51 @@ class OcctPartKernel implements PartKernel {
     final ok = ffi.exportStepNamed(shapes, names, path, doc);
     if (!ok) _err = ffi.lastError();
     return ok;
+  }
+
+  @override
+  StepAssembly? importStepAssembly(String path) {
+    final ffi = OcctFfi.instance();
+    if (ffi == null) {
+      _err = 'no kernel';
+      return null;
+    }
+    final tree = ffi.importStepTree(path);
+    if (tree == null) {
+      _err = ffi.lastError();
+      return null;
+    }
+    // Tessellate each DEFINITION once. The occurrences share it, which is the
+    // point: 26 placements of 8 products cost 8 meshes, not 26.
+    final solids = <KernelSolid?>[];
+    for (final sh in tree.solids) {
+      final mesh = sh.mesh(
+          linDeflection: kCoarseLinDeflection,
+          angDeflection: kCoarseAngDeflection);
+      if (mesh == null) {
+        sh.dispose();
+        solids.add(null);
+        continue;
+      }
+      solids.add(KernelSolid(mesh, sh.volume, sh,
+          meshLin: kCoarseLinDeflection,
+          remesher: (lin, ang) =>
+              sh.mesh(linDeflection: lin, angDeflection: ang)));
+    }
+    return StepAssembly(
+      [
+        for (final n in tree.nodes)
+          StepPiece(
+              n.parent,
+              n.def,
+              n.solid,
+              Quat.fromRotation(n.xf),
+              Vec3(n.xf[3], n.xf[7], n.xf[11]),
+              n.name)
+      ],
+      solids,
+      tree.defCount,
+    );
   }
 
   @override
@@ -10542,6 +10656,25 @@ int? pickPartEdge(List<PartEdge> edges, Offset w, double tol) {
     }
   }
   return best >= 0 ? best : null;
+}
+
+/// #65 — the part-wide indices of every model edge the box [r] catches.
+///
+/// The same window/crossing rule sketch geometry gets ([polylineInRect]), on
+/// the same projected polylines [pickPartEdge] hit-tests against, so a drag
+/// over the model means what a drag over the sketch means: left-to-right takes
+/// what is wholly inside, right-to-left takes what it touches.
+///
+/// Sorted, so a box produces the same projection ORDER every time — a set
+/// iterated in hash order would scramble which edge got which name.
+List<int> partEdgesInRect(List<PartEdge> edges, Rect r,
+    {required bool crossing}) {
+  final out = <int>[];
+  for (final e in edges) {
+    if (polylineInRect(e.displayPts, r, crossing: crossing)) out.add(e.index);
+  }
+  out.sort();
+  return out;
 }
 
 /// Distance from [p] to the segment [a]-[b]. Delegates to the shared

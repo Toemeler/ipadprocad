@@ -497,6 +497,30 @@ class GlassDeviceRect {
   final double unit;
 }
 
+/// #56 — the panel's box in the space the SHADER will measure it in.
+///
+/// A MIRROR of the five lines at the top of `liquid_glass.frag`'s main(), and
+/// it exists so that rule can be argued about with numbers rather than only on
+/// a device. Keep the two together.
+///
+/// [rect] is the panel in WINDOW device pixels, which is what [glassDeviceRect]
+/// produces and what the uniform carries. [backdrop] is the size the engine
+/// wrote into `uSize`. They describe one space only while the backdrop IS the
+/// window; under a clip the engine may hand the filter a texture covering the
+/// clipped region alone, and then `FlutterFragCoord()` starts at 0 inside the
+/// panel while [rect] still says where the panel is on screen.
+///
+/// A backdrop no larger than the panel in BOTH axes cannot be the window, so
+/// it is the panel's own region and the panel fills it. Anything else is left
+/// alone: that is every surface whose material lands correctly today, and the
+/// point of the test is that they keep doing so.
+Rect glassRectInBackdrop(Rect rect, Size backdrop) {
+  if (backdrop.width <= rect.width + 1 && backdrop.height <= rect.height + 1) {
+    return Offset.zero & backdrop;
+  }
+  return rect;
+}
+
 /// Where [localSize] lands in the backdrop, given its two corners in GLOBAL
 /// logical coordinates.
 ///

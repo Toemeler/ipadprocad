@@ -100,13 +100,75 @@ vec2 glassNormal(vec2 p, vec2 b, float r, float n) {
 void main() {
   vec2 fc = FlutterFragCoord().xy;
 
-  vec2 centre = 0.5 * (uRect.xy + uRect.zw);
-  vec2 halfSize = 0.5 * (uRect.zw - uRect.xy);
+  // THE RECT AND THE FRAGMENT HAVE TO BE IN THE SAME SPACE, and nothing
+  // guarantees they are.
+  //
+  // `uRect` is measured on the Dart side through `localToGlobal`, so it is in
+  // the WINDOW's device pixels. `FlutterFragCoord()` is in the BACKDROP's.
+  // Those are one space only while the backdrop IS the window, and the engine
+  // never promised that: a backdrop filter under a clip — which this material
+  // always is, because GlassPanel clips it to the panel — may be handed a
+  // texture covering the clipped region alone. The fragment at the panel's
+  // top-left then reads 0 while the rect says 98.
+  //
+  // THAT IS #56. The card came out as two rectangles — glass where the shader
+  // believed the panel to be, untouched backdrop across the rest of it — with
+  // the rim drawn 38 px inside the card's own right edge, on two different
+  // windows and two different card heights, while every measurement on the
+  // Dart side said the rect was the card's to the pixel. Both are true: the
+  // rect was right, and it was right about the wrong space.
+  //
+  // `uSize` settles it, and it is already here: the engine writes the
+  // backdrop's size into the first uniform. A backdrop no larger than the
+  // panel in BOTH axes cannot be the window, so it is the panel's own region,
+  // and the panel's box in that space is the whole of it. When the backdrop IS
+  // the window the test is false and nothing changes — which is the band, both
+  // tab-bar pills and the quick tools, every surface that renders correctly
+  // today and must go on doing so.
+  vec2 rectLo = uRect.xy;
+  vec2 rectHi = uRect.zw;
+  vec2 rectSize = rectHi - rectLo;
+  if (uSize.x <= rectSize.x + 1.0 && uSize.y <= rectSize.y + 1.0) {
+    rectLo = vec2(0.0);
+    rectHi = uSize;
+  }
+
+  vec2 centre = 0.5 * (rectLo + rectHi);
+  vec2 halfSize = 0.5 * (rectHi - rectLo);
   vec2 p = fc - centre;
 
   float radius = clamp(uShape.x, 0.0, min(halfSize.x, halfSize.y));
   float power = max(uShape.w, 2.0);
   float d = sdGlass(p, halfSize, radius, power);
+
+  // THE MATERIAL STOPS AT ITS OWN RECTANGLE, and this is a guard rather than
+  // a matter of taste.
+  //
+  // `uRect` is the panel's box in the backdrop's pixel space, measured on the
+  // Dart side; the caller clips this filter to the SAME box, so every fragment
+  // the shader runs on is inside the rect — until the two disagree. That has
+  // now happened twice, and both times it arrived as BLOWN-OUT WHITE: #19
+  // ("liquidglass elements look false", a 0.75 transform the rect did not
+  // carry) and #56 ("really weird white artifacts on the modell browser", a
+  // 38 px disagreement on Windows with the Dart arithmetic measurably right).
+  //
+  // The white was this shader's doing rather than the measurement's. The rim's
+  // inward glow is `exp(-edge / falloff)` with `edge = -d`, so OUTSIDE the
+  // rect the exponent turns positive and the term runs away: 38 px out, on a
+  // 4 px falloff, is exp(9.5) — some fourteen thousand times the light the rim
+  // is meant to add, which saturates to opaque white and reads as a slab. The
+  // refraction goes the same way, because `t` is zero out there and zero is
+  // the steepest part of the bevel, so the sample is displaced by the full
+  // amount as well.
+  //
+  // Neither term has any meaning off the panel, so neither is evaluated there.
+  // INSIDE — every fragment of every surface whose rect and clip agree, which
+  // is every surface on every platform today — `onPanel` is 1 and nothing
+  // below changes by a bit. Outside it is 0 and this pass is the identity,
+  // which leaves the backdrop the blur layer underneath already produced: a
+  // panel that stops short of its own clip is a seam, and a seam is a far
+  // smaller lie than a white slab over the document.
+  float onPanel = 1.0 - smoothstep(0.0, 1.0, d);
 
   // How deep into the pane this fragment is: 0 at the rim, 1 where the bevel
   // has flattened out and the glass is simply a sheet.
@@ -142,7 +204,7 @@ void main() {
   // picture of what is beside the panel, not a stretched picture of what is
   // under it. Sampling inward instead is the single most common way to get
   // this wrong, and it looks like a smear.
-  vec2 disp = nrm * bend * uShape.z;
+  vec2 disp = nrm * bend * uShape.z * onPanel;
 
   // Chromatic aberration, at the rim only because `disp` is zero elsewhere.
   // A real edge disperses; without this the rim is clean in a way glass never
@@ -160,7 +222,7 @@ void main() {
   // Vibrancy. The material keeps colour rather than washing it out, so a
   // copper render behind the panel is still copper.
   float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
-  col = mix(vec3(lum), col, uGrade.x);
+  col = mix(vec3(lum), col, mix(1.0, uGrade.x, onPanel));
 
   // THE TINT, AND IT IS A LIFT RATHER THAN A WASH.
   //
@@ -180,7 +242,8 @@ void main() {
   //
   // The exponent is the taper. 1 is a plain screen and lifts the midtones too
   // much; around 1.5 matches the two measured points at once.
-  col += uTint.rgb * uTint.a * pow(max(1.0 - col, vec3(0.0)), vec3(uGrade.y));
+  col += uTint.rgb * uTint.a * onPanel *
+      pow(max(1.0 - col, vec3(0.0)), vec3(uGrade.y));
 
   // THE RIM, WHICH IS THREE THINGS AND NOT ONE, and every one of them was
   // read off the device rather than designed.
@@ -214,7 +277,12 @@ void main() {
   //      first few pixels and then falls off a cliff. Reproducing 2 and 3 as
   //      one term is what made the first build's edge read as a soft plastic
   //      bevel: they are a hairline AND a glow, at ten times the width.
-  float edge = -d;                                  // 0 at the rim, grows in
+  // Clamped at the rim rather than run past it — see `onPanel` above, which
+  // is what actually keeps the two terms below off the fragments where a
+  // negative edge would matter. This says the same thing a second way, so
+  // that `exp(-edge / falloff)` cannot exceed 1 whatever a future caller
+  // hands in.
+  float edge = max(-d, 0.0);                        // 0 at the rim, grows in
 
   vec2 lightDir = vec2(cos(uLight.z), sin(uLight.z));
   float lit = max(dot(nrm, lightDir), 0.0);
@@ -224,13 +292,13 @@ void main() {
   float hair = exp(-hs * hs);
   float tail = exp(-edge / max(uGrade.w, 1.0));
 
-  col += uLight.x * (0.70 + 0.30 * lit) * hair;
-  col += uLight.x * (0.20 + 0.15 * lit) * tail;
+  col += uLight.x * (0.70 + 0.30 * lit) * hair * onPanel;
+  col += uLight.x * (0.20 + 0.15 * lit) * tail * onPanel;
 
   // The inside half of the outer contour, and nothing more: zero by half a
   // device pixel in, so on a panel whose edge lands on a pixel boundary — the
   // usual case — this costs nothing and GlassPanel's stroke is the whole line.
-  col *= 1.0 - uGrade.z * (1.0 - smoothstep(0.0, 0.5, edge));
+  col *= 1.0 - uGrade.z * onPanel * (1.0 - smoothstep(0.0, 0.5, edge));
 
   fragColor = vec4(col, 1.0);
 }
