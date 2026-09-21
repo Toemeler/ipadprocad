@@ -1622,5 +1622,15 @@
   "aiWorkspace": "Workspace",
   "aiRemoveContext": "Remove document context",
   "aiProviderGemini": "Gemini",
-  "aiProviderClaude": "Claude"
+  "aiProviderClaude": "Claude",
+  "aiProviderApple": "Apple",
+  "aiProviderDeepSeek": "DeepSeek",
+  "aiSettingsAllowEdits": "Let the assistant edit the model",
+  "aiSettingsAllowEditsInfo": "The assistant may create and change sketches and features in the open part. Each block runs as ONE step and one undo takes it back; if a step fails, the whole block is discarded.",
+  "aiChangesTitle": "Model changes",
+  "aiChangesReverted": "One step failed, so the whole block was rolled back. The document is unchanged.",
+  "aiChangesNoPart": "No part is open. Open a part so the assistant can model in it.",
+  "aiChangesDisabled": "Editing is switched off in AI settings.",
+  "aiUndoChanges": "Undo these changes",
+  "aiErrorCad": "The change to the model could not be carried out. The report below says why."
 }

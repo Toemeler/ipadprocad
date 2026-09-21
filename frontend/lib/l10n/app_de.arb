@@ -4827,5 +4827,15 @@
   },
   "aiRemoveContext": "Dokumentkontext entfernen",
   "aiProviderGemini": "Gemini",
-  "aiProviderClaude": "Claude"
+  "aiProviderClaude": "Claude",
+  "aiProviderApple": "Apple",
+  "aiProviderDeepSeek": "DeepSeek",
+  "aiSettingsAllowEdits": "Modell bearbeiten lassen",
+  "aiSettingsAllowEditsInfo": "Die Assistenz darf Skizzen und Features im geöffneten Bauteil anlegen und ändern. Jeder Block wird als EIN Schritt ausgeführt und ist mit einem Widerruf zurückzunehmen; schlägt ein Schritt fehl, wird der ganze Block verworfen.",
+  "aiChangesTitle": "Modelländerungen",
+  "aiChangesReverted": "Ein Schritt ist fehlgeschlagen — der ganze Block wurde zurückgenommen. Das Dokument ist unverändert.",
+  "aiChangesNoPart": "Kein Bauteil geöffnet. Öffne ein Bauteil, damit die Assistenz darin modellieren kann.",
+  "aiChangesDisabled": "Bearbeiten ist in den KI-Einstellungen ausgeschaltet.",
+  "aiUndoChanges": "Änderungen widerrufen",
+  "aiErrorCad": "Die Änderung am Modell konnte nicht ausgeführt werden. Die Meldung darunter nennt den Grund."
 }

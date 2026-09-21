@@ -105,6 +105,93 @@ void main() {
         throwsA(isA<AiException>().having((e) => e.code, 'code', 'response')));
   });
 
+  test('DeepSeek uses bearer auth, the chat-completions shape, and one system '
+      'turn', () async {
+    final backend = DeviceAiBackend(
+        clientFactory: () => MockClient((r) async {
+              expect(r.url.host, 'api.deepseek.com');
+              expect(r.url.path, '/chat/completions');
+              expect(r.headers['authorization'],
+                  'Bearer test-key-not-a-real-credential');
+              // The key must not be anywhere else, least of all in the URL,
+              // which is the part that ends up in logs and proxies.
+              expect(r.url.toString(),
+                  isNot(contains('test-key-not-a-real-credential')));
+              expect(r.followRedirects, isFalse);
+              final body = jsonDecode(r.body) as Map;
+              expect(body['model'], 'deepseek-chat');
+              final messages = (body['messages'] as List).cast<Map>();
+              expect(messages.first['role'], 'system');
+              expect(messages.first['content'], isNot(contains('Bracket')));
+              expect(messages.last['role'], 'user');
+              expect(messages.last['content'], contains('Bracket'));
+              expect(messages.last['content'], contains('Review the wall.'));
+              return http.Response(
+                  jsonEncode({
+                    'choices': [
+                      {
+                        'finish_reason': 'stop',
+                        'message': {
+                          'role': 'assistant',
+                          'reasoning_content': 'private reasoning',
+                          'content': 'Review result'
+                        }
+                      }
+                    ]
+                  }),
+                  200);
+            }));
+    addTearDown(backend.dispose);
+    final reply = await backend.respond(
+        const AiPreferences(
+            provider: AiProvider.deepseek, model: 'deepseek-chat'),
+        request());
+    expect(reply.text, 'Review result');
+    expect(reply.provider, contains('DeepSeek'));
+    // The scratchpad is not the answer and is never shown as one.
+    expect(reply.text, isNot(contains('private reasoning')));
+  });
+
+  test('DeepSeek refuses an image instead of dropping it silently', () async {
+    final png = AiAttachment.fromBytes(
+        name: 'view.png',
+        bytes: Uint8List.fromList(
+            [137, 80, 78, 71, 13, 10, 26, 10, ...List.filled(40, 0)]));
+    final backend = DeviceAiBackend(
+        clientFactory: () => MockClient((_) async {
+              fail('no request may be sent for an unsupported attachment');
+            }));
+    addTearDown(backend.dispose);
+    await expectLater(
+        backend.respond(
+            const AiPreferences(
+                provider: AiProvider.deepseek, model: 'deepseek-chat'),
+            request(attachments: [png])),
+        throwsA(isA<AiException>()
+            .having((e) => e.code, 'code', 'imagesUnsupported')));
+  });
+
+  test('DeepSeek treats a truncated completion as no answer at all', () async {
+    final backend = DeviceAiBackend(
+        clientFactory: () => MockClient((_) async => http.Response(
+            jsonEncode({
+              'choices': [
+                {
+                  'finish_reason': 'length',
+                  'message': {'content': 'Half a sen'}
+                }
+              ]
+            }),
+            200)));
+    addTearDown(backend.dispose);
+    await expectLater(
+        backend.respond(
+            const AiPreferences(
+                provider: AiProvider.deepseek, model: 'deepseek-chat'),
+            request()),
+        throwsA(isA<AiException>().having((e) => e.code, 'code', 'response')));
+  });
+
   test('provider errors never expose response bodies or credentials', () async {
     final backend = DeviceAiBackend(
         clientFactory: () => MockClient((_) async => http.Response(

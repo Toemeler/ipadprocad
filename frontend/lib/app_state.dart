@@ -13292,6 +13292,64 @@ class AppState extends ChangeNotifier {
     toast(L.current.msgRedone);
   }
 
+  // ---- M441: the surface the AI agent edits the document through ------
+  //
+  // Seven methods, and deliberately not one more. The agent does NOT get a
+  // general escape hatch into AppState: it reaches the model through
+  // `ai_cad.dart`, which builds ordinary features and ordinary sketch
+  // geometry, and everything it does therefore lands in the same timeline,
+  // the same rebuild and the same undo journal as a human edit. What it needs
+  // from here is exactly what the GUI paths keep private: the part journal,
+  // the sketch mutation choke point, and the two caches that would otherwise
+  // go stale under it.
+
+  /// The current state of [p], for the agent to roll back to. Taking one is
+  /// free of side effects — it is not yet an undo entry.
+  PartSnap aiSnapshot(PartModel p) => _takePartSnap(p);
+
+  /// Puts the document back the way [snap] found it. Used when one action of a
+  /// batch fails: the whole batch is undone, so the model is never told that
+  /// half a change is in the document.
+  Future<void> aiRestore(PartModel p, PartSnap snap) =>
+      _restorePartSnap(p, snap);
+
+  /// Makes [snap] the state Ctrl+Z returns to — one entry for the whole batch.
+  void aiJournal(PartSnap snap) {
+    if (_partUndo.isNotEmpty && _samePartSnap(_partUndo.last, snap)) return;
+    _partUndo.add(snap);
+    _partRedo.clear();
+  }
+
+  /// Commits new sketch geometry through the same choke point every tool uses,
+  /// so the agent's drawing is journalled, re-analysed and re-solved exactly
+  /// like a drawn one.
+  void aiCommitSketch(SketchModel s, List<Geo> geometry) =>
+      _rebuildEngine(s, geometry, active: identical(s, current));
+
+  /// Drops the cached profile regions of [sketch] (or of every sketch), which
+  /// are what [sessionRegions] answers from.
+  void aiForgetRegions([String? sketch]) {
+    if (sketch == null) {
+      _regionCache.clear();
+    } else {
+      _regionCache.remove(sketch);
+    }
+  }
+
+  /// Keeps the End of Part marker past a row the agent just created — the same
+  /// call every interactive sketch creation makes.
+  void aiAdmitSketchRow(PartModel p) => _admitNewSketchRow(p);
+
+  /// Rebuilds the whole part after an agent edit, projections included.
+  /// Exactly what [applyExtrude] and [applyEdgeFeature] do on commit, so a
+  /// feature the agent made behaves like one the user made.
+  bool aiRebuild(PartModel p) {
+    if (!partKernel.available) return false;
+    final ok = recomputeAllFeatures(p, partKernel);
+    if (ok) _syncSolidProjections(p);
+    return ok;
+  }
+
   /// Rebuilds [p] from a snapshot: features, counters, End of Part, work
   /// planes, camera, origin visibility and every child sketch (geometry +
   /// constraints + sidecars, exactly). Then recomputes and saves.
@@ -13403,10 +13461,14 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> deleteFeature(PartFeature f) async {
+  /// [checkpoint] is false only for a caller that has ALREADY taken the
+  /// snapshot this delete belongs to — the AI agent batches several edits into
+  /// one transaction (M441), and a second journal entry inside it would mean
+  /// two presses of Ctrl+Z for one change the user watched happen once.
+  Future<void> deleteFeature(PartFeature f, {bool checkpoint = true}) async {
     final p = currentPart;
     if (p == null) return;
-    _partCheckpoint(p); // M182 — deleting a feature must be undoable
+    if (checkpoint) _partCheckpoint(p); // M182 — a delete must be undoable
     // M212 — a pattern that copies this feature loses its input. The pattern
     // survives and reports it honestly at the next rebuild ("the patterned
     // feature X is not available any more"), but the message belongs HERE

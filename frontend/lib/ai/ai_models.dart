@@ -11,7 +11,7 @@ String aiId() {
       16, (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0')).join();
 }
 
-enum AiProvider { apple, gemini, anthropic }
+enum AiProvider { apple, gemini, anthropic, deepseek }
 
 class AiException implements Exception {
   const AiException(this.code);
@@ -36,6 +36,7 @@ class AiException implements Exception {
       'storage' => t.aiErrorStorage,
       'document' => t.aiErrorDocument,
       'busy' => t.aiErrorBusy,
+      'cad' => t.aiErrorCad,
       _ => t.aiErrorResponse,
     };
   }
@@ -165,7 +166,10 @@ class AiMessage {
         if (contextLabel != null) 'contextLabel': contextLabel
       };
   factory AiMessage.fromJson(Map<String, dynamic> j) {
-    if (!['user', 'assistant'].contains(j['role']) ||
+    // 'tool' is a report the APP wrote about what it did to the document
+    // (M441). It is stored and replayed like any other turn, because the model
+    // has to see what its own last block actually did.
+    if (!['user', 'assistant', 'tool'].contains(j['role']) ||
         (j['text'] as String).length > 100000) {
       throw const FormatException('Invalid AI message');
     }
@@ -225,12 +229,26 @@ class AiSession {
 }
 
 class AiPreferences {
-  const AiPreferences({this.provider = AiProvider.apple, this.model = ''});
+  const AiPreferences(
+      {this.provider = AiProvider.apple,
+      this.model = '',
+      this.allowEdits = true});
   final AiProvider provider;
   final String model;
-  Map<String, dynamic> toJson() => {'provider': provider.name, 'model': model};
+
+  /// M441 — whether the assistant may change the open part. On by default: an
+  /// assistant that cannot model is the thing this app's users asked to stop
+  /// having. Off is a real state, not a warning — with it off the model is not
+  /// even TOLD that editing exists, so it cannot narrate changes it was unable
+  /// to make.
+  final bool allowEdits;
+
+  Map<String, dynamic> toJson() =>
+      {'provider': provider.name, 'model': model, 'allowEdits': allowEdits};
   factory AiPreferences.fromJson(Map<String, dynamic> j) => AiPreferences(
       provider: AiProvider.values.firstWhere((p) => p.name == j['provider'],
           orElse: () => AiProvider.apple),
-      model: j['model'] as String? ?? '');
+      model: j['model'] as String? ?? '',
+      // Absent in a store written before M441: those sessions get the default.
+      allowEdits: j['allowEdits'] as bool? ?? true);
 }

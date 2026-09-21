@@ -10,6 +10,23 @@ This document replaces the supplied workflow proposal. It specifies what the AI 
 
 The review combined five successive research/design/critique passes, independent evidence and CAD workflow reviews, and inspection of the branch's principal app subsystems. The repository tree was inventoried; core source paths were inspected in depth. This was not a line-by-line audit of every file, a running-app test, or an executed CAD-agent benchmark. The worked examples are explicitly illustrative.
 
+## Implementation status
+
+**M441 shipped the first executable slice of this design.** What exists in the app today, and where:
+
+| Element of the design | Status | Where |
+|---|---|---|
+| A declared operation set the model writes and the app executes | Built — 13 operations, fenced `cad` blocks, strict parse | `frontend/lib/ai/ai_actions.dart` |
+| Native features, not an agent-only representation | Built — sketches, extrude, revolve, fillet, chamfer, feature edit/rename/delete go through the same `PartFeature` timeline and `recomputeAllFeatures` as the user's own tools | `frontend/lib/ai/ai_cad.dart` |
+| Reversible, coherent changes: one intention, one transaction, one undo | Built — a block is snapshotted, rolled back whole on any failure, and journalled as one `Ctrl+Z` | `AiCad.run`, `AppState.aiSnapshot`/`aiRestore`/`aiJournal` |
+| Question-directed observation | Partial — `describe_part` plus a measured report (timeline, bodies, volumes, bounding box) after every block. No sections, no aligned inspection views, no witness geometry | `AiCad._state` |
+| Explicit evidence for completion | Partial — the report separates what was asked for from what the kernel built, and states its own coverage. There is no checker framework, no brief, no requirement traceability | `AiCad._commitFeature` |
+| A persistent design brief | Not built | — |
+| A typed document-wide parameter graph | Not built | — |
+| Interfaces, protected geometry, damage reports | Not built | — |
+
+References survive edits the way the app's own selections do (`ProfileSel`, `EdgeSel` fingerprints); the agent never names a topological index, for the reason §8 gives. Everything below the line in the table is still a plan, and the sections that describe it are written as design, not as description of the code.
+
 ## Reading guide
 
 - [1. The recommendation](#1-the-recommendation)

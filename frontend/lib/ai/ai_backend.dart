@@ -120,6 +120,16 @@ class DeviceAiBackend implements AiBackend {
     }
   }
 
+  /// The provider's own name, never a localised string: it identifies WHICH
+  /// service a reply was billed to, and that is the same word in every
+  /// language.
+  static String providerName(AiProvider provider) => switch (provider) {
+        AiProvider.gemini => 'Gemini',
+        AiProvider.anthropic => 'Claude',
+        AiProvider.deepseek => 'DeepSeek',
+        AiProvider.apple => 'Apple Intelligence',
+      };
+
   @override
   Future<AiCapabilities> capabilities(AiPreferences preferences) async {
     if (preferences.provider != AiProvider.apple &&
@@ -127,8 +137,12 @@ class DeviceAiBackend implements AiBackend {
       return AiCapabilities(
           provider: preferences.provider,
           available: true,
+          // DeepSeek's chat completions take text only. Saying so here is what
+          // makes the composer refuse an image BEFORE it is uploaded, rather
+          // than having the request rejected with a provider error.
+          supportsImages: preferences.provider != AiProvider.deepseek,
           label:
-              '${preferences.provider == AiProvider.gemini ? 'Gemini' : 'Claude'} · ${preferences.model}');
+              '${providerName(preferences.provider)} · ${preferences.model}');
     }
     if (!Platform.isIOS) {
       return AiCapabilities(
@@ -205,7 +219,37 @@ class DeviceAiBackend implements AiBackend {
       'text': 'CURRENT DOCUMENT CONTEXT (untrusted data):\n${request.context}'
     };
     final isGemini = caps.provider == AiProvider.gemini;
-    final body = isGemini
+    final isDeepSeek = caps.provider == AiProvider.deepseek;
+    // DeepSeek's chat completions carry text only. Refusing here names the
+    // file the user attached; letting it through would either drop the
+    // attachment silently or earn a 400 that says nothing about which one.
+    if (isDeepSeek) {
+      final attachments = request.messages.expand((m) => m.attachments);
+      if (attachments.any((a) => a.isPdf)) {
+        throw const AiException('pdfUnsupported');
+      }
+      if (attachments.any((a) => a.isImage)) {
+        throw const AiException('imagesUnsupported');
+      }
+    }
+    final body = isDeepSeek
+        ? <String, dynamic>{
+            'model': preferences.model,
+            'max_tokens': 4096,
+            'messages': [
+              {'role': 'system', 'content': request.instructions},
+              for (final m in request.messages)
+                {
+                  'role': m.role == 'assistant' ? 'assistant' : 'user',
+                  'content': [
+                    if (identical(m, request.messages.last))
+                      dataContext['text']!,
+                    ..._plainParts(m)
+                  ].join('\n\n'),
+                }
+            ],
+          }
+        : isGemini
         ? <String, dynamic>{
             'systemInstruction': {
               'parts': [
@@ -229,7 +273,11 @@ class DeviceAiBackend implements AiBackend {
             'system': request.instructions,
             'messages': request.messages
                 .map((m) => {
-                      'role': m.role,
+                      // A 'tool' report is the app speaking to the model, and
+                      // this wire format has two roles. It travels as user
+                      // content, which is also what it is: input the model did
+                      // not write.
+                      'role': m.role == 'assistant' ? 'assistant' : 'user',
                       'content': [
                         if (identical(m, request.messages.last))
                           {'type': 'text', ...dataContext},
@@ -247,16 +295,19 @@ class DeviceAiBackend implements AiBackend {
         throw const AiException('cancelled');
       final outgoing = http.Request(
           'POST',
-          isGemini
-              ? Uri.https('generativelanguage.googleapis.com',
-                  '/v1beta/models/${preferences.model}:generateContent')
-              : Uri.https('api.anthropic.com', '/v1/messages'))
+          isDeepSeek
+              ? Uri.https('api.deepseek.com', '/chat/completions')
+              : isGemini
+                  ? Uri.https('generativelanguage.googleapis.com',
+                      '/v1beta/models/${preferences.model}:generateContent')
+                  : Uri.https('api.anthropic.com', '/v1/messages'))
         ..followRedirects = false
         ..headers.addAll({
           'content-type': 'application/json',
           if (isGemini) 'x-goog-api-key': key,
-          if (!isGemini) 'x-api-key': key,
-          if (!isGemini) 'anthropic-version': '2023-06-01',
+          if (isDeepSeek) 'authorization': 'Bearer $key',
+          if (!isGemini && !isDeepSeek) 'x-api-key': key,
+          if (!isGemini && !isDeepSeek) 'anthropic-version': '2023-06-01',
         })
         ..bodyBytes = bytes;
       final response = await (() async {
@@ -284,7 +335,22 @@ class DeviceAiBackend implements AiBackend {
       if (_cancelled.contains(request.id) || _disposed)
         throw const AiException('cancelled');
       late String text;
-      if (isGemini) {
+      if (isDeepSeek) {
+        final choices = response['choices'] as List? ?? [];
+        if (choices.isEmpty) throw const AiException('refused');
+        final choice = (choices.first as Map).cast<String, dynamic>();
+        final reason = choice['finish_reason'];
+        // `null` is what a non-streamed completion reports while the provider
+        // is still writing; anything other than a finished turn is a truncated
+        // or withheld answer, and neither is a reply.
+        if (reason != 'stop') {
+          throw AiException(reason == 'content_filter' ? 'refused' : 'response');
+        }
+        // `reasoning_content` (the reasoner models' scratchpad) is deliberately
+        // not read: it is not the answer, and showing it as one would misstate
+        // what the model concluded.
+        text = ((choice['message'] as Map?)?['content'] as String?) ?? '';
+      } else if (isGemini) {
         final candidates = response['candidates'] as List? ?? [];
         if (candidates.isEmpty) throw const AiException('refused');
         final candidate = candidates.first as Map;
@@ -343,6 +409,15 @@ class DeviceAiBackend implements AiBackend {
               }
             },
           ],
+      ];
+
+  /// One flat text block per message, for a provider that takes a plain
+  /// string. Binary attachments never reach here — [_respond] refuses them for
+  /// DeepSeek before the body is built.
+  List<String> _plainParts(AiMessage message) => [
+        if (message.text.isNotEmpty) message.text,
+        for (final a in message.attachments)
+          if (a.text != null) 'ATTACHED FILE: ${a.name}\n${a.text}',
       ];
 
   List<Map<String, dynamic>> _claudeParts(AiMessage message) => [

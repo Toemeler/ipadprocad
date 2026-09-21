@@ -8562,6 +8562,66 @@ abstract class AppL10n {
   /// In de, this message translates to:
   /// **'Claude'**
   String get aiProviderClaude;
+
+  /// No description provided for @aiProviderApple.
+  ///
+  /// In de, this message translates to:
+  /// **'Apple'**
+  String get aiProviderApple;
+
+  /// No description provided for @aiProviderDeepSeek.
+  ///
+  /// In de, this message translates to:
+  /// **'DeepSeek'**
+  String get aiProviderDeepSeek;
+
+  /// No description provided for @aiSettingsAllowEdits.
+  ///
+  /// In de, this message translates to:
+  /// **'Modell bearbeiten lassen'**
+  String get aiSettingsAllowEdits;
+
+  /// No description provided for @aiSettingsAllowEditsInfo.
+  ///
+  /// In de, this message translates to:
+  /// **'Die Assistenz darf Skizzen und Features im geöffneten Bauteil anlegen und ändern. Jeder Block wird als EIN Schritt ausgeführt und ist mit einem Widerruf zurückzunehmen; schlägt ein Schritt fehl, wird der ganze Block verworfen.'**
+  String get aiSettingsAllowEditsInfo;
+
+  /// No description provided for @aiChangesTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Modelländerungen'**
+  String get aiChangesTitle;
+
+  /// No description provided for @aiChangesReverted.
+  ///
+  /// In de, this message translates to:
+  /// **'Ein Schritt ist fehlgeschlagen — der ganze Block wurde zurückgenommen. Das Dokument ist unverändert.'**
+  String get aiChangesReverted;
+
+  /// No description provided for @aiChangesNoPart.
+  ///
+  /// In de, this message translates to:
+  /// **'Kein Bauteil geöffnet. Öffne ein Bauteil, damit die Assistenz darin modellieren kann.'**
+  String get aiChangesNoPart;
+
+  /// No description provided for @aiChangesDisabled.
+  ///
+  /// In de, this message translates to:
+  /// **'Bearbeiten ist in den KI-Einstellungen ausgeschaltet.'**
+  String get aiChangesDisabled;
+
+  /// No description provided for @aiUndoChanges.
+  ///
+  /// In de, this message translates to:
+  /// **'Änderungen widerrufen'**
+  String get aiUndoChanges;
+
+  /// No description provided for @aiErrorCad.
+  ///
+  /// In de, this message translates to:
+  /// **'Die Änderung am Modell konnte nicht ausgeführt werden. Die Meldung darunter nennt den Grund.'**
+  String get aiErrorCad;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

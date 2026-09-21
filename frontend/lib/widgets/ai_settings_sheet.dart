@@ -21,6 +21,7 @@ class _AiSettingsState extends State<_AiSettings> {
   late final _model =
       TextEditingController(text: widget.controller.preferences.model);
   final _key = TextEditingController();
+  late bool _allowEdits = widget.controller.preferences.allowEdits;
   bool _hasKey = false;
   bool _saving = false;
   String? _error;
@@ -28,7 +29,8 @@ class _AiSettingsState extends State<_AiSettings> {
   AppL10n get t => L.of(context);
   static const _defaults = {
     AiProvider.gemini: 'gemini-3.8-flash',
-    AiProvider.anthropic: 'claude-opus-5'
+    AiProvider.anthropic: 'claude-opus-5',
+    AiProvider.deepseek: 'deepseek-chat'
   };
 
   @override
@@ -72,7 +74,8 @@ class _AiSettingsState extends State<_AiSettings> {
           provider: _provider,
           model: _model.text,
           key: _key.text,
-          removeKey: removeKey);
+          removeKey: removeKey,
+          allowEdits: _allowEdits);
       _key.clear();
       if (!mounted) return;
       if (removeKey) {
@@ -157,16 +160,42 @@ class _AiSettingsState extends State<_AiSettings> {
                               Text(t.aiSettingsProvider,
                                   style: IosText.subheadline),
                               const SizedBox(height: 8),
-                              CupertinoSlidingSegmentedControl<AiProvider>(
-                                  groupValue: _provider,
-                                  onValueChanged: (value) {
-                                    if (!busy) _select(value);
-                                  },
-                                  children: {
-                                    AiProvider.apple: Text(t.aiSettingsApple),
-                                    AiProvider.gemini: Text(t.aiProviderGemini),
-                                    AiProvider.anthropic: Text(t.aiProviderClaude)
-                                  }),
+                              // Four providers do not fit across a phone as a
+                              // segmented control, and the one that overflows
+                              // is whichever the user happens to want. A wrap
+                              // of buttons keeps every provider reachable at
+                              // any width.
+                              Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: [
+                                    for (final entry in {
+                                      AiProvider.apple: t.aiProviderApple,
+                                      AiProvider.gemini: t.aiProviderGemini,
+                                      AiProvider.anthropic: t.aiProviderClaude,
+                                      AiProvider.deepseek: t.aiProviderDeepSeek,
+                                    }.entries)
+                                      CupertinoButton(
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 16, vertical: 8),
+                                          borderRadius:
+                                              BorderRadius.circular(9),
+                                          color: entry.key == _provider
+                                              ? CupertinoColors.activeBlue
+                                              : CupertinoColors
+                                                  .tertiarySystemFill
+                                                  .resolveFrom(context),
+                                          onPressed: busy
+                                              ? null
+                                              : () => _select(entry.key),
+                                          child: Text(entry.value,
+                                              style: TextStyle(
+                                                  color: entry.key == _provider
+                                                      ? CupertinoColors.white
+                                                      : CupertinoColors.label
+                                                          .resolveFrom(
+                                                              context))))
+                                  ]),
                               const SizedBox(height: 20),
                               if (_provider == AiProvider.apple) ...[
                                 Text(t.aiSettingsAppleInfo,
@@ -214,6 +243,21 @@ class _AiSettingsState extends State<_AiSettings> {
                                           : () => _save(removeKey: true),
                                       child: Text(t.aiSettingsRemoveKey)),
                               ],
+                              const SizedBox(height: 20),
+                              Row(children: [
+                                Expanded(
+                                    child: Text(t.aiSettingsAllowEdits,
+                                        style: IosText.subheadline)),
+                                CupertinoSwitch(
+                                    value: _allowEdits,
+                                    onChanged: busy
+                                        ? null
+                                        : (v) =>
+                                            setState(() => _allowEdits = v)),
+                              ]),
+                              const SizedBox(height: 4),
+                              Text(t.aiSettingsAllowEditsInfo,
+                                  style: IosText.footnote),
                               const SizedBox(height: 16),
                               Text(t.aiSettingsPrivacy,
                                   style: IosText.footnote),

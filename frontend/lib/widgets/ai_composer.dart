@@ -426,6 +426,8 @@ class _AiComposerState extends State<AiComposer> {
           );
         }
         final message = messages[index];
+        // M441 — what the APP did, which is neither party's words.
+        if (message.role == 'tool') return _changes(message);
         final user = message.role == 'user';
         return Padding(
           padding: const EdgeInsets.only(bottom: 18),
@@ -450,7 +452,9 @@ class _AiComposerState extends State<AiComposer> {
                         )
                       : null,
                   child: SelectableText(
-                    message.text,
+                    // The action block is drawn as the card below, not as raw
+                    // JSON in the middle of a sentence.
+                    user ? message.text : aiReplyWithoutActions(message.text),
                     style: IosText.subheadline.on(T.text),
                   ),
                 ),
@@ -458,6 +462,87 @@ class _AiComposerState extends State<AiComposer> {
           ),
         );
       },
+    );
+  }
+
+  /// The executed-changes card: one row per action, with what it did or why
+  /// it did not.
+  ///
+  /// The op names are not translated, deliberately. They are the protocol —
+  /// the same words the model wrote and the same words a bug report has to
+  /// quote — and a German "Extrusion" here would not be findable in the log.
+  Widget _changes(AiMessage message) {
+    final report = AiActionReport.decode(message.text);
+    if (report == null) return const SizedBox.shrink();
+    final blocked = switch (report.blocked) {
+      'noPart' => t.aiChangesNoPart,
+      'editsDisabled' => t.aiChangesDisabled,
+      _ => null,
+    };
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 18),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: IosColors.quaternarySystemFill,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(t.aiChangesTitle,
+                style: IosText.caption1.on(T.dim, weight: FontWeight.w600)),
+            const SizedBox(height: 6),
+            if (blocked != null)
+              Text(blocked, style: IosText.footnote.on(T.dim)),
+            if (blocked == null)
+              for (final outcome in report.outcomes)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 2),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                          outcome.ok
+                              ? CupertinoIcons.check_mark
+                              : CupertinoIcons.xmark,
+                          size: 13,
+                          color: outcome.ok
+                              ? CupertinoColors.systemGreen
+                              : CupertinoColors.systemRed),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: SelectableText(
+                          outcome.error == null
+                              ? outcome.op
+                              : '${outcome.op} — ${outcome.error}',
+                          style: IosText.footnote.on(T.text),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            if (report.reverted) ...[
+              const SizedBox(height: 6),
+              Text(t.aiChangesReverted, style: IosText.footnote.on(T.dim)),
+            ],
+            if (report.applied > 0) ...[
+              const SizedBox(height: 4),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: CupertinoButton(
+                  padding: EdgeInsets.zero,
+                  onPressed: widget.app.canUndoPart
+                      ? () => unawaited(widget.app.undoPart())
+                      : null,
+                  child: Text(t.aiUndoChanges, style: IosText.footnote),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 

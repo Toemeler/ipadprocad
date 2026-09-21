@@ -4,13 +4,22 @@ import 'package:crypto/crypto.dart';
 import '../app_state.dart';
 import '../doc_ref.dart';
 import '../doc_store.dart';
+import 'ai_cad.dart';
 import 'ai_controller.dart';
 
-/// Read-only document adapter. Model responses are never executed as CAD code.
+/// The document adapter: what the assistant may READ, and what it may CHANGE.
+///
+/// The two halves are deliberately different in kind. Reading is a bounded
+/// SUMMARY of any document in the library — truncated, with omissions marked,
+/// and never a file path or a B-Rep. Changing goes through [AiCad] and reaches
+/// exactly one document, the part that is open, through the same feature and
+/// sketch machinery the user's own tools use. A model reply is still never
+/// executed as code: it can only name an operation from a fixed list.
 class AiWorkspace {
   AiWorkspace(this.app) {
     app.ai.contextReader = readContext;
     app.ai.documentOpener = openDocument;
+    app.ai.actionRunner = AiCad(app).run;
     app.addListener(sync);
     sync();
   }
