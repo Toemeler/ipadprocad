@@ -8704,7 +8704,7 @@ abstract class AppL10n {
   /// No description provided for @aiErrorTruncated.
   ///
   /// In de, this message translates to:
-  /// **'Die Antwort wurde abgeschnitten. Frag in kleineren Schritten.'**
+  /// **'Die Antwort kam auch mit mehr Platz abgeschnitten zurück.'**
   String get aiErrorTruncated;
 
   /// No description provided for @aiElapsedSeconds.

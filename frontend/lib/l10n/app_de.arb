@@ -4868,7 +4868,7 @@
   },
   "aiCanModel": "Kann im geöffneten Bauteil modellieren und nennt, was dabei gemessen wurde.",
   "aiWorkNoting": "Notiert die Anforderung",
-  "aiErrorTruncated": "Die Antwort wurde abgeschnitten. Frag in kleineren Schritten.",
+  "aiErrorTruncated": "Die Antwort kam auch mit mehr Platz abgeschnitten zurück.",
   "aiElapsedSeconds": "{seconds} s",
   "@aiElapsedSeconds": {
     "placeholders": {

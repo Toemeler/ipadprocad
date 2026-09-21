@@ -5289,7 +5289,7 @@ class AppL10nDe extends AppL10n {
 
   @override
   String get aiErrorTruncated =>
-      'Die Antwort wurde abgeschnitten. Frag in kleineren Schritten.';
+      'Die Antwort kam auch mit mehr Platz abgeschnitten zurück.';
 
   @override
   String aiElapsedSeconds(int seconds) {

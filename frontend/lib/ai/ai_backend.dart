@@ -23,6 +23,26 @@ import 'ai_trace.dart';
 /// exactly: a minute of "thinking" and then nothing.
 const int kAiMaxOutputTokens = 8192;
 
+/// How many times a truncated reply is retried with more room before the user
+/// is told anything.
+///
+/// "Frag in kleineren Schritten" is the app asking the USER to work around a
+/// budget the app chose. A reply cut off mid-thought is recoverable without
+/// them: ask again with a bigger allowance and less reasoning. Bounded,
+/// because a model that fills 32k three times is not going to fit in four.
+const int kAiMaxTruncationRetries = 2;
+
+/// The output allowance for one attempt.
+///
+/// Grows rather than starting large: the first attempt is what almost every
+/// turn costs, and a 32k allowance requested every time is a 32k allowance
+/// some providers reserve every time.
+int aiOutputBudget(int attempt) => switch (attempt) {
+      <= 0 => kAiMaxOutputTokens,
+      1 => kAiMaxOutputTokens * 2,
+      _ => kAiMaxOutputTokens * 4,
+    };
+
 class AiCapabilities {
   const AiCapabilities(
       {required this.provider,
@@ -44,7 +64,8 @@ class AiRequest {
       required this.context,
       required List<AiMessage> messages,
       this.sessionId,
-      this.round})
+      this.round,
+      this.attempt = 0})
       : messages = List.unmodifiable(messages);
   final String id;
   final String instructions;
@@ -56,6 +77,11 @@ class AiRequest {
   /// rounds and sessions; nothing on the wire depends on either.
   final String? sessionId;
   final int? round;
+
+  /// Which try this is. 0 is the ordinary one; a higher number means the last
+  /// attempt came back truncated, and the backend answers with a larger
+  /// output allowance and less reasoning. See [aiOutputBudget].
+  final int attempt;
 }
 
 class AiReply {
@@ -138,7 +164,14 @@ bool deepSeekTakesThinking(String model) =>
 /// after it is execution against a plan the model already has, with the
 /// result of the last block in front of it. So: full effort once, low effort
 /// thereafter.
-String deepSeekReasoningEffort(int? round) => (round ?? 1) == 0 ? 'high' : 'low';
+String deepSeekReasoningEffort(int? round, [int attempt = 0]) {
+  // A retry exists because the last answer did not fit. Reasoning is what
+  // fills that budget on this model, so each attempt thinks less as well as
+  // getting more room — two levers on one failure.
+  if (attempt >= 2) return 'none';
+  if (attempt == 1) return 'low';
+  return (round ?? 1) == 0 ? 'high' : 'low';
+}
 
 class DeviceAiBackend implements AiBackend {
   DeviceAiBackend({http.Client Function()? clientFactory})
@@ -381,9 +414,10 @@ class DeviceAiBackend implements AiBackend {
     final body = isDeepSeek
         ? <String, dynamic>{
             'model': preferences.model,
-            'max_tokens': kAiMaxOutputTokens,
+            'max_tokens': aiOutputBudget(request.attempt),
             if (deepSeekTakesThinking(preferences.model))
-              'reasoning_effort': deepSeekReasoningEffort(request.round),
+              'reasoning_effort':
+                  deepSeekReasoningEffort(request.round, request.attempt),
             'messages': [
               {'role': 'system', 'content': request.instructions},
               for (final m in request.messages)
@@ -423,11 +457,11 @@ class DeviceAiBackend implements AiBackend {
                       ],
                     })
                 .toList(),
-            'generationConfig': {'maxOutputTokens': kAiMaxOutputTokens},
+            'generationConfig': {'maxOutputTokens': aiOutputBudget(request.attempt)},
           }
         : <String, dynamic>{
             'model': preferences.model,
-            'max_tokens': kAiMaxOutputTokens,
+            'max_tokens': aiOutputBudget(request.attempt),
             'system': request.instructions,
             'messages': request.messages
                 .map((m) => {

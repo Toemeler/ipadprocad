@@ -5232,7 +5232,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get aiErrorTruncated =>
-      'The reply was cut off. Ask for a smaller step.';
+      'The reply kept coming back cut off, even with more room.';
 
   @override
   String aiElapsedSeconds(int seconds) {

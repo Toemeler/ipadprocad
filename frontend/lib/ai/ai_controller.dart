@@ -624,9 +624,9 @@ class AiController extends ChangeNotifier {
               'lastRound': last,
               'turnsSent': turns.length,
             });
-        final reply = await _backend.respond(
+        final reply = await _ask(
             preferences,
-            AiRequest(
+            (attempt) => AiRequest(
                 id: requestId,
                 instructions: _instructionsFor(actions: canEditModel && !last),
                 context: contextText,
@@ -636,7 +636,11 @@ class AiController extends ChangeNotifier {
                 // a document only one of them still describes.
                 messages: aiCompactTurns(turns),
                 sessionId: session.id,
-                round: round));
+                round: round,
+                attempt: attempt),
+            requestId: requestId,
+            sessionId: session.id,
+            round: round);
         if (!stillCurrent()) return;
         final assistant = AiMessage(
             role: 'assistant', text: reply.text, provider: reply.provider);
@@ -818,13 +822,16 @@ class AiController extends ChangeNotifier {
         // get to retry into a wall.
         if (report.blocked != null) {
           _setActivity(AiActivity(AiPhase.thinking, title: headline));
-          final closing = await _backend.respond(
+          final closing = await _ask(
               preferences,
-              AiRequest(
+              (attempt) => AiRequest(
                   id: requestId,
                   instructions: _instructionsFor(actions: false),
                   context: contextText,
-                  messages: aiCompactTurns(turns)));
+                  messages: aiCompactTurns(turns),
+                  attempt: attempt),
+              requestId: requestId,
+              sessionId: session.id);
           if (!stillCurrent()) return;
           session.messages.add(AiMessage(
               role: 'assistant',
@@ -889,6 +896,51 @@ class AiController extends ChangeNotifier {
         _activity = AiActivity.none;
       }
       _notify();
+    }
+  }
+
+  /// One provider turn, retried on its way back if it arrived cut off.
+  ///
+  /// "Die Antwort wurde abgeschnitten. Frag in kleineren Schritten." was the
+  /// app handing the user a budget problem the app had chosen. A reply that
+  /// ran out of room is recoverable without them: ask again with a larger
+  /// allowance and less reasoning ([aiOutputBudget],
+  /// [deepSeekReasoningEffort]).
+  ///
+  /// A RETRY MUST NEVER MAKE THINGS WORSE. If a larger request fails for some
+  /// other reason — a provider that rejects the bigger allowance outright —
+  /// the FIRST failure is what the user hears about, because that is the one
+  /// that describes what actually went wrong with their turn.
+  Future<AiReply> _ask(
+    AiPreferences preferences,
+    AiRequest Function(int attempt) build, {
+    required String requestId,
+    String? sessionId,
+    int? round,
+  }) async {
+    AiException? truncation;
+    for (var attempt = 0;; attempt++) {
+      try {
+        return await _backend.respond(preferences, build(attempt));
+      } on AiException catch (e) {
+        if (e.code != 'truncated') throw truncation ?? e;
+        truncation ??= e;
+        if (attempt >= kAiMaxTruncationRetries) rethrow;
+        AiTrace.record('turn.truncated',
+            requestId: requestId,
+            sessionId: sessionId,
+            round: round,
+            data: {
+              'attempt': attempt,
+              'nextBudget': aiOutputBudget(attempt + 1),
+            });
+        Log.w('ai',
+            'reply truncated on attempt $attempt — retrying with '
+            '${aiOutputBudget(attempt + 1)} tokens and less reasoning');
+      } catch (e) {
+        if (truncation != null) throw truncation;
+        rethrow;
+      }
     }
   }
 
