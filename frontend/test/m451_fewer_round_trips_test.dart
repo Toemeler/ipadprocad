@@ -237,6 +237,8 @@ void main() {
     });
   });
 
+  _images();
+
   group('the model is told what a round trip costs', () {
     test('a step is one block, not one action', () async {
       final backend = _Backend((_) async => const AiReply('Done.', 'test'));
@@ -299,4 +301,36 @@ class _Backend implements AiBackend {
   Future<AiAttachment?> pasteImage() async => null;
   @override
   void dispose() {}
+}
+
+// ---------------------------------------------------------------------------
+// M452 — the eye was shut by a flag, not by the provider.
+//
+// I told the user DeepSeek could not receive images. What I had actually
+// checked was this app's own hard-coded `supportsImages: provider !=
+// deepseek`. DeepSeek's V4 line is natively multimodal — V4.1-Flash lists
+// `image` among its input modalities — so the flag, not the API, is what
+// dropped every rendered view on the floor and then told the model it had not
+// seen one.
+//
+// The lesson the test encodes: image support is a property of the MODEL. A
+// provider-wide boolean was wrong the day the provider shipped a vision
+// model, and would be wrong again the next time.
+void _images() {
+  group('DeepSeek image support follows the model', () {
+    test('a vision-capable model takes images', () {
+      expect(deepSeekTakesImages('deepseek-flash'), isTrue);
+      expect(deepSeekTakesImages('DeepSeek-V4.1-Flash'), isTrue);
+      expect(deepSeekTakesImages('deepseek-v4-flash-vision-exp'), isTrue);
+    });
+
+    test('a text-only model does not', () {
+      expect(deepSeekTakesImages('deepseek-chat'), isFalse);
+      expect(deepSeekTakesImages('deepseek-reasoner'), isFalse);
+      // Retired ids that the service reroutes server-side are NOT assumed to
+      // accept multimodal content under the old name: the rerouting is
+      // documented, accepting image parts under it is not.
+      expect(deepSeekTakesImages('deepseek-v4-pro'), isFalse);
+    });
+  });
 }

@@ -30,7 +30,7 @@ class _AiSettingsState extends State<_AiSettings> {
   static const _defaults = {
     AiProvider.gemini: 'gemini-3.8-flash',
     AiProvider.anthropic: 'claude-opus-5',
-    AiProvider.deepseek: 'deepseek-chat'
+    AiProvider.deepseek: 'deepseek-flash'
   };
 
   @override

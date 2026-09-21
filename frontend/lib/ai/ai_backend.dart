@@ -78,6 +78,29 @@ abstract class AiBackend {
 
 /// No provider credentials, prompts, response bodies or document paths are logged.
 /// Hosts are fixed; redirects are disabled so credentials cannot follow them.
+/// Which DeepSeek models accept image input.
+///
+/// This app treated "DeepSeek" as a synonym for "text only", which was true
+/// of deepseek-chat and deepseek-reasoner and stopped being true when the V4
+/// line landed: DeepSeek-V4.1-Flash is natively multimodal, and its docs list
+/// `image` among the model's input modalities. The cost of the stale
+/// assumption was not an inconvenience — `look` rendered a view, the app
+/// dropped it, and the report told the model it had NOT seen anything, every
+/// single time (issue #72).
+///
+/// Decided from the MODEL ID rather than a hard-coded provider flag, so a
+/// model DeepSeek ships next does not need a code change to be usable, and a
+/// text-only model is never sent an image it will 400 on. Legacy ids that the
+/// service reroutes server-side (deepseek-v4-pro has routed to V4.1-Flash
+/// since 2026-09-14) are deliberately NOT assumed to accept image parts under
+/// their old name: the routing is documented, accepting multimodal content
+/// under the retired id is not, and a wrong guess here costs a failed request
+/// rather than a missing feature.
+bool deepSeekTakesImages(String model) {
+  final m = model.toLowerCase();
+  return m.contains('flash') || m.contains('vision');
+}
+
 class DeviceAiBackend implements AiBackend {
   DeviceAiBackend({http.Client Function()? clientFactory})
       : _clientFactory = clientFactory ?? http.Client.new;
@@ -209,10 +232,12 @@ class DeviceAiBackend implements AiBackend {
       return AiCapabilities(
           provider: preferences.provider,
           available: true,
-          // DeepSeek's chat completions take text only. Saying so here is what
-          // makes the composer refuse an image BEFORE it is uploaded, rather
-          // than having the request rejected with a provider error.
-          supportsImages: preferences.provider != AiProvider.deepseek,
+          // Image support is a property of the MODEL, not of the provider.
+          // This said `provider != deepseek` and was simply out of date: it
+          // is why every `look` on DeepSeek rendered a view, dropped it, and
+          // told the model it had not seen one. See [deepSeekTakesImages].
+          supportsImages: preferences.provider != AiProvider.deepseek ||
+              deepSeekTakesImages(preferences.model),
           label:
               '${providerName(preferences.provider)} · ${preferences.model}');
     }
@@ -300,15 +325,17 @@ class DeviceAiBackend implements AiBackend {
     };
     final isGemini = caps.provider == AiProvider.gemini;
     final isDeepSeek = caps.provider == AiProvider.deepseek;
-    // DeepSeek's chat completions carry text only. Refusing here names the
-    // file the user attached; letting it through would either drop the
-    // attachment silently or earn a 400 that says nothing about which one.
+    // Refusing here names the file the user attached; letting it through
+    // would either drop the attachment silently or earn a 400 that says
+    // nothing about which one. DeepSeek takes no PDFs on any model; whether
+    // it takes images depends on which model is selected.
+    final deepSeekImages = isDeepSeek && deepSeekTakesImages(preferences.model);
     if (isDeepSeek) {
       final attachments = request.messages.expand((m) => m.attachments);
       if (attachments.any((a) => a.isPdf)) {
         throw const AiException('pdfUnsupported');
       }
-      if (attachments.any((a) => a.isImage)) {
+      if (!deepSeekImages && attachments.any((a) => a.isImage)) {
         throw const AiException('imagesUnsupported');
       }
     }
@@ -321,11 +348,21 @@ class DeviceAiBackend implements AiBackend {
               for (final m in request.messages)
                 {
                   'role': m.role == 'assistant' ? 'assistant' : 'user',
-                  'content': [
-                    if (identical(m, request.messages.last))
-                      dataContext['text']!,
-                    ..._plainParts(m)
-                  ].join('\n\n'),
+                  // A turn carrying an image goes as OpenAI-style content
+                  // parts; everything else stays one string, which is what
+                  // every DeepSeek model has always accepted.
+                  'content': deepSeekImages &&
+                          m.role != 'assistant' &&
+                          m.attachments.any((a) => a.isImage)
+                      ? _openAiParts(m,
+                          lead: identical(m, request.messages.last)
+                              ? dataContext['text']
+                              : null)
+                      : [
+                          if (identical(m, request.messages.last))
+                            dataContext['text']!,
+                          ..._plainParts(m)
+                        ].join('\n\n'),
                 }
             ],
           }
@@ -780,6 +817,26 @@ class DeviceAiBackend implements AiBackend {
         for (final a in message.attachments)
           if (a.text != null) 'ATTACHED FILE: ${a.name}\n${a.text}',
       ];
+
+  /// OpenAI-shaped content parts, which is what DeepSeek's chat completions
+  /// take for a multimodal turn.
+  List<Map<String, dynamic>> _openAiParts(AiMessage message, {String? lead}) {
+    final text = [
+      if (lead != null) lead,
+      ..._plainParts(message),
+    ].join('\n\n');
+    return [
+      if (text.isNotEmpty) {'type': 'text', 'text': text},
+      for (final a in message.attachments)
+        if (a.isImage)
+          {
+            'type': 'image_url',
+            'image_url': {
+              'url': 'data:${a.mimeType};base64,${base64Encode(a.bytes)}'
+            }
+          }
+    ];
+  }
 
   List<Map<String, dynamic>> _claudeParts(AiMessage message) => [
         if (message.text.isNotEmpty) {'type': 'text', 'text': message.text},
