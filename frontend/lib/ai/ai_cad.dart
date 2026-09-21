@@ -121,7 +121,7 @@ class AiCad {
       return AiActionReport(
           outcomes: outcomes,
           reverted: true,
-          state: _state(p),
+          state: _stateBrief(p),
           images: List.of(_views));
     }
     if (mutated && !failed) {
@@ -134,7 +134,7 @@ class AiCad {
     return AiActionReport(
         outcomes: outcomes,
         reverted: false,
-        state: _state(p),
+        state: _stateBrief(p),
         images: List.of(_views));
   }
 
@@ -1290,6 +1290,37 @@ class AiCad {
   /// What the document says after the block — measured, and the same shape
   /// `describe_part` returns. This is the model's only trustworthy account of
   /// what it just did.
+  /// The one-line state that rides on every block.
+  ///
+  /// ISSUE #72 (follow-up) — the full timeline used to ride on EVERY block,
+  /// and every one of those copies stayed in the conversation and was resent
+  /// on every later round. Measured on the shaker-holder session: 54,637
+  /// input tokens for a plate with two holes, most of it six near-identical
+  /// copies of the same feature tree, each one inviting the model to wonder
+  /// which of them is current.
+  ///
+  /// This says what changed and how big the thing is now. The full tree is
+  /// one `describe_part` away and is never stale when it arrives.
+  Map<String, dynamic> _stateBrief(PartModel p) {
+    final bounds = partContentBounds(p);
+    final last = p.features.isEmpty ? null : p.features.last;
+    return {
+      'name': p.name,
+      'features': p.features.length,
+      if (last != null) 'newest': '${last.name} (${last.kind})',
+      'sketches': p.childSketches.length,
+      'bodies': [for (final (name, _) in p.solidBodies()) name],
+      if (bounds != null)
+        'sizeMm': [
+          _r(bounds.$2.x - bounds.$1.x),
+          _r(bounds.$2.y - bounds.$1.y),
+          _r(bounds.$2.z - bounds.$1.z)
+        ],
+      if (bounds != null) 'heightUpYMm': _r(bounds.$2.y - bounds.$1.y),
+      'more': 'describe_part for the timeline, describe_shape for the shape',
+    };
+  }
+
   Map<String, dynamic> _state(PartModel p) {
     final bounds = partContentBounds(p);
     return {

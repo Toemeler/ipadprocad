@@ -203,9 +203,21 @@ void main() {
       expect(extrude.ok, isTrue);
       expect(extrude.detail!['feature'], 'Extrusion1');
       expect(extrude.detail!['volumeMm3'], 7); // the stub's build, not the ask
+      // M450 — the state that rides on a block is the SHORT one: the whole
+      // timeline used to ride on every block and then be resent on every
+      // later round, six copies deep. What it must still carry is enough to
+      // know something changed and how big the part now is.
       final state = report.state!;
-      expect((state['features'] as List).single['distance'], 7);
-      expect(state['units'], {'length': 'mm', 'angle': 'deg'});
+      expect(state['newest'], 'Extrusion1 (extrude)');
+      expect(state['features'], 1);
+      expect(state['bodies'], ['Solid1']);
+
+      // The timeline itself is one op away, and is current when it arrives.
+      final read =
+          await AiCad(app).run([const AiAction('describe_part', {})]);
+      final part = read.outcomes.single.detail!['part'] as Map<String, dynamic>;
+      expect((part['features'] as List).single['distance'], 7);
+      expect(part['units'], {'length': 'mm', 'angle': 'deg'});
     });
 
     test('one failed action rolls the whole block back', () async {

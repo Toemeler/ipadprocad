@@ -572,7 +572,11 @@ class AiController extends ChangeNotifier {
                 id: requestId,
                 instructions: _instructionsFor(actions: canEditModel && !last),
                 context: contextText,
-                messages: turns,
+                // Superseded snapshots are dropped on the way out, never from
+                // the stored transcript: the conversation on disk stays the
+                // full record, and the request stops paying for six copies of
+                // a document only one of them still describes.
+                messages: aiCompactTurns(turns),
                 sessionId: session.id,
                 round: round));
         if (!stillCurrent()) return;
@@ -727,6 +731,25 @@ class AiController extends ChangeNotifier {
         await _persist();
         if (!stillCurrent()) return;
         _notify();
+        // THE CLOSING LINE, WHEN THE BLOCK EARNED IT.
+        //
+        // A finished job used to cost one more round trip purely to say so —
+        // 8.4 s and 365 tokens in the measured session. A block may carry its
+        // own answer, and it is used only when every action succeeded and
+        // nothing rolled back, so the model cannot describe a result that did
+        // not happen. Anything less than a clean block falls through to the
+        // ordinary loop and the model answers after reading the report.
+        if (block.say != null && report.ok) {
+          session.messages.add(AiMessage(
+              role: 'assistant', text: block.say!, provider: reply.provider));
+          await _persist();
+          AiTrace.record('turn.closed',
+              requestId: requestId,
+              sessionId: session.id,
+              round: round,
+              data: {'say': block.say});
+          break;
+        }
         // A block the app refused to run is the end of the loop, not the start
         // of an argument: the model is told once, answers once, and does not
         // get to retry into a wall.
@@ -738,7 +761,7 @@ class AiController extends ChangeNotifier {
                   id: requestId,
                   instructions: _instructionsFor(actions: false),
                   context: contextText,
-                  messages: turns));
+                  messages: aiCompactTurns(turns)));
           if (!stillCurrent()) return;
           session.messages.add(AiMessage(
               role: 'assistant',

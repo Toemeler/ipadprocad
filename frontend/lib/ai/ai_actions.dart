@@ -273,9 +273,22 @@ class AiActionReport {
 
 /// A fenced ```cad block and what it parsed to.
 class AiActionBlock {
-  const AiActionBlock(this.actions, {this.parseError, this.title});
+  const AiActionBlock(this.actions, {this.parseError, this.title, this.say});
   final List<AiAction> actions;
   final String? parseError;
+
+  /// The answer to give the user IF this block succeeds completely, so a
+  /// finished job does not cost one more provider round trip just to say so.
+  ///
+  /// Measured on the session in issue #72: the closing "Fertig: 140 × 70 × 8
+  /// mm …" was its own round — 8.4 s and 365 output tokens, 327 of them
+  /// reasoning, to write one sentence about work already done.
+  ///
+  /// It is only used when every action in the block succeeded and nothing was
+  /// rolled back. A model cannot claim a result this way and be wrong about
+  /// it: if anything failed, the line is discarded and it gets the report and
+  /// another round, exactly as before.
+  final String? say;
 
   /// What the USER is shown while this block runs (issue #71).
   ///
@@ -435,6 +448,7 @@ AiActionBlock parseAiActions(String reply) {
   final actions = <AiAction>[];
   String? error;
   String? title;
+  String? say;
   for (final span in _actionSpans(reply)) {
     final raw = span.raw;
     if (raw.isEmpty) continue;
@@ -445,7 +459,11 @@ AiActionBlock parseAiActions(String reply) {
       error ??= 'The cad block is not valid JSON.';
       continue;
     }
-    if (parsed is Map) title ??= _clampTitle(parsed['title']);
+    if (parsed is Map) {
+      title ??= _clampTitle(parsed['title']);
+      final line = parsed['say'];
+      if (line is String && line.trim().isNotEmpty) say ??= line.trim();
+    }
     final list = parsed is List
         ? parsed
         : parsed is Map && parsed['actions'] is List
@@ -478,7 +496,7 @@ AiActionBlock parseAiActions(String reply) {
         title: title);
   }
   return AiActionBlock(error == null ? actions : const [],
-      parseError: error, title: title);
+      parseError: error, title: title, say: say);
 }
 
 /// A remainder that is still machine text: a payload the brace matcher could
@@ -669,14 +687,44 @@ JSON is for the app; the title is for the user; anything else you type is read
 as an answer and shown as one.
 
 START NOW, IN SMALL STEPS. Do not plan the whole part before acting and do
-not describe what you are about to do. Emit the FIRST small block immediately —
-one or two actions is a good first block — and let the result come back before
-deciding the next one. The user watches the model change as each block lands,
-so three small blocks that arrive over ten seconds are worth far more than one
-perfect block that arrives after a minute. If you find yourself writing a plan,
-stop and run its first step instead. The one thing that comes BEFORE the first
-block is the question below, when the request needs it: asking what you are
-building is not planning, it is finding out what to build.
+not describe what you are about to do. Emit the first block immediately and
+let the result come back before deciding the next one. If you find yourself
+writing a plan, stop and run its first step instead. The one thing that comes
+BEFORE the first block is the question below, when the request needs it:
+asking what you are building is not planning, it is finding out what to build.
+
+A STEP IS ONE BLOCK, AND EVERY BLOCK COSTS THE USER 10 TO 50 SECONDS. Each
+one is a network round trip on which you are re-read from the beginning, so
+an empty round is the most expensive thing you can do. Put everything that
+belongs to ONE step in ONE block:
+
+  - a sketch, its geometry and the extrude that consumes it are one step
+  - two holes on the same face are one step, not two
+  - never spend a whole block on a single brief_done — hang it on the next
+    block that does real work
+  - never spend a whole block saying you have finished — use "say" below
+
+"Small" means one step of the part, not one action. The limit is
+$kAiMaxActionsPerBlock actions; use as many of them as the step needs.
+
+THINK BRIEFLY. You are not being asked to design the whole part in this turn.
+You are being asked for the next block. Long deliberation before a two-line
+answer is time the user spends watching a spinner, every round.
+
+"say": THE ANSWER THAT SAVES A ROUND TRIP. When a block is the last one — the
+job is done and you know what you will tell the user — put that sentence in
+the block as "say" and the turn ends there:
+
+```cad
+{"title": "Rounding the rim", "say": "Fertig: 140 × 70 × 8 mm, zwei Ø25-mm-
+Taschen 6 mm tief, Kanten R2.", "actions": [{"op": "fillet", "radius": 2,
+"edges": "outer"}]}
+```
+
+It is used ONLY if every action in the block succeeds and nothing is rolled
+back. If anything fails you get the report and another round as usual, so
+"say" can never become a claim about work that did not happen. Do not put a
+"say" on a block whose result you still need to read.
 
 Rules that are not negotiable:
 - Lengths are millimetres, angles are degrees, in the document's own frame.
@@ -684,8 +732,13 @@ Rules that are not negotiable:
   whole block is rolled back and you are told why. Nothing is half-applied.
 - You are given the result of every block before you answer the user. Read it.
   Report what the document actually says, not what you asked for.
+- A block's report carries a SHORT state: the newest feature, the counts and
+  the size. Older reports in this conversation have had their snapshots
+  removed and say "superseded" — the document has changed since, so do not
+  read a dimension off them. describe_part gives the timeline, describe_shape
+  the measured shape, and both are current when they arrive.
 - Emit at most one block per turn, and at most $kAiMaxActionsPerBlock actions
-  in it. Prefer fewer: the first block should usually be one or two actions.
+  in it.
 - If you are unsure what is in the document, run {"op": "describe_part"} first.
 - Never claim a change you did not make, or a measurement the report does not
   contain.
@@ -808,6 +861,76 @@ default):
   did not actually state.
 - brief_done {id} — marks a recorded requirement satisfied.
 ''';
+
+/// Keys in a tool message that describe the document AS IT WAS at that
+/// moment, and are therefore wrong by the time the next block has run.
+const Set<String> kAiSupersededKeys = {
+  'partAfter',
+  'shape',
+  'silhouette',
+  'part',
+  'partNow',
+};
+
+/// The conversation as it should be SENT, with superseded state removed from
+/// every tool message but the newest one.
+///
+/// ISSUE #72 (follow-up) — "it used way too many tokens". Every round resends
+/// the whole conversation, and every block's report carried a full snapshot
+/// of the document plus, after a `look`, a whole silhouette. Six rounds in,
+/// the model was being sent six descriptions of a part that only one of them
+/// still described, and paying for all six. It is also the answer to "hard
+/// for an LLM to get": the most confusing thing in that transcript was five
+/// stale copies of the truth sitting next to the current one.
+///
+/// What is NEVER removed: which actions ran and what they returned, any
+/// error, and the newest state. The record of what was done stays complete;
+/// only descriptions the document has since invalidated are dropped, and each
+/// one says so where it stood.
+List<AiMessage> aiCompactTurns(List<AiMessage> turns) {
+  var newestTool = -1;
+  for (var i = 0; i < turns.length; i++) {
+    if (turns[i].role == 'tool') newestTool = i;
+  }
+  if (newestTool < 0) return turns;
+  final out = <AiMessage>[];
+  for (var i = 0; i < turns.length; i++) {
+    final m = turns[i];
+    if (m.role != 'tool' || i == newestTool) {
+      out.add(m);
+      continue;
+    }
+    final trimmed = _stripSuperseded(m.text);
+    out.add(trimmed == null
+        ? m
+        : AiMessage(
+            id: m.id,
+            role: m.role,
+            text: trimmed,
+            provider: m.provider,
+            createdAt: m.createdAt));
+  }
+  return out;
+}
+
+String? _stripSuperseded(String text) {
+  Object? parsed;
+  try {
+    parsed = jsonDecode(text);
+  } catch (_) {
+    return null;
+  }
+  if (parsed is! Map) return null;
+  final map = Map<String, dynamic>.from(parsed);
+  var removed = false;
+  for (final key in kAiSupersededKeys) {
+    if (map.remove(key) != null) removed = true;
+  }
+  if (!removed) return null;
+  map['superseded'] = 'The document has changed since. Run describe_part or '
+      'describe_shape if you need this again.';
+  return jsonEncode(map);
+}
 
 /// An [AiMessage] carrying an action report. Role 'tool' so the composer can
 /// draw it as what it is — something the APP did — rather than as either
