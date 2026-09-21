@@ -8,7 +8,9 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 
 import '../l10n/l.dart';
+import '../log.dart';
 import 'ai_models.dart';
+import 'ai_trace.dart';
 
 class AiCapabilities {
   const AiCapabilities(
@@ -29,12 +31,20 @@ class AiRequest {
       {required this.id,
       required this.instructions,
       required this.context,
-      required List<AiMessage> messages})
+      required List<AiMessage> messages,
+      this.sessionId,
+      this.round})
       : messages = List.unmodifiable(messages);
   final String id;
   final String instructions;
   final String context;
   final List<AiMessage> messages;
+
+  /// Which conversation this belongs to, and which pass of the action loop it
+  /// is. Carried only so [AiTrace] can stitch a flat event list back into
+  /// rounds and sessions; nothing on the wire depends on either.
+  final String? sessionId;
+  final int? round;
 }
 
 class AiReply {
@@ -130,10 +140,61 @@ class DeviceAiBackend implements AiBackend {
         AiProvider.apple => 'Apple Intelligence',
       };
 
+  /// The last raw `aiCapabilities` map the runner returned, including the
+  /// `reason` string that says WHY Apple Intelligence is unavailable. The
+  /// typed [AiCapabilities] has nowhere to put it, and "unavailable" without
+  /// the reason is four different bugs wearing one label — a device that is
+  /// not eligible, a feature switched off in Settings, a model still
+  /// downloading, and a quota that is spent.
+  Map<String, dynamic>? appleDetail;
+
+  /// What was last traced, so a poll that changes nothing does not fill the
+  /// ring. [capabilities] runs on every send, every panel open and every
+  /// settings change.
+  String? _tracedCaps;
+
   @override
   Future<AiCapabilities> capabilities(AiPreferences preferences) async {
+    try {
+      final caps = await _capabilities(preferences);
+      _traceCapabilities(preferences, caps);
+      return caps;
+    } on AiException catch (e) {
+      AiTrace.record('capabilities.error',
+          data: {'provider': preferences.provider.name, 'code': e.code});
+      rethrow;
+    }
+  }
+
+  void _traceCapabilities(AiPreferences preferences, AiCapabilities caps) {
+    final detail = caps.provider == AiProvider.apple ? appleDetail : null;
+    final data = <String, dynamic>{
+      'provider': caps.provider.name,
+      if (preferences.model.isNotEmpty) 'model': preferences.model,
+      'available': caps.available,
+      'supportsImages': caps.supportsImages,
+      'maxInputBytes': caps.maxInputBytes,
+      'label': caps.label,
+      if (detail != null) ...{
+        'route': detail['route'],
+        'appleModel': detail['model'],
+        'contextTokens': detail['contextTokens'],
+        'privateCloudComputeAvailable': detail['privateCloudComputeAvailable'],
+        if ((detail['reason'] as String?)?.isNotEmpty ?? false)
+          'reason': detail['reason'],
+      },
+      'allowEdits': preferences.allowEdits,
+    };
+    final fingerprint = data.toString();
+    if (fingerprint == _tracedCaps) return;
+    _tracedCaps = fingerprint;
+    AiTrace.record('capabilities', data: data);
+  }
+
+  Future<AiCapabilities> _capabilities(AiPreferences preferences) async {
     if (preferences.provider != AiProvider.apple &&
         await hasKey(preferences.provider)) {
+      appleDetail = null;
       return AiCapabilities(
           provider: preferences.provider,
           available: true,
@@ -145,6 +206,7 @@ class DeviceAiBackend implements AiBackend {
               '${providerName(preferences.provider)} · ${preferences.model}');
     }
     if (!Platform.isIOS) {
+      appleDetail = null;
       return AiCapabilities(
           provider: AiProvider.apple,
           available: false,
@@ -155,6 +217,7 @@ class DeviceAiBackend implements AiBackend {
       final value =
           await _channel.invokeMapMethod<String, dynamic>('aiCapabilities') ??
               {};
+      appleDetail = value;
       return AiCapabilities(
           provider: AiProvider.apple,
           available: value['available'] == true,
@@ -164,12 +227,18 @@ class DeviceAiBackend implements AiBackend {
               ? L.current.aiProviderCloud
               : L.current.aiProviderOnDevice);
     } on MissingPluginException {
+      appleDetail = {'reason': 'the host build has no AI plugin'};
       return AiCapabilities(
           provider: AiProvider.apple,
           available: false,
           supportsImages: false,
           label: L.current.aiSettingsApple);
-    } on PlatformException {
+    } on PlatformException catch (e) {
+      appleDetail = {
+        'reason': 'aiCapabilities failed',
+        'platformCode': e.code,
+        if (e.message != null) 'platformMessage': e.message,
+      };
       throw const AiException('unavailable');
     }
   }
@@ -288,6 +357,35 @@ class DeviceAiBackend implements AiBackend {
           };
     final bytes = utf8.encode(jsonEncode(body));
     if (bytes.length > 16 * 1024 * 1024) throw const AiException('size');
+    final endpoint = isDeepSeek
+        ? 'https://api.deepseek.com/chat/completions'
+        : isGemini
+            ? 'https://generativelanguage.googleapis.com/v1beta/models/'
+                '${preferences.model}:generateContent'
+            : 'https://api.anthropic.com/v1/messages';
+    // THE REQUEST ITSELF, once, before it leaves. `body` is the wire shape —
+    // system prompt, the whole conversation as the provider will see it, and
+    // the document context riding on the last turn. [AiTrace.scrub] takes the
+    // attachment payloads out and nothing key-shaped is in a body to begin
+    // with (credentials travel in headers, which are never recorded).
+    AiTrace.record('http.request',
+        requestId: request.id,
+        sessionId: request.sessionId,
+        round: request.round,
+        data: {
+          'provider': caps.provider.name,
+          'model': preferences.model,
+          'endpoint': endpoint,
+          'bodyBytes': bytes.length,
+          'messages': request.messages.length,
+          'instructionChars': request.instructions.length,
+          'contextChars': request.context.length,
+          'attachmentBytes': rawBytes,
+          'body': body,
+        });
+    Log.i('ai', 'request ${request.id} -> ${caps.provider.name} '
+        '${preferences.model} (${bytes.length} B, '
+        '${request.messages.length} turns)');
     final client = _clientFactory();
     _clients[request.id] = client;
     try {
@@ -310,9 +408,34 @@ class DeviceAiBackend implements AiBackend {
           if (!isGemini && !isDeepSeek) 'anthropic-version': '2023-06-01',
         })
         ..bodyBytes = bytes;
+      final wall = Stopwatch()..start();
+      var responseBytes = 0;
       final response = await (() async {
         final response = await client.send(outgoing);
         if (response.statusCode != 200) {
+          // THE PROVIDER'S OWN WORDS, before the throw discards them. A 400
+          // from Claude names the field it could not parse and a 429 from
+          // DeepSeek says which limit was hit; the user saw "something went
+          // wrong with the response" and the bundle recorded that sentence
+          // rather than either of these. Bounded, and read from the same
+          // stream the success path reads — an error body that is megabytes
+          // long is itself the finding, and the size is recorded either way.
+          final detail = await _errorBody(response.stream);
+          AiTrace.record('http.error',
+              requestId: request.id,
+              sessionId: request.sessionId,
+              round: request.round,
+              data: {
+                'provider': caps.provider.name,
+                'model': preferences.model,
+                'status': response.statusCode,
+                if (response.reasonPhrase != null)
+                  'reason': response.reasonPhrase,
+                'elapsedMs': wall.elapsedMilliseconds,
+                if (detail.isNotEmpty) 'body': detail,
+              });
+          Log.w('ai', 'request ${request.id}: HTTP ${response.statusCode} '
+              'from ${caps.provider.name} after ${wall.elapsedMilliseconds} ms');
           throw AiException(switch (response.statusCode) {
             401 || 403 => 'credentials',
             429 => 'quota',
@@ -324,14 +447,43 @@ class DeviceAiBackend implements AiBackend {
         }
         final data = BytesBuilder(copy: false);
         await for (final chunk in response.stream) {
-          if (data.length + chunk.length > 2 * 1024 * 1024)
+          if (data.length + chunk.length > 2 * 1024 * 1024) {
+            AiTrace.record('http.oversize',
+                requestId: request.id,
+                sessionId: request.sessionId,
+                round: request.round,
+                data: {
+                  'provider': caps.provider.name,
+                  'readBytes': data.length,
+                  'limitBytes': 2 * 1024 * 1024,
+                });
             throw const AiException('response');
+          }
           data.add(chunk);
         }
-        return jsonDecode(utf8.decode(data.takeBytes()))
-            as Map<String, dynamic>;
+        final raw = data.takeBytes();
+        responseBytes = raw.length;
+        return jsonDecode(utf8.decode(raw)) as Map<String, dynamic>;
       })()
           .timeout(const Duration(seconds: 120));
+      // THE WHOLE DECODED RESPONSE. Usage, stop reason, thinking blocks and
+      // safety verdicts all live in here, and every one of them used to be
+      // dropped by the three extractors below. Recorded before they run, so a
+      // reply this method goes on to REJECT is still in the trace — a refusal
+      // and a truncation are the two cases a reader most needs to see whole.
+      AiTrace.record('http.response',
+          requestId: request.id,
+          sessionId: request.sessionId,
+          round: request.round,
+          data: {
+            'provider': caps.provider.name,
+            'model': preferences.model,
+            'status': 200,
+            'elapsedMs': wall.elapsedMilliseconds,
+            'bodyBytes': responseBytes,
+            'body': response,
+          });
+      _traceUsage(caps.provider, preferences.model, request, response);
       if (_cancelled.contains(request.id) || _disposed)
         throw const AiException('cancelled');
       late String text;
@@ -340,20 +492,42 @@ class DeviceAiBackend implements AiBackend {
         if (choices.isEmpty) throw const AiException('refused');
         final choice = (choices.first as Map).cast<String, dynamic>();
         final reason = choice['finish_reason'];
+        // The scratchpad. Still not SHOWN — it is not the answer, and
+        // presenting it as one would misstate what the model concluded — but
+        // it is now recorded, because "why did it decide that" is exactly the
+        // question a bug report about a wrong answer is asking.
+        _traceThinking(caps.provider, request,
+            (choice['message'] as Map?)?['reasoning_content'] as String?,
+            stopReason: reason?.toString());
         // `null` is what a non-streamed completion reports while the provider
         // is still writing; anything other than a finished turn is a truncated
         // or withheld answer, and neither is a reply.
         if (reason != 'stop') {
           throw AiException(reason == 'content_filter' ? 'refused' : 'response');
         }
-        // `reasoning_content` (the reasoner models' scratchpad) is deliberately
-        // not read: it is not the answer, and showing it as one would misstate
-        // what the model concluded.
         text = ((choice['message'] as Map?)?['content'] as String?) ?? '';
       } else if (isGemini) {
         final candidates = response['candidates'] as List? ?? [];
         if (candidates.isEmpty) throw const AiException('refused');
         final candidate = candidates.first as Map;
+        _traceThinking(
+            caps.provider,
+            request,
+            ((candidate['content'] as Map?)?['parts'] as List? ?? [])
+                .whereType<Map>()
+                .where((p) => p['thought'] == true)
+                .map((p) => p['text'] as String? ?? '')
+                .join('\n')
+                .trim(),
+            stopReason: candidate['finishReason']?.toString(),
+            extra: {
+              if (candidate['safetyRatings'] != null)
+                'safetyRatings': candidate['safetyRatings'],
+              if (candidate['citationMetadata'] != null)
+                'citationMetadata': candidate['citationMetadata'],
+              if (response['promptFeedback'] != null)
+                'promptFeedback': response['promptFeedback'],
+            });
         if (candidate['finishReason'] != 'STOP') {
           throw AiException(candidate['finishReason'] == 'MAX_TOKENS'
               ? 'response'
@@ -365,6 +539,26 @@ class DeviceAiBackend implements AiBackend {
             .map((p) => p['text'] as String? ?? '')
             .join();
       } else {
+        _traceThinking(
+            caps.provider,
+            request,
+            (response['content'] as List? ?? [])
+                .whereType<Map>()
+                .where((p) => p['type'] == 'thinking')
+                .map((p) =>
+                    (p['thinking'] ?? p['text'] ?? '').toString())
+                .join('\n')
+                .trim(),
+            stopReason: response['stop_reason']?.toString(),
+            extra: {
+              if (response['stop_sequence'] != null)
+                'stopSequence': response['stop_sequence'],
+              'blockTypes': [
+                for (final p in (response['content'] as List? ?? [])
+                    .whereType<Map>())
+                  p['type']
+              ],
+            });
         if (response['stop_reason'] != 'end_turn') {
           throw AiException(
               response['stop_reason'] == 'refusal' ? 'refused' : 'response');
@@ -375,24 +569,169 @@ class DeviceAiBackend implements AiBackend {
             .map((p) => p['text'] as String? ?? '')
             .join('\n');
       }
-      if (text.trim().isEmpty || text.length > 100000)
+      if (text.trim().isEmpty || text.length > 100000) {
+        AiTrace.record('reply.rejected',
+            requestId: request.id,
+            sessionId: request.sessionId,
+            round: request.round,
+            data: {
+              'provider': caps.provider.name,
+              'why': text.trim().isEmpty ? 'empty' : 'over 100000 characters',
+              'chars': text.length,
+            });
         throw const AiException('response');
+      }
+      AiTrace.record('reply',
+          requestId: request.id,
+          sessionId: request.sessionId,
+          round: request.round,
+          data: {
+            'provider': caps.provider.name,
+            'model': preferences.model,
+            'label': caps.label,
+            'chars': text.trim().length,
+            'elapsedMs': wall.elapsedMilliseconds,
+            'text': text.trim(),
+          });
       return AiReply(text.trim(), caps.label);
-    } on AiException {
+    } on AiException catch (e) {
+      _traceFailure(caps.provider, request, e.code);
       rethrow;
-    } on FormatException {
+    } on FormatException catch (e) {
+      _traceFailure(caps.provider, request, 'response',
+          cause: 'the provider body is not the JSON this code expects: $e');
       throw const AiException('response');
-    } on TypeError {
+    } on TypeError catch (e) {
+      _traceFailure(caps.provider, request, 'response',
+          cause: 'a field in the provider body had an unexpected type: $e');
       throw const AiException('response');
-    } catch (_) {
-      throw AiException(_cancelled.contains(request.id) || _disposed
+    } catch (e) {
+      final code = _cancelled.contains(request.id) || _disposed
           ? 'cancelled'
-          : 'network');
+          : 'network';
+      // `catch (_)` used to make a DNS failure, a dropped TLS handshake, a
+      // 120-second timeout and a closed socket into one word. The word is
+      // still what the user sees; the reason is now in the trace.
+      _traceFailure(caps.provider, request, code,
+          cause: '${e.runtimeType}: $e');
+      throw AiException(code);
     } finally {
       client.close();
       _clients.remove(request.id);
       _cancelled.remove(request.id);
     }
+  }
+
+  /// How much of a non-200 body is kept. Enough for any provider's error
+  /// JSON and small enough that a misconfigured endpoint returning an HTML
+  /// error page cannot push the bundle over the upload budget.
+  static const int _errorBodyLimit = 16 * 1024;
+
+  Future<String> _errorBody(Stream<List<int>> stream) async {
+    try {
+      final data = BytesBuilder(copy: false);
+      await for (final chunk in stream) {
+        data.add(chunk);
+        if (data.length >= _errorBodyLimit) break;
+      }
+      final raw = data.takeBytes();
+      final kept =
+          raw.length > _errorBodyLimit ? raw.sublist(0, _errorBodyLimit) : raw;
+      final text = utf8.decode(kept, allowMalformed: true).trim();
+      return kept.length < raw.length
+          ? '$text\n<truncated at $_errorBodyLimit bytes>'
+          : text;
+    } catch (e) {
+      return '<the error body could not be read: $e>';
+    }
+  }
+
+  /// Three providers spell the same five numbers five different ways. This
+  /// normalises them so two bundles from two providers can be read side by
+  /// side, and keeps the provider's own block beside the result so nothing is
+  /// lost to the normalisation.
+  void _traceUsage(AiProvider provider, String model, AiRequest request,
+      Map<String, dynamic> response) {
+    int? n(Object? v) => v is num ? v.toInt() : null;
+    Map<String, dynamic>? raw;
+    Map<String, dynamic> usage;
+    switch (provider) {
+      case AiProvider.gemini:
+        raw = (response['usageMetadata'] as Map?)?.cast<String, dynamic>();
+        usage = {
+          'input': n(raw?['promptTokenCount']),
+          'output': n(raw?['candidatesTokenCount']),
+          'reasoning': n(raw?['thoughtsTokenCount']),
+          'cacheRead': n(raw?['cachedContentTokenCount']),
+        };
+      case AiProvider.deepseek:
+        raw = (response['usage'] as Map?)?.cast<String, dynamic>();
+        usage = {
+          'input': n(raw?['prompt_tokens']),
+          'output': n(raw?['completion_tokens']),
+          'reasoning': n((raw?['completion_tokens_details']
+              as Map?)?['reasoning_tokens']),
+          'cacheRead': n(raw?['prompt_cache_hit_tokens']),
+        };
+      case AiProvider.anthropic:
+        raw = (response['usage'] as Map?)?.cast<String, dynamic>();
+        usage = {
+          'input': n(raw?['input_tokens']),
+          'output': n(raw?['output_tokens']),
+          'cacheRead': n(raw?['cache_read_input_tokens']),
+          'cacheWrite': n(raw?['cache_creation_input_tokens']),
+        };
+      case AiProvider.apple:
+        // The Foundation Models framework publishes no usage block at all.
+        // The context size it WILL state is recorded with the capabilities.
+        return;
+    }
+    usage.removeWhere((_, v) => v == null);
+    if (usage.isEmpty && raw == null) return;
+    AiTrace.usage(
+        provider: provider.name,
+        model: model,
+        requestId: request.id,
+        sessionId: request.sessionId,
+        round: request.round,
+        usage: usage,
+        raw: raw);
+  }
+
+  void _traceThinking(AiProvider provider, AiRequest request, String? thinking,
+      {String? stopReason, Map<String, dynamic> extra = const {}}) {
+    final clean = thinking?.trim() ?? '';
+    final more = <String, dynamic>{
+      for (final e in extra.entries)
+        if (e.value != null) e.key: e.value
+    };
+    if (clean.isEmpty && stopReason == null && more.isEmpty) return;
+    AiTrace.record('thinking',
+        requestId: request.id,
+        sessionId: request.sessionId,
+        round: request.round,
+        data: {
+          'provider': provider.name,
+          if (stopReason != null) 'stopReason': stopReason,
+          if (clean.isNotEmpty) 'chars': clean.length,
+          ...more,
+          if (clean.isNotEmpty) 'text': clean,
+        });
+  }
+
+  void _traceFailure(AiProvider provider, AiRequest request, String code,
+      {String? cause}) {
+    AiTrace.record('error',
+        requestId: request.id,
+        sessionId: request.sessionId,
+        round: request.round,
+        data: {
+          'provider': provider.name,
+          'code': code,
+          if (cause != null) 'cause': cause,
+        });
+    Log.w('ai',
+        'request ${request.id} failed: $code${cause == null ? '' : ' — $cause'}');
   }
 
   List<Map<String, dynamic>> _geminiParts(AiMessage message) => [
@@ -465,12 +804,45 @@ class DeviceAiBackend implements AiBackend {
               })
           .toList(),
     });
-    if (utf8.encode(prompt).length + utf8.encode(request.instructions).length >
-        caps.maxInputBytes) {
+    final promptBytes = utf8.encode(prompt).length;
+    final instructionBytes = utf8.encode(request.instructions).length;
+    // Apple Intelligence is the provider with the SMALLEST context and the
+    // least said about it: there is no usage block, so the only numbers that
+    // will ever exist for a request on this route are the ones measured here.
+    AiTrace.record('apple.request',
+        requestId: request.id,
+        sessionId: request.sessionId,
+        round: request.round,
+        data: {
+          'provider': 'apple',
+          'route': appleDetail?['route'],
+          'appleModel': appleDetail?['model'],
+          'contextTokens': appleDetail?['contextTokens'],
+          'promptBytes': promptBytes,
+          'instructionBytes': instructionBytes,
+          'maxInputBytes': caps.maxInputBytes,
+          'images': images.length,
+          'imageNames': [for (final i in images) i.name],
+          'messages': request.messages.length,
+          'instructions': request.instructions,
+          'prompt': prompt,
+        });
+    if (promptBytes + instructionBytes > caps.maxInputBytes) {
+      AiTrace.record('error',
+          requestId: request.id,
+          sessionId: request.sessionId,
+          round: request.round,
+          data: {
+            'provider': 'apple',
+            'code': 'context',
+            'cause': 'the request is ${promptBytes + instructionBytes} bytes '
+                'and the available Apple model accepts ${caps.maxInputBytes}',
+          });
       throw const AiException('context');
     }
     Directory? temporary;
     Future<Map<String, dynamic>?>? nativeReply;
+    final wall = Stopwatch()..start();
     try {
       final paths = <String>[];
       if (images.isNotEmpty) {
@@ -503,14 +875,62 @@ class DeviceAiBackend implements AiBackend {
       if (_cancelled.contains(request.id) || _disposed)
         throw const AiException('cancelled');
       final text = response?['text'] as String? ?? '';
-      if (text.trim().isEmpty || text.length > 100000)
+      AiTrace.record('apple.reply',
+          requestId: request.id,
+          sessionId: request.sessionId,
+          round: request.round,
+          data: {
+            'provider': 'apple',
+            'route': response?['route'],
+            'appleModel': response?['model'],
+            // THE SILENT DOWNGRADE. When Private Cloud Compute cannot answer,
+            // the runner retries on the on-device model and says so in this
+            // field — which Dart read past. "The same question gave a much
+            // worse answer this time" is that fallback, and nothing anywhere
+            // recorded that it had happened.
+            if (response?['fallbackReason'] != null)
+              'fallbackReason': response?['fallbackReason'],
+            'chars': text.trim().length,
+            'elapsedMs': wall.elapsedMilliseconds,
+            'text': text,
+          });
+      if (text.trim().isEmpty || text.length > 100000) {
+        AiTrace.record('reply.rejected',
+            requestId: request.id,
+            sessionId: request.sessionId,
+            round: request.round,
+            data: {
+              'provider': 'apple',
+              'why': text.trim().isEmpty ? 'empty' : 'over 100000 characters',
+              'chars': text.length,
+            });
         throw const AiException('response');
+      }
       return AiReply(
           text,
           response?['route'] == 'privateCloudCompute'
               ? L.current.aiProviderCloud
               : L.current.aiProviderOnDevice);
+    } on AiException catch (e) {
+      _traceFailure(AiProvider.apple, request, e.code);
+      rethrow;
     } on PlatformException catch (e) {
+      // The runner's code AND its sentence. `AiException` keeps only a code of
+      // its own, so "Turn on Apple Intelligence in the device Settings" and
+      // "the model download has not finished" both reached the user — and the
+      // bundle — as one localised line about the assistant being unavailable.
+      AiTrace.record('error',
+          requestId: request.id,
+          sessionId: request.sessionId,
+          round: request.round,
+          data: {
+            'provider': 'apple',
+            'platformCode': e.code,
+            if (e.message != null) 'platformMessage': e.message,
+            if (e.details != null) 'platformDetails': '${e.details}',
+          });
+      Log.w('ai', 'request ${request.id}: Apple Intelligence returned '
+          '${e.code}');
       throw AiException(switch (e.code) {
         'ai_cancelled' => 'cancelled',
         'ai_unavailable' => 'unavailable',
@@ -526,6 +946,8 @@ class DeviceAiBackend implements AiBackend {
         _ => 'response',
       });
     } on MissingPluginException {
+      _traceFailure(AiProvider.apple, request, 'unavailable',
+          cause: 'this host build has no AI plugin registered');
       throw const AiException('unavailable');
     } finally {
       Future<void> cleanup() async {
@@ -551,6 +973,10 @@ class DeviceAiBackend implements AiBackend {
   @override
   Future<void> cancel(String requestId) async {
     if (!_pendingRequests.contains(requestId) && !_nativeRequests.contains(requestId)) return;
+    AiTrace.record('cancel', requestId: requestId, data: {
+      'native': _nativeRequests.contains(requestId),
+      'http': _clients.containsKey(requestId),
+    });
     _cancelled.add(requestId);
     _clients.remove(requestId)?.close();
     if (Platform.isIOS) {

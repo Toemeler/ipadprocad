@@ -4,10 +4,12 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 
 import '../l10n/l.dart';
+import '../log.dart';
 import 'ai_actions.dart';
 import 'ai_backend.dart';
 import 'ai_models.dart';
 import 'ai_store.dart';
+import 'ai_trace.dart';
 
 export 'ai_actions.dart';
 export 'ai_models.dart';
@@ -233,6 +235,9 @@ class AiController extends ChangeNotifier {
 
   Future<void> deleteAllConversations() async {
     _cancelActive();
+    // The trace holds prompts and replies verbatim. A conversation the user
+    // has just deleted must not come back in the next bug report.
+    AiTrace.clear();
     _sessions.clear();
     _selected.clear();
     _continuedSession = null;
@@ -429,6 +434,7 @@ class AiController extends ChangeNotifier {
         _sessions.containsKey(session.id);
     AiMessage? outbound;
     bool receivedReply = false;
+    final turnClock = Stopwatch()..start();
     try {
       final caps = await _backend.capabilities(preferences);
       if (!stillCurrent()) return;
@@ -468,6 +474,33 @@ class AiController extends ChangeNotifier {
                   utf8.encode(m.text).length +
                   m.attachments.fold<int>(
                       0, (n, a) => n + (a.text == null ? 0 : a.bytes.length)));
+      // WHAT THE USER ASKED FOR, AND WHAT THE APP DECIDED TO SEND WITH IT.
+      // Recorded before the size check below, so a turn that is refused for
+      // being too large is in the trace as well — "it just said the context
+      // was too big" is a report about these numbers and there were none.
+      AiTrace.record('turn.begin',
+          requestId: requestId,
+          sessionId: session.id,
+          data: {
+            'sessionName': session.name,
+            'document': target.name,
+            'documentId': target.id,
+            'provider': preferences.provider.name,
+            'model': preferences.model,
+            'providerLabel': caps.label,
+            'allowEdits': preferences.allowEdits,
+            'canEditModel': canEditModel,
+            'priorMessages': oldMessages.length,
+            'contextDocuments': [for (final d in context) d['name']],
+            'requestBytes': textBytes,
+            'maxInputBytes': caps.maxInputBytes,
+            'attachments': [
+              for (final a in attachments)
+                {'name': a.name, 'mime': a.mimeType, 'bytes': a.bytes.length}
+            ],
+            'userText': text,
+            'documentContext': contextText,
+          });
       if (textBytes > caps.maxInputBytes) throw const AiException('context');
       session.messages.add(userMessage);
       session.draft = '';
@@ -496,16 +529,29 @@ class AiController extends ChangeNotifier {
       // the document. Bounded by [kAiMaxActionRounds]; a model that has not
       // finished by then gets one last plain answer rather than another block.
       final turns = [...messages];
+      var rounds = 0;
       for (var round = 0;; round++) {
+        rounds = round + 1;
         final last = round >= kAiMaxActionRounds;
         _setActivity(const AiActivity(AiPhase.thinking));
+        AiTrace.record('round',
+            requestId: requestId,
+            sessionId: session.id,
+            round: round,
+            data: {
+              'actionsOffered': canEditModel && !last,
+              'lastRound': last,
+              'turnsSent': turns.length,
+            });
         final reply = await _backend.respond(
             preferences,
             AiRequest(
                 id: requestId,
                 instructions: _instructionsFor(actions: canEditModel && !last),
                 context: contextText,
-                messages: turns));
+                messages: turns,
+                sessionId: session.id,
+                round: round));
         if (!stillCurrent()) return;
         final assistant = AiMessage(
             role: 'assistant', text: reply.text, provider: reply.provider);
@@ -517,7 +563,17 @@ class AiController extends ChangeNotifier {
         _notify();
         if (last) break;
         final block = parseAiActions(reply.text);
+        AiTrace.record('actions.parsed',
+            requestId: requestId,
+            sessionId: session.id,
+            round: round,
+            data: {
+              'count': block.actions.length,
+              if (block.parseError != null) 'parseError': block.parseError,
+              'actions': [for (final a in block.actions) a.toJson()],
+            });
         if (block.isEmpty) break;
+        final blockClock = Stopwatch()..start();
         AiActionReport report;
         if (!canEditModel) {
           report = AiActionReport(outcomes: const [], blocked: 'editsDisabled');
@@ -542,6 +598,18 @@ class AiController extends ChangeNotifier {
           }
         }
         if (!stillCurrent()) return;
+        AiTrace.record('actions.report',
+            requestId: requestId,
+            sessionId: session.id,
+            round: round,
+            data: {
+              'ok': report.ok,
+              'applied': report.applied,
+              'reverted': report.reverted,
+              if (report.blocked != null) 'blocked': report.blocked,
+              'elapsedMs': blockClock.elapsedMilliseconds,
+              'report': report.toJson(),
+            });
         final tool = aiToolMessage(report);
         session.messages.add(tool);
         turns.add(tool);
@@ -570,10 +638,41 @@ class AiController extends ChangeNotifier {
         }
         if (session.messages.length >= 158) break;
       }
+      AiTrace.record('turn.end',
+          requestId: requestId,
+          sessionId: session.id,
+          data: {
+            'rounds': rounds,
+            'messages': session.messages.length,
+            'elapsedMs': turnClock.elapsedMilliseconds,
+          });
     } on AiException catch (e) {
       if (stillCurrent()) session.errorCode = e.code;
-    } catch (_) {
+      AiTrace.record('turn.failed',
+          requestId: requestId,
+          sessionId: session.id,
+          data: {
+            'code': e.code,
+            'elapsedMs': turnClock.elapsedMilliseconds,
+            'stillCurrent': stillCurrent(),
+          });
+      Log.w('ai', 'turn $requestId ended with ${e.code}');
+    } catch (e, st) {
       if (stillCurrent()) session.errorCode = 'storage';
+      // Anything that is not an [AiException] reaching here is a bug in this
+      // app, not a provider fault, and the user is shown a storage error for
+      // it either way. The type and the stack are the only things that can
+      // tell the two apart afterwards, so they go in the trace.
+      AiTrace.record('turn.failed',
+          requestId: requestId,
+          sessionId: session.id,
+          data: {
+            'code': 'storage',
+            'cause': '${e.runtimeType}: $e',
+            'stack': '$st',
+            'elapsedMs': turnClock.elapsedMilliseconds,
+          });
+      Log.e('ai', 'turn $requestId threw', e, st);
     } finally {
       if (stillCurrent() &&
           !receivedReply &&
@@ -639,6 +738,8 @@ class AiController extends ChangeNotifier {
   void _cancelActive() {
     final id = _activeRequest;
     if (id == null) return;
+    AiTrace.record('turn.cancelled',
+        requestId: id, sessionId: _requestSession);
     final session = _sessions[_requestSession];
     if (session != null) {
       session.busy = false;
@@ -649,6 +750,197 @@ class AiController extends ChangeNotifier {
     _activity = AiActivity.none;
     unawaited(_backend.cancel(id).catchError((_) {}));
     _notify();
+  }
+
+  /// The session the user is looking at, WITHOUT creating one.
+  ///
+  /// [currentSession] manufactures an empty session as a side effect, which is
+  /// right for the composer and wrong for a bug report: reading the state
+  /// would change it, and the bundle would carry a conversation that only
+  /// exists because someone pressed the bug button.
+  AiSession? get _currentOrNull {
+    final followed = _sessions[_continuedSession];
+    if (followed != null && _continuedTarget == document.id) return followed;
+    final saved = _sessions[_selected[document.id]];
+    return saved != null && saved.documentId == document.id ? saved : null;
+  }
+
+  /// Provider, model, route and state — the header of the assistant's half of
+  /// a bug report, and the first thing to check when a report does not
+  /// reproduce. Never throws and never mutates.
+  Map<String, dynamic> diagnostics() {
+    try {
+      final current = _currentOrNull;
+      final caps = _capabilities;
+      final backend = _backend;
+      return {
+        'provider': _preferences.provider.name,
+        'model': _preferences.model,
+        'providerLabel': caps?.label ?? '(not resolved)',
+        'available': caps?.available,
+        'supportsImages': caps?.supportsImages,
+        'maxInputBytes': caps?.maxInputBytes,
+        if (backend is DeviceAiBackend && backend.appleDetail != null)
+          'apple': backend.appleDetail,
+        'allowEdits': _preferences.allowEdits,
+        'actionRunnerAttached': actionRunner != null,
+        'canEditModel': canEditModel,
+        'ready': _ready,
+        'storeReadFailed': _readFailed,
+        if (_globalError != null) 'globalError': _globalError,
+        'panelOpen': isOpen,
+        'requestInFlight': _activeRequest != null,
+        'sessions': _sessions.length,
+        'documents': _documents.length,
+        'activeDocument': document.name,
+        'activeDocumentId': document.id,
+        if (current != null) ...{
+          'currentSession': current.name,
+          'currentSessionId': current.id,
+          'currentSessionMessages': current.messages.length,
+          if (current.errorCode != null)
+            'currentSessionError': current.errorCode,
+        },
+        'tokenTotals': AiTrace.totalsJson,
+      };
+    } catch (e) {
+      return {'diagnosticsFailed': '$e'};
+    }
+  }
+
+  /// Every stored conversation, for `ai/sessions.json`.
+  ///
+  /// Attachment BYTES are replaced by a descriptor. They are already in the
+  /// document the report is about where they came from one, they are the
+  /// single largest thing in the store, and #46 was a bug report that could
+  /// not be uploaded because one member was too big. Name, type and size
+  /// answer every question the bytes would.
+  ///
+  /// [maxBytes] bounds the whole member. Sessions are taken most recently
+  /// active first, so the conversation being complained about is the one that
+  /// survives, and what did not fit is stated rather than silently missing.
+  Map<String, dynamic> exportSessions({int maxBytes = 1024 * 1024}) {
+    try {
+      final currentId = _currentOrNull?.id;
+      DateTime touched(AiSession s) => s.messages.isEmpty
+          ? DateTime.fromMillisecondsSinceEpoch(0)
+          : s.messages.last.createdAt;
+      final ordered = _sessions.values.toList()
+        ..sort((a, b) => touched(b).compareTo(touched(a)));
+      final out = <Map<String, dynamic>>[];
+      var budget = maxBytes;
+      var omitted = 0;
+      for (final s in ordered) {
+        if (budget <= 0) {
+          omitted++;
+          continue;
+        }
+        final one = <String, dynamic>{
+          'id': s.id,
+          'name': s.name,
+          'documentId': s.documentId,
+          'isCurrent': s.id == currentId,
+          'busy': s.busy,
+          if (s.errorCode != null) 'errorCode': s.errorCode,
+          if (s.draft.isNotEmpty) 'unsentDraft': s.draft,
+          'contextDocumentIds': s.contextDocumentIds.toList(),
+          'pendingAttachments': [
+            for (final a in s.attachments) _attachment(a)
+          ],
+          'messages': [
+            for (final m in s.messages)
+              {
+                'id': m.id,
+                // 'tool' is the APP reporting what it did to the document.
+                // Kept as its own role here for the same reason the store
+                // keeps it: a reader must be able to tell what the model said
+                // from what actually happened.
+                'role': m.role,
+                'at': m.createdAt.toIso8601String(),
+                if (m.provider != null) 'provider': m.provider,
+                if (m.contextLabel != null) 'contextLabel': m.contextLabel,
+                'chars': m.text.length,
+                'text': m.text,
+                if (m.attachments.isNotEmpty)
+                  'attachments': [
+                    for (final a in m.attachments) _attachment(a)
+                  ],
+              }
+          ],
+        };
+        budget -= s.messages.fold<int>(200, (n, m) => n + m.text.length + 200);
+        out.add(one);
+      }
+      return {
+        'preferences': _preferences.toJson(),
+        'sessionCount': _sessions.length,
+        if (omitted > 0) 'sessionsOmittedForSize': omitted,
+        if (omitted > 0)
+          'note': 'Sessions are ordered by last activity; the $omitted oldest '
+              'did not fit in the ${maxBytes ~/ 1024} KiB this member is '
+              'allowed and were left out.',
+        'sessions': out,
+      };
+    } catch (e) {
+      return {'exportFailed': '$e'};
+    }
+  }
+
+  static Map<String, dynamic> _attachment(AiAttachment a) => {
+        'id': a.id,
+        'name': a.name,
+        'mime': a.mimeType,
+        'bytes': a.bytes.length,
+        // Text attachments ARE the content the model read, and they are small
+        // by construction (60 000 characters, enforced at parse). An image is
+        // described, never carried.
+        if (a.text != null) 'text': a.text,
+      };
+
+  /// The conversations belonging to the document that is open, as prose.
+  ///
+  /// `ai/sessions.json` is complete and unreadable; this is the file a person
+  /// opens first. Scoped to the open document because that is what the report
+  /// is about — the rest is in the JSON.
+  List<String> transcript() {
+    final out = <String>[];
+    try {
+      final mine = _sessions.values
+          .where((s) => s.documentId == document.id || s.id == _continuedSession)
+          .toList();
+      if (mine.isEmpty) {
+        return ['(no assistant conversation for "${document.name}")'];
+      }
+      final currentId = _currentOrNull?.id;
+      for (final s in mine) {
+        out
+          ..add('=== ${s.name}${s.id == currentId ? '  (the open one)' : ''}')
+          ..add('    id=${s.id}  messages=${s.messages.length}'
+              '${s.errorCode == null ? '' : '  error=${s.errorCode}'}');
+        for (final m in s.messages) {
+          final who = switch (m.role) {
+            'user' => 'USER',
+            'assistant' => 'ASSISTANT${m.provider == null ? '' : ' (${m.provider})'}',
+            _ => 'APP (what the block actually did)',
+          };
+          out.add('--- $who  ${m.createdAt.toIso8601String()}');
+          for (final a in m.attachments) {
+            out.add('    [attached ${a.name}, ${a.mimeType}, '
+                '${a.bytes.length} bytes]');
+          }
+          out.addAll(const LineSplitter().convert(m.text));
+        }
+        if (s.draft.isNotEmpty) {
+          out
+            ..add('--- UNSENT DRAFT')
+            ..addAll(const LineSplitter().convert(s.draft));
+        }
+        out.add('');
+      }
+    } catch (e) {
+      out.add('<transcript failed: $e>');
+    }
+    return out;
   }
 
   Map<String, dynamic> _snapshot() => {

@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:native_menu/native_menu.dart';
 
 import '../ai/ai_controller.dart';
+import '../ai/ai_trace.dart';
 import '../app_state.dart';
 import '../ios_design.dart';
 import '../l10n/l.dart';
@@ -96,8 +97,30 @@ class _AiComposerState extends State<AiComposer> {
     super.dispose();
   }
 
+  /// The one place a user-visible assistant error is set.
+  ///
+  /// Traced here rather than at each throw site: everything the panel refuses
+  /// — an attachment over the limit, a draft past 12 000 characters, a paste
+  /// that could not be read, a session that changed under an await — arrives
+  /// through this method, and until M443 a report saying "it just showed me
+  /// an error" carried neither the message nor which action produced it.
   void _showError(Object error) {
+    AiTrace.record('ui.error', sessionId: _sessionIdOrNull, data: {
+      'type': '${error.runtimeType}',
+      if (error is AiException) 'code': error.code,
+      'shown': error.toString(),
+    });
     if (mounted) setState(() => _notice = error.toString());
+  }
+
+  /// The open session's id, without the side effect of creating one. Only for
+  /// the trace: a recorder that manufactures a conversation is not a recorder.
+  String? get _sessionIdOrNull {
+    try {
+      return ai.sessions.isEmpty ? null : ai.currentSession.id;
+    } catch (_) {
+      return null;
+    }
   }
 
   bool _run(VoidCallback action) {

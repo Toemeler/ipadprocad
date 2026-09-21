@@ -238,6 +238,7 @@ String reportMarkdown({
   required Map<String, String> env,
   required PartModel? part,
   required List<String> contents,
+  List<String> aiNotes = const [],
 }) {
   final b = StringBuffer()
     ..writeln('# Bug report — ${when.toIso8601String()}')
@@ -263,6 +264,19 @@ String reportMarkdown({
         'above rather than `state.txt`.');
   } else {
     for (final l in t) {
+      b.writeln('- $l');
+    }
+  }
+  if (aiNotes.isNotEmpty) {
+    // Its own section rather than more [triage] lines: triage is about the
+    // MODEL, and a reader who has decided the geometry is fine still has to
+    // be told that the last assistant turn was refused for quota. The lines
+    // are ordered by the gatherer, most actionable first.
+    b
+      ..writeln()
+      ..writeln('## Assistant')
+      ..writeln();
+    for (final l in aiNotes) {
       b.writeln('- $l');
     }
   }
@@ -310,6 +324,15 @@ Map<String, String> buildBundle({
   bool bodyIsPlatformView = false,
   bool screenshotOmits3D = false,
   bool screenshotIsLayerTree = false,
+  /// M443 — the assistant's half of the report. Passed in like the logs, and
+  /// for the same reason: this file stays pure so the whole bundle can be
+  /// built and asserted on without an AI layer, a provider or a network.
+  String? aiTraceText,
+  String? aiTraceJson,
+  String? aiSessionsJson,
+  String? aiTranscriptText,
+  String? aiDiagnosticsJson,
+  List<String> aiNotes = const [],
 }) {
   final files = <String, String>{};
 
@@ -417,6 +440,52 @@ Map<String, String> buildBundle({
             'the appearance from this image.' : ''}');
   }
 
+  // M443 — THE ASSISTANT, which the bundle did not mention at all.
+  //
+  // "the ai answered something wrong" was a report whose every piece of
+  // evidence had already been discarded: the tokens, the thinking, the stop
+  // reason, the provider's own error body, the request that was sent and the
+  // ops that were run. `ai_trace.dart` keeps them; these are the members that
+  // carry them out.
+  if (aiDiagnosticsJson != null) {
+    files['ai/diagnostics.json'] = aiDiagnosticsJson;
+    contents.add('`ai/diagnostics.json` — which provider and model were '
+        'selected, whether the provider was actually available and by which '
+        'route (on-device vs Private Cloud Compute for Apple Intelligence), '
+        'whether the assistant was allowed to edit the part, and the token '
+        'totals for the whole session. READ THIS FIRST for any report about '
+        'the assistant');
+  }
+  if (aiTranscriptText != null) {
+    files['ai/transcript.txt'] = aiTranscriptText;
+    contents.add('`ai/transcript.txt` — the conversations about the open '
+        'document in prose: what was asked, what was answered, and what the '
+        'app reported back after running each block');
+  }
+  if (aiSessionsJson != null) {
+    files['ai/sessions.json'] = aiSessionsJson;
+    contents.add('`ai/sessions.json` — EVERY stored conversation, every turn, '
+        'including the `tool` turns that record what each action block did to '
+        'the document. Attachment bytes are replaced by name/type/size. NOTE: '
+        'this member and `ai/trace.txt` carry what was typed and what was '
+        'answered, verbatim — no API key or credential is ever in either, but '
+        'the conversations themselves are, so treat the bundle as you would '
+        'the document it is about');
+  }
+  if (aiTraceText != null) {
+    files['ai/trace.txt'] = aiTraceText;
+    contents.add('`ai/trace.txt` — the request-by-request flight recorder: '
+        'the exact body sent to the provider, the reply it returned, token '
+        'usage, the model\'s thinking or reasoning where the provider '
+        'publishes it, the stop reason, every HTTP status with the '
+        "provider's own error text, and every CAD op the assistant ran with "
+        'its timing. This is the file that answers "why did it say that"');
+  }
+  if (aiTraceJson != null) {
+    files['ai/trace.json'] = aiTraceJson;
+    contents.add('`ai/trace.json` — the same events as structured data');
+  }
+
   files['env.txt'] =
       env.entries.map((e) => '${e.key}: ${e.value}').join('\n');
   contents.add('`env.txt` — build, device and backend versions');
@@ -427,6 +496,7 @@ Map<String, String> buildBundle({
     env: env,
     part: part,
     contents: contents,
+    aiNotes: aiNotes,
   );
   return files;
 }

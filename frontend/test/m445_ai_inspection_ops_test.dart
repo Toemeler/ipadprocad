@@ -1,4 +1,8 @@
-// M443 — the ops that let the assistant look at a body and edit what it sees.
+// M445 — the ops that let the assistant look at a body and edit what it sees.
+//
+// (M443 was taken by the bug-report work that landed on this branch in
+// parallel; this is the same change, renumbered so one milestone number does
+// not name two unrelated things.)
 //
 // M441 gave it operations that BUILD. M442 gave it a description of what is
 // already there. These are the ops that join the two: find a face, measure
@@ -26,7 +30,7 @@ void main() {
   Future<AppState> partWithBox() async {
     final app = AppState()..partKernel = BoxKernel();
     app.docsDirForTest =
-        Directory.systemTemp.createTempSync('prototype_m443_');
+        Directory.systemTemp.createTempSync('prototype_m445_');
     apps.add(app);
     await app.createNamedPart('Bracket');
     final report = await AiCad(app).run([
@@ -315,7 +319,7 @@ void main() {
         () async {
       final app = AppState()..partKernel = BoxKernel();
       app.docsDirForTest =
-          Directory.systemTemp.createTempSync('prototype_m443_empty_');
+          Directory.systemTemp.createTempSync('prototype_m445_empty_');
       apps.add(app);
       await app.createNamedPart('Empty');
       final workspace = AiWorkspace(app);
