@@ -6,6 +6,7 @@ import '../doc_ref.dart';
 import '../doc_store.dart';
 import 'ai_cad.dart';
 import 'ai_controller.dart';
+import 'shape_digest.dart';
 
 /// The document adapter: what the assistant may READ, and what it may CHANGE.
 ///
@@ -19,11 +20,15 @@ class AiWorkspace {
   AiWorkspace(this.app) {
     app.ai.contextReader = readContext;
     app.ai.documentOpener = openDocument;
-    app.ai.actionRunner = AiCad(app).run;
+    app.ai.actionRunner = AiCad(app, digests).run;
     app.addListener(sync);
     sync();
   }
   final AppState app;
+
+  /// M442 — one digest per body, recomputed only when the geometry changes.
+  final ShapeDigestCache digests = ShapeDigestCache();
+
   static String identity(DocRef ref) {
     final source = ref.source == DocSource.internal
         ? 'internal:${ref.kind}:${ref.name}'
@@ -80,6 +85,7 @@ class AiWorkspace {
     final ref = _ref(id);
     if (ref == null) throw const AiException('document');
     Object? content;
+    String? shape;
     var name = ref.name;
     var kind = ref.kind;
     var live = false;
@@ -94,6 +100,14 @@ class AiWorkspace {
     } else if (app.parts.containsKey(ref.name)) {
       content = app.parts[ref.name]!.toJson();
       live = true;
+      // M442 — THE SHAPE, not just the record of how it was authored.
+      //
+      // `toJson` is the authoring record. For an imported body that record is
+      // a placeholder whose unused defaults read as dimensions — which is how
+      // an assistant came to report a STEP import as "a single imported
+      // extrusion at 5.0 mm diameter". The digest is measured from the built
+      // geometry, so there is something true to say instead.
+      shape = shapeContextFor(app.parts[ref.name]!, app.partKernel, digests);
     } else if (app.assemblies.containsKey(ref.name)) {
       content = app.assemblies[ref.name]!.toJson();
       live = true;
@@ -114,9 +128,12 @@ class AiWorkspace {
       'kind': kind,
       'source': live ? 'live authoring state' : 'saved metadata',
       'units': {'length': 'mm', 'angle': 'deg'},
-      'coverage':
-          'Bounded authoring summary only; omissions marked. No render, B-Rep, mass, '
+      'coverage': shape == null
+          ? 'Bounded authoring summary only; omissions marked. No render, B-Rep, mass, '
+              'strength, interference or manufacturing verification is included.'
+          : 'Authoring summary plus a measured shape description. No render, mass, '
               'strength, interference or manufacturing verification is included.',
+      if (shape != null) 'shape': shape,
       'content': _bounded(content)
     };
   }

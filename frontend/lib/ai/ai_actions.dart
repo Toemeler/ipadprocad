@@ -24,6 +24,14 @@ import 'ai_models.dart';
 /// reaches the document.
 const Set<String> kAiOps = {
   'describe_part',
+  'describe_shape',
+  'faces_where',
+  'measure',
+  'section',
+  'look',
+  'delete_face',
+  'move_face',
+  'sketch_on_face',
   'create_sketch',
   'sketch_rect',
   'sketch_circle',
@@ -271,6 +279,25 @@ Rules that are not negotiable:
 Operations and their arguments (an omitted optional argument takes its
 default):
 - describe_part — features, sketches, bodies, bounding box, errors.
+- describe_shape {body?, detail?: "digest"|"sections"|"faces"} — what the body
+  IS: measured bounding box, volume, face inventory, holes, blends, symmetry,
+  minimum wall. Run this before describing an imported body: the feature tree
+  of an import is a placeholder and its numbers are not dimensions.
+- faces_where {type?: "plane"|"cylinder"|"cone"|"sphere"|"torus", axis?,
+  diameter?, min_area?, near?: [x,y,z], limit?} — finds faces and returns an
+  ID for each. Face IDs are what delete_face, move_face and sketch_on_face
+  take.
+- measure {from: face-id, to: face-id} — distance and angle between two faces.
+- section {axis?: "x"|"y"|"z", at?} — one cross-section outline.
+- look {az?, pol?, zoom_to?: face-id, style?: "shaded"|"wire", annotate?} —
+  renders the model from a direction you choose and returns it as an image.
+  Only ask when the question is visual; the digest answers most questions more
+  precisely and for a fraction of the cost.
+- delete_face {face} — removes a face and heals the body (direct editing, for
+  bodies with no feature tree).
+- move_face {face, distance} — offsets a face along its own normal.
+- sketch_on_face {face} — starts a sketch on a face; then use the sketch and
+  extrude ops as normal.
 - create_sketch {plane: "xy"|"xz"|"yz"} — creates and returns a sketch name.
 - sketch_rect {sketch?, x, y, width, height, centered?} — x/y is the corner,
   or the centre when centered is true. Defaults to the newest sketch.
