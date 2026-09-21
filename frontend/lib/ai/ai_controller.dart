@@ -166,6 +166,20 @@ class AiController extends ChangeNotifier {
     await refreshProvider();
   }
 
+  /// Drives the panel's stage machine from a widget test.
+  ///
+  /// The retract, the announcement and the expansion are all functions of
+  /// [activity], and reaching them through a real provider would mean a
+  /// network, a key and a wall-clock wait in a widget test. This sets the one
+  /// input they read.
+  @visibleForTesting
+  void debugSetActivity(AiActivity value) => _setActivity(value);
+
+  /// Publishes a change a test made directly to a session (an error code, for
+  /// instance), since those fields are plain data with no setter to notify.
+  @visibleForTesting
+  void debugNotify() => _notify();
+
   /// Tests can use a ready memory-only controller; production always attaches
   /// a store before sending, so an unpersisted reply is never billed silently.
   @visibleForTesting
@@ -444,6 +458,18 @@ class AiController extends ChangeNotifier {
     session.errorCode = null;
     _activeRequest = requestId;
     _requestSession = session.id;
+    // THE TITLE EXISTS BEFORE THE WORK DOES.
+    //
+    // `activity.title` used to arrive only with the model's first block, which
+    // is one whole provider round in — so the panel announced what it was
+    // doing AFTER it had been doing it, and showed a bare "Thinking…" until
+    // then. The user's own sentence is a perfectly good title for their own
+    // request, and it is available here, before anything is sent. The model's
+    // block title replaces it the moment there is one, because "Hollowing the
+    // cup" beats an echo of the request — but there is never a moment with no
+    // title at all.
+    var headline = aiTitleFrom(text);
+    _setActivity(AiActivity(AiPhase.thinking, title: headline));
     _notify();
     bool stillCurrent() =>
         !_disposed &&
@@ -556,7 +582,7 @@ class AiController extends ChangeNotifier {
       for (var round = 0;; round++) {
         rounds = round + 1;
         final last = round >= kAiMaxActionRounds;
-        _setActivity(AiActivity(AiPhase.thinking));
+        _setActivity(AiActivity(AiPhase.thinking, title: headline));
         AiTrace.record('round',
             requestId: requestId,
             sessionId: session.id,
@@ -677,8 +703,13 @@ class AiController extends ChangeNotifier {
         } else {
           try {
             report = await actionRunner!(block.actions, onStep: (op, i, n) {
+              // The model's own title wins the moment it exists, and becomes
+              // the headline for the rounds after this one too. The request's
+              // own words stay the floor, so there is never a step with
+              // nothing to say.
+              if (block.title != null) headline = block.title;
               _setActivity(AiActivity(AiPhase.working,
-                  op: op, step: i, total: n, title: block.title));
+                  op: op, step: i, total: n, title: block.title ?? headline));
             });
           } catch (_) {
             // The executor is written not to throw. If it did anyway, the
@@ -731,7 +762,7 @@ class AiController extends ChangeNotifier {
         // of an argument: the model is told once, answers once, and does not
         // get to retry into a wall.
         if (report.blocked != null) {
-          _setActivity(AiActivity(AiPhase.thinking));
+          _setActivity(AiActivity(AiPhase.thinking, title: headline));
           final closing = await _backend.respond(
               preferences,
               AiRequest(

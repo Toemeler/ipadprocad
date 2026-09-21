@@ -173,6 +173,17 @@ class Palette {
   /// red line on the viewport, and a fill that bright cannot carry [onAccent]
   /// text on it.
   final Color errFill;
+
+  /// M450 — the two stops of the assistant stage's gradient.
+  ///
+  /// Its own pair rather than a reuse of [fly] or [panel]: this surface is
+  /// deliberately not an ordinary panel. On light it is a barely-warm
+  /// off-white, which is what lets the accent bloom underneath read as light
+  /// rather than as a drop shadow; on dark it is the panel lifted with a
+  /// little accent in it, because a light bloom on a dark surface reads as a
+  /// glow around a hole instead.
+  final Color aiStageWarm;
+  final Color aiStageCool;
   final Color errText;
   final Color ok; // a closed profile, a solved sketch
   final Color okText;
@@ -294,6 +305,8 @@ class Palette {
     required this.err,
     required this.errFill,
     required this.errText,
+    required this.aiStageWarm,
+    required this.aiStageCool,
     required this.ok,
     required this.okText,
     required this.ink,
@@ -448,6 +461,8 @@ const Palette kEmber = Palette(
   err: Color(0xFFF0675F),
   errFill: Color(0xFFB4322C),
   errText: Color(0xFFF0A09A),
+  aiStageWarm: Color(0xFF243432),
+  aiStageCool: Color(0xFF1C2523),
   ok: Color(0xFF4E9B4A),
   okText: Color(0xFF7FD06F),
   ink: Color(0xFFEDE6D9),
@@ -563,6 +578,8 @@ const Palette kChalk = Palette(
   err: Color(0xFFAB2A3C),
   errFill: Color(0xFFAB2A3C),
   errText: Color(0xFF8A2030),
+  aiStageWarm: Color(0xFFFFFBFA),
+  aiStageCool: Color(0xFFFDF7F6),
   ok: Color(0xFF26762F),
   okText: Color(0xFF1D5C24),
   ink: Color(0xFF1C1E20),
@@ -974,6 +991,8 @@ class T {
   static Color get shadow => scheme.value.shadow;
   static Color get chipBg => scheme.value.chipBg;
   static Color get chipStrong => scheme.value.chipStrong;
+  static Color get aiStageWarm => scheme.value.aiStageWarm;
+  static Color get aiStageCool => scheme.value.aiStageCool;
   static Color get onAccent => scheme.value.onAccent;
   static Color get disabled => scheme.value.disabled;
   static Color get disabledFill => scheme.value.disabledFill;

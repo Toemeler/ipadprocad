@@ -8440,14 +8440,14 @@ abstract class AppL10n {
   /// No description provided for @aiWelcomeTitle.
   ///
   /// In de, this message translates to:
-  /// **'Deine nächste Idee entwickeln'**
+  /// **'Was soll der Assistent tun?'**
   String get aiWelcomeTitle;
 
-  /// No description provided for @aiWelcomeBody.
+  /// No description provided for @aiWelcomeExample.
   ///
   /// In de, this message translates to:
-  /// **'Besprich den Entwurf, füge Referenzbilder hinzu oder plane die Modellierung. Jedes Dokument behält seine eigenen Gespräche.'**
-  String get aiWelcomeBody;
+  /// **'„Mach eine Grundplatte, 60 × 40 mm, 10 mm dick“'**
+  String get aiWelcomeExample;
 
   /// No description provided for @aiAdviceOnly.
   ///

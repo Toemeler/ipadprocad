@@ -5134,11 +5134,11 @@ class AppL10nDe extends AppL10n {
       'Dieses Dokument ist immer enthalten. Wähle weitere Dokumente, um ihre Zusammenfassungen hinzuzufügen.';
 
   @override
-  String get aiWelcomeTitle => 'Deine nächste Idee entwickeln';
+  String get aiWelcomeTitle => 'Was soll der Assistent tun?';
 
   @override
-  String get aiWelcomeBody =>
-      'Besprich den Entwurf, füge Referenzbilder hinzu oder plane die Modellierung. Jedes Dokument behält seine eigenen Gespräche.';
+  String get aiWelcomeExample =>
+      '„Mach eine Grundplatte, 60 × 40 mm, 10 mm dick“';
 
   @override
   String get aiAdviceOnly =>

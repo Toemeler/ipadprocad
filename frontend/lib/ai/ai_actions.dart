@@ -424,6 +424,16 @@ String? _clampTitle(Object? value) {
       : '${one.substring(0, kAiTitleMaxLength - 1).trimRight()}…';
 }
 
+/// A title for a task made from the words the user asked for it with.
+///
+/// The model's own block title is better when there is one (issue #71), but it
+/// arrives a whole provider round late — so the panel had nothing to announce
+/// until after the work had already started, which is precisely the wrong way
+/// round. The request's own first sentence is always available and is always
+/// true, and it is clamped to the same length as a model title so the two
+/// cannot lay out differently.
+String? aiTitleFrom(String request) => _clampTitle(request);
+
 /// Every action a reply asks for, in order.
 ///
 /// Deliberately strict. A block that is not valid JSON, names an op that does
