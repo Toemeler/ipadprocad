@@ -5227,4 +5227,7 @@ class AppL10nEn extends AppL10n {
   @override
   String get aiCanModel =>
       'Can model in the open part, and reports what it measured while doing it.';
+
+  @override
+  String get aiWorkNoting => 'Noting the requirement';
 }

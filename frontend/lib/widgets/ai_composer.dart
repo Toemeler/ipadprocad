@@ -490,6 +490,7 @@ class _AiComposerState extends State<AiComposer> {
       AiWork.building => t.aiWorkBuilding,
       AiWork.editing => t.aiWorkEditing,
       AiWork.looking => t.aiWorkLooking,
+      AiWork.noting => t.aiWorkNoting,
       AiWork.working => t.aiWorkWorking,
     };
     return Padding(
@@ -607,8 +608,7 @@ class _AiComposerState extends State<AiComposer> {
     }
     // A block of pure reads changed nothing and is not worth a line at all.
     final changed = report.outcomes
-        .where((o) => o.op != 'describe_part' && !o.op.startsWith('describe_') &&
-            o.op != 'faces_where' && o.op != 'measure' && o.op != 'section')
+        .where((o) => !kAiReadOnlyOps.contains(o.op))
         .length;
     final failed = report.outcomes.where((o) => !o.ok).toList();
     if (changed == 0 && failed.isEmpty) return const SizedBox.shrink();

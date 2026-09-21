@@ -8694,6 +8694,12 @@ abstract class AppL10n {
   /// In de, this message translates to:
   /// **'Kann im geöffneten Bauteil modellieren und nennt, was dabei gemessen wurde.'**
   String get aiCanModel;
+
+  /// No description provided for @aiWorkNoting.
+  ///
+  /// In de, this message translates to:
+  /// **'Notiert die Anforderung'**
+  String get aiWorkNoting;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

@@ -8,6 +8,8 @@ import '../part_model.dart';
 import '../part_render.dart'
     show kFacePlane, kFaceCylinder, kFaceCone, kFaceSphere, kFaceTorus;
 import 'ai_actions.dart';
+import 'ai_brief.dart';
+import 'ai_models.dart';
 import 'ai_trace.dart';
 import 'shape_digest.dart';
 
@@ -43,6 +45,9 @@ class AiCad {
   /// an op reads are the same object, computed once.
   final ShapeDigestCache digests;
 
+  /// Views rendered by `look` during the current block.
+  final List<AiAttachment> _views = [];
+
   /// Executes one block. Never throws: an unexpected error becomes a failed
   /// outcome and a rollback, because an exception escaping here would leave
   /// the document mid-edit with nobody to say so.
@@ -54,6 +59,7 @@ class AiCad {
     }
     if (batch.isEmpty) return AiActionReport(outcomes: const []);
     final before = app.aiSnapshot(p);
+    _views.clear();
     final outcomes = <AiActionOutcome>[];
     var mutated = false;
     var failed = false;
@@ -91,7 +97,10 @@ class AiCad {
         if (outcome.detail != null) 'detail': outcome.detail,
       });
       outcomes.add(outcome);
-      if (action.op != 'describe_part') mutated = true;
+      if (!kAiReadOnlyOps.contains(action.op) &&
+          !kAiBriefOps.contains(action.op)) {
+        mutated = true;
+      }
       if (!outcome.ok) {
         failed = true;
         break;
@@ -108,7 +117,11 @@ class AiCad {
         'failedOn': outcomes.isEmpty ? null : outcomes.last.op,
         'error': outcomes.isEmpty ? null : outcomes.last.error,
       });
-      return AiActionReport(outcomes: outcomes, reverted: true, state: _state(p));
+      return AiActionReport(
+          outcomes: outcomes,
+          reverted: true,
+          state: _state(p),
+          images: List.of(_views));
     }
     if (mutated && !failed) {
       app.aiJournal(before); // ONE Ctrl+Z for the whole block
@@ -117,7 +130,11 @@ class AiCad {
       if (tab != null) await app.savePart(tab);
       app.aiNotify();
     }
-    return AiActionReport(outcomes: outcomes, reverted: false, state: _state(p));
+    return AiActionReport(
+        outcomes: outcomes,
+        reverted: false,
+        state: _state(p),
+        images: List.of(_views));
   }
 
   Future<AiActionOutcome> _one(PartModel p, AiAction a) async {
@@ -137,6 +154,11 @@ class AiCad {
         return _faceEdit(p, a);
       case 'sketch_on_face':
         return _sketchOnFace(p, a);
+      case 'look':
+        return _look(p, a);
+      case 'brief_note':
+      case 'brief_done':
+        return _brief(a);
       case 'create_sketch':
         return _createSketch(p, a);
       case 'sketch_rect':
@@ -1032,6 +1054,128 @@ class AiCad {
           'changes underneath it.',
     });
   }
+
+  // ---- the brief: what the shape cannot tell anyone ---------------------
+
+  /// Records or closes a requirement for the document in focus.
+  ///
+  /// Deliberately outside the part transaction. A requirement is something the
+  /// USER said; rolling it back because a later extrusion failed would throw
+  /// away the one thing in the block that was not the app's to lose.
+  AiActionOutcome _brief(AiAction a) {
+    final controller = app.ai;
+    final documentId = controller.document.id;
+    if (a.op == 'brief_done') {
+      final id = a.text('id');
+      if (id == null) return AiActionOutcome.failed(a.op, 'id is required');
+      final done = controller.briefs.markDone(documentId, id);
+      if (done == null) {
+        return AiActionOutcome.failed(
+            a.op, 'no requirement "$id" on this document');
+      }
+      controller.briefChanged();
+      return AiActionOutcome(a.op, detail: {'done': id, 'text': done.text});
+    }
+    final text = a.text('text');
+    if (text == null) {
+      return AiActionOutcome.failed(a.op, 'text is required');
+    }
+    if (text.length > kAiRequirementMaxLength) {
+      return AiActionOutcome.failed(
+          a.op, 'a requirement is at most $kAiRequirementMaxLength characters');
+    }
+    final source = a.text('source');
+    if (source != null && source.length > kAiRequirementMaxLength) {
+      return AiActionOutcome.failed(a.op,
+          'source is the user\'s own words and is at most '
+          '$kAiRequirementMaxLength characters');
+    }
+    try {
+      final made = controller.briefs.add(
+          documentId,
+          AiRequirement(
+              text: text,
+              kind: aiRequirementKindFrom(a.text('kind')),
+              source: source));
+      controller.briefChanged();
+      return AiActionOutcome(a.op,
+          detail: {'id': made.id, 'kind': made.kind.name, 'text': made.text});
+    } on AiException {
+      return AiActionOutcome.failed(
+          a.op, 'this document already holds $kAiMaxRequirements requirements');
+    }
+  }
+
+  // ---- looking ----------------------------------------------------------
+
+  /// Renders the part from a direction the model chooses.
+  ///
+  /// This is the channel of last resort, and deliberately so: it costs roughly
+  /// six times a digest and answers less precisely. It earns its place only
+  /// where the question is genuinely visual — proportion, stance, how a form
+  /// flows — or where the digest has already said its analytic description is
+  /// too thin to answer from.
+  ///
+  /// The angles are the model's to choose, which is the difference between
+  /// looking and being shown a contact sheet: it can orbit to the thing it
+  /// cannot resolve rather than take six fixed views and hope one helps.
+  Future<AiActionOutcome> _look(PartModel p, AiAction a) async {
+    if (_views.length >= 2) {
+      return AiActionOutcome.failed(
+          a.op, 'at most two views per block — read them, then ask again');
+    }
+    final digest = _digestOf(p, a);
+    if (digest == null) {
+      return AiActionOutcome.failed(a.op, 'this part has no built body to look at');
+    }
+    // Defaults are the app's own gallery corner: the view a person gets when
+    // they open the document, and the one most likely to mean something.
+    final az = a.number('az') ?? 45;
+    final pol = a.number('pol') ?? 55;
+    if (pol <= 0 || pol >= 180) {
+      return AiActionOutcome.failed(
+          a.op, 'pol is the angle down from +Y and must be between 0 and 180');
+    }
+    final size = ((a.number('size') ?? 512).clamp(256, 768)).toInt();
+    final png = await app.aiRenderView(
+      azRad: az * math.pi / 180,
+      polRad: pol * math.pi / 180,
+      rollRad: (a.number('roll') ?? 0) * math.pi / 180,
+      width: size,
+      height: size,
+    );
+    if (png == null || png.isEmpty) {
+      return AiActionOutcome.failed(a.op,
+          'no renderer produced a view on this device — work from '
+          'describe_shape and section instead');
+    }
+    late final AiAttachment image;
+    try {
+      image = AiAttachment.fromBytes(
+          name: 'view-az${az.round()}-pol${pol.round()}.png', bytes: png);
+    } on AiException catch (e) {
+      return AiActionOutcome.failed(
+          a.op, 'the view could not be attached (${e.code})');
+    }
+    _views.add(image);
+    return AiActionOutcome(a.op, detail: {
+      'view': image.name,
+      'azDeg': _r(az),
+      'polDeg': _r(pol),
+      'pixels': size,
+      'projection': 'orthographic',
+      // An image with no scale is a picture; with one it is a measurement you
+      // can sanity-check. The digest's bbox is that scale.
+      'scaleNote': 'orthographic and framed to the body, whose bounding box is '
+          '${_mm(digest.size.x)} × ${_mm(digest.size.y)} × '
+          '${_mm(digest.size.z)} mm',
+      'note': 'Describe only what is visible. Read dimensions from '
+          'describe_shape, never off this image.',
+    });
+  }
+
+  static String _mm(double v) =>
+      v.isFinite ? v.toStringAsFixed(v.abs() >= 100 ? 1 : 2) : '?';
 
   // ---- commit + report --------------------------------------------------
 

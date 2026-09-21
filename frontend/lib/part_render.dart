@@ -1670,6 +1670,21 @@ Vec3 get thumbCameraDir =>
 PartCamera fitThumbCamera(List<KernelSolid> solids, Size size) =>
     _fitThumb(size, _walkSolids(solids));
 
+/// M446 — the same framing from a direction the CALLER chooses.
+///
+/// [fitThumbCamera] pins the orientation to the gallery's fixed corner, which
+/// is right for a card and wrong for looking at something: the assistant's
+/// `look` op exists so a question can be answered from the angle that answers
+/// it. Angles are radians, matching [PartCamera]; the pan and zoom are fitted
+/// to the silhouette exactly as the thumbnail's are, so a view from any
+/// direction fills the frame the same way.
+PartCamera fitViewCamera(List<KernelSolid> solids, Size size,
+    {required double az, required double pol, double roll = 0}) {
+  final cam = PartCamera(az: az, pol: pol, roll: roll);
+  _fitInto(cam, size, _walkSolids(solids));
+  return cam;
+}
+
 /// The framing itself, over whatever world points [walk] offers.
 ///
 /// M240 — split out of [fitThumbCamera] so an assembly can be framed by the

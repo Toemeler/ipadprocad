@@ -6,12 +6,14 @@ import 'package:flutter/foundation.dart';
 import '../l10n/l.dart';
 import '../log.dart';
 import 'ai_actions.dart';
+import 'ai_brief.dart';
 import 'ai_backend.dart';
 import 'ai_models.dart';
 import 'ai_store.dart';
 import 'ai_trace.dart';
 
 export 'ai_actions.dart';
+export 'ai_brief.dart';
 export 'ai_models.dart';
 
 typedef AiContextReader = Future<Map<String, dynamic>> Function(
@@ -25,6 +27,13 @@ class AiController extends ChangeNotifier {
   final AiBackend _backend;
   AiStore? _store;
   final Map<String, AiSession> _sessions = {};
+
+  /// Persists and redraws after the brief changed. The executor edits
+  /// [briefs] directly, so this is how that reaches disk and the panel.
+  void briefChanged() => _changed();
+
+  /// M447 — per-document requirements. What the shape cannot tell anyone.
+  final AiBriefs briefs = AiBriefs();
   final Map<String, String> _selected = {};
   List<AiDocument> _documents = [];
   AiDocument? _document;
@@ -138,6 +147,11 @@ class AiController extends ChangeNotifier {
           _selected[session.documentId] = session.id;
         }
         _preferences = prefs;
+        // Absent in a store written before M447, which simply means no brief.
+        final storedBriefs = saved['briefs'];
+        if (storedBriefs is Map) {
+          briefs.loadJson(Map<String, dynamic>.from(storedBriefs));
+        }
       }
       if (store.recoveredFromBackup) _globalError = 'storage';
       _ready = true;
@@ -240,6 +254,7 @@ class AiController extends ChangeNotifier {
     AiTrace.clear();
     _sessions.clear();
     _selected.clear();
+    briefs.clear();
     _continuedSession = null;
     _continuedTarget = null;
     _readFailed = false;
@@ -345,6 +360,7 @@ class AiController extends ChangeNotifier {
       ..clear()
       ..addAll(choices);
     if (_continuedTarget != null) _continuedTarget = moved(_continuedTarget!);
+    briefs.migrate(oldId, newId);
     _scheduleSave();
   }
 
@@ -457,7 +473,9 @@ class AiController extends ChangeNotifier {
           'discuss_design',
           if (canEditModel) 'edit_open_part'
         ],
-        'cadEditsAvailable': canEditModel
+        'cadEditsAvailable': canEditModel,
+        if (briefs.contextFor(target.id) != null)
+          'brief': briefs.contextFor(target.id)!
       });
       final userMessage = AiMessage(
           role: 'user',
@@ -610,7 +628,11 @@ class AiController extends ChangeNotifier {
               'elapsedMs': blockClock.elapsedMilliseconds,
               'report': report.toJson(),
             });
-        final tool = aiToolMessage(report);
+        // M446 — a view only travels to a provider that can receive one.
+        // Apple's on-device path and DeepSeek's chat models are text-only, and
+        // a model that believes it was sent a picture will describe it.
+        final tool = aiToolMessage(report,
+            withImages: _capabilities?.supportsImages ?? false);
         session.messages.add(tool);
         turns.add(tool);
         await _persist();
@@ -947,7 +969,8 @@ class AiController extends ChangeNotifier {
         'version': 1,
         'preferences': _preferences.toJson(),
         'selected': Map<String, String>.of(_selected),
-        'sessions': _sessions.values.map((s) => s.toJson()).toList()
+        'sessions': _sessions.values.map((s) => s.toJson()).toList(),
+        if (!briefs.isEmpty) 'briefs': briefs.toJson(),
       };
   void _changed() {
     _scheduleSave();

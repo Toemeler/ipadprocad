@@ -5283,4 +5283,7 @@ class AppL10nDe extends AppL10n {
   @override
   String get aiCanModel =>
       'Kann im geöffneten Bauteil modellieren und nennt, was dabei gemessen wurde.';
+
+  @override
+  String get aiWorkNoting => 'Notiert die Anforderung';
 }

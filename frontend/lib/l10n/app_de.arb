@@ -4866,5 +4866,6 @@
       }
     }
   },
-  "aiCanModel": "Kann im geöffneten Bauteil modellieren und nennt, was dabei gemessen wurde."
+  "aiCanModel": "Kann im geöffneten Bauteil modellieren und nennt, was dabei gemessen wurde.",
+  "aiWorkNoting": "Notiert die Anforderung"
 }

@@ -1644,5 +1644,6 @@
   "aiMore": "More",
   "aiLess": "Less",
   "aiChangeCount": "{count, plural, =1{1 change} other{{count} changes}}",
-  "aiCanModel": "Can model in the open part, and reports what it measured while doing it."
+  "aiCanModel": "Can model in the open part, and reports what it measured while doing it.",
+  "aiWorkNoting": "Noting the requirement"
 }

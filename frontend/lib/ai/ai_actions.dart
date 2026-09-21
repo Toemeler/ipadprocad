@@ -44,7 +44,29 @@ const Set<String> kAiOps = {
   'edit_feature',
   'delete_feature',
   'rename_feature',
+  'brief_note',
+  'brief_done',
 };
+
+/// Ops that only READ. They take no part snapshot, never trigger a rollback,
+/// and are not counted as changes in the panel.
+///
+/// Kept next to [kAiOps] so a new op has to be classified rather than default
+/// into being a mutation — which is how a block of pure measurements came to
+/// restore the document on its way out.
+const Set<String> kAiReadOnlyOps = {
+  'describe_part',
+  'describe_shape',
+  'faces_where',
+  'measure',
+  'section',
+  'look',
+};
+
+/// Ops that change the BRIEF rather than the geometry. A recorded requirement
+/// must not be rolled back because an extrusion later in the same block
+/// failed: it is something the user said, not something the app built.
+const Set<String> kAiBriefOps = {'brief_note', 'brief_done'};
 
 /// Actions in one block. A model that wants more takes another round, which
 /// keeps each committed change small enough to read in the browser.
@@ -131,8 +153,15 @@ class AiActionReport {
       {required this.outcomes,
       this.reverted = false,
       this.state,
-      this.blocked});
+      this.blocked,
+      List<AiAttachment> images = const []})
+      : images = List.unmodifiable(images);
   final List<AiActionOutcome> outcomes;
+
+  /// M446 — views the `look` op rendered, to travel back as attachments on the
+  /// tool turn. Not part of [toJson]: an image is not text, and base64 in the
+  /// report would spend the turn's budget twice.
+  final List<AiAttachment> images;
   final bool reverted;
   final Map<String, dynamic>? state;
 
@@ -153,7 +182,16 @@ class AiActionReport {
         if (state != null) 'partAfter': state,
       };
 
-  String encode() => jsonEncode(toJson());
+  /// [imagesDropped] is set when a view was rendered but the provider cannot
+  /// receive images. Saying so is the point: a model told nothing would
+  /// describe the view it believes it was sent.
+  String encode({bool imagesDropped = false}) => jsonEncode({
+        ...toJson(),
+        if (imagesDropped)
+          'viewsNotSent': 'A view was rendered but this provider takes text '
+              'only, so you have NOT seen it. Do not describe it. Work from '
+              'describe_shape and section, or ask the user to look.',
+      });
 
   /// Reads a report back out of a stored tool message. Returns null for
   /// anything that is not one — a conversation loaded from disk is data.
@@ -313,13 +351,24 @@ class AiActivity {
         'move_face' =>
           AiWork.editing,
         'look' => AiWork.looking,
+        'brief_note' || 'brief_done' => AiWork.noting,
         _ => AiWork.working,
       };
 }
 
 /// The short words the panel shows. One per kind of work, not one per op: the
 /// user asked to know what is happening in a few words, not to read a log.
-enum AiWork { thinking, reading, measuring, sketching, building, editing, looking, working }
+enum AiWork {
+  thinking,
+  reading,
+  measuring,
+  sketching,
+  building,
+  editing,
+  looking,
+  noting,
+  working
+}
 
 /// The protocol, as the model is told it. Appended to the instructions only
 /// when a runner is attached — a model that cannot edit is never told it can.
@@ -385,10 +434,22 @@ default):
   operation?} — changes an existing feature and rebuilds.
 - delete_feature {feature}.
 - rename_feature {feature, name}.
+- brief_note {text, kind?: "must"|"prefer"|"assumption", source?} — records a
+  requirement for THIS document so it survives the conversation. `text` is
+  your reading of it; `source` is the user's own words, quoted exactly. Record
+  a requirement the moment you learn it, and record your own assumptions as
+  "assumption" so the user can correct them. Never record a "must" the user
+  did not actually state.
+- brief_done {id} — marks a recorded requirement satisfied.
 ''';
 
 /// An [AiMessage] carrying an action report. Role 'tool' so the composer can
 /// draw it as what it is — something the APP did — rather than as either
 /// party's words.
-AiMessage aiToolMessage(AiActionReport report) =>
-    AiMessage(role: 'tool', text: report.encode());
+AiMessage aiToolMessage(AiActionReport report, {bool withImages = true}) {
+  final dropped = !withImages && report.images.isNotEmpty;
+  return AiMessage(
+      role: 'tool',
+      text: report.encode(imagesDropped: dropped),
+      attachments: withImages ? report.images : const []);
+}

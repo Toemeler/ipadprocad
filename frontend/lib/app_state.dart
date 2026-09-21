@@ -13345,6 +13345,65 @@ class AppState extends ChangeNotifier {
   /// notifier from outside it.
   void aiNotify() => notifyListeners();
 
+  /// M446 — renders the open part from a direction the caller chooses.
+  ///
+  /// The SAME three-engine walk the gallery still uses (RealityKit, Flutter
+  /// GPU, then the Dart painter), so the assistant's view is drawn by whatever
+  /// draws the viewport on this device and cannot disagree with it. The
+  /// painter fallback is why this works at all on a host with no GPU — which
+  /// is also the only reason it can be tested.
+  ///
+  /// Returns null when the part has nothing drawable, rather than a blank
+  /// frame: an empty image reads as "I looked and saw nothing", which is a
+  /// different claim from "there was nothing to look at".
+  Future<Uint8List?> aiRenderView({
+    required double azRad,
+    required double polRad,
+    double rollRad = 0,
+    int width = 512,
+    int height = 512,
+  }) async {
+    final p = currentPart;
+    if (p == null) return null;
+    final named = [
+      for (final f in p.features)
+        if (f.visible && f.solid != null && !f.consumedByJoin && !f.rolledBack)
+          (f.name, f.solid!)
+    ];
+    if (named.isEmpty) return null;
+    final size = Size(width.toDouble(), height.toDouble());
+    final solids = [for (final (_, s) in named) s];
+    final cam = fitViewCamera(solids, size,
+        az: azRad, pol: polRad, roll: rollRad);
+    final shot = await _renderStill(
+      scene: buildThumbScenePayload(named, tintOf: (id) {
+        for (final f in p.features) {
+          if (f.name == id) {
+            return materialArgb(p.bodyMaterials[f.bodyName]) ?? kNoTint;
+          }
+        }
+        return kNoTint;
+      }),
+      camera: cameraPayload(cam, size),
+      width: width,
+      height: height,
+    );
+    if (shot != null && shot.isNotEmpty) return await demattePng(shot) ?? shot;
+    try {
+      final rec = ui.PictureRecorder();
+      final canvas = Canvas(
+          rec, Rect.fromLTWH(0, 0, size.width, size.height));
+      paintPartSolids(canvas, Cam3(cam, size), solids,
+          materialOf: (s) => materialColorOfSolid(p, s));
+      final img = await rec.endRecording().toImage(width, height);
+      final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
+      return bytes?.buffer.asUint8List();
+    } catch (e) {
+      Log.w('ai', 'could not render a view: $e');
+      return null;
+    }
+  }
+
   /// Rebuilds the whole part after an agent edit, projections included.
   /// Exactly what [applyExtrude] and [applyEdgeFeature] do on commit, so a
   /// feature the agent made behaves like one the user made.
