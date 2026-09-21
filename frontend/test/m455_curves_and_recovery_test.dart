@@ -17,6 +17,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:ui' show Offset;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/ai/ai_backend.dart';
@@ -24,6 +25,7 @@ import 'package:prototype/ai/ai_cad.dart';
 import 'package:prototype/ai/ai_controller.dart';
 import 'package:prototype/app_state.dart';
 import 'package:prototype/ffi/qcad_engine.dart';
+import 'package:prototype/part_model.dart' show KernelSolid;
 
 import 'support/shape_fixtures.dart';
 
@@ -306,6 +308,28 @@ void main() {
     });
   });
 
+  group('a kernel failure carries a remedy, not just a diagnosis', () {
+    test('an empty triangulation says what to check', () async {
+      // #76: "triangulation produced no triangles" three times running, and
+      // the model deleted the feature rather than changing what caused it.
+      final app = AppState()..partKernel = _RefusingKernel();
+      app.docsDirForTest =
+          Directory.systemTemp.createTempSync('prototype_m455k_');
+      apps.add(app);
+      await app.createNamedPart('Ring');
+      final report = await AiCad(app).run([
+        const AiAction('create_sketch', {'plane': 'xy'}),
+        const AiAction('sketch_circle', {'x': 27, 'y': 30, 'diameter': 4}),
+        const AiAction('revolve', {'axis': 'y', 'angle': 360}),
+      ]);
+      expect(report.ok, isFalse);
+      final error = report.outcomes.last.error!;
+      expect(error, contains('no triangles'));
+      expect(error, contains('touches or crosses the axis'));
+      expect(error, contains('section'));
+    });
+  });
+
   group('the model is told to work with what is there', () {
     test('edit rather than delete and rebuild', () {
       expect(kAiActionInstructions, contains('WORK WITH WHAT IS THERE'));
@@ -354,4 +378,17 @@ class _Flaky implements AiBackend {
   Future<AiAttachment?> pasteImage() async => null;
   @override
   void dispose() {}
+}
+
+
+/// A kernel that builds nothing and says why, like OCCT does on a degenerate
+/// revolve.
+class _RefusingKernel extends BoxKernel {
+  @override
+  String get lastError => 'occt_mesh_create: triangulation produced no triangles';
+  @override
+  KernelSolid? revolve(List<List<List<Offset>>> groups, double angleDeg,
+          double axPx, double axPy, double axDx, double axDy,
+          List<double> mat34) =>
+      null;
 }

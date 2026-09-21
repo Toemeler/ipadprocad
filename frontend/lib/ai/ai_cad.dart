@@ -759,6 +759,42 @@ class AiCad {
                 '${selections.length} edge(s). Retry at ${_mm(fits)} or less.');
   }
 
+  /// What to try next, for the kernel failures that have a known remedy.
+  ///
+  /// ISSUE #76 — "Revolution did not build: occt_mesh_create: triangulation
+  /// produced no triangles", three times in a row, and the model had nothing
+  /// to go on but the words. A kernel message names what went wrong inside
+  /// the kernel; it is not advice, and the model treated it as a dead end and
+  /// deleted the feature instead of changing the thing that caused it.
+  ///
+  /// These are hints, phrased as hints. Where the cause is genuinely not
+  /// established — an empty triangulation has several — the text says which
+  /// things to check rather than asserting one.
+  String _remedyFor(String? kernelError) {
+    final e = (kernelError ?? '').toLowerCase();
+    if (e.contains('no triangles') || e.contains('triangulation')) {
+      return ' — the kernel made a shape with no surface. That is usually a '
+          'profile that touches or crosses the axis or another profile '
+          'exactly, or a revolve whose profile meets itself. Check the '
+          'profile with section, give touching profiles a real gap, and keep '
+          'the profile clear of the axis.';
+    }
+    if (e.contains('runs off the end of the faces')) {
+      return ' — the blend is longer than the faces it follows. Use a smaller '
+          'size, or select fewer edges so it does not have to turn a corner '
+          'it cannot.';
+    }
+    if (e.contains('self-inters') || e.contains('not a valid solid')) {
+      return ' — the result would intersect itself. Change the size, or build '
+          'it as two features that are fused rather than one that folds over.';
+    }
+    if (e.contains('empty') || e.contains('no profile')) {
+      return ' — there was no closed region to build from. Draw the profile '
+          'first and check closedProfiles in the result.';
+    }
+    return '';
+  }
+
   /// The largest blend size that the kernel accepts on [edges], by bisection.
   ///
   /// Bounded to six probes: each one is a real kernel build, and the answer
@@ -1544,9 +1580,9 @@ class AiCad {
     final ok = recomputeFeature(p, f, app.partKernel, base: base);
     if (!ok && app.partKernel.available) {
       f.disposeSolid();
-      return AiActionOutcome.failed(a.op,
-          '${f.typeLabel} did not build: '
-          '${f.computeError ?? app.partKernel.lastError}');
+      final why = f.computeError ?? app.partKernel.lastError;
+      return AiActionOutcome.failed(
+          a.op, '${f.typeLabel} did not build: $why${_remedyFor(why)}');
     }
     f.seq = p.nextSeq();
     p.appendFeature(f);
