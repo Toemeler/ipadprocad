@@ -104,14 +104,18 @@ void main() {
         AiAction('extrude', {'distance': distance}),
       ];
 
+  // No dispose, and no directory delete — the same shape every other AppState
+  // fixture in this suite uses (m128_end_of_part_test and friends).
+  //
+  // It is not laziness. Several AppState paths fire `savePart` WITHOUT
+  // awaiting it — `renameFeature` is one — so a write can still be in flight
+  // when the test body returns. Disposing the notifier or deleting its
+  // directory underneath that write surfaces as an unhandled async error, and
+  // the test runner attributes it to whichever test happens to be running
+  // next. That is exactly how this file first went red in CI: three failures,
+  // none of them in the code under test, all of them passing in isolation.
   tearDown(() {
-    for (final app in apps) {
-      app.dispose();
-    }
     apps.clear();
-    for (final dir in temporary) {
-      if (dir.existsSync()) dir.deleteSync(recursive: true);
-    }
     temporary.clear();
   });
 

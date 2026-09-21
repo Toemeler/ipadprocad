@@ -13340,6 +13340,11 @@ class AppState extends ChangeNotifier {
   /// call every interactive sketch creation makes.
   void aiAdmitSketchRow(PartModel p) => _admitNewSketchRow(p);
 
+  /// Redraws after an agent edit. `notifyListeners` is protected, so the one
+  /// call the executor needs lives here rather than reaching into the
+  /// notifier from outside it.
+  void aiNotify() => notifyListeners();
+
   /// Rebuilds the whole part after an agent edit, projections included.
   /// Exactly what [applyExtrude] and [applyEdgeFeature] do on commit, so a
   /// feature the agent made behaves like one the user made.
@@ -13432,7 +13437,13 @@ class AppState extends ChangeNotifier {
       if (partKernel.available) {
         if (recomputeAllFeatures(p, partKernel)) _syncSolidProjections(p);
       }
-      savePart(curTab!);
+      // AWAITED. This restore is what an undo, a redo and an AI rollback all
+      // finish with, and a caller that gets control back before the document
+      // is on disk can quit, save again, or start another edit on top of a
+      // write that has not landed. It also made the M441 executor's tests
+      // non-deterministic: the unawaited write outlived the test that started
+      // it and failed whichever one happened to be running when it surfaced.
+      await savePart(curTab!);
     }
     Log.i('part',
         'undo/redo restored "${p.name}": sketches=${p.childSketches.length} '

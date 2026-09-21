@@ -75,7 +75,7 @@ class AiCad {
       p.dirty = true;
       final tab = app.curTab;
       if (tab != null) await app.savePart(tab);
-      app.notifyListeners();
+      app.aiNotify();
     }
     return AiActionReport(outcomes: outcomes, reverted: false, state: _state(p));
   }

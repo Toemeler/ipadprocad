@@ -5212,23 +5212,28 @@ class AppL10nDe extends AppL10n {
   String get aiSettingsAllowEdits => 'Modell bearbeiten lassen';
 
   @override
-  String get aiSettingsAllowEditsInfo => 'Die Assistenz darf Skizzen und Features im geöffneten Bauteil anlegen und ändern. Jeder Block wird als EIN Schritt ausgeführt und ist mit einem Widerruf zurückzunehmen; schlägt ein Schritt fehl, wird der ganze Block verworfen.';
+  String get aiSettingsAllowEditsInfo =>
+      'Die Assistenz darf Skizzen und Features im geöffneten Bauteil anlegen und ändern. Jeder Block wird als EIN Schritt ausgeführt und ist mit einem Widerruf zurückzunehmen; schlägt ein Schritt fehl, wird der ganze Block verworfen.';
 
   @override
   String get aiChangesTitle => 'Modelländerungen';
 
   @override
-  String get aiChangesReverted => 'Ein Schritt ist fehlgeschlagen — der ganze Block wurde zurückgenommen. Das Dokument ist unverändert.';
+  String get aiChangesReverted =>
+      'Ein Schritt ist fehlgeschlagen — der ganze Block wurde zurückgenommen. Das Dokument ist unverändert.';
 
   @override
-  String get aiChangesNoPart => 'Kein Bauteil geöffnet. Öffne ein Bauteil, damit die Assistenz darin modellieren kann.';
+  String get aiChangesNoPart =>
+      'Kein Bauteil geöffnet. Öffne ein Bauteil, damit die Assistenz darin modellieren kann.';
 
   @override
-  String get aiChangesDisabled => 'Bearbeiten ist in den KI-Einstellungen ausgeschaltet.';
+  String get aiChangesDisabled =>
+      'Bearbeiten ist in den KI-Einstellungen ausgeschaltet.';
 
   @override
   String get aiUndoChanges => 'Änderungen widerrufen';
 
   @override
-  String get aiErrorCad => 'Die Änderung am Modell konnte nicht ausgeführt werden. Die Meldung darunter nennt den Grund.';
+  String get aiErrorCad =>
+      'Die Änderung am Modell konnte nicht ausgeführt werden. Die Meldung darunter nennt den Grund.';
 }

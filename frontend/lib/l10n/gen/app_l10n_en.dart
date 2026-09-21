@@ -5157,16 +5157,19 @@ class AppL10nEn extends AppL10n {
   String get aiSettingsAllowEdits => 'Let the assistant edit the model';
 
   @override
-  String get aiSettingsAllowEditsInfo => 'The assistant may create and change sketches and features in the open part. Each block runs as ONE step and one undo takes it back; if a step fails, the whole block is discarded.';
+  String get aiSettingsAllowEditsInfo =>
+      'The assistant may create and change sketches and features in the open part. Each block runs as ONE step and one undo takes it back; if a step fails, the whole block is discarded.';
 
   @override
   String get aiChangesTitle => 'Model changes';
 
   @override
-  String get aiChangesReverted => 'One step failed, so the whole block was rolled back. The document is unchanged.';
+  String get aiChangesReverted =>
+      'One step failed, so the whole block was rolled back. The document is unchanged.';
 
   @override
-  String get aiChangesNoPart => 'No part is open. Open a part so the assistant can model in it.';
+  String get aiChangesNoPart =>
+      'No part is open. Open a part so the assistant can model in it.';
 
   @override
   String get aiChangesDisabled => 'Editing is switched off in AI settings.';
@@ -5175,5 +5178,6 @@ class AppL10nEn extends AppL10n {
   String get aiUndoChanges => 'Undo these changes';
 
   @override
-  String get aiErrorCad => 'The change to the model could not be carried out. The report below says why.';
+  String get aiErrorCad =>
+      'The change to the model could not be carried out. The report below says why.';
 }
