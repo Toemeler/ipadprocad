@@ -13,6 +13,7 @@ import 'package:prototype/ai/ai_controller.dart';
 import 'package:prototype/app_state.dart';
 import 'package:prototype/l10n/l.dart';
 import 'package:prototype/widgets/ai_composer.dart';
+import 'package:prototype/theme.dart';
 import 'package:prototype/widgets/ai_stage.dart';
 import 'package:prototype/widgets/dialog_dock.dart';
 import 'package:prototype/widgets/viewport_window.dart';
@@ -204,6 +205,52 @@ void main() {
     expect(rect.top, greaterThanOrEqualTo(0));
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  group('the surface', () {
+    test('the corner radius is locked to half the orb, for the glass', () {
+      // GlassPanelView reads its corner radius ONCE, out of the platform
+      // view's creation arguments, and offers no way to change it. So the
+      // card corner and the circle have to BE the same radius, or the morph
+      // would need the glass torn down and rebuilt halfway through it. This
+      // is the assertion that tells the next person who retunes one of these
+      // two numbers that they have to retune the other.
+      expect(kAiCardRadius * 2, kAiOrbSize);
+    });
+
+    testWidgets('the Intelligence glow runs only while it is working',
+        (tester) async {
+      final app = appForTest();
+      await pump(tester, app);
+      expect(find.byType(AiGlowBorder), findsWidgets);
+      // Present in the tree, but painting nothing while idle: the rim is a
+      // statement that work is happening.
+      for (final w in tester.widgetList<AiGlowBorder>(
+          find.byType(AiGlowBorder))) {
+        expect(w.active, isFalse);
+      }
+
+      app.ai.debugSetActivity(AiActivity(AiPhase.thinking, title: 'Build it'));
+      await tester.pump();
+      expect(
+          tester
+              .widgetList<AiGlowBorder>(find.byType(AiGlowBorder))
+              .any((w) => w.active),
+          isTrue);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    test('the glow hues are the six Apple Intelligence ones, in order', () {
+      // Copied verbatim from the MIT original credited in ai_stage.dart and
+      // THIRD_PARTY_NOTICES.md. Pinned because they are the effect's
+      // identity: derived-from-the-accent versions of this read as a loading
+      // spinner rather than as an assistant thinking.
+      expect(kAiIntelligenceHues, hasLength(6));
+      expect(
+          kAiIntelligenceHues.map((c) => c.toARGB32().toRadixString(16)),
+          ['ffbc82f3', 'fff5b9ea', 'ff8d9fff', 'ffff6778', 'ffffba71',
+            'ffc686ff']);
+    });
   });
 
   testWidgets('reduced motion holds the animations still', (tester) async {

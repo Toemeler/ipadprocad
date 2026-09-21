@@ -17,12 +17,35 @@
 // Nothing else decides the size. Not the length of the answer, not whether a
 // block is running, not an error — those all reduce to the question above.
 //
-// THE LOOK is Apple's Shortcuts assistant: a very round, very soft card with a
-// warm off-white gradient, a coloured bloom under it rather than a grey drop
-// shadow, a bold centred line, and a quiet example beneath in the accent's own
-// grey. The shimmer that crosses it while it thinks is the same idea as the
-// one on "Wird geprüft …" — motion that says alive without saying progress,
-// because there is no progress to report while a provider is deciding.
+// THE SURFACE IS THE REAL SYSTEM MATERIAL. `UIGlassEffect` through
+// [GlassPanel], the same platform view the ribbon, the tab bar and the model
+// browser already use — not a gradient painted to look like one. The first
+// build of this file WAS a painted gradient, and it was a regression: the
+// panel it replaced had mounted genuine glass since M146, so the redesign made
+// the most prominent surface in the app the only fake one in it.
+//
+// WHAT APPLE DOES NOT VEND is the Intelligence glow — the iridescent rim that
+// travels round the Shortcuts card while it thinks. `UIGlassEffect` is public
+// API; that effect is not, on any layer, which is why a small industry of
+// recreations exists. [AiGlowBorder] is a port of the best of them, credited
+// below, drawn OVER the real material rather than instead of it.
+//
+// PORTED FROM: github.com/jacobamobin/AppleIntelligenceGlowEffect
+//              MIT licence, Copyright (c) 2025 Jacob Mobin.
+// Its technique, faithfully: an angular (sweep) gradient of six fixed hues
+// whose stop POSITIONS are re-randomised a few times a second and eased
+// between, stroked several times over with increasing width and increasing
+// blur. The randomised stops are what stop it looking like a rotating barber
+// pole — the colours slide past each other at different rates instead of
+// turning as one rigid wheel. Taken as a technique rather than as a dependency
+// because the original is SwiftUI: consuming it would mean a second platform
+// view, iOS only, and a separate Dart implementation for Windows, Linux,
+// macOS and the test host anyway. The hues themselves are in theme.dart.
+//
+// MOTION SAYS ALIVE, DELIBERATELY NOT PROGRESS. A provider deciding on an
+// answer publishes nothing to be a percentage of, and a bar filling at a rate
+// the app invented is a lie that gets believed. The step counter beside the
+// orb is the real number, and it comes from work the app itself did.
 //
 // REDUCED MOTION IS NOT DECORATION. Every animated thing here asks
 // [MediaQuery.disableAnimationsOf] first and holds still if the answer is yes.
@@ -30,17 +53,27 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:native_menu/native_menu.dart';
 
 import '../ios_design.dart';
 import '../theme.dart';
 
-/// The radii the stage morphs between: a card corner and a full circle.
-const double kAiCardRadius = 30;
+/// The collapsed orb's diameter.
+///
+/// LOCKED TO [kAiCardRadius], AND THE LOCK IS LOAD-BEARING. `GlassPanelView`
+/// reads its corner radius once, out of the platform view's creation
+/// arguments, and offers no way to change it afterwards — so a stage whose
+/// radius animated would need the platform view torn down and rebuilt in the
+/// middle of the morph. Keeping `radius == size / 2` means the circle and the
+/// card corner are the SAME radius, one glass view is correct in both states,
+/// and the whole retract is a pure resize — which `autoresizingMask` on the
+/// UIVisualEffectView already handles natively. Change one of these two
+/// numbers and you must change the other; m450 asserts it, so the next person
+/// finds out at test time rather than by watching the glass go square.
+const double kAiOrbSize = 72;
 
-/// The collapsed orb's diameter. Sized against the 44pt hit target with room
-/// for the ring, and small enough that it reads as "parked" rather than as a
-/// panel that failed to open.
-const double kAiOrbSize = 62;
+/// The stage's corner radius, in both states. See [kAiOrbSize].
+const double kAiCardRadius = kAiOrbSize / 2;
 
 /// How long the retract and the expansion take. Long enough to read as one
 /// object moving rather than two objects swapping, short enough that a fast
@@ -55,32 +88,36 @@ const Duration kAiMorphDuration = Duration(milliseconds: 420);
 /// the moment the first request is actually in flight.
 const Duration kAiAnnounceDwell = Duration(milliseconds: 950);
 
+/// How often the glow re-rolls its stop positions, and how long it eases
+/// between them. The original's 0.4 s roll with a 0.5–1 s ease per layer; one
+/// period here with a different phase per layer gets the same drift for one
+/// controller instead of four timers.
+const Duration kAiGlowPeriod = Duration(milliseconds: 2400);
+
 bool _still(BuildContext context) => MediaQuery.disableAnimationsOf(context);
 
-/// The warm gradient both the card and the orb are filled with.
+/// The tint laid over the material.
 ///
-/// Light mode is Apple's: not white but a barely-pink off-white, which is what
-/// makes the bloom underneath look like light rather than like a shadow. Dark
-/// mode cannot copy that — a light bloom on a dark panel reads as a glow
-/// around a hole — so it inverts the idea: the panel colour lifted slightly,
-/// with the accent mixed in at the top left where the light would be.
-LinearGradient aiStageGradient({double t = 0}) {
-  final warm = T.aiStageWarm;
-  final cool = T.aiStageCool;
-  // The stops drift with `t` so a still image and a thinking one are never
-  // quite the same surface. Tiny on purpose: this is a breathing surface, not
-  // a moving one.
-  final drift = math.sin(t * math.pi * 2) * .06;
+/// Over real glass this is a WASH — it has to stay faint enough that the
+/// refraction, the specular edge and the backdrop still read through it, or
+/// the app has paid for a platform view and then painted over it. Where there
+/// is no material it is the surface itself and carries full weight, which is
+/// what [overGlass] switches between.
+LinearGradient aiStageGradient({bool overGlass = false}) {
+  final a = overGlass ? .5 : 1.0;
   return LinearGradient(
-    begin: Alignment(-1 + drift, -1),
-    end: Alignment(1, 1 - drift),
-    colors: [warm, cool],
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [
+      T.aiStageWarm.withValues(alpha: T.aiStageWarm.a * a),
+      T.aiStageCool.withValues(alpha: T.aiStageCool.a * a),
+    ],
   );
 }
 
-/// The coloured bloom under the stage. Not a drop shadow: it is the accent,
+/// The resting bloom under the stage. Not a drop shadow: it is the accent,
 /// wide and faint, which is what separates this surface from every ordinary
-/// panel in the app.
+/// panel in the app. While the assistant thinks, [AiGlowBorder] takes over.
 List<BoxShadow> aiStageBloom({double strength = 1}) => [
       BoxShadow(
         color: T.accent.withValues(alpha: (T.isDark ? .20 : .16) * strength),
@@ -95,46 +132,149 @@ List<BoxShadow> aiStageBloom({double strength = 1}) => [
       ),
     ];
 
-/// A light sweep that crosses its child while [active].
+/// The whole surface of the stage: the system material, the tint over it, the
+/// content, and the Intelligence glow round its rim while it thinks.
 ///
-/// Says ALIVE, deliberately not PROGRESS. A provider deciding on an answer
-/// publishes nothing to be a percentage of, and a bar that fills at a rate the
-/// app invented is a lie that gets believed. The step counter beside it is the
-/// real number, and it comes from work the app itself did.
-class AiShimmer extends StatefulWidget {
-  const AiShimmer({
+/// One widget because those are one object and their order matters — glass at
+/// the bottom or it is not a backdrop, the tint above it or it is not a tint,
+/// the content above that, and the glow last because it is a RIM: it belongs
+/// outside the content, and drawing it under would put the card's own fill
+/// over the top of it.
+class AiStageSurface extends StatelessWidget {
+  const AiStageSurface({
     super.key,
     required this.child,
+    required this.working,
+    this.radius = kAiCardRadius,
+    this.bloom = 1,
+    this.glow = true,
+  });
+
+  final Widget child;
+
+  /// Drives the glow, and nothing else about the surface.
+  final bool working;
+  final double radius;
+  final double bloom;
+
+  /// False on the small surfaces — the status pill — where a travelling rim
+  /// would be noise rather than signal.
+  final bool glow;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasGlass = GlassPanel.isSupported;
+    final shape = BorderRadius.circular(radius);
+    return DecoratedBox(
+      // Outside the clip, which is why it is a decoration and not a layer: a
+      // bloom clipped to the shape it is blooming out of is not visible at all.
+      decoration: BoxDecoration(
+        borderRadius: shape,
+        boxShadow: aiStageBloom(strength: bloom),
+      ),
+      // THE CONTENT IS THE ONLY UNPOSITIONED CHILD IN EITHER STACK, and that
+      // is what gives them a size. A Stack whose children are all
+      // `Positioned.fill` has nothing to measure and throws on an unbounded
+      // parent — which the card never hits, because the composer wraps it in
+      // a SizedBox, and the status pill hits every time, because its width is
+      // its text's. Content first, everything else filled around it.
+      child: Stack(
+        children: [
+          ClipRSuperellipse(
+            borderRadius: shape,
+            child: Stack(
+              children: [
+                // 1. THE REAL MATERIAL. It takes no touches — GlassPanel
+                // wraps itself in IgnorePointer — so the content above owns
+                // every gesture, which is the arrangement M48 and M102 were
+                // paid for.
+                if (hasGlass)
+                  Positioned.fill(child: GlassPanel(cornerRadius: radius)),
+                // 2. The tint: a wash over the material, the whole surface
+                // where there is none.
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: aiStageGradient(overGlass: hasGlass),
+                      ),
+                    ),
+                  ),
+                ),
+                // 3. What the user came for, and what sizes all of this.
+                child,
+              ],
+            ),
+          ),
+          // 4. The rim, over everything — its blurred outer half is supposed
+          // to spill past the edge, so it is outside the clip.
+          if (glow)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: AiGlowBorder(active: working, radius: radius),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The Apple Intelligence rim glow, ported from the MIT SwiftUI original
+/// credited at the top of this file.
+class AiGlowBorder extends StatefulWidget {
+  const AiGlowBorder({
+    super.key,
     required this.active,
     this.radius = kAiCardRadius,
   });
-  final Widget child;
   final bool active;
   final double radius;
 
   @override
-  State<AiShimmer> createState() => _AiShimmerState();
+  State<AiGlowBorder> createState() => _AiGlowBorderState();
 }
 
-class _AiShimmerState extends State<AiShimmer>
+class _AiGlowBorderState extends State<AiGlowBorder>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _c = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 2600),
-  );
+  late final AnimationController _c =
+      AnimationController(vsync: this, duration: kAiGlowPeriod);
+
+  /// The stop positions being eased between. The original re-rolls these on a
+  /// timer; one controller and two sets that swap at the wrap does the same
+  /// thing without four timers outliving the widget that started them.
+  late List<double> _from = _roll();
+  late List<double> _to = _roll();
+  final _random = math.Random();
+
+  List<double> _roll() =>
+      List<double>.generate(
+          kAiIntelligenceHues.length, (_) => _random.nextDouble())
+        ..sort();
+
+  @override
+  void initState() {
+    super.initState();
+    _c.addStatusListener((s) {
+      if (s == AnimationStatus.completed) {
+        _from = _to;
+        _to = _roll();
+        _c.forward(from: 0);
+      }
+    });
+  }
 
   /// Starts and stops the loop, including when REDUCED MOTION is switched on.
   ///
   /// Gated here rather than only at paint time for two reasons, and the second
-  /// one is why this is not cosmetic: a controller left repeating under
-  /// `disableAnimations` burns a frame callback forever for a sweep nobody is
-  /// drawing, and it makes `pumpAndSettle` in any test that reaches this
-  /// widget hang until it times out. Reduced motion has to mean no motion, not
-  /// invisible motion.
+  /// is why it is not cosmetic: a controller left running under
+  /// `disableAnimations` burns a frame callback forever for something nobody
+  /// is drawing, and it makes `pumpAndSettle` hang in every test that reaches
+  /// this widget. Reduced motion has to mean no motion, not invisible motion.
   void _syncMotion() {
     final run = widget.active && !_still(context);
     if (run && !_c.isAnimating) {
-      _c.repeat();
+      _c.forward(from: 0);
     } else if (!run && _c.isAnimating) {
       _c
         ..stop()
@@ -149,7 +289,7 @@ class _AiShimmerState extends State<AiShimmer>
   }
 
   @override
-  void didUpdateWidget(AiShimmer old) {
+  void didUpdateWidget(AiGlowBorder old) {
     super.didUpdateWidget(old);
     _syncMotion();
   }
@@ -162,70 +302,104 @@ class _AiShimmerState extends State<AiShimmer>
 
   @override
   Widget build(BuildContext context) {
-    if (!widget.active || _still(context)) return widget.child;
-    return Stack(
-      children: [
-        widget.child,
-        Positioned.fill(
-          child: IgnorePointer(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(widget.radius),
-              child: AnimatedBuilder(
-                animation: _c,
-                builder: (context, _) => CustomPaint(
-                  painter: _SweepPainter(_c.value, T.accent),
-                ),
-              ),
-            ),
+    if (!widget.active || _still(context)) return const SizedBox.shrink();
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (context, _) {
+        final t = Curves.easeInOut.transform(_c.value);
+        return CustomPaint(
+          painter: _GlowPainter(
+            stops: [
+              for (var i = 0; i < _from.length; i++)
+                _lerpStop(_from[i], _to[i], t)
+            ],
+            spin: _c.value,
+            radius: widget.radius,
           ),
-        ),
-      ],
+        );
+      },
     );
   }
+
+  /// Stops must stay sorted and inside 0..1 or the shader throws; lerping two
+  /// sorted lists elementwise keeps both without a re-sort each frame.
+  static double _lerpStop(double a, double b, double t) =>
+      (a + (b - a) * t).clamp(0.0, 1.0);
 }
 
-class _SweepPainter extends CustomPainter {
-  _SweepPainter(this.t, this.tint);
-  final double t;
-  final Color tint;
+class _GlowPainter extends CustomPainter {
+  _GlowPainter({
+    required this.stops,
+    required this.spin,
+    required this.radius,
+  });
+  final List<double> stops;
+  final double spin;
+  final double radius;
+
+  /// The original's four passes: one crisp, three increasingly blurred and
+  /// wider. The crisp one is what makes it a rim rather than a haze; the
+  /// blurred ones are what make it glow.
+  static const _passes = [
+    (width: 2.0, blur: 0.0, alpha: .95),
+    (width: 3.0, blur: 5.0, alpha: .75),
+    (width: 5.0, blur: 14.0, alpha: .55),
+    (width: 7.0, blur: 22.0, alpha: .38),
+  ];
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Two highlights at different speeds, so the surface never repeats on an
-    // obvious beat. Both are wide and weak; a hard band would read as a
-    // loading bar, which is the one thing this must not be mistaken for.
-    for (final (speed, phase, alpha) in [(1.0, 0.0, .17), (0.62, .45, .11)]) {
-      final x = ((t * speed + phase) % 1) * (size.width * 1.6) - size.width * .3;
-      final rect = Rect.fromCircle(
-        center: Offset(x, size.height * (phase == 0 ? .34 : .68)),
-        radius: size.width * .42,
+    final rect = Offset.zero & size;
+    final rrect = RSuperellipse.fromRectAndRadius(
+      rect.deflate(1),
+      Radius.circular(radius),
+    );
+    final shader = SweepGradient(
+      colors: [
+        ...kAiIntelligenceHues,
+        // The wheel has to close on the colour it opened with, or there is a
+        // hard seam at twelve o'clock where the last hue meets the first.
+        kAiIntelligenceHues.first,
+      ],
+      stops: [...stops, 1.0],
+      transform: GradientRotation(spin * math.pi * 2),
+    ).createShader(rect);
+
+    for (final pass in _passes) {
+      final paint = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = pass.width
+        ..shader = shader
+        ..blendMode = BlendMode.plus;
+      if (pass.blur > 0) {
+        paint.maskFilter = MaskFilter.blur(BlurStyle.normal, pass.blur);
+      }
+      // The per-pass opacity has to be the LAYER's: `Paint.color` is ignored
+      // wherever a shader is set, so dimming the stroke that way would have
+      // done nothing at all and every pass would have painted at full weight.
+      canvas.saveLayer(
+        rect.inflate(pass.blur * 2 + pass.width),
+        Paint()..color = Color.fromRGBO(0, 0, 0, pass.alpha),
       );
-      canvas.drawRect(
-        Offset.zero & size,
-        Paint()
-          ..shader = RadialGradient(
-            colors: [
-              tint.withValues(alpha: alpha),
-              tint.withValues(alpha: 0),
-            ],
-          ).createShader(rect),
-      );
+      canvas.drawRSuperellipse(rrect, paint);
+      canvas.restore();
     }
   }
 
   @override
-  bool shouldRepaint(_SweepPainter old) => old.t != t || old.tint != tint;
+  bool shouldRepaint(_GlowPainter old) =>
+      old.spin != spin || old.radius != radius;
 }
 
-/// The contents of the collapsed state: a turning arc and a mark, with no
-/// surface of its own.
+/// The contents of the collapsed state: a mark that breathes, over the same
+/// surface the card uses, with no background of its own.
 ///
 /// NO BACKGROUND ON PURPOSE. The stage is ONE box that changes size — a card
-/// that becomes a circle — so the gradient, the corner radius and the bloom
-/// all belong to that box and animate with it. An orb that painted its own
-/// circle would be a second object cross-fading over the first, and the whole
-/// point of the retract is that it reads as the panel moving, not as the panel
-/// disappearing and a button arriving.
+/// that becomes a circle — so the material, the tint, the bloom and the glow
+/// all belong to [AiStageSurface] and stay put across the morph. An orb that
+/// painted its own circle would be a second object cross-fading over the
+/// first, and the whole point of the retract is that it reads as the panel
+/// moving, not as the panel disappearing and a button arriving.
 class AiOrbCore extends StatefulWidget {
   const AiOrbCore({super.key, required this.working, this.size = kAiOrbSize});
   final bool working;
@@ -242,7 +416,7 @@ class _AiOrbCoreState extends State<AiOrbCore>
     duration: const Duration(milliseconds: 3200),
   );
 
-  /// See [_AiShimmerState._syncMotion] — same rule, same two reasons.
+  /// See [_AiGlowBorderState._syncMotion] — same rule, same two reasons.
   void _syncMotion() {
     final run = widget.working && !_still(context);
     if (run && !_c.isAnimating) {
@@ -283,53 +457,19 @@ class _AiOrbCoreState extends State<AiOrbCore>
         // morph's to animate, and two things scaling it at once would fight.
         final breath =
             widget.working && !still ? 1 + math.sin(t * math.pi * 2) * .06 : 1.0;
-        return CustomPaint(
-          painter:
-              widget.working && !still ? _RingPainter(t, T.accent) : null,
-          child: Center(
-            child: Transform.scale(
-              scale: breath,
-              child: Icon(
-                Icons.auto_awesome,
-                size: widget.size * .38,
-                color: T.accent,
-              ),
+        return Center(
+          child: Transform.scale(
+            scale: breath,
+            child: Icon(
+              Icons.auto_awesome,
+              size: widget.size * .34,
+              color: T.accent,
             ),
           ),
         );
       },
     );
   }
-}
-
-/// The turning arc on the orb's rim. An arc rather than a full ring, so the
-/// rotation is legible at 62 points without a spinner's busy look.
-class _RingPainter extends CustomPainter {
-  _RingPainter(this.t, this.tint);
-  final double t;
-  final Color tint;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final inset = (Offset.zero & size).deflate(2.5);
-    final paint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.5
-      ..strokeCap = StrokeCap.round
-      ..shader = SweepGradient(
-        colors: [
-          tint.withValues(alpha: 0),
-          tint.withValues(alpha: .85),
-          tint.withValues(alpha: 0),
-        ],
-        stops: const [0, .5, 1],
-        transform: GradientRotation(t * math.pi * 2),
-      ).createShader(inset);
-    canvas.drawArc(inset, t * math.pi * 2, math.pi * 1.1, false, paint);
-  }
-
-  @override
-  bool shouldRepaint(_RingPainter old) => old.t != t || old.tint != tint;
 }
 
 /// The line of text beside the parked orb: what it is doing, how far in, and
@@ -355,38 +495,41 @@ class AiOrbLabel extends StatelessWidget {
       child: GestureDetector(
         onTap: onTap,
         child: Container(
-          margin: const EdgeInsets.only(right: 10, bottom: 6),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+          margin: const EdgeInsets.only(right: 12, bottom: 12),
           constraints: const BoxConstraints(maxWidth: 230),
-          decoration: BoxDecoration(
-            gradient: aiStageGradient(),
-            borderRadius: BorderRadius.circular(18),
-            boxShadow: aiStageBloom(strength: .55),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                headline,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.right,
-                style: IosText.footnote
-                    .on(T.text, weight: FontWeight.w600)
-                    .copyWith(height: 1.25),
-              ),
-              if (detail != null && detail!.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 2),
-                  child: Text(
-                    detail!,
-                    maxLines: 1,
+          child: AiStageSurface(
+            working: false,
+            glow: false,
+            radius: 18,
+            bloom: .55,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    headline,
+                    maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: IosText.caption2.on(T.dim),
+                    textAlign: TextAlign.right,
+                    style: IosText.footnote
+                        .on(T.text, weight: FontWeight.w600)
+                        .copyWith(height: 1.25),
                   ),
-                ),
-            ],
+                  if (detail != null && detail!.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Text(
+                        detail!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: IosText.caption2.on(T.dim),
+                      ),
+                    ),
+                ],
+              ),
+            ),
           ),
         ),
       ),

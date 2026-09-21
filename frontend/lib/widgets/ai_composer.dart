@@ -64,6 +64,7 @@ class _AiComposerState extends State<AiComposer> {
       _tick = null;
     }
   }
+
   bool _attaching = false;
 
   AiController get ai => widget.app.ai;
@@ -303,61 +304,61 @@ class _AiComposerState extends State<AiComposer> {
                         )
                       : const SizedBox.shrink(key: ValueKey('ai-no-label')),
                 ),
-                // ONE box that changes size. Everything that makes the surface
-                // a surface — the gradient, the corner, the bloom — lives here
-                // and animates with it, which is what makes the retract read
-                // as the panel moving into the corner rather than as the panel
-                // vanishing and a button appearing in its place.
+                // ONE box that changes size. The surface itself — the real
+                // UIGlassEffect, the tint over it, the bloom and the
+                // Intelligence rim — is [AiStageSurface] and does not change
+                // across the morph at all: only the box's WIDTH and HEIGHT
+                // animate, which is what makes the retract read as the panel
+                // moving into the corner rather than as the panel vanishing
+                // and a button appearing in its place. It is also what lets
+                // the glass survive it — the platform view takes its corner
+                // radius at creation and can only be resized afterwards.
                 GestureDetector(
                   onTap: collapsed ? _expandManually : null,
-                  child: AnimatedContainer(
+                  child: AnimatedSize(
                     duration: kAiMorphDuration,
                     curve: Curves.easeOutCubic,
-                    width: collapsed ? kAiOrbSize : width,
-                    height: collapsed ? kAiOrbSize : height,
-                    clipBehavior: Clip.antiAlias,
-                    decoration: BoxDecoration(
-                      gradient: aiStageGradient(),
-                      borderRadius: BorderRadius.circular(radius),
-                      boxShadow: aiStageBloom(
-                          strength: collapsed ? .75 : 1),
-                    ),
-                    child: AiShimmer(
-                      active: ai.activity.isBusy && !collapsed,
-                      radius: radius,
-                      child: AnimatedSwitcher(
-                        duration: kAiMorphDuration,
-                        child: collapsed
-                            ? SizedBox(
-                                key: const ValueKey('ai-orb-core'),
-                                width: kAiOrbSize,
-                                height: kAiOrbSize,
-                                child: AiOrbCore(
-                                    working: ai.activity.isBusy),
-                              )
-                            // THE BODY ALWAYS LAYS OUT AT THE CARD'S SIZE,
-                            // and the shrinking box clips it.
-                            //
-                            // Letting it lay out at the ANIMATING width is
-                            // what a first attempt did, and it put a
-                            // RenderFlex overflow on the header, the chrome
-                            // row and the input row for the whole 420 ms of
-                            // every expansion — a panel that flashed the
-                            // yellow-and-black stripes each time it opened.
-                            // A card being clipped as it retracts into a
-                            // circle is also simply what the movement IS.
-                            : OverflowBox(
-                                key: const ValueKey('ai-panel'),
-                                alignment: Alignment.bottomRight,
-                                minWidth: width,
-                                maxWidth: width,
-                                minHeight: height,
-                                maxHeight: height,
-                                child: height < 360
-                                    ? SingleChildScrollView(
-                                        child: _body(compact: true))
-                                    : _body(compact: false),
-                              ),
+                    alignment: Alignment.bottomRight,
+                    child: SizedBox(
+                      width: collapsed ? kAiOrbSize : width,
+                      height: collapsed ? kAiOrbSize : height,
+                      child: AiStageSurface(
+                        working: ai.activity.isBusy,
+                        radius: radius,
+                        bloom: collapsed ? .75 : 1,
+                        child: AnimatedSwitcher(
+                          duration: kAiMorphDuration,
+                          child: collapsed
+                              ? SizedBox(
+                                  key: const ValueKey('ai-orb-core'),
+                                  width: kAiOrbSize,
+                                  height: kAiOrbSize,
+                                  child: AiOrbCore(working: ai.activity.isBusy),
+                                )
+                              // THE BODY ALWAYS LAYS OUT AT THE CARD'S SIZE,
+                              // and the shrinking box clips it.
+                              //
+                              // Letting it lay out at the ANIMATING width is
+                              // what a first attempt did, and it put a
+                              // RenderFlex overflow on the header, the chrome
+                              // row and the input row for the whole 420 ms of
+                              // every expansion — a panel that flashed the
+                              // yellow-and-black stripes each time it opened.
+                              // A card being clipped as it retracts into a
+                              // circle is also simply what the movement IS.
+                              : OverflowBox(
+                                  key: const ValueKey('ai-panel'),
+                                  alignment: Alignment.bottomRight,
+                                  minWidth: width,
+                                  maxWidth: width,
+                                  minHeight: height,
+                                  maxHeight: height,
+                                  child: height < 360
+                                      ? SingleChildScrollView(
+                                          child: _body(compact: true))
+                                      : _body(compact: false),
+                                ),
+                        ),
                       ),
                     ),
                   ),
@@ -750,14 +751,13 @@ class _AiComposerState extends State<AiComposer> {
             if (message.text.isNotEmpty)
               Container(
                 width: double.infinity,
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 12, vertical: 9),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
                 decoration: BoxDecoration(
                   color: IosColors.quaternarySystemFill,
                   borderRadius: BorderRadius.circular(14),
                 ),
-                child: Text(message.text,
-                    style: IosText.footnote.on(T.dim)),
+                child: Text(message.text, style: IosText.footnote.on(T.dim)),
               ),
           ],
         ),
@@ -828,9 +828,8 @@ class _AiComposerState extends State<AiComposer> {
       );
     }
     // A block of pure reads changed nothing and is not worth a line at all.
-    final changed = report.outcomes
-        .where((o) => !kAiReadOnlyOps.contains(o.op))
-        .length;
+    final changed =
+        report.outcomes.where((o) => !kAiReadOnlyOps.contains(o.op)).length;
     final failed = report.outcomes.where((o) => !o.ok).toList();
     if (changed == 0 && failed.isEmpty) return const SizedBox.shrink();
     final expanded = _expanded.contains(message.id);
@@ -900,9 +899,7 @@ class _AiComposerState extends State<AiComposer> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Icon(
-                        o.ok
-                            ? CupertinoIcons.check_mark
-                            : CupertinoIcons.xmark,
+                        o.ok ? CupertinoIcons.check_mark : CupertinoIcons.xmark,
                         size: 11,
                         color: o.ok
                             ? CupertinoColors.systemGreen
