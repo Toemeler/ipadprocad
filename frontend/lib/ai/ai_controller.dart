@@ -122,6 +122,7 @@ class AiController extends ChangeNotifier {
     try {
       final saved = await store.load();
       if (_disposed) return;
+      var migrated = false;
       if (saved != null) {
         if (saved['version'] != 1)
           throw const FormatException('Unknown AI store version');
@@ -134,8 +135,35 @@ class AiController extends ChangeNotifier {
         final choices = Map<String, String>.from(saved['selected'] as Map);
         final owners = {for (final s in loaded) s.id: s.documentId};
         choices.removeWhere((document, session) => owners[session] != document);
-        final prefs = AiPreferences.fromJson(
+        var prefs = AiPreferences.fromJson(
             Map<String, dynamic>.from(saved['preferences'] as Map));
+        // ONE-TIME MOVE OFF A BLIND MODEL (M452).
+        //
+        // Changing the default only helps a fresh install. The user in issue
+        // #72 was on deepseek-v4-pro, which cannot receive an image, so every
+        // `look` rendered a view and threw it away — and a default they never
+        // see would have left them there forever.
+        //
+        // Narrow on purpose: DeepSeek only, only from the three ids nobody
+        // deliberately chose (two were this app's own defaults), and recorded
+        // so it happens exactly once. A user who afterwards picks a text-only
+        // model is making a choice, and this never overrides it.
+        final done = (saved['migrations'] as List?)?.cast<String>() ?? const [];
+        _migrations.addAll(done);
+        if (!_migrations.contains(_kDeepSeekFlash)) {
+          _migrations.add(_kDeepSeekFlash);
+          migrated = true;
+          if (prefs.provider == AiProvider.deepseek &&
+              kDeepSeekSupersededModels.contains(prefs.model.toLowerCase())) {
+            Log.i('ai', 'moving DeepSeek model ${prefs.model} -> '
+                '$kDeepSeekDefaultModel (it can see, and it can be told to '
+                'think less)');
+            prefs = AiPreferences(
+                provider: prefs.provider,
+                model: kDeepSeekDefaultModel,
+                allowEdits: prefs.allowEdits);
+          }
+        }
         final early = _sessions.values.where((s) => !s.isEmpty).toList();
         _sessions
           ..clear()
@@ -156,6 +184,10 @@ class AiController extends ChangeNotifier {
       }
       if (store.recoveredFromBackup) _globalError = 'storage';
       _ready = true;
+      // The RECORD of the migration has to reach disk even when it changed
+      // nothing, or a user who later picks a text-only model on purpose gets
+      // moved off it again on the next launch.
+      if (migrated) _scheduleSave();
     } catch (_) {
       _globalError = 'storage';
       _readFailed = true;
@@ -1108,8 +1140,14 @@ class AiController extends ChangeNotifier {
     return out;
   }
 
+  /// Which one-time preference moves have already run. Kept in the store so
+  /// a migration cannot repeat and undo a later deliberate choice.
+  final Set<String> _migrations = {};
+  static const _kDeepSeekFlash = 'deepseekFlash';
+
   Map<String, dynamic> _snapshot() => {
         'version': 1,
+        if (_migrations.isNotEmpty) 'migrations': _migrations.toList(),
         'preferences': _preferences.toJson(),
         'selected': Map<String, String>.of(_selected),
         'sessions': _sessions.values.map((s) => s.toJson()).toList(),

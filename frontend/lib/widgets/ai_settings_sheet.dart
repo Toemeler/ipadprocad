@@ -2,6 +2,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart' show showDialog;
 
 import '../ai/ai_controller.dart';
+import '../ai/ai_backend.dart' show kDeepSeekDefaultModel;
 import '../ios_design.dart';
 import '../l10n/l.dart';
 
@@ -30,7 +31,7 @@ class _AiSettingsState extends State<_AiSettings> {
   static const _defaults = {
     AiProvider.gemini: 'gemini-3.8-flash',
     AiProvider.anthropic: 'claude-opus-5',
-    AiProvider.deepseek: 'deepseek-flash'
+    AiProvider.deepseek: kDeepSeekDefaultModel
   };
 
   @override

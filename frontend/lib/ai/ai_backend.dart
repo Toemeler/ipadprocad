@@ -101,6 +101,45 @@ bool deepSeekTakesImages(String model) {
   return m.contains('flash') || m.contains('vision');
 }
 
+/// The DeepSeek model this app asks for unless the user says otherwise.
+///
+/// DeepSeek-V4.1-Flash. It is the one currently-served DeepSeek model that
+/// accepts images, which for this app is not a nicety — `look` is how the
+/// assistant checks its own work, and on a text-only model it never sees a
+/// render at all (issue #72). Its thinking is also controllable, which the
+/// V4-Pro line's is not: see [deepSeekReasoningEffort].
+const String kDeepSeekDefaultModel = 'deepseek-flash';
+
+/// Model ids this app will move OFF automatically, once.
+///
+/// Two of them are defaults this app itself shipped, and the third is the one
+/// the user was left on. None was a considered choice by anyone, and every one
+/// of them is blind.
+const Set<String> kDeepSeekSupersededModels = {
+  'deepseek-chat',
+  'deepseek-reasoner',
+  'deepseek-v4-pro',
+};
+
+/// Whether this model takes DeepSeek's thinking controls.
+bool deepSeekTakesThinking(String model) =>
+    model.toLowerCase().contains('flash');
+
+/// How hard the model should think on this round.
+///
+/// MEASURED, on the session in issue #72: 8,906 of 9,662 output tokens were
+/// reasoning — 92%. A single `{"op": "fillet", "radius": 2}` cost 424
+/// reasoning tokens and eleven seconds, and the round after it 833 and twenty
+/// seconds. That is not thought the part benefits from; it is the model
+/// re-deriving the whole task before emitting two lines of JSON.
+///
+/// The first round of a turn is where the judgement actually lives: what the
+/// user asked for, what to ask back, what the part should be. Every round
+/// after it is execution against a plan the model already has, with the
+/// result of the last block in front of it. So: full effort once, low effort
+/// thereafter.
+String deepSeekReasoningEffort(int? round) => (round ?? 1) == 0 ? 'high' : 'low';
+
 class DeviceAiBackend implements AiBackend {
   DeviceAiBackend({http.Client Function()? clientFactory})
       : _clientFactory = clientFactory ?? http.Client.new;
@@ -343,6 +382,8 @@ class DeviceAiBackend implements AiBackend {
         ? <String, dynamic>{
             'model': preferences.model,
             'max_tokens': kAiMaxOutputTokens,
+            if (deepSeekTakesThinking(preferences.model))
+              'reasoning_effort': deepSeekReasoningEffort(request.round),
             'messages': [
               {'role': 'system', 'content': request.instructions},
               for (final m in request.messages)
