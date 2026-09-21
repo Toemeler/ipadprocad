@@ -519,6 +519,12 @@ class _AiComposerState extends State<AiComposer> {
       AiWork.noting => t.aiWorkNoting,
       AiWork.working => t.aiWorkWorking,
     };
+    // ISSUE #71 — the model's own title for the block in flight, when it
+    // gave one. "Hollowing the cup" is what the user wanted to read; the
+    // generic word is what the app can always say. The step counter and the
+    // clock beside it stay the app's own either way, so a title cannot make
+    // stalled work look busy.
+    final headline = activity.title ?? label;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 12),
       child: Semantics(
@@ -528,7 +534,7 @@ class _AiComposerState extends State<AiComposer> {
             const CupertinoActivityIndicator(radius: 7),
             const SizedBox(width: 10),
             Flexible(
-              child: Text('$label…',
+              child: Text('$headline…',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: IosText.subheadline.on(T.text)),
@@ -667,12 +673,24 @@ class _AiComposerState extends State<AiComposer> {
                         ? CupertinoColors.systemGreen
                         : CupertinoColors.systemRed),
                 const SizedBox(width: 8),
-                Text(
-                  report.reverted
-                      ? t.aiChangesReverted
-                      : t.aiChangeCount(report.applied),
-                  style: IosText.footnote.on(T.dim),
+                // The title the model gave this block, which is what the
+                // user watched while it ran; the count is what the app can
+                // always say, and is demoted beside it.
+                Flexible(
+                  child: Text(
+                    report.reverted
+                        ? t.aiChangesReverted
+                        : report.title ?? t.aiChangeCount(report.applied),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: IosText.footnote.on(T.dim),
+                  ),
                 ),
+                if (!report.reverted && report.title != null) ...[
+                  const SizedBox(width: 6),
+                  Text(t.aiChangeCount(report.applied),
+                      style: IosText.caption1.on(T.dim)),
+                ],
                 const SizedBox(width: 6),
                 Icon(
                     expanded

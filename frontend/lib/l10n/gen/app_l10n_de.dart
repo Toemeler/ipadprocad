@@ -5054,7 +5054,7 @@ class AppL10nDe extends AppL10n {
 
   @override
   String get aiErrorCancelled =>
-      'Antwort gestoppt. Keine CAD-Änderungen vorgenommen.';
+      'Gestoppt. Ausgeführte Schritte bleiben erhalten.';
 
   @override
   String get aiErrorNetwork =>

@@ -5000,7 +5000,7 @@ class AppL10nEn extends AppL10n {
       'This conversation exceeds the model’s context budget. Start a new conversation, shorten your message or reduce the selected context. Nothing was silently omitted.';
 
   @override
-  String get aiErrorCancelled => 'Reply stopped. No CAD changes were made.';
+  String get aiErrorCancelled => 'Stopped. Steps already applied are kept.';
 
   @override
   String get aiErrorNetwork =>

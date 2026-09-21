@@ -84,11 +84,32 @@ const int kAiMaxActionsPerBlock = 6;
 
 /// How many times one `send()` may go model -> actions -> results -> model.
 ///
-/// Raised with the block size cut: six actions a block needs more rounds to
-/// build the same part, and stopping at four would leave a cup with no handle.
-/// Still bounded — every round is a paid request, and a model that has not
-/// converged in ten is not going to.
-const int kAiMaxActionRounds = 10;
+/// Raised twice. Six actions a block needs more rounds to build the same part,
+/// and stopping at four left a cup with no handle (issue #70). Ten then turned
+/// out to be a ceiling on AMBITION rather than on cost: a finished cup is a
+/// body, a wall, a base, a rim, a handle and the blends between them, which is
+/// more than ten blocks before anyone has looked at it once (issue #71).
+///
+/// Forty is not "until it is happy" — that has no bound and would be somebody
+/// else's bill. It is a budget large enough that the STOP BUTTON, and not this
+/// number, is what normally ends a long build. Every round is a paid request
+/// that resends the conversation, so the instructions ask for small blocks and
+/// the loop stops the moment the model stops emitting them.
+const int kAiMaxActionRounds = 40;
+
+/// How many times the app may tell a model that stopped early that its own
+/// recorded "must" requirements are still open (issue #71).
+///
+/// This is the only mechanical grip the app has on "production ready". It
+/// cannot judge a cup. It CAN see that the model wrote down "must have a
+/// handle", never marked it done, and then said it had finished — and say so.
+/// Bounded, because a model that has answered the same push-back three times
+/// is not going to answer it differently the fourth.
+const int kAiMaxDoneChecks = 3;
+
+/// The longest task title the panel will show. Two to five words is what the
+/// instructions ask for; this is the guard, not the goal.
+const int kAiTitleMaxLength = 60;
 
 class AiAction {
   const AiAction(this.op, this.args);
@@ -167,9 +188,14 @@ class AiActionReport {
       this.reverted = false,
       this.state,
       this.blocked,
+      this.title,
       List<AiAttachment> images = const []})
       : images = List.unmodifiable(images);
   final List<AiActionOutcome> outcomes;
+
+  /// The user-facing title of the block that produced this report, so the
+  /// transcript can say "Rounding the rim" where it used to say "4 changes".
+  final String? title;
 
   /// M446 — views the `look` op rendered, to travel back as attachments on the
   /// tool turn. Not part of [toJson]: an image is not text, and base64 in the
@@ -185,7 +211,22 @@ class AiActionReport {
   bool get ok => blocked == null && !reverted && outcomes.every((o) => o.ok);
   int get applied => reverted ? 0 : outcomes.where((o) => o.ok).length;
 
+  /// The same report under a user-facing title. The executor does not know
+  /// the title — it belongs to the block, not to any one action — so the
+  /// controller attaches it once the block has run.
+  AiActionReport withTitle(String? value) =>
+      value == null || value.isEmpty || value == title
+          ? this
+          : AiActionReport(
+              outcomes: outcomes,
+              reverted: reverted,
+              state: state,
+              blocked: blocked,
+              title: value,
+              images: images);
+
   Map<String, dynamic> toJson() => {
+        if (title != null) 'title': title,
         'actionResults': [for (final o in outcomes) o.toJson()],
         if (reverted) 'reverted': true,
         if (reverted)
@@ -220,6 +261,9 @@ class AiActionReport {
         ],
         reverted: j['reverted'] as bool? ?? false,
         blocked: j['blocked'] as String?,
+        title: j['title'] is String && (j['title'] as String).trim().isNotEmpty
+            ? (j['title'] as String).trim()
+            : null,
       );
     } catch (_) {
       return null;
@@ -229,14 +273,156 @@ class AiActionReport {
 
 /// A fenced ```cad block and what it parsed to.
 class AiActionBlock {
-  const AiActionBlock(this.actions, {this.parseError});
+  const AiActionBlock(this.actions, {this.parseError, this.title});
   final List<AiAction> actions;
   final String? parseError;
+
+  /// What the USER is shown while this block runs (issue #71).
+  ///
+  /// The panel never shows the block itself; the model's own short title for
+  /// it is what appears in its place. Null when the model omitted one, which
+  /// is not an error — the app then falls back to its own word for the work,
+  /// because refusing a whole block over a missing label would trade a
+  /// cosmetic problem for a functional one.
+  final String? title;
+
   bool get isEmpty => actions.isEmpty && parseError == null;
 }
 
 final RegExp _fence = RegExp(r'```[ \t]*cad[ \t]*\r?\n(.*?)```',
     multiLine: true, dotAll: true, caseSensitive: false);
+
+/// Some models answer with a ```json fence, or with nothing but the JSON.
+/// Only consulted when there is no ```cad fence at all — see [_actionSpans].
+final RegExp _looseFence = RegExp(r'```[ \t]*[a-z]*[ \t]*\r?\n(.*?)```',
+    multiLine: true, dotAll: true, caseSensitive: false);
+
+/// Where in a reply the action payloads are, so the parser and the panel
+/// agree exactly: everything this finds is EXECUTED and never displayed, and
+/// everything else is displayed and never executed.
+class _Span {
+  const _Span(this.start, this.end, this.raw);
+  final int start, end;
+  final String raw;
+}
+
+/// Does this decode to something the executor could take?
+bool _isPayload(Object? parsed) {
+  if (parsed is Map) {
+    if (parsed['actions'] is List) return true;
+    return parsed['op'] is String && kAiOps.contains(parsed['op']);
+  }
+  if (parsed is List && parsed.isNotEmpty) {
+    return parsed.every(
+        (e) => e is Map && e['op'] is String && kAiOps.contains(e['op']));
+  }
+  return false;
+}
+
+bool _isPayloadText(String raw) {
+  try {
+    return _isPayload(jsonDecode(raw));
+  } catch (_) {
+    return false;
+  }
+}
+
+/// The index just past the brace matching the one at [start], or -1.
+///
+/// Written out rather than done with a regular expression because braces
+/// nest and strings may contain them; a regex that "works" here is one that
+/// truncates a payload at the first `}` inside a quoted note.
+int _matchingBrace(String s, int start) {
+  final open = s.codeUnitAt(start);
+  final close = open == 0x7B ? 0x7D : 0x5D;
+  var depth = 0;
+  var inString = false, escaped = false;
+  final limit = s.length - start > 20000 ? start + 20000 : s.length;
+  for (var i = start; i < limit; i++) {
+    final c = s.codeUnitAt(i);
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (c == 0x5C) {
+        escaped = true;
+      } else if (c == 0x22) {
+        inString = false;
+      }
+      continue;
+    }
+    if (c == 0x22) {
+      inString = true;
+    } else if (c == open) {
+      depth++;
+    } else if (c == close) {
+      if (--depth == 0) return i + 1;
+    }
+  }
+  return -1;
+}
+
+/// Bare JSON in the middle of prose. Bounded: at most 40 candidate positions
+/// and 20 000 characters a span, so a long reply cannot turn this into a
+/// quadratic scan.
+List<_Span> _bareSpans(String reply) {
+  final out = <_Span>[];
+  var i = 0, tried = 0;
+  while (i < reply.length && tried < 40) {
+    final c = reply.codeUnitAt(i);
+    if (c != 0x7B && c != 0x5B) {
+      i++;
+      continue;
+    }
+    tried++;
+    final end = _matchingBrace(reply, i);
+    if (end < 0) break;
+    final raw = reply.substring(i, end);
+    if (_isPayloadText(raw)) {
+      out.add(_Span(i, end, raw));
+      i = end;
+    } else {
+      i++;
+    }
+  }
+  return out;
+}
+
+/// Every action payload in a reply, in order.
+///
+/// ISSUE #71 — "i currently see the json output". The agreed protocol is a
+/// ```cad fence, and when the model uses it the panel showed the prose and
+/// hid the block. When the model did NOT — a bare object, a ```json fence —
+/// two things went wrong at once: nothing ran, and the user read the JSON.
+///
+/// So the untagged forms are accepted, but only when there is no ```cad fence
+/// in the reply. That ordering is what keeps a model ANSWERING a question
+/// about the protocol ("a block looks like {\"actions\": ...}") from having
+/// its example executed: a reply that contains a real block is parsed
+/// strictly, and a reply that contains none is the only one where a bare
+/// object can plausibly be an instruction rather than an illustration.
+List<_Span> _actionSpans(String reply) {
+  final tagged = [
+    for (final m in _fence.allMatches(reply))
+      _Span(m.start, m.end, m.group(1)!.trim())
+  ];
+  if (tagged.isNotEmpty) return tagged;
+  final loose = [
+    for (final m in _looseFence.allMatches(reply))
+      if (_isPayloadText(m.group(1)!.trim()))
+        _Span(m.start, m.end, m.group(1)!.trim())
+  ];
+  if (loose.isNotEmpty) return loose;
+  return _bareSpans(reply);
+}
+
+String? _clampTitle(Object? value) {
+  if (value is! String) return null;
+  final one = value.replaceAll(RegExp(r'\s+'), ' ').trim();
+  if (one.isEmpty) return null;
+  return one.length <= kAiTitleMaxLength
+      ? one
+      : '${one.substring(0, kAiTitleMaxLength - 1).trimRight()}…';
+}
 
 /// Every action a reply asks for, in order.
 ///
@@ -248,8 +434,9 @@ final RegExp _fence = RegExp(r'```[ \t]*cad[ \t]*\r?\n(.*?)```',
 AiActionBlock parseAiActions(String reply) {
   final actions = <AiAction>[];
   String? error;
-  for (final m in _fence.allMatches(reply)) {
-    final raw = m.group(1)!.trim();
+  String? title;
+  for (final span in _actionSpans(reply)) {
+    final raw = span.raw;
     if (raw.isEmpty) continue;
     Object? parsed;
     try {
@@ -258,6 +445,7 @@ AiActionBlock parseAiActions(String reply) {
       error ??= 'The cad block is not valid JSON.';
       continue;
     }
+    if (parsed is Map) title ??= _clampTitle(parsed['title']);
     final list = parsed is List
         ? parsed
         : parsed is Map && parsed['actions'] is List
@@ -266,7 +454,7 @@ AiActionBlock parseAiActions(String reply) {
                 ? [parsed]
                 : null;
     if (list == null) {
-      error ??= 'A cad block must be {"actions": [ ... ]}.';
+      error ??= 'A cad block must be {"title": "...", "actions": [ ... ]}.';
       continue;
     }
     for (final entry in list) {
@@ -286,17 +474,50 @@ AiActionBlock parseAiActions(String reply) {
   if (actions.length > kAiMaxActionsPerBlock) {
     return AiActionBlock(const [],
         parseError: 'At most $kAiMaxActionsPerBlock actions per block; '
-            'this one had ${actions.length}. Split the work across turns.');
+            'this one had ${actions.length}. Split the work across turns.',
+        title: title);
   }
-  return AiActionBlock(error == null ? actions : const [], parseError: error);
+  return AiActionBlock(error == null ? actions : const [],
+      parseError: error, title: title);
 }
 
-/// The reply with its cad blocks taken out — what the composer shows above the
-/// executed-changes card, so the user reads the explanation and not the JSON.
-String aiReplyWithoutActions(String reply) {
-  final stripped = reply.replaceAll(_fence, '').trim();
-  return stripped.isEmpty ? reply.trim() : stripped;
+/// A remainder that is still machine text: a payload the brace matcher could
+/// not close, which is what a reply truncated mid-block leaves behind.
+bool _looksLikeStrayJson(String text) {
+  if (!text.startsWith('{') && !text.startsWith('[')) return false;
+  return text.contains('"actions"') || text.contains('"op"');
 }
+
+/// The reply with its action payloads taken out — everything the panel shows.
+///
+/// ISSUE #71 — this used to fall back to the WHOLE reply when stripping left
+/// nothing, which is precisely the reply that is nothing but a block, so the
+/// one case the strip existed for was the one case it did not handle. It
+/// returns the empty string now: a turn that only acted has nothing to say,
+/// and the title of what it did is shown in its place.
+String aiReplyWithoutActions(String reply) {
+  final spans = _actionSpans(reply);
+  final buffer = StringBuffer();
+  var at = 0;
+  for (final span in spans) {
+    if (span.start > at) buffer.write(reply.substring(at, span.start));
+    at = span.end;
+  }
+  if (at < reply.length) buffer.write(reply.substring(at));
+  // A removed block leaves the blank lines that framed it; three or more in
+  // a row is a hole in the answer, not a paragraph break.
+  final text =
+      buffer.toString().replaceAll(RegExp(r'\n{3,}'), '\n\n').trim();
+  return _looksLikeStrayJson(text) ? '' : text;
+}
+
+/// Whether the assistant's turn is a question waiting on the user.
+///
+/// Used by the loop to tell "I have stopped because I need you" apart from
+/// "I have stopped because I think I am finished" — only the second one is
+/// pushed back on.
+bool aiReplyIsQuestion(String reply) =>
+    aiReplyWithoutActions(reply).trimRight().endsWith('?');
 
 /// Called as each action of a block starts, so the UI can say what is
 /// happening in a few words instead of showing a spinner for the whole batch.
@@ -326,7 +547,8 @@ enum AiPhase {
 }
 
 class AiActivity {
-  AiActivity(this.phase, {this.op, this.step = 0, this.total = 0, DateTime? since})
+  AiActivity(this.phase,
+      {this.op, this.step = 0, this.total = 0, this.title, DateTime? since})
       : since = since ?? DateTime.now();
   static final none = AiActivity(AiPhase.idle);
 
@@ -345,6 +567,15 @@ class AiActivity {
   /// while merely thinking.
   final String? op;
   final int step, total;
+
+  /// The model's own title for the block in flight (issue #71). Shown in
+  /// place of [work]'s generic word when it is there, because "Rounding the
+  /// rim" says more than "Building" and costs the user nothing to read.
+  ///
+  /// It is the one part of the status the model writes, and it is a LABEL,
+  /// never a claim: the phase, the step counter and the clock beside it stay
+  /// the app's own, so a wrong title cannot make stalled work look busy.
+  final String? title;
 
   bool get isBusy => phase != AiPhase.idle;
 
@@ -400,10 +631,22 @@ const String kAiActionInstructions = '''
 MODEL EDITING. You can change the open part by emitting a fenced block:
 
 ```cad
-{"actions": [{"op": "create_sketch", "plane": "xy"},
+{"title": "Drawing the base plate",
+ "actions": [{"op": "create_sketch", "plane": "xy"},
              {"op": "sketch_rect", "width": 60, "height": 40, "centered": true},
              {"op": "extrude", "distance": 10}]}
 ```
+
+EVERY BLOCK CARRIES A TITLE, AND THE USER SEES NOTHING ELSE OF IT. The block
+itself is never shown: while it runs, the panel shows your "title" and nothing
+more. Write it as two to five plain words in the user's language, naming what
+this block does to the part — "Drawing the cup body", "Hollowing the inside",
+"Rounding the rim". Not op names, not JSON, not a sentence. A block without a
+title still runs, but the user then reads a generic word instead of yours.
+
+NEVER WRITE JSON OUTSIDE THE FENCE, and never explain the block in prose. The
+JSON is for the app; the title is for the user; anything else you type is read
+as an answer and shown as one.
 
 START NOW, IN SMALL STEPS. Do not plan the whole part before acting and do
 not describe what you are about to do. Emit the FIRST small block immediately —
@@ -411,7 +654,9 @@ one or two actions is a good first block — and let the result come back before
 deciding the next one. The user watches the model change as each block lands,
 so three small blocks that arrive over ten seconds are worth far more than one
 perfect block that arrives after a minute. If you find yourself writing a plan,
-stop and run its first step instead.
+stop and run its first step instead. The one thing that comes BEFORE the first
+block is the question below, when the request needs it: asking what you are
+building is not planning, it is finding out what to build.
 
 Rules that are not negotiable:
 - Lengths are millimetres, angles are degrees, in the document's own frame.
@@ -424,6 +669,60 @@ Rules that are not negotiable:
 - If you are unsure what is in the document, run {"op": "describe_part"} first.
 - Never claim a change you did not make, or a measurement the report does not
   contain.
+
+MATCH THE EFFORT TO THE ASK. This is the single most important judgement you
+make, and it goes both ways.
+- A narrow, named change is exactly that change. "Add a 5 mm hole there" is
+  one block, no questions, no extras: add the hole and stop. Do not round its
+  edges, rename anything, or improve what you were not asked about.
+- A whole object is a FINISHED object. "Make me a tea cup" is not a cylinder
+  with a hollow in it. It is a cup somebody could drink from and somebody
+  could make: a body with a usable volume, a wall of a thickness the chosen
+  process can actually produce, a base that stands flat and does not pool,
+  a rim that is comfortable and not a knife edge, a handle a finger fits
+  through if the design has one, and blends where a hand touches it. Stop
+  when THAT exists, not when the first solid appears.
+
+ASK BEFORE YOU BUILD A WHOLE OBJECT. If the request is a whole part and how it
+will be MADE is not stated, ask that first — it changes every dimension you are
+about to choose. Reply with the question alone, no block, and wait:
+
+  (in the user's own language, e.g.) "Wie soll die Tasse gefertigt werden —
+   FDM-Druck, SLA/SLS, Guss, Spritzguss oder CNC?"
+
+Ask other things the same way when they genuinely change the geometry — size
+or capacity, whether it must stack, hold heat, fit an existing part. Ask them
+TOGETHER with the process in one short question, not one per turn, and never
+ask about anything you can reasonably assume and record as an assumption
+instead. A narrow change is never worth a question.
+
+Then design FOR that process, and record it with brief_note as a "must":
+- FDM/FFF — walls a multiple of the nozzle width (0.8-2.4 mm typical),
+  overhangs under 45 deg or supported, no thin unsupported bridges, layer
+  lines across the strong axis, flat and generous first layer.
+- SLA/SLS — finer walls possible (0.8-1.5 mm), drain and escape holes for
+  resin or powder in any closed volume, no fully enclosed cavities.
+- Casting — draft on every vertical face (1-3 deg), generous radii, uniform
+  wall thickness, no undercuts in the parting direction.
+- Injection moulding — uniform walls (1.5-3 mm), draft (0.5-2 deg), no
+  undercuts, ribs at 0.6 of the wall, cored-out thick sections.
+- CNC — internal corners get a radius no smaller than the tool (3 mm typical),
+  no deep narrow pockets, tool-reachable faces only, no sharp internal
+  intersections.
+
+WORK UNTIL IT IS DONE, THEN CHECK IT.
+- Before the first block of a whole-object request, write down what DONE means
+  with brief_note "must" entries — one per property the finished part has to
+  have. That list is your definition of finished, and the app holds you to it.
+- Mark each one with brief_done as it becomes true in the model, and only
+  then.
+- Keep emitting blocks. The user stops you with the stop button; you do not
+  stop because it is taking a while.
+- Before you say you are finished, run {"op": "look"} and one describe_shape,
+  and check the result against every requirement you recorded. If something is
+  wrong, fix it in the next block instead of mentioning it.
+- Only when every "must" is done, answer in one short sentence. If one cannot
+  be met, say which one and why — do not quietly drop it.
 
 Operations and their arguments (an omitted optional argument takes its
 default):

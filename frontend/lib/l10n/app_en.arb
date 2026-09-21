@@ -1580,7 +1580,7 @@
   "aiErrorImages": "This Apple model cannot read images. Choose a supported image-capable provider or remove the images before sending.",
   "aiErrorPdf": "This Apple connection does not support PDF files. Use Gemini or Claude, or attach a text excerpt instead.",
   "aiErrorContext": "This conversation exceeds the model’s context budget. Start a new conversation, shorten your message or reduce the selected context. Nothing was silently omitted.",
-  "aiErrorCancelled": "Reply stopped. No CAD changes were made.",
+  "aiErrorCancelled": "Stopped. Steps already applied are kept.",
   "aiErrorNetwork": "The provider could not be reached or the request timed out. Check your connection and try again.",
   "aiErrorQuota": "The provider’s usage limit was reached. Wait or check your provider account before trying again.",
   "aiErrorModel": "The model ID is unavailable for this key. Check the model ID in AI settings.",

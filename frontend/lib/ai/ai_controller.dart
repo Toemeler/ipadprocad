@@ -66,7 +66,8 @@ class AiController extends ChangeNotifier {
   void _setActivity(AiActivity value) {
     if (_activity.phase == value.phase &&
         _activity.op == value.op &&
-        _activity.step == value.step) {
+        _activity.step == value.step &&
+        _activity.title == value.title) {
       return;
     }
     _activity = value;
@@ -548,6 +549,10 @@ class AiController extends ChangeNotifier {
       // finished by then gets one last plain answer rather than another block.
       final turns = [...messages];
       var rounds = 0;
+      // Issue #71 — what the loop needs to know to decide whether a model
+      // that stopped emitting blocks is finished or merely gave up.
+      var executedAnything = false;
+      var doneChecks = 0;
       for (var round = 0;; round++) {
         rounds = round + 1;
         final last = round >= kAiMaxActionRounds;
@@ -581,6 +586,58 @@ class AiController extends ChangeNotifier {
         _notify();
         if (last) break;
         final block = parseAiActions(reply.text);
+        // ISSUE #71 — THE ONLY MECHANICAL GRIP ON "PRODUCTION READY".
+        //
+        // The app cannot judge a tea cup, and a model asked "are you done?"
+        // will say yes. What the app CAN check is the model's own written
+        // definition of done: the "must" requirements it recorded for this
+        // document before it started. When it stops acting with some of them
+        // still open, it is told so once, with the list, and the loop goes on.
+        //
+        // Three conditions keep this from becoming nagging. It only applies
+        // when the model actually built something this turn (a conversation
+        // is not a build), never when the reply is a question (it is waiting
+        // on the USER, and pushing past that is how an assistant guesses at a
+        // dimension), and at most [kAiMaxDoneChecks] times.
+        if (block.isEmpty) {
+          final open = [
+            for (final r in briefs.of(target.id))
+              if (!r.done && r.kind == AiRequirementKind.must) r.text
+          ];
+          final push = executedAnything &&
+              open.isNotEmpty &&
+              doneChecks < kAiMaxDoneChecks &&
+              !aiReplyIsQuestion(reply.text);
+          AiTrace.record('done.check',
+              requestId: requestId,
+              sessionId: session.id,
+              round: round,
+              data: {
+                'open': open,
+                'executedAnything': executedAnything,
+                'isQuestion': aiReplyIsQuestion(reply.text),
+                'checksUsed': doneChecks,
+                'continuing': push,
+              });
+          if (!push) break;
+          doneChecks++;
+          final nudge = AiMessage(
+              role: 'tool',
+              text: jsonEncode({
+                'openRequirements': open,
+                'note': 'You stopped, but these requirements you recorded for '
+                    'this part are still open. Continue: emit the next block, '
+                    'mark one done with brief_done if the model already '
+                    'satisfies it, or say in one sentence which one cannot be '
+                    'met and why.'
+              }));
+          session.messages.add(nudge);
+          turns.add(nudge);
+          await _persist();
+          if (!stillCurrent()) return;
+          _notify();
+          continue;
+        }
         AiTrace.record('actions.parsed',
             requestId: requestId,
             sessionId: session.id,
@@ -590,7 +647,6 @@ class AiController extends ChangeNotifier {
               if (block.parseError != null) 'parseError': block.parseError,
               'actions': [for (final a in block.actions) a.toJson()],
             });
-        if (block.isEmpty) break;
         final blockClock = Stopwatch()..start();
         AiActionReport report;
         if (!canEditModel) {
@@ -602,7 +658,7 @@ class AiController extends ChangeNotifier {
           try {
             report = await actionRunner!(block.actions, onStep: (op, i, n) {
               _setActivity(AiActivity(AiPhase.working,
-                  op: op, step: i, total: n));
+                  op: op, step: i, total: n, title: block.title));
             });
           } catch (_) {
             // The executor is written not to throw. If it did anyway, the
@@ -616,6 +672,19 @@ class AiController extends ChangeNotifier {
           }
         }
         if (!stillCurrent()) return;
+        // The title belongs to the block, not to any one action, so the
+        // executor never sees it and the controller attaches it here — which
+        // is also what puts it in the stored transcript, where the panel
+        // reads it back long after the run.
+        report = report.withTitle(block.title);
+        // Only a CHANGE counts as building. A turn that merely measured and
+        // then answered is a conversation, and a conversation must not be
+        // pushed into modelling by requirements an earlier turn recorded.
+        if (!report.reverted &&
+            report.outcomes
+                .any((o) => o.ok && !kAiReadOnlyOps.contains(o.op))) {
+          executedAnything = true;
+        }
         AiTrace.record('actions.report',
             requestId: requestId,
             sessionId: session.id,

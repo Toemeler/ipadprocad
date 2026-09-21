@@ -4771,7 +4771,7 @@
   "aiErrorImages": "Dieses Apple-Modell kann keine Bilder lesen. Wähle einen Anbieter mit Bildunterstützung oder entferne die Bilder vor dem Senden.",
   "aiErrorPdf": "Diese Apple-Verbindung unterstützt keine PDF-Dateien. Verwende Gemini oder Claude oder hänge einen Textauszug an.",
   "aiErrorContext": "Dieses Gespräch überschreitet das Kontextbudget des Modells. Starte ein neues Gespräch, kürze die Nachricht oder verringere den ausgewählten Kontext. Es wurde nichts stillschweigend weggelassen.",
-  "aiErrorCancelled": "Antwort gestoppt. Keine CAD-Änderungen vorgenommen.",
+  "aiErrorCancelled": "Gestoppt. Ausgeführte Schritte bleiben erhalten.",
   "aiErrorNetwork": "Der Anbieter konnte nicht erreicht werden oder die Anfrage dauerte zu lange. Prüfe deine Verbindung und versuche es erneut.",
   "aiErrorQuota": "Das Nutzungslimit des Anbieters wurde erreicht. Warte oder prüfe dein Anbieterkonto, bevor du es erneut versuchst.",
   "aiErrorModel": "Die Modell-ID ist für diesen Schlüssel nicht verfügbar. Prüfe die Modell-ID in den KI-Einstellungen.",

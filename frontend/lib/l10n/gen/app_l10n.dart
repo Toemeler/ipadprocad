@@ -8308,7 +8308,7 @@ abstract class AppL10n {
   /// No description provided for @aiErrorCancelled.
   ///
   /// In de, this message translates to:
-  /// **'Antwort gestoppt. Keine CAD-Änderungen vorgenommen.'**
+  /// **'Gestoppt. Ausgeführte Schritte bleiben erhalten.'**
   String get aiErrorCancelled;
 
   /// No description provided for @aiErrorNetwork.
