@@ -32,7 +32,14 @@ deinem Kontext. Lies es nicht erneut ein.
 2. **Lesen.** Issue-Body plus den Diagnose-Bundle von der `bug-reports`-Branch
    (`git show origin/bug-reports:bugreports/<stem>.zip`). Lies `report.md`
    zuerst — die App triagiert sich darin bereits selbst und sagt dir, ob
-   `log.txt` oder `state.txt` die interessante Datei ist.
+   `log.txt` oder `state.txt` die interessante Datei ist. Geht es um den
+   Assistenten (Apple Intelligence, Claude, Gemini, DeepSeek), steht der Befund
+   im Abschnitt `## Assistant` und die Belege liegen unter `ai/`:
+   `ai/diagnostics.json` (welcher Anbieter, welche Route, ob Bearbeiten
+   erlaubt war, Token-Summen), `ai/transcript.txt` (der Verlauf im Klartext),
+   `ai/trace.txt` (die gesendete Anfrage, die Antwort, Tokens, Thinking,
+   Stop-Reason, der HTTP-Fehlertext des Anbieters und jede CAD-Operation mit
+   ihrer Laufzeit). Nicht raten, was das Modell „gemeint hat" — es steht drin.
 3. **Fixen.** Ursache, nicht Symptom. Dazu ein Test unter `frontend/test/`, der
    **ohne den Fix fehlschlägt** und mit ihm besteht. Ein Test, der so oder so
    besteht, pinnt nichts.

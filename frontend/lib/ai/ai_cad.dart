@@ -8,6 +8,7 @@ import '../part_model.dart';
 import '../part_render.dart'
     show kFacePlane, kFaceCylinder, kFaceCone, kFaceSphere, kFaceTorus;
 import 'ai_actions.dart';
+import 'ai_trace.dart';
 import 'shape_digest.dart';
 
 /// M441 — where an assistant's intention becomes geometry.
@@ -48,6 +49,7 @@ class AiCad {
   Future<AiActionReport> run(List<AiAction> batch) async {
     final p = app.currentPart;
     if (p == null) {
+      AiTrace.record('cad.blocked', data: {'blocked': 'noPart'});
       return AiActionReport(outcomes: const [], blocked: 'noPart');
     }
     if (batch.isEmpty) return AiActionReport(outcomes: const []);
@@ -57,12 +59,33 @@ class AiCad {
     var failed = false;
     for (final action in batch) {
       AiActionOutcome outcome;
+      // PER OP, WITH ITS OWN CLOCK. The block report says what a block did;
+      // this says which op inside it was the slow one and which one turned a
+      // batch into a rollback. A fillet that takes eleven seconds in the
+      // kernel and an extrude that fails on a profile look identical in the
+      // report the model is handed.
+      final clock = Stopwatch()..start();
       try {
         outcome = await _one(p, action);
       } catch (e, st) {
         Log.e('ai', 'action ${action.op} threw', e, st);
+        AiTrace.record('cad.threw', data: {
+          'op': action.op,
+          'args': action.args,
+          'error': '${e.runtimeType}: $e',
+          'stack': '$st',
+          'elapsedMs': clock.elapsedMilliseconds,
+        });
         outcome = AiActionOutcome.failed(action.op, 'internal error: $e');
       }
+      AiTrace.record('cad.action', data: {
+        'op': action.op,
+        'ok': outcome.ok,
+        'elapsedMs': clock.elapsedMilliseconds,
+        'args': action.args,
+        if (outcome.error != null) 'error': outcome.error,
+        if (outcome.detail != null) 'detail': outcome.detail,
+      });
       outcomes.add(outcome);
       if (action.op != 'describe_part') mutated = true;
       if (!outcome.ok) {
@@ -76,6 +99,11 @@ class AiCad {
       // sketch NAME would otherwise survive the sketch it describes.
       app.aiForgetRegions();
       Log.i('ai', 'action block rolled back after ${outcomes.length} step(s)');
+      AiTrace.record('cad.reverted', data: {
+        'steps': outcomes.length,
+        'failedOn': outcomes.isEmpty ? null : outcomes.last.op,
+        'error': outcomes.isEmpty ? null : outcomes.last.error,
+      });
       return AiActionReport(outcomes: outcomes, reverted: true, state: _state(p));
     }
     if (mutated && !failed) {

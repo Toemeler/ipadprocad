@@ -19,6 +19,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 import 'package:native_menu/native_menu.dart';
 
+import 'ai/ai_trace.dart';
 import 'app_state.dart';
 import 'gesture_trace.dart';
 import 'constraints.dart';
@@ -193,7 +194,125 @@ Map<String, String> captureEnv(AppState app) {
   });
   env['open part'] = app.curTab ?? '(none)';
   env['parts loaded'] = '${app.parts.length}';
+  // M443 — WHICH ASSISTANT, and whether it was there at all. A report about
+  // an answer is unreadable without it: Apple Intelligence on-device, Apple
+  // Intelligence via Private Cloud Compute, Claude, Gemini and DeepSeek are
+  // five different models behind one panel, and the bundle named none of
+  // them.
+  env.addAll(captureAiEnv(app));
   return env;
+}
+
+/// The assistant's identity line, for `env.txt`.
+///
+/// Its own function for [captureDisplay]'s reason: it is a map of its own,
+/// so a test can assert on the shape without standing up an AppState.
+Map<String, String> captureAiEnv(AppState app) {
+  final out = <String, String>{};
+  out['assistant'] = _try('assistant', () {
+    final d = app.ai.diagnostics();
+    final model = (d['model'] as String?) ?? '';
+    final available = d['available'];
+    final apple = d['apple'] as Map?;
+    final route = apple?['route'];
+    return '${d['provider']}${model.isEmpty ? '' : ' · $model'} — '
+        '${available == true ? 'available' : available == null ? 'never resolved (the panel was never opened)' : 'NOT AVAILABLE'}'
+        '${route == null ? '' : ', route=$route'}'
+        ', edits=${d['canEditModel'] == true ? 'allowed' : 'off'}'
+        ', sessions=${d['sessions']}';
+  });
+  out['assistant tokens'] = _try('assistant tokens', () {
+    final t = AiTrace.totals;
+    return t.isEmpty
+        ? 'no request was made in this session'
+        : t.map((x) => '$x').join('  |  ');
+  });
+  return out;
+}
+
+/// One line per thing that is currently wrong with the ASSISTANT, most
+/// actionable first — [triage]'s counterpart for the other half of the app.
+///
+/// Separate from [triage] because they answer different questions and a
+/// reader stops at the first section that explains their report: a model that
+/// is internally healthy says nothing about a provider that has been
+/// returning 429 for ten minutes.
+List<String> aiTriage(AppState app) {
+  final out = <String>[];
+  try {
+    final d = app.ai.diagnostics();
+    if (d['diagnosticsFailed'] != null) {
+      return ['the assistant could not be inspected: ${d['diagnosticsFailed']}'];
+    }
+    final apple = d['apple'] as Map?;
+    if (d['available'] == false) {
+      final reason = apple?['reason'];
+      out.add('PROVIDER UNAVAILABLE: ${d['providerLabel']}'
+          '${reason == null || '$reason'.isEmpty ? '' : ' — $reason'}');
+    }
+    if (d['storeReadFailed'] == true) {
+      out.add('CONVERSATION STORE UNREADABLE: the saved sessions could not be '
+          'read, so nothing has been persisted this session');
+    }
+    if (d['globalError'] != null) {
+      out.add('ASSISTANT ERROR (whole panel): ${d['globalError']}');
+    }
+    if (d['currentSessionError'] != null) {
+      out.add('LAST TURN FAILED: ${d['currentSessionError']} in session '
+          '"${d['currentSession']}"');
+    }
+    if (d['actionRunnerAttached'] == true && d['canEditModel'] == false) {
+      out.add('EDITS ARE OFF: the assistant was not told it can change the '
+          'part, so a report that it "refused to build anything" is this '
+          'switch, not the model');
+    }
+    if (d['requestInFlight'] == true) {
+      out.add('A REQUEST WAS STILL IN FLIGHT when the report was taken — the '
+          'trace ends mid-turn');
+    }
+    // The last thing that actually went wrong, in the provider's own words.
+    // This is the line that turns "the AI said there was an error" into a
+    // diagnosis, and it did not exist anywhere before M443.
+    for (final e in AiTrace.events.reversed) {
+      if (e.kind == 'http.error') {
+        final body = e.data['body'];
+        out.add('LAST PROVIDER REFUSAL: HTTP ${e.data['status']} from '
+            '${e.data['provider']}'
+            '${body == null ? '' : ' — ${_oneLine('$body')}'}');
+        break;
+      }
+      if (e.kind == 'error') {
+        out.add('LAST ASSISTANT FAULT: ${e.data['code'] ?? e.data['platformCode']}'
+            '${e.data['cause'] == null ? '' : ' — ${_oneLine('${e.data['cause']}')}'}'
+            '${e.data['platformMessage'] == null ? '' : ' — ${_oneLine('${e.data['platformMessage']}')}'}');
+        break;
+      }
+    }
+    // Apple Intelligence quietly answering on-device when Private Cloud
+    // Compute could not. "The same question gave a much worse answer today"
+    // is this, and it is invisible in the transcript.
+    final fell = AiTrace.events
+        .where((e) => e.data['fallbackReason'] != null)
+        .length;
+    if (fell > 0) {
+      out.add('PRIVATE CLOUD COMPUTE FELL BACK to the on-device model on '
+          '$fell repl${fell == 1 ? 'y' : 'ies'} in this session');
+    }
+    final reverted =
+        AiTrace.events.where((e) => e.kind == 'cad.reverted').length;
+    if (reverted > 0) {
+      out.add('$reverted action block(s) were ROLLED BACK — see `ai/trace.txt` '
+          'for which op failed and why');
+    }
+  } catch (e) {
+    out.add('<assistant triage failed: $e>');
+  }
+  return out;
+}
+
+String _oneLine(String s) {
+  final flat = s.replaceAll(RegExp(r'\s+'), ' ').trim();
+  return flat.length <= 200 ? flat : '${flat.substring(0, 200)}…';
 }
 
 /// The window and the display it is on, as the bundle records them.
@@ -332,6 +451,21 @@ Future<BugCaptureResult> captureBugReport(
     final prevText = readLogTail(
         logPath.replaceFirst('prototype_log.txt', 'prototype_log_prev.txt'));
 
+    // M443 — the assistant's half, gathered the same defensive way as the
+    // rest: five independent steps, each of which puts its own failure in the
+    // bundle rather than costing the user the whole report.
+    const pretty = JsonEncoder.withIndent('  ');
+    final aiDiagnostics =
+        _try('ai diagnostics', () => pretty.convert(app.ai.diagnostics()));
+    final aiSessions = _try(
+        'ai sessions', () => pretty.convert(app.ai.exportSessions()));
+    final aiTranscript =
+        _try('ai transcript', () => app.ai.transcript().join('\n'));
+    final aiTrace = _try('ai trace', () => AiTrace.dump().join('\n'));
+    final aiTraceJson =
+        _try('ai trace json', () => pretty.convert(AiTrace.json()));
+    final aiFindings = aiTriage(app);
+
     final files = buildBundle(
       description: description,
       when: when,
@@ -360,6 +494,16 @@ Future<BugCaptureResult> captureBugReport(
       // the screen. Said on the desktop, where the runner now has a real grab
       // and falling back means something went wrong with it.
       screenshotIsLayerTree: _isDesktop && !nativeScreenshot,
+      // Always present, even when the assistant was never used: "no request
+      // was made in this session" is an answer, and a member that is missing
+      // whenever the feature is idle is indistinguishable from a member that
+      // failed to be written.
+      aiDiagnosticsJson: aiDiagnostics,
+      aiTranscriptText: aiTranscript,
+      aiSessionsJson: aiSessions,
+      aiTraceText: aiTrace,
+      aiTraceJson: aiTraceJson,
+      aiNotes: aiFindings,
     );
 
     // Added here rather than in buildBundle because it needs the scene layer,
