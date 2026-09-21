@@ -35,3 +35,7 @@ bench-out/
 # CMake build and the patched Cycles inside it. Several gigabytes of a build
 # product, rebuilt by the script from a pinned commit.
 backend/cycles/build-linux/
+
+# M440 — debug dumps from the freeform segmenter, never a source file.
+segments.txt
+segments_split.txt
