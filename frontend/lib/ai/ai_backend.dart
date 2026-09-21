@@ -32,15 +32,35 @@ const int kAiMaxOutputTokens = 8192;
 /// because a model that fills 32k three times is not going to fit in four.
 const int kAiMaxTruncationRetries = 2;
 
-/// The output allowance for one attempt.
-///
-/// Grows rather than starting large: the first attempt is what almost every
-/// turn costs, and a 32k allowance requested every time is a 32k allowance
-/// some providers reserve every time.
-int aiOutputBudget(int attempt) => switch (attempt) {
+/// For a provider whose API makes the field mandatory.
+int aiRequiredOutputBudget(int attempt) => switch (attempt) {
       <= 0 => kAiMaxOutputTokens,
-      1 => kAiMaxOutputTokens * 2,
-      _ => kAiMaxOutputTokens * 4,
+      1 => kAiMaxOutputTokens * 4,
+      _ => kAiMaxOutputTokens * 8,
+    };
+
+/// The largest output DeepSeek's chat completions accept, from its own
+/// parameter documentation: 1 to 384K.
+const int kDeepSeekMaxOutputTokens = 393216;
+
+/// The output allowance for one attempt, or NULL to send no cap at all.
+///
+/// THE CAP WAS THE BUG. Sending `max_tokens: 8192` looked conservative and
+/// was the opposite: DeepSeek's default when the field is ABSENT is 8K in
+/// non-thinking mode and 64K in thinking mode (128K at reasoning_effort
+/// "max"). So an explicit 8192 took a thinking model down to an eighth of
+/// what it would have had on its own — and then the app told the user to ask
+/// for a smaller step.
+///
+/// So the ordinary turn sends no cap and gets the model's own maximum. Only a
+/// retry names a number, and only because by then the model's own default has
+/// already proved too small; it has to be explicit there because the retry
+/// also lowers reasoning_effort, and "none" would otherwise drop the implicit
+/// default back to 8K.
+int? aiOutputBudget(int attempt) => switch (attempt) {
+      <= 0 => null,
+      1 => kDeepSeekMaxOutputTokens ~/ 3,
+      _ => kDeepSeekMaxOutputTokens ~/ 2,
     };
 
 class AiCapabilities {
@@ -65,7 +85,8 @@ class AiRequest {
       required List<AiMessage> messages,
       this.sessionId,
       this.round,
-      this.attempt = 0})
+      this.attempt = 0,
+      this.thorough = false})
       : messages = List.unmodifiable(messages);
   final String id;
   final String instructions;
@@ -82,6 +103,11 @@ class AiRequest {
   /// attempt came back truncated, and the backend answers with a larger
   /// output allowance and less reasoning. See [aiOutputBudget].
   final int attempt;
+
+  /// Whether this turn is doing work worth deliberating over — set by the
+  /// controller from the document's own open requirements, never by the user.
+  /// See [deepSeekReasoningEffort].
+  final bool thorough;
 }
 
 class AiReply {
@@ -164,13 +190,32 @@ bool deepSeekTakesThinking(String model) =>
 /// after it is execution against a plan the model already has, with the
 /// result of the last block in front of it. So: full effort once, low effort
 /// thereafter.
-String deepSeekReasoningEffort(int? round, [int attempt = 0]) {
-  // A retry exists because the last answer did not fit. Reasoning is what
-  // fills that budget on this model, so each attempt thinks less as well as
-  // getting more room — two levers on one failure.
+/// How hard to think, decided by the app, with nothing for the user to set.
+///
+/// THE ROUND NUMBER WAS THE WRONG SIGNAL. Tying full effort to round 0 meant
+/// every turn paid for deliberation whether or not it needed any: in the
+/// measured session, round 0 spent 1,922 reasoning tokens and 42 seconds
+/// producing a single clarifying question. "Add a 5 mm hole" would have paid
+/// the same.
+///
+/// The right signal is already in the document. The instructions tell the
+/// model to write down what "done" means as `must` requirements before
+/// building a whole object, and to ask about the manufacturing process first.
+/// So an open "must" IS the record that a big job is in progress — and a
+/// narrow change never creates one. "Add a hole" stays cheap end to end;
+/// "make me a tea cup" thinks hard exactly while there is something
+/// outstanding to think about.
+///
+/// It is also the model's own lever, through a mechanism that already exists
+/// and that the user can see in the panel: what it recorded is what it gets.
+///
+/// A retry means the last answer did not fit the model's own ceiling, and on
+/// this model reasoning is what fills that ceiling — so each attempt thinks
+/// less as well as getting more room.
+String deepSeekReasoningEffort({required bool thorough, int attempt = 0}) {
   if (attempt >= 2) return 'none';
   if (attempt == 1) return 'low';
-  return (round ?? 1) == 0 ? 'high' : 'low';
+  return thorough ? 'high' : 'low';
 }
 
 class DeviceAiBackend implements AiBackend {
@@ -414,10 +459,11 @@ class DeviceAiBackend implements AiBackend {
     final body = isDeepSeek
         ? <String, dynamic>{
             'model': preferences.model,
-            'max_tokens': aiOutputBudget(request.attempt),
+            if (aiOutputBudget(request.attempt) != null)
+              'max_tokens': aiOutputBudget(request.attempt),
             if (deepSeekTakesThinking(preferences.model))
-              'reasoning_effort':
-                  deepSeekReasoningEffort(request.round, request.attempt),
+              'reasoning_effort': deepSeekReasoningEffort(
+                  thorough: request.thorough, attempt: request.attempt),
             'messages': [
               {'role': 'system', 'content': request.instructions},
               for (final m in request.messages)
@@ -457,11 +503,18 @@ class DeviceAiBackend implements AiBackend {
                       ],
                     })
                 .toList(),
-            'generationConfig': {'maxOutputTokens': aiOutputBudget(request.attempt)},
+            'generationConfig': {
+              if (aiOutputBudget(request.attempt) != null)
+                'maxOutputTokens': aiOutputBudget(request.attempt)
+            },
           }
         : <String, dynamic>{
             'model': preferences.model,
-            'max_tokens': aiOutputBudget(request.attempt),
+            // Anthropic's Messages API REQUIRES this field, so Claude cannot
+            // simply be handed the model's own ceiling the way DeepSeek and
+            // Gemini can. It keeps the escalating number, which the retry
+            // ladder then raises if a turn really does not fit.
+            'max_tokens': aiRequiredOutputBudget(request.attempt),
             'system': request.instructions,
             'messages': request.messages
                 .map((m) => {

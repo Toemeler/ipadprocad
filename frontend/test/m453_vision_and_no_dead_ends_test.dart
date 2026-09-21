@@ -43,12 +43,13 @@ void main() {
         .setMockMethodCallHandler(vault, null);
   });
 
-  AiRequest request({List<AiAttachment> attachments = const [], int? round}) =>
+  AiRequest request(
+          {List<AiAttachment> attachments = const [], bool thorough = false}) =>
       AiRequest(
           id: 'request',
           instructions: 'Only inspect.',
           context: '{"name":"Bracket"}',
-          round: round,
+          thorough: thorough,
           messages: [
             AiMessage(
                 role: 'user', text: 'Look at it.', attachments: attachments)
@@ -56,7 +57,7 @@ void main() {
 
   /// Runs one request against a fake DeepSeek and returns the body it sent.
   Future<Map<String, dynamic>> bodyFor(String model,
-      {List<AiAttachment> attachments = const [], int? round}) async {
+      {List<AiAttachment> attachments = const [], bool thorough = false}) async {
     late Map<String, dynamic> sent;
     final backend = DeviceAiBackend(
         clientFactory: () => MockClient((r) async {
@@ -75,7 +76,7 @@ void main() {
     addTearDown(backend.dispose);
     await backend.respond(
         AiPreferences(provider: AiProvider.deepseek, model: model),
-        request(attachments: attachments, round: round));
+        request(attachments: attachments, thorough: thorough));
     return sent;
   }
 
@@ -126,29 +127,85 @@ void main() {
   });
 
   group('thinking reaches the wire', () {
-    test('full effort on the first round, low after', () async {
-      expect((await bodyFor(kDeepSeekDefaultModel, round: 0))['reasoning_effort'],
+    test('cheap by default, thorough only when something is outstanding',
+        () async {
+      expect((await bodyFor(kDeepSeekDefaultModel))['reasoning_effort'], 'low');
+      expect(
+          (await bodyFor(kDeepSeekDefaultModel, thorough: true))
+              ['reasoning_effort'],
           'high');
-      expect((await bodyFor(kDeepSeekDefaultModel, round: 3))['reasoning_effort'],
-          'low');
     });
 
     test('a model without the controls is not sent them', () async {
-      final body = await bodyFor('deepseek-v4-pro', round: 0);
+      final body = await bodyFor('deepseek-v4-pro');
       expect(body.containsKey('reasoning_effort'), isFalse);
     });
   });
 
-  group('a cut-off reply is recovered, not reported', () {
-    test('the budget and the reasoning both move on a retry', () {
-      expect(aiOutputBudget(0), kAiMaxOutputTokens);
-      expect(aiOutputBudget(1), greaterThan(aiOutputBudget(0)));
-      expect(aiOutputBudget(2), greaterThan(aiOutputBudget(1)));
-      expect(deepSeekReasoningEffort(0, 0), 'high');
-      expect(deepSeekReasoningEffort(0, 1), 'low');
-      expect(deepSeekReasoningEffort(0, 2), 'none');
+  group('nothing caps the answer but the model itself', () {
+    test('an ordinary turn sends no max_tokens at all', () async {
+      // Sending 8192 was WORSE than sending nothing: DeepSeek's own default
+      // with the field absent is 64K in thinking mode.
+      final body = await bodyFor(kDeepSeekDefaultModel);
+      expect(body.containsKey('max_tokens'), isFalse);
+      expect(aiOutputBudget(0), isNull);
     });
 
+    test('only a retry names a number, and it is a large one', () {
+      expect(aiOutputBudget(1), greaterThan(kAiMaxOutputTokens * 4));
+      expect(aiOutputBudget(2), greaterThan(aiOutputBudget(1)!));
+      expect(aiOutputBudget(2), lessThanOrEqualTo(kDeepSeekMaxOutputTokens));
+    });
+
+    test('a provider that requires the field still gets one', () {
+      expect(aiRequiredOutputBudget(0), kAiMaxOutputTokens);
+      expect(aiRequiredOutputBudget(2), greaterThan(aiRequiredOutputBudget(0)));
+    });
+  });
+
+  group('the app decides thoroughness from its own record', () {
+    test('a narrow change asks for no deliberation', () async {
+      final backend = _Capturing();
+      final controller = _controllerWith(backend);
+      controller.updateDraft('Add a 5 mm hole');
+      await controller.send();
+      expect(backend.requests.single.thorough, isFalse);
+    });
+
+    test('an open requirement the model wrote buys it', () async {
+      final backend = _Capturing();
+      final controller = _controllerWith(backend);
+      controller.briefs.add(
+          'doc',
+          AiRequirement(
+              text: 'Must hold 200 ml.', kind: AiRequirementKind.must));
+      controller.updateDraft('Make me a tea cup');
+      await controller.send();
+      expect(backend.requests.single.thorough, isTrue);
+    });
+
+    test('a satisfied requirement stops costing', () async {
+      final backend = _Capturing();
+      final controller = _controllerWith(backend);
+      final r = controller.briefs.add('doc',
+          AiRequirement(text: 'Must hold 200 ml.', kind: AiRequirementKind.must));
+      controller.briefs.markDone('doc', r.id);
+      controller.updateDraft('Now add a hole');
+      await controller.send();
+      expect(backend.requests.single.thorough, isFalse);
+    });
+
+    test('an assumption is not a reason to think harder', () async {
+      final backend = _Capturing();
+      final controller = _controllerWith(backend);
+      controller.briefs.add('doc', AiRequirement(text: 'Probably 80 mm tall.'));
+      controller.updateDraft('Add a hole');
+      await controller.send();
+      expect(backend.requests.single.thorough, isFalse);
+    });
+  });
+
+  group('a cut-off reply is recovered, not reported', () {
     test('the user gets the answer, never the apology', () async {
       final backend = _Truncating(truncateFirst: 1);
       final controller = _controllerWith(backend);
@@ -218,6 +275,36 @@ class _Truncating implements AiBackend {
       throw const AiException('truncated');
     }
     if (thenThrow != null) throw AiException(thenThrow!);
+    return const AiReply('Done.', 'test');
+  }
+
+  @override
+  Future<void> cancel(String requestId) async {}
+  @override
+  Future<bool> hasKey(AiProvider provider) async => true;
+  @override
+  Future<void> saveKey(AiProvider provider, String key) async {}
+  @override
+  Future<void> removeKey(AiProvider provider) async {}
+  @override
+  Future<AiAttachment?> pasteImage() async => null;
+  @override
+  void dispose() {}
+}
+
+
+/// Records the requests the controller builds.
+class _Capturing implements AiBackend {
+  final requests = <AiRequest>[];
+
+  @override
+  Future<AiCapabilities> capabilities(AiPreferences preferences) async =>
+      AiCapabilities(
+          provider: preferences.provider, label: 'Test', available: true);
+
+  @override
+  Future<AiReply> respond(AiPreferences preferences, AiRequest request) async {
+    requests.add(request);
     return const AiReply('Done.', 'test');
   }
 

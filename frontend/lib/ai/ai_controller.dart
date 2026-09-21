@@ -637,7 +637,12 @@ class AiController extends ChangeNotifier {
                 messages: aiCompactTurns(turns),
                 sessionId: session.id,
                 round: round,
-                attempt: attempt),
+                attempt: attempt,
+                // What the model itself wrote down as still outstanding. A
+                // narrow change records nothing and stays cheap; a whole
+                // object records its definition of done and gets the
+                // deliberation while it is open.
+                thorough: _hasOpenMusts(target.id)),
             requestId: requestId,
             sessionId: session.id,
             round: round);
@@ -829,7 +834,8 @@ class AiController extends ChangeNotifier {
                   instructions: _instructionsFor(actions: false),
                   context: contextText,
                   messages: aiCompactTurns(turns),
-                  attempt: attempt),
+                  attempt: attempt,
+                  thorough: _hasOpenMusts(target.id)),
               requestId: requestId,
               sessionId: session.id);
           if (!stillCurrent()) return;
@@ -898,6 +904,12 @@ class AiController extends ChangeNotifier {
       _notify();
     }
   }
+
+  /// Whether this document has an unmet requirement the model recorded for
+  /// itself. The app's only honest signal that real design work is in flight.
+  bool _hasOpenMusts(String documentId) => briefs
+      .of(documentId)
+      .any((r) => !r.done && r.kind == AiRequirementKind.must);
 
   /// One provider turn, retried on its way back if it arrived cut off.
   ///

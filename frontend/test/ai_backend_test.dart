@@ -179,11 +179,16 @@ void main() {
     // `reasoning_content` and returned finish_reason "length" with an EMPTY
     // message. The turn failed, the draft rolled back, and the user watched a
     // minute of "thinking" end in nothing.
+    //
+    // The answer then was a bigger number. The answer now is NO number: with
+    // max_tokens absent, DeepSeek allows 8K in non-thinking mode and 64K in
+    // thinking mode, so the 8192 this test used to assert was capping a
+    // reasoning model at an eighth of its own ceiling — a smaller budget than
+    // sending nothing at all.
     final backend = DeviceAiBackend(
         clientFactory: () => MockClient((r) async {
               final body = jsonDecode(r.body) as Map;
-              expect(body['max_tokens'], kAiMaxOutputTokens);
-              expect(kAiMaxOutputTokens, greaterThanOrEqualTo(8192));
+              expect(body.containsKey('max_tokens'), isFalse);
               return http.Response(
                   jsonEncode({
                     'choices': [
@@ -205,8 +210,9 @@ void main() {
 
   test('a cut-off reply is reported AS cut off, not as a generic failure',
       () async {
-    // The user can act on "ask for a smaller step". They cannot act on
-    // "something went wrong".
+    // Which code it is decides what the controller does about it: only
+    // 'truncated' is retried with more room and less reasoning, and a generic
+    // response error would put that recovery out of reach.
     final backend = DeviceAiBackend(
         clientFactory: () => MockClient((_) async => http.Response(
             jsonEncode({

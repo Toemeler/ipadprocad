@@ -109,16 +109,21 @@ void main() {
     });
   });
 
-  group('thinking is a dial, not a constant', () {
-    test('full effort on the round where the judgement is', () {
-      expect(deepSeekReasoningEffort(0), 'high');
+  group('thinking is a dial the app sets, not the user', () {
+    test('a narrow change never pays for deliberation', () {
+      // The old rule spent full effort on round 0 of EVERY turn — 1,922
+      // reasoning tokens and 42 seconds, in the measured session, to produce
+      // one clarifying question. "Add a 5 mm hole" would have paid the same.
+      expect(deepSeekReasoningEffort(thorough: false), 'low');
     });
 
-    test('low effort on every execution round after it', () {
-      expect(deepSeekReasoningEffort(1), 'low');
-      expect(deepSeekReasoningEffort(7), 'low');
-      // A closing answer carries no round and needs no deliberation.
-      expect(deepSeekReasoningEffort(null), 'low');
+    test('an outstanding requirement buys it', () {
+      expect(deepSeekReasoningEffort(thorough: true), 'high');
+    });
+
+    test('a retry thinks less as it is given more room', () {
+      expect(deepSeekReasoningEffort(thorough: true, attempt: 1), 'low');
+      expect(deepSeekReasoningEffort(thorough: true, attempt: 2), 'none');
     });
 
     test('only a model that takes the controls is sent them', () {
