@@ -8700,6 +8700,18 @@ abstract class AppL10n {
   /// In de, this message translates to:
   /// **'Notiert die Anforderung'**
   String get aiWorkNoting;
+
+  /// No description provided for @aiErrorTruncated.
+  ///
+  /// In de, this message translates to:
+  /// **'Die Antwort wurde abgeschnitten. Frag in kleineren Schritten.'**
+  String get aiErrorTruncated;
+
+  /// No description provided for @aiElapsedSeconds.
+  ///
+  /// In de, this message translates to:
+  /// **'{seconds} s'**
+  String aiElapsedSeconds(int seconds);
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

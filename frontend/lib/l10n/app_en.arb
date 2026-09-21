@@ -1645,5 +1645,7 @@
   "aiLess": "Less",
   "aiChangeCount": "{count, plural, =1{1 change} other{{count} changes}}",
   "aiCanModel": "Can model in the open part, and reports what it measured while doing it.",
-  "aiWorkNoting": "Noting the requirement"
+  "aiWorkNoting": "Noting the requirement",
+  "aiErrorTruncated": "The reply was cut off. Ask for a smaller step.",
+  "aiElapsedSeconds": "{seconds} s"
 }

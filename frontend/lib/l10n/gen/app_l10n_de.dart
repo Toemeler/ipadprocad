@@ -5286,4 +5286,13 @@ class AppL10nDe extends AppL10n {
 
   @override
   String get aiWorkNoting => 'Notiert die Anforderung';
+
+  @override
+  String get aiErrorTruncated =>
+      'Die Antwort wurde abgeschnitten. Frag in kleineren Schritten.';
+
+  @override
+  String aiElapsedSeconds(int seconds) {
+    return '$seconds s';
+  }
 }

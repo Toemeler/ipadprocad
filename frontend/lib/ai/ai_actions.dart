@@ -68,14 +68,27 @@ const Set<String> kAiReadOnlyOps = {
 /// failed: it is something the user said, not something the app built.
 const Set<String> kAiBriefOps = {'brief_note', 'brief_done'};
 
-/// Actions in one block. A model that wants more takes another round, which
-/// keeps each committed change small enough to read in the browser.
-const int kAiMaxActionsPerBlock = 24;
+/// Actions in one block.
+///
+/// Was 24, which let a model answer "make me an espresso cup" by planning the
+/// entire part and emitting it at once. That is the wrong shape of work for
+/// this panel (issue #70): the user waits a minute watching one unchanging
+/// word, and if anything goes wrong they get nothing at all rather than the
+/// three steps that did succeed.
+///
+/// Six forces the same part to arrive as a sequence of small blocks, each of
+/// which lands in the document, is visible in the browser, and is undoable on
+/// its own. It costs more requests — every round resends the conversation —
+/// and that is the trade: time-to-first-geometry over total tokens.
+const int kAiMaxActionsPerBlock = 6;
 
 /// How many times one `send()` may go model -> actions -> results -> model.
-/// Bounded because every round is a paid request, and an agent that cannot
-/// finish in four rounds is not converging.
-const int kAiMaxActionRounds = 4;
+///
+/// Raised with the block size cut: six actions a block needs more rounds to
+/// build the same part, and stopping at four would leave a cup with no handle.
+/// Still bounded — every round is a paid request, and a model that has not
+/// converged in ten is not going to.
+const int kAiMaxActionRounds = 10;
 
 class AiAction {
   const AiAction(this.op, this.args);
@@ -313,8 +326,18 @@ enum AiPhase {
 }
 
 class AiActivity {
-  const AiActivity(this.phase, {this.op, this.step = 0, this.total = 0});
-  static const none = AiActivity(AiPhase.idle);
+  AiActivity(this.phase, {this.op, this.step = 0, this.total = 0, DateTime? since})
+      : since = since ?? DateTime.now();
+  static final none = AiActivity(AiPhase.idle);
+
+  /// When this phase began, so the panel can show how long it has been going.
+  ///
+  /// One unchanging word for a minute is indistinguishable from a hang — which
+  /// is what issue #70 reported. A counter next to it is the difference
+  /// between "it is working" and "it has stopped".
+  final DateTime since;
+
+  Duration get elapsed => DateTime.now().difference(since);
 
   final AiPhase phase;
 
@@ -382,6 +405,14 @@ MODEL EDITING. You can change the open part by emitting a fenced block:
              {"op": "extrude", "distance": 10}]}
 ```
 
+START NOW, IN SMALL STEPS. Do not plan the whole part before acting and do
+not describe what you are about to do. Emit the FIRST small block immediately —
+one or two actions is a good first block — and let the result come back before
+deciding the next one. The user watches the model change as each block lands,
+so three small blocks that arrive over ten seconds are worth far more than one
+perfect block that arrives after a minute. If you find yourself writing a plan,
+stop and run its first step instead.
+
 Rules that are not negotiable:
 - Lengths are millimetres, angles are degrees, in the document's own frame.
 - The block is executed in order, as ONE transaction. If any action fails, the
@@ -389,7 +420,7 @@ Rules that are not negotiable:
 - You are given the result of every block before you answer the user. Read it.
   Report what the document actually says, not what you asked for.
 - Emit at most one block per turn, and at most $kAiMaxActionsPerBlock actions
-  in it. Prefer a small block, read the result, then continue.
+  in it. Prefer fewer: the first block should usually be one or two actions.
 - If you are unsure what is in the document, run {"op": "describe_part"} first.
 - Never claim a change you did not make, or a measurement the report does not
   contain.

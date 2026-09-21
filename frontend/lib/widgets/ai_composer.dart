@@ -40,6 +40,30 @@ class _AiComposerState extends State<AiComposer> {
   /// Messages the user asked to see in full — a long answer and the detail
   /// behind a changes row are both collapsed until then.
   final _expanded = <String>{};
+
+  /// Drives the elapsed counter while the assistant is busy.
+  ///
+  /// The controller does not tick: it would notify every listener once a
+  /// second for a number only this line draws. The panel owns its own clock
+  /// and starts it only while there is something to count.
+  Timer? _tick;
+
+  void _syncTicker() {
+    final busy = ai.activity.isBusy;
+    if (busy && _tick == null) {
+      _tick = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted && ai.activity.isBusy) {
+          setState(() {});
+        } else {
+          _tick?.cancel();
+          _tick = null;
+        }
+      });
+    } else if (!busy && _tick != null) {
+      _tick!.cancel();
+      _tick = null;
+    }
+  }
   bool _attaching = false;
 
   AiController get ai => widget.app.ai;
@@ -90,6 +114,7 @@ class _AiComposerState extends State<AiComposer> {
 
   @override
   void dispose() {
+    _tick?.cancel();
     ai.removeListener(_changed);
     _text.dispose();
     _focus.dispose();
@@ -481,6 +506,7 @@ class _AiComposerState extends State<AiComposer> {
   /// status the model narrates arrives only when the model does, and is one
   /// more thing it can get wrong.
   Widget _activityLine() {
+    _syncTicker();
     final activity = ai.activity;
     final label = switch (activity.work) {
       AiWork.thinking => t.aiWorkThinking,
@@ -510,6 +536,13 @@ class _AiComposerState extends State<AiComposer> {
             if (activity.total > 1) ...[
               const SizedBox(width: 8),
               Text(t.aiStepOf(activity.step, activity.total),
+                  style: IosText.caption1.on(T.dim)),
+            ],
+            // #70 — a minute of one unchanging word is indistinguishable from
+            // a hang. Shown from three seconds, so a quick turn stays quiet.
+            if (activity.elapsed.inSeconds >= 3) ...[
+              const SizedBox(width: 8),
+              Text(t.aiElapsedSeconds(activity.elapsed.inSeconds),
                   style: IosText.caption1.on(T.dim)),
             ],
           ],

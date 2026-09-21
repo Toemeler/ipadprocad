@@ -55,9 +55,9 @@ void main() {
     });
 
     test('with no op in flight the phase is thinking, not working', () {
-      expect(const AiActivity(AiPhase.thinking).work, AiWork.thinking);
+      expect(AiActivity(AiPhase.thinking).work, AiWork.thinking);
       expect(AiActivity.none.isBusy, isFalse);
-      expect(const AiActivity(AiPhase.thinking).isBusy, isTrue);
+      expect(AiActivity(AiPhase.thinking).isBusy, isTrue);
     });
   });
 
@@ -121,6 +121,58 @@ void main() {
       held.complete(const AiReply('too late', 'test'));
       await sending;
       expect(controller.activity.phase, AiPhase.idle);
+    });
+  });
+
+  group('issue #70 — small fast steps, visible as they land', () {
+    test('a block is capped small enough to arrive quickly', () {
+      // 24 let a model answer "make me an espresso cup" by planning the whole
+      // part and emitting it at once: a minute of one unchanging word, and
+      // nothing at all if any of it failed.
+      expect(kAiMaxActionsPerBlock, lessThanOrEqualTo(6));
+      // ...and the round budget has to allow the same part to still finish.
+      expect(kAiMaxActionRounds, greaterThanOrEqualTo(8));
+    });
+
+    test('the instructions say to act now rather than plan', () async {
+      final backend = _Backend((_) async => const AiReply('Done.', 'test'));
+      final controller = controllerWith(backend)
+        ..actionRunner =
+            ((batch, {onStep}) async => AiActionReport(outcomes: const []));
+      controller.updateDraft('Make an espresso cup');
+      await controller.send();
+      final sent = backend.requests.single.instructions;
+      expect(sent, contains('START NOW, IN SMALL STEPS'));
+      expect(sent, contains('Do not plan the whole part before acting'));
+      expect(sent, contains('stop and run its first step instead'));
+    });
+
+    test('many small blocks are allowed to finish the job', () async {
+      // Four rounds used to be the ceiling, which with six-action blocks would
+      // leave a cup with no handle.
+      var rounds = 0;
+      final backend = _Backend((i) async => AiReply(
+          i < 6
+              ? 'Step.\n```cad\n{"actions":[{"op":"create_sketch"}]}\n```'
+              : 'Done.',
+          'test'));
+      final controller = controllerWith(backend)
+        ..actionRunner = ((batch, {onStep}) async {
+            rounds++;
+            return AiActionReport(
+                outcomes: [for (final a in batch) AiActionOutcome(a.op)]);
+          });
+      controller.updateDraft('Make an espresso cup');
+      await controller.send();
+      expect(rounds, 6, reason: 'every step should have been allowed to run');
+      expect(controller.currentSession.messages.last.text, contains('Done.'));
+    });
+
+    test('the status carries how long it has been going', () async {
+      final activity = AiActivity(AiPhase.thinking,
+          since: DateTime.now().subtract(const Duration(seconds: 42)));
+      // One unchanging word for a minute reads as a hang; a counter does not.
+      expect(activity.elapsed.inSeconds, greaterThanOrEqualTo(42));
     });
   });
 

@@ -5230,4 +5230,13 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get aiWorkNoting => 'Noting the requirement';
+
+  @override
+  String get aiErrorTruncated =>
+      'The reply was cut off. Ask for a smaller step.';
+
+  @override
+  String aiElapsedSeconds(int seconds) {
+    return '$seconds s';
+  }
 }

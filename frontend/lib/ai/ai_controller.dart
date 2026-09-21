@@ -551,7 +551,7 @@ class AiController extends ChangeNotifier {
       for (var round = 0;; round++) {
         rounds = round + 1;
         final last = round >= kAiMaxActionRounds;
-        _setActivity(const AiActivity(AiPhase.thinking));
+        _setActivity(AiActivity(AiPhase.thinking));
         AiTrace.record('round',
             requestId: requestId,
             sessionId: session.id,
@@ -642,7 +642,7 @@ class AiController extends ChangeNotifier {
         // of an argument: the model is told once, answers once, and does not
         // get to retry into a wall.
         if (report.blocked != null) {
-          _setActivity(const AiActivity(AiPhase.thinking));
+          _setActivity(AiActivity(AiPhase.thinking));
           final closing = await _backend.respond(
               preferences,
               AiRequest(

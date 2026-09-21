@@ -12,6 +12,17 @@ import '../log.dart';
 import 'ai_models.dart';
 import 'ai_trace.dart';
 
+/// What one reply may cost in output tokens.
+///
+/// 4096 was fine while every provider spent its budget on the ANSWER. It is
+/// not fine for a reasoning model: DeepSeek counts `reasoning_content` against
+/// the same allowance, so a request big enough to think about ("make me an
+/// espresso cup with a handle") spends the whole budget reasoning and returns
+/// `finish_reason: "length"` with an EMPTY message. The turn then fails, the
+/// draft is rolled back, and the transcript is left empty — which is issue #70
+/// exactly: a minute of "thinking" and then nothing.
+const int kAiMaxOutputTokens = 8192;
+
 class AiCapabilities {
   const AiCapabilities(
       {required this.provider,
@@ -304,7 +315,7 @@ class DeviceAiBackend implements AiBackend {
     final body = isDeepSeek
         ? <String, dynamic>{
             'model': preferences.model,
-            'max_tokens': 4096,
+            'max_tokens': kAiMaxOutputTokens,
             'messages': [
               {'role': 'system', 'content': request.instructions},
               for (final m in request.messages)
@@ -334,11 +345,11 @@ class DeviceAiBackend implements AiBackend {
                       ],
                     })
                 .toList(),
-            'generationConfig': {'maxOutputTokens': 4096},
+            'generationConfig': {'maxOutputTokens': kAiMaxOutputTokens},
           }
         : <String, dynamic>{
             'model': preferences.model,
-            'max_tokens': 4096,
+            'max_tokens': kAiMaxOutputTokens,
             'system': request.instructions,
             'messages': request.messages
                 .map((m) => {
@@ -503,7 +514,14 @@ class DeviceAiBackend implements AiBackend {
         // is still writing; anything other than a finished turn is a truncated
         // or withheld answer, and neither is a reply.
         if (reason != 'stop') {
-          throw AiException(reason == 'content_filter' ? 'refused' : 'response');
+          throw AiException(switch (reason) {
+            'content_filter' => 'refused',
+            // Say WHICH failure it was. "The reply was cut off" tells the user
+            // to ask for less; a generic response error tells them nothing,
+            // and a reasoning model hits this far more easily than a chat one.
+            'length' => 'truncated',
+            _ => 'response',
+          });
         }
         text = ((choice['message'] as Map?)?['content'] as String?) ?? '';
       } else if (isGemini) {
@@ -529,9 +547,10 @@ class DeviceAiBackend implements AiBackend {
                 'promptFeedback': response['promptFeedback'],
             });
         if (candidate['finishReason'] != 'STOP') {
-          throw AiException(candidate['finishReason'] == 'MAX_TOKENS'
-              ? 'response'
-              : 'refused');
+          throw AiException(switch (candidate['finishReason']) {
+            'MAX_TOKENS' => 'truncated',
+            _ => 'refused',
+          });
         }
         text = ((candidate['content'] as Map?)?['parts'] as List? ?? [])
             .whereType<Map>()
@@ -560,8 +579,11 @@ class DeviceAiBackend implements AiBackend {
               ],
             });
         if (response['stop_reason'] != 'end_turn') {
-          throw AiException(
-              response['stop_reason'] == 'refusal' ? 'refused' : 'response');
+          throw AiException(switch (response['stop_reason']) {
+            'refusal' => 'refused',
+            'max_tokens' => 'truncated',
+            _ => 'response',
+          });
         }
         text = (response['content'] as List? ?? [])
             .whereType<Map>()

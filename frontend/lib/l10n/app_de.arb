@@ -4867,5 +4867,14 @@
     }
   },
   "aiCanModel": "Kann im geöffneten Bauteil modellieren und nennt, was dabei gemessen wurde.",
-  "aiWorkNoting": "Notiert die Anforderung"
+  "aiWorkNoting": "Notiert die Anforderung",
+  "aiErrorTruncated": "Die Antwort wurde abgeschnitten. Frag in kleineren Schritten.",
+  "aiElapsedSeconds": "{seconds} s",
+  "@aiElapsedSeconds": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  }
 }

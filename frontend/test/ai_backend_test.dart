@@ -102,7 +102,9 @@ void main() {
             const AiPreferences(
                 provider: AiProvider.anthropic, model: 'test-model'),
             request(attachments: [pdf])),
-        throwsA(isA<AiException>().having((e) => e.code, 'code', 'response')));
+        // #70 — a reply stopped by the output budget is reported AS cut off.
+        // "Ask for a smaller step" is actionable; a generic failure is not.
+        throwsA(isA<AiException>().having((e) => e.code, 'code', 'truncated')));
   });
 
   test('DeepSeek uses bearer auth, the chat-completions shape, and one system '
@@ -171,7 +173,62 @@ void main() {
             .having((e) => e.code, 'code', 'imagesUnsupported')));
   });
 
-  test('DeepSeek treats a truncated completion as no answer at all', () async {
+  test('a reasoning model gets an output budget its thinking cannot exhaust',
+      () async {
+    // #70 — deepseek-v4-pro spent the whole 4096-token allowance on
+    // `reasoning_content` and returned finish_reason "length" with an EMPTY
+    // message. The turn failed, the draft rolled back, and the user watched a
+    // minute of "thinking" end in nothing.
+    final backend = DeviceAiBackend(
+        clientFactory: () => MockClient((r) async {
+              final body = jsonDecode(r.body) as Map;
+              expect(body['max_tokens'], kAiMaxOutputTokens);
+              expect(kAiMaxOutputTokens, greaterThanOrEqualTo(8192));
+              return http.Response(
+                  jsonEncode({
+                    'choices': [
+                      {
+                        'finish_reason': 'stop',
+                        'message': {'content': 'Done.'}
+                      }
+                    ]
+                  }),
+                  200);
+            }));
+    addTearDown(backend.dispose);
+    final reply = await backend.respond(
+        const AiPreferences(
+            provider: AiProvider.deepseek, model: 'deepseek-v4-pro'),
+        request());
+    expect(reply.text, 'Done.');
+  });
+
+  test('a cut-off reply is reported AS cut off, not as a generic failure',
+      () async {
+    // The user can act on "ask for a smaller step". They cannot act on
+    // "something went wrong".
+    final backend = DeviceAiBackend(
+        clientFactory: () => MockClient((_) async => http.Response(
+            jsonEncode({
+              'choices': [
+                {
+                  'finish_reason': 'length',
+                  'message': {'content': '', 'reasoning_content': 'long...'}
+                }
+              ]
+            }),
+            200)));
+    addTearDown(backend.dispose);
+    await expectLater(
+        backend.respond(
+            const AiPreferences(
+                provider: AiProvider.deepseek, model: 'deepseek-v4-pro'),
+            request()),
+        throwsA(isA<AiException>().having((e) => e.code, 'code', 'truncated')));
+  });
+
+  test('DeepSeek treats a truncated completion as no answer, and says which',
+      () async {
     final backend = DeviceAiBackend(
         clientFactory: () => MockClient((_) async => http.Response(
             jsonEncode({
@@ -189,7 +246,7 @@ void main() {
             const AiPreferences(
                 provider: AiProvider.deepseek, model: 'deepseek-chat'),
             request()),
-        throwsA(isA<AiException>().having((e) => e.code, 'code', 'response')));
+        throwsA(isA<AiException>().having((e) => e.code, 'code', 'truncated')));
   });
 
   test('provider errors never expose response bodies or credentials', () async {

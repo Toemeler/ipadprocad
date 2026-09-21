@@ -37,6 +37,7 @@ class AiException implements Exception {
       'document' => t.aiErrorDocument,
       'busy' => t.aiErrorBusy,
       'cad' => t.aiErrorCad,
+      'truncated' => t.aiErrorTruncated,
       _ => t.aiErrorResponse,
     };
   }
