@@ -12,6 +12,7 @@
 /// arithmetic on it.
 library;
 
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' show Offset;
 
@@ -101,6 +102,94 @@ OcctMeshData freeFormMesh(double dx, double dy, double dz) {
 KernelSolid solidOf(OcctMeshData m, double volume) =>
     KernelSolid(m, volume, null);
 
+/// A tube standing on the ground: a ring of [outerR] with a bore of [innerR],
+/// [height] tall along +Y (this app's up axis).
+///
+/// The bore is a real opening — the end faces are annuli, not discs — which is
+/// what makes it a fixture for "can you see through it" rather than a cylinder
+/// with a decorative inner wall. Four faces: bore, outer wall, bottom, top.
+OcctMeshData ringMesh(double outerR, double innerR, double height,
+    {int segments = 48}) {
+  final pos = <double>[], nor = <double>[], idx = <int>[], tri = <int>[];
+
+  int vertex(double x, double y, double z, double nx, double ny, double nz) {
+    final i = pos.length ~/ 3;
+    pos.addAll([x, y, z]);
+    nor.addAll([nx, ny, nz]);
+    return i;
+  }
+
+  void quad(int a, int b, int c, int d, int face) {
+    idx.addAll([a, b, c, a, c, d]);
+    tri.addAll([face, face]);
+  }
+
+  for (var s = 0; s < segments; s++) {
+    final a0 = 2 * math.pi * s / segments;
+    final a1 = 2 * math.pi * (s + 1) / segments;
+    final c0 = math.cos(a0), s0 = math.sin(a0);
+    final c1 = math.cos(a1), s1 = math.sin(a1);
+
+    // Face 0 — the bore. Normals point INWARD, toward the axis: that is what
+    // makes the digest call it concave, and therefore a hole.
+    quad(
+      vertex(innerR * c0, 0, innerR * s0, -c0, 0, -s0),
+      vertex(innerR * c1, 0, innerR * s1, -c1, 0, -s1),
+      vertex(innerR * c1, height, innerR * s1, -c1, 0, -s1),
+      vertex(innerR * c0, height, innerR * s0, -c0, 0, -s0),
+      0,
+    );
+    // Face 1 — the outer wall, normals outward.
+    quad(
+      vertex(outerR * c0, 0, outerR * s0, c0, 0, s0),
+      vertex(outerR * c0, height, outerR * s0, c0, 0, s0),
+      vertex(outerR * c1, height, outerR * s1, c1, 0, s1),
+      vertex(outerR * c1, 0, outerR * s1, c1, 0, s1),
+      1,
+    );
+    // Faces 2 and 3 — the annular ends.
+    quad(
+      vertex(innerR * c0, 0, innerR * s0, 0, -1, 0),
+      vertex(outerR * c0, 0, outerR * s0, 0, -1, 0),
+      vertex(outerR * c1, 0, outerR * s1, 0, -1, 0),
+      vertex(innerR * c1, 0, innerR * s1, 0, -1, 0),
+      2,
+    );
+    quad(
+      vertex(innerR * c0, height, innerR * s0, 0, 1, 0),
+      vertex(innerR * c1, height, innerR * s1, 0, 1, 0),
+      vertex(outerR * c1, height, outerR * s1, 0, 1, 0),
+      vertex(outerR * c0, height, outerR * s0, 0, 1, 0),
+      3,
+    );
+  }
+
+  // 15 doubles a face: [type, point(3), axis(3), …, radius at 10, …].
+  final info = <double>[];
+  void record(int type, List<double> at, List<double> dir, double radius) {
+    info.addAll([
+      type.toDouble(), at[0], at[1], at[2], dir[0], dir[1], dir[2],
+      0, 0, 0, radius, 0, 0, 0, 0,
+    ]);
+  }
+
+  record(1, [0, 0, 0], [0, 1, 0], innerR); // cylinder, on the axis
+  record(1, [0, 0, 0], [0, 1, 0], outerR);
+  record(0, [0, 0, 0], [0, -1, 0], 0);
+  record(0, [0, height, 0], [0, 1, 0], 0);
+
+  return OcctMeshData(
+    Float64List.fromList(pos),
+    Float64List.fromList(nor),
+    Int32List.fromList(idx),
+    Int32List.fromList([0]),
+    Float64List(0),
+    triFaces: Int32List.fromList(tri),
+    faceInfos: Float64List.fromList(info),
+    faceIds: Int32List.fromList([1, 2, 3, 4]),
+  );
+}
+
 /// A kernel whose extrusions are real boxes.
 ///
 /// [width] and [depth] are fixed rather than derived from the profile: the
@@ -108,8 +197,13 @@ KernelSolid solidOf(OcctMeshData m, double volume) =>
 /// that depended on how the profile happened to be tessellated would make
 /// those assertions about the fixture instead of about the code.
 class BoxKernel implements PartKernel {
-  BoxKernel({this.width = 60, this.depth = 40});
+  BoxKernel({this.width = 60, this.depth = 40, this.rings = const []});
   final double width, depth;
+
+  /// Radii of circular edges this kernel reports alongside the straight ones —
+  /// the mouths of bores, which is what a blend selector has to be able to
+  /// leave alone.
+  final List<double> rings;
   int extrudes = 0, fillets = 0, chamfers = 0, deletes = 0, moves = 0;
 
   @override
@@ -176,6 +270,9 @@ class BoxKernel implements PartKernel {
   List<OcctEdgeInfo> edgesOf(KernelSolid s) => [
         OcctEdgeInfo(1, 1, 0, 0, 0, 1, 0, 0, width, 0, 2, 90, 1),
         OcctEdgeInfo(2, 1, width, 0, 0, 0, 1, 0, depth, 0, 2, 90, 1),
+        for (var i = 0; i < rings.length; i++)
+          OcctEdgeInfo(3 + i, 2, 10.0 * i, 0, 0, 1, 0, 0,
+              2 * math.pi * rings[i], rings[i], 2, 90, 1),
       ];
 
   @override

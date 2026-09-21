@@ -11,6 +11,7 @@ import 'ai_actions.dart';
 import 'ai_brief.dart';
 import 'ai_models.dart';
 import 'ai_trace.dart';
+import 'ai_view.dart';
 import 'shape_digest.dart';
 
 /// M441 — where an assistant's intention becomes geometry.
@@ -549,7 +550,41 @@ class AiCad {
       'body': body,
       'edges': selections.length,
       if (isFillet) 'radius': _r(size) else 'distance': _r(size),
+      // ISSUE #72 — "die Radien sind an falschen orten". The report used to
+      // be a COUNT. `{"edges": "horizontal"}` matched ten of them, the model
+      // was told "edges: 10", and two of those ten were the mouths of the
+      // Ø25 bores it had just cut — which it had no way of knowing and
+      // therefore never questioned. Saying WHAT was rounded turns a silent
+      // mistake into one the next round can read and undo.
+      'rounded': _describeEdges(picked),
     });
+  }
+
+  /// The picked edges as a person would describe them: straight ones, and
+  /// circles grouped by diameter — a circular edge at the diameter of a hole
+  /// IS that hole's mouth.
+  Map<String, dynamic> _describeEdges(List<OcctEdgeInfo> picked) {
+    final straight = picked.where((e) => e.kind == 1).length;
+    final circles = <int, int>{};
+    for (final e in picked) {
+      if (e.kind == 2 && e.radius > 0) {
+        final key = (e.radius * 200).round();
+        circles[key] = (circles[key] ?? 0) + 1;
+      }
+    }
+    final rings = [
+      for (final e in circles.entries)
+        '${e.value}× Ø${_mm(e.key / 100)}'
+    ]..sort();
+    return {
+      if (straight > 0) 'straight': straight,
+      if (rings.isNotEmpty) 'circular': rings,
+      if (rings.isNotEmpty)
+        'warning': 'a circular edge at a hole\'s diameter is that hole\'s '
+            'mouth — check you meant to round it',
+      'convex': picked.where((e) => e.convexity > 0).length,
+      'concave': picked.where((e) => e.convexity < 0).length,
+    };
   }
 
   /// Which live edges an action means.
@@ -587,11 +622,17 @@ class AiCad {
     // A vertical edge runs along the world up axis, which is Y in this app
     // (see the world-frame note in part_model.dart) — not Z.
     bool vertical(OcctEdgeInfo e) => e.ty.abs() > 0.9;
+    // A closed circular edge is the mouth of a bore or the rim of a boss.
+    // "outer" is the selector that was missing when a model wanted the
+    // silhouette of a plate and got the plate AND both bore mouths.
+    bool ring(OcctEdgeInfo e) => e.kind == 2 && e.radius > 0;
     return switch ((a.text('edges') ?? 'all').toLowerCase()) {
       'convex' || 'rounds' => [for (final e in usable) if (e.convexity > 0) e],
       'concave' || 'fillets' => [for (final e in usable) if (e.convexity < 0) e],
       'vertical' => [for (final e in usable) if (vertical(e)) e],
       'horizontal' => [for (final e in usable) if (!vertical(e)) e],
+      'outer' => [for (final e in usable) if (!ring(e)) e],
+      'holes' || 'rings' => [for (final e in usable) if (ring(e)) e],
       _ => usable,
     };
   }
@@ -1137,6 +1178,20 @@ class AiCad {
           a.op, 'pol is the angle down from +Y and must be between 0 and 180');
     }
     final size = ((a.number('size') ?? 512).clamp(256, 768)).toInt();
+
+    // ISSUE #72 — THE VIEW THE MODEL CAN ALWAYS READ.
+    //
+    // The PNG below reaches Gemini and Claude. It does not reach Apple's
+    // on-device model or DeepSeek, and on those the whole op used to be a
+    // no-op dressed as a success: a picture was rendered, dropped, and the
+    // model was told it had not seen it. This is the same projection as a
+    // grid of characters, so `look` means the same thing on every provider.
+    final solid = _solidFor(p, a);
+    final text = solid == null
+        ? null
+        : renderTextView(solid.mesh.positions, solid.mesh.indices,
+            azRad: az * math.pi / 180, polRad: pol * math.pi / 180);
+
     final png = await app.aiRenderView(
       azRad: az * math.pi / 180,
       polRad: pol * math.pi / 180,
@@ -1144,34 +1199,45 @@ class AiCad {
       width: size,
       height: size,
     );
-    if (png == null || png.isEmpty) {
+    AiAttachment? image;
+    if (png != null && png.isNotEmpty) {
+      try {
+        image = AiAttachment.fromBytes(
+            name: 'view-az${az.round()}-pol${pol.round()}.png', bytes: png);
+        _views.add(image);
+      } on AiException {
+        image = null; // The text view still stands on its own.
+      }
+    }
+    if (image == null && text == null) {
       return AiActionOutcome.failed(a.op,
           'no renderer produced a view on this device — work from '
           'describe_shape and section instead');
     }
-    late final AiAttachment image;
-    try {
-      image = AiAttachment.fromBytes(
-          name: 'view-az${az.round()}-pol${pol.round()}.png', bytes: png);
-    } on AiException catch (e) {
-      return AiActionOutcome.failed(
-          a.op, 'the view could not be attached (${e.code})');
-    }
-    _views.add(image);
     return AiActionOutcome(a.op, detail: {
-      'view': image.name,
+      if (image != null) 'view': image.name,
       'azDeg': _r(az),
       'polDeg': _r(pol),
-      'pixels': size,
+      if (image != null) 'pixels': size,
       'projection': 'orthographic',
       // An image with no scale is a picture; with one it is a measurement you
       // can sanity-check. The digest's bbox is that scale.
       'scaleNote': 'orthographic and framed to the body, whose bounding box is '
           '${_mm(digest.size.x)} × ${_mm(digest.size.y)} × '
           '${_mm(digest.size.z)} mm',
+      if (text != null) 'silhouette': text.toText(),
       'note': 'Describe only what is visible. Read dimensions from '
           'describe_shape, never off this image.',
     });
+  }
+
+  /// The solid a view or a measurement is about — the named body, or the one
+  /// the last solid feature built.
+  KernelSolid? _solidFor(PartModel p, AiAction a) {
+    final named = a.text('body');
+    final body = named ??
+        (p.bodyNames.isEmpty ? null : lastSolidFeature(p)?.bodyName);
+    return body == null ? null : currentBodySolid(p, body);
   }
 
   static String _mm(double v) =>

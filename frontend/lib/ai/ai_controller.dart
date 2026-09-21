@@ -621,15 +621,35 @@ class AiController extends ChangeNotifier {
               });
           if (!push) break;
           doneChecks++;
+          // ISSUE #72 — the push-back used to carry the list and nothing
+          // else, and a model told "keep going" with no state re-added a
+          // duplicate of the base plate it had already built, then deleted it
+          // again. Handing it the CURRENT shape with the reminder is what
+          // makes "continue" a step rather than a guess.
+          String? shape;
+          if (canEditModel) {
+            try {
+              final read = await actionRunner!(
+                  const [AiAction('describe_shape', {})]);
+              final d = read.outcomes.isEmpty ? null : read.outcomes.first;
+              if (d != null && d.ok) shape = d.detail?['shape'] as String?;
+            } catch (_) {
+              // A failed read must not turn a push-back into a lost turn.
+            }
+          }
+          if (!stillCurrent()) return;
           final nudge = AiMessage(
               role: 'tool',
               text: jsonEncode({
                 'openRequirements': open,
+                if (shape != null) 'partNow': shape,
                 'note': 'You stopped, but these requirements you recorded for '
-                    'this part are still open. Continue: emit the next block, '
-                    'mark one done with brief_done if the model already '
-                    'satisfies it, or say in one sentence which one cannot be '
-                    'met and why.'
+                    'this part are still open. This is what the part actually '
+                    'is right now — read it before you act. Continue: emit '
+                    'the next block, mark one done with brief_done if the '
+                    'model already satisfies it, or say in one sentence which '
+                    'one cannot be met and why. Do not rebuild anything that '
+                    'is already there.'
               }));
           session.messages.add(nudge);
           turns.add(nudge);

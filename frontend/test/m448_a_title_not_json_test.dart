@@ -206,7 +206,9 @@ void main() {
           'test'));
       final controller = controllerWith(backend)
         ..actionRunner = ((batch, {onStep}) async {
-            builds++;
+            // The push-back reads the part back before it nags, so only a
+            // batch that CHANGES something counts as a build here.
+            if (batch.any((a) => !kAiReadOnlyOps.contains(a.op))) builds++;
             return AiActionReport(
                 outcomes: [for (final a in batch) AiActionOutcome(a.op)]);
           });
@@ -272,6 +274,37 @@ void main() {
       controller.updateDraft('Make me a tea cup');
       await controller.send();
       expect(backend.requests, hasLength(2));
+    });
+
+    test('the push-back hands over the part as it actually is now', () async {
+      // ISSUE #72 — told only "keep going", with no state, the model re-added
+      // a duplicate of the base plate it had already built and then deleted
+      // it again. The reminder carries the shape now.
+      final backend = _Backend((i) async => AiReply(
+          i == 0
+              ? '```cad\n{"title":"Building","actions":[{"op":"extrude"}]}\n```'
+              : 'All finished.',
+          'test'));
+      final controller = controllerWith(backend)
+        ..actionRunner = ((batch, {onStep}) async {
+            if (batch.single.op == 'describe_shape') {
+              return AiActionReport(outcomes: const [
+                AiActionOutcome('describe_shape',
+                    detail: {'shape': 'SHAPE Solid1 — 140 x 70 x 8 mm'})
+              ]);
+            }
+            return AiActionReport(
+                outcomes: [for (final a in batch) AiActionOutcome(a.op)]);
+          });
+      controller.briefs.add('doc',
+          AiRequirement(text: 'Must have a floor.', kind: AiRequirementKind.must));
+      controller.updateDraft('Make me a holder');
+      await controller.send();
+      final nudge = controller.currentSession.messages
+          .firstWhere((m) => m.text.contains('openRequirements'));
+      final decoded = jsonDecode(nudge.text) as Map;
+      expect(decoded['partNow'], contains('140 x 70 x 8'));
+      expect(decoded['note'], contains('Do not rebuild anything'));
     });
 
     test('the round budget allows a whole part, and still ends', () {

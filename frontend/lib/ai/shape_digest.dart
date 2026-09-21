@@ -208,6 +208,14 @@ class ShapeDigest {
     b.writeln('bbox ${_mm(s.x)} × ${_mm(s.y)} × ${_mm(s.z)} mm · '
         'vol ${_mm(volume)} mm³ · area ~${_mm(surfaceArea)} mm² · '
         'fill ${(fill * 100).round()}%');
+    // ISSUE #72 — "das Modell ist falsch rotiert". A plate lying flat and the
+    // same plate standing on its edge have identical bbox numbers in
+    // different slots, and every mainstream CAD is Z-up while this app is
+    // Y-up. Spelling out which number is the HEIGHT is what makes the
+    // difference readable instead of inferable.
+    b.writeln('stance up is +Y — ${_mm(s.y)} mm tall, footprint '
+        '${_mm(s.x)} (X) × ${_mm(s.z)} (Z) mm, '
+        'y from ${_mm(min.y)} to ${_mm(max.y)}');
     if (faces.isNotEmpty) {
       final parts = typeCounts.entries.toList()
         ..sort((x, y) => y.value.compareTo(x.value));
@@ -222,12 +230,13 @@ class ShapeDigest {
       b.writeln('symmetry mirror about ${mirrors.join(" and ")} (±0.01)');
     }
     for (final h in holes) {
+      final deep = h.depth == null ? '' : ', ${_mm(h.depth!)} mm long';
       final where = h.through == null
-          ? 'depth unknown'
+          ? 'open/blind unknown (no kernel linked)'
           : h.through!
-              ? 'through'
-              : 'blind depth ${_mm(h.depth ?? 0)}';
-      b.writeln('holes ${h.count}× Ø${_mm(h.diameter)} $where, '
+              ? 'THROUGH — open at both ends, nothing closes it'
+              : 'blind — it has a floor';
+      b.writeln('holes ${h.count}× Ø${_mm(h.diameter)} $where$deep, '
           'axis ${_axis(h.axis)}');
     }
     if (blends.isNotEmpty) {
@@ -449,7 +458,8 @@ ShapeDigest computeShapeDigest(KernelSolid solid,
 
   // ---- recognition -----------------------------------------------------
   var classified = 0.0;
-  final holes = _holes(faces, shape, (a) => classified += a);
+  final diagonal = (max - min).length;
+  final holes = _holes(faces, shape, m, diagonal, (a) => classified += a);
   final blends = _blends(faces, (a) => classified += a);
   for (final f in faces) {
     if (f.type == kFacePlane) classified += f.area;
@@ -500,13 +510,67 @@ ShapeDigest computeShapeDigest(KernelSolid solid,
   );
 }
 
+/// Material intervals along a ray, from the sorted distances at which it
+/// crosses the faces of a closed solid. Entering and leaving pair up; a
+/// trailing unpaired crossing is a grazing hit and is dropped rather than
+/// turned into a span that runs to infinity.
+List<(double, double)> solidSpans(List<double> hits) {
+  final out = <(double, double)>[];
+  for (var i = 0; i + 1 < hits.length; i += 2) {
+    if (hits[i + 1] > hits[i]) out.add((hits[i], hits[i + 1]));
+  }
+  return out;
+}
+
+/// Is parameter [t] strictly inside material?
+bool insideSpans(List<(double, double)> spans, double t, double tol) {
+  for (final s in spans) {
+    if (t > s.$1 + tol && t < s.$2 - tol) return true;
+  }
+  return false;
+}
+
+/// Whether a bore is open at both ends, from its own axial extent and what a
+/// ray along its axis crosses.
+///
+/// ISSUE #72 — THE BUG THIS REPLACES, because it produced a part with no
+/// floor and a digest that could not say so. The old test cast a ray from
+/// `centroid - axis * 1e6`, and a bore's mesh centroid lies ON THE BORE WALL,
+/// not on its axis — so the ray ran tangent to the cylinder, from a million
+/// millimetres away. Then it read the result backwards: along the axis of a
+/// THROUGH hole a ray crosses nothing at all (it is in free air the whole
+/// way), which the old code scored as "depth unknown", while a BLIND hole
+/// gives two crossings, which it scored as "through".
+///
+/// The honest test is containment, not crossing count: a bore is through when
+/// there is no material immediately beyond EITHER end of it. The depth is the
+/// bore's own axial length either way, which is a fact about the cylindrical
+/// face and needs no ray at all — so a build with no kernel linked still
+/// reports a depth instead of a shrug.
+({bool? through, double depth}) classifyBore({
+  required double t0,
+  required double t1,
+  required List<double> hits,
+  required bool haveShape,
+}) {
+  final depth = (t1 - t0).abs();
+  if (!haveShape) return (through: null, depth: depth);
+  final spans = solidSpans(hits);
+  // Far enough off the ends to clear the mouth faces, small enough that a
+  // 1 mm-deep counterbore is still measured rather than stepped over.
+  final eps = math.max(1e-3, depth * 0.02);
+  final capped = insideSpans(spans, t0 - eps, 1e-9) ||
+      insideSpans(spans, t1 + eps, 1e-9);
+  return (through: !capped, depth: depth);
+}
+
 /// Cylindrical faces whose normals point inward, grouped by diameter and axis.
 ///
 /// A concave cylinder that is NOT tangentially blended into its neighbours is
 /// a hole. A concave cylinder that is tangent is an internal fillet, and is
 /// counted by [_blends] instead.
-List<HoleGroup> _holes(
-    List<DigestFace> faces, OcctShape? shape, void Function(double) claim) {
+List<HoleGroup> _holes(List<DigestFace> faces, OcctShape? shape,
+    OcctMeshData mesh, double diagonal, void Function(double) claim) {
   final candidates = [
     for (final f in faces)
       if (f.type == kFaceCylinder && f.concave && !f.tangent && f.radius > 0) f
@@ -529,19 +593,43 @@ List<HoleGroup> _holes(
     for (final f in g) {
       claim(f.area);
     }
+    // How far the bore runs along its own axis, measured from the triangles
+    // of its wall. This is the hole's depth, and it does not need a kernel.
+    final ids = {for (final f in g) f.id};
+    final n = first.dir;
+    var t0 = double.infinity, t1 = -double.infinity;
+    for (var t = 0; t + 2 < mesh.indices.length; t += 3) {
+      final face = t ~/ 3 < mesh.triFaces.length ? mesh.triFaces[t ~/ 3] : -1;
+      if (!ids.contains(face)) continue;
+      for (var k = 0; k < 3; k++) {
+        final i = mesh.indices[t + k] * 3;
+        if (i + 2 >= mesh.positions.length) continue;
+        final rel = Vec3(mesh.positions[i], mesh.positions[i + 1],
+                mesh.positions[i + 2]) -
+            first.at;
+        final along = rel.dot(n);
+        if (along < t0) t0 = along;
+        if (along > t1) t1 = along;
+      }
+    }
     bool? through;
     double? depth;
-    if (shape != null) {
-      // Cast along the axis from just outside the face and count crossings.
-      final n = first.dir;
-      final start = first.centroid - n * 1e6;
-      final hits = shape.rayHits(start.x, start.y, start.z, n.x, n.y, n.z);
-      if (hits.isNotEmpty) {
-        depth = (hits.last - hits.first).abs();
-        // Two crossings of the bore wall and nothing between them is a hole
-        // that goes all the way through.
-        through = hits.length <= 2;
+    if (t0.isFinite && t1.isFinite && t1 > t0) {
+      List<double> hits = const [];
+      if (shape != null) {
+        // ON THE AXIS, and starting a body-length clear of the near mouth —
+        // not from a point on the bore wall a million millimetres away.
+        final margin = (t1 - t0) + diagonal + 1;
+        final o = first.at + n * (t0 - margin);
+        hits = [
+          for (final d in shape.rayHits(o.x, o.y, o.z, n.x, n.y, n.z))
+            t0 - margin + d
+        ];
       }
+      final verdict = classifyBore(
+          t0: t0, t1: t1, hits: hits, haveShape: shape != null);
+      through = verdict.through;
+      depth = verdict.depth;
     }
     // Merge the two half-cylinders OCCT splits a bore into: distinct faces,
     // one hole. Centres closer than the radius are the same bore.
@@ -597,7 +685,11 @@ List<BlendGroup> _blends(List<DigestFace> faces, void Function(double) claim) {
     final hits = shape.rayHits(o.x, o.y, o.z, -n.x, -n.y, -n.z);
     if (hits.isEmpty) continue;
     final d = hits.first.abs();
-    if (!d.isFinite || d <= 1e-6) continue;
+    // A crossing within microns of the origin is the face we started on,
+    // returned because the ray origin sits inside the kernel's tolerance —
+    // not a wall. Printing it gave every part "walls min 0.00 mm", which is
+    // a number no reader can use and every reader has to discount.
+    if (!d.isFinite || d <= 0.01) continue;
     if (best == null || d < best) {
       best = d;
       where = 'between F${f.id} and the face behind it';
