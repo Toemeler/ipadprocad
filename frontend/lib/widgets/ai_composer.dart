@@ -6,7 +6,6 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:native_menu/native_menu.dart';
 
 import '../ai/ai_controller.dart';
 import '../ai/ai_trace.dart';
@@ -15,6 +14,7 @@ import '../ios_design.dart';
 import '../l10n/l.dart';
 import '../theme.dart';
 import 'ai_settings_sheet.dart';
+import 'ai_stage.dart';
 import 'bottom_tabbar.dart';
 import 'dialog_dock.dart';
 import 'viewport_window.dart';
@@ -116,6 +116,7 @@ class _AiComposerState extends State<AiComposer> {
   void dispose() {
     _tick?.cancel();
     ai.removeListener(_changed);
+    _announceTimer?.cancel();
     _text.dispose();
     _focus.dispose();
     _scroll.dispose();
@@ -270,48 +271,218 @@ class _AiComposerState extends State<AiComposer> {
       math.max(0.0, viewport.height - bottom - 12),
     );
     if (width < 100 || height < 80) return const SizedBox.shrink();
+    _syncStage();
+    final collapsed = _collapsed;
+    final radius = collapsed ? kAiOrbSize / 2 : kAiCardRadius;
     return Positioned(
       right: right,
       bottom: bottom,
-      width: width,
-      height: height,
       child: ViewportWindow(
         child: Semantics(
           container: true,
           label: t.aiTitle,
           child: Material(
             color: Colors.transparent,
-            child: Container(
-              clipBehavior: Clip.antiAlias,
-              decoration: BoxDecoration(
-                color: GlassPanel.isSupported ? null : T.fly,
-                borderRadius: BorderRadius.circular(24),
-                border:
-                    GlassPanel.isSupported ? null : Border.all(color: T.sep),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: .14),
-                    blurRadius: 28,
-                    offset: const Offset(0, 8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                // The status rides OUTSIDE the circle. There is no room for a
+                // sentence inside 62 points, and the corner it parks in has
+                // nothing to its right.
+                AnimatedSwitcher(
+                  duration: kAiMorphDuration,
+                  switchInCurve: Curves.easeOut,
+                  switchOutCurve: Curves.easeIn,
+                  child: collapsed
+                      ? AiOrbLabel(
+                          key: const ValueKey('ai-orb-label'),
+                          headline: _orbHeadline(),
+                          detail: _orbDetail(),
+                          onTap: _expandManually,
+                        )
+                      : const SizedBox.shrink(key: ValueKey('ai-no-label')),
+                ),
+                // ONE box that changes size. Everything that makes the surface
+                // a surface — the gradient, the corner, the bloom — lives here
+                // and animates with it, which is what makes the retract read
+                // as the panel moving into the corner rather than as the panel
+                // vanishing and a button appearing in its place.
+                GestureDetector(
+                  onTap: collapsed ? _expandManually : null,
+                  child: AnimatedContainer(
+                    duration: kAiMorphDuration,
+                    curve: Curves.easeOutCubic,
+                    width: collapsed ? kAiOrbSize : width,
+                    height: collapsed ? kAiOrbSize : height,
+                    clipBehavior: Clip.antiAlias,
+                    decoration: BoxDecoration(
+                      gradient: aiStageGradient(),
+                      borderRadius: BorderRadius.circular(radius),
+                      boxShadow: aiStageBloom(
+                          strength: collapsed ? .75 : 1),
+                    ),
+                    child: AiShimmer(
+                      active: ai.activity.isBusy && !collapsed,
+                      radius: radius,
+                      child: AnimatedSwitcher(
+                        duration: kAiMorphDuration,
+                        child: collapsed
+                            ? SizedBox(
+                                key: const ValueKey('ai-orb-core'),
+                                width: kAiOrbSize,
+                                height: kAiOrbSize,
+                                child: AiOrbCore(
+                                    working: ai.activity.isBusy),
+                              )
+                            // THE BODY ALWAYS LAYS OUT AT THE CARD'S SIZE,
+                            // and the shrinking box clips it.
+                            //
+                            // Letting it lay out at the ANIMATING width is
+                            // what a first attempt did, and it put a
+                            // RenderFlex overflow on the header, the chrome
+                            // row and the input row for the whole 420 ms of
+                            // every expansion — a panel that flashed the
+                            // yellow-and-black stripes each time it opened.
+                            // A card being clipped as it retracts into a
+                            // circle is also simply what the movement IS.
+                            : OverflowBox(
+                                key: const ValueKey('ai-panel'),
+                                alignment: Alignment.bottomRight,
+                                minWidth: width,
+                                maxWidth: width,
+                                minHeight: height,
+                                maxHeight: height,
+                                child: height < 360
+                                    ? SingleChildScrollView(
+                                        child: _body(compact: true))
+                                    : _body(compact: false),
+                              ),
+                      ),
+                    ),
                   ),
-                ],
-              ),
-              child: Stack(
-                children: [
-                  if (GlassPanel.isSupported)
-                    const Positioned.fill(child: GlassPanel(cornerRadius: 24)),
-                  if (height < 360)
-                    SingleChildScrollView(child: _body(compact: true))
-                  else
-                    _body(compact: false),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ),
       ),
     );
   }
+
+  // ---------------------------------------------------------------------
+  // M450 — WHO IS EXPECTED TO ACT, which is the only thing that sets the size.
+  // ---------------------------------------------------------------------
+
+  /// True while the task's title is being announced, before the stage
+  /// retracts.
+  ///
+  /// A FLAG THE TIMER FLIPS, never a wall-clock comparison. `DateTime.now()`
+  /// and the timer that ends the dwell run on two different clocks the moment
+  /// anything drives the app with a fake one — a widget test, and equally a
+  /// profile trace — and the announcement would then never end, because real
+  /// time had not moved while the timer's had.
+  bool _announcing = false;
+  Timer? _announceTimer;
+
+  /// True when the user pulled the panel back open mid-task. Cleared when the
+  /// task ends, so the NEXT one retracts again — a one-off look should not
+  /// silently turn the feature off.
+  bool _userExpanded = false;
+
+  /// Was the assistant busy on the previous build? Edge detection: the
+  /// announcement starts on the idle -> busy transition, which is the only
+  /// moment a task actually begins.
+  bool _wasBusy = false;
+
+  /// The stage retracts only when the assistant is working AND has nothing it
+  /// needs from the user.
+  ///
+  /// Every clause is a case where the card must stay up:
+  ///   * not busy          — the turn is over, and its answer is the point.
+  ///   * announcing        — the title has not been on screen long enough to
+  ///                         have been read, and announcing it is the reason
+  ///                         it exists.
+  ///   * an error/notice   — something is wrong and a circle cannot say what.
+  ///   * the user expanded — they asked to watch.
+  bool get _collapsed {
+    if (!ai.activity.isBusy) return false;
+    if (_announcing) return false;
+    if (_userExpanded) return false;
+    if (_notice != null || ai.error != null) return false;
+    return true;
+  }
+
+  /// Starts the announcement on the edge into a task, and tidies up after it.
+  void _syncStage() {
+    final busy = ai.activity.isBusy;
+    if (busy && !_wasBusy) {
+      // THE TITLE COMES FIRST. The stage stays open for the dwell so the
+      // sentence can be read, then retracts on its own.
+      _announcing = true;
+      _announceTimer?.cancel();
+      _announceTimer = Timer(kAiAnnounceDwell, () {
+        if (mounted) setState(() => _announcing = false);
+      });
+    } else if (!busy && _wasBusy) {
+      // The turn ended: the card is coming back anyway, and the next task
+      // gets its own announcement and its own retract.
+      _userExpanded = false;
+      _announcing = false;
+      _announceTimer?.cancel();
+      _announceTimer = null;
+    }
+    _wasBusy = busy;
+  }
+
+  void _expandManually() {
+    setState(() => _userExpanded = true);
+  }
+
+  /// What the parked orb says it is doing. The model's block title when there
+  /// is one, the user's own request until then — never nothing.
+  String _orbHeadline() {
+    final activity = ai.activity;
+    return activity.title ?? _workLabel(activity);
+  }
+
+  /// The second line: the generic word for the work, how far into the block it
+  /// is, and how long it has been going. All three are the app's own
+  /// measurements, so a wrong title cannot make a stalled turn look busy.
+  String? _orbDetail() {
+    final activity = ai.activity;
+    final parts = <String>[];
+    if (activity.title != null) parts.add(_workLabel(activity));
+    if (activity.total > 1) {
+      parts.add(t.aiStepOf(activity.step, activity.total));
+    }
+    if (activity.elapsed.inSeconds >= 3) {
+      parts.add(t.aiElapsedSeconds(activity.elapsed.inSeconds));
+    }
+    return parts.isEmpty ? null : parts.join(' · ');
+  }
+
+  /// Under the announced title: which document this will happen to, and which
+  /// model is about to be asked. Both are things the user can still change
+  /// their mind about in the second the card is up.
+  String _announceSubtitle() {
+    final parts = <String>[ai.document.name];
+    final provider = ai.providerLabel;
+    if (provider.isNotEmpty) parts.add(provider);
+    return parts.join(' · ');
+  }
+
+  String _workLabel(AiActivity activity) => switch (activity.work) {
+        AiWork.thinking => t.aiWorkThinking,
+        AiWork.reading => t.aiWorkReading,
+        AiWork.measuring => t.aiWorkMeasuring,
+        AiWork.sketching => t.aiWorkSketching,
+        AiWork.building => t.aiWorkBuilding,
+        AiWork.editing => t.aiWorkEditing,
+        AiWork.looking => t.aiWorkLooking,
+        AiWork.noting => t.aiWorkNoting,
+        AiWork.working => t.aiWorkWorking,
+      };
 
   Widget _body({required bool compact}) => Column(
         mainAxisSize: compact ? MainAxisSize.min : MainAxisSize.max,
@@ -464,24 +635,35 @@ class _AiComposerState extends State<AiComposer> {
       );
 
   Widget _transcript() {
+    // THE ANNOUNCEMENT, which outranks whatever is in the transcript.
+    //
+    // For the length of the dwell the card says one thing: the title of the
+    // task that is starting. Putting it here rather than beside the transcript
+    // is the point — the user just pressed send, they know what they typed,
+    // and a title buried under six previous turns is not an announcement.
+    if (_announcing) {
+      return AiStageHero(
+        key: const ValueKey('ai-announce'),
+        title: _orbHeadline(),
+        subtitle: _announceSubtitle(),
+      );
+    }
     final messages = ai.currentSession.messages;
     if (messages.isEmpty) {
-      return SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(24, 28, 24, 20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(t.aiWelcomeTitle, style: IosText.title3.on(T.text)),
-            const SizedBox(height: 10),
-            Text(t.aiWelcomeBody, style: IosText.subheadline.on(T.dim)),
-            const SizedBox(height: 18),
-            // Says what this session can actually do RIGHT NOW. It used to
-            // be a fixed sentence promising that CAD editing was not
-            // available, which stopped being true in M441 and would have gone
-            // on reassuring the user of the opposite of the truth.
-            Text(ai.canEditModel ? t.aiCanModel : t.aiAdviceOnly,
-                style: IosText.footnote.on(T.dim)),
-          ],
+      // The Shortcuts prompt: one centred question, one quiet example. The
+      // old left-aligned paragraph said more and invited less.
+      return AiStageHero(
+        key: const ValueKey('ai-welcome'),
+        title: t.aiWelcomeTitle,
+        subtitle: t.aiWelcomeExample,
+        // Says what this session can actually do RIGHT NOW. It used to be a
+        // fixed sentence promising that CAD editing was not available, which
+        // stopped being true in M441 and would have gone on reassuring the
+        // user of the opposite of the truth.
+        footer: Text(
+          ai.canEditModel ? t.aiCanModel : t.aiAdviceOnly,
+          textAlign: TextAlign.center,
+          style: IosText.caption1.on(IosColors.tertiaryLabel),
         ),
       );
     }

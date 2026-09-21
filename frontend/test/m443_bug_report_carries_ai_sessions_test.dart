@@ -4,16 +4,13 @@
 // how many tokens, what was it thinking, what did the provider actually say
 // when it refused, what did the app send, and which ops did it run.
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:prototype/ai/ai_actions.dart';
 import 'package:prototype/ai/ai_backend.dart';
 import 'package:prototype/ai/ai_controller.dart';
-import 'package:prototype/ai/ai_models.dart';
 import 'package:prototype/ai/ai_trace.dart';
 import 'package:prototype/bug_report.dart';
 

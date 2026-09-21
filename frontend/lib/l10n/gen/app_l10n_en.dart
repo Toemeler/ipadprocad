@@ -5079,11 +5079,10 @@ class AppL10nEn extends AppL10n {
       'This document is always included. Select other documents explicitly to add their summaries to the conversation.';
 
   @override
-  String get aiWelcomeTitle => 'Develop your next idea';
+  String get aiWelcomeTitle => 'What should the assistant do?';
 
   @override
-  String get aiWelcomeBody =>
-      'Discuss this design, add reference images, or explore a modeling approach. Each document keeps its own named conversations.';
+  String get aiWelcomeExample => '“Make a base plate, 60 × 40 mm, 10 mm thick”';
 
   @override
   String get aiAdviceOnly =>
