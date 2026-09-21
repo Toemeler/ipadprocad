@@ -357,7 +357,7 @@ void main() {
         ..contextReader = ((id) async => {'id': id, 'name': 'Bracket'})
         ..updateWorkspace(current: document, documents: const [document]);
       final ran = <List<AiAction>>[];
-      controller.actionRunner = (batch) async {
+      controller.actionRunner = (batch, {onStep}) async {
         ran.add(batch);
         return AiActionReport(outcomes: [
           const AiActionOutcome('describe_part', detail: {'featureCount': 0})
@@ -406,7 +406,8 @@ void main() {
       controller
         ..contextReader = ((id) async => {'id': id, 'name': 'Bracket'})
         ..updateWorkspace(current: document, documents: const [document])
-        ..actionRunner = ((batch) async => AiActionReport(outcomes: const []));
+        ..actionRunner =
+            ((batch, {onStep}) async => AiActionReport(outcomes: const []));
       controller.updateDraft('Make a plate');
       await controller.send();
       final sent = backend.requests.single;
@@ -425,7 +426,7 @@ void main() {
       controller
         ..contextReader = ((id) async => {'id': id, 'name': 'Bracket'})
         ..updateWorkspace(current: document, documents: const [document])
-        ..actionRunner = ((batch) async =>
+        ..actionRunner = ((batch, {onStep}) async =>
             AiActionReport(outcomes: const [AiActionOutcome('describe_part')]));
       controller.updateDraft('Go');
       await controller.send();

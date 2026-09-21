@@ -35,6 +35,10 @@ class _AiComposerState extends State<AiComposer> {
   final _scroll = ScrollController();
   String? _sessionId;
   String? _notice;
+
+  /// Messages the user asked to see in full — a long answer and the detail
+  /// behind a changes row are both collapsed until then.
+  final _expanded = <String>{};
   bool _attaching = false;
 
   AiController get ai => widget.app.ai;
@@ -283,62 +287,82 @@ class _AiComposerState extends State<AiComposer> {
               ],
             ),
           ),
+          // M444 — ONE row of chrome, not three.
+          //
+          // The session name, the document and the context count each had a
+          // row of their own, which is three lines of furniture above an
+          // answer that is meant to be two sentences. They are all still here
+          // and all still reachable; they are just one line now, and the
+          // document name — the thing that says WHICH part this is about — is
+          // the part that stayed legible.
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 6, 2),
+            padding: const EdgeInsets.fromLTRB(16, 0, 6, 6),
             child: Row(
               children: [
+                // ONE Expanded holds everything that may shrink. Mixing a
+                // Spacer with two Flexible children put the trailing buttons
+                // outside the row at large text scales — 70 px over, which the
+                // compact-panel test caught.
                 Expanded(
-                  child: CupertinoButton(
-                    padding: EdgeInsets.zero,
-                    alignment: Alignment.centerLeft,
-                    onPressed: ai.isBusy ? null : _sessions,
-                    child: Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            ai.currentSession.name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: IosText.subheadline.on(T.text),
+                  flex: 3,
+                  child: Row(
+                    children: [
+                      Icon(_documentIcon(ai.document.kind),
+                          size: 13, color: T.dim),
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          ai.document.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: IosText.caption1.on(T.dim),
+                        ),
+                      ),
+                      Flexible(
+                        child: CupertinoButton(
+                          padding: const EdgeInsets.only(left: 8),
+                          alignment: Alignment.centerLeft,
+                          onPressed: ai.isBusy ? null : _sessions,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  ai.currentSession.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: IosText.caption1.on(T.dim),
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Icon(CupertinoIcons.chevron_down,
+                                  size: 10, color: T.dim),
+                            ],
                           ),
                         ),
-                        const SizedBox(width: 6),
-                        Icon(CupertinoIcons.chevron_down,
-                            size: 12, color: T.dim),
-                      ],
+                      ),
+                    ],
+                  ),
+                ),
+                // Shrinkable as well: at the largest text scale this label
+                // is wide enough to push the row over on its own.
+                Flexible(
+                  child: CupertinoButton(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    minimumSize: const Size(32, 30),
+                    onPressed: _contextDocuments,
+                    child: Text(
+                      t.aiContextCount(
+                          ai.currentSession.contextDocumentIds.length),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: IosText.caption1.on(T.accent),
                     ),
                   ),
                 ),
                 _icon(CupertinoIcons.square_pencil, t.aiNewSession,
                     ai.isBusy ? null : ai.newSession),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-            child: Row(
-              children: [
-                Icon(_documentIcon(ai.document.kind), size: 14, color: T.dim),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    ai.document.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: IosText.caption1.on(T.dim),
-                  ),
-                ),
-                CupertinoButton(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                  minimumSize: const Size(44, 32),
-                  onPressed: _contextDocuments,
-                  child: Text(
-                    t.aiContextCount(
-                        ai.currentSession.contextDocumentIds.length),
-                    style: IosText.caption1.on(T.accent),
-                  ),
-                ),
               ],
             ),
           ),
@@ -403,7 +427,12 @@ class _AiComposerState extends State<AiComposer> {
             const SizedBox(height: 10),
             Text(t.aiWelcomeBody, style: IosText.subheadline.on(T.dim)),
             const SizedBox(height: 18),
-            Text(t.aiAdviceOnly, style: IosText.footnote.on(T.dim)),
+            // Says what this session can actually do RIGHT NOW. It used to
+            // be a fixed sentence promising that CAD editing was not
+            // available, which stopped being true in M441 and would have gone
+            // on reassuring the user of the opposite of the truth.
+            Text(ai.canEditModel ? t.aiCanModel : t.aiAdviceOnly,
+                style: IosText.footnote.on(T.dim)),
           ],
         ),
       );
@@ -413,64 +442,132 @@ class _AiComposerState extends State<AiComposer> {
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
       itemCount: messages.length + (ai.isBusy ? 1 : 0),
       itemBuilder: (context, index) {
-        if (index == messages.length) {
-          return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 10),
-            child: Row(
-              children: [
-                const CupertinoActivityIndicator(radius: 7),
-                const SizedBox(width: 10),
-                Text(t.aiThinking, style: IosText.footnote.on(T.dim)),
-              ],
-            ),
-          );
-        }
+        if (index == messages.length) return _activityLine();
         final message = messages[index];
         // M441 — what the APP did, which is neither party's words.
         if (message.role == 'tool') return _changes(message);
-        final user = message.role == 'user';
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 18),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                user ? t.aiYou : t.aiTitle,
-                style: IosText.caption1.on(T.dim, weight: FontWeight.w600),
-              ),
-              const SizedBox(height: 6),
-              if (message.attachments.isNotEmpty)
-                _attachments(message.attachments, editable: false),
-              if (message.text.isNotEmpty)
-                Container(
-                  width: double.infinity,
-                  padding: user ? const EdgeInsets.all(12) : EdgeInsets.zero,
-                  decoration: user
-                      ? BoxDecoration(
-                          color: IosColors.quaternarySystemFill,
-                          borderRadius: BorderRadius.circular(14),
-                        )
-                      : null,
-                  child: SelectableText(
-                    // The action block is drawn as the card below, not as raw
-                    // JSON in the middle of a sentence.
-                    user ? message.text : aiReplyWithoutActions(message.text),
-                    style: IosText.subheadline.on(T.text),
-                  ),
-                ),
-            ],
-          ),
-        );
+        return message.role == 'user' ? _asked(message) : _answered(message);
       },
     );
   }
 
-  /// The executed-changes card: one row per action, with what it did or why
-  /// it did not.
+  /// What the assistant is doing, in a few words.
   ///
-  /// The op names are not translated, deliberately. They are the protocol —
-  /// the same words the model wrote and the same words a bug report has to
-  /// quote — and a German "Extrusion" here would not be findable in the log.
+  /// M444 — the user asked to stop reading and to be told what is happening.
+  /// Every word of this comes from the app's OWN work, never from the model: a
+  /// status the model narrates arrives only when the model does, and is one
+  /// more thing it can get wrong.
+  Widget _activityLine() {
+    final activity = ai.activity;
+    final label = switch (activity.work) {
+      AiWork.thinking => t.aiWorkThinking,
+      AiWork.reading => t.aiWorkReading,
+      AiWork.measuring => t.aiWorkMeasuring,
+      AiWork.sketching => t.aiWorkSketching,
+      AiWork.building => t.aiWorkBuilding,
+      AiWork.editing => t.aiWorkEditing,
+      AiWork.looking => t.aiWorkLooking,
+      AiWork.working => t.aiWorkWorking,
+    };
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Semantics(
+        liveRegion: true,
+        child: Row(
+          children: [
+            const CupertinoActivityIndicator(radius: 7),
+            const SizedBox(width: 10),
+            Flexible(
+              child: Text('$label…',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: IosText.subheadline.on(T.text)),
+            ),
+            if (activity.total > 1) ...[
+              const SizedBox(width: 8),
+              Text(t.aiStepOf(activity.step, activity.total),
+                  style: IosText.caption1.on(T.dim)),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// The user's own turn: quiet, because they already know what they said.
+  Widget _asked(AiMessage message) => Padding(
+        padding: const EdgeInsets.only(bottom: 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (message.attachments.isNotEmpty)
+              _attachments(message.attachments, editable: false),
+            if (message.text.isNotEmpty)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 12, vertical: 9),
+                decoration: BoxDecoration(
+                  color: IosColors.quaternarySystemFill,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Text(message.text,
+                    style: IosText.footnote.on(T.dim)),
+              ),
+          ],
+        ),
+      );
+
+  /// A reply that is nothing but a question, which the prompt asks for when
+  /// the assistant needs something. Shown on its own and larger: the user
+  /// wanted the question and nothing around it.
+  bool _isQuestion(String text) =>
+      text.endsWith('?') && text.length <= 200 && !text.contains('\n');
+
+  /// The assistant's turn. Two short sentences is what the prompt asks for;
+  /// anything longer is clamped behind [t.aiMore] rather than made the user's
+  /// problem.
+  Widget _answered(AiMessage message) {
+    final text = aiReplyWithoutActions(message.text);
+    if (text.isEmpty) return const SizedBox.shrink();
+    final question = _isQuestion(text);
+    final expanded = _expanded.contains(message.id);
+    final long = text.length > 220;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SelectableText(
+            text,
+            maxLines: long && !expanded ? 4 : null,
+            style: question
+                ? IosText.title3.on(T.text)
+                : IosText.subheadline.on(T.text),
+          ),
+          if (long)
+            CupertinoButton(
+              padding: const EdgeInsets.only(top: 4),
+              alignment: Alignment.centerLeft,
+              onPressed: () => setState(() => expanded
+                  ? _expanded.remove(message.id)
+                  : _expanded.add(message.id)),
+              child: Text(expanded ? t.aiLess : t.aiMore,
+                  style: IosText.footnote.on(T.accent)),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// What the app did, as ONE line.
+  ///
+  /// M444 — this used to be a row per action with its full reason, which is
+  /// the right record and the wrong default: the user asked for the work to
+  /// happen in the background, not to be reported to them step by step. The
+  /// line says how many changes landed and whether anything failed; the detail
+  /// is one tap away and still complete, because a failure the user cannot
+  /// read is a failure they cannot act on.
   Widget _changes(AiMessage message) {
     final report = AiActionReport.decode(message.text);
     if (report == null) return const SizedBox.shrink();
@@ -479,69 +576,101 @@ class _AiComposerState extends State<AiComposer> {
       'editsDisabled' => t.aiChangesDisabled,
       _ => null,
     };
+    if (blocked != null) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 14),
+        child: Text(blocked, style: IosText.footnote.on(T.dim)),
+      );
+    }
+    // A block of pure reads changed nothing and is not worth a line at all.
+    final changed = report.outcomes
+        .where((o) => o.op != 'describe_part' && !o.op.startsWith('describe_') &&
+            o.op != 'faces_where' && o.op != 'measure' && o.op != 'section')
+        .length;
+    final failed = report.outcomes.where((o) => !o.ok).toList();
+    if (changed == 0 && failed.isEmpty) return const SizedBox.shrink();
+    final expanded = _expanded.contains(message.id);
+    final ok = failed.isEmpty && !report.reverted;
     return Padding(
-      padding: const EdgeInsets.only(bottom: 18),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: IosColors.quaternarySystemFill,
-          borderRadius: BorderRadius.circular(14),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(t.aiChangesTitle,
-                style: IosText.caption1.on(T.dim, weight: FontWeight.w600)),
-            const SizedBox(height: 6),
-            if (blocked != null)
-              Text(blocked, style: IosText.footnote.on(T.dim)),
-            if (blocked == null)
-              for (final outcome in report.outcomes)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 2),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Icon(
-                          outcome.ok
-                              ? CupertinoIcons.check_mark
-                              : CupertinoIcons.xmark,
-                          size: 13,
-                          color: outcome.ok
-                              ? CupertinoColors.systemGreen
-                              : CupertinoColors.systemRed),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: SelectableText(
-                          outcome.error == null
-                              ? outcome.op
-                              : '${outcome.op} — ${outcome.error}',
-                          style: IosText.footnote.on(T.text),
-                        ),
-                      ),
-                    ],
-                  ),
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CupertinoButton(
+            padding: EdgeInsets.zero,
+            alignment: Alignment.centerLeft,
+            onPressed: () => setState(() => expanded
+                ? _expanded.remove(message.id)
+                : _expanded.add(message.id)),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(ok ? CupertinoIcons.check_mark : CupertinoIcons.xmark,
+                    size: 13,
+                    color: ok
+                        ? CupertinoColors.systemGreen
+                        : CupertinoColors.systemRed),
+                const SizedBox(width: 8),
+                Text(
+                  report.reverted
+                      ? t.aiChangesReverted
+                      : t.aiChangeCount(report.applied),
+                  style: IosText.footnote.on(T.dim),
                 ),
-            if (report.reverted) ...[
-              const SizedBox(height: 6),
-              Text(t.aiChangesReverted, style: IosText.footnote.on(T.dim)),
-            ],
-            if (report.applied > 0) ...[
-              const SizedBox(height: 4),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: CupertinoButton(
-                  padding: EdgeInsets.zero,
-                  onPressed: widget.app.canUndoPart
-                      ? () => unawaited(widget.app.undoPart())
-                      : null,
-                  child: Text(t.aiUndoChanges, style: IosText.footnote),
+                const SizedBox(width: 6),
+                Icon(
+                    expanded
+                        ? CupertinoIcons.chevron_up
+                        : CupertinoIcons.chevron_down,
+                    size: 10,
+                    color: T.dim),
+              ],
+            ),
+          ),
+          // A failure is shown WITHOUT being asked for. The collapse is for
+          // noise, and a refusal the user never sees is not noise.
+          if (!expanded)
+            for (final o in failed.take(2))
+              Padding(
+                padding: const EdgeInsets.only(left: 21, top: 2),
+                child: Text('${o.op} — ${o.error}',
+                    style: IosText.caption1.on(T.err)),
+              ),
+          if (expanded)
+            for (final o in report.outcomes)
+              Padding(
+                padding: const EdgeInsets.only(left: 21, top: 2),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                        o.ok
+                            ? CupertinoIcons.check_mark
+                            : CupertinoIcons.xmark,
+                        size: 11,
+                        color: o.ok
+                            ? CupertinoColors.systemGreen
+                            : CupertinoColors.systemRed),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: SelectableText(
+                        o.error == null ? o.op : '${o.op} — ${o.error}',
+                        style: IosText.caption1.on(T.text),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ],
-          ],
-        ),
+          if (report.applied > 0 && expanded)
+            CupertinoButton(
+              padding: const EdgeInsets.only(left: 21, top: 2),
+              alignment: Alignment.centerLeft,
+              onPressed: widget.app.canUndoPart
+                  ? () => unawaited(widget.app.undoPart())
+                  : null,
+              child: Text(t.aiUndoChanges, style: IosText.footnote),
+            ),
+        ],
       ),
     );
   }

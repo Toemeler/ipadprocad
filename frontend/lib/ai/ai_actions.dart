@@ -247,10 +247,79 @@ String aiReplyWithoutActions(String reply) {
   return stripped.isEmpty ? reply.trim() : stripped;
 }
 
+/// Called as each action of a block starts, so the UI can say what is
+/// happening in a few words instead of showing a spinner for the whole batch.
+typedef AiProgress = void Function(String op, int step, int total);
+
 /// Runs a block against the open document. Supplied by the app layer; null in
 /// a controller with no workspace attached, which is what makes editing
 /// unavailable rather than merely unused.
-typedef AiActionRunner = Future<AiActionReport> Function(List<AiAction> batch);
+typedef AiActionRunner = Future<AiActionReport> Function(List<AiAction> batch,
+    {AiProgress? onStep});
+
+/// What the assistant is doing right now.
+///
+/// The app derives this from its OWN work rather than asking the model to
+/// narrate — a status the model writes is one more thing it can get wrong, and
+/// it arrives only when the model does. This arrives immediately and is always
+/// true.
+enum AiPhase {
+  /// Nothing running.
+  idle,
+
+  /// Waiting on the provider.
+  thinking,
+
+  /// Executing a block against the document.
+  working,
+}
+
+class AiActivity {
+  const AiActivity(this.phase, {this.op, this.step = 0, this.total = 0});
+  static const none = AiActivity(AiPhase.idle);
+
+  final AiPhase phase;
+
+  /// The op id currently running, for the UI to turn into a few words. Null
+  /// while merely thinking.
+  final String? op;
+  final int step, total;
+
+  bool get isBusy => phase != AiPhase.idle;
+
+  /// Which short label an op belongs under. Kept here, next to the op set, so
+  /// adding an op and forgetting to give it a word is a compile-time gap
+  /// rather than a silent "working…".
+  AiWork get work => switch (op) {
+        null => AiWork.thinking,
+        'describe_part' ||
+        'describe_shape' ||
+        'faces_where' ||
+        'section' =>
+          AiWork.reading,
+        'measure' => AiWork.measuring,
+        'create_sketch' ||
+        'sketch_rect' ||
+        'sketch_circle' ||
+        'sketch_polygon' ||
+        'sketch_line' ||
+        'sketch_on_face' =>
+          AiWork.sketching,
+        'extrude' || 'revolve' || 'fillet' || 'chamfer' => AiWork.building,
+        'edit_feature' ||
+        'delete_feature' ||
+        'rename_feature' ||
+        'delete_face' ||
+        'move_face' =>
+          AiWork.editing,
+        'look' => AiWork.looking,
+        _ => AiWork.working,
+      };
+}
+
+/// The short words the panel shows. One per kind of work, not one per op: the
+/// user asked to know what is happening in a few words, not to read a log.
+enum AiWork { thinking, reading, measuring, sketching, building, editing, looking, working }
 
 /// The protocol, as the model is told it. Appended to the instructions only
 /// when a runner is attached — a model that cannot edit is never told it can.

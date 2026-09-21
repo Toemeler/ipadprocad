@@ -45,7 +45,7 @@ class AiCad {
   /// Executes one block. Never throws: an unexpected error becomes a failed
   /// outcome and a rollback, because an exception escaping here would leave
   /// the document mid-edit with nobody to say so.
-  Future<AiActionReport> run(List<AiAction> batch) async {
+  Future<AiActionReport> run(List<AiAction> batch, {AiProgress? onStep}) async {
     final p = app.currentPart;
     if (p == null) {
       return AiActionReport(outcomes: const [], blocked: 'noPart');
@@ -55,7 +55,11 @@ class AiCad {
     final outcomes = <AiActionOutcome>[];
     var mutated = false;
     var failed = false;
-    for (final action in batch) {
+    for (var i = 0; i < batch.length; i++) {
+      final action = batch[i];
+      // Reported BEFORE the action runs, so the panel names what is happening
+      // rather than what just finished.
+      onStep?.call(action.op, i + 1, batch.length);
       AiActionOutcome outcome;
       try {
         outcome = await _one(p, action);

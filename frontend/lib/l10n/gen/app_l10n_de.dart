@@ -5142,10 +5142,7 @@ class AppL10nDe extends AppL10n {
 
   @override
   String get aiAdviceOnly =>
-      'Entwurfsberatung und Gespräche sind verfügbar. Der Assistent kann CAD-Geometrie noch nicht erstellen oder ändern.';
-
-  @override
-  String get aiThinking => 'Antwort wird vorbereitet …';
+      'Beratung und Gespräch. Das Bearbeiten des Modells ist in den KI-Einstellungen ausgeschaltet.';
 
   @override
   String get aiYou => 'Du';
@@ -5236,4 +5233,54 @@ class AppL10nDe extends AppL10n {
   @override
   String get aiErrorCad =>
       'Die Änderung am Modell konnte nicht ausgeführt werden. Die Meldung darunter nennt den Grund.';
+
+  @override
+  String get aiWorkThinking => 'Denkt nach';
+
+  @override
+  String get aiWorkReading => 'Liest das Modell';
+
+  @override
+  String get aiWorkMeasuring => 'Misst';
+
+  @override
+  String get aiWorkSketching => 'Zeichnet';
+
+  @override
+  String get aiWorkBuilding => 'Baut';
+
+  @override
+  String get aiWorkEditing => 'Ändert';
+
+  @override
+  String get aiWorkLooking => 'Schaut sich das Modell an';
+
+  @override
+  String get aiWorkWorking => 'Arbeitet';
+
+  @override
+  String aiStepOf(int step, int total) {
+    return 'Schritt $step von $total';
+  }
+
+  @override
+  String get aiMore => 'Mehr';
+
+  @override
+  String get aiLess => 'Weniger';
+
+  @override
+  String aiChangeCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Änderungen',
+      one: '1 Änderung',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get aiCanModel =>
+      'Kann im geöffneten Bauteil modellieren und nennt, was dabei gemessen wurde.';
 }

@@ -5087,10 +5087,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get aiAdviceOnly =>
-      'Design advice and discussion are available now. The assistant cannot create or edit CAD geometry yet.';
-
-  @override
-  String get aiThinking => 'Preparing a reply…';
+      'Advice and discussion. Editing the model is switched off in AI settings.';
 
   @override
   String get aiYou => 'You';
@@ -5180,4 +5177,54 @@ class AppL10nEn extends AppL10n {
   @override
   String get aiErrorCad =>
       'The change to the model could not be carried out. The report below says why.';
+
+  @override
+  String get aiWorkThinking => 'Thinking';
+
+  @override
+  String get aiWorkReading => 'Reading the model';
+
+  @override
+  String get aiWorkMeasuring => 'Measuring';
+
+  @override
+  String get aiWorkSketching => 'Sketching';
+
+  @override
+  String get aiWorkBuilding => 'Building';
+
+  @override
+  String get aiWorkEditing => 'Editing';
+
+  @override
+  String get aiWorkLooking => 'Looking at the model';
+
+  @override
+  String get aiWorkWorking => 'Working';
+
+  @override
+  String aiStepOf(int step, int total) {
+    return 'Step $step of $total';
+  }
+
+  @override
+  String get aiMore => 'More';
+
+  @override
+  String get aiLess => 'Less';
+
+  @override
+  String aiChangeCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count changes',
+      one: '1 change',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get aiCanModel =>
+      'Can model in the open part, and reports what it measured while doing it.';
 }

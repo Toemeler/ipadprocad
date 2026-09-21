@@ -48,6 +48,20 @@ class AiController extends ChangeNotifier {
   /// has none, and the instructions then never offer editing at all.
   AiActionRunner? actionRunner;
 
+  /// M444 — what the panel shows in a few words while work is in flight.
+  AiActivity _activity = AiActivity.none;
+  AiActivity get activity => _activity;
+
+  void _setActivity(AiActivity value) {
+    if (_activity.phase == value.phase &&
+        _activity.op == value.op &&
+        _activity.step == value.step) {
+      return;
+    }
+    _activity = value;
+    _notify();
+  }
+
   /// Whether the assistant may change the document. The runner being present
   /// is the capability; [AiPreferences.allowEdits] is the user's switch over
   /// it, and it is persisted with the rest of the preferences.
@@ -484,6 +498,7 @@ class AiController extends ChangeNotifier {
       final turns = [...messages];
       for (var round = 0;; round++) {
         final last = round >= kAiMaxActionRounds;
+        _setActivity(const AiActivity(AiPhase.thinking));
         final reply = await _backend.respond(
             preferences,
             AiRequest(
@@ -511,7 +526,10 @@ class AiController extends ChangeNotifier {
               outcomes: [AiActionOutcome.failed('parse', block.parseError!)]);
         } else {
           try {
-            report = await actionRunner!(block.actions);
+            report = await actionRunner!(block.actions, onStep: (op, i, n) {
+              _setActivity(AiActivity(AiPhase.working,
+                  op: op, step: i, total: n));
+            });
           } catch (_) {
             // The executor is written not to throw. If it did anyway, the
             // document's state is unknown from here — so the turn ends with
@@ -534,6 +552,7 @@ class AiController extends ChangeNotifier {
         // of an argument: the model is told once, answers once, and does not
         // get to retry into a wall.
         if (report.blocked != null) {
+          _setActivity(const AiActivity(AiPhase.thinking));
           final closing = await _backend.respond(
               preferences,
               AiRequest(
@@ -571,6 +590,7 @@ class AiController extends ChangeNotifier {
         session.busy = false;
         _activeRequest = null;
         _requestSession = null;
+        _activity = AiActivity.none;
       }
       _notify();
     }
@@ -592,7 +612,20 @@ class AiController extends ChangeNotifier {
       'verify strength, clearances, fit or manufacturability without evidence. '
       'If another document is needed, ask the user to add it through Documents or continue this '
       'session there. '
-      'Respond in the user\'s language and keep answers useful and concise.';
+      'Respond in the user\'s language. '
+      // M444 — BREVITY IS A REQUIREMENT, not a preference. The panel is a
+      // corner of a CAD app on a tablet, not a chat window: the user asked to
+      // stop reading paragraphs and to be told in a few words what happened.
+      // The app already shows every executed action and every measured number,
+      // so restating them in prose is duplication the user has to skim past.
+      'ANSWER IN AT MOST TWO SHORT SENTENCES. No preamble, no restating the '
+      'question, no summary of what you just did — the app already shows that. '
+      'No lists and no headings unless the user asks for them. '
+      'If you need something from the user, reply with the QUESTION ALONE and '
+      'nothing else: no apology, no explanation of why you are asking, no '
+      'options unless they are genuinely the only ones. '
+      'Prefer doing over describing: if an action would answer the question, '
+      'take it and report the result in one line.';
 
   static const _readOnly =
       ' This connection provides read-only document context and conversation. '
@@ -613,6 +646,7 @@ class AiController extends ChangeNotifier {
     }
     _activeRequest = null;
     _requestSession = null;
+    _activity = AiActivity.none;
     unawaited(_backend.cancel(id).catchError((_) {}));
     _notify();
   }

@@ -4795,8 +4795,7 @@
   "aiContextExplanation": "Dieses Dokument ist immer enthalten. Wähle weitere Dokumente, um ihre Zusammenfassungen hinzuzufügen.",
   "aiWelcomeTitle": "Deine nächste Idee entwickeln",
   "aiWelcomeBody": "Besprich den Entwurf, füge Referenzbilder hinzu oder plane die Modellierung. Jedes Dokument behält seine eigenen Gespräche.",
-  "aiAdviceOnly": "Entwurfsberatung und Gespräche sind verfügbar. Der Assistent kann CAD-Geometrie noch nicht erstellen oder ändern.",
-  "aiThinking": "Antwort wird vorbereitet …",
+  "aiAdviceOnly": "Beratung und Gespräch. Das Bearbeiten des Modells ist in den KI-Einstellungen ausgeschaltet.",
   "aiYou": "Du",
   "aiPromptPlaceholder": "Beschreibe deine Idee oder frage zum Entwurf …",
   "aiAttachFiles": "Dateien anhängen",
@@ -4837,5 +4836,35 @@
   "aiChangesNoPart": "Kein Bauteil geöffnet. Öffne ein Bauteil, damit die Assistenz darin modellieren kann.",
   "aiChangesDisabled": "Bearbeiten ist in den KI-Einstellungen ausgeschaltet.",
   "aiUndoChanges": "Änderungen widerrufen",
-  "aiErrorCad": "Die Änderung am Modell konnte nicht ausgeführt werden. Die Meldung darunter nennt den Grund."
+  "aiErrorCad": "Die Änderung am Modell konnte nicht ausgeführt werden. Die Meldung darunter nennt den Grund.",
+  "aiWorkThinking": "Denkt nach",
+  "aiWorkReading": "Liest das Modell",
+  "aiWorkMeasuring": "Misst",
+  "aiWorkSketching": "Zeichnet",
+  "aiWorkBuilding": "Baut",
+  "aiWorkEditing": "Ändert",
+  "aiWorkLooking": "Schaut sich das Modell an",
+  "aiWorkWorking": "Arbeitet",
+  "aiStepOf": "Schritt {step} von {total}",
+  "aiMore": "Mehr",
+  "aiLess": "Weniger",
+  "aiChangeCount": "{count, plural, =1{1 Änderung} other{{count} Änderungen}}",
+  "@aiStepOf": {
+    "placeholders": {
+      "step": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "@aiChangeCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "aiCanModel": "Kann im geöffneten Bauteil modellieren und nennt, was dabei gemessen wurde."
 }

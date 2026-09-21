@@ -8452,14 +8452,8 @@ abstract class AppL10n {
   /// No description provided for @aiAdviceOnly.
   ///
   /// In de, this message translates to:
-  /// **'Entwurfsberatung und Gespräche sind verfügbar. Der Assistent kann CAD-Geometrie noch nicht erstellen oder ändern.'**
+  /// **'Beratung und Gespräch. Das Bearbeiten des Modells ist in den KI-Einstellungen ausgeschaltet.'**
   String get aiAdviceOnly;
-
-  /// No description provided for @aiThinking.
-  ///
-  /// In de, this message translates to:
-  /// **'Antwort wird vorbereitet …'**
-  String get aiThinking;
 
   /// No description provided for @aiYou.
   ///
@@ -8622,6 +8616,84 @@ abstract class AppL10n {
   /// In de, this message translates to:
   /// **'Die Änderung am Modell konnte nicht ausgeführt werden. Die Meldung darunter nennt den Grund.'**
   String get aiErrorCad;
+
+  /// No description provided for @aiWorkThinking.
+  ///
+  /// In de, this message translates to:
+  /// **'Denkt nach'**
+  String get aiWorkThinking;
+
+  /// No description provided for @aiWorkReading.
+  ///
+  /// In de, this message translates to:
+  /// **'Liest das Modell'**
+  String get aiWorkReading;
+
+  /// No description provided for @aiWorkMeasuring.
+  ///
+  /// In de, this message translates to:
+  /// **'Misst'**
+  String get aiWorkMeasuring;
+
+  /// No description provided for @aiWorkSketching.
+  ///
+  /// In de, this message translates to:
+  /// **'Zeichnet'**
+  String get aiWorkSketching;
+
+  /// No description provided for @aiWorkBuilding.
+  ///
+  /// In de, this message translates to:
+  /// **'Baut'**
+  String get aiWorkBuilding;
+
+  /// No description provided for @aiWorkEditing.
+  ///
+  /// In de, this message translates to:
+  /// **'Ändert'**
+  String get aiWorkEditing;
+
+  /// No description provided for @aiWorkLooking.
+  ///
+  /// In de, this message translates to:
+  /// **'Schaut sich das Modell an'**
+  String get aiWorkLooking;
+
+  /// No description provided for @aiWorkWorking.
+  ///
+  /// In de, this message translates to:
+  /// **'Arbeitet'**
+  String get aiWorkWorking;
+
+  /// No description provided for @aiStepOf.
+  ///
+  /// In de, this message translates to:
+  /// **'Schritt {step} von {total}'**
+  String aiStepOf(int step, int total);
+
+  /// No description provided for @aiMore.
+  ///
+  /// In de, this message translates to:
+  /// **'Mehr'**
+  String get aiMore;
+
+  /// No description provided for @aiLess.
+  ///
+  /// In de, this message translates to:
+  /// **'Weniger'**
+  String get aiLess;
+
+  /// No description provided for @aiChangeCount.
+  ///
+  /// In de, this message translates to:
+  /// **'{count, plural, =1{1 Änderung} other{{count} Änderungen}}'**
+  String aiChangeCount(int count);
+
+  /// No description provided for @aiCanModel.
+  ///
+  /// In de, this message translates to:
+  /// **'Kann im geöffneten Bauteil modellieren und nennt, was dabei gemessen wurde.'**
+  String get aiCanModel;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {
