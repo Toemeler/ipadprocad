@@ -74,12 +74,35 @@ OcctMeshData boxMesh(double dx, double dy, double dz) {
       0, 0, 0, 0, 0, 0, 0, 0,
     ]);
   }
+  // M458 — the twelve display EDGES, as the shim publishes them: a CSR-style
+  // `edgeStarts` indexing into `edgePoints`, two points an edge. Without them
+  // the box has no edges to project, pick or fillet by proximity, and a
+  // fixture that omits them quietly makes those features untestable.
+  final ex = <double>[], estart = <int>[];
+  void edge(List<double> a, List<double> b) {
+    estart.add(ex.length ~/ 3);
+    ex.addAll([...a, ...b]);
+  }
+
+  final c = <List<double>>[
+    [0, 0, 0], [dx, 0, 0], [dx, dy, 0], [0, dy, 0], //
+    [0, 0, dz], [dx, 0, dz], [dx, dy, dz], [0, dy, dz],
+  ];
+  for (final pair in const [
+    [0, 1], [1, 2], [2, 3], [3, 0], // bottom
+    [4, 5], [5, 6], [6, 7], [7, 4], // top
+    [0, 4], [1, 5], [2, 6], [3, 7], // uprights
+  ]) {
+    edge(c[pair[0]], c[pair[1]]);
+  }
+  estart.add(ex.length ~/ 3); // the closing offset every CSR array needs
+
   return OcctMeshData(
     Float64List.fromList(pos),
     Float64List.fromList(nor),
     Int32List.fromList(idx),
-    Int32List.fromList([0]),
-    Float64List(0),
+    Int32List.fromList(estart),
+    Float64List.fromList(ex),
     triFaces: Int32List.fromList(tri),
     faceInfos: Float64List.fromList(info),
     faceIds: Int32List.fromList([for (var f = 0; f < faces.length; f++) f + 1]),
@@ -205,6 +228,11 @@ class BoxKernel implements PartKernel {
   /// leave alone.
   final List<double> rings;
   int extrudes = 0, fillets = 0, chamfers = 0, deletes = 0, moves = 0;
+  int sweeps = 0, lofts = 0, coils = 0, places = 0, mirrors = 0;
+
+  /// The (revolutions, height, clockwise) the last coil resolved to — the
+  /// arithmetic the four coil methods all funnel through.
+  (double, double, bool)? lastCoil;
 
   @override
   bool get available => true;
@@ -228,6 +256,53 @@ class BoxKernel implements PartKernel {
           double axPx, double axPy, double axDx, double axDy,
           List<double> mat34) =>
       _box(angleDeg / 36);
+
+  /// M456 — the three M131 features. PartKernel declares these concrete and
+  /// null-returning so a fake that does not model them says so; this one
+  /// does model them, because the ops that drive them are under test.
+  @override
+  KernelSolid? sweep(List<List<List<Offset>>> groups, List<double> mat34,
+      List<double> pathPts,
+      {int orientation = 0,
+      double taperDeg = 0,
+      double twistDeg = 0,
+      int pathMode = 0}) {
+    sweeps++;
+    return _box(12);
+  }
+
+  @override
+  KernelSolid? loft(List<List<Offset>> sections, List<List<double>> mats,
+      {bool solid = true, bool ruled = false, bool closed = false}) {
+    lofts++;
+    return _box(14);
+  }
+
+  @override
+  KernelSolid? coil(List<List<List<Offset>>> groups, List<double> mat34,
+      Vec3 axP, Vec3 axD,
+      {required double revolutions,
+      required double height,
+      double taperDeg = 0,
+      bool clockwise = false}) {
+    coils++;
+    lastCoil = (revolutions, height, clockwise);
+    return _box(16);
+  }
+
+  /// What a PATTERN needs: each occurrence is the source solid placed by a
+  /// 3x4 matrix, or mirrored about a plane.
+  @override
+  KernelSolid? placeSolid(KernelSolid s, List<double> mat34) {
+    places++;
+    return _box(11);
+  }
+
+  @override
+  KernelSolid? mirrorSolid(KernelSolid s, Vec3 point, Vec3 normal) {
+    mirrors++;
+    return _box(11);
+  }
 
   @override
   KernelSolid? fuseSolids(KernelSolid a, KernelSolid b) => _box(10);

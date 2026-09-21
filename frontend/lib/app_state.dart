@@ -13345,6 +13345,13 @@ class AppState extends ChangeNotifier {
   /// notifier from outside it.
   void aiNotify() => notifyListeners();
 
+  /// M458 — applies [s]'s constraint list and rebuilds, saying whether the
+  /// solve held. The assistant appends a constraint, calls this, and removes
+  /// it again when it comes back false — the same append/solve/roll-back the
+  /// gear placement uses, and the only honest way to add a constraint that
+  /// might not be satisfiable.
+  bool aiSolveSketch(SketchModel s) => _solveAndRebuild(s);
+
   /// M446 — renders the open part from a direction the caller chooses.
   ///
   /// The SAME three-engine walk the gallery still uses (RealityKit, Flutter

@@ -1,12 +1,32 @@
 import 'dart:math' as math;
-import 'dart:ui' show Offset;
+import 'dart:ui' show Offset, Rect;
 
 import '../app_state.dart';
 import '../ffi/occt_engine.dart' show OcctEdgeInfo;
 import '../ffi/qcad_engine.dart';
+import '../constraints.dart';
 import '../log.dart';
-import '../modify.dart' show arcThrough;
+import '../gear.dart' show GearParams, buildGearGeo;
+import '../inserts.dart' show SketchText;
+import '../modify.dart'
+    show
+        arcThrough,
+        stretchGeo,
+        extendEntity,
+        offsetEntity,
+        transformGeo,
+        trimCutAway,
+        trimEntity;
 import '../part_model.dart';
+import '../snap.dart' show sampleEntity;
+import '../solver.dart' show hasDegenerateGeometry;
+import '../tools.dart'
+    show
+        buildToolGeometry,
+        chamferInventor,
+        filletInventor,
+        kSketchPointRadius,
+        toolMeta;
 import '../part_render.dart'
     show kFacePlane, kFaceCylinder, kFaceCone, kFaceSphere, kFaceTorus;
 import 'ai_actions.dart';
@@ -15,6 +35,18 @@ import 'ai_models.dart';
 import 'ai_trace.dart';
 import 'ai_view.dart';
 import 'shape_digest.dart';
+
+part 'ai_cad_solids.dart';
+part 'ai_cad_sketch.dart';
+part 'ai_cad_constrain.dart';
+
+/// Four decimals is a micron on a millimetre part — past what any of this
+/// geometry is accurate to, and short enough that a report stays readable.
+double _r(double v) => v.isFinite ? (v * 10000).roundToDouble() / 10000 : 0;
+
+/// A length as the reports print it.
+String _mm(double v) =>
+    v.isFinite ? v.toStringAsFixed(v.abs() >= 100 ? 1 : 2) : '?';
 
 /// M441 — where an assistant's intention becomes geometry.
 ///
@@ -142,6 +174,36 @@ class AiCad {
 
   Future<AiActionOutcome> _one(PartModel p, AiAction a) async {
     switch (a.op) {
+      case 'sketch_tool':
+        return this._sketchTool(p, a);
+      case 'sketch_modify':
+        return this._sketchModify(p, a);
+      case 'sketch_project':
+        return this._sketchProject(p, a);
+      case 'sketch_pattern':
+        return this._sketchPattern(p, a);
+      case 'sketch_gear':
+        return this._sketchGear(p, a);
+      case 'sketch_text':
+        return this._sketchText(p, a);
+      case 'sketch_constrain':
+        return this._sketchConstrain(p, a);
+      case 'sketch_dimension':
+        return this._sketchDimension(p, a);
+      case 'hole':
+        return this._hole(p, a);
+      case 'sweep':
+        return this._sweep(p, a);
+      case 'loft':
+        return this._loft(p, a);
+      case 'coil':
+        return this._coil(p, a);
+      case 'split_body':
+        return this._split(p, a);
+      case 'combine':
+        return this._combine(p, a);
+      case 'pattern':
+        return this._pattern(p, a);
       case 'describe_part':
         return AiActionOutcome('describe_part', detail: {'part': _state(p)});
       case 'describe_shape':
@@ -154,6 +216,8 @@ class AiCad {
         return _section(p, a);
       case 'delete_face':
       case 'move_face':
+      case 'size_face':
+      case 'scale_body':
         return _faceEdit(p, a);
       case 'sketch_on_face':
         return _sketchOnFace(p, a);
@@ -171,6 +235,7 @@ class AiCad {
       case 'sketch_arc':
       case 'sketch_slot':
       case 'sketch_rounded_rect':
+      case 'sketch_point':
         return _draw(p, a);
       case 'extrude':
         return _extrude(p, a);
@@ -202,14 +267,38 @@ class AiCad {
     if (p.childSketches.length >= 200) {
       return AiActionOutcome.failed(a.op, 'this part already has 200 sketches');
     }
+    // M458 — A SKETCH AT A HEIGHT.
+    //
+    // The three origin planes all pass through the origin, so a model that
+    // wanted to draw the top of something 40 mm up had to draw it at the
+    // bottom and extrude 40 mm of material it did not want, or build a work
+    // plane it had no op for. An offset sketch is the frame of the named
+    // plane moved along its own normal — which is exactly what a work plane
+    // at an offset IS, and it carries through every later feature because a
+    // sketch on a frame is how this app already models a sketch on a face.
+    final offset = a.number('offset') ?? 0;
+    if (offset.abs() > 100000) {
+      return AiActionOutcome.failed(a.op, 'offset is beyond 100 m');
+    }
+    final base = planeFrame(plane);
+    final frame = offset == 0
+        ? null
+        : PlaneFrame('face', base.u, base.v, base.n, base.n * offset);
     final sketch = SketchModel(p.nextSketchName());
     sketch.insertLayerAboveMarker(_layerName);
-    p.appendChildSketch(
-        ChildSketch(sketch, plane, null, true, false, p.nextSeq()));
+    p.appendChildSketch(ChildSketch(sketch, frame == null ? plane : 'face',
+        frame, true, false, p.nextSeq()));
     app.aiAdmitSketchRow(p);
-    Log.i('ai', 'sketch "${sketch.name}" created on $plane of "${p.name}"');
-    return AiActionOutcome(a.op,
-        detail: {'sketch': sketch.name, 'plane': plane});
+    Log.i('ai',
+        'sketch "${sketch.name}" created on $plane${offset == 0 ? "" : " + $offset mm"} of "${p.name}"');
+    return AiActionOutcome(a.op, detail: {
+      'sketch': sketch.name,
+      'plane': plane,
+      if (offset != 0) 'offsetMm': _r(offset),
+      if (offset != 0)
+        'note': 'This sketch sits ${_mm(offset)} mm along the ${plane.toUpperCase()} '
+            'plane normal, so what you draw on it starts there.',
+    });
   }
 
   static const _layerName = 'Layer 1';
@@ -474,6 +563,22 @@ class AiCad {
             'height': _r(h),
             'radius': _r(radius),
           };
+        }
+      case 'sketch_point':
+        {
+          final x = a.number('x'), y = a.number('y');
+          if (x == null || y == null) {
+            return AiActionOutcome.failed(a.op, 'x and y are required');
+          }
+          // M209's tagged point: the carrier is a circle because the core has
+          // no point type, and the tag is what makes it a point everywhere
+          // that matters — including to a hole and a sketch-driven pattern,
+          // both of which place on points and on nothing else.
+          made = [
+            Geo(Geo.circle, [x, y, kSketchPointRadius],
+                spline: Geo.pointTag, layer: layer)
+          ];
+          detail = {'shape': 'point', 'at': [_r(x), _r(y)]};
         }
       default:
         return AiActionOutcome.failed(a.op, 'unknown draw op');
@@ -1338,8 +1443,34 @@ class AiCad {
       return AiActionOutcome.failed(a.op, 'body "$body" has no geometry');
     }
     final isDelete = a.op == 'delete_face';
+    // M458 — DirectEdit has three modes and the assistant could reach one.
+    // "size" resizes a cylindrical or spherical face to a new radius, which
+    // is how a hole's diameter is changed on a body with no feature tree —
+    // an imported STEP part, exactly the case direct editing exists for.
+    final isSize = a.op == 'size_face';
+    // DirectOp.scale resizes the WHOLE body about its centre — the third of
+    // the three direct-edit modes, and the one that turns an imported part
+    // that came in as inches into one that is millimetres.
+    final isScale = a.op == 'scale_body';
+    final factor = a.number('factor');
+    if (isScale && (factor == null || factor <= 0)) {
+      return AiActionOutcome.failed(a.op, 'factor must be > 0');
+    }
     final distance = isDelete ? 0.0 : a.number('distance');
-    if (!isDelete && (distance == null || distance == 0)) {
+    final radius = a.number('radius') ??
+        (a.number('diameter') == null ? null : a.number('diameter')! / 2);
+    if (isSize) {
+      if (radius == null || radius <= 0) {
+        return AiActionOutcome.failed(
+            a.op, 'radius (or diameter) must be > 0');
+      }
+      if (face.radius <= 0) {
+        return AiActionOutcome.failed(
+            a.op,
+            'F${face.id} is a ${faceTypeName(face.type)} and has no radius to '
+            'size — size_face takes a cylinder, cone or sphere');
+      }
+    } else if (!isDelete && !isScale && (distance == null || distance == 0)) {
       return AiActionOutcome.failed(a.op, 'distance is required and non-zero');
     }
     // A FacePick is the same "remember the geometry, re-find the index"
@@ -1353,6 +1484,30 @@ class AiCad {
             bodyName: body,
             faces: [pick],
           )
+        : isScale
+            ? DirectEditFeature(
+                name: p.nextFeatureName('Scale'),
+                bodyName: body,
+                faces: [pick],
+                op: DirectOp.scale,
+                dx: 0,
+                dy: 0,
+                dz: 0,
+                factor: factor!,
+              )
+        : isSize
+            ? DirectEditFeature(
+                name: p.nextFeatureName('Size'),
+                bodyName: body,
+                faces: [pick],
+                op: DirectOp.size,
+                // The kernel takes the CHANGE in radius, the way the panel's
+                // own drag does; the model says what it wants the radius to
+                // be, which is the thing it actually knows.
+                dx: radius! - face.radius,
+                dy: 0,
+                dz: 0,
+              )
         // Direct edit moves faces by a WORLD delta, not by a scalar. Along the
         // face's own normal is what "offset this face by 2 mm" means, and it
         // is the only reading that does not need a direction argument.
@@ -1563,9 +1718,6 @@ class AiCad {
     return body == null ? null : currentBodySolid(p, body);
   }
 
-  static String _mm(double v) =>
-      v.isFinite ? v.toStringAsFixed(v.abs() >= 100 ? 1 : 2) : '?';
-
   // ---- commit + report --------------------------------------------------
 
   /// Builds [f], adds it to the timeline, and reports what the KERNEL said.
@@ -1700,8 +1852,4 @@ class AiCad {
     };
   }
 
-  /// Four decimals is a micron on a millimetre part — past what any of this
-  /// geometry is accurate to, and short enough that a report stays readable.
-  static double _r(double v) =>
-      v.isFinite ? (v * 10000).roundToDouble() / 10000 : 0;
 }

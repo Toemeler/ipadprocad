@@ -31,6 +31,8 @@ const Set<String> kAiOps = {
   'look',
   'delete_face',
   'move_face',
+  'size_face',
+  'scale_body',
   'sketch_on_face',
   'create_sketch',
   'sketch_rect',
@@ -40,8 +42,24 @@ const Set<String> kAiOps = {
   'sketch_arc',
   'sketch_slot',
   'sketch_rounded_rect',
+  'sketch_point',
+  'sketch_tool',
+  'sketch_modify',
+  'sketch_project',
+  'sketch_pattern',
+  'sketch_gear',
+  'sketch_text',
+  'sketch_constrain',
+  'sketch_dimension',
   'extrude',
   'revolve',
+  'hole',
+  'sweep',
+  'loft',
+  'coil',
+  'split_body',
+  'combine',
+  'pattern',
   'fillet',
   'chamfer',
   'edit_feature',
@@ -629,14 +647,36 @@ class AiActivity {
         'sketch_arc' ||
         'sketch_slot' ||
         'sketch_rounded_rect' ||
+        'sketch_point' ||
+        'sketch_tool' ||
+        'sketch_project' ||
+        'sketch_pattern' ||
+        'sketch_gear' ||
+        'sketch_text' ||
         'sketch_on_face' =>
           AiWork.sketching,
-        'extrude' || 'revolve' || 'fillet' || 'chamfer' => AiWork.building,
+        'extrude' ||
+        'revolve' ||
+        'fillet' ||
+        'chamfer' ||
+        'hole' ||
+        'sweep' ||
+        'loft' ||
+        'coil' ||
+        'split_body' ||
+        'combine' ||
+        'pattern' =>
+          AiWork.building,
         'edit_feature' ||
         'delete_feature' ||
         'rename_feature' ||
         'delete_face' ||
-        'move_face' =>
+        'move_face' ||
+        'size_face' ||
+        'scale_body' ||
+        'sketch_modify' ||
+        'sketch_constrain' ||
+        'sketch_dimension' =>
           AiWork.editing,
         'look' => AiWork.looking,
         'brief_note' || 'brief_done' => AiWork.noting,
@@ -904,15 +944,25 @@ default):
 - delete_face {face} — removes a face and heals the body (direct editing, for
   bodies with no feature tree).
 - move_face {face, distance} — offsets a face along its own normal.
+- size_face {face, diameter|radius} — resizes a cylindrical, conical or
+  spherical face. How a hole's diameter changes on a body with no feature
+  tree, which is what an imported STEP part is.
+- scale_body {face, factor} — scales the whole body about its centre. What
+  turns a part that came in as inches into one that is millimetres.
 - sketch_on_face {face} — starts a sketch on a face; then use the sketch and
   extrude ops as normal.
-- create_sketch {plane: "xy"|"xz"|"yz"} — creates and returns a sketch name.
+- create_sketch {plane: "xy"|"xz"|"yz", offset?} — creates and returns a
+  sketch name. `offset` moves the plane along its own normal, which is how
+  you draw something at a height instead of drawing it on the ground and
+  extruding material you did not want.
 - sketch_rect {sketch?, x, y, width, height, centered?} — x/y is the corner,
   or the centre when centered is true. Defaults to the newest sketch.
 - sketch_circle {sketch?, x, y, diameter} (or radius).
 - sketch_polygon {sketch?, points: [[x,y], ...], closed?} — closed by default.
   STRAIGHT SEGMENTS ONLY. Never use it to approximate a curve: use sketch_arc.
 - sketch_line {sketch?, x1, y1, x2, y2}.
+- sketch_point {sketch?, x, y} — a sketch point. Holes and sketch-driven
+  patterns are placed ON points, so this is how you say where they go.
 - sketch_arc {sketch?, x, y, radius|diameter, start_deg, end_deg} — a TRUE
   arc about a centre, angles measured anticlockwise from +x. Or give three
   points it passes through: {x1, y1, x2, y2, x3, y3}.
@@ -929,6 +979,93 @@ default):
   body?} — extrudes every closed profile of the sketch.
 - revolve {sketch?, angle?, axis?: "x"|"y", operation?, body?} — about a
   sketch axis; angle defaults to 360.
+EVERY OTHER 2D TOOL, through one op:
+- sketch_tool {sketch?, tool, points: [[x,y], ...], radius?, distance?,
+  distance2?, angle?, sides?, mode?, expr?} — draws with the app's own tool,
+  by name, from the same picks a person would make. The ops above are the
+  common shapes said in words; this is the rest of the toolbox, and the
+  refusal lists every name with how many points it takes. Among them:
+    ellipse (3), spline and spline_control (3+), arc_tangent, circle_tangent,
+    polygon_regular with `sides`, rect_3point and rect_centre_3point for a
+    rotated rectangle, the five slot forms, bridge, equation_curve with
+    `expr`, line_midpoint, point, and —
+    fillet {points: [p_on_first, p_on_second], radius} and
+    chamfer {points: [...], distance} — which round or cut the corner
+    BETWEEN two sketch entities and TRIM them both. Drawing a corner radius
+    in the sketch is more reliable than a 3D fillet on a sharp one: it cannot
+    fail at rebuild time.
+  The two points for fillet/chamfer pick the two entities, one each, near the
+  corner they share.
+
+SHAPING WHAT IS ALREADY DRAWN:
+- sketch_modify {sketch?, action, near?: [[x,y], ...], ...} — the modify
+  tools. `near` picks entities, one point each, and with no `near` the whole
+  sketch is the selection. Actions:
+    move / copy {dx, dy} · rotate {angle, about?: [x,y]} ·
+    scale {factor, about?} · mirror {axis: "x"|"y", or x1,y1,x2,y2} ·
+    offset {distance} · trim / split {near} · extend {near}
+  For trim and split the point does double duty: it picks the entity AND
+  says which piece of it you mean. Trim is how two overlapping circles become
+  one outline; offset is how a wall gets a constant thickness.
+
+MAKING THE SKETCH EDITABLE — do this on anything you may need to change:
+- sketch_constrain {sketch?, type, near: [[x,y], ...]} — coincident,
+  collinear, concentric, fix, parallel, perpendicular, horizontal, vertical,
+  tangent, smooth, symmetric, equal, midpoint. A constraint that cannot be
+  satisfied is not added, and the report says so.
+- sketch_dimension {sketch?, near: [[x,y], ...], value,
+  kind?: "dist"|"distx"|"disty"|"rad"|"dia"|"ang"} — a DRIVING dimension.
+  A rectangle drawn at computed coordinates has no width; one with a
+  dimension has a width the user can change afterwards. That difference is
+  most of what separates a drawing from a picture.
+
+- sketch_project {sketch?, near?: [[x,y], ...]} — brings the SOLID'S EDGES
+  into the sketch as real entities. This is how a second feature lines up
+  with the first instead of you re-deriving its coordinates, which is where
+  "the hole is 0.3 mm off" comes from. With no `near` the whole projectable
+  outline comes across.
+- sketch_pattern {sketch?, kind: "rect"|"circ", count, dx?, dy?, angle?,
+  about?, near?} — repeats sketch geometry before it is ever extruded, for
+  when the copies are meant to be one profile. The copies are independent
+  geometry; for occurrences that stay linked to their source, pattern the
+  FEATURE in 3D instead.
+
+TWO MORE THINGS THE SKETCHER MAKES:
+- sketch_gear {sketch?, teeth, module, x?, y?, bore?, pressure_angle?,
+  profile_shift?, internal?, angle?} — a true involute gear. Pitch diameter
+  is module × teeth. Never approximate teeth with a polygon.
+- sketch_text {sketch?, text, x?, y?, height?} — parametric text that
+  extrudes like any other profile, for a label moulded into a part.
+
+THE 3D TOOLS BEYOND EXTRUDE AND REVOLVE:
+- hole {sketch?, places: [[x,y], ...] (or x,y), diameter, depth|through_all,
+  type?: "simple"|"counterbore"|"spotface"|"countersink", cb_diameter?,
+  cb_depth?, cs_diameter?, cs_angle?, flip?} — a real Hole feature, not a cut
+  extrusion: it places its own sketch points, carries its mouth geometry, and
+  edits as a hole afterwards. Use it for every hole.
+- sweep {profile_sketch, path_sketch, orientation?: "path"|"fixed", taper?,
+  operation?} — drives a profile along an open curve in ANOTHER sketch,
+  usually on a plane at right angles to it. A handle, a pipe run, a bead
+  round a rim.
+- loft {sketches: [a, b, ...], ruled?, closed?, operation?} — blends through
+  two or more sections in the order given. The only feature that changes
+  cross-section along its length.
+- coil {sketch?, axis?: "x"|"y", method?: "revolution_height"|
+  "pitch_revolution"|"pitch_height"|"spiral", revolutions?, height?, pitch?,
+  taper?, clockwise?, operation?} — a spring, a thread, a spiral. Give the
+  two numbers your method names and the app works out the rest.
+- pattern {kind: "rect"|"circ"|"mirror", features?: [name, ...], count?,
+  spacing?, direction?, count2?, spacing2?, direction2?, axis?, angle?,
+  centre?, plane?, offset?} — one feature that repeats work, instead of
+  emitting the same block six times with six chances to mistype a
+  coordinate. Omit `features` to pattern the whole body. A bolt circle is
+  {"kind": "circ", "axis": "y", "count": 6, "angle": 360}.
+- split_body {plane?: "xy"|"xz"|"yz", offset?, flip?, body?} (or px/py/pz +
+  nx/ny/nz) — trims everything on one side of a plane away. How a printed
+  part is cut to fit the bed.
+- combine {tools: [body, ...], operation: "join"|"cut"|"intersect",
+  keep_tool?, body?} — a boolean between whole BODIES, as against the
+  boolean an extrude does against the body it lands in.
 - fillet {radius, edges?: "all"|"outer"|"holes"|"convex"|"concave"|
   "vertical"|"horizontal", body?, near?: [[x,y,z], ...]} — rounds live edges.
   "outer" excludes every circular edge, which is what you want when you mean
