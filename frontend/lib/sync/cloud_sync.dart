@@ -248,6 +248,16 @@ class CloudSync {
   /// for ever.
   static const Duration _timeout = Duration(seconds: 30);
 
+  /// The largest document this will fetch or send.
+  ///
+  /// THE SAME BOUND THE LAN MIRROR HAS (`SyncFrameReader.maxPayload`), and it
+  /// is here for a sharper reason: `http.get` buffers the whole body in memory
+  /// before anything can look at it, so a manifest entry claiming a gigabyte
+  /// is an out-of-memory crash on an iPad — and a manifest is the one thing
+  /// here that another device writes. The size is checked from the ENTRY,
+  /// before the request goes out, and again against what actually arrived.
+  static const int maxDocumentBytes = 256 << 20;
+
   /// How many transfers run at once.
   ///
   /// Four, because the point is to stop paying full latency per document and
@@ -485,6 +495,16 @@ class CloudSync {
             '${theirs.length} device(s)');
       } else {
         _sawNothing();
+        // ONLY AFTER AN IDLE CYCLE, and never while anything is arriving: a
+        // collector competing with a transfer is a collector reasoning about
+        // a bucket that is being written to. Once a day, at most, and its own
+        // failures never fail the cycle — the space it reclaims is not worth
+        // one document not syncing.
+        try {
+          await _collect(account, group);
+        } catch (e) {
+          Log.w('cloud', 'could not collect: ${redactUrls(e)}');
+        }
       }
       return CloudResult(
         forks > 0
@@ -497,14 +517,14 @@ class CloudSync {
         devices: theirs.length,
       );
     } catch (e) {
-      Log.w('cloud', 'cycle failed: $e');
+      Log.w('cloud', 'cycle failed: ${redactUrls(e)}');
       _publish(
-          CloudStatus(CloudState.failed, lastRun: _lastRun, detail: '$e'));
+          CloudStatus(CloudState.failed, lastRun: _lastRun, detail: _explain(e)));
       // A failure backs off like a quiet cycle rather than hammering a bucket
       // that is refusing us — a wrong key would otherwise be 720 rejected
       // requests an hour.
       _sawNothing();
-      return CloudResult(CloudOutcome.failed, detail: '$e');
+      return CloudResult(CloudOutcome.failed, detail: _explain(e));
     }
   }
 
@@ -588,7 +608,7 @@ class CloudSync {
       } catch (e) {
         // One device's unreadable manifest costs that device's updates this
         // cycle. Failing the pull would cost every device's.
-        Log.w('cloud', 'could not read a manifest: $e');
+        Log.w('cloud', 'could not read a manifest: ${redactUrls(e)}');
       }
     }
 
@@ -620,6 +640,141 @@ class CloudSync {
   ///
   /// B2 caps a listing at 1,000 and says so with `IsTruncated`. Reading only
   /// the first page would silently hide devices once a bucket grew.
+  // -------------------------------------------------------------------------
+  // The collector (M443)
+  // -------------------------------------------------------------------------
+
+  /// Which blobs nothing points at any more.
+  ///
+  /// THE ONLY THING HERE THAT DESTROYS ANYTHING, so it is a pure function with
+  /// its own tests rather than a loop inside the caller, and it has two
+  /// independent guards:
+  ///
+  ///   * REFERENCED BY ANY MANIFEST IS SAFE. Not "any recent manifest" — any.
+  ///     A device switched off for a year still has its manifest in the
+  ///     bucket, and that manifest still names the blobs behind the documents
+  ///     it holds, so its files are pinned by its own record. Nothing deletes
+  ///     a manifest, which is what makes that reasoning hold.
+  ///   * AND ANYTHING YOUNG IS SAFE. A blob is uploaded BEFORE the manifest
+  ///     that names it — the invariant at the top of this file — so between
+  ///     those two moments it is referenced by nothing and looks exactly like
+  ///     garbage. A cycle is seconds; the guard is a week.
+  ///
+  /// `lan_sync.dart` says it about deletes and it is no less true here: the
+  /// failure mode is losing work everywhere at once. So this errs, on purpose,
+  /// towards keeping a blob nobody wants over removing one somebody does.
+  @visibleForTesting
+  static List<String> unreferenced(
+    List<B2Object> blobs,
+    List<CloudManifest> manifests, {
+    required int nowMs,
+    required int minAgeMs,
+  }) {
+    final referenced = <String>{
+      for (final m in manifests)
+        for (final e in m.entries) e.sha,
+    };
+    return [
+      for (final b in blobs)
+        if (!referenced.contains(b.name) &&
+            nowMs - b.lastModifiedMs >= minAgeMs)
+          b.key,
+    ];
+  }
+
+  /// How old a blob must be before the collector will look at it.
+  static const Duration gcMinAge = Duration(days: 7);
+
+  /// How often the collector runs at all.
+  static const Duration gcEvery = Duration(days: 1);
+
+  DateTime? _lastGc;
+
+  /// Removes blobs no manifest points at any more.
+  ///
+  /// WHY THIS RUNS AT ALL, rather than being left to a lifecycle rule as the
+  /// Worker's README once claimed: blobs are content-addressed, so editing a
+  /// document writes a DIFFERENT key and leaves the old one orphaned rather
+  /// than superseded. A lifecycle rule collects older VERSIONS OF ONE KEY and
+  /// never sees an orphan; an age rule would delete the blob of a document
+  /// that simply has not changed lately, which is most of a gallery. Nothing
+  /// but this reclaims the space, and 10 GB of free tier fills quietly.
+  ///
+  /// WHY IT IS SAFE TO RUN UNATTENDED here when the Worker's `/v1/gc` is
+  /// deliberately manual: the Worker is a shared endpoint anyone with the
+  /// secret can call, and it had a person available to read a dry run. An app
+  /// has neither — there is no terminal, which is the whole point of M442 —
+  /// so the guards have to stand on their own, and they do. It still refuses
+  /// to run at all if any manifest cannot be read, because collecting against
+  /// a partial set of references is the one mistake that deletes live data.
+  ///
+  /// Once a day, after an otherwise idle cycle, never while anything is
+  /// arriving. Deletes are Class A on B2, which is free.
+  Future<int> _collect(B2Credentials account, String group) async {
+    final last = _lastGc;
+    final now = DateTime.now();
+    if (last != null && now.difference(last) < gcEvery) return 0;
+
+    // Read EVERY manifest from the bucket, not the ETag cache: the cache is an
+    // optimisation for "has anything changed", and a miss there is harmless,
+    // whereas a manifest missing from THIS set is a set of blobs that look
+    // unreferenced.
+    final listed = await _list(account, 'g/$group/m/');
+    final manifests = <CloudManifest>[];
+    for (final o in listed) {
+      if (!o.name.endsWith('.json')) continue;
+      final body = await _getString(account, o.key);
+      if (body == null) {
+        Log.w('cloud', 'not collecting: ${o.name} could not be read');
+        return 0;
+      }
+      try {
+        final m = CloudManifest.fromJson(jsonDecode(body));
+        if (m == null) {
+          Log.w('cloud', 'not collecting: ${o.name} is not a manifest');
+          return 0;
+        }
+        manifests.add(m);
+      } catch (e) {
+        Log.w('cloud', 'not collecting: ${redactUrls(e)}');
+        return 0;
+      }
+    }
+    // No manifests at all would make every blob look unreferenced. That is a
+    // bucket we have not written to yet, not a bucket to empty.
+    if (manifests.isEmpty) {
+      _lastGc = now;
+      return 0;
+    }
+
+    final blobs = await _list(account, 'g/$group/b/');
+    final doomed = unreferenced(blobs, manifests,
+        nowMs: now.millisecondsSinceEpoch, minAgeMs: gcMinAge.inMilliseconds);
+    _lastGc = now;
+    if (doomed.isEmpty) return 0;
+
+    var gone = 0;
+    for (final key in doomed) {
+      try {
+        final res = await _http
+            .delete(
+                B2Signer.sign(credentials: account, method: 'DELETE', key: key))
+            .timeout(_timeout);
+        // 404 means somebody else got there first, which is success.
+        if (res.statusCode == 200 || res.statusCode == 204 ||
+            res.statusCode == 404) {
+          gone++;
+        }
+      } catch (e) {
+        // One blob that would not go is next week's problem, not this
+        // cycle's.
+        Log.w('cloud', 'could not collect a blob: ${redactUrls(e)}');
+      }
+    }
+    Log.i('cloud', 'collected $gone orphaned blob(s) of ${blobs.length}');
+    return gone;
+  }
+
   Future<List<B2Object>> _list(B2Credentials account, String prefix) async {
     final out = <B2Object>[];
     String? token;
@@ -657,7 +812,7 @@ class CloudSync {
       if (res.statusCode != 200) return null;
       return utf8.decode(res.bodyBytes);
     } catch (e) {
-      Log.w('cloud', 'could not read $key: $e');
+      Log.w('cloud', 'could not read $key: ${redactUrls(e)}');
       return null;
     }
   }
@@ -669,6 +824,16 @@ class CloudSync {
   /// cost the other nine their turn.
   Future<Uint8List?> _download(
       B2Credentials account, String group, SyncEntry entry) async {
+    // BEFORE THE REQUEST, from the size the MANIFEST claims. `http.get`
+    // buffers the whole body before anything can inspect it, so by the time a
+    // response could be measured the memory is already gone — and a manifest
+    // is written by another device, which makes this the one number here that
+    // is not ours.
+    if (entry.size < 0 || entry.size > maxDocumentBytes) {
+      Log.w('cloud',
+          'refusing ${entry.path}: it claims ${entry.size} bytes');
+      return null;
+    }
     try {
       final res = await _http
           .get(B2Signer.sign(
@@ -685,7 +850,7 @@ class CloudSync {
       // bytes get and the only one that counts.
       return Uint8List.fromList(res.bodyBytes);
     } catch (e) {
-      Log.w('cloud', 'could not fetch ${entry.path}: $e');
+      Log.w('cloud', 'could not fetch ${entry.path}: ${redactUrls(e)}');
       return null;
     }
   }
@@ -715,7 +880,7 @@ class CloudSync {
       }
       return true;
     } catch (e) {
-      Log.w('cloud', 'could not upload ${entry.path}: $e');
+      Log.w('cloud', 'could not upload ${entry.path}: ${redactUrls(e)}');
       return false;
     }
   }
@@ -751,6 +916,51 @@ class CloudSync {
   static bool differsForTest(CloudManifest? was, CloudManifest now) =>
       _differs(was, now);
 }
+
+/// One line of a log or a status row, with any signed URL taken out of it.
+///
+/// THE LEAK THIS CLOSES. `package:http` throws `ClientException`, whose
+/// `toString()` is `'ClientException: <message>, uri=<uri>'` — so logging an
+/// error with string interpolation on any network failure would write the whole
+/// presigned URL into the log. That URL carries `X-Amz-Credential` (the key
+/// ID) and `X-Amz-Signature`, which is a bearer token for that object until it
+/// expires; and `bug_capture.dart` puts the log tail into a bundle that the
+/// relay commits to a GitHub issue. A dropped connection would have published
+/// a working credential.
+///
+/// Everything from the first `?` of a URL is replaced, rather than only the
+/// parameters we know about: a signer that gains a parameter must not quietly
+/// gain a way out of this.
+/// `replaceAllMapped`, NOT `replaceAll`: Dart's `replaceAll` treats `$1` in
+/// the replacement as two literal characters rather than the captured group,
+/// so the naive version blanked the path as well and every log line read
+/// `uri=$1?<signed>`. It still redacted — it also threw away the one part of
+/// the URL that says which object failed. Its test caught it.
+String redactUrls(Object? o) => o.toString().replaceAllMapped(
+    RegExp(r'(https?://[^\s,)]*)\?[^\s,)]*'), (m) => '${m[1]}?<signed>');
+
+/// What went wrong, in terms the settings row can show a person.
+///
+/// A RAW STATUS CODE IS NOT AN ANSWER. `Bad state: list: 403` is what the
+/// status row used to read when somebody mistyped one character of their key,
+/// and it sends them to a search engine rather than back to the field they got
+/// wrong. These are the three that actually happen during setup.
+String _explain(Object e) {
+  final s = redactUrls(e);
+  if (s.contains('401') || s.contains('403')) {
+    return 'Backblaze refused the key — check the Key ID and Application Key.';
+  }
+  if (s.contains('404')) {
+    return 'No such bucket — check the bucket name and the endpoint.';
+  }
+  if (s.contains('400')) {
+    return 'Backblaze rejected the request — check the endpoint and bucket.';
+  }
+  return s;
+}
+
+@visibleForTesting
+String explainForTest(Object e) => _explain(e);
 
 /// The `<Contents>` of a ListObjectsV2 response.
 ///

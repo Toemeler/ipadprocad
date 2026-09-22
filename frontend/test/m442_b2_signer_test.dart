@@ -17,6 +17,7 @@
 // the two now have to agree with AWS rather than merely with each other.
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/sync/b2_signer.dart';
+import 'package:prototype/sync/cloud_sync.dart';
 
 void main() {
   // The credentials from AWS's example. They are documentation, not secrets:
@@ -210,6 +211,75 @@ void main() {
       expect(a, b);
       expect(a.hashCode, b.hashCode);
       expect(a, isNot(a.copyWith(bucket: 'other')));
+    });
+  });
+  productionChecks();
+}
+
+// ---------------------------------------------------------------------------
+// M443 — the production-readiness pass.
+//
+// Two of these are leaks that a review found rather than a test, which is the
+// wrong way round; they are pinned here so they cannot come back quietly.
+// ---------------------------------------------------------------------------
+void productionChecks() {
+  group('a signed URL never reaches a log', () {
+    // THE LEAK. `package:http` throws ClientException, whose toString() is
+    // 'ClientException: <message>, uri=<uri>'. Logging one with interpolation
+    // wrote the whole presigned URL — X-Amz-Credential (the key ID) and
+    // X-Amz-Signature, a bearer token for that object — into a log that
+    // `bug_capture.dart` puts in a bundle and the relay commits to a GitHub
+    // issue. A dropped connection would have published a working credential.
+    test('the query string of a signed URL is taken out', () {
+      final url = B2Signer.sign(
+        credentials: const B2Credentials(
+            keyId: 'AKIAEXAMPLE',
+            appKey: 'secret',
+            bucket: 'b',
+            region: 'eu-central-003'),
+        method: 'GET',
+        key: 'g/aa/b/${'c' * 64}',
+      );
+      final line = redactUrls('ClientException: Connection reset, uri=$url');
+      expect(line, isNot(contains('X-Amz-Signature')));
+      expect(line, isNot(contains('X-Amz-Credential')));
+      expect(line, isNot(contains('AKIAEXAMPLE')));
+      expect(line, contains('<signed>'),
+          reason: 'and says that something was taken out');
+      expect(line, contains('Connection reset'),
+          reason: 'without losing what actually went wrong');
+    });
+
+    test('a line with no url in it is left alone', () {
+      expect(redactUrls('cycle failed: Bad state: list: 403'),
+          'cycle failed: Bad state: list: 403');
+    });
+
+    test('the path survives, so the log still says which object', () {
+      final line = redactUrls(
+          'uri=https://b.s3.eu-central-003.backblazeb2.com/g/aa/b/dead?X-Amz-Signature=beef');
+      expect(line, contains('/g/aa/b/dead'));
+      expect(line, isNot(contains('beef')));
+    });
+  });
+
+  // A raw status code sends somebody to a search engine rather than back to
+  // the field they mistyped.
+  group('a failure says what to do about it', () {
+    test('a refused key names the two fields it could be', () {
+      for (final code in const ['401', '403']) {
+        final s = explainForTest(StateError('list: $code'));
+        expect(s, contains('Key ID'));
+        expect(s, isNot(contains(code)));
+      }
+    });
+
+    test('a missing bucket names the bucket', () {
+      expect(explainForTest(StateError('list: 404')), contains('bucket'));
+    });
+
+    test('anything else is passed through, redacted', () {
+      expect(explainForTest(StateError('something odd')), contains('odd'));
     });
   });
 }
