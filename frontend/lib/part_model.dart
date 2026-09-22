@@ -3666,13 +3666,14 @@ Vec3 meshCentreOf(OcctMeshData mesh) {
 
 
 /// M217 — which face edit is open.
-enum FaceEditKind { delete, move, size, scale }
+enum FaceEditKind { delete, move, size, scale, shell }
 
 String faceEditLabel(FaceEditKind k) => switch (k) {
       FaceEditKind.delete => 'Delete Face',
       FaceEditKind.move => 'Move Faces',
       FaceEditKind.size => 'Size Faces',
       FaceEditKind.scale => 'Scale Body',
+      FaceEditKind.shell => 'Shell',
     };
 
 /// M217 — the open Delete Face / Direct Edit session.
@@ -3697,6 +3698,16 @@ class FaceEditSession {
 
   /// Scale: the uniform factor.
   double factor = 1;
+
+  /// Move, as the panel offers it: a distance along the FIRST picked face's
+  /// own normal, turned into [dx]/[dy]/[dz] when the edit is applied. Zero
+  /// leaves an explicitly set delta alone.
+  double distance = 0;
+
+  /// #85 — Shell: the wall, and whether it grows outward (keeping the inside)
+  /// instead of inward (keeping the outside).
+  double thickness = 1;
+  bool outward = false;
 
   bool get isScale => kind == FaceEditKind.scale;
   String get label => faceEditLabel(kind);

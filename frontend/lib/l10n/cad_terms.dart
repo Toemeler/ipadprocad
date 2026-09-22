@@ -21,14 +21,18 @@ String faceEditName(AppL10n t, FaceEditKind k) => switch (k) {
       FaceEditKind.move => t.cmdMoveFaces,
       FaceEditKind.size => t.cmdSizeFaces,
       FaceEditKind.scale => t.cmdScaleBody,
+      FaceEditKind.shell => t.cmdShell,
     };
 
 /// The verb in "Select the faces to …" / "Flächen zum … wählen."
 ///
 /// Capitalised in German (it is a noun there), lower case in English. Not a
 /// `toLowerCase()` on a shared string, for exactly that reason.
-String faceEditVerb(AppL10n t, FaceEditKind k) =>
-    k == FaceEditKind.delete ? t.verbDelete : t.verbMove;
+String faceEditVerb(AppL10n t, FaceEditKind k) => switch (k) {
+      FaceEditKind.delete => t.verbDelete,
+      FaceEditKind.shell => t.verbLeaveOpen,
+      _ => t.verbMove,
+    };
 
 /// Inventor's name for a pattern kind.
 String patternKindDisplay(AppL10n t, PatternKind k) => switch (k) {
@@ -72,6 +76,7 @@ String featureTypeName(AppL10n t, PartFeature f) => switch (f.typeLabel) {
       'Split' => t.featSplit,
       'Combine' => t.featCombine,
       'Delete Face' => t.featDeleteFace,
+      'Shell' => t.cmdShell,
       'Rectangular Pattern' => t.patRectangular,
       'Circular Pattern' => t.patCircular,
       'Sketch Driven Pattern' => t.patSketchDriven,

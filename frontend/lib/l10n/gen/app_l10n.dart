@@ -2374,7 +2374,7 @@ abstract class AppL10n {
   /// M440 — der Körper wurde geprüft und ist nicht sauber. Das muss dastehen, bevor jemand eine Verrundung darauf versucht.
   ///
   /// In de, this message translates to:
-  /// **'Der Körper ist nicht sauber — Verrundungen und Boolesche Operationen können darauf fehlschlagen.'**
+  /// **'Der Körper ist nicht sauber — Verrundungen und Booleans können fehlschlagen.'**
   String get msgMeshImportedUnclean;
 
   /// Vor dem Lesen abgefangen: eine Datei dieser Groesse einzulesen wuerde die App abschiessen, nicht bremsen.
@@ -8808,6 +8808,66 @@ abstract class AppL10n {
   /// In de, this message translates to:
   /// **'Dieses Gerät behält seine Dokumente und synchronisiert nicht mehr. Die anderen Geräte sind nicht betroffen, und im Bucket wird nichts gelöscht.'**
   String get cloudRemoveBody;
+
+  /// Befehlsname im Flächen-Panel (Inventor: Wandung).
+  ///
+  /// In de, this message translates to:
+  /// **'Wandung'**
+  String get cmdShell;
+
+  /// Verb in "Flächen zum … wählen" beim Befehl Wandung; gross geschrieben, weil es dort ein Nomen ist.
+  ///
+  /// In de, this message translates to:
+  /// **'Offenlassen'**
+  String get verbLeaveOpen;
+
+  /// No description provided for @lblFaces.
+  ///
+  /// In de, this message translates to:
+  /// **'Flächen'**
+  String get lblFaces;
+
+  /// No description provided for @lblFaceCount.
+  ///
+  /// In de, this message translates to:
+  /// **'{count, plural, =1{Eine Fläche} other{{count} Flächen}}'**
+  String lblFaceCount(int count);
+
+  /// No description provided for @hintTapFacesIn3d.
+  ///
+  /// In de, this message translates to:
+  /// **'Flächen in 3D antippen…'**
+  String get hintTapFacesIn3d;
+
+  /// No description provided for @lblThickness.
+  ///
+  /// In de, this message translates to:
+  /// **'Wandstärke'**
+  String get lblThickness;
+
+  /// No description provided for @lblOutward.
+  ///
+  /// In de, this message translates to:
+  /// **'Nach außen'**
+  String get lblOutward;
+
+  /// No description provided for @lblScaleFactor.
+  ///
+  /// In de, this message translates to:
+  /// **'Faktor'**
+  String get lblScaleFactor;
+
+  /// No description provided for @lblRadiusChange.
+  ///
+  /// In de, this message translates to:
+  /// **'Radiusänderung'**
+  String get lblRadiusChange;
+
+  /// Verschieben: die Strecke wirkt entlang der Normale der zuerst gewählten Fläche.
+  ///
+  /// In de, this message translates to:
+  /// **'Entlang der Normale der ersten Fläche'**
+  String get hintAlongFirstFace;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

@@ -4940,5 +4940,19 @@
   "cloudRemoveBody": "Dieses Gerät behält seine Dokumente und synchronisiert nicht mehr. Die anderen Geräte sind nicht betroffen, und im Bucket wird nichts gelöscht.",
   "@cloudRemoveBody": {
     "description": "M442 cloud account row"
-  }
+  },
+  "cmdShell": "Wandung",
+  "@cmdShell": {"description": "Befehlsname im Flächen-Panel (Inventor: Wandung)."},
+  "verbLeaveOpen": "Offenlassen",
+  "@verbLeaveOpen": {"description": "Verb in \"Flächen zum … wählen\" beim Befehl Wandung; gross geschrieben, weil es dort ein Nomen ist."},
+  "lblFaces": "Flächen",
+  "lblFaceCount": "{count, plural, =1{Eine Fläche} other{{count} Flächen}}",
+  "@lblFaceCount": {"placeholders": {"count": {"type": "int"}}},
+  "hintTapFacesIn3d": "Flächen in 3D antippen…",
+  "lblThickness": "Wandstärke",
+  "lblOutward": "Nach außen",
+  "lblScaleFactor": "Faktor",
+  "lblRadiusChange": "Radiusänderung",
+  "hintAlongFirstFace": "Entlang der Normale der ersten Fläche",
+  "@hintAlongFirstFace": {"description": "Verschieben: die Strecke wirkt entlang der Normale der zuerst gewählten Fläche."}
 }

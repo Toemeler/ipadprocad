@@ -50,6 +50,7 @@ import 'widgets/create_component_dialog.dart';
 import 'widgets/drive_dialog.dart';
 import 'widgets/joint_dialog.dart';
 import 'widgets/split_dialog.dart';
+import 'widgets/face_edit_dialog.dart';
 import 'widgets/hole_dialog.dart';
 import 'widgets/make_part_dialog.dart';
 import 'widgets/measure_panel.dart';
@@ -516,6 +517,8 @@ class PrototypeApp extends StatelessWidget {
         // panel for all four.
         if (app.patternSession != null) PatternPanel3D(app: app),
         if (app.holeSession != null) HoleDialog(app: app), // M225
+        // Delete Face, Direct Edit and Shell: the panel M217 never built.
+        if (app.faceEdit != null) FaceEditDialog(app: app),
         if (app.combineSession != null) CombineDialog(app: app), // M227
         if (app.splitSession != null) SplitDialog(app: app), // M228
         // M255 — Make Part. It takes nothing from the viewport (the body was

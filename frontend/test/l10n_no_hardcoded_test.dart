@@ -84,6 +84,9 @@ const Map<String, Set<String>> kAllowed = {
     'Reference Vector',
     'Revolution',
     'Scale',
+    // #85 — the base of a Shell feature's name (Shell1, Shell2): a document
+    // name like 'Fillet' and 'Hole', so not translated.
+    'Shell',
     'Sketch',
     'Sketch\$_newN',
     'Sketch\$n',

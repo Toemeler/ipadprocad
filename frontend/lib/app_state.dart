@@ -9020,6 +9020,7 @@ class AppState extends ChangeNotifier {
   void openDirectMove() => _openFaceEdit(FaceEditKind.move);
   void openDirectSize() => _openFaceEdit(FaceEditKind.size);
   void openDirectScale() => _openFaceEdit(FaceEditKind.scale);
+  void openShell() => _openFaceEdit(FaceEditKind.shell);
 
   void _openFaceEdit(FaceEditKind kind) {
     final p = currentPart;
@@ -9062,14 +9063,39 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setFaceEditValue({double? dx, double? dy, double? dz, double? factor}) {
+  void setFaceEditValue(
+      {double? dx,
+      double? dy,
+      double? dz,
+      double? factor,
+      double? distance,
+      double? thickness,
+      bool? outward}) {
     final s = faceEdit;
     if (s == null) return;
     if (dx != null) s.dx = dx;
     if (dy != null) s.dy = dy;
     if (dz != null) s.dz = dz;
     if (factor != null) s.factor = factor;
+    if (distance != null) s.distance = distance;
+    if (thickness != null) s.thickness = thickness;
+    if (outward != null) s.outward = outward;
     notifyListeners();
+  }
+
+  /// Whether the open face edit has everything it needs to be applied — what
+  /// the panel's OK button reads.
+  bool get faceEditReady {
+    final s = faceEdit;
+    if (s == null) return false;
+    return switch (s.kind) {
+      FaceEditKind.scale => s.factor > 0 && s.factor != 1,
+      FaceEditKind.delete => s.faces.isNotEmpty,
+      FaceEditKind.shell => s.faces.isNotEmpty && s.thickness > 0,
+      FaceEditKind.move => s.faces.isNotEmpty &&
+          (s.distance != 0 || s.dx != 0 || s.dy != 0 || s.dz != 0),
+      FaceEditKind.size => s.faces.isNotEmpty && s.dx != 0,
+    };
   }
 
   /// Commits the session as a real timeline feature.
@@ -9093,11 +9119,25 @@ class AppState extends ChangeNotifier {
       toast(L.current.msgNothingToEditBuildBody);
       return false;
     }
-    final f = s.kind == FaceEditKind.delete
+    // Move from the panel: a distance along the first picked face's normal.
+    if (s.kind == FaceEditKind.move && s.distance != 0 && s.faces.isNotEmpty) {
+      final f0 = s.faces.first;
+      s.dx = f0.nx * s.distance;
+      s.dy = f0.ny * s.distance;
+      s.dz = f0.nz * s.distance;
+    }
+    final FaceModifyFeature f = s.kind == FaceEditKind.delete
         ? DeleteFaceFeature(
             name: p.nextFeatureName('Delete Face'),
             bodyName: host.bodyName,
             faces: s.faces)
+        : s.kind == FaceEditKind.shell
+        ? ShellFeature(
+            name: p.nextFeatureName('Shell'),
+            bodyName: host.bodyName,
+            faces: s.faces,
+            thickness: s.thickness,
+            outward: s.outward)
         : DirectEditFeature(
             name: p.nextFeatureName(scale ? 'Scale' : 'Direct'),
             bodyName: host.bodyName,

@@ -5300,6 +5300,7 @@ class AppL10nDe extends AppL10n {
     return '$seconds s';
   }
 
+  @override
   String get settingsCloudAccount => 'Cloud-Konto';
 
   @override
@@ -5349,4 +5350,42 @@ class AppL10nDe extends AppL10n {
   @override
   String get cloudRemoveBody =>
       'Dieses Gerät behält seine Dokumente und synchronisiert nicht mehr. Die anderen Geräte sind nicht betroffen, und im Bucket wird nichts gelöscht.';
+
+  @override
+  String get cmdShell => 'Wandung';
+
+  @override
+  String get verbLeaveOpen => 'Offenlassen';
+
+  @override
+  String get lblFaces => 'Flächen';
+
+  @override
+  String lblFaceCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Flächen',
+      one: 'Eine Fläche',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get hintTapFacesIn3d => 'Flächen in 3D antippen…';
+
+  @override
+  String get lblThickness => 'Wandstärke';
+
+  @override
+  String get lblOutward => 'Nach außen';
+
+  @override
+  String get lblScaleFactor => 'Faktor';
+
+  @override
+  String get lblRadiusChange => 'Radiusänderung';
+
+  @override
+  String get hintAlongFirstFace => 'Entlang der Normale der ersten Fläche';
 }

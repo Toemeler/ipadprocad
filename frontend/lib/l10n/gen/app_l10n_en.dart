@@ -5243,6 +5243,7 @@ class AppL10nEn extends AppL10n {
     return '$seconds s';
   }
 
+  @override
   String get settingsCloudAccount => 'Cloud Account';
 
   @override
@@ -5292,4 +5293,42 @@ class AppL10nEn extends AppL10n {
   @override
   String get cloudRemoveBody =>
       'This device keeps the documents it has and stops syncing. The other devices are not affected, and nothing in the bucket is deleted.';
+
+  @override
+  String get cmdShell => 'Shell';
+
+  @override
+  String get verbLeaveOpen => 'leave open';
+
+  @override
+  String get lblFaces => 'Faces';
+
+  @override
+  String lblFaceCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count faces',
+      one: 'One face',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get hintTapFacesIn3d => 'Tap faces in 3D…';
+
+  @override
+  String get lblThickness => 'Thickness';
+
+  @override
+  String get lblOutward => 'Outward';
+
+  @override
+  String get lblScaleFactor => 'Factor';
+
+  @override
+  String get lblRadiusChange => 'Radius change';
+
+  @override
+  String get hintAlongFirstFace => 'Along the first face\'s normal';
 }

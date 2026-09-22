@@ -1040,7 +1040,8 @@ class _RibbonState extends State<Ribbon> {
           arrow: false,
           overId: 'ov-modify3d',
           over: () => [
-            OverItem(MO['shell']!, t.btnShell, null),
+            // #85 — built: a Shell feature, applied from the face panel.
+            OverItem(MO['shell']!, t.btnShell, app.openShell),
             OverItem(MO['draft']!, t.btnDraft, null),
             OverItem(MO['thread']!, t.btnThread, null),
             // M227 — built. It stays in the ▼ rather than moving out: the

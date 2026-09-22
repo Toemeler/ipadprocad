@@ -1663,5 +1663,15 @@
   "cloudPromptAppKeyBody": "The applicationKey shown once when you created the key. It is kept on this device only and is never sent to another device.",
   "cloudBadEndpoint": "That is not an endpoint. It looks like s3.eu-central-003.backblazeb2.com.",
   "cloudRemoveTitle": "Remove the cloud account?",
-  "cloudRemoveBody": "This device keeps the documents it has and stops syncing. The other devices are not affected, and nothing in the bucket is deleted."
+  "cloudRemoveBody": "This device keeps the documents it has and stops syncing. The other devices are not affected, and nothing in the bucket is deleted.",
+  "cmdShell": "Shell",
+  "verbLeaveOpen": "leave open",
+  "lblFaces": "Faces",
+  "lblFaceCount": "{count, plural, =1{One face} other{{count} faces}}",
+  "hintTapFacesIn3d": "Tap faces in 3D…",
+  "lblThickness": "Thickness",
+  "lblOutward": "Outward",
+  "lblScaleFactor": "Factor",
+  "lblRadiusChange": "Radius change",
+  "hintAlongFirstFace": "Along the first face's normal"
 }
