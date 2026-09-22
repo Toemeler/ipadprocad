@@ -198,7 +198,18 @@ void main() {
         );
       }
       expect(docs.listSync(), isEmpty);
-      expect(prefs.listSync(), isEmpty);
+      // M445 — the prefs folder is no longer empty by default: `attach` now
+      // writes this install's own id and name there, because a device that
+      // minted a fresh identity every launch (and called itself `localhost`
+      // on every iPad) is what let one conflict fork into a cascade. It is
+      // OURS, not a peer's, so what this asserts is the same thing it always
+      // did — nothing a PEER named got written — rather than "no file
+      // exists".
+      expect(
+        prefs.listSync().map((e) => e.uri.pathSegments.last).toSet(),
+        <String>{'sync-device.json'},
+        reason: 'a peer must not be able to put anything here',
+      );
     });
 
     test('a body that does not match its hash is dropped', () {

@@ -378,7 +378,17 @@ class LanSync {
   /// This device, as the beacon and the handshake name it. Stable for the
   /// process; a restart is a new id, which is harmless — an id only decides
   /// who dials whom.
-  final String _deviceId = newNonce().substring(0, 12);
+  /// M445 — PERSISTED, not minted per launch.
+  ///
+  /// This used to be `newNonce().substring(0, 12)` with the note that "a
+  /// restart is a new id, which is harmless — an id only decides who dials
+  /// whom". It is not harmless. Issue #86's log shows five ids for one iPad
+  /// across five launches, and two consequences follow: the group never
+  /// accumulates a stable notion of who its members are, and `cloud_sync.dart`
+  /// keys a manifest per device — so every launch left another orphan
+  /// manifest in the bucket, each one pinning its blobs against the
+  /// collector for ever.
+  String _deviceId = newNonce().substring(0, 12);
   String _deviceName = 'device';
 
   RawDatagramSocket? _beacon;
@@ -571,19 +581,92 @@ class LanSync {
   }) {
     _docs = documents;
     _prefs = preferences;
-    _deviceName = deviceName ?? _defaultDeviceName();
+    // BEFORE the journals: the id keys nothing here, but the NAME is what a
+    // conflict copy is stamped with, and a default one would name a file.
+    _loadIdentity();
+    if (deviceName != null) _deviceName = deviceName;
     _loadTombs();
     _loadBase();
   }
 
-  static String _defaultDeviceName() {
+  /// M445 — A NAME THAT IS ACTUALLY THIS DEVICE'S.
+  ///
+  /// `Platform.localHostname` returns **`localhost`** on iOS — on every iOS
+  /// device, always. That is not a cosmetic problem, because the name is what
+  /// `_freeCopyPath` stamps on a conflict copy: two iPads both called
+  /// `localhost` both name their copy `Part1 (localhost).ptp`, those two
+  /// different files collide under one name, and the collision is itself a
+  /// divergence that forks again. Issue #86 is that cascade, 58 deep on one
+  /// document and 50 deep on its own copy.
+  ///
+  /// A hostname that cannot tell two devices apart is not a device name. The
+  /// id is appended wherever the platform will not distinguish them, which is
+  /// short, stable and readable: `ios-7f3a`.
+  /// The rule, as a pure function of what the platform said.
+  ///
+  /// Separated from the lookup so it can be tested: the failure it exists for
+  /// only happens where `localHostname` is `localhost`, and a test cannot
+  /// make a Linux runner claim that.
+  @visibleForTesting
+  static String nameFrom(String host, String os, String id) {
+    final h = host.trim();
+    // `localhost` is iOS's answer for everyone; an empty string is the
+    // sandboxed one. Neither identifies anything.
+    if (h.isEmpty || h.toLowerCase() == 'localhost') {
+      final tag = id.replaceAll(RegExp(r'[^A-Za-z0-9]'), '');
+      return '$os-${tag.substring(0, tag.length < 4 ? tag.length : 4)}';
+    }
+    return h;
+  }
+
+  static String _nameFor(String id) {
+    var host = '';
     try {
-      final h = Platform.localHostname;
-      if (h.isNotEmpty) return h;
+      host = Platform.localHostname;
     } catch (_) {
       // Some sandboxes refuse the hostname. It is a label, not a key.
     }
-    return Platform.operatingSystem;
+    return nameFrom(host, Platform.operatingSystem, id);
+  }
+
+  /// Where this install's identity is remembered. Beside the other journals,
+  /// and NOT in `_prefFiles`: an identity that travelled would make every
+  /// device the same device, which is the failure it exists to prevent.
+  static const String _identityFile = 'sync-device.json';
+
+  /// Reads the persisted id and name, minting them on first run.
+  void _loadIdentity() {
+    final prefs = _prefs;
+    if (prefs == null) return;
+    final f = File('${prefs.path}/$_identityFile');
+    try {
+      if (f.existsSync()) {
+        final raw = jsonDecode(f.readAsStringSync());
+        if (raw is Map) {
+          final id = raw['id'];
+          if (id is String && id.isNotEmpty) {
+            _deviceId = id;
+            final name = raw['name'];
+            _deviceName =
+                (name is String && name.isNotEmpty) ? name : _nameFor(id);
+            return;
+          }
+        }
+      }
+    } catch (e) {
+      Log.w('sync', 'could not read the device identity: $e');
+    }
+    // First run, or a file we could not read: mint one and keep it.
+    _deviceName = _nameFor(_deviceId);
+    try {
+      prefs.createSync(recursive: true);
+      final tmp = File('${f.path}.part');
+      tmp.writeAsStringSync(
+          jsonEncode({'id': _deviceId, 'name': _deviceName}), flush: true);
+      tmp.renameSync(f.path);
+    } catch (e) {
+      Log.w('sync', 'could not remember the device identity: $e');
+    }
   }
 
   /// Every code change gets a number, and a change that has been overtaken
@@ -1937,9 +2020,54 @@ class LanSync {
   /// versus theirs": every device comparing the same L and R gets the same
   /// answer, whereas "mine wins" gets a different answer on each of them and
   /// the two would copy back and forth forever.
+  /// M445 — is this path already a conflict copy somebody kept?
+  ///
+  /// Matches what [_freeCopyPath] writes: `Part1 (ios-7f3a).ptp` and its
+  /// numbered siblings. Spelled as the inverse of that function on purpose —
+  /// if the naming ever changes, both move together.
+  static bool _isConflictCopy(String path) =>
+      RegExp(r' \([^()]+\)( \d+)?\.[A-Za-z]+$').hasMatch(path);
+
   bool _fork(SyncEntry remote, Uint8List remoteBytes, String peerName) {
     final mine = _mine[remote.path];
     if (mine == null) return false;
+
+    // THE CASCADE STOPS HERE, and this is the guarantee rather than the
+    // mitigation. Keeping both copies of a document is a good answer ONCE:
+    // the copy is a new document, so it is mirrored like any other, and if
+    // the two devices disagree about IT as well the rule would keep both
+    // again — `Part1 (a) (b).ptp` — and again. Issue #86 is that cascade
+    // caught in the act: 58 forks of `Part1.ptp` and 50 of its own copy,
+    // from one conflict.
+    //
+    // A copy of a copy is never what anybody wanted, so at that depth the
+    // rule changes to the only other honest one: the newer version wins, by
+    // the same deterministic tie-break both devices already agree on, and
+    // NOTHING NEW IS WRITTEN. The version that loses is still on the device
+    // that made it, under a name nobody else is competing for, and the
+    // backup drawer holds what was replaced.
+    if (_isConflictCopy(remote.path)) {
+      final theirs = remote.mtimeMs != mine.mtimeMs
+          ? remote.mtimeMs > mine.mtimeMs
+          : remote.sha.compareTo(mine.sha) < 0;
+      _noteCrossing(remote.path,
+          'a copy of a copy — taking the newer rather than keeping a third');
+      if (!theirs) {
+        // Ours stands. Recording the remote sha is what stops this repeating
+        // every time they announce it: we have seen and dealt with it.
+        _setBase(remote.path, remote.sha);
+        return false;
+      }
+      final target = _fileFor(remote.path);
+      if (target == null) return false;
+      backup(remote.path, 'replaced');
+      if (!_writeAtomic(target, remoteBytes)) return false;
+      _rememberOnDisk(remote.path, target, remote.sha);
+      _justApplied[remote.path] =
+          target.statSync().modified.millisecondsSinceEpoch;
+      _setBase(remote.path, remote.sha);
+      return true;
+    }
     final target = _fileFor(remote.path);
     if (target == null) return false;
     Uint8List myBytes;
@@ -2613,6 +2741,14 @@ class LanSync {
   }
 
   @visibleForTesting
+  static bool isConflictCopyForTest(String path) => _isConflictCopy(path);
+
+  /// The files the mirror actually carries between devices. A test asserts
+  /// the identity journal is not among them.
+  @visibleForTesting
+  static List<String> get mirroredPrefFilesForTest => _prefFiles;
+
+  @visibleForTesting
   Map<String, String> get baseForTest => _base;
 
   @visibleForTesting
@@ -2719,13 +2855,17 @@ class LanSync {
   bool _pretendLiveForTest = false;
 
   @visibleForTesting
+  /// [deviceName] null means "use the real identity", which is what a test
+  /// of the identity has to exercise — M445 shipped because the one surface
+  /// that names a FILE was stubbed out here.
   void attachForTest(
       {required Directory documents,
       required Directory preferences,
-      String deviceName = 'device'}) {
+      String? deviceName}) {
     _docs = documents;
     _prefs = preferences;
-    _deviceName = deviceName;
+    _loadIdentity();
+    if (deviceName != null) _deviceName = deviceName;
     _loadTombs();
     // M417 — and the agreed-version journal, for the same reason the delete
     // journal is loaded here: this is a singleton, so a test that inherited
