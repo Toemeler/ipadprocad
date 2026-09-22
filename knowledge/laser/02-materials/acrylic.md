@@ -4,12 +4,16 @@ title: Acrylic (PMMA) — cast vs extruded
 type: material
 process: laser
 triggers: [acrylic, acryl, acrylglas, plexiglas, pmma, perspex, plastic sheet, klarsichtplatte, transparent, cast acrylic, extruded acrylic]
-depends_on: [laser/materials/material-table, laser/basics/kerf-and-tolerance]
+depends_on: [laser/materials/non-wood, laser/basics/kerf-and-tolerance]
 confidence: medium
 updated: 2026-09-22
 ---
 
 # Acrylic (PMMA) — cast vs extruded
+
+> This folder is wood-first. Acrylic is here because it does two things wood
+> cannot — it is transparent, and its cut edge needs no finishing at all.
+> See [`non-wood-materials`](non-wood-materials.md) for when to leave wood.
 
 Acrylic is the material a CO₂ laser was born to cut. It vaporises rather than
 burns, so the edge comes out flame-polished and needs no finishing — the only

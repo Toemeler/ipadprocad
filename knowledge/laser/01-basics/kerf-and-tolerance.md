@@ -4,7 +4,7 @@ title: Kerf and tolerance — the number everything else depends on
 type: basics
 process: laser
 triggers: [kerf, schnittfuge, schnittbreite, kerf compensation, kerfausgleich, tolerance, toleranz, offset, fit, passung, too loose, zu locker, wackelt, slot too wide]
-depends_on: []
+depends_on: [laser/materials/wood-overview]
 confidence: starting-point
 updated: 2026-09-22
 ---
@@ -37,16 +37,32 @@ property of the machine, lens, power, speed and even the sheet, not of the
 material alone. Measure before trusting — [`kerf-test-comb`](kerf-test-comb.md)
 takes ten minutes and replaces every row in this table.
 
+Wood first, because that is what this folder cuts.
+
 | Material | Thickness | Kerf | Why it differs |
 |---|---|---|---|
-| Boxboard / greyboard | 1.1 mm | 0.08 mm | low power, fast, almost no heat spread |
-| Cast acrylic | 2–3 mm | 0.17–0.20 mm | vaporises cleanly, very repeatable |
-| Cast acrylic | 5–8 mm | 0.21–0.25 mm | thicker section, more beam divergence |
-| MDF (veneered) | 4 mm | 0.16 mm | dense and uniform, narrow burn |
+| **Birch plywood** | **3 mm** | **0.25–0.30 mm** | glue lines and grain burn unevenly — the reference case |
+| Birch plywood | 4 mm | 0.25–0.30 mm | |
+| Birch plywood | 6 mm | 0.25 mm | more power but also more speed, which narrows the burn |
+| Laser ply (low glue) | 3 mm | 0.24–0.28 mm | less adhesive, less burning at each glue line |
+| Solid hardwood | 3 mm | 0.25–0.35 mm | varies *along* one cut as the grain changes |
 | MDF | 3–6 mm | 0.20–0.30 mm | slow cut speed, wide heat-affected zone |
-| Plywood | 3 mm | 0.25–0.30 mm | glue lines and grain burn unevenly |
-| Plywood | 6 mm | 0.25 mm | needs more power but also more speed |
-| Leather / felt | 2–4 mm | 0.15–0.25 mm | edge shrinks as it seals |
+| MDF (veneered) | 4 mm | 0.16 mm | dense and uniform, narrow burn |
+| Laminated bamboo | 3 mm | 0.22–0.28 mm | dense, uniform, very repeatable |
+| Veneer | 0.6 mm | 0.15 mm | almost no dwell time |
+
+Everything else, for reference:
+
+| Material | Thickness | Kerf |
+|---|---|---|
+| Cast acrylic | 2–3 mm | 0.17–0.20 mm |
+| Cast acrylic | 5–8 mm | 0.21–0.25 mm |
+| Boxboard / greyboard | 1.1 mm | 0.08 mm |
+| Leather / felt | 2–4 mm | 0.15–0.25 mm |
+
+**Wood kerf is wider and less repeatable than acrylic kerf**, because wood
+burns where acrylic vaporises. Expect more scatter between sheets, and re-run
+the comb test on a new bundle.
 
 **Kerf is centred on the cut path.** Half of it comes off each side.
 
@@ -58,22 +74,31 @@ deliberately larger than the slot by:
 
 | Material | Interference (total) | Why |
 |---|---|---|
-| Cast acrylic | 0.025–0.05 mm | stiff and brittle; more than this and it cracks instead of gripping |
-| Plywood | 0.05–0.10 mm | fibrous, crushes slightly and grips |
+| **Birch plywood** | **0.05–0.10 mm** | fibrous, crushes slightly and grips — the best press-fit material here |
+| Poplar ply | 0.05–0.08 mm | softer; it crushes and stays crushed, so it survives fewer cycles |
 | MDF | 0.05–0.10 mm | compresses well, but the edge crumbles above ~0.15 mm |
+| Solid hardwood | 0.04–0.10 mm | across the grain it grips; along it, it splits |
+| Laminated bamboo | 0.04–0.08 mm | harder than birch, so less crush is available |
+| Cast acrylic | 0.025–0.05 mm | stiff and brittle; more than this and it cracks instead of gripping |
 | Cardboard | 0.10–0.20 mm | soft enough to swallow a large interference |
 
 ### Material thickness is not what the label says
 
-| Nominal | Actually measures | Consequence |
+| Nominal | In specification | Consequence |
 |---|---|---|
-| 3 mm plywood | 2.7–3.2 mm | a slot drawn at 3.0 mm is either loose or impossible |
-| 3 mm acrylic | 2.8–3.0 mm | cast acrylic is often under, extruded closer to nominal |
-| 6 mm plywood | 5.5–6.2 mm | |
+| **3 mm birch ply** | **2.6–3.3 mm** (EN 315) | a slot drawn at 3.0 mm is either loose or impossible |
+| 4 mm birch ply | 3.6–4.3 mm | |
+| 6 mm birch ply | 5.5–6.4 mm | |
+| 3 mm MDF | ±0.2 mm | the most consistent sheet in the wood family |
+| 3 mm acrylic | 2.8–3.0 mm | cast is often under, extruded closer to nominal |
 
-**Measure the sheet with callipers and use the measured number.** For sheet
-goods, thickness variance is a larger error than kerf, and unlike kerf it
-changes from sheet to sheet.
+Worse: **0.2–0.3 mm of variation between sheets in the same bundle is in
+specification.** A joint tuned to one sheet may not fit the next one.
+→ [`plywood`](../02-materials/plywood.md)
+
+**Measure the sheet with callipers and use the measured number.** In wood,
+thickness variance is a larger error than kerf, and unlike kerf it changes
+from sheet to sheet — and from one side of a sheet to the other.
 
 ## How to build it
 

@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 220" width="480" height="220" role="img" aria-label="Engrave contrast across six wood species">
+  <rect x="0" y="0" width="480" height="220" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Same mark, same settings, six species</text>
+
+    <g>
+      <rect x="24" y="44" width="68" height="68" fill="#f0e4cd" stroke="#1a1a1a" stroke-width="1.5"/>
+      <rect x="38" y="62" width="40" height="32" fill="#4a3a22"/>
+      <text x="58" y="132" text-anchor="middle" font-weight="600">basswood</text>
+      <text x="58" y="148" text-anchor="middle" fill="#2e7d32">excellent</text>
+    </g>
+    <g>
+      <rect x="102" y="44" width="68" height="68" fill="#efe3c8" stroke="#1a1a1a" stroke-width="1.5"/>
+      <rect x="116" y="62" width="40" height="32" fill="#4d3c26"/>
+      <text x="136" y="132" text-anchor="middle" font-weight="600">maple</text>
+      <text x="136" y="148" text-anchor="middle" fill="#2e7d32">excellent</text>
+    </g>
+    <g>
+      <rect x="180" y="44" width="68" height="68" fill="#e6d3b0" stroke="#1a1a1a" stroke-width="1.5"/>
+      <rect x="194" y="62" width="40" height="32" fill="#57432a"/>
+      <text x="214" y="132" text-anchor="middle" font-weight="600">birch</text>
+      <text x="214" y="148" text-anchor="middle" fill="#2e7d32">very good</text>
+    </g>
+    <g>
+      <rect x="258" y="44" width="68" height="68" fill="#cda078" stroke="#1a1a1a" stroke-width="1.5"/>
+      <rect x="272" y="62" width="40" height="32" fill="#5a3a20"/>
+      <text x="292" y="132" text-anchor="middle" font-weight="600">cherry</text>
+      <text x="292" y="148" text-anchor="middle" fill="#2e7d32">excellent</text>
+    </g>
+    <g>
+      <rect x="336" y="44" width="68" height="68" fill="#e0cba0" stroke="#1a1a1a" stroke-width="1.5"/>
+      <g stroke="#b99a63" stroke-width="3">
+        <line x1="336" y1="56" x2="404" y2="56"/><line x1="336" y1="74" x2="404" y2="74"/>
+        <line x1="336" y1="92" x2="404" y2="92"/><line x1="336" y1="108" x2="404" y2="108"/>
+      </g>
+      <rect x="350" y="62" width="40" height="32" fill="#6b5433" opacity="0.8"/>
+      <text x="370" y="132" text-anchor="middle" font-weight="600">oak</text>
+      <text x="370" y="148" text-anchor="middle" fill="#c62828">patchy</text>
+    </g>
+    <g>
+      <rect x="414" y="44" width="52" height="68" fill="#5a4230" stroke="#1a1a1a" stroke-width="1.5"/>
+      <rect x="424" y="62" width="32" height="32" fill="#3d2c1e"/>
+      <text x="440" y="132" text-anchor="middle" font-weight="600">walnut</text>
+      <text x="440" y="148" text-anchor="middle" fill="#c62828">low</text>
+    </g>
+
+    <text x="20" y="184" font-size="12" font-weight="600">Contrast is a property of the wood, not of the machine.</text>
+    <text x="20" y="204" font-size="11" fill="#5a5a5a">No power setting rescues a walnut engrave. For photographs, use maple, basswood, alder or bamboo.</text>
+  </g>
+</svg>

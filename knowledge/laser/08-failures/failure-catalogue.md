@@ -4,7 +4,7 @@ title: Failure catalogue — symptom, cause, fix
 type: failures
 process: laser
 triggers: [problem, fehler, went wrong, schiefgegangen, didn't cut, nicht durchgeschnitten, burnt, verbrannt, charred, angekohlt, warped, verzogen, cracked, gerissen, too loose, zu locker, too tight, zu stramm, marks, flecken, fire, feuer, troubleshooting]
-depends_on: [laser/basics/kerf-and-tolerance, laser/geometry/nesting-and-spacing]
+depends_on: [laser/basics/kerf-and-tolerance, laser/geometry/nesting-and-spacing, laser/materials/wood-overview]
 confidence: medium
 updated: 2026-09-22
 ---
@@ -26,7 +26,7 @@ something similar to a job that did not come out right last time.
 
 | Symptom | Likely cause | Fix | Where |
 |---|---|---|---|
-| Not cut through, in patches | sheet not flat, or bed not level | weigh the sheet down; check bed level | machine |
+| Not cut through, in patches | **sheet not flat** (the usual answer in wood), or bed not level | weigh the sheet down; check bed level | machine |
 | Not cut through, uniformly | power too low, speed too high, dirty lens, failing tube | clean the lens first — it is the usual answer | machine |
 | Not cut through along one edge only | focus off, or the bed is not parallel to the gantry | re-level the bed | machine |
 | Cuts through but the part will not release | a glue line in plywood, or an open contour | check for open paths; otherwise expect it in cheap ply | both |
@@ -44,6 +44,23 @@ something similar to a job that did not come out right last time.
 | A brown blob at one point on every contour | the lead-in / pierce point | move the start point to a straight run or the waste side | **file** |
 | Dark notches at every corner | overburn — the head decelerating | add a 0.5 mm radius; lower corner power | **file** |
 | Smoke film over the whole sheet | extraction insufficient | check the fan and the duct | machine |
+
+### Wood specifically
+
+| Symptom | Likely cause | Fix | Where |
+|---|---|---|---|
+| Cuts through in some places, not others | the sheet is **bowed** — focus varies across the bed | flatten or weight the sheet | machine |
+| A glued box came apart along a joint | **char left on the glue face** | sand every glue face to bare wood | **workshop** |
+| A press-fit joint is loose in one spot only | the slot landed on a **void** in the ply core | move the joint, or buy Baltic birch / laser ply | **file** |
+| Joints fit from one sheet and not the next | sheet-to-sheet thickness variation (0.2–0.3 mm is in spec) | measure every sheet | **file** |
+| A slot split out to the edge | cut **along** the grain in solid wood | reorient the part | **file** |
+| The engrave has almost no contrast | dark species — walnut, or a dark-faced ply | change species, or paint-fill | material |
+| Engrave is blotchy and uneven | open-grained species (oak, ash) or a patched ply face | pale even-grained species, or B/BB grade | material |
+| Brown halo around every cut | no masking | mask both faces | **workshop** |
+| Heavy black char on the edge | one slow pass, or weak air assist | two fast passes, 30–40 PSI air | machine |
+| The sheet smells acrid and the extraction is on | wrong adhesive — interior UF or an unlabelled sheet | stop; identify the sheet | material |
+| A screw split the plywood | driven into the **edge** rather than the face | captive nut or cross dowel | **file** |
+| Part warped after cutting | damp stock, or a long part cut across the grain | acclimatise 48 h; reorient | material |
 
 ### Fit and assembly
 

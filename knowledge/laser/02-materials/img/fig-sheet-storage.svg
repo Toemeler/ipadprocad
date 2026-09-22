@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 220" width="480" height="220" role="img" aria-label="Storing sheet flat, stacked and weighted">
+  <rect x="0" y="0" width="480" height="220" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">How stock gets bowed</text>
+
+    <line x1="30" y1="150" x2="200" y2="150" stroke="#9a9a9a" stroke-width="3"/>
+    <line x1="196" y1="150" x2="196" y2="50" stroke="#9a9a9a" stroke-width="4"/>
+    <path d="M60 150 q-14 -54 22 -98" fill="none" stroke="#1a1a1a" stroke-width="6"/>
+    <path d="M60 150 q-14 -54 22 -98" fill="none" stroke="#d9c9ac" stroke-width="3"/>
+    <text x="110" y="176" text-anchor="middle" font-weight="600" fill="#c62828">leaning on a wall</text>
+    <text x="110" y="192" text-anchor="middle" fill="#c62828">one face to the room, one to the wall</text>
+    <text x="110" y="208" text-anchor="middle" fill="#c62828">they take up moisture differently</text>
+
+    <line x1="280" y1="150" x2="450" y2="150" stroke="#9a9a9a" stroke-width="3"/>
+    <g fill="#d9c9ac" stroke="#1a1a1a" stroke-width="1.5">
+      <rect x="290" y="138" width="150" height="10"/><rect x="290" y="126" width="150" height="10"/>
+      <rect x="290" y="114" width="150" height="10"/><rect x="290" y="102" width="150" height="10"/>
+    </g>
+    <rect x="304" y="84" width="122" height="16" fill="#9a9a9a" stroke="#1a1a1a" stroke-width="1.5"/>
+    <text x="365" y="78" text-anchor="middle" fill="#5a5a5a">light even weight</text>
+    <g stroke="#2e7d32" stroke-width="2.5" fill="none"><path d="M406 176 l6 7 l13 -15"/></g>
+    <text x="350" y="176" text-anchor="middle" font-weight="600" fill="#2e7d32">flat, stacked, weighted</text>
+    <text x="350" y="192" text-anchor="middle" fill="#2e7d32">in the same room as the machine</text>
+    <text x="350" y="208" text-anchor="middle" fill="#5a5a5a">48 h to acclimatise new stock</text>
+  </g>
+</svg>

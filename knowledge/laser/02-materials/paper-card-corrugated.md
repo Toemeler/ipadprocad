@@ -4,7 +4,7 @@ title: Paper, card and corrugated — the mock-up materials
 type: material
 process: laser
 triggers: [paper, papier, card, karton, cardboard, pappe, greyboard, graupappe, boxboard, corrugated, wellpappe, mockup, modell, prototype sheet]
-depends_on: [laser/materials/material-table]
+depends_on: [laser/materials/non-wood]
 confidence: medium
 updated: 2026-09-22
 ---

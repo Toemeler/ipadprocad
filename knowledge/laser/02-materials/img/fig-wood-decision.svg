@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 270" width="480" height="270" role="img" aria-label="The wood choice as a six question flow">
+  <rect x="0" y="0" width="480" height="270" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Six questions — stop at the first yes</text>
+
+    <g stroke="#1a1a1a" stroke-width="1.6" fill="#f2f2f2">
+      <rect x="24" y="42" width="236" height="28" rx="4"/>
+      <rect x="24" y="76" width="236" height="28" rx="4"/>
+      <rect x="24" y="110" width="236" height="28" rx="4"/>
+      <rect x="24" y="144" width="236" height="28" rx="4"/>
+      <rect x="24" y="178" width="236" height="28" rx="4"/>
+      <rect x="24" y="212" width="236" height="28" rx="4"/>
+    </g>
+    <text x="36" y="60">Edge seen, unfinished?</text>
+    <text x="36" y="94">Press fit or screw?</text>
+    <text x="36" y="128">Will it be painted?</text>
+    <text x="36" y="162">High-contrast engrave?</text>
+    <text x="36" y="196">Identical across a batch?</text>
+    <text x="36" y="230">None of the above</text>
+
+    <g stroke="#2e7d32" stroke-width="1.6" fill="#2e7d32">
+      <line x1="260" y1="56" x2="286" y2="56"/><polygon points="286,52 296,56 286,60"/>
+      <line x1="260" y1="90" x2="286" y2="90"/><polygon points="286,86 296,90 286,94"/>
+      <line x1="260" y1="124" x2="286" y2="124"/><polygon points="286,120 296,124 286,128"/>
+      <line x1="260" y1="158" x2="286" y2="158"/><polygon points="286,154 296,158 286,162"/>
+      <line x1="260" y1="192" x2="286" y2="192"/><polygon points="286,188 296,192 286,196"/>
+      <line x1="260" y1="226" x2="286" y2="226"/><polygon points="286,222 296,226 286,230"/>
+    </g>
+
+    <g font-weight="600">
+      <text x="304" y="60">solid wood / bamboo</text>
+      <text x="304" y="94">plywood</text>
+      <text x="304" y="128">MDF</text>
+      <text x="304" y="162">maple, basswood, bamboo</text>
+      <text x="304" y="196">plywood or bamboo</text>
+      <text x="304" y="230" fill="#2e7d32">3 mm birch plywood</text>
+    </g>
+
+    <text x="20" y="260" font-size="11" fill="#5a5a5a">Most projects reach the last row, and that is the correct answer more often than not.</text>
+  </g>
+</svg>

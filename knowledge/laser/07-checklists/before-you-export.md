@@ -4,14 +4,14 @@ title: Before you export — the laser checklist
 type: checklist
 process: laser
 triggers: [checklist, checkliste, before cutting, vor dem schneiden, ready to cut, fertig, review, prüfen, final check, abschlusskontrolle, export check]
-depends_on: [laser/fileprep/common-errors, laser/basics/kerf-and-tolerance]
+depends_on: [laser/fileprep/common-errors, laser/basics/kerf-and-tolerance, laser/materials/wood-overview]
 confidence: high
 updated: 2026-09-22
 ---
 
 # Before you export — the laser checklist
 
-Eighteen checks, grouped by what they protect. Running them takes about two
+Twenty-four checks, grouped by what they protect. Running them takes about two
 minutes and catches nearly everything that turns a sheet of material into
 firewood.
 
@@ -28,9 +28,18 @@ the assistant to walk through out loud when a user asks "is this ready?"
 - [ ] The material composition is actually known, not assumed from appearance.
 - [ ] No part of the geometry lies outside the machine bed.
 
+### Wood
+
+- [ ] The sheet is **flat** — no bow that would take part of the cut out of focus.
+- [ ] The adhesive class is known (E0 / CARB-2 preferred, E1 acceptable) and extraction is running.
+- [ ] Grain direction is decided for every part: long parts along it, slots across it.
+- [ ] Every part that will be **glued** has a slip fit, not a press fit.
+- [ ] The visible faces will be **masked** before cutting.
+- [ ] Internal corners that will need sanding are reachable.
+
 ### Dimensions
 
-- [ ] Sheet thickness has been **measured**, not taken from the label.
+- [ ] Sheet thickness has been **measured**, not taken from the label — "3 mm" ply is 2.6–3.3 mm.
 - [ ] Kerf value is from [`machine-assumptions`](../01-basics/machine-assumptions.md), or the baseline is being used knowingly.
 - [ ] Kerf compensation is applied **exactly once** — in the geometry *or* in the machine, not both.
 - [ ] Every mating pair has a declared fit: press, slip, clearance or running.

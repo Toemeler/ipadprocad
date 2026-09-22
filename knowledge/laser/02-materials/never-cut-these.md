@@ -39,6 +39,9 @@ acrylic and polycarbonate look identical and one of them catches fire.
 | **Any material of unknown composition** | "some black plastic" | You cannot tell PVC from acrylic by looking. | identify it first — see below |
 | **Fibreglass, carbon fibre, epoxy laminate** | FR4, circuit board blank | Glass and carbon do not cut; the resin burns and releases fine abrasive dust and fumes. | pre-cut stock, or a mechanical process |
 | **Anything coated or "chrome" / mirrored** | metallic laminates | Reflects the beam back into the machine and can damage the head or the tube. | mark the back face of clear acrylic instead |
+| **Melamine-faced or "waterproof" board** | coated chipboard, kitchen panel | The facing is frequently PVC or a PVC-bearing laminate. You cannot tell by looking. | uncoated birch plywood |
+| **Plywood of unknown adhesive** | builder's merchant construction ply | Interior urea-formaldehyde glue releases formaldehyde when cut; some cheap imports use worse. | E0 / CARB-2 or E1 birch plywood — see [`plywood`](plywood.md) |
+| **Treated, painted or reclaimed timber** | old furniture, pallet wood | Preservatives, lead paint and unknown finishes all vaporise. Pallets in particular may be MB-fumigated. | new, untreated stock |
 | **Leather that is chrome-tanned** | most cheap leather | Chromium-VI compounds in the smoke. | vegetable-tanned leather |
 
 ### How to identify unknown plastic
@@ -46,12 +49,14 @@ acrylic and polycarbonate look identical and one of them catches fire.
 1. **Look for the resin code** stamped on the sheet — `3` or `PVC` means stop.
 2. **Ask the supplier** in writing. "Clear plastic" is not an answer;
    "cast PMMA" is.
-3. **Copper wire (Beilstein) test**, outside, on a scrap: heat a copper wire,
+3. **For plywood and MDF, the question is the glue, not the wood.** Ask for
+   the emission class: E0, CARB Phase 2 or E1 is fine, unlabelled is not.
+4. **Copper wire (Beilstein) test**, outside, on a scrap: heat a copper wire,
    touch the plastic, return it to the flame. **A green flame means chlorine —
    it is PVC. Stop.** This is the only reliable field test, and it needs
    ventilation and eye protection.
-4. If none of the above produced an answer, the material does not go in the
-   machine. There is no fourth option.
+5. If none of the above produced an answer, the material does not go in the
+   machine. There is no fifth option.
 
 ### The smell is a warning, not a test
 
