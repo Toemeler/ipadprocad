@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 220" width="480" height="220" role="img" aria-label="Section through a plywood cut edge showing glue lines and char">
-  <rect x="0" y="0" width="480" height="220" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 230" width="480" height="230" role="img" aria-label="Section through a plywood cut edge showing glue lines and char">
+  <rect x="0" y="0" width="480" height="230" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">3-ply birch, section through the cut</text>
 
@@ -28,7 +28,7 @@
     </g>
 
     <text x="66" y="172" font-size="11" fill="#4a3418">← glue lines burn differently from the wood</text>
-    <text x="20" y="200" font-size="12" fill="#5a5a5a">The kerf wall is charred and not perfectly straight through the thickness.</text>
+    <text x="20" y="200" font-size="12" fill="#5a5a5a">The kerf wall is charred and not perfectly straight through the</text><text x="20" y="216" font-size="12" fill="#5a5a5a">thickness.</text>
     <text x="20" y="214" font-size="12" font-weight="600">This is why plywood joints need measured slots, not nominal ones.</text>
   </g>
 </svg>

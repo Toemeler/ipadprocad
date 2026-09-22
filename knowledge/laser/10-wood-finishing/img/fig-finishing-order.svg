@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 250" width="480" height="250" role="img" aria-label="The finishing order and the two steps people reverse">
-  <rect x="0" y="0" width="480" height="250" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 530 265" width="530" height="265" role="img" aria-label="The finishing order and the two steps people reverse">
+  <rect x="0" y="0" width="530" height="265" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">The order that works</text>
 
@@ -34,8 +34,8 @@
     </g>
 
     <text x="20" y="172" font-size="12" font-weight="600" fill="#2e7d32">Sand before assembly. Finish after it.</text>
-    <text x="20" y="194" font-size="11" fill="#5a5a5a">An assembled box cannot be sanded in its internal corners, and that is exactly where the char shows.</text>
-    <text x="20" y="214" font-size="11" fill="#5a5a5a">Two thin coats beat one heavy one. Spray over engraving; a brushed finish pools in the recess.</text>
-    <text x="20" y="236" font-size="11" fill="#c62828">Mask joint faces before finishing — two coats of lacquer is a real dimension on a 3 mm part.</text>
+    <text x="20" y="194" font-size="11" fill="#5a5a5a">An assembled box cannot be sanded in its internal corners, and that is</text><text x="20" y="208" font-size="11" fill="#5a5a5a">exactly where the char shows.</text>
+    <text x="20" y="214" font-size="11" fill="#5a5a5a">Two thin coats beat one heavy one. Spray over engraving; a brushed finish</text><text x="20" y="228" font-size="11" fill="#5a5a5a">pools in the recess.</text>
+    <text x="20" y="236" font-size="11" fill="#c62828">Mask joint faces before finishing — two coats of lacquer is a real</text><text x="20" y="250" font-size="11" fill="#c62828">dimension on a 3 mm part.</text>
   </g>
 </svg>

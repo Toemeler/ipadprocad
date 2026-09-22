@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 250" width="480" height="250" role="img" aria-label="A generated box and a designed one">
-  <rect x="0" y="0" width="480" height="250" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 270" width="480" height="270" role="img" aria-label="A generated box and a designed one">
+  <rect x="0" y="0" width="480" height="270" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="10" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">Same joint, same material, same dimensions</text>
 
@@ -26,8 +26,8 @@
     <g fill="#2e7d32">
       <text x="280" y="196">· constant 9 mm finger width</text>
       <text x="280" y="210">· top edge chamfered 1 mm</text>
-      <text x="280" y="224">· one recess — and it lifts the box</text>
-      <text x="280" y="238">· grain consistent, base inset 3 mm</text>
+      <text x="280" y="224">· one recess — and it lifts</text><text x="280" y="240">the box</text>
+      <text x="280" y="238">· grain consistent, base</text><text x="280" y="254">inset 3 mm</text>
     </g>
   </g>
 </svg>

@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 230" width="480" height="230" role="img" aria-label="Chamfer at the bottom, fillet at the top">
-  <rect x="0" y="0" width="480" height="230" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 255" width="480" height="255" role="img" aria-label="Chamfer at the bottom, fillet at the top">
+  <rect x="0" y="0" width="480" height="255" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">Bottom outside edge: chamfer, never fillet</text>
 
@@ -18,6 +18,6 @@
     <text x="360" y="180" text-anchor="middle" font-weight="600" fill="#2e7d32">chamfer at the bottom</text>
     <text x="360" y="198" text-anchor="middle" font-size="11" fill="#2e7d32">45° — self-supporting</text>
 
-    <text x="20" y="226" font-size="11" fill="#5a5a5a">Fillets belong on vertical corners and on internal corners under load. Both print perfectly there.</text>
+    <text x="20" y="226" font-size="11" fill="#5a5a5a">Fillets belong on vertical corners and on internal corners under load.</text><text x="20" y="240" font-size="11" fill="#5a5a5a">Both print perfectly there.</text>
   </g>
 </svg>

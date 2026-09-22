@@ -27,7 +27,7 @@
     <text x="356" y="166" text-anchor="middle" font-size="11" fill="#5a5a5a">every part cuts the same</text>
 
     <text x="20" y="200" font-size="12" font-weight="600">Cut order: engrave → score → internal cutouts → outer contour.</text>
-    <text x="20" y="218" font-size="11" fill="#5a5a5a">A part must keep its detail cut while the sheet still holds it. Loose parts lift into the beam.</text>
+    <text x="20" y="218" font-size="11" fill="#5a5a5a">A part must keep its detail cut while the sheet still holds it. Loose</text><text x="20" y="232" font-size="11" fill="#5a5a5a">parts lift into the beam.</text>
     <text x="20" y="238" font-size="11" fill="#5a5a5a">MDF wants 3 mm — it carries heat sideways further than ply or acrylic.</text>
   </g>
 </svg>

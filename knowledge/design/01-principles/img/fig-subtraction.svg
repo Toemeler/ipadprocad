@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 230" width="480" height="230" role="img" aria-label="The same object before and after a subtraction pass">
-  <rect x="0" y="0" width="480" height="230" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 530 250" width="530" height="250" role="img" aria-label="The same object before and after a subtraction pass">
+  <rect x="0" y="0" width="530" height="250" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">Nothing was added</text>
 
@@ -23,6 +23,6 @@
     <text x="364" y="178" text-anchor="middle" font-weight="600" fill="#2e7d32">after the pass</text>
     <text x="364" y="194" text-anchor="middle" fill="#2e7d32">three deleted, two merged, one moved underneath</text>
 
-    <text x="20" y="220" font-size="11" fill="#5a5a5a">Can it be deleted? merged? moved somewhere less prominent? made quieter? Most first-draft elements fail question one.</text>
+    <text x="20" y="220" font-size="11" fill="#5a5a5a">Can it be deleted? merged? moved somewhere less prominent? made quieter?</text><text x="20" y="234" font-size="11" fill="#5a5a5a">Most first-draft elements fail question one.</text>
   </g>
 </svg>

@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 230" width="480" height="230" role="img" aria-label="Four grip types and their governing dimensions">
-  <rect x="0" y="0" width="480" height="230" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 490 240" width="490" height="240" role="img" aria-label="Four grip types and their governing dimensions">
+  <rect x="0" y="0" width="490" height="240" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">Four grips, four governing dimensions</text>
 
@@ -33,6 +33,6 @@
       <text x="414" y="182" text-anchor="middle" fill="#5a5a5a">knuckles need room</text>
     </g>
 
-    <text x="20" y="212" font-size="11" fill="#5a5a5a">Handle length ≥ 100 mm, 115 mm better. Slightly elliptical at 1:1.25 — it resists rolling and tells the hand its orientation.</text>
+    <text x="20" y="212" font-size="11" fill="#5a5a5a">Handle length ≥ 100 mm, 115 mm better. Slightly elliptical at 1:1.25 — it</text><text x="20" y="226" font-size="11" fill="#5a5a5a">resists rolling and tells the hand its orientation.</text>
   </g>
 </svg>

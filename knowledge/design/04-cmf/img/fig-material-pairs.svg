@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 210" width="480" height="210" role="img" aria-label="Material pairs that work and pairs that do not">
-  <rect x="0" y="0" width="480" height="210" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 235" width="500" height="235" role="img" aria-label="Material pairs that work and pairs that do not">
+  <rect x="0" y="0" width="500" height="235" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">Contrast, or it reads as a miss</text>
 
@@ -26,6 +26,6 @@
       <text x="381" y="186" text-anchor="middle" fill="#2e7d32">and the fastener becomes a detail</text>
     </g>
 
-    <text x="20" y="204" font-size="11" fill="#5a5a5a">Two materials, three at most. A hollow printed object can be made to feel right by adding mass at the base.</text>
+    <text x="20" y="204" font-size="11" fill="#5a5a5a">Two materials, three at most. A hollow printed object can be made to feel</text><text x="20" y="218" font-size="11" fill="#5a5a5a">right by adding mass at the base.</text>
   </g>
 </svg>

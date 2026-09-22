@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 220" width="480" height="220" role="img" aria-label="Router corner needs a dogbone, laser corner does not">
-  <rect x="0" y="0" width="480" height="220" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 240" width="500" height="240" role="img" aria-label="Router corner needs a dogbone, laser corner does not">
+  <rect x="0" y="0" width="500" height="240" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">Internal corner of a slot</text>
 
@@ -18,6 +18,6 @@
     <text x="360" y="176" text-anchor="middle" font-weight="600">laser</text>
     <text x="360" y="192" text-anchor="middle" font-size="11" fill="#2e7d32">corner is already sharp — no relief needed</text>
 
-    <text x="20" y="212" font-size="11" fill="#5a5a5a">Dogbones in a laser file are an imported router habit. They weaken the joint and show.</text>
+    <text x="20" y="212" font-size="11" fill="#5a5a5a">Dogbones in a laser file are an imported router habit. They weaken the</text><text x="20" y="226" font-size="11" fill="#5a5a5a">joint and show.</text>
   </g>
 </svg>

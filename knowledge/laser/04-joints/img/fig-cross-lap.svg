@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 250" width="480" height="250" role="img" aria-label="Two panels with half-depth slots sliding together">
-  <rect x="0" y="0" width="480" height="250" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 265" width="480" height="265" role="img" aria-label="Two panels with half-depth slots sliding together">
+  <rect x="0" y="0" width="480" height="265" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">Cross-lap — each panel slotted exactly halfway</text>
 
@@ -22,6 +22,6 @@
     <text x="340" y="192" text-anchor="middle" font-size="11">panel B · slot from the bottom</text>
     <text x="340" y="208" text-anchor="middle" font-size="11" fill="#2e7d32">0.3 mm radius at the slot root</text>
 
-    <text x="20" y="236" font-size="11" fill="#5a5a5a">Each slot takes the OTHER panel's measured thickness. The root radius is the highest-stress point in the joint.</text>
+    <text x="20" y="236" font-size="11" fill="#5a5a5a">Each slot takes the OTHER panel's measured thickness. The root radius is</text><text x="20" y="250" font-size="11" fill="#5a5a5a">the highest-stress point in the joint.</text>
   </g>
 </svg>

@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 250" width="480" height="250" role="img" aria-label="The tolerance test part with its features labelled">
-  <rect x="0" y="0" width="480" height="250" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 265" width="480" height="265" role="img" aria-label="The tolerance test part with its features labelled">
+  <rect x="0" y="0" width="480" height="265" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">One part, eight measurements</text>
 
@@ -33,8 +33,8 @@
     <circle cx="396" cy="127" r="11" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.5"/>
     <text x="396" y="154" text-anchor="middle" fill="#0b6bcb">insert boss</text>
 
-    <text x="20" y="196" font-size="12" font-weight="600">Print it once per material, in the orientation and layer height you actually use.</text>
-    <text x="20" y="216" font-size="11" fill="#5a5a5a">Measure the cube first: more than ±0.2 mm off and the machine needs calibrating before anything else means much.</text>
-    <text x="20" y="236" font-size="11" fill="#2e7d32">Write every number into machine-assumptions.md. An unrecorded measurement gets taken again next month.</text>
+    <text x="20" y="196" font-size="12" font-weight="600">Print it once per material, in the orientation and layer height</text><text x="20" y="212" font-size="12" font-weight="600">you actually use.</text>
+    <text x="20" y="216" font-size="11" fill="#5a5a5a">Measure the cube first: more than ±0.2 mm off and the machine needs</text><text x="20" y="230" font-size="11" fill="#5a5a5a">calibrating before anything else means much.</text>
+    <text x="20" y="236" font-size="11" fill="#2e7d32">Write every number into machine-assumptions.md. An unrecorded measurement</text><text x="20" y="250" font-size="11" fill="#2e7d32">gets taken again next month.</text>
   </g>
 </svg>

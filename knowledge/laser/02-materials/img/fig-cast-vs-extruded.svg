@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 230" width="480" height="230" role="img" aria-label="The same engraving in cast and extruded acrylic">
-  <rect x="0" y="0" width="480" height="230" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 250" width="480" height="250" role="img" aria-label="The same engraving in cast and extruded acrylic">
+  <rect x="0" y="0" width="480" height="250" rx="10" fill="#ffffff"/>
   <defs>
     <filter id="blur"><feGaussianBlur stdDeviation="2.2"/></filter>
   </defs>
@@ -16,6 +16,6 @@
     <text x="355" y="176" text-anchor="middle" font-weight="600" fill="#c62828">extruded (XT)</text>
     <text x="355" y="194" text-anchor="middle" font-size="11" fill="#5a5a5a">grey and blurred</text>
 
-    <text x="240" y="220" text-anchor="middle" font-size="12" font-weight="600">If the part is engraved, it must be cast. Nothing in the file can fix this.</text>
+    <text x="240" y="220" text-anchor="middle" font-size="12" font-weight="600">If the part is engraved, it must be cast. Nothing in the file can</text><text x="240" y="236" text-anchor="middle" font-size="12" font-weight="600">fix this.</text>
   </g>
 </svg>

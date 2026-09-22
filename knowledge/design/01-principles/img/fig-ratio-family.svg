@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 230" width="480" height="230" role="img" aria-label="The ratio family: same width at five heights">
-  <rect x="0" y="0" width="480" height="230" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 490 250" width="490" height="250" role="img" aria-label="The ratio family: same width at five heights">
+  <rect x="0" y="0" width="490" height="250" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">Same width, five ratios</text>
 
@@ -19,6 +19,6 @@
       <text x="332" y="198">classical</text><text x="422" y="198">decisive</text>
     </g>
 
-    <text x="20" y="222" font-size="11" fill="#5a5a5a">None is more correct. Pick two per object — three or more and it stops rhyming with itself.</text>
+    <text x="20" y="222" font-size="11" fill="#5a5a5a">None is more correct. Pick two per object — three or more and it stops</text><text x="20" y="236" font-size="11" fill="#5a5a5a">rhyming with itself.</text>
   </g>
 </svg>

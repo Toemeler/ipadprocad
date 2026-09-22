@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 230" width="480" height="230" role="img" aria-label="Char as a weak boundary layer in a glue joint">
-  <rect x="0" y="0" width="480" height="230" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 490 250" width="490" height="250" role="img" aria-label="Char as a weak boundary layer in a glue joint">
+  <rect x="0" y="0" width="490" height="250" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">Why a glued box comes apart</text>
 
@@ -19,6 +19,6 @@
     <text x="359" y="168" text-anchor="middle" font-weight="600" fill="#2e7d32">sanded to bare fibre</text>
     <text x="359" y="184" text-anchor="middle" fill="#2e7d32">PVA is then stronger than the wood</text>
 
-    <text x="20" y="220" font-size="11" fill="#5a5a5a">240 then 320 grit on every glue face. Sand faces, never the inside of a slot or the sides of a tab.</text>
+    <text x="20" y="220" font-size="11" fill="#5a5a5a">240 then 320 grit on every glue face. Sand faces, never the inside of a</text><text x="20" y="234" font-size="11" fill="#5a5a5a">slot or the sides of a tab.</text>
   </g>
 </svg>

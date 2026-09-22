@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 230" width="480" height="230" role="img" aria-label="Flush joint, deliberate gap and a lip">
-  <rect x="0" y="0" width="480" height="230" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 250" width="520" height="250" role="img" aria-label="Flush joint, deliberate gap and a lip">
+  <rect x="0" y="0" width="520" height="250" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">A lid joint, three ways</text>
 
@@ -24,7 +24,7 @@
     <text x="392" y="176" text-anchor="middle" font-weight="600" fill="#2e7d32">overlap lip</text>
     <text x="392" y="192" text-anchor="middle" fill="#2e7d32">hides the joint and the tolerance</text>
 
-    <text x="20" y="218" font-size="11" fill="#5a5a5a">Never design a flush zero-gap joint in a printed or laser-cut part. It cannot be achieved, and the attempt</text>
+    <text x="20" y="218" font-size="11" fill="#5a5a5a">Never design a flush zero-gap joint in a printed or laser-cut part. It</text><text x="20" y="232" font-size="11" fill="#5a5a5a">cannot be achieved, and the attempt</text>
     <text x="20" y="228" font-size="11" fill="#5a5a5a">looks worse than a deliberate gap.</text>
   </g>
 </svg>

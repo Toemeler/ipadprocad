@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 220" width="480" height="220" role="img" aria-label="Engrave contrast across six wood species">
-  <rect x="0" y="0" width="480" height="220" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 235" width="480" height="235" role="img" aria-label="Engrave contrast across six wood species">
+  <rect x="0" y="0" width="480" height="235" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">Same mark, same settings, six species</text>
 
@@ -45,6 +45,6 @@
     </g>
 
     <text x="20" y="184" font-size="12" font-weight="600">Contrast is a property of the wood, not of the machine.</text>
-    <text x="20" y="204" font-size="11" fill="#5a5a5a">No power setting rescues a walnut engrave. For photographs, use maple, basswood, alder or bamboo.</text>
+    <text x="20" y="204" font-size="11" fill="#5a5a5a">No power setting rescues a walnut engrave. For photographs, use maple,</text><text x="20" y="218" font-size="11" fill="#5a5a5a">basswood, alder or bamboo.</text>
   </g>
 </svg>

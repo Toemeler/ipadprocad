@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 230" width="480" height="230" role="img" aria-label="An inlay and its pocket cut from the same file">
-  <rect x="0" y="0" width="480" height="230" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 550 245" width="550" height="245" role="img" aria-label="An inlay and its pocket cut from the same file">
+  <rect x="0" y="0" width="550" height="245" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">Inlay: one outline, two parts</text>
 
@@ -20,6 +20,6 @@
     <text x="432" y="170" text-anchor="middle" font-weight="600" fill="#2e7d32">fits, one kerf loose</text>
     <text x="432" y="186" text-anchor="middle" fill="#2e7d32">which is the right gap for glue</text>
 
-    <text x="20" y="216" font-size="11" fill="#5a5a5a">For a press-fit inlay, offset the pocket inward by half a kerf. Hold veneer flat — it lifts into the beam.</text>
+    <text x="20" y="216" font-size="11" fill="#5a5a5a">For a press-fit inlay, offset the pocket inward by half a kerf. Hold</text><text x="20" y="230" font-size="11" fill="#5a5a5a">veneer flat — it lifts into the beam.</text>
   </g>
 </svg>

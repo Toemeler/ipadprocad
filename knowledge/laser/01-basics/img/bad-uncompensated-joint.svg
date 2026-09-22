@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 270" width="480" height="270" role="img" aria-label="Tab in a slot with no kerf compensation, showing two kerfs of play">
-  <rect x="0" y="0" width="480" height="270" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 295" width="480" height="295" role="img" aria-label="Tab in a slot with no kerf compensation, showing two kerfs of play">
+  <rect x="0" y="0" width="480" height="295" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="13" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">No compensation — drawn 3.0 into 3.0</text>
 
@@ -24,6 +24,6 @@
     <text x="330" y="134" fill="#c62828">0.28 mm</text>
 
     <text x="240" y="70" text-anchor="middle" font-size="12">slot: drawn 3.0, cut 3.28</text>
-    <text x="20" y="262" font-size="12" fill="#c62828">Total play = 2 × kerf ≈ 0.56 mm. The drawing was right; the compensation was missing.</text>
+    <text x="20" y="262" font-size="12" fill="#c62828">Total play = 2 × kerf ≈ 0.56 mm. The drawing was right; the</text><text x="20" y="278" font-size="12" fill="#c62828">compensation was missing.</text>
   </g>
 </svg>

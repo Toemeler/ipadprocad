@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 220" width="480" height="220" role="img" aria-label="The same mark engraved at 200, 300 and 600 DPI">
-  <rect x="0" y="0" width="480" height="220" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 490 240" width="490" height="240" role="img" aria-label="The same mark engraved at 200, 300 and 600 DPI">
+  <rect x="0" y="0" width="490" height="240" rx="10" fill="#ffffff"/>
   <defs>
     <pattern id="c200" width="7" height="7" patternUnits="userSpaceOnUse"><rect width="7" height="4" fill="#8a6a45"/></pattern>
     <pattern id="c300" width="4" height="4" patternUnits="userSpaceOnUse"><rect width="4" height="2.6" fill="#8a6a45"/></pattern>
@@ -23,6 +23,6 @@
     <text x="390" y="160" text-anchor="middle" font-weight="600">600 DPI</text>
     <text x="390" y="176" text-anchor="middle" font-size="11" fill="#5a5a5a">×3 · the grain hides the gain</text>
 
-    <text x="20" y="208" font-size="11" fill="#5a5a5a">Above ~400 DPI on wood the extra detail is lost in the grain. On cast acrylic and coated metal it shows.</text>
+    <text x="20" y="208" font-size="11" fill="#5a5a5a">Above ~400 DPI on wood the extra detail is lost in the grain. On cast</text><text x="20" y="222" font-size="11" fill="#5a5a5a">acrylic and coated metal it shows.</text>
   </g>
 </svg>

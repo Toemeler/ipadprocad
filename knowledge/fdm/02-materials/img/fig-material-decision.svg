@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 270" width="480" height="270" role="img" aria-label="Material decision as a five question flow">
-  <rect x="0" y="0" width="480" height="270" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 295" width="480" height="295" role="img" aria-label="Material decision as a five question flow">
+  <rect x="0" y="0" width="480" height="295" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">Five questions, in order — stop at the first yes</text>
 
@@ -32,7 +32,7 @@
       <text x="318" y="215" fill="#2e7d32">PLA or PETG</text>
     </g>
 
-    <text x="20" y="250" font-size="11" fill="#5a5a5a">Most parts reach the last row. Everything above it costs an enclosure, a dry box, or a hardened nozzle.</text>
-    <text x="20" y="266" font-size="11" fill="#c62828">Carbon fibre is stiffer, not stronger — and does nothing for the Z direction.</text>
+    <text x="20" y="250" font-size="11" fill="#5a5a5a">Most parts reach the last row. Everything above it costs an enclosure, a</text><text x="20" y="264" font-size="11" fill="#5a5a5a">dry box, or a hardened nozzle.</text>
+    <text x="20" y="266" font-size="11" fill="#c62828">Carbon fibre is stiffer, not stronger — and does nothing for the Z</text><text x="20" y="280" font-size="11" fill="#c62828">direction.</text>
   </g>
 </svg>

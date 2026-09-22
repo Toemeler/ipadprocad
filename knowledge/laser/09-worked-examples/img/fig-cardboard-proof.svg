@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 220" width="480" height="220" role="img" aria-label="The same panel cut in cardboard as a proof before cutting acrylic">
-  <rect x="0" y="0" width="480" height="220" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 230" width="480" height="230" role="img" aria-label="The same panel cut in cardboard as a proof before cutting acrylic">
+  <rect x="0" y="0" width="480" height="230" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">Twenty minutes in greyboard first</text>
 
@@ -21,6 +21,6 @@
     <text x="376" y="152" text-anchor="middle" font-weight="600">4 mm birch plywood</text>
     <text x="376" y="168" text-anchor="middle" fill="#5a5a5a">cut once, correctly</text>
 
-    <text x="20" y="200" font-size="11" fill="#2e7d32">The proof catches the connector that is 0.4 mm wider than its datasheet — before the expensive sheet is cut.</text>
+    <text x="20" y="200" font-size="11" fill="#2e7d32">The proof catches the connector that is 0.4 mm wider than its datasheet —</text><text x="20" y="214" font-size="11" fill="#2e7d32">before the expensive sheet is cut.</text>
   </g>
 </svg>

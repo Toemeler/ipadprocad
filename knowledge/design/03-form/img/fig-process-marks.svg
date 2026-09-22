@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 220" width="480" height="220" role="img" aria-label="Where to put each process mark">
-  <rect x="0" y="0" width="480" height="220" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 490 245" width="490" height="245" role="img" aria-label="Where to put each process mark">
+  <rect x="0" y="0" width="490" height="245" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">Every process leaves a signature</text>
 
@@ -20,6 +20,6 @@
     <text x="371" y="180" text-anchor="middle" fill="#2e7d32">on a straight run, on the</text>
     <text x="371" y="196" text-anchor="middle" fill="#2e7d32">waste side, or on a hidden edge</text>
 
-    <text x="20" y="214" font-size="11" fill="#5a5a5a">Left to chance it looks like damage. Placed deliberately it reads as part of the design.</text>
+    <text x="20" y="214" font-size="11" fill="#5a5a5a">Left to chance it looks like damage. Placed deliberately it reads as part</text><text x="20" y="228" font-size="11" fill="#5a5a5a">of the design.</text>
   </g>
 </svg>

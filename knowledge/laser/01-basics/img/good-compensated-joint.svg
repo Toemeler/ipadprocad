@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 270" width="480" height="270" role="img" aria-label="The same tab and slot with kerf compensation applied, fitting tightly">
-  <rect x="0" y="0" width="480" height="270" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 295" width="480" height="295" role="img" aria-label="The same tab and slot with kerf compensation applied, fitting tightly">
+  <rect x="0" y="0" width="480" height="295" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="13" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">Compensated — slot drawn 2.49, cut 2.77</text>
 
@@ -19,6 +19,6 @@
       <line x1="215" y1="200" x2="215" y2="220"/>
       <line x1="265" y1="200" x2="265" y2="220"/>
     </g>
-    <text x="20" y="262" font-size="12" fill="#5a5a5a">drawn slot = measured thickness − kerf − interference = 2.85 − 0.28 − 0.08</text>
+    <text x="20" y="262" font-size="12" fill="#5a5a5a">drawn slot = measured thickness − kerf − interference = 2.85 − 0.28</text><text x="20" y="278" font-size="12" fill="#5a5a5a">− 0.08</text>
   </g>
 </svg>

@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 240" width="480" height="240" role="img" aria-label="The spread of actual thicknesses in nominal 3 mm plywood">
-  <rect x="0" y="0" width="480" height="240" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 260" width="500" height="260" role="img" aria-label="The spread of actual thicknesses in nominal 3 mm plywood">
+  <rect x="0" y="0" width="500" height="260" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">"3 mm" plywood, as EN 315 allows it</text>
 
@@ -29,6 +29,6 @@
     </g>
     <text x="252" y="208" text-anchor="middle" fill="#0b6bcb">0.2–0.3 mm variation inside ONE bundle is also in spec</text>
 
-    <text x="20" y="232" font-size="11" fill="#c62828">That swing is more than twice the kerf. Measure the sheet; the label is not a dimension.</text>
+    <text x="20" y="232" font-size="11" fill="#c62828">That swing is more than twice the kerf. Measure the sheet; the label is</text><text x="20" y="246" font-size="11" fill="#c62828">not a dimension.</text>
   </g>
 </svg>

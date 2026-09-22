@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 230" width="480" height="230" role="img" aria-label="The same panel without and with hierarchy">
-  <rect x="0" y="0" width="480" height="230" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 245" width="480" height="245" role="img" aria-label="The same panel without and with hierarchy">
+  <rect x="0" y="0" width="480" height="245" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">Same controls, same panel</text>
 
@@ -21,7 +21,7 @@
     <text x="356" y="174" text-anchor="middle" font-weight="600" fill="#2e7d32">one primary, isolated</text>
     <text x="356" y="190" text-anchor="middle" fill="#2e7d32">the rest grouped and demoted</text>
 
-    <text x="20" y="216" font-size="11" fill="#5a5a5a">Nothing was added. Isolation is free and often beats size — a control with 20 mm of nothing</text>
+    <text x="20" y="216" font-size="11" fill="#5a5a5a">Nothing was added. Isolation is free and often beats size — a control with</text><text x="20" y="230" font-size="11" fill="#5a5a5a">20 mm of nothing</text>
     <text x="20" y="226" font-size="11" fill="#5a5a5a">around it dominates one that is 30 % larger and crowded.</text>
   </g>
 </svg>

@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 220" width="480" height="220" role="img" aria-label="Square slit ends crack, rounded ends survive">
-  <rect x="0" y="0" width="480" height="220" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 240" width="480" height="240" role="img" aria-label="Square slit ends crack, rounded ends survive">
+  <rect x="0" y="0" width="480" height="240" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">The slit end decides how long the hinge lives</text>
 
@@ -18,6 +18,6 @@
     <text x="356" y="176" text-anchor="middle" font-weight="600">0.5 mm round end</text>
     <text x="356" y="192" text-anchor="middle" font-size="11" fill="#2e7d32">load spreads — no crack starter</text>
 
-    <text x="20" y="212" font-size="11" fill="#5a5a5a">The single change that most improves survival. A teardrop end is better still.</text>
+    <text x="20" y="212" font-size="11" fill="#5a5a5a">The single change that most improves survival. A teardrop end is better</text><text x="20" y="226" font-size="11" fill="#5a5a5a">still.</text>
   </g>
 </svg>

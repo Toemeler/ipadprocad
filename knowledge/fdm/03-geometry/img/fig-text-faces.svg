@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 230" width="480" height="230" role="img" aria-label="Embossed and engraved text on top, side and bottom faces">
-  <rect x="0" y="0" width="480" height="230" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 245" width="480" height="245" role="img" aria-label="Embossed and engraved text on top, side and bottom faces">
+  <rect x="0" y="0" width="480" height="245" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">Which face the text sits on</text>
 
@@ -30,6 +30,6 @@
     </g>
 
     <text x="20" y="196" font-size="12" font-weight="600">Recessed text on the bottom face prints against the smooth bed.</text>
-    <text x="20" y="216" font-size="11" fill="#5a5a5a">Stroke ≥ 2 line widths (0.84 mm), depth ≥ 3 layers (0.6 mm). Embossed text on the bottom gets squashed by elephant foot.</text>
+    <text x="20" y="216" font-size="11" fill="#5a5a5a">Stroke ≥ 2 line widths (0.84 mm), depth ≥ 3 layers (0.6 mm). Embossed text</text><text x="20" y="230" font-size="11" fill="#5a5a5a">on the bottom gets squashed by elephant foot.</text>
   </g>
 </svg>

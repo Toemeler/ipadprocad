@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 220" width="480" height="220" role="img" aria-label="A flat cavity ceiling replaced by a printed arch">
-  <rect x="0" y="0" width="480" height="220" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 490 245" width="490" height="245" role="img" aria-label="A flat cavity ceiling replaced by a printed arch">
+  <rect x="0" y="0" width="490" height="245" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">The printed arch</text>
 
@@ -15,6 +15,6 @@
     <text x="361" y="180" text-anchor="middle" font-weight="600" fill="#2e7d32">two 45° faces meeting at a ridge</text>
     <text x="361" y="198" text-anchor="middle" font-size="11" fill="#2e7d32">no support, invisible from outside</text>
 
-    <text x="20" y="216" font-size="11" fill="#5a5a5a">The most useful single trick for internal cavities, cable channels and pockets.</text>
+    <text x="20" y="216" font-size="11" fill="#5a5a5a">The most useful single trick for internal cavities, cable channels and</text><text x="20" y="230" font-size="11" fill="#5a5a5a">pockets.</text>
   </g>
 </svg>

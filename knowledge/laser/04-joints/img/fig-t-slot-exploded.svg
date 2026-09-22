@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 260" width="480" height="260" role="img" aria-label="T-slot joint exploded, showing nut pocket, shank slot, screw and mating hole">
-  <rect x="0" y="0" width="480" height="260" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 280" width="480" height="280" role="img" aria-label="T-slot joint exploded, showing nut pocket, shank slot, screw and mating hole">
+  <rect x="0" y="0" width="480" height="280" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">T-slot joint, exploded</text>
 
@@ -28,6 +28,6 @@
     <text x="401" y="220" text-anchor="middle" font-size="11" fill="#5a5a5a">face panel</text>
     <text x="401" y="236" text-anchor="middle" font-size="11" fill="#5a5a5a">clearance hole</text>
 
-    <text x="20" y="252" font-size="11" fill="#c62828">Sheet thickness must be at least the nut thickness: M4 (3.2 mm) will not fit in 3 mm ply.</text>
+    <text x="20" y="252" font-size="11" fill="#c62828">Sheet thickness must be at least the nut thickness: M4 (3.2 mm) will not</text><text x="20" y="266" font-size="11" fill="#c62828">fit in 3 mm ply.</text>
   </g>
 </svg>

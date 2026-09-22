@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 220" width="480" height="220" role="img" aria-label="Which percentile each dimension type uses">
-  <rect x="0" y="0" width="480" height="220" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 225" width="560" height="225" role="img" aria-label="Which percentile each dimension type uses">
+  <rect x="0" y="0" width="560" height="225" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">Designing for the average designs for nobody</text>
 
@@ -26,10 +26,10 @@
     <g fill="#5a5a5a" font-size="10">
       <text x="286" y="80">if the biggest hand fits, all do</text>
       <text x="286" y="122">if the shortest reach gets there, all do</text>
-      <text x="286" y="164">everyone above can also do it</text>
+      <text x="286" y="164">everyone above can also do</text><text x="286" y="180">it</text>
     </g>
 
-    <text x="20" y="196" font-size="11" fill="#c62828">Getting these the wrong way round — a handle opening sized for an average hand, a reach for a tall one —</text>
+    <text x="20" y="196" font-size="11" fill="#c62828">Getting these the wrong way round — a handle opening sized for an average</text><text x="20" y="210" font-size="11" fill="#c62828">hand, a reach for a tall one —</text>
     <text x="20" y="210" font-size="11" fill="#c62828">is the classic ergonomics mistake.</text>
   </g>
 </svg>

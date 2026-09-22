@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 250" width="480" height="250" role="img" aria-label="Lattice hinge brick pattern with spacing, link and slit length labelled">
-  <rect x="0" y="0" width="480" height="250" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 270" width="480" height="270" role="img" aria-label="Lattice hinge brick pattern with spacing, link and slit length labelled">
+  <rect x="0" y="0" width="480" height="270" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">Lattice hinge — brick pattern</text>
 
@@ -29,6 +29,6 @@
     <text x="374" y="100" fill="#0b6bcb">link 3 mm</text>
     <text x="374" y="150" fill="#0b6bcb">slit 20–40 mm</text>
 
-    <text x="20" y="240" font-size="11" fill="#5a5a5a">Slits run parallel to the bend axis. Spacing sets the radius, link length sets the fatigue life.</text>
+    <text x="20" y="240" font-size="11" fill="#5a5a5a">Slits run parallel to the bend axis. Spacing sets the radius, link length</text><text x="20" y="254" font-size="11" fill="#5a5a5a">sets the fatigue life.</text>
   </g>
 </svg>

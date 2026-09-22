@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 220" width="480" height="220" role="img" aria-label="Why the gap matters more than the button size">
-  <rect x="0" y="0" width="480" height="220" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 235" width="480" height="235" role="img" aria-label="Why the gap matters more than the button size">
+  <rect x="0" y="0" width="480" height="235" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">A fingertip is 16–20 mm wide</text>
 
@@ -20,6 +20,6 @@
     <text x="361" y="158" text-anchor="middle" font-weight="600" fill="#2e7d32">smaller buttons, 10 mm apart</text>
     <text x="361" y="174" text-anchor="middle" fill="#2e7d32">each one can be hit alone</text>
 
-    <text x="20" y="204" font-size="11" fill="#5a5a5a">Mispresses come from gaps, not from sizes. Set the gaps first when space is tight.</text>
+    <text x="20" y="204" font-size="11" fill="#5a5a5a">Mispresses come from gaps, not from sizes. Set the gaps first when space</text><text x="20" y="218" font-size="11" fill="#5a5a5a">is tight.</text>
   </g>
 </svg>

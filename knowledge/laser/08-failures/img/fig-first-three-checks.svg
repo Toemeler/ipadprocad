@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 220" width="480" height="220" role="img" aria-label="The three cheap checks: lens, sheet flatness, material identity">
-  <rect x="0" y="0" width="480" height="220" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 240" width="480" height="240" role="img" aria-label="The three cheap checks: lens, sheet flatness, material identity">
+  <rect x="0" y="0" width="480" height="240" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">Check these three before redesigning anything</text>
 
@@ -27,6 +27,6 @@
       <text x="390" y="184" text-anchor="middle" font-size="11" fill="#5a5a5a">you think it is?</text>
     </g>
 
-    <text x="20" y="210" font-size="11" fill="#5a5a5a">Two symptoms at once are usually one cause. If it worked last week, nothing in the file changed.</text>
+    <text x="20" y="210" font-size="11" fill="#5a5a5a">Two symptoms at once are usually one cause. If it worked last week,</text><text x="20" y="224" font-size="11" fill="#5a5a5a">nothing in the file changed.</text>
   </g>
 </svg>

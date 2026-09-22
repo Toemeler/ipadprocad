@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 200" width="480" height="200" role="img" aria-label="Raw MDF cut edge next to a sealed and painted one">
-  <rect x="0" y="0" width="480" height="200" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 490 220" width="490" height="220" role="img" aria-label="Raw MDF cut edge next to a sealed and painted one">
+  <rect x="0" y="0" width="490" height="220" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">MDF edge, raw and finished</text>
 
@@ -17,6 +17,6 @@
     <text x="360" y="146" text-anchor="middle" font-weight="600">sealed + 2 coats</text>
     <text x="360" y="164" text-anchor="middle" font-size="11" fill="#5a5a5a">why the material is still worth using</text>
 
-    <text x="20" y="190" font-size="11" fill="#5a5a5a">The raw edge is what the laser always gives you. Plan on painting, or choose another material.</text>
+    <text x="20" y="190" font-size="11" fill="#5a5a5a">The raw edge is what the laser always gives you. Plan on painting, or</text><text x="20" y="204" font-size="11" fill="#5a5a5a">choose another material.</text>
   </g>
 </svg>

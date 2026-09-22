@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 230" width="480" height="230" role="img" aria-label="Plywood grades and what each face looks like">
-  <rect x="0" y="0" width="480" height="230" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 490 250" width="490" height="250" role="img" aria-label="Plywood grades and what each face looks like">
+  <rect x="0" y="0" width="490" height="250" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">Grades — the face, and the core behind it</text>
 
@@ -33,6 +33,6 @@
       <text x="391" y="194" text-anchor="middle" fill="#c62828">and often the wrong glue</text>
     </g>
 
-    <text x="20" y="220" font-size="11" fill="#5a5a5a">A slot that lands on a void has nothing to grip, and no tolerance change fixes it.</text>
+    <text x="20" y="220" font-size="11" fill="#5a5a5a">A slot that lands on a void has nothing to grip, and no tolerance change</text><text x="20" y="234" font-size="11" fill="#5a5a5a">fixes it.</text>
   </g>
 </svg>

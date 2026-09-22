@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 220" width="480" height="220" role="img" aria-label="Bamboo lamination directions and how each splits">
-  <rect x="0" y="0" width="480" height="220" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 240" width="480" height="240" role="img" aria-label="Bamboo lamination directions and how each splits">
+  <rect x="0" y="0" width="480" height="240" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">Bamboo is a grass: the laminations are the grain</text>
 
@@ -21,7 +21,7 @@
     <text x="365" y="148" text-anchor="middle" font-weight="600">horizontal / flat-pressed</text>
     <text x="365" y="164" text-anchor="middle" fill="#c62828">splits along a lamination</text>
 
-    <text x="20" y="196" font-size="11" fill="#5a5a5a">Treat lamination direction exactly as grain: long thin parts run along it, slots cut across it.</text>
-    <text x="20" y="212" font-size="11" fill="#5a5a5a">Strand-woven bamboo is far harder — it cuts slowly and chars. Carbonised bamboo has lower engrave contrast.</text>
+    <text x="20" y="196" font-size="11" fill="#5a5a5a">Treat lamination direction exactly as grain: long thin parts run along it,</text><text x="20" y="210" font-size="11" fill="#5a5a5a">slots cut across it.</text>
+    <text x="20" y="212" font-size="11" fill="#5a5a5a">Strand-woven bamboo is far harder — it cuts slowly and chars. Carbonised</text><text x="20" y="226" font-size="11" fill="#5a5a5a">bamboo has lower engrave contrast.</text>
   </g>
 </svg>

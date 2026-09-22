@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 250" width="480" height="250" role="img" aria-label="Enclosure section showing wall, lid lip, boss and chamfer">
-  <rect x="0" y="0" width="480" height="250" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 620 265" width="620" height="265" role="img" aria-label="Enclosure section showing wall, lid lip, boss and chamfer">
+  <rect x="0" y="0" width="620" height="265" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">Enclosure section — the four details that matter</text>
 
@@ -21,9 +21,9 @@
     <text x="392" y="74" fill="#0b6bcb">lid lip 2 mm, 0.3 mm clearance</text>
     <text x="392" y="140" fill="#0b6bcb">insert boss, merged into the wall</text>
     <text x="392" y="176" fill="#2e7d32">2 mm internal fillet</text>
-    <text x="392" y="208" fill="#2e7d32">0.6 mm bottom chamfer</text>
+    <text x="392" y="208" fill="#2e7d32">0.6 mm</text><text x="392" y="224" fill="#2e7d32">bottom</text><text x="392" y="240" fill="#2e7d32">chamfer</text>
     <text x="40" y="146" text-anchor="end" fill="#0b6bcb">wall 2.1 mm</text>
 
-    <text x="20" y="234" font-size="11" fill="#5a5a5a">An overlap lip hides the parting line and absorbs the printing tolerance a flat joint exposes.</text>
+    <text x="20" y="234" font-size="11" fill="#5a5a5a">An overlap lip hides the parting line and absorbs the printing tolerance a</text><text x="20" y="248" font-size="11" fill="#5a5a5a">flat joint exposes.</text>
   </g>
 </svg>

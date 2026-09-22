@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 270" width="480" height="270" role="img" aria-label="Heat limit versus toughness for the common filaments">
-  <rect x="0" y="0" width="480" height="270" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 300" width="480" height="300" role="img" aria-label="Heat limit versus toughness for the common filaments">
+  <rect x="0" y="0" width="480" height="300" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">Heat limit against toughness</text>
 
@@ -23,7 +23,7 @@
     <path d="M84 210 L84 130 L270 130 L270 210 Z" fill="#2e7d32" opacity="0.08"/>
     <text x="177" y="204" text-anchor="middle" font-size="11" fill="#2e7d32">no enclosure needed</text>
 
-    <text x="20" y="254" font-size="11" fill="#5a5a5a">Everything to the right of the green box needs an enclosure, a dry box, or both.</text>
-    <text x="20" y="268" font-size="11" fill="#5a5a5a">Positions are indicative — the ordering is what matters, not the coordinates.</text>
+    <text x="20" y="254" font-size="11" fill="#5a5a5a">Everything to the right of the green box needs an enclosure, a dry box, or</text><text x="20" y="268" font-size="11" fill="#5a5a5a">both.</text>
+    <text x="20" y="268" font-size="11" fill="#5a5a5a">Positions are indicative — the ordering is what matters, not the</text><text x="20" y="282" font-size="11" fill="#5a5a5a">coordinates.</text>
   </g>
 </svg>

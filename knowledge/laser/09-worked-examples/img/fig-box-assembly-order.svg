@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 220" width="480" height="220" role="img" aria-label="Assembly order of a finger jointed box: base, long sides, short sides">
-  <rect x="0" y="0" width="480" height="220" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 240" width="480" height="240" role="img" aria-label="Assembly order of a finger jointed box: base, long sides, short sides">
+  <rect x="0" y="0" width="480" height="240" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">One assembly order, and only one</text>
 
@@ -22,6 +22,6 @@
     </g>
 
     <text x="20" y="192" font-size="12" font-weight="600" fill="#2e7d32">Dry-fit the whole box before any glue.</text>
-    <text x="20" y="212" font-size="11" fill="#5a5a5a">A finger-jointed box will not go together in any other order, and glue gives you about four minutes to find that out.</text>
+    <text x="20" y="212" font-size="11" fill="#5a5a5a">A finger-jointed box will not go together in any other order, and glue</text><text x="20" y="226" font-size="11" fill="#5a5a5a">gives you about four minutes to find that out.</text>
   </g>
 </svg>

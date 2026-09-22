@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 230" width="480" height="230" role="img" aria-label="Five ways to remove an overhang, in order">
-  <rect x="0" y="0" width="480" height="230" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 240" width="500" height="240" role="img" aria-label="Five ways to remove an overhang, in order">
+  <rect x="0" y="0" width="500" height="240" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">Five moves, in the order worth trying them</text>
 
@@ -35,7 +35,7 @@
       <text x="431" y="144" text-anchor="middle" fill="#5a5a5a">a joint to glue</text>
     </g>
 
-    <text x="20" y="190" font-size="12" font-weight="600">Rotate the part, then look at it from directly below. Everything you can see is an overhang.</text>
-    <text x="20" y="212" font-size="11" fill="#5a5a5a">Stop at the first move that fits. Where support is genuinely unavoidable, make it easy: accessible, and on a face nobody measures.</text>
+    <text x="20" y="190" font-size="12" font-weight="600">Rotate the part, then look at it from directly below. Everything</text><text x="20" y="206" font-size="12" font-weight="600">you can see is an overhang.</text>
+    <text x="20" y="212" font-size="11" fill="#5a5a5a">Stop at the first move that fits. Where support is genuinely unavoidable,</text><text x="20" y="226" font-size="11" fill="#5a5a5a">make it easy: accessible, and on a face nobody measures.</text>
   </g>
 </svg>

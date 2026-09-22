@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 240" width="480" height="240" role="img" aria-label="Hex pocket dimensions for an M3 captive nut">
-  <rect x="0" y="0" width="480" height="240" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 245" width="480" height="245" role="img" aria-label="Hex pocket dimensions for an M3 captive nut">
+  <rect x="0" y="0" width="480" height="245" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">M3 nut pocket, drawn dimensions</text>
 
@@ -20,7 +20,7 @@
     <text x="214" y="182" text-anchor="middle" fill="#0b6bcb">across flats 5.7 mm (nut 5.5 + 0.2)</text>
     <text x="115" y="146" text-anchor="middle" font-size="11">shank slot 3.4 mm</text>
 
-    <text x="20" y="212" font-size="11" fill="#5a5a5a">Kerf compensation matters most here: an uncompensated pocket is one kerf oversize and the nut spins.</text>
+    <text x="20" y="212" font-size="11" fill="#5a5a5a">Kerf compensation matters most here: an uncompensated pocket is one kerf</text><text x="20" y="226" font-size="11" fill="#5a5a5a">oversize and the nut spins.</text>
     <text x="20" y="230" font-size="11" fill="#5a5a5a">Nut centre distance = screw length − mating panel thickness − 3 mm.</text>
   </g>
 </svg>

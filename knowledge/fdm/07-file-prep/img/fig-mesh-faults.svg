@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 230" width="480" height="230" role="img" aria-label="The five mesh faults">
-  <rect x="0" y="0" width="480" height="230" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 490 255" width="490" height="255" role="img" aria-label="The five mesh faults">
+  <rect x="0" y="0" width="490" height="255" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">Five ways a mesh stops having an inside</text>
 
@@ -36,8 +36,8 @@
       <text x="421" y="146" text-anchor="middle" fill="#5a5a5a">zero-area faces</text>
     </g>
 
-    <text x="20" y="188" font-size="12" font-weight="600">Model as a solid, not as a surface. A parametric solid cannot be non-manifold.</text>
-    <text x="20" y="210" font-size="11" fill="#5a5a5a">Read the slicer's warning instead of clicking through it — an automatic repair is a guess, and it can move a mating</text>
-    <text x="20" y="226" font-size="11" fill="#5a5a5a">surface by a tenth of a millimetre without saying so. Check the SLICED preview, not the model preview.</text>
+    <text x="20" y="188" font-size="12" font-weight="600">Model as a solid, not as a surface. A parametric solid cannot be</text><text x="20" y="204" font-size="12" font-weight="600">non-manifold.</text>
+    <text x="20" y="210" font-size="11" fill="#5a5a5a">Read the slicer's warning instead of clicking through it — an automatic</text><text x="20" y="224" font-size="11" fill="#5a5a5a">repair is a guess, and it can move a mating</text>
+    <text x="20" y="226" font-size="11" fill="#5a5a5a">surface by a tenth of a millimetre without saying so. Check the SLICED</text><text x="20" y="240" font-size="11" fill="#5a5a5a">preview, not the model preview.</text>
   </g>
 </svg>

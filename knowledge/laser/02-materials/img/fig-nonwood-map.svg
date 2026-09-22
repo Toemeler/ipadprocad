@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 220" width="480" height="220" role="img" aria-label="Where each non wood material earns its place">
-  <rect x="0" y="0" width="480" height="220" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 230" width="480" height="230" role="img" aria-label="Where each non wood material earns its place">
+  <rect x="0" y="0" width="480" height="230" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">Four things wood cannot do</text>
 
@@ -19,6 +19,6 @@
     <text x="318" y="140" text-anchor="middle" font-size="11" fill="#5a5a5a">low friction · gears</text>
 
     <text x="20" y="180" font-size="12" font-weight="600">Anything else is a dimension problem wearing a material disguise.</text>
-    <text x="20" y="202" font-size="11" fill="#c62828">None of them survives outdoors either. Wood wicks and delaminates; acrylic crazes in UV.</text>
+    <text x="20" y="202" font-size="11" fill="#c62828">None of them survives outdoors either. Wood wicks and delaminates; acrylic</text><text x="20" y="216" font-size="11" fill="#c62828">crazes in UV.</text>
   </g>
 </svg>

@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 220" width="480" height="220" role="img" aria-label="Contrast ratios on wood and painted panels">
-  <rect x="0" y="0" width="480" height="220" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 240" width="480" height="240" role="img" aria-label="Contrast ratios on wood and painted panels">
+  <rect x="0" y="0" width="480" height="240" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">4.5 : 1 for fine detail, 3 : 1 for large marks</text>
 
@@ -19,6 +19,6 @@
     <text x="391" y="150" text-anchor="middle" font-weight="600" fill="#2e7d32">white on dark grey</text>
     <text x="391" y="166" text-anchor="middle" fill="#2e7d32">passes at AAA</text>
 
-    <text x="20" y="208" font-size="11" fill="#5a5a5a">Never rely on colour alone — add shape, position or text. An engrave that reads by shadow needs 0.4 mm of depth.</text>
+    <text x="20" y="208" font-size="11" fill="#5a5a5a">Never rely on colour alone — add shape, position or text. An engrave that</text><text x="20" y="222" font-size="11" fill="#5a5a5a">reads by shadow needs 0.4 mm of depth.</text>
   </g>
 </svg>

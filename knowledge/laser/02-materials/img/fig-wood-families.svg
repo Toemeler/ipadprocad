@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 240" width="480" height="240" role="img" aria-label="The four wood families and their cut edges">
-  <rect x="0" y="0" width="480" height="240" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 265" width="520" height="265" role="img" aria-label="The four wood families and their cut edges">
+  <rect x="0" y="0" width="520" height="265" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">The four wood families, at the cut edge</text>
 
@@ -41,7 +41,7 @@
       <text x="414" y="166" text-anchor="middle" fill="#5a5a5a">splits along laminations</text>
     </g>
 
-    <text x="20" y="220" font-size="11" fill="#5a5a5a">Wood takes a press fit and takes a screw. That is why this folder defaults to it.</text>
-    <text x="20" y="234" font-size="11" fill="#5a5a5a">The cut edge is what the process gives you for free, and the hardest thing to change afterwards.</text>
+    <text x="20" y="220" font-size="11" fill="#5a5a5a">Wood takes a press fit and takes a screw. That is why this folder defaults</text><text x="20" y="234" font-size="11" fill="#5a5a5a">to it.</text>
+    <text x="20" y="234" font-size="11" fill="#5a5a5a">The cut edge is what the process gives you for free, and the hardest thing</text><text x="20" y="248" font-size="11" fill="#5a5a5a">to change afterwards.</text>
   </g>
 </svg>

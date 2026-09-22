@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 210" width="480" height="210" role="img" aria-label="Why dark glossy filament and layer lines fight">
-  <rect x="0" y="0" width="480" height="210" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 230" width="480" height="230" role="img" aria-label="Why dark glossy filament and layer lines fight">
+  <rect x="0" y="0" width="480" height="230" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">Dark and glossy traces every layer</text>
 
@@ -21,6 +21,6 @@
     <text x="360" y="164" text-anchor="middle" font-weight="600" fill="#2e7d32">dark, matte</text>
     <text x="360" y="180" text-anchor="middle" fill="#2e7d32">the surface scatters it</text>
 
-    <text x="20" y="202" font-size="11" fill="#5a5a5a">If the part is dark and its surface will be seen, choose a matte filament or plan to finish the surface.</text>
+    <text x="20" y="202" font-size="11" fill="#5a5a5a">If the part is dark and its surface will be seen, choose a matte filament</text><text x="20" y="216" font-size="11" fill="#5a5a5a">or plan to finish the surface.</text>
   </g>
 </svg>

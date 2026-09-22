@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 250" width="480" height="250" role="img" aria-label="The printed enclosure before and after the design pass">
-  <rect x="0" y="0" width="480" height="250" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 270" width="480" height="270" role="img" aria-label="The printed enclosure before and after the design pass">
+  <rect x="0" y="0" width="480" height="270" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="10" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">Same function, same manufacturing numbers</text>
 
@@ -26,9 +26,9 @@
     <text x="361" y="176" text-anchor="middle" font-weight="600" fill="#2e7d32">after the design pass</text>
     <g fill="#2e7d32">
       <text x="266" y="196">· 2 mm overlap lip, 0.4 mm gap</text>
-      <text x="266" y="210">· LEDs in an inset panel, isolated</text>
-      <text x="266" y="224">· vents grouped, moved underneath</text>
-      <text x="266" y="238">· matte, textured face turned upward</text>
+      <text x="266" y="210">· LEDs in an inset panel,</text><text x="266" y="226">isolated</text>
+      <text x="266" y="224">· vents grouped, moved</text><text x="266" y="240">underneath</text>
+      <text x="266" y="238">· matte, textured face turned</text><text x="266" y="254">upward</text>
     </g>
   </g>
 </svg>

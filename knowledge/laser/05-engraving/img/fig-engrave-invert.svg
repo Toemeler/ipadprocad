@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 220" width="480" height="220" role="img" aria-label="Engraving the figure versus engraving the ground">
-  <rect x="0" y="0" width="480" height="220" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 240" width="480" height="240" role="img" aria-label="Engraving the figure versus engraving the ground">
+  <rect x="0" y="0" width="480" height="240" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">Engrave whichever area is smaller</text>
 
@@ -13,6 +13,6 @@
     <text x="360" y="170" text-anchor="middle" font-weight="600" fill="#c62828">engrave the ground</text>
     <text x="360" y="186" text-anchor="middle" font-size="11" fill="#c62828">large area · many times slower</text>
 
-    <text x="20" y="210" font-size="11" fill="#5a5a5a">Engraving is the slowest thing a laser does, so this is a cost decision, not only a visual one.</text>
+    <text x="20" y="210" font-size="11" fill="#5a5a5a">Engraving is the slowest thing a laser does, so this is a cost decision,</text><text x="20" y="224" font-size="11" fill="#5a5a5a">not only a visual one.</text>
   </g>
 </svg>

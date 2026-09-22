@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 220" width="480" height="220" role="img" aria-label="Cut edge appearance of acrylic, plywood, MDF and greyboard">
-  <rect x="0" y="0" width="480" height="220" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 235" width="480" height="235" role="img" aria-label="Cut edge appearance of acrylic, plywood, MDF and greyboard">
+  <rect x="0" y="0" width="480" height="235" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">What the cut edge looks like</text>
 
@@ -32,6 +32,6 @@
     <text x="420" y="156" text-anchor="middle" font-size="11" fill="#5a5a5a">light tan edge</text>
     <text x="420" y="170" text-anchor="middle" font-size="11" fill="#5a5a5a">clean</text>
 
-    <text x="20" y="204" font-size="11" fill="#5a5a5a">Schematic, not photographic — see PHOTOS.md for the photographs these stand in for.</text>
+    <text x="20" y="204" font-size="11" fill="#5a5a5a">Schematic, not photographic — see PHOTOS.md for the photographs these</text><text x="20" y="218" font-size="11" fill="#5a5a5a">stand in for.</text>
   </g>
 </svg>

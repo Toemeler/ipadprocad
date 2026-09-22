@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 230" width="480" height="230" role="img" aria-label="A thin boss cracking and the same boss with gussets">
-  <rect x="0" y="0" width="480" height="230" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 530 255" width="530" height="255" role="img" aria-label="A thin boss cracking and the same boss with gussets">
+  <rect x="0" y="0" width="530" height="255" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">A free-standing boss is a tower</text>
 
@@ -20,6 +20,6 @@
     <text x="360" y="188" text-anchor="middle" font-weight="600" fill="#2e7d32">gussets at 45°</text>
     <text x="360" y="206" text-anchor="middle" font-size="11" fill="#2e7d32">self-supporting, and the single biggest improvement</text>
 
-    <text x="20" y="224" font-size="11" fill="#5a5a5a">Better still: merge the boss into a wall, so it stops being a tower at all.</text>
+    <text x="20" y="224" font-size="11" fill="#5a5a5a">Better still: merge the boss into a wall, so it stops being a tower at</text><text x="20" y="238" font-size="11" fill="#5a5a5a">all.</text>
   </g>
 </svg>

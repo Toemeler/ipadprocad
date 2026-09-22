@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 220" width="480" height="220" role="img" aria-label="Grouping by gap size">
-  <rect x="0" y="0" width="480" height="220" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 530 240" width="530" height="240" role="img" aria-label="Grouping by gap size">
+  <rect x="0" y="0" width="530" height="240" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">Gaps do the grouping</text>
 
@@ -22,7 +22,7 @@
     <text x="142" y="180" text-anchor="middle" fill="#0b6bcb">≥ 2×</text>
     <text x="330" y="136" fill="#2e7d32">two gap sizes — three groups</text>
 
-    <text x="20" y="208" font-size="11" fill="#5a5a5a">Inside a group, one spacing step. Between groups, at least two. An object whose gaps are all the</text>
+    <text x="20" y="208" font-size="11" fill="#5a5a5a">Inside a group, one spacing step. Between groups, at least two. An object</text><text x="20" y="222" font-size="11" fill="#5a5a5a">whose gaps are all the</text>
     <text x="20" y="218" font-size="11" fill="#5a5a5a">same has no grouping, which leaves the viewer to do the sorting.</text>
   </g>
 </svg>

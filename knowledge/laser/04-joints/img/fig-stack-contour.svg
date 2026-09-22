@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 260" width="480" height="260" role="img" aria-label="A curved form built from terraced stacked contours">
-  <rect x="0" y="0" width="480" height="260" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 490 280" width="490" height="280" role="img" aria-label="A curved form built from terraced stacked contours">
+  <rect x="0" y="0" width="490" height="280" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">Contour stacking — the sheet is the resolution</text>
 
@@ -26,6 +26,6 @@
     <text x="370" y="212" text-anchor="middle" font-size="11" fill="#2e7d32">half the sheet thickness</text>
     <text x="370" y="228" text-anchor="middle" font-size="11" fill="#5a5a5a">twice the layers, twice the cut time</text>
 
-    <text x="20" y="252" font-size="11" fill="#5a5a5a">If the form will be sanded smooth, draw every contour 0.5 mm oversize — and keep all layers the same way up.</text>
+    <text x="20" y="252" font-size="11" fill="#5a5a5a">If the form will be sanded smooth, draw every contour 0.5 mm oversize —</text><text x="20" y="266" font-size="11" fill="#5a5a5a">and keep all layers the same way up.</text>
   </g>
 </svg>

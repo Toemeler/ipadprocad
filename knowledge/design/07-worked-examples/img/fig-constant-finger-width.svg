@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 230" width="480" height="230" role="img" aria-label="Holding the finger width constant instead of the count">
-  <rect x="0" y="0" width="480" height="230" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 530 255" width="530" height="255" role="img" aria-label="Holding the finger width constant instead of the count">
+  <rect x="0" y="0" width="530" height="255" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">The single biggest tell</text>
 
@@ -19,9 +19,9 @@
       <line x1="56" y1="124" x2="86" y2="124"/><line x1="56" y1="158" x2="86" y2="158"/>
     </g>
     <text x="330" y="128" font-size="10" fill="#2e7d32">30 mm</text>
-    <text x="330" y="162" font-size="10" fill="#2e7d32">30 mm — every finger on the box matches</text>
+    <text x="330" y="162" font-size="10" fill="#2e7d32">30 mm — every finger on</text><text x="330" y="175" font-size="10" fill="#2e7d32">the box matches</text>
 
-    <text x="20" y="214" font-size="11" fill="#5a5a5a">A generator holds the count and lets the width vary. Hold the width, let the count vary, and the whole</text>
-    <text x="20" y="226" font-size="11" fill="#5a5a5a">object shares one rhythm — which reads immediately, even though nobody measures.</text>
+    <text x="20" y="214" font-size="11" fill="#5a5a5a">A generator holds the count and lets the width vary. Hold the width, let</text><text x="20" y="228" font-size="11" fill="#5a5a5a">the count vary, and the whole</text>
+    <text x="20" y="226" font-size="11" fill="#5a5a5a">object shares one rhythm — which reads immediately, even though nobody</text><text x="20" y="240" font-size="11" fill="#5a5a5a">measures.</text>
   </g>
 </svg>

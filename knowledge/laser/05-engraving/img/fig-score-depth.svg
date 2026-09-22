@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 230" width="480" height="230" role="img" aria-label="Score depth compared at 30, 60 and 90 percent of thickness">
-  <rect x="0" y="0" width="480" height="230" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 240" width="480" height="240" role="img" aria-label="Score depth compared at 30, 60 and 90 percent of thickness">
+  <rect x="0" y="0" width="480" height="240" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">Score depth in 2 mm card</text>
 
@@ -23,7 +23,7 @@
       <text x="386" y="152" text-anchor="middle" font-size="11" fill="#c62828">tears while folding</text>
     </g>
 
-    <text x="20" y="190" font-size="11" fill="#5a5a5a">The difference between these three is about 10 % of laser power. Always test on a scrap of the same stock.</text>
-    <text x="20" y="212" font-size="11" fill="#5a5a5a">Plywood and MDF do not fold at any score depth — they break. Use a living hinge.</text>
+    <text x="20" y="190" font-size="11" fill="#5a5a5a">The difference between these three is about 10 % of laser power. Always</text><text x="20" y="204" font-size="11" fill="#5a5a5a">test on a scrap of the same stock.</text>
+    <text x="20" y="212" font-size="11" fill="#5a5a5a">Plywood and MDF do not fold at any score depth — they break. Use a living</text><text x="20" y="226" font-size="11" fill="#5a5a5a">hinge.</text>
   </g>
 </svg>

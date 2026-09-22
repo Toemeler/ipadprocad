@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 220" width="480" height="220" role="img" aria-label="A neutral body with one accent, and the same object over-coloured">
-  <rect x="0" y="0" width="480" height="220" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 540 240" width="540" height="240" role="img" aria-label="A neutral body with one accent, and the same object over-coloured">
+  <rect x="0" y="0" width="540" height="240" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">Two colours plus the material's own</text>
 
@@ -17,6 +17,6 @@
     <text x="362" y="168" text-anchor="middle" font-weight="600" fill="#c62828">four colours</text>
     <text x="362" y="184" text-anchor="middle" fill="#c62828">colour ranks nothing because everything has some</text>
 
-    <text x="20" y="210" font-size="11" fill="#5a5a5a">Colour is the strongest hierarchy lever, and the one most often spent on decoration instead.</text>
+    <text x="20" y="210" font-size="11" fill="#5a5a5a">Colour is the strongest hierarchy lever, and the one most often spent on</text><text x="20" y="224" font-size="11" fill="#5a5a5a">decoration instead.</text>
   </g>
 </svg>

@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 240" width="480" height="240" role="img" aria-label="Elephant foot and how a bottom chamfer absorbs it">
-  <rect x="0" y="0" width="480" height="240" rx="10" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 265" width="500" height="265" role="img" aria-label="Elephant foot and how a bottom chamfer absorbs it">
+  <rect x="0" y="0" width="500" height="265" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
     <text x="20" y="26" font-size="14" font-weight="600">Elephant foot, and the chamfer that absorbs it</text>
 
@@ -23,6 +23,6 @@
     <text x="358" y="200" text-anchor="middle" font-size="11" fill="#2e7d32">each first layer is smaller than</text>
     <text x="358" y="216" text-anchor="middle" font-size="11" fill="#2e7d32">the one above — the spread fills the angle</text>
 
-    <text x="20" y="236" font-size="11" fill="#5a5a5a">Modelled into the part, it travels with the file. Slicer compensation lives in one machine's profile.</text>
+    <text x="20" y="236" font-size="11" fill="#5a5a5a">Modelled into the part, it travels with the file. Slicer compensation</text><text x="20" y="250" font-size="11" fill="#5a5a5a">lives in one machine's profile.</text>
   </g>
 </svg>
