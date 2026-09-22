@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 220" width="480" height="220" role="img" aria-label="Diagram legend: grey is material, white is removed, blue measures, red is the mistake, green is the fix">
+  <rect x="0" y="0" width="480" height="220" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="13" fill="#1a1a1a">
+
+    <text x="20" y="28" font-size="14" font-weight="600">How to read every diagram in this folder</text>
+
+    <!-- material -->
+    <rect x="20" y="46" width="44" height="24" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <text x="76" y="63">grey — solid material</text>
+
+    <!-- removed -->
+    <rect x="20" y="82" width="44" height="24" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"/>
+    <text x="76" y="99">white — material the process removed, or empty air</text>
+
+    <!-- dimension -->
+    <g stroke="#0b6bcb" stroke-width="1.2">
+      <line x1="20" y1="130" x2="64" y2="130"/>
+      <line x1="20" y1="125" x2="20" y2="135"/>
+      <line x1="64" y1="125" x2="64" y2="135"/>
+    </g>
+    <text x="76" y="135">blue — a measurement the rule is about</text>
+
+    <!-- bad -->
+    <g stroke="#c62828" stroke-width="2" fill="none">
+      <circle cx="42" cy="162" r="11"/>
+      <line x1="35" y1="155" x2="49" y2="169"/>
+    </g>
+    <text x="76" y="167">red — the mistake. Appears only in <tspan font-family="ui-monospace, monospace">bad-*</tspan> diagrams</text>
+
+    <!-- good -->
+    <g stroke="#2e7d32" stroke-width="2" fill="none">
+      <path d="M33 194 l6 7 l13 -15"/>
+    </g>
+    <text x="76" y="199">green — the fix. Appears only in <tspan font-family="ui-monospace, monospace">good-*</tspan> diagrams</text>
+  </g>
+</svg>

@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 270" width="480" height="270" role="img" aria-label="Tab in a slot with no kerf compensation, showing two kerfs of play">
+  <rect x="0" y="0" width="480" height="270" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="13" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">No compensation — drawn 3.0 into 3.0</text>
+
+    <!-- host plate, left and right of the slot -->
+    <rect x="50" y="80" width="150" height="120" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <rect x="280" y="80" width="150" height="120" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+
+    <!-- tab -->
+    <rect x="215" y="50" width="50" height="180" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <text x="240" y="248" text-anchor="middle" font-size="12">tab: drawn 3.0, cut 2.72</text>
+
+    <!-- gaps -->
+    <g fill="#c62828" opacity="0.18">
+      <rect x="200" y="80" width="15" height="120"/>
+      <rect x="265" y="80" width="15" height="120"/>
+    </g>
+    <g stroke="#c62828" stroke-width="2">
+      <line x1="200" y1="140" x2="215" y2="140"/>
+      <line x1="265" y1="140" x2="280" y2="140"/>
+    </g>
+    <text x="152" y="134" text-anchor="end" fill="#c62828">0.28 mm</text>
+    <text x="330" y="134" fill="#c62828">0.28 mm</text>
+
+    <text x="240" y="70" text-anchor="middle" font-size="12">slot: drawn 3.0, cut 3.28</text>
+    <text x="20" y="262" font-size="12" fill="#c62828">Total play = 2 × kerf ≈ 0.56 mm. The drawing was right; the compensation was missing.</text>
+  </g>
+</svg>

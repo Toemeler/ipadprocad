@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 270" width="480" height="270" role="img" aria-label="The same tab and slot with kerf compensation applied, fitting tightly">
+  <rect x="0" y="0" width="480" height="270" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="13" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Compensated — slot drawn 2.49, cut 2.77</text>
+
+    <rect x="50" y="80" width="165" height="120" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <rect x="265" y="80" width="165" height="120" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <rect x="215" y="50" width="50" height="180" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+
+    <text x="240" y="70" text-anchor="middle" font-size="12">sheet edge: 2.85 mm</text>
+    <text x="240" y="248" text-anchor="middle" font-size="12">0.08 mm interference — taps in, stays in</text>
+
+    <g stroke="#2e7d32" stroke-width="2.5" fill="none">
+      <path d="M392 226 l8 9 l17 -20"/>
+    </g>
+
+    <g stroke="#0b6bcb" stroke-width="1.2">
+      <line x1="215" y1="214" x2="265" y2="214"/>
+      <line x1="215" y1="200" x2="215" y2="220"/>
+      <line x1="265" y1="200" x2="265" y2="220"/>
+    </g>
+    <text x="20" y="262" font-size="12" fill="#5a5a5a">drawn slot = measured thickness − kerf − interference = 2.85 − 0.28 − 0.08</text>
+  </g>
+</svg>
