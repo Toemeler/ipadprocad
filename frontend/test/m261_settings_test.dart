@@ -254,14 +254,20 @@ void main() {
     });
 
     test('kind is spelled the way the Swift switch spells it', () {
-      // The sheet switches on these three literals. A renamed enum value that
+      // The sheet switches on these four literals. A renamed enum value that
       // still compiles here would silently make every row an `action`.
+      //
+      // M444 added `entry` — a row that shows a value AND takes a tap — and
+      // this test is what says the Swift has to have learned the word. It
+      // caught the addition on the first run, which is the whole point: the
+      // bug it guards against is a row that renders perfectly and does
+      // nothing, and nobody notices that in a screenshot.
       final kinds = {
         for (final s in settingsToMaps(_spec()))
           for (final r in (s['rows'] as List))
             (r as Map<String, Object?>)['kind'] as String
       };
-      expect(kinds, {'check', 'action', 'value'});
+      expect(kinds, {'check', 'action', 'value', 'entry'});
     });
 
     test('a value row carries its detail and a check row does not', () {

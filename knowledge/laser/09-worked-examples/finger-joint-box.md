@@ -4,7 +4,7 @@ title: Worked example — a finger-jointed box
 type: example
 process: laser
 triggers: [box, kiste, schachtel, kasten, gehäuse, make a box, box bauen, example, beispiel, complete project, ganzes projekt, five sided box, lid, deckel]
-depends_on: [laser/joints/finger-joint, laser/basics/kerf-and-tolerance, laser/checklists/before-you-export]
+depends_on: [laser/joints/finger-joint, laser/basics/kerf-and-tolerance, laser/finishing/gluing-wood]
 confidence: medium
 updated: 2026-09-22
 ---
@@ -30,9 +30,10 @@ documents in this folder chain together.
 | Quantity | Value | Where it came from |
 |---|---|---|
 | Nominal material | 3 mm birch ply | chosen |
-| **Measured thickness, t** | **2.85 mm** | callipers, three places, smallest reading |
+| **Measured thickness, t** | **2.85 mm** | callipers, three places, smallest reading (EN 315 allows 2.6–3.3 mm) |
 | **Measured kerf, k** | **0.28 mm** | [`kerf-test-comb`](../01-basics/kerf-test-comb.md) |
-| Fit | slip + PVA glue | a press fit would squeeze the glue out |
+| Fit | slip + PVA glue | a press fit would scrape the glue off on the way in |
+| Grain | face grain along the long dimension of each panel | stiffness, and consistent appearance |
 | Compensation method | geometry (Method B) | the controller has no kerf offset |
 
 ### Step 1 — outside dimensions
@@ -98,10 +99,17 @@ The last row is the one people miss: depth is a cut dimension too.
 8. Nest with 2 mm spacing, grain running the same way on the two long sides
    so the finished box matches.
 9. Order the layers: engrave → cut internal → cut outlines.
-10. Run [`before-you-export`](../07-checklists/before-you-export.md).
-11. **Dry-fit the whole box before glue.** The assembly order is: base, then
+10. **Mask both faces** before cutting. A box is all visible surface.
+    → [`char-and-cleanup`](../10-wood-finishing/char-and-cleanup.md)
+11. Run [`before-you-export`](../07-checklists/before-you-export.md).
+12. **Dry-fit the whole box before glue.** The assembly order is: base, then
     the two long sides, then the two short sides. It will not go together in
     any other order.
+13. **Sand every glue face to bare wood**, and sand the visible faces to 320 —
+    both *before* assembly. An assembled box cannot be sanded in its corners.
+14. Glue, clamp 30–60 minutes, wipe squeeze-out while wet, cure 24 hours, then
+    finish. → [`gluing-wood`](../10-wood-finishing/gluing-wood.md),
+    [`sealing-and-finishing`](../10-wood-finishing/sealing-and-finishing.md)
 
 ## When to do it differently
 
@@ -110,6 +118,8 @@ The last row is the one people miss: depth is a cut dimension too.
   will not seat. Add a 2 mm rim inside to locate it.
 - **Acrylic** → use 4–5 *t* fingers (so 11–14 mm here), which means n = 13 and
   9 instead of 19 and 13. Glue with acrylic cement, not PVA.
+- **A different sheet for the second box** → re-measure and recompute. A box
+  tuned to a 2.85 mm sheet will not close on a 3.15 mm one.
 - **A box that must be opened** → do not use finger joints on the lid edge.
   Use [`t-slot-captive-nut`](../04-joints/t-slot-captive-nut.md) or a hinge.
 - **Internal dividers** → [`cross-lap`](../04-joints/cross-lap.md), and add

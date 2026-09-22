@@ -22,47 +22,99 @@ Priority column: **A** — the document is materially weaker without it.
 
 ---
 
-## Laser cutting
+## Design
+
+The hardest section to shoot and the most valuable, because design is the one
+area where the documents describe a *judgement* and a photograph shows it. Most
+of these are **pairs**: the point is the comparison, not the object.
+
+Shoot your own work wherever possible — a photograph of somebody else's
+product is a licensing problem, and your own rejected versions are better
+teaching material anyway.
 
 ### A — highest value
 
 | # | Save as | What must be visible | Goes in |
 |---|---|---|---|
-| L1 | `laser/02-materials/img/photo-edge-acrylic.jpg` | The cut edge of 3 mm **cast acrylic**, raking light, close enough to see it is glossy and flame-polished | `material-table` |
-| L2 | `laser/02-materials/img/photo-edge-plywood.jpg` | The cut edge of 3 mm **birch ply**: brown char, the two darker glue lines, slight waviness through the thickness | `plywood` |
-| L3 | `laser/02-materials/img/photo-edge-mdf.jpg` | Raw **MDF** cut edge, near-black and slightly furry, next to a painted one if possible | `mdf` |
-| L4 | `laser/02-materials/img/photo-cast-vs-extruded.jpg` | The **same engraving** in cast and extruded acrylic, side by side, same lighting. Cast frosts white; extruded goes grey | `acrylic` |
-| L5 | `laser/01-basics/img/photo-kerf-comb.jpg` | The ten-strip comb **reassembled and squeezed**, with callipers reading the total. The number should be legible | `kerf-test-comb` |
-| L6 | `laser/01-basics/img/photo-fit-coupon.jpg` | The fit coupon with the test tab pushed into the middle slot, engraved numbers legible | `kerf-test-comb` |
-| L7 | `laser/08-failures/img/photo-scorch-halo.jpg` | Brown smoke halo around a cut on **unmasked** plywood, ideally next to a masked one | `failure-catalogue` |
-| L8 | `laser/08-failures/img/photo-double-cut.jpg` | A contour cut twice from duplicate lines: wide, black, tapered kerf next to a normal one | `failure-catalogue` |
+| D1 | `design/img/photo-designed-vs-not.jpg` | **The pair that carries the whole folder.** Two versions of one of your own parts, side by side in one frame: an early one and the finished one. Same function, same material | `start-here`, `what-good-looks-like` |
+| D2 | `design/03-form/img/photo-gap-consistency.jpg` | Two adjacent gaps of different widths on a real assembly, shot straight on. The eye's ability to compare parallel lines is the subject | `seams-gaps-and-alignment` |
+| D3 | `design/01-principles/img/photo-iteration-row.jpg` | A row of your rejected versions of one object, in order, left to right | `iteration-and-mockups` |
+| D4 | `design/04-cmf/img/photo-finish-comparison.jpg` | The same printed part in matte and in glossy dark filament, same light. The layer lines are the subject | `material-texture-and-finish`, `colour` |
+| D5 | `design/03-form/img/photo-edge-treatments.jpg` | One part with a sharp edge, a chamfered edge and a filleted edge, in raking light | `edges-and-radii` |
+| D6 | `design/01-principles/img/photo-base-detail.jpg` | The base of an object with an inset foot and a bottom chamfer, shot at eye level so the shadow gap reads | `balance-and-stance` |
 
 ### B
 
 | # | Save as | What must be visible | Goes in |
 |---|---|---|---|
-| L9 | `laser/04-joints/img/photo-finger-joint-box.jpg` | An assembled finger-jointed box, corner filling the frame | `finger-joint` |
-| L10 | `laser/04-joints/img/photo-joint-loose-vs-tight.jpg` | Two joints side by side: one rattling loose (uncompensated), one seated | `kerf-and-tolerance` |
-| L11 | `laser/04-joints/img/photo-living-hinge-bent.jpg` | A living hinge **bent around a former**, links visibly twisted | `living-hinge` |
-| L12 | `laser/04-joints/img/photo-living-hinge-cracked.jpg` | A failed living hinge, crack starting at a square slit end | `living-hinge` |
-| L13 | `laser/04-joints/img/photo-t-slot-assembled.jpg` | A T-slot joint with the nut in its pocket and the screw started, on the bench | `t-slot-captive-nut` |
-| L14 | `laser/04-joints/img/photo-stacked-layers.jpg` | A glued stack seen from the **side**, so the individual layers read as layers | `stacked-layer-construction` |
-| L15 | `laser/04-joints/img/photo-stacked-contour.jpg` | A contour-stacked curved form, terracing clearly visible, ideally half sanded | `stacked-layer-construction` |
-| L16 | `laser/05-engraving/img/photo-engrave-acrylic.jpg` | A frosted engraving on cast acrylic, lit from the edge so it glows | `raster-engraving` |
-| L17 | `laser/05-engraving/img/photo-text-sizes.jpg` | The same word engraved at 3, 5 and 10 mm cap height on plywood | `text-and-fonts` |
-| L18 | `laser/03-geometry/img/photo-corner-overburn.jpg` | A dark burn notch at a sharp corner on acrylic, next to a radiused corner | `corners-and-overburn` |
+| D7 | `design/02-people/img/photo-grips.jpg` | A hand on handles of three diameters — something near 25 mm, near 41 mm, near 60 mm | `ergonomics-and-anthropometrics` |
+| D8 | `design/02-people/img/photo-control-spacing.jpg` | A fingertip against a row of controls, so the 16–20 mm width is obvious against the button size | `ergonomics-and-anthropometrics`, `accessibility` |
+| D9 | `design/03-form/img/photo-process-marks.jpg` | A Z seam or a laser lead-in placed deliberately on a corner, next to one that landed in the middle of a face | `details-and-craft` |
+| D10 | `design/04-cmf/img/photo-material-pair.jpg` | Wood against matte black, and wood against natural filament, in one frame | `material-texture-and-finish` |
+| D11 | `design/07-worked-examples/img/photo-box-pair.jpg` | A generated-looking plywood box beside one with constant finger width and a chamfered top edge | `laser-box-design` |
+| D12 | `design/03-form/img/photo-underside.jpg` | The underside of a finished object — the part nobody had to do | `details-and-craft` |
+
+---
+
+## Laser cutting — wood
+
+The laser half of this knowledge base is wood-first, and wood is exactly where
+photographs beat diagrams: char, grain, glue lines, smoke halo and species
+colour are all texture, and a diagram cannot show texture.
+
+### A — highest value
+
+| # | Save as | What must be visible | Goes in |
+|---|---|---|---|
+| L1 | `laser/02-materials/img/photo-species-board.jpg` | **The single most valuable photo in this list.** One board or a row of offcuts — basswood, maple, birch, cherry, oak, walnut — each carrying the **same engraved mark at the same settings**, shot in one frame under one light | `solid-wood`, `engraving-wood` |
+| L2 | `laser/02-materials/img/photo-edge-plywood.jpg` | The cut edge of 3 mm **birch ply**, close up: brown char, the two darker glue lines, slight waviness through the thickness | `plywood` |
+| L3 | `laser/10-wood-finishing/img/photo-masked-vs-unmasked.jpg` | The same cut with and **without** masking tape, in one frame. The brown smoke halo is the subject | `char-and-cleanup` |
+| L4 | `laser/10-wood-finishing/img/photo-char-sanded.jpg` | One edge charred as it came off the machine, the adjacent one sanded to bare wood. Same part if possible | `char-and-cleanup`, `gluing-wood` |
+| L5 | `laser/02-materials/img/photo-ply-thickness.jpg` | Callipers on **two different sheets** of nominal 3 mm ply reading different numbers — both readings legible | `plywood`, `kerf-and-tolerance` |
+| L6 | `laser/01-basics/img/photo-kerf-comb.jpg` | The ten-strip comb **reassembled and squeezed**, with callipers reading the total. The number must be legible | `kerf-test-comb` |
+| L7 | `laser/01-basics/img/photo-fit-coupon.jpg` | The fit coupon with the test tab pushed into the middle slot, engraved numbers legible | `kerf-test-comb` |
+| L8 | `laser/02-materials/img/photo-ply-void.jpg` | A plywood slot or edge where the cut has opened a **void** in the core | `plywood` |
+| L9 | `laser/02-materials/img/photo-warped-sheet.jpg` | A bowed sheet on a flat bed, shot **along** the surface so the gap under it reads | `wood-moisture-and-storage` |
+| L10 | `laser/10-wood-finishing/img/photo-finished-vs-raw.jpg` | The same part half oiled or lacquered, half raw. The transition line should be in frame | `sealing-and-finishing` |
+
+### B
+
+| # | Save as | What must be visible | Goes in |
+|---|---|---|---|
+| L11 | `laser/04-joints/img/photo-finger-joint-box.jpg` | An assembled finger-jointed plywood box, corner filling the frame | `finger-joint` |
+| L12 | `laser/04-joints/img/photo-joint-loose-vs-tight.jpg` | Two joints side by side: one rattling loose (uncompensated), one seated | `kerf-and-tolerance` |
+| L13 | `laser/02-materials/img/photo-ply-grades.jpg` | Two plywood offcuts: a clean B/BB face next to a patched BB or a voided construction grade | `plywood` |
+| L14 | `laser/10-wood-finishing/img/photo-glue-squeezeout.jpg` | A glued joint with a bead of squeeze-out, and — better — a stained part where dried glue **rejected the stain** | `gluing-wood` |
+| L15 | `laser/10-wood-finishing/img/photo-edge-split.jpg` | A screw driven into a plywood **edge** that has split the plies | `fasteners-in-wood` |
+| L16 | `laser/04-joints/img/photo-living-hinge-bent.jpg` | A living hinge bent around a former, links visibly twisted | `living-hinge` |
+| L17 | `laser/04-joints/img/photo-living-hinge-cracked.jpg` | A failed living hinge, crack starting at a square slit end | `living-hinge` |
+| L18 | `laser/04-joints/img/photo-stacked-layers.jpg` | A glued stack seen from the **side**, so the layers read as layers | `stacked-layer-construction` |
+| L19 | `laser/04-joints/img/photo-stacked-contour.jpg` | A contour-stacked curved form, terracing visible, ideally half sanded | `stacked-layer-construction` |
+| L20 | `laser/02-materials/img/photo-bamboo-edge.jpg` | A laminated bamboo edge, the strips clearly visible | `bamboo-and-veneer` |
+| L21 | `laser/02-materials/img/photo-veneer-inlay.jpg` | A veneer inlay seated in its pocket, before and after glue if possible | `bamboo-and-veneer` |
+| L22 | `laser/05-engraving/img/photo-engrave-oak-vs-maple.jpg` | The same detailed engraving on oak and on maple — the grain competing with the image | `engraving-wood` |
+| L23 | `laser/04-joints/img/photo-t-slot-assembled.jpg` | A T-slot joint with the nut in its pocket and the screw started | `t-slot-captive-nut` |
+| L24 | `laser/02-materials/img/photo-edge-mdf.jpg` | Raw MDF cut edge, near-black and furry, next to a painted one | `mdf` |
 
 ### C
 
 | # | Save as | What must be visible | Goes in |
 |---|---|---|---|
-| L19 | `laser/02-materials/img/photo-edge-greyboard.jpg` | Greyboard cut edge, pale tan | `material-table` |
-| L20 | `laser/02-materials/img/photo-sealed-felt.jpg` | Laser-cut felt edge next to a scissor-cut one, the fraying obvious | `leather-felt-textile` |
-| L21 | `laser/03-geometry/img/photo-burnt-web.jpg` | A lattice where a too-narrow web has charred through | `minimum-features` |
-| L22 | `laser/02-materials/img/photo-ply-void.jpg` | A plywood slot that landed on a core void | `plywood` |
-| L23 | `laser/08-failures/img/photo-honeycomb-marks.jpg` | Back-reflection marks on the underside of a sheet from the honeycomb bed | `failure-catalogue` |
-| L24 | `laser/07-checklists/img/photo-power-speed-grid.jpg` | A real power/speed test grid with engraved labels | `new-material-first-time` |
-| L25 | `laser/09-worked-examples/img/photo-front-panel.jpg` | A finished acrylic front panel with its components fitted | `front-panel-with-cutouts` |
+| L25 | `laser/05-engraving/img/photo-text-sizes.jpg` | The same word engraved at 3, 5 and 10 mm cap height on birch ply | `text-and-fonts` |
+| L26 | `laser/03-geometry/img/photo-grain-split.jpg` | A part split along the grain at a slot | `grain-and-ply-direction` |
+| L27 | `laser/03-geometry/img/photo-burnt-web.jpg` | A lattice where a too-narrow web has charred through | `minimum-features` |
+| L28 | `laser/08-failures/img/photo-double-cut.jpg` | A contour cut twice from duplicate lines: wide, black, tapered kerf next to a normal one | `failure-catalogue` |
+| L29 | `laser/08-failures/img/photo-honeycomb-marks.jpg` | Back-reflection marks on the underside of a sheet | `failure-catalogue` |
+| L30 | `laser/07-checklists/img/photo-power-speed-grid.jpg` | A real power/speed grid on plywood with engraved labels | `new-material-first-time` |
+| L31 | `laser/09-worked-examples/img/photo-front-panel.jpg` | A finished panel with its components fitted | `front-panel-with-cutouts` |
+
+### Non-wood — low priority
+
+| # | Save as | What must be visible | Goes in |
+|---|---|---|---|
+| L32 | `laser/02-materials/img/photo-cast-vs-extruded.jpg` | The same engraving in cast and extruded acrylic, side by side | `acrylic` |
+| L33 | `laser/02-materials/img/photo-edge-acrylic.jpg` | A flame-polished cast acrylic cut edge | `acrylic` |
+| L34 | `laser/02-materials/img/photo-sealed-felt.jpg` | Laser-cut felt edge next to a scissor-cut one | `leather-felt-textile` |
 
 ---
 
@@ -137,6 +189,10 @@ image into a rule it can apply.
 ## If you would rather not shoot them
 
 Every entry above is optional — the diagrams carry the documents on their own.
-The eight marked **A** in each process are where a photograph earns the most,
-and between them they are about an hour of bench work with parts most
-workshops already have in a scrap bin.
+The ten laser **A** entries and the eight FDM ones are where a photograph earns
+the most, and between them they are about ninety minutes of bench work with
+parts most workshops already have in a scrap bin.
+
+If you only shoot one: **L1, the species board.** Engrave contrast is the
+property this knowledge base can describe least well in words and a model can
+recognise instantly from a picture.

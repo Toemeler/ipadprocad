@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 220" width="480" height="220" role="img" aria-label="A constraint beats a label">
+  <rect x="0" y="0" width="480" height="220" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Prefer a constraint to an instruction</text>
+
+    <rect x="28" y="48" width="170" height="86" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <g fill="#ffffff" stroke="#1a1a1a" stroke-width="1.5">
+      <circle cx="56" cy="70" r="7"/><circle cx="170" cy="70" r="7"/><circle cx="56" cy="112" r="7"/><circle cx="170" cy="112" r="7"/>
+    </g>
+    <text x="113" y="94" text-anchor="middle" font-size="10" fill="#c62828">"THIS SIDE UP"</text>
+    <text x="113" y="160" text-anchor="middle" font-weight="600" fill="#c62828">symmetric + a label</text>
+    <text x="113" y="176" text-anchor="middle" fill="#c62828">fits four ways; the label can be ignored</text>
+
+    <path d="M282 48 h158 q12 0 12 12 v74 h-170 z" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <g fill="#ffffff" stroke="#1a1a1a" stroke-width="1.5">
+      <circle cx="308" cy="70" r="7"/><circle cx="424" cy="112" r="7"/><circle cx="308" cy="112" r="7"/>
+    </g>
+    <g stroke="#2e7d32" stroke-width="2.5" fill="none"><path d="M404 150 l7 8 l15 -18"/></g>
+    <text x="360" y="176" text-anchor="middle" font-weight="600" fill="#2e7d32">keyed corner + asymmetric holes</text>
+    <text x="360" y="192" text-anchor="middle" fill="#2e7d32">fits one way; nothing to read</text>
+
+    <text x="20" y="212" font-size="11" fill="#5a5a5a">It costs nothing in a cut or printed part — the stacked-layer registration in the laser folder is exactly this.</text>
+  </g>
+</svg>

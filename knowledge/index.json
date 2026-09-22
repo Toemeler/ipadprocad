@@ -1,129 +1,232 @@
 {
   "version": 1,
-  "count": 78,
+  "count": 106,
   "documents": [
     {
-      "id": "design/form/proportion-and-stance",
-      "title": "Proportion, stance and where the mass goes",
+      "id": "design/cmf/colour",
+      "title": "Colour",
       "type": "rules",
       "process": "design",
-      "path": "design/01-form/proportion-and-stance.md",
+      "path": "design/04-cmf/colour.md",
       "triggers": [
-        "proportion",
-        "proportionen",
-        "stance",
-        "haltung",
-        "mass",
-        "masse",
-        "visual weight",
-        "thickness",
-        "dicke",
-        "slab",
-        "platte",
-        "chunky",
-        "klobig",
-        "thin",
-        "dünn",
-        "duenn",
-        "heavy",
-        "schwer",
-        "light",
-        "leicht",
-        "bulky",
-        "plump",
-        "footprint",
-        "grundfläche",
-        "grundflaeche",
-        "base",
-        "sockel",
-        "looks wrong",
-        "sieht falsch aus"
+        "colour",
+        "color",
+        "farbe",
+        "farben",
+        "palette",
+        "farbpalette",
+        "which colour",
+        "welche farbe",
+        "paint",
+        "lack",
+        "accent",
+        "akzent",
+        "black",
+        "schwarz",
+        "white",
+        "weiss",
+        "too colourful",
+        "zu bunt",
+        "filament colour",
+        "colour scheme"
       ],
-      "depends_on": [],
+      "depends_on": [
+        "design/principles/hierarchy"
+      ],
       "confidence": "medium",
       "updated": "2026-09-22"
     },
     {
-      "id": "design/form/radii-and-edge-treatment",
-      "title": "Radii and edge treatment",
+      "id": "design/cmf/material-and-finish",
+      "title": "Material, texture and finish",
       "type": "rules",
       "process": "design",
-      "path": "design/01-form/radii-and-edge-treatment.md",
+      "path": "design/04-cmf/material-texture-and-finish.md",
+      "triggers": [
+        "material",
+        "werkstoff",
+        "texture",
+        "textur",
+        "oberflächenstruktur",
+        "finish",
+        "oberfläche",
+        "matte",
+        "matt",
+        "gloss",
+        "glänzend",
+        "sheen",
+        "glanz",
+        "feel",
+        "haptik",
+        "tactile",
+        "anfassen",
+        "cheap feel",
+        "billig anfassen",
+        "cmf",
+        "surface finish"
+      ],
+      "depends_on": [
+        "design/cmf/colour"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "design/examples/enclosure",
+      "title": "Worked example — designing a printed enclosure",
+      "type": "example",
+      "process": "design",
+      "path": "design/07-worked-examples/enclosure-design.md",
+      "triggers": [
+        "enclosure design",
+        "gehäuse gestalten",
+        "case design",
+        "box design",
+        "make it look good",
+        "gut aussehen lassen",
+        "design pass",
+        "design example",
+        "beispiel",
+        "project box",
+        "elektronikgehäuse design"
+      ],
+      "depends_on": [
+        "design/start-here",
+        "design/process/critique"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "design/examples/wooden-box",
+      "title": "Worked example — designing a wooden box",
+      "type": "example",
+      "process": "design",
+      "path": "design/07-worked-examples/laser-box-design.md",
+      "triggers": [
+        "box design",
+        "kiste gestalten",
+        "wooden box",
+        "holzkiste",
+        "schachtel",
+        "plywood box design",
+        "make the box look good",
+        "design a box",
+        "tray",
+        "schale",
+        "storage"
+      ],
+      "depends_on": [
+        "design/start-here",
+        "design/process/critique"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "design/failures/catalogue",
+      "title": "Design failure catalogue — why it looks wrong",
+      "type": "failures",
+      "process": "design",
+      "path": "design/06-failures/failure-catalogue.md",
+      "triggers": [
+        "looks wrong",
+        "sieht falsch aus",
+        "looks cheap",
+        "billig",
+        "ugly",
+        "hässlich",
+        "amateur",
+        "laienhaft",
+        "unprofessional",
+        "looks 3d printed",
+        "sieht gedruckt aus",
+        "generic",
+        "beliebig",
+        "boring",
+        "langweilig",
+        "off",
+        "komisch",
+        "something is off",
+        "stimmt was nicht"
+      ],
+      "depends_on": [
+        "design/principles/what-good-looks-like"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "design/form/details",
+      "title": "Details and craft",
+      "type": "rules",
+      "process": "design",
+      "path": "design/03-form/details-and-craft.md",
+      "triggers": [
+        "detail",
+        "details",
+        "craft",
+        "handwerk",
+        "verarbeitung",
+        "finish quality",
+        "qualität",
+        "fit and finish",
+        "looks unfinished",
+        "unfertig",
+        "prototype look",
+        "prototyp",
+        "rough",
+        "grob",
+        "polish",
+        "feinschliff",
+        "last 5 percent",
+        "feinheiten"
+      ],
+      "depends_on": [
+        "design/form/seams-and-alignment"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "design/form/edges-and-radii",
+      "title": "Edges and radii as a system",
+      "type": "rules",
+      "process": "design",
+      "path": "design/03-form/edges-and-radii.md",
       "triggers": [
         "radius",
         "radien",
         "fillet",
         "verrundung",
-        "verrunden",
-        "rounded",
-        "abgerundet",
+        "rundung",
         "chamfer",
         "fase",
-        "anfasen",
         "edge",
         "kante",
-        "sharp",
-        "scharf",
+        "sharp edge",
+        "scharfe kante",
         "corner",
         "ecke",
-        "break the edge",
-        "kantenbruch",
+        "rounded",
+        "abgerundet",
+        "how much radius",
+        "wie stark verrunden",
         "soft",
-        "weich",
-        "bevel",
-        "abschrägung",
-        "abschraegung"
-      ],
-      "depends_on": [],
-      "confidence": "high",
-      "updated": "2026-09-22"
-    },
-    {
-      "id": "design/form/transitions-and-continuity",
-      "title": "How two forms meet",
-      "type": "rules",
-      "process": "design",
-      "path": "design/01-form/transitions-and-continuity.md",
-      "triggers": [
-        "transition",
-        "übergang",
-        "uebergang",
-        "junction",
-        "verbindung",
-        "blend",
-        "überblendung",
-        "stuck on",
-        "aufgesetzt",
-        "angeklebt",
-        "two parts",
-        "zwei teile",
-        "boss",
-        "dom",
-        "rib",
-        "rippe",
-        "gusset",
-        "verstrebung",
-        "tangent",
-        "tangential",
-        "continuous",
-        "stetig",
-        "one piece",
-        "aus einem stück",
-        "integrated",
-        "integriert"
+        "weich"
       ],
       "depends_on": [
-        "design/form/radii-and-edge-treatment"
+        "design/principles/systems"
       ],
       "confidence": "medium",
       "updated": "2026-09-22"
     },
     {
-      "id": "design/function/holders-clips-and-retention",
-      "title": "Holders, clips and anything that retains something",
+      "id": "design/form/openings-and-retention",
+      "title": "Openings and retention — holders, clips and anything that holds something",
       "type": "recipe",
       "process": "design",
-      "path": "design/02-function/holders-clips-and-retention.md",
+      "path": "design/03-form/openings-and-retention.md",
       "triggers": [
         "holder",
         "halter",
@@ -159,90 +262,505 @@
         "stand"
       ],
       "depends_on": [
-        "design/form/transitions-and-continuity"
+        "design/form/surfaces"
       ],
       "confidence": "high",
       "updated": "2026-09-22"
     },
     {
-      "id": "design/process/designing-for-the-printed-look",
-      "title": "Designing for how a printed part looks",
+      "id": "design/form/seams-and-alignment",
+      "title": "Seams, gaps and alignment",
       "type": "rules",
       "process": "design",
-      "path": "design/03-process/designing-for-the-printed-look.md",
+      "path": "design/03-form/seams-gaps-and-alignment.md",
       "triggers": [
-        "printed look",
-        "druckbild",
-        "surface",
-        "oberfläche",
-        "oberflaeche",
-        "finish",
-        "layer lines",
-        "schichtlinien",
-        "grain",
-        "maserung",
-        "orientation",
-        "ausrichtung",
+        "gap",
+        "spalt",
+        "spaltmaß",
         "seam",
         "naht",
-        "texture",
-        "textur",
-        "ugly",
-        "hässlich",
-        "haesslich",
-        "quality",
-        "qualität",
-        "qualitaet",
-        "visible",
-        "sichtbar",
-        "top surface",
-        "deckfläche"
+        "fuge",
+        "parting line",
+        "trennlinie",
+        "alignment",
+        "ausrichtung",
+        "flush",
+        "bündig",
+        "misaligned",
+        "versetzt",
+        "panel gap",
+        "uneven",
+        "ungleichmäßig",
+        "edges dont line up",
+        "kanten passen nicht"
       ],
       "depends_on": [
-        "fdm/basics/orientation-and-strength"
+        "design/principles/systems"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "design/form/surfaces",
+      "title": "Surfaces and transitions",
+      "type": "rules",
+      "process": "design",
+      "path": "design/03-form/surfaces-and-transitions.md",
+      "triggers": [
+        "surface",
+        "oberfläche",
+        "fläche",
+        "transition",
+        "übergang",
+        "curve",
+        "kurve",
+        "flat",
+        "flach",
+        "slab",
+        "klotz",
+        "boxy",
+        "kastig",
+        "plane change",
+        "ebenenwechsel",
+        "feature line",
+        "linie",
+        "draft",
+        "neigung",
+        "taper"
+      ],
+      "depends_on": [
+        "design/form/edges-and-radii"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "design/people/accessibility",
+      "title": "Accessibility",
+      "type": "rules",
+      "process": "design",
+      "path": "design/02-people/accessibility.md",
+      "triggers": [
+        "accessibility",
+        "barrierefrei",
+        "zugänglich",
+        "accessible",
+        "disability",
+        "behinderung",
+        "contrast ratio",
+        "kontrast",
+        "readable",
+        "lesbar",
+        "elderly",
+        "ältere",
+        "arthritis",
+        "one handed",
+        "einhändig",
+        "tremor",
+        "low vision",
+        "sehschwäche",
+        "wcag",
+        "target size"
+      ],
+      "depends_on": [
+        "design/people/ergonomics"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "design/people/affordances",
+      "title": "Affordances — making the object explain itself",
+      "type": "rules",
+      "process": "design",
+      "path": "design/02-people/affordances-and-controls.md",
+      "triggers": [
+        "affordance",
+        "affordanz",
+        "intuitive",
+        "intuitiv",
+        "how do i use",
+        "wie benutzt man",
+        "confusing",
+        "verwirrend",
+        "which way",
+        "welche richtung",
+        "push or pull",
+        "drücken ziehen",
+        "label",
+        "beschriftung",
+        "obvious",
+        "offensichtlich",
+        "discoverable",
+        "feedback",
+        "rückmeldung",
+        "control",
+        "bedienelement"
+      ],
+      "depends_on": [
+        "design/people/ergonomics"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "design/people/ergonomics",
+      "title": "Ergonomics and anthropometrics",
+      "type": "rules",
+      "process": "design",
+      "path": "design/02-people/ergonomics-and-anthropometrics.md",
+      "triggers": [
+        "ergonomic",
+        "ergonomie",
+        "grip",
+        "griff",
+        "greifen",
+        "handle",
+        "handgriff",
+        "hand",
+        "hände",
+        "holding",
+        "halten",
+        "comfortable",
+        "bequem",
+        "size for hand",
+        "handgröße",
+        "button size",
+        "tastengröße",
+        "reach",
+        "reichweite",
+        "uncomfortable",
+        "unbequem",
+        "too small to hold",
+        "zu klein"
+      ],
+      "depends_on": [
+        "design/start-here"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "design/principles/balance",
+      "title": "Balance and stance",
+      "type": "rules",
+      "process": "design",
+      "path": "design/01-principles/balance-and-stance.md",
+      "triggers": [
+        "balance",
+        "balance halten",
+        "symmetry",
+        "symmetrie",
+        "asymmetric",
+        "asymmetrisch",
+        "stance",
+        "standfestigkeit",
+        "looks unstable",
+        "wirkt instabil",
+        "top heavy",
+        "kopflastig",
+        "sits badly",
+        "steht schlecht",
+        "visual weight",
+        "optisches gewicht",
+        "tilted",
+        "schief"
+      ],
+      "depends_on": [
+        "design/principles/hierarchy"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "design/principles/hierarchy",
+      "title": "Visual hierarchy",
+      "type": "rules",
+      "process": "design",
+      "path": "design/01-principles/visual-hierarchy.md",
+      "triggers": [
+        "hierarchy",
+        "hierarchie",
+        "emphasis",
+        "betonung",
+        "focal point",
+        "blickfang",
+        "what stands out",
+        "sticht hervor",
+        "busy",
+        "unruhig",
+        "cluttered",
+        "überladen",
+        "too much going on",
+        "dominant",
+        "wichtig",
+        "attention",
+        "aufmerksamkeit"
+      ],
+      "depends_on": [
+        "design/principles/proportion"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "design/principles/proportion",
+      "title": "Proportion and scale",
+      "type": "rules",
+      "process": "design",
+      "path": "design/01-principles/proportion-and-scale.md",
+      "triggers": [
+        "proportion",
+        "proportionen",
+        "ratio",
+        "verhältnis",
+        "golden ratio",
+        "goldener schnitt",
+        "scale",
+        "maßstab",
+        "too tall",
+        "zu hoch",
+        "too wide",
+        "zu breit",
+        "squat",
+        "gedrungen",
+        "dimensions look wrong",
+        "abmessungen",
+        "aspect ratio",
+        "seitenverhältnis"
+      ],
+      "depends_on": [
+        "design/principles/what-good-looks-like"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "design/principles/restraint",
+      "title": "Simplicity and restraint",
+      "type": "rules",
+      "process": "design",
+      "path": "design/01-principles/simplicity-and-restraint.md",
+      "triggers": [
+        "simple",
+        "einfach",
+        "simplicity",
+        "einfachheit",
+        "minimal",
+        "reduziert",
+        "too much",
+        "zu viel",
+        "busy",
+        "überladen",
+        "remove",
+        "entfernen",
+        "weglassen",
+        "clean",
+        "aufgeräumt",
+        "decoration",
+        "dekoration",
+        "feature creep",
+        "reduce"
+      ],
+      "depends_on": [
+        "design/principles/what-good-looks-like"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "design/principles/systems",
+      "title": "Consistency — designing with systems",
+      "type": "recipe",
+      "process": "design",
+      "path": "design/01-principles/consistency-and-systems.md",
+      "triggers": [
+        "consistency",
+        "konsistenz",
+        "einheitlich",
+        "system",
+        "systematik",
+        "spacing scale",
+        "raster",
+        "grid",
+        "values",
+        "werte",
+        "arbitrary",
+        "willkürlich",
+        "random numbers",
+        "krumme werte",
+        "looks accidental",
+        "zufällig",
+        "design language",
+        "formensprache"
+      ],
+      "depends_on": [
+        "design/principles/what-good-looks-like"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "design/principles/what-good-looks-like",
+      "title": "What good looks like",
+      "type": "basics",
+      "process": "design",
+      "path": "design/01-principles/what-good-looks-like.md",
+      "triggers": [
+        "good design",
+        "gutes design",
+        "quality",
+        "qualität",
+        "looks cheap",
+        "billig",
+        "looks professional",
+        "hochwertig",
+        "premium",
+        "taste",
+        "geschmack",
+        "rams",
+        "principles",
+        "grundsätze",
+        "why does it look",
+        "warum sieht"
+      ],
+      "depends_on": [],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "design/process/brief",
+      "title": "The brief — what to establish before drawing",
+      "type": "recipe",
+      "process": "design",
+      "path": "design/05-process/design-brief.md",
+      "triggers": [
+        "brief",
+        "briefing",
+        "requirements",
+        "anforderungen",
+        "what do i need",
+        "was brauche ich",
+        "specification",
+        "spezifikation",
+        "before starting",
+        "vorher",
+        "scope",
+        "umfang",
+        "constraints",
+        "randbedingungen",
+        "who is it for",
+        "zielgruppe",
+        "purpose",
+        "zweck"
+      ],
+      "depends_on": [
+        "design/start-here"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "design/process/critique",
+      "title": "Design critique — reviewing an object",
+      "type": "checklist",
+      "process": "design",
+      "path": "design/05-process/design-critique.md",
+      "triggers": [
+        "critique",
+        "kritik",
+        "review",
+        "überprüfen",
+        "bewerten",
+        "feedback",
+        "is this good",
+        "ist das gut",
+        "whats wrong",
+        "was stimmt nicht",
+        "assess",
+        "beurteilen",
+        "check the design",
+        "design prüfen",
+        "before finishing",
+        "fertig"
+      ],
+      "depends_on": [
+        "design/start-here",
+        "design/principles/what-good-looks-like"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "design/process/iteration",
+      "title": "Iteration and mock-ups",
+      "type": "recipe",
+      "process": "design",
+      "path": "design/05-process/iteration-and-mockups.md",
+      "triggers": [
+        "iteration",
+        "iterieren",
+        "prototype",
+        "prototyp",
+        "mockup",
+        "modell",
+        "test print",
+        "testdruck",
+        "first version",
+        "erste version",
+        "cardboard",
+        "pappe",
+        "quick test",
+        "schnelltest",
+        "how many versions",
+        "wie oft",
+        "refine"
+      ],
+      "depends_on": [
+        "design/process/brief"
       ],
       "confidence": "medium",
       "updated": "2026-09-22"
     },
     {
       "id": "design/start-here",
-      "title": "Design — start here",
+      "title": "Design — start here, on every part",
       "type": "basics",
       "process": "design",
       "path": "design/00-start-here.md",
       "triggers": [
         "design",
-        "designer",
-        "designen",
         "gestaltung",
-        "schön",
-        "schoen",
-        "nice",
-        "beautiful",
-        "elegant",
+        "entwurf",
+        "looks",
+        "aussehen",
         "aesthetic",
         "ästhetisch",
-        "aesthetik",
-        "styling",
-        "look",
-        "aussehen",
+        "schön",
+        "beautiful",
+        "ugly",
+        "hässlich",
+        "proportion",
+        "proportionen",
+        "style",
+        "stil",
+        "shape",
         "form",
-        "formgebung",
-        "good looking",
-        "hübsch",
-        "modern",
-        "clean",
-        "minimal",
+        "nice",
+        "gut aussehen",
         "professional",
-        "hochwertig",
-        "premium",
-        "gestalten"
+        "professionell",
+        "product",
+        "produkt",
+        "cheap looking",
+        "billig",
+        "doesnt look right",
+        "sieht falsch aus",
+        "improve the look",
+        "verbessern"
       ],
-      "depends_on": [
-        "design/form/proportion-and-stance",
-        "design/form/radii-and-edge-treatment"
-      ],
-      "confidence": "high",
+      "depends_on": [],
+      "confidence": "medium",
       "updated": "2026-09-22"
     },
     {
@@ -1201,7 +1719,8 @@
         "druckbar"
       ],
       "depends_on": [
-        "fdm/basics/orientation-and-strength"
+        "fdm/basics/orientation-and-strength",
+        "design/start-here"
       ],
       "confidence": "high",
       "updated": "2026-09-22"
@@ -1312,7 +1831,9 @@
         "wackelt",
         "slot too wide"
       ],
-      "depends_on": [],
+      "depends_on": [
+        "laser/materials/wood-overview"
+      ],
       "confidence": "starting-point",
       "updated": "2026-09-22"
     },
@@ -1382,7 +1903,8 @@
       ],
       "depends_on": [
         "laser/fileprep/common-errors",
-        "laser/basics/kerf-and-tolerance"
+        "laser/basics/kerf-and-tolerance",
+        "laser/materials/wood-overview"
       ],
       "confidence": "high",
       "updated": "2026-09-22"
@@ -1410,6 +1932,34 @@
         "laser/basics/kerf-test-comb"
       ],
       "confidence": "high",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/engraving/engraving-wood",
+      "title": "Engraving on wood",
+      "type": "rules",
+      "process": "laser",
+      "path": "laser/05-engraving/engraving-wood.md",
+      "triggers": [
+        "engrave wood",
+        "holz gravieren",
+        "gravur holz",
+        "wood engraving",
+        "contrast",
+        "kontrast",
+        "photo on wood",
+        "foto auf holz",
+        "dark mark",
+        "dunkle gravur",
+        "grain interference",
+        "maserung stört",
+        "burn depth"
+      ],
+      "depends_on": [
+        "laser/engraving/raster-engraving",
+        "laser/materials/solid-wood"
+      ],
+      "confidence": "medium",
       "updated": "2026-09-22"
     },
     {
@@ -1532,14 +2082,14 @@
       "depends_on": [
         "laser/joints/finger-joint",
         "laser/basics/kerf-and-tolerance",
-        "laser/checklists/before-you-export"
+        "laser/finishing/gluing-wood"
       ],
       "confidence": "medium",
       "updated": "2026-09-22"
     },
     {
       "id": "laser/examples/front-panel",
-      "title": "Worked example — a front panel with cutouts",
+      "title": "Worked example — a plywood front panel with cutouts",
       "type": "example",
       "process": "laser",
       "path": "laser/09-worked-examples/front-panel-with-cutouts.md",
@@ -1556,17 +2106,17 @@
         "switch",
         "schalter",
         "display",
-        "screen",
         "potentiometer",
         "label",
         "beschriftung",
         "control panel",
-        "bedienfeld"
+        "bedienfeld",
+        "instrument"
       ],
       "depends_on": [
         "laser/basics/fits",
         "laser/geometry/minimum-features",
-        "laser/engraving/text-and-fonts"
+        "laser/engraving/engraving-wood"
       ],
       "confidence": "medium",
       "updated": "2026-09-22"
@@ -1604,7 +2154,8 @@
       ],
       "depends_on": [
         "laser/basics/kerf-and-tolerance",
-        "laser/geometry/nesting-and-spacing"
+        "laser/geometry/nesting-and-spacing",
+        "laser/materials/wood-overview"
       ],
       "confidence": "medium",
       "updated": "2026-09-22"
@@ -1698,6 +2249,143 @@
       "updated": "2026-09-22"
     },
     {
+      "id": "laser/finishing/char-and-cleanup",
+      "title": "Char — preventing it, and cleaning up what is left",
+      "type": "recipe",
+      "process": "laser",
+      "path": "laser/10-wood-finishing/char-and-cleanup.md",
+      "triggers": [
+        "char",
+        "verkohlt",
+        "burn marks",
+        "brandspuren",
+        "brandflecken",
+        "scorch",
+        "versengt",
+        "soot",
+        "russ",
+        "dirty edge",
+        "schmutzige kante",
+        "masking",
+        "abkleben",
+        "sanding",
+        "schleifen",
+        "clean up",
+        "säubern",
+        "smoke stain",
+        "rauchfleck",
+        "black hands"
+      ],
+      "depends_on": [
+        "laser/materials/plywood"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/finishing/fasteners-in-wood",
+      "title": "Fasteners in wood — screws, inserts and captive nuts",
+      "type": "recipe",
+      "process": "laser",
+      "path": "laser/10-wood-finishing/fasteners-in-wood.md",
+      "triggers": [
+        "screw",
+        "schraube",
+        "schrauben",
+        "pilot hole",
+        "vorbohren",
+        "kernloch",
+        "threaded insert",
+        "gewindeeinsatz",
+        "einschraubmutter",
+        "captive nut",
+        "einlegemutter",
+        "cross dowel",
+        "querbolzen",
+        "fastener",
+        "befestigung",
+        "strips",
+        "ausgerissen",
+        "holds"
+      ],
+      "depends_on": [
+        "laser/basics/fits",
+        "laser/materials/plywood"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/finishing/gluing-wood",
+      "title": "Gluing laser-cut wood",
+      "type": "recipe",
+      "process": "laser",
+      "path": "laser/10-wood-finishing/gluing-wood.md",
+      "triggers": [
+        "glue",
+        "kleber",
+        "kleben",
+        "leim",
+        "holzleim",
+        "pva",
+        "wood glue",
+        "ca",
+        "sekundenkleber",
+        "epoxy",
+        "epoxid",
+        "bond",
+        "verbinden",
+        "clamp",
+        "spannen",
+        "zwinge",
+        "assembly",
+        "zusammenbau",
+        "came apart",
+        "auseinandergefallen"
+      ],
+      "depends_on": [
+        "laser/finishing/char-and-cleanup",
+        "laser/basics/fits"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/finishing/sealing-and-finishing",
+      "title": "Sealing and finishing",
+      "type": "recipe",
+      "process": "laser",
+      "path": "laser/10-wood-finishing/sealing-and-finishing.md",
+      "triggers": [
+        "finish",
+        "finish auftragen",
+        "oil",
+        "öl",
+        "lacquer",
+        "lack",
+        "varnish",
+        "firnis",
+        "seal",
+        "versiegeln",
+        "stain",
+        "beize",
+        "paint",
+        "lackieren",
+        "wax",
+        "wachs",
+        "protect",
+        "schützen",
+        "shellac",
+        "schellack",
+        "sanding sealer"
+      ],
+      "depends_on": [
+        "laser/finishing/char-and-cleanup"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
       "id": "laser/geometry/corners-and-overburn",
       "title": "Corners and overburn — where the beam lingers",
       "type": "rules",
@@ -1720,6 +2408,37 @@
       ],
       "depends_on": [
         "laser/basics/kerf-and-tolerance"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/geometry/grain-and-ply-direction",
+      "title": "Grain and ply direction",
+      "type": "rules",
+      "process": "laser",
+      "path": "laser/03-geometry/grain-and-ply-direction.md",
+      "triggers": [
+        "grain",
+        "maserung",
+        "faserrichtung",
+        "grain direction",
+        "ply direction",
+        "faserverlauf",
+        "split",
+        "gespalten",
+        "gerissen",
+        "snapped",
+        "abgebrochen",
+        "weak direction",
+        "schwache richtung",
+        "nesting orientation",
+        "ausrichtung",
+        "face grain"
+      ],
+      "depends_on": [
+        "laser/materials/plywood",
+        "laser/materials/solid-wood"
       ],
       "confidence": "medium",
       "updated": "2026-09-22"
@@ -1896,6 +2615,37 @@
       "updated": "2026-09-22"
     },
     {
+      "id": "laser/joints/selection",
+      "title": "Choosing a joint for wood",
+      "type": "decision",
+      "process": "laser",
+      "path": "laser/04-joints/wood-joint-selection.md",
+      "triggers": [
+        "which joint",
+        "welche verbindung",
+        "joint",
+        "verbindung",
+        "join",
+        "verbinden",
+        "corner",
+        "ecke",
+        "how to connect",
+        "wie verbinden",
+        "assembly method",
+        "montage",
+        "demountable",
+        "zerlegbar",
+        "strong joint",
+        "feste verbindung"
+      ],
+      "depends_on": [
+        "laser/materials/wood-overview",
+        "laser/basics/fits"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
       "id": "laser/joints/snap-and-friction-fits",
       "title": "Snap and friction fits in sheet",
       "type": "recipe",
@@ -2042,8 +2792,38 @@
         "extruded acrylic"
       ],
       "depends_on": [
-        "laser/materials/material-table",
+        "laser/materials/non-wood",
         "laser/basics/kerf-and-tolerance"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/materials/bamboo-and-veneer",
+      "title": "Bamboo and veneer",
+      "type": "material",
+      "process": "laser",
+      "path": "laser/02-materials/bamboo-and-veneer.md",
+      "triggers": [
+        "bamboo",
+        "bambus",
+        "veneer",
+        "furnier",
+        "laminated",
+        "laminiert",
+        "faced plywood",
+        "furniersperrholz",
+        "cutting board",
+        "schneidebrett",
+        "thin wood",
+        "dünnes holz",
+        "inlay",
+        "intarsie",
+        "marquetry"
+      ],
+      "depends_on": [
+        "laser/materials/wood-overview",
+        "laser/materials/plywood"
       ],
       "confidence": "medium",
       "updated": "2026-09-22"
@@ -2072,7 +2852,7 @@
         "riemen"
       ],
       "depends_on": [
-        "laser/materials/material-table",
+        "laser/materials/non-wood",
         "laser/materials/never-cut-these"
       ],
       "confidence": "medium",
@@ -2080,25 +2860,27 @@
     },
     {
       "id": "laser/materials/material-table",
-      "title": "Material comparison — what to cut and what it costs you",
-      "type": "decision",
+      "title": "Material numbers — every sheet in one table",
+      "type": "rules",
       "process": "laser",
       "path": "laser/02-materials/material-table.md",
       "triggers": [
-        "material",
-        "werkstoff",
-        "which material",
-        "welches material",
-        "sheet",
-        "platte",
-        "acrylic or wood",
-        "compare materials",
-        "materialvergleich",
+        "material table",
+        "materialtabelle",
+        "compare",
+        "vergleich",
+        "kerf table",
+        "numbers",
+        "zahlen",
         "thickness",
-        "dicke"
+        "dicke",
+        "minimum hole",
+        "stock sizes",
+        "standard thickness",
+        "lieferbar"
       ],
       "depends_on": [
-        "laser/materials/never-cut-these",
+        "laser/materials/wood-overview",
         "laser/basics/kerf-and-tolerance"
       ],
       "confidence": "medium",
@@ -2117,11 +2899,17 @@
         "faserplatte",
         "hdf",
         "cheap sheet",
+        "günstig",
         "jig material",
-        "schablone"
+        "schablone",
+        "template",
+        "painted part",
+        "lackiert",
+        "formaldehyde",
+        "formaldehyd"
       ],
       "depends_on": [
-        "laser/materials/material-table",
+        "laser/materials/wood-overview",
         "laser/basics/kerf-and-tolerance"
       ],
       "confidence": "medium",
@@ -2158,6 +2946,37 @@
       "updated": "2026-09-22"
     },
     {
+      "id": "laser/materials/non-wood",
+      "title": "Non-wood materials — when they are the right answer",
+      "type": "decision",
+      "process": "laser",
+      "path": "laser/02-materials/non-wood-materials.md",
+      "triggers": [
+        "acrylic",
+        "acryl",
+        "plexiglas",
+        "plastic",
+        "kunststoff",
+        "card",
+        "karton",
+        "leather",
+        "leder",
+        "felt",
+        "filz",
+        "delrin",
+        "pom",
+        "not wood",
+        "kein holz",
+        "transparent",
+        "durchsichtig"
+      ],
+      "depends_on": [
+        "laser/materials/wood-overview"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
       "id": "laser/materials/paper-card-corrugated",
       "title": "Paper, card and corrugated — the mock-up materials",
       "type": "material",
@@ -2180,7 +2999,7 @@
         "prototype sheet"
       ],
       "depends_on": [
-        "laser/materials/material-table"
+        "laser/materials/non-wood"
       ],
       "confidence": "medium",
       "updated": "2026-09-22"
@@ -2197,22 +3016,33 @@
         "ply",
         "birch ply",
         "birkensperrholz",
-        "wood",
-        "holz",
-        "poplar ply",
+        "baltic birch",
+        "multiplex",
+        "laser ply",
+        "laserholz",
         "3mm ply",
-        "bausperrholz"
+        "4mm",
+        "6mm",
+        "void",
+        "lunker",
+        "grade",
+        "qualität",
+        "bb",
+        "b/bb",
+        "poplar ply",
+        "pappelsperrholz"
       ],
       "depends_on": [
-        "laser/materials/material-table",
-        "laser/basics/kerf-and-tolerance"
+        "laser/materials/wood-overview",
+        "laser/basics/kerf-and-tolerance",
+        "laser/materials/never-cut-these"
       ],
       "confidence": "medium",
       "updated": "2026-09-22"
     },
     {
       "id": "laser/materials/solid-wood",
-      "title": "Solid wood — grain, and what it does to a cut",
+      "title": "Solid wood — species, grain and what each one does",
       "type": "material",
       "process": "laser",
       "path": "laser/02-materials/solid-wood.md",
@@ -2221,26 +3051,105 @@
         "massivholz",
         "hardwood",
         "hartholz",
+        "species",
+        "holzart",
         "walnut",
         "nussbaum",
         "oak",
         "eiche",
         "maple",
         "ahorn",
-        "bamboo",
-        "bambus",
-        "veneer",
-        "furnier"
+        "cherry",
+        "kirsche",
+        "birch",
+        "birke",
+        "basswood",
+        "linde",
+        "alder",
+        "erle",
+        "beech",
+        "buche",
+        "ash",
+        "esche",
+        "pine",
+        "kiefer",
+        "balsa",
+        "grain",
+        "maserung"
       ],
       "depends_on": [
-        "laser/materials/material-table"
+        "laser/materials/wood-overview",
+        "laser/geometry/grain-and-ply-direction"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/materials/wood-moisture-and-storage",
+      "title": "Moisture, warping and storing sheet",
+      "type": "basics",
+      "process": "laser",
+      "path": "laser/02-materials/wood-moisture-and-storage.md",
+      "triggers": [
+        "warped",
+        "verzogen",
+        "bowed",
+        "krumm",
+        "not flat",
+        "nicht plan",
+        "moisture",
+        "feuchtigkeit",
+        "humidity",
+        "luftfeuchtigkeit",
+        "storage",
+        "lagerung",
+        "wont cut through",
+        "schneidet nicht durch",
+        "focus",
+        "fokus",
+        "bent sheet",
+        "wellig"
+      ],
+      "depends_on": [
+        "laser/materials/plywood"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/materials/wood-overview",
+      "title": "Wood — the default material, and how to choose within it",
+      "type": "decision",
+      "process": "laser",
+      "path": "laser/02-materials/wood-overview.md",
+      "triggers": [
+        "wood",
+        "holz",
+        "which wood",
+        "welches holz",
+        "material",
+        "werkstoff",
+        "plywood or solid",
+        "sperrholz oder massivholz",
+        "mdf",
+        "sheet",
+        "platte",
+        "board",
+        "brett",
+        "choose material",
+        "materialwahl",
+        "timber"
+      ],
+      "depends_on": [
+        "laser/materials/never-cut-these",
+        "laser/basics/kerf-and-tolerance"
       ],
       "confidence": "medium",
       "updated": "2026-09-22"
     },
     {
       "id": "laser/start-here",
-      "title": "Laser cutting — start here",
+      "title": "Laser cutting wood — start here",
       "type": "basics",
       "process": "laser",
       "path": "laser/00-start-here.md",
@@ -2254,10 +3163,19 @@
         "lasern",
         "CO2 laser",
         "cut from sheet",
-        "flat part"
+        "flat part",
+        "flachteil",
+        "wood",
+        "holz",
+        "plywood",
+        "sperrholz",
+        "sheet goods",
+        "plattenmaterial"
       ],
       "depends_on": [
-        "laser/basics/kerf-and-tolerance"
+        "laser/basics/kerf-and-tolerance",
+        "laser/materials/wood-overview",
+        "design/start-here"
       ],
       "confidence": "high",
       "updated": "2026-09-22"

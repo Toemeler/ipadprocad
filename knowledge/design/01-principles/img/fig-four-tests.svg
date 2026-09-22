@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 230" width="480" height="230" role="img" aria-label="The four tests: coherence, hierarchy, honesty, restraint">
+  <rect x="0" y="0" width="480" height="230" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Four questions with yes-or-no answers</text>
+
+    <g stroke="#1a1a1a" stroke-width="1.6" fill="#f2f2f2">
+      <rect x="24" y="44" width="208" height="42" rx="4"/>
+      <rect x="248" y="44" width="208" height="42" rx="4"/>
+      <rect x="24" y="96" width="208" height="42" rx="4"/>
+      <rect x="248" y="96" width="208" height="42" rx="4"/>
+    </g>
+    <g font-weight="600">
+      <text x="38" y="64">Coherence</text><text x="262" y="64">Hierarchy</text>
+      <text x="38" y="116">Honesty</text><text x="262" y="116">Restraint</text>
+    </g>
+    <g fill="#5a5a5a">
+      <text x="38" y="80">does every value come from a system?</text>
+      <text x="262" y="80">can you name what the eye lands on first?</text>
+      <text x="38" y="132">does the form tell the truth?</text>
+      <text x="262" y="132">can anything be removed?</text>
+    </g>
+
+    <text x="20" y="170" font-size="12" font-weight="600">"It looks wrong" is a real observation and a useless instruction.</text>
+    <text x="20" y="192" font-size="11" fill="#5a5a5a">These four turn it into things that can be checked — which is what makes design teachable rather than</text>
+    <text x="20" y="206" font-size="11" fill="#5a5a5a">a matter of taste. Coherence is the one that catches most of it, and it is arithmetic.</text>
+  </g>
+</svg>

@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 210" width="480" height="210" role="img" aria-label="Matte, satin, gloss and textured on the same object">
+  <rect x="0" y="0" width="480" height="210" rx="10" fill="#ffffff"/>
+  <defs>
+    <linearGradient id="gl" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff"/><stop offset="35%" stop-color="#7f858a"/><stop offset="100%" stop-color="#3a3e42"/>
+    </linearGradient>
+    <linearGradient id="sa" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#8d9398"/><stop offset="100%" stop-color="#4c5156"/>
+    </linearGradient>
+    <pattern id="tx" width="5" height="5" patternUnits="userSpaceOnUse"><circle cx="2.5" cy="2.5" r="1" fill="#2f3337"/><rect width="5" height="5" fill="#575d62" opacity="0.5"/></pattern>
+  </defs>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">The same surface, four finishes</text>
+
+    <rect x="26" y="46" width="96" height="76" fill="#5b6166" stroke="#1a1a1a" stroke-width="1.5"/>
+    <text x="74" y="144" text-anchor="middle" font-weight="600" fill="#2e7d32">matte</text>
+    <text x="74" y="160" text-anchor="middle" fill="#2e7d32">hides the process</text>
+    <text x="74" y="176" text-anchor="middle" fill="#5a5a5a">the default here</text>
+
+    <rect x="140" y="46" width="96" height="76" fill="url(#sa)" stroke="#1a1a1a" stroke-width="1.5"/>
+    <text x="188" y="144" text-anchor="middle" font-weight="600">satin</text>
+    <text x="188" y="160" text-anchor="middle" fill="#5a5a5a">considered, warm</text>
+
+    <rect x="254" y="46" width="96" height="76" fill="url(#gl)" stroke="#1a1a1a" stroke-width="1.5"/>
+    <g stroke="#9fb0bd" stroke-width="1.2" opacity="0.8">
+      <line x1="254" y1="58" x2="350" y2="58"/><line x1="254" y1="70" x2="350" y2="70"/><line x1="254" y1="82" x2="350" y2="82"/>
+    </g>
+    <text x="302" y="144" text-anchor="middle" font-weight="600" fill="#c62828">gloss</text>
+    <text x="302" y="160" text-anchor="middle" fill="#c62828">shows every flaw</text>
+    <text x="302" y="176" text-anchor="middle" fill="#5a5a5a">premium, or cheap — no middle</text>
+
+    <rect x="368" y="46" width="96" height="76" fill="url(#tx)" stroke="#1a1a1a" stroke-width="1.5"/>
+    <text x="416" y="144" text-anchor="middle" font-weight="600">textured</text>
+    <text x="416" y="160" text-anchor="middle" fill="#5a5a5a">grippy, robust</text>
+    <text x="416" y="176" text-anchor="middle" fill="#5a5a5a">hides everything</text>
+
+    <text x="20" y="200" font-size="11" fill="#5a5a5a">The textured build plate gives one printed face this surface for free — so put that face where it is seen.</text>
+  </g>
+</svg>

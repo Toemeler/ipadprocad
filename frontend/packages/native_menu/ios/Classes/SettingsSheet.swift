@@ -28,6 +28,12 @@ import UIKit
 ///   check  — single-select within its section; the selected one has a tick
 ///   action — a tappable command (Report a Problem, Share the Log)
 ///   value  — read-only, with a right-aligned detail (the About rows)
+///   entry  — M444: a right-aligned detail AND a tap, for a row that shows
+///            what it is set to and reopens the thing that sets it (the
+///            Backblaze account rows, Device by Address, Replaced versions).
+///            `value` cannot do this: it refuses selection on purpose, and a
+///            row that needed both was simply dead here while drawing
+///            perfectly.
 struct SettingsRow {
     let id: String
     let title: String
@@ -125,7 +131,7 @@ final class SettingsSheetController: UITableViewController {
         // those get their own reuse identifier rather than a reused .default
         // cell that would silently drop the detail label.
         let cell: UITableViewCell
-        if row.kind == "value" {
+        if row.kind == "value" || row.kind == "entry" {
             cell = t.dequeueReusableCell(withIdentifier: "value")
                 ?? UITableViewCell(style: .value1, reuseIdentifier: "value")
         } else {
@@ -135,7 +141,9 @@ final class SettingsSheetController: UITableViewController {
 
         var content = cell.defaultContentConfiguration()
         content.text = row.title
-        if row.kind == "value" { content.secondaryText = row.detail }
+        if row.kind == "value" || row.kind == "entry" {
+            content.secondaryText = row.detail
+        }
         if let symbol = row.symbol, let image = UIImage(systemName: symbol) {
             // .alwaysOriginal for a tinted glyph, or the table re-tints every
             // swatch to its own accent and the five colours come out identical.
@@ -159,12 +167,19 @@ final class SettingsSheetController: UITableViewController {
             // Not selectable: a row that flashes but does nothing reads as
             // broken, and these are facts, not controls.
             cell.selectionStyle = .none
+        case "entry":
+            // A control that happens to show its value. The chevron is what
+            // says so before anybody taps to find out — the thing these rows
+            // lacked while they were `value`.
+            cell.accessoryType = .disclosureIndicator
+            cell.selectionStyle = .default
         default:
             cell.accessoryType = .none
             cell.selectionStyle = .default
         }
         // VoiceOver: a checkmark is a visual affordance and says nothing on
         // its own, so the state is spelled out.
+        // `entry` is a button that reads its value aloud, not static text.
         cell.accessibilityTraits = row.kind == "value" ? .staticText : .button
         if row.kind == "check" && row.selected {
             cell.accessibilityTraits.insert(.selected)
@@ -173,6 +188,7 @@ final class SettingsSheetController: UITableViewController {
     }
 
     override func tableView(_ t: UITableView, willSelectRowAt ip: IndexPath) -> IndexPath? {
+        // `entry` is selectable; only a true `value` is not.
         sections[ip.section].rows[ip.row].kind == "value" ? nil : ip
     }
 

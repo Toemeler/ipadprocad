@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 220" width="480" height="220" role="img" aria-label="The dead zone between aligned and clearly offset">
+  <rect x="0" y="0" width="480" height="220" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Either align it, or offset it clearly</text>
+
+    <rect x="28" y="50" width="120" height="86" fill="#e8eef2" stroke="#1a1a1a" stroke-width="2"/>
+    <line x1="88" y1="50" x2="88" y2="136" stroke="#0b6bcb" stroke-width="1" stroke-dasharray="3 3"/>
+    <circle cx="88" cy="93" r="18" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="1.5"/>
+    <text x="88" y="160" text-anchor="middle" font-weight="600" fill="#2e7d32">aligned</text>
+    <text x="88" y="176" text-anchor="middle" fill="#2e7d32">reads as intended</text>
+
+    <rect x="180" y="50" width="120" height="86" fill="#e8eef2" stroke="#1a1a1a" stroke-width="2"/>
+    <line x1="240" y1="50" x2="240" y2="136" stroke="#0b6bcb" stroke-width="1" stroke-dasharray="3 3"/>
+    <circle cx="246" cy="93" r="18" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="1.5"/>
+    <circle cx="246" cy="93" r="28" fill="none" stroke="#c62828" stroke-width="2"/>
+    <text x="240" y="160" text-anchor="middle" font-weight="600" fill="#c62828">2 mm off</text>
+    <text x="240" y="176" text-anchor="middle" fill="#c62828">the dead zone — reads as a mistake</text>
+
+    <rect x="332" y="50" width="120" height="86" fill="#e8eef2" stroke="#1a1a1a" stroke-width="2"/>
+    <line x1="392" y1="50" x2="392" y2="136" stroke="#0b6bcb" stroke-width="1" stroke-dasharray="3 3"/>
+    <circle cx="424" cy="93" r="18" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="1.5"/>
+    <text x="392" y="160" text-anchor="middle" font-weight="600" fill="#2e7d32">clearly offset</text>
+    <text x="392" y="176" text-anchor="middle" fill="#2e7d32">reads as a decision</text>
+
+    <text x="20" y="206" font-size="11" fill="#5a5a5a">Between roughly 0.5 and 4 mm off an alignment, everything looks like an error. Avoid landing there.</text>
+  </g>
+</svg>

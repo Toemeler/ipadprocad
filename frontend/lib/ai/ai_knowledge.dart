@@ -97,7 +97,7 @@ class AiKnowledge {
     const heads = {
       'fdm': 'FDM / FFF 3D printing',
       'laser': 'Laser cutting and engraving',
-      'design': 'Industrial design',
+      'design': 'Design — consult on every part',
       'shared': 'Shared',
     };
     final b = StringBuffer()

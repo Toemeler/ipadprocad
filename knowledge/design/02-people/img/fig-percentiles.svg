@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 220" width="480" height="220" role="img" aria-label="Which percentile each dimension type uses">
+  <rect x="0" y="0" width="480" height="220" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Designing for the average designs for nobody</text>
+
+    <g stroke="#1a1a1a" stroke-width="1.6" fill="#f2f2f2">
+      <rect x="24" y="46" width="216" height="34" rx="4"/>
+      <rect x="24" y="88" width="216" height="34" rx="4"/>
+      <rect x="24" y="130" width="216" height="34" rx="4"/>
+    </g>
+    <g font-weight="600">
+      <text x="38" y="68">Clearance — a hole, a gap, an opening</text>
+      <text x="38" y="110">Reach — how far away it can be</text>
+      <text x="38" y="152">Force — how hard it must be pushed</text>
+    </g>
+    <g stroke="#2e7d32" stroke-width="1.6" fill="#2e7d32">
+      <line x1="240" y1="63" x2="266" y2="63"/><polygon points="266,59 276,63 266,67"/>
+      <line x1="240" y1="105" x2="266" y2="105"/><polygon points="266,101 276,105 266,109"/>
+      <line x1="240" y1="147" x2="266" y2="147"/><polygon points="266,143 276,147 266,151"/>
+    </g>
+    <g font-weight="600" fill="#2e7d32">
+      <text x="286" y="68">the LARGE user</text>
+      <text x="286" y="110">the SMALL user</text>
+      <text x="286" y="152">the WEAK user</text>
+    </g>
+    <g fill="#5a5a5a" font-size="10">
+      <text x="286" y="80">if the biggest hand fits, all do</text>
+      <text x="286" y="122">if the shortest reach gets there, all do</text>
+      <text x="286" y="164">everyone above can also do it</text>
+    </g>
+
+    <text x="20" y="196" font-size="11" fill="#c62828">Getting these the wrong way round — a handle opening sized for an average hand, a reach for a tall one —</text>
+    <text x="20" y="210" font-size="11" fill="#c62828">is the classic ergonomics mistake.</text>
+  </g>
+</svg>

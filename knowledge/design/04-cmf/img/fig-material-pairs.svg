@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 210" width="480" height="210" role="img" aria-label="Material pairs that work and pairs that do not">
+  <rect x="0" y="0" width="480" height="210" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Contrast, or it reads as a miss</text>
+
+    <g>
+      <rect x="28" y="46" width="90" height="74" fill="#e3cfa8" stroke="#1a1a1a" stroke-width="1.5"/>
+      <rect x="72" y="46" width="46" height="74" fill="#33373a" stroke="#1a1a1a" stroke-width="1.5"/>
+      <g stroke="#2e7d32" stroke-width="2.5" fill="none"><path d="M96 136 l7 8 l15 -18"/></g>
+      <text x="73" y="170" text-anchor="middle" font-weight="600" fill="#2e7d32">wood + matte black</text>
+      <text x="73" y="186" text-anchor="middle" fill="#2e7d32">unambiguous</text>
+    </g>
+    <g>
+      <rect x="182" y="46" width="90" height="74" fill="#e3cfa8" stroke="#1a1a1a" stroke-width="1.5"/>
+      <rect x="226" y="46" width="46" height="74" fill="#ddd2bb" stroke="#1a1a1a" stroke-width="1.5"/>
+      <circle cx="250" cy="136" r="11" fill="none" stroke="#c62828" stroke-width="2"/>
+      <line x1="243" y1="129" x2="257" y2="143" stroke="#c62828" stroke-width="2"/>
+      <text x="227" y="170" text-anchor="middle" font-weight="600" fill="#c62828">wood + natural filament</text>
+      <text x="227" y="186" text-anchor="middle" fill="#c62828">two warm neutrals that nearly match</text>
+    </g>
+    <g>
+      <rect x="336" y="46" width="90" height="74" fill="#d9c9ac" stroke="#1a1a1a" stroke-width="1.5"/>
+      <rect x="380" y="46" width="46" height="74" fill="#8a8a8a" stroke="#1a1a1a" stroke-width="1.5"/>
+      <g stroke="#2e7d32" stroke-width="2.5" fill="none"><path d="M404 136 l7 8 l15 -18"/></g>
+      <text x="381" y="170" text-anchor="middle" font-weight="600" fill="#2e7d32">wood + metal fastener</text>
+      <text x="381" y="186" text-anchor="middle" fill="#2e7d32">and the fastener becomes a detail</text>
+    </g>
+
+    <text x="20" y="204" font-size="11" fill="#5a5a5a">Two materials, three at most. A hollow printed object can be made to feel right by adding mass at the base.</text>
+  </g>
+</svg>

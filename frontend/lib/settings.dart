@@ -90,13 +90,35 @@ enum SettingsRowKind {
 
   /// Read-only, with a right-aligned detail. The About rows.
   value,
+
+  /// M444 — SHOWS A VALUE AND STILL TAKES A TAP. The account rows, "Device by
+  /// Address", the replaced-versions drawer: each displays what it is set to
+  /// and reopens the thing that sets it.
+  ///
+  /// THIS EXISTS BECAUSE [value] MEANS READ-ONLY ALL THE WAY DOWN, and that
+  /// is not a Dart detail — `SettingsSheet.swift` refuses selection on a
+  /// `value` row (`willSelectRowAt` returns nil), gives it `.selectionStyle
+  /// = .none` and marks it `.staticText` for VoiceOver, on the perfectly good
+  /// reasoning that "a row that flashes but does nothing reads as broken".
+  ///
+  /// So a row that had a value to show AND something to do had nowhere to
+  /// live. The Flutter fallback papered over it with a hardcoded list of row
+  /// ids that were secretly tappable; the native sheet had no such list, and
+  /// every such row was dead on the iPad — silently, because it drew
+  /// perfectly. That is the M382 report exactly, and it reached the four
+  /// Backblaze rows, `kRowSyncPeer` and `kRowReplacedVersions`.
+  ///
+  /// A kind rather than a list: a new row of this shape now has to choose,
+  /// and both surfaces read the choice from the same field.
+  entry,
 }
 
 class SettingsRow {
   final String id;
   final String title;
 
-  /// Right-aligned detail. Only [SettingsRowKind.value] shows one.
+  /// Right-aligned detail. [SettingsRowKind.value] and
+  /// [SettingsRowKind.entry] show one.
   final String? detail;
 
   /// SF Symbol. Unknown names simply render without a glyph, exactly as they
@@ -525,21 +547,21 @@ List<SettingsSection> buildSettings(
             title: t.settingsCloudBucket,
             detail: cloudBucket ?? t.settingsCloudNone,
             symbol: 'externaldrive.connected.to.line.below',
-            kind: SettingsRowKind.value,
+            kind: SettingsRowKind.entry,
           ),
           SettingsRow(
             id: kRowCloudEndpoint,
             title: t.settingsCloudEndpoint,
             detail: cloudEndpoint ?? t.settingsCloudNone,
             symbol: 'globe',
-            kind: SettingsRowKind.value,
+            kind: SettingsRowKind.entry,
           ),
           SettingsRow(
             id: kRowCloudKeyId,
             title: t.settingsCloudKeyId,
             detail: cloudKeyId ?? t.settingsCloudNone,
             symbol: 'person.badge.key',
-            kind: SettingsRowKind.value,
+            kind: SettingsRowKind.entry,
           ),
           // NEVER THE KEY, only that there is one. A row that rendered the
           // secret would put it in the next bug report's screenshot.
@@ -550,7 +572,7 @@ List<SettingsSection> buildSettings(
                 ? t.settingsCloudAppKeySaved
                 : t.settingsCloudNone,
             symbol: 'key.fill',
-            kind: SettingsRowKind.value,
+            kind: SettingsRowKind.entry,
           ),
           // Every field filled in. Nothing about the mirror is shown until
           // then: a status row over a half-entered account would report a
@@ -573,7 +595,7 @@ List<SettingsSection> buildSettings(
               id: kRowSyncPeer,
               title: t.settingsSyncPeer,
               detail: syncPeer ?? t.settingsSyncPeerNone,
-              kind: SettingsRowKind.value,
+              kind: SettingsRowKind.entry,
               symbol: 'point.3.connected.trianglepath.dotted',
             ),
             SettingsRow(
@@ -602,7 +624,7 @@ List<SettingsSection> buildSettings(
               id: kRowReplacedVersions,
               title: t.syncRestoreRow,
               detail: '$syncBackups',
-              kind: SettingsRowKind.value,
+              kind: SettingsRowKind.entry,
               symbol: 'clock.arrow.circlepath',
             ),
         ],

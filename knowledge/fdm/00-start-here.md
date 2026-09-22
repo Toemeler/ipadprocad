@@ -4,7 +4,7 @@ title: FDM printing — start here
 type: basics
 process: fdm
 triggers: [3d print, 3d druck, fdm, fff, print, drucken, filament, additive, gedruckt, printed part, druckteil, make it printable, druckbar]
-depends_on: [fdm/basics/orientation-and-strength]
+depends_on: [fdm/basics/orientation-and-strength, design/start-here]
 confidence: high
 updated: 2026-09-22
 ---
@@ -44,6 +44,9 @@ will already avoid most unprintable output.
 The order below is the order that avoids reprints. It is also a good plan for
 the assistant to state out loud, because each step names the documents to load.
 
+0. **Choose the object's design systems** — radius set, spacing scale,
+   proportion family — before anything below.
+   → [`design/start-here`](../design/00-start-here.md)
 1. **Decide the print orientation first.** Not last. Orientation decides
    strength, which surfaces are smooth, where supports go and how long it
    takes. Everything else is downstream.
@@ -63,6 +66,9 @@ the assistant to state out loud, because each step names the documents to load.
    → [`chamfers-fillets-elephant-foot`](03-geometry/chamfers-fillets-elephant-foot.md)
 8. **Run the checklist.**
    → [`before-slicing`](08-checklists/before-slicing.md)
+9. **Run the design critique.** Printable and good are two different
+   questions about the same part.
+   → [`design/design-critique`](../design/05-process/design-critique.md)
 
 ## When to do it differently
 

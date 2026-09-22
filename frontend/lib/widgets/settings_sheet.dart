@@ -484,7 +484,11 @@ class _FallbackDialogState extends State<_FallbackDialog> {
                     // assertion on every build of this dialog, and in release
                     // it is a title with nowhere to go. Right-aligned and
                     // ellipsised, which is what a detail column is.
-                    trailing: r.kind == SettingsRowKind.value
+                    // M444 — `entry` shows a detail too. It is the same
+                    // right-aligned column; the difference is only that the
+                    // row is also a control, which `onTap` below decides.
+                    trailing: (r.kind == SettingsRowKind.value ||
+                            r.kind == SettingsRowKind.entry)
                         ? ConstrainedBox(
                             constraints: const BoxConstraints(maxWidth: 190),
                             child: Text(
@@ -503,11 +507,12 @@ class _FallbackDialogState extends State<_FallbackDialog> {
                     // has a value to show, and still has to reopen the prompt
                     // when tapped. The native sheet decides that for itself;
                     // here it has to be said.
-                    // M442 — the four account rows are the same shape as the
-                    // share code they replaced: each SHOWS a value and still
-                    // has to reopen its prompt when tapped.
-                    onTap: (r.kind == SettingsRowKind.value &&
-                            !_reopensItsPrompt.contains(r.id))
+                    // M444 — the KIND decides, not a list of ids kept here.
+                    // `value` is read-only on both surfaces; `entry` shows a
+                    // value and still takes a tap. The list this replaced was
+                    // the reason the native sheet could disagree with this one
+                    // without anybody noticing.
+                    onTap: r.kind == SettingsRowKind.value
                         ? null
                         : () => _tap(s.id, r.id),
                   ),
@@ -638,21 +643,6 @@ Future<void> _editAccount(
   await CloudAccount.set(write(was, entered.trim()));
 }
 
-/// Rows that SHOW a value and are still tappable, because tapping one
-/// reopens the prompt that set it.
-///
-/// The native sheet decides this for itself from the row's role; the Flutter
-/// fallback has to be told, and being told by a list rather than by a chain of
-/// `!=` is what stopped the M442 rows from being added to a condition nobody
-/// remembered to look at. A row missing from here draws correctly and does
-/// nothing at all when tapped, which is exactly the M382 report.
-const Set<String> _reopensItsPrompt = <String>{
-  kRowCloudBucket,
-  kRowCloudEndpoint,
-  kRowCloudKeyId,
-  kRowCloudAppKey,
-  kRowSyncPeer,
-};
 
 /// Empty reads as "not set up", which is what the row shows.
 String? _nn(String? v) => (v == null || v.isEmpty) ? null : v;

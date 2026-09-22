@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 230" width="480" height="230" role="img" aria-label="Char as a weak boundary layer in a glue joint">
+  <rect x="0" y="0" width="480" height="230" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Why a glued box comes apart</text>
+
+    <rect x="34" y="52" width="72" height="90" fill="#e3cfa8" stroke="#1a1a1a" stroke-width="2"/>
+    <rect x="106" y="52" width="9" height="90" fill="#2a1d0f"/>
+    <rect x="115" y="52" width="10" height="90" fill="#cfd6d9"/>
+    <rect x="125" y="52" width="9" height="90" fill="#2a1d0f"/>
+    <rect x="134" y="52" width="72" height="90" fill="#e3cfa8" stroke="#1a1a1a" stroke-width="2"/>
+    <text x="120" y="168" text-anchor="middle" font-weight="600" fill="#c62828">char left on</text>
+    <text x="120" y="184" text-anchor="middle" fill="#c62828">glue sticks to the char;</text>
+    <text x="120" y="200" text-anchor="middle" fill="#c62828">the char barely sticks to the wood</text>
+
+    <rect x="274" y="52" width="80" height="90" fill="#e3cfa8" stroke="#1a1a1a" stroke-width="2"/>
+    <rect x="354" y="52" width="10" height="90" fill="#cfd6d9"/>
+    <rect x="364" y="52" width="80" height="90" fill="#e3cfa8" stroke="#1a1a1a" stroke-width="2"/>
+    <g stroke="#2e7d32" stroke-width="2.5" fill="none"><path d="M408 166 l7 8 l15 -18"/></g>
+    <text x="359" y="168" text-anchor="middle" font-weight="600" fill="#2e7d32">sanded to bare fibre</text>
+    <text x="359" y="184" text-anchor="middle" fill="#2e7d32">PVA is then stronger than the wood</text>
+
+    <text x="20" y="220" font-size="11" fill="#5a5a5a">240 then 320 grit on every glue face. Sand faces, never the inside of a slot or the sides of a tab.</text>
+  </g>
+</svg>

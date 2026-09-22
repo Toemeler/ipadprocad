@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 230" width="480" height="230" role="img" aria-label="Too much and too bare are opposite failures">
+  <rect x="0" y="0" width="480" height="230" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Opposite failures, different fixes</text>
+
+    <rect x="24" y="46" width="130" height="94" fill="#e8eef2" stroke="#1a1a1a" stroke-width="2"/>
+    <g fill="#d9d9d9" stroke="#1a1a1a" stroke-width="1"><rect x="32" y="54" width="40" height="12"/><rect x="78" y="54" width="30" height="12"/><rect x="112" y="54" width="34" height="12"/>
+      <circle cx="46" cy="90" r="10"/><circle cx="74" cy="90" r="8"/><circle cx="100" cy="90" r="11"/><circle cx="130" cy="90" r="7"/>
+      <rect x="32" y="114" width="114" height="8"/><rect x="32" y="126" width="60" height="6"/></g>
+    <text x="89" y="166" text-anchor="middle" font-weight="600" fill="#c62828">too much</text>
+    <text x="89" y="182" text-anchor="middle" fill="#c62828">every surface doing something</text>
+    <text x="89" y="198" text-anchor="middle" fill="#5a5a5a">fix: the subtraction pass</text>
+
+    <rect x="176" y="46" width="130" height="94" fill="#e8eef2" stroke="#1a1a1a" stroke-width="2"/>
+    <text x="241" y="166" text-anchor="middle" font-weight="600" fill="#c62828">too bare</text>
+    <text x="241" y="182" text-anchor="middle" fill="#c62828">a slab, not restraint</text>
+    <text x="241" y="198" text-anchor="middle" fill="#5a5a5a">fix: ONE considered detail</text>
+
+    <rect x="328" y="46" width="130" height="94" fill="#e8eef2" stroke="#1a1a1a" stroke-width="2"/>
+    <path d="M328 62 h130" stroke="#9aa8b2" stroke-width="2"/>
+    <rect x="344" y="80" width="98" height="44" fill="#dde6ec" stroke="#1a1a1a" stroke-width="1.2"/>
+    <circle cx="366" cy="102" r="10" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="1.2"/>
+    <text x="393" y="166" text-anchor="middle" font-weight="600" fill="#2e7d32">restrained</text>
+    <text x="393" y="182" text-anchor="middle" fill="#2e7d32">one inset, one chamfer line</text>
+
+    <text x="20" y="220" font-size="11" fill="#5a5a5a">Minimalism is not restraint. Restraint is having decided what to leave out, which requires having considered it.</text>
+  </g>
+</svg>

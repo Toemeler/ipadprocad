@@ -1,15 +1,15 @@
 ---
-id: design/function/holders-clips-and-retention
-title: Holders, clips and anything that retains something
+id: design/form/openings-and-retention
+title: Openings and retention — holders, clips and anything that holds something
 type: recipe
 process: design
 triggers: [holder, halter, halterung, clip, klemme, klammer, cable, kabel, cable holder, kabelhalter, kabelklemme, bracket, halteklammer, hook, haken, cradle, saddle, sattel, retain, halten, festhalten, snap, einrasten, einclipsen, grip, greifen, mount, befestigung, organizer, ständer, staender, stand]
-depends_on: [design/form/transitions-and-continuity]
+depends_on: [design/form/surfaces]
 confidence: high
 updated: 2026-09-22
 ---
 
-# Holders, clips and anything that retains something
+# Openings and retention
 
 The object has to let the thing IN, hold it, and let it out again. Every one
 of those is geometry, and the first one is the one that gets forgotten.
@@ -63,7 +63,7 @@ cannot state all three from the geometry, it is not a holder yet.
    close those, do not redraw the shape.
 3. Extrude it across the width of the holder.
 4. Join it to the base, set fully inside the base's footprint, and fillet the
-   junction — see `design/form/transitions-and-continuity`.
+   junction — see [`surfaces-and-transitions`](surfaces-and-transitions.md).
 5. **Look at the returned view.** The mouth must be visible as an opening. In
    the text silhouette, `o` is a hole you can see straight through; a retained
    opening seen end-on should show as a gap in the outline, not as a closed

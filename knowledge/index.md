@@ -6,7 +6,11 @@ One line per document. This is the only part of the knowledge base that
 needs to sit in the assistant's context permanently; everything else is
 opened on demand. See [`README.md`](README.md) for how the mechanism works.
 
-**78 documents.**
+**The design documents are not process-specific.** Every part is a design
+decision as well as a manufacturing one, so `design/start-here` is worth
+opening on any job — not only when the word "design" appears in the plan.
+
+**106 documents.**
 
 ## Shared
 
@@ -15,16 +19,33 @@ opened on demand. See [`README.md`](README.md) for how the mechanism works.
 | [`shared/glossary`](glossary.md) | Glossary — German / English manufacturing terms | basics | glossary, terminology, Glossar, Begriffe, was heisst, translation |
 | [`shared/img-style`](img-style.md) | Diagram conventions | basics | diagram style, drawing convention, svg style, Diagrammstil |
 
-## Industrial design
+## Design — consult on every part
 
 | id | title | type | opens when the plan mentions |
 |---|---|---|---|
-| [`design/form/proportion-and-stance`](design/01-form/proportion-and-stance.md) | Proportion, stance and where the mass goes | rules | proportion, proportionen, stance, haltung, mass, masse, visual weight, thickness, … |
-| [`design/form/radii-and-edge-treatment`](design/01-form/radii-and-edge-treatment.md) | Radii and edge treatment | rules | radius, radien, fillet, verrundung, verrunden, rounded, abgerundet, chamfer, … |
-| [`design/form/transitions-and-continuity`](design/01-form/transitions-and-continuity.md) | How two forms meet | rules | transition, übergang, uebergang, junction, verbindung, blend, überblendung, stuck on, … |
-| [`design/function/holders-clips-and-retention`](design/02-function/holders-clips-and-retention.md) | Holders, clips and anything that retains something | recipe | holder, halter, halterung, clip, klemme, klammer, cable, kabel, … |
-| [`design/process/designing-for-the-printed-look`](design/03-process/designing-for-the-printed-look.md) | Designing for how a printed part looks | rules | printed look, druckbild, surface, oberfläche, oberflaeche, finish, layer lines, schichtlinien, … |
-| [`design/start-here`](design/00-start-here.md) | Design — start here | basics | design, designer, designen, gestaltung, schön, schoen, nice, beautiful, … |
+| [`design/cmf/colour`](design/04-cmf/colour.md) | Colour | rules | colour, color, farbe, farben, palette, farbpalette, which colour, welche farbe, … |
+| [`design/cmf/material-and-finish`](design/04-cmf/material-texture-and-finish.md) | Material, texture and finish | rules | material, werkstoff, texture, textur, oberflächenstruktur, finish, oberfläche, matte, … |
+| [`design/examples/enclosure`](design/07-worked-examples/enclosure-design.md) | Worked example — designing a printed enclosure | example | enclosure design, gehäuse gestalten, case design, box design, make it look good, gut aussehen lassen, design pass, design example, … |
+| [`design/examples/wooden-box`](design/07-worked-examples/laser-box-design.md) | Worked example — designing a wooden box | example | box design, kiste gestalten, wooden box, holzkiste, schachtel, plywood box design, make the box look good, design a box, … |
+| [`design/failures/catalogue`](design/06-failures/failure-catalogue.md) | Design failure catalogue — why it looks wrong | failures | looks wrong, sieht falsch aus, looks cheap, billig, ugly, hässlich, amateur, laienhaft, … |
+| [`design/form/details`](design/03-form/details-and-craft.md) | Details and craft | rules | detail, details, craft, handwerk, verarbeitung, finish quality, qualität, fit and finish, … |
+| [`design/form/edges-and-radii`](design/03-form/edges-and-radii.md) | Edges and radii as a system | rules | radius, radien, fillet, verrundung, rundung, chamfer, fase, edge, … |
+| [`design/form/openings-and-retention`](design/03-form/openings-and-retention.md) | Openings and retention — holders, clips and anything that holds something | recipe | holder, halter, halterung, clip, klemme, klammer, cable, kabel, … |
+| [`design/form/seams-and-alignment`](design/03-form/seams-gaps-and-alignment.md) | Seams, gaps and alignment | rules | gap, spalt, spaltmaß, seam, naht, fuge, parting line, trennlinie, … |
+| [`design/form/surfaces`](design/03-form/surfaces-and-transitions.md) | Surfaces and transitions | rules | surface, oberfläche, fläche, transition, übergang, curve, kurve, flat, … |
+| [`design/people/accessibility`](design/02-people/accessibility.md) | Accessibility | rules | accessibility, barrierefrei, zugänglich, accessible, disability, behinderung, contrast ratio, kontrast, … |
+| [`design/people/affordances`](design/02-people/affordances-and-controls.md) | Affordances — making the object explain itself | rules | affordance, affordanz, intuitive, intuitiv, how do i use, wie benutzt man, confusing, verwirrend, … |
+| [`design/people/ergonomics`](design/02-people/ergonomics-and-anthropometrics.md) | Ergonomics and anthropometrics | rules | ergonomic, ergonomie, grip, griff, greifen, handle, handgriff, hand, … |
+| [`design/principles/balance`](design/01-principles/balance-and-stance.md) | Balance and stance | rules | balance, balance halten, symmetry, symmetrie, asymmetric, asymmetrisch, stance, standfestigkeit, … |
+| [`design/principles/hierarchy`](design/01-principles/visual-hierarchy.md) | Visual hierarchy | rules | hierarchy, hierarchie, emphasis, betonung, focal point, blickfang, what stands out, sticht hervor, … |
+| [`design/principles/proportion`](design/01-principles/proportion-and-scale.md) | Proportion and scale | rules | proportion, proportionen, ratio, verhältnis, golden ratio, goldener schnitt, scale, maßstab, … |
+| [`design/principles/restraint`](design/01-principles/simplicity-and-restraint.md) | Simplicity and restraint | rules | simple, einfach, simplicity, einfachheit, minimal, reduziert, too much, zu viel, … |
+| [`design/principles/systems`](design/01-principles/consistency-and-systems.md) | Consistency — designing with systems | recipe | consistency, konsistenz, einheitlich, system, systematik, spacing scale, raster, grid, … |
+| [`design/principles/what-good-looks-like`](design/01-principles/what-good-looks-like.md) | What good looks like | basics | good design, gutes design, quality, qualität, looks cheap, billig, looks professional, hochwertig, … |
+| [`design/process/brief`](design/05-process/design-brief.md) | The brief — what to establish before drawing | recipe | brief, briefing, requirements, anforderungen, what do i need, was brauche ich, specification, spezifikation, … |
+| [`design/process/critique`](design/05-process/design-critique.md) | Design critique — reviewing an object | checklist | critique, kritik, review, überprüfen, bewerten, feedback, is this good, ist das gut, … |
+| [`design/process/iteration`](design/05-process/iteration-and-mockups.md) | Iteration and mock-ups | recipe | iteration, iterieren, prototype, prototyp, mockup, modell, test print, testdruck, … |
+| [`design/start-here`](design/00-start-here.md) | Design — start here, on every part | basics | design, gestaltung, entwurf, looks, aussehen, aesthetic, ästhetisch, schön, … |
 
 ## Laser cutting
 
@@ -36,35 +57,46 @@ opened on demand. See [`README.md`](README.md) for how the mechanism works.
 | [`laser/basics/machine-assumptions`](laser/01-basics/machine-assumptions.md) | Machine assumptions — what these numbers were written for | basics | machine, maschine, my laser, laser settings, einstellungen, measured kerf, gemessene schnittfuge, calibration record |
 | [`laser/checklists/before-you-export`](laser/07-checklists/before-you-export.md) | Before you export — the laser checklist | checklist | checklist, checkliste, before cutting, vor dem schneiden, ready to cut, fertig, review, prüfen, … |
 | [`laser/checklists/new-material`](laser/07-checklists/new-material-first-time.md) | First time with a new material | checklist | new material, neues material, first time, zum ersten mal, unknown sheet, unbekannt, test settings, einstellungen finden, … |
+| [`laser/engraving/engraving-wood`](laser/05-engraving/engraving-wood.md) | Engraving on wood | rules | engrave wood, holz gravieren, gravur holz, wood engraving, contrast, kontrast, photo on wood, foto auf holz, … |
 | [`laser/engraving/raster-engraving`](laser/05-engraving/raster-engraving.md) | Raster engraving — filled areas and images | rules | engrave, engraving, gravur, gravieren, raster, bitmap, image, bild, … |
 | [`laser/engraving/score-and-fold`](laser/05-engraving/score-and-fold.md) | Scoring and folding | recipe | score, scoring, ritzen, kerben, anritzen, fold, falten, falz, … |
 | [`laser/engraving/text-and-fonts`](laser/05-engraving/text-and-fonts.md) | Text and fonts | rules | text, schrift, font, schriftart, lettering, beschriftung, label, etikett, … |
 | [`laser/examples/finger-joint-box`](laser/09-worked-examples/finger-joint-box.md) | Worked example — a finger-jointed box | example | box, kiste, schachtel, kasten, gehäuse, make a box, box bauen, example, … |
-| [`laser/examples/front-panel`](laser/09-worked-examples/front-panel-with-cutouts.md) | Worked example — a front panel with cutouts | example | front panel, frontplatte, panel, blende, cutout, ausschnitt, connector, stecker, … |
+| [`laser/examples/front-panel`](laser/09-worked-examples/front-panel-with-cutouts.md) | Worked example — a plywood front panel with cutouts | example | front panel, frontplatte, panel, blende, cutout, ausschnitt, connector, stecker, … |
 | [`laser/failures/catalogue`](laser/08-failures/failure-catalogue.md) | Failure catalogue — symptom, cause, fix | failures | problem, fehler, went wrong, schiefgegangen, didn't cut, nicht durchgeschnitten, burnt, verbrannt, … |
 | [`laser/fileprep/common-errors`](laser/06-file-prep/common-file-errors.md) | Common file errors | failures | duplicate line, doppelte linie, open path, offener pfad, not cutting, schneidet nicht, cut twice, zweimal geschnitten, … |
 | [`laser/fileprep/export`](laser/06-file-prep/export-dxf-svg.md) | Exporting — DXF, SVG and the traps in between | rules | export, exportieren, dxf, svg, ai, pdf, file format, dateiformat, … |
 | [`laser/fileprep/layers-colours-linewidth`](laser/06-file-prep/layers-colours-linewidth.md) | Layers, colours and line widths | rules | layer, ebene, colour, color, farbe, rgb, line width, linienbreite, … |
+| [`laser/finishing/char-and-cleanup`](laser/10-wood-finishing/char-and-cleanup.md) | Char — preventing it, and cleaning up what is left | recipe | char, verkohlt, burn marks, brandspuren, brandflecken, scorch, versengt, soot, … |
+| [`laser/finishing/fasteners-in-wood`](laser/10-wood-finishing/fasteners-in-wood.md) | Fasteners in wood — screws, inserts and captive nuts | recipe | screw, schraube, schrauben, pilot hole, vorbohren, kernloch, threaded insert, gewindeeinsatz, … |
+| [`laser/finishing/gluing-wood`](laser/10-wood-finishing/gluing-wood.md) | Gluing laser-cut wood | recipe | glue, kleber, kleben, leim, holzleim, pva, wood glue, ca, … |
+| [`laser/finishing/sealing-and-finishing`](laser/10-wood-finishing/sealing-and-finishing.md) | Sealing and finishing | recipe | finish, finish auftragen, oil, öl, lacquer, lack, varnish, firnis, … |
 | [`laser/geometry/corners-and-overburn`](laser/03-geometry/corners-and-overburn.md) | Corners and overburn — where the beam lingers | rules | corner, ecke, overburn, überbrannt, burn mark, brandfleck, sharp corner, scharfe ecke, … |
+| [`laser/geometry/grain-and-ply-direction`](laser/03-geometry/grain-and-ply-direction.md) | Grain and ply direction | rules | grain, maserung, faserrichtung, grain direction, ply direction, faserverlauf, split, gespalten, … |
 | [`laser/geometry/minimum-features`](laser/03-geometry/minimum-features.md) | Minimum features — how small is too small | rules | minimum, minimal, kleinste, smallest, tiny, fein, filigree, filigran, … |
 | [`laser/geometry/nesting-and-spacing`](laser/03-geometry/nesting-and-spacing.md) | Nesting and spacing — laying parts out on the sheet | rules | nesting, verschachtelung, layout, anordnung, sheet, platte, spacing, abstand, … |
 | [`laser/geometry/taper-and-focus`](laser/03-geometry/taper-and-focus.md) | Taper and focus — why a thick cut is not square | basics | taper, konisch, schräg, angled edge, focus, fokus, thick material, dickes material, … |
 | [`laser/joints/cross-lap`](laser/04-joints/cross-lap.md) | Cross-lap joint (egg-crate) | recipe | cross lap, halbüberblattung, überblattung, egg crate, eierkarton, kreuzverbindung, grid, raster, … |
 | [`laser/joints/finger-joint`](laser/04-joints/finger-joint.md) | Finger joint (box joint) | recipe | finger joint, box joint, comb joint, fingerzinken, zinken, zinkenverbindung, kiste, schachtel, … |
 | [`laser/joints/living-hinge`](laser/04-joints/living-hinge.md) | Living hinge (lattice hinge) | recipe | living hinge, lattice hinge, biegescharnier, lasergelenk, federgelenk, bend wood, holz biegen, flexible, … |
+| [`laser/joints/selection`](laser/04-joints/wood-joint-selection.md) | Choosing a joint for wood | decision | which joint, welche verbindung, joint, verbindung, join, verbinden, corner, ecke, … |
 | [`laser/joints/snap-and-friction-fits`](laser/04-joints/snap-and-friction-fits.md) | Snap and friction fits in sheet | recipe | snap fit, schnappverbindung, clip, klemme, friction fit, klemmpassung, keyhole, schlüsselloch, … |
 | [`laser/joints/stacked-layer-construction`](laser/04-joints/stacked-layer-construction.md) | Stacked-layer construction — 3D out of a 2D machine | recipe | stacked, stack, gestapelt, stapel, schichtbauweise, layers, schichten, lamination, … |
 | [`laser/joints/t-slot-captive-nut`](laser/04-joints/t-slot-captive-nut.md) | T-slot joint with a captive nut | recipe | t-slot, t slot, tslot, captive nut, mutternfalle, mutterntasche, einlegemutter, screwed joint, … |
 | [`laser/joints/tab-and-slot`](laser/04-joints/tab-and-slot.md) | Tab and slot | recipe | tab and slot, tab, zapfen, slot, schlitz, nut, steckverbindung, mortise, … |
 | [`laser/materials/acrylic`](laser/02-materials/acrylic.md) | Acrylic (PMMA) — cast vs extruded | material | acrylic, acryl, acrylglas, plexiglas, pmma, perspex, plastic sheet, klarsichtplatte, … |
+| [`laser/materials/bamboo-and-veneer`](laser/02-materials/bamboo-and-veneer.md) | Bamboo and veneer | material | bamboo, bambus, veneer, furnier, laminated, laminiert, faced plywood, furniersperrholz, … |
 | [`laser/materials/leather-felt-textile`](laser/02-materials/leather-felt-textile.md) | Leather, felt and textile — soft goods | material | leather, leder, felt, filz, fabric, stoff, textile, textil, … |
-| [`laser/materials/material-table`](laser/02-materials/material-table.md) | Material comparison — what to cut and what it costs you | decision | material, werkstoff, which material, welches material, sheet, platte, acrylic or wood, compare materials, … |
-| [`laser/materials/mdf`](laser/02-materials/mdf.md) | MDF — cheap, flat, and always dark at the edge | material | mdf, mitteldichte faserplatte, fibreboard, faserplatte, hdf, cheap sheet, jig material, schablone |
+| [`laser/materials/material-table`](laser/02-materials/material-table.md) | Material numbers — every sheet in one table | rules | material table, materialtabelle, compare, vergleich, kerf table, numbers, zahlen, thickness, … |
+| [`laser/materials/mdf`](laser/02-materials/mdf.md) | MDF — cheap, flat, and always dark at the edge | material | mdf, mitteldichte faserplatte, fibreboard, faserplatte, hdf, cheap sheet, günstig, jig material, … |
 | [`laser/materials/never-cut-these`](laser/02-materials/never-cut-these.md) | Never cut these — the materials that hurt people and machines | rules | pvc, vinyl, polycarbonate, lexan, abs, teflon, ptfe, fiberglass, … |
+| [`laser/materials/non-wood`](laser/02-materials/non-wood-materials.md) | Non-wood materials — when they are the right answer | decision | acrylic, acryl, plexiglas, plastic, kunststoff, card, karton, leather, … |
 | [`laser/materials/paper-card-corrugated`](laser/02-materials/paper-card-corrugated.md) | Paper, card and corrugated — the mock-up materials | material | paper, papier, card, karton, cardboard, pappe, greyboard, graupappe, … |
-| [`laser/materials/plywood`](laser/02-materials/plywood.md) | Plywood — the default structural sheet | material | plywood, sperrholz, ply, birch ply, birkensperrholz, wood, holz, poplar ply, … |
-| [`laser/materials/solid-wood`](laser/02-materials/solid-wood.md) | Solid wood — grain, and what it does to a cut | material | solid wood, massivholz, hardwood, hartholz, walnut, nussbaum, oak, eiche, … |
-| [`laser/start-here`](laser/00-start-here.md) | Laser cutting — start here | basics | laser, laser cutting, lasercut, laser cutter, Laser, Laserschneiden, lasern, CO2 laser, … |
+| [`laser/materials/plywood`](laser/02-materials/plywood.md) | Plywood — the default structural sheet | material | plywood, sperrholz, ply, birch ply, birkensperrholz, baltic birch, multiplex, laser ply, … |
+| [`laser/materials/solid-wood`](laser/02-materials/solid-wood.md) | Solid wood — species, grain and what each one does | material | solid wood, massivholz, hardwood, hartholz, species, holzart, walnut, nussbaum, … |
+| [`laser/materials/wood-moisture-and-storage`](laser/02-materials/wood-moisture-and-storage.md) | Moisture, warping and storing sheet | basics | warped, verzogen, bowed, krumm, not flat, nicht plan, moisture, feuchtigkeit, … |
+| [`laser/materials/wood-overview`](laser/02-materials/wood-overview.md) | Wood — the default material, and how to choose within it | decision | wood, holz, which wood, welches holz, material, werkstoff, plywood or solid, sperrholz oder massivholz, … |
+| [`laser/start-here`](laser/00-start-here.md) | Laser cutting wood — start here | basics | laser, laser cutting, lasercut, laser cutter, Laser, Laserschneiden, lasern, CO2 laser, … |
 
 ## FDM printing
 
