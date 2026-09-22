@@ -94,14 +94,34 @@ void main() {
       expect(geometryOf(app), hasLength(4), reason: 'neither one copies');
     });
 
-    test('offset adds a parallel curve at a distance', () async {
+    test('offset goes consistently outward, not entity by entity', () async {
+      // The defect this replaces: the side came from each entity's OWN
+      // normal, whose direction depends on how that entity happens to be
+      // parameterised. On a square drawn as four separate lines, two offset
+      // outward and two inward — four lines came back as nine closed
+      // regions, which is not an offset of anything.
       final app = await square();
       final report = await AiCad(app).run([
         const AiAction('sketch_modify', {'action': 'offset', 'distance': 3})
       ]);
       expect(report.ok, isTrue, reason: report.encode());
       expect(report.outcomes.single.detail!['offset'], 4);
-      expect(geometryOf(app), hasLength(8));
+      expect(report.outcomes.single.detail!['direction'], 'outward');
+      // Each offset line is axis-aligned, so one of its coordinates is
+      // constant and IS the line's position. A square 0..40 offset outward
+      // by 3 puts all four at -3 or 43 — every one of them, which is the
+      // thing that was wrong before.
+      expect(_linePositions(geometryOf(app).skip(4)), [-3.0, -3.0, 43.0, 43.0]);
+    });
+
+    test('a negative distance offsets inward', () async {
+      final app = await square();
+      final report = await AiCad(app).run([
+        const AiAction('sketch_modify', {'action': 'offset', 'distance': -5})
+      ]);
+      expect(report.ok, isTrue, reason: report.encode());
+      expect(report.outcomes.single.detail!['direction'], 'inward');
+      expect(_linePositions(geometryOf(app).skip(4)), [5.0, 5.0, 35.0, 35.0]);
     });
 
     test('trim removes the piece the point is on', () async {
@@ -372,4 +392,20 @@ void main() {
       }
     });
   });
+}
+
+/// Where each axis-aligned line sits: the coordinate that does NOT change
+/// along it. Sorted, so the check is about the set of positions rather than
+/// the order the offsets happened to be made in.
+List<double> _linePositions(Iterable<Geo> geometry) {
+  final out = <double>[];
+  for (final g in geometry) {
+    final d = g.data;
+    if ((d[0] - d[2]).abs() < 1e-9) {
+      out.add(double.parse(d[0].toStringAsFixed(6)));
+    } else if ((d[1] - d[3]).abs() < 1e-9) {
+      out.add(double.parse(d[1].toStringAsFixed(6)));
+    }
+  }
+  return out..sort();
 }

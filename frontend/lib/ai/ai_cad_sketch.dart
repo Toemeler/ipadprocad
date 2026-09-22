@@ -291,23 +291,45 @@ extension AiCadSketch on AiCad {
         if (distance == null || distance == 0) {
           return AiActionOutcome.failed(a.op, 'distance must not be zero');
         }
+        // WHICH WAY IS OUT.
+        //
+        // offsetEntity takes a POINT on the side to offset towards, and the
+        // obvious way to build one — step along the entity's own normal —
+        // gives a direction that depends on how that entity happens to be
+        // parameterised. On a square drawn as four separate lines two came
+        // out offset outward and two inward, which is not an offset of
+        // anything; the probe showed nine closed regions from four lines.
+        //
+        // The selection's centroid fixes it: positive is AWAY from the middle
+        // of what was selected and negative is towards it, which is what
+        // "offset the profile by 3" means to anyone saying it.
+        final centre = _centroidOf(geometry, selected);
         final made = <Geo>[];
+        final skipped = <int>[];
         for (final i in selected) {
-          // `side` is a point on the side to offset towards; a signed
-          // distance along the entity's own normal is what a model can
-          // actually express, so build that point from the entity's midpoint.
-          final side = _offsetSide(geometry[i], distance);
-          if (side == null) continue;
+          final side = _offsetSide(geometry[i], distance, centre);
+          if (side == null) {
+            skipped.add(i);
+            continue;
+          }
           final g = offsetEntity(geometry[i], side);
-          if (g != null) made.add(g);
+          if (g != null) {
+            made.add(g);
+          } else {
+            skipped.add(i);
+          }
         }
         if (made.isEmpty) {
           return AiActionOutcome.failed(
               a.op, 'none of the selected entities can be offset');
         }
-        return _commitGeometry(cs, a, [...geometry, ...made],
-            {'action': 'offset', 'offset': made.length,
-              'distance': _r(distance)});
+        return _commitGeometry(cs, a, [...geometry, ...made], {
+          'action': 'offset',
+          'offset': made.length,
+          'distance': _r(distance),
+          'direction': distance > 0 ? 'outward' : 'inward',
+          if (skipped.isNotEmpty) 'couldNotOffset': skipped.length,
+        });
       default:
         break;
     }
@@ -480,10 +502,10 @@ extension AiCadSketch on AiCad {
     };
   }
 
-  /// A point on the side an offset should go towards, [distance] away from
-  /// the entity's own midpoint along its normal. Positive is left of the
-  /// direction of travel.
-  Offset? _offsetSide(Geo g, double distance) {
+  /// A point on the side an offset should go towards: [distance] from the
+  /// entity's midpoint, along the normal, turned so that a POSITIVE distance
+  /// always points away from [centre].
+  Offset? _offsetSide(Geo g, double distance, Offset centre) {
     final pts = sampleEntity(g, arcSamples: 16);
     if (pts.length < 2) return null;
     final mid = pts[pts.length ~/ 2];
@@ -492,9 +514,30 @@ extension AiCadSketch on AiCad {
     final tx = after.dx - before.dx, ty = after.dy - before.dy;
     final len = math.sqrt(tx * tx + ty * ty);
     if (len < 1e-12) return null;
-    // For a circle the "side" is measured from the centre, and the sampled
-    // normal points outward, which is what a positive distance should mean.
-    return Offset(mid.dx - ty / len * distance, mid.dy + tx / len * distance);
+    var nx = -ty / len, ny = tx / len;
+    // Point the normal away from the selection's middle. An entity whose
+    // midpoint IS the middle (a circle centred there) has no outward to
+    // choose, and its own normal already points out of it.
+    final ax = mid.dx - centre.dx, ay = mid.dy - centre.dy;
+    if (ax * ax + ay * ay > 1e-12 && nx * ax + ny * ay < 0) {
+      nx = -nx;
+      ny = -ny;
+    }
+    return Offset(mid.dx + nx * distance, mid.dy + ny * distance);
+  }
+
+  /// The middle of a selection, by sampled points — good enough to say which
+  /// way is out, and it does not care whether the shape is convex.
+  Offset _centroidOf(List<Geo> geometry, List<int> selected) {
+    var sx = 0.0, sy = 0.0, n = 0;
+    for (final i in selected) {
+      for (final q in sampleEntity(geometry[i], arcSamples: 16)) {
+        sx += q.dx;
+        sy += q.dy;
+        n++;
+      }
+    }
+    return n == 0 ? Offset.zero : Offset(sx / n, sy / n);
   }
 
   // ---- gear and text ----------------------------------------------------
