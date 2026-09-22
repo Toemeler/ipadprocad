@@ -966,6 +966,75 @@ int main(void)
                   "[20] half revolve volume wrong");
             occt_free_shape(h);
         }
+    }
+
+    /* [20b] v31 (#76) — A FULL TURN OF AN ARC PROFILE: THE TORUS.
+     *
+     * [20] above revolves a RECTANGLE, whose straight edges give planar and
+     * cylindrical faces. Those unify correctly, so it passed while a full
+     * turn of a CIRCLE was impossible: the lateral surface arrives as two
+     * half-torus patches, and ShapeUpgrade_UnifySameDomain merges them into
+     * one doubly-closed face that BRepMesh triangulates to NOTHING. A full
+     * torus has no end caps, so that face IS the shape, and the app got a
+     * solid of exactly the right volume with ZERO triangles. Issue #76 is a
+     * whole capstan built at 359 degrees, with a 1-degree sliver in every
+     * rope winding, because of this. unify_or_keep is the fix.
+     *
+     * [20] also shows why this needed its own fixture rather than one more
+     * assertion there: it checks volume, validity and face count, and all
+     * three were RIGHT. Only the mesh was wrong, and nothing asked for it.
+     *
+     * Volume is analytic — Pappus gives 2*pi^2*R*r^2 — so no golden is
+     * needed, and the mesh assertion is the point: a body nobody can see is
+     * a failed feature, not a cosmetic issue. The 2-arc representation of a
+     * circle is exactly what the sketcher emits (the probe on the real
+     * profile path returns {29,0,+1},{25,0,+1} for a d=4 circle at x=27).
+     */
+    {
+        /* circle r=2 centred at x=27, as two half arcs (bulge +-1) */
+        const double C[] = {
+            25.0, 0.0, 1.0,
+            29.0, 0.0, 1.0,
+        };
+        const int lc[] = {2};
+        const double R = 27.0, r = 2.0;
+        const double want =
+            2.0 * 3.14159265358979323846 * 3.14159265358979323846 * R * r * r;
+        occt_shape *t = occt_revolve_profile(C, lc, 1, 0.0, 0.0, 0.0, 1.0,
+                                             360.0);
+        if (check(t != NULL, "[20b] full turn of a circle returned NULL")) {
+            const double v = occt_shape_volume(t);
+            printf("[20b] torus volume %.6f (Pappus %.6f)\n", v, want);
+            check(near_rel(v, want, 1e-3), "[20b] torus volume not Pappus");
+            check(occt_shape_valid(t), "[20b] torus is not a valid solid");
+            /* THE ASSERTION THAT WAS MISSING. */
+            occt_mesh *m = occt_mesh_create(t, 0.1, 0.3);
+            if (check(m != NULL, "[20b] torus produced no mesh at all")) {
+                int nv = 0, nt = 0;
+                occt_mesh_counts(m, &nv, &nt, NULL, NULL);
+                printf("[20b] torus mesh %d verts %d tris\n", nv, nt);
+                check(nt > 0, "[20b] torus meshed to ZERO triangles");
+                occt_free_mesh(m);
+            }
+            occt_free_shape(t);
+        }
+        /* And the near-miss the model was forced into must still agree: 359
+         * degrees is 359/360 of the material, so if the full turn is right
+         * these two bracket each other. */
+        occt_shape *n = occt_revolve_profile(C, lc, 1, 0.0, 0.0, 0.0, 1.0,
+                                             359.0);
+        if (check(n != NULL, "[20b] 359 deg returned NULL")) {
+            check(near_rel(occt_shape_volume(n), want * 359.0 / 360.0, 1e-3),
+                  "[20b] 359 deg volume disagrees with the full turn");
+            occt_free_shape(n);
+        }
+    }
+
+    {
+        const double P[] = {
+            5.0, 0.0, 0.0,  10.0, 0.0, 0.0,  10.0, 3.0, 0.0,  5.0, 3.0, 0.0,
+        };
+        const int lc[] = {4};
         /* a profile straddling the axis must be REFUSED, not swept through
          * itself: same rectangle moved to x in [-2,3]. */
         const double X[] = {

@@ -503,6 +503,157 @@ static bool has_solid_material(const TopoDS_Shape &s);
 static double solid_volume(const TopoDS_Shape &s);
 static double boolean_fuzzy(const TopoDS_Shape &a, const TopoDS_Shape &b);
 
+/* Can this shape be turned into triangles at all?
+ *
+ * Meshes a COPY at a coarse deflection scaled to the shape, and answers
+ * whether any face came back with a triangulation. A copy because BRepMesh
+ * writes its result into the faces, and the caller's shape must not carry a
+ * coarse mesh into the renderer. See the same copy in solid_volume.
+ *
+ * "No triangles" is not a rendering inconvenience: the app builds a feature
+ * only if it can show it, so an unmeshable solid is a failed feature. This
+ * is the cheapest honest test of that, before the shape leaves the kernel. */
+static bool shape_can_be_meshed(const TopoDS_Shape &s)
+{
+    if (s.IsNull())
+        return false;
+    try {
+        Bnd_Box box;
+        BRepBndLib::Add(s, box);
+        if (box.IsVoid())
+            return false;
+        double xa, ya, za, xb, yb, zb;
+        box.Get(xa, ya, za, xb, yb, zb);
+        const double dx = xb - xa, dy = yb - ya, dz = zb - za;
+        const double diag = std::sqrt(dx * dx + dy * dy + dz * dz);
+        if (!std::isfinite(diag) || !(diag > 0.0))
+            return false;
+        const double lin = std::max(diag * 0.01, Precision::Confusion() * 10.0);
+        TopoDS_Shape c = BRepBuilderAPI_Copy(s).Shape();
+        if (c.IsNull())
+            return false;
+        BRepMesh_IncrementalMesh im(c, lin, Standard_False, 0.5, Standard_True);
+        for (TopExp_Explorer ex(c, TopAbs_FACE); ex.More(); ex.Next()) {
+            TopLoc_Location loc;
+            Handle(Poly_Triangulation) t =
+                BRep_Tool::Triangulation(TopoDS::Face(ex.Current()), loc);
+            if (!t.IsNull() && t->NbTriangles() > 0)
+                return true;
+        }
+        return false;
+    } catch (const Standard_Failure &) {
+        return false;
+    } catch (...) {
+        return false;
+    }
+}
+
+/* Is any face of this shape closed in BOTH directions?
+ *
+ * The one shape of the failure unify_or_keep guards against, and the reason
+ * that guard can be nearly free. A face whose surface is periodic in u and v
+ * AND whose trim spans the whole period in both is a torus with no boundary
+ * at all — the case BRepMesh returns nothing for. A cylinder is periodic in
+ * one direction only; a sphere is not periodic in v; a partial revolution
+ * does not span its period. None of them qualifies, so none of them pays for
+ * the mesh probe.
+ *
+ * Measured on OCCT 7.9.3: 0.0003 to 0.0019 ms, against 2.2 to 12.4 ms for
+ * the probe it stands in front of — which is itself as expensive as the
+ * tessellation the app does next, and would have doubled the cost of every
+ * feature build for a defect that only one shape has. */
+static bool has_doubly_closed_face(const TopoDS_Shape &s)
+{
+    if (s.IsNull())
+        return false;
+    for (TopExp_Explorer ex(s, TopAbs_FACE); ex.More(); ex.Next()) {
+        const TopoDS_Face f = TopoDS::Face(ex.Current());
+        try {
+            BRepAdaptor_Surface su(f, Standard_False);
+            if (!su.IsUPeriodic() || !su.IsVPeriodic())
+                continue;
+            double u0, u1, v0, v1;
+            BRepTools::UVBounds(f, u0, u1, v0, v1);
+            if (u1 - u0 >= su.UPeriod() - Precision::PConfusion() &&
+                v1 - v0 >= su.VPeriod() - Precision::PConfusion())
+                return true;
+        } catch (const Standard_Failure &) {
+        } catch (...) {
+        }
+    }
+    return false;
+}
+
+/* Merge same-surface faces — but never at the cost of the solid.
+ *
+ * ShapeUpgrade_UnifySameDomain is COSMETIC. It exists so that a cylinder
+ * built from two half-arcs shows as one face instead of two with a phantom
+ * meridian between them. Nothing about the part depends on it.
+ *
+ * On a FULL turn it destroys the part outright. A circle revolved 360 degrees
+ * about an axis it does not touch is a torus, whose lateral surface arrives
+ * from BRepPrimAPI_MakeRevol as TWO half-torus patches. Unify merges them
+ * into one face, closed in both directions — and BRepMesh then triangulates
+ * that face to NOTHING. A full torus has no end caps, so that one face IS the
+ * whole shape, and the app got a solid of exactly the right volume with zero
+ * triangles:
+ *
+ *   revolve 360, plain unify      faces=1  TRIS=0     vol=2131.8346
+ *   revolve 360, unify_or_keep    faces=2  TRIS=2592  vol=2131.8346
+ *
+ * (measured against the pinned OCCT 7.9.3; Pappus gives 2131.8346 for r=2 at
+ * R=27, so the volume was never the problem.) The app reports that as
+ * "occt_mesh_create: triangulation produced no triangles", and issue #76 is
+ * a whole capstan modelled at 359 degrees for this reason — a 1-degree sliver
+ * left in every rope winding, because a full turn was impossible.
+ *
+ * Two things hid it. The smoke test's revolve fixture is a RECTANGLE, whose
+ * straight edges give planar and cylindrical faces that unify correctly; only
+ * an arc-built profile makes the torus. And it asserted volume, validity and
+ * face count — never the mesh, which is the one thing that was wrong. [20b]
+ * is the arc fixture, and it meshes.
+ *
+ * It is also version-dependent: on OCCT 7.6 the same unify leaves the two
+ * patches alone and everything works. So the guard is written against the
+ * BEHAVIOUR, not against a version check that would rot.
+ *
+ * So: unify, and if the merged shape cannot be meshed while the original
+ * could, hand back the original. Nothing else moves — 359, 180 and 90 degrees
+ * and the rectangle tube all come back with the same faces and the same
+ * triangles as before. A visible seam line is a blemish; a body nobody can
+ * see is a bug. */
+static TopoDS_Shape unify_or_keep(const TopoDS_Shape &body,
+                                  bool concat_bsplines = false)
+{
+    if (body.IsNull())
+        return body;
+    TopoDS_Shape merged;
+    try {
+        ShapeUpgrade_UnifySameDomain uni(
+            body, Standard_True, Standard_True,
+            concat_bsplines ? Standard_True : Standard_False);
+        uni.Build();
+        merged = uni.Shape();
+    } catch (const Standard_Failure &) {
+        return body;
+    } catch (...) {
+        return body;
+    }
+    if (merged.IsNull())
+        return body;
+    if (merged.IsSame(body))
+        return merged;
+    /* The probe is as expensive as a tessellation, so it only runs on the
+     * one shape that has ever needed it. Everything else keeps the merge
+     * unexamined, exactly as before. */
+    if (!has_doubly_closed_face(merged))
+        return merged;
+    if (shape_can_be_meshed(merged))
+        return merged;
+    /* The merge broke it. Keep what came in, if that one is sound. */
+    return shape_can_be_meshed(body) ? body : merged;
+}
+
 static double arc_loop_signed_area(const double *xyb, int npts)
 {
     double a = 0.0;
@@ -722,10 +873,7 @@ extern "C" occt_shape *occt_extrude_profile_arcs(const double *xyb,
         body = cut.Shape();
     }
     if (std::fabs(taper_deg) < 1e-9) {
-        ShapeUpgrade_UnifySameDomain uni(body, Standard_True, Standard_True,
-                                         Standard_False);
-        uni.Build();
-        return wrap(uni.Shape(), "occt_extrude_profile_arcs");
+        return wrap(unify_or_keep(body), "occt_extrude_profile_arcs");
     }
 
     if (std::fabs(taper_deg) >= 90.0) {
@@ -766,10 +914,7 @@ extern "C" occt_shape *occt_extrude_profile_arcs(const double *xyb,
         set_err("occt_extrude_profile_arcs", "draft transform failed");
         return nullptr;
     }
-    ShapeUpgrade_UnifySameDomain uni(draft.Shape(), Standard_True,
-                                     Standard_True, Standard_False);
-    uni.Build();
-    return wrap(uni.Shape(), "occt_extrude_profile_arcs");
+    return wrap(unify_or_keep(draft.Shape()), "occt_extrude_profile_arcs");
     OCCT_CATCH("occt_extrude_profile_arcs", nullptr)
 }
 
@@ -780,10 +925,7 @@ extern "C" occt_shape *occt_unify(const occt_shape *shape)
         set_err("occt_unify", "null shape");
         return nullptr;
     }
-    ShapeUpgrade_UnifySameDomain uni(shape->s, Standard_True, Standard_True,
-                                     Standard_False);
-    uni.Build();
-    return wrap(uni.Shape(), "occt_unify");
+    return wrap(unify_or_keep(shape->s), "occt_unify");
     OCCT_CATCH("occt_unify", nullptr)
 }
 
@@ -3443,11 +3585,7 @@ extern "C" occt_shape *occt_move_faces(const occt_shape *shape,
     }
     /* Booleans leave co-planar splits behind; without this a moved face comes
      * back drawn with a seam across it (the v4 unify note). */
-    ShapeUpgrade_UnifySameDomain uni(acc, Standard_True, Standard_True,
-                                     Standard_True);
-    uni.Build();
-    const TopoDS_Shape out = uni.Shape().IsNull() ? acc : uni.Shape();
-    return wrap(out, "occt_move_faces");
+    return wrap(unify_or_keep(acc, true), "occt_move_faces");
     OCCT_CATCH("occt_move_faces", nullptr)
 }
 
@@ -3656,10 +3794,7 @@ extern "C" occt_shape *occt_revolve_profile(const double *xyb,
      * same-surface patches split at the seam, exactly like the two-half-arc
      * circle in the extrude path. Merge them so the display shows one
      * cylindrical/toroidal face and no phantom meridian lines. */
-    ShapeUpgrade_UnifySameDomain uni(body, Standard_True, Standard_True,
-                                     Standard_False);
-    uni.Build();
-    return wrap(uni.Shape(), "occt_revolve_profile");
+    return wrap(unify_or_keep(body), "occt_revolve_profile");
     OCCT_CATCH("occt_revolve_profile", nullptr)
 }
 
@@ -5977,10 +6112,7 @@ static occt_shape *finish_pipe(BRepOffsetAPI_MakePipeShell &mk,
             body = cut.Shape();
         }
     }
-    ShapeUpgrade_UnifySameDomain uni(body, Standard_True, Standard_True,
-                                     Standard_False);
-    uni.Build();
-    return wrap(uni.Shape(), who);
+    return wrap(unify_or_keep(body), who);
 }
 
 extern "C" occt_shape *occt_sweep_profile_ex(const double *xyb,
@@ -6189,10 +6321,7 @@ extern "C" occt_shape *occt_loft_sections(const double *xyb,
         set_err("occt_loft_sections", "the loft produced no material");
         return nullptr;
     }
-    ShapeUpgrade_UnifySameDomain uni(mk.Shape(), Standard_True, Standard_True,
-                                     Standard_False);
-    uni.Build();
-    return wrap(uni.Shape(), "occt_loft_sections");
+    return wrap(unify_or_keep(mk.Shape()), "occt_loft_sections");
     OCCT_CATCH("occt_loft_sections", nullptr)
 }
 
