@@ -208,6 +208,19 @@ const String kRowStopSharing = 'stopsharing';
 /// The read-only line: looking / N devices / off.
 const String kRowSyncStatus = 'syncstatus';
 
+// M442 — THE ACCOUNT ROWS, which replaced the share code entirely.
+//
+// One secret now instead of three (a code, a Worker, a key): the Backblaze
+// account IS the group, and the LAN group is derived from it. See
+// `cloud_account.dart`. Four rows rather than one pasted blob because all
+// four values come off two different pages of the Backblaze console and a
+// single field would be four chances to mistype with one error message.
+const String kRowCloudBucket = 'cloudbucket';
+const String kRowCloudEndpoint = 'cloudendpoint';
+const String kRowCloudKeyId = 'cloudkeyid';
+const String kRowCloudAppKey = 'cloudappkey';
+const String kRowRemoveAccount = 'removeaccount';
+
 /// M423 — the address of a device to dial rather than look for: the way to
 /// use the mirror between two networks. See `LanSync.manualPeer`.
 const String kRowSyncPeer = 'syncpeer';
@@ -302,12 +315,20 @@ List<SettingsSection> buildSettings(
   /// (BugReport.enabled), and the whole section goes with it rather than
   /// leaving a header over nothing.
   bool diagnostics = true,
-  /// M381 — the share code this device is using, formatted for reading, or
-  /// null when it is not sharing. Defaulted so every existing caller (and
-  /// every test that pins the other sections) keeps working.
-  String? shareCode,
-  /// What the mirror is doing right now, as one short line. Only read when
-  /// [shareCode] is set.
+  /// M442 — the Backblaze account this device syncs with, field by field, or
+  /// null for each that has not been filled in. Defaulted so every existing
+  /// caller (and every test that pins the other sections) keeps working.
+  ///
+  /// THE KEY ITSELF IS NOT PASSED, only whether there is one
+  /// ([cloudAppKeySet]). A secret has no business travelling through a widget
+  /// tree to be rendered as a row's detail text, where the next screenshot in
+  /// a bug report would carry it.
+  String? cloudBucket,
+  String? cloudEndpoint,
+  String? cloudKeyId,
+  bool cloudAppKeySet = false,
+  /// What the mirror is doing right now, as one short line. Only read when the
+  /// account is complete.
   String? syncDetail,
   /// M420 — how many documents this device has changed since it and the group
   /// last agreed. The row is shown either way and says so when it is zero:
@@ -488,26 +509,55 @@ List<SettingsSection> buildSettings(
       // diagnostics: it is the last thing you set up about this INSTALL, and
       // the first thing someone looks for when a document is on the wrong
       // device.
+      // M442 — every field filled in. Nothing about the mirror is shown
+      // until then: a status row over a half-entered account would report a
+      // failure the person is still in the middle of causing.
       SettingsSection(
         id: kSecSync,
         header: t.settingsSync,
         rows: [
+          // M442 — the account, field by field. Always shown, in the order
+          // the Backblaze console hands them over: the bucket page first,
+          // then the key it makes.
           SettingsRow(
-            id: kRowShareCode,
-            title: shareCode == null ? t.settingsShareCodeSet : t.settingsShareCode,
-            detail: shareCode,
-            symbol: 'qrcode',
-            kind: shareCode == null
-                ? SettingsRowKind.action
-                : SettingsRowKind.value,
+            id: kRowCloudBucket,
+            title: t.settingsCloudBucket,
+            detail: cloudBucket ?? t.settingsCloudNone,
+            symbol: 'externaldrive.connected.to.line.below',
+            kind: SettingsRowKind.value,
           ),
-          if (shareCode == null)
-            SettingsRow(
-              id: kRowNewShareCode,
-              title: t.settingsNewShareCode,
-              symbol: 'wand.and.stars',
-            ),
-          if (shareCode != null) ...[
+          SettingsRow(
+            id: kRowCloudEndpoint,
+            title: t.settingsCloudEndpoint,
+            detail: cloudEndpoint ?? t.settingsCloudNone,
+            symbol: 'globe',
+            kind: SettingsRowKind.value,
+          ),
+          SettingsRow(
+            id: kRowCloudKeyId,
+            title: t.settingsCloudKeyId,
+            detail: cloudKeyId ?? t.settingsCloudNone,
+            symbol: 'person.badge.key',
+            kind: SettingsRowKind.value,
+          ),
+          // NEVER THE KEY, only that there is one. A row that rendered the
+          // secret would put it in the next bug report's screenshot.
+          SettingsRow(
+            id: kRowCloudAppKey,
+            title: t.settingsCloudAppKey,
+            detail: cloudAppKeySet
+                ? t.settingsCloudAppKeySaved
+                : t.settingsCloudNone,
+            symbol: 'key.fill',
+            kind: SettingsRowKind.value,
+          ),
+          // Every field filled in. Nothing about the mirror is shown until
+          // then: a status row over a half-entered account would report a
+          // failure the person is still in the middle of causing.
+          if ((cloudBucket ?? '').isNotEmpty &&
+              (cloudEndpoint ?? '').isNotEmpty &&
+              (cloudKeyId ?? '').isNotEmpty &&
+              cloudAppKeySet) ...[
             SettingsRow(
               id: kRowSyncStatus,
               title: t.settingsSyncStatus,
@@ -536,8 +586,8 @@ List<SettingsSection> buildSettings(
               destructive: syncLocalChanges > 0,
             ),
             SettingsRow(
-              id: kRowStopSharing,
-              title: t.settingsStopSharing,
+              id: kRowRemoveAccount,
+              title: t.settingsRemoveAccount,
               symbol: 'xmark.circle',
               destructive: true,
             ),

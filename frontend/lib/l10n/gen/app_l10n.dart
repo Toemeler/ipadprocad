@@ -8124,6 +8124,96 @@ abstract class AppL10n {
   /// In de, this message translates to:
   /// **'Kanten & Flächen'**
   String get measurePriorityEntity;
+
+  /// M442 cloud account row
+  ///
+  /// In de, this message translates to:
+  /// **'Cloud-Konto'**
+  String get settingsCloudAccount;
+
+  /// M442 cloud account row
+  ///
+  /// In de, this message translates to:
+  /// **'Nicht eingerichtet'**
+  String get settingsCloudNone;
+
+  /// M442 cloud account row
+  ///
+  /// In de, this message translates to:
+  /// **'Bucket'**
+  String get settingsCloudBucket;
+
+  /// M442 cloud account row
+  ///
+  /// In de, this message translates to:
+  /// **'Endpunkt'**
+  String get settingsCloudEndpoint;
+
+  /// M442 cloud account row
+  ///
+  /// In de, this message translates to:
+  /// **'Schlüssel-ID'**
+  String get settingsCloudKeyId;
+
+  /// M442 cloud account row
+  ///
+  /// In de, this message translates to:
+  /// **'Anwendungsschlüssel'**
+  String get settingsCloudAppKey;
+
+  /// M442 cloud account row
+  ///
+  /// In de, this message translates to:
+  /// **'Gespeichert'**
+  String get settingsCloudAppKeySaved;
+
+  /// M442 cloud account row
+  ///
+  /// In de, this message translates to:
+  /// **'Cloud-Konto entfernen'**
+  String get settingsRemoveAccount;
+
+  /// M442 cloud account row
+  ///
+  /// In de, this message translates to:
+  /// **'Der Name des Backblaze-B2-Buckets, den deine Geräte teilen. Stelle ihn auf Privat.'**
+  String get cloudPromptBucketBody;
+
+  /// M442 cloud account row
+  ///
+  /// In de, this message translates to:
+  /// **'Der Endpunkt des Buckets, genau wie ihn die Backblaze-Seite zeigt.'**
+  String get cloudPromptEndpointBody;
+
+  /// M442 cloud account row
+  ///
+  /// In de, this message translates to:
+  /// **'Die keyID eines Anwendungsschlüssels, der nur für diesen Bucket gilt.'**
+  String get cloudPromptKeyIdBody;
+
+  /// M442 cloud account row
+  ///
+  /// In de, this message translates to:
+  /// **'Der applicationKey, der beim Erstellen einmalig gezeigt wurde. Er bleibt nur auf diesem Gerät und wird nie an ein anderes gesendet.'**
+  String get cloudPromptAppKeyBody;
+
+  /// M442 cloud account row
+  ///
+  /// In de, this message translates to:
+  /// **'Das ist kein Endpunkt. Er sieht aus wie s3.eu-central-003.backblazeb2.com.'**
+  String get cloudBadEndpoint;
+
+  /// M442 cloud account row
+  ///
+  /// In de, this message translates to:
+  /// **'Cloud-Konto entfernen?'**
+  String get cloudRemoveTitle;
+
+  /// M442 cloud account row
+  ///
+  /// In de, this message translates to:
+  /// **'Dieses Gerät behält seine Dokumente und synchronisiert nicht mehr. Die anderen Geräte sind nicht betroffen, und im Bucket wird nichts gelöscht.'**
+  String get cloudRemoveBody;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

@@ -75,6 +75,7 @@ import 'vector_font.dart';
 import 'render_engine.dart';
 import 'render_samples.dart';
 import 'ribbon_dock.dart';
+import 'sync/cloud_account.dart';
 import 'sync/cloud_sync.dart';
 import 'sync/lan_sync.dart';
 import 'sync/sync_store.dart';
@@ -1852,7 +1853,11 @@ class AppState extends ChangeNotifier {
       preferences: _cacheRoot,
     );
     LanSync.instance.onApplied = _adoptSynced;
-    ShareCodes.attachStore(SyncStore(_cacheRoot));
+    // M442 — ONE SECRET, BOTH MIRRORS. The share code is gone; the Backblaze
+    // account is what says "these are my devices", and the LAN group is
+    // derived from it. See `cloud_account.dart` for why that is the stronger
+    // of the two and why the key is not kept in `settings.json`.
+    CloudAccount.attachStore(CloudAccountStore(_cacheRoot));
     // Linux/Windows only, and a no-op even there until something asks — see
     // update_check.dart. Attached here rather than checked from a bare
     // constant so a test can point it at its own temp directory instead of

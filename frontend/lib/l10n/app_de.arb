@@ -184,7 +184,7 @@
   "@settingsSyncLooking": {
     "description": "Status: ein Code ist gesetzt, aber noch kein Gerät gefunden."
   },
-  "settingsSyncDevices": "{n, plural, =0{Suche\u2026} =1{1 Gerät} other{{n} Geräte}}",
+  "settingsSyncDevices": "{n, plural, =0{Suche…} =1{1 Gerät} other{{n} Geräte}}",
   "@settingsSyncDevices": {
     "description": "Status: wie viele Geräte gerade verbunden sind.",
     "placeholders": {
@@ -4413,7 +4413,7 @@
   },
   "msgFinishSketchToPaste": "Zuerst die Skizze beenden — ein Volumenkörper gehört ins Bauteil, nicht in die Skizze.",
   "@msgFinishSketchToPaste": {
-      "description": "M345 — Einfuegen eines Koerpers oder Bauteils, waehrend der 2D-Editor im Bauteil offen ist."
+    "description": "M345 — Einfuegen eines Koerpers oder Bauteils, waehrend der 2D-Editor im Bauteil offen ist."
   },
   "settingsSamples": "Render-Qualität",
   "@settingsSamples": {
@@ -4434,11 +4434,11 @@
   },
   "settingsRibbonNames": "Namen anzeigen",
   "@settingsRibbonNames": {
-      "description": "M349 — Kontrollkaestchen im Abschnitt Menueband: schreibt die Befehlsnamen unter die Symbole. Standard AUS."
+    "description": "M349 — Kontrollkaestchen im Abschnitt Menueband: schreibt die Befehlsnamen unter die Symbole. Standard AUS."
   },
   "settingsRibbonNamesFooter": "Ohne Namen ist das Band deutlich schmaler; jeder Befehl behält seinen Namen als Kurzhinweis.",
   "@settingsRibbonNamesFooter": {
-      "description": "M349 — Fusszeile des Abschnitts. Sagt, was der Schalter kostet und was er nicht kostet."
+    "description": "M349 — Fusszeile des Abschnitts. Sagt, was der Schalter kostet und was er nicht kostet."
   },
   "panelMeasure": "Messen",
   "@panelMeasure": {
@@ -4743,5 +4743,65 @@
   "measurePriorityEntity": "Kanten & Flächen",
   "@measurePriorityEntity": {
     "description": "M371 — Auswahlpriorität: Kanten, Flaechen und Eckpunkte. Inventors Vorgabe und unsere."
+  },
+  "settingsCloudAccount": "Cloud-Konto",
+  "@settingsCloudAccount": {
+    "description": "M442 cloud account row"
+  },
+  "settingsCloudNone": "Nicht eingerichtet",
+  "@settingsCloudNone": {
+    "description": "M442 cloud account row"
+  },
+  "settingsCloudBucket": "Bucket",
+  "@settingsCloudBucket": {
+    "description": "M442 cloud account row"
+  },
+  "settingsCloudEndpoint": "Endpunkt",
+  "@settingsCloudEndpoint": {
+    "description": "M442 cloud account row"
+  },
+  "settingsCloudKeyId": "Schlüssel-ID",
+  "@settingsCloudKeyId": {
+    "description": "M442 cloud account row"
+  },
+  "settingsCloudAppKey": "Anwendungsschlüssel",
+  "@settingsCloudAppKey": {
+    "description": "M442 cloud account row"
+  },
+  "settingsCloudAppKeySaved": "Gespeichert",
+  "@settingsCloudAppKeySaved": {
+    "description": "M442 cloud account row"
+  },
+  "settingsRemoveAccount": "Cloud-Konto entfernen",
+  "@settingsRemoveAccount": {
+    "description": "M442 cloud account row"
+  },
+  "cloudPromptBucketBody": "Der Name des Backblaze-B2-Buckets, den deine Geräte teilen. Stelle ihn auf Privat.",
+  "@cloudPromptBucketBody": {
+    "description": "M442 cloud account row"
+  },
+  "cloudPromptEndpointBody": "Der Endpunkt des Buckets, genau wie ihn die Backblaze-Seite zeigt.",
+  "@cloudPromptEndpointBody": {
+    "description": "M442 cloud account row"
+  },
+  "cloudPromptKeyIdBody": "Die keyID eines Anwendungsschlüssels, der nur für diesen Bucket gilt.",
+  "@cloudPromptKeyIdBody": {
+    "description": "M442 cloud account row"
+  },
+  "cloudPromptAppKeyBody": "Der applicationKey, der beim Erstellen einmalig gezeigt wurde. Er bleibt nur auf diesem Gerät und wird nie an ein anderes gesendet.",
+  "@cloudPromptAppKeyBody": {
+    "description": "M442 cloud account row"
+  },
+  "cloudBadEndpoint": "Das ist kein Endpunkt. Er sieht aus wie s3.eu-central-003.backblazeb2.com.",
+  "@cloudBadEndpoint": {
+    "description": "M442 cloud account row"
+  },
+  "cloudRemoveTitle": "Cloud-Konto entfernen?",
+  "@cloudRemoveTitle": {
+    "description": "M442 cloud account row"
+  },
+  "cloudRemoveBody": "Dieses Gerät behält seine Dokumente und synchronisiert nicht mehr. Die anderen Geräte sind nicht betroffen, und im Bucket wird nichts gelöscht.",
+  "@cloudRemoveBody": {
+    "description": "M442 cloud account row"
   }
 }

@@ -2,102 +2,93 @@
 //
 // WHAT THIS IS FOR. `lan_sync.dart`'s header is blunt about the one thing it
 // cannot do: "It is NOT a cloud. There is no server, no account and nothing
-// leaves the local network. Two devices that cannot see each other's
-// broadcast — a guest network, a VPN, two different subnets — will not pair,
-// and the status row says 'looking' forever rather than pretending." M423
-// softened that with a typed-in address over an overlay network, which works
-// and still needs BOTH DEVICES SWITCHED ON AT ONCE. The iPad edited on a train
-// and the desktop opened that evening never overlap, so they never sync.
+// leaves the local network." M423 softened that with a typed-in address over
+// an overlay network, which works and still needs BOTH DEVICES SWITCHED ON AT
+// ONCE. The iPad edited on a train and the desktop opened that evening never
+// overlap, so they never sync.
 //
-// A bucket removes the "at once". One device leaves its files somewhere; the
-// other picks them up whenever it next runs. That is the whole of what this
-// adds.
+// A bucket removes the "at once". THE LAN MIRROR IS STILL THE FAST PATH and
+// is not going anywhere: when two devices can see each other a save is on the
+// other machine in about a second, over a socket, with no bucket involved.
+// This is what happens when they cannot.
 //
 // WHAT IT IS NOT: A SECOND SYNC DESIGN. Not one rule about what wins lives in
 // this file. Every decision — take, skip, keep both, honour a delete, take a
 // backup first — is made by `LanSync.verdictFor` and the members around it,
-// reached through the nine forwarders M441 added to that class. A cloud that
+// reached through the forwarders M441 added to that class. A cloud that
 // reasoned about conflicts on its own would be a second implementation of the
-// hardest part of this app, and the two would disagree on the day it mattered.
-// This file decides only WHAT TO MOVE AND IN WHICH ORDER.
+// hardest part of this app, and the two would disagree on the day it
+// mattered. This file decides only WHAT TO MOVE AND IN WHICH ORDER.
+//
+// M442 — NO SERVER IN BETWEEN. M441 put the B2 credential in a Cloudflare
+// Worker and asked it for presigned URLs. That is still the right answer when
+// the credential must not be on the device (see `cloud/README.md`), and it
+// costs a terminal, a Cloudflare account and a deploy. The app now signs its
+// own requests instead (`b2_signer.dart`), so the whole setup is a key pasted
+// into Settings. What that trades is written down in `cloud_account.dart`.
 //
 // HOW ONE CYCLE GOES
 //
 //   1. Ask LanSync what this device holds and what it remembers deleting.
-//   2. Pull every device's manifest from the Worker (one request).
+//   2. LIST the manifests. Fetch only the ones whose ETag moved.
 //   3. Apply peers' tombstones, then fetch and apply the entries this device
 //      wants — each through `mirrorApply`, so a fork still forks.
 //   4. Upload anything of ours the bucket does not have yet.
 //   5. Publish our own manifest.
 //
-// THE ORDER OF 4 AND 5 IS THE ONE INVARIANT THIS FILE OWNS, and it is worth
-// stating on its own because everything else rests on it:
+// THE ORDER OF 4 AND 5 IS THE ONE INVARIANT THIS FILE OWNS:
 //
 //   A MANIFEST ONLY EVER NAMES BLOBS THAT ARE ALREADY UPLOADED.
 //
 // Publish first and a peer reads an entry, asks for bytes that are not there
 // and — worse than failing — could conclude from a 404 that the document is
 // gone. Upload first and the failure mode is a blob nobody references yet,
-// which costs a few kilobytes until the next cycle names it. One of those is
-// a data-loss report and the other is litter.
+// which costs a few kilobytes until the collector takes it. One of those is a
+// data-loss report and the other is litter.
 //
-// BLOBS ARE CONTENT-ADDRESSED, keyed by the sha256 `SyncEntry` already
-// carries. That falls out of the mirror rather than being imposed on it:
-// `verdictFor` decides everything by comparing shas, so a blob named after its
-// own hash makes an upload idempotent, a rename free, and two documents
-// holding the same imported STEP file one object instead of two. It also
-// means NO DOCUMENT NAME EVER REACHES THE BUCKET — the manifest holds the
-// path-to-sha map, and the bucket sees hex.
+// WHAT MAKES IT FAST, since "it is the slow path" is not a reason to be slow:
+//
+//   * AN IDLE CYCLE IS ONE REQUEST. A LIST returns every manifest's ETag, and
+//     an ETag that has not moved is a device that has nothing to say. Only
+//     changed manifests are fetched. Three idle devices cost one LIST each,
+//     not one LIST and three GETs each.
+//   * THE INTERVAL FOLLOWS THE WORK. Five seconds while anything is
+//     happening, doubling up to two minutes when nothing is. Somebody moving
+//     between two devices is inside the fast band the whole time; a laptop
+//     left open overnight settles at the slow one.
+//   * A SAVE DOES NOT WAIT FOR THE INTERVAL AT ALL. [nudge] is called the
+//     moment bytes are on disk and runs a cycle a second later.
+//   * TRANSFERS RUN TOGETHER. Ten documents that changed are ten round trips,
+//     and done one after another on a phone connection that is most of a
+//     minute. Bounded, because a hundred at once is how a mobile connection
+//     is made to fail rather than to go faster.
+//
+// Which lands, in the ordinary case of two devices and a save, at about a
+// second on the LAN and about two seconds through the bucket.
 //
 // WHAT IS NOT ENCRYPTED, said plainly rather than implied away. The bucket is
 // private and TLS covers the wire, but the bytes sit on Backblaze's disks in
-// the clear, so this is on the same footing as keeping documents in Dropbox or
-// Drive: a company can read them. That is a real step down from the LAN
-// mirror, where nothing left the house. Closing it means encrypting before the
-// upload in [_upload] and decrypting after the download in [_download] — two
-// places — and a cipher, which is a dependency this app does not have yet
-// (`crypto` hashes, it does not encrypt). Until then `cloud/README.md` says
-// so and so does this. DO NOT put anything here you would mind Backblaze
-// holding.
-//
-// AND THE SHARE CODE IS STILL 60 BITS. `share_code.dart` is explicit that it
-// is "not a password and is not treated as one — a rendezvous token whose
-// exposure is bounded by being on one local network". This removes that bound.
-// The Worker's group prefix is an HMAC under a salt only it holds, so a code
-// cannot be turned into a bucket path off-device, and CLOUD_SYNC_SECRET keeps
-// casual traffic off the endpoint — but neither turns the code into a
-// password. Anyone who learns your code can read your gallery.
+// the clear, so this is on the same footing as keeping documents in Dropbox
+// or Drive: a company can read them. Closing it means encrypting in [_upload]
+// and decrypting in [_download] — two places — plus a cipher, which this app
+// does not have (`crypto` hashes, it does not encrypt).
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../log.dart';
+import 'b2_signer.dart';
 import 'lan_sync.dart';
-import 'share_code.dart';
-
-/// The Worker's address, baked in at build time via
-/// `--dart-define=CLOUD_SYNC_URL=...`. Empty means no cloud at all: nothing is
-/// started, nothing is sent, and the app behaves exactly as it did before this
-/// file existed. That is deliberately the default in every build config.
-const String cloudSyncUrl = String.fromEnvironment('CLOUD_SYNC_URL');
-
-/// An abuse throttle the Worker checks, baked in via
-/// `--dart-define=CLOUD_SYNC_SECRET=...`. NOT a credential — it ships inside
-/// the app and is therefore public. See `relay/README.md` for why that
-/// distinction holds for a throttle and would not for a token.
-const String cloudSyncSecret = String.fromEnvironment('CLOUD_SYNC_SECRET');
-
-/// Whether a cloud cycle will even be attempted.
-bool get cloudSyncConfigured => cloudSyncUrl.isNotEmpty;
 
 /// The manifest format's own version.
 ///
-/// Bumped when a change would make an older app MISREAD a manifest rather than
-/// merely miss a field — unknown keys are ignored on purpose, exactly as the
-/// LAN protocol's headers are, so a newer device can add one without an older
-/// one refusing the whole file.
+/// Bumped when a change would make an older app MISREAD a manifest rather
+/// than merely miss a field — unknown keys are ignored on purpose, exactly as
+/// the LAN protocol's headers are, so a newer device can add one without an
+/// older one refusing the file.
 const int kCloudManifestVersion = 1;
 
 /// What one device published about itself.
@@ -164,9 +155,23 @@ class CloudManifest {
   }
 }
 
+/// One object as a listing describes it.
+@immutable
+class B2Object {
+  final String key;
+  final String etag;
+  final int sizeBytes;
+  final int lastModifiedMs;
+
+  const B2Object(this.key, this.etag, this.sizeBytes, this.lastModifiedMs);
+
+  /// The last path segment — a manifest's device id, or a blob's sha.
+  String get name => key.substring(key.lastIndexOf('/') + 1);
+}
+
 /// Where a cycle got to, for the settings row and the log.
 enum CloudState {
-  /// No URL was built in, or no share code is set. Nothing runs.
+  /// No account. Nothing runs.
   off,
 
   /// A cycle is in flight.
@@ -191,16 +196,11 @@ class CloudStatus {
 
   final String? detail;
 
-  const CloudStatus(
-    this.state, {
-    this.devices = 0,
-    this.lastRun,
-    this.detail,
-  });
+  const CloudStatus(this.state, {this.devices = 0, this.lastRun, this.detail});
 
   /// Value equality, and it earns its place for the reason [SyncStatus]'s
-  /// does: this is a ValueNotifier published on every cycle, and without it
-  /// every listener is woken to be told what it already knew.
+  /// does: this is published on every cycle, and without it every listener is
+  /// woken to be told what it already knew.
   @override
   bool operator ==(Object other) =>
       other is CloudStatus &&
@@ -214,9 +214,6 @@ class CloudStatus {
 }
 
 /// The cloud half of the mirror.
-///
-/// A singleton for the same reason [LanSync] is one: it owns a timer and an
-/// HTTP client, and there is one bucket to talk to.
 class CloudSync {
   CloudSync._();
 
@@ -226,74 +223,100 @@ class CloudSync {
   final ValueNotifier<CloudStatus> status =
       ValueNotifier<CloudStatus>(const CloudStatus(CloudState.off));
 
-  /// How often a cycle runs on its own.
+  /// The interval while anything is happening.
   ///
-  /// TWO MINUTES, AND THE NUMBER IS NOT ARBITRARY. Backblaze gives 2,500 free
-  /// Class B transactions a day; a pull is one. Three devices at this interval
-  /// spend about 2,160 of them and stay inside it, where the same three at
-  /// thirty seconds would spend 8,640 and start costing money — pennies, but
-  /// pennies nobody agreed to. The mirror on a LAN is what makes "instant"
-  /// feel instant; this is the net under it.
-  static const Duration _cycleEvery = Duration(minutes: 2);
+  /// Five seconds, not one: a cycle is a LIST and usually nothing else, but
+  /// somebody who is merely SCROLLING the gallery should not be generating a
+  /// request every second for a bucket nobody is writing to. A save does not
+  /// wait for this at all — see [nudge].
+  static const Duration fastCycle = Duration(seconds: 5);
+
+  /// The interval once nothing has happened for a while.
+  ///
+  /// TWO MINUTES, AND THE NUMBER IS PICKED AGAINST A LIMIT. Backblaze gives
+  /// 2,500 free Class B transactions a day and an idle cycle spends one.
+  /// Three devices at two minutes spend about 2,160 of them and stay inside
+  /// it. The fast band above costs more, and costs it only while somebody is
+  /// actually working — which is the trade this whole schedule exists to
+  /// make.
+  static const Duration slowCycle = Duration(minutes: 2);
 
   /// How long any one request may take before it is abandoned.
   ///
   /// A phone that has walked out of range does not refuse a connection, it
-  /// simply never answers — and a cycle without this sits holding a timer that
-  /// will not fire again until it returns.
+  /// simply never answers — and a cycle without this holds the next one up
+  /// for ever.
   static const Duration _timeout = Duration(seconds: 30);
+
+  /// How many transfers run at once.
+  ///
+  /// Four, because the point is to stop paying full latency per document and
+  /// not to saturate a mobile connection: past about this many, a phone
+  /// starts timing requests out rather than finishing them sooner.
+  static const int _concurrency = 4;
 
   final http.Client _http = http.Client();
 
-  String? _code;
+  B2Credentials? _account;
   Timer? _timer;
+  Timer? _debounce;
+  Duration _interval = fastCycle;
+  DateTime? _lastRun;
 
-  /// Non-null while a cycle is running, so two never overlap.
-  ///
-  /// They would otherwise: the timer fires every two minutes and a cycle over
-  /// a slow connection can outlast that, which would have two of them
-  /// uploading the same blobs and publishing two manifests over each other.
+  /// The ETag each device's manifest had when it was last read, and what it
+  /// held. This is what makes an idle cycle one request: a manifest whose
+  /// ETag has not moved is a device with nothing to say, and is not fetched.
+  final Map<String, String> _manifestEtags = <String, String>{};
+  final Map<String, CloudManifest> _manifestCache = <String, CloudManifest>{};
+
+  /// Non-null while a cycle is running, so two never overlap. They would
+  /// otherwise: a cycle over a slow connection can outlast the interval, and
+  /// two of them would upload the same blobs and publish two manifests over
+  /// each other.
   Future<CloudResult>? _running;
 
-  bool get enabled => cloudSyncConfigured && _code != null;
+  bool get enabled => _account != null;
+  B2Credentials? get account => _account;
 
-  /// Turns the cloud on with [canonical], or off with null.
-  ///
-  /// Safe to call when no URL was built in: it records the code and does
-  /// nothing, so callers never have to ask whether the cloud exists.
-  Future<void> setCode(String? canonical) async {
-    if (canonical == _code) return;
-    _code = canonical;
+  /// Turns the cloud on with [credentials], or off with null.
+  Future<void> setAccount(B2Credentials? credentials) async {
+    final next =
+        (credentials != null && credentials.isComplete) ? credentials : null;
+    if (next == _account) return;
+    _account = next;
     _timer?.cancel();
     _timer = null;
-    if (!cloudSyncConfigured) return;
-    if (canonical == null) {
+    _manifestEtags.clear();
+    _manifestCache.clear();
+    if (next == null) {
       _publish(const CloudStatus(CloudState.off));
       Log.i('cloud', 'cloud mirror off');
       return;
     }
-    Log.i('cloud', 'cloud mirror on, group ${shareCodeFingerprint(canonical)}');
-    _timer = Timer.periodic(_cycleEvery, (_) => unawaited(_tick()));
+    Log.i('cloud', 'cloud mirror on, bucket ${next.bucket}');
+    _interval = fastCycle;
     unawaited(_tick());
   }
 
   /// Runs a cycle now, joining one already in flight rather than starting a
   /// second. This is what a "sync now" button calls.
-  Future<CloudResult> syncNow() => _tick();
-
-  /// M441 — a save just happened, so do not wait out the two minutes.
-  ///
-  /// Debounced rather than immediate: a save writes the document and its
-  /// preview and may rewrite a sidecar, and a cycle per write would upload the
-  /// same document three times. Five seconds is past the end of any one save
-  /// and far short of anything a person would notice.
-  void nudge() {
-    if (!enabled) return;
-    _debounce?.cancel();
-    _debounce = Timer(const Duration(seconds: 5), () => unawaited(_tick()));
+  Future<CloudResult> syncNow() {
+    _interval = fastCycle;
+    return _tick();
   }
 
-  Timer? _debounce;
+  /// A save just happened, so do not wait out the interval.
+  ///
+  /// ONE SECOND, debounced rather than immediate: a save writes the document
+  /// and its preview and may rewrite a sidecar, and a cycle per write would
+  /// upload the same document three times. One second is past the end of any
+  /// one save and short enough that nobody notices it.
+  void nudge() {
+    if (!enabled) return;
+    _interval = fastCycle;
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(seconds: 1), () => unawaited(_tick()));
+  }
 
   Future<CloudResult> _tick() {
     final running = _running;
@@ -302,7 +325,28 @@ class CloudSync {
     _running = started;
     return started.whenComplete(() {
       if (identical(_running, started)) _running = null;
+      _reschedule();
     });
+  }
+
+  /// Sets the next cycle, at whatever the interval has become.
+  ///
+  /// A single-shot timer rebuilt each time rather than `Timer.periodic`: the
+  /// interval changes, and a periodic timer cannot be asked to change its
+  /// mind.
+  void _reschedule() {
+    _timer?.cancel();
+    if (!enabled) return;
+    _timer = Timer(_interval, () => unawaited(_tick()));
+  }
+
+  /// Something happened, so stay in the fast band.
+  void _sawWork() => _interval = fastCycle;
+
+  /// Nothing happened, so back off — doubling, up to [slowCycle].
+  void _sawNothing() {
+    final next = _interval * 2;
+    _interval = next > slowCycle ? slowCycle : next;
   }
 
   // -------------------------------------------------------------------------
@@ -310,32 +354,27 @@ class CloudSync {
   // -------------------------------------------------------------------------
 
   Future<CloudResult> _cycle() async {
-    final code = _code;
-    if (!cloudSyncConfigured || code == null) {
-      return const CloudResult(CloudOutcome.off);
-    }
+    final account = _account;
+    if (account == null) return const CloudResult(CloudOutcome.off);
     final mirror = LanSync.instance;
-    final fingerprint = shareCodeFingerprint(code);
+    final group = _groupFor(account);
 
     _publish(CloudStatus(CloudState.working, lastRun: _lastRun));
     try {
       // 1. Notice what has changed HERE since the last cycle — a document
-      //    saved, a document deleted — so this device's tombstones are current
-      //    before anything is compared against them. Called for that effect;
-      //    the entries are read again at step 4, because steps 2 and 3 change
-      //    them. See [LanSync.mirrorState] for why the order inside it
-      //    matters.
+      //    saved, a document deleted — so this device's tombstones are
+      //    current before anything is compared against them. Called for that
+      //    effect; the entries are read again at step 4, because steps 2 and
+      //    3 change them.
       mirror.mirrorState();
 
-      // 2. Everyone's manifest, including our own last one.
-      final manifests = await _pull(fingerprint);
-      final mine = manifests.where((m) => m.device == mirror.deviceId).toList();
+      // 2. One LIST, and a GET only for what moved.
+      final manifests = await _pullManifests(account, group);
       final theirs =
           manifests.where((m) => m.device != mirror.deviceId).toList();
 
       // Every sha the bucket is known to hold. The invariant at the top of
-      // this file is what makes reading it off the manifests sound: nothing is
-      // named by a manifest until its bytes are up.
+      // this file is what makes reading it off the manifests sound.
       final uploaded = <String>{
         for (final m in manifests)
           for (final e in m.entries) e.sha,
@@ -349,22 +388,37 @@ class CloudSync {
           if (mirror.mirrorApplyTomb(t)) landed.add(t.path);
         }
       }
+
+      // Decided first, fetched together. Asking `mirrorWants` up front costs
+      // nothing and means the transfers below are all work that is wanted.
+      final wanted = <({SyncEntry entry, String from})>[];
+      final seen = <String>{};
       for (final m in theirs) {
         for (final entry in m.entries) {
           if (!mirror.mirrorWants(entry)) {
             // Not wanted means one of two very different things, and only one
-            // of them is worth writing down: we already hold exactly this, in
-            // which case the group agrees and the journal should say so.
+            // is worth writing down: we hold exactly this, so the group
+            // agrees and the journal should say so.
             mirror.mirrorNoteAgreement(entry);
             continue;
           }
-          final before = mirror.recentForks.value.length;
-          final bytes = await _download(fingerprint, entry);
-          if (bytes == null) continue;
-          if (mirror.mirrorApply(entry, bytes, peerName: m.deviceName)) {
-            landed.add(entry.path);
-            if (mirror.recentForks.value.length > before) forks++;
-          }
+          // Two devices offering the same version of the same path is one
+          // download, not two.
+          if (!seen.add('${entry.path}\u0000${entry.sha}')) continue;
+          wanted.add((entry: entry, from: m.deviceName));
+        }
+      }
+
+      final fetched = await _inBatches(
+        wanted,
+        (w) async => (w, await _download(account, group, w.entry)),
+      );
+      for (final (w, bytes) in fetched) {
+        if (bytes == null) continue;
+        final before = mirror.recentForks.value.length;
+        if (mirror.mirrorApply(w.entry, bytes, peerName: w.from)) {
+          landed.add(w.entry.path);
+          if (mirror.recentForks.value.length > before) forks++;
         }
       }
 
@@ -374,47 +428,64 @@ class CloudSync {
       // written documents to disk, and offering the versions this device held
       // before they landed would upload a file it no longer has.
       final after = mirror.mirrorState();
-      final published = <SyncEntry>[];
-      for (final entry in after.entries) {
-        if (uploaded.contains(entry.sha)) {
-          published.add(entry);
-          continue;
-        }
-        if (await _upload(fingerprint, entry)) {
-          published.add(entry);
-          // The group has it now, so this version is what we agree on.
-          mirror.mirrorNoteHandedOver(entry.path, entry.sha);
-        }
-        // An entry whose upload failed is deliberately left OUT of the
-        // manifest. It goes up on the next cycle; naming it now would break
-        // the one invariant this file owns.
-      }
-
-      // 5. Say what we hold.
-      await _push(
-        fingerprint,
-        CloudManifest(
-          device: mirror.deviceId,
-          deviceName: mirror.deviceName,
-          atMs: DateTime.now().millisecondsSinceEpoch,
-          entries: published,
-          tombs: after.tombs,
-        ),
+      final owed = [
+        for (final e in after.entries)
+          if (!uploaded.contains(e.sha)) e,
+      ];
+      final sent = await _inBatches(
+        owed,
+        (e) async => (e, await _upload(account, group, e)),
       );
+      final failed = <String>{
+        for (final (entry, ok) in sent)
+          if (!ok) entry.path,
+      };
+      for (final (entry, ok) in sent) {
+        if (ok) mirror.mirrorNoteHandedOver(entry.path, entry.sha);
+      }
+      // An entry whose upload failed is deliberately left OUT of the
+      // manifest. It goes up on the next cycle; naming it now would break the
+      // one invariant this file owns.
+      final published = [
+        for (final e in after.entries)
+          if (!failed.contains(e.path)) e,
+      ];
+
+      // 5. Say what we hold — but only if it differs from what we last said.
+      //    A manifest rewritten every cycle would change its ETag every cycle,
+      //    and every other device would fetch it to learn nothing.
+      final mineNow = CloudManifest(
+        device: mirror.deviceId,
+        deviceName: mirror.deviceName,
+        atMs: DateTime.now().millisecondsSinceEpoch,
+        entries: published,
+        tombs: after.tombs,
+      );
+      final changedOurs = _differs(_manifestCache[mirror.deviceId], mineNow);
+      if (changedOurs) {
+        await _push(account, group, mineNow);
+        _manifestCache[mirror.deviceId] = mineNow;
+        // Our own ETag is now unknown; the next LIST will tell us. Dropping
+        // it is what stops us reading our own write back as a peer's change.
+        _manifestEtags.remove(mirror.deviceId);
+      }
 
       if (landed.isNotEmpty) mirror.mirrorApplied(landed);
 
       _lastRun = DateTime.now();
       _publish(CloudStatus(CloudState.idle,
           devices: theirs.length, lastRun: _lastRun));
+
       final documents = landed.where((p) => !p.startsWith('settings/')).length;
-      if (documents > 0 || forks > 0) {
-        Log.i('cloud',
-            'cycle done: $documents document(s), $forks kept-both, ${theirs.length} device(s)');
+      if (documents > 0 || forks > 0 || changedOurs) {
+        _sawWork();
+        Log.i(
+            'cloud',
+            'cycle: $documents in, ${published.length} held, $forks kept-both, '
+            '${theirs.length} device(s)');
+      } else {
+        _sawNothing();
       }
-      // `mine` is read only to know whether this device had published before;
-      // a first cycle is worth one line in the log and nothing else.
-      if (mine.isEmpty) Log.i('cloud', 'first publish from this device');
       return CloudResult(
         forks > 0
             ? CloudOutcome.kept
@@ -427,107 +498,191 @@ class CloudSync {
       );
     } catch (e) {
       Log.w('cloud', 'cycle failed: $e');
-      _publish(CloudStatus(CloudState.failed,
-          lastRun: _lastRun, detail: '$e'));
+      _publish(
+          CloudStatus(CloudState.failed, lastRun: _lastRun, detail: '$e'));
+      // A failure backs off like a quiet cycle rather than hammering a bucket
+      // that is refusing us — a wrong key would otherwise be 720 rejected
+      // requests an hour.
+      _sawNothing();
       return CloudResult(CloudOutcome.failed, detail: '$e');
     }
   }
 
-  DateTime? _lastRun;
-
-  void _publish(CloudStatus next) => status.value = next;
-
-  // -------------------------------------------------------------------------
-  // The wire
-  // -------------------------------------------------------------------------
-
-  Map<String, String> _headers(String fingerprint) => {
-        'x-cloud-group': fingerprint,
-        'x-cloud-device': LanSync.instance.deviceId,
-        if (cloudSyncSecret.isNotEmpty) 'x-cloud-secret': cloudSyncSecret,
-      };
-
-  Uri _endpoint(String path) {
-    final base = cloudSyncUrl.endsWith('/')
-        ? cloudSyncUrl.substring(0, cloudSyncUrl.length - 1)
-        : cloudSyncUrl;
-    return Uri.parse('$base$path');
+  /// Whether the manifest we are about to publish says anything new.
+  static bool _differs(CloudManifest? was, CloudManifest now) {
+    if (was == null) return true;
+    if (was.entries.length != now.entries.length) return true;
+    if (was.tombs.length != now.tombs.length) return true;
+    // `atMs` is deliberately NOT compared: it moves every cycle and comparing
+    // it would make every cycle a write.
+    final a = {for (final e in was.entries) e.path: e.sha};
+    for (final e in now.entries) {
+      if (a[e.path] != e.sha) return true;
+    }
+    final t = {for (final e in was.tombs) e.path: e.deletedAtMs};
+    for (final e in now.tombs) {
+      if (t[e.path] != e.deletedAtMs) return true;
+    }
+    return false;
   }
 
-  Future<List<CloudManifest>> _pull(String fingerprint) async {
-    final res = await _http
-        .post(_endpoint('/v1/pull'), headers: _headers(fingerprint))
-        .timeout(_timeout);
-    if (res.statusCode != 200) {
-      throw StateError('pull: ${res.statusCode} ${res.body}');
-    }
-    final body = jsonDecode(res.body);
-    if (body is! Map) throw const FormatException('pull: not an object');
-    final raw = body['manifests'];
-    if (raw is! List) return const <CloudManifest>[];
-    final out = <CloudManifest>[];
-    for (final m in raw) {
-      final parsed = CloudManifest.fromJson(m);
-      if (parsed != null) out.add(parsed);
+  /// Runs [work] over [items], [_concurrency] at a time, in order.
+  static Future<List<R>> _inBatches<T, R>(
+      List<T> items, Future<R> Function(T) work) async {
+    final out = <R>[];
+    for (var i = 0; i < items.length; i += _concurrency) {
+      final end =
+          (i + _concurrency < items.length) ? i + _concurrency : items.length;
+      out.addAll(await Future.wait(items.sublist(i, end).map(work)));
     }
     return out;
   }
 
-  Future<void> _push(String fingerprint, CloudManifest manifest) async {
+  void _publish(CloudStatus next) => status.value = next;
+
+  // -------------------------------------------------------------------------
+  // The bucket
+  // -------------------------------------------------------------------------
+
+  /// The folder in the bucket this account's devices share.
+  ///
+  /// Derived rather than fixed, so one bucket can hold more than one group
+  /// without them ever seeing each other's manifests — and so the folder name
+  /// says nothing about the key it came from.
+  static String _groupFor(B2Credentials c) => sha256Hex(
+      'prototype-cloud\x00${c.appKey}\x00${c.bucket}');
+
+  Future<List<CloudManifest>> _pullManifests(
+      B2Credentials account, String group) async {
+    final listed = await _list(account, 'g/$group/m/');
+    final out = <CloudManifest>[];
+    final live = <String>{};
+
+    final stale = <B2Object>[];
+    for (final o in listed) {
+      if (!o.name.endsWith('.json')) continue;
+      final device = o.name.substring(0, o.name.length - 5);
+      live.add(device);
+      // THE WHOLE POINT OF THE LISTING. An ETag that has not moved is a
+      // device that has published nothing since we last looked, so there is
+      // no reason to spend a request on it.
+      if (_manifestEtags[device] == o.etag &&
+          _manifestCache.containsKey(device)) {
+        out.add(_manifestCache[device]!);
+        continue;
+      }
+      stale.add(o);
+    }
+
+    final fetched = await _inBatches(
+        stale, (o) async => (o, await _getString(account, o.key)));
+    for (final (o, body) in fetched) {
+      if (body == null) continue;
+      final device = o.name.substring(0, o.name.length - 5);
+      try {
+        final m = CloudManifest.fromJson(jsonDecode(body));
+        if (m == null) continue;
+        _manifestEtags[device] = o.etag;
+        _manifestCache[device] = m;
+        out.add(m);
+      } catch (e) {
+        // One device's unreadable manifest costs that device's updates this
+        // cycle. Failing the pull would cost every device's.
+        Log.w('cloud', 'could not read a manifest: $e');
+      }
+    }
+
+    // A device whose manifest is gone has left. Forgetting it keeps the
+    // caches from growing with every device that ever paired.
+    _manifestEtags.removeWhere((k, _) => !live.contains(k));
+    _manifestCache.removeWhere((k, _) => !live.contains(k));
+    return out;
+  }
+
+  Future<void> _push(
+      B2Credentials account, String group, CloudManifest manifest) async {
+    final url = B2Signer.sign(
+      credentials: account,
+      method: 'PUT',
+      key: 'g/$group/m/${manifest.device}.json',
+    );
     final res = await _http
-        .post(
-          _endpoint('/v1/push'),
-          headers: {
-            ..._headers(fingerprint),
-            'content-type': 'application/json',
-          },
-          body: jsonEncode(manifest.toJson()),
-        )
+        .put(url,
+            headers: const {'content-type': 'application/json'},
+            body: utf8.encode(jsonEncode(manifest.toJson())))
         .timeout(_timeout);
     if (res.statusCode != 200) {
-      throw StateError('push: ${res.statusCode} ${res.body}');
+      throw StateError('push: ${res.statusCode}');
     }
   }
 
-  /// A presigned URL for one blob, or null if the Worker would not give one.
-  Future<Uri?> _blobUrl(String fingerprint, String sha, String op) async {
-    final res = await _http
-        .post(
-          _endpoint('/v1/blob'),
-          headers: {
-            ..._headers(fingerprint),
-            'content-type': 'application/json',
-          },
-          body: jsonEncode({'op': op, 'sha': sha}),
-        )
-        .timeout(_timeout);
-    if (res.statusCode != 200) {
-      Log.w('cloud', 'no $op url for $sha: ${res.statusCode} ${res.body}');
+  /// Every object under [prefix], following the listing's continuation.
+  ///
+  /// B2 caps a listing at 1,000 and says so with `IsTruncated`. Reading only
+  /// the first page would silently hide devices once a bucket grew.
+  Future<List<B2Object>> _list(B2Credentials account, String prefix) async {
+    final out = <B2Object>[];
+    String? token;
+    // Bounded rather than `while (true)`: a server that kept handing back the
+    // same token would otherwise spin for ever.
+    for (var page = 0; page < 64; page++) {
+      final url = B2Signer.sign(
+        credentials: account,
+        method: 'GET',
+        key: '',
+        query: {
+          'list-type': '2',
+          'prefix': prefix,
+          'max-keys': '1000',
+          if (token != null) 'continuation-token': token,
+        },
+      );
+      final res = await _http.get(url).timeout(_timeout);
+      if (res.statusCode != 200) {
+        throw StateError('list: ${res.statusCode}');
+      }
+      final xml = utf8.decode(res.bodyBytes);
+      out.addAll(parseListing(xml));
+      token = parseContinuation(xml);
+      if (token == null) break;
+    }
+    return out;
+  }
+
+  Future<String?> _getString(B2Credentials account, String key) async {
+    try {
+      final res = await _http
+          .get(B2Signer.sign(credentials: account, method: 'GET', key: key))
+          .timeout(_timeout);
+      if (res.statusCode != 200) return null;
+      return utf8.decode(res.bodyBytes);
+    } catch (e) {
+      Log.w('cloud', 'could not read $key: $e');
       return null;
     }
-    final body = jsonDecode(res.body);
-    if (body is! Map) return null;
-    final url = body['url'];
-    return url is String && url.isNotEmpty ? Uri.parse(url) : null;
   }
 
   /// Fetches one document's bytes. Null on any failure, ALWAYS logged.
   ///
   /// Returning null rather than throwing on purpose: one document that cannot
-  /// be fetched — a blob a peer named but never finished uploading, a URL that
-  /// expired mid-cycle — must not cost the other nine their turn.
-  Future<Uint8List?> _download(String fingerprint, SyncEntry entry) async {
+  /// be fetched — a blob a peer named but never finished uploading — must not
+  /// cost the other nine their turn.
+  Future<Uint8List?> _download(
+      B2Credentials account, String group, SyncEntry entry) async {
     try {
-      final url = await _blobUrl(fingerprint, entry.sha, 'get');
-      if (url == null) return null;
-      final res = await _http.get(url).timeout(_timeout);
+      final res = await _http
+          .get(B2Signer.sign(
+              credentials: account,
+              method: 'GET',
+              key: 'g/$group/b/${entry.sha}'))
+          .timeout(_timeout);
       if (res.statusCode != 200) {
         Log.w('cloud', 'could not fetch ${entry.path}: ${res.statusCode}');
         return null;
       }
       // NOT verified here. `mirrorApply` re-hashes the bytes and drops
-      // anything whose sha does not match the entry, which is the same check
-      // a peer's bytes get and the only one that counts.
+      // anything whose sha does not match, which is the same check a peer's
+      // bytes get and the only one that counts.
       return Uint8List.fromList(res.bodyBytes);
     } catch (e) {
       Log.w('cloud', 'could not fetch ${entry.path}: $e');
@@ -536,7 +691,8 @@ class CloudSync {
   }
 
   /// Puts one document's bytes in the bucket. False on any failure.
-  Future<bool> _upload(String fingerprint, SyncEntry entry) async {
+  Future<bool> _upload(
+      B2Credentials account, String group, SyncEntry entry) async {
     try {
       final bytes = LanSync.instance.bytesFor(entry.path);
       if (bytes == null) {
@@ -544,11 +700,13 @@ class CloudSync {
         // again and will not offer it.
         return false;
       }
-      final url = await _blobUrl(fingerprint, entry.sha, 'put');
-      if (url == null) return false;
       final res = await _http
-          .put(url,
-              headers: {'content-type': 'application/octet-stream'},
+          .put(
+              B2Signer.sign(
+                  credentials: account,
+                  method: 'PUT',
+                  key: 'g/$group/b/${entry.sha}'),
+              headers: const {'content-type': 'application/octet-stream'},
               body: bytes)
           .timeout(_timeout);
       if (res.statusCode != 200 && res.statusCode != 201) {
@@ -568,21 +726,87 @@ class CloudSync {
     _timer = null;
     _debounce?.cancel();
     _debounce = null;
-    _code = null;
+    _account = null;
     _running = null;
     _lastRun = null;
+    _interval = fastCycle;
+    _manifestEtags.clear();
+    _manifestCache.clear();
     status.value = const CloudStatus(CloudState.off);
   }
+
+  @visibleForTesting
+  Duration get intervalForTest => _interval;
+
+  @visibleForTesting
+  void sawNothingForTest() => _sawNothing();
+
+  @visibleForTesting
+  void sawWorkForTest() => _sawWork();
+
+  @visibleForTesting
+  static String groupForTest(B2Credentials c) => _groupFor(c);
+
+  @visibleForTesting
+  static bool differsForTest(CloudManifest? was, CloudManifest now) =>
+      _differs(was, now);
 }
+
+/// The `<Contents>` of a ListObjectsV2 response.
+///
+/// A regex rather than an XML parser: the shape is fixed, this app owns both
+/// ends of it, and every key here is hex we wrote ourselves, so there is no
+/// entity-escaping to get wrong except the ETag's own quotes — which B2 sends
+/// as `&quot;` and which are stripped here.
+///
+/// Read as whole `<Contents>` blocks rather than as three separate scans: a
+/// response where one object lacked a field would otherwise shift every
+/// following value onto the wrong key.
+List<B2Object> parseListing(String xml) {
+  final out = <B2Object>[];
+  for (final m
+      in RegExp(r'<Contents>([\s\S]*?)</Contents>', multiLine: true)
+          .allMatches(xml)) {
+    final body = m.group(1)!;
+    final key = RegExp(r'<Key>([^<]*)</Key>').firstMatch(body)?.group(1);
+    if (key == null || key.isEmpty) continue;
+    final etag = RegExp(r'<ETag>([^<]*)</ETag>').firstMatch(body)?.group(1) ?? '';
+    final size = RegExp(r'<Size>(\d+)</Size>').firstMatch(body)?.group(1);
+    final at = RegExp(r'<LastModified>([^<]*)</LastModified>')
+        .firstMatch(body)
+        ?.group(1);
+    out.add(B2Object(
+      key,
+      etag.replaceAll('&quot;', '').replaceAll('"', ''),
+      int.tryParse(size ?? '') ?? 0,
+      DateTime.tryParse(at ?? '')?.millisecondsSinceEpoch ?? 0,
+    ));
+  }
+  return out;
+}
+
+/// The token for the next page, or null when the listing was complete.
+String? parseContinuation(String xml) {
+  if (!RegExp(r'<IsTruncated>\s*true\s*</IsTruncated>', caseSensitive: false)
+      .hasMatch(xml)) {
+    return null;
+  }
+  return RegExp(r'<NextContinuationToken>([^<]+)</NextContinuationToken>')
+      .firstMatch(xml)
+      ?.group(1);
+}
+
+/// Hex sha256 of a string, for the group folder.
+String sha256Hex(String s) => sha256.convert(utf8.encode(s)).toString();
 
 /// How a cycle went, in the terms the person who pressed "sync" thinks in.
 ///
-/// Deliberately the same shape as [SyncRefreshOutcome] rather than reusing it:
-/// the two mirrors fail differently — "nobody answered" is a real answer on a
-/// LAN and meaningless against a bucket — and one enum covering both would
-/// have members that are impossible on each side.
+/// Deliberately not [SyncRefreshOutcome]: the two mirrors fail differently —
+/// "nobody answered" is a real answer on a LAN and meaningless against a
+/// bucket — and one enum covering both would have members that are impossible
+/// on each side.
 enum CloudOutcome {
-  /// No URL built in, or no share code. Nothing was attempted.
+  /// No account. Nothing was attempted.
   off,
 
   /// The bucket already matched this device.
@@ -591,8 +815,8 @@ enum CloudOutcome {
   /// Documents arrived or were replaced.
   updated,
 
-  /// At least one document had been changed in two places and both copies were
-  /// kept. Outranks [updated]: it is the thing worth reading.
+  /// At least one document had been changed in two places and both copies
+  /// were kept. Outranks [updated]: it is the thing worth reading.
   kept,
 
   /// The cycle could not be completed.

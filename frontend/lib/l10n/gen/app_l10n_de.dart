@@ -1395,8 +1395,7 @@ class AppL10nDe extends AppL10n {
 
   @override
   String get msgMeshImportedUnclean =>
-      'Der Körper ist nicht sauber — Verrundungen und Boolesche Operationen '
-      'können darauf fehlschlagen.';
+      'Der Körper ist nicht sauber — Verrundungen und Boolesche Operationen können darauf fehlschlagen.';
 
   @override
   String msgMeshFileTooLarge(int size, int limit) {
@@ -4948,4 +4947,55 @@ class AppL10nDe extends AppL10n {
 
   @override
   String get measurePriorityEntity => 'Kanten & Flächen';
+
+  @override
+  String get settingsCloudAccount => 'Cloud-Konto';
+
+  @override
+  String get settingsCloudNone => 'Nicht eingerichtet';
+
+  @override
+  String get settingsCloudBucket => 'Bucket';
+
+  @override
+  String get settingsCloudEndpoint => 'Endpunkt';
+
+  @override
+  String get settingsCloudKeyId => 'Schlüssel-ID';
+
+  @override
+  String get settingsCloudAppKey => 'Anwendungsschlüssel';
+
+  @override
+  String get settingsCloudAppKeySaved => 'Gespeichert';
+
+  @override
+  String get settingsRemoveAccount => 'Cloud-Konto entfernen';
+
+  @override
+  String get cloudPromptBucketBody =>
+      'Der Name des Backblaze-B2-Buckets, den deine Geräte teilen. Stelle ihn auf Privat.';
+
+  @override
+  String get cloudPromptEndpointBody =>
+      'Der Endpunkt des Buckets, genau wie ihn die Backblaze-Seite zeigt.';
+
+  @override
+  String get cloudPromptKeyIdBody =>
+      'Die keyID eines Anwendungsschlüssels, der nur für diesen Bucket gilt.';
+
+  @override
+  String get cloudPromptAppKeyBody =>
+      'Der applicationKey, der beim Erstellen einmalig gezeigt wurde. Er bleibt nur auf diesem Gerät und wird nie an ein anderes gesendet.';
+
+  @override
+  String get cloudBadEndpoint =>
+      'Das ist kein Endpunkt. Er sieht aus wie s3.eu-central-003.backblazeb2.com.';
+
+  @override
+  String get cloudRemoveTitle => 'Cloud-Konto entfernen?';
+
+  @override
+  String get cloudRemoveBody =>
+      'Dieses Gerät behält seine Dokumente und synchronisiert nicht mehr. Die anderen Geräte sind nicht betroffen, und im Bucket wird nichts gelöscht.';
 }

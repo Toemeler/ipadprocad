@@ -14,7 +14,6 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 import '../log.dart';
-import 'cloud_sync.dart';
 import 'lan_sync.dart';
 import 'share_code.dart';
 
@@ -179,8 +178,6 @@ class ShareCodes {
     current.value = canonical;
     _store?.save(canonical);
     await LanSync.instance.setCode(canonical);
-    CloudSync.instance.setCode(canonical).catchError(
-        (Object e) => Log.w('cloud', 'could not change the cloud mirror: $e'));
   }
 
   /// Sets (or clears) the address this device dials by hand.
@@ -215,6 +212,4 @@ class ShareCodes {
 void _start(String code) {
   LanSync.instance.setCode(code).catchError(
       (Object e) => Log.w('sync', 'could not start sharing: $e'));
-  CloudSync.instance.setCode(code).catchError(
-      (Object e) => Log.w('cloud', 'could not start the cloud mirror: $e'));
 }

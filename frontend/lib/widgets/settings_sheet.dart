@@ -34,6 +34,8 @@ import 'bug_button.dart';
 import 'icon_preview_dialog.dart';
 import '../render_samples.dart';
 import '../ribbon_dock.dart';
+import '../sync/b2_signer.dart';
+import '../sync/cloud_account.dart';
 import '../sync/lan_sync.dart';
 import '../sync/share_code.dart';
 import '../sync/sync_store.dart';
@@ -129,11 +131,11 @@ class SettingsSheet {
         ribbonNames: RibbonLabels.on, // M349
         samples: RenderSamples.current, // M367
         diagnostics: BugReport.enabled,
-        // M381 — the code as it READS, not as it is stored: the sheet is where
-        // someone copies it off one screen onto another, so it is grouped.
-        shareCode: ShareCodes.current.value == null
-            ? null
-            : formatShareCode(ShareCodes.current.value!),
+        // M442 — the account, field by field. NEVER the key itself.
+        cloudBucket: _nn(CloudAccount.current.value?.bucket),
+        cloudEndpoint: _nn(CloudAccount.current.value?.region),
+        cloudKeyId: _nn(CloudAccount.current.value?.keyId),
+        cloudAppKeySet: (CloudAccount.current.value?.appKey ?? '').isNotEmpty,
         syncDetail: _syncDetail(),
         syncPeer: ShareCodes.peer.value,
         // M420/M421 — both are counts the sheet reads live, so switching a
@@ -425,13 +427,13 @@ class _FallbackDialogState extends State<_FallbackDialog> {
       ribbonNames: RibbonLabels.on, // M349
       samples: RenderSamples.current, // M367
       diagnostics: BugReport.enabled,
-      // M381 — these two were missing here and present in the native spec,
-      // which is why the fallback could never show a code that was set, and
-      // never offered "Stop Sharing" at all: without `shareCode` the section
-      // is permanently in its nothing-shared shape.
-      shareCode: ShareCodes.current.value == null
-          ? null
-          : formatShareCode(ShareCodes.current.value!),
+      // M381 — these were missing here and present in the native spec, which
+      // is why the fallback could never show an account that was set. M442
+      // replaced the share code with the account; the lesson is the same.
+      cloudBucket: _nn(CloudAccount.current.value?.bucket),
+      cloudEndpoint: _nn(CloudAccount.current.value?.region),
+      cloudKeyId: _nn(CloudAccount.current.value?.keyId),
+      cloudAppKeySet: (CloudAccount.current.value?.appKey ?? '').isNotEmpty,
       syncDetail: SettingsSheet._syncDetail(),
       syncPeer: ShareCodes.peer.value,
     );
@@ -494,9 +496,11 @@ class _FallbackDialogState extends State<_FallbackDialog> {
                     // has a value to show, and still has to reopen the prompt
                     // when tapped. The native sheet decides that for itself;
                     // here it has to be said.
+                    // M442 — the four account rows are the same shape as the
+                    // share code they replaced: each SHOWS a value and still
+                    // has to reopen its prompt when tapped.
                     onTap: (r.kind == SettingsRowKind.value &&
-                            r.id != kRowShareCode &&
-                            r.id != kRowSyncPeer)
+                            !_reopensItsPrompt.contains(r.id))
                         ? null
                         : () => _tap(s.id, r.id),
                   ),
@@ -587,35 +591,109 @@ class _FallbackDialogState extends State<_FallbackDialog> {
 /// at all: the rows drew, took the tap, and fell through to a `setState` that
 /// changed nothing. Two switches over the same row ids, one of them forgotten.
 /// There is one now, and both surfaces call it.
+/// M442 — one field of the Backblaze account, asked for and saved.
+///
+/// ONE FUNCTION FOR ALL FOUR ROWS rather than four near-copies: they differ
+/// only in which string labels them and which field they write, and four
+/// copies of a prompt is four places for the next change to be made in three
+/// of them. `read` supplies what the prompt starts with — empty for the key,
+/// which must never be shown back.
+Future<void> _editAccount(
+  BuildContext context,
+  String Function(AppL10n) title,
+  String Function(AppL10n) body,
+  String placeholder,
+  String Function(B2Credentials) read,
+  B2Credentials Function(B2Credentials, String) write, {
+  String? Function(AppL10n, String)? validate,
+}) async {
+  final t = L.current;
+  const blank = B2Credentials(keyId: '', appKey: '', bucket: '', region: '');
+  final was = CloudAccount.current.value ?? blank;
+  final entered = await promptForText(
+    context,
+    title: title(t),
+    message: body(t),
+    initialValue: read(was),
+    placeholder: placeholder,
+    confirmLabel: t.ok,
+    // Validated in the PROMPT rather than after it, so a typo is corrected
+    // where it was made instead of silently starting a mirror that will never
+    // connect — the reason the share code's own prompt gave.
+    validate: validate == null
+        ? null
+        : (v) => v.trim().isEmpty ? null : validate(t, v.trim()),
+  );
+  if (entered == null) return;
+  await CloudAccount.set(write(was, entered.trim()));
+}
+
+/// Rows that SHOW a value and are still tappable, because tapping one
+/// reopens the prompt that set it.
+///
+/// The native sheet decides this for itself from the row's role; the Flutter
+/// fallback has to be told, and being told by a list rather than by a chain of
+/// `!=` is what stopped the M442 rows from being added to a condition nobody
+/// remembered to look at. A row missing from here draws correctly and does
+/// nothing at all when tapped, which is exactly the M382 report.
+const Set<String> _reopensItsPrompt = <String>{
+  kRowCloudBucket,
+  kRowCloudEndpoint,
+  kRowCloudKeyId,
+  kRowCloudAppKey,
+  kRowSyncPeer,
+};
+
+/// Empty reads as "not set up", which is what the row shows.
+String? _nn(String? v) => (v == null || v.isEmpty) ? null : v;
+
 Future<void> applySyncRow(BuildContext context, String row) async {
   try {
       switch (row) {
-        case kRowShareCode:
-          final t = L.current;
-          final entered = await promptForText(
+        // M442 — THE ACCOUNT, one field per row. Each saves on its own, so a
+        // half-entered account survives the app being closed and picks up
+        // where it left off; nothing is attempted until all four are there
+        // (`CloudAccount.set` refuses an incomplete one).
+        case kRowCloudBucket:
+          await _editAccount(context, (t) => t.settingsCloudBucket,
+              (t) => t.cloudPromptBucketBody, 'my-bucket',
+              (c) => c.bucket, (c, v) => c.copyWith(bucket: v));
+        case kRowCloudEndpoint:
+          await _editAccount(
             context,
-            title: t.syncPromptTitle,
-            message: t.syncPromptBody,
-            initialValue: ShareCodes.current.value == null
-                ? ''
-                : formatShareCode(ShareCodes.current.value!),
-            placeholder: t.syncPromptPlaceholder,
-            confirmLabel: t.syncPromptJoin,
-            // Validated in the PROMPT rather than after it, so a typo is
-            // corrected where it was made instead of silently starting a
-            // mirror that will never find anybody.
-            validate: (v) =>
-                normaliseShareCode(v) == null ? t.syncBadCode : null,
+            (t) => t.settingsCloudEndpoint,
+            (t) => t.cloudPromptEndpointBody,
+            's3.eu-central-003.backblazeb2.com',
+            (c) => c.region,
+            // Stored as the REGION, which is what signing needs, but typed as
+            // the endpoint, which is what the console shows. Nobody should
+            // have to know which dotted segment of it matters.
+            (c, v) => c.copyWith(region: regionFromEndpoint(v) ?? ''),
+            validate: (t, v) =>
+                regionFromEndpoint(v) == null ? t.cloudBadEndpoint : null,
           );
-          if (entered == null) break;
-          final code = normaliseShareCode(entered);
-          if (code != null) await ShareCodes.set(code);
-        case kRowNewShareCode:
-          // Generated and adopted in one step: the first device of a pair has
-          // nothing to type, and making it type what the app just invented
-          // would be a form for the sake of symmetry.
-          await ShareCodes.set(normaliseShareCode(generateShareCode()));
-        case kRowSyncPeer:
+        case kRowCloudKeyId:
+          await _editAccount(context, (t) => t.settingsCloudKeyId,
+              (t) => t.cloudPromptKeyIdBody, '00319390fd8d1160000000001',
+              (c) => c.keyId, (c, v) => c.copyWith(keyId: v));
+        case kRowCloudAppKey:
+          // NEVER PREFILLED with what is stored. A prompt that showed the key
+          // back would put it on screen, and the next bug report's screenshot
+          // carries whatever is on screen.
+          await _editAccount(context, (t) => t.settingsCloudAppKey,
+              (t) => t.cloudPromptAppKeyBody, 'K003…',
+              (_) => '', (c, v) => c.copyWith(appKey: v));
+        case kRowRemoveAccount:
+          final t = L.current;
+          final sure = await confirmAction(
+            context,
+            title: t.cloudRemoveTitle,
+            message: t.cloudRemoveBody,
+            confirmLabel: t.settingsRemoveAccount,
+            destructive: true,
+          );
+          if (sure) await CloudAccount.set(null);
+        case kRowSyncPeer:        case kRowSyncPeer:
           final t = L.current;
           final entered = await promptForText(
             context,
@@ -633,16 +711,6 @@ Future<void> applySyncRow(BuildContext context, String row) async {
           );
           if (entered == null) break;
           await ShareCodes.setPeer(entered.trim().isEmpty ? null : entered);
-        case kRowStopSharing:
-          final t = L.current;
-          final sure = await confirmAction(
-            context,
-            title: t.syncStopTitle,
-            message: t.syncStopBody,
-            confirmLabel: t.settingsStopSharing,
-            destructive: true,
-          );
-          if (sure) await ShareCodes.set(null);
         case kRowDiscardChanges:
           await _discardAll(context);
         case kRowReplacedVersions:

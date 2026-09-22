@@ -12,13 +12,15 @@
 // suite can actually drive.
 import 'dart:io';
 
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/app_state.dart';
 import 'package:prototype/l10n/gen/app_l10n.dart';
 import 'package:prototype/sync/lan_sync.dart';
-import 'package:prototype/sync/share_code.dart';
-import 'package:prototype/sync/sync_store.dart';
+import 'package:prototype/sync/b2_signer.dart';
+import 'package:prototype/sync/cloud_account.dart';
+import 'package:prototype/sync/cloud_sync.dart';
 import 'package:prototype/widgets/settings_sheet.dart';
 
 void main() {
@@ -26,14 +28,15 @@ void main() {
 
   setUp(() {
     dir = Directory.systemTemp.createTempSync('m382');
-    ShareCodes.resetForTest();
+    CloudAccount.resetForTest();
   });
 
   tearDown(() async {
     // The mirror binds sockets when a code is set; hand them back before the
     // next case, or the second test in this file is testing a busy port.
-    await ShareCodes.set(null);
-    ShareCodes.resetForTest();
+    await CloudAccount.set(null);
+    CloudAccount.resetForTest();
+    CloudSync.instance.resetForTest();
     dir.deleteSync(recursive: true);
   });
 
@@ -92,50 +95,92 @@ void main() {
       await openSettings(tester);
       // The dialog upper-cases a section header, so this is the header.
       expect(find.text('SHARING'), findsOneWidget);
-      expect(find.text('Enter a Share Code'), findsOneWidget);
-      expect(find.text('Create a Share Code'), findsOneWidget);
+      // M442 — the four account fields replaced the share code. All four are
+      // shown from the start, unset, so somebody can see what is being asked
+      // for before they go and fetch it.
+      for (final row in const [
+        'Bucket',
+        'Endpoint',
+        'Key ID',
+        'Application Key',
+      ]) {
+        expect(find.text(row), findsOneWidget, reason: row);
+      }
+      expect(find.text('Not set up'), findsNWidgets(4));
     });
 
-    testWidgets('"Create a Share Code" actually creates one', (tester) async {
-      await openSettings(tester);
-      expect(ShareCodes.current.value, isNull);
-
-      await tapRow(tester, 'Create a Share Code');
-
-      // THE REGRESSION. This used to fall through the fallback's switch and
-      // do nothing at all — the whole report was "the sync buttons do
-      // nothing".
-      final code = ShareCodes.current.value;
-      expect(code, isNotNull,
-          reason: 'the row has to reach applySyncRow, not a bare setState');
-      expect(normaliseShareCode(code!), code,
-          reason: 'and what it stores has to be a canonical code');
-    });
-
-    testWidgets('once a code is set the dialog shows it and offers to stop',
+    testWidgets('nothing about the mirror is shown until it is complete',
         (tester) async {
       await openSettings(tester);
-      await tapRow(tester, 'Create a Share Code');
-
-      // The fallback used to call buildSettings without `shareCode`, so the
-      // section was permanently in its nothing-shared shape: no code on
-      // screen, and no way to turn sharing off.
-      expect(find.text('Share Code'), findsOneWidget);
-      expect(find.text('Stop Sharing'), findsOneWidget);
-      expect(find.text(formatShareCode(ShareCodes.current.value!)),
-          findsOneWidget,
-          reason: 'the code is shown grouped, the way it is meant to be read');
+      // A status row over a half-entered account would report a failure the
+      // person is still in the middle of causing.
+      expect(find.text('Devices'), findsNothing);
+      expect(find.text('Remove Cloud Account'), findsNothing);
     });
 
-    testWidgets('the status row appears once sharing is on', (tester) async {
+    testWidgets('a field typed in is saved and shown back', (tester) async {
       await openSettings(tester);
-      expect(find.text('Devices'), findsNothing,
-          reason: 'nothing to report before a code is set');
-      await tapRow(tester, 'Create a Share Code');
-      // Present because the fallback now passes `syncDetail` at all. What it
-      // SAYS depends on whether this host let the mirror bind a socket, which
-      // is not something a unit test should assert — the shape is.
+      await tapRow(tester, 'Bucket');
+      await tester.enterText(find.byType(CupertinoTextField).first, 'my-bucket');
+      await tester.pumpAndSettle();
+      await tester.runAsync(() => tester.tap(find.text('OK').last));
+      await tester.pumpAndSettle();
+
+      // THE REGRESSION M382 IS ABOUT, in its M442 shape: the row has to reach
+      // applySyncRow rather than a bare setState that changes nothing.
+      expect(CloudAccount.current.value?.bucket, 'my-bucket');
+      expect(find.text('my-bucket'), findsOneWidget,
+          reason: 'and the sheet redraws from the new state');
+    });
+
+    // The console shows an endpoint; which of its dotted segments is the
+    // region is not something anybody should have to know.
+    testWidgets('an endpoint is stored as the region it names',
+        (tester) async {
+      await openSettings(tester);
+      await tapRow(tester, 'Endpoint');
+      await tester.enterText(
+          find.byType(CupertinoTextField).first, 's3.eu-central-003.backblazeb2.com');
+      await tester.pumpAndSettle();
+      await tester.runAsync(() => tester.tap(find.text('OK').last));
+      await tester.pumpAndSettle();
+      expect(CloudAccount.current.value?.region, 'eu-central-003');
+    });
+
+    // A key rendered as a row's detail is a key in the next bug report's
+    // screenshot.
+    testWidgets('the key is never shown back, only that there is one',
+        (tester) async {
+      await openSettings(tester);
+      await tapRow(tester, 'Application Key');
+      await tester.enterText(find.byType(CupertinoTextField).first, 'K003SECRETVALUE');
+      await tester.pumpAndSettle();
+      await tester.runAsync(() => tester.tap(find.text('OK').last));
+      await tester.pumpAndSettle();
+
+      expect(CloudAccount.current.value?.appKey, 'K003SECRETVALUE');
+      expect(find.text('K003SECRETVALUE'), findsNothing,
+          reason: 'the row says Saved, never the key');
+      expect(find.text('Saved'), findsOneWidget);
+    });
+
+    testWidgets('a complete account brings the mirror rows out',
+        (tester) async {
+      await CloudAccount.set(const B2Credentials(
+        keyId: 'k',
+        appKey: 's',
+        bucket: 'b',
+        region: 'eu-central-003',
+      ));
+      // The cloud schedules its next cycle the moment it has an account, and
+      // a timer started under this test's fake clock never fires — which the
+      // framework reports as a leak rather than as the timer it is. The rows
+      // read `CloudAccount`, not `CloudSync`, so stopping it changes nothing
+      // this test is about.
+      CloudSync.instance.resetForTest();
+      await openSettings(tester);
       expect(find.text('Devices'), findsOneWidget);
+      expect(find.text('Remove Cloud Account'), findsOneWidget);
     });
   });
 }

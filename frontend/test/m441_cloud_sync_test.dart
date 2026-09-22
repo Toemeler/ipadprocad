@@ -26,6 +26,7 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:prototype/sync/b2_signer.dart';
 import 'package:prototype/sync/cloud_sync.dart';
 import 'package:prototype/sync/lan_sync.dart';
 
@@ -380,30 +381,134 @@ void main() {
     });
   });
 
-  group('the cloud stays out of the way when it is not configured', () {
-    // Every existing build config leaves CLOUD_SYNC_URL unset, and that has to
-    // mean the app behaves exactly as it did before this file existed — no
-    // timer, no request, nothing to go wrong on a device that never opted in.
-    test('nothing is configured in a build with no url', () {
-      expect(cloudSyncConfigured, isFalse);
-      expect(cloudSyncUrl, isEmpty);
-    });
+  // M442 — WITHOUT AN ACCOUNT, NOTHING RUNS. Every build ships with no
+  // account until somebody pastes one in, and that has to mean the app
+  // behaves exactly as it did before the cloud existed: no timer, no request,
+  // nothing to go wrong on a device that never opted in.
+  group('the cloud stays out of the way until an account is set', () {
+    tearDown(CloudSync.instance.resetForTest);
 
-    test('setting a code without a url starts nothing', () async {
-      await CloudSync.instance.setCode('23456789ABCD');
+    test('a fresh install has no account', () {
       expect(CloudSync.instance.enabled, isFalse);
       expect(CloudSync.instance.status.value.state, CloudState.off);
-      CloudSync.instance.resetForTest();
     });
 
-    test('a nudge on an unconfigured build is a no-op', () {
+    test('an incomplete account starts nothing', () async {
+      await CloudSync.instance.setAccount(const B2Credentials(
+          keyId: 'k', appKey: '', bucket: 'b', region: 'r'));
+      expect(CloudSync.instance.enabled, isFalse,
+          reason: 'a half-entered account is not an account');
+      expect(CloudSync.instance.status.value.state, CloudState.off);
+    });
+
+    test('a nudge without an account is a no-op', () {
       CloudSync.instance.nudge();
       expect(CloudSync.instance.status.value.state, CloudState.off);
     });
 
-    test('a cycle on an unconfigured build reports off, not failed', () async {
+    test('a cycle without an account reports off, not failed', () async {
       final result = await CloudSync.instance.syncNow();
       expect(result.outcome, CloudOutcome.off);
+    });
+  });
+
+  // The interval is what decides both how quickly a change shows up on the
+  // other device and how many of Backblaze's 2,500 free daily transactions a
+  // day of idling spends. Both directions are pinned.
+  group('the interval follows the work', () {
+    tearDown(CloudSync.instance.resetForTest);
+
+    test('backs off to the slow band when nothing happens', () {
+      final sync = CloudSync.instance;
+      expect(sync.intervalForTest, CloudSync.fastCycle);
+      for (var i = 0; i < 20; i++) {
+        sync.sawNothingForTest();
+      }
+      expect(sync.intervalForTest, CloudSync.slowCycle,
+          reason: 'and never past it');
+    });
+
+    test('snaps back to fast the moment something happens', () {
+      final sync = CloudSync.instance;
+      for (var i = 0; i < 20; i++) {
+        sync.sawNothingForTest();
+      }
+      sync.sawWorkForTest();
+      expect(sync.intervalForTest, CloudSync.fastCycle);
+    });
+
+    test('doubles rather than jumping', () {
+      final sync = CloudSync.instance;
+      sync.sawNothingForTest();
+      expect(sync.intervalForTest, CloudSync.fastCycle * 2);
+    });
+  });
+
+  // An idle cycle must not rewrite a manifest that says the same thing: the
+  // write would move its ETag, and every other device would spend a request
+  // fetching it to learn nothing. This is what makes idling one request.
+  group('a manifest is only rewritten when it says something new', () {
+    CloudManifest m(List<(String, String)> entries) => CloudManifest(
+          device: 'd',
+          deviceName: 'n',
+          atMs: DateTime.now().millisecondsSinceEpoch,
+          entries: [
+            for (final (p, h) in entries) SyncEntry(p, 1, 2, h),
+          ],
+          tombs: const [],
+        );
+
+    test('the first one always is', () {
+      expect(CloudSync.differsForTest(null, m([])), isTrue);
+    });
+
+    test('the same contents at a later moment is not new', () {
+      expect(
+          CloudSync.differsForTest(
+              m([('A.ptp', 'aaa')]), m([('A.ptp', 'aaa')])),
+          isFalse,
+          reason: 'the timestamp moves every cycle and must not count');
+    });
+
+    test('a changed document is new', () {
+      expect(
+          CloudSync.differsForTest(
+              m([('A.ptp', 'aaa')]), m([('A.ptp', 'bbb')])),
+          isTrue);
+    });
+
+    test('an added or removed document is new', () {
+      expect(
+          CloudSync.differsForTest(
+              m([('A.ptp', 'aaa')]), m([('A.ptp', 'aaa'), ('B.ptp', 'bbb')])),
+          isTrue);
+      expect(
+          CloudSync.differsForTest(m([('A.ptp', 'aaa'), ('B.ptp', 'b')]),
+              m([('A.ptp', 'aaa')])),
+          isTrue);
+    });
+  });
+
+  // Two accounts must never share a folder, and the folder must not be
+  // derivable back to the key.
+  group('the group folder', () {
+    const a = B2Credentials(
+        keyId: 'k', appKey: 'secret-one', bucket: 'bucket', region: 'r');
+
+    test('is stable for one account', () {
+      expect(CloudSync.groupForTest(a), CloudSync.groupForTest(a));
+      expect(CloudSync.groupForTest(a), matches(RegExp(r'^[a-f0-9]{64}$')));
+    });
+
+    test('differs when the key or the bucket differs', () {
+      expect(CloudSync.groupForTest(a),
+          isNot(CloudSync.groupForTest(a.copyWith(appKey: 'secret-two'))));
+      expect(CloudSync.groupForTest(a),
+          isNot(CloudSync.groupForTest(a.copyWith(bucket: 'other'))));
+    });
+
+    test('does not contain the key it came from', () {
+      expect(CloudSync.groupForTest(a), isNot(contains('secret-one')));
     });
   });
 

@@ -16,6 +16,20 @@ them up from whenever it next runs. It is a **transport**, not a second sync
 design — every decision about what wins, what forks and what a delete means is
 still `LanSync.verdictFor` on the device. See `frontend/lib/sync/cloud_sync.dart`.
 
+## M442 — you probably do not need this any more
+
+The app now signs its own B2 requests (`frontend/lib/sync/b2_signer.dart`) and
+takes the key from **Settings → Sharing**. There is nothing to deploy, no
+Cloudflare account and no terminal. That is the default path; start there.
+
+This Worker is still the right answer for one case: when the credential must
+**not** be on the devices at all. It holds the key itself and hands the app
+short-lived presigned URLs, so a lost tablet is not a lost bucket. The cost is
+that somebody has to deploy it.
+
+The trade is written out in `frontend/lib/sync/cloud_account.dart`. Everything
+below describes the Worker path.
+
 ## Why the credential lives in a Worker
 
 Identical to `relay/README.md`'s argument, and the reason this directory is a
