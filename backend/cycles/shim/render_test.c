@@ -594,11 +594,36 @@ int main(int argc, char **argv)
        * that either — its counts come at the filter points and a poll between
        * two of them returns nothing new — and it cannot satisfy the adjacency
        * check below at all, which remains unconditional and is the stronger of
-       * the two. */
+       * the two.
+       *
+       * M383 said that and then measured it against the wrong denominator.
+       * `polls_possible` counts wall-clock poll SLOTS; `seen_n` counts polls
+       * that came back with a frame at all. A poll before the first frame
+       * exists, or the one that finds `done`, occupies a slot and yields no
+       * count, so `seen_n > polls_possible - 1` quietly demanded that every
+       * single slot produce a new count — impossible unless the very first
+       * poll already has a frame. On a 96-core Windows runner it duly failed
+       * on a render that had done nothing wrong:
+       *
+       *   live: 4 frames, 127/128 samples, done=1 ... after 10 ms
+       *   live: sample counts seen: 78 87 126 127
+       *   live: 4 distinct counts, 1 of them one apart
+       *
+       * Four frames, four distinct counts — EVERY frame carried a new one —
+       * and the bound asked for five. So ask the question the comment above
+       * actually poses, against the frames that were handed out rather than
+       * the slots that elapsed: at most one poll may repeat a count it has
+       * already shown. An unpatched scheduler returns the same count on many
+       * consecutive polls, so `got` runs far ahead of `seen_n` there and this
+       * still fails hard. */
       const int polls_possible = (int)(waited / kPollMs);
-      const int wanted_counts = polls_possible < 12 ? polls_possible - 1 : 10;
-      check(seen_n > wanted_counts,
-            "sampling arrives progressively rather than in a few big batches");
+      if (polls_possible >= 12) {
+        check(seen_n > 10,
+              "sampling arrives progressively rather than in a few big batches");
+      } else {
+        check(seen_n >= got - 1,
+              "sampling arrives progressively rather than in a few big batches");
+      }
       check(adjacent > 0, "consecutive samples arrive as consecutive frames");
 
       /* And the finished frame has been denoised — by Cycles' own
