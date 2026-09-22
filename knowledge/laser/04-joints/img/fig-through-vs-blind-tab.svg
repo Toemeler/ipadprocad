@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 230" width="480" height="230" role="img" aria-label="Through tab compared with blind tab">
+  <rect x="0" y="0" width="480" height="230" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Through tab and blind tab, in section</text>
+
+    <!-- through -->
+    <rect x="40" y="70" width="150" height="34" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <rect x="100" y="50" width="26" height="70" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <text x="115" y="140" text-anchor="middle" font-size="11" fill="#2e7d32">tab stands 0.2 mm proud</text>
+    <text x="115" y="164" text-anchor="middle" font-weight="600">through</text>
+    <text x="115" y="182" text-anchor="middle" font-size="11" fill="#5a5a5a">stronger · forgiving on length</text>
+    <text x="115" y="198" text-anchor="middle" font-size="11" fill="#5a5a5a">tab end visible</text>
+
+    <!-- blind -->
+    <rect x="290" y="70" width="150" height="34" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <rect x="350" y="50" width="26" height="42" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <line x1="350" y1="92" x2="376" y2="92" stroke="#1a1a1a" stroke-width="2" stroke-dasharray="4 3"/>
+    <text x="363" y="140" text-anchor="middle" font-size="11" fill="#0b6bcb">0.6 × host thickness</text>
+    <text x="363" y="164" text-anchor="middle" font-weight="600">blind</text>
+    <text x="363" y="182" text-anchor="middle" font-size="11" fill="#5a5a5a">invisible · needs an accurate length</text>
+
+    <text x="20" y="220" font-size="11" fill="#5a5a5a">Decide which before drawing: the tab length formula and the far face both change.</text>
+  </g>
+</svg>

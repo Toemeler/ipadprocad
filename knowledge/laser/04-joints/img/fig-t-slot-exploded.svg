@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 260" width="480" height="260" role="img" aria-label="T-slot joint exploded, showing nut pocket, shank slot, screw and mating hole">
+  <rect x="0" y="0" width="480" height="260" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">T-slot joint, exploded</text>
+
+    <!-- tabbed panel, seen flat -->
+    <path d="M60 70 H250 V200 H60 V178 H40 V152 H60 V118 H40 V92 H60 Z" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <!-- shank slot -->
+    <rect x="60" y="130" width="70" height="10" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"/>
+    <!-- hex pocket -->
+    <polygon points="130,124 142,117 154,124 154,146 142,153 130,146" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"/>
+    <rect x="154" y="130" width="12" height="10" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"/>
+    <text x="150" y="108" text-anchor="middle" font-size="11" fill="#0b6bcb">hex pocket — nut lies IN the sheet</text>
+    <text x="95" y="172" text-anchor="middle" font-size="11">shank slot</text>
+    <text x="196" y="132" font-size="11" fill="#0b6bcb">+2 mm</text>
+    <text x="155" y="220" text-anchor="middle" font-size="11" fill="#5a5a5a">tabbed panel · tabs locate, screw clamps</text>
+
+    <!-- screw -->
+    <g>
+      <rect x="300" y="128" width="60" height="8" fill="#9a9a9a" stroke="#1a1a1a" stroke-width="1.5"/>
+      <rect x="360" y="120" width="14" height="24" fill="#9a9a9a" stroke="#1a1a1a" stroke-width="1.5"/>
+      <text x="330" y="112" text-anchor="middle" font-size="11">M3 × 16</text>
+    </g>
+
+    <!-- face panel edge-on -->
+    <rect x="392" y="70" width="18" height="130" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <rect x="392" y="126" width="18" height="12" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"/>
+    <text x="401" y="220" text-anchor="middle" font-size="11" fill="#5a5a5a">face panel</text>
+    <text x="401" y="236" text-anchor="middle" font-size="11" fill="#5a5a5a">clearance hole</text>
+
+    <text x="20" y="252" font-size="11" fill="#c62828">Sheet thickness must be at least the nut thickness: M4 (3.2 mm) will not fit in 3 mm ply.</text>
+  </g>
+</svg>

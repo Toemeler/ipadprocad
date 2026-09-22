@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 270" width="480" height="270" role="img" aria-label="Symmetric registration allows a mirrored layer, asymmetric registration does not">
+  <rect x="0" y="0" width="480" height="270" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Registration: two pins, placed asymmetrically</text>
+
+    <!-- symmetric: bad -->
+    <rect x="30" y="50" width="180" height="120" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <circle cx="66" cy="110" r="8" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"/>
+    <circle cx="174" cy="110" r="8" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"/>
+    <rect x="100" y="76" width="40" height="24" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"/>
+    <circle cx="120" cy="110" r="22" fill="none" stroke="#c62828" stroke-width="2"/>
+    <line x1="104" y1="94" x2="136" y2="126" stroke="#c62828" stroke-width="2"/>
+    <text x="120" y="194" text-anchor="middle" font-weight="600">symmetric holes</text>
+    <text x="120" y="210" text-anchor="middle" font-size="11" fill="#c62828">the layer fits mirrored too —</text>
+    <text x="120" y="226" text-anchor="middle" font-size="11" fill="#c62828">its pocket ends up on the wrong side</text>
+
+    <!-- asymmetric: good -->
+    <rect x="270" y="50" width="180" height="120" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <circle cx="306" cy="92" r="8" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"/>
+    <circle cx="414" cy="134" r="8" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"/>
+    <rect x="340" y="76" width="40" height="24" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"/>
+    <g stroke="#2e7d32" stroke-width="2.5" fill="none"><path d="M296 146 l7 8 l15 -18"/></g>
+    <text x="360" y="194" text-anchor="middle" font-weight="600">asymmetric holes</text>
+    <text x="360" y="210" text-anchor="middle" font-size="11" fill="#2e7d32">only one orientation goes on the pins</text>
+
+    <text x="20" y="252" font-size="11" fill="#5a5a5a">Two pins fix position and rotation; one pin is a pivot. Engrave L1…Ln and an arrow on every layer —</text>
+    <text x="20" y="266" font-size="11" fill="#5a5a5a">ten similar plywood parts are indistinguishable five minutes after they leave the machine.</text>
+  </g>
+</svg>

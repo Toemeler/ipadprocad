@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 240" width="480" height="240" role="img" aria-label="Cantilever clip, split friction post, keyhole slot and wedge">
+  <rect x="0" y="0" width="480" height="240" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Four ways to hold sheet without glue</text>
+
+    <!-- cantilever clip -->
+    <g>
+      <path d="M26 60 h74 v18 h-46 v34 h46 v18 h-74 z" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+      <path d="M100 78 h16 l8 8 v20 l-8 8 h-16 z" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+      <text x="74" y="156" text-anchor="middle" font-weight="600">cantilever clip</text>
+      <text x="74" y="172" text-anchor="middle" fill="#5a5a5a">once or twice</text>
+    </g>
+
+    <!-- friction post -->
+    <g>
+      <rect x="146" y="60" width="84" height="70" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+      <circle cx="188" cy="95" r="22" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"/>
+      <circle cx="188" cy="95" r="19" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+      <line x1="188" y1="76" x2="188" y2="107" stroke="#ffffff" stroke-width="3"/>
+      <line x1="188" y1="76" x2="188" y2="107" stroke="#1a1a1a" stroke-width="1.5"/>
+      <text x="188" y="156" text-anchor="middle" font-weight="600">split friction post</text>
+      <text x="188" y="172" text-anchor="middle" fill="#5a5a5a">location, light load</text>
+    </g>
+
+    <!-- keyhole -->
+    <g>
+      <rect x="254" y="60" width="84" height="70" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+      <path d="M296 74 a13 13 0 1 0 0.1 0 z" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"/>
+      <rect x="291" y="95" width="10" height="26" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"/>
+      <text x="296" y="156" text-anchor="middle" font-weight="600">keyhole slot</text>
+      <text x="296" y="172" text-anchor="middle" fill="#5a5a5a">opened often</text>
+    </g>
+
+    <!-- wedge -->
+    <g>
+      <rect x="360" y="82" width="100" height="26" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+      <rect x="392" y="60" width="18" height="70" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+      <polygon points="386,66 416,70 414,80 388,76" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+      <text x="410" y="156" text-anchor="middle" font-weight="600">wedge / tusk</text>
+      <text x="410" y="172" text-anchor="middle" fill="#5a5a5a">strongest, demountable</text>
+    </g>
+
+    <text x="20" y="206" font-size="12" font-weight="600">Choose by how often the joint is opened, not by how it looks.</text>
+    <text x="20" y="226" font-size="11" fill="#c62828">None of these work in MDF, and acrylic cantilevers crack at the root days later.</text>
+  </g>
+</svg>

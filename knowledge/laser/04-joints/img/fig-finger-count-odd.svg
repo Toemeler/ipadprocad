@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 230" width="480" height="230" role="img" aria-label="Odd finger count gives a symmetric panel, even does not">
+  <rect x="0" y="0" width="480" height="230" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Why the finger count should be odd</text>
+
+    <text x="30" y="56" font-weight="600">5 fingers</text>
+    <path d="M30 66 V110 H54 V66 H78 V110 H102 V66 H126 V110 H150 V66 H174 V110 H198 V66 H222 V110 H30 Z" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <g stroke="#2e7d32" stroke-width="2.5" fill="none"><path d="M240 84 l7 8 l15 -18"/></g>
+    <text x="276" y="92" font-size="11" fill="#2e7d32">starts and ends with a finger — panel is symmetric</text>
+
+    <text x="30" y="150" font-weight="600">4 fingers</text>
+    <path d="M30 160 V204 H54 V160 H78 V204 H102 V160 H126 V204 H150 V160 H174 V204 H30 Z" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <circle cx="200" cy="182" r="11" fill="none" stroke="#c62828" stroke-width="2"/>
+    <line x1="193" y1="175" x2="207" y2="189" stroke="#c62828" stroke-width="2"/>
+    <text x="230" y="186" font-size="11" fill="#c62828">handed — every panel has to be tracked the right way round</text>
+  </g>
+</svg>

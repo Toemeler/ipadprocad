@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 250" width="480" height="250" role="img" aria-label="Two panels with half-depth slots sliding together">
+  <rect x="0" y="0" width="480" height="250" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Cross-lap — each panel slotted exactly halfway</text>
+
+    <!-- panel A: slot from top -->
+    <path d="M40 60 H180 V116 H164 V60 H180 V60 Z" fill="none"/>
+    <rect x="40" y="60" width="140" height="110" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <rect x="102" y="60" width="16" height="55" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"/>
+    <circle cx="110" cy="115" r="3" fill="none" stroke="#2e7d32" stroke-width="1.6"/>
+    <g stroke="#0b6bcb" stroke-width="1.2">
+      <line x1="88" y1="60" x2="88" y2="115"/>
+      <line x1="82" y1="60" x2="94" y2="60"/><line x1="82" y1="115" x2="94" y2="115"/>
+    </g>
+    <text x="110" y="192" text-anchor="middle" font-size="11">panel A · slot from the top</text>
+    <text x="110" y="208" text-anchor="middle" font-size="11" fill="#0b6bcb">depth = half the height</text>
+
+    <!-- panel B: slot from bottom -->
+    <rect x="270" y="60" width="140" height="110" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <rect x="332" y="115" width="16" height="55" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"/>
+    <circle cx="340" cy="115" r="3" fill="none" stroke="#2e7d32" stroke-width="1.6"/>
+    <text x="340" y="192" text-anchor="middle" font-size="11">panel B · slot from the bottom</text>
+    <text x="340" y="208" text-anchor="middle" font-size="11" fill="#2e7d32">0.3 mm radius at the slot root</text>
+
+    <text x="20" y="236" font-size="11" fill="#5a5a5a">Each slot takes the OTHER panel's measured thickness. The root radius is the highest-stress point in the joint.</text>
+  </g>
+</svg>

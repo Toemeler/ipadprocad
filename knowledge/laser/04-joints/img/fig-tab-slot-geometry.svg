@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 250" width="480" height="250" role="img" aria-label="Tab and slot geometry with edge distance and tab dimensions">
+  <rect x="0" y="0" width="480" height="250" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Tab and slot</text>
+
+    <!-- host panel with slots -->
+    <rect x="30" y="60" width="200" height="140" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <rect x="86" y="90" width="18" height="46" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"/>
+    <rect x="156" y="90" width="18" height="46" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"/>
+    <g stroke="#0b6bcb" stroke-width="1.2">
+      <line x1="30" y1="76" x2="86" y2="76"/>
+      <line x1="30" y1="70" x2="30" y2="82"/><line x1="86" y1="70" x2="86" y2="82"/>
+    </g>
+    <text x="58" y="66" text-anchor="middle" font-size="11" fill="#0b6bcb">≥ 2t</text>
+    <text x="130" y="176" text-anchor="middle" font-size="11">host panel — slot width from the MEASURED mating thickness</text>
+
+    <!-- tabbed panel -->
+    <path d="M280 60 H300 V90 H318 V136 H300 V200 H280 Z" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <path d="M360 60 H380 V200 H360 V136 H342 V90 H360 Z" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <g stroke="#0b6bcb" stroke-width="1.2">
+      <line x1="332" y1="90" x2="332" y2="136"/>
+      <line x1="326" y1="90" x2="338" y2="90"/><line x1="326" y1="136" x2="338" y2="136"/>
+    </g>
+    <text x="398" y="116" font-size="11" fill="#0b6bcb">tab width = 3t</text>
+    <text x="330" y="222" text-anchor="middle" font-size="11">tabbed panel, seen edge-on</text>
+
+    <text x="20" y="242" font-size="11" fill="#5a5a5a">Slot length = tab width + 0.2 mm. Length is the forgiving direction; width is not.</text>
+  </g>
+</svg>

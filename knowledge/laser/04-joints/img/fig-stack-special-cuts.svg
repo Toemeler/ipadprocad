@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 280" width="480" height="280" role="img" aria-label="The four cuts unique to stacked construction: cavity, channel, undercut and nut pocket">
+  <rect x="0" y="0" width="480" height="280" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">The four cuts that only exist in a stack</text>
+
+    <!-- cavity -->
+    <g>
+      <rect x="26" y="50" width="96" height="100" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+      <g stroke="#9a9a9a" stroke-width="1" stroke-dasharray="4 3">
+        <line x1="26" y1="75" x2="122" y2="75"/><line x1="26" y1="100" x2="122" y2="100"/><line x1="26" y1="125" x2="122" y2="125"/>
+      </g>
+      <rect x="52" y="75" width="44" height="50" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"/>
+      <text x="74" y="168" text-anchor="middle" font-weight="600">cavity</text>
+      <text x="74" y="184" text-anchor="middle" fill="#5a5a5a">hole in the middle</text>
+      <text x="74" y="198" text-anchor="middle" fill="#5a5a5a">layers only</text>
+    </g>
+
+    <!-- channel -->
+    <g>
+      <rect x="140" y="50" width="96" height="100" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+      <g stroke="#9a9a9a" stroke-width="1" stroke-dasharray="4 3">
+        <line x1="140" y1="75" x2="236" y2="75"/><line x1="140" y1="100" x2="236" y2="100"/><line x1="140" y1="125" x2="236" y2="125"/>
+      </g>
+      <rect x="140" y="88" width="96" height="24" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"/>
+      <text x="188" y="168" text-anchor="middle" font-weight="600">channel</text>
+      <text x="188" y="184" text-anchor="middle" fill="#5a5a5a">the same hole running</text>
+      <text x="188" y="198" text-anchor="middle" fill="#5a5a5a">right across</text>
+    </g>
+
+    <!-- undercut -->
+    <g>
+      <rect x="254" y="50" width="96" height="100" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+      <g stroke="#9a9a9a" stroke-width="1" stroke-dasharray="4 3">
+        <line x1="254" y1="75" x2="350" y2="75"/><line x1="254" y1="100" x2="350" y2="100"/><line x1="254" y1="125" x2="350" y2="125"/>
+      </g>
+      <path d="M288 50 V75 H272 V100 H332 V75 H316 V50 Z" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"/>
+      <text x="302" y="168" text-anchor="middle" font-weight="600">undercut</text>
+      <text x="302" y="184" text-anchor="middle" fill="#2e7d32">a wide hole above</text>
+      <text x="302" y="198" text-anchor="middle" fill="#2e7d32">a narrow one</text>
+    </g>
+
+    <!-- nut pocket -->
+    <g>
+      <rect x="368" y="50" width="96" height="100" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+      <g stroke="#9a9a9a" stroke-width="1" stroke-dasharray="4 3">
+        <line x1="368" y1="75" x2="464" y2="75"/><line x1="368" y1="100" x2="464" y2="100"/><line x1="368" y1="125" x2="464" y2="125"/>
+      </g>
+      <polygon points="398,77 410,77 416,87 410,98 398,98 392,87" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"/>
+      <rect x="416" y="82" width="48" height="10" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"/>
+      <text x="416" y="168" text-anchor="middle" font-weight="600">nut pocket</text>
+      <text x="416" y="184" text-anchor="middle" fill="#5a5a5a">in exactly one layer —</text>
+      <text x="416" y="198" text-anchor="middle" fill="#5a5a5a">pick the sheet to suit</text>
+    </g>
+
+    <text x="20" y="232" font-size="12" font-weight="600">An undercut is impossible in a single sheet. In a stack it is two ordinary holes.</text>
+    <text x="20" y="252" font-size="11" fill="#5a5a5a">Every cavity gets 0.2–0.3 mm clearance around whatever it holds. A pocket cut to the nominal size of a PCB</text>
+    <text x="20" y="268" font-size="11" fill="#5a5a5a">will not take the PCB — and once the stack is glued, that is a scrap part.</text>
+  </g>
+</svg>
