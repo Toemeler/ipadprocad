@@ -1630,11 +1630,58 @@ extern "C" occt_shape *occt_cut(const occt_shape *a, const occt_shape *b)
                 return false;
             return v0 - solid_volume(s) > 1.5 * toolVol;
         };
-        if (over(r)) {
+        /* M461 (#43) — AND A CUT THAT CAME BACK ILLEGAL HAS THE SAME DISEASE.
+         *
+         * The ladder above is walked only when the cut removed too MUCH. It
+         * turns out the opposite failure is the commoner one, and it is
+         * silent. Measured on this suite's own converted ellipsoid, drilling
+         * a r=1.5 hole straight through at nine positions:
+         *
+         *   spot 3 (-12, -4)   removed   13.64 mm3 of a true 105.10
+         *   spot 4  (-9, -4)   removed    6.24 mm3 of a true 119.19
+         *   spot 5  (-6, -4)   removed  130.63 mm3 of a true 128.30
+         *
+         * (the truth by numerical integration of the cylinder inside the
+         * ellipsoid; spot 5's 1.8% is the reconstruction's own error). Two of
+         * the nine came back with essentially NO HOLE IN THEM — 13% and 5% of
+         * the material the drill passes through — and BOPAlgo reported
+         * success for both. [43] caught only spot 4, and only because that
+         * one also came back a solid the kernel refuses (two faces
+         * UnorientableShape); spot 3 repairs into a perfectly valid body with
+         * the hole missing, which is the worse of the two outcomes because
+         * nothing downstream can tell.
+         *
+         * What the two have in common, and what every good cut here does NOT,
+         * is that the raw boolean is not a valid solid. So that is the
+         * trigger. The ladder already existed and already fixes them: at the
+         * same rungs, spot 3 removes 118.56 and spot 4 125.47, both within
+         * the few percent the reconstruction is worth anyway.
+         *
+         * It costs nothing on ordinary modelling. A box, a sphere, a torus
+         * and a cylinder, cut by through-holes, blind holes, a tangent
+         * grazing cylinder, a corner box and a coaxial bore, all come back
+         * from the plain boolean VALID — the extra booleans are spent only on
+         * bodies reconstructed from triangles, which is where this failure
+         * lives and which is already the expensive path.
+         *
+         * Selection is the rule M375 states above: of the candidates that
+         * obey the upper bound, the largest removal wins. The plain result is
+         * itself a candidate here (it is not over the bound — that case is
+         * the other trigger), so a rung can only win by removing MORE, and an
+         * answer that was already right cannot be made worse. Where no rung
+         * beats it, it stands and the repair below gets its usual chance:
+         * being illegal is a reason to look for something better, not a
+         * reason to fail a cut that may still be the best there is. */
+        const bool illegal = !shape_is_valid(r);
+        if (over(r) || illegal) {
             const double f0 = boolean_fuzzy(a->s, b->s);
             const double base = (f0 > 0.0) ? f0 : Precision::Confusion() * 10.0;
             TopoDS_Shape bestShape;
             double bestTook = -1.0;
+            if (illegal && !over(r) && has_solid_material(r)) {
+                bestShape = r;
+                bestTook = v0 - solid_volume(r);
+            }
             for (const double mul : {1.0, 5.0, 25.0, 125.0}) {
                 const TopoDS_Shape c = cut_at(a->s, b->s, base * mul);
                 if (c.IsNull() || over(c) || !has_solid_material(c))
@@ -1646,6 +1693,9 @@ extern "C" occt_shape *occt_cut(const occt_shape *a, const occt_shape *b)
                 }
             }
             if (bestShape.IsNull()) {
+                /* Only over-removal is fatal. An illegal result seeds itself
+                 * above, so an empty best here means the cut really did take
+                 * more than its tool holds and nothing fixed it. */
                 set_err("occt_cut",
                         "the cut removed more material than the tool holds and "
                         "no tolerance made it right");
