@@ -153,13 +153,20 @@ void main() {
     test('it is written 0600', () {
       if (!Platform.isLinux && !Platform.isMacOS) return;
       CloudAccountStore(private).save(account);
-      final mode = Process.runSync('stat', ['-c', '%a', newFile().path])
-          .stdout
-          .toString()
-          .trim();
-      expect(mode, '600',
+
+      // `FileStat`, NOT `Process.runSync('stat', …)`. The first version of
+      // this shelled out with `-c '%a'`, which is GNU stat's syntax: on the
+      // macOS runner BSD stat rejects the flag, stdout comes back empty, and
+      // the test failed while the chmod it was checking had worked perfectly.
+      // The host suite runs on Linux AND macOS, so a check that only one of
+      // them can perform is not a check. dart:io reports the mode itself.
+      final mode = newFile().statSync().mode & 0x1FF; // permission bits only
+
+      expect(mode, 0x180, // 0600
           reason: 'writeAsStringSync creates at the umask, 0644 on most '
-              'systems, and the key opens the bucket from anywhere');
+              'systems, and the key opens the bucket from anywhere. '
+              'Got ${newFile().statSync().modeString()}');
+      expect(newFile().statSync().modeString(), 'rw-------');
     });
   });
 }
