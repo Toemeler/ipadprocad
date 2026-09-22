@@ -91,7 +91,23 @@ import 'lan_sync.dart';
 /// every device out at once.
 class CloudAccountStore {
   final Directory dir;
-  const CloudAccountStore(this.dir);
+
+  /// M443 — where an older build kept it, if that is somewhere else.
+  ///
+  /// The first version of this put the account under `<Documents>/.cache`,
+  /// which on iOS is INSIDE the directory `UIFileSharingEnabled` exposes: the
+  /// gallery is meant to be browsable in Files, and the key was sitting in it.
+  /// A leading dot is the only reason Files did not list it, and that is
+  /// obscurity rather than protection — an unencrypted backup carries the
+  /// whole container, dot-files included.
+  ///
+  /// Application Support is not exposed by that flag, so that is where it goes
+  /// now, and [load] MOVES anything it finds at the old path rather than
+  /// copying it: leaving the original behind would leave the key exactly where
+  /// this was meant to get it out of.
+  final Directory? legacyDir;
+
+  const CloudAccountStore(this.dir, {this.legacyDir});
 
   /// Deliberately NOT `settings.json`, and deliberately not in
   /// `LanSync._prefFiles`. See this file's header.
@@ -99,8 +115,33 @@ class CloudAccountStore {
 
   File get file => File('${dir.path}/$fileName');
 
+  /// Moves an account written by an older build out of the browsable
+  /// directory. Does nothing if there is none, or if this build already has
+  /// one — a newer file always wins over an older one at the old path.
+  void _migrate() {
+    final from = legacyDir;
+    if (from == null || from.path == dir.path) return;
+    try {
+      final old = File('${from.path}/$fileName');
+      if (!old.existsSync()) return;
+      if (!file.existsSync()) {
+        if (!dir.existsSync()) dir.createSync(recursive: true);
+        old.copySync(file.path);
+        _restrictToThisUser(file);
+        Log.i('cloud', 'moved the account out of the documents container');
+      }
+      // Deleted either way. If this build already had an account, the copy at
+      // the old path is a stale credential in a browsable folder, which is the
+      // whole thing being fixed.
+      old.deleteSync();
+    } catch (e) {
+      Log.w('cloud', 'could not move the account: $e');
+    }
+  }
+
   B2Credentials? load() {
     try {
+      _migrate();
       final f = file;
       if (!f.existsSync()) return null;
       final raw = jsonDecode(f.readAsStringSync());

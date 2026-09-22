@@ -529,4 +529,103 @@ void main() {
           isNot(const CloudStatus(CloudState.idle, devices: 3)));
     });
   });
+  collectorChecks();
+}
+
+// ---------------------------------------------------------------------------
+// M443 — THE COLLECTOR.
+//
+// The only thing in the cloud mirror that destroys anything, so these are
+// mostly about what it must NOT take. `lan_sync.dart` says it about deletes
+// and it is no less true here: the failure mode is losing work everywhere at
+// once.
+// ---------------------------------------------------------------------------
+void collectorChecks() {
+  const day = Duration(days: 1);
+  final now = DateTime.utc(2026, 9, 22, 12).millisecondsSinceEpoch;
+  int old(int days) => now - days * day.inMilliseconds;
+
+  B2Object blob(String sha, int ageDays) =>
+      B2Object('g/aa/b/$sha', 'etag', 10, old(ageDays));
+
+  CloudManifest holding(List<String> shas, {String device = 'd'}) =>
+      CloudManifest(
+        device: device,
+        deviceName: device,
+        atMs: 1,
+        entries: [
+          for (final h in shas) SyncEntry('$h.ptp', 1, 2, h),
+        ],
+        tombs: const [],
+      );
+
+  List<String> doomed(List<B2Object> blobs, List<CloudManifest> ms,
+          {int ageDays = 7}) =>
+      CloudSync.unreferenced(blobs, ms,
+          nowMs: now, minAgeMs: ageDays * day.inMilliseconds);
+
+  group('the collector takes what nothing points at', () {
+    test('an orphan old enough goes', () {
+      expect(doomed([blob('aaa', 30), blob('bbb', 30)], [holding(['aaa'])]),
+          ['g/aa/b/bbb']);
+    });
+
+    test('nothing is taken when every blob is still named', () {
+      expect(doomed([blob('aaa', 365)], [holding(['aaa'])]), isEmpty);
+    });
+  });
+
+  group('the collector never takes', () {
+    // A device switched off for a year still has its manifest in the bucket,
+    // and that manifest still names the blobs behind the documents it holds.
+    test('a blob one silent device still names', () {
+      expect(
+          doomed([blob('shared', 400)],
+              [holding(['moved-on']), holding(['shared'], device: 'old-ipad')]),
+          isEmpty);
+    });
+
+    // A blob is uploaded BEFORE the manifest that names it, so in between it
+    // is referenced by nothing and looks exactly like garbage.
+    test('a blob younger than the guard, even with nothing naming it', () {
+      for (final age in const [0, 1, 6]) {
+        expect(doomed([blob('fresh', age)], [holding(['other'])]), isEmpty,
+            reason: '$age days old must be kept');
+      }
+      expect(doomed([blob('fresh', 8)], [holding(['other'])]),
+          ['g/aa/b/fresh'],
+          reason: 'but past the guard it is collectable');
+    });
+
+    test('a blob a tombstone-only manifest leaves unnamed but young', () {
+      final tombOnly = CloudManifest(
+        device: 'd',
+        deviceName: 'd',
+        atMs: 1,
+        entries: const [],
+        tombs: [SyncTomb('Gone.ptp', old(2), 'aaa')],
+      );
+      expect(doomed([blob('aaa', 2)], [tombOnly]), isEmpty);
+    });
+  });
+
+  // The pure function cannot know a manifest failed to load — it would see
+  // "nothing is referenced", which is every blob. That is why `_collect`
+  // refuses to run at all in that case, and why this records the reasoning.
+  test('no manifests at all would look like everything is garbage', () {
+    expect(doomed([blob('aaa', 30)], const []), ['g/aa/b/aaa'],
+        reason: 'which is exactly why _collect returns early on an empty or '
+            'unreadable manifest set rather than calling this');
+  });
+
+  test('the guards hold over a realistic mix', () {
+    final blobs = [
+      blob('live-old', 400), // named, ancient      -> keep
+      blob('live-new', 0), // named, fresh        -> keep
+      blob('orphan-old', 30), // unnamed, ancient    -> take
+      blob('orphan-new', 2), // unnamed, fresh      -> keep
+    ];
+    expect(doomed(blobs, [holding(['live-old', 'live-new'])]),
+        ['g/aa/b/orphan-old']);
+  });
 }

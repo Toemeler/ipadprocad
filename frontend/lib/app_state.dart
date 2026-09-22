@@ -1872,7 +1872,28 @@ class AppState extends ChangeNotifier {
     // account is what says "these are my devices", and the LAN group is
     // derived from it. See `cloud_account.dart` for why that is the stronger
     // of the two and why the key is not kept in `settings.json`.
-    CloudAccount.attachStore(CloudAccountStore(_cacheRoot));
+    // M443 — THE ACCOUNT DOES NOT LIVE IN THE BROWSABLE DIRECTORY. On iOS
+    // `_cacheRoot` is under the Documents container, which is precisely what
+    // `UIFileSharingEnabled` exposes in Files; Application Support is not.
+    // The desktop already keeps everything in its own app directory, so there
+    // `_cacheRoot` is already the right answer and the two are the same.
+    Directory secrets = _cacheRoot;
+    if (!isDesktopHost) {
+      try {
+        secrets = await Log.stepAsync(
+            'state',
+            'getApplicationSupportDirectory (platform channel)',
+            () => getApplicationSupportDirectory());
+      } catch (e) {
+        // A container we cannot resolve is not a reason to lose the account —
+        // it falls back to where it has always been, and the migration in
+        // CloudAccountStore is a no-op when the two paths match.
+        Log.w('state', 'no application support dir, keeping the account in '
+            'the cache dir: $e');
+      }
+    }
+    CloudAccount.attachStore(
+        CloudAccountStore(secrets, legacyDir: _cacheRoot));
     // Linux/Windows only, and a no-op even there until something asks — see
     // update_check.dart. Attached here rather than checked from a bare
     // constant so a test can point it at its own temp directory instead of

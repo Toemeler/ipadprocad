@@ -114,8 +114,10 @@ Leaving `CLOUD_SYNC_URL` unset — the default in every existing build config �
 disables the cloud outright: no timer, no request, and the app behaves exactly
 as it did before this directory existed. There is a test that says so.
 
-Then type the **same share code** on each device, in Settings, exactly as for
-the LAN mirror. One code drives both: `ShareCodes.set` starts each.
+Then enter the **same account** on each device, in Settings → Sharing. M442
+removed the share code: the Backblaze account *is* the group, and the LAN
+mirror pairs on a token derived from it, so one thing starts both
+(`CloudAccount.set`).
 
 ## How the bucket is laid out
 
@@ -146,9 +148,18 @@ One of those is a data-loss report, the other is litter.
 
 ## Collecting orphans
 
-Editing a document leaves its previous blob referenced by nothing. Nothing
-collects those automatically — deletion is the one operation here that can
-destroy work, so it does not also run unattended every two minutes.
+Editing a document leaves its previous blob referenced by nothing, and no
+lifecycle rule can see it (content-addressing means an edit writes a
+*different* key and orphans the old one rather than superseding it).
+
+**In the app's own direct mode this is automatic** — see
+`CloudSync._collect`: once a day, only after an otherwise idle cycle, under
+the same two guards as below plus a seven-day age floor. There is no terminal
+in that mode, which is the whole point of M442, so the guards have to stand on
+their own.
+
+On this Worker it stays manual, because a shared endpoint has a person
+available to read a dry run first.
 
 Ask for a report first. `dryRun` is the default, so forgetting the flag is
 safe:
@@ -219,26 +230,28 @@ implied away.
 Closing it means encrypting in `CloudSync._upload` and decrypting in
 `_download` — two places — plus a cipher, which this app does not have: the
 `crypto` package hashes, it does not encrypt. That is a `pubspec.yaml`
-dependency (`cryptography` or `pointycastle`) and a key derived from the share
-code the way `shareCodeKey` already derives the handshake key. It was left out
-rather than half-done.
+dependency (`cryptography` or `pointycastle`) and a key derived from the
+account. It was left out rather than half-done.
 
-**And the share code is still 60 bits.** `share_code.dart` is explicit:
+**The account key is not in a keystore.** In the app's direct mode it is a
+plain JSON file. It is no longer in the Files-browsable directory — M443 moved
+it to Application Support on iOS, and chmod 600 covers a shared desktop — but
+that is not Keychain/libsecret/DPAPI, which is a plugin and a platform channel
+per OS. `frontend/lib/sync/cloud_account.dart` states the gap in full.
 
-> Twelve of a 32-symbol alphabet is 60 bits. That is not a password and is not
-> treated as one — it is a rendezvous token whose exposure is bounded by being
-> on one local network.
-
-This removes that bound. Two things narrow it: the bucket prefix is an HMAC
-under `GROUP_SALT`, so a code cannot be turned into a bucket path off-device,
-and `CLOUD_SECRET` keeps casual traffic off the endpoint. Neither turns the
-code into a password. **Anyone who learns your code can read your gallery.**
+Until that exists, the mitigation that actually works is one you do in the
+console: **scope the key to a single bucket**. A copied file then costs that
+bucket, and revoking it is one click that locks every device out at once — and,
+because the LAN group is derived from the key, unpairs them from each other
+too.
 
 ## Tests
 
 ```sh
-cd cloud && npm test                                         # 40
-cd frontend && flutter test test/m441_cloud_sync_test.dart   # 28
+cd cloud && npm test                                          # 40
+cd frontend && flutter test test/m441_cloud_sync_test.dart    # 45
+cd frontend && flutter test test/m442_b2_signer_test.dart     # 21
+cd frontend && flutter test test/m443_account_storage_test.dart  # 10
 ```
 
 The Worker's signer is checked against **AWS's own published presigning

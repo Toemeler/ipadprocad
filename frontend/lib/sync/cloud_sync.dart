@@ -495,6 +495,16 @@ class CloudSync {
             '${theirs.length} device(s)');
       } else {
         _sawNothing();
+        // ONLY AFTER AN IDLE CYCLE, and never while anything is arriving: a
+        // collector competing with a transfer is a collector reasoning about
+        // a bucket that is being written to. Once a day, at most, and its own
+        // failures never fail the cycle — the space it reclaims is not worth
+        // one document not syncing.
+        try {
+          await _collect(account, group);
+        } catch (e) {
+          Log.w('cloud', 'could not collect: ${redactUrls(e)}');
+        }
       }
       return CloudResult(
         forks > 0
@@ -630,6 +640,141 @@ class CloudSync {
   ///
   /// B2 caps a listing at 1,000 and says so with `IsTruncated`. Reading only
   /// the first page would silently hide devices once a bucket grew.
+  // -------------------------------------------------------------------------
+  // The collector (M443)
+  // -------------------------------------------------------------------------
+
+  /// Which blobs nothing points at any more.
+  ///
+  /// THE ONLY THING HERE THAT DESTROYS ANYTHING, so it is a pure function with
+  /// its own tests rather than a loop inside the caller, and it has two
+  /// independent guards:
+  ///
+  ///   * REFERENCED BY ANY MANIFEST IS SAFE. Not "any recent manifest" — any.
+  ///     A device switched off for a year still has its manifest in the
+  ///     bucket, and that manifest still names the blobs behind the documents
+  ///     it holds, so its files are pinned by its own record. Nothing deletes
+  ///     a manifest, which is what makes that reasoning hold.
+  ///   * AND ANYTHING YOUNG IS SAFE. A blob is uploaded BEFORE the manifest
+  ///     that names it — the invariant at the top of this file — so between
+  ///     those two moments it is referenced by nothing and looks exactly like
+  ///     garbage. A cycle is seconds; the guard is a week.
+  ///
+  /// `lan_sync.dart` says it about deletes and it is no less true here: the
+  /// failure mode is losing work everywhere at once. So this errs, on purpose,
+  /// towards keeping a blob nobody wants over removing one somebody does.
+  @visibleForTesting
+  static List<String> unreferenced(
+    List<B2Object> blobs,
+    List<CloudManifest> manifests, {
+    required int nowMs,
+    required int minAgeMs,
+  }) {
+    final referenced = <String>{
+      for (final m in manifests)
+        for (final e in m.entries) e.sha,
+    };
+    return [
+      for (final b in blobs)
+        if (!referenced.contains(b.name) &&
+            nowMs - b.lastModifiedMs >= minAgeMs)
+          b.key,
+    ];
+  }
+
+  /// How old a blob must be before the collector will look at it.
+  static const Duration gcMinAge = Duration(days: 7);
+
+  /// How often the collector runs at all.
+  static const Duration gcEvery = Duration(days: 1);
+
+  DateTime? _lastGc;
+
+  /// Removes blobs no manifest points at any more.
+  ///
+  /// WHY THIS RUNS AT ALL, rather than being left to a lifecycle rule as the
+  /// Worker's README once claimed: blobs are content-addressed, so editing a
+  /// document writes a DIFFERENT key and leaves the old one orphaned rather
+  /// than superseded. A lifecycle rule collects older VERSIONS OF ONE KEY and
+  /// never sees an orphan; an age rule would delete the blob of a document
+  /// that simply has not changed lately, which is most of a gallery. Nothing
+  /// but this reclaims the space, and 10 GB of free tier fills quietly.
+  ///
+  /// WHY IT IS SAFE TO RUN UNATTENDED here when the Worker's `/v1/gc` is
+  /// deliberately manual: the Worker is a shared endpoint anyone with the
+  /// secret can call, and it had a person available to read a dry run. An app
+  /// has neither — there is no terminal, which is the whole point of M442 —
+  /// so the guards have to stand on their own, and they do. It still refuses
+  /// to run at all if any manifest cannot be read, because collecting against
+  /// a partial set of references is the one mistake that deletes live data.
+  ///
+  /// Once a day, after an otherwise idle cycle, never while anything is
+  /// arriving. Deletes are Class A on B2, which is free.
+  Future<int> _collect(B2Credentials account, String group) async {
+    final last = _lastGc;
+    final now = DateTime.now();
+    if (last != null && now.difference(last) < gcEvery) return 0;
+
+    // Read EVERY manifest from the bucket, not the ETag cache: the cache is an
+    // optimisation for "has anything changed", and a miss there is harmless,
+    // whereas a manifest missing from THIS set is a set of blobs that look
+    // unreferenced.
+    final listed = await _list(account, 'g/$group/m/');
+    final manifests = <CloudManifest>[];
+    for (final o in listed) {
+      if (!o.name.endsWith('.json')) continue;
+      final body = await _getString(account, o.key);
+      if (body == null) {
+        Log.w('cloud', 'not collecting: ${o.name} could not be read');
+        return 0;
+      }
+      try {
+        final m = CloudManifest.fromJson(jsonDecode(body));
+        if (m == null) {
+          Log.w('cloud', 'not collecting: ${o.name} is not a manifest');
+          return 0;
+        }
+        manifests.add(m);
+      } catch (e) {
+        Log.w('cloud', 'not collecting: ${redactUrls(e)}');
+        return 0;
+      }
+    }
+    // No manifests at all would make every blob look unreferenced. That is a
+    // bucket we have not written to yet, not a bucket to empty.
+    if (manifests.isEmpty) {
+      _lastGc = now;
+      return 0;
+    }
+
+    final blobs = await _list(account, 'g/$group/b/');
+    final doomed = unreferenced(blobs, manifests,
+        nowMs: now.millisecondsSinceEpoch, minAgeMs: gcMinAge.inMilliseconds);
+    _lastGc = now;
+    if (doomed.isEmpty) return 0;
+
+    var gone = 0;
+    for (final key in doomed) {
+      try {
+        final res = await _http
+            .delete(
+                B2Signer.sign(credentials: account, method: 'DELETE', key: key))
+            .timeout(_timeout);
+        // 404 means somebody else got there first, which is success.
+        if (res.statusCode == 200 || res.statusCode == 204 ||
+            res.statusCode == 404) {
+          gone++;
+        }
+      } catch (e) {
+        // One blob that would not go is next week's problem, not this
+        // cycle's.
+        Log.w('cloud', 'could not collect a blob: ${redactUrls(e)}');
+      }
+    }
+    Log.i('cloud', 'collected $gone orphaned blob(s) of ${blobs.length}');
+    return gone;
+  }
+
   Future<List<B2Object>> _list(B2Credentials account, String prefix) async {
     final out = <B2Object>[];
     String? token;
