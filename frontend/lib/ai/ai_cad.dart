@@ -30,6 +30,7 @@ import '../tools.dart'
 import '../part_render.dart'
     show kFacePlane, kFaceCylinder, kFaceCone, kFaceSphere, kFaceTorus;
 import 'ai_actions.dart';
+import 'ai_knowledge.dart';
 import 'ai_brief.dart';
 import 'ai_models.dart';
 import 'ai_trace.dart';
@@ -83,6 +84,99 @@ class AiCad {
   /// Views rendered by `look` during the current block.
   final List<AiAttachment> _views = [];
 
+  /// Whether the model on the other end can actually receive a picture.
+  ///
+  /// Set by [AiWorkspace] from the live provider capabilities. It only decides
+  /// whether the PNG is worth rendering — the text silhouette costs nothing to
+  /// produce and goes to every provider either way.
+  bool wantsImages = true;
+
+  /// The bundled reference corpus, for the `knowledge` op. Set by
+  /// [AiWorkspace] once it is loaded; null until then, and the op says so
+  /// rather than pretending the shelf is empty (#82).
+  AiKnowledge? knowledge;
+
+  /// ISSUE #83 — WATCHING THE ASSISTANT UNBUILD ITS OWN WORK.
+  ///
+  /// The instructions already say it: "delete_feature is for a feature that
+  /// should not exist at all — a wrong approach, not a wrong number", and "if
+  /// you find yourself rebuilding what you just built, stop". In the reported
+  /// session the model built a wall flange, looked at it, deleted it, and
+  /// built another — four times, Extrusion4 through Extrusion7 — and called
+  /// edit_feature exactly zero times. Every cycle was a provider round trip.
+  ///
+  /// A paragraph in the prompt is not a grip. Noticing is: the app knows which
+  /// features this conversation created and when, so when one of them is
+  /// deleted a few blocks later it can say so, with the count, in the report
+  /// the model reads before writing its next block. That is the same mechanism
+  /// the open-requirements push-back already uses, applied to the other way a
+  /// turn goes in circles.
+  int _blockNo = 0;
+  final Map<String, int> _madeAt = {};
+
+  /// The blocks at which this conversation deleted something it had just
+  /// built. A LIST rather than a counter, so the escalation is scoped to a
+  /// run of rebuilding and not to the whole life of the app: three deletions
+  /// spread over an afternoon's work are three considered removals, and only
+  /// three inside a handful of blocks are a loop.
+  final List<int> _churnAt = [];
+
+  /// ISSUE #82 — LOOK AFTER EVERY STEP, WITHOUT BEING ASKED.
+  ///
+  /// The instructions told the model to run `look` before calling a part
+  /// finished. It called it ZERO times in the reported session, and so never
+  /// saw that its countersink had landed on the plate's edge, that its cable
+  /// clamp was hanging in mid-air, or that the part it finally handed over was
+  /// a bare slab. It had a vision model on the other end the whole time.
+  ///
+  /// Asking the model to remember is the wrong mechanism. A view is only
+  /// useful if it arrives with the report it describes, and the app already
+  /// knows the exact moment one is worth taking: a block just changed the
+  /// geometry. So the app takes it. No round trip, no op to remember, no
+  /// judgement call about whether this step deserves one.
+  ///
+  /// It is also the cheapest possible correction loop. The whole point of
+  /// building rather than deliberating is that the result comes back as fact
+  /// — and for shape, the fact is a picture.
+  Future<void> _autoView(PartModel p) async {
+    // The model asked for its own view in this block: that is the one it
+    // wanted, framed how it wanted. Don't second-guess it or double the cost.
+    if (_views.isNotEmpty) return;
+    if (p.bodyNames.isEmpty) return;
+    const az = 45.0, pol = 55.0, size = 512;
+    try {
+      final png = wantsImages
+          ? await app.aiRenderView(
+              azRad: az * math.pi / 180,
+              polRad: pol * math.pi / 180,
+              rollRad: 0,
+              width: size,
+              height: size,
+            )
+          : null;
+      if (png != null && png.isNotEmpty) {
+        _views.add(AiAttachment.fromBytes(name: 'after-block.png', bytes: png));
+      }
+    } on AiException {
+      // A view is an extra, never a reason for a good block to report badly.
+    } catch (_) {}
+  }
+
+  /// The same view as a grid of characters, for the report text. Free, and the
+  /// only thing a text-only provider can read (#82).
+  String? _autoSilhouette(PartModel p) {
+    if (p.bodyNames.isEmpty) return null;
+    try {
+      final solid = _solidFor(p, const AiAction('look', {}));
+      if (solid == null) return null;
+      final view = renderTextView(solid.mesh.positions, solid.mesh.indices,
+          azRad: 45 * math.pi / 180, polRad: 55 * math.pi / 180);
+      return view?.toText();
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Executes one block. Never throws: an unexpected error becomes a failed
   /// outcome and a rollback, because an exception escaping here would leave
   /// the document mid-edit with nobody to say so.
@@ -94,6 +188,7 @@ class AiCad {
     }
     if (batch.isEmpty) return AiActionReport(outcomes: const []);
     final before = app.aiSnapshot(p);
+    _blockNo++;
     _views.clear();
     final outcomes = <AiActionOutcome>[];
     var mutated = false;
@@ -164,11 +259,27 @@ class AiCad {
       final tab = app.curTab;
       if (tab != null) await app.savePart(tab);
       app.aiNotify();
+      // #82 — the geometry changed, so the model gets to see it.
+      await _autoView(p);
+    }
+    final state = _stateBrief(p);
+    if (mutated && !failed) {
+      final sil = _autoSilhouette(p);
+      if (sil != null) state['silhouette'] = sil;
+      state['viewNote'] = _views.isEmpty
+          ? 'This is the part after the block, seen from az 45, pol 55. '
+              "'#' is material, 'o' is an opening you can see straight "
+              'through. Check it against what you meant to build.'
+          : 'The attached image and the silhouette are this part AFTER the '
+              'block, from az 45, pol 55. Look at them: if the shape is not '
+              'what you intended, fix it in the next block rather than '
+              'carrying on. Read dimensions from the numbers above, never '
+              'off the picture.';
     }
     return AiActionReport(
         outcomes: outcomes,
         reverted: false,
-        state: _stateBrief(p),
+        state: state,
         images: List.of(_views));
   }
 
@@ -223,6 +334,8 @@ class AiCad {
         return _sketchOnFace(p, a);
       case 'look':
         return _look(p, a);
+      case 'knowledge':
+        return _knowledge(a);
       case 'brief_note':
       case 'brief_done':
         return _brief(a);
@@ -298,6 +411,10 @@ class AiCad {
       if (offset != 0)
         'note': 'This sketch sits ${_mm(offset)} mm along the ${plane.toUpperCase()} '
             'plane normal, so what you draw on it starts there.',
+      // ISSUE #82 — every sketch says which way its own axes point, because
+      // the alternative is the model working it out by building something and
+      // measuring the result. See [frameAxisNote].
+      'axes': frameAxisNote(frame ?? base),
     });
   }
 
@@ -634,14 +751,38 @@ class AiCad {
     return p.bodyNames.isEmpty ? 'new' : 'join';
   }
 
+  /// Why a sketch has no closed region, said so the next block can fix it.
+  ///
+  /// ISSUE #82 — the bare "has no closed profile" sent the assistant back to
+  /// the drawing board when its profile was 0.0008 mm from correct. Naming the
+  /// gap and the two points makes the repair obvious; saying nothing makes
+  /// redrawing from scratch the only visible option, and that is what it did.
+  String _noProfile(ChildSketch cs, String verb) {
+    final name = cs.model.name;
+    // M397's finder: the distance from a loose end to the curve it nearly
+    // meets, which is the number that actually explains the failure.
+    final g = nearestProfileGap(cs.model);
+    if (g == null) {
+      return 'sketch "$name" has no closed profile to $verb — its curves do '
+          'not enclose an area. Every region needs a chain of entities that '
+          'returns to where it started.';
+    }
+    return 'sketch "$name" has no closed profile to $verb: the end at '
+        '(${_r(g.at.dx)}, ${_r(g.at.dy)}) is ${g.gap.toStringAsFixed(4)} mm '
+        'short of the curve it should meet. Move just that end onto the other '
+        'one — or let a single op make the whole shape (sketch_slot, '
+        'sketch_rounded_rect, sketch_circle, or sketch_arc given three points '
+        'it passes THROUGH) instead of computing endpoints from angles and '
+        'rounding them. Nothing else about this sketch is wrong.';
+  }
+
   Future<AiActionOutcome> _extrude(PartModel p, AiAction a) async {
     final (cs, err) = _sketchFor(p, a);
     if (cs == null) return AiActionOutcome.failed(a.op, err!);
     app.aiForgetRegions(cs.model.name);
     final regions = app.sessionRegions(cs);
     if (regions.isEmpty) {
-      return AiActionOutcome.failed(a.op,
-          'sketch "${cs.model.name}" has no closed profile to extrude');
+      return AiActionOutcome.failed(a.op, _noProfile(cs, 'extrude'));
     }
     final through = a.flag('through_all');
     final distance = a.number('distance');
@@ -860,8 +1001,15 @@ class AiCad {
                 '${selections.length} edge(s). Blend fewer edges, or a '
                 'different set: a blend cannot run off the end of the faces '
                 'it follows.'
+            // #83 — "Retry at X or less" was two mistakes. X was never built,
+            // and "or less" is not true either: a blend that fails at one size
+            // can fail at a smaller one too, because a different edge binds at
+            // each size. This number HAS been built, at exactly this value.
             : '${outcome.error} — but ${_mm(fits)} mm does build on these '
-                '${selections.length} edge(s). Retry at ${_mm(fits)} or less.');
+                '${selections.length} edge(s); the app just built it to check. '
+                'Retry at exactly ${_mm(fits)}. Do not go lower hoping for '
+                'more room — a smaller radius is not safer here, it just '
+                'moves which edge fails.');
   }
 
   /// What to try next, for the kernel failures that have a known remedy.
@@ -900,12 +1048,40 @@ class AiCad {
     return '';
   }
 
-  /// The largest blend size that the kernel accepts on [edges], by bisection.
+  /// The largest blend size that the kernel accepts on [edges], by bisection
+  /// over the two-decimal grid.
   ///
-  /// Bounded to six probes: each one is a real kernel build, and the answer
-  /// only has to be good enough to retry with. Nothing here reaches the
-  /// document — a probe that succeeds is disposed exactly like one that
-  /// fails, and no feature is ever appended.
+  /// Each probe is a real kernel build — on a 26-edge fillet they cost about a
+  /// second each — so this is bounded, and nothing here reaches the document:
+  /// a probe that succeeds is disposed exactly like one that fails, and no
+  /// feature is ever appended.
+  ///
+  /// ISSUE #83 — WHY IT SEARCHES HUNDREDTHS AND NOT REALS.
+  ///
+  /// It used to bisect over the reals and then floor the winner to two
+  /// decimals, with the comment "a value the model retries must still build".
+  /// That is the one thing flooring cannot guarantee. Blend buildability is
+  /// not monotonic in radius — with 26 edges a different edge set binds at
+  /// each size, and the session that reported this shows the failure moving
+  /// from "edge set 7" to "edge set 16" on the way down — so a value adjacent
+  /// to one that builds routinely does not. Bisection verified 0.96875, the
+  /// app promised 0.96, and 0.96 had never been built by anybody.
+  ///
+  /// The model then did exactly as instructed, five times:
+  ///
+  ///   asked 2.00 -> "0.96 does build" -> 0.96 fails -> "0.94 does build"
+  ///              -> 0.94 fails        -> "0.92"     -> 0.92 fails
+  ///              -> "0.90"            -> 0.90 fails -> "0.88" -> built
+  ///
+  /// Five provider round trips, about 110 seconds, every one of them spent on
+  /// a promise the app had not checked, while the kernel could have walked the
+  /// same staircase in a few seconds without anybody watching.
+  ///
+  /// Searching whole hundredths fixes it at the root: the value returned was
+  /// built AT EXACTLY THE NUMBER THAT WILL BE PRINTED. [_mm] renders two
+  /// decimals and rounds, so a real-valued answer could also be rounded UP on
+  /// its way to the model — 0.96875 prints as "0.97" — into a third size
+  /// nobody ever tried.
   double? _largestBlendThatBuilds(PartModel p, String body,
       List<EdgeSel> edges, bool isFillet, double asked) {
     if (!app.partKernel.available) return null;
@@ -931,22 +1107,55 @@ class AiCad {
       return ok;
     }
 
-    var lo = 0.0, hi = asked;
-    double? best;
-    for (var i = 0; i < 6; i++) {
-      final mid = (lo + hi) / 2;
-      if (mid < 0.01) break;
-      if (builds(mid)) {
+    // Hundredths, so every candidate is a number the report can print exactly.
+    var lo = 1, hi = (asked * 100).floor() - 1;
+    int? best;
+    var probes = 0;
+    while (lo <= hi && probes < _kMaxBlendProbes) {
+      final mid = lo + (hi - lo + 1) ~/ 2;
+      probes++;
+      if (builds(mid / 100)) {
         best = mid;
-        lo = mid;
+        lo = mid + 1;
       } else {
-        hi = mid;
+        hi = mid - 1;
       }
     }
-    // Round DOWN to two decimals: a value the model retries must still build.
-    return best == null ? null : (best * 100).floorToDouble() / 100;
+    // `best` is a size this method BUILT, at exactly the value it returns.
+    return best == null ? null : best / 100;
   }
 
+  /// How recently a feature must have been built for its deletion to count as
+  /// a rebuild rather than a considered removal (#83).
+  static const int _kChurnWindow = 8;
+
+  /// How many kernel builds one blend search may spend.
+  ///
+  /// A 26-edge fillet probe is about a second, and bisecting the hundredths up
+  /// to 2 mm needs eight. Twelve leaves room for a larger asked size without
+  /// letting a pathological body stall the block (#83).
+  static const int _kMaxBlendProbes = 12;
+
+    // ISSUE #83 — PROMISE ONLY A NUMBER THAT WAS ACTUALLY BUILT.
+    //
+    // The line here used to be `(best * 100).floorToDouble() / 100` with the
+    // comment "a value the model retries must still build". It does not, and
+    // the rounding is why: bisection verified 0.96875, the app floored it to
+    // 0.96 and promised 0.96, and nobody ever built 0.96. Blend buildability
+    // is NOT monotonic in radius — with 26 edges a different edge set binds at
+    // each size, and the reported session shows it switching from "edge set 7"
+    // to "edge set 16" on the way down.
+    //
+    // So the model did exactly as it was told, five times:
+    //
+    //   asked 2.00 -> "0.96 does build"  -> 0.96 fails -> "0.94 does build"
+    //              -> 0.94 fails         -> "0.92"     -> 0.92 fails
+    //              -> "0.90"             -> 0.90 fails -> "0.88"  -> built
+    //
+    // Five provider round trips, every one of them spent on a promise the app
+    // had not checked. A staircase the app walks down for free in the kernel
+    // is a staircase the user should never see.
+    //
   /// The picked edges as a person would describe them: straight ones, and
   /// circles grouped by diameter — a circular edge at the diameter of a hole
   /// IS that hole's mouth.
@@ -1156,9 +1365,38 @@ class AiCad {
     final f = _feature(p, name);
     if (f == null) return AiActionOutcome.failed(a.op, 'no feature named "$name"');
     // The batch already holds the snapshot this delete belongs to.
+    final madeAt = _madeAt.remove(name);
     await app.deleteFeature(f, checkpoint: false);
-    return AiActionOutcome(a.op,
-        detail: {'deleted': name, 'featuresLeft': p.features.length});
+    // #83 — a delete of something this conversation built, a few blocks ago,
+    // is a rebuild. Say so, and say it louder the third time.
+    final own = madeAt != null && _blockNo - madeAt <= _kChurnWindow;
+    if (own) {
+      _churnAt
+        ..add(_blockNo)
+        ..removeWhere((b) => _blockNo - b > _kChurnWindow * 2);
+    }
+    final churn = _churnAt.length;
+    return AiActionOutcome(a.op, detail: {
+      'deleted': name,
+      'featuresLeft': p.features.length,
+      if (own)
+        'churn': churn < 2
+            ? 'You built "$name" ${_blockNo - madeAt} block(s) ago and have '
+                'now removed it. If what was wrong with it was a NUMBER — a '
+                'size, a position, a plane — edit_feature changes it in one '
+                'action and keeps everything built on top of it. '
+                'delete_feature is for an approach that should not exist.'
+            : 'That is $churn features you have built and then deleted in '
+                'the last few blocks, and you have not used edit_feature '
+                'once. '
+                'You are not converging — you are guessing, and each guess '
+                'costs the user a round trip. STOP rebuilding. Read the '
+                '`extentMm` and `centreMm` in this report and the `axes` line '
+                'from the sketch you are drawing on, work out where the '
+                'feature actually needs to be from those numbers, and then '
+                'either edit the sketch that drives it or place the next one '
+                'correctly the first time.'
+    });
   }
 
   Future<AiActionOutcome> _renameFeature(PartModel p, AiAction a) async {
@@ -1557,9 +1795,11 @@ class AiCad {
       ],
       'normal': [_r(face.dir.x), _r(face.dir.y), _r(face.dir.z)],
       'note': 'sketch coordinates are in the face plane, origin at the point '
-          'above; +X follows the frame the app built for it. The sketch is '
-          'pinned to that frame and does not follow the face if the body '
-          'changes underneath it.',
+          'above. The sketch is pinned to that frame and does not follow the '
+          'face if the body changes underneath it.',
+      // ISSUE #82 — "+X follows the frame the app built for it" told the model
+      // that a mapping exists without telling it what the mapping is. Say it.
+      'axes': frameAxisNote(frame),
     });
   }
 
@@ -1709,6 +1949,44 @@ class AiCad {
     });
   }
 
+  /// ISSUE #82 — one reference document, by id.
+  ///
+  /// The documents matching the user's request are already in the prompt
+  /// before the first round (see [AiKnowledge]); this is for the one the model
+  /// decides it wants afterwards, which is the case `knowledge/README.md`
+  /// always meant by "opened on demand". Read-only, so it costs a block slot
+  /// and nothing else — and it belongs in the same block as real work, never
+  /// in a block of its own.
+  AiActionOutcome _knowledge(AiAction a) {
+    final kb = knowledge;
+    if (kb == null || kb.isEmpty) {
+      return AiActionOutcome.failed(a.op, 'no knowledge base is loaded');
+    }
+    final id = a.text('id')?.trim();
+    if (id == null || id.isEmpty) {
+      return AiActionOutcome.failed(
+          a.op, 'knowledge needs an "id" from the menu in the instructions');
+    }
+    final doc = kb.byId(id);
+    if (doc == null) {
+      // Naming the near misses turns a typo into a fix instead of a dead end.
+      final near = [
+        for (final d in kb.documents)
+          if (d.id.contains(id) || id.contains(d.id.split('/').last)) d.id
+      ].take(4).toList();
+      return AiActionOutcome.failed(
+          a.op,
+          'no document "$id"${near.isEmpty ? "" : " — did you mean "
+              "${near.join(", ")}?"}');
+    }
+    return AiActionOutcome(a.op, detail: {
+      'id': doc.id,
+      'title': doc.title,
+      'confidence': doc.confidence,
+      'document': doc.body,
+    });
+  }
+
   /// The solid a view or a measurement is about — the named body, or the one
   /// the last solid feature built.
   KernelSolid? _solidFor(PartModel p, AiAction a) {
@@ -1738,6 +2016,7 @@ class AiCad {
     }
     f.seq = p.nextSeq();
     p.appendFeature(f);
+    _madeAt[f.name] = _blockNo; // #83 — so a later delete can be recognised
     applyEndOfPart(p);
     // Inventor consumes the sketch into the feature that first uses it.
     if (f.sketchName.isNotEmpty && consumersOf(p, f.sketchName).length == 1) {
@@ -1792,6 +2071,32 @@ class AiCad {
           _r(bounds.$2.z - bounds.$1.z)
         ],
       if (bounds != null) 'heightUpYMm': _r(bounds.$2.y - bounds.$1.y),
+      // ISSUE #82 — a size does not say where the body IS, and the model that
+      // only has a size puts the next feature at the origin. It did, twice, in
+      // one session: a countersink 11 mm off centre onto the plate's edge, and
+      // a clamp half in open air. The extent and the centre ride on EVERY
+      // block now, not only on the describe_shape the model has to remember to
+      // ask for — the mistake happens on the block after the first one, which
+      // is exactly where no one calls describe_shape.
+      if (bounds != null)
+        'extentMm': {
+          'x': [_r(bounds.$1.x), _r(bounds.$2.x)],
+          'y': [_r(bounds.$1.y), _r(bounds.$2.y)],
+          'z': [_r(bounds.$1.z), _r(bounds.$2.z)],
+        },
+      if (bounds != null)
+        'centreMm': [
+          _r((bounds.$1.x + bounds.$2.x) / 2),
+          _r((bounds.$1.y + bounds.$2.y) / 2),
+          _r((bounds.$1.z + bounds.$2.z) / 2),
+        ],
+      if (bounds != null &&
+          ((bounds.$1.x + bounds.$2.x).abs() > 1e-2 ||
+              (bounds.$1.z + bounds.$2.z).abs() > 1e-2))
+        'centreNote': 'This body is NOT centred on the world origin. Put a '
+            'centred feature at x=${_r((bounds.$1.x + bounds.$2.x) / 2)}, '
+            'z=${_r((bounds.$1.z + bounds.$2.z) / 2)} — sketch (0,0) is '
+            'somewhere else on this part.',
       'more': 'describe_part for the timeline, describe_shape for the shape',
     };
   }

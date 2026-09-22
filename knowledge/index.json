@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 105,
+  "count": 106,
   "documents": [
     {
       "id": "design/cmf/colour",
@@ -219,6 +219,52 @@
         "design/principles/systems"
       ],
       "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "design/form/openings-and-retention",
+      "title": "Openings and retention — holders, clips and anything that holds something",
+      "type": "recipe",
+      "process": "design",
+      "path": "design/03-form/openings-and-retention.md",
+      "triggers": [
+        "holder",
+        "halter",
+        "halterung",
+        "clip",
+        "klemme",
+        "klammer",
+        "cable",
+        "kabel",
+        "cable holder",
+        "kabelhalter",
+        "kabelklemme",
+        "bracket",
+        "halteklammer",
+        "hook",
+        "haken",
+        "cradle",
+        "saddle",
+        "sattel",
+        "retain",
+        "halten",
+        "festhalten",
+        "snap",
+        "einrasten",
+        "einclipsen",
+        "grip",
+        "greifen",
+        "mount",
+        "befestigung",
+        "organizer",
+        "ständer",
+        "staender",
+        "stand"
+      ],
+      "depends_on": [
+        "design/form/surfaces"
+      ],
+      "confidence": "high",
       "updated": "2026-09-22"
     },
     {
@@ -1361,7 +1407,17 @@
         "screw hole",
         "schraubenloch",
         "drill",
-        "bohren"
+        "bohren",
+        "countersink",
+        "countersunk",
+        "senkung",
+        "senkloch",
+        "senkschraube",
+        "senkkopf",
+        "flush",
+        "bundig",
+        "counterbore",
+        "senkbohrung"
       ],
       "depends_on": [
         "fdm/geometry/overhangs-and-bridging",

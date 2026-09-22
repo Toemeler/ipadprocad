@@ -258,8 +258,17 @@ List<String> aiTriage(AppState app) {
       out.add('ASSISTANT ERROR (whole panel): ${d['globalError']}');
     }
     if (d['currentSessionError'] != null) {
-      out.add('LAST TURN FAILED: ${d['currentSessionError']} in session '
-          '"${d['currentSession']}"');
+      // ISSUE #82 — a turn the user STOPPED is not a turn that failed, and
+      // putting both under "LAST TURN FAILED" sends triage looking for a
+      // fault that never happened. The distinction is already in the code;
+      // it just was not in the sentence.
+      out.add(d['currentSessionError'] == 'cancelled'
+          ? 'LAST TURN WAS CANCELLED BY THE USER in session '
+              '"${d['currentSession']}" — they pressed stop. Any transport '
+              'error logged at that moment is the cancel taking effect. What '
+              'is worth reading is what the assistant had done up to then.'
+          : 'LAST TURN FAILED: ${d['currentSessionError']} in session '
+              '"${d['currentSession']}"');
     }
     if (d['actionRunnerAttached'] == true && d['canEditModel'] == false) {
       out.add('EDITS ARE OFF: the assistant was not told it can change the '

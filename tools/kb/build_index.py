@@ -18,9 +18,58 @@ committed index does not match what this script would write.
 from __future__ import annotations
 
 import json
+import re
 import sys
 
-from kb_common import KB_ROOT, load_docs
+from kb_common import KB_ROOT, REPO_ROOT, load_docs
+
+# Where the app reads the knowledge base from.
+#
+# ISSUE #82 — "it seemed like it didnt use the fdm knowledge at all". It had
+# not: `knowledge/` was 1.2 MB of validated documents that no line of Dart
+# referenced and that no build step shipped, so the assistant designed a part
+# for FDM from its own priors and drew a fully enclosed horizontal bore.
+#
+# Flutter can only bundle assets from inside the package directory, and a
+# symlink is not portable to the Windows build. So the whole corpus is emitted
+# as ONE generated JSON next to the app's other assets: one pubspec entry, one
+# file to load, no directory walking at runtime, and CI already fails when a
+# generated artefact drifts from its source.
+BUNDLE = REPO_ROOT / "frontend" / "assets" / "knowledge" / "kb.json"
+
+_IMG = re.compile(r"^!\[([^\]]*)\]\([^)]*\)\s*$", re.MULTILINE)
+
+
+def bundle_body(body: str) -> str:
+    """The document as the model should read it.
+
+    The image LINKS go: the assistant cannot open an SVG, and a path it cannot
+    follow is noise in a context window. The alt text stays, as `[figure: ...]`,
+    because the caption underneath each one is prose that refers to it and
+    carries the actual rule.
+    """
+    return _IMG.sub(lambda m: f"[figure: {m.group(1)}]", body).strip() + "\n"
+
+
+def build_bundle(docs) -> dict:
+    return {
+        "version": 1,
+        "count": len(docs),
+        "documents": [
+            {
+                "id": d.meta.get("id", ""),
+                "title": d.meta.get("title", ""),
+                "type": d.meta.get("type", ""),
+                "process": d.meta.get("process", ""),
+                "triggers": d.meta.get("triggers", []),
+                "depends_on": d.meta.get("depends_on", []),
+                "confidence": d.meta.get("confidence", ""),
+                "updated": d.meta.get("updated", ""),
+                "body": bundle_body(d.body),
+            }
+            for d in sorted(docs, key=lambda d: d.doc_id)
+        ],
+    }
 
 
 def build_payload(docs) -> dict:
@@ -96,7 +145,17 @@ def main() -> int:
         json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
     (KB_ROOT / "index.md").write_text(render_markdown(payload), encoding="utf-8")
+
+    bundle = build_bundle(docs)
+    BUNDLE.parent.mkdir(parents=True, exist_ok=True)
+    BUNDLE.write_text(
+        json.dumps(bundle, indent=1, ensure_ascii=False, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    size = BUNDLE.stat().st_size
     print(f"indexed {payload['count']} documents")
+    print(f"bundled {bundle['count']} documents -> "
+          f"{BUNDLE.relative_to(REPO_ROOT)} ({size // 1024} KiB)")
     return 0
 
 

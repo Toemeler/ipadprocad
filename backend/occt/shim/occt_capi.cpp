@@ -1958,12 +1958,39 @@ extern "C" int occt_bbox(const occt_shape *shape, double *out6)
         set_err("occt_bbox", "null argument");
         return 0;
     }
+    /* ISSUE #82 — THE BOX WAS BIGGER THAN THE PART.
+     *
+     * This was BRepBndLib::Add, whose box is built from the triangulation (or
+     * the curves' control poles where there is none) and then INFLATED by a
+     * gap so that it is guaranteed to enclose the true shape. That is the
+     * right trade for a clash test and the wrong one for a measurement: in the
+     * reported session a 46.00 x 4.00 x 22.00 mm plate measured
+     * 46.23 x 4.23 x 22.23, and y ran from -0.11 to 4.11 on a plate whose
+     * bottom face is at y = 0. The same mesh in the same millisecond logged
+     * its bbox as exactly -23,0,-22..23,4,0.
+     *
+     * describe_shape is the assistant's only way to check its own work, so a
+     * padded box is not a rounding detail — it is the app lying about the
+     * part. The model noticed, could not explain it, and spent the reasoning
+     * on it: "why 10.63 and not 10.4? ... maybe tessellation. Whatever."
+     *
+     * AddOptimal computes the box from the real geometry instead of the
+     * poles, and SetGap(0) drops the safety margin. Both are what this repo's
+     * own test tools already use (tests/seam_heal.cpp, tests/mesh_recon_test
+     * .cpp); only the shipped shim still padded. */
     Bnd_Box box;
-    BRepBndLib::Add(shape->s, box);
+    BRepBndLib::AddOptimal(shape->s, box, Standard_False, Standard_False);
+    if (box.IsVoid()) {
+        /* AddOptimal needs real geometry. A shape that is only a triangulation
+         * still has to measure, so fall back rather than report nothing — but
+         * clear the gap there too. */
+        BRepBndLib::Add(shape->s, box);
+    }
     if (box.IsVoid()) {
         set_err("occt_bbox", "empty bounding box");
         return 0;
     }
+    box.SetGap(0.0);
     box.Get(out6[0], out6[1], out6[2], out6[3], out6[4], out6[5]);
     return 1;
     OCCT_CATCH("occt_bbox", 0)

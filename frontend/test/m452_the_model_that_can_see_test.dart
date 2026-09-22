@@ -117,8 +117,15 @@ void main() {
       expect(deepSeekReasoningEffort(thorough: false), 'low');
     });
 
-    test('an outstanding requirement buys it', () {
-      expect(deepSeekReasoningEffort(thorough: true), 'high');
+    // #82 — an outstanding requirement USED to buy deliberation on every
+    // round, which latched on the first block of any whole-object request and
+    // never released (brief_done does not fire mid-build). It now buys it only
+    // where there is no action loop to learn from; inside the loop the model
+    // can build the thing and read what happened, which is both faster and
+    // better information than predicting it.
+    test('an outstanding requirement no longer buys it inside the loop', () {
+      expect(deepSeekReasoningEffort(thorough: true), 'low');
+      expect(deepSeekReasoningEffort(thorough: true, iterating: false), 'high');
     });
 
     test('a retry thinks less as it is given more room', () {

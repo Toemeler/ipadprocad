@@ -250,7 +250,10 @@ void main() {
       final sent = backend.requests.single.instructions;
       expect(sent, contains('EVERY BLOCK COSTS THE USER 10 TO 50 SECONDS'));
       expect(sent, contains('are one step'));
-      expect(sent, contains('THINK BRIEFLY'));
+      // #82 — "THINK BRIEFLY" became the stronger claim it was always trying
+      // to make: the app runs a block in milliseconds and reports exactly what
+      // happened, so predicting that is strictly slower AND worse information.
+      expect(sent, contains('DO NOT THINK. BUILD, LOOK, CORRECT'));
       expect(sent, contains('saying you have finished'));
       // The #70 advice that bought visible progress with a round trip each.
       expect(sent, isNot(contains('one or two actions')));

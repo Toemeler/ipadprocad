@@ -189,6 +189,13 @@ class ShapeDigest {
   final bool exact;
 
   Vec3 get size => Vec3(max.x - min.x, max.y - min.y, max.z - min.z);
+
+  /// The middle of the bounding box, in world millimetres. What a model needs
+  /// when it wants to put something "in the centre" of a body that was not
+  /// drawn around the origin (issue #82).
+  Vec3 get centre => Vec3(
+      (min.x + max.x) / 2, (min.y + max.y) / 2, (min.z + max.z) / 2);
+
   double get bboxVolume => size.x * size.y * size.z;
   double get fill => bboxVolume <= 0 ? 0 : volume / bboxVolume;
 
@@ -214,8 +221,33 @@ class ShapeDigest {
     // Y-up. Spelling out which number is the HEIGHT is what makes the
     // difference readable instead of inferable.
     b.writeln('stance up is +Y — ${_mm(s.y)} mm tall, footprint '
-        '${_mm(s.x)} (X) × ${_mm(s.z)} (Z) mm, '
-        'y from ${_mm(min.y)} to ${_mm(max.y)}');
+        '${_mm(s.x)} (X) × ${_mm(s.z)} (Z) mm');
+    // ISSUE #82 — "the countersunk hole was not centered, it was on an edge",
+    // and in the same session a cable clamp that missed the part altogether.
+    //
+    // Both came from ONE missing fact. The line above gives the SIZE of the
+    // footprint and used to give the Y range alone, so where the body sits in
+    // X and Z was never stated — and all three origin planes pass through the
+    // world origin. A model that draws a plate with sketch_rounded_rect at
+    // (0, 11) has put its centre at world z = -11, then places the next
+    // feature at sketch (0, 0) because (0, 0) is "the middle" of every sketch
+    // it has drawn. The hole landed 11 mm out, exactly half the depth, on the
+    // boundary. The clamp landed half in open air.
+    //
+    // A size cannot answer "where is the middle"; a position can. So the
+    // digest states the extent and the centre in world millimetres, and says
+    // plainly that the origin is not the centre, because that is the
+    // assumption that was actually being made.
+    b.writeln('extent x ${_mm(min.x)}..${_mm(max.x)} · '
+        'y ${_mm(min.y)}..${_mm(max.y)} · '
+        'z ${_mm(min.z)}..${_mm(max.z)}');
+    final c = centre;
+    final atOrigin = c.x.abs() < 5e-3 && c.z.abs() < 5e-3;
+    b.writeln('centre (${_mm(c.x)}, ${_mm(c.y)}, ${_mm(c.z)}) — '
+        '${atOrigin ? "this body IS centred on the origin in X and Z" : "the "
+            "WORLD ORIGIN IS NOT THE CENTRE of this body. Anything that must "
+            "sit in the middle goes at x=${_mm(c.x)}, z=${_mm(c.z)}, not at "
+            "0,0"}');
     if (faces.isNotEmpty) {
       final parts = typeCounts.entries.toList()
         ..sort((x, y) => y.value.compareTo(x.value));

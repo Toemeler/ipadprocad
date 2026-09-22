@@ -632,6 +632,44 @@ PlaneFrame planeFrame(String key) {
   }
 }
 
+/// One world axis named, with its sign: "+X", "-Z", or a direction vector for
+/// a face frame that is not axis-aligned.
+String worldAxisName(Vec3 d) {
+  const eps = 1e-6;
+  bool one(double v) => (v.abs() - 1).abs() < eps;
+  bool nil(double v) => v.abs() < eps;
+  if (one(d.x) && nil(d.y) && nil(d.z)) return d.x > 0 ? '+X' : '-X';
+  if (nil(d.x) && one(d.y) && nil(d.z)) return d.y > 0 ? '+Y' : '-Y';
+  if (nil(d.x) && nil(d.y) && one(d.z)) return d.z > 0 ? '+Z' : '-Z';
+  String f(double v) => v.toStringAsFixed(3);
+  return '(${f(d.x)}, ${f(d.y)}, ${f(d.z)})';
+}
+
+/// How this frame's sketch coordinates land in the world, said in one line.
+///
+/// ISSUE #82 — this mapping was defined in [planeFrame], used by every
+/// feature, and told to nobody. The assistant reverse-engineered it in the
+/// reported session by extruding something and reading the bounding box back:
+/// 128,592 characters of deliberation across one round ("so this app's xz
+/// frame is LEFT-handed... let's test the hypothesis (yz: u=Z, v=Y)"), 180
+/// seconds, and it still placed the feature on the wrong side of the plate.
+///
+/// It is three facts. They cost nothing to state and they are not derivable
+/// from anything else the model is given, which is the definition of
+/// something the app owes it.
+String frameAxisNote(PlaneFrame f) {
+  final o = f.origin;
+  final at = (o.x.abs() < 1e-9 && o.y.abs() < 1e-9 && o.z.abs() < 1e-9)
+      ? 'the world origin'
+      : '(${_ax(o.x)}, ${_ax(o.y)}, ${_ax(o.z)})';
+  return 'sketch +x is world ${worldAxisName(f.u)}, '
+      'sketch +y is world ${worldAxisName(f.v)}, '
+      'and it extrudes along ${worldAxisName(f.n)}. '
+      'Sketch (0,0) is $at.';
+}
+
+String _ax(double v) => v.toStringAsFixed(v.abs() >= 100 ? 1 : 2);
+
 String planeLabel(String key) => key == 'yz'
     ? 'YZ Plane'
     : key == 'xz'
@@ -1113,7 +1151,47 @@ List<ProfileLoop> arrangementLoops(SketchModel s) =>
 /// The same arrangement over a [ProfileInput] (any geometry list + the
 /// sketch's layer/visibility rules), so the projection guard can count loops
 /// on a CANDIDATE geometry without touching the live sketch.
+/// How close two sketch endpoints have to be before the profile finder treats
+/// them as the SAME point, in millimetres.
+///
+/// ISSUE #82 — this was 1e-6 mm. That is one NANOMETRE, in an app whose
+/// documents are tens of millimetres and whose output is a 3D print or a laser
+/// cut. The reported session lost a whole block to it: the assistant drew a
+/// cable clip as two arcs closed by two lines, wrote the shared corners as
+/// 12.694 and 2.7 — three decimal places, a thousandth of a millimetre — and
+/// the true arc endpoints were at 12.6937, 2.7007. The corners were 0.0008 mm
+/// apart, the finder saw two separate points, the sketch had no closed
+/// profile, the extrude failed and the app rolled the block back. The user saw
+/// an error and a part with nothing added.
+///
+/// Rounding a coordinate to three decimals is not a mistake. It is what any
+/// author writes, and 0.001 mm is already forty times finer than an FDM layer
+/// line and a hundred times finer than a laser kerf. A tolerance that rejects
+/// it is measuring something this app cannot make.
+///
+/// THE CEILING COMES FROM M397, and it is why this is 2 µm and not 20.
+/// Issue #25 was the opposite complaint — a mirrored profile six micrometres
+/// open that the user could see was closed — and the conclusion drawn there
+/// still holds: the finder "must not weld more than that, because two walls
+/// 20 µm apart are a real feature of a real part". So the weld has to stay
+/// well under 20 µm while still covering what an author actually writes.
+///
+/// 2 µm sits between the two: three times the worst error three-decimal
+/// rounding can produce (0.71 µm), ten times below the 20 µm feature M397
+/// protects, and fifty times below one layer line. It closes the profile in
+/// #82 and it cannot merge the walls in #25.
+const double kSketchWeldTol = 2e-3;
+
+/// The spatial-hash cell for the node pool. Must be at least [kSketchWeldTol],
+/// or the 3×3 neighbourhood search can miss a point that is inside the weld
+/// radius but on the far side of a cell boundary.
+const double _weldCell = kSketchWeldTol;
+
 List<ProfileLoop> _arrangementLoops(ProfileInput pi) {
+  // A NORMALISED curve parameter, not a distance. Every `t` and `u` below runs
+  // 0..1 along one segment, so this epsilon must stay small and must NOT be
+  // raised with [kSketchWeldTol] — they were the same constant before #82,
+  // which is exactly why widening the weld looked risky.
   const tol = 1e-6;
 
   // ---- 1. every profile curve as straight segments -------------------------
@@ -1128,7 +1206,7 @@ List<ProfileLoop> _arrangementLoops(ProfileInput pi) {
       segB.add(pts[k + 1]);
       segE.add(i);
     }
-    if (closed && (pts.first - pts.last).distance > tol) {
+    if (closed && (pts.first - pts.last).distance > kSketchWeldTol) {
       segA.add(pts.last);
       segB.add(pts.first);
       segE.add(i);
@@ -1157,13 +1235,13 @@ List<ProfileLoop> _arrangementLoops(ProfileInput pi) {
   // ---- 3. node pool, snapping coincident points ---------------------------
   final nodePt = <Offset>[];
   final grid = <int, List<int>>{};
-  int cell(double v) => (v / 1e-5).floor();
+  int cell(double v) => (v / _weldCell).floor();
   int nodeOf(Offset p) {
     final cx = cell(p.dx), cy = cell(p.dy);
     for (var dx = -1; dx <= 1; dx++) {
       for (var dy = -1; dy <= 1; dy++) {
         for (final n in grid[Object.hash(cx + dx, cy + dy)] ?? const <int>[]) {
-          if ((nodePt[n] - p).distance <= 1e-6) return n;
+          if ((nodePt[n] - p).distance <= kSketchWeldTol) return n;
         }
       }
     }
@@ -1501,7 +1579,11 @@ ProfileGap? nearestProfileGap(SketchModel s) =>
 
 /// [nearestProfileGap] over an arbitrary candidate geometry list.
 ProfileGap? profileGapIn(ProfileInput pi) {
-  const tol = 1e-6;
+  // #82 — the same radius the arrangement welds at, so "already joined" here
+  // means the same thing as "already joined" there. With these apart, a gap
+  // the finder welds shut would still be reported as the reason nothing
+  // closed.
+  const tol = kSketchWeldTol;
   // Every profile curve as straight segments, plus the endpoints of the OPEN
   // ones — a closed curve has no loose end to report.
   final segA = <Offset>[], segB = <Offset>[], segE = <int>[];
@@ -1565,7 +1647,9 @@ List<ProfileLoop> _profileLoops(ProfileInput pi) {
   // the sketch with no profile at all.
   final arranged = _arrangementLoops(pi);
   if (arranged.isNotEmpty) return arranged;
-  const tol = 1e-6;
+  // #82 — the endpoint-chaining fallback welds with the same radius as the
+  // arrangement above. Every distance here is millimetres.
+  const tol = kSketchWeldTol;
   final loops = <ProfileLoop>[];
   var nextId = 0;
 

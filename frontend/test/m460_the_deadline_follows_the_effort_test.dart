@@ -29,12 +29,26 @@ void main() {
     });
 
     test('the round that died at 0:02:00 would now have had room', () {
-      // The failing rounds were thorough first attempts, so `high`.
+      // #82 moved this case from `high` to `low`: a round of the action loop
+      // does not deliberate, because it can build the thing and read the
+      // result instead. The protection #81 needed is unchanged — what killed
+      // that turn was a 120-second ceiling on work that needed longer, and
+      // `low` still carries three minutes. The rounds in #81 that DID come
+      // back took at most 33 seconds.
       final effort = deepSeekReasoningEffort(thorough: true, attempt: 0);
-      expect(effort, 'high');
+      expect(effort, 'low');
       expect(aiResponseDeadline(effort),
           greaterThan(const Duration(seconds: 120)),
           reason: 'this is the exact case issue #81 failed on');
+    });
+
+    test('an answer with no loop behind it still buys the long deadline', () {
+      // Edits off, or the closing reply after a blocked block: nothing to
+      // test against, so the model has only deliberation — and needs the room.
+      final effort =
+          deepSeekReasoningEffort(thorough: true, iterating: false);
+      expect(effort, 'high');
+      expect(aiResponseDeadline(effort), const Duration(minutes: 6));
     });
 
     test('a narrow change still notices a dead connection quickly', () {

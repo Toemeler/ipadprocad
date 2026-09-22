@@ -132,6 +132,32 @@ def check_index(docs, errors):
     elif md_path.read_text(encoding="utf-8") != build_index.render_markdown(expected):
         errors.append("knowledge/index.md is stale - run tools/kb/build_index.py and commit the result")
 
+    # ISSUE #82 — THE BUNDLE IS THE ONLY COPY THE APP EVER SEES.
+    #
+    # Everything above checks that the MENU matches the folder. None of it
+    # would have caught the actual fault, which was that no build step shipped
+    # any of this and no line of Dart read it: CI was green on a knowledge base
+    # the assistant could not open. The app now loads exactly one generated
+    # file, so that file is what has to be verified - a stale bundle means the
+    # assistant is designing from an old document, silently, which is the same
+    # class of failure as having none.
+    bundle = build_index.BUNDLE
+    if not bundle.exists():
+        errors.append(
+            f"{bundle.relative_to(REPO_ROOT)} is missing - the app ships this, "
+            "not knowledge/ - run tools/kb/build_index.py"
+        )
+        return
+    want = json.dumps(
+        build_index.build_bundle(docs), indent=1, ensure_ascii=False, sort_keys=True
+    ) + "\n"
+    if bundle.read_text(encoding="utf-8") != want:
+        errors.append(
+            f"{bundle.relative_to(REPO_ROOT)} is stale - the app would ship "
+            "different text than knowledge/ holds - run tools/kb/build_index.py "
+            "and commit the result"
+        )
+
 
 def main() -> int:
     docs = load_docs()

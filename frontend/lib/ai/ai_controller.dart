@@ -8,6 +8,7 @@ import '../log.dart';
 import 'ai_actions.dart';
 import 'ai_brief.dart';
 import 'ai_backend.dart';
+import 'ai_knowledge.dart';
 import 'ai_models.dart';
 import 'ai_store.dart';
 import 'ai_trace.dart';
@@ -31,6 +32,16 @@ class AiController extends ChangeNotifier {
   /// Persists and redraws after the brief changed. The executor edits
   /// [briefs] directly, so this is how that reaches disk and the panel.
   void briefChanged() => _changed();
+
+  /// ISSUE #82 — the bundled knowledge base, and the documents opened for the
+  /// turn currently in flight. Loaded once, lazily, and never fatal: a corpus
+  /// that fails to load leaves the assistant exactly as it was before it
+  /// existed. See [AiKnowledge].
+  AiKnowledge? _knowledge;
+  List<KnowledgeDoc> _openDocs = const [];
+
+  /// The corpus, once loaded, for the executor's `knowledge` op.
+  AiKnowledge? get knowledge => _knowledge;
 
   /// M447 — per-document requirements. What the shape cannot tell anyone.
   final AiBriefs briefs = AiBriefs();
@@ -92,6 +103,10 @@ class AiController extends ChangeNotifier {
     final code = currentSession.errorCode ?? _globalError;
     return code == null ? null : AiException(code).message;
   }
+
+  /// Whether the selected model can receive an image. Read by [AiWorkspace] so
+  /// the executor only renders a view that can actually be looked at (#82).
+  bool get providerTakesImages => _capabilities?.supportsImages ?? false;
 
   String get providerLabel => _capabilities?.label ?? L.current.aiSettingsApple;
   String get providerStatus => _capabilities == null
@@ -514,6 +529,37 @@ class AiController extends ChangeNotifier {
       final caps = await _backend.capabilities(preferences);
       if (!stillCurrent()) return;
       if (!caps.available) throw const AiException('unavailable');
+      // ISSUE #82 — OPEN THE BOOKS BEFORE ASKING, NOT AFTER.
+      //
+      // The user's own sentence is the best retrieval signal in the turn and
+      // it is already in hand, so the documents it matches are selected here
+      // and travel with the FIRST request. Making the model ask for them
+      // instead would cost it a round trip — 10 to 50 seconds — to obtain
+      // something that was free a moment ago. The recorded brief joins the
+      // query so a follow-up turn ("make the wall thicker") still opens the
+      // process it is already designing for.
+      final kb = _knowledge ??= await AiKnowledge.load();
+      if (!stillCurrent()) return;
+      // The budget is a share of what THIS provider accepts, not a constant.
+      // DeepSeek takes 180 KB and can afford several documents; an on-device
+      // Apple model has a fraction of that and checks instructions + prompt
+      // against its own ceiling before it will answer at all. Reference
+      // material that pushes a turn over that limit does not make the part
+      // better — it makes the turn fail, which is strictly worse than the
+      // assistant not having read anything.
+      _openDocs = kb.select(
+          '$text ${briefs.contextFor(target.id) ?? ''}',
+          budget: (caps.maxInputBytes ~/ 6).clamp(0, 28000));
+      if (_openDocs.isNotEmpty) {
+        Log.i('ai', 'knowledge opened for this turn: '
+            '${_openDocs.map((d) => d.id).join(", ")}');
+      }
+      AiTrace.record('knowledge', requestId: requestId, sessionId: session.id,
+          data: {
+            'available': kb.documents.length,
+            'opened': [for (final d in _openDocs) d.id],
+            'chars': _openDocs.fold<int>(0, (n, d) => n + d.body.length),
+          });
       final context = <Map<String, dynamic>>[];
       for (final id in selectedContext) {
         if (id == 'workspace') continue;
@@ -638,17 +684,21 @@ class AiController extends ChangeNotifier {
                 sessionId: session.id,
                 round: round,
                 attempt: attempt,
-                // What the model itself wrote down as still outstanding. A
-                // narrow change records nothing and stays cheap; a whole
-                // object records its definition of done and gets the
-                // deliberation while it is open.
-                thorough: _hasOpenMusts(target.id)),
+                // Still carried, but it only decides the effort on a request
+                // with no action loop behind it (#82) — see `iterating`.
+                thorough: _hasOpenMusts(target.id),
+                // A round of the loop: it can build and read the result, so
+                // it iterates instead of deliberating (#82).
+                iterating: canEditModel && !last),
             requestId: requestId,
             sessionId: session.id,
             round: round);
         if (!stillCurrent()) return;
+        // #83 — the app's own context never comes back as an answer.
         final assistant = AiMessage(
-            role: 'assistant', text: reply.text, provider: reply.provider);
+            role: 'assistant',
+            text: aiStripEchoedContext(reply.text),
+            provider: reply.provider);
         session.messages.add(assistant);
         turns.add(assistant);
         receivedReply = true;
@@ -835,7 +885,11 @@ class AiController extends ChangeNotifier {
                   context: contextText,
                   messages: aiCompactTurns(turns),
                   attempt: attempt,
-                  thorough: _hasOpenMusts(target.id)),
+                  thorough: _hasOpenMusts(target.id),
+                  // The closing answer after a blocked block: no actions are
+                  // offered, so there is nothing to test against and the model
+                  // has only deliberation left (#82).
+                  iterating: false),
               requestId: requestId,
               sessionId: session.id);
           if (!stillCurrent()) return;
@@ -981,8 +1035,15 @@ class AiController extends ChangeNotifier {
   /// the truth: a session with no runner attached (or with editing switched
   /// off, or on the last round of the loop) is told it CANNOT edit, because it
   /// cannot, and a model told otherwise would narrate changes nobody made.
-  String _instructionsFor({required bool actions}) =>
-      _shared + (actions ? kAiActionInstructions : _readOnly);
+  String _instructionsFor({required bool actions}) {
+    final base = _shared + (actions ? kAiActionInstructions : _readOnly);
+    final kb = _knowledge;
+    if (kb == null || kb.isEmpty) return base;
+    // Order matters for the provider's prompt cache: the base instructions and
+    // the menu are identical on every request, so they stay cacheable, and
+    // only the documents opened for THIS turn come after them.
+    return '$base\n\n${kb.indexText()}\n${AiKnowledge.render(_openDocs)}';
+  }
 
   static const _shared = 'You are the CAD design assistant in Prototype. '
       'Help with engineering reasoning and visual design. Distinguish measured facts, assumptions, '

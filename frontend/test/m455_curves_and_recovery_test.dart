@@ -343,7 +343,14 @@ void main() {
     });
 
     test('and to be ambitious rather than safe', () {
-      expect(kAiActionInstructions, contains('BE AMBITIOUS AND BE PATIENT'));
+      // #82 — still ambitious, but ambition was rephrased away from PATIENCE.
+      // Tying it to waiting is what produced a session that spent 99% of its
+      // output tokens reasoning and then deleted the part. Ambition here is
+      // how many steps you will run, not how long you will think first.
+      expect(kAiActionInstructions,
+          contains('BE AMBITIOUS, AND SPEND STEPS RATHER THAN THOUGHT'));
+      expect(kAiActionInstructions,
+          contains('Ambition is how many steps you are willing to run'));
     });
   });
 }
