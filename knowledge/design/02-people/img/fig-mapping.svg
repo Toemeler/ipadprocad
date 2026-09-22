@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 230" width="480" height="230" role="img" aria-label="Controls laid out like the things they control">
+  <rect x="0" y="0" width="480" height="230" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Mapping — and labels never fix it</text>
+
+    <g fill="#cccccc" stroke="#1a1a1a" stroke-width="1.5">
+      <circle cx="56" cy="62" r="14"/><circle cx="104" cy="62" r="14"/>
+      <circle cx="56" cy="106" r="14"/><circle cx="104" cy="106" r="14"/>
+    </g>
+    <text x="80" y="140" text-anchor="middle" fill="#5a5a5a">the things</text>
+
+    <g fill="#ffffff" stroke="#1a1a1a" stroke-width="1.5">
+      <circle cx="152" cy="172" r="9"/><circle cx="176" cy="172" r="9"/><circle cx="200" cy="172" r="9"/><circle cx="224" cy="172" r="9"/>
+    </g>
+    <text x="188" y="200" text-anchor="middle" font-weight="600" fill="#c62828">four in a row</text>
+    <text x="188" y="216" text-anchor="middle" fill="#c62828">people get it wrong for ever</text>
+
+    <g fill="#cccccc" stroke="#1a1a1a" stroke-width="1.5">
+      <circle cx="306" cy="62" r="14"/><circle cx="354" cy="62" r="14"/>
+      <circle cx="306" cy="106" r="14"/><circle cx="354" cy="106" r="14"/>
+    </g>
+    <text x="330" y="140" text-anchor="middle" fill="#5a5a5a">the things</text>
+
+    <g fill="#ffffff" stroke="#1a1a1a" stroke-width="1.5">
+      <circle cx="400" cy="62" r="9"/><circle cx="430" cy="62" r="9"/>
+      <circle cx="400" cy="106" r="9"/><circle cx="430" cy="106" r="9"/>
+    </g>
+    <g stroke="#2e7d32" stroke-width="2.5" fill="none"><path d="M392 178 l7 8 l15 -18"/></g>
+    <text x="415" y="200" text-anchor="middle" font-weight="600" fill="#2e7d32">same arrangement</text>
+    <text x="415" y="216" text-anchor="middle" fill="#2e7d32">no label needed</text>
+  </g>
+</svg>

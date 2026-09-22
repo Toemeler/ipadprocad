@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 230" width="480" height="230" role="img" aria-label="The same object before and after a subtraction pass">
+  <rect x="0" y="0" width="480" height="230" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Nothing was added</text>
+
+    <rect x="26" y="44" width="180" height="110" fill="#e8eef2" stroke="#1a1a1a" stroke-width="2"/>
+    <g fill="#d9d9d9" stroke="#1a1a1a" stroke-width="1.2">
+      <rect x="40" y="56" width="50" height="16"/><rect x="98" y="56" width="34" height="16"/><rect x="140" y="56" width="52" height="16"/>
+      <circle cx="58" cy="104" r="14"/><circle cx="100" cy="104" r="10"/><circle cx="136" cy="104" r="10"/><circle cx="172" cy="104" r="14"/>
+      <rect x="40" y="130" width="152" height="12"/>
+    </g>
+    <g stroke="#9a9a9a" stroke-width="1">
+      <line x1="40" y1="82" x2="192" y2="82"/><line x1="40" y1="122" x2="192" y2="122"/>
+    </g>
+    <text x="116" y="178" text-anchor="middle" font-weight="600" fill="#c62828">first draft</text>
+    <text x="116" y="194" text-anchor="middle" fill="#c62828">nine elements, all competing</text>
+
+    <rect x="274" y="44" width="180" height="110" fill="#e8eef2" stroke="#1a1a1a" stroke-width="2"/>
+    <g fill="#d9d9d9" stroke="#1a1a1a" stroke-width="1.2">
+      <rect x="288" y="58" width="152" height="18"/>
+      <circle cx="310" cy="112" r="16"/><circle cx="356" cy="112" r="10"/><circle cx="392" cy="112" r="10"/>
+    </g>
+    <text x="364" y="178" text-anchor="middle" font-weight="600" fill="#2e7d32">after the pass</text>
+    <text x="364" y="194" text-anchor="middle" fill="#2e7d32">three deleted, two merged, one moved underneath</text>
+
+    <text x="20" y="220" font-size="11" fill="#5a5a5a">Can it be deleted? merged? moved somewhere less prominent? made quieter? Most first-draft elements fail question one.</text>
+  </g>
+</svg>

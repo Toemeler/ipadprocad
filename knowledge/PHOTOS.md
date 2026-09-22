@@ -22,6 +22,40 @@ Priority column: **A** — the document is materially weaker without it.
 
 ---
 
+## Design
+
+The hardest section to shoot and the most valuable, because design is the one
+area where the documents describe a *judgement* and a photograph shows it. Most
+of these are **pairs**: the point is the comparison, not the object.
+
+Shoot your own work wherever possible — a photograph of somebody else's
+product is a licensing problem, and your own rejected versions are better
+teaching material anyway.
+
+### A — highest value
+
+| # | Save as | What must be visible | Goes in |
+|---|---|---|---|
+| D1 | `design/img/photo-designed-vs-not.jpg` | **The pair that carries the whole folder.** Two versions of one of your own parts, side by side in one frame: an early one and the finished one. Same function, same material | `start-here`, `what-good-looks-like` |
+| D2 | `design/03-form/img/photo-gap-consistency.jpg` | Two adjacent gaps of different widths on a real assembly, shot straight on. The eye's ability to compare parallel lines is the subject | `seams-gaps-and-alignment` |
+| D3 | `design/01-principles/img/photo-iteration-row.jpg` | A row of your rejected versions of one object, in order, left to right | `iteration-and-mockups` |
+| D4 | `design/04-cmf/img/photo-finish-comparison.jpg` | The same printed part in matte and in glossy dark filament, same light. The layer lines are the subject | `material-texture-and-finish`, `colour` |
+| D5 | `design/03-form/img/photo-edge-treatments.jpg` | One part with a sharp edge, a chamfered edge and a filleted edge, in raking light | `edges-and-radii` |
+| D6 | `design/01-principles/img/photo-base-detail.jpg` | The base of an object with an inset foot and a bottom chamfer, shot at eye level so the shadow gap reads | `balance-and-stance` |
+
+### B
+
+| # | Save as | What must be visible | Goes in |
+|---|---|---|---|
+| D7 | `design/02-people/img/photo-grips.jpg` | A hand on handles of three diameters — something near 25 mm, near 41 mm, near 60 mm | `ergonomics-and-anthropometrics` |
+| D8 | `design/02-people/img/photo-control-spacing.jpg` | A fingertip against a row of controls, so the 16–20 mm width is obvious against the button size | `ergonomics-and-anthropometrics`, `accessibility` |
+| D9 | `design/03-form/img/photo-process-marks.jpg` | A Z seam or a laser lead-in placed deliberately on a corner, next to one that landed in the middle of a face | `details-and-craft` |
+| D10 | `design/04-cmf/img/photo-material-pair.jpg` | Wood against matte black, and wood against natural filament, in one frame | `material-texture-and-finish` |
+| D11 | `design/07-worked-examples/img/photo-box-pair.jpg` | A generated-looking plywood box beside one with constant finger width and a chamfered top edge | `laser-box-design` |
+| D12 | `design/03-form/img/photo-underside.jpg` | The underside of a finished object — the part nobody had to do | `details-and-craft` |
+
+---
+
 ## Laser cutting — wood
 
 The laser half of this knowledge base is wood-first, and wood is exactly where

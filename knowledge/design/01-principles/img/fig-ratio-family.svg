@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 230" width="480" height="230" role="img" aria-label="The ratio family: same width at five heights">
+  <rect x="0" y="0" width="480" height="230" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Same width, five ratios</text>
+
+    <g fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2">
+      <rect x="30" y="98" width="64" height="64"/>
+      <rect x="120" y="82" width="64" height="80"/>
+      <rect x="210" y="66" width="64" height="96"/>
+      <rect x="300" y="59" width="64" height="103"/>
+      <rect x="390" y="34" width="64" height="128"/>
+    </g>
+    <g text-anchor="middle" font-weight="600">
+      <text x="62" y="182">1 : 1</text><text x="152" y="182">1 : 1.25</text><text x="242" y="182">1 : 1.5</text>
+      <text x="332" y="182">1 : 1.618</text><text x="422" y="182">1 : 2</text>
+    </g>
+    <g text-anchor="middle" fill="#5a5a5a" font-size="10">
+      <text x="62" y="198">static</text><text x="152" y="198">quiet</text><text x="242" y="198">safe default</text>
+      <text x="332" y="198">classical</text><text x="422" y="198">decisive</text>
+    </g>
+
+    <text x="20" y="222" font-size="11" fill="#5a5a5a">None is more correct. Pick two per object — three or more and it stops rhyming with itself.</text>
+  </g>
+</svg>

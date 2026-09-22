@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 220" width="480" height="220" role="img" aria-label="Where to put each process mark">
+  <rect x="0" y="0" width="480" height="220" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Every process leaves a signature</text>
+
+    <rect x="34" y="50" width="150" height="90" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <g stroke="#9a9a9a" stroke-width="0.8">
+      <line x1="34" y1="64" x2="184" y2="64"/><line x1="34" y1="78" x2="184" y2="78"/>
+      <line x1="34" y1="92" x2="184" y2="92"/><line x1="34" y1="106" x2="184" y2="106"/><line x1="34" y1="120" x2="184" y2="120"/>
+    </g>
+    <line x1="176" y1="50" x2="176" y2="140" stroke="#c62828" stroke-width="2.5"/>
+    <text x="109" y="164" text-anchor="middle" font-weight="600">FDM: the Z seam</text>
+    <text x="109" y="180" text-anchor="middle" fill="#2e7d32">put it on a back corner</text>
+    <text x="109" y="196" text-anchor="middle" fill="#2e7d32">or on a feature line</text>
+
+    <rect x="296" y="50" width="150" height="90" fill="#e3cfa8" stroke="#1a1a1a" stroke-width="2"/>
+    <circle cx="308" cy="62" r="6" fill="#3a2a16"/>
+    <rect x="330" y="72" width="82" height="46" fill="#ffffff" stroke="#2a1d0f" stroke-width="2"/>
+    <text x="371" y="164" text-anchor="middle" font-weight="600">laser: the lead-in blob</text>
+    <text x="371" y="180" text-anchor="middle" fill="#2e7d32">on a straight run, on the</text>
+    <text x="371" y="196" text-anchor="middle" fill="#2e7d32">waste side, or on a hidden edge</text>
+
+    <text x="20" y="214" font-size="11" fill="#5a5a5a">Left to chance it looks like damage. Placed deliberately it reads as part of the design.</text>
+  </g>
+</svg>

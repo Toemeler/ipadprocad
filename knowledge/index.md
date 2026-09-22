@@ -6,7 +6,11 @@ One line per document. This is the only part of the knowledge base that
 needs to sit in the assistant's context permanently; everything else is
 opened on demand. See [`README.md`](README.md) for how the mechanism works.
 
-**83 documents.**
+**The design documents are not process-specific.** Every part is a design
+decision as well as a manufacturing one, so `design/start-here` is worth
+opening on any job — not only when the word "design" appears in the plan.
+
+**105 documents.**
 
 ## Shared
 
@@ -14,6 +18,33 @@ opened on demand. See [`README.md`](README.md) for how the mechanism works.
 |---|---|---|---|
 | [`shared/glossary`](glossary.md) | Glossary — German / English manufacturing terms | basics | glossary, terminology, Glossar, Begriffe, was heisst, translation |
 | [`shared/img-style`](img-style.md) | Diagram conventions | basics | diagram style, drawing convention, svg style, Diagrammstil |
+
+## Design — consult on every part
+
+| id | title | type | opens when the plan mentions |
+|---|---|---|---|
+| [`design/cmf/colour`](design/04-cmf/colour.md) | Colour | rules | colour, color, farbe, farben, palette, farbpalette, which colour, welche farbe, … |
+| [`design/cmf/material-and-finish`](design/04-cmf/material-texture-and-finish.md) | Material, texture and finish | rules | material, werkstoff, texture, textur, oberflächenstruktur, finish, oberfläche, matte, … |
+| [`design/examples/enclosure`](design/07-worked-examples/enclosure-design.md) | Worked example — designing a printed enclosure | example | enclosure design, gehäuse gestalten, case design, box design, make it look good, gut aussehen lassen, design pass, design example, … |
+| [`design/examples/wooden-box`](design/07-worked-examples/laser-box-design.md) | Worked example — designing a wooden box | example | box design, kiste gestalten, wooden box, holzkiste, schachtel, plywood box design, make the box look good, design a box, … |
+| [`design/failures/catalogue`](design/06-failures/failure-catalogue.md) | Design failure catalogue — why it looks wrong | failures | looks wrong, sieht falsch aus, looks cheap, billig, ugly, hässlich, amateur, laienhaft, … |
+| [`design/form/details`](design/03-form/details-and-craft.md) | Details and craft | rules | detail, details, craft, handwerk, verarbeitung, finish quality, qualität, fit and finish, … |
+| [`design/form/edges-and-radii`](design/03-form/edges-and-radii.md) | Edges and radii as a system | rules | radius, radien, fillet, verrundung, rundung, chamfer, fase, edge, … |
+| [`design/form/seams-and-alignment`](design/03-form/seams-gaps-and-alignment.md) | Seams, gaps and alignment | rules | gap, spalt, spaltmaß, seam, naht, fuge, parting line, trennlinie, … |
+| [`design/form/surfaces`](design/03-form/surfaces-and-transitions.md) | Surfaces and transitions | rules | surface, oberfläche, fläche, transition, übergang, curve, kurve, flat, … |
+| [`design/people/accessibility`](design/02-people/accessibility.md) | Accessibility | rules | accessibility, barrierefrei, zugänglich, accessible, disability, behinderung, contrast ratio, kontrast, … |
+| [`design/people/affordances`](design/02-people/affordances-and-controls.md) | Affordances — making the object explain itself | rules | affordance, affordanz, intuitive, intuitiv, how do i use, wie benutzt man, confusing, verwirrend, … |
+| [`design/people/ergonomics`](design/02-people/ergonomics-and-anthropometrics.md) | Ergonomics and anthropometrics | rules | ergonomic, ergonomie, grip, griff, greifen, handle, handgriff, hand, … |
+| [`design/principles/balance`](design/01-principles/balance-and-stance.md) | Balance and stance | rules | balance, balance halten, symmetry, symmetrie, asymmetric, asymmetrisch, stance, standfestigkeit, … |
+| [`design/principles/hierarchy`](design/01-principles/visual-hierarchy.md) | Visual hierarchy | rules | hierarchy, hierarchie, emphasis, betonung, focal point, blickfang, what stands out, sticht hervor, … |
+| [`design/principles/proportion`](design/01-principles/proportion-and-scale.md) | Proportion and scale | rules | proportion, proportionen, ratio, verhältnis, golden ratio, goldener schnitt, scale, maßstab, … |
+| [`design/principles/restraint`](design/01-principles/simplicity-and-restraint.md) | Simplicity and restraint | rules | simple, einfach, simplicity, einfachheit, minimal, reduziert, too much, zu viel, … |
+| [`design/principles/systems`](design/01-principles/consistency-and-systems.md) | Consistency — designing with systems | recipe | consistency, konsistenz, einheitlich, system, systematik, spacing scale, raster, grid, … |
+| [`design/principles/what-good-looks-like`](design/01-principles/what-good-looks-like.md) | What good looks like | basics | good design, gutes design, quality, qualität, looks cheap, billig, looks professional, hochwertig, … |
+| [`design/process/brief`](design/05-process/design-brief.md) | The brief — what to establish before drawing | recipe | brief, briefing, requirements, anforderungen, what do i need, was brauche ich, specification, spezifikation, … |
+| [`design/process/critique`](design/05-process/design-critique.md) | Design critique — reviewing an object | checklist | critique, kritik, review, überprüfen, bewerten, feedback, is this good, ist das gut, … |
+| [`design/process/iteration`](design/05-process/iteration-and-mockups.md) | Iteration and mock-ups | recipe | iteration, iterieren, prototype, prototyp, mockup, modell, test print, testdruck, … |
+| [`design/start-here`](design/00-start-here.md) | Design — start here, on every part | basics | design, gestaltung, entwurf, looks, aussehen, aesthetic, ästhetisch, schön, … |
 
 ## Laser cutting
 

@@ -55,11 +55,20 @@ def render_markdown(payload: dict) -> str:
         "needs to sit in the assistant's context permanently; everything else is",
         "opened on demand. See [`README.md`](README.md) for how the mechanism works.",
         "",
+        "**The design documents are not process-specific.** Every part is a design",
+        "decision as well as a manufacturing one, so `design/start-here` is worth",
+        "opening on any job — not only when the word \"design\" appears in the plan.",
+        "",
         f"**{payload['count']} documents.**",
         "",
     ]
 
-    for process, heading in (("shared", "Shared"), ("laser", "Laser cutting"), ("fdm", "FDM printing")):
+    for process, heading in (
+        ("shared", "Shared"),
+        ("design", "Design — consult on every part"),
+        ("laser", "Laser cutting"),
+        ("fdm", "FDM printing"),
+    ):
         rows = [d for d in payload["documents"] if d["process"] == process]
         if not rows:
             continue

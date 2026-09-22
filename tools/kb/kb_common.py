@@ -31,7 +31,7 @@ VALID_TYPES = {
     "basics", "material", "rules", "recipe",
     "decision", "failures", "checklist", "example",
 }
-VALID_PROCESSES = {"laser", "fdm", "shared"}
+VALID_PROCESSES = {"laser", "fdm", "design", "shared"}
 VALID_CONFIDENCE = {"high", "medium", "starting-point"}
 
 # The six sections every document carries, in order. See knowledge/TEMPLATE.md.

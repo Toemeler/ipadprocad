@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 220" width="480" height="220" role="img" aria-label="Sharp, chamfer, fillet and an oversized fillet">
+  <rect x="0" y="0" width="480" height="220" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">The same edge, four ways</text>
+
+    <path d="M28 130 v-62 h72 v62 z" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <text x="64" y="154" text-anchor="middle" font-weight="600">sharp</text>
+    <text x="64" y="170" text-anchor="middle" fill="#5a5a5a">precise, technical</text>
+    <text x="64" y="186" text-anchor="middle" fill="#c62828">unpleasant to hold</text>
+
+    <path d="M146 130 v-52 l10 -10 h52 l10 10 v52 z" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <text x="182" y="154" text-anchor="middle" font-weight="600">chamfer</text>
+    <text x="182" y="170" text-anchor="middle" fill="#5a5a5a">crisp, engineered</text>
+    <text x="182" y="186" text-anchor="middle" fill="#2e7d32">the default</text>
+
+    <path d="M264 130 v-52 q0 -10 10 -10 h52 q10 0 10 10 v52 z" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <text x="300" y="154" text-anchor="middle" font-weight="600">fillet</text>
+    <text x="300" y="170" text-anchor="middle" fill="#5a5a5a">soft, safe, friendly</text>
+
+    <path d="M382 130 v-32 q0 -30 30 -30 h12 q30 0 30 30 v32 z" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <text x="424" y="154" text-anchor="middle" font-weight="600" fill="#c62828">fillet too large</text>
+    <text x="424" y="170" text-anchor="middle" fill="#c62828">a bar of soap</text>
+    <text x="424" y="186" text-anchor="middle" fill="#5a5a5a">keep radius ≤ ~3 % of the size</text>
+  </g>
+</svg>

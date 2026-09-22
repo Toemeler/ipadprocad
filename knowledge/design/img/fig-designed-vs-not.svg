@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 260" width="480" height="260" role="img" aria-label="The same bracket undesigned and designed">
+  <rect x="0" y="0" width="480" height="260" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Same function, same process, same material</text>
+
+    <path d="M30 156 h132 v-14 h-108 v-88 h-24 z" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <g fill="#ffffff" stroke="#1a1a1a" stroke-width="1.5">
+      <circle cx="44" cy="74" r="6"/><circle cx="44" cy="104" r="4"/><circle cx="130" cy="149" r="7"/><circle cx="86" cy="149" r="5"/>
+    </g>
+    <text x="96" y="182" text-anchor="middle" font-weight="600" fill="#c62828">undesigned</text>
+    <text x="96" y="198" text-anchor="middle" fill="#c62828">7 radii · 5 gap sizes</text>
+    <text x="96" y="212" text-anchor="middle" fill="#c62828">4 hole sizes, none aligned</text>
+    <text x="96" y="226" text-anchor="middle" fill="#c62828">sharp edges, no stance</text>
+
+    <g stroke="#1a1a1a" stroke-width="2" fill="#1a1a1a">
+      <line x1="200" y1="104" x2="226" y2="104"/><polygon points="226,98 238,104 226,110"/>
+    </g>
+
+    <path d="M282 156 h132 v-16 q0 -4 -4 -4 h-100 q-4 0 -4 -4 v-76 q0 -4 -4 -4 h-16 q-4 0 -4 4 v96 q0 4 4 4 z" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <g fill="#ffffff" stroke="#1a1a1a" stroke-width="1.5">
+      <circle cx="294" cy="76" r="5"/><circle cx="294" cy="100" r="5"/>
+      <circle cx="342" cy="148" r="5"/><circle cx="390" cy="148" r="5"/>
+    </g>
+    <g stroke="#0b6bcb" stroke-width="1" stroke-dasharray="3 3">
+      <line x1="294" y1="60" x2="294" y2="120"/><line x1="326" y1="148" x2="406" y2="148"/>
+    </g>
+    <text x="348" y="182" text-anchor="middle" font-weight="600" fill="#2e7d32">designed</text>
+    <text x="348" y="198" text-anchor="middle" fill="#2e7d32">2 radii · 1 spacing scale</text>
+    <text x="348" y="212" text-anchor="middle" fill="#2e7d32">one hole size, two alignments</text>
+    <text x="348" y="226" text-anchor="middle" fill="#2e7d32">chamfered, three things removed</text>
+
+    <text x="20" y="252" font-size="11" fill="#5a5a5a">Nobody counts the radii. Everybody sees the difference.</text>
+  </g>
+</svg>

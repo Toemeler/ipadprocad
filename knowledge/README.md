@@ -3,10 +3,32 @@
 This folder is what the in-app AI assistant reads **while it is modelling**, so
 that what it builds can actually be made. Two processes are covered in depth:
 
-| Folder | Process | Dimensionality |
+| Folder | Covers | Read it |
 |---|---|---|
-| [`laser/`](laser/) | CO₂ laser cutting and engraving, **wood-first** | 2D — outlines, slots, engraves |
-| [`fdm/`](fdm/) | FDM / FFF filament 3D printing | 3D — solids, orientation, overhangs |
+| [`design/`](design/) | how an object should look, sit, be held and be understood | **on every part** |
+| [`laser/`](laser/) | CO₂ laser cutting and engraving, **wood-first** | when cutting from sheet |
+| [`fdm/`](fdm/) | FDM / FFF filament 3D printing | when printing solids |
+
+### The standing instruction
+
+The two process folders answer *can this be made?* The design folder answers
+*should it look like this?* — and that question applies to every part, not
+only to the ones somebody calls a design job.
+
+So `design/` is loaded by triggers like everything else, but it carries a
+standing instruction the other two do not:
+
+> **Every part is a design decision as well as a manufacturing one.** Before
+> drawing, open [`design/start-here`](design/00-start-here.md) and choose the
+> object's systems — its radius set, its spacing scale, its proportion family.
+> Before finishing, run [`design-critique`](design/05-process/design-critique.md).
+> A bracket nobody will see still has proportions, a stance and a level of
+> finish; those get chosen whether or not anyone decides them.
+
+Two exceptions worth stating out loud rather than assuming: a jig or fixture
+needs the ergonomics and affordance documents and little else, and a part
+sealed inside an assembly needs consistency but not composition. Say which
+applies rather than skipping quietly.
 
 The laser half is written for **wood** — plywood, solid hardwood, bamboo and
 MDF. Acrylic, card and leather each keep a document because they turn up, but

@@ -4,7 +4,7 @@ title: Laser cutting wood — start here
 type: basics
 process: laser
 triggers: [laser, laser cutting, lasercut, laser cutter, Laser, Laserschneiden, lasern, CO2 laser, cut from sheet, flat part, flachteil, wood, holz, plywood, sperrholz, sheet goods, plattenmaterial]
-depends_on: [laser/basics/kerf-and-tolerance, laser/materials/wood-overview]
+depends_on: [laser/basics/kerf-and-tolerance, laser/materials/wood-overview, design/start-here]
 confidence: high
 updated: 2026-09-22
 ---
@@ -48,6 +48,10 @@ these will already avoid most bad output.
 The order below is the order that avoids rework, and a good plan for the
 assistant to state out loud — each step names the documents to load.
 
+0. **Choose the object's design systems** — radius set, spacing scale,
+   proportion family — before any of the below. Five minutes, and every
+   number after it inherits from them.
+   → [`design/start-here`](../design/00-start-here.md)
 1. **Choose the wood.** Plywood for structure, solid or bamboo where it shows,
    MDF where it will be painted. Thickness and species change every number
    after this. → [`wood-overview`](02-materials/wood-overview.md),
@@ -70,6 +74,9 @@ assistant to state out loud — each step names the documents to load.
    → [`layers-colours-linewidth`](06-file-prep/layers-colours-linewidth.md)
 10. **Run the checklist.**
     → [`before-you-export`](07-checklists/before-you-export.md)
+11. **Run the design critique.** Making it correctly and making it well are
+    two different passes over the same part.
+    → [`design/design-critique`](../design/05-process/design-critique.md)
 
 ## When to do it differently
 

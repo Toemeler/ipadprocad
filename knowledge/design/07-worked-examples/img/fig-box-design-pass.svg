@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 250" width="480" height="250" role="img" aria-label="A generated box and a designed one">
+  <rect x="0" y="0" width="480" height="250" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="10" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Same joint, same material, same dimensions</text>
+
+    <path d="M30 150 h170 v-72 h-170 z" fill="#e3cfa8" stroke="#1a1a1a" stroke-width="2"/>
+    <path d="M30 78 h12 v-10 h18 v10 h26 v-10 h14 v10 h30 v-10 h22 v10 h20 v-10 h28 v10" fill="#e3cfa8" stroke="#1a1a1a" stroke-width="2"/>
+    <g stroke="#0b6bcb" stroke-width="1">
+      <line x1="42" y1="60" x2="60" y2="60"/><line x1="86" y1="60" x2="100" y2="60"/><line x1="130" y1="60" x2="152" y2="60"/>
+    </g>
+    <text x="115" y="176" text-anchor="middle" font-weight="600" fill="#c62828">generated</text>
+    <g fill="#c62828">
+      <text x="30" y="196">· finger width varies edge to edge</text>
+      <text x="30" y="210">· sharp top edges</text>
+      <text x="30" y="224">· no relief, nothing to hold</text>
+      <text x="30" y="238">· grain wherever the nest put it</text>
+    </g>
+
+    <path d="M280 150 h170 v-72 h-170 z" fill="#e3cfa8" stroke="#1a1a1a" stroke-width="2"/>
+    <path d="M280 78 h18 v-9 h18 v9 h18 v-9 h18 v9 h18 v-9 h18 v9 h18 v-9 h18 v9 h18 v-9 h18 v9" fill="#e3cfa8" stroke="#1a1a1a" stroke-width="2"/>
+    <path d="M330 130 h70 v-18 q0 -4 -4 -4 h-62 q-4 0 -4 4 z" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"/>
+    <g stroke="#c4a877" stroke-width="1.4">
+      <line x1="280" y1="96" x2="450" y2="96"/><line x1="280" y1="112" x2="450" y2="112"/><line x1="280" y1="140" x2="450" y2="140"/>
+    </g>
+    <text x="365" y="176" text-anchor="middle" font-weight="600" fill="#2e7d32">designed</text>
+    <g fill="#2e7d32">
+      <text x="280" y="196">· constant 9 mm finger width</text>
+      <text x="280" y="210">· top edge chamfered 1 mm</text>
+      <text x="280" y="224">· one recess — and it lifts the box</text>
+      <text x="280" y="238">· grain consistent, base inset 3 mm</text>
+    </g>
+  </g>
+</svg>

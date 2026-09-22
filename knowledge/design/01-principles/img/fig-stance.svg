@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 230" width="480" height="230" role="img" aria-label="Stance: base ratio, inset feet, undercut">
+  <rect x="0" y="0" width="480" height="230" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Where cheapness shows: the base</text>
+
+    <line x1="26" y1="152" x2="216" y2="152" stroke="#9a9a9a" stroke-width="3"/>
+    <rect x="70" y="52" width="100" height="100" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <text x="120" y="176" text-anchor="middle" font-weight="600" fill="#c62828">flat on the surface</text>
+    <text x="120" y="192" text-anchor="middle" fill="#c62828">reads as stuck down, heavy</text>
+    <text x="120" y="208" text-anchor="middle" fill="#c62828">sharp bottom arris</text>
+
+    <line x1="266" y1="152" x2="456" y2="152" stroke="#9a9a9a" stroke-width="3"/>
+    <path d="M310 146 h100 v-88 q0 -6 -6 -6 h-88 q-6 0 -6 6 z" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <path d="M310 146 l6 6 h88 l6 -6 z" fill="#cccccc" stroke="#1a1a1a" stroke-width="1.5"/>
+    <g fill="#8a8a8a" stroke="#1a1a1a" stroke-width="1.2">
+      <rect x="324" y="146" width="14" height="6"/><rect x="382" y="146" width="14" height="6"/>
+    </g>
+    <g stroke="#0b6bcb" stroke-width="1.2">
+      <line x1="310" y1="134" x2="324" y2="134"/><line x1="310" y1="128" x2="310" y2="140"/><line x1="324" y1="128" x2="324" y2="140"/>
+    </g>
+    <text x="360" y="176" text-anchor="middle" font-weight="600" fill="#2e7d32">inset feet + bottom chamfer</text>
+    <text x="360" y="192" text-anchor="middle" fill="#2e7d32">a shadow line: reads as placed</text>
+    <text x="360" y="208" text-anchor="middle" fill="#5a5a5a">feet inset 3–8 % of the width</text>
+  </g>
+</svg>

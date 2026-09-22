@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 250" width="480" height="250" role="img" aria-label="The small details on one object">
+  <rect x="0" y="0" width="480" height="250" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="10" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">The last five per cent, on one object</text>
+
+    <line x1="150" y1="168" x2="330" y2="168" stroke="#9a9a9a" stroke-width="3"/>
+    <path d="M170 162 h140 v-78 q0 -6 -6 -6 h-128 q-6 0 -6 6 z" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <path d="M170 162 l7 6 h126 l7 -6 z" fill="#cccccc" stroke="#1a1a1a" stroke-width="1.5"/>
+    <g fill="#8a8a8a" stroke="#1a1a1a" stroke-width="1"><rect x="186" y="162" width="12" height="6"/><rect x="282" y="162" width="12" height="6"/></g>
+    <circle cx="196" cy="98" r="5" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.2"/>
+    <circle cx="284" cy="98" r="5" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.2"/>
+    <line x1="193" y1="98" x2="199" y2="98" stroke="#1a1a1a" stroke-width="1"/>
+    <line x1="281" y1="98" x2="287" y2="98" stroke="#1a1a1a" stroke-width="1"/>
+    <rect x="212" y="126" width="56" height="16" fill="#cfcfcf" stroke="#1a1a1a" stroke-width="1"/>
+
+    <g stroke="#0b6bcb" stroke-width="1" fill="none">
+      <path d="M170 84 l-56 -20"/><path d="M196 98 l-82 18"/><path d="M240 134 l-126 34"/>
+      <path d="M310 84 l56 -24"/><path d="M317 168 l50 26"/><path d="M188 165 l-74 62"/>
+    </g>
+    <g fill="#0b6bcb">
+      <text x="110" y="62" text-anchor="end">top edge chamfered</text>
+      <text x="110" y="120" text-anchor="end">screws recessed and aligned</text>
+      <text x="110" y="172" text-anchor="end">label on one alignment</text>
+      <text x="110" y="231" text-anchor="end">bottom chamfer</text>
+      <text x="374" y="58">no sharp arris anywhere</text>
+      <text x="374" y="198">feet inset 3–8 %</text>
+    </g>
+
+    <text x="20" y="242" font-size="11" fill="#5a5a5a">If there is time for only three: chamfer every edge a hand meets, make the gaps consistent, finish the underside.</text>
+  </g>
+</svg>
