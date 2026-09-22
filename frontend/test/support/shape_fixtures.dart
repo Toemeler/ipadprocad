@@ -329,6 +329,17 @@ class BoxKernel implements PartKernel {
   /// kernel cannot do face edits", and the feature then fails honestly — which
   /// is right for a fake that does not model it, and wrong for these tests,
   /// whose whole subject is the op reaching the kernel at all.
+  /// #85 — a shell is a face operation on the body; the box it returns is
+  /// thinner, which is all a fake can honestly say about a hollowed part.
+  int shells = 0;
+  @override
+  KernelSolid? shellSolid(KernelSolid base, List<int> faceIds,
+      double thickness,
+      {bool outward = false}) {
+    shells++;
+    return _box(4);
+  }
+
   @override
   KernelSolid? deleteFaces(KernelSolid base, List<int> faceIds) {
     deletes++;

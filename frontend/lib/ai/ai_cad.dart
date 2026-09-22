@@ -1803,6 +1803,18 @@ class AiCad {
             changed['radius'] = _r(r);
           }
         }
+      case final ShellFeature shell:
+        {
+          final t = a.number('thickness');
+          if (t != null) {
+            if (t <= 0) {
+              return AiActionOutcome.failed(a.op, 'thickness must be > 0');
+            }
+            shell.thickness = t;
+            shell.exprThickness = '$t mm';
+            changed['thickness'] = _r(t);
+          }
+        }
       case final ChamferFeature chamfer:
         {
           final d = a.number('distance');

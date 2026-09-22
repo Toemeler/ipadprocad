@@ -1405,7 +1405,7 @@ THE 3D TOOLS BEYOND EXTRUDE AND REVOLVE:
   mouths. The report names what it actually caught — read it.
 - chamfer {distance, edges?, body?, near?} — same selection as fillet.
 - edit_feature {feature, distance?, distance_b?, taper?, angle?, radius?,
-  operation?} — changes an existing feature and rebuilds.
+  thickness?, operation?} — changes an existing feature and rebuilds.
 - delete_feature {feature}.
 - rename_feature {feature, name}.
 - knowledge {id} — opens ONE reference document from the knowledge base by its

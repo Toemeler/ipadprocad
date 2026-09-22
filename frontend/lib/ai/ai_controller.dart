@@ -70,6 +70,11 @@ class AiController extends ChangeNotifier {
   /// has none, and the instructions then never offer editing at all.
   AiActionRunner? actionRunner;
 
+  /// #85 — a view of the part as it is, for the start of a turn. Separate
+  /// from [actionRunner] because it is not a block: nothing the model asked
+  /// for, no step to show, no undo entry. Attached by [AiWorkspace].
+  Future<AiActionReport> Function()? viewReader;
+
   /// M444 — what the panel shows in a few words while work is in flight.
   AiActivity _activity = AiActivity.none;
   AiActivity get activity => _activity;
@@ -652,6 +657,22 @@ class AiController extends ChangeNotifier {
       // the document. Bounded by [kAiMaxActionRounds]; a model that has not
       // finished by then gets one last plain answer rather than another block.
       final turns = [...messages];
+      // #85 — THE PART, AS IT IS, BEFORE THE FIRST ROUND. Asked to change a
+      // part that already exists, the model's first round was a `look` and its
+      // next three were more reading: four round trips before anything was
+      // built. The context already carries the measured shape; what it lacked
+      // was the view. The app takes it here, once per turn, the way #82 made
+      // it take one after every block — and only when there is a body to see.
+      if (canEditModel && viewReader != null) {
+        final view = await _openingView();
+        if (!stillCurrent()) return;
+        if (view != null) {
+          session.messages.add(view);
+          turns.add(view);
+          await _persist();
+          if (!stillCurrent()) return;
+        }
+      }
       var rounds = 0;
       // Issue #71 — what the loop needs to know to decide whether a model
       // that stopped emitting blocks is finished or merely gave up.
@@ -1076,6 +1097,42 @@ class AiController extends ChangeNotifier {
     // the menu are identical on every request, so they stay cacheable, and
     // only the documents opened for THIS turn come after them.
     return '$base\n\n${kb.indexText()}\n${AiKnowledge.render(_openDocs)}';
+  }
+
+  /// A view of the part at the start of a turn, as a tool turn, or null when
+  /// there is no body to look at or the view could not be taken. Never
+  /// throws: a missing picture must not cost the user their turn.
+  Future<AiMessage?> _openingView() async {
+    try {
+      final r = await viewReader!();
+      final o = r.outcomes.isEmpty ? null : r.outcomes.first;
+      if (o == null || !o.ok) return null;
+      // Nothing to show is nothing to send: a view with neither a picture nor
+      // a silhouette would be a turn that says "here is the part" and isn't.
+      if (r.images.isEmpty && o.detail?['silhouette'] == null) return null;
+      final images = _capabilities?.supportsImages ?? false;
+      return AiMessage(
+          role: 'tool',
+          text: jsonEncode({
+            'partNow': {
+              if (o.detail?['silhouette'] != null)
+                'silhouette': o.detail!['silhouette'],
+              if (o.detail?['scaleNote'] != null)
+                'scale': o.detail!['scaleNote'],
+            },
+            'note': images && r.images.isNotEmpty
+                ? 'The attached view is the part as it is at the start of '
+                    'this request, from az 45, pol 55. The measured shape is '
+                    'in the document context. You do not need to look again '
+                    'before you start.'
+                : 'This silhouette is the part as it is at the start of '
+                    'this request. The measured shape is in the document '
+                    'context.',
+          }),
+          attachments: images ? r.images : const []);
+    } catch (_) {
+      return null;
+    }
   }
 
   static const _shared = 'You are the CAD design assistant in Prototype. '

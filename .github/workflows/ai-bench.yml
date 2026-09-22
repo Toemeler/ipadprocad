@@ -1,0 +1,164 @@
+name: Assistant on the real kernel
+
+# WHY THIS EXISTS. Issues #82-#85 were all geometry — a profile 0.0001 mm from
+# closing, a countersink in open air, a sweep that folded through itself, a
+# shell the app did not have — and every assistant test before this ran on
+# BoxKernel, whose extrusions are fixed boxes. They proved the bookkeeping and
+# could not see any of it. The only check that could was the next bug report.
+#
+# Two runs, two costs, in one job:
+#
+#   always   on every change to the assistant, the shim or the model code:
+#            frontend/test/ai_real_kernel_test.dart (the ops, volumes worked
+#            out by hand) and the benchmark in REPLAY mode (the whole
+#            controller loop answering from a script — deterministic, no key).
+#
+#   live     on demand only (Run workflow, tick "live"): the benchmark against a real provider. This is
+#            the number to compare before and after a prompt or protocol
+#            change — it costs tokens and minutes, so a person decides when.
+#
+# Both reuse linux-build.yml's OCCT cache key, so a warm run downloads the
+# install tree instead of spending ~40 minutes compiling it.
+
+on:
+  push:
+    paths:
+      - 'frontend/lib/ai/**'
+      - 'frontend/lib/part_model.dart'
+      - 'frontend/lib/ffi/occt_engine.dart'
+      - 'backend/occt/shim/**'
+      - 'frontend/test/bench/**'
+      - 'frontend/test/ai_real_kernel_test.dart'
+      - '.github/workflows/ai-bench.yml'
+  workflow_dispatch:
+    inputs:
+      live:
+        description: 'Also run the benchmark against a real provider'
+        type: boolean
+        default: false
+      provider:
+        description: 'Provider for the live run'
+        type: choice
+        options: [deepseek, anthropic, gemini]
+        default: deepseek
+      model:
+        description: 'Model id for the live run'
+        type: string
+        default: deepseek-flash
+      only:
+        description: 'Comma-separated scenario ids (empty = all)'
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+env:
+  # MUST match linux-build.yml, or this workflow builds OCCT on its own.
+  OCCT_CACHE_KEY: occt-linux-V7_9_3-r1
+
+concurrency:
+  group: ai-bench-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  kernel:
+    name: Assistant ops + replay benchmark (real OCCT)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore the OCCT install tree
+        id: occt-cache
+        uses: actions/cache@v4
+        with:
+          path: backend/occt/install-linux
+          key: ${{ env.OCCT_CACHE_KEY }}
+
+      - name: Fetch the pinned submodule (cache miss only)
+        if: steps.occt-cache.outputs.cache-hit != 'true'
+        run: git submodule update --init --depth 1 -- backend/occt/upstream
+
+      - name: Install Qt6 and build tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cmake ninja-build g++ pkg-config patchelf \
+            qt6-base-dev qt6-declarative-dev qt6-svg-dev
+
+      - name: Build the kernels (OCCT only on a cache miss)
+        run: tools/desktop/build_native.sh
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: flutter pub get
+        working-directory: frontend
+        run: flutter pub get
+
+      - name: Assistant ops on the real kernel
+        working-directory: frontend
+        env:
+          PROTOTYPE_NATIVE_DIR: ${{ github.workspace }}/frontend/build/native
+        run: |
+          set -o pipefail
+          flutter test test/ai_real_kernel_test.dart 2>&1 | tee ops.log
+          # A skip here would be a silent pass: the kernel was not found.
+          if grep -q "no kernel library" ops.log; then
+            echo "ASSISTANT OPS: FAIL (the kernel library was not loaded)"; exit 1
+          fi
+
+      - name: Benchmark (replay)
+        working-directory: frontend
+        env:
+          PROTOTYPE_NATIVE_DIR: ${{ github.workspace }}/frontend/build/native
+          AI_BENCH: replay
+          AI_BENCH_OUT: ${{ github.workspace }}/bench-replay.json
+        run: flutter test test/bench/ai_bench_test.dart
+
+      - name: Benchmark (live)
+        if: github.event_name == 'workflow_dispatch' && inputs.live
+        working-directory: frontend
+        continue-on-error: true
+        env:
+          PROTOTYPE_NATIVE_DIR: ${{ github.workspace }}/frontend/build/native
+          AI_BENCH: live
+          AI_BENCH_PROVIDER: ${{ inputs.provider }}
+          AI_BENCH_MODEL: ${{ inputs.model }}
+          AI_BENCH_ONLY: ${{ inputs.only }}
+          AI_BENCH_OUT: ${{ github.workspace }}/bench-live.json
+          AI_BENCH_KEY: >-
+            ${{ inputs.provider == 'deepseek' && secrets.DEEPSEEK_API_KEY
+             || inputs.provider == 'anthropic' && secrets.ANTHROPIC_API_KEY
+             || secrets.GEMINI_API_KEY }}
+        run: flutter test test/bench/ai_bench_test.dart
+
+      - name: Summary
+        if: always()
+        run: |
+          for f in bench-replay.json bench-live.json; do
+            [ -f "$f" ] || continue
+            python3 - "$f" >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          import json, sys
+          r = json.load(open(sys.argv[1]))
+          print(f"### {sys.argv[1]}: {r['passed']}/{r['of']} passed, "
+                f"{r['rounds']} rounds, {r['seconds']:.1f} s\n")
+          print("| scenario | pass | rounds | rolled back | s | out tokens | failures |")
+          print("|---|---|---|---|---|---|---|")
+          for s in r['scenarios']:
+              print(f"| {s['id']} (#{s['issue']}) | {'yes' if s['pass'] else 'NO'} "
+                    f"| {s['rounds']} | {s['rolledBack']} | {s['seconds']:.1f} "
+                    f"| {s['tokens']['output']} | {'; '.join(s['failures'])} |")
+          PY
+          done
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: assistant-bench
+          path: bench-*.json
+          if-no-files-found: ignore
+          retention-days: 30

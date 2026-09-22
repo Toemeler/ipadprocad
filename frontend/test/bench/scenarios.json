@@ -1,0 +1,53 @@
+{
+  "about": "The assistant benchmark. Each scenario is a request a user actually made (the issue it came from is named), the answers a user would give to the questions the assistant is expected to ask, and checks the finished part must pass. The checks are geometry the app measures, never the model's own account. `replay` is a known-good reply sequence for the offline mode, written in the current protocol: it proves the harness and the ops, not any model.",
+  "scenarios": [
+    {
+      "id": "cable-clip",
+      "issue": 83,
+      "prompt": "mach ein kabelhalter aus fdm pla. sehr einfach. bis aufs äusserste vereinfacht",
+      "answers": ["FDM, PLA, für ein Kabel Ø6 mm, zum Anschrauben an die Wand mit einer M3 Senkschraube"],
+      "checks": {"bodies": 1, "pieces": 1, "noSick": true, "maxFill": 0.75, "sizeMax": 80, "minFeatures": 2},
+      "replay": [
+        "```cad\n{\"title\": \"Grundplatte und Clip\", \"vars\": {\"ro\": 6, \"ri\": 3.4, \"w\": 10}, \"actions\": [{\"op\": \"create_sketch\", \"plane\": \"xz\"}, {\"op\": \"sketch_rounded_rect\", \"x\": 0, \"y\": 0, \"width\": 24, \"height\": \"w\", \"radius\": 2, \"centered\": true}, {\"op\": \"extrude\", \"distance\": 3, \"id\": \"base\"}, {\"op\": \"create_sketch\", \"plane\": \"xy\", \"offset\": \"-w/2\"}, {\"op\": \"sketch_ring\", \"x\": 0, \"y\": \"3+ro\", \"outer\": \"2*ro\", \"inner\": \"2*ri\", \"opening\": 5, \"opening_deg\": 90}, {\"op\": \"extrude\", \"distance\": \"w\", \"operation\": \"join\", \"id\": \"clip\"}]}\n```",
+        "```cad\n{\"title\": \"Senkloch\", \"say\": \"Fertig: Clip Ø6.8 mit 5-mm-Einführung auf 24×10×3-Platte, Senkloch für M3.\", \"actions\": [{\"op\": \"create_sketch\", \"on\": \"top\"}, {\"op\": \"hole\", \"x\": \"sk.left+4\", \"y\": \"sk.cy\", \"diameter\": 3.4, \"through_all\": true, \"type\": \"countersink\", \"cs_diameter\": 6.4, \"flip\": false}]}\n```"
+      ]
+    },
+    {
+      "id": "cup",
+      "issue": 84,
+      "prompt": "make me a designer cup with a curved handle",
+      "answers": ["fdm 300ml"],
+      "checks": {"bodies": 1, "pieces": 1, "noSick": true, "maxFill": 0.45, "sizeMin": 60, "sizeMax": 160, "featureKinds": ["shell|extrude"]},
+      "replay": [
+        "```cad\n{\"title\": \"Tassenkörper\", \"vars\": {\"d\": 80, \"h\": 72, \"t\": 2.4}, \"actions\": [{\"op\": \"create_sketch\", \"plane\": \"xz\"}, {\"op\": \"sketch_circle\", \"x\": 0, \"y\": 0, \"diameter\": \"d\"}, {\"op\": \"extrude\", \"distance\": \"h\", \"id\": \"body\"}, {\"op\": \"shell\", \"thickness\": \"t\", \"open\": \"top\", \"id\": \"wall\"}]}\n```",
+        "```cad\n{\"title\": \"Henkel\", \"actions\": [{\"op\": \"create_sketch\", \"plane\": \"xy\"}, {\"op\": \"sketch_arc\", \"x1\": \"d/2-1\", \"y1\": 18, \"x2\": \"d/2+24\", \"y2\": 40, \"x3\": \"d/2-1\", \"y3\": 62}, {\"op\": \"sweep\", \"path_sketch\": \"Sketch2\", \"profile_circle\": 9, \"operation\": \"join\", \"id\": \"handle\"}]}\n```",
+        "```cad\n{\"title\": \"Rand verrunden\", \"say\": \"Fertig: Ø80 × 72 mm, 2,4 mm Wand, geschwungener Henkel.\", \"actions\": [{\"op\": \"fillet\", \"radius\": 1, \"edges\": \"holes\"}]}\n```"
+      ]
+    },
+    {
+      "id": "sheet-cover",
+      "issue": 85,
+      "setup": [
+        {"op": "create_sketch", "plane": "xz"},
+        {"op": "sketch_rect", "x": 0, "y": 0, "width": 50, "height": 120, "centered": true},
+        {"op": "extrude", "distance": 80}
+      ],
+      "prompt": "make this open at the bottom and be made from 1mm sheet metal welded",
+      "answers": [],
+      "checks": {"bodies": 1, "pieces": 1, "noSick": true, "featureKinds": ["shell"], "volumeNear": {"value": 32544, "tolerance": 0.05}},
+      "replay": [
+        "```cad\n{\"title\": \"1-mm-Blechschale\", \"say\": \"Fertig: 1 mm Schale, unten offen.\", \"actions\": [{\"op\": \"shell\", \"thickness\": 1, \"open\": \"bottom\"}]}\n```"
+      ]
+    },
+    {
+      "id": "plate-with-holes",
+      "issue": 82,
+      "prompt": "A 60 x 40 x 5 mm mounting plate, corners rounded R5, with four M4 clearance holes 6 mm in from each corner and a Ø20 hole in the middle. FDM.",
+      "answers": ["PLA, FDM"],
+      "checks": {"bodies": 1, "pieces": 1, "noSick": true, "size": {"x": [59, 61], "y": [4.9, 5.1], "z": [39, 41]}, "volumeNear": {"value": 10004, "tolerance": 0.01}},
+      "replay": [
+        "```cad\n{\"title\": \"Platte mit Bohrungen\", \"say\": \"Fertig: 60×40×5 mm, R5, 4× Ø4.5, Ø20 mittig.\", \"actions\": [{\"op\": \"create_sketch\", \"plane\": \"xz\"}, {\"op\": \"sketch_rounded_rect\", \"x\": 0, \"y\": 0, \"width\": 60, \"height\": 40, \"radius\": 5, \"centered\": true}, {\"op\": \"sketch_circle\", \"x\": 0, \"y\": 0, \"diameter\": 20}, {\"op\": \"sketch_circle\", \"x\": -24, \"y\": -14, \"diameter\": 4.5}, {\"op\": \"sketch_circle\", \"x\": 24, \"y\": -14, \"diameter\": 4.5}, {\"op\": \"sketch_circle\", \"x\": -24, \"y\": 14, \"diameter\": 4.5}, {\"op\": \"sketch_circle\", \"x\": 24, \"y\": 14, \"diameter\": 4.5}, {\"op\": \"extrude\", \"distance\": 5}]}\n```"
+      ]
+    }
+  ]
+}

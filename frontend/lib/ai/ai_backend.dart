@@ -310,8 +310,15 @@ Duration aiResponseDeadline(String effort) => switch (effort) {
     };
 
 class DeviceAiBackend implements AiBackend {
-  DeviceAiBackend({http.Client Function()? clientFactory})
-      : _clientFactory = clientFactory ?? http.Client.new;
+  /// [keyReader] replaces the keychain for a caller that holds its key some
+  /// other way — the assistant benchmark reads it from the environment of a
+  /// CI job. The app never passes one.
+  DeviceAiBackend(
+      {http.Client Function()? clientFactory,
+      Future<String?> Function(AiProvider provider)? keyReader})
+      : _clientFactory = clientFactory ?? http.Client.new,
+        _keyReader = keyReader;
+  final Future<String?> Function(AiProvider provider)? _keyReader;
   static const _channel = MethodChannel('prototype/native_menu');
   static const _vault = FlutterSecureStorage();
   final http.Client Function() _clientFactory;
@@ -323,6 +330,8 @@ class DeviceAiBackend implements AiBackend {
 
   Future<String?> _readKey(AiProvider provider) async {
     if (provider == AiProvider.apple) return null;
+    final injected = _keyReader;
+    if (injected != null) return injected(provider);
     try {
       return Platform.isIOS
           ? await _channel.invokeMethod<String>(

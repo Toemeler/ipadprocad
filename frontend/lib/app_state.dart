@@ -1469,8 +1469,13 @@ typedef StillEngine = ({
 const Duration _kFramePresentWait = Duration(seconds: 1);
 
 class AppState extends ChangeNotifier {
-  AppState() { _aiWorkspace = AiWorkspace(this); }
-  final AiController ai = AiController();
+  /// [ai] is injectable so the assistant benchmark (test/bench) can drive
+  /// the real controller loop against a provider whose key comes from the
+  /// environment rather than the keychain. The app never passes one.
+  AppState({AiController? ai}) : ai = ai ?? AiController() {
+    _aiWorkspace = AiWorkspace(this);
+  }
+  final AiController ai;
   late final AiWorkspace _aiWorkspace;
 
   /// Scratch used only while parsing a part sidecar: sketch name -> stored

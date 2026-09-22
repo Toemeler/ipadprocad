@@ -15,6 +15,7 @@ import 'package:prototype/ai/ai_expr.dart';
 import 'package:prototype/ai/mesh_topology.dart';
 import 'package:prototype/app_state.dart';
 import 'package:prototype/ffi/occt_engine.dart' show OcctMeshData;
+import 'package:prototype/part_model.dart';
 
 import 'support/shape_fixtures.dart';
 
@@ -281,6 +282,35 @@ void main() {
       ]);
       expect(r.ok, isFalse);
       expect(r.outcomes.last.error, contains('nothing would be held'));
+    });
+
+    test('shell builds a Shell feature that saves and loads (#85)', () async {
+      final app = await part();
+      final cad = AiCad(app);
+      await cad.run([
+        const AiAction('create_sketch', {'plane': 'xz'}),
+        const AiAction('sketch_rect', {'width': 10, 'height': 10}),
+        const AiAction('extrude', {'distance': 5}),
+      ]);
+      final r = await cad.run([
+        const AiAction('shell', {'thickness': 1.2, 'open': 'top', 'id': 'wall'}),
+      ]);
+      expect(r.ok, isTrue, reason: r.encode());
+      final f = app.currentPart!.features.last as ShellFeature;
+      expect(f.name, 'wall');
+      expect(f.thickness, 1.2);
+      expect(f.faces, hasLength(1));
+      expect(f.faces.single.ny, greaterThan(0.99), reason: 'the top face');
+      final back = PartFeature.fromJson(f.toJson()) as ShellFeature;
+      expect(back.thickness, 1.2);
+      expect(back.faces.single.cy, f.faces.single.cy);
+      expect(back.kind, 'shell');
+      // And the model can change it afterwards.
+      final e = await cad.run([
+        const AiAction('edit_feature', {'feature': 'wall', 'thickness': 2}),
+      ]);
+      expect(e.ok, isTrue, reason: e.encode());
+      expect((app.currentPart!.features.last as ShellFeature).thickness, 2);
     });
 
     test('shell asks where the opening is', () async {

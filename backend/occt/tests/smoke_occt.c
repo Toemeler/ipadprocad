@@ -1856,6 +1856,55 @@ int main(void)
               "[34] null scale was not refused");
     }
 
+    /* [44] v31 (#85) SHELL. A 50x30x20 box hollowed to a 1 mm wall, open at
+     * the top (+Z face): the outside stays 50x30x20 and the inside becomes
+     * 48x28x19, so the volume is exactly the difference. A wall that grew
+     * the wrong way, a missing opening or a rounded corner all miss it. */
+    {
+        occt_shape *box = occt_make_box(50, 30, 20);
+        occt_mesh *m = box ? occt_mesh_create(box, 0.2, 0.35) : NULL;
+        int top = -1;
+        if (check(m != NULL, "[44] mesh failed")) {
+            const int fn = occt_mesh_face_count(m);
+            const int fc = (fn > 0 ? fn : 1);
+            double *fi = (double *)malloc(sizeof(double) * 15 * fc);
+            int *fid = (int *)malloc(sizeof(int) * fc);
+            if (fi && fid && occt_mesh_face_infos(m, fi) &&
+                occt_mesh_face_ids(m, fid)) {
+                for (int i = 0; i < fn; ++i) {
+                    if ((int)(fi[15 * i] + 0.5) == 0 &&
+                        fi[15 * i + 6] > 0.9 && fi[15 * i + 3] > 19.5) {
+                        top = fid[i];
+                        break;
+                    }
+                }
+            }
+            free(fi);
+            free(fid);
+        }
+        occt_free_mesh(m);
+        if (check(top > 0, "[44] no top face found")) {
+            const int ids[1] = {top};
+            occt_shape *cup = occt_shell(box, ids, 1, 1.0, 0);
+            if (check(cup != NULL, "[44] shell returned NULL")) {
+                const double v = occt_shape_volume(cup);
+                const double want = 50.0 * 30.0 * 20.0 - 48.0 * 28.0 * 19.0;
+                printf("[44] shelled volume %.4f (want %.4f)\n", v, want);
+                check(near_rel(v, want, 1e-4),
+                      "[44] the shell is not a 1 mm wall open at the top");
+                check(occt_shape_valid(cup), "[44] shelled solid is not valid");
+            }
+            occt_free_shape(cup);
+            check(occt_shell(box, ids, 1, 0.0, 0) == NULL,
+                  "[44] a zero thickness was not refused");
+            check(occt_shell(box, ids, 1, 20.0, 0) == NULL,
+                  "[44] a wall thicker than the part was not refused");
+        }
+        occt_free_shape(box);
+        check(occt_shell(NULL, NULL, 1, 1.0, 0) == NULL,
+              "[44] null shape was not refused");
+    }
+
     /* [35] v21 BULK EDGE ENUMERATION — the identity pin.
      *
      * occt_shape_edges_info exists because occt_shape_edge_info rebuilt four
