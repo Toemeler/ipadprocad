@@ -6,7 +6,7 @@ One line per document. This is the only part of the knowledge base that
 needs to sit in the assistant's context permanently; everything else is
 opened on demand. See [`README.md`](README.md) for how the mechanism works.
 
-**72 documents.**
+**78 documents.**
 
 ## Shared
 
@@ -14,6 +14,17 @@ opened on demand. See [`README.md`](README.md) for how the mechanism works.
 |---|---|---|---|
 | [`shared/glossary`](glossary.md) | Glossary — German / English manufacturing terms | basics | glossary, terminology, Glossar, Begriffe, was heisst, translation |
 | [`shared/img-style`](img-style.md) | Diagram conventions | basics | diagram style, drawing convention, svg style, Diagrammstil |
+
+## Industrial design
+
+| id | title | type | opens when the plan mentions |
+|---|---|---|---|
+| [`design/form/proportion-and-stance`](design/01-form/proportion-and-stance.md) | Proportion, stance and where the mass goes | rules | proportion, proportionen, stance, haltung, mass, masse, visual weight, thickness, … |
+| [`design/form/radii-and-edge-treatment`](design/01-form/radii-and-edge-treatment.md) | Radii and edge treatment | rules | radius, radien, fillet, verrundung, verrunden, rounded, abgerundet, chamfer, … |
+| [`design/form/transitions-and-continuity`](design/01-form/transitions-and-continuity.md) | How two forms meet | rules | transition, übergang, uebergang, junction, verbindung, blend, überblendung, stuck on, … |
+| [`design/function/holders-clips-and-retention`](design/02-function/holders-clips-and-retention.md) | Holders, clips and anything that retains something | recipe | holder, halter, halterung, clip, klemme, klammer, cable, kabel, … |
+| [`design/process/designing-for-the-printed-look`](design/03-process/designing-for-the-printed-look.md) | Designing for how a printed part looks | rules | printed look, druckbild, surface, oberfläche, oberflaeche, finish, layer lines, schichtlinien, … |
+| [`design/start-here`](design/00-start-here.md) | Design — start here | basics | design, designer, designen, gestaltung, schön, schoen, nice, beautiful, … |
 
 ## Laser cutting
 

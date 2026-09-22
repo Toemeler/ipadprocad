@@ -20,11 +20,23 @@ class AiWorkspace {
   AiWorkspace(this.app) {
     app.ai.contextReader = readContext;
     app.ai.documentOpener = openDocument;
-    app.ai.actionRunner = AiCad(app, digests).run;
+    _cad = AiCad(app, digests);
+    app.ai.actionRunner = _cad.run;
+    // #82 — the executor renders a view after every block that changes the
+    // geometry, but only a model that can SEE one is worth rendering for. The
+    // capability arrives asynchronously and the user can change the model, so
+    // this is re-read on every sync rather than captured once.
+    app.ai.addListener(_syncCapabilities);
     app.addListener(sync);
     sync();
   }
   final AppState app;
+  late final AiCad _cad;
+
+  void _syncCapabilities() {
+    _cad.wantsImages = app.ai.providerTakesImages;
+    _cad.knowledge = app.ai.knowledge;
+  }
 
   /// M442 — one digest per body, recomputed only when the geometry changes.
   final ShapeDigestCache digests = ShapeDigestCache();
@@ -191,5 +203,8 @@ class AiWorkspace {
     return value;
   }
 
-  void dispose() => app.removeListener(sync);
+  void dispose() {
+    app.removeListener(sync);
+    app.ai.removeListener(_syncCapabilities);
+  }
 }

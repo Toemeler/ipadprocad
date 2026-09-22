@@ -3,7 +3,7 @@ id: fdm/geometry/holes-shafts-and-teardrops
 title: Holes, shafts and teardrops
 type: rules
 process: fdm
-triggers: [hole, loch, bohrung, undersize, zu klein, shaft, welle, achse, pin, teardrop, tropfenform, horizontal hole, liegendes loch, round, rund, oval, screw hole, schraubenloch, drill, bohren]
+triggers: [hole, loch, bohrung, undersize, zu klein, shaft, welle, achse, pin, teardrop, tropfenform, horizontal hole, liegendes loch, round, rund, oval, screw hole, schraubenloch, drill, bohren, countersink, countersunk, senkung, senkloch, senkschraube, senkkopf, flush, bundig, counterbore, senkbohrung]
 depends_on: [fdm/geometry/overhangs-and-bridging, fdm/fits/clearance-table]
 confidence: high
 updated: 2026-09-22

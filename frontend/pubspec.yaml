@@ -76,6 +76,19 @@ flutter:
   # ~1.7 MB of unused glyphs in the IPA; if that ever matters, the fix is to
   # drop this block and load the four files with a FontLoader from
   # main() under `isDesktopHost`.
+  # ISSUE #82 — THE KNOWLEDGE BASE, WHICH USED TO SHIP NOWHERE.
+  #
+  # `knowledge/` at the repo root is 72 validated documents on FDM printing,
+  # laser cutting and design. CI checked them on every push; the app had never
+  # read a byte, because nothing bundled them and no code referenced them. The
+  # assistant designed for FDM out of its own priors and it showed.
+  #
+  # Flutter only bundles assets from inside the package, so the corpus is
+  # generated into ONE file by tools/kb/build_index.py and declared here. Run
+  # that script after editing anything under knowledge/; CI fails if this file
+  # is stale (.github/workflows/knowledge-base.yml).
+  assets:
+    - assets/knowledge/kb.json
   fonts:
     - family: Inter
       fonts:

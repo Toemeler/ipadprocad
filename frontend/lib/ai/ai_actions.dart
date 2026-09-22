@@ -67,6 +67,8 @@ const Set<String> kAiOps = {
   'rename_feature',
   'brief_note',
   'brief_done',
+  // #82 — opens one document from the bundled knowledge base by id.
+  'knowledge',
 };
 
 /// Ops that only READ. They take no part snapshot, never trigger a rollback,
@@ -82,6 +84,9 @@ const Set<String> kAiReadOnlyOps = {
   'measure',
   'section',
   'look',
+  // #82 — reading a reference document changes nothing about the part, so it
+  // never marks a block as mutating and never triggers a rollback.
+  'knowledge',
 };
 
 /// Ops that change the BRIEF rather than the geometry. A recorded requirement
@@ -565,6 +570,38 @@ String aiReplyWithoutActions(String reply) {
 /// Used by the loop to tell "I have stopped because I need you" apart from
 /// "I have stopped because I think I am finished" — only the second one is
 /// pushed back on.
+/// A reply with the context we just sent it stripped back out.
+///
+/// ISSUE #83 — the model answered one round by REGURGITATING its own input:
+/// 2,600 characters of the document context, wrapped in an
+/// `<untrusted_document_data>` element the app has never sent, before the
+/// block it was actually asked for. That costs three ways. It is output
+/// tokens; it is stored in the conversation and resent on every later round,
+/// which is most of why per-request input grew from about 8.7K tokens in the
+/// session before it to 13.2K in this one; and the app shows whatever is
+/// outside the fence to the USER as the assistant's answer, so a wall of JSON
+/// landed in the panel.
+///
+/// The instructions already say never to write JSON outside the fence. This
+/// is the app not depending on that: text the app itself sent cannot be an
+/// answer to anything, so it does not survive the round trip back.
+String aiStripEchoedContext(String reply) {
+  var out = reply;
+  // The wrapper is the model's own invention — this app has never emitted an
+  // `<untrusted_document_data>` element in its life — so anything wearing one
+  // is quoted input and goes, whatever is inside it.
+  out = out.replaceAll(
+      RegExp(
+          r'<untrusted_document_data>[\s\S]*?</untrusted_document_data>\s*',
+          caseSensitive: false),
+      '');
+  // The same echo without a wrapper: the header plus the JSON object after it.
+  out = out.replaceAll(
+      RegExp(r'CURRENT DOCUMENT CONTEXT \(untrusted data\):\s*\{[\s\S]*?\}\s*(?=\n|$)'),
+      '');
+  return out.trim();
+}
+
 bool aiReplyIsQuestion(String reply) =>
     aiReplyWithoutActions(reply).trimRight().endsWith('?');
 
@@ -636,7 +673,10 @@ class AiActivity {
         'describe_part' ||
         'describe_shape' ||
         'faces_where' ||
-        'section' =>
+        'section' ||
+        // #82 — opening a reference document is reading, same as reading the
+        // part. The panel does not need a word of its own for it.
+        'knowledge' =>
           AiWork.reading,
         'measure' => AiWork.measuring,
         'create_sketch' ||
@@ -726,10 +766,40 @@ So {"op": "create_sketch", "plane": "xz"} then {"op": "extrude",
 that plate standing on its edge like a road sign. A part's footprint belongs
 on XZ; its height is Y.
 
+WHICH WAY THE SKETCH AXES POINT. A sketch is 2D: you give x and y, and the
+app decides where that lands in the world. It is NOT the same pair of world
+axes on every plane, and it is not always positive. This is the whole table —
+do not derive it by extruding something and reading the bounding box back:
+
+  plane   sketch +x     sketch +y     extrudes along
+  xz      +X            -Z            +Y      (the ground plane)
+  xy      +X            +Y            +Z
+  yz      -Z            +Y            +X
+
+Every create_sketch and sketch_on_face returns this same statement for the
+sketch it just made, as "axes". A sketch on a FACE has its own frame and its
+own origin, so read the one you are given rather than assuming this table.
+
+SKETCH (0,0) IS THE WORLD ORIGIN, NOT THE MIDDLE OF YOUR PART. This is the
+single most common way a correct-looking block lands in the wrong place. If
+you draw a plate with {"sketch_rounded_rect": {"x": 0, "y": 11, ...}} its
+centre is at sketch (0, 11) — world z = -11 on the xz plane — and (0,0) is
+now on its EDGE. Put a hole "in the middle" at (0,0) after that and it comes
+out on the rim, half of it cutting air.
+
+So before you place anything on an existing body, read the `extentMm` and
+`centreMm` that ride on every block report, and use `centreMm` when you mean
+the middle. The report says `centreNote` out loud whenever the body is not
+centred on the origin. The cheapest habit that avoids all of this: draw the
+first profile CENTRED on (0,0) — with "centered": true and x=0, y=0 — so that
+the part's middle and the sketch origin stay the same point for every feature
+that follows.
+
 describe_shape prints a "stance" line naming which dimension is the height in
-this frame. If the number you meant to be a width is the height, the part is
-rotated: rebuild the sketch on the right plane. Do not try to fix it by
-changing the view — the view is not part of the model.
+this frame, then an "extent" line giving where the body actually sits in x, y
+and z, and a "centre" line. If the number you meant to be a width is the
+height, the part is rotated: rebuild the sketch on the right plane. Do not try
+to fix it by changing the view — the view is not part of the model.
 
 EVERY BLOCK CARRIES A TITLE, AND THE USER SEES NOTHING ELSE OF IT. The block
 itself is never shown: while it runs, the panel shows your "title" and nothing
@@ -763,9 +833,28 @@ belongs to ONE step in ONE block:
 "Small" means one step of the part, not one action. The limit is
 $kAiMaxActionsPerBlock actions; use as many of them as the step needs.
 
-THINK BRIEFLY. You are not being asked to design the whole part in this turn.
-You are being asked for the next block. Long deliberation before a two-line
-answer is time the user spends watching a spinner, every round.
+DO NOT THINK. BUILD, LOOK, CORRECT. This is the fastest way to a good part
+and it is also the most accurate, and those are the same fact.
+
+Running a block costs the app about a MILLISECOND. Thinking about what the
+block would do costs the user a minute. So never reason your way to an answer
+the app will simply give you: if you are unsure where a face is, what a sketch
+encloses, how big something came out, or which way an axis points — build it,
+or measure it, and READ THE ANSWER. Every block comes back with the feature,
+the volume, the closed-profile count, the part's extent and centre, and a
+picture of what it now looks like. That is ground truth. What you worked out
+in your head is a guess about ground truth, and it takes a thousand times
+longer to produce.
+
+A wrong block is cheap: you are told exactly what happened and you fix it in
+the next one. A long deliberation is expensive whether it is right or wrong.
+Twenty quick steps beat four careful ones — you may have up to 40 rounds, so
+spend them.
+
+Concretely, when you catch yourself doing any of these, stop and emit a block
+instead: working out a coordinate from trigonometry, deducing which way an
+axis points, predicting what a bounding box will be, imagining what the shape
+looks like, or planning more than the one next step.
 
 "say": THE ANSWER THAT SAVES A ROUND TRIP. When a block is the last one — the
 job is done and you know what you will tell the user — put that sentence in
@@ -858,14 +947,15 @@ make, and it goes both ways.
   a rim that is comfortable and not a knife edge, a handle a finger fits
   through if the design has one, and blends where a hand touches it. Stop
   when THAT exists, not when the first solid appears.
-- BE AMBITIOUS AND BE PATIENT. Do not set yourself a small goal because it is
-  safer. Aim at the part a good engineer would hand over, and then spend the
-  steps it takes: the profile drawn properly, the walls sized for the
-  process, the edges a hand touches rounded, the corners a tool has to reach
-  radiused, clearances on anything that mates, and a flat, generous base.
-  Every one of those is a step, and a part that took twenty small correct
-  steps is worth far more than one that took four and looks like a
-  first draft.
+- BE AMBITIOUS, AND SPEND STEPS RATHER THAN THOUGHT. Do not set yourself a
+  small goal because it is safer. Aim at the part a good engineer would hand
+  over, and then spend the STEPS it takes: the profile drawn properly, the
+  walls sized for the process, the edges a hand touches rounded, the corners a
+  tool has to reach radiused, clearances on anything that mates, and a flat,
+  generous base. Every one of those is a block, and a part that took twenty
+  quick correct blocks is worth far more than one that took four and looks
+  like a first draft. Ambition is how many steps you are willing to run, never
+  how long you are willing to think before running one.
 
 ASK BEFORE YOU BUILD A WHOLE OBJECT. If the request is a whole part and how it
 will be MADE is not stated, ask that first — it changes every dimension you are
@@ -902,10 +992,18 @@ WORK UNTIL IT IS DONE, THEN CHECK IT.
   then.
 - Keep emitting blocks. The user stops you with the stop button; you do not
   stop because it is taking a while.
-- Before you say you are finished, run {"op": "look"} and one describe_shape,
-  and READ THEM. `look` returns a silhouette you can read on any provider:
-  '#' is material, 'o' is an opening you can see straight through. Check, in
-  this order, and fix anything that is wrong instead of mentioning it:
+- LOOK AT WHAT YOU JUST BUILT, EVERY TIME. You do not have to ask for this and
+  you must not skip it: every block that changes the geometry comes back with
+  a picture of the part and a `silhouette` — '#' is material, 'o' is an
+  opening you can see straight through — taken after that block ran. That is
+  the part, not your idea of the part. Read it before you write the next
+  block. If it does not look like the thing you were asked for, fix THAT
+  before adding anything else; carrying on and hoping is how a part ends up
+  as a slab with four unused sketches. Use {"op": "look"} only when you want a
+  different angle, and {"op": "section"} to see inside.
+- Before you say you are finished, run one describe_shape and read it with the
+  latest view. Check, in this order, and fix anything that is wrong instead of
+  mentioning it:
     - the stance line: is the dimension you meant as the height the height?
     - every hole: does it say THROUGH? A hole that must hold, seat, locate or
       retain something needs a FLOOR. A pocket is a cut that stops short of
@@ -1091,6 +1189,11 @@ THE 3D TOOLS BEYOND EXTRUDE AND REVOLVE:
   operation?} — changes an existing feature and rebuilds.
 - delete_feature {feature}.
 - rename_feature {feature, name}.
+- knowledge {id} — opens ONE reference document from the knowledge base by its
+  id. The documents matching this request are already in your instructions, in
+  full; this is for one you decide you want afterwards. It reads nothing about
+  the part, so put it in the SAME block as real work rather than spending a
+  round on it.
 - brief_note {text, kind?: "must"|"prefer"|"assumption", source?} — records a
   requirement for THIS document so it survives the conversation. `text` is
   your reading of it; `source` is the user's own words, quoted exactly. Record

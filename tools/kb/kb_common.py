@@ -31,7 +31,12 @@ VALID_TYPES = {
     "basics", "material", "rules", "recipe",
     "decision", "failures", "checklist", "example",
 }
-VALID_PROCESSES = {"laser", "fdm", "shared"}
+# "design" is not a manufacturing process and sits here anyway, because it is
+# retrieved by exactly the same mechanism and has to obey exactly the same
+# shape. Issue #82 asked for "ein Designer Kabelhalter" and got a rounded slab:
+# the assistant knew how to make a thing and nothing about what makes a thing
+# worth looking at, because nobody had written that half down.
+VALID_PROCESSES = {"laser", "fdm", "design", "shared"}
 VALID_CONFIDENCE = {"high", "medium", "starting-point"}
 
 # The six sections every document carries, in order. See knowledge/TEMPLATE.md.

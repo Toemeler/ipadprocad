@@ -90,7 +90,8 @@ class AiRequest {
       this.sessionId,
       this.round,
       this.attempt = 0,
-      this.thorough = false})
+      this.thorough = false,
+      this.iterating = true})
       : messages = List.unmodifiable(messages);
   final String id;
   final String instructions;
@@ -112,6 +113,12 @@ class AiRequest {
   /// controller from the document's own open requirements, never by the user.
   /// See [deepSeekReasoningEffort].
   final bool thorough;
+
+  /// Whether this request is a round of the ACTION LOOP — one where the model
+  /// can emit a block, have it run, and read what actually happened. True for
+  /// every modelling round; false for an answer with nothing behind it to
+  /// test against. See [deepSeekReasoningEffort].
+  final bool iterating;
 }
 
 class AiReply {
@@ -216,9 +223,62 @@ bool deepSeekTakesThinking(String model) =>
 /// A retry means the last answer did not fit the model's own ceiling, and on
 /// this model reasoning is what fills that ceiling — so each attempt thinks
 /// less as well as getting more room.
-String deepSeekReasoningEffort({required bool thorough, int attempt = 0}) {
+///
+/// ISSUE #82 — AN OPEN `must` IS A PROPERTY OF THE JOB, NOT OF THE ROUND.
+///
+/// Everything above is still true, and it still went wrong, because "a big job
+/// is in progress" and "this round needs deliberation" are not the same claim.
+/// A whole-object job is one design decision followed by a dozen mechanical
+/// steps: draw this, extrude that, read the report, drill the hole. The
+/// thinking belongs to the first of those. The latch put it on all of them.
+///
+/// It could not even unlatch. The instructions tell the model to record its
+/// `must` list BEFORE the first block and to clear each one with brief_done as
+/// it comes true — but brief_done fired zero times in the reported session, as
+/// it does in most, because a model in the middle of building does not stop to
+/// tick boxes. So the first block of a whole-object request raised the effort
+/// and nothing could ever lower it again.
+///
+/// What that cost, measured: 99.0% of all output tokens in the session were
+/// reasoning — 111,978 of 113,058. Round 6 spent 37,841 reasoning tokens and
+/// 180 seconds to emit 158 tokens of content, and what it emitted was one note,
+/// one section and three delete_feature calls. Nothing in that round needed a
+/// single token of deliberation; it needed to know where the part was, which
+/// is a fact the app owed it and now supplies (issue #82, [frameAxisNote] and
+/// the extent/centre lines in the shape digest).
+///
+/// THE LOOP IS THE REASONING. This is the part the latch got backwards.
+///
+/// Inside the action loop the model is not guessing about anything. It emits a
+/// block, the app runs it against the real kernel and hands back exactly what
+/// happened — the feature, the volume, the closed-profile count, the measured
+/// shape. That round trip costs MILLISECONDS: 839 ms of kernel work carried
+/// the whole reported session, 0.14% of its 9 minutes 49. Everything else was
+/// the model thinking about what the answer might be.
+///
+/// So deliberating inside the loop is paying 180 seconds to predict something
+/// the app will tell you for free in one. Trial and error is not the cheap
+/// substitute for thinking here; it is strictly better information, arriving
+/// sooner. The session shows it directly — round 0 ran at `low`, spent 14,157
+/// reasoning tokens and produced the only correct feature in the session; the
+/// six `high` rounds after it produced a part the model then deleted.
+///
+/// A round of the loop therefore thinks `low`, always, and the loop is allowed
+/// to be long instead ([kAiMaxActionRounds] is 40). Twenty cheap correct steps
+/// beat four expensive wrong ones, and they arrive faster.
+///
+/// [thorough] survives for the one case where none of that holds: an answer
+/// with NO action loop behind it — edits disabled, or the closing reply after
+/// a blocked block. There the model cannot test anything, so deliberation is
+/// the only instrument it has left.
+String deepSeekReasoningEffort({
+  required bool thorough,
+  int attempt = 0,
+  bool iterating = true,
+}) {
   if (attempt >= 2) return 'none';
   if (attempt == 1) return 'low';
+  if (iterating) return 'low';
   return thorough ? 'high' : 'low';
 }
 
@@ -491,7 +551,9 @@ class DeviceAiBackend implements AiBackend {
     // this method waits for it. One value, read once, so the two can never
     // drift apart again — which is what issue #81 was.
     final effort = deepSeekReasoningEffort(
-        thorough: request.thorough, attempt: request.attempt);
+        thorough: request.thorough,
+        attempt: request.attempt,
+        iterating: request.iterating);
     final deadline = isDeepSeek && deepSeekTakesThinking(preferences.model)
         ? aiResponseDeadline(effort)
         : aiResponseDeadline('low');
@@ -831,14 +893,31 @@ class DeviceAiBackend implements AiBackend {
           cause: 'a field in the provider body had an unexpected type: $e');
       throw const AiException('response');
     } catch (e) {
-      final code = _cancelled.contains(request.id) || _disposed
-          ? 'cancelled'
-          : 'network';
+      final stopped = _cancelled.contains(request.id) || _disposed;
+      final code = stopped ? 'cancelled' : 'network';
       // `catch (_)` used to make a DNS failure, a dropped TLS handshake, a
       // 120-second timeout and a closed socket into one word. The word is
       // still what the user sees; the reason is now in the trace.
+      //
+      // ISSUE #82 — AND THE CAUSE MUST NOT BE THE CONSEQUENCE. Pressing stop
+      // aborts the in-flight request, which makes the socket throw
+      // "Connection closed while receiving data". That exception was then
+      // recorded as the CAUSE of the cancel, so the bug report for a turn the
+      // user deliberately stopped read:
+      //
+      //   LAST ASSISTANT FAULT: cancelled — ClientException: ClientException:
+      //   Connection closed while receiving data, uri=https://api.deepseek.com
+      //
+      // which is a provider outage, in the place where the truth was "the
+      // user pressed stop". Triage starts from that line. Say which of the two
+      // happened, and keep the socket error where it belongs — as the thing
+      // the cancel caused.
       _traceFailure(caps.provider, request, code,
-          cause: '${e.runtimeType}: $e');
+          cause: stopped
+              ? 'the user stopped this turn; the transport then reported '
+                  '${e.runtimeType}, which is the cancel taking effect and '
+                  'not a fault'
+              : '${e.runtimeType}: $e');
       throw AiException(code);
     } finally {
       client.close();

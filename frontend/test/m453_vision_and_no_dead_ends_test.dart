@@ -44,12 +44,15 @@ void main() {
   });
 
   AiRequest request(
-          {List<AiAttachment> attachments = const [], bool thorough = false}) =>
+          {List<AiAttachment> attachments = const [],
+          bool thorough = false,
+          bool iterating = true}) =>
       AiRequest(
           id: 'request',
           instructions: 'Only inspect.',
           context: '{"name":"Bracket"}',
           thorough: thorough,
+          iterating: iterating,
           messages: [
             AiMessage(
                 role: 'user', text: 'Look at it.', attachments: attachments)
@@ -57,7 +60,9 @@ void main() {
 
   /// Runs one request against a fake DeepSeek and returns the body it sent.
   Future<Map<String, dynamic>> bodyFor(String model,
-      {List<AiAttachment> attachments = const [], bool thorough = false}) async {
+      {List<AiAttachment> attachments = const [],
+      bool thorough = false,
+      bool iterating = true}) async {
     late Map<String, dynamic> sent;
     final backend = DeviceAiBackend(
         clientFactory: () => MockClient((r) async {
@@ -76,7 +81,10 @@ void main() {
     addTearDown(backend.dispose);
     await backend.respond(
         AiPreferences(provider: AiProvider.deepseek, model: model),
-        request(attachments: attachments, thorough: thorough));
+        request(
+            attachments: attachments,
+            thorough: thorough,
+            iterating: iterating));
     return sent;
   }
 
@@ -127,13 +135,39 @@ void main() {
   });
 
   group('thinking reaches the wire', () {
-    test('cheap by default, thorough only when something is outstanding',
-        () async {
+    // ISSUE #82 — THE LOOP IS THE REASONING, so a round of it never asks for
+    // deliberation, whatever the brief says.
+    //
+    // This used to assert the opposite: an open `must` bought `high` on every
+    // round. That latched on the first block of any whole-object request (the
+    // instructions tell the model to record its musts before building) and
+    // never released, because brief_done does not fire mid-build. The measured
+    // cost in the reported session was 99.0% of all output tokens spent on
+    // reasoning, and one round that took 180 seconds to emit 158 tokens of
+    // content. The round BEFORE the latch engaged, at `low`, produced the only
+    // correct feature of the session.
+    test('a round of the action loop always thinks cheaply', () async {
       expect((await bodyFor(kDeepSeekDefaultModel))['reasoning_effort'], 'low');
       expect(
           (await bodyFor(kDeepSeekDefaultModel, thorough: true))
               ['reasoning_effort'],
+          'low',
+          reason: 'an open requirement describes the JOB, not this round — '
+              'and the round can just build the thing and read the report');
+    });
+
+    test('an answer with no loop behind it may still deliberate', () async {
+      // Edits disabled, or the closing reply after a blocked block: nothing
+      // to test against, so thinking is the only instrument left.
+      expect(
+          (await bodyFor(kDeepSeekDefaultModel,
+              thorough: true, iterating: false))['reasoning_effort'],
           'high');
+      expect(
+          (await bodyFor(kDeepSeekDefaultModel, iterating: false))
+              ['reasoning_effort'],
+          'low',
+          reason: 'nothing outstanding is still nothing to think about');
     });
 
     test('a model without the controls is not sent them', () async {
