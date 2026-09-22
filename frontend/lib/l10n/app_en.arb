@@ -1648,5 +1648,20 @@
   "aiCanModel": "Can model in the open part, and reports what it measured while doing it.",
   "aiWorkNoting": "Noting the requirement",
   "aiErrorTruncated": "The reply kept coming back cut off, even with more room.",
-  "aiElapsedSeconds": "{seconds} s"
+  "aiElapsedSeconds": "{seconds} s",
+  "settingsCloudAccount": "Cloud Account",
+  "settingsCloudNone": "Not set up",
+  "settingsCloudBucket": "Bucket",
+  "settingsCloudEndpoint": "Endpoint",
+  "settingsCloudKeyId": "Key ID",
+  "settingsCloudAppKey": "Application Key",
+  "settingsCloudAppKeySaved": "Saved",
+  "settingsRemoveAccount": "Remove Cloud Account",
+  "cloudPromptBucketBody": "The name of the Backblaze B2 bucket your devices share. Make it Private.",
+  "cloudPromptEndpointBody": "The bucket's endpoint, exactly as the Backblaze page shows it.",
+  "cloudPromptKeyIdBody": "The keyID of an application key scoped to that one bucket.",
+  "cloudPromptAppKeyBody": "The applicationKey shown once when you created the key. It is kept on this device only and is never sent to another device.",
+  "cloudBadEndpoint": "That is not an endpoint. It looks like s3.eu-central-003.backblazeb2.com.",
+  "cloudRemoveTitle": "Remove the cloud account?",
+  "cloudRemoveBody": "This device keeps the documents it has and stops syncing. The other devices are not affected, and nothing in the bucket is deleted."
 }

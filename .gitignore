@@ -39,3 +39,9 @@ backend/cycles/build-linux/
 # M440 — debug dumps from the freeform segmenter, never a source file.
 segments.txt
 segments_split.txt
+
+# M441 — the cloud mirror's Worker. `wrangler` writes a local state directory
+# and npm would write node_modules if anything were ever added; the Worker
+# itself has no dependencies and deploys as the two files it is.
+cloud/.wrangler/
+cloud/node_modules/

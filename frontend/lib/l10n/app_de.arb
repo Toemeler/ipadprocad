@@ -1403,7 +1403,7 @@
   "@msgMeshImportedOpen": {
     "description": "Das Netz hatte Löcher; daraus kann nur ein Flächenkörper werden, und das muss dastehen."
   },
-  "msgMeshImportedUnclean": "Der Körper ist unsauber — Verrundungen und Boolesche Operationen können scheitern.",
+  "msgMeshImportedUnclean": "Der Körper ist nicht sauber — Verrundungen und Booleans können fehlschlagen.",
   "@msgMeshImportedUnclean": {
     "description": "M440 — der Körper wurde geprüft und ist nicht sauber. Das muss dastehen, bevor jemand eine Verrundung darauf versucht."
   },
@@ -4880,5 +4880,65 @@
         "type": "int"
       }
     }
+  },
+  "settingsCloudAccount": "Cloud-Konto",
+  "@settingsCloudAccount": {
+    "description": "M442 cloud account row"
+  },
+  "settingsCloudNone": "Nicht eingerichtet",
+  "@settingsCloudNone": {
+    "description": "M442 cloud account row"
+  },
+  "settingsCloudBucket": "Bucket",
+  "@settingsCloudBucket": {
+    "description": "M442 cloud account row"
+  },
+  "settingsCloudEndpoint": "Endpunkt",
+  "@settingsCloudEndpoint": {
+    "description": "M442 cloud account row"
+  },
+  "settingsCloudKeyId": "Schlüssel-ID",
+  "@settingsCloudKeyId": {
+    "description": "M442 cloud account row"
+  },
+  "settingsCloudAppKey": "Anwendungsschlüssel",
+  "@settingsCloudAppKey": {
+    "description": "M442 cloud account row"
+  },
+  "settingsCloudAppKeySaved": "Gespeichert",
+  "@settingsCloudAppKeySaved": {
+    "description": "M442 cloud account row"
+  },
+  "settingsRemoveAccount": "Cloud-Konto entfernen",
+  "@settingsRemoveAccount": {
+    "description": "M442 cloud account row"
+  },
+  "cloudPromptBucketBody": "Der Name des Backblaze-B2-Buckets, den deine Geräte teilen. Stelle ihn auf Privat.",
+  "@cloudPromptBucketBody": {
+    "description": "M442 cloud account row"
+  },
+  "cloudPromptEndpointBody": "Der Endpunkt des Buckets, genau wie ihn die Backblaze-Seite zeigt.",
+  "@cloudPromptEndpointBody": {
+    "description": "M442 cloud account row"
+  },
+  "cloudPromptKeyIdBody": "Die keyID eines Anwendungsschlüssels, der nur für diesen Bucket gilt.",
+  "@cloudPromptKeyIdBody": {
+    "description": "M442 cloud account row"
+  },
+  "cloudPromptAppKeyBody": "Der applicationKey, der beim Erstellen einmalig gezeigt wurde. Er bleibt nur auf diesem Gerät und wird nie an ein anderes gesendet.",
+  "@cloudPromptAppKeyBody": {
+    "description": "M442 cloud account row"
+  },
+  "cloudBadEndpoint": "Das ist kein Endpunkt. Er sieht aus wie s3.eu-central-003.backblazeb2.com.",
+  "@cloudBadEndpoint": {
+    "description": "M442 cloud account row"
+  },
+  "cloudRemoveTitle": "Cloud-Konto entfernen?",
+  "@cloudRemoveTitle": {
+    "description": "M442 cloud account row"
+  },
+  "cloudRemoveBody": "Dieses Gerät behält seine Dokumente und synchronisiert nicht mehr. Die anderen Geräte sind nicht betroffen, und im Bucket wird nichts gelöscht.",
+  "@cloudRemoveBody": {
+    "description": "M442 cloud account row"
   }
 }

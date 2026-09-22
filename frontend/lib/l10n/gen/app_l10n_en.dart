@@ -5242,4 +5242,54 @@ class AppL10nEn extends AppL10n {
   String aiElapsedSeconds(int seconds) {
     return '$seconds s';
   }
+
+  String get settingsCloudAccount => 'Cloud Account';
+
+  @override
+  String get settingsCloudNone => 'Not set up';
+
+  @override
+  String get settingsCloudBucket => 'Bucket';
+
+  @override
+  String get settingsCloudEndpoint => 'Endpoint';
+
+  @override
+  String get settingsCloudKeyId => 'Key ID';
+
+  @override
+  String get settingsCloudAppKey => 'Application Key';
+
+  @override
+  String get settingsCloudAppKeySaved => 'Saved';
+
+  @override
+  String get settingsRemoveAccount => 'Remove Cloud Account';
+
+  @override
+  String get cloudPromptBucketBody =>
+      'The name of the Backblaze B2 bucket your devices share. Make it Private.';
+
+  @override
+  String get cloudPromptEndpointBody =>
+      'The bucket\'s endpoint, exactly as the Backblaze page shows it.';
+
+  @override
+  String get cloudPromptKeyIdBody =>
+      'The keyID of an application key scoped to that one bucket.';
+
+  @override
+  String get cloudPromptAppKeyBody =>
+      'The applicationKey shown once when you created the key. It is kept on this device only and is never sent to another device.';
+
+  @override
+  String get cloudBadEndpoint =>
+      'That is not an endpoint. It looks like s3.eu-central-003.backblazeb2.com.';
+
+  @override
+  String get cloudRemoveTitle => 'Remove the cloud account?';
+
+  @override
+  String get cloudRemoveBody =>
+      'This device keeps the documents it has and stops syncing. The other devices are not affected, and nothing in the bucket is deleted.';
 }

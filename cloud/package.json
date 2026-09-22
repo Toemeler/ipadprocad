@@ -1,0 +1,10 @@
+{
+  "name": "ipadprocad-cloud-sync",
+  "private": true,
+  "type": "module",
+  "description": "Cloudflare Worker fronting a Backblaze B2 bucket for the cloud mirror. No dependencies: wrangler uploads worker.js and sigv4.js as they are.",
+  "scripts": {
+    "test": "node --test 'test/*.test.mjs'",
+    "deploy": "wrangler deploy"
+  }
+}

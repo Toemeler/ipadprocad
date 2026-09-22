@@ -78,6 +78,8 @@ import 'vector_font.dart';
 import 'render_engine.dart';
 import 'render_samples.dart';
 import 'ribbon_dock.dart';
+import 'sync/cloud_account.dart';
+import 'sync/cloud_sync.dart';
 import 'sync/lan_sync.dart';
 import 'sync/sync_store.dart';
 import 'update_check.dart';
@@ -1866,7 +1868,11 @@ class AppState extends ChangeNotifier {
       preferences: _cacheRoot,
     );
     LanSync.instance.onApplied = _adoptSynced;
-    ShareCodes.attachStore(SyncStore(_cacheRoot));
+    // M442 — ONE SECRET, BOTH MIRRORS. The share code is gone; the Backblaze
+    // account is what says "these are my devices", and the LAN group is
+    // derived from it. See `cloud_account.dart` for why that is the stronger
+    // of the two and why the key is not kept in `settings.json`.
+    CloudAccount.attachStore(CloudAccountStore(_cacheRoot));
     // Linux/Windows only, and a no-op even there until something asks — see
     // update_check.dart. Attached here rather than checked from a bare
     // constant so a test can point it at its own temp directory instead of
@@ -2135,6 +2141,7 @@ class AppState extends ChangeNotifier {
     // device hears about it. The app knows the exact moment the bytes are on
     // disk; this is that moment.
     LanSync.instance.nudge();
+    CloudSync.instance.nudge();
     // The thumbnail cache is keyed by path, so it goes stale on every save.
     try {
       final t = _thumbFile(library[name]!);
@@ -2172,6 +2179,7 @@ class AppState extends ChangeNotifier {
     // A deletion travels as a tombstone, and it is noticed the same way a
     // save is — see [_commitStage].
     LanSync.instance.nudge();
+    CloudSync.instance.nudge();
   }
 
   /// Moves [from]'s document file to [to]. An external document is renamed
@@ -2207,6 +2215,7 @@ class AppState extends ChangeNotifier {
     // A rename is a deletion and a creation to a mirror that works in names,
     // and both halves should reach the other devices together.
     LanSync.instance.nudge();
+    CloudSync.instance.nudge();
     if (ref.source == DocSource.external) {
       _remembered.removeWhere((e) => e.path == ref.path);
       _remembered.insert(0, moved);

@@ -19,8 +19,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/app_state.dart';
 import 'package:prototype/l10n/l.dart';
 import 'package:prototype/sync/lan_sync.dart';
-import 'package:prototype/sync/share_code.dart';
-import 'package:prototype/sync/sync_store.dart';
+import 'package:prototype/sync/b2_signer.dart';
+import 'package:prototype/sync/cloud_account.dart';
+import 'package:prototype/sync/cloud_sync.dart';
 import 'package:prototype/widgets/settings_sheet.dart';
 
 void main() {
@@ -30,7 +31,7 @@ void main() {
 
     setUp(() {
       dir = Directory.systemTemp.createTempSync('m383ui');
-      ShareCodes.resetForTest();
+      CloudAccount.resetForTest();
       // The status line is built from `L.current`, the app-wide locale, while
       // the rest of the dialog reads the one in the widget tree. In the app
       // they are the same value — L.locale is what MaterialApp is given — so
@@ -41,8 +42,9 @@ void main() {
     });
 
     tearDown(() async {
-      await ShareCodes.set(null);
-      ShareCodes.resetForTest();
+      await CloudAccount.set(null);
+      CloudAccount.resetForTest();
+      CloudSync.instance.resetForTest();
       L.set(wasLocale);
       dir.deleteSync(recursive: true);
     });
@@ -56,8 +58,20 @@ void main() {
       // directly does not fail, it hangs, until the ten-minute timeout;
       // whether that happens depends on what else is running, which is how it
       // survived being run on its own.
-      await tester.runAsync(
-          () => ShareCodes.set(normaliseShareCode(generateShareCode())));
+      // M442 — the status row appears once the ACCOUNT is complete, not once
+      // a share code is set: the code is gone and the Backblaze account is
+      // what says "these are my devices".
+      await tester.runAsync(() => CloudAccount.set(const B2Credentials(
+            keyId: 'k',
+            appKey: 's',
+            bucket: 'b',
+            region: 'eu-central-003',
+          )));
+      // The cloud schedules its next cycle as soon as it has an account, and
+      // a timer started under this test's fake clock never fires. The row
+      // reads the LAN mirror's status, so stopping the cloud changes nothing
+      // this test is about.
+      CloudSync.instance.resetForTest();
 
       final app = AppState()..docsDirForTest = dir;
       await tester.pumpWidget(MaterialApp(
