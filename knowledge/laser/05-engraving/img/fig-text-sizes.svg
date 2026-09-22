@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 220" width="480" height="220" role="img" aria-label="The same word engraved at three cap heights">
+  <rect x="0" y="0" width="480" height="220" rx="10" fill="#ffffff"/>
+  <defs><filter id="smudge"><feGaussianBlur stdDeviation="1.6"/></filter></defs>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Cap height on plywood</text>
+    <rect x="28" y="44" width="424" height="100" fill="#e0cba8" stroke="#1a1a1a" stroke-width="2"/>
+
+    <text x="60" y="88" font-size="11" font-weight="700" fill="#6b4a25" filter="url(#smudge)">Gehäuse</text>
+    <text x="90" y="128" text-anchor="middle" font-size="11">3 mm</text>
+
+    <text x="180" y="92" font-size="18" font-weight="600" fill="#6b4a25">Gehäuse</text>
+    <text x="222" y="128" text-anchor="middle" font-size="11" fill="#2e7d32">5 mm — the default</text>
+
+    <text x="316" y="98" font-size="30" font-weight="600" fill="#6b4a25">Geh</text>
+    <text x="352" y="128" text-anchor="middle" font-size="11">10 mm</text>
+
+    <text x="20" y="172" font-size="12" font-weight="600">What fails first is not the letter height — it is the counters, the holes inside a, e, ä.</text>
+    <text x="20" y="192" font-size="11" fill="#5a5a5a">Keep stroke width ≥ 0.5 mm and counters ≥ 0.6 mm. Check the smallest word, not the largest.</text>
+    <text x="20" y="210" font-size="11" fill="#5a5a5a">Medium-weight sans beats bold on cast acrylic: the frosted mark already reads heavier than it looks on screen.</text>
+  </g>
+</svg>

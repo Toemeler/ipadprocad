@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 200" width="480" height="200" role="img" aria-label="Two coincident cut lines and the charred kerf they produce">
+  <rect x="0" y="0" width="480" height="200" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Two identical paths look like one line</text>
+
+    <text x="30" y="58" font-size="11" fill="#5a5a5a">on screen</text>
+    <line x1="30" y1="76" x2="200" y2="76" stroke="#1a1a1a" stroke-width="2"/>
+    <line x1="30" y1="76" x2="200" y2="76" stroke="#1a1a1a" stroke-width="2"/>
+
+    <text x="30" y="116" font-size="11" fill="#5a5a5a">in the material</text>
+    <rect x="30" y="130" width="170" height="40" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <rect x="108" y="130" width="14" height="40" fill="#3a2a16"/>
+    <circle cx="115" cy="150" r="17" fill="none" stroke="#c62828" stroke-width="2"/>
+
+    <text x="270" y="72" font-size="12" font-weight="600">What actually happens</text>
+    <text x="270" y="96" font-size="11" fill="#5a5a5a">the second pass runs into an open, hot kerf</text>
+    <text x="270" y="116" font-size="11" fill="#5a5a5a">→ wider and blacker than one pass</text>
+    <text x="270" y="136" font-size="11" fill="#5a5a5a">→ can flare on residue in the kerf</text>
+    <text x="270" y="156" font-size="11" fill="#5a5a5a">→ doubles the cut time for that contour</text>
+
+    <text x="20" y="190" font-size="11" fill="#2e7d32">Run the delete-duplicates command before every export. It costs one click.</text>
+  </g>
+</svg>

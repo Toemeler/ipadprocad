@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 260" width="480" height="260" role="img" aria-label="A five by five power and speed test grid">
+  <rect x="0" y="0" width="480" height="260" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Power / speed grid</text>
+    <text x="150" y="52" text-anchor="middle" font-size="11" fill="#5a5a5a">power →  40 %      55 %      70 %      85 %     100 %</text>
+
+    <g stroke="#1a1a1a" stroke-width="1.5">
+      <rect x="60" y="60" width="36" height="30" fill="#efe6d8"/><rect x="100" y="60" width="36" height="30" fill="#e3d4be"/><rect x="140" y="60" width="36" height="30" fill="#d3bd9f"/><rect x="180" y="60" width="36" height="30" fill="#c0a47f"/><rect x="220" y="60" width="36" height="30" fill="#ab8b62"/>
+      <rect x="60" y="96" width="36" height="30" fill="#e8dbc8"/><rect x="100" y="96" width="36" height="30" fill="#d6c0a2"/><rect x="140" y="96" width="36" height="30" fill="#bfa079"/><rect x="180" y="96" width="36" height="30" fill="#a3825a"/><rect x="220" y="96" width="36" height="30" fill="#8a6a45"/>
+      <rect x="60" y="132" width="36" height="30" fill="#ded0b8"/><rect x="100" y="132" width="36" height="30" fill="#c6ab86"/><rect x="140" y="132" width="36" height="30" fill="#a7885f"/><rect x="180" y="132" width="36" height="30" fill="#87684255"/><rect x="220" y="132" width="36" height="30" fill="#6d5233"/>
+      <rect x="60" y="168" width="36" height="30" fill="#d2c1a5"/><rect x="100" y="168" width="36" height="30" fill="#b2946b"/><rect x="140" y="168" width="36" height="30" fill="#8e6f47"/><rect x="180" y="168" width="36" height="30" fill="#6d5233"/><rect x="220" y="168" width="36" height="30" fill="#513c25"/>
+      <rect x="60" y="204" width="36" height="30" fill="#c2ae8e"/><rect x="100" y="204" width="36" height="30" fill="#9a7b53"/><rect x="140" y="204" width="36" height="30" fill="#755836"/><rect x="180" y="204" width="36" height="30" fill="#54402a"/><rect x="220" y="204" width="36" height="30" fill="#33261a"/>
+    </g>
+    <g text-anchor="end" fill="#5a5a5a">
+      <text x="54" y="80">30 mm/s</text><text x="54" y="116">22</text><text x="54" y="152">16</text><text x="54" y="188">11</text><text x="54" y="224">7</text>
+    </g>
+    <rect x="138" y="130" width="40" height="34" fill="none" stroke="#2e7d32" stroke-width="2.5"/>
+    <text x="278" y="150" font-size="12" font-weight="600" fill="#2e7d32">the fastest square that</text>
+    <text x="278" y="168" font-size="12" font-weight="600" fill="#2e7d32">releases cleanly when pushed</text>
+    <text x="278" y="194" font-size="11" fill="#5a5a5a">not the darkest, and not the</text>
+    <text x="278" y="210" font-size="11" fill="#5a5a5a">one that needed full power</text>
+    <text x="20" y="252" font-size="11" fill="#5a5a5a">Engrave the numbers into the grid. An unlabelled grid is unreadable ten minutes later.</text>
+  </g>
+</svg>

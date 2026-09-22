@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 280" width="480" height="280" role="img" aria-label="The five panels of a finger jointed box laid out flat">
+  <rect x="0" y="0" width="480" height="280" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Five panels · 150 × 100 × 60 internal · 2.85 mm ply</text>
+
+    <!-- long side x2 -->
+    <g>
+      <path d="M26 48 h150 v14 h-8 v14 h8 v14 h-8 v14 h8 v14 h-150 v-14 h8 v-14 h-8 v-14 h8 v-14 h-8 z" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="1.6"/>
+      <text x="101" y="94" text-anchor="middle" font-weight="600">long side ×2</text>
+      <text x="101" y="140" text-anchor="middle" fill="#5a5a5a">155.70 × 62.85 · 19 fingers</text>
+    </g>
+
+    <!-- short side x2 -->
+    <g>
+      <path d="M212 48 h104 v14 h-8 v14 h8 v14 h-8 v14 h8 v14 h-104 v-14 h8 v-14 h-8 v-14 h8 v-14 h-8 z" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="1.6"/>
+      <text x="264" y="94" text-anchor="middle" font-weight="600">short side ×2</text>
+      <text x="264" y="140" text-anchor="middle" fill="#5a5a5a">105.70 × 62.85 · 13 fingers</text>
+    </g>
+
+    <!-- base -->
+    <g>
+      <rect x="348" y="48" width="110" height="74" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="1.6"/>
+      <text x="403" y="90" text-anchor="middle" font-weight="600">base</text>
+      <text x="403" y="140" text-anchor="middle" fill="#5a5a5a">155.70 × 105.70</text>
+      <text x="403" y="154" text-anchor="middle" fill="#5a5a5a">notches on all four edges</text>
+    </g>
+
+    <text x="20" y="190" font-size="12" font-weight="600">Every mating edge starts and ends with a finger — that is why the counts are odd.</text>
+    <text x="20" y="212" font-size="11" fill="#5a5a5a">Finger depth = the MATING panel's measured thickness, 2.85 mm. Not 3 mm, and not this panel's thickness.</text>
+    <text x="20" y="232" font-size="11" fill="#0b6bcb">Kerf compensation: every cut path moves 0.14 mm into the waste — including the finger depth.</text>
+    <text x="20" y="256" font-size="11" fill="#5a5a5a">Engrave a panel identifier inside each one. Four similar plywood rectangles are not identifiable by eye.</text>
+  </g>
+</svg>

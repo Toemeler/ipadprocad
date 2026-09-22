@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 230" width="480" height="230" role="img" aria-label="Score depth compared at 30, 60 and 90 percent of thickness">
+  <rect x="0" y="0" width="480" height="230" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Score depth in 2 mm card</text>
+
+    <g>
+      <rect x="34" y="60" width="120" height="50" fill="#cfcabb" stroke="#1a1a1a" stroke-width="2"/>
+      <polygon points="88,60 100,60 94,75" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.5"/>
+      <text x="94" y="134" text-anchor="middle" font-weight="600">30 %</text>
+      <text x="94" y="152" text-anchor="middle" font-size="11" fill="#c62828">fold wanders off the line</text>
+    </g>
+    <g>
+      <rect x="180" y="60" width="120" height="50" fill="#cfcabb" stroke="#1a1a1a" stroke-width="2"/>
+      <polygon points="234,60 246,60 240,92" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.5"/>
+      <text x="240" y="134" text-anchor="middle" font-weight="600" fill="#2e7d32">60 %</text>
+      <text x="240" y="152" text-anchor="middle" font-size="11" fill="#2e7d32">folds cleanly on the line</text>
+    </g>
+    <g>
+      <rect x="326" y="60" width="120" height="50" fill="#cfcabb" stroke="#1a1a1a" stroke-width="2"/>
+      <polygon points="380,60 392,60 386,108" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.5"/>
+      <path d="M386 108 l-4 8" stroke="#c62828" stroke-width="2.5"/>
+      <text x="386" y="134" text-anchor="middle" font-weight="600">90 %</text>
+      <text x="386" y="152" text-anchor="middle" font-size="11" fill="#c62828">tears while folding</text>
+    </g>
+
+    <text x="20" y="190" font-size="11" fill="#5a5a5a">The difference between these three is about 10 % of laser power. Always test on a scrap of the same stock.</text>
+    <text x="20" y="212" font-size="11" fill="#5a5a5a">Plywood and MDF do not fold at any score depth — they break. Use a living hinge.</text>
+  </g>
+</svg>

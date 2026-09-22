@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 220" width="480" height="220" role="img" aria-label="The three laser layers with their exact RGB values">
+  <rect x="0" y="0" width="480" height="220" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Three layers, three exact colours</text>
+
+    <g>
+      <rect x="26" y="46" width="140" height="70" fill="#ffffff" stroke="#ff0000" stroke-width="2"/>
+      <text x="96" y="86" text-anchor="middle" font-weight="600" fill="#ff0000">Cut</text>
+      <text x="96" y="134" text-anchor="middle" font-family="ui-monospace, monospace" font-size="11">255, 0, 0</text>
+      <text x="96" y="150" text-anchor="middle" font-size="11" fill="#5a5a5a">hairline, no fill</text>
+    </g>
+    <g>
+      <rect x="176" y="46" width="140" height="70" fill="#ffffff" stroke="#0000ff" stroke-width="2"/>
+      <line x1="196" y1="81" x2="296" y2="81" stroke="#0000ff" stroke-width="1.5"/>
+      <text x="246" y="72" text-anchor="middle" font-weight="600" fill="#0000ff">Score</text>
+      <text x="246" y="134" text-anchor="middle" font-family="ui-monospace, monospace" font-size="11">0, 0, 255</text>
+      <text x="246" y="150" text-anchor="middle" font-size="11" fill="#5a5a5a">hairline, no fill</text>
+    </g>
+    <g>
+      <rect x="326" y="46" width="140" height="70" fill="#1a1a1a" stroke="#1a1a1a" stroke-width="2"/>
+      <text x="396" y="86" text-anchor="middle" font-weight="600" fill="#ffffff">Engrave</text>
+      <text x="396" y="134" text-anchor="middle" font-family="ui-monospace, monospace" font-size="11">0, 0, 0</text>
+      <text x="396" y="150" text-anchor="middle" font-size="11" fill="#5a5a5a">fill, no stroke</text>
+    </g>
+
+    <text x="20" y="186" font-size="12" font-weight="600">RGB, never CMYK. Pure values only.</text>
+    <text x="20" y="206" font-size="11" fill="#c62828">254, 0, 0 is not red to a controller — it is unassigned, and unassigned geometry is ignored silently.</text>
+  </g>
+</svg>
