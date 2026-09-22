@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 220" width="480" height="220" role="img" aria-label="Bamboo lamination directions and how each splits">
+  <rect x="0" y="0" width="480" height="220" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Bamboo is a grass: the laminations are the grain</text>
+
+    <rect x="30" y="46" width="170" height="80" fill="#e6d7b4" stroke="#1a1a1a" stroke-width="2"/>
+    <g stroke="#c4b287" stroke-width="2">
+      <line x1="48" y1="46" x2="48" y2="126"/><line x1="66" y1="46" x2="66" y2="126"/><line x1="84" y1="46" x2="84" y2="126"/>
+      <line x1="102" y1="46" x2="102" y2="126"/><line x1="120" y1="46" x2="120" y2="126"/><line x1="138" y1="46" x2="138" y2="126"/>
+      <line x1="156" y1="46" x2="156" y2="126"/><line x1="174" y1="46" x2="174" y2="126"/>
+    </g>
+    <text x="115" y="148" text-anchor="middle" font-weight="600">vertical / side-pressed</text>
+    <text x="115" y="164" text-anchor="middle" fill="#5a5a5a">narrow strips on edge, very stable</text>
+
+    <rect x="280" y="46" width="170" height="80" fill="#e6d7b4" stroke="#1a1a1a" stroke-width="2"/>
+    <g stroke="#c4b287" stroke-width="3">
+      <line x1="280" y1="62" x2="450" y2="62"/><line x1="280" y1="82" x2="450" y2="82"/>
+      <line x1="280" y1="102" x2="450" y2="102"/>
+    </g>
+    <path d="M280 82 l24 0 M340 82 l40 0" stroke="#c62828" stroke-width="3"/>
+    <text x="365" y="148" text-anchor="middle" font-weight="600">horizontal / flat-pressed</text>
+    <text x="365" y="164" text-anchor="middle" fill="#c62828">splits along a lamination</text>
+
+    <text x="20" y="196" font-size="11" fill="#5a5a5a">Treat lamination direction exactly as grain: long thin parts run along it, slots cut across it.</text>
+    <text x="20" y="212" font-size="11" fill="#5a5a5a">Strand-woven bamboo is far harder — it cuts slowly and chars. Carbonised bamboo has lower engrave contrast.</text>
+  </g>
+</svg>

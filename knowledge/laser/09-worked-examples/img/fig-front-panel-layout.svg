@@ -1,9 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 260" width="480" height="260" role="img" aria-label="Front panel layout with every cutout dimensioned">
   <rect x="0" y="0" width="480" height="260" rx="10" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
-    <text x="20" y="26" font-size="14" font-weight="600">160 × 80 mm cast acrylic panel</text>
+    <text x="20" y="26" font-size="14" font-weight="600">160 × 80 mm birch plywood panel, 4 mm</text>
 
-    <rect x="40" y="46" width="400" height="120" fill="#e8eef2" stroke="#1a1a1a" stroke-width="2"/>
+    <rect x="40" y="46" width="400" height="120" fill="#e3cfa8" stroke="#1a1a1a" stroke-width="2"/>
 
     <circle cx="62" cy="68" r="5" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.6"/>
     <circle cx="418" cy="68" r="5" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.6"/>
@@ -24,8 +24,8 @@
     <text x="368" y="146" text-anchor="middle" fill="#0b6bcb">pot ⌀7.2</text>
 
     <text x="20" y="196" font-size="12" font-weight="600">Measure every component with callipers. "USB-C" is not a dimension.</text>
-    <text x="20" y="216" font-size="11" fill="#5a5a5a">All holes are internal, so every cut path moves inward by k/2 = 0.09 mm in cast acrylic.</text>
-    <text x="20" y="236" font-size="11" fill="#5a5a5a">Smallest web here is 6 mm, against a 1.5 mm limit in acrylic — comfortable.</text>
+    <text x="20" y="216" font-size="11" fill="#5a5a5a">All holes are internal, so every cut path moves inward by k/2 = 0.135 mm in 4 mm birch ply.</text>
+    <text x="20" y="236" font-size="11" fill="#5a5a5a">Smallest web here is 6 mm against a 5.8 mm limit in 4 mm ply — and the 2.4 mm holes are UNDER the minimum: drill them.</text>
     <text x="20" y="254" font-size="11" fill="#2e7d32">0.5 mm radii on the rectangular cutouts, against corner overburn.</text>
   </g>
 </svg>

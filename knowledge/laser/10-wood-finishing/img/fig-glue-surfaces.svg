@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 230" width="480" height="230" role="img" aria-label="Long grain, end grain and plywood edge glue faces">
+  <rect x="0" y="0" width="480" height="230" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Where glue holds</text>
+
+    <g>
+      <rect x="26" y="50" width="120" height="40" fill="#e3cfa8" stroke="#1a1a1a" stroke-width="2"/>
+      <g stroke="#c4a877" stroke-width="2"><line x1="26" y1="62" x2="146" y2="62"/><line x1="26" y1="78" x2="146" y2="78"/></g>
+      <rect x="26" y="90" width="120" height="6" fill="#cfd6d9"/>
+      <rect x="26" y="96" width="120" height="40" fill="#e3cfa8" stroke="#1a1a1a" stroke-width="2"/>
+      <g stroke="#c4a877" stroke-width="2"><line x1="26" y1="110" x2="146" y2="110"/><line x1="26" y1="124" x2="146" y2="124"/></g>
+      <text x="86" y="164" text-anchor="middle" font-weight="600" fill="#2e7d32">long grain to long grain</text>
+      <text x="86" y="180" text-anchor="middle" fill="#2e7d32">stronger than the wood itself</text>
+    </g>
+
+    <g>
+      <rect x="180" y="50" width="120" height="40" fill="#e3cfa8" stroke="#1a1a1a" stroke-width="2"/>
+      <g stroke="#c4a877" stroke-width="2"><line x1="180" y1="62" x2="300" y2="62"/><line x1="180" y1="78" x2="300" y2="78"/></g>
+      <rect x="180" y="90" width="120" height="6" fill="#cfd6d9"/>
+      <rect x="180" y="96" width="120" height="40" fill="#e3cfa8" stroke="#1a1a1a" stroke-width="2"/>
+      <g stroke="#c4a877" stroke-width="2">
+        <line x1="196" y1="96" x2="196" y2="136"/><line x1="216" y1="96" x2="216" y2="136"/>
+        <line x1="240" y1="96" x2="240" y2="136"/><line x1="264" y1="96" x2="264" y2="136"/><line x1="286" y1="96" x2="286" y2="136"/>
+      </g>
+      <text x="240" y="164" text-anchor="middle" font-weight="600" fill="#c62828">long grain to end grain</text>
+      <text x="240" y="180" text-anchor="middle" fill="#c62828">end grain drinks the glue</text>
+      <text x="240" y="196" text-anchor="middle" fill="#5a5a5a">size it first: thinned glue, soak, then glue</text>
+    </g>
+
+    <g>
+      <rect x="336" y="50" width="120" height="40" fill="#e3cfa8" stroke="#1a1a1a" stroke-width="2"/>
+      <rect x="336" y="90" width="120" height="6" fill="#cfd6d9"/>
+      <rect x="336" y="96" width="120" height="40" fill="#d9c9ac" stroke="#1a1a1a" stroke-width="2"/>
+      <g stroke="#6b5636" stroke-width="3"><line x1="336" y1="108" x2="456" y2="108"/><line x1="336" y1="124" x2="456" y2="124"/></g>
+      <text x="396" y="164" text-anchor="middle" font-weight="600">plywood edge</text>
+      <text x="396" y="180" text-anchor="middle" fill="#5a5a5a">end grain on every ply —</text>
+      <text x="396" y="196" text-anchor="middle" fill="#5a5a5a">size it, or add a mechanical feature</text>
+    </g>
+
+    <text x="20" y="222" font-size="11" fill="#5a5a5a">PVA: clamp 30–60 min, full strength 24 h. Wipe squeeze-out while wet — dried glue rejects stain.</text>
+  </g>
+</svg>

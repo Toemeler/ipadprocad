@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 220" width="480" height="220" role="img" aria-label="A starved press fit glue joint next to a slip fit">
+  <rect x="0" y="0" width="480" height="220" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Press fit and glue do not mix</text>
+
+    <rect x="34" y="60" width="66" height="84" fill="#e3cfa8" stroke="#1a1a1a" stroke-width="2"/>
+    <rect x="148" y="60" width="66" height="84" fill="#e3cfa8" stroke="#1a1a1a" stroke-width="2"/>
+    <rect x="100" y="44" width="48" height="116" fill="#e3cfa8" stroke="#1a1a1a" stroke-width="2"/>
+    <path d="M100 52 q-8 -10 -16 -4 M148 52 q8 -10 16 -4" stroke="#c62828" stroke-width="2.5" fill="none"/>
+    <text x="124" y="180" text-anchor="middle" font-weight="600" fill="#c62828">press fit</text>
+    <text x="124" y="196" text-anchor="middle" fill="#c62828">the tab scrapes the glue off on the way in</text>
+    <text x="124" y="212" text-anchor="middle" fill="#c62828">— a starved joint</text>
+
+    <rect x="276" y="60" width="64" height="84" fill="#e3cfa8" stroke="#1a1a1a" stroke-width="2"/>
+    <rect x="392" y="60" width="64" height="84" fill="#e3cfa8" stroke="#1a1a1a" stroke-width="2"/>
+    <rect x="344" y="44" width="44" height="116" fill="#e3cfa8" stroke="#1a1a1a" stroke-width="2"/>
+    <rect x="340" y="60" width="4" height="84" fill="#cfd6d9"/>
+    <rect x="388" y="60" width="4" height="84" fill="#cfd6d9"/>
+    <text x="366" y="180" text-anchor="middle" font-weight="600" fill="#2e7d32">slip fit, 0 to +0.10 mm</text>
+    <text x="366" y="196" text-anchor="middle" fill="#2e7d32">a film of glue all the way down</text>
+  </g>
+</svg>

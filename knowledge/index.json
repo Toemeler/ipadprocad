@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 72,
+  "count": 83,
   "documents": [
     {
       "id": "fdm/basics/machine-assumptions",
@@ -1059,7 +1059,9 @@
         "wackelt",
         "slot too wide"
       ],
-      "depends_on": [],
+      "depends_on": [
+        "laser/materials/wood-overview"
+      ],
       "confidence": "starting-point",
       "updated": "2026-09-22"
     },
@@ -1129,7 +1131,8 @@
       ],
       "depends_on": [
         "laser/fileprep/common-errors",
-        "laser/basics/kerf-and-tolerance"
+        "laser/basics/kerf-and-tolerance",
+        "laser/materials/wood-overview"
       ],
       "confidence": "high",
       "updated": "2026-09-22"
@@ -1157,6 +1160,34 @@
         "laser/basics/kerf-test-comb"
       ],
       "confidence": "high",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/engraving/engraving-wood",
+      "title": "Engraving on wood",
+      "type": "rules",
+      "process": "laser",
+      "path": "laser/05-engraving/engraving-wood.md",
+      "triggers": [
+        "engrave wood",
+        "holz gravieren",
+        "gravur holz",
+        "wood engraving",
+        "contrast",
+        "kontrast",
+        "photo on wood",
+        "foto auf holz",
+        "dark mark",
+        "dunkle gravur",
+        "grain interference",
+        "maserung stört",
+        "burn depth"
+      ],
+      "depends_on": [
+        "laser/engraving/raster-engraving",
+        "laser/materials/solid-wood"
+      ],
+      "confidence": "medium",
       "updated": "2026-09-22"
     },
     {
@@ -1279,14 +1310,14 @@
       "depends_on": [
         "laser/joints/finger-joint",
         "laser/basics/kerf-and-tolerance",
-        "laser/checklists/before-you-export"
+        "laser/finishing/gluing-wood"
       ],
       "confidence": "medium",
       "updated": "2026-09-22"
     },
     {
       "id": "laser/examples/front-panel",
-      "title": "Worked example — a front panel with cutouts",
+      "title": "Worked example — a plywood front panel with cutouts",
       "type": "example",
       "process": "laser",
       "path": "laser/09-worked-examples/front-panel-with-cutouts.md",
@@ -1303,17 +1334,17 @@
         "switch",
         "schalter",
         "display",
-        "screen",
         "potentiometer",
         "label",
         "beschriftung",
         "control panel",
-        "bedienfeld"
+        "bedienfeld",
+        "instrument"
       ],
       "depends_on": [
         "laser/basics/fits",
         "laser/geometry/minimum-features",
-        "laser/engraving/text-and-fonts"
+        "laser/engraving/engraving-wood"
       ],
       "confidence": "medium",
       "updated": "2026-09-22"
@@ -1351,7 +1382,8 @@
       ],
       "depends_on": [
         "laser/basics/kerf-and-tolerance",
-        "laser/geometry/nesting-and-spacing"
+        "laser/geometry/nesting-and-spacing",
+        "laser/materials/wood-overview"
       ],
       "confidence": "medium",
       "updated": "2026-09-22"
@@ -1445,6 +1477,143 @@
       "updated": "2026-09-22"
     },
     {
+      "id": "laser/finishing/char-and-cleanup",
+      "title": "Char — preventing it, and cleaning up what is left",
+      "type": "recipe",
+      "process": "laser",
+      "path": "laser/10-wood-finishing/char-and-cleanup.md",
+      "triggers": [
+        "char",
+        "verkohlt",
+        "burn marks",
+        "brandspuren",
+        "brandflecken",
+        "scorch",
+        "versengt",
+        "soot",
+        "russ",
+        "dirty edge",
+        "schmutzige kante",
+        "masking",
+        "abkleben",
+        "sanding",
+        "schleifen",
+        "clean up",
+        "säubern",
+        "smoke stain",
+        "rauchfleck",
+        "black hands"
+      ],
+      "depends_on": [
+        "laser/materials/plywood"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/finishing/fasteners-in-wood",
+      "title": "Fasteners in wood — screws, inserts and captive nuts",
+      "type": "recipe",
+      "process": "laser",
+      "path": "laser/10-wood-finishing/fasteners-in-wood.md",
+      "triggers": [
+        "screw",
+        "schraube",
+        "schrauben",
+        "pilot hole",
+        "vorbohren",
+        "kernloch",
+        "threaded insert",
+        "gewindeeinsatz",
+        "einschraubmutter",
+        "captive nut",
+        "einlegemutter",
+        "cross dowel",
+        "querbolzen",
+        "fastener",
+        "befestigung",
+        "strips",
+        "ausgerissen",
+        "holds"
+      ],
+      "depends_on": [
+        "laser/basics/fits",
+        "laser/materials/plywood"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/finishing/gluing-wood",
+      "title": "Gluing laser-cut wood",
+      "type": "recipe",
+      "process": "laser",
+      "path": "laser/10-wood-finishing/gluing-wood.md",
+      "triggers": [
+        "glue",
+        "kleber",
+        "kleben",
+        "leim",
+        "holzleim",
+        "pva",
+        "wood glue",
+        "ca",
+        "sekundenkleber",
+        "epoxy",
+        "epoxid",
+        "bond",
+        "verbinden",
+        "clamp",
+        "spannen",
+        "zwinge",
+        "assembly",
+        "zusammenbau",
+        "came apart",
+        "auseinandergefallen"
+      ],
+      "depends_on": [
+        "laser/finishing/char-and-cleanup",
+        "laser/basics/fits"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/finishing/sealing-and-finishing",
+      "title": "Sealing and finishing",
+      "type": "recipe",
+      "process": "laser",
+      "path": "laser/10-wood-finishing/sealing-and-finishing.md",
+      "triggers": [
+        "finish",
+        "finish auftragen",
+        "oil",
+        "öl",
+        "lacquer",
+        "lack",
+        "varnish",
+        "firnis",
+        "seal",
+        "versiegeln",
+        "stain",
+        "beize",
+        "paint",
+        "lackieren",
+        "wax",
+        "wachs",
+        "protect",
+        "schützen",
+        "shellac",
+        "schellack",
+        "sanding sealer"
+      ],
+      "depends_on": [
+        "laser/finishing/char-and-cleanup"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
       "id": "laser/geometry/corners-and-overburn",
       "title": "Corners and overburn — where the beam lingers",
       "type": "rules",
@@ -1467,6 +1636,37 @@
       ],
       "depends_on": [
         "laser/basics/kerf-and-tolerance"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/geometry/grain-and-ply-direction",
+      "title": "Grain and ply direction",
+      "type": "rules",
+      "process": "laser",
+      "path": "laser/03-geometry/grain-and-ply-direction.md",
+      "triggers": [
+        "grain",
+        "maserung",
+        "faserrichtung",
+        "grain direction",
+        "ply direction",
+        "faserverlauf",
+        "split",
+        "gespalten",
+        "gerissen",
+        "snapped",
+        "abgebrochen",
+        "weak direction",
+        "schwache richtung",
+        "nesting orientation",
+        "ausrichtung",
+        "face grain"
+      ],
+      "depends_on": [
+        "laser/materials/plywood",
+        "laser/materials/solid-wood"
       ],
       "confidence": "medium",
       "updated": "2026-09-22"
@@ -1643,6 +1843,37 @@
       "updated": "2026-09-22"
     },
     {
+      "id": "laser/joints/selection",
+      "title": "Choosing a joint for wood",
+      "type": "decision",
+      "process": "laser",
+      "path": "laser/04-joints/wood-joint-selection.md",
+      "triggers": [
+        "which joint",
+        "welche verbindung",
+        "joint",
+        "verbindung",
+        "join",
+        "verbinden",
+        "corner",
+        "ecke",
+        "how to connect",
+        "wie verbinden",
+        "assembly method",
+        "montage",
+        "demountable",
+        "zerlegbar",
+        "strong joint",
+        "feste verbindung"
+      ],
+      "depends_on": [
+        "laser/materials/wood-overview",
+        "laser/basics/fits"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
       "id": "laser/joints/snap-and-friction-fits",
       "title": "Snap and friction fits in sheet",
       "type": "recipe",
@@ -1789,8 +2020,38 @@
         "extruded acrylic"
       ],
       "depends_on": [
-        "laser/materials/material-table",
+        "laser/materials/non-wood",
         "laser/basics/kerf-and-tolerance"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/materials/bamboo-and-veneer",
+      "title": "Bamboo and veneer",
+      "type": "material",
+      "process": "laser",
+      "path": "laser/02-materials/bamboo-and-veneer.md",
+      "triggers": [
+        "bamboo",
+        "bambus",
+        "veneer",
+        "furnier",
+        "laminated",
+        "laminiert",
+        "faced plywood",
+        "furniersperrholz",
+        "cutting board",
+        "schneidebrett",
+        "thin wood",
+        "dünnes holz",
+        "inlay",
+        "intarsie",
+        "marquetry"
+      ],
+      "depends_on": [
+        "laser/materials/wood-overview",
+        "laser/materials/plywood"
       ],
       "confidence": "medium",
       "updated": "2026-09-22"
@@ -1819,7 +2080,7 @@
         "riemen"
       ],
       "depends_on": [
-        "laser/materials/material-table",
+        "laser/materials/non-wood",
         "laser/materials/never-cut-these"
       ],
       "confidence": "medium",
@@ -1827,25 +2088,27 @@
     },
     {
       "id": "laser/materials/material-table",
-      "title": "Material comparison — what to cut and what it costs you",
-      "type": "decision",
+      "title": "Material numbers — every sheet in one table",
+      "type": "rules",
       "process": "laser",
       "path": "laser/02-materials/material-table.md",
       "triggers": [
-        "material",
-        "werkstoff",
-        "which material",
-        "welches material",
-        "sheet",
-        "platte",
-        "acrylic or wood",
-        "compare materials",
-        "materialvergleich",
+        "material table",
+        "materialtabelle",
+        "compare",
+        "vergleich",
+        "kerf table",
+        "numbers",
+        "zahlen",
         "thickness",
-        "dicke"
+        "dicke",
+        "minimum hole",
+        "stock sizes",
+        "standard thickness",
+        "lieferbar"
       ],
       "depends_on": [
-        "laser/materials/never-cut-these",
+        "laser/materials/wood-overview",
         "laser/basics/kerf-and-tolerance"
       ],
       "confidence": "medium",
@@ -1864,11 +2127,17 @@
         "faserplatte",
         "hdf",
         "cheap sheet",
+        "günstig",
         "jig material",
-        "schablone"
+        "schablone",
+        "template",
+        "painted part",
+        "lackiert",
+        "formaldehyde",
+        "formaldehyd"
       ],
       "depends_on": [
-        "laser/materials/material-table",
+        "laser/materials/wood-overview",
         "laser/basics/kerf-and-tolerance"
       ],
       "confidence": "medium",
@@ -1905,6 +2174,37 @@
       "updated": "2026-09-22"
     },
     {
+      "id": "laser/materials/non-wood",
+      "title": "Non-wood materials — when they are the right answer",
+      "type": "decision",
+      "process": "laser",
+      "path": "laser/02-materials/non-wood-materials.md",
+      "triggers": [
+        "acrylic",
+        "acryl",
+        "plexiglas",
+        "plastic",
+        "kunststoff",
+        "card",
+        "karton",
+        "leather",
+        "leder",
+        "felt",
+        "filz",
+        "delrin",
+        "pom",
+        "not wood",
+        "kein holz",
+        "transparent",
+        "durchsichtig"
+      ],
+      "depends_on": [
+        "laser/materials/wood-overview"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
       "id": "laser/materials/paper-card-corrugated",
       "title": "Paper, card and corrugated — the mock-up materials",
       "type": "material",
@@ -1927,7 +2227,7 @@
         "prototype sheet"
       ],
       "depends_on": [
-        "laser/materials/material-table"
+        "laser/materials/non-wood"
       ],
       "confidence": "medium",
       "updated": "2026-09-22"
@@ -1944,22 +2244,33 @@
         "ply",
         "birch ply",
         "birkensperrholz",
-        "wood",
-        "holz",
-        "poplar ply",
+        "baltic birch",
+        "multiplex",
+        "laser ply",
+        "laserholz",
         "3mm ply",
-        "bausperrholz"
+        "4mm",
+        "6mm",
+        "void",
+        "lunker",
+        "grade",
+        "qualität",
+        "bb",
+        "b/bb",
+        "poplar ply",
+        "pappelsperrholz"
       ],
       "depends_on": [
-        "laser/materials/material-table",
-        "laser/basics/kerf-and-tolerance"
+        "laser/materials/wood-overview",
+        "laser/basics/kerf-and-tolerance",
+        "laser/materials/never-cut-these"
       ],
       "confidence": "medium",
       "updated": "2026-09-22"
     },
     {
       "id": "laser/materials/solid-wood",
-      "title": "Solid wood — grain, and what it does to a cut",
+      "title": "Solid wood — species, grain and what each one does",
       "type": "material",
       "process": "laser",
       "path": "laser/02-materials/solid-wood.md",
@@ -1968,26 +2279,105 @@
         "massivholz",
         "hardwood",
         "hartholz",
+        "species",
+        "holzart",
         "walnut",
         "nussbaum",
         "oak",
         "eiche",
         "maple",
         "ahorn",
-        "bamboo",
-        "bambus",
-        "veneer",
-        "furnier"
+        "cherry",
+        "kirsche",
+        "birch",
+        "birke",
+        "basswood",
+        "linde",
+        "alder",
+        "erle",
+        "beech",
+        "buche",
+        "ash",
+        "esche",
+        "pine",
+        "kiefer",
+        "balsa",
+        "grain",
+        "maserung"
       ],
       "depends_on": [
-        "laser/materials/material-table"
+        "laser/materials/wood-overview",
+        "laser/geometry/grain-and-ply-direction"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/materials/wood-moisture-and-storage",
+      "title": "Moisture, warping and storing sheet",
+      "type": "basics",
+      "process": "laser",
+      "path": "laser/02-materials/wood-moisture-and-storage.md",
+      "triggers": [
+        "warped",
+        "verzogen",
+        "bowed",
+        "krumm",
+        "not flat",
+        "nicht plan",
+        "moisture",
+        "feuchtigkeit",
+        "humidity",
+        "luftfeuchtigkeit",
+        "storage",
+        "lagerung",
+        "wont cut through",
+        "schneidet nicht durch",
+        "focus",
+        "fokus",
+        "bent sheet",
+        "wellig"
+      ],
+      "depends_on": [
+        "laser/materials/plywood"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/materials/wood-overview",
+      "title": "Wood — the default material, and how to choose within it",
+      "type": "decision",
+      "process": "laser",
+      "path": "laser/02-materials/wood-overview.md",
+      "triggers": [
+        "wood",
+        "holz",
+        "which wood",
+        "welches holz",
+        "material",
+        "werkstoff",
+        "plywood or solid",
+        "sperrholz oder massivholz",
+        "mdf",
+        "sheet",
+        "platte",
+        "board",
+        "brett",
+        "choose material",
+        "materialwahl",
+        "timber"
+      ],
+      "depends_on": [
+        "laser/materials/never-cut-these",
+        "laser/basics/kerf-and-tolerance"
       ],
       "confidence": "medium",
       "updated": "2026-09-22"
     },
     {
       "id": "laser/start-here",
-      "title": "Laser cutting — start here",
+      "title": "Laser cutting wood — start here",
       "type": "basics",
       "process": "laser",
       "path": "laser/00-start-here.md",
@@ -2001,10 +2391,18 @@
         "lasern",
         "CO2 laser",
         "cut from sheet",
-        "flat part"
+        "flat part",
+        "flachteil",
+        "wood",
+        "holz",
+        "plywood",
+        "sperrholz",
+        "sheet goods",
+        "plattenmaterial"
       ],
       "depends_on": [
-        "laser/basics/kerf-and-tolerance"
+        "laser/basics/kerf-and-tolerance",
+        "laser/materials/wood-overview"
       ],
       "confidence": "high",
       "updated": "2026-09-22"

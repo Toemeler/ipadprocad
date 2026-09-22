@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 230" width="480" height="230" role="img" aria-label="Plywood grades and what each face looks like">
+  <rect x="0" y="0" width="480" height="230" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Grades — the face, and the core behind it</text>
+
+    <g>
+      <rect x="26" y="46" width="130" height="34" fill="#e3cfa8" stroke="#1a1a1a" stroke-width="2"/>
+      <rect x="26" y="80" width="130" height="24" fill="#d6bd95" stroke="#1a1a1a" stroke-width="2"/>
+      <rect x="26" y="104" width="130" height="34" fill="#e3cfa8" stroke="#1a1a1a" stroke-width="2"/>
+      <text x="91" y="160" text-anchor="middle" font-weight="600" fill="#2e7d32">B/BB — "laser ply"</text>
+      <text x="91" y="178" text-anchor="middle" fill="#2e7d32">clean face, void-free core</text>
+      <text x="91" y="194" text-anchor="middle" fill="#5a5a5a">predictable kerf, clean engrave</text>
+    </g>
+
+    <g>
+      <rect x="176" y="46" width="130" height="34" fill="#e3cfa8" stroke="#1a1a1a" stroke-width="2"/>
+      <ellipse cx="226" cy="63" rx="14" ry="8" fill="#cbb289" stroke="#8a7350" stroke-width="1.2"/>
+      <rect x="176" y="80" width="130" height="24" fill="#d6bd95" stroke="#1a1a1a" stroke-width="2"/>
+      <rect x="176" y="104" width="130" height="34" fill="#e3cfa8" stroke="#1a1a1a" stroke-width="2"/>
+      <text x="241" y="160" text-anchor="middle" font-weight="600">BB/BB</text>
+      <text x="241" y="178" text-anchor="middle" fill="#5a5a5a">sound patches both faces</text>
+      <text x="241" y="194" text-anchor="middle" fill="#c62828">patches engrave differently</text>
+    </g>
+
+    <g>
+      <rect x="326" y="46" width="130" height="34" fill="#e3cfa8" stroke="#1a1a1a" stroke-width="2"/>
+      <rect x="326" y="80" width="130" height="24" fill="#d6bd95" stroke="#1a1a1a" stroke-width="2"/>
+      <ellipse cx="372" cy="92" rx="22" ry="8" fill="#ffffff" stroke="#c62828" stroke-width="2"/>
+      <ellipse cx="426" cy="92" rx="14" ry="7" fill="#ffffff" stroke="#c62828" stroke-width="2"/>
+      <rect x="326" y="104" width="130" height="34" fill="#e3cfa8" stroke="#1a1a1a" stroke-width="2"/>
+      <text x="391" y="160" text-anchor="middle" font-weight="600" fill="#c62828">construction grade</text>
+      <text x="391" y="178" text-anchor="middle" fill="#c62828">voids in the core</text>
+      <text x="391" y="194" text-anchor="middle" fill="#c62828">and often the wrong glue</text>
+    </g>
+
+    <text x="20" y="220" font-size="11" fill="#5a5a5a">A slot that lands on a void has nothing to grip, and no tolerance change fixes it.</text>
+  </g>
+</svg>

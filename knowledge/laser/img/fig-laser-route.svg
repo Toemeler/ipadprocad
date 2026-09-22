@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 240" width="480" height="240" role="img" aria-label="The wood-first route through the laser folder">
+  <rect x="0" y="0" width="480" height="240" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">The route through this folder</text>
+
+    <g stroke="#1a1a1a" stroke-width="1.5" fill="#f2f2f2">
+      <rect x="24" y="44" width="96" height="30" rx="4"/>
+      <rect x="136" y="44" width="96" height="30" rx="4"/>
+      <rect x="248" y="44" width="96" height="30" rx="4"/>
+      <rect x="360" y="44" width="96" height="30" rx="4"/>
+      <rect x="24" y="100" width="96" height="30" rx="4"/>
+      <rect x="136" y="100" width="96" height="30" rx="4"/>
+      <rect x="248" y="100" width="96" height="30" rx="4"/>
+      <rect x="360" y="100" width="96" height="30" rx="4"/>
+    </g>
+    <g text-anchor="middle">
+      <text x="72" y="63" font-weight="600">wood</text>
+      <text x="184" y="63" font-weight="600">sheet</text>
+      <text x="296" y="63" font-weight="600">joints</text>
+      <text x="408" y="63" font-weight="600">grain</text>
+      <text x="72" y="119" font-weight="600">geometry</text>
+      <text x="184" y="119" font-weight="600">kerf</text>
+      <text x="296" y="119" font-weight="600">finishing</text>
+      <text x="408" y="119" font-weight="600">export</text>
+    </g>
+    <g font-size="10" fill="#5a5a5a" text-anchor="middle">
+      <text x="72" y="88">species, panel</text>
+      <text x="184" y="88">measure, flat?</text>
+      <text x="296" y="88">decides the outline</text>
+      <text x="408" y="88">decides the nest</text>
+      <text x="72" y="144">min hole, min web</text>
+      <text x="184" y="144">compensate once</text>
+      <text x="296" y="144">char, glue, seal</text>
+      <text x="408" y="144">layers, units</text>
+    </g>
+    <g stroke="#1a1a1a" stroke-width="1.5" fill="#1a1a1a">
+      <line x1="120" y1="59" x2="128" y2="59"/><polygon points="128,55 136,59 128,63"/>
+      <line x1="232" y1="59" x2="240" y2="59"/><polygon points="240,55 248,59 240,63"/>
+      <line x1="344" y1="59" x2="352" y2="59"/><polygon points="352,55 360,59 352,63"/>
+      <line x1="120" y1="115" x2="128" y2="115"/><polygon points="128,111 136,115 128,119"/>
+      <line x1="232" y1="115" x2="240" y2="115"/><polygon points="240,111 248,115 240,119"/>
+      <line x1="344" y1="115" x2="352" y2="115"/><polygon points="352,111 360,115 352,119"/>
+    </g>
+
+    <text x="20" y="184" font-size="12" font-weight="600">Each step constrains the next.</text>
+    <text x="20" y="206" font-size="11" fill="#5a5a5a">Reversing the order is what produces a part that nearly fits: a joint chosen after the panels are drawn</text>
+    <text x="20" y="222" font-size="11" fill="#5a5a5a">means redrawing every panel, and a kerf applied after the fit was tuned means applying it twice.</text>
+  </g>
+</svg>

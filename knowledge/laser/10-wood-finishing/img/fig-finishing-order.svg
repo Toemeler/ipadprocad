@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 250" width="480" height="250" role="img" aria-label="The finishing order and the two steps people reverse">
+  <rect x="0" y="0" width="480" height="250" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">The order that works</text>
+
+    <g stroke="#1a1a1a" stroke-width="1.5" fill="#f2f2f2">
+      <rect x="24" y="44" width="92" height="30" rx="4"/>
+      <rect x="132" y="44" width="92" height="30" rx="4"/>
+      <rect x="240" y="44" width="106" height="30" rx="4"/>
+      <rect x="362" y="44" width="94" height="30" rx="4"/>
+      <rect x="24" y="104" width="92" height="30" rx="4"/>
+      <rect x="132" y="104" width="92" height="30" rx="4"/>
+      <rect x="240" y="104" width="106" height="30" rx="4"/>
+      <rect x="362" y="104" width="94" height="30" rx="4"/>
+    </g>
+    <g text-anchor="middle">
+      <text x="70" y="63">cut, masked</text>
+      <text x="178" y="63">peel</text>
+      <text x="293" y="63" font-weight="600">sand faces</text>
+      <text x="409" y="63" font-weight="600">sand glue faces</text>
+      <text x="70" y="123">glue + clamp</text>
+      <text x="178" y="123">wipe squeeze-out</text>
+      <text x="293" y="123">cure 24 h</text>
+      <text x="409" y="123" font-weight="600">finish</text>
+    </g>
+    <g stroke="#1a1a1a" stroke-width="1.5" fill="#1a1a1a">
+      <line x1="116" y1="59" x2="126" y2="59"/><polygon points="126,55 134,59 126,63"/>
+      <line x1="224" y1="59" x2="234" y2="59"/><polygon points="234,55 242,59 234,63"/>
+      <line x1="346" y1="59" x2="356" y2="59"/><polygon points="356,55 364,59 356,63"/>
+      <line x1="116" y1="119" x2="126" y2="119"/><polygon points="126,115 134,119 126,123"/>
+      <line x1="224" y1="119" x2="234" y2="119"/><polygon points="234,115 242,119 234,123"/>
+      <line x1="346" y1="119" x2="356" y2="119"/><polygon points="356,115 364,119 356,123"/>
+      <path d="M456 74 q14 16 -10 20 L36 94 q-16 2 -12 10" fill="none" stroke="#9a9a9a" stroke-width="1.2" stroke-dasharray="4 3"/>
+    </g>
+
+    <text x="20" y="172" font-size="12" font-weight="600" fill="#2e7d32">Sand before assembly. Finish after it.</text>
+    <text x="20" y="194" font-size="11" fill="#5a5a5a">An assembled box cannot be sanded in its internal corners, and that is exactly where the char shows.</text>
+    <text x="20" y="214" font-size="11" fill="#5a5a5a">Two thin coats beat one heavy one. Spray over engraving; a brushed finish pools in the recess.</text>
+    <text x="20" y="236" font-size="11" fill="#c62828">Mask joint faces before finishing — two coats of lacquer is a real dimension on a 3 mm part.</text>
+  </g>
+</svg>

@@ -5,8 +5,14 @@ that what it builds can actually be made. Two processes are covered in depth:
 
 | Folder | Process | Dimensionality |
 |---|---|---|
-| [`laser/`](laser/) | CO₂ laser cutting and engraving | 2D — outlines, slots, engraves |
+| [`laser/`](laser/) | CO₂ laser cutting and engraving, **wood-first** | 2D — outlines, slots, engraves |
 | [`fdm/`](fdm/) | FDM / FFF filament 3D printing | 3D — solids, orientation, overhangs |
+
+The laser half is written for **wood** — plywood, solid hardwood, bamboo and
+MDF. Acrylic, card and leather each keep a document because they turn up, but
+the defaults, the worked examples and the numbers in every other file assume
+wood. That is a deliberate narrowing: wood takes a press fit and it takes a
+screw, which is what most laser-cut objects actually need.
 
 It is **not** a manual for the user, and it is not advice the assistant reads
 out loud. It is the reference it opens before it draws, the way a workshop

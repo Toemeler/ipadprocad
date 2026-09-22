@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 230" width="480" height="230" role="img" aria-label="Fastening into the face versus into the edge of plywood">
+  <rect x="0" y="0" width="480" height="230" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Face or edge — the decision that matters</text>
+
+    <rect x="34" y="70" width="170" height="60" fill="#d9c9ac" stroke="#1a1a1a" stroke-width="2"/>
+    <g stroke="#6b5636" stroke-width="3"><line x1="34" y1="88" x2="204" y2="88"/><line x1="34" y1="112" x2="204" y2="112"/></g>
+    <g fill="#8a8a8a" stroke="#1a1a1a" stroke-width="1.2">
+      <rect x="112" y="44" width="10" height="70"/><rect x="102" y="38" width="30" height="8"/>
+    </g>
+    <g stroke="#2e7d32" stroke-width="2.5" fill="none"><path d="M166 146 l7 8 l15 -18"/></g>
+    <text x="119" y="168" text-anchor="middle" font-weight="600" fill="#2e7d32">into the face</text>
+    <text x="119" y="184" text-anchor="middle" fill="#2e7d32">long grain across every ply — it holds</text>
+
+    <rect x="290" y="56" width="60" height="120" fill="#d9c9ac" stroke="#1a1a1a" stroke-width="2"/>
+    <g stroke="#6b5636" stroke-width="3"><line x1="308" y1="56" x2="308" y2="176"/><line x1="332" y1="56" x2="332" y2="176"/></g>
+    <g fill="#8a8a8a" stroke="#1a1a1a" stroke-width="1.2">
+      <rect x="315" y="30" width="10" height="70"/><rect x="305" y="24" width="30" height="8"/>
+    </g>
+    <path d="M308 100 l-8 34 M332 100 l8 34" stroke="#c62828" stroke-width="3"/>
+    <circle cx="320" cy="108" r="22" fill="none" stroke="#c62828" stroke-width="2"/>
+    <text x="320" y="200" text-anchor="middle" font-weight="600" fill="#c62828">into the edge</text>
+    <text x="320" y="216" text-anchor="middle" fill="#c62828">end grain of every ply — it splits</text>
+
+    <text x="20" y="212" font-size="11" fill="#5a5a5a">In 3–6 mm sheet there is</text>
+    <text x="20" y="226" font-size="11" fill="#5a5a5a">barely any edge at all.</text>
+  </g>
+</svg>

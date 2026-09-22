@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 220" width="480" height="220" role="img" aria-label="A masked and an unmasked cut side by side">
+  <rect x="0" y="0" width="480" height="220" rx="10" fill="#ffffff"/>
+  <defs><radialGradient id="halo"><stop offset="0%" stop-color="#6b4a25" stop-opacity="0.55"/><stop offset="100%" stop-color="#6b4a25" stop-opacity="0"/></radialGradient></defs>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Masking is the whole difference</text>
+
+    <rect x="30" y="46" width="180" height="100" fill="#e3cfa8" stroke="#1a1a1a" stroke-width="2"/>
+    <ellipse cx="120" cy="96" rx="70" ry="42" fill="url(#halo)"/>
+    <rect x="112" y="60" width="16" height="72" fill="#ffffff" stroke="#2a1d0f" stroke-width="3"/>
+    <text x="120" y="170" text-anchor="middle" font-weight="600" fill="#c62828">unmasked</text>
+    <text x="120" y="186" text-anchor="middle" fill="#c62828">brown smoke halo, soaked in</text>
+
+    <rect x="270" y="46" width="180" height="100" fill="#e3cfa8" stroke="#1a1a1a" stroke-width="2"/>
+    <rect x="352" y="60" width="16" height="72" fill="#ffffff" stroke="#2a1d0f" stroke-width="3"/>
+    <g stroke="#2e7d32" stroke-width="2.5" fill="none"><path d="M412 126 l7 8 l15 -18"/></g>
+    <text x="360" y="170" text-anchor="middle" font-weight="600" fill="#2e7d32">low-tack paper masking, both faces</text>
+    <text x="360" y="186" text-anchor="middle" fill="#2e7d32">no residue at all</text>
+
+    <text x="20" y="212" font-size="11" fill="#5a5a5a">Everything else in this document is recovery from not having masked.</text>
+  </g>
+</svg>

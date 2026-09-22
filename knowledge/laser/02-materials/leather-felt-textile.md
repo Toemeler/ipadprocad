@@ -4,7 +4,7 @@ title: Leather, felt and textile — soft goods
 type: material
 process: laser
 triggers: [leather, leder, felt, filz, fabric, stoff, textile, textil, cork, kork, soft material, gasket, dichtung, strap, riemen]
-depends_on: [laser/materials/material-table, laser/materials/never-cut-these]
+depends_on: [laser/materials/non-wood, laser/materials/never-cut-these]
 confidence: medium
 updated: 2026-09-22
 ---

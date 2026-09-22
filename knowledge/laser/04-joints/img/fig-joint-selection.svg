@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 270" width="480" height="270" role="img" aria-label="The seven joints sorted by which surfaces meet">
+  <rect x="0" y="0" width="480" height="270" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Two questions choose the joint</text>
+
+    <text x="182" y="52" text-anchor="middle" font-weight="600">permanent</text>
+    <text x="348" y="52" text-anchor="middle" font-weight="600">comes apart</text>
+
+    <g stroke="#9a9a9a" stroke-width="1"><line x1="24" y1="60" x2="456" y2="60"/></g>
+
+    <g>
+      <text x="26" y="84" font-weight="600">edge to edge, 90°</text>
+      <text x="182" y="84" text-anchor="middle">finger joint</text>
+      <text x="348" y="84" text-anchor="middle">T-slot + captive nut</text>
+    </g>
+    <g>
+      <text x="26" y="112" font-weight="600">edge into a face</text>
+      <text x="182" y="112" text-anchor="middle">tab and slot, glued</text>
+      <text x="348" y="112" text-anchor="middle">tab and slot + wedge</text>
+    </g>
+    <g>
+      <text x="26" y="140" font-weight="600">crossing panels</text>
+      <text x="182" y="140" text-anchor="middle">cross-lap, glued</text>
+      <text x="348" y="140" text-anchor="middle">cross-lap, press fit</text>
+    </g>
+    <g>
+      <text x="26" y="168" font-weight="600">face to face</text>
+      <text x="182" y="168" text-anchor="middle">stacked layers, glued</text>
+      <text x="348" y="168" text-anchor="middle">stacked + bolts</text>
+    </g>
+    <g>
+      <text x="26" y="196" font-weight="600">a panel that bends</text>
+      <text x="182" y="196" text-anchor="middle">living hinge</text>
+      <text x="348" y="196" text-anchor="middle" fill="#9a9a9a">—</text>
+    </g>
+    <g>
+      <text x="26" y="224" font-weight="600">light retention only</text>
+      <text x="182" y="224" text-anchor="middle" fill="#9a9a9a">—</text>
+      <text x="348" y="224" text-anchor="middle">snap / friction fit</text>
+    </g>
+
+    <text x="20" y="252" font-size="11" fill="#2e7d32">Glued joints get a slip fit; unglued joints get a press fit. Never both.</text>
+    <text x="20" y="266" font-size="11" fill="#c62828">Opened more than a few times? No wooden joint survives it — use metal.</text>
+  </g>
+</svg>
