@@ -75,6 +75,7 @@ import 'vector_font.dart';
 import 'render_engine.dart';
 import 'render_samples.dart';
 import 'ribbon_dock.dart';
+import 'sync/cloud_sync.dart';
 import 'sync/lan_sync.dart';
 import 'sync/sync_store.dart';
 import 'update_check.dart';
@@ -2119,6 +2120,7 @@ class AppState extends ChangeNotifier {
     // device hears about it. The app knows the exact moment the bytes are on
     // disk; this is that moment.
     LanSync.instance.nudge();
+    CloudSync.instance.nudge();
     // The thumbnail cache is keyed by path, so it goes stale on every save.
     try {
       final t = _thumbFile(library[name]!);
@@ -2156,6 +2158,7 @@ class AppState extends ChangeNotifier {
     // A deletion travels as a tombstone, and it is noticed the same way a
     // save is — see [_commitStage].
     LanSync.instance.nudge();
+    CloudSync.instance.nudge();
   }
 
   /// Moves [from]'s document file to [to]. An external document is renamed
@@ -2190,6 +2193,7 @@ class AppState extends ChangeNotifier {
     // A rename is a deletion and a creation to a mirror that works in names,
     // and both halves should reach the other devices together.
     LanSync.instance.nudge();
+    CloudSync.instance.nudge();
     if (ref.source == DocSource.external) {
       _remembered.removeWhere((e) => e.path == ref.path);
       _remembered.insert(0, moved);

@@ -1,0 +1,34 @@
+name = "ipadprocad-cloud-sync"
+main = "worker.js"
+compatibility_date = "2024-09-01"
+
+[vars]
+# The bucket you made in the Backblaze console, and the region out of its
+# endpoint. A bucket shown as `s3.eu-central-003.backblazeb2.com` is region
+# `eu-central-003` — the middle segment, nothing else.
+B2_BUCKET = "prototype-tomatensaftomat"
+B2_REGION = "eu-central-003"
+
+# Only if your bucket is somewhere other than backblazeb2.com's usual shape.
+# Left unset the Worker builds `s3.<B2_REGION>.backblazeb2.com` itself.
+# B2_ENDPOINT = "s3.eu-central-003.backblazeb2.com"
+
+# Secrets — set these with `wrangler secret put <NAME>`, never write them
+# here or anywhere else that gets committed:
+#
+#   B2_KEY_ID      The application key ID from the Backblaze console.
+#   B2_APP_KEY     Its secret half, shown ONCE at creation. Scope the key to
+#                  the single sync bucket with read+write and nothing else;
+#                  this process is the only place it should ever live.
+#
+#   GROUP_SALT     Any long random string. Decides the bucket prefix a share
+#                  code maps to, so it cannot be worked out off-device.
+#                  Optional — unset falls back to B2_APP_KEY, which is no
+#                  weaker. CHANGING IT STRANDS everything already uploaded
+#                  under the old prefix.
+#
+#   CLOUD_SECRET   Any string. An abuse throttle the app also sends as
+#                  CLOUD_SYNC_SECRET — optional; omit both to run with none.
+#                  It ships inside the app and is therefore public; see
+#                  relay/README.md for why that is fine for a throttle and
+#                  would not be for a credential.

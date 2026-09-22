@@ -2445,6 +2445,115 @@ class LanSync {
   }
 
   // -------------------------------------------------------------------------
+  // M441 — THE SEAM A TRANSPORT THAT IS NOT THE LAN REACHES THROUGH
+  // -------------------------------------------------------------------------
+  //
+  // This file's header says what it is not: "It is NOT a cloud. There is no
+  // server, no account and nothing leaves the local network." `cloud_sync.dart`
+  // is the other half — a bucket two devices leave files in so one that was
+  // switched off still gets them. It is A SECOND TRANSPORT AND NOTHING MORE.
+  //
+  // Which is the whole reason these nine forwarders exist rather than a second
+  // copy of the rules living next door. Everything that decides an OUTCOME —
+  // [verdictFor], the tombstones, the fork, the backup taken before a replace,
+  // the agreed-version journal — is in this class and stays in this class. A
+  // cloud that reasoned about conflicts on its own would be a second sync
+  // design, and the two would disagree on the day it mattered, silently, about
+  // somebody's afternoon of modelling.
+  //
+  // Nothing here is new behaviour. Each one forwards to the private member the
+  // LAN session already calls, so a document that arrives from a bucket meets
+  // byte for byte the rules a document from a socket meets. They are public
+  // only because Dart's privacy is per-library and the cloud transport is its
+  // own file.
+
+  /// This device, as a manifest names it. Stable for the process.
+  String get deviceId => _deviceId;
+
+  /// What this device calls itself — the name a kept-both copy is named after.
+  String get deviceName => _deviceName;
+
+  /// The group fingerprint of the current code, or null when not sharing.
+  ///
+  /// The cloud scopes a bucket prefix by this rather than by the code, for the
+  /// same reason the beacon broadcasts it: it says which group without saying
+  /// which code.
+  String? get groupFingerprint => _fp;
+
+  /// Everything this device holds and everything it remembers deleting, as a
+  /// transport sends it.
+  ///
+  /// ONE CALL RATHER THAN TWO because the order is load-bearing and a caller
+  /// should not have to know it: the gallery is re-read, a document that
+  /// exists again drops its tombstone ([_noticeResurrections]), one that has
+  /// gone gains one ([_noticeDeletes]), and only then is the result what this
+  /// device actually believes. [_announceChanges] does exactly this before it
+  /// tells a peer, and a cloud cycle that skipped it would upload a document
+  /// it had already deleted.
+  ({List<SyncEntry> entries, List<SyncTomb> tombs}) mirrorState() {
+    final now = _scanLocal();
+    _noticeResurrections(now);
+    _noticeDeletes(now);
+    _mine = now;
+    _expireTombs();
+    return (
+      entries: [for (final e in _mine.values) _outgoing(e)],
+      tombs: _tombs.values.toList(growable: false),
+    );
+  }
+
+  /// Whether [remote] is worth spending a download on.
+  bool mirrorWants(SyncEntry remote) => _wants(remote);
+
+  /// The bytes behind one mirror path, or null if there is nothing to read.
+  ///
+  /// Goes through [_fileFor] rather than joining a path itself, which is not
+  /// tidiness: that function is where a path carrying `..`, a leading slash or
+  /// a backslash is refused, and an uploader that built its own path would be
+  /// the one place in the mirror a crafted manifest could reach outside the
+  /// gallery.
+  ///
+  /// Null rather than throwing for the ordinary race — the document was
+  /// deleted or renamed between the scan and the upload — which is a thing
+  /// that happens rather than a thing that is wrong.
+  Uint8List? bytesFor(String path) {
+    try {
+      final f = _fileFor(path);
+      if (f == null || !f.existsSync()) return null;
+      return f.readAsBytesSync();
+    } catch (e) {
+      Log.w('sync', 'could not read $path: $e');
+      return null;
+    }
+  }
+
+  /// Writes bytes a transport fetched, under the rules a peer's bytes meet.
+  ///
+  /// The sha is re-checked in here, the verdict is taken again at the moment
+  /// of the write, and a divergence still forks. A caller cannot opt out of
+  /// any of that, which is the point.
+  bool mirrorApply(SyncEntry e, Uint8List bytes, {required String peerName}) =>
+      _apply(e, bytes, peerName: peerName);
+
+  /// Applies a deletion a transport carried.
+  bool mirrorApplyTomb(SyncTomb t) => _applyTomb(t);
+
+  /// Records that the group now has [path] at [sha] — this device handed it
+  /// over, so that version is what the two of them agree on.
+  void mirrorNoteHandedOver(String path, String sha) =>
+      _noteHandedOver(path, sha);
+
+  /// Records that somebody else holds exactly what this device holds.
+  void mirrorNoteAgreement(SyncEntry remote) => _noteAgreement(remote);
+
+  /// Tells the app that [paths] landed, so the gallery picks them up.
+  ///
+  /// Called once per cycle with everything that arrived, not once per file:
+  /// [onApplied] rebuilds the gallery, and doing that per document turns ten
+  /// arriving at once into ten rebuilds.
+  void mirrorApplied(Set<String> paths) => _applied(paths);
+
+  // -------------------------------------------------------------------------
   // The base version (M417)
   // -------------------------------------------------------------------------
 

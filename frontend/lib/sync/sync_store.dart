@@ -14,6 +14,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 import '../log.dart';
+import 'cloud_sync.dart';
 import 'lan_sync.dart';
 import 'share_code.dart';
 
@@ -158,12 +159,28 @@ class ShareCodes {
     }
   }
 
-  /// Sets (or clears) the code, remembers it and turns the mirror on or off.
+  /// Sets (or clears) the code, remembers it and turns the mirrors on or off.
+  ///
+  /// M441 — BOTH mirrors, off one code. A person types a code to say "these
+  /// are my devices", and having to say it twice — once for the network, once
+  /// for the cloud — would be this app asking them to know the difference
+  /// between two transports.
+  ///
+  /// THE CLOUD HALF IS NOT AWAITED, and that is not an optimisation. The
+  /// settings sheet redraws in a `.then()` on this future
+  /// (`settings_sheet.dart`, kSecSync), so everything awaited here is
+  /// something the Share Code row waits for before the screen shows what it
+  /// did. The LAN half is a socket on this machine; the cloud half is a round
+  /// trip to a Worker, and awaiting it would mean a device on a slow
+  /// connection taps "Create a Share Code" and watches the old screen until
+  /// the network answers. Its own status row is where it reports.
   static Future<void> set(String? canonical) async {
     if (canonical == current.value) return;
     current.value = canonical;
     _store?.save(canonical);
     await LanSync.instance.setCode(canonical);
+    CloudSync.instance.setCode(canonical).catchError(
+        (Object e) => Log.w('cloud', 'could not change the cloud mirror: $e'));
   }
 
   /// Sets (or clears) the address this device dials by hand.
@@ -184,12 +201,20 @@ class ShareCodes {
   }
 }
 
-/// Starts the mirror without making the caller wait for a socket.
+/// Starts the mirrors without making the caller wait for a socket.
 ///
 /// Not `unawaited` from dart:async, because a failure here has to be REPORTED
 /// rather than merely tolerated — a mirror that did not come up is exactly the
 /// thing someone is looking at the settings row to find out about.
+///
+/// M441 — THE TWO ARE STARTED SEPARATELY, and neither waits for the other.
+/// They fail for unrelated reasons: the LAN half binds sockets and the cloud
+/// half reaches a Worker over whatever connection the device has. Chaining
+/// them would mean a tablet with no Wi-Fi — the case the cloud exists FOR —
+/// could keep the local mirror from ever coming up.
 void _start(String code) {
   LanSync.instance.setCode(code).catchError(
       (Object e) => Log.w('sync', 'could not start sharing: $e'));
+  CloudSync.instance.setCode(code).catchError(
+      (Object e) => Log.w('cloud', 'could not start the cloud mirror: $e'));
 }
