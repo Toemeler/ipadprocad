@@ -11,6 +11,8 @@
 //
 // Two tools are DELIBERATELY not reachable and are named here so that
 // "excluded" is a decision with a reason rather than an oversight.
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/ai/ai_cad.dart';
 import 'package:prototype/ai/ai_controller.dart';
@@ -75,6 +77,35 @@ void main() {
               'named op, or to `excluded` with the reason.');
     });
 
+    test('the instructions SPELL every tool name, not "among them"', () {
+      // A name the model is never shown is a name it has to guess, and a
+      // guessed name is a refusal. The prose used to say "the five slot
+      // forms" without naming one of them, so slot_overall was unaskable in
+      // practice. Every key of the catalogue now appears verbatim.
+      final unnamed = [
+        for (final n in AiCadSketch.tools.keys)
+          if (!kAiActionInstructions.contains(n)) n
+      ];
+      expect(unnamed, isEmpty,
+          reason: 'sketch_tool accepts these and the instructions never say '
+              'so: ${unnamed.join(", ")}');
+    });
+
+    test('and every sketch_modify action, and every constraint', () {
+      const actions = [
+        'move', 'copy', 'rotate', 'scale', 'mirror', 'offset', 'trim',
+        'split', 'extend',
+      ];
+      for (final a in actions) {
+        expect(kAiActionInstructions, contains(a), reason: 'action $a');
+      }
+      final unnamed = [
+        for (final k in AiCadConstrain.kinds.keys)
+          if (!kAiActionInstructions.contains(k)) k
+      ];
+      expect(unnamed, isEmpty, reason: 'constraints: ${unnamed.join(", ")}');
+    });
+
     test('every exclusion carries a reason', () {
       for (final entry in excluded.entries) {
         expect(entry.value.length, greaterThan(20),
@@ -135,6 +166,29 @@ void main() {
       for (final op in const ['move_face', 'size_face', 'scale_body']) {
         expect(kAiOps, contains(op), reason: op);
       }
+    });
+
+    test('the list above is the WHOLE list — part_model.dart is asked', () {
+      // featureOps is written out by hand, so on its own it would go stale
+      // the day somebody adds a feature class. Read the kinds straight out
+      // of the model instead: every `String get kind => '...'` in
+      // part_model.dart is a feature the timeline can hold, and each one
+      // needs an op or a named reason.
+      final src = File('lib/part_model.dart').readAsStringSync();
+      final kinds = RegExp(r"String get kind => '([a-z]+)'")
+          .allMatches(src)
+          .map((m) => m.group(1)!)
+          .toSet();
+      expect(kinds.length, greaterThan(10),
+          reason: 'the pattern stopped matching; this test is now blind');
+      final unreachable = [
+        for (final k in kinds)
+          if (k != 'derive' && !featureOps.containsKey(k)) k
+      ];
+      expect(unreachable, isEmpty,
+          reason: 'part_model.dart can build these features and the '
+              'assistant cannot ask for them: ${unreachable.join(", ")}. '
+              'Give each one an op and add it to featureOps.');
     });
 
     test('derive is the one feature with no op, and this says so', () {

@@ -983,19 +983,34 @@ EVERY OTHER 2D TOOL, through one op:
 - sketch_tool {sketch?, tool, points: [[x,y], ...], radius?, distance?,
   distance2?, angle?, sides?, mode?, expr?} — draws with the app's own tool,
   by name, from the same picks a person would make. The ops above are the
-  common shapes said in words; this is the rest of the toolbox, and the
-  refusal lists every name with how many points it takes. Among them:
-    ellipse (3), spline and spline_control (3+), arc_tangent, circle_tangent,
-    polygon_regular with `sides`, rect_3point and rect_centre_3point for a
-    rotated rectangle, the five slot forms, bridge, equation_curve with
-    `expr`, line_midpoint, point, and —
-    fillet {points: [p_on_first, p_on_second], radius} and
-    chamfer {points: [...], distance} — which round or cut the corner
-    BETWEEN two sketch entities and TRIM them both. Drawing a corner radius
-    in the sketch is more reliable than a 3D fillet on a sharp one: it cannot
-    fail at rebuild time.
-  The two points for fillet/chamfer pick the two entities, one each, near the
-  corner they share.
+  common shapes said in words; this is the rest of the toolbox. EVERY name it
+  takes, with the number of picks each one needs — there is no other list,
+  and nothing here needs approximating with something else:
+    LINES     line (2) · line_midpoint (2, the midpoint then one end) ·
+              bridge (2, joins two entities with a smooth link)
+    CURVES    spline (2+, through the points) ·
+              spline_control (3+, the points PULL the curve) ·
+              equation_curve (1, plus `expr` like "t,t*t") ·
+              ellipse (3: centre, end of one axis, point on the other)
+    CIRCLES   circle (2: centre, then a point on it) ·
+              circle_tangent (3 picks on three entities it touches)
+    ARCS      arc_centre (3: centre, start, end) ·
+              arc_3point (3 the arc passes through) ·
+              arc_tangent (2: a point on an entity, then the far end —
+              leaves the curve smooth where it meets that entity)
+    RECTS     rect (2 opposite corners) · rect_centre (2: centre, corner) ·
+              rect_3point (3) · rect_centre_3point (3) — the 3-point forms
+              are how a rectangle ends up ROTATED
+    SLOTS     slot_centres (3) · slot_overall (3) · slot_centre_point (3) ·
+              slot_3arc (4) · slot_centre_arc (4) — sketch_slot is the
+              centres form said in numbers, and is usually what you want
+    OTHER     polygon_regular (2, with `sides`) · point (1)
+    CORNERS   fillet (2, with `radius`) · chamfer (2, with `distance`) —
+              these round or cut the corner BETWEEN two sketch entities and
+              TRIM them both. The two points pick the two entities, one each,
+              near the corner they share. Drawing a corner radius in the
+              sketch is more reliable than a 3D fillet on a sharp edge: it
+              cannot fail at rebuild time.
 
 SHAPING WHAT IS ALREADY DRAWN:
 - sketch_modify {sketch?, action, near?: [[x,y], ...], ...} — the modify

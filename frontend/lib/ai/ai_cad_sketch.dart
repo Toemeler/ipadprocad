@@ -60,7 +60,9 @@ extension AiCadSketch on AiCad {
   static String get catalogue {
     final names = tools.keys.toList()..sort();
     return [
-      for (final n in names) '$n (${pointsNeeded(tools[n]!)} points)'
+      for (final n in names)
+        '$n (${pointsNeeded(tools[n]!)} '
+            '${pointsNeeded(tools[n]!) == "1" ? "point" : "points"})'
     ].join(', ');
   }
 
