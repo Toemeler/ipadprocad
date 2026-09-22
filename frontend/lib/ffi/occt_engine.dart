@@ -190,6 +190,11 @@ typedef _FaceOpN = Pointer<Void> Function(
     Pointer<Void>, Pointer<Int32>, Int32, Int32);
 typedef _FaceOpD = Pointer<Void> Function(
     Pointer<Void>, Pointer<Int32>, int, int);
+// shim v31 (#85): Shell.
+typedef _ShellN = Pointer<Void> Function(
+    Pointer<Void>, Pointer<Int32>, Int32, Double, Int32);
+typedef _ShellD = Pointer<Void> Function(
+    Pointer<Void>, Pointer<Int32>, int, double, int);
 typedef _MoveFacesN = Pointer<Void> Function(
     Pointer<Void>, Pointer<Int32>, Int32, Double, Double, Double);
 typedef _MoveFacesD = Pointer<Void> Function(
@@ -1215,7 +1220,8 @@ class OcctFfi {
       this._moveFaces,
       this._scaleShape,
       this._shapeEdgesInfo,
-      this._brepFromMesh);
+      this._brepFromMesh,
+      this._shell);
 
   /// occt_version() marker string, e.g.
   /// "Prototype OCCT shim v1 (OCCT 7.9.3)".
@@ -1241,6 +1247,7 @@ class OcctFfi {
   final _MeshIntOutD _meshFaceIds; // v20
   final _MeshIntOutD _meshEdgeFaces; // v30 (#65)
   final _FaceOpD _deleteFaces; // v20
+  final _ShellD _shell; // v31 (#85)
   final _MoveFacesD _moveFaces; // v20
   final _ScaleD _scaleShape; // v20
   final _EdgesInfoD _shapeEdgesInfo; // v21 (bulk edge enumeration)
@@ -1383,6 +1390,9 @@ class OcctFfi {
         // this lookup and probes to null, which is the same policy.
         lib.lookupFunction<_BrepFromMeshN, _BrepFromMeshD>(
             'occt_brep_from_mesh'),
+        // v31 (#85) — Shell. Eager, like everything else: the shim and the
+        // app ship together, so a missing symbol is a stale build.
+        lib.lookupFunction<_ShellN, _ShellD>('occt_shell'),
       );
     } catch (_) {
       _cached = null;
@@ -1762,6 +1772,24 @@ class OcctFfi {
       ffiCount('ffi.occt.deleteFaces.faces', faceIds.length);
       return ffiSpan('ffi.occt.deleteFaces',
           () => _wrap(_deleteFaces(s._handle, ids, faceIds.length, 1)));
+    } finally {
+      calloc.free(ids);
+    }
+  }
+
+  /// v31 (#85) — hollow [s] to a wall of [thickness], leaving [faceIds] open.
+  OcctShape? shell(OcctShape s, List<int> faceIds, double thickness,
+      {bool outward = false}) {
+    if (faceIds.isEmpty) return null;
+    final ids = calloc<Int32>(faceIds.length);
+    try {
+      for (var i = 0; i < faceIds.length; i++) {
+        ids[i] = faceIds[i];
+      }
+      return ffiSpan(
+          'ffi.occt.shell',
+          () => _wrap(_shell(
+              s._handle, ids, faceIds.length, thickness, outward ? 1 : 0)));
     } finally {
       calloc.free(ids);
     }

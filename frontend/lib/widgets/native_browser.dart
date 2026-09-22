@@ -64,6 +64,7 @@ const Map<String, String> kFeatureBadge = {
   'combine': 'B', // Boolean, and B is free where C is not
   'split': 'T', // Inventor calls it Trim Solid
   'deleteface': 'X',
+  'shell': 'Sh',
   'direct': 'M', // Move Face
   'sweep': 'Sw',
   'coil': 'Co',

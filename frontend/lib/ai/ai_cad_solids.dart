@@ -146,13 +146,76 @@ extension AiCadSolids on AiCad {
   /// a loft or a stack of extrusions is what a model does when it has no
   /// sweep.
   Future<AiActionOutcome> _sweep(PartModel p, AiAction a) async {
-    final profileName = a.text('profile_sketch') ?? a.text('sketch');
+    var profileName = a.text('profile_sketch') ?? a.text('sketch');
     final pathName = a.text('path_sketch') ?? a.text('path');
     if (pathName == null) {
       return AiActionOutcome.failed(
           a.op,
           'path_sketch is required: the sketch holding the OPEN curve the '
           'profile travels along');
+    }
+    final path = p.sketchByName(pathName);
+    if (path == null) {
+      return AiActionOutcome.failed(a.op, 'no sketch named "$pathName"');
+    }
+    if (profileName == pathName) {
+      return AiActionOutcome.failed(
+          a.op,
+          'the profile and the path must be different sketches — usually on '
+          'planes at right angles to each other');
+    }
+    final start = _pathStart(path);
+    if (start == null) {
+      return AiActionOutcome.failed(
+          a.op,
+          'sketch "$pathName" has no open curve to sweep along — a path is a '
+          'line, an arc or a polyline, not a closed region');
+    }
+    final (at, heading) = start;
+    // ISSUE #84 — THE PROFILE, PLACED BY THE APP. The handle's circle was
+    // drawn on XZ while its path set off along +X, so the sweep folded
+    // through itself and every blend on the cup failed for eight rounds.
+    // Where the path starts and which way it heads are facts the app has;
+    // a profile_circle / profile_rect is drawn THERE, square to it.
+    final circle = a.number('profile_circle');
+    final rectW = a.number('profile_width'), rectH = a.number('profile_height');
+    if (circle != null || rectW != null || rectH != null) {
+      if (profileName != null) {
+        return AiActionOutcome.failed(a.op,
+            'give profile_sketch OR profile_circle/profile_width, not both');
+      }
+      if (circle != null && circle <= 0 ||
+          circle == null && (rectW == null || rectH == null || rectW <= 0 ||
+              rectH <= 0)) {
+        return AiActionOutcome.failed(a.op,
+            'profile_circle is a diameter > 0; a rectangle needs both '
+            'profile_width and profile_height > 0');
+      }
+      final frame = workPlaneFrameAt(at, heading);
+      final sketch = SketchModel(p.nextSketchName());
+      sketch.insertLayerAboveMarker(AiCad._layerName);
+      p.appendChildSketch(ChildSketch(
+          sketch, kWorkPlaneKey, frame, true, false, p.nextSeq()));
+      app.aiAdmitSketchRow(p);
+      _madeSketches.add('${p.name}/${sketch.name}');
+      final layer =
+          sketch.layers[sketch.eosAfter > 0 ? sketch.eosAfter - 1 : 0];
+      app.aiCommitSketch(sketch, [
+        if (circle != null)
+          Geo(Geo.circle, [0, 0, circle / 2], layer: layer)
+        else
+          Geo(
+              Geo.polyline,
+              [
+                1, 4, //
+                -rectW! / 2, -rectH! / 2, rectW / 2, -rectH / 2,
+                rectW / 2, rectH / 2, -rectW / 2, rectH / 2,
+              ],
+              layer: layer),
+      ]);
+      sketch.dirty = true;
+      app.aiForgetRegions(sketch.name);
+      profileName = sketch.name;
     }
     final profile = profileName == null
         ? (p.childSketches.isEmpty ? null : p.childSketches.first)
@@ -161,9 +224,31 @@ extension AiCadSolids on AiCad {
       return AiActionOutcome.failed(
           a.op, 'no sketch named "${profileName ?? "?"}" to sweep');
     }
-    final path = p.sketchByName(pathName);
-    if (path == null) {
-      return AiActionOutcome.failed(a.op, 'no sketch named "$pathName"');
+    // A profile the model drew itself is checked against the same facts
+    // before the kernel is asked, and the refusal says which way to face.
+    final pf = sketchFrameOf(profile);
+    final orientationArg = (a.text('orientation') ?? 'path').toLowerCase();
+    if (orientationArg == 'path' || orientationArg.startsWith('follow')) {
+      final square = pf.n.dot(heading).abs();
+      if (square < 0.98) {
+        return AiActionOutcome.failed(
+            a.op,
+            'the profile sketch "${profile.model.name}" faces '
+            '${worldAxisName(pf.n)} but the path starts heading '
+            '${worldAxisName(heading)} — a swept profile must be square to '
+            'its path, or the solid folds through itself. Use '
+            'profile_circle: D (the app places it), or draw the profile on '
+            'the plane whose normal is ${worldAxisName(heading)}, at the '
+            'path start (${_r(at.x)}, ${_r(at.y)}, ${_r(at.z)}).');
+      }
+      final off = (at - pf.origin).dot(pf.n).abs();
+      if (off > 0.05) {
+        return AiActionOutcome.failed(
+            a.op,
+            'the profile sketch lies ${_mm(off)} mm from the start of the '
+            'path at (${_r(at.x)}, ${_r(at.y)}, ${_r(at.z)}) — put it on '
+            'the path start, or use profile_circle');
+      }
     }
     if (identical(profile, path)) {
       return AiActionOutcome.failed(
@@ -234,6 +319,32 @@ extension AiCadSolids on AiCad {
       if (taper != 0) 'taperDeg': _r(taper),
       'operation': output,
     });
+  }
+
+  /// Where the sweep path starts, in world millimetres, and the direction it
+  /// sets off in — exact for a line or an arc, the first segment for anything
+  /// else.
+  (Vec3, Vec3)? _pathStart(ChildSketch path) {
+    final curve = _pathCurve(path);
+    if (curve == null) return null;
+    final g = path.model.geometry[curve.geoIndex];
+    final f = sketchFrameOf(path);
+    Offset p0, dir;
+    if (g.type == Geo.arc) {
+      final c = Offset(g.data[0], g.data[1]);
+      final r = g.data[2], t = g.data[3];
+      p0 = Offset(c.dx + r * math.cos(t), c.dy + r * math.sin(t));
+      final ccw = Offset(-math.sin(t), math.cos(t));
+      dir = g.data.length > 5 && g.data[5] > 0.5 ? -ccw : ccw;
+    } else {
+      final pts = sampleEntity(g, arcSamples: 64);
+      p0 = pts.first;
+      dir = pts[1] - pts[0];
+    }
+    final w0 = f.toWorld(p0), w1 = f.toWorld(p0 + dir);
+    final d = w1 - w0;
+    if (d.length < 1e-12) return null;
+    return (w0, d * (1 / d.length));
   }
 
   /// The longest OPEN curve in [path] — what a sweep travels along.
@@ -719,5 +830,122 @@ extension AiCadSolids on AiCad {
     if (raw is! List || raw.length < 3) return null;
     final xs = [for (final v in raw) if (v is num) v.toDouble()];
     return xs.length < 3 ? null : Vec3(xs[0], xs[1], xs[2]);
+  }
+}
+
+extension _AiCadShell on AiCad {
+  /// #85 — "make this open at the bottom and be made from 1 mm sheet metal".
+  ///
+  /// The app had no shell, so the assistant built one by hand for thirty
+  /// rounds: projected outlines, offset them, cut prisms, deleted three
+  /// attempts, and handed over a wall that measured 0.71 mm. A shell is one
+  /// kernel operation with one number, and this op is it.
+  ///
+  ///   shell {thickness, open: "bottom" | ["top", "bottom"] | faces: ["F3"],
+  ///          outward?, body?, id?}
+  ///
+  /// `open` names sides of the part the way faces_where does: the planar
+  /// faces at that extreme of the body, facing out of it. `faces` takes ids
+  /// from faces_where when the opening is not a side.
+  Future<AiActionOutcome> _shell(PartModel p, AiAction a) async {
+    final t = a.number('thickness');
+    if (t == null || t <= 0) {
+      return AiActionOutcome.failed(a.op, 'thickness must be > 0');
+    }
+    final d = _digestOf(p, a);
+    if (d == null) {
+      return AiActionOutcome.failed(a.op, 'this part has no built body to shell');
+    }
+    final base = currentBodySolid(p, d.body);
+    if (base == null) {
+      return AiActionOutcome.failed(a.op, 'body "${d.body}" has no geometry');
+    }
+    final chosen = <DigestFace>[];
+    final rawOpen = a.args['open'];
+    final sides = rawOpen is String
+        ? [rawOpen]
+        : rawOpen is List
+            ? [for (final v in rawOpen) if (v is String) v]
+            : const <String>[];
+    const dirs = {
+      'top': Vec3(0, 1, 0),
+      'bottom': Vec3(0, -1, 0),
+      'right': Vec3(1, 0, 0),
+      'left': Vec3(-1, 0, 0),
+      'front': Vec3(0, 0, 1),
+      'back': Vec3(0, 0, -1),
+    };
+    final size = d.max - d.min;
+    final tol = math.max(1e-3, 1e-4 * size.length);
+    for (final side in sides) {
+      final want = dirs[side.toLowerCase()];
+      if (want == null) {
+        return AiActionOutcome.failed(
+            a.op, 'open must name sides: ${dirs.keys.join(", ")}');
+      }
+      // The extreme of the body along that direction, and every planar face
+      // that faces that way AT it — a stepped bottom is one opening only
+      // where the step's lowest face is.
+      final extreme = math.max(want.dot(d.max), want.dot(d.min));
+      final at = [
+        for (final f in d.faces)
+          if (f.type == kFacePlane &&
+              f.dir.dot(want) > 0.999 &&
+              (f.centroid.dot(want) - extreme).abs() <= tol)
+            f
+      ];
+      if (at.isEmpty) {
+        return AiActionOutcome.failed(
+            a.op,
+            'the $side of "${d.body}" is not a flat face — name the faces '
+            'to open with faces: ["F…"] from faces_where');
+      }
+      chosen.addAll(at);
+    }
+    for (final id in [
+      if (a.args['faces'] is List)
+        for (final v in a.args['faces'] as List) '$v'
+    ]) {
+      final (f, err) = _face(p, AiAction(a.op, {'face': id, 'body': d.body}),
+          'face');
+      if (f == null) return AiActionOutcome.failed(a.op, err!);
+      if (!chosen.contains(f)) chosen.add(f);
+    }
+    if (chosen.isEmpty) {
+      return AiActionOutcome.failed(
+          a.op,
+          'say which side stays open: open: "top" (a cup), "bottom" (a '
+          'cover), or faces: ["F3"]. A shell with no opening would be a '
+          'sealed void nothing can make.');
+    }
+    final minSide = math.min(size.x, math.min(size.y, size.z));
+    if (t * 2 >= minSide) {
+      return AiActionOutcome.failed(
+          a.op,
+          'a ${_mm(t)} mm wall on each side does not fit in a body whose '
+          'thinnest dimension is ${_mm(minSide)} mm');
+    }
+    final f = ShellFeature(
+      name: p.nextFeatureName('Shell'),
+      bodyName: d.body,
+      faces: [
+        for (final g in chosen)
+          FacePick(g.centroid.x, g.centroid.y, g.centroid.z, g.dir.x, g.dir.y,
+              g.dir.z, g.area, g.type)
+      ],
+      thickness: t,
+      outward: a.flag('outward'),
+    );
+    return _commitFeature(p, a, f, base, {
+      'body': d.body,
+      'thickness': _r(t),
+      'open': [for (final g in chosen) 'F${g.id}'],
+      'wall': a.flag('outward') ? 'outward' : 'inward',
+      'note': a.flag('outward')
+          ? 'The inside keeps the size the body was drawn at; the outside '
+              'grew by the wall.'
+          : 'The outside keeps the size it was drawn at; the wall grew '
+              'inward.',
+    });
   }
 }

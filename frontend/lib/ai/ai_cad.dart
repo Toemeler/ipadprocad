@@ -34,12 +34,15 @@ import 'ai_knowledge.dart';
 import 'ai_brief.dart';
 import 'ai_models.dart';
 import 'ai_trace.dart';
+import 'ai_expr.dart';
 import 'ai_view.dart';
+import 'mesh_topology.dart';
 import 'shape_digest.dart';
 
 part 'ai_cad_solids.dart';
 part 'ai_cad_sketch.dart';
 part 'ai_cad_constrain.dart';
+part 'ai_cad_path.dart';
 
 /// Four decimals is a micron on a millimetre part — past what any of this
 /// geometry is accurate to, and short enough that a report stays readable.
@@ -193,12 +196,19 @@ class AiCad {
     final outcomes = <AiActionOutcome>[];
     var mutated = false;
     var failed = false;
+    // PARTIAL COMMIT. The last point in this block where the document was
+    // whole — every feature in it built, no sketch drawn for a step that did
+    // not happen yet — and how many outcomes lead up to it. See
+    // [AiActionReport.kept].
+    PartSnap? lastGood;
+    var kept = 0;
     for (var i = 0; i < batch.length; i++) {
-      final action = batch[i];
+      final raw = batch[i];
       // Reported BEFORE the action runs, so the panel names what is happening
       // rather than what just finished.
-      onStep?.call(action.op, i + 1, batch.length);
+      onStep?.call(raw.op, i + 1, batch.length);
       AiActionOutcome outcome;
+      var action = raw;
       // PER OP, WITH ITS OWN CLOCK. The block report says what a block did;
       // this says which op inside it was the slow one and which one turned a
       // batch into a rollback. A fillet that takes eleven seconds in the
@@ -206,7 +216,16 @@ class AiCad {
       // report the model is handed.
       final clock = Stopwatch()..start();
       try {
-        outcome = await _one(p, action);
+        // Arithmetic and anchors are resolved against the document AS IT IS
+        // NOW, one action at a time, so `sk.cx` on the third action of a
+        // block sees the body the second action built.
+        final (resolved, why) = _resolve(p, raw);
+        if (resolved == null) {
+          outcome = AiActionOutcome.failed(raw.op, why!);
+        } else {
+          action = resolved;
+          outcome = await _one(p, action);
+        }
       } catch (e, st) {
         Log.e('ai', 'action ${action.op} threw', e, st);
         AiTrace.record('cad.threw', data: {
@@ -235,22 +254,46 @@ class AiCad {
         failed = true;
         break;
       }
+      if (kAiCommitOps.contains(action.op)) {
+        kept = outcomes.length;
+        // Only worth a snapshot if something could still fail after it.
+        lastGood = i < batch.length - 1 ? app.aiSnapshot(p) : null;
+      }
     }
     if (failed && mutated) {
-      await app.aiRestore(p, before);
+      final partial = kept > 0 && lastGood != null;
+      await app.aiRestore(p, partial ? lastGood : before);
       // The restore swaps whole sketches in; a cached region list keyed by a
       // sketch NAME would otherwise survive the sketch it describes.
       app.aiForgetRegions();
-      Log.i('ai', 'action block rolled back after ${outcomes.length} step(s)');
+      Log.i(
+          'ai',
+          partial
+              ? 'action block failed at step ${outcomes.length}; kept '
+                  'steps 1-$kept'
+              : 'action block rolled back after ${outcomes.length} step(s)');
       AiTrace.record('cad.reverted', data: {
         'steps': outcomes.length,
+        'kept': partial ? kept : 0,
         'failedOn': outcomes.isEmpty ? null : outcomes.last.op,
         'error': outcomes.isEmpty ? null : outcomes.last.error,
       });
+      if (partial) {
+        app.aiJournal(before); // one Ctrl+Z still undoes what the block kept
+        p.dirty = true;
+        final tab = app.curTab;
+        if (tab != null) await app.savePart(tab);
+        app.aiNotify();
+        await _autoView(p);
+      }
+      final state = _stateBrief(p);
+      if (partial) _attachView(p, state);
       return AiActionReport(
           outcomes: outcomes,
           reverted: true,
-          state: _stateBrief(p),
+          kept: partial ? kept : 0,
+          state: state,
+          problems: partial ? _problems(p) : const [],
           images: List.of(_views));
     }
     if (mutated && !failed) {
@@ -263,24 +306,276 @@ class AiCad {
       await _autoView(p);
     }
     final state = _stateBrief(p);
-    if (mutated && !failed) {
-      final sil = _autoSilhouette(p);
-      if (sil != null) state['silhouette'] = sil;
-      state['viewNote'] = _views.isEmpty
-          ? 'This is the part after the block, seen from az 45, pol 55. '
-              "'#' is material, 'o' is an opening you can see straight "
-              'through. Check it against what you meant to build.'
-          : 'The attached image and the silhouette are this part AFTER the '
-              'block, from az 45, pol 55. Look at them: if the shape is not '
-              'what you intended, fix it in the next block rather than '
-              'carrying on. Read dimensions from the numbers above, never '
-              'off the picture.';
-    }
+    if (mutated && !failed) _attachView(p, state);
     return AiActionReport(
         outcomes: outcomes,
         reverted: false,
         state: state,
+        problems: mutated ? _problems(p) : const [],
         images: List.of(_views));
+  }
+
+  /// The text view and the note that goes with the rendered one.
+  void _attachView(PartModel p, Map<String, dynamic> state) {
+    final sil = _autoSilhouette(p);
+    if (sil != null) state['silhouette'] = sil;
+    state['viewNote'] = _views.isEmpty
+        ? 'This is the part after the block, seen from az 45, pol 55. '
+            "'#' is material, 'o' is an opening you can see straight "
+            'through. Check it against what you meant to build.'
+        : 'The attached image and the silhouette are this part AFTER the '
+            'block, from az 45, pol 55. Look at them: if the shape is not '
+            'what you intended, fix it in the next block rather than '
+            'carrying on. Read dimensions from the numbers above, never '
+            'off the picture.';
+  }
+
+  // ---- arithmetic, named numbers and anchors -----------------------------
+
+  /// Named numbers per part, from the `vars` op and a block's "vars". They
+  /// outlive the block, so a later block can say "wall" instead of retyping
+  /// 2.4 and getting it wrong once.
+  final Map<String, Map<String, double>> _vars = {};
+
+  static const int _kMaxVars = 64;
+
+  /// Arguments whose STRING value is a name or a word, never arithmetic —
+  /// "F3" and "Extrusion1" contain digits and would otherwise be read as
+  /// sums. Lists under these keys are walked normally, so
+  /// `{"to": ["r*cos(30)", 0]}` in a path is still evaluated.
+  static const Set<String> _textKeys = {
+    'sketch', 'feature', 'name', 'text', 'source', 'body', 'id', 'expr',
+    'plane', 'edges', 'operation', 'direction', 'type', 'kind', 'where',
+    'axis', 'method', 'mode', 'tool', 'action', 'orientation', 'face',
+    'from', 'to', 'detail', 'profile_sketch', 'path_sketch', 'on', 'regions',
+    'title', 'say', 'open',
+  };
+
+  /// Arguments whose list elements are names: pattern's features, loft's
+  /// sketches, combine's tools, a shell's open faces.
+  static const Set<String> _nameListKeys = {
+    'features', 'sketches', 'tools', 'bodies', 'faces', 'open_faces',
+  };
+
+  /// [a] with every arithmetic argument evaluated, or why one would not.
+  (AiAction?, String?) _resolve(PartModel p, AiAction a) {
+    // `vars` evaluates its own values in order, so a later one can use an
+    // earlier one — it is resolved by the op, not here.
+    if (a.op == 'vars') return (a, null);
+    final lookup = _lookupFor(p, a);
+    bool known(String n) {
+      try {
+        return lookup(n) != null;
+      } catch (_) {
+        return false;
+      }
+    }
+
+    String? error;
+    Object? walk(String key, Object? v, {bool names = false}) {
+      if (error != null) return v;
+      if (v is String) {
+        if (names) return v;
+        if (!aiLooksLikeExpression(v, isName: known)) return v;
+        try {
+          return aiEvalExpression(v, lookup);
+        } on AiExprError catch (e) {
+          error = '"$key": ${e.message}';
+          return v;
+        }
+      }
+      if (v is List) {
+        return [
+          for (final e in v) walk(key, e, names: _nameListKeys.contains(key))
+        ];
+      }
+      if (v is Map) {
+        return {
+          for (final e in v.entries)
+            '${e.key}': _textKeys.contains('${e.key}') && e.value is String
+                ? e.value
+                : walk('${e.key}', e.value)
+        };
+      }
+      return v;
+    }
+
+    final args = <String, dynamic>{
+      for (final e in a.args.entries)
+        e.key: _textKeys.contains(e.key) && e.value is String
+            ? e.value
+            : walk(e.key, e.value)
+    };
+    if (error != null) return (null, 'could not evaluate $error');
+    return (AiAction(a.op, args), null);
+  }
+
+  /// Names an expression can use in [a]: the part's own `vars`, then the
+  /// anchors — `part.*` in world millimetres and `sk.*` in the coordinates
+  /// of the sketch [a] draws on — computed only when asked for.
+  AiExprLookup _lookupFor(PartModel p, AiAction a) {
+    final vars = _vars[p.name] ?? const <String, double>{};
+    Map<String, double>? partVals, skVals;
+    return (name) {
+      final v = vars[name];
+      if (v != null) return v;
+      if (name.startsWith('part.')) {
+        partVals ??= _partAnchors(p);
+        return partVals![name.substring(5)];
+      }
+      if (name.startsWith('sk.')) {
+        skVals ??= _sketchAnchors(p, a);
+        return skVals![name.substring(3)];
+      }
+      return null;
+    };
+  }
+
+  /// The world box of the part's SOLIDS — never of its sketches.
+  ///
+  /// `partContentBounds` is the viewport's box and includes every visible
+  /// sketch, which is right for framing a camera and wrong for placing a
+  /// feature: an unconsumed construction sketch off to one side moved the
+  /// "centre" the #82 report line gave the model. Placement is about
+  /// material, so this is.
+  (Vec3, Vec3)? _solidBounds(PartModel p) {
+    var lo = const Vec3(double.infinity, double.infinity, double.infinity);
+    var hi = const Vec3(
+        double.negativeInfinity, double.negativeInfinity, double.negativeInfinity);
+    var any = false;
+    for (final (name, _) in p.solidBodies()) {
+      final pos = currentBodySolid(p, name)?.mesh.positions;
+      if (pos == null) continue;
+      for (var i = 0; i + 2 < pos.length; i += 3) {
+        final x = pos[i], y = pos[i + 1], z = pos[i + 2];
+        if (!x.isFinite || !y.isFinite || !z.isFinite) continue;
+        any = true;
+        lo = Vec3(math.min(lo.x, x), math.min(lo.y, y), math.min(lo.z, z));
+        hi = Vec3(math.max(hi.x, x), math.max(hi.y, y), math.max(hi.z, z));
+      }
+    }
+    return any ? (lo, hi) : null;
+  }
+
+  Map<String, double> _partAnchors(PartModel p) {
+    final b = _solidBounds(p);
+    if (b == null) return const {};
+    final (lo, hi) = b;
+    return {
+      'xmin': lo.x, 'xmax': hi.x, 'ymin': lo.y, 'ymax': hi.y, //
+      'zmin': lo.z, 'zmax': hi.z,
+      'cx': (lo.x + hi.x) / 2, 'cy': (lo.y + hi.y) / 2, 'cz': (lo.z + hi.z) / 2,
+      'w': hi.x - lo.x, 'h': hi.y - lo.y, 'd': hi.z - lo.z,
+    };
+  }
+
+  /// The part's box as seen IN the sketch [a] draws on: left, right, bottom,
+  /// top, cx, cy, w, h in that sketch's own x/y.
+  ///
+  /// This is the anchor that retires the frame table. On XZ, sketch +y is
+  /// world −Z, and a model that knew the part ran from z = −22 to 0 still had
+  /// to flip a sign to find its middle — and got it wrong on the block after
+  /// the first one, twice in #82. `sk.cx, sk.cy` is the middle, on whatever
+  /// plane or face the sketch sits, with the sign already applied.
+  Map<String, double> _sketchAnchors(PartModel p, AiAction a) {
+    final b = _solidBounds(p);
+    final named = a.text('sketch');
+    final cs = named != null
+        ? p.sketchByName(named)
+        : (p.childSketches.isEmpty ? null : p.childSketches.last);
+    if (b == null || cs == null) return const {};
+    final f = sketchFrameOf(cs);
+    final (lo, hi) = b;
+    var u0 = double.infinity, u1 = double.negativeInfinity;
+    var v0 = double.infinity, v1 = double.negativeInfinity;
+    for (final x in [lo.x, hi.x]) {
+      for (final y in [lo.y, hi.y]) {
+        for (final z in [lo.z, hi.z]) {
+          final q = f.toSketch(Vec3(x, y, z));
+          u0 = math.min(u0, q.dx);
+          u1 = math.max(u1, q.dx);
+          v0 = math.min(v0, q.dy);
+          v1 = math.max(v1, q.dy);
+        }
+      }
+    }
+    return {
+      'left': u0, 'right': u1, 'bottom': v0, 'top': v1, //
+      'cx': (u0 + u1) / 2, 'cy': (v0 + v1) / 2, 'w': u1 - u0, 'h': v1 - v0,
+    };
+  }
+
+  /// Defines named numbers for this part. All or nothing: a block whose
+  /// third name does not evaluate leaves the first two undefined too.
+  AiActionOutcome _defineVars(PartModel p, AiAction a) {
+    final store = _vars.putIfAbsent(p.name, () => {});
+    final staged = Map<String, double>.of(store);
+    final lookupBase = _lookupFor(p, a);
+    double? lookup(String n) => staged[n] ?? lookupBase(n);
+    final defined = <String, double>{};
+    for (final e in a.args.entries) {
+      final name = e.key;
+      if (!RegExp(r'^[A-Za-z_][A-Za-z0-9_]{0,31}$').hasMatch(name) ||
+          name == 'pi' ||
+          kAiExprFunctions.contains(name)) {
+        return AiActionOutcome.failed(a.op,
+            '"$name" is not a usable name — letters, digits and _, starting '
+            'with a letter, and not pi or a function name');
+      }
+      final raw = e.value;
+      double value;
+      if (raw is num && raw.isFinite) {
+        value = raw.toDouble();
+      } else if (raw is String) {
+        try {
+          value = aiEvalExpression(raw, lookup);
+        } on AiExprError catch (err) {
+          return AiActionOutcome.failed(a.op, '"$name": ${err.message}');
+        }
+      } else {
+        return AiActionOutcome.failed(
+            a.op, '"$name" must be a number or an expression');
+      }
+      staged[name] = value;
+      defined[name] = value;
+    }
+    if (staged.length > _kMaxVars) {
+      return AiActionOutcome.failed(
+          a.op, 'at most $_kMaxVars named numbers per part');
+    }
+    store
+      ..clear()
+      ..addAll(staged);
+    return AiActionOutcome(a.op, detail: {
+      'defined': {for (final e in defined.entries) e.key: _r(e.value)},
+      'known': store.length,
+    });
+  }
+
+  // ---- design rules: what is wrong with the part, measured --------------
+
+  /// Facts about the finished block that mean the part is not done.
+  ///
+  /// Kept to what the app can MEASURE and what is wrong in every design, so
+  /// a check can hold back a "Fertig" without second-guessing intent: a body
+  /// in pieces, and a feature that does not build.
+  List<String> _problems(PartModel p) {
+    final out = <String>[];
+    for (final (name, _) in p.solidBodies()) {
+      final solid = currentBodySolid(p, name);
+      if (solid == null) continue;
+      final pieces = meshComponentCount(solid.mesh);
+      if (pieces > 1) {
+        out.add('Body "$name" is $pieces separate pieces of material, not '
+            'one. Something is floating or was cut free — join it to the '
+            'rest, or delete the stray piece.');
+      }
+    }
+    for (final f in p.features) {
+      if (f.rolledBack || f.computeError == null) continue;
+      out.add('${f.typeLabel} "${f.name}" does not build: ${f.computeError}');
+    }
+    return out;
   }
 
   Future<AiActionOutcome> _one(PartModel p, AiAction a) async {
@@ -315,6 +610,8 @@ class AiCad {
         return this._combine(p, a);
       case 'pattern':
         return this._pattern(p, a);
+      case 'shell':
+        return this._shell(p, a);
       case 'describe_part':
         return AiActionOutcome('describe_part', detail: {'part': _state(p)});
       case 'describe_shape':
@@ -339,6 +636,8 @@ class AiCad {
       case 'brief_note':
       case 'brief_done':
         return _brief(a);
+      case 'vars':
+        return _defineVars(p, a);
       case 'create_sketch':
         return _createSketch(p, a);
       case 'sketch_rect':
@@ -349,6 +648,8 @@ class AiCad {
       case 'sketch_slot':
       case 'sketch_rounded_rect':
       case 'sketch_point':
+      case 'sketch_path':
+      case 'sketch_ring':
         return _draw(p, a);
       case 'extrude':
         return _extrude(p, a);
@@ -371,7 +672,68 @@ class AiCad {
 
   static const _planes = {'xy', 'xz', 'yz'};
 
+  /// `on` — a side of the part's box, as the plane that side lies in and the
+  /// offset that puts a sketch on it, and whether that plane's normal points
+  /// out of the material.
+  static const Map<String, (String, bool)> _sides = {
+    'top': ('xz', true),
+    'bottom': ('xz', false),
+    'front': ('xy', true),
+    'back': ('xy', false),
+    'right': ('yz', true),
+    'left': ('yz', false),
+  };
+
   AiActionOutcome _createSketch(PartModel p, AiAction a) {
+    // "On top of the part" without a face id, a normal or a frame of its own:
+    // the ORIGIN plane that side is parallel to, moved out to the side. The
+    // axes are exactly the table's, so nothing new has to be learned, and the
+    // sketch's (0,0) stays over the world origin — use sk.cx/sk.cy for the
+    // middle of the part.
+    final on = a.text('on')?.toLowerCase();
+    if (on != null) {
+      final side = _sides[on];
+      if (side == null) {
+        return AiActionOutcome.failed(a.op,
+            'on must be one of ${_sides.keys.join(", ")}');
+      }
+      final b = _solidBounds(p);
+      if (b == null) {
+        return AiActionOutcome.failed(
+            a.op, 'there is no body yet to put a sketch on');
+      }
+      final (plane, outward) = side;
+      final (lo, hi) = b;
+      final at = switch (on) {
+        'top' => hi.y,
+        'bottom' => lo.y,
+        'front' => hi.z,
+        'back' => lo.z,
+        'right' => hi.x,
+        _ => lo.x,
+      };
+      final made = _createSketch(
+          p,
+          AiAction(a.op, {
+            for (final e in a.args.entries)
+              if (e.key != 'on') e.key: e.value,
+            'plane': plane,
+            'offset': at,
+          }));
+      if (!made.ok) return made;
+      return AiActionOutcome(a.op, detail: {
+        ...?made.detail,
+        'on': on,
+        'note': outward
+            ? 'This sketch lies on the $on of the part. Extrude with the '
+                'default direction to build outward from it, or cut into the '
+                'part with direction "flipped".'
+            : 'This sketch lies on the $on of the part, and the plane normal '
+                'points INTO the material. Extrude with direction "flipped" '
+                'to build outward from it; a cut with the default direction '
+                'goes into the part.',
+      });
+    }
     final plane = (a.text('plane') ?? 'xy').toLowerCase();
     if (!_planes.contains(plane)) {
       return AiActionOutcome.failed(
@@ -401,6 +763,7 @@ class AiCad {
     sketch.insertLayerAboveMarker(_layerName);
     p.appendChildSketch(ChildSketch(sketch, frame == null ? plane : 'face',
         frame, true, false, p.nextSeq()));
+    _madeSketches.add('${p.name}/${sketch.name}');
     app.aiAdmitSketchRow(p);
     Log.i('ai',
         'sketch "${sketch.name}" created on $plane${offset == 0 ? "" : " + $offset mm"} of "${p.name}"');
@@ -681,6 +1044,16 @@ class AiCad {
             'radius': _r(radius),
           };
         }
+      case 'sketch_path':
+      case 'sketch_ring':
+        {
+          final (geos, info, why) = a.op == 'sketch_path'
+              ? buildSketchPath(a, layer)
+              : buildSketchRing(a, layer);
+          if (geos == null) return AiActionOutcome.failed(a.op, why!);
+          made = geos;
+          detail = info!;
+        }
       case 'sketch_point':
         {
           final x = a.number('x'), y = a.number('y');
@@ -780,10 +1153,12 @@ class AiCad {
     final (cs, err) = _sketchFor(p, a);
     if (cs == null) return AiActionOutcome.failed(a.op, err!);
     app.aiForgetRegions(cs.model.name);
-    final regions = app.sessionRegions(cs);
-    if (regions.isEmpty) {
+    final all = app.sessionRegions(cs);
+    if (all.isEmpty) {
       return AiActionOutcome.failed(a.op, _noProfile(cs, 'extrude'));
     }
+    final (regions, ruleWhy) = _pickRegions(all, a, _outputOf(a, p));
+    if (regions == null) return AiActionOutcome.failed(a.op, ruleWhy!);
     final through = a.flag('through_all');
     final distance = a.number('distance');
     if (!through && (distance == null || distance <= 0)) {
@@ -834,6 +1209,8 @@ class AiCad {
     return _commitFeature(p, a, f, base, {
       'sketch': cs.model.name,
       'profiles': f.profiles.length,
+      if (regions.length != all.length)
+        'profilesLeftOpen': all.length - regions.length,
       if (!through) 'distance': _r(d),
       'extent': through ? 'throughAll' : 'distance',
       'direction': extrudeDirName(direction),
@@ -845,11 +1222,12 @@ class AiCad {
     final (cs, err) = _sketchFor(p, a);
     if (cs == null) return AiActionOutcome.failed(a.op, err!);
     app.aiForgetRegions(cs.model.name);
-    final regions = app.sessionRegions(cs);
-    if (regions.isEmpty) {
-      return AiActionOutcome.failed(a.op,
-          'sketch "${cs.model.name}" has no closed profile to revolve');
+    final all = app.sessionRegions(cs);
+    if (all.isEmpty) {
+      return AiActionOutcome.failed(a.op, _noProfile(cs, 'revolve'));
     }
+    final (regions, ruleWhy) = _pickRegions(all, a, _outputOf(a, p));
+    if (regions == null) return AiActionOutcome.failed(a.op, ruleWhy!);
     final angle = a.number('angle') ?? 360;
     if (angle <= 0 || angle > 360) {
       return AiActionOutcome.failed(a.op, 'angle must be > 0 and <= 360');
@@ -899,6 +1277,76 @@ class AiCad {
       'axis': axis,
       'operation': output,
     });
+  }
+
+  /// Which closed regions of a sketch a feature is built from.
+  ///
+  /// Every region used to be taken, always. A plate drawn with a circle
+  /// inside it is two regions — the plate with a hole, and the disc that
+  /// fills the hole — and taking both builds a plate with no hole: the
+  /// assistant had to extrude the plate and then cut the hole as a second
+  /// feature, and a ring drawn as two circles came out a solid cylinder.
+  ///
+  /// So the default follows the rule every drawing program uses for nested
+  /// outlines, EVEN-ODD: a region inside an odd number of other outlines is a
+  /// hole and stays open, one inside an even number is material. Overlapping
+  /// shapes are not nested — their pieces are side by side — so they still
+  /// union. A cut takes every region, because cutting a plate outline with a
+  /// circle in it means cutting all of it.
+  ///
+  ///   regions: "auto" (default) | "evenodd" | "all" | "largest"
+  ///            | [[x, y], ...] — the regions containing these points
+  (List<ProfileRegion>?, String?) _pickRegions(
+      List<ProfileRegion> all, AiAction a, String output) {
+    final rule = a.args['regions'];
+    bool contains(ProfileRegion r, Offset q) =>
+        pointInPolygon(q, r.outer.pts) &&
+        !r.holes.any((h) => pointInPolygon(q, h.pts));
+    if (rule is List) {
+      final pts = a.points('regions');
+      if (pts.isEmpty) {
+        return (null, 'regions must be a rule name or [[x, y], ...]');
+      }
+      final picked = [
+        for (final r in all)
+          if (pts.any((q) => contains(r, Offset(q[0], q[1])))) r
+      ];
+      if (picked.isEmpty) {
+        return (
+          null,
+          'none of the points in regions lies inside a closed region of the '
+              'sketch (it has ${all.length})'
+        );
+      }
+      return (picked, null);
+    }
+    final name = (rule is String ? rule : 'auto').toLowerCase();
+    switch (name) {
+      case 'all':
+        return (all, null);
+      case 'largest':
+        final best = [...all]
+          ..sort((x, y) => y.outer.area.compareTo(x.outer.area));
+        return ([best.first], null);
+      case 'auto':
+      case 'evenodd':
+        if (name == 'auto' && output == 'cut') return (all, null);
+        final picked = <ProfileRegion>[];
+        for (final r in all) {
+          final q = regionAnchor(r);
+          var depth = 0;
+          for (final o in all) {
+            if (identical(o, r)) continue;
+            if (pointInPolygon(q, o.outer.pts)) depth++;
+          }
+          if (depth.isEven) picked.add(r);
+        }
+        return (picked.isEmpty ? all : picked, null);
+    }
+    return (
+      null,
+      'regions must be "auto", "evenodd", "all", "largest" or [[x, y], ...]'
+    );
   }
 
   ExtrudeDirection? _direction(AiAction a) =>
@@ -994,6 +1442,43 @@ class AiCad {
     // The kernel refused this size. Ask it what it WOULD take, so the next
     // block is a build rather than another guess.
     final fits = _largestBlendThatBuilds(p, body, selections, isFillet, size);
+    // #84/#83 — THE APP BUILDS WHAT IT FOUND. Told "0.88 builds", the model
+    // has retried at exactly that number every time it was told, one round
+    // trip each, and #84 spent eight rounds and 21 s of kernel time on it.
+    // The number was already verified, so it is applied here and reported
+    // plainly: what was asked, what was built, and how to ask for exactly the
+    // original or nothing (`"exact": true`).
+    if (fits != null && !a.flag('exact')) {
+      final retry = AiAction(a.op, {
+        ...a.args,
+        isFillet ? 'radius' : 'distance': fits,
+        'exact': true,
+      });
+      final built = await _blend(p, retry);
+      if (built.ok) {
+        return AiActionOutcome(a.op, detail: {
+          ...?built.detail,
+          isFillet ? 'radiusAsked' : 'distanceAsked': _r(size),
+          'note': '${_mm(size)} mm does not build on these edges; '
+              '${_mm(fits)} mm is the largest that does, so that was built. '
+              'If the design needs the full size, change the geometry the '
+              'blend runs between; to refuse a smaller blend, send '
+              '"exact": true.',
+        });
+      }
+    }
+    if (fits == null) {
+      final solid = currentBodySolid(p, body);
+      if (solid?.shape != null && !solid!.shape!.valid) {
+        return AiActionOutcome.failed(
+            a.op,
+            '${outcome.error} — and no size builds, because body "$body" is '
+            'not a valid solid. The blend is not the problem: the last '
+            'feature that made this body twisted or folded it (a sweep '
+            'whose profile is not square to its path is the usual cause). '
+            'Fix or replace that feature first.');
+      }
+    }
     return AiActionOutcome.failed(
         a.op,
         fits == null
@@ -1111,7 +1596,14 @@ class AiCad {
     var lo = 1, hi = (asked * 100).floor() - 1;
     int? best;
     var probes = 0;
-    while (lo <= hi && probes < _kMaxBlendProbes) {
+    // Wall clock as well as a count: a 26-edge probe took about a second in
+    // #83, and one failing fillet held the block for 6.6 s. A search that
+    // runs out of time returns the best size it has BUILT so far, which is
+    // still a promise kept, just a smaller one.
+    final clock = Stopwatch()..start();
+    while (lo <= hi &&
+        probes < _kMaxBlendProbes &&
+        clock.elapsedMilliseconds < _kBlendSearchMs) {
       final mid = lo + (hi - lo + 1) ~/ 2;
       probes++;
       if (builds(mid / 100)) {
@@ -1136,26 +1628,9 @@ class AiCad {
   /// letting a pathological body stall the block (#83).
   static const int _kMaxBlendProbes = 12;
 
-    // ISSUE #83 — PROMISE ONLY A NUMBER THAT WAS ACTUALLY BUILT.
-    //
-    // The line here used to be `(best * 100).floorToDouble() / 100` with the
-    // comment "a value the model retries must still build". It does not, and
-    // the rounding is why: bisection verified 0.96875, the app floored it to
-    // 0.96 and promised 0.96, and nobody ever built 0.96. Blend buildability
-    // is NOT monotonic in radius — with 26 edges a different edge set binds at
-    // each size, and the reported session shows it switching from "edge set 7"
-    // to "edge set 16" on the way down.
-    //
-    // So the model did exactly as it was told, five times:
-    //
-    //   asked 2.00 -> "0.96 does build"  -> 0.96 fails -> "0.94 does build"
-    //              -> 0.94 fails         -> "0.92"     -> 0.92 fails
-    //              -> "0.90"             -> 0.90 fails -> "0.88"  -> built
-    //
-    // Five provider round trips, every one of them spent on a promise the app
-    // had not checked. A staircase the app walks down for free in the kernel
-    // is a staircase the user should never see.
-    //
+  /// How long one blend search may run, whatever the probe count.
+  static const int _kBlendSearchMs = 3000;
+
   /// The picked edges as a person would describe them: straight ones, and
   /// circles grouped by diameter — a circular edge at the diameter of a hole
   /// IS that hole's mouth.
@@ -1783,6 +2258,7 @@ class AiCad {
     sketch.insertLayerAboveMarker(_layerName);
     p.appendChildSketch(ChildSketch(
         sketch, kWorkPlaneKey, frame, true, false, p.nextSeq()));
+    _madeSketches.add('${p.name}/${sketch.name}');
     app.aiAdmitSketchRow(p);
     Log.i('ai', 'sketch "${sketch.name}" on face F${face.id} of "${p.name}"');
     return AiActionOutcome(a.op, detail: {
@@ -2007,6 +2483,16 @@ class AiCad {
   /// honestly and the report says exactly that rather than claiming geometry.
   Future<AiActionOutcome> _commitFeature(PartModel p, AiAction a, PartFeature f,
       KernelSolid? base, Map<String, dynamic> detail) async {
+    final id = a.text('id');
+    if (id != null) {
+      if (!RegExp(r'^[A-Za-z0-9_][A-Za-z0-9_ \-]{0,39}$').hasMatch(id)) {
+        return AiActionOutcome.failed(a.op,
+            'id must be 1-40 letters, digits, spaces, _ or -');
+      }
+      final existing = _feature(p, id);
+      if (existing != null) return _replaceFeature(p, a, existing, f, detail);
+      f.name = id;
+    }
     final ok = recomputeFeature(p, f, app.partKernel, base: base);
     if (!ok && app.partKernel.available) {
       f.disposeSolid();
@@ -2014,6 +2500,16 @@ class AiCad {
       return AiActionOutcome.failed(
           a.op, '${f.typeLabel} did not build: $why${_remedyFor(why)}');
     }
+    final twisted = _invalidSolid(f);
+    if (twisted != null) {
+      f.disposeSolid();
+      return AiActionOutcome.failed(a.op, twisted);
+    }
+    // The body as it was, measured BEFORE the feature joins the fold: for an
+    // extrude, the feature's own solid is only the tool, and the boolean with
+    // the body happens in the rebuild below.
+    final baseVolume = base?.volume;
+    final basePieces = base == null ? 0 : meshComponentCount(base.mesh);
     f.seq = p.nextSeq();
     p.appendFeature(f);
     _madeAt[f.name] = _blockNo; // #83 — so a later delete can be recognised
@@ -2023,6 +2519,17 @@ class AiCad {
       p.sketchByName(f.sketchName)?.visible = false;
     }
     app.aiRebuild(p);
+    final wrong = _geometryVerdict(p, f, baseVolume, basePieces);
+    if (wrong != null) {
+      // Out again, and the part rebuilt without it; the block's rollback
+      // restores anything else this step touched.
+      p.features.remove(f);
+      _madeAt.remove(f.name);
+      f.disposeSolid();
+      app.aiRebuild(p);
+      return AiActionOutcome.failed(a.op, wrong);
+    }
+    final change = _volumeChange(p, f, baseVolume);
     Log.i('ai', '${f.kind} "${f.name}" created on "${p.name}" ok=$ok');
     return AiActionOutcome(a.op, detail: {
       'feature': f.name,
@@ -2032,7 +2539,152 @@ class AiCad {
         'note': 'No 3D kernel is linked in this build, so the feature is '
             'stored with its parameters but carries no geometry yet.',
       ...?_bodyFacts(p, f.bodyName),
+      ...?change,
     });
+  }
+
+  /// ISSUE #83 — "built four times, deleted four times". An `id` names a
+  /// feature, and naming one that exists REPLACES it where it stands in the
+  /// timeline: same position, same body, everything after it rebuilt on top
+  /// of the new version. That is what the model was trying to do with
+  /// delete_feature and a rebuild, except that the rebuild always landed at
+  /// the END — after the blends and holes that depended on it — and every
+  /// cycle cost a round trip. Now it is one action, and it cannot duplicate.
+  Future<AiActionOutcome> _replaceFeature(PartModel p, AiAction a,
+      PartFeature old, PartFeature f, Map<String, dynamic> detail) async {
+    final at = p.features.indexOf(old);
+    if (at < 0) return AiActionOutcome.failed(a.op, 'feature vanished');
+    // A new body replacing a new body keeps its name, so the features that
+    // were built on it still find it.
+    if (!f.modifiesBody && f.output == 'new' && old.output == 'new') {
+      f.bodyName = old.bodyName;
+    } else if (a.text('body') == null && f.bodyName != old.bodyName) {
+      f.bodyName = old.bodyName;
+    }
+    f.name = old.name;
+    f.seq = old.seq;
+    final oldSketch = old.sketchName;
+    old.disposeSolid();
+    p.features[at] = f;
+    app.aiRebuild(p);
+    final broken = [
+      for (final g in p.features.skip(at))
+        if (!g.rolledBack && g.computeError != null) g
+    ];
+    if (broken.isNotEmpty || (app.partKernel.available && f.solid == null)) {
+      // The block's rollback restores the old version; say what broke.
+      final first = broken.isEmpty ? f : broken.first;
+      return AiActionOutcome.failed(
+          a.op,
+          identical(first, f)
+              ? 'the new version of "${f.name}" did not build: '
+                  '${f.computeError ?? app.partKernel.lastError}'
+              : 'the new "${f.name}" built, but "${first.name}" after it no '
+                  'longer does: ${first.computeError}');
+    }
+    // The sketch the old version was drawn on is nobody's any more.
+    if (oldSketch.isNotEmpty &&
+        oldSketch != f.sketchName &&
+        consumersOf(p, oldSketch).isEmpty &&
+        _madeSketches.contains('${p.name}/$oldSketch')) {
+      p.childSketches.removeWhere((cs) => cs.model.name == oldSketch);
+    }
+    if (f.sketchName.isNotEmpty && consumersOf(p, f.sketchName).length == 1) {
+      p.sketchByName(f.sketchName)?.visible = false;
+    }
+    _madeAt[f.name] = _blockNo;
+    Log.i('ai', '${f.kind} "${f.name}" replaced in place on "${p.name}"');
+    return AiActionOutcome(a.op, detail: {
+      'feature': f.name,
+      'replaced': true,
+      'body': f.bodyName,
+      ...detail,
+      'note': 'The earlier "${f.name}" was replaced where it stood in the '
+          'timeline; everything after it was rebuilt on the new one.',
+      ...?_bodyFacts(p, f.bodyName),
+    });
+  }
+
+  /// Sketches this executor created, as "part/sketch" — only these may be
+  /// tidied away when the feature that consumed them is replaced.
+  final Set<String> _madeSketches = {};
+
+  /// Why a feature that BUILT is still wrong, measured on its result — or
+  /// null when it is fine.
+  ///
+  /// Two failures the kernel reports as successes, and which #82 shipped:
+  /// a cut that removes nothing (the countersink placed in open air still
+  /// "builds"), and a join whose new material does not touch the body (the
+  /// clamp "joined" while floating). Both leave a feature in the timeline
+  /// that does nothing or does harm, and the model reads "ok" and moves on.
+  String? _invalidSolid(PartFeature f) {
+    final after = f.solid;
+    if (after == null || !app.partKernel.available) return null;
+    // ISSUE #84 — a sweep whose profile was not square to its path "built",
+    // and every blend on the part then failed for eight rounds before the
+    // model worked out why. Sweeps, lofts and coils are where a body can
+    // come back self-intersecting; the kernel's checker says so at once.
+    // Only these three: a boolean or a blend result can fail the strict
+    // checker and still be a perfectly usable part.
+    if ((f is SweepFeature || f is LoftFeature || f is CoilFeature) &&
+        after.shape != null &&
+        !after.shape!.valid) {
+      return '${f.typeLabel} built a solid that is not valid — it twists '
+          'through itself. For a sweep, the profile must sit at the START '
+          'of the path, square to it: use profile_circle (the app places '
+          'it for you), or draw the profile on the plane whose normal is '
+          'the path\'s start direction.';
+    }
+    return null;
+  }
+
+  /// Why a feature that BUILT is still wrong, measured on the body after it
+  /// joined the fold — or null when it is fine.
+  ///
+  /// Two failures the kernel reports as successes, and which #82 shipped:
+  /// a cut that removes nothing (the countersink placed in open air still
+  /// "builds"), and a join whose new material does not touch the body (the
+  /// clamp "joined" while floating). Both leave a feature in the timeline
+  /// that does nothing or does harm, and the model reads "ok" and moves on.
+  String? _geometryVerdict(
+      PartModel p, PartFeature f, double? baseVolume, int basePieces) {
+    if (baseVolume == null || !app.partKernel.available) return null;
+    final after = currentBodySolid(p, f.bodyName);
+    if (after == null) return null;
+    final removes = f is HoleFeature ||
+        (!f.modifiesBody && f.output == 'cut');
+    if (removes) {
+      final removed = baseVolume - after.volume;
+      if (removed.abs() <= math.max(1e-6, baseVolume * 1e-9)) {
+        return '${f.typeLabel} removed no material — the tool does not '
+            'reach the body. Read `extentMm` and put the profile where the '
+            'body is (sk.cx, sk.cy are its middle in this sketch), or check '
+            'the direction: a cut from a sketch ON a face goes into the part '
+            'only when it points inward.';
+      }
+      return null;
+    }
+    if (!f.modifiesBody && f.output == 'join') {
+      if (meshComponentCount(after.mesh) > basePieces) {
+        return '${f.typeLabel} built, but its material does not touch the '
+            'body it joins — it would float as a separate piece. Move it '
+            'onto the body (read `extentMm`; sk.* anchors give the body\'s '
+            'edges in this sketch), or use operation "new" if a separate '
+            'body is really what you want.';
+      }
+    }
+    return null;
+  }
+
+  /// How much material a feature added or removed, for the report.
+  Map<String, dynamic>? _volumeChange(
+      PartModel p, PartFeature f, double? baseVolume) {
+    if (baseVolume == null || !app.partKernel.available) return null;
+    if (f.output == 'new' && !f.modifiesBody) return null;
+    final after = currentBodySolid(p, f.bodyName);
+    if (after == null) return null;
+    final d = after.volume - baseVolume;
+    return {d >= 0 ? 'addedMm3' : 'removedMm3': _r(d.abs())};
   }
 
   Map<String, dynamic>? _bodyFacts(PartModel p, String body) {
@@ -2056,7 +2708,9 @@ class AiCad {
   /// This says what changed and how big the thing is now. The full tree is
   /// one `describe_part` away and is never stale when it arrives.
   Map<String, dynamic> _stateBrief(PartModel p) {
-    final bounds = partContentBounds(p);
+    // Material only: see [_solidBounds] for why a sketch must not move the
+    // centre the model places the next feature at.
+    final bounds = _solidBounds(p);
     final last = p.features.isEmpty ? null : p.features.last;
     return {
       'name': p.name,

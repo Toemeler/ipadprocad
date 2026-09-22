@@ -220,20 +220,47 @@ void main() {
       expect(part['units'], {'length': 'mm', 'angle': 'deg'});
     });
 
-    test('one failed action rolls the whole block back', () async {
+    test('a failure before any feature built rolls the whole block back',
+        () async {
       final app = await emptyPart();
       final report = await AiCad(app).run([
-        ...makeBlock(),
+        const AiAction('create_sketch', {'plane': 'xy'}),
+        const AiAction('sketch_rect', {'width': 10, 'height': 10}),
         const AiAction('extrude', {'distance': -5}),
       ]);
       expect(report.reverted, isTrue);
+      expect(report.kept, 0);
       expect(report.ok, isFalse);
       expect(report.outcomes.last.error, contains('distance'));
-      // Nothing of the block survives — not the feature that built, and not
-      // the sketch that was drawn before it.
+      // Nothing of the block survives — not the sketch drawn for the step
+      // that failed.
       final part = app.currentPart!;
       expect(part.features, isEmpty);
       expect(part.childSketches, isEmpty);
+    });
+
+    // #83 — a block no longer fails as a whole. What built before the failure
+    // stays, so the model does not spend a round trip rebuilding it; what the
+    // failed step drew goes. The report says exactly where the line is.
+    test('a failure after a feature keeps the feature and says so', () async {
+      final app = await emptyPart();
+      final report = await AiCad(app).run([
+        ...makeBlock(),
+        const AiAction('create_sketch', {'plane': 'xy'}),
+        const AiAction('extrude', {'distance': -5}),
+      ]);
+      expect(report.reverted, isTrue);
+      expect(report.partial, isTrue);
+      expect(report.kept, makeBlock().length);
+      expect(report.ok, isFalse);
+      final part = app.currentPart!;
+      expect(part.features, hasLength(1));
+      expect(part.childSketches, hasLength(1),
+          reason: 'the sketch opened for the failed step is rolled back');
+      expect(report.toJson()['note'], contains('stay there'));
+      // And one undo still takes the whole block back.
+      await app.undoPart();
+      expect(app.currentPart!.features, isEmpty);
     });
 
     test('a successful block is one undo step', () async {

@@ -17,6 +17,7 @@
 library;
 
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'ai_models.dart';
 
@@ -43,6 +44,11 @@ const Set<String> kAiOps = {
   'sketch_slot',
   'sketch_rounded_rect',
   'sketch_point',
+  // Geometry by construction: a profile whose segments each start where the
+  // last one ended, so it closes because of how it is written, not because
+  // two rounded numbers happened to agree.
+  'sketch_path',
+  'sketch_ring',
   'sketch_tool',
   'sketch_modify',
   'sketch_project',
@@ -60,6 +66,8 @@ const Set<String> kAiOps = {
   'split_body',
   'combine',
   'pattern',
+  // #85 — hollow to a wall, open on the named side.
+  'shell',
   'fillet',
   'chamfer',
   'edit_feature',
@@ -69,6 +77,8 @@ const Set<String> kAiOps = {
   'brief_done',
   // #82 — opens one document from the bundled knowledge base by id.
   'knowledge',
+  // Named numbers for this part, usable in any numeric argument.
+  'vars',
 };
 
 /// Ops that only READ. They take no part snapshot, never trigger a rollback,
@@ -87,12 +97,41 @@ const Set<String> kAiReadOnlyOps = {
   // #82 — reading a reference document changes nothing about the part, so it
   // never marks a block as mutating and never triggers a rollback.
   'knowledge',
+  // Defining a named number changes nothing about the part either.
+  'vars',
 };
 
 /// Ops that change the BRIEF rather than the geometry. A recorded requirement
 /// must not be rolled back because an extrusion later in the same block
 /// failed: it is something the user said, not something the app built.
 const Set<String> kAiBriefOps = {'brief_note', 'brief_done'};
+
+/// Ops after which the document is whole again: each one either builds a
+/// feature, changes one, or removes one, and a successful one leaves nothing
+/// half-drawn behind it. A block that fails later is committed up to the last
+/// of these (see [AiActionReport.kept]). Sketch ops are deliberately absent —
+/// a sketch drawn for a feature that then failed is part of the failed step.
+const Set<String> kAiCommitOps = {
+  'extrude',
+  'revolve',
+  'hole',
+  'sweep',
+  'loft',
+  'coil',
+  'shell',
+  'split_body',
+  'combine',
+  'pattern',
+  'fillet',
+  'chamfer',
+  'edit_feature',
+  'delete_feature',
+  'rename_feature',
+  'delete_face',
+  'move_face',
+  'size_face',
+  'scale_body',
+};
 
 /// Actions in one block.
 ///
@@ -102,11 +141,21 @@ const Set<String> kAiBriefOps = {'brief_note', 'brief_done'};
 /// word, and if anything goes wrong they get nothing at all rather than the
 /// three steps that did succeed.
 ///
-/// Six forces the same part to arrive as a sequence of small blocks, each of
+/// Six forced the same part to arrive as a sequence of small blocks, each of
 /// which lands in the document, is visible in the browser, and is undoable on
-/// its own. It costs more requests — every round resends the conversation —
-/// and that is the trade: time-to-first-geometry over total tokens.
-const int kAiMaxActionsPerBlock = 6;
+/// its own. It cost more requests — every round resends the conversation.
+///
+/// ISSUE #83 — THE COST WAS THE ROUND TRIPS. 21 provider rounds at 5 to 70
+/// seconds each carried a part whose kernel work took under a second, and six
+/// actions is less than one honest step of a real part: a sketch, a
+/// three-segment profile and its extrude is already five. Twelve is one step
+/// with room to finish it — a plate and its holes, a profile and its blends —
+/// and it is safe now for the reason six was chosen: a block no longer fails
+/// as a whole. Everything up to the last feature that built stays in the
+/// document ([AiActionReport.kept]), so a long block that stumbles at its end
+/// still delivers the steps that worked, which is what issue #70 asked for.
+/// `vars` does not count: it names numbers and builds nothing.
+const int kAiMaxActionsPerBlock = 12;
 
 /// How many times one `send()` may go model -> actions -> results -> model.
 ///
@@ -170,18 +219,47 @@ class AiAction {
     if (v is! List) return const [];
     final out = <List<double>>[];
     for (final p in v) {
-      if (p is List && p.length >= 2 && p[0] is num && p[1] is num) {
-        final x = (p[0] as num).toDouble(), y = (p[1] as num).toDouble();
-        if (x.isFinite && y.isFinite) out.add([x, y]);
-      } else if (p is Map && p['x'] is num && p['y'] is num) {
-        final x = (p['x'] as num).toDouble(), y = (p['y'] as num).toDouble();
-        if (x.isFinite && y.isFinite) out.add([x, y]);
-      }
+      final q = aiPoint(p);
+      if (q != null) out.add(q);
     }
     return out;
   }
 
+  /// One 2D point argument, or null when [key] is absent or not a point.
+  List<double>? point(String key) => aiPoint(args[key]);
+
   Map<String, dynamic> toJson() => {'op': op, ...args};
+}
+
+/// A 2D point in any of the forms the protocol accepts: `[x, y]`,
+/// `{"x": .., "y": ..}`, or POLAR — `{"r": 5, "deg": 30}`, optionally about
+/// `{"cx": .., "cy": ..}`.
+///
+/// Polar is here for the same reason expressions are (see ai_expr.dart): the
+/// point on a circle at 30 degrees is a fact the app can compute exactly and
+/// the model can only round. Arguments reach this after the executor has
+/// evaluated any expressions in them, so every component is a number here.
+List<double>? aiPoint(Object? p) {
+  double? n(Object? v) => v is num && v.isFinite ? v.toDouble() : null;
+  if (p is List && p.length >= 2) {
+    final x = n(p[0]), y = n(p[1]);
+    return x == null || y == null ? null : [x, y];
+  }
+  if (p is Map) {
+    final x = n(p['x']), y = n(p['y']);
+    if (x != null && y != null) return [x, y];
+    final r = n(p['r']) ?? n(p['radius']);
+    final deg = n(p['deg']) ?? n(p['angle']);
+    if (r != null && deg != null) {
+      final cx = n(p['cx']) ?? 0, cy = n(p['cy']) ?? 0;
+      final a = deg * math.pi / 180;
+      // Snapped like the expression evaluator's trig, so r at 90 degrees is
+      // exactly (0, r) and not (6e-16, r).
+      double clean(double v) => v.abs() < 1e-15 ? 0 : v;
+      return [cx + r * clean(math.cos(a)), cy + r * clean(math.sin(a))];
+    }
+  }
+  return null;
 }
 
 /// What one action did, or why it did not.
@@ -212,12 +290,32 @@ class AiActionReport {
   AiActionReport(
       {required this.outcomes,
       this.reverted = false,
+      this.kept = 0,
       this.state,
       this.blocked,
       this.title,
+      this.problems = const [],
       List<AiAttachment> images = const []})
       : images = List.unmodifiable(images);
   final List<AiActionOutcome> outcomes;
+
+  /// How many of [outcomes], from the start, are still in the document when
+  /// [reverted] is set. Zero is the old whole-block rollback.
+  ///
+  /// A block is committed up to the last FEATURE that built before the
+  /// failure: that point is a consistent document (every feature in it built,
+  /// no half-drawn sketch hanging off the end), and throwing it away cost a
+  /// whole round trip to rebuild what had already worked (#83). Everything
+  /// after it goes back, including sketch geometry drawn for the step that
+  /// failed, so the model is never told "step 3 of 5 worked" about a document
+  /// that does not contain steps 1 and 2 — the rule this report was built on.
+  final int kept;
+
+  /// Design-rule violations the app found in the result — a join that left
+  /// material floating, a cut that removed nothing. Each is a fact about the
+  /// geometry, measured after the block, and while any is open the block's
+  /// "say" line is not taken: a part that fails its own checks is not done.
+  final List<String> problems;
 
   /// The user-facing title of the block that produced this report, so the
   /// transcript can say "Rounding the rim" where it used to say "4 changes".
@@ -235,7 +333,12 @@ class AiActionReport {
   final String? blocked;
 
   bool get ok => blocked == null && !reverted && outcomes.every((o) => o.ok);
-  int get applied => reverted ? 0 : outcomes.where((o) => o.ok).length;
+  int get applied => reverted
+      ? outcomes.take(kept).where((o) => o.ok).length
+      : outcomes.where((o) => o.ok).length;
+
+  /// Whether part of a failed block is still in the document.
+  bool get partial => reverted && kept > 0;
 
   /// The same report under a user-facing title. The executor does not know
   /// the title — it belongs to the block, not to any one action — so the
@@ -246,18 +349,32 @@ class AiActionReport {
           : AiActionReport(
               outcomes: outcomes,
               reverted: reverted,
+              kept: kept,
               state: state,
               blocked: blocked,
               title: value,
+              problems: problems,
               images: images);
 
   Map<String, dynamic> toJson() => {
         if (title != null) 'title': title,
         'actionResults': [for (final o in outcomes) o.toJson()],
         if (reverted) 'reverted': true,
+        if (reverted && kept > 0) 'kept': kept,
         if (reverted)
-          'note': 'One action failed, so the whole block was rolled back. '
-              'The document is exactly as it was before this block.',
+          'note': kept == 0
+              ? 'One action failed, so the whole block was rolled back. '
+                  'The document is exactly as it was before this block.'
+              : 'Action ${outcomes.length} failed. Actions 1-$kept are in '
+                  'the document and stay there — do not build them again. '
+                  'Actions ${kept + 1}-${outcomes.length} were rolled back, '
+                  'including any sketch drawn for the step that failed. '
+                  'Continue from action ${kept + 1}.',
+        if (problems.isNotEmpty) 'problems': problems,
+        if (problems.isNotEmpty)
+          'problemsNote': 'The app checked the result and these are wrong '
+              'with it. Fix them before anything else; the part is not done '
+              'while any is open.',
         if (blocked != null) 'blocked': blocked,
         if (state != null) 'partAfter': state,
       };
@@ -286,6 +403,11 @@ class AiActionReport {
                 ok: o['ok'] as bool? ?? false, error: o['error'] as String?)
         ],
         reverted: j['reverted'] as bool? ?? false,
+        kept: (j['kept'] as num?)?.toInt() ?? 0,
+        problems: [
+          if (j['problems'] is List)
+            for (final p in (j['problems'] as List).whereType<String>()) p
+        ],
         blocked: j['blocked'] as String?,
         title: j['title'] is String && (j['title'] as String).trim().isNotEmpty
             ? (j['title'] as String).trim()
@@ -499,6 +621,15 @@ AiActionBlock parseAiActions(String reply) {
       title ??= _clampTitle(parsed['title']);
       final line = parsed['say'];
       if (line is String && line.trim().isNotEmpty) say ??= line.trim();
+      // Block-level named numbers: {"vars": {"wall": 2, "r": "d/2"}, ...}.
+      // They run first, as an ordinary `vars` action, so every action in the
+      // block — and every later block on this part — can use the names.
+      final vars = parsed['vars'];
+      if (vars is Map && vars.isNotEmpty) {
+        actions.add(AiAction('vars', vars.cast<String, dynamic>()));
+      } else if (vars != null && vars is! Map) {
+        error ??= '"vars" must be an object of name: number pairs.';
+      }
     }
     final list = parsed is List
         ? parsed
@@ -508,6 +639,8 @@ AiActionBlock parseAiActions(String reply) {
                 ? [parsed]
                 : null;
     if (list == null) {
+      // A block that only closes the turn: {"title": ..., "say": ...}.
+      if (parsed is Map && say != null) continue;
       error ??= 'A cad block must be {"title": "...", "actions": [ ... ]}.';
       continue;
     }
@@ -525,10 +658,11 @@ AiActionBlock parseAiActions(String reply) {
       actions.add(AiAction(op, args));
     }
   }
-  if (actions.length > kAiMaxActionsPerBlock) {
+  final counted = actions.where((a) => a.op != 'vars').length;
+  if (counted > kAiMaxActionsPerBlock) {
     return AiActionBlock(const [],
         parseError: 'At most $kAiMaxActionsPerBlock actions per block; '
-            'this one had ${actions.length}. Split the work across turns.',
+            'this one had $counted. Split the work across turns.',
         title: title);
   }
   return AiActionBlock(error == null ? actions : const [],
@@ -688,6 +822,8 @@ class AiActivity {
         'sketch_slot' ||
         'sketch_rounded_rect' ||
         'sketch_point' ||
+        'sketch_path' ||
+        'sketch_ring' ||
         'sketch_tool' ||
         'sketch_project' ||
         'sketch_pattern' ||
@@ -705,7 +841,8 @@ class AiActivity {
         'coil' ||
         'split_body' ||
         'combine' ||
-        'pattern' =>
+        'pattern' ||
+        'shell' =>
           AiWork.building,
         'edit_feature' ||
         'delete_feature' ||
@@ -719,7 +856,7 @@ class AiActivity {
         'sketch_dimension' =>
           AiWork.editing,
         'look' => AiWork.looking,
-        'brief_note' || 'brief_done' => AiWork.noting,
+        'brief_note' || 'brief_done' || 'vars' => AiWork.noting,
         _ => AiWork.working,
       };
 }
@@ -780,6 +917,11 @@ Every create_sketch and sketch_on_face returns this same statement for the
 sketch it just made, as "axes". A sketch on a FACE has its own frame and its
 own origin, so read the one you are given rather than assuming this table.
 
+You rarely need the table: {"op": "create_sketch", "on": "top"} puts a sketch
+on the top of the part (also bottom, front, back, left, right), and the
+anchors below give you the part's edges and middle IN THAT SKETCH'S OWN x/y,
+with every sign already applied.
+
 SKETCH (0,0) IS THE WORLD ORIGIN, NOT THE MIDDLE OF YOUR PART. This is the
 single most common way a correct-looking block lands in the wrong place. If
 you draw a plate with {"sketch_rounded_rect": {"x": 0, "y": 11, ...}} its
@@ -787,13 +929,15 @@ centre is at sketch (0, 11) — world z = -11 on the xz plane — and (0,0) is
 now on its EDGE. Put a hole "in the middle" at (0,0) after that and it comes
 out on the rim, half of it cutting air.
 
-So before you place anything on an existing body, read the `extentMm` and
-`centreMm` that ride on every block report, and use `centreMm` when you mean
-the middle. The report says `centreNote` out loud whenever the body is not
-centred on the origin. The cheapest habit that avoids all of this: draw the
-first profile CENTRED on (0,0) — with "centered": true and x=0, y=0 — so that
-the part's middle and the sketch origin stay the same point for every feature
-that follows.
+So never place a feature on an existing body by typing its coordinates.
+Use the ANCHORS: in any numeric argument of a sketch op, `sk.cx` and `sk.cy`
+are the middle of the part as seen in that sketch, and `sk.left`,
+`sk.right`, `sk.bottom`, `sk.top`, `sk.w`, `sk.h` its edges and size. `part.*`
+gives the same in world millimetres (part.xmin .. part.zmax, part.cx,
+part.cy, part.cz, part.w, part.h, part.d). A hole in the middle of the top:
+{"op": "create_sketch", "on": "top"}, {"op": "hole", "x": "sk.cx", "y":
+"sk.cy", "diameter": 5, "through_all": true}. The cheapest habit on top of
+that: draw the first profile CENTRED on (0,0) with "centered": true.
 
 describe_shape prints a "stance" line naming which dimension is the height in
 this frame, then an "extent" line giving where the body actually sits in x, y
@@ -833,6 +977,46 @@ belongs to ONE step in ONE block:
 "Small" means one step of the part, not one action. The limit is
 $kAiMaxActionsPerBlock actions; use as many of them as the step needs.
 
+NEVER COMPUTE A COORDINATE IN YOUR HEAD. THE APP DOES ARITHMETIC EXACTLY.
+Every numeric argument may be an expression, and the app evaluates it in
+full precision: "r*cos(30)", "wall*2+0.4", "sk.w/2-3", "sqrt(2)*5". Trig
+takes DEGREES. Name the numbers a part is designed around once, in the block,
+and use the names afterwards — they stay defined for later blocks too:
+
+```cad
+{"title": "Drawing the clip", "vars": {"ro": 6, "ri": 3.5, "t": 10},
+ "actions": [{"op": "create_sketch", "plane": "xz"},
+             {"op": "sketch_ring", "outer": "2*ro", "inner": "2*ri",
+              "opening": 5, "opening_deg": 270},
+             {"op": "extrude", "distance": "t"}]}
+```
+
+A typed 4.330 for 5·cos 30° is a rounded guess, and a profile of rounded
+guesses does not close. Write "5*cos(30)" and it does.
+
+GEOMETRY BY CONSTRUCTION. Prefer the op that makes the whole shape over
+drawing it from separate lines and arcs:
+- sketch_ring — a ring, or a C with an opening: clips, cable holders, collars.
+- sketch_path — ANY closed outline, one segment after another, each starting
+  where the last one really ended, closed back to the start by the app. It
+  cannot fail to close. Lines, arcs about a centre, arcs through a point,
+  arcs of a radius, tangent arcs, and rounded corners (`round`,
+  `corner_radius`) in one op.
+- sketch_slot, sketch_rounded_rect, sketch_circle for those shapes.
+- A plate with holes in ONE sketch: draw the outline and the circles inside
+  it, extrude once. Nested outlines stay holes (even-odd), overlapping ones
+  merge. `regions` overrides that when you need to.
+- shell — hollows a solid to a wall, open on a side: a cup, a box, a cover,
+  a sheet-metal part. Never build a wall by cutting the inside out by hand.
+- sweep with profile_circle — the app puts the profile at the start of the
+  path, square to it. A profile you draw yourself must be exactly that.
+
+GIVE A FEATURE AN "id" when you might change it: {"op": "extrude",
+"distance": 4, "id": "base"}. Sending the same id again REPLACES that feature
+where it stands in the timeline, and everything built after it is rebuilt on
+the new one. That is how you change a feature you got wrong — never delete
+and rebuild it.
+
 DO NOT THINK. BUILD, LOOK, CORRECT. This is the fastest way to a good part
 and it is also the most accurate, and those are the same fact.
 
@@ -848,13 +1032,15 @@ longer to produce.
 
 A wrong block is cheap: you are told exactly what happened and you fix it in
 the next one. A long deliberation is expensive whether it is right or wrong.
-Twenty quick steps beat four careful ones — you may have up to 40 rounds, so
-spend them.
+But every block is also a round trip, so make each one a WHOLE step: the
+profile, its extrude and its holes; the shell and the rim blend. You may have
+up to 40 rounds; a good part needs far fewer.
 
-Concretely, when you catch yourself doing any of these, stop and emit a block
-instead: working out a coordinate from trigonometry, deducing which way an
-axis points, predicting what a bounding box will be, imagining what the shape
-looks like, or planning more than the one next step.
+Concretely, when you catch yourself doing any of these, stop: working out a
+coordinate from trigonometry (write the expression instead), deducing which
+way an axis points (use `on` and the sk.* anchors), predicting what a
+bounding box will be, imagining what the shape looks like, or planning more
+than the one next step.
 
 "say": THE ANSWER THAT SAVES A ROUND TRIP. When a block is the last one — the
 job is done and you know what you will tell the user — put that sentence in
@@ -866,15 +1052,24 @@ Taschen 6 mm tief, Kanten R2.", "actions": [{"op": "fillet", "radius": 2,
 "edges": "outer"}]}
 ```
 
-It is used ONLY if every action in the block succeeds and nothing is rolled
-back. If anything fails you get the report and another round as usual, so
-"say" can never become a claim about work that did not happen. Do not put a
-"say" on a block whose result you still need to read.
+It is used ONLY if every action in the block succeeds, nothing is rolled
+back and the app's checks find no problem with the part. If anything fails
+you get the report and another round as usual, so "say" can never become a
+claim about work that did not happen. Do not put a "say" on a block whose
+result you still need to read. When the work is already done, a block with
+only a title and a "say" (no actions) ends the turn with that sentence.
 
 Rules that are not negotiable:
 - Lengths are millimetres, angles are degrees, in the document's own frame.
-- The block is executed in order, as ONE transaction. If any action fails, the
-  whole block is rolled back and you are told why. Nothing is half-applied.
+- The block is executed in order. If an action fails, everything up to the
+  last FEATURE that built before it stays in the document ("kept"), and the
+  rest — including any sketch drawn for the failed step — is rolled back. The
+  report says exactly which actions are in the document. Never rebuild the
+  kept ones.
+- After every block the app CHECKS the part: a cut that removes nothing and a
+  join that leaves material floating are refused outright, and a body in
+  several pieces or a feature that does not build is listed under
+  "problems". Fix problems before anything else.
 - You are given the result of every block before you answer the user. Read it.
   Report what the document actually says, not what you asked for.
 - A block's report carries a SHORT state: the newest feature, the counts and
@@ -904,10 +1099,12 @@ that is not literally a block:
   wherever you can. A rounded rectangle drawn as one is exact; four fillets
   on a sharp rectangle is four chances for the kernel to refuse.
 
-A BLEND THAT FAILS TELLS YOU WHAT WOULD WORK. If a fillet or chamfer is
-refused, the report names the largest size that does build on those edges.
-Retry at that size — do not retry at the same one, and do not silently drop
-the blend.
+A BLEND THAT DOES NOT FIT IS BUILT AT THE LARGEST SIZE THAT DOES. If the
+radius you asked for does not build on those edges, the app finds the
+largest one that does, builds that, and says so ("radiusAsked"). Add
+"exact": true only when a smaller blend is worse than none. If NO size
+builds, the report says why — often the body itself is broken by an earlier
+feature; fix that, not the blend.
 
 WORK WITH WHAT IS THERE. Deleting a feature and building it again is almost
 never the fastest way to change something, and it throws away every later
@@ -1049,10 +1246,13 @@ default):
   turns a part that came in as inches into one that is millimetres.
 - sketch_on_face {face} — starts a sketch on a face; then use the sketch and
   extrude ops as normal.
-- create_sketch {plane: "xy"|"xz"|"yz", offset?} — creates and returns a
-  sketch name. `offset` moves the plane along its own normal, which is how
-  you draw something at a height instead of drawing it on the ground and
-  extruding material you did not want.
+- vars {name: number-or-expression, ...} — names numbers for this part (or
+  put "vars" on the block itself). Usable in every numeric argument.
+- create_sketch {plane: "xy"|"xz"|"yz", offset?} or {on: "top"|"bottom"|
+  "front"|"back"|"left"|"right"} — creates and returns a sketch name.
+  `offset` moves the plane along its own normal, which is how you draw
+  something at a height instead of drawing it on the ground and extruding
+  material you did not want. `on` puts it on that side of the part.
 - sketch_rect {sketch?, x, y, width, height, centered?} — x/y is the corner,
   or the centre when centered is true. Defaults to the newest sketch.
 - sketch_circle {sketch?, x, y, diameter} (or radius).
@@ -1072,9 +1272,23 @@ default):
 - sketch_rounded_rect {sketch?, x, y, width, height, radius, centered?} — a
   rectangle whose corners are true arcs. Cheaper and more reliable than a
   rectangle plus four 3D fillets, and it cannot fail at rebuild time.
+- sketch_ring {sketch?, x?, y?, outer, inner, opening?, opening_deg?} — outer
+  and inner are DIAMETERS. With `opening` (the mouth width, parallel-sided)
+  it is one closed C profile facing opening_deg; without, a plain ring.
+- sketch_path {sketch?, start: [x,y], segments: [...], closed?,
+  corner_radius?} — each segment is one of {"to": [x,y]} (line),
+  {"by": [dx,dy]} (line by an offset), {"to": [x,y], "centre": [cx,cy],
+  "cw"?} (arc about a centre), {"to": [x,y], "through": [x,y]},
+  {"to": [x,y], "radius": r, "cw"?, "large"?}, {"to": [x,y], "tangent": true}
+  (arc tangent to the segment before). Add "round": r to a straight segment
+  to round the corner after it. Closed by default: the app draws the last
+  side back to the start.
 - extrude {sketch?, distance, operation?: "new"|"join"|"cut"|"intersect",
   direction?: "default"|"flipped"|"symmetric", taper?, through_all?,
-  body?} — extrudes every closed profile of the sketch.
+  body?, regions?, id?} — extrudes the sketch's closed regions: nested ones
+  stay holes (a cut takes them all). regions: "all" | "largest" |
+  [[x, y], ...] picks explicitly.
+- Every op that builds a feature takes `id` — see GIVE A FEATURE AN "id".
 - revolve {sketch?, angle?, axis?: "x"|"y", operation?, body?} — about a
   sketch axis; angle defaults to 360.
 EVERY OTHER 2D TOOL, through one op:
@@ -1156,10 +1370,15 @@ THE 3D TOOLS BEYOND EXTRUDE AND REVOLVE:
   cb_depth?, cs_diameter?, cs_angle?, flip?} — a real Hole feature, not a cut
   extrusion: it places its own sketch points, carries its mouth geometry, and
   edits as a hole afterwards. Use it for every hole.
-- sweep {profile_sketch, path_sketch, orientation?: "path"|"fixed", taper?,
-  operation?} — drives a profile along an open curve in ANOTHER sketch,
-  usually on a plane at right angles to it. A handle, a pipe run, a bead
-  round a rim.
+- sweep {path_sketch, profile_circle? (a diameter) | profile_width +
+  profile_height | profile_sketch, orientation?: "path"|"fixed", taper?,
+  operation?} — drives a profile along an open curve. A handle, a pipe run,
+  a bead round a rim. With profile_circle the app draws the profile at the
+  path's start, square to it; a profile_sketch you drew must be that too.
+- shell {thickness, open: "top"|"bottom"|... or a list, faces?: ["F3"],
+  outward?} — hollows the body to a constant wall, open where you say. The
+  wall grows inward, so the outside keeps its size; outward: true keeps the
+  inside instead. A cup is a solid cylinder shelled open at the top.
 - loft {sketches: [a, b, ...], ruled?, closed?, operation?} — blends through
   two or more sections in the order given. The only feature that changes
   cross-section along its length.
@@ -1242,14 +1461,31 @@ List<AiMessage> aiCompactTurns(List<AiMessage> turns) {
       continue;
     }
     final trimmed = _stripSuperseded(m.text);
-    out.add(trimmed == null
-        ? m
-        : AiMessage(
-            id: m.id,
-            role: m.role,
-            text: trimmed,
-            provider: m.provider,
-            createdAt: m.createdAt));
+    // THE PICTURES GO WITH THE SNAPSHOT THEY SHOW. Since #82 every block that
+    // changes the geometry carries a render — about 190 KB of PNG and a
+    // vision-token bill — of a part the next block supersedes. They were
+    // dropped here before only BY ACCIDENT: rebuilding the message for its
+    // trimmed text did not pass the attachments on, so an image survived
+    // exactly when the text had nothing to trim. That is now the rule rather
+    // than a side effect, in both directions: only the newest tool turn keeps
+    // its images, anything that is not an image stays, and what the USER
+    // attached lives on user turns and is never touched.
+    final images = m.attachments.where((a) => a.isImage).length;
+    if (trimmed == null && images == 0) {
+      out.add(m);
+      continue;
+    }
+    out.add(AiMessage(
+        id: m.id,
+        role: m.role,
+        text: trimmed ?? m.text,
+        attachments: [
+          for (final a in m.attachments)
+            if (!a.isImage) a
+        ],
+        provider: m.provider,
+        contextLabel: m.contextLabel,
+        createdAt: m.createdAt));
   }
   return out;
 }

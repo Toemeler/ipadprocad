@@ -657,6 +657,10 @@ class AiController extends ChangeNotifier {
       // that stopped emitting blocks is finished or merely gave up.
       var executedAnything = false;
       var doneChecks = 0;
+      // What the app's own design checks said about the part after the most
+      // recent block that changed it. A stop with these open is pushed back
+      // on exactly like a stop with open requirements.
+      var openProblems = const <String>[];
       for (var round = 0;; round++) {
         rounds = round + 1;
         final last = round >= kAiMaxActionRounds;
@@ -726,7 +730,7 @@ class AiController extends ChangeNotifier {
               if (!r.done && r.kind == AiRequirementKind.must) r.text
           ];
           final push = executedAnything &&
-              open.isNotEmpty &&
+              (open.isNotEmpty || openProblems.isNotEmpty) &&
               doneChecks < kAiMaxDoneChecks &&
               !aiReplyIsQuestion(reply.text);
           AiTrace.record('done.check',
@@ -735,12 +739,26 @@ class AiController extends ChangeNotifier {
               round: round,
               data: {
                 'open': open,
+                if (openProblems.isNotEmpty) 'problems': openProblems,
                 'executedAnything': executedAnything,
                 'isQuestion': aiReplyIsQuestion(reply.text),
                 'checksUsed': doneChecks,
                 'continuing': push,
               });
-          if (!push) break;
+          if (!push) {
+            // #85 — a block that is ONLY a closing line ({"title", "say"}
+            // and no actions) is the model saying it is finished. It used to
+            // be refused as a malformed block, which cost a round for the
+            // model to say the same sentence again as prose.
+            if (block.say != null) {
+              session.messages.add(AiMessage(
+                  role: 'assistant',
+                  text: block.say!,
+                  provider: reply.provider));
+              await _persist();
+            }
+            break;
+          }
           doneChecks++;
           // ISSUE #72 — the push-back used to carry the list and nothing
           // else, and a model told "keep going" with no state re-added a
@@ -762,15 +780,22 @@ class AiController extends ChangeNotifier {
           final nudge = AiMessage(
               role: 'tool',
               text: jsonEncode({
-                'openRequirements': open,
+                if (open.isNotEmpty) 'openRequirements': open,
+                if (openProblems.isNotEmpty) 'problems': openProblems,
                 if (shape != null) 'partNow': shape,
-                'note': 'You stopped, but these requirements you recorded for '
-                    'this part are still open. This is what the part actually '
-                    'is right now — read it before you act. Continue: emit '
-                    'the next block, mark one done with brief_done if the '
-                    'model already satisfies it, or say in one sentence which '
-                    'one cannot be met and why. Do not rebuild anything that '
-                    'is already there.'
+                'note': open.isNotEmpty
+                    ? 'You stopped, but these requirements you recorded for '
+                        'this part are still open. This is what the part '
+                        'actually is right now — read it before you act. '
+                        'Continue: emit the next block, mark one done with '
+                        'brief_done if the model already satisfies it, or say '
+                        'in one sentence which one cannot be met and why. Do '
+                        'not rebuild anything that is already there.'
+                    : 'You stopped, but the app measured these problems in '
+                        'the part and they are still there. Fix them in the '
+                        'next block, or say in one sentence why they are '
+                        'intended. Do not rebuild anything that is already '
+                        'there.'
               }));
           session.messages.add(nudge);
           turns.add(nudge);
@@ -826,10 +851,14 @@ class AiController extends ChangeNotifier {
         // Only a CHANGE counts as building. A turn that merely measured and
         // then answered is a conversation, and a conversation must not be
         // pushed into modelling by requirements an earlier turn recorded.
-        if (!report.reverted &&
-            report.outcomes
-                .any((o) => o.ok && !kAiReadOnlyOps.contains(o.op))) {
+        // A partly committed block built what it kept (see
+        // [AiActionReport.kept]).
+        final landed = report.reverted
+            ? report.outcomes.take(report.kept)
+            : report.outcomes;
+        if (landed.any((o) => o.ok && !kAiReadOnlyOps.contains(o.op))) {
           executedAnything = true;
+          openProblems = report.problems;
         }
         AiTrace.record('actions.report',
             requestId: requestId,
@@ -839,6 +868,8 @@ class AiController extends ChangeNotifier {
               'ok': report.ok,
               'applied': report.applied,
               'reverted': report.reverted,
+              if (report.partial) 'kept': report.kept,
+              if (report.problems.isNotEmpty) 'problems': report.problems,
               if (report.blocked != null) 'blocked': report.blocked,
               'elapsedMs': blockClock.elapsedMilliseconds,
               'report': report.toJson(),
@@ -861,7 +892,9 @@ class AiController extends ChangeNotifier {
         // nothing rolled back, so the model cannot describe a result that did
         // not happen. Anything less than a clean block falls through to the
         // ordinary loop and the model answers after reading the report.
-        if (block.say != null && report.ok) {
+        // Nor when the app's own checks found the part wrong: "Fertig" on a
+        // body in two pieces is the claim this line must never make.
+        if (block.say != null && report.ok && report.problems.isEmpty) {
           session.messages.add(AiMessage(
               role: 'assistant', text: block.say!, provider: reply.provider));
           await _persist();

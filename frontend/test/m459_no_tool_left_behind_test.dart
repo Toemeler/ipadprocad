@@ -152,6 +152,7 @@ void main() {
       'chamfer': 'chamfer',
       'deleteface': 'delete_face',
       'direct': 'move_face',
+      'shell': 'shell',
     };
 
     test('each feature kind has an op that builds it', () {
