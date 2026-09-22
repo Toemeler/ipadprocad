@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 220" width="480" height="220" role="img" aria-label="Why carbon fibre does not help in the Z direction">
+  <rect x="0" y="0" width="480" height="220" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Where the fibres actually are</text>
+
+    <rect x="40" y="52" width="260" height="110" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <g stroke="#9a9a9a" stroke-width="1">
+      <line x1="40" y1="74" x2="300" y2="74"/><line x1="40" y1="96" x2="300" y2="96"/>
+      <line x1="40" y1="118" x2="300" y2="118"/><line x1="40" y1="140" x2="300" y2="140"/>
+    </g>
+    <g stroke="#1a1a1a" stroke-width="2" stroke-linecap="round">
+      <line x1="56" y1="64" x2="84" y2="63"/><line x1="100" y1="66" x2="132" y2="65"/><line x1="150" y1="63" x2="184" y2="64"/>
+      <line x1="200" y1="66" x2="232" y2="64"/><line x1="250" y1="63" x2="282" y2="65"/>
+      <line x1="56" y1="86" x2="90" y2="87"/><line x1="110" y1="85" x2="142" y2="86"/><line x1="164" y1="87" x2="196" y2="85"/>
+      <line x1="214" y1="86" x2="248" y2="87"/><line x1="258" y1="85" x2="290" y2="86"/>
+      <line x1="50" y1="108" x2="82" y2="109"/><line x1="98" y1="107" x2="130" y2="108"/><line x1="148" y1="109" x2="182" y2="107"/>
+      <line x1="200" y1="108" x2="234" y2="109"/><line x1="252" y1="107" x2="284" y2="108"/>
+      <line x1="58" y1="130" x2="92" y2="131"/><line x1="108" y1="129" x2="140" y2="130"/><line x1="160" y1="131" x2="192" y2="129"/>
+      <line x1="210" y1="130" x2="244" y2="131"/><line x1="256" y1="129" x2="288" y2="130"/>
+    </g>
+
+    <g stroke="#2e7d32" stroke-width="2.5" fill="#2e7d32">
+      <line x1="60" y1="180" x2="270" y2="180"/><polygon points="270,175 282,180 270,185"/>
+    </g>
+    <text x="165" y="200" text-anchor="middle" font-size="11" fill="#2e7d32">along XY: the fibres carry load — stiffer</text>
+
+    <g stroke="#c62828" stroke-width="2.5" fill="#c62828">
+      <line x1="370" y1="70" x2="370" y2="52"/><polygon points="365,52 370,40 375,52"/>
+      <line x1="370" y1="144" x2="370" y2="162"/><polygon points="365,162 370,174 375,162"/>
+    </g>
+    <text x="370" y="196" text-anchor="middle" font-size="11" fill="#c62828">across the welds:</text>
+    <text x="370" y="212" text-anchor="middle" font-size="11" fill="#c62828">no fibres at all</text>
+  </g>
+</svg>

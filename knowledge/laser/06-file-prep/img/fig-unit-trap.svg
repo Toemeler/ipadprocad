@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 220" width="480" height="220" role="img" aria-label="One 100 mm square interpreted at 72, 90 and 96 DPI">
+  <rect x="0" y="0" width="480" height="220" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">One 100 mm square, three assumed DPI</text>
+
+    <rect x="40" y="50" width="100" height="100" fill="none" stroke="#0b6bcb" stroke-width="2" stroke-dasharray="6 4"/>
+    <rect x="40" y="50" width="133" height="133" fill="#d9d9d9" opacity="0.5" stroke="#c62828" stroke-width="2"/>
+    <text x="106" y="200" text-anchor="middle" font-size="11" fill="#c62828">72 DPI → 133 mm</text>
+
+    <rect x="220" y="50" width="100" height="100" fill="none" stroke="#0b6bcb" stroke-width="2" stroke-dasharray="6 4"/>
+    <rect x="220" y="50" width="107" height="107" fill="#d9d9d9" opacity="0.5" stroke="#c62828" stroke-width="2"/>
+    <text x="273" y="200" text-anchor="middle" font-size="11" fill="#c62828">90 DPI → 107 mm</text>
+
+    <rect x="380" y="50" width="100" height="100" fill="none" stroke="#0b6bcb" stroke-width="2" stroke-dasharray="6 4"/>
+    <rect x="380" y="50" width="100" height="100" fill="#d9d9d9" opacity="0.5" stroke="#2e7d32" stroke-width="2"/>
+    <text x="430" y="200" text-anchor="middle" font-size="11" fill="#2e7d32">96 DPI → 100 mm</text>
+
+    <text x="20" y="176" font-size="11" fill="#5a5a5a">Dashed blue = intended. Put a 100 × 100 mm calibration rectangle on the Guide layer and measure it after import.</text>
+  </g>
+</svg>

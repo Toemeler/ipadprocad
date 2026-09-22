@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 210" width="480" height="210" role="img" aria-label="Score the face that ends up inside the fold">
+  <rect x="0" y="0" width="480" height="210" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Score the inside of the fold</text>
+
+    <path d="M40 130 L120 130 L180 70" fill="none" stroke="#1a1a1a" stroke-width="10" stroke-linejoin="round"/>
+    <path d="M40 130 L120 130 L180 70" fill="none" stroke="#cfcabb" stroke-width="6" stroke-linejoin="round"/>
+    <path d="M118 122 l4 -4" stroke="#2e7d32" stroke-width="3"/>
+    <circle cx="122" cy="120" r="14" fill="none" stroke="#2e7d32" stroke-width="2"/>
+    <text x="110" y="172" text-anchor="middle" font-weight="600" fill="#2e7d32">scored inside</text>
+    <text x="110" y="188" text-anchor="middle" font-size="11" fill="#2e7d32">the score closes as it folds</text>
+
+    <path d="M300 130 L380 130 L440 70" fill="none" stroke="#1a1a1a" stroke-width="10" stroke-linejoin="round"/>
+    <path d="M300 130 L380 130 L440 70" fill="none" stroke="#cfcabb" stroke-width="6" stroke-linejoin="round"/>
+    <path d="M386 136 l6 6" stroke="#c62828" stroke-width="3"/>
+    <circle cx="388" cy="138" r="14" fill="none" stroke="#c62828" stroke-width="2"/>
+    <text x="372" y="172" text-anchor="middle" font-weight="600" fill="#c62828">scored outside</text>
+    <text x="372" y="188" text-anchor="middle" font-size="11" fill="#c62828">the score opens into a visible split</text>
+  </g>
+</svg>

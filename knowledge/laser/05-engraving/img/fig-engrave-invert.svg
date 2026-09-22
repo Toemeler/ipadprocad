@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 220" width="480" height="220" role="img" aria-label="Engraving the figure versus engraving the ground">
+  <rect x="0" y="0" width="480" height="220" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Engrave whichever area is smaller</text>
+
+    <rect x="40" y="46" width="160" height="100" fill="#e0cba8" stroke="#1a1a1a" stroke-width="2"/>
+    <path d="M90 120 L120 66 L150 120 Z" fill="#7a5c3a"/>
+    <text x="120" y="170" text-anchor="middle" font-weight="600" fill="#2e7d32">engrave the figure</text>
+    <text x="120" y="186" text-anchor="middle" font-size="11" fill="#2e7d32">small area · fast</text>
+
+    <rect x="280" y="46" width="160" height="100" fill="#7a5c3a" stroke="#1a1a1a" stroke-width="2"/>
+    <path d="M330 120 L360 66 L390 120 Z" fill="#e0cba8"/>
+    <text x="360" y="170" text-anchor="middle" font-weight="600" fill="#c62828">engrave the ground</text>
+    <text x="360" y="186" text-anchor="middle" font-size="11" fill="#c62828">large area · many times slower</text>
+
+    <text x="20" y="210" font-size="11" fill="#5a5a5a">Engraving is the slowest thing a laser does, so this is a cost decision, not only a visual one.</text>
+  </g>
+</svg>

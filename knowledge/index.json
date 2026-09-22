@@ -1,0 +1,2047 @@
+{
+  "version": 1,
+  "count": 72,
+  "documents": [
+    {
+      "id": "fdm/basics/machine-assumptions",
+      "title": "Machine assumptions — what these numbers were written for",
+      "type": "basics",
+      "process": "fdm",
+      "path": "fdm/01-basics/machine-assumptions.md",
+      "triggers": [
+        "machine",
+        "drucker",
+        "printer",
+        "my printer",
+        "bed size",
+        "bauraum",
+        "build volume",
+        "enclosure",
+        "settings",
+        "einstellungen",
+        "calibration record",
+        "measured tolerance"
+      ],
+      "depends_on": [
+        "fdm/basics/nozzle-line-width-layers"
+      ],
+      "confidence": "high",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "fdm/basics/nozzle-line-width-layers",
+      "title": "Nozzle, line width and layer height — the grid everything lands on",
+      "type": "basics",
+      "process": "fdm",
+      "path": "fdm/01-basics/nozzle-line-width-layers.md",
+      "triggers": [
+        "nozzle",
+        "düse",
+        "line width",
+        "linienbreite",
+        "extrusion width",
+        "extrusionsbreite",
+        "layer height",
+        "schichthöhe",
+        "schichtdicke",
+        "0.4",
+        "resolution",
+        "auflösung",
+        "perimeter",
+        "wall count",
+        "wandstärke"
+      ],
+      "depends_on": [],
+      "confidence": "high",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "fdm/basics/orientation-and-strength",
+      "title": "Orientation and strength — the most important decision",
+      "type": "basics",
+      "process": "fdm",
+      "path": "fdm/01-basics/orientation-and-strength.md",
+      "triggers": [
+        "orientation",
+        "orientierung",
+        "ausrichtung",
+        "print direction",
+        "druckrichtung",
+        "strength",
+        "festigkeit",
+        "stärke",
+        "broke",
+        "gebrochen",
+        "snapped",
+        "abgebrochen",
+        "layer adhesion",
+        "schichthaftung",
+        "delamination",
+        "anisotropy",
+        "weak",
+        "schwach",
+        "which way up"
+      ],
+      "depends_on": [],
+      "confidence": "high",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "fdm/basics/tolerance-test-part",
+      "title": "Measuring your own tolerances — the test part",
+      "type": "recipe",
+      "process": "fdm",
+      "path": "fdm/01-basics/tolerance-test-part.md",
+      "triggers": [
+        "tolerance test",
+        "toleranztest",
+        "calibration",
+        "kalibrierung",
+        "test print",
+        "testdruck",
+        "clearance test",
+        "passungstest",
+        "measure",
+        "messen",
+        "how accurate",
+        "genauigkeit"
+      ],
+      "depends_on": [
+        "fdm/fits/clearance-table",
+        "fdm/basics/machine-assumptions"
+      ],
+      "confidence": "high",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "fdm/checklists/before-slicing",
+      "title": "Before you slice — the FDM checklist",
+      "type": "checklist",
+      "process": "fdm",
+      "path": "fdm/08-checklists/before-slicing.md",
+      "triggers": [
+        "checklist",
+        "checkliste",
+        "before printing",
+        "vor dem drucken",
+        "ready to print",
+        "druckbereit",
+        "review",
+        "prüfen",
+        "final check",
+        "is this printable",
+        "druckbar"
+      ],
+      "depends_on": [
+        "fdm/basics/orientation-and-strength",
+        "fdm/geometry/overhangs-and-bridging",
+        "fdm/fits/clearance-table"
+      ],
+      "confidence": "high",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "fdm/examples/electronics-enclosure",
+      "title": "Worked example — an electronics enclosure",
+      "type": "example",
+      "process": "fdm",
+      "path": "fdm/10-worked-examples/electronics-enclosure.md",
+      "triggers": [
+        "enclosure example",
+        "gehäuse beispiel",
+        "project box",
+        "elektronikgehäuse",
+        "pcb box",
+        "complete example",
+        "komplettes beispiel",
+        "case for board",
+        "raspberry",
+        "arduino"
+      ],
+      "depends_on": [
+        "fdm/features/enclosure-shell-and-lid",
+        "fdm/features/screw-boss-heat-set-insert",
+        "fdm/checklists/before-slicing"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "fdm/examples/l-bracket",
+      "title": "Worked example — an L-bracket under load",
+      "type": "example",
+      "process": "fdm",
+      "path": "fdm/10-worked-examples/l-bracket-under-load.md",
+      "triggers": [
+        "bracket",
+        "winkel",
+        "halter",
+        "halterung",
+        "l bracket",
+        "load bearing",
+        "belastet",
+        "strong part",
+        "tragend",
+        "mount",
+        "befestigung",
+        "shelf bracket",
+        "example strong"
+      ],
+      "depends_on": [
+        "fdm/basics/orientation-and-strength",
+        "fdm/features/ribs-and-gussets"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "fdm/failures/catalogue",
+      "title": "Failure catalogue — symptom, cause, fix",
+      "type": "failures",
+      "process": "fdm",
+      "path": "fdm/09-failures/failure-catalogue.md",
+      "triggers": [
+        "problem",
+        "fehler",
+        "failed",
+        "fehlgeschlagen",
+        "broke",
+        "gebrochen",
+        "warping",
+        "verzug",
+        "stringing",
+        "fadenziehen",
+        "layer shift",
+        "versatz",
+        "not sticking",
+        "haftet nicht",
+        "gaps",
+        "lücken",
+        "rough",
+        "rau",
+        "cracked",
+        "gerissen",
+        "troubleshooting",
+        "why did"
+      ],
+      "depends_on": [
+        "fdm/basics/orientation-and-strength",
+        "fdm/geometry/overhangs-and-bridging"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "fdm/features/enclosure-shell-and-lid",
+      "title": "Enclosure shell and lid",
+      "type": "recipe",
+      "process": "fdm",
+      "path": "fdm/05-features/enclosure-shell-and-lid.md",
+      "triggers": [
+        "enclosure",
+        "gehäuse",
+        "case",
+        "box",
+        "kiste",
+        "lid",
+        "deckel",
+        "shell",
+        "schale",
+        "housing",
+        "electronics box",
+        "elektronikgehäuse",
+        "pcb",
+        "platine",
+        "project box"
+      ],
+      "depends_on": [
+        "fdm/features/screw-boss-heat-set-insert",
+        "fdm/geometry/walls-and-thin-features",
+        "fdm/geometry/chamfers-fillets-elephant-foot"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "fdm/features/hinges",
+      "title": "Hinges",
+      "type": "decision",
+      "process": "fdm",
+      "path": "fdm/05-features/hinges.md",
+      "triggers": [
+        "hinge",
+        "scharnier",
+        "gelenk",
+        "lid",
+        "deckel",
+        "door",
+        "tür",
+        "flap",
+        "klappe",
+        "living hinge",
+        "filmscharnier",
+        "pin hinge",
+        "stiftscharnier",
+        "opens",
+        "öffnen"
+      ],
+      "depends_on": [
+        "fdm/fits/print-in-place",
+        "fdm/basics/orientation-and-strength"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "fdm/features/nut-trap",
+      "title": "Nut traps",
+      "type": "recipe",
+      "process": "fdm",
+      "path": "fdm/05-features/nut-trap.md",
+      "triggers": [
+        "nut trap",
+        "mutternfalle",
+        "mutterntasche",
+        "captive nut",
+        "einlegemutter",
+        "hex pocket",
+        "sechskant",
+        "m3 nut",
+        "square nut",
+        "vierkantmutter",
+        "bolt through",
+        "durchgangsschraube"
+      ],
+      "depends_on": [
+        "fdm/fits/clearance-table",
+        "fdm/geometry/overhangs-and-bridging"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "fdm/features/ribs-and-gussets",
+      "title": "Ribs and gussets",
+      "type": "recipe",
+      "process": "fdm",
+      "path": "fdm/05-features/ribs-and-gussets.md",
+      "triggers": [
+        "rib",
+        "rippe",
+        "versteifung",
+        "gusset",
+        "strebe",
+        "knotenblech",
+        "stiffen",
+        "versteifen",
+        "flex",
+        "biegt sich",
+        "bends",
+        "too weak",
+        "zu schwach",
+        "reinforce",
+        "verstärken",
+        "bracket"
+      ],
+      "depends_on": [
+        "fdm/geometry/walls-and-thin-features"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "fdm/features/screw-boss-heat-set-insert",
+      "title": "Screw boss with a heat-set insert",
+      "type": "recipe",
+      "process": "fdm",
+      "path": "fdm/05-features/screw-boss-heat-set-insert.md",
+      "triggers": [
+        "heat set insert",
+        "gewindeeinsatz",
+        "einpressmutter",
+        "threaded insert",
+        "insert",
+        "boss",
+        "dom",
+        "schraubdom",
+        "screw boss",
+        "m3 insert",
+        "brass insert",
+        "messinghülse",
+        "thread",
+        "gewinde",
+        "soldering iron"
+      ],
+      "depends_on": [
+        "fdm/geometry/walls-and-thin-features",
+        "fdm/fits/clearance-table"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "fdm/features/self-tapping-boss",
+      "title": "Self-tapping screw boss",
+      "type": "recipe",
+      "process": "fdm",
+      "path": "fdm/05-features/self-tapping-boss.md",
+      "triggers": [
+        "self tapping",
+        "selbstschneidend",
+        "blechschraube",
+        "sheet metal screw",
+        "wood screw",
+        "holzschraube",
+        "screw into plastic",
+        "direkt einschrauben",
+        "no insert",
+        "ohne einsatz",
+        "pilot hole",
+        "kernloch"
+      ],
+      "depends_on": [
+        "fdm/features/screw-boss-heat-set-insert"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "fdm/features/snap-fit-cantilever",
+      "title": "Cantilever snap fit",
+      "type": "recipe",
+      "process": "fdm",
+      "path": "fdm/05-features/snap-fit-cantilever.md",
+      "triggers": [
+        "snap fit",
+        "schnappverbindung",
+        "snap",
+        "clip",
+        "klemme",
+        "rasthaken",
+        "latch",
+        "verschluss",
+        "cantilever",
+        "federarm",
+        "clicks",
+        "einrasten",
+        "tool free",
+        "werkzeuglos",
+        "broke off",
+        "abgebrochen"
+      ],
+      "depends_on": [
+        "fdm/basics/orientation-and-strength",
+        "fdm/geometry/walls-and-thin-features"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "fdm/features/splitting-large-parts",
+      "title": "Splitting large parts",
+      "type": "recipe",
+      "process": "fdm",
+      "path": "fdm/05-features/splitting-large-parts.md",
+      "triggers": [
+        "too big",
+        "zu gross",
+        "doesn't fit",
+        "passt nicht",
+        "build volume",
+        "bauraum",
+        "split",
+        "teilen",
+        "aufteilen",
+        "join",
+        "verbinden",
+        "dovetail",
+        "schwalbenschwanz",
+        "alignment pin",
+        "passstift",
+        "glue",
+        "kleben",
+        "bond"
+      ],
+      "depends_on": [
+        "fdm/basics/orientation-and-strength",
+        "fdm/fits/clearance-table"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "fdm/fileprep/export",
+      "title": "Exporting — STL, 3MF and units",
+      "type": "rules",
+      "process": "fdm",
+      "path": "fdm/07-file-prep/export-stl-3mf-units.md",
+      "triggers": [
+        "stl",
+        "3mf",
+        "step",
+        "export",
+        "exportieren",
+        "save",
+        "speichern",
+        "units",
+        "einheiten",
+        "scale",
+        "maßstab",
+        "resolution",
+        "auflösung",
+        "faceted",
+        "facettiert",
+        "tessellation",
+        "mesh export"
+      ],
+      "depends_on": [],
+      "confidence": "high",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "fdm/fileprep/watertight",
+      "title": "Watertight meshes and mesh errors",
+      "type": "failures",
+      "process": "fdm",
+      "path": "fdm/07-file-prep/watertight-meshes.md",
+      "triggers": [
+        "watertight",
+        "wasserdicht",
+        "manifold",
+        "mesh error",
+        "netzfehler",
+        "non-manifold",
+        "hole in mesh",
+        "loch im netz",
+        "inverted normal",
+        "normalen",
+        "repair",
+        "reparieren",
+        "slicer error",
+        "slicer fehler",
+        "weird slice"
+      ],
+      "depends_on": [
+        "fdm/fileprep/export"
+      ],
+      "confidence": "high",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "fdm/fits/clearance-table",
+      "title": "Clearances and fits",
+      "type": "rules",
+      "process": "fdm",
+      "path": "fdm/04-fits/clearance-table.md",
+      "triggers": [
+        "clearance",
+        "spiel",
+        "toleranz",
+        "tolerance",
+        "fit",
+        "passung",
+        "press fit",
+        "presspassung",
+        "sliding",
+        "gleitend",
+        "loose",
+        "locker",
+        "too tight",
+        "zu eng",
+        "gap",
+        "spalt",
+        "assembly",
+        "zusammenbau",
+        "moving parts",
+        "bewegliche teile"
+      ],
+      "depends_on": [
+        "fdm/geometry/holes-shafts-and-teardrops"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "fdm/fits/print-in-place",
+      "title": "Print-in-place mechanisms",
+      "type": "recipe",
+      "process": "fdm",
+      "path": "fdm/04-fits/print-in-place.md",
+      "triggers": [
+        "print in place",
+        "pip",
+        "in einem stück",
+        "one piece",
+        "hinge",
+        "scharnier",
+        "gelenk",
+        "joint",
+        "mechanism",
+        "mechanismus",
+        "moving part",
+        "beweglich",
+        "assembled",
+        "montiert",
+        "fused",
+        "verschmolzen"
+      ],
+      "depends_on": [
+        "fdm/fits/clearance-table"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "fdm/geometry/chamfers-fillets-elephant-foot",
+      "title": "Chamfers, fillets and elephant foot",
+      "type": "rules",
+      "process": "fdm",
+      "path": "fdm/03-geometry/chamfers-fillets-elephant-foot.md",
+      "triggers": [
+        "chamfer",
+        "fase",
+        "fillet",
+        "verrundung",
+        "radius",
+        "elephant foot",
+        "elefantenfuß",
+        "first layer",
+        "erste schicht",
+        "bottom edge",
+        "unterkante",
+        "bulge",
+        "ausbeulung",
+        "wont fit flat",
+        "sharp edge"
+      ],
+      "depends_on": [
+        "fdm/geometry/overhangs-and-bridging"
+      ],
+      "confidence": "high",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "fdm/geometry/holes-shafts-and-teardrops",
+      "title": "Holes, shafts and teardrops",
+      "type": "rules",
+      "process": "fdm",
+      "path": "fdm/03-geometry/holes-shafts-and-teardrops.md",
+      "triggers": [
+        "hole",
+        "loch",
+        "bohrung",
+        "undersize",
+        "zu klein",
+        "shaft",
+        "welle",
+        "achse",
+        "pin",
+        "teardrop",
+        "tropfenform",
+        "horizontal hole",
+        "liegendes loch",
+        "round",
+        "rund",
+        "oval",
+        "screw hole",
+        "schraubenloch",
+        "drill",
+        "bohren"
+      ],
+      "depends_on": [
+        "fdm/geometry/overhangs-and-bridging",
+        "fdm/fits/clearance-table"
+      ],
+      "confidence": "high",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "fdm/geometry/overhangs-and-bridging",
+      "title": "Overhangs and bridging",
+      "type": "rules",
+      "process": "fdm",
+      "path": "fdm/03-geometry/overhangs-and-bridging.md",
+      "triggers": [
+        "overhang",
+        "überhang",
+        "45 degree",
+        "bridge",
+        "brücke",
+        "bridging",
+        "unsupported",
+        "unterstützt",
+        "support",
+        "stützstruktur",
+        "sagging",
+        "durchhängen",
+        "droop",
+        "steil",
+        "angle",
+        "winkel"
+      ],
+      "depends_on": [
+        "fdm/basics/orientation-and-strength"
+      ],
+      "confidence": "high",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "fdm/geometry/text-and-embossing",
+      "title": "Text, embossing and engraving",
+      "type": "rules",
+      "process": "fdm",
+      "path": "fdm/03-geometry/text-and-embossing.md",
+      "triggers": [
+        "text",
+        "schrift",
+        "embossed",
+        "erhaben",
+        "engraved",
+        "vertieft",
+        "label",
+        "beschriftung",
+        "lettering",
+        "logo",
+        "marking",
+        "markierung",
+        "part number",
+        "teilenummer",
+        "raised text",
+        "readable"
+      ],
+      "depends_on": [
+        "fdm/basics/nozzle-line-width-layers"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "fdm/geometry/walls-and-thin-features",
+      "title": "Walls and thin features",
+      "type": "rules",
+      "process": "fdm",
+      "path": "fdm/03-geometry/walls-and-thin-features.md",
+      "triggers": [
+        "wall",
+        "wand",
+        "wandstärke",
+        "wall thickness",
+        "thin",
+        "dünn",
+        "minimum wall",
+        "mindestwandstärke",
+        "perimeter",
+        "shell",
+        "schale",
+        "thin feature",
+        "pin",
+        "stift",
+        "rib thickness",
+        "infill"
+      ],
+      "depends_on": [
+        "fdm/basics/nozzle-line-width-layers"
+      ],
+      "confidence": "high",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "fdm/materials/abs-asa",
+      "title": "ABS and ASA",
+      "type": "material",
+      "process": "fdm",
+      "path": "fdm/02-materials/abs-asa.md",
+      "triggers": [
+        "abs",
+        "asa",
+        "warping",
+        "verzug",
+        "enclosure",
+        "gehäuse drucker",
+        "heat resistant",
+        "hitzebeständig",
+        "outdoor uv",
+        "sonne",
+        "car part",
+        "autoteil",
+        "acetone"
+      ],
+      "depends_on": [
+        "fdm/materials/material-table"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "fdm/materials/choosing-a-material",
+      "title": "Choosing a filament",
+      "type": "decision",
+      "process": "fdm",
+      "path": "fdm/02-materials/choosing-a-material.md",
+      "triggers": [
+        "which material",
+        "welches material",
+        "filament",
+        "choose",
+        "auswählen",
+        "pla or petg",
+        "material selection",
+        "materialwahl",
+        "strong",
+        "fest",
+        "heat resistant",
+        "hitzebeständig",
+        "outdoor",
+        "draussen",
+        "flexible",
+        "biegsam"
+      ],
+      "depends_on": [
+        "fdm/materials/material-table"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "fdm/materials/material-table",
+      "title": "Filament comparison table",
+      "type": "decision",
+      "process": "fdm",
+      "path": "fdm/02-materials/material-table.md",
+      "triggers": [
+        "material table",
+        "materialtabelle",
+        "compare filament",
+        "filament vergleich",
+        "properties",
+        "eigenschaften",
+        "temperature",
+        "temperatur",
+        "shrinkage",
+        "schrumpfung",
+        "strength comparison"
+      ],
+      "depends_on": [],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "fdm/materials/nylon-pc-composites",
+      "title": "Nylon, PC and fibre composites",
+      "type": "material",
+      "process": "fdm",
+      "path": "fdm/02-materials/nylon-pc-composites.md",
+      "triggers": [
+        "nylon",
+        "pa",
+        "polyamid",
+        "polycarbonate",
+        "pc",
+        "carbon fibre",
+        "karbon",
+        "cf",
+        "glass fibre",
+        "glasfaser",
+        "composite",
+        "verbund",
+        "engineering plastic",
+        "technisch",
+        "strongest",
+        "stärkste"
+      ],
+      "depends_on": [
+        "fdm/materials/material-table"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "fdm/materials/petg",
+      "title": "PETG",
+      "type": "material",
+      "process": "fdm",
+      "path": "fdm/02-materials/petg.md",
+      "triggers": [
+        "petg",
+        "pet-g",
+        "tough filament",
+        "zäh",
+        "functional parts",
+        "funktionsteile",
+        "outdoor indoor",
+        "stringing",
+        "fadenziehen"
+      ],
+      "depends_on": [
+        "fdm/materials/material-table"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "fdm/materials/pla",
+      "title": "PLA",
+      "type": "material",
+      "process": "fdm",
+      "path": "fdm/02-materials/pla.md",
+      "triggers": [
+        "pla",
+        "polylactic",
+        "standard filament",
+        "prototype material",
+        "cheapest"
+      ],
+      "depends_on": [
+        "fdm/materials/material-table"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "fdm/materials/tpu",
+      "title": "TPU and flexible filaments",
+      "type": "material",
+      "process": "fdm",
+      "path": "fdm/02-materials/tpu.md",
+      "triggers": [
+        "tpu",
+        "flexible",
+        "flexibel",
+        "gummi",
+        "rubber",
+        "elastic",
+        "elastisch",
+        "gasket",
+        "dichtung",
+        "seal",
+        "bumper",
+        "puffer",
+        "shore",
+        "soft",
+        "weich"
+      ],
+      "depends_on": [
+        "fdm/materials/material-table"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "fdm/start-here",
+      "title": "FDM printing — start here",
+      "type": "basics",
+      "process": "fdm",
+      "path": "fdm/00-start-here.md",
+      "triggers": [
+        "3d print",
+        "3d druck",
+        "fdm",
+        "fff",
+        "print",
+        "drucken",
+        "filament",
+        "additive",
+        "gedruckt",
+        "printed part",
+        "druckteil",
+        "make it printable",
+        "druckbar"
+      ],
+      "depends_on": [
+        "fdm/basics/orientation-and-strength"
+      ],
+      "confidence": "high",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "fdm/support/designing-without-supports",
+      "title": "Designing so supports are not needed",
+      "type": "recipe",
+      "process": "fdm",
+      "path": "fdm/06-support-strategy/designing-without-supports.md",
+      "triggers": [
+        "support",
+        "stützstruktur",
+        "supports",
+        "stützen",
+        "no support",
+        "ohne stützen",
+        "support free",
+        "stützfrei",
+        "avoid support",
+        "remove support",
+        "nacharbeit",
+        "rough surface",
+        "raue oberfläche"
+      ],
+      "depends_on": [
+        "fdm/geometry/overhangs-and-bridging",
+        "fdm/basics/orientation-and-strength"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "fdm/support/when-supports-are-fine",
+      "title": "When supports are the right answer",
+      "type": "decision",
+      "process": "fdm",
+      "path": "fdm/06-support-strategy/when-supports-are-fine.md",
+      "triggers": [
+        "use supports",
+        "stützen verwenden",
+        "support settings",
+        "stützeinstellungen",
+        "tree support",
+        "baumstützen",
+        "soluble",
+        "löslich",
+        "pva",
+        "support interface",
+        "when to support"
+      ],
+      "depends_on": [
+        "fdm/support/designing-without-supports"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/basics/fits",
+      "title": "Fits — press, slip, clearance and running",
+      "type": "rules",
+      "process": "laser",
+      "path": "laser/01-basics/fits-press-slip-clearance.md",
+      "triggers": [
+        "fit",
+        "passung",
+        "press fit",
+        "presspassung",
+        "slip fit",
+        "clearance",
+        "spiel",
+        "tight",
+        "loose",
+        "locker",
+        "stramm",
+        "screw hole",
+        "schraubenloch",
+        "bearing",
+        "lager",
+        "axle",
+        "achse"
+      ],
+      "depends_on": [
+        "laser/basics/kerf-and-tolerance"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/basics/kerf-and-tolerance",
+      "title": "Kerf and tolerance — the number everything else depends on",
+      "type": "basics",
+      "process": "laser",
+      "path": "laser/01-basics/kerf-and-tolerance.md",
+      "triggers": [
+        "kerf",
+        "schnittfuge",
+        "schnittbreite",
+        "kerf compensation",
+        "kerfausgleich",
+        "tolerance",
+        "toleranz",
+        "offset",
+        "fit",
+        "passung",
+        "too loose",
+        "zu locker",
+        "wackelt",
+        "slot too wide"
+      ],
+      "depends_on": [],
+      "confidence": "starting-point",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/basics/kerf-test-comb",
+      "title": "Measuring your own kerf — the comb test",
+      "type": "recipe",
+      "process": "laser",
+      "path": "laser/01-basics/kerf-test-comb.md",
+      "triggers": [
+        "kerf test",
+        "kerf messen",
+        "measure kerf",
+        "test comb",
+        "testschnitt",
+        "calibration",
+        "kalibrierung",
+        "fit test",
+        "passungstest"
+      ],
+      "depends_on": [
+        "laser/basics/kerf-and-tolerance"
+      ],
+      "confidence": "high",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/basics/machine-assumptions",
+      "title": "Machine assumptions — what these numbers were written for",
+      "type": "basics",
+      "process": "laser",
+      "path": "laser/01-basics/machine-assumptions.md",
+      "triggers": [
+        "machine",
+        "maschine",
+        "my laser",
+        "laser settings",
+        "einstellungen",
+        "measured kerf",
+        "gemessene schnittfuge",
+        "calibration record"
+      ],
+      "depends_on": [
+        "laser/basics/kerf-and-tolerance"
+      ],
+      "confidence": "high",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/checklists/before-you-export",
+      "title": "Before you export — the laser checklist",
+      "type": "checklist",
+      "process": "laser",
+      "path": "laser/07-checklists/before-you-export.md",
+      "triggers": [
+        "checklist",
+        "checkliste",
+        "before cutting",
+        "vor dem schneiden",
+        "ready to cut",
+        "fertig",
+        "review",
+        "prüfen",
+        "final check",
+        "abschlusskontrolle",
+        "export check"
+      ],
+      "depends_on": [
+        "laser/fileprep/common-errors",
+        "laser/basics/kerf-and-tolerance"
+      ],
+      "confidence": "high",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/checklists/new-material",
+      "title": "First time with a new material",
+      "type": "checklist",
+      "process": "laser",
+      "path": "laser/07-checklists/new-material-first-time.md",
+      "triggers": [
+        "new material",
+        "neues material",
+        "first time",
+        "zum ersten mal",
+        "unknown sheet",
+        "unbekannt",
+        "test settings",
+        "einstellungen finden",
+        "material test",
+        "testraster"
+      ],
+      "depends_on": [
+        "laser/materials/never-cut-these",
+        "laser/basics/kerf-test-comb"
+      ],
+      "confidence": "high",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/engraving/raster-engraving",
+      "title": "Raster engraving — filled areas and images",
+      "type": "rules",
+      "process": "laser",
+      "path": "laser/05-engraving/raster-engraving.md",
+      "triggers": [
+        "engrave",
+        "engraving",
+        "gravur",
+        "gravieren",
+        "raster",
+        "bitmap",
+        "image",
+        "bild",
+        "photo",
+        "foto",
+        "fill",
+        "fläche",
+        "logo",
+        "dpi",
+        "resolution",
+        "auflösung",
+        "shading",
+        "graustufen"
+      ],
+      "depends_on": [
+        "laser/materials/material-table"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/engraving/score-and-fold",
+      "title": "Scoring and folding",
+      "type": "recipe",
+      "process": "laser",
+      "path": "laser/05-engraving/score-and-fold.md",
+      "triggers": [
+        "score",
+        "scoring",
+        "ritzen",
+        "kerben",
+        "anritzen",
+        "fold",
+        "falten",
+        "falz",
+        "crease",
+        "rille",
+        "bend card",
+        "karton falten",
+        "single line mark",
+        "markierung",
+        "guide line",
+        "hilfslinie"
+      ],
+      "depends_on": [
+        "laser/materials/paper-card-corrugated"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/engraving/text-and-fonts",
+      "title": "Text and fonts",
+      "type": "rules",
+      "process": "laser",
+      "path": "laser/05-engraving/text-and-fonts.md",
+      "triggers": [
+        "text",
+        "schrift",
+        "font",
+        "schriftart",
+        "lettering",
+        "beschriftung",
+        "label",
+        "etikett",
+        "letters",
+        "buchstaben",
+        "name",
+        "serif",
+        "small text",
+        "kleine schrift",
+        "legible",
+        "lesbar",
+        "outline text",
+        "in pfade"
+      ],
+      "depends_on": [
+        "laser/engraving/raster-engraving",
+        "laser/geometry/minimum-features"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/examples/finger-joint-box",
+      "title": "Worked example — a finger-jointed box",
+      "type": "example",
+      "process": "laser",
+      "path": "laser/09-worked-examples/finger-joint-box.md",
+      "triggers": [
+        "box",
+        "kiste",
+        "schachtel",
+        "kasten",
+        "gehäuse",
+        "make a box",
+        "box bauen",
+        "example",
+        "beispiel",
+        "complete project",
+        "ganzes projekt",
+        "five sided box",
+        "lid",
+        "deckel"
+      ],
+      "depends_on": [
+        "laser/joints/finger-joint",
+        "laser/basics/kerf-and-tolerance",
+        "laser/checklists/before-you-export"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/examples/front-panel",
+      "title": "Worked example — a front panel with cutouts",
+      "type": "example",
+      "process": "laser",
+      "path": "laser/09-worked-examples/front-panel-with-cutouts.md",
+      "triggers": [
+        "front panel",
+        "frontplatte",
+        "panel",
+        "blende",
+        "cutout",
+        "ausschnitt",
+        "connector",
+        "stecker",
+        "usb",
+        "switch",
+        "schalter",
+        "display",
+        "screen",
+        "potentiometer",
+        "label",
+        "beschriftung",
+        "control panel",
+        "bedienfeld"
+      ],
+      "depends_on": [
+        "laser/basics/fits",
+        "laser/geometry/minimum-features",
+        "laser/engraving/text-and-fonts"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/failures/catalogue",
+      "title": "Failure catalogue — symptom, cause, fix",
+      "type": "failures",
+      "process": "laser",
+      "path": "laser/08-failures/failure-catalogue.md",
+      "triggers": [
+        "problem",
+        "fehler",
+        "went wrong",
+        "schiefgegangen",
+        "didn't cut",
+        "nicht durchgeschnitten",
+        "burnt",
+        "verbrannt",
+        "charred",
+        "angekohlt",
+        "warped",
+        "verzogen",
+        "cracked",
+        "gerissen",
+        "too loose",
+        "zu locker",
+        "too tight",
+        "zu stramm",
+        "marks",
+        "flecken",
+        "fire",
+        "feuer",
+        "troubleshooting"
+      ],
+      "depends_on": [
+        "laser/basics/kerf-and-tolerance",
+        "laser/geometry/nesting-and-spacing"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/fileprep/common-errors",
+      "title": "Common file errors",
+      "type": "failures",
+      "process": "laser",
+      "path": "laser/06-file-prep/common-file-errors.md",
+      "triggers": [
+        "duplicate line",
+        "doppelte linie",
+        "open path",
+        "offener pfad",
+        "not cutting",
+        "schneidet nicht",
+        "cut twice",
+        "zweimal geschnitten",
+        "burnt line",
+        "verbrannte linie",
+        "file rejected",
+        "datei abgelehnt",
+        "nothing happens",
+        "overlapping"
+      ],
+      "depends_on": [
+        "laser/fileprep/layers-colours-linewidth",
+        "laser/fileprep/export"
+      ],
+      "confidence": "high",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/fileprep/export",
+      "title": "Exporting — DXF, SVG and the traps in between",
+      "type": "rules",
+      "process": "laser",
+      "path": "laser/06-file-prep/export-dxf-svg.md",
+      "triggers": [
+        "export",
+        "exportieren",
+        "dxf",
+        "svg",
+        "ai",
+        "pdf",
+        "file format",
+        "dateiformat",
+        "units",
+        "einheiten",
+        "scale",
+        "maßstab",
+        "save for laser",
+        "speichern",
+        "send to laser"
+      ],
+      "depends_on": [
+        "laser/fileprep/layers-colours-linewidth"
+      ],
+      "confidence": "high",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/fileprep/layers-colours-linewidth",
+      "title": "Layers, colours and line widths",
+      "type": "rules",
+      "process": "laser",
+      "path": "laser/06-file-prep/layers-colours-linewidth.md",
+      "triggers": [
+        "layer",
+        "ebene",
+        "colour",
+        "color",
+        "farbe",
+        "rgb",
+        "line width",
+        "linienbreite",
+        "stroke",
+        "kontur",
+        "hairline",
+        "haarlinie",
+        "cut score engrave layers",
+        "export settings",
+        "lightburn",
+        "rdworks"
+      ],
+      "depends_on": [
+        "laser/engraving/raster-engraving"
+      ],
+      "confidence": "high",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/geometry/corners-and-overburn",
+      "title": "Corners and overburn — where the beam lingers",
+      "type": "rules",
+      "process": "laser",
+      "path": "laser/03-geometry/corners-and-overburn.md",
+      "triggers": [
+        "corner",
+        "ecke",
+        "overburn",
+        "überbrannt",
+        "burn mark",
+        "brandfleck",
+        "sharp corner",
+        "scharfe ecke",
+        "radius",
+        "rounded",
+        "dogbone",
+        "start point",
+        "einstichpunkt"
+      ],
+      "depends_on": [
+        "laser/basics/kerf-and-tolerance"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/geometry/minimum-features",
+      "title": "Minimum features — how small is too small",
+      "type": "rules",
+      "process": "laser",
+      "path": "laser/03-geometry/minimum-features.md",
+      "triggers": [
+        "minimum",
+        "minimal",
+        "kleinste",
+        "smallest",
+        "tiny",
+        "fein",
+        "filigree",
+        "filigran",
+        "thin",
+        "dünn",
+        "small hole",
+        "kleines loch",
+        "web",
+        "steg",
+        "detail",
+        "burns away",
+        "verbrannt"
+      ],
+      "depends_on": [
+        "laser/basics/kerf-and-tolerance",
+        "laser/materials/material-table"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/geometry/nesting-and-spacing",
+      "title": "Nesting and spacing — laying parts out on the sheet",
+      "type": "rules",
+      "process": "laser",
+      "path": "laser/03-geometry/nesting-and-spacing.md",
+      "triggers": [
+        "nesting",
+        "verschachtelung",
+        "layout",
+        "anordnung",
+        "sheet",
+        "platte",
+        "spacing",
+        "abstand",
+        "material usage",
+        "materialausnutzung",
+        "holding tab",
+        "haltesteg",
+        "parts move",
+        "teile verrutschen",
+        "common line"
+      ],
+      "depends_on": [
+        "laser/basics/kerf-and-tolerance",
+        "laser/geometry/minimum-features"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/geometry/taper-and-focus",
+      "title": "Taper and focus — why a thick cut is not square",
+      "type": "basics",
+      "process": "laser",
+      "path": "laser/03-geometry/taper-and-focus.md",
+      "triggers": [
+        "taper",
+        "konisch",
+        "schräg",
+        "angled edge",
+        "focus",
+        "fokus",
+        "thick material",
+        "dickes material",
+        "not square",
+        "nicht rechtwinklig",
+        "edge angle",
+        "v-shape"
+      ],
+      "depends_on": [
+        "laser/basics/kerf-and-tolerance"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/joints/cross-lap",
+      "title": "Cross-lap joint (egg-crate)",
+      "type": "recipe",
+      "process": "laser",
+      "path": "laser/04-joints/cross-lap.md",
+      "triggers": [
+        "cross lap",
+        "halbüberblattung",
+        "überblattung",
+        "egg crate",
+        "eierkarton",
+        "kreuzverbindung",
+        "grid",
+        "raster",
+        "divider",
+        "trennwand",
+        "intersecting panels",
+        "slot together"
+      ],
+      "depends_on": [
+        "laser/basics/kerf-and-tolerance",
+        "laser/basics/fits"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/joints/finger-joint",
+      "title": "Finger joint (box joint)",
+      "type": "recipe",
+      "process": "laser",
+      "path": "laser/04-joints/finger-joint.md",
+      "triggers": [
+        "finger joint",
+        "box joint",
+        "comb joint",
+        "fingerzinken",
+        "zinken",
+        "zinkenverbindung",
+        "kiste",
+        "schachtel",
+        "box",
+        "corner joint",
+        "eckverbindung",
+        "kastenverbindung"
+      ],
+      "depends_on": [
+        "laser/basics/kerf-and-tolerance",
+        "laser/basics/fits"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/joints/living-hinge",
+      "title": "Living hinge (lattice hinge)",
+      "type": "recipe",
+      "process": "laser",
+      "path": "laser/04-joints/living-hinge.md",
+      "triggers": [
+        "living hinge",
+        "lattice hinge",
+        "biegescharnier",
+        "lasergelenk",
+        "federgelenk",
+        "bend wood",
+        "holz biegen",
+        "flexible",
+        "biegsam",
+        "curved panel",
+        "gebogen",
+        "wrap around",
+        "flex cut",
+        "kerf bending"
+      ],
+      "depends_on": [
+        "laser/basics/kerf-and-tolerance",
+        "laser/geometry/minimum-features"
+      ],
+      "confidence": "starting-point",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/joints/snap-and-friction-fits",
+      "title": "Snap and friction fits in sheet",
+      "type": "recipe",
+      "process": "laser",
+      "path": "laser/04-joints/snap-and-friction-fits.md",
+      "triggers": [
+        "snap fit",
+        "schnappverbindung",
+        "clip",
+        "klemme",
+        "friction fit",
+        "klemmpassung",
+        "keyhole",
+        "schlüsselloch",
+        "wedge",
+        "keil",
+        "tusk tenon",
+        "spannkeil",
+        "no glue",
+        "ohne kleber",
+        "removable"
+      ],
+      "depends_on": [
+        "laser/basics/fits",
+        "laser/joints/tab-and-slot"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/joints/stacked-layer-construction",
+      "title": "Stacked-layer construction — 3D out of a 2D machine",
+      "type": "recipe",
+      "process": "laser",
+      "path": "laser/04-joints/stacked-layer-construction.md",
+      "triggers": [
+        "stacked",
+        "stack",
+        "gestapelt",
+        "stapel",
+        "schichtbauweise",
+        "layers",
+        "schichten",
+        "lamination",
+        "laminieren",
+        "sandwich",
+        "2.5d",
+        "thickness",
+        "dicke aufbauen",
+        "cavity",
+        "hohlraum",
+        "kammer",
+        "pocket",
+        "tasche",
+        "shadow box",
+        "leuchtkasten",
+        "topographic",
+        "höhenschichten",
+        "contour stack",
+        "multiple layers glued"
+      ],
+      "depends_on": [
+        "laser/basics/kerf-and-tolerance",
+        "laser/geometry/taper-and-focus"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/joints/t-slot-captive-nut",
+      "title": "T-slot joint with a captive nut",
+      "type": "recipe",
+      "process": "laser",
+      "path": "laser/04-joints/t-slot-captive-nut.md",
+      "triggers": [
+        "t-slot",
+        "t slot",
+        "tslot",
+        "captive nut",
+        "mutternfalle",
+        "mutterntasche",
+        "einlegemutter",
+        "screwed joint",
+        "verschraubt",
+        "demountable",
+        "zerlegbar",
+        "flat pack",
+        "knock down",
+        "m3 nut",
+        "schraubverbindung"
+      ],
+      "depends_on": [
+        "laser/joints/tab-and-slot",
+        "laser/basics/fits"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/joints/tab-and-slot",
+      "title": "Tab and slot",
+      "type": "recipe",
+      "process": "laser",
+      "path": "laser/04-joints/tab-and-slot.md",
+      "triggers": [
+        "tab and slot",
+        "tab",
+        "zapfen",
+        "slot",
+        "schlitz",
+        "nut",
+        "steckverbindung",
+        "mortise",
+        "tenon",
+        "t joint",
+        "cross joint",
+        "panel into panel",
+        "einstecken"
+      ],
+      "depends_on": [
+        "laser/basics/kerf-and-tolerance",
+        "laser/basics/fits"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/materials/acrylic",
+      "title": "Acrylic (PMMA) — cast vs extruded",
+      "type": "material",
+      "process": "laser",
+      "path": "laser/02-materials/acrylic.md",
+      "triggers": [
+        "acrylic",
+        "acryl",
+        "acrylglas",
+        "plexiglas",
+        "pmma",
+        "perspex",
+        "plastic sheet",
+        "klarsichtplatte",
+        "transparent",
+        "cast acrylic",
+        "extruded acrylic"
+      ],
+      "depends_on": [
+        "laser/materials/material-table",
+        "laser/basics/kerf-and-tolerance"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/materials/leather-felt-textile",
+      "title": "Leather, felt and textile — soft goods",
+      "type": "material",
+      "process": "laser",
+      "path": "laser/02-materials/leather-felt-textile.md",
+      "triggers": [
+        "leather",
+        "leder",
+        "felt",
+        "filz",
+        "fabric",
+        "stoff",
+        "textile",
+        "textil",
+        "cork",
+        "kork",
+        "soft material",
+        "gasket",
+        "dichtung",
+        "strap",
+        "riemen"
+      ],
+      "depends_on": [
+        "laser/materials/material-table",
+        "laser/materials/never-cut-these"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/materials/material-table",
+      "title": "Material comparison — what to cut and what it costs you",
+      "type": "decision",
+      "process": "laser",
+      "path": "laser/02-materials/material-table.md",
+      "triggers": [
+        "material",
+        "werkstoff",
+        "which material",
+        "welches material",
+        "sheet",
+        "platte",
+        "acrylic or wood",
+        "compare materials",
+        "materialvergleich",
+        "thickness",
+        "dicke"
+      ],
+      "depends_on": [
+        "laser/materials/never-cut-these",
+        "laser/basics/kerf-and-tolerance"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/materials/mdf",
+      "title": "MDF — cheap, flat, and always dark at the edge",
+      "type": "material",
+      "process": "laser",
+      "path": "laser/02-materials/mdf.md",
+      "triggers": [
+        "mdf",
+        "mitteldichte faserplatte",
+        "fibreboard",
+        "faserplatte",
+        "hdf",
+        "cheap sheet",
+        "jig material",
+        "schablone"
+      ],
+      "depends_on": [
+        "laser/materials/material-table",
+        "laser/basics/kerf-and-tolerance"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/materials/never-cut-these",
+      "title": "Never cut these — the materials that hurt people and machines",
+      "type": "rules",
+      "process": "laser",
+      "path": "laser/02-materials/never-cut-these.md",
+      "triggers": [
+        "pvc",
+        "vinyl",
+        "polycarbonate",
+        "lexan",
+        "abs",
+        "teflon",
+        "ptfe",
+        "fiberglass",
+        "carbon fibre",
+        "unsafe",
+        "gefährlich",
+        "giftig",
+        "toxic",
+        "chlorine",
+        "chlor",
+        "can i cut",
+        "darf ich schneiden",
+        "safe material"
+      ],
+      "depends_on": [],
+      "confidence": "high",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/materials/paper-card-corrugated",
+      "title": "Paper, card and corrugated — the mock-up materials",
+      "type": "material",
+      "process": "laser",
+      "path": "laser/02-materials/paper-card-corrugated.md",
+      "triggers": [
+        "paper",
+        "papier",
+        "card",
+        "karton",
+        "cardboard",
+        "pappe",
+        "greyboard",
+        "graupappe",
+        "boxboard",
+        "corrugated",
+        "wellpappe",
+        "mockup",
+        "modell",
+        "prototype sheet"
+      ],
+      "depends_on": [
+        "laser/materials/material-table"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/materials/plywood",
+      "title": "Plywood — the default structural sheet",
+      "type": "material",
+      "process": "laser",
+      "path": "laser/02-materials/plywood.md",
+      "triggers": [
+        "plywood",
+        "sperrholz",
+        "ply",
+        "birch ply",
+        "birkensperrholz",
+        "wood",
+        "holz",
+        "poplar ply",
+        "3mm ply",
+        "bausperrholz"
+      ],
+      "depends_on": [
+        "laser/materials/material-table",
+        "laser/basics/kerf-and-tolerance"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/materials/solid-wood",
+      "title": "Solid wood — grain, and what it does to a cut",
+      "type": "material",
+      "process": "laser",
+      "path": "laser/02-materials/solid-wood.md",
+      "triggers": [
+        "solid wood",
+        "massivholz",
+        "hardwood",
+        "hartholz",
+        "walnut",
+        "nussbaum",
+        "oak",
+        "eiche",
+        "maple",
+        "ahorn",
+        "bamboo",
+        "bambus",
+        "veneer",
+        "furnier"
+      ],
+      "depends_on": [
+        "laser/materials/material-table"
+      ],
+      "confidence": "medium",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "laser/start-here",
+      "title": "Laser cutting — start here",
+      "type": "basics",
+      "process": "laser",
+      "path": "laser/00-start-here.md",
+      "triggers": [
+        "laser",
+        "laser cutting",
+        "lasercut",
+        "laser cutter",
+        "Laser",
+        "Laserschneiden",
+        "lasern",
+        "CO2 laser",
+        "cut from sheet",
+        "flat part"
+      ],
+      "depends_on": [
+        "laser/basics/kerf-and-tolerance"
+      ],
+      "confidence": "high",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "shared/glossary",
+      "title": "Glossary — German / English manufacturing terms",
+      "type": "basics",
+      "process": "shared",
+      "path": "glossary.md",
+      "triggers": [
+        "glossary",
+        "terminology",
+        "Glossar",
+        "Begriffe",
+        "was heisst",
+        "translation"
+      ],
+      "depends_on": [],
+      "confidence": "high",
+      "updated": "2026-09-22"
+    },
+    {
+      "id": "shared/img-style",
+      "title": "Diagram conventions",
+      "type": "basics",
+      "process": "shared",
+      "path": "img-style.md",
+      "triggers": [
+        "diagram style",
+        "drawing convention",
+        "svg style",
+        "Diagrammstil"
+      ],
+      "depends_on": [],
+      "confidence": "high",
+      "updated": "2026-09-22"
+    }
+  ]
+}

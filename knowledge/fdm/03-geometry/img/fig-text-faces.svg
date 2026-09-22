@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 230" width="480" height="230" role="img" aria-label="Embossed and engraved text on top, side and bottom faces">
+  <rect x="0" y="0" width="480" height="230" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Which face the text sits on</text>
+
+    <g>
+      <polygon points="30,90 96,66 162,90 96,114" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+      <text x="96" y="94" text-anchor="middle" font-size="13" font-weight="700" fill="#5a5a5a">M-01</text>
+      <text x="96" y="146" text-anchor="middle" font-weight="600">top face</text>
+      <text x="96" y="162" text-anchor="middle" fill="#2e7d32">good — full XY resolution</text>
+    </g>
+
+    <g>
+      <polygon points="190,66 256,66 256,120 190,120" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+      <g stroke="#9a9a9a" stroke-width="0.8">
+        <line x1="190" y1="78" x2="256" y2="78"/><line x1="190" y1="90" x2="256" y2="90"/>
+        <line x1="190" y1="102" x2="256" y2="102"/><line x1="190" y1="114" x2="256" y2="114"/>
+      </g>
+      <text x="223" y="98" text-anchor="middle" font-size="13" font-weight="700" fill="#5a5a5a">M-01</text>
+      <text x="223" y="146" text-anchor="middle" font-weight="600">side face</text>
+      <text x="223" y="162" text-anchor="middle" fill="#5a5a5a">layer lines cross the strokes</text>
+    </g>
+
+    <g>
+      <rect x="300" y="66" width="150" height="54" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+      <line x1="300" y1="120" x2="450" y2="120" stroke="#9a9a9a" stroke-width="4"/>
+      <text x="375" y="106" text-anchor="middle" font-size="13" font-weight="700" fill="#ffffff" stroke="#5a5a5a" stroke-width="0.6">M-01</text>
+      <text x="375" y="146" text-anchor="middle" font-weight="600">bottom, recessed</text>
+      <text x="375" y="162" text-anchor="middle" fill="#2e7d32">sharpest text FDM makes</text>
+    </g>
+
+    <text x="20" y="196" font-size="12" font-weight="600">Recessed text on the bottom face prints against the smooth bed.</text>
+    <text x="20" y="216" font-size="11" fill="#5a5a5a">Stroke ≥ 2 line widths (0.84 mm), depth ≥ 3 layers (0.6 mm). Embossed text on the bottom gets squashed by elephant foot.</text>
+  </g>
+</svg>

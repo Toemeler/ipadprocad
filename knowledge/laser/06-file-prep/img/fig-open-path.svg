@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 200" width="480" height="200" role="img" aria-label="An open contour leaves the part attached to the sheet">
+  <rect x="0" y="0" width="480" height="200" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">One gap, and the part never comes free</text>
+
+    <rect x="34" y="46" width="180" height="110" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <path d="M70 70 H178 V132 H70 V104" fill="none" stroke="#ff0000" stroke-width="2"/>
+    <path d="M70 92 V70" fill="none" stroke="#ff0000" stroke-width="2"/>
+    <circle cx="70" cy="98" r="13" fill="none" stroke="#c62828" stroke-width="2"/>
+    <text x="124" y="180" text-anchor="middle" font-size="11" fill="#c62828">0.2 mm gap — invisible at normal zoom</text>
+
+    <text x="270" y="72" font-size="12" font-weight="600">Symptoms</text>
+    <text x="270" y="96" font-size="11" fill="#5a5a5a">· the part has to be cut out by hand</text>
+    <text x="270" y="116" font-size="11" fill="#5a5a5a">· an engrave fill behaves strangely</text>
+    <text x="270" y="136" font-size="11" fill="#5a5a5a">· kerf compensation is skipped for that path</text>
+    <text x="270" y="162" font-size="11" fill="#2e7d32">Use select-by-open before export.</text>
+  </g>
+</svg>

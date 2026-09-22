@@ -1,0 +1,92 @@
+name: Knowledge base  # knowledge/ + tools/kb — the shelf the in-app assistant reads
+
+# WHY THIS RUNS IN CI AT ALL.
+#
+# The knowledge base is prose and pictures, so the instinct is that it cannot
+# break. It can, in exactly three ways, and none of them are visible to
+# somebody reading the document:
+#
+#   * The INDEX goes stale. `knowledge/index.json` is generated from the
+#     frontmatter of every document and it is the only part of the folder that
+#     sits permanently in the assistant's context. If a file is renamed and the
+#     index is not regenerated, the assistant asks for a document that is not
+#     there, gets nothing, and carries on WITHOUT it — silently producing the
+#     same unmanufacturable geometry the folder exists to prevent.
+#
+#   * A LINK rots. A `depends_on:` edge is what drags the kerf document along
+#     when somebody asks for a finger joint. An edge pointing at an id nobody
+#     declares is an edge that quietly does nothing.
+#
+#   * A DOCUMENT loses its shape. The six sections are not decoration: "Good
+#     starting values" is where the numbers live, and "When to do it
+#     differently" is what stops a model either following a rule blindly or
+#     discarding the whole document the first time it disagrees. A document
+#     missing that section has failed at its job while still reading perfectly.
+#
+# The check costs a few seconds on a container that needs nothing but Python,
+# which is why it is worth running on every push rather than trusting anyone to
+# remember `build_index.py`.
+
+on:
+  push:
+    paths:
+      - 'knowledge/**'
+      - 'tools/kb/**'
+      - '.github/workflows/knowledge-base.yml'
+  pull_request:
+    paths:
+      - 'knowledge/**'
+      - 'tools/kb/**'
+      - '.github/workflows/knowledge-base.yml'
+  workflow_dispatch:
+
+jobs:
+  validate:
+    name: Validate documents, links and index
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # No pip install: the tools deliberately depend on nothing outside the
+      # standard library, so this job has no dependency surface to rot.
+      - name: Validate the knowledge base
+        working-directory: tools/kb
+        run: python3 validate_kb.py
+
+      # A second, blunter check on the same thing the validator already tests,
+      # kept because the failure it catches is the expensive one: it prints the
+      # diff, so a contributor sees exactly what `build_index.py` would have
+      # written rather than only being told the index is stale.
+      - name: Confirm the index matches the folder
+        working-directory: tools/kb
+        run: |
+          python3 build_index.py
+          if ! git -C "$GITHUB_WORKSPACE" diff --quiet -- knowledge/index.json knowledge/index.md; then
+            echo "::error::knowledge/index.json or index.md is stale."
+            echo "Run: python3 tools/kb/build_index.py — then commit the result."
+            git -C "$GITHUB_WORKSPACE" --no-pager diff -- knowledge/index.json knowledge/index.md
+            exit 1
+          fi
+          echo "Index matches the folder."
+
+      - name: Check every SVG parses
+        run: |
+          python3 - <<'PY'
+          import sys, xml.dom.minidom
+          from pathlib import Path
+          bad = []
+          svgs = sorted(Path('knowledge').rglob('*.svg'))
+          for p in svgs:
+              try:
+                  xml.dom.minidom.parse(str(p))
+              except Exception as exc:
+                  bad.append(f"{p}: {exc}")
+          for b in bad:
+              print(f"::error::{b}")
+          print(f"{len(svgs)} diagrams checked, {len(bad)} broken")
+          sys.exit(1 if bad else 0)
+          PY

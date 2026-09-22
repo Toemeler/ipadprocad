@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 250" width="480" height="250" role="img" aria-label="Offset direction: outward on an outline, inward on a hole">
+  <rect x="0" y="0" width="480" height="250" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="13" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Which way to offset</text>
+
+    <!-- outline -->
+    <text x="118" y="54" text-anchor="middle" font-size="12">outer contour</text>
+    <rect x="58" y="70" width="120" height="100" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2" stroke-dasharray="6 4"/>
+    <rect x="50" y="62" width="136" height="116" fill="none" stroke="#2e7d32" stroke-width="2"/>
+    <g stroke="#2e7d32" stroke-width="1.6" fill="#2e7d32">
+      <line x1="178" y1="120" x2="196" y2="120" stroke-width="1.6"/>
+      <polygon points="196,116 204,120 196,124"/>
+      <line x1="58" y1="120" x2="40" y2="120" stroke-width="1.6"/>
+      <polygon points="40,116 32,120 40,124"/>
+    </g>
+    <text x="118" y="200" text-anchor="middle" font-size="12">cut path moves OUT</text>
+
+    <!-- hole -->
+    <text x="352" y="54" text-anchor="middle" font-size="12">hole / slot</text>
+    <rect x="272" y="62" width="160" height="116" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <circle cx="352" cy="120" r="44" fill="#ffffff" stroke="#1a1a1a" stroke-width="2" stroke-dasharray="6 4"/>
+    <circle cx="352" cy="120" r="36" fill="none" stroke="#2e7d32" stroke-width="2"/>
+    <g stroke="#2e7d32" stroke-width="1.6" fill="#2e7d32">
+      <line x1="396" y1="120" x2="380" y2="120"/>
+      <polygon points="380,116 372,120 380,124"/>
+      <line x1="308" y1="120" x2="324" y2="120"/>
+      <polygon points="324,116 332,120 324,124"/>
+    </g>
+    <text x="352" y="200" text-anchor="middle" font-size="12">cut path moves IN</text>
+
+    <text x="240" y="232" text-anchor="middle" font-size="13" font-weight="600" fill="#2e7d32">The cut line always moves into the waste.</text>
+    <text x="240" y="246" text-anchor="middle" font-size="11" fill="#5a5a5a">dashed = as drawn · solid green = where the beam actually travels</text>
+  </g>
+</svg>

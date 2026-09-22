@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 220" width="480" height="220" role="img" aria-label="Tree supports against block supports">
+  <rect x="0" y="0" width="480" height="220" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">When support is needed anyway</text>
+
+    <line x1="30" y1="150" x2="210" y2="150" stroke="#9a9a9a" stroke-width="4"/>
+    <path d="M56 70 h120 v22 h-120 z" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <g stroke="#bbbbbb" stroke-width="1.5" fill="none">
+      <line x1="66" y1="92" x2="66" y2="150"/><line x1="82" y1="92" x2="82" y2="150"/><line x1="98" y1="92" x2="98" y2="150"/>
+      <line x1="114" y1="92" x2="114" y2="150"/><line x1="130" y1="92" x2="130" y2="150"/><line x1="146" y1="92" x2="146" y2="150"/>
+      <line x1="162" y1="92" x2="162" y2="150"/>
+      <line x1="66" y1="120" x2="162" y2="120"/>
+    </g>
+    <text x="116" y="180" text-anchor="middle" font-weight="600">block support</text>
+    <text x="116" y="198" text-anchor="middle" font-size="11" fill="#c62828">touches the whole face — scars it</text>
+
+    <line x1="270" y1="150" x2="450" y2="150" stroke="#9a9a9a" stroke-width="4"/>
+    <path d="M296 70 h120 v22 h-120 z" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <g stroke="#bbbbbb" stroke-width="2" fill="none">
+      <path d="M356 150 v-24 q0 -12 -16 -18 t-24 -16"/>
+      <path d="M356 126 q0 -12 16 -18 t24 -16"/>
+      <path d="M356 138 q-10 -6 -20 -8"/>
+    </g>
+    <g stroke="#2e7d32" stroke-width="2.5" fill="none"><path d="M418 128 l7 8 l15 -18"/></g>
+    <text x="356" y="180" text-anchor="middle" font-weight="600" fill="#2e7d32">tree support</text>
+    <text x="356" y="198" text-anchor="middle" font-size="11" fill="#2e7d32">far less contact — removes cleanly</text>
+  </g>
+</svg>

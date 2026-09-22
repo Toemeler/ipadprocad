@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 250" width="480" height="250" role="img" aria-label="A crowded nest next to a correctly spaced one">
+  <rect x="0" y="0" width="480" height="250" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Same six parts, two layouts</text>
+
+    <!-- crowded -->
+    <rect x="26" y="44" width="196" height="130" fill="#f2f2f2" stroke="#9a9a9a" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <g fill="#d9d9d9" stroke="#1a1a1a" stroke-width="1.5">
+      <rect x="34" y="52" width="60" height="36"/><rect x="96" y="52" width="60" height="36"/><rect x="158" y="52" width="56" height="36"/>
+      <rect x="34" y="90" width="60" height="36"/><rect x="96" y="90" width="60" height="36"/><rect x="158" y="90" width="56" height="36"/>
+    </g>
+    <rect x="34" y="52" width="180" height="74" fill="#c62828" opacity="0.13"/>
+    <text x="124" y="150" text-anchor="middle" fill="#c62828" font-weight="600">0.5 mm gaps</text>
+    <text x="124" y="166" text-anchor="middle" font-size="11" fill="#c62828">heat zones overlap — edges soften and go out of size</text>
+
+    <!-- spaced -->
+    <rect x="258" y="44" width="196" height="130" fill="#f2f2f2" stroke="#9a9a9a" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <g fill="#d9d9d9" stroke="#1a1a1a" stroke-width="1.5">
+      <rect x="268" y="54" width="58" height="34"/><rect x="334" y="54" width="58" height="34"/><rect x="400" y="54" width="46" height="34"/>
+      <rect x="268" y="98" width="58" height="34"/><rect x="334" y="98" width="58" height="34"/><rect x="400" y="98" width="46" height="34"/>
+    </g>
+    <g stroke="#0b6bcb" stroke-width="1.2">
+      <line x1="326" y1="71" x2="334" y2="71"/>
+      <line x1="326" y1="65" x2="326" y2="77"/><line x1="334" y1="65" x2="334" y2="77"/>
+    </g>
+    <text x="356" y="150" text-anchor="middle" fill="#2e7d32" font-weight="600">2 mm gaps</text>
+    <text x="356" y="166" text-anchor="middle" font-size="11" fill="#5a5a5a">every part cuts the same</text>
+
+    <text x="20" y="200" font-size="12" font-weight="600">Cut order: engrave → score → internal cutouts → outer contour.</text>
+    <text x="20" y="218" font-size="11" fill="#5a5a5a">A part must keep its detail cut while the sheet still holds it. Loose parts lift into the beam.</text>
+    <text x="20" y="238" font-size="11" fill="#5a5a5a">MDF wants 3 mm — it carries heat sideways further than ply or acrylic.</text>
+  </g>
+</svg>

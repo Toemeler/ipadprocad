@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 220" width="480" height="220" role="img" aria-label="A small part held in the sheet by two holding tabs">
+  <rect x="0" y="0" width="480" height="220" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Holding tabs</text>
+
+    <rect x="40" y="46" width="400" height="120" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <rect x="150" y="70" width="180" height="72" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2" stroke-dasharray="0"/>
+    <!-- gaps in the contour = tabs -->
+    <g stroke="#ffffff" stroke-width="4">
+      <line x1="230" y1="70" x2="250" y2="70"/>
+      <line x1="230" y1="142" x2="250" y2="142"/>
+    </g>
+    <g stroke="#2e7d32" stroke-width="2.5">
+      <line x1="230" y1="70" x2="250" y2="70"/>
+      <line x1="230" y1="142" x2="250" y2="142"/>
+    </g>
+    <text x="240" y="62" text-anchor="middle" font-size="11" fill="#2e7d32">0.5 mm tab</text>
+    <text x="240" y="158" text-anchor="middle" font-size="11" fill="#2e7d32">0.5 mm tab</text>
+    <text x="240" y="110" text-anchor="middle" font-size="12">part</text>
+
+    <text x="20" y="190" font-size="12">Two tabs, opposite each other. One tab lets the part pivot into the beam.</text>
+    <text x="20" y="208" font-size="11" fill="#5a5a5a">Put them on an edge nobody will look at — never on a joint face.</text>
+  </g>
+</svg>

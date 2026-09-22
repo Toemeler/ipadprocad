@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 220" width="480" height="220" role="img" aria-label="Router corner needs a dogbone, laser corner does not">
+  <rect x="0" y="0" width="480" height="220" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Internal corner of a slot</text>
+
+    <!-- router -->
+    <rect x="30" y="48" width="180" height="104" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <path d="M70 152 L70 96 Q70 88 78 88 L162 88 Q170 88 170 96 L170 152" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"/>
+    <circle cx="78" cy="96" r="9" fill="none" stroke="#c62828" stroke-width="2"/>
+    <circle cx="162" cy="96" r="9" fill="none" stroke="#c62828" stroke-width="2"/>
+    <text x="120" y="176" text-anchor="middle" font-weight="600">router</text>
+    <text x="120" y="192" text-anchor="middle" font-size="11" fill="#5a5a5a">tool radius leaves a fillet → needs a dogbone</text>
+
+    <!-- laser -->
+    <rect x="270" y="48" width="180" height="104" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <path d="M310 152 L310 88 L410 88 L410 152" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"/>
+    <g stroke="#2e7d32" stroke-width="2.5" fill="none"><path d="M420 122 l7 8 l15 -18"/></g>
+    <text x="360" y="176" text-anchor="middle" font-weight="600">laser</text>
+    <text x="360" y="192" text-anchor="middle" font-size="11" fill="#2e7d32">corner is already sharp — no relief needed</text>
+
+    <text x="20" y="212" font-size="11" fill="#5a5a5a">Dogbones in a laser file are an imported router habit. They weaken the joint and show.</text>
+  </g>
+</svg>

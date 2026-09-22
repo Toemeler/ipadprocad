@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 220" width="480" height="220" role="img" aria-label="Cut edge appearance of acrylic, plywood, MDF and greyboard">
+  <rect x="0" y="0" width="480" height="220" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">What the cut edge looks like</text>
+
+    <!-- acrylic -->
+    <rect x="24" y="50" width="96" height="70" fill="#eef4f8" stroke="#1a1a1a" stroke-width="2"/>
+    <rect x="24" y="50" width="96" height="6" fill="#ffffff" stroke="none"/>
+    <text x="72" y="140" text-anchor="middle" font-weight="600">cast acrylic</text>
+    <text x="72" y="156" text-anchor="middle" font-size="11" fill="#5a5a5a">glossy, polished</text>
+    <text x="72" y="170" text-anchor="middle" font-size="11" fill="#5a5a5a">no finishing</text>
+
+    <!-- plywood -->
+    <rect x="140" y="50" width="96" height="70" fill="#d9c9ac" stroke="#1a1a1a" stroke-width="2"/>
+    <g stroke="#6b5636" stroke-width="3"><line x1="140" y1="73" x2="236" y2="73"/><line x1="140" y1="97" x2="236" y2="97"/></g>
+    <rect x="140" y="50" width="96" height="70" fill="#6b4a25" opacity="0.25"/>
+    <text x="188" y="140" text-anchor="middle" font-weight="600">plywood</text>
+    <text x="188" y="156" text-anchor="middle" font-size="11" fill="#5a5a5a">brown char, glue lines</text>
+    <text x="188" y="170" text-anchor="middle" font-size="11" fill="#5a5a5a">sands back a little</text>
+
+    <!-- mdf -->
+    <rect x="256" y="50" width="96" height="70" fill="#8a7053" stroke="#1a1a1a" stroke-width="2"/>
+    <rect x="256" y="50" width="96" height="70" fill="#2a2119" opacity="0.55"/>
+    <text x="304" y="140" text-anchor="middle" font-weight="600">MDF</text>
+    <text x="304" y="156" text-anchor="middle" font-size="11" fill="#5a5a5a">near black, furry</text>
+    <text x="304" y="170" text-anchor="middle" font-size="11" fill="#5a5a5a">paint it</text>
+
+    <!-- card -->
+    <rect x="372" y="50" width="96" height="70" fill="#cfcabb" stroke="#1a1a1a" stroke-width="2"/>
+    <rect x="372" y="50" width="96" height="70" fill="#6b4a25" opacity="0.12"/>
+    <text x="420" y="140" text-anchor="middle" font-weight="600">greyboard</text>
+    <text x="420" y="156" text-anchor="middle" font-size="11" fill="#5a5a5a">light tan edge</text>
+    <text x="420" y="170" text-anchor="middle" font-size="11" fill="#5a5a5a">clean</text>
+
+    <text x="20" y="204" font-size="11" fill="#5a5a5a">Schematic, not photographic — see PHOTOS.md for the photographs these stand in for.</text>
+  </g>
+</svg>
